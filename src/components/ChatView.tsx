@@ -34,6 +34,7 @@ import {
   type Bot,
   type InstanceInfo,
   type Message,
+  type TaskResumePacket,
 } from "@/state/store";
 import { EngineSetup } from "./EngineSetup";
 import { BotAvatar, MausAvatar } from "./Avatar";
@@ -82,6 +83,74 @@ import { useDesktopCapabilities } from "./DesktopCapabilities";
  * bury the conversation; bots get full markdown. */
 const USER_COLLAPSE_CHARS = 600;
 const USER_COLLAPSE_LINES = 8;
+
+function savedAge(updatedAt: number): string {
+  const minutes = Math.max(0, Math.floor((Date.now() - updatedAt) / 60_000));
+  if (minutes < 1) return "saved just now";
+  if (minutes < 60) return `saved ${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `saved ${hours}h ago`;
+  return `saved ${Math.floor(hours / 24)}d ago`;
+}
+
+function TaskRecoveryCard({
+  bot,
+  packet,
+  turns,
+}: {
+  bot: Bot;
+  packet: TaskResumePacket | undefined;
+  turns: number;
+}) {
+  const { dispatch } = useStore();
+  if (!packet || bot.busy || !["crash", "shutdown", "stop"].includes(packet.flushReason)) return null;
+  const stopped = packet.flushReason === "stop";
+  const mayLag = turns > packet.turnsAtWrite;
+  return (
+    <div className="pointer-events-auto px-5 pb-2">
+      <div role="status" className="rounded-2xl border border-accent/25 bg-panel/95 px-3.5 py-3 shadow-sm backdrop-blur">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-accent/12 text-accent">
+            <RefreshCw size={15} aria-hidden="true" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <p className="text-[13px] font-semibold text-ink">{stopped ? "Task paused" : "Ready to continue"}</p>
+              <span className="text-[11px] text-ink-secondary">
+                {savedAge(packet.updatedAt)}{packet.updatedBy === "bot" ? " · bot-maintained" : ""}
+              </span>
+            </div>
+            <p className="mt-0.5 line-clamp-2 text-[12.5px] leading-snug text-ink-secondary">
+              {stopped ? "You stopped this task." : "Orbit restarted while this task was running."} {packet.goal}
+            </p>
+            <p className="mt-1 truncate text-[12.5px] text-ink">
+              <span className="text-ink-secondary">Next: </span>{packet.nextAction}
+            </p>
+            {mayLag && <p className="mt-1 text-[11px] text-warning">This record may be behind the conversation.</p>}
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => dispatch({ type: "resumeTask", botId: bot.id, threadId: packet.threadId })}
+              className="rounded-full bg-accent px-3 py-1.5 text-[12px] font-medium text-white hover:bg-accent/90"
+            >
+              Continue
+            </button>
+            <button
+              type="button"
+              onClick={() => dispatch({ type: "dismissTaskRecovery", botId: bot.id, threadId: packet.threadId })}
+              aria-label="Dismiss saved task reminder"
+              title="Dismiss"
+              className="flex size-7 items-center justify-center rounded-full text-ink-secondary hover:bg-raised hover:text-ink"
+            >
+              <X size={14} aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /** "Today" / "Yesterday" / "Mon, Aug 11" — real dates, not a hardcoded label. */
 function dayLabel(at: number): string {
@@ -827,6 +896,7 @@ export function ChatView({ bot }: { bot: Bot }) {
   const streaming = stream.streaming[bot.threadId];
   const reasoning = stream.reasoning[bot.threadId];
   const provisioning = state.provisioning[bot.id];
+  const activeTask = bot.tasks?.find((task) => task.threadId === bot.threadId);
   const mascotMotion = state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
   const callAvailable =
     capabilitiesReady && capabilities.dictation.available && Boolean(window.ogb?.speechStart);
@@ -1275,15 +1345,20 @@ export function ChatView({ bot }: { bot: Bot }) {
           selected one. ArrowUp-to-edit stays gated on busy because editing
           rewinds the thread, which a live turn forbids (the server 409s it). */}
       <div ref={composerDockRef} className="absolute inset-x-0 bottom-0 z-[2]">
-      <Composer
-        key={bot.threadId}
-        bot={bot}
-        replyTo={replyTo}
-        onClearReply={clearReply}
-        onConsumeReply={consumeReply}
-        onRestoreReply={restoreReply}
-        onEditLast={lastUserMessage && !bot.busy ? () => setEditingId(lastUserMessage.id) : undefined}
-      />
+        <TaskRecoveryCard
+          bot={bot}
+          packet={activeTask?.taskState}
+          turns={activeTask?.usage?.turns ?? 0}
+        />
+        <Composer
+          key={bot.threadId}
+          bot={bot}
+          replyTo={replyTo}
+          onClearReply={clearReply}
+          onConsumeReply={consumeReply}
+          onRestoreReply={restoreReply}
+          onEditLast={lastUserMessage && !bot.busy ? () => setEditingId(lastUserMessage.id) : undefined}
+        />
       </div>
       </div>
 

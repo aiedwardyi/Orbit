@@ -181,6 +181,25 @@ export interface Task {
   /** folder this task's turns run in, pinned on its first turn; null =
    * legacy home-folder session; absent = not pinned yet */
   cwd?: string | null;
+  taskState?: TaskResumePacket;
+}
+
+export interface TaskResumePacket {
+  v: 1;
+  threadId: string;
+  botId: string;
+  goal: string;
+  plan: Array<{ step: string; status: "pending" | "active" | "done" | "skipped" }>;
+  completed: Array<{ note: string; at: number }>;
+  evidence: Array<{ kind: "message" | "tool" | "file" | "url"; ref: string; note?: string }>;
+  artifacts: Array<{ ref: string; label: string }>;
+  blockers: Array<{ kind: "approval" | "login" | "input" | "engine"; note: string }>;
+  nextAction: string;
+  updatedAt: number;
+  updatedBy: "harness" | "bot";
+  flushReason: "turn-end" | "progress" | "approval" | "stop" | "engine-switch" | "crash" | "pre-compaction" | "shutdown";
+  lastEventId?: string;
+  turnsAtWrite: number;
 }
 
 export interface TaskUsage {
@@ -579,6 +598,9 @@ export type Action =
   | { type: "taskSwitched"; bot: Bot }
   | { type: "renameTask"; botId: string; threadId: string; title: string }
   | { type: "deleteTask"; botId: string; threadId: string }
+  | { type: "taskPacket"; threadId: string; packet: TaskResumePacket }
+  | { type: "resumeTask"; botId: string; threadId: string }
+  | { type: "dismissTaskRecovery"; botId: string; threadId: string }
   | { type: "newBot" }
   | { type: "closeCreateBot" }
   | { type: "botAdded"; bot: Bot }
@@ -1199,6 +1221,8 @@ export function reducer(state: AppState, action: Action): AppState {
     case "newTask":
     case "switchTask":
     case "deleteTask":
+    case "resumeTask":
+    case "dismissTaskRecovery":
     case "newGroupTask":
     case "switchGroupTask":
     case "deleteGroupTask":
@@ -1210,6 +1234,16 @@ export function reducer(state: AppState, action: Action): AppState {
           task.threadId === action.threadId ? { ...task, title: action.title } : task,
         ),
       }));
+    case "taskPacket":
+      return {
+        ...state,
+        bots: state.bots.map((bot) => ({
+          ...bot,
+          tasks: bot.tasks?.map((task) =>
+            task.threadId === action.threadId ? { ...task, taskState: action.packet } : task,
+          ),
+        })),
+      };
     case "renameGroupTask":
       return {
         ...state,
@@ -1708,6 +1742,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "interrupt":
           api(`/api/bots/${action.botId}/interrupt`, { method: "POST" }).catch(showError);
           break;
+        case "resumeTask":
+          api(`/api/bots/${action.botId}/tasks/${action.threadId}/resume`, { method: "POST" }).catch(showError);
+          break;
+        case "dismissTaskRecovery":
+          api(`/api/bots/${action.botId}/tasks/${action.threadId}/recovery`, { method: "POST" }).catch(showError);
+          break;
         // tasks: the server answers with the bot AND the live transcript,
         // because switching changes which conversation is on screen
         case "newTask":
@@ -1979,6 +2019,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           rawDispatch({ type: "threadActive", threadId: frame.threadId, activeLeafId: frame.activeLeafId });
           // a rewind also invalidates any half-streamed text from the old branch
           clearStream(frame.threadId);
+          break;
+        case "task.packet":
+          rawDispatch({ type: "taskPacket", threadId: frame.threadId, packet: frame.packet });
           break;
         case "bot": {
           const bot = frame.bot as BotAnnouncement;

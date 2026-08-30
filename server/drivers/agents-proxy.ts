@@ -1,5 +1,5 @@
 // Agent-to-agent comms MCP proxy — spawned as an MCP server inside a bot's
-// agent process (via the "agents" integration). Exposes eight tools that
+// agent process (via the "agents" integration). Exposes tools that
 // let one bot talk to another, routed back through the harness so the
 // harness stays the single owner of turns, permissions, and recursion
 // limits:
@@ -16,6 +16,7 @@
 //   list_routines()                       → inspect this bot's scheduled work
 //   propose_routine(...)                  → show a confirmation card for a new routine
 //   propose_routine_action(...)           → show a confirmation card for a routine change
+//   update_task_state(...)                → save goal, progress, blockers, and next action
 //
 // Speaks raw JSON-RPC 2.0 over stdio (no MCP SDK — house style, matches
 // computer-proxy / permission-proxy). All state comes from env, injected by
@@ -187,6 +188,66 @@ const TOOLS = [
     description:
       "List the other bots (agents) in your Orbit section you can message, with their model and whether they're busy. Call this before ask_bot to discover who's available.",
     inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "update_task_state",
+    description:
+      "Keep Orbit's durable record for this task current. Call after a meaningful plan change, completed milestone, new blocker, or created artifact, and before a long operation. Do not call after every tool. This record survives restarts and model switches, but it does not replace your final answer.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        goal: { type: "string", maxLength: 500, description: "The user's durable outcome. Omit when unchanged." },
+        plan: {
+          type: "array",
+          maxItems: 20,
+          description: "The current concise plan. At most one step may be active.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              step: { type: "string", maxLength: 200 },
+              status: { type: "string", enum: ["pending", "active", "done", "skipped"] },
+            },
+            required: ["step", "status"],
+          },
+        },
+        completed_note: {
+          type: "string",
+          maxLength: 300,
+          description: "One concise milestone that is actually complete. Omit when nothing new finished.",
+        },
+        next_action: { type: "string", maxLength: 300, description: "The exact next useful action." },
+        blockers: {
+          type: "array",
+          maxItems: 10,
+          description: "Current blockers. Send an empty array when prior blockers are resolved.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              kind: { type: "string", enum: ["login", "input", "engine"] },
+              note: { type: "string", maxLength: 300 },
+            },
+            required: ["kind", "note"],
+          },
+        },
+        artifacts: {
+          type: "array",
+          maxItems: 20,
+          description: "New files created inside this task's working folder.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              ref: { type: "string", maxLength: 500, description: "Relative or absolute file path." },
+              label: { type: "string", maxLength: 200 },
+            },
+            required: ["ref", "label"],
+          },
+        },
+      },
+    },
   },
   {
     name: "ask_bot",
@@ -378,6 +439,24 @@ async function callTool(name: string, args: Json): Promise<{ text: string; isErr
       return `- ${b.name}${role}${about} [id: ${b.id}, model: ${b.model}${b.busy ? ", busy" : ""}]`;
     });
     return { text: `Other bots you can message with ask_bot:\n${lines.join("\n")}` };
+  }
+  if (name === "update_task_state") {
+    const supported = ["goal", "plan", "completed_note", "next_action", "blockers", "artifacts"] as const;
+    if (!supported.some((key) => args[key] !== undefined)) {
+      return { text: "update_task_state needs at least one task field.", isError: true };
+    }
+    const body = {
+      fromBotId: BOT_ID,
+      fromThreadId: THREAD_ID,
+      goal: args.goal,
+      plan: args.plan,
+      completed_note: args.completed_note,
+      next_action: args.next_action,
+      blockers: args.blockers,
+      artifacts: args.artifacts,
+    };
+    const r = await api("/api/internal/task-state", { method: "POST", body: JSON.stringify(body) });
+    return { text: `Task record saved. Next action: ${String(r.nextAction ?? "continue the current plan")}` };
   }
   if (name === "ask_bot") {
     const toBotId = String(args.bot_id ?? "").trim();

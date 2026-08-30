@@ -15,6 +15,20 @@ export interface TurnContextInput {
   fresh: boolean;
   /** transcript-replay drivers get history via SendTurnInput.transcript instead */
   replaysNatively: boolean;
+  /** durable harness state, included only at a recovery boundary */
+  taskRecord?: TaskRecordContext;
+  /** the active transcript exceeded the replay tail */
+  contextCapped?: boolean;
+  /** the prior process or user stop ended the running turn */
+  recovering?: boolean;
+}
+
+export interface TaskRecordContext {
+  goal: string;
+  plan: Array<{ step: string; status: "pending" | "active" | "done" | "skipped" }>;
+  completed: Array<{ note: string }>;
+  blockers: Array<{ note: string }>;
+  nextAction: string;
 }
 
 /** Does this engine need the thread replayed to it? True when a DIFFERENT
@@ -50,17 +64,38 @@ const REWOUND_PREAMBLE =
 const FRESH_PREAMBLE =
   "[You are joining this conversation mid-thread (the user switched this bot over to you). The conversation so far:]";
 
+function taskRecordBlock(record: TaskRecordContext): string {
+  const done = record.plan.filter((item) => item.status === "done").length;
+  const active = record.plan.find((item) => item.status === "active")?.step;
+  const recent = record.completed.slice(-3).map((item) => item.note).join(" | ") || "none recorded";
+  const blockers = record.blockers.map((item) => item.note).join(" | ") || "none";
+  return [
+    "[Orbit task record - saved locally. The conversation is authoritative; verify against it.]",
+    `Goal: ${record.goal}`,
+    `Plan: ${done}/${record.plan.length} done${active ? `; active: ${active}` : ""}`,
+    `Done recently: ${recent}`,
+    `Blockers: ${blockers}`,
+    `Next action: ${record.nextAction}`,
+  ].join("\n");
+}
+
 export function buildTurnContext(input: TurnContextInput): {
   turnText: string;
   /** false when the native session must not be resumed */
   resume: boolean;
 } {
-  const { text, transcript, rewound, fresh, replaysNatively } = input;
+  const { text, transcript, rewound, fresh, replaysNatively, taskRecord, contextCapped = false, recovering = false } = input;
   const resume = !rewound && !fresh;
   const replay = !resume && !replaysNatively && transcript.length > 0;
-  if (!replay) return { turnText: text, resume };
+  const record = taskRecord && (rewound || fresh || contextCapped || recovering)
+    ? taskRecordBlock(taskRecord)
+    : "";
+  if (!replay && !record) return { turnText: text, resume };
+  if (!replay) return { turnText: `${record}\n\n${text}`, resume };
   return {
     turnText: [
+      record,
+      record ? "" : null,
       rewound ? REWOUND_PREAMBLE : FRESH_PREAMBLE,
       "",
       ...transcript.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`),
@@ -68,7 +103,7 @@ export function buildTurnContext(input: TurnContextInput): {
       "[Now reply to the user's latest message:]",
       "",
       text,
-    ].join("\n"),
+    ].filter((line) => line !== null).join("\n"),
     resume,
   };
 }
