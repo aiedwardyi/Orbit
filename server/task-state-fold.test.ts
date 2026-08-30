@@ -112,10 +112,24 @@ describe("task state folding", () => {
     const packet = seed();
     const switched = stampTaskResumePacket(packet, "engine-switch", { now: 200 });
     const stopped = stampTaskResumePacket(switched, "stop", { now: 300 });
-    const settled = recordTaskCompletion(stopped, { ok: false, reply: "", now: 400 });
+    const lateEvidence = recordTaskEvidence(stopped, {
+      kind: "tool",
+      ref: "tool-message-2",
+      now: 350,
+    });
+    const lateBlocker = recordTaskBlocker(lateEvidence, {
+      kind: "approval",
+      note: "Late approval",
+      now: 360,
+    });
+    const cleared = clearTaskBlockers(lateBlocker, { kind: "approval", now: 370 });
+    const settled = recordTaskCompletion(cleared, { ok: false, reply: "", now: 400 });
 
     expect(switched).toMatchObject({ goal: packet.goal, flushReason: "engine-switch", updatedAt: 200 });
     expect(stopped).toMatchObject({ goal: packet.goal, flushReason: "stop", updatedAt: 300 });
+    expect(lateEvidence.flushReason).toBe("stop");
+    expect(lateBlocker.flushReason).toBe("stop");
+    expect(cleared.flushReason).toBe("stop");
     expect(settled).toMatchObject({ flushReason: "stop", blockers: [] });
   });
 });

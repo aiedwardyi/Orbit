@@ -235,6 +235,22 @@ describe("agents-proxy MCP surface", () => {
     expect(res.result.content[0].text).toContain("Next action: Verify citations");
   });
 
+  it("rejects blank task fields before calling the harness", async () => {
+    const list = await rpc("tools/list");
+    const update = list.result.tools.find((tool: { name: string }) => tool.name === "update_task_state");
+    expect(update.inputSchema.properties.goal).toMatchObject({ minLength: 1, pattern: "\\S" });
+    expect(update.inputSchema.properties.plan.items.properties.step).toMatchObject({ minLength: 1, pattern: "\\S" });
+
+    lastTaskStateBody = null;
+    const res = await callTool("update_task_state", {
+      plan: [{ step: "   ", status: "active" }],
+    });
+
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toContain("cannot be blank");
+    expect(lastTaskStateBody).toBeNull();
+  });
+
   it("publishes a flat routine schedule schema that survives provider conversion", async () => {
     const list = await rpc("tools/list");
     const create = list.result.tools.find((t: { name: string }) => t.name === "propose_routine");

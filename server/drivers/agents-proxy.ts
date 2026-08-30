@@ -197,7 +197,7 @@ const TOOLS = [
       type: "object",
       additionalProperties: false,
       properties: {
-        goal: { type: "string", maxLength: 500, description: "The user's durable outcome. Omit when unchanged." },
+        goal: { type: "string", minLength: 1, maxLength: 500, pattern: "\\S", description: "The user's durable outcome. Omit when unchanged." },
         plan: {
           type: "array",
           maxItems: 20,
@@ -206,7 +206,7 @@ const TOOLS = [
             type: "object",
             additionalProperties: false,
             properties: {
-              step: { type: "string", maxLength: 200 },
+              step: { type: "string", minLength: 1, maxLength: 200, pattern: "\\S" },
               status: { type: "string", enum: ["pending", "active", "done", "skipped"] },
             },
             required: ["step", "status"],
@@ -214,10 +214,12 @@ const TOOLS = [
         },
         completed_note: {
           type: "string",
+          minLength: 1,
           maxLength: 300,
+          pattern: "\\S",
           description: "One concise milestone that is actually complete. Omit when nothing new finished.",
         },
-        next_action: { type: "string", maxLength: 300, description: "The exact next useful action." },
+        next_action: { type: "string", minLength: 1, maxLength: 300, pattern: "\\S", description: "The exact next useful action." },
         blockers: {
           type: "array",
           maxItems: 10,
@@ -227,7 +229,7 @@ const TOOLS = [
             additionalProperties: false,
             properties: {
               kind: { type: "string", enum: ["login", "input", "engine"] },
-              note: { type: "string", maxLength: 300 },
+              note: { type: "string", minLength: 1, maxLength: 300, pattern: "\\S" },
             },
             required: ["kind", "note"],
           },
@@ -240,8 +242,8 @@ const TOOLS = [
             type: "object",
             additionalProperties: false,
             properties: {
-              ref: { type: "string", maxLength: 500, description: "Relative or absolute file path." },
-              label: { type: "string", maxLength: 200 },
+              ref: { type: "string", minLength: 1, maxLength: 500, pattern: "\\S", description: "Relative or absolute file path." },
+              label: { type: "string", minLength: 1, maxLength: 200, pattern: "\\S" },
             },
             required: ["ref", "label"],
           },
@@ -379,6 +381,42 @@ const TOOLS = [
 ];
 
 type Json = Record<string, unknown>;
+
+interface TaskStatePlanItem {
+  step: string;
+  status: "pending" | "active" | "done" | "skipped";
+}
+
+interface TaskStateBlocker {
+  kind: "login" | "input" | "engine";
+  note: string;
+}
+
+interface TaskStateArtifact {
+  ref: string;
+  label: string;
+}
+
+interface TaskStateToolArgs {
+  goal?: string;
+  plan?: TaskStatePlanItem[];
+  completed_note?: string;
+  next_action?: string;
+  blockers?: TaskStateBlocker[];
+  artifacts?: TaskStateArtifact[];
+}
+
+function hasBlankTaskText(args: TaskStateToolArgs): boolean {
+  const values = [
+    args.goal,
+    args.completed_note,
+    args.next_action,
+    ...(args.plan ?? []).map((item) => item.step),
+    ...(args.blockers ?? []).map((item) => item.note),
+    ...(args.artifacts ?? []).flatMap((item) => [item.ref, item.label]),
+  ];
+  return values.some((value) => value !== undefined && !value.trim());
+}
 type RoutineAction = "update" | "pause" | "resume" | "run_now" | "delete";
 
 const send = (msg: Json) => process.stdout.write(JSON.stringify(msg) + "\n");
@@ -428,7 +466,7 @@ function confirmationResult(r: Json, fallback: string): { text: string } {
   };
 }
 
-async function callTool(name: string, args: Json): Promise<{ text: string; isError?: boolean }> {
+async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{ text: string; isError?: boolean }> {
   if (name === "list_bots") {
     const r = await api(`/api/internal/agents?self=${encodeURIComponent(BOT_ID)}`);
     const bots = (r.bots as Array<Json>) ?? [];
@@ -444,6 +482,9 @@ async function callTool(name: string, args: Json): Promise<{ text: string; isErr
     const supported = ["goal", "plan", "completed_note", "next_action", "blockers", "artifacts"] as const;
     if (!supported.some((key) => args[key] !== undefined)) {
       return { text: "update_task_state needs at least one task field.", isError: true };
+    }
+    if (hasBlankTaskText(args)) {
+      return { text: "update_task_state text fields cannot be blank.", isError: true };
     }
     const body = {
       fromBotId: BOT_ID,

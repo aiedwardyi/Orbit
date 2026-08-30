@@ -110,8 +110,7 @@ posixOnly("routine failure notification wiring", () => {
   it(
     "emits one routine-failed notification for the detached task and no generic done notification",
     async () => {
-      const listed = await api("GET", "/api/bots");
-      const bot = listed.body.bots[0];
+      const bot = (await api("POST", "/api/bots")).body.bot;
       expect(
         (
           await api("PATCH", `/api/bots/${bot.id}`, {

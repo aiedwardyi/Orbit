@@ -32,6 +32,7 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
+      # Required by the pinned action's scoped GitHub App token exchange.
       id-token: write
 
     concurrency:

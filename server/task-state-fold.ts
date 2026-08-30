@@ -10,6 +10,10 @@ function firstLine(text: string): string {
   return text.trim().split("\n")[0]!.trim();
 }
 
+function recoveryReason(packet: TaskResumePacket): TaskResumePacket["flushReason"] | null {
+  return ["crash", "stop", "shutdown"].includes(packet.flushReason) ? packet.flushReason : null;
+}
+
 function stamped(
   packet: TaskResumePacket,
   reason: TaskResumePacket["flushReason"],
@@ -74,7 +78,7 @@ export function recordTaskEvidence(
     note?: string;
   } & StampInput,
 ): TaskResumePacket {
-  const next = stamped(packet, "progress", input);
+  const next = stamped(packet, recoveryReason(packet) ?? "progress", input);
   if (!next.evidence.some((item) => item.kind === input.kind && item.ref === input.ref)) {
     const evidence: TaskResumePacket["evidence"][number] = { kind: input.kind, ref: input.ref };
     if (input.note?.trim()) evidence.note = input.note.trim();
@@ -90,7 +94,7 @@ export function recordTaskBlocker(
     note: string;
   } & StampInput,
 ): TaskResumePacket {
-  const next = stamped(packet, "approval", input);
+  const next = stamped(packet, recoveryReason(packet) ?? "approval", input);
   const note = input.note.trim();
   if (note && !next.blockers.some((item) => item.kind === input.kind && item.note === note)) {
     next.blockers.push({ kind: input.kind, note });
@@ -102,7 +106,7 @@ export function clearTaskBlockers(
   packet: TaskResumePacket,
   input: { kind: TaskResumePacket["blockers"][number]["kind"] } & StampInput,
 ): TaskResumePacket {
-  const next = stamped(packet, "approval", input);
+  const next = stamped(packet, recoveryReason(packet) ?? "approval", input);
   next.blockers = next.blockers.filter((item) => item.kind !== input.kind);
   return next;
 }
@@ -115,8 +119,8 @@ export function recordTaskCompletion(
     messageId?: string;
   } & StampInput,
 ): TaskResumePacket {
-  const stopped = !input.ok && packet.flushReason === "stop";
-  const next = stamped(packet, stopped ? "stop" : "turn-end", input);
+  const interrupted = !input.ok ? recoveryReason(packet) : null;
+  const next = stamped(packet, interrupted ?? "turn-end", input);
   const reply = input.reply.trim();
   if (input.ok && reply) next.completed.push({ note: reply, at: input.now });
   if (input.messageId && !next.evidence.some((item) => item.ref === input.messageId)) {
@@ -125,7 +129,7 @@ export function recordTaskCompletion(
   next.blockers = next.blockers.filter(
     (item) => item.kind !== "approval" && item.kind !== "input" && item.kind !== "engine",
   );
-  if (!input.ok && !stopped) {
+  if (!input.ok && !interrupted) {
     next.blockers.push({ kind: "engine", note: "The last turn ended before completing." });
   }
   return next;

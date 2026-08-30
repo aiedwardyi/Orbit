@@ -5,7 +5,7 @@
 // the shadow-instance behavior end to end while it's at it.
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, request, type Server } from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -2034,6 +2034,7 @@ describe("harness HTTP API", () => {
       expect(typeof taskCwd).toBe("string");
       const artifactPath = join(taskCwd, "weekly-brief.md");
       writeFileSync(artifactPath, "# Weekly brief\n");
+      const groundedArtifactPath = realpathSync(artifactPath);
       const updated = await fetch(`${BASE}/api/internal/task-state`, {
         method: "POST",
         headers: {
@@ -2061,7 +2062,7 @@ describe("harness HTTP API", () => {
           { step: "Draft the brief", status: "done" },
           { step: "Verify citations", status: "active" },
         ],
-        artifacts: [{ ref: artifactPath, label: "Weekly brief" }],
+        artifacts: [{ ref: groundedArtifactPath, label: "Weekly brief" }],
       });
 
       const outsidePath = join(home, "outside-task.txt");
@@ -2096,6 +2097,21 @@ describe("harness HTTP API", () => {
         );
         return state?.busy;
       }).toBe(false);
+
+      const lateUpdate = await fetch(`${BASE}/api/internal/task-state`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${commsToken}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          fromBotId: bot.id,
+          fromThreadId: bot.threadId,
+          next_action: "Verify citations after stopping",
+        }),
+      });
+      expect(lateUpdate.status).toBe(200);
+      expect(storedTaskPacket(bot.threadId)).toMatchObject({
+        flushReason: "stop",
+        nextAction: "Verify citations after stopping",
+      });
 
       rmSync(fakeClaudeDump, { force: true });
       expect((await api("POST", `/api/bots/${bot.id}/tasks/${bot.threadId}/resume`, {})).status).toBe(202);

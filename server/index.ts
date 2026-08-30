@@ -3826,6 +3826,9 @@ const server = createServer(async (req, res) => {
         if (!task) return json(res, 403, { error: "source task does not belong to sender" });
         const current = taskPacketForWrite(task.threadId);
         if (!current) return json(res, 409, { error: "task record is not ready" });
+        if (body.artifacts?.length && !task.cwd) {
+          return json(res, 400, { error: "this task has no working folder for artifacts" });
+        }
         const artifacts = body.artifacts?.map((artifact) => ({
           ref: groundedTaskArtifact(task, artifact.ref),
           label: artifact.label,
@@ -3854,7 +3857,7 @@ const server = createServer(async (req, res) => {
         }
         next.updatedAt = Date.now();
         next.updatedBy = "bot";
-        next.flushReason = "progress";
+        if (!["crash", "stop", "shutdown"].includes(current.flushReason)) next.flushReason = "progress";
         next.turnsAtWrite = task.usage?.turns ?? next.turnsAtWrite;
         const saved = persistTaskPacket(next);
         return saved
