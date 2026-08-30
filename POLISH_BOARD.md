@@ -29,9 +29,9 @@ Baseline: `feat/orbit-desktop` at `81890495d03c99bc765c14935be9cd6b3499fe1a`.
 | UI-3 | Three icon-only controls lacked accessible names | Atlas | `Sidebar.tsx`, `ChatView.tsx`, `OptionCard.tsx`; focused tests | Accessible names and hidden decorative glyphs | READY FOR UI QA |
 | UI-4 | Model name disappeared at the supported 900x600 minimum | Atlas | `ModelPicker.tsx`; typecheck | Provider or engine name remains readable | READY FOR UI QA |
 | ORCH-1 | Room and DM communication tools rejected valid member threads | Atlas | `server/index.test.ts`: room ask, delegate, wait, and nonmember denial | Room member communication succeeds and nonmembers receive 403 | CLOSED |
-| ORCH-2 | Codex silently ignored a mid-task model switch | Atlas | `server/drivers/codex.ts`, `server/store.ts` | Unsupported session switch starts fresh with transcript replay | OPEN |
+| ORCH-2 | Codex silently ignored a mid-task model switch | Atlas | 97 focused context, store, and Codex tests; POSIX integration test added | Unsupported session switch starts fresh with transcript replay | CLOSED |
 | ORCH-3 | OpenAI-compatible and MiniMax drivers received duplicated transcript history | Atlas | 40 focused turn-context and driver tests | Each prior message appears once without a false fresh preamble | CLOSED |
-| ORCH-4 | Routine catch-up skipped later due occurrences after downtime | Atlas | `server/routines.ts` | All stale occurrences settle and the newest in-window occurrence runs | OPEN |
+| ORCH-4 | Routine catch-up skipped later due occurrences after downtime | Atlas | 22 routine tests, including a two-day outage | All stale occurrences settle and the newest in-window occurrence runs | CLOSED |
 | ORCH-5 | Clipboard images vanished when support was unavailable or still loading | Atlas | `composer-attachments.test.ts`: supported, unsupported, unknown | Unsupported paste reports an error; loading state retains the image | READY FOR UI QA |
 | PKG-2 | Browser surface leaked `orbit-desktop/1.0.0` in its user agent | Atlas | `browser-snapshot.test.mjs`: real packaged UA fixture, 7 tests | No Orbit, OpenMausBot, or Electron token remains | CLOSED |
 | PKG-3 | Release workflows referenced pre-rename artifact and app paths | Atlas | YAML parse, script syntax checks, Windows package source path | Release jobs consume Orbit artifacts on all platforms | READY FOR INDEPENDENT REVIEW |
@@ -76,6 +76,8 @@ Baseline: `feat/orbit-desktop` at `81890495d03c99bc765c14935be9cd6b3499fe1a`.
 | Room communication integration test | 113 passed, 1 skipped |
 | Delegation tests | 28 passed |
 | Transcript replay tests | 40 passed |
+| Codex model-switch tests | 97 passed |
+| Routine scheduler tests | 22 passed |
 | Browser user-agent tests | 7 passed |
 | Composer attachment tests | 16 passed |
 | Contrast check | PASS with three carried baseline warnings |

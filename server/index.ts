@@ -481,7 +481,12 @@ store.seedIfEmpty();
  * paired phone has even less business holding provider session identifiers
  * than the desktop window did. Stripped here rather than at each call site
  * so a new broadcast cannot forget. */
-const wireTask = ({ resumeCursors: _resumeCursors, lastInstanceId: _lastInstanceId, ...task }: TaskRecord) => task;
+const wireTask = ({
+  resumeCursors: _resumeCursors,
+  lastInstanceId: _lastInstanceId,
+  lastModel: _lastModel,
+  ...task
+}: TaskRecord) => task;
 
 const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
   const { resumeCursors: _resumeCursors, tasks, ...rest } = bot;
@@ -1857,7 +1862,15 @@ async function startTurn(
   // whether we hold a cursor — see engineIsFresh.
   const fresh =
     !rewound &&
-    engineIsFresh({ instanceId, lastInstanceId: task.lastInstanceId, resumeCursors: task.resumeCursors, transcript });
+    engineIsFresh({
+      instanceId,
+      model,
+      lastInstanceId: task.lastInstanceId,
+      lastModel: task.lastModel,
+      sessionModelSwitch: instance.adapter.capabilities.sessionModelSwitch,
+      resumeCursors: task.resumeCursors,
+      transcript,
+    });
   const { turnText, resume } = buildTurnContext({
     text: promptWithReply(text, opts?.replyTo, cfg.profile?.name?.trim() || "User"),
     transcript,
@@ -2204,7 +2217,7 @@ async function startTurn(
       // dispatched: the rewind is spent, and the old cursors are dead
       if (rewound) store.patchBot(bot.id, { rewound: false, resumeCursors: {} });
       // and this engine now owns the thread's most recent turn
-      store.markTaskDispatched(bot.id, threadId, instanceId);
+      store.markTaskDispatched(bot.id, threadId, instanceId, model);
       // a turn can settle before dispatch returns, and a poller started
       // after its own turn.completed would never be torn down — it would
       // keep polling the box forever, carrying dead per-turn state. busy

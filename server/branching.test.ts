@@ -9,7 +9,7 @@
 //
 // Same POSIX gating as comms.test.ts (the fake CLI is a shebang script).
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +19,7 @@ import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const FAKE_CLI = join(SERVER_DIR, "testing", "fake-acp-cli.ts");
+const FAKE_CODEX_CLI = join(SERVER_DIR, "testing", "fake-codex-app-server.ts");
 const PORT = 18800 + Math.floor(Math.random() * 10_000);
 const BASE = `http://127.0.0.1:${PORT}`;
 const posixOnly = describe.skipIf(process.platform === "win32");
@@ -48,6 +49,7 @@ function activePath(messages: Msg[], leafId: string | null): Msg[] {
 posixOnly("conversation branching e2e (fake ACP fleet)", () => {
   let child: ChildProcess;
   let home: string;
+  let fakeCodexDump: string;
   let stderr = "";
 
   const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
@@ -72,7 +74,9 @@ posixOnly("conversation branching e2e (fake ACP fleet)", () => {
 
   beforeAll(async () => {
     chmodSync(FAKE_CLI, 0o755);
+    chmodSync(FAKE_CODEX_CLI, 0o755);
     home = mkdtempSync(join(tmpdir(), "omb-branch-test-"));
+    fakeCodexDump = join(home, "fake-codex-dump.json");
     mkdirSync(join(home, ".orbit"), { recursive: true });
     writeFileSync(
       join(home, ".orbit", "config.json"),
@@ -82,6 +86,11 @@ posixOnly("conversation branching e2e (fake ACP fleet)", () => {
           // a second engine for the mid-thread model switch: same fake, its
           // own instance, so it starts with no session cursor for the thread
           second: { driver: "grokAgent", config: { cli: FAKE_CLI, fullAuto: true } },
+          codexSwitch: {
+            driver: "codex",
+            environment: { FAKE_CODEX_MODE: "resume", FAKE_CODEX_DUMP: fakeCodexDump },
+            config: { cli: FAKE_CODEX_CLI },
+          },
           hang: {
             driver: "grokAgent",
             environment: { FAKE_ACP_MODE: "hang" },
@@ -304,6 +313,45 @@ posixOnly("conversation branching e2e (fake ACP fleet)", () => {
       // first engine again: its old cursor must not be trusted — it replays
       // everything including the turn the second engine took
       expect(prompts[2]).toMatch(/joining this conversation[\s\S]*User: what is my dog called\?[\s\S]*and again\?/);
+    },
+    40_000,
+  );
+
+  it(
+    "starts a new Codex thread with replay when its model changes",
+    async () => {
+      const created = (await api("POST", "/api/bots")).body.bot;
+      await api("PATCH", `/api/bots/${created.id}`, {
+        modelSelection: { instanceId: "codexSwitch", model: "gpt-fake-default" },
+      });
+
+      rmSync(fakeCodexDump, { force: true });
+      expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "my dog is named Biscuit" })).status).toBe(202);
+      await waitFor(async () => !(await getBot(created.id)).busy, "the first Codex turn");
+
+      rmSync(fakeCodexDump, { force: true });
+      expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "remember that" })).status).toBe(202);
+      await waitFor(async () => !(await getBot(created.id)).busy, "the resumed Codex turn");
+      const resumed = JSON.parse(readFileSync(fakeCodexDump, "utf8"));
+      expect(resumed.calls.map((call: { method: string }) => call.method)).toContain("thread/resume");
+
+      await api("PATCH", `/api/bots/${created.id}`, {
+        modelSelection: { instanceId: "codexSwitch", model: "gpt-page-two" },
+      });
+      rmSync(fakeCodexDump, { force: true });
+      expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "what is my dog called?" })).status).toBe(202);
+      await waitFor(async () => !(await getBot(created.id)).busy, "the switched Codex turn");
+
+      const switched = JSON.parse(readFileSync(fakeCodexDump, "utf8"));
+      const methods = switched.calls.map((call: { method: string }) => call.method);
+      expect(methods).toContain("thread/start");
+      expect(methods).not.toContain("thread/resume");
+      const threadStart = switched.calls.find((call: { method: string }) => call.method === "thread/start");
+      expect(threadStart.params.model).toBe("gpt-page-two");
+      const turnStart = switched.calls.find((call: { method: string }) => call.method === "turn/start");
+      expect(turnStart.params.input[0].text).toMatch(
+        /joining this conversation[\s\S]*my dog is named Biscuit[\s\S]*what is my dog called\?/,
+      );
     },
     40_000,
   );

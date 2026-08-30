@@ -553,6 +553,33 @@ describe("RoutineManager", () => {
     expect(h.manager.listRoutines()[0]!.nextRunAt).toBeGreaterThan(routine.nextRunAt!);
   });
 
+  it("settles stale occurrences and runs the newest occurrence inside the catch-up window", async () => {
+    const mondayNoon = new Date(2026, 7, 17, 12, 0, 0).getTime();
+    const tuesdayNine = new Date(2026, 7, 18, 9, 0, 0).getTime();
+    const wednesdayNine = new Date(2026, 7, 19, 9, 0, 0).getTime();
+    const wednesdayTen = new Date(2026, 7, 19, 10, 0, 0).getTime();
+    const thursdayNine = new Date(2026, 7, 20, 9, 0, 0).getTime();
+    const h = harness(mondayNoon);
+    const routine = h.manager.create({
+      name: "Daily check",
+      prompt: "Check it",
+      botId: "maus-catch-up",
+      schedule: { type: "daily", time: "09:00", weekdays: [0, 1, 2, 3, 4, 5, 6] },
+    });
+    expect(routine.nextRunAt).toBe(tuesdayNine);
+
+    h.setNow(wednesdayTen);
+    await h.manager.tick();
+
+    expect(h.manager.listRuns()).toMatchObject([
+      { status: "running", scheduledFor: wednesdayNine },
+      { status: "missed", scheduledFor: tuesdayNine },
+    ]);
+    expect(h.started).toHaveLength(1);
+    expect(h.failed).toMatchObject([{ status: "missed", scheduledFor: tuesdayNine }]);
+    expect(h.manager.listRoutines()[0]!.nextRunAt).toBe(thursdayNine);
+  });
+
   it("records a missed receipt instead of launching very stale work", async () => {
     const h = harness();
     const routine = h.manager.create({

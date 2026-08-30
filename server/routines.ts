@@ -623,21 +623,24 @@ export class RoutineManager {
       const missedRuns: RoutineRun[] = [];
       for (const routine of this.routines) {
         if (!routine.enabled || routine.nextRunAt == null || routine.nextRunAt > now) continue;
-        const scheduledFor = routine.nextRunAt;
-        const late = now - scheduledFor;
-        if (late > CATCH_UP_MS) {
-          const missed = this.newRun(routine, scheduledFor, false);
-          missed.status = "missed";
-          missed.finishedAt = now;
-          missed.error = "This computer was offline for more than 12 hours after the scheduled time";
-          this.emitRun(missed);
-          missedRuns.push({ ...missed });
-        } else {
-          const run = this.newRun(routine, scheduledFor, false);
-          this.emitRun(run);
+        let scheduledFor: number | null = routine.nextRunAt;
+        let catchUpAt: number | null = null;
+        while (scheduledFor !== null && scheduledFor <= now) {
+          if (now - scheduledFor > CATCH_UP_MS) {
+            const missed = this.newRun(routine, scheduledFor, false);
+            missed.status = "missed";
+            missed.finishedAt = now;
+            missed.error = "This computer was offline for more than 12 hours after the scheduled time";
+            this.emitRun(missed);
+            missedRuns.push({ ...missed });
+          } else {
+            catchUpAt = scheduledFor;
+          }
+          scheduledFor =
+            routine.schedule.type === "once" ? null : nextOccurrence(routine.schedule, scheduledFor);
         }
-        routine.nextRunAt =
-          routine.schedule.type === "once" ? null : nextOccurrence(routine.schedule, Math.max(now, scheduledFor));
+        if (catchUpAt !== null) this.emitRun(this.newRun(routine, catchUpAt, false));
+        routine.nextRunAt = scheduledFor;
         if (routine.schedule.type === "once") routine.enabled = false;
         routine.updatedAt = Math.max(now, routine.updatedAt + 1);
         this.emitRoutine(routine);

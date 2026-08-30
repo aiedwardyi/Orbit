@@ -28,13 +28,19 @@ export interface TurnContextInput {
  * greeting, and that alone is nothing to join. */
 export function engineIsFresh(input: {
   instanceId: string;
+  model: string;
   lastInstanceId: string | undefined;
+  lastModel: string | undefined;
+  sessionModelSwitch: "in-session" | "unsupported";
   resumeCursors: Record<string, unknown>;
   transcript: Array<{ role: "user" | "assistant"; text: string }>;
 }): boolean {
-  const { instanceId, lastInstanceId, resumeCursors, transcript } = input;
+  const { instanceId, model, lastInstanceId, lastModel, sessionModelSwitch, resumeCursors, transcript } = input;
   if (!transcript.some((m) => m.role === "user")) return false;
-  if (lastInstanceId !== undefined) return lastInstanceId !== instanceId || resumeCursors[instanceId] === undefined;
+  if (lastInstanceId !== undefined) {
+    if (lastInstanceId !== instanceId || resumeCursors[instanceId] === undefined) return true;
+    return sessionModelSwitch === "unsupported" && lastModel !== undefined && lastModel !== model;
+  }
   const cursorIds = Object.keys(resumeCursors);
   return !(cursorIds.length === 1 && cursorIds[0] === instanceId);
 }

@@ -294,6 +294,17 @@ describe("Store", () => {
     expect(reloaded.bot(bot.id)?.resumeCursors).toEqual({ claude: "sess-abc", codex: "thread-xyz" });
   });
 
+  it("markTaskDispatched persists the latest instance and model", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.markTaskDispatched(bot.id, bot.threadId, "codex", "gpt-5.1");
+    store.markTaskDispatched(bot.id, bot.threadId, "codex", "gpt-5.2");
+
+    const task = new Store(selection).taskByThread(bot.id, bot.threadId);
+    expect(task?.lastInstanceId).toBe("codex");
+    expect(task?.lastModel).toBe("gpt-5.2");
+  });
+
   it("seedIfEmpty creates exactly one starter bot, once", () => {
     const store = new Store(selection);
     store.seedIfEmpty();

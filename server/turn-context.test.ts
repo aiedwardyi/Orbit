@@ -48,38 +48,50 @@ describe("engineIsFresh", () => {
   const greetingOnly = [{ role: "assistant" as const, text: "Hey — I'm Wren. Nice to meet you." }];
 
   it("is false when the same instance ran the last turn and has a cursor", () => {
-    expect(engineIsFresh({ instanceId: "claude", lastInstanceId: "claude", resumeCursors: { claude: "s1" }, transcript: withUser })).toBe(false);
+    expect(engineIsFresh({ instanceId: "claude", model: "sonnet", lastInstanceId: "claude", lastModel: "sonnet", sessionModelSwitch: "in-session", resumeCursors: { claude: "s1" }, transcript: withUser })).toBe(false);
   });
 
   it("is true when the same instance ran last but there is no cursor to resume", () => {
-    expect(engineIsFresh({ instanceId: "pi", lastInstanceId: "pi", resumeCursors: {}, transcript: withUser })).toBe(true);
+    expect(engineIsFresh({ instanceId: "pi", model: "pi", lastInstanceId: "pi", lastModel: "pi", sessionModelSwitch: "in-session", resumeCursors: {}, transcript: withUser })).toBe(true);
+  });
+
+  it("starts fresh when an unsupported engine changes model", () => {
+    expect(engineIsFresh({ instanceId: "codex", model: "gpt-5.2", lastInstanceId: "codex", lastModel: "gpt-5.1", sessionModelSwitch: "unsupported", resumeCursors: { codex: "thread-1" }, transcript: withUser })).toBe(true);
+  });
+
+  it("keeps the native session when its engine supports model changes", () => {
+    expect(engineIsFresh({ instanceId: "claude", model: "opus", lastInstanceId: "claude", lastModel: "sonnet", sessionModelSwitch: "in-session", resumeCursors: { claude: "session-1" }, transcript: withUser })).toBe(false);
+  });
+
+  it("keeps legacy sessions whose last model was not recorded", () => {
+    expect(engineIsFresh({ instanceId: "codex", model: "gpt-5.2", lastInstanceId: "codex", lastModel: undefined, sessionModelSwitch: "unsupported", resumeCursors: { codex: "thread-1" }, transcript: withUser })).toBe(false);
   });
 
   it("is true when another instance ran the last turn — even if this one has an older cursor", () => {
     // the user's bug: claude had a session from days ago, antigravity took the
     // latest turn, switching back to claude must NOT resume the stale session
     expect(
-      engineIsFresh({ instanceId: "claude", lastInstanceId: "antigravity", resumeCursors: { claude: "old", antigravity: "s2" }, transcript: withUser }),
+      engineIsFresh({ instanceId: "claude", model: "sonnet", lastInstanceId: "antigravity", lastModel: "gemini", sessionModelSwitch: "in-session", resumeCursors: { claude: "old", antigravity: "s2" }, transcript: withUser }),
     ).toBe(true);
   });
 
   it("is true for an instance that has never run this thread", () => {
-    expect(engineIsFresh({ instanceId: "codex", lastInstanceId: "claude", resumeCursors: { claude: "s1" }, transcript: withUser })).toBe(true);
+    expect(engineIsFresh({ instanceId: "codex", model: "gpt-5.2", lastInstanceId: "claude", lastModel: "sonnet", sessionModelSwitch: "unsupported", resumeCursors: { claude: "s1" }, transcript: withUser })).toBe(true);
   });
 
   it("is false on a brand-new bot: the seeded greeting alone is nothing to join", () => {
-    expect(engineIsFresh({ instanceId: "claude", lastInstanceId: undefined, resumeCursors: {}, transcript: greetingOnly })).toBe(false);
-    expect(engineIsFresh({ instanceId: "claude", lastInstanceId: undefined, resumeCursors: {}, transcript: [] })).toBe(false);
+    expect(engineIsFresh({ instanceId: "claude", model: "sonnet", lastInstanceId: undefined, lastModel: undefined, sessionModelSwitch: "in-session", resumeCursors: {}, transcript: greetingOnly })).toBe(false);
+    expect(engineIsFresh({ instanceId: "claude", model: "sonnet", lastInstanceId: undefined, lastModel: undefined, sessionModelSwitch: "in-session", resumeCursors: {}, transcript: [] })).toBe(false);
   });
 
   it("legacy task without lastInstanceId: trusts a lone cursor for this instance, replays otherwise", () => {
     // one cursor, ours — pre-upgrade single-engine thread, keep resuming
-    expect(engineIsFresh({ instanceId: "claude", lastInstanceId: undefined, resumeCursors: { claude: "s1" }, transcript: withUser })).toBe(false);
+    expect(engineIsFresh({ instanceId: "claude", model: "sonnet", lastInstanceId: undefined, lastModel: undefined, sessionModelSwitch: "in-session", resumeCursors: { claude: "s1" }, transcript: withUser })).toBe(false);
     // one cursor, someone else's — we never ran here
-    expect(engineIsFresh({ instanceId: "codex", lastInstanceId: undefined, resumeCursors: { claude: "s1" }, transcript: withUser })).toBe(true);
+    expect(engineIsFresh({ instanceId: "codex", model: "gpt-5.2", lastInstanceId: undefined, lastModel: undefined, sessionModelSwitch: "unsupported", resumeCursors: { claude: "s1" }, transcript: withUser })).toBe(true);
     // two cursors — can't tell who ran last; replaying is the safe side
     expect(
-      engineIsFresh({ instanceId: "claude", lastInstanceId: undefined, resumeCursors: { claude: "s1", antigravity: "s2" }, transcript: withUser }),
+      engineIsFresh({ instanceId: "claude", model: "sonnet", lastInstanceId: undefined, lastModel: undefined, sessionModelSwitch: "in-session", resumeCursors: { claude: "s1", antigravity: "s2" }, transcript: withUser }),
     ).toBe(true);
   });
 });

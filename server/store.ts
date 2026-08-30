@@ -211,6 +211,8 @@ export interface TaskRecord {
    * taken turns since — so this is what decides an inline replay. Absent
    * on tasks from before the field existed. */
   lastInstanceId?: string;
+  /** model used by the most recent dispatch; absent on older tasks */
+  lastModel?: string;
   /** what this task has spent: banked once per turn from turn.completed */
   usage?: TaskUsage;
   /** the folder this task's turns run in, pinned on its first turn from
@@ -1198,10 +1200,11 @@ export class Store {
   /** Record which instance just took a turn on this task. Called at
    * dispatch, not at cursor time — transcript-replay engines never
    * produce a cursor, and they still count as having run last. */
-  markTaskDispatched(botId: string, threadId: string, instanceId: string) {
+  markTaskDispatched(botId: string, threadId: string, instanceId: string, model: string) {
     const task = this.taskByThread(botId, threadId);
-    if (!task || task.lastInstanceId === instanceId) return;
+    if (!task || (task.lastInstanceId === instanceId && task.lastModel === model)) return;
     task.lastInstanceId = instanceId;
+    task.lastModel = model;
     this.saveBots();
   }
 
