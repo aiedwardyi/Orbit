@@ -442,6 +442,8 @@ export interface BotRecord {
    * could not tell working from waiting-on-you from a stalled engine.
    * Transient like busy: reset to idle on load. */
   activity?: BotActivity;
+  /** Exact 1:1 task owned by a busy turn, persisted only for crash recovery. */
+  activeThreadId?: ThreadId;
   createdAt: number;
 }
 
@@ -588,7 +590,7 @@ export class Store {
     // busy never survives a restart — no turn does either. Rooms saved
     // before default responders existed adopt their first member as lead.
     let botsMigrated = false;
-    const crashedBotIds = new Set<string>();
+    const crashedTaskThreads = new Map<string, string | null>();
     const chiefSectionsSeen = new Set<string>();
     let groupsMigrated = false;
     for (const b of this.bots) {
@@ -596,9 +598,15 @@ export class Store {
       // process died mid-turn, bots.json still says busy/working; persist
       // the reset so the next load does not read it again
       if (b.busy || (b.activity !== undefined && b.activity !== "idle")) botsMigrated = true;
-      if (b.busy || (b.activity !== undefined && ACTIVITY_BUSY.has(b.activity))) crashedBotIds.add(b.id);
+      if (b.busy || (b.activity !== undefined && ACTIVITY_BUSY.has(b.activity))) {
+        crashedTaskThreads.set(b.id, b.activeThreadId ?? null);
+      }
       b.busy = false;
       b.activity = "idle";
+      if (b.activeThreadId !== undefined) {
+        delete b.activeThreadId;
+        botsMigrated = true;
+      }
       if (b.cloudBackend !== undefined && b.cloudBackend !== "box" && b.cloudBackend !== "vps") {
         delete b.cloudBackend;
         botsMigrated = true;
@@ -700,8 +708,8 @@ export class Store {
         },
       ];
     }
-    for (const botId of crashedBotIds) {
-      const task = this.activeTask(botId);
+    for (const [botId, threadId] of crashedTaskThreads) {
+      const task = threadId ? this.taskByThread(botId, threadId) : this.activeTask(botId);
       const packet = task ? this.taskPacket(task.threadId) : null;
       if (packet) this.writeTaskPacket({ ...packet, flushReason: "crash" });
     }
@@ -1169,13 +1177,20 @@ export class Store {
 
   /** The one way runtime state changes. Sets `activity` and derives `busy`
    * from it, so a reader that only knows busy sees the same truth. */
-  setActivity(botId: string, activity: BotActivity): BotRecord | null {
+  setActivity(botId: string, activity: BotActivity, activeThreadId?: ThreadId): BotRecord | null {
     const bot = this.bot(botId);
     if (!bot) return null;
     const busy = ACTIVITY_BUSY.has(activity);
-    if (bot.activity === activity && Boolean(bot.busy) === busy) return bot;
+    const nextThreadId = busy ? activeThreadId ?? bot.activeThreadId : undefined;
+    if (
+      bot.activity === activity &&
+      Boolean(bot.busy) === busy &&
+      bot.activeThreadId === nextThreadId
+    ) return bot;
     bot.activity = activity;
     bot.busy = busy;
+    if (nextThreadId) bot.activeThreadId = nextThreadId;
+    else delete bot.activeThreadId;
     this.saveBots();
     this.emit({ type: "bot", botId });
     return bot;

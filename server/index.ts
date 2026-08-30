@@ -633,7 +633,7 @@ const wireTask = ({
 }: TaskRecord) => ({ ...task, taskState: store.taskPacket(task.threadId) ?? undefined });
 
 const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
-  const { resumeCursors: _resumeCursors, tasks, ...rest } = bot;
+  const { resumeCursors: _resumeCursors, activeThreadId: _activeThreadId, tasks, ...rest } = bot;
   return { ...rest, avatarUrl: rest.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map(wireTask) } : {}) };
 };
 
@@ -2189,7 +2189,7 @@ async function startTurn(
   // busy flips immediately so the composer locks; the dispatch itself runs
   // in the background — box provisioning can take ~90s and must never
   // hang the HTTP request
-  store.setActivity(bot.id, "working");
+  store.setActivity(bot.id, "working", threadId);
   store.patchBot(bot.id, { unread: false });
   turnUsage.delete(threadId);
 
@@ -3673,6 +3673,18 @@ function configStatus() {
 /** Rebuild the provider fleet after a config change so new keys take
  * effect without a server restart (kills any in-flight turns). */
 async function reloadProviders() {
+  const interruptedTaskThreads = new Map<string, string>();
+  for (const bot of store.bots) {
+    const threadId = bot.busy ? bot.activeThreadId : undefined;
+    if (!threadId || !store.taskByThread(bot.id, threadId)) continue;
+    interruptedTaskThreads.set(bot.id, threadId);
+    const packet = taskPacketForWrite(threadId);
+    if (!packet || ["crash", "stop", "shutdown"].includes(packet.flushReason)) continue;
+    persistTaskPacket(stampTaskResumePacket(packet, "crash", {
+      now: Date.now(),
+      turnsAtWrite: store.taskByThread(bot.id, threadId)?.usage?.turns ?? packet.turnsAtWrite,
+    }));
+  }
   bus.detachAll();
   await registry.disposeAll();
   await registry.load(instanceConfigs(cfg));
@@ -3681,6 +3693,7 @@ async function reloadProviders() {
   // async under the hood), stranding the bot busy — and its screen poller —
   // forever. Settle anything still marked busy.
   for (const b of store.bots.filter((b) => b.busy)) {
+    const threadId = interruptedTaskThreads.get(b.id) ?? b.threadId;
     const vmThread = [...localVmThreadTargets.entries()].find(([, target]) =>
       localVmLeaseFor(target).current(localVmOwnerBusy)?.botId === b.id
     )?.[0];
@@ -3688,12 +3701,12 @@ async function reloadProviders() {
     stopScreenPoller(b.id);
     activeVpsThreads.delete(b.id);
     finalizeDelegationWatch(
-      b.threadId,
+      threadId,
       false,
       "",
       "Delegated turn did not finish — provider settings changed",
     );
-    store.appendMessage(b.threadId, {
+    store.appendMessage(threadId, {
       role: "bot",
       kind: "activity",
       tool: { name: "error: turn interrupted — provider settings changed", ok: false },

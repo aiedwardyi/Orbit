@@ -386,6 +386,20 @@ describe("Store", () => {
     });
   });
 
+  it("marks the detached task that was running when the app crashed", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const routineTask = store.createTask(bot.id, "Weekly routine", false)!;
+    store.writeTaskPacket(taskPacket(bot.id, bot.threadId));
+    store.writeTaskPacket(taskPacket(bot.id, routineTask.threadId));
+    store.setActivity(bot.id, "working", routineTask.threadId);
+
+    const recovered = new Store(selection);
+
+    expect(recovered.taskPacket(bot.threadId)?.flushReason).toBe("progress");
+    expect(recovered.taskPacket(routineTask.threadId)?.flushReason).toBe("crash");
+  });
+
   it("markTaskDispatched persists the latest instance and model", () => {
     const store = new Store(selection);
     const bot = store.createBot();
