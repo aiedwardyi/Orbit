@@ -134,6 +134,11 @@ describe("default fleet", () => {
     expect(map.cursor).toEqual({ driver: "cursorAgent", environment: {} });
   });
 
+  it("ships Gemini API in the default fleet", () => {
+    const map = instanceConfigs({});
+    expect(map.gemini).toEqual({ driver: "geminiAgent", environment: {} });
+  });
+
   it("carries the saved OpenAI-compatible URL into the live default instance", () => {
     const map = instanceConfigs({
       openaiCompat: { key: "secret", url: "https://models.example.test/v1" },
@@ -185,6 +190,7 @@ describe("default fleet", () => {
     expect(map.qwen?.driver).toBe("qwenAgent");
     expect(map.hermes?.driver).toBe("hermesAgent");
     expect(map.cursor?.driver).toBe("cursorAgent");
+    expect(map.gemini?.driver).toBe("geminiAgent");
     expect(map.openaiCompat?.driver).toBe("openai-compat");
   });
 
@@ -232,11 +238,13 @@ describe("Instance CLI override", () => {
     // instances section of config.json.
     const cfg: AppConfig = {
       xai: { key: "SECRET-XAI" },
+      gemini: { apiKey: "SECRET-GEMINI" },
       box: { token: "SECRET-BOX" },
       opencodeGo: { apiKey: "SECRET-OCG" },
       instances: {
         claude: { driver: "claudeAgent" },
         grokApi: { driver: "grok" },
+        gemini: { driver: "geminiAgent" },
         computer: { driver: "boxAgent" },
         opencode: { driver: "opencodeGo" },
       },
@@ -273,10 +281,12 @@ describe("credential env narrowing", () => {
   it("injects each credential only into the driver that consumes it", () => {
     const cfg: AppConfig = {
       xai: { key: "SECRET-XAI" },
+      gemini: { apiKey: "SECRET-GEMINI" },
       box: { token: "SECRET-BOX" },
       opencodeGo: { apiKey: "SECRET-OCG" },
       instances: {
         grokApi: { driver: "grok" },
+        gemini: { driver: "geminiAgent" },
         computer: { driver: "boxAgent" },
         opencode: { driver: "opencodeGo" },
         claude: { driver: "claudeAgent" },
@@ -285,6 +295,7 @@ describe("credential env narrowing", () => {
     };
     const instances = instanceConfigs(cfg);
     expect(instances.grokApi.environment).toEqual({ XAI_API_KEY: "SECRET-XAI" });
+    expect(instances.gemini.environment).toEqual({ GEMINI_API_KEY: "SECRET-GEMINI" });
     expect(instances.computer.environment).toEqual({ BOX_TOKEN: "SECRET-BOX" });
     expect(instances.opencode.environment).toEqual({ OPENCODE_API_KEY: "SECRET-OCG" });
     // engines that bring their own login receive NO workspace credential
@@ -315,6 +326,7 @@ describe("credential env narrowing", () => {
 describe("credential env preference", () => {
   const VARS = [
     "XAI_API_KEY",
+    "GEMINI_API_KEY",
     "OPENAI_COMPAT_API_KEY",
     "OPENAI_COMPAT_URL",
     "OPENAI_COMPAT_MODEL",
@@ -349,6 +361,7 @@ describe("credential env preference", () => {
       join(DATA_DIR, "config.json"),
       JSON.stringify({
         xai: { key: "file-xai", url: "https://api.example.test/v1" },
+        gemini: { apiKey: "file-gemini" },
         box: { token: "file-box" },
         opencodeGo: { apiKey: "file-ocg" },
         tts: { key: "file-tts", voice: "narrator" },
@@ -356,12 +369,14 @@ describe("credential env preference", () => {
       }),
     );
     process.env.XAI_API_KEY = "env-xai";
+    process.env.GEMINI_API_KEY = "env-gemini";
     process.env.BOX_TOKEN = "env-box";
     process.env.OPENCODE_API_KEY = "env-ocg";
     process.env.OMB_TTS_KEY = "env-tts";
     process.env.OMB_OPENAI_IMAGE_KEY = "env-image";
     const cfg = loadConfig();
     expect(cfg.xai).toEqual({ key: "env-xai", url: "https://api.example.test/v1" });
+    expect(cfg.gemini).toEqual({ apiKey: "env-gemini" });
     expect(cfg.box).toEqual({ token: "env-box" });
     expect(cfg.opencodeGo).toEqual({ apiKey: "env-ocg" });
     expect(cfg.tts).toEqual({ key: "env-tts", voice: "narrator" });
@@ -371,10 +386,11 @@ describe("credential env preference", () => {
   it("falls back to the config file when the env var is unset (dev mode)", () => {
     writeFileSync(
       join(DATA_DIR, "config.json"),
-      JSON.stringify({ xai: { key: "file-xai" }, tts: { key: "file-tts" }, imageGen: { key: "file-image" } }),
+      JSON.stringify({ xai: { key: "file-xai" }, gemini: { apiKey: "file-gemini" }, tts: { key: "file-tts" }, imageGen: { key: "file-image" } }),
     );
     const cfg = loadConfig();
     expect(cfg.xai?.key).toBe("file-xai");
+    expect(cfg.gemini?.apiKey).toBe("file-gemini");
     expect(cfg.tts?.key).toBe("file-tts");
     expect(cfg.imageGen?.key).toBe("file-image");
   });
@@ -389,10 +405,12 @@ describe("credential env preference", () => {
 
   it("syncCredentialEnv keeps process.env in step with a credential save", () => {
     process.env.XAI_API_KEY = "boot-injected";
+    process.env.GEMINI_API_KEY = "boot-injected";
     process.env.BOX_TOKEN = "boot-injected";
     process.env.COMPOSIO_API_KEY = "boot-injected";
     syncCredentialEnv({
       xai: { key: "just-saved" },
+      gemini: { apiKey: "gemini-just-saved" },
       composio: { apiKey: "ak_just_saved" },
       box: { token: "" },
       profile: { name: "Ada" },
@@ -400,6 +418,7 @@ describe("credential env preference", () => {
     // a saved value replaces the boot-time one; a cleared value drops it;
     // untouched sections change nothing
     expect(process.env.XAI_API_KEY).toBe("just-saved");
+    expect(process.env.GEMINI_API_KEY).toBe("gemini-just-saved");
     expect(process.env.COMPOSIO_API_KEY).toBe("ak_just_saved");
     expect(process.env.BOX_TOKEN).toBeUndefined();
     expect(process.env.OMB_TTS_KEY).toBeUndefined();

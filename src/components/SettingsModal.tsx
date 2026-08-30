@@ -113,7 +113,7 @@ function UpdatesRow() {
   );
 }
 
-/** Usage analytics, on by default and switchable here. Naming what is sent
+/** Optional usage analytics. Naming what is sent
  * matters more than the switch: people who cannot see the scope assume the
  * worst, and the worst — conversation text — is exactly what this never
  * sends (autocapture is off; see lib/analytics.ts). */
@@ -122,7 +122,7 @@ function AnalyticsRow() {
   return (
     <Card
       title="Usage analytics"
-      subtitle="Anonymous product events — app opened, which features get used. Never conversations, prompts, file contents, or bot output. Your email is only attached if you shared it during setup."
+      subtitle="Off by default. If enabled, sends anonymous product events, never conversations, prompts, files, or bot output."
     >
       <button
         role="switch"
@@ -246,7 +246,7 @@ function ExperimentalFeaturesRow() {
           <div className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">
             {desktopBrowser
               ? "Bots get their own browser tab in the computer panel. Turn this off to remove it for every bot; each bot also has its own switch."
-              : "Needs the OpenMausBot desktop app."}
+              : "Needs the Orbit desktop app."}
           </div>
         </div>
         <button
@@ -598,6 +598,7 @@ export function SettingsModal() {
                       Connected apps service is ready
                     </div>
                   ) : null}
+                  <ApiKeyRow section="gemini" />
                   <TranscriptionSettings />
                   <ApiKeyRow section="box" />
                   <VpsConnection />

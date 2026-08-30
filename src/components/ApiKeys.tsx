@@ -6,7 +6,7 @@ import { Check, CircleHelp, ExternalLink, Loader2, TriangleAlert } from "lucide-
 import { api, useStore, type ConfigStatus } from "@/state/store";
 import { cn } from "@/lib/cn";
 
-export type ConfigSection = "composio" | "box" | "opencodeGo";
+export type ConfigSection = "composio" | "gemini" | "box" | "opencodeGo";
 
 const SECTIONS: Record<
   ConfigSection,
@@ -16,12 +16,17 @@ const SECTIONS: Record<
     body: (v) => ({ composio: { apiKey: v } }),
     flag: (c) => c.composio.configured,
   },
+  gemini: {
+    body: (v) => ({ gemini: { apiKey: v } }),
+    flag: (c) => c.gemini?.configured ?? false,
+  },
   box: { body: (v) => ({ box: { token: v } }), flag: (c) => c.box.configured },
   opencodeGo: { body: (v) => ({ opencodeGo: { apiKey: v } }), flag: (c) => c.opencodeGo?.configured ?? false },
 };
 
-const ELECTRON_CREDENTIAL: Record<ConfigSection, "composioApiKey" | "boxToken" | "opencodeGoApiKey"> = {
+const ELECTRON_CREDENTIAL: Record<ConfigSection, "composioApiKey" | "geminiApiKey" | "boxToken" | "opencodeGoApiKey"> = {
   composio: "composioApiKey",
+  gemini: "geminiApiKey",
   box: "boxToken",
   opencodeGo: "opencodeGoApiKey",
 };
@@ -45,6 +50,15 @@ const CREDENTIALS: Record<
     href: "https://dashboard.composio.dev",
     linkLabel: "Create or copy a project key",
     optional: true,
+  },
+  gemini: {
+    label: "Gemini API key",
+    placeholder: "Paste a Gemini API key",
+    description: "Runs the native Gemini CLI directly. Google subscription accounts can use Gemini through Antigravity without this key.",
+    href: "https://aistudio.google.com/apikey",
+    linkLabel: "Create a Gemini API key",
+    optional: true,
+    warning: "Direct API usage may incur charges outside your subscription.",
   },
   box: {
     label: "Box API key",
@@ -255,7 +269,7 @@ export function VpsConnection() {
         {configured && <span className="text-[11px] text-success">Connected</span>}
       </div>
       <div className="mb-1.5 text-[12px] leading-relaxed text-ink-secondary">
-        SSH config alias for the Linux VPS. OpenMausBot uses your normal SSH config and agent; it does not store keys or passwords.{" "}
+        SSH config alias for the Linux VPS. Orbit uses your normal SSH config and agent; it does not store keys or passwords.{" "}
         See the{" "}
         <a
           href="https://github.com/milind-soni/OpenMausBot/blob/main/docs/byo-vps.md"

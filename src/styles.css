@@ -277,6 +277,16 @@ body {
   overflow: hidden;
 }
 
+.orbit-mark-rings {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: orbit-mark-turn 14s linear infinite;
+}
+
+@keyframes orbit-mark-turn {
+  to { transform: rotate(360deg); }
+}
+
 /* Keep focus visible after components clear the browser outline. These
    unlayered rules outrank Tailwind utilities without needing !important. */
 :focus-visible {

@@ -10,6 +10,7 @@ describe("workspace credential migration", () => {
   it("moves every plaintext secret into the store and deletes the field", () => {
     const config = {
       xai: { key: "xai-secret", url: "https://api.example.test/v1" },
+      gemini: { apiKey: "gemini-secret" },
       box: { token: "box-secret" },
       tts: { key: "tts-secret", voice: "narrator" },
       imageGen: { key: "image-secret" },
@@ -21,6 +22,7 @@ describe("workspace credential migration", () => {
     expect(result.credentialsChanged).toBe(true);
     expect(result.credentials).toEqual({
       xaiApiKey: "xai-secret",
+      geminiApiKey: "gemini-secret",
       boxToken: "box-secret",
       ttsKey: "tts-secret",
       opencodeGoApiKey: "ocg-secret",
@@ -30,6 +32,7 @@ describe("workspace credential migration", () => {
     // non-secret siblings (endpoint url, chosen voice) stay in the file
     expect(result.config).toEqual({
       xai: { url: "https://api.example.test/v1" },
+      gemini: {},
       box: {},
       tts: { voice: "narrator" },
       imageGen: {},
@@ -114,6 +117,7 @@ describe("workspace credential env", () => {
     expect(
       workspaceCredentialEnv({
         xaiApiKey: "xai-secret",
+        geminiApiKey: "gemini-secret",
         boxToken: "box-secret",
         ttsKey: "tts-secret",
         opencodeGoApiKey: "ocg-secret",
@@ -122,6 +126,7 @@ describe("workspace credential env", () => {
       }),
     ).toEqual({
       XAI_API_KEY: "xai-secret",
+      GEMINI_API_KEY: "gemini-secret",
       BOX_TOKEN: "box-secret",
       OMB_TTS_KEY: "tts-secret",
       OPENCODE_API_KEY: "ocg-secret",

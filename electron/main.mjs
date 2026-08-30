@@ -16,7 +16,7 @@ import {
   stopRecorder,
 } from "./skill-recorder.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
-import { startUpdater, registerUpdaterIpc } from "./updater.mjs";
+import { registerUpdaterIpc } from "./updater.mjs";
 import { buildDiagnosticsReport, decodeLogTail, diagnosticsFileName } from "./diagnostics.mjs";
 import { migrateWorkspaceCredentials, workspaceCredentialEnv } from "./workspace-credentials.mjs";
 import { activateExistingWindow } from "./single-instance.mjs";
@@ -162,14 +162,14 @@ function applyUnreadBadge(win = mainWindow) {
 // intercepting input. This app is not graphics-heavy, so reliability wins.
 if (process.platform === "linux") {
   app.disableHardwareAcceleration();
-  app.setDesktopName("com.openmausbot.app.desktop");
+  app.setDesktopName("com.orbit.agentdesk.desktop");
 }
 
 // One instance per user: without this lock a second launch forks a second
 // harness server on a fallback port and splits data dirs in two. The loser
 // exits before any child or window exists; the winner surfaces itself.
 if (!app.requestSingleInstanceLock()) {
-  console.log("[desktop] OpenMausBot is already running — focusing that window");
+  console.log("[desktop] Orbit is already running; focusing that window");
   process.exit(0);
 }
 function deliverPackageInstall(win) {
@@ -256,7 +256,7 @@ async function saveSecureCredentials(credentials) {
 }
 
 async function secureComposioConfig() {
-  const dataDir = process.env.OMB_DATA_DIR || path.join(app.getPath("home"), ".openmausbot");
+  const dataDir = process.env.OMB_DATA_DIR || path.join(app.getPath("home"), ".orbit");
   const configPath = path.join(dataDir, "config.json");
   try {
     const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
@@ -298,7 +298,7 @@ async function secureComposioConfig() {
 // migrates plaintext left by older versions or direct development clients.
 // See workspace-credentials.mjs for the exact rules.
 async function secureWorkspaceConfig() {
-  const dataDir = process.env.OMB_DATA_DIR || path.join(app.getPath("home"), ".openmausbot");
+  const dataDir = process.env.OMB_DATA_DIR || path.join(app.getPath("home"), ".orbit");
   const configPath = path.join(dataDir, "config.json");
   try {
     const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
@@ -325,8 +325,8 @@ function composioBrokerUrl() {
 }
 
 // The packaged app has no terminal: everything about the server child's life
-// goes to server.log in the OS log dir (~/Library/Logs/OpenMausBot on macOS,
-// Console.app-visible; %APPDATA%\OpenMausBot\logs on Windows), which is also
+// goes to server.log in the OS log dir (~/Library/Logs/Orbit on macOS,
+// Console.app-visible; %APPDATA%\Orbit\logs on Windows), which is also
 // why stdio is piped, not inherited — under a Finder/Explorer launch the
 // parent's stdio leads nowhere and a failed boot is otherwise undiagnosable.
 const LOG_DIR = app.getPath("logs");
@@ -788,8 +788,8 @@ function buildErrorPage({ allPortsOccupied }) {
   const serverLogPath = path.join(LOG_DIR, "server.log");
   const serverLogHref = pathToFileURL(serverLogPath).href;
   const reason = allPortsOccupied
-    ? "Every OpenMausBot port answered health checks from another process — likely a second copy of the app, or another program on ports 8799–28799. Quit that program, then quit and reopen OpenMausBot."
-    : "The background server didn't come up in time — this is usually slow startup, not a port conflict. Quit and reopen OpenMausBot.";
+    ? "Every Orbit port answered health checks from another process. Quit the other copy or program, then reopen Orbit."
+    : "The background server did not start in time. Quit and reopen Orbit.";
   return (
     "data:text/html;charset=utf-8," +
     encodeURIComponent(
@@ -852,7 +852,7 @@ function desktopViewerErrorPage(message, retryUrl) {
 }
 
 function openDesktopViewer(owner, rawUrl, rawTitle, contextId) {
-  if (!owner || owner.isDestroyed()) throw new Error("The OpenMausBot window is unavailable");
+  if (!owner || owner.isDestroyed()) throw new Error("The Orbit window is unavailable");
   const url = desktopViewerUrl(rawUrl);
   const titleCandidate = Object.prototype.toString.call(rawTitle) === "[object String]" ? rawTitle.trim() : "";
   const title = titleCandidate ? titleCandidate.slice(0, 80) : "Live desktop";
@@ -954,7 +954,7 @@ function openDesktopViewer(owner, rawUrl, rawTitle, contextId) {
 }
 
 function ensureDesktopWorkspace(owner) {
-  if (!owner || owner.isDestroyed()) throw new Error("The OpenMausBot window is unavailable");
+  if (!owner || owner.isDestroyed()) throw new Error("The Orbit window is unavailable");
   if (desktopWorkspaceManager) {
     if (desktopWorkspaceOwner !== owner) {
       throw new Error("The desktop workspace belongs to another app window");
@@ -1380,14 +1380,14 @@ ipcMain.handle("desktop:export-diagnostics", async (event) => {
   return result.filePath;
 });
 
-// Bots hand users files as markdown links to paths inside the OpenMausBot
+// Bots hand users files as markdown links to paths inside the Orbit
 // home (workspaces, attachments). As plain anchors those resolved against the
 // page origin, so the click opened http://127.0.0.1:8799<path> in the default
 // browser and the server's SPA fallback answered with index.html — a second
 // copy of the chat UI instead of the file. Ask where to put it and copy it
 // there instead: a save dialog tells the user the file landed somewhere and
 // where, which a silent copy into ~/Downloads does not. The path is
-// renderer-controlled, so it must resolve inside ~/.openmausbot and be a
+// renderer-controlled, so it must resolve inside ~/.orbit and be a
 // regular file — never a symlink escape or directory.
 ipcMain.handle("desktop:save-file", async (event, rawPath) => {
   return withSavableFile(rawPath, { home: os.homedir() }, async ({ defaultName, copyTo }) => {
@@ -1433,7 +1433,7 @@ ipcMain.handle("desktop:open-external", async (_event, rawUrl) => {
 
 // The Box VNC viewer must be a top-level page for its token exchange. A
 // sandboxed modal BrowserWindow satisfies that requirement while keeping the
-// live desktop inside OpenMausBot instead of sending the person to a browser.
+// live desktop inside Orbit instead of sending the person to a browser.
 ipcMain.handle("desktop-viewer:open", (event, rawUrl, title, contextId) => {
   const owner = BrowserWindow.fromWebContents(event.sender);
   return openDesktopViewer(owner, rawUrl, title, contextId);
@@ -1599,6 +1599,7 @@ ipcMain.handle("assemblyai:streaming-token", () =>
 const CREDENTIAL_PATCH = {
   composioApiKey: (value) => ({ composio: { apiKey: value } }),
   xaiApiKey: (value) => ({ xai: { key: value } }),
+  geminiApiKey: (value) => ({ gemini: { apiKey: value } }),
   boxToken: (value) => ({ box: { token: value } }),
   opencodeGoApiKey: (value) => ({ opencodeGo: { apiKey: value } }),
   ttsKey: (value) => ({ tts: { key: value } }),
@@ -1778,9 +1779,6 @@ app.whenReady().then(async () => {
       return credentials;
     }).finally(syncManagedComposioCredentials);
   }
-  // in-app auto-update (packaged only) — checks GitHub releases, downloads on
-  // the user's click, installs on "Restart to update"
-  startUpdater(win);
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

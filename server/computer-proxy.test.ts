@@ -412,14 +412,14 @@ describe("computer proxy (fake box)", () => {
     const result = await waitFor(130);
     const issued = commands.slice(before);
     expect(issued).toHaveLength(2);
-    expect(issued[0]).toContain('profile="$HOME/.openmausbot/chrome-profile"');
+    expect(issued[0]).toContain('profile="$HOME/.orbit/chrome-profile"');
     expect(issued[0]).toContain('chmod 700 "$profile"');
     expect(issued[0]).toContain('! cp -a -n "$browser_dir"/. "$profile"/');
     expect(issued[0]).toContain('echo "failed to copy browser profile: $browser_dir" >&2');
     expect(issued[0]).toContain('ln -s "$profile" "$browser_dir"');
     expect(issued[0]).not.toContain("do;");
     expect(issued[0]).not.toContain("then;");
-    expect(issued[0]).toContain('--user-data-dir="$HOME/.openmausbot/chrome-profile"');
+    expect(issued[0]).toContain('--user-data-dir="$HOME/.orbit/chrome-profile"');
     expect(issued[0]).toContain("--password-store=basic");
     expect(issued[0]).toContain("--disable-session-crashed-bubble");
     expect(issued[0]).not.toContain("user:password@");

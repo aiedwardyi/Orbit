@@ -70,7 +70,7 @@ const SHOT_PATH = "/tmp/ogb-shot.jpg";
 const SETTLE_MS = 350;
 /** Gap between batched actions so focus changes land before typing. */
 const ACTION_GAP_MS = 120;
-const CHROME_PROFILE = "$HOME/.openmausbot/chrome-profile";
+const CHROME_PROFILE = "$HOME/.orbit/chrome-profile";
 const CHROME_DEBUG_FLAGS =
   `--user-data-dir="${CHROME_PROFILE}" --password-store=basic --disable-session-crashed-bubble --no-first-run --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222`;
 // Keep one durable browser identity regardless of which Chromium binary an

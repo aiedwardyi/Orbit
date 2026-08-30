@@ -1,7 +1,7 @@
-// Config + data dirs. One file, ~/.openmausbot/config.json, env fallbacks:
+// Config + data dirs. One file, ~/.orbit/config.json, env fallbacks:
 //   { "xai": {"key":"xai-…"}, "composio": {"apiKey":"ak_…"}, "box": {"token":"…"},
 //     "instances": { "<instanceId>": {"driver":"grok", …} } }
-import { readFileSync, mkdirSync, existsSync, renameSync } from "node:fs";
+import { readFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -88,6 +88,7 @@ const instanceConfigSchema = z.object({
 const instanceConfigMapSchema = z.record(z.string(), instanceConfigSchema);
 const appConfigSchema = z.object({
   xai: z.object({ key: optionalText, url: optionalText }).optional(),
+  gemini: z.object({ apiKey: optionalText }).optional(),
   /** `model` seeds the default selection; `provider` pins an OpenRouter
    * upstream (e.g. "fireworks"). Both are non-secret and optional. */
   openaiCompat: z
@@ -119,6 +120,7 @@ const jsonObjectSchema = z.record(z.string(), z.json());
 
 export interface AppConfig {
   xai?: { key?: string; url?: string };
+  gemini?: { apiKey?: string };
   openaiCompat?: { key?: string; url?: string; model?: string; provider?: string };
   composio?: { apiKey?: string; userId?: string; sessionId?: string };
   box?: { token?: string };
@@ -186,21 +188,11 @@ export function builtInBrowserEnabled(cfg: AppConfig): boolean {
 }
 
 // OMB_DATA_DIR isolates test/soak rigs from the user's real fleet.
-export const DATA_DIR = process.env.OMB_DATA_DIR ?? join(homedir(), ".openmausbot");
-const LEGACY_DATA_DIR = join(homedir(), ".opengrokbot");
+export const DATA_DIR = process.env.OMB_DATA_DIR ?? join(homedir(), ".orbit");
 export const EVENTS_DIR = join(DATA_DIR, "events");
 export const NATIVE_DIR = join(DATA_DIR, "native");
 
 export function ensureDirs() {
-  // one-time migration from the pre-rename data dir — bots, transcripts,
-  // config and keys all carry over
-  if (!existsSync(DATA_DIR) && existsSync(LEGACY_DATA_DIR)) {
-    try {
-      renameSync(LEGACY_DATA_DIR, DATA_DIR);
-    } catch {
-      /* cross-device or busy — fall through to a fresh dir */
-    }
-  }
   for (const dir of [DATA_DIR, EVENTS_DIR, NATIVE_DIR]) mkdirSync(dir, { recursive: true });
 }
 
@@ -220,6 +212,8 @@ export function loadConfig(): AppConfig {
   // shadow the save until the next launch.
   cfg.xai = { ...cfg.xai };
   if (process.env.XAI_API_KEY !== undefined) cfg.xai.key = process.env.XAI_API_KEY;
+  cfg.gemini = { ...cfg.gemini };
+  if (process.env.GEMINI_API_KEY !== undefined) cfg.gemini.apiKey = process.env.GEMINI_API_KEY;
   cfg.openaiCompat = { ...cfg.openaiCompat };
   if (process.env.OPENAI_COMPAT_API_KEY !== undefined) cfg.openaiCompat.key = process.env.OPENAI_COMPAT_API_KEY;
   if (process.env.OPENAI_COMPAT_URL !== undefined) cfg.openaiCompat.url = process.env.OPENAI_COMPAT_URL;
@@ -248,6 +242,7 @@ export function loadConfig(): AppConfig {
 export function syncCredentialEnv(patch: Partial<AppConfig>): void {
   const secrets: Array<[value: string | undefined, name: string]> = [
     [patch.xai?.key, "XAI_API_KEY"],
+    [patch.gemini?.apiKey, "GEMINI_API_KEY"],
     [patch.openaiCompat?.key, "OPENAI_COMPAT_API_KEY"],
     [patch.composio?.apiKey, "COMPOSIO_API_KEY"],
     [patch.box?.token, "BOX_TOKEN"],
@@ -281,6 +276,7 @@ export function syncCredentialEnv(patch: Partial<AppConfig>): void {
  * child these are someone else's keys riding along in `...process.env`. */
 export const WORKSPACE_CREDENTIAL_ENV = [
   "XAI_API_KEY",
+  "GEMINI_API_KEY",
   "OPENAI_COMPAT_API_KEY",
   "OPENAI_COMPAT_URL",
   "BOX_TOKEN",
@@ -315,7 +311,7 @@ export const PROVIDER_CREDENTIAL_ENV = [
   "CURSOR_AUTH_TOKEN",
 ] as const;
 
-/** Merge a partial config into ~/.openmausbot/config.json (secrets never
+/** Merge a partial config into ~/.orbit/config.json (secrets never
  * echoed back — callers report configured-or-not booleans only). */
 export function saveConfig(patch: Partial<AppConfig>): void {
   const p = join(DATA_DIR, "config.json");
@@ -327,7 +323,7 @@ export function saveConfig(patch: Partial<AppConfig>): void {
     /* first write */
   }
   const checkedPatch = appConfigSchema.partial().parse(patch);
-  for (const key of ["xai", "openaiCompat", "composio", "box", "opencodeGo", "tts", "imageGen", "profile", "rooms", "localVm", "features"] as const) {
+  for (const key of ["xai", "gemini", "openaiCompat", "composio", "box", "opencodeGo", "tts", "imageGen", "profile", "rooms", "localVm", "features"] as const) {
     const section = checkedPatch[key];
     if (!section) continue;
     const current = jsonObjectSchema.safeParse(disk[key]);
@@ -407,13 +403,12 @@ interface InstanceCliUpdate {
 /** The credential env instanceConfigs() injects for one driver — shared with
  * withInstanceCli() so the inject rule and the strip rule cannot drift apart.
  * Each secret goes only to the driver that actually reads it: the API-key
- * Grok driver reads XAI_API_KEY, the Computer driver reads BOX_TOKEN, and
- * OpenCode reads OPENCODE_API_KEY. Every other engine brings its own
- * login, so handing it a key it never uses would only put that key in the
- * environment of an unrelated child process. */
+ * Grok reads XAI_API_KEY, Gemini reads GEMINI_API_KEY, Computer reads
+ * BOX_TOKEN, and OpenCode reads OPENCODE_API_KEY. */
 function injectedEnvironment(cfg: AppConfig, driver: string): Map<string, string> {
   const environment = new Map<string, string>();
   if (driver === "grok" && cfg.xai?.key) environment.set("XAI_API_KEY", cfg.xai.key);
+  if (driver === "geminiAgent" && cfg.gemini?.apiKey) environment.set("GEMINI_API_KEY", cfg.gemini.apiKey);
   if (driver === "openai-compat" && cfg.openaiCompat?.key)
     environment.set("OPENAI_COMPAT_API_KEY", cfg.openaiCompat.key);
   if (driver === "openai-compat" && cfg.openaiCompat?.url)
@@ -436,14 +431,9 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
   // a credential Milind doesn't want to manage; an `instances` entry brings
   // it back anytime.
   //
-  // Google rides `antigravityAgent` (the `agy` CLI), not `geminiAgent`:
-  // Google retired Gemini CLI for the free/Pro/Ultra tiers on 2026-06-18
-  // (developers.googleblog.com, "transitioning Gemini CLI to Antigravity
-  // CLI"), so a default `gemini` instance could only ever show unavailable.
-  // The driver stays registered for enterprise licences, which keep Gemini
-  // CLI — `{"instances": {"gemini": {"driver": "geminiAgent"}}}` restores it.
   const DEFAULT_FLEET: InstanceConfigMap = {
     grok: { driver: "grokAgent" },
+    gemini: { driver: "geminiAgent" },
     kimi: { driver: "kimiAgent" },
     droid: { driver: "droidAgent" },
     cursor: { driver: "cursorAgent" },
@@ -467,6 +457,7 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
   // is not expanded, matching the claude/grok/codex product-fleet probe.
   const PRODUCT_FLEET_ADDITIONS = {
     cursor: { driver: "cursorAgent" },
+    gemini: { driver: "geminiAgent" },
     openaiCompat: { driver: "openai-compat" },
     ...CUSTOM_ONLY,
   } as const;

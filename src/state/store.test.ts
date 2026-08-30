@@ -166,6 +166,7 @@ describe("config status frames", () => {
     expect(
       configStatusFromFrame({
         xai: { configured: true },
+        gemini: { configured: true },
         composio: { configured: true, mode: "managed" },
         box: { configured: false },
         vps: { configured: true, sshAlias: "homelab" },
@@ -178,6 +179,7 @@ describe("config status frames", () => {
       }),
     ).toEqual({
       xai: { configured: true },
+      gemini: { configured: true },
       composio: { configured: true, mode: "managed" },
       box: { configured: false },
       vps: { configured: true, sshAlias: "homelab" },

@@ -10,6 +10,12 @@ export const CREDENTIAL_TARGETS = {
     placeholder: "xai-…",
     helpUrl: "https://console.x.ai/",
   },
+  geminiApiKey: {
+    label: "Gemini API key",
+    description: "Runs the native Gemini CLI directly.",
+    placeholder: "Paste your Gemini API key",
+    helpUrl: "https://aistudio.google.com/apikey",
+  },
   boxToken: {
     label: "Box API key",
     description: "Gives bots an isolated cloud computer when Box is selected.",
@@ -39,6 +45,7 @@ export const CREDENTIAL_TARGETS = {
 export type CredentialTargetId = keyof typeof CREDENTIAL_TARGETS;
 export type CredentialConfig = {
   xai?: { key?: string };
+  gemini?: { apiKey?: string };
   box?: { token?: string };
   opencodeGo?: { apiKey?: string };
   tts?: { key?: string };
@@ -53,6 +60,8 @@ export function credentialConfigPatch(id: CredentialTargetId, value: string): Cr
   switch (id) {
     case "xaiApiKey":
       return { xai: { key: value } };
+    case "geminiApiKey":
+      return { gemini: { apiKey: value } };
     case "boxToken":
       return { box: { token: value } };
     case "opencodeGoApiKey":
@@ -68,6 +77,8 @@ export function credentialIsConfigured(config: CredentialConfig, id: CredentialT
   switch (id) {
     case "xaiApiKey":
       return Boolean(config.xai?.key);
+    case "geminiApiKey":
+      return Boolean(config.gemini?.apiKey);
     case "boxToken":
       return Boolean(config.box?.token);
     case "opencodeGoApiKey":

@@ -129,7 +129,7 @@ function createBrowserSurfaceManager({
   now = () => Date.now(),
   injectedSource = loadInjectedSource(),
 }) {
-  if (!owner || owner.isDestroyed?.()) throw new Error("The OpenMausBot window is unavailable");
+  if (!owner || owner.isDestroyed?.()) throw new Error("The Orbit window is unavailable");
   if (createView?.constructor !== Function) throw new Error("The browser surface viewer is unavailable");
   const emit = notify?.constructor === Function ? notify : () => {};
   /** every live view, keyed by `${botId}\0${partition}` */
@@ -269,7 +269,7 @@ function createBrowserSurfaceManager({
 
   const create = (botId, profile) => {
     evictIfNeeded();
-    if (owner.isDestroyed?.()) throw new Error("The OpenMausBot window is unavailable");
+    if (owner.isDestroyed?.()) throw new Error("The Orbit window is unavailable");
     const partition = partitionForProfile(botId, profile);
     const view = createView({
       webPreferences: {

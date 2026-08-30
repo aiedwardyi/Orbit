@@ -36,6 +36,24 @@ export function CodexMark({ size = 16, className }: IconProps) {
   );
 }
 
+export function GeminiMark({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" className={className} aria-hidden>
+      <defs>
+        <linearGradient id="orbit-gemini-mark" x1="2" y1="22" x2="22" y2="2" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#1C7DFF" />
+          <stop offset="0.48" stopColor="#8B5CF6" />
+          <stop offset="1" stopColor="#F050AE" />
+        </linearGradient>
+      </defs>
+      <path
+        fill="url(#orbit-gemini-mark)"
+        d="M12 0c0 6.627 5.373 12 12 12-6.627 0-12 5.373-12 12 0-6.627-5.373-12-12-12 6.627 0 12-5.373 12-12Z"
+      />
+    </svg>
+  );
+}
+
 export function ComputerMark({ size = 16, className }: IconProps) {
   return <Monitor size={size} className={cn("text-ink-secondary", className)} />;
 }
@@ -133,6 +151,8 @@ export function ProviderMark({ driverKind, size, className }: IconProps & { driv
       return <ClaudeMark size={size} className={className} />;
     case "codex":
       return <CodexMark size={size} className={className} />;
+    case "geminiAgent":
+      return <GeminiMark size={size} className={className} />;
     case "kimiAgent":
       return <KimiMark size={size} className={className} />;
     case "droidAgent":

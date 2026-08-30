@@ -1,8 +1,8 @@
 {
-  "name": "openmausbot",
+  "name": "orbit-desktop",
   "private": true,
-  "version": "0.1.39",
-  "description": "A local-first chat app for running a team of AI agents.",
+  "version": "1.0.0",
+  "description": "A local-first desktop workspace for AI teammates.",
   "homepage": "https://github.com/milind-soni/OpenMausBot",
   "repository": {
     "type": "git",
@@ -13,7 +13,7 @@
     "email": "46266943+milind-soni@users.noreply.github.com"
   },
   "license": "Apache-2.0",
-  "desktopName": "com.openmausbot.app.desktop",
+  "desktopName": "com.orbit.agentdesk.desktop",
   "type": "module",
   "main": "electron/main.mjs",
   "engines": {

@@ -218,7 +218,7 @@ export function BrowserPanel({
   if (!bridge) {
     return (
       <div className="rounded-xl bg-card p-4 text-[13px] text-ink-secondary">
-        The built-in browser needs the OpenMausBot desktop app.
+        The built-in browser needs the Orbit desktop app.
       </div>
     );
   }

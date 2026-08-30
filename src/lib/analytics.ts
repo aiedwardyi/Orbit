@@ -9,7 +9,7 @@ import posthog from "posthog-js";
 
 const TOKEN = "phc_m2hP39w8y2gLPvHgDvSXAu6xcZ3agjf4ruL56rGcMZEe";
 
-// Analytics are on by default; Settings → General turns them off. The choice
+// Analytics are off by default; Settings can turn them on. The choice
 // lives in localStorage because it has to be readable BEFORE init() runs: an
 // opted-out install must never call posthog.init(), so no request — not even
 // the library's own — leaves the machine. Once running, opting out routes
@@ -29,9 +29,9 @@ let choice: boolean | undefined;
 export function analyticsEnabled(): boolean {
   if (choice !== undefined) return choice;
   try {
-    return localStorage.getItem(OPT_OUT_KEY) !== "1";
+    return localStorage.getItem(OPT_OUT_KEY) === "0";
   } catch {
-    return true; // storage unreadable → behave like a fresh install
+    return false;
   }
 }
 

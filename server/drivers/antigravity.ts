@@ -300,7 +300,7 @@ function decodeConfig(raw: unknown): AntigravityConfig {
 
 export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
   driverKind: DRIVER_KIND,
-  metadata: { displayName: "Antigravity", supportsMultipleInstances: true },
+  metadata: { displayName: "Gemini (Antigravity)", supportsMultipleInstances: true },
   install: {
     command: {
       darwin: "curl -fsSL https://antigravity.google/cli/install.sh | bash",

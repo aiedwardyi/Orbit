@@ -556,7 +556,7 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
               <div className="text-[15px] font-medium text-ink">Browser</div>
               <div className="mt-0.5 text-[13px] text-ink-secondary">
                 {!desktopBrowser
-                  ? "The built-in browser needs the OpenMausBot desktop app."
+                  ? "The built-in browser needs the Orbit desktop app."
                   : !browserFeature
                     ? "The built-in browser is switched off under App Settings → Experimental features."
                     : !canUseBrowser

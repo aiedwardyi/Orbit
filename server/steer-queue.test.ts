@@ -256,13 +256,13 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
   beforeAll(async () => {
     chmodSync(FAKE_CLI, 0o755);
     home = mkdtempSync(join(tmpdir(), "omb-steer-test-"));
-    mkdirSync(join(home, ".openmausbot"), { recursive: true });
+    mkdirSync(join(home, ".orbit"), { recursive: true });
     mkdirSync(join(home, "gates"), { recursive: true });
     drainGate = join(home, "gates", "drain.gate");
     stopGate = join(home, "gates", "stop.gate");
     stopRpcDump = join(home, "gates", "stop.rpc");
     writeFileSync(
-      join(home, ".openmausbot", "config.json"),
+      join(home, ".orbit", "config.json"),
       JSON.stringify({
         instances: {
           steer: {

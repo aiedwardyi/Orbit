@@ -144,7 +144,7 @@ function createBrowserHost({ manager, token = randomBytes(32).toString("hex") })
     if (!match || req.method !== "POST") return json(res, 404, { error: "not found" });
     const [, botId, operation] = match;
     if (!OPERATIONS.has(operation)) return json(res, 404, { error: "unknown browser operation" });
-    if (!surface) return json(res, 503, { error: "the OpenMausBot window is closed — open it to use the browser" });
+    if (!surface) return json(res, 503, { error: "the Orbit window is closed; open it to use the browser" });
     let body;
     try {
       body = await readJson(req);
