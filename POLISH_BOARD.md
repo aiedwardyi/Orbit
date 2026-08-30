@@ -35,6 +35,11 @@ Baseline: `feat/orbit-desktop` at `81890495d03c99bc765c14935be9cd6b3499fe1a`.
 | ORCH-5 | Clipboard images vanished when support was unavailable or still loading | Atlas | `composer-attachments.test.ts`: supported, unsupported, unknown | Unsupported paste reports an error; loading state retains the image | READY FOR UI QA |
 | PKG-2 | Browser surface leaked `orbit-desktop/1.0.0` in its user agent | Atlas | `browser-snapshot.test.mjs`: real packaged UA fixture, 7 tests | No Orbit, OpenMausBot, or Electron token remains | CLOSED |
 | PKG-3 | Release workflows referenced pre-rename artifact and app paths | Atlas | YAML parse, script syntax checks, Windows package source path | Release jobs consume Orbit artifacts on all platforms | READY FOR INDEPENDENT REVIEW |
+| UX-1 | First use presents engine setup and a broad category quiz before a real job | Atlas | `Onboarding.tsx`, `server/store.ts`, packaged first-use screenshots, Grok Bot get-started flow | With a ready engine, one primary action reaches a job-first bot flow; engine setup appears only when needed | VERIFIED |
+| UX-2 | Agent profile presents identity, access, engine, computer, memory, automation, voice, and notifications as one flat form | Atlas | `SettingsPanel.tsx`; user observation; packaged settings evidence | Default view keeps identity, role, notifications, connected apps, and Model Automatic; specialist controls live under Advanced | VERIFIED |
+| UX-3 | Secondary and roadmap surfaces compete with conversation in primary chrome | Atlas | `Sidebar.tsx`, `ChatView.tsx`, packaged first-use screenshot | Conversation, attachments, send or stop, status, attention, and results dominate; secondary tools remain discoverable | VERIFIED |
+| ORCH-22 | New-bot engine selection uses a provider-name preference instead of a capability contract | Atlas | `server/index.ts` `defaultSelection`; driver capabilities already expose supported work | Automatic routing is deterministic, capability-based, availability-aware, and preserves a manual override | VERIFIED |
+| ORCH-23 | Long-task continuity has no provider-neutral resume record before transcript truncation or session loss | Atlas | `server/index.ts` caps replay at 40 text turns; no compaction or resume-packet owner exists | Persist goal, plan, completed work, evidence, artifacts, blockers, and next action before context replacement; recover visibly after restart | VERIFIED |
 
 ## P2
 
@@ -67,6 +72,7 @@ Baseline: `feat/orbit-desktop` at `81890495d03c99bc765c14935be9cd6b3499fe1a`.
 | PKG-7 | Webhook port conflict is invisible | Package auditor | Fixed webhook port and swallowed bind failure | Surface failure or choose a fallback | OPEN |
 | PKG-8 | Existing OpenMausBot profiles have no migration guidance | Package auditor | Data and userData paths | Document fresh-start intent or migrate | OPEN |
 | PKG-9 | Release defaults still call third-party account services | Package auditor | Electron service defaults | Confirm release ownership decision | OPEN |
+| UI-10 | Phone and mobile integration remain visible before the desktop core is complete | Atlas | `Sidebar.tsx`, `ChatView.tsx`; product scope decision | Keep phone out of the primary path until desktop QA and supported-platform behavior are complete | OPEN |
 
 ## Verification log
 
