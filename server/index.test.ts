@@ -2598,20 +2598,38 @@ describe("harness HTTP API", () => {
       rmSync(fakeClaudeDump, { force: true });
       expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "open the peer tools" })).status).toBe(202);
       await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 5_000 }).toBe(true);
-      const dump = JSON.parse(readFileSync(fakeClaudeDump, "utf8")) as {
-        mcpConfig: { mcpServers: { agents: { env: { OMB_COMMS_TOKEN: string } } } };
-      };
+      const dump = z.object({
+        mcpConfig: z.object({
+          mcpServers: z.object({
+            agents: z.object({ env: z.object({ OMB_COMMS_TOKEN: z.string() }) }),
+          }),
+        }),
+      }).parse(JSON.parse(readFileSync(fakeClaudeDump, "utf8")));
       const token = dump.mcpConfig.mcpServers.agents.env.OMB_COMMS_TOKEN;
-      const internal = async (method: string, path: string, body?: unknown) => {
+      type InternalBody = {
+        fromBotId: string;
+        fromThreadId: string;
+        toBotId: string;
+        message: string;
+        reason?: string;
+      };
+      const internalResponse = z.object({
+        text: z.string().optional(),
+        queued: z.boolean().optional(),
+        taskId: z.string().optional(),
+        status: z.string().optional(),
+        result: z.string().optional(),
+        error: z.string().optional(),
+      });
+      const internal = async (method: string, path: string, body?: InternalBody) => {
+        const headers = new Headers({ authorization: `Bearer ${token}` });
+        if (body) headers.set("content-type", "application/json");
         const response = await fetch(`${BASE}${path}`, {
           method,
-          headers: {
-            authorization: `Bearer ${token}`,
-            ...(body ? { "content-type": "application/json" } : {}),
-          },
+          headers,
           body: body ? JSON.stringify(body) : undefined,
         });
-        return { status: response.status, body: await response.json() as any };
+        return { status: response.status, body: internalResponse.parse(await response.json()) };
       };
 
       expect((await api("POST", `/api/groups/${room.id}/interrupt`, { threadId: room.threadId })).status).toBe(200);

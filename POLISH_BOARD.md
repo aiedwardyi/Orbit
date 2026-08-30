@@ -73,7 +73,7 @@ Baseline: `feat/orbit-desktop` at `81890495d03c99bc765c14935be9cd6b3499fe1a`.
 | Check | Result |
 | --- | --- |
 | Typecheck after integrated fixes | PASS |
-| Room communication integration test | 113 passed, 1 skipped |
+| Room communication integration test | 1 focused test passed, 113 filtered |
 | Delegation tests | 28 passed |
 | Transcript replay tests | 40 passed |
 | Codex model-switch tests | 97 passed |
@@ -81,4 +81,6 @@ Baseline: `feat/orbit-desktop` at `81890495d03c99bc765c14935be9cd6b3499fe1a`.
 | Browser user-agent tests | 7 passed |
 | Composer attachment tests | 16 passed |
 | Contrast check | PASS with three carried baseline warnings |
-| Full lint | BLOCKED by repository-wide baseline anti-slop findings; no new finding in edited lines |
+| Full test suite | 2,293 passed, 98 skipped |
+| Production build | PASS |
+| Full lint | BLOCKED by repository baseline: 1,831 current errors versus 1,833 at baseline; no finding on integrated lines |

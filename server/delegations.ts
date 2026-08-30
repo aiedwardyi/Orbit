@@ -13,13 +13,14 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { z } from "zod";
 
 import { writeFileAtomic } from "./atomic.ts";
 import { getOrCreateChannel, mirrorExchange, type CommsBus } from "./comms-visibility.ts";
 import { DATA_DIR } from "./config.ts";
 import { newId } from "./contracts.ts";
 import { requestPeerApproval, type ApprovalBus } from "./peer-approval.ts";
-import type { BotRecord, GroupRecord } from "./store.ts";
+import type { BotRecord, GroupRecord, Message } from "./store.ts";
 
 export interface DelegationItem {
   toBotId: string;
@@ -62,6 +63,13 @@ export interface DelegationReceipt {
 
 export type QueueResult = "ok" | "no_target" | "self" | "too_deep" | "too_many";
 
+interface PendingDelegationSnapshot {
+  sourceThreadId: string;
+  sourceBotId?: string;
+  toBotId: string;
+  reason?: string;
+}
+
 /** What queueDelegation hands back: the verdict, and on success the task id
  * the delegating bot can later read back with check/wait_delegation. */
 export interface QueuedDelegation {
@@ -85,6 +93,7 @@ const RECEIPTS_FILE = join(DATA_DIR, "delegation-receipts.json");
 const MAX_RECEIPTS = 100;
 const RECEIPT_MAX_AGE_MS = 48 * 60 * 60 * 1000;
 const RESULT_MAX_CHARS = 4_000;
+const persistedFromBotId = z.string().min(1).optional().catch(undefined);
 export const MAX_BUSY_ATTEMPTS = 3;
 
 let receipts: DelegationReceipt[] = [];
@@ -162,15 +171,17 @@ export function _loadPending(): void {
           typeof item.message !== "string" ||
           !Number.isFinite(item.depth)
         ) return [];
-        return [{
+        const loaded: PendingDelegationItem = {
           id: typeof item.id === "string" && item.id ? item.id : newId(),
-          ...(typeof item.fromBotId === "string" && item.fromBotId ? { fromBotId: item.fromBotId } : {}),
           toBotId: item.toBotId,
           message: item.message,
-          ...(typeof item.reason === "string" ? { reason: item.reason } : {}),
           depth: Math.max(0, Math.trunc(item.depth!)),
           attempts: Number.isFinite(item.attempts) ? Math.max(0, Math.trunc(item.attempts!)) : 0,
-        }];
+        };
+        const fromBotId = persistedFromBotId.parse(item.fromBotId);
+        if (fromBotId) loaded.fromBotId = fromBotId;
+        if (typeof item.reason === "string") loaded.reason = item.reason;
+        return [loaded];
       });
       if (items.length) pendingDelegations.set(threadId, items);
     }
@@ -212,19 +223,14 @@ export function pendingThreads(): string[] {
 
 /** Read-only metadata for the local Team Map. Task prompts stay private;
  * the UI only needs to know who handed work to whom and the optional label. */
-export function pendingDelegationSnapshot(): Array<{
-  sourceThreadId: string;
-  sourceBotId?: string;
-  toBotId: string;
-  reason?: string;
-}> {
+export function pendingDelegationSnapshot(): PendingDelegationSnapshot[] {
   return [...pendingDelegations.entries()].flatMap(([sourceThreadId, items]) =>
-    items.map((item) => ({
-      sourceThreadId,
-      ...(item.fromBotId ? { sourceBotId: item.fromBotId } : {}),
-      toBotId: item.toBotId,
-      ...(item.reason ? { reason: item.reason } : {}),
-    })),
+    items.map((item) => {
+      const snapshot: PendingDelegationSnapshot = { sourceThreadId, toBotId: item.toBotId };
+      if (item.fromBotId) snapshot.sourceBotId = item.fromBotId;
+      if (item.reason) snapshot.reason = item.reason;
+      return snapshot;
+    }),
   );
 }
 
@@ -255,14 +261,15 @@ export function queueDelegation(
   pendingDelegations.set(sourceThreadId, list);
   savePending();
   const label = `Delegated to @${target.name}${item.reason ? `: ${item.reason}` : ""}`;
-  bus.store.appendMessage(sourceThreadId, {
+  const activity: Omit<Message, "id" | "at"> = {
     role: "bot",
     kind: "activity",
     tool: { name: label },
-    ...(sourceThreadId !== from.threadId
-      ? { from: { botId: from.id, name: from.name, color: from.color } }
-      : {}),
-  });
+  };
+  if (sourceThreadId !== from.threadId) {
+    activity.from = { botId: from.id, name: from.name, color: from.color };
+  }
+  bus.store.appendMessage(sourceThreadId, activity);
   return { result: "ok", id };
 }
 
@@ -386,14 +393,15 @@ export function discardDelegations(bus: CommsBus, threadId: string, sourceBotId?
   }
   const fromId = dropped[0]?.fromBotId ?? privateSourceId;
   const from = fromId ? bus.store.conversationForBot(fromId, threadId)?.bot : null;
-  bus.store.appendMessage(threadId, {
+  const activity: Omit<Message, "id" | "at"> = {
     role: "bot",
     kind: "activity",
     tool: { name: `${dropped.length} queued delegation${dropped.length > 1 ? "s" : ""} dropped — the turn did not finish`, ok: false },
-    ...(from && threadId !== from.threadId
-      ? { from: { botId: from.id, name: from.name, color: from.color } }
-      : {}),
-  });
+  };
+  if (from && threadId !== from.threadId) {
+    activity.from = { botId: from.id, name: from.name, color: from.color };
+  }
+  bus.store.appendMessage(threadId, activity);
 }
 
 async function processOne(

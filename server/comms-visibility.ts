@@ -53,17 +53,18 @@ export function mirrorExchange(
       from: { botId: from.id, name: from.name, color: from.color },
     });
   }
-  note(sourceThreadId, {
+  const sourceActivity: Omit<Message, "id" | "at"> = {
     role: "bot",
     kind: "activity",
     tool: { name: `Messaged @${target.name}` },
-    ...(sourceThreadId !== from.threadId
-      ? { from: { botId: from.id, name: from.name, color: from.color } }
-      : {}),
     comm: channel
       ? { groupId: channel.id, withBotId: target.id, withName: target.name, withColor: target.color }
       : undefined,
-  });
+  };
+  if (sourceThreadId !== from.threadId) {
+    sourceActivity.from = { botId: from.id, name: from.name, color: from.color };
+  }
+  note(sourceThreadId, sourceActivity);
   note(target.threadId, {
     role: "bot",
     kind: "activity",

@@ -1559,14 +1559,15 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text,
       }
       const source = store.conversationForBot(sourceBotId, sourceThreadId)?.bot;
       if (!source) return;
-      store.appendMessage(sourceThreadId, {
+      const activity: Omit<Message, "id" | "at"> = {
         role: "bot",
         kind: "activity",
         tool: { name: `error: delegation to @${bot?.name ?? toBotId} could not start — ${why.slice(0, 120)}`, ok: false },
-        ...(sourceThreadId !== source.threadId
-          ? { from: { botId: source.id, name: source.name, color: source.color } }
-          : {}),
-      });
+      };
+      if (sourceThreadId !== source.threadId) {
+        activity.from = { botId: source.id, name: source.name, color: source.color };
+      }
+      store.appendMessage(sourceThreadId, activity);
     };
     return startTurn(toBotId, text, {
       commsDepth,
