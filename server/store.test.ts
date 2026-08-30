@@ -9,8 +9,31 @@ import { DATA_DIR } from "./config.ts";
 import type { ModelSelection } from "./contracts.ts";
 import { peerAllowKey } from "./peer-approval-key.ts";
 import { Store, titleFromMessage, type BotRecord } from "./store.ts";
+import { readTaskResumePacket, type TaskResumePacket } from "./task-state.ts";
 
 const selection = (): ModelSelection => ({ instanceId: "claude", model: "claude-sonnet-5" });
+
+const taskPacket = (
+  botId: string,
+  threadId: string,
+  overrides: Partial<TaskResumePacket> = {},
+): TaskResumePacket => ({
+  v: 1,
+  threadId,
+  botId,
+  goal: "Prepare the weekly report",
+  plan: [{ step: "Write the draft", status: "active" }],
+  completed: [],
+  evidence: [],
+  artifacts: [],
+  blockers: [],
+  nextAction: "Write the draft",
+  updatedAt: 100,
+  updatedBy: "harness",
+  flushReason: "progress",
+  turnsAtWrite: 0,
+  ...overrides,
+});
 
 describe("Store", () => {
   beforeEach(() => {
@@ -310,6 +333,57 @@ describe("Store", () => {
 
     const reloaded = new Store(selection);
     expect(reloaded.bot(bot.id)?.resumeCursors).toEqual({ claude: "sess-abc", codex: "thread-xyz" });
+  });
+
+  it("owns durable task packets and emits after each write", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const changes: unknown[] = [];
+    store.onChange((change) => changes.push(change));
+
+    const saved = store.writeTaskPacket(taskPacket(bot.id, bot.threadId));
+    expect(saved?.goal).toBe("Prepare the weekly report");
+    expect(readTaskResumePacket(bot.threadId)).toEqual(saved);
+    expect(changes).toContainEqual({ type: "task.packet", threadId: bot.threadId });
+
+    const copy = store.taskPacket(bot.threadId)!;
+    copy.goal = "mutated outside the store";
+    expect(store.taskPacket(bot.threadId)?.goal).toBe("Prepare the weekly report");
+    expect(new Store(selection).taskPacket(bot.threadId)).toEqual(saved);
+  });
+
+  it("rejects a packet whose task does not belong to its bot", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+
+    expect(store.writeTaskPacket(taskPacket("missing-bot", bot.threadId))).toBeNull();
+    expect(readTaskResumePacket(bot.threadId)).toBeNull();
+  });
+
+  it("deletes a task packet with its transcript", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const task = store.createTask(bot.id)!;
+    store.writeTaskPacket(taskPacket(bot.id, task.threadId));
+
+    expect(store.deleteTask(bot.id, task.threadId)).not.toBeNull();
+    expect(readTaskResumePacket(task.threadId)).toBeNull();
+    expect(store.taskPacket(task.threadId)).toBeNull();
+  });
+
+  it("marks a saved packet when the app recovers a crashed turn", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.writeTaskPacket(taskPacket(bot.id, bot.threadId, { updatedAt: 123 }));
+    store.setActivity(bot.id, "working");
+
+    const recovered = new Store(selection);
+
+    expect(recovered.bot(bot.id)?.activity).toBe("idle");
+    expect(recovered.taskPacket(bot.threadId)).toMatchObject({
+      flushReason: "crash",
+      updatedAt: 123,
+    });
   });
 
   it("markTaskDispatched persists the latest instance and model", () => {

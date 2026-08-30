@@ -672,6 +672,11 @@ store.onChange((change) => {
     case "thread.deleted":
       routines?.forgetRoutineRequestReceiptsForThread(change.threadId);
       break;
+    case "task.packet": {
+      const packet = store.taskPacket(change.threadId);
+      if (packet) broadcast({ kind: "task.packet", threadId: change.threadId, packet });
+      break;
+    }
     case "bot": {
       const bot = store.bot(change.botId);
       if (bot) broadcast({ kind: "bot", bot: wireBot(bot) });

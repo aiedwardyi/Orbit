@@ -13,6 +13,12 @@ import { workspaceDir } from "./workspace.ts";
 import { newId, type CloudBackend, type ModelSelection, type ThreadId } from "./contracts.ts";
 import { pickBotName } from "./names.ts";
 import { redactSecretsInText } from "./redact.ts";
+import {
+  deleteTaskResumePacket,
+  readTaskResumePacket,
+  writeTaskResumePacket,
+  type TaskResumePacket,
+} from "./task-state.ts";
 import { botAvatarProfile, type BotAvatarCrop } from "../shared/bot-avatar.ts";
 import type { RoutineRequestCardData } from "../shared/routine-request.ts";
 import type { RoutineRunCardData } from "../shared/routine-run.ts";
@@ -330,6 +336,7 @@ export type StoreChange =
   | { type: "message.patch"; threadId: string; message: Message }
   | { type: "thread"; threadId: string; activeLeafId: string }
   | { type: "thread.deleted"; threadId: string }
+  | { type: "task.packet"; threadId: string }
   | { type: "bot"; botId: string }
   | { type: "bot.deleted"; botId: string }
   | { type: "group"; groupId: string }
@@ -561,6 +568,7 @@ export class Store {
   bots: BotRecord[] = [];
   groups: GroupRecord[] = [];
   private threads = new Map<string, ThreadState>();
+  private taskPackets = new Map<string, TaskResumePacket | null>();
   private defaultSelection: () => ModelSelection;
   private listeners = new Set<(change: StoreChange) => void>();
 
@@ -580,6 +588,7 @@ export class Store {
     // busy never survives a restart — no turn does either. Rooms saved
     // before default responders existed adopt their first member as lead.
     let botsMigrated = false;
+    const crashedBotIds = new Set<string>();
     const chiefSectionsSeen = new Set<string>();
     let groupsMigrated = false;
     for (const b of this.bots) {
@@ -587,6 +596,7 @@ export class Store {
       // process died mid-turn, bots.json still says busy/working; persist
       // the reset so the next load does not read it again
       if (b.busy || (b.activity !== undefined && b.activity !== "idle")) botsMigrated = true;
+      if (b.busy || (b.activity !== undefined && ACTIVITY_BUSY.has(b.activity))) crashedBotIds.add(b.id);
       b.busy = false;
       b.activity = "idle";
       if (b.cloudBackend !== undefined && b.cloudBackend !== "box" && b.cloudBackend !== "vps") {
@@ -689,6 +699,11 @@ export class Store {
           resumeCursors: b.resumeCursors ?? {},
         },
       ];
+    }
+    for (const botId of crashedBotIds) {
+      const task = this.activeTask(botId);
+      const packet = task ? this.taskPacket(task.threadId) : null;
+      if (packet) this.writeTaskPacket({ ...packet, flushReason: "crash" });
     }
     // Search reads SQLite directly, so migrate every known legacy transcript
     // at startup rather than waiting until the user happens to open it. Only
@@ -806,6 +821,10 @@ export class Store {
   /** A thread's durable record: DB rows plus any legacy JSON leftovers. */
   private deleteThreadRecord(threadId: string) {
     this.threads.delete(threadId);
+    this.taskPackets.delete(threadId);
+    try {
+      deleteTaskResumePacket(threadId);
+    } catch {}
     mdb.deleteThread(threadId);
     for (const file of [messagesFile(threadId), `${messagesFile(threadId)}.imported`]) {
       try {
@@ -1320,6 +1339,26 @@ export class Store {
 
   taskByThread(botId: string, threadId: string): TaskRecord | undefined {
     return this.bot(botId)?.tasks?.find((t) => t.threadId === threadId);
+  }
+
+  taskPacket(threadId: string): TaskResumePacket | null {
+    if (!this.taskPackets.has(threadId)) {
+      const owner = this.botByThread(threadId);
+      const packet = owner && this.taskByThread(owner.id, threadId)
+        ? readTaskResumePacket(threadId)
+        : null;
+      this.taskPackets.set(threadId, packet?.botId === owner?.id ? packet : null);
+    }
+    const packet = this.taskPackets.get(threadId);
+    return packet ? structuredClone(packet) : null;
+  }
+
+  writeTaskPacket(packet: TaskResumePacket): TaskResumePacket | null {
+    if (!this.taskByThread(packet.botId, packet.threadId)) return null;
+    const saved = writeTaskResumePacket(packet);
+    this.taskPackets.set(packet.threadId, saved);
+    this.emit({ type: "task.packet", threadId: packet.threadId });
+    return structuredClone(saved);
   }
 
   /** A fresh context on the same bot: new thread, new session, same
