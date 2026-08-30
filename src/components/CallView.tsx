@@ -155,9 +155,6 @@ export function CallTargetButton({
         )}
       >
         {active ? <PhoneOff size={17} /> : <Phone size={17} />}
-        {unavailable && (
-          <span className="absolute right-1 top-1 size-1.5 rounded-full bg-warning ring-2 ring-app" aria-hidden="true" />
-        )}
       </button>
 
       {unavailable && helpOpen && (

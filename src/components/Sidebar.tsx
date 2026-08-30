@@ -1584,10 +1584,11 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           {density !== "icons" && <UpdateButton />}
           {density !== "icons" && <button
             onClick={() => dispatch({ type: "toggleAppSettings" })}
+            aria-label="App settings"
             className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
             title="App settings"
           >
-            <Settings size={18} />
+            <Settings size={18} aria-hidden="true" />
           </button>}
         </div>
       </div>

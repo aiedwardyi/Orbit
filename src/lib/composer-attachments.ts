@@ -28,6 +28,25 @@ export type ImageAttachment = {
 
 export type Attachment = PasteAttachment | FileAttachment | ImageAttachment;
 
+export type ImageSupport = "supported" | "unsupported" | "unknown";
+
+export function imageSupportForTargets(
+  instances: readonly { instanceId: string; capabilities?: { images?: boolean } }[],
+  targets: readonly { modelSelection: { instanceId: string } }[],
+): ImageSupport {
+  if (!targets.length) return "unsupported";
+  let unknown = false;
+  for (const target of targets) {
+    const instance = instances.find((candidate) => candidate.instanceId === target.modelSelection.instanceId);
+    if (!instance) {
+      unknown = true;
+      continue;
+    }
+    if (instance.capabilities?.images !== true) return "unsupported";
+  }
+  return unknown ? "unknown" : "supported";
+}
+
 export function isAttachment(value: unknown): value is Attachment {
   if (!value || typeof value !== "object") return false;
   const attachment = value as Record<string, unknown>;

@@ -1110,13 +1110,15 @@ export function ChatView({ bot }: { bot: Bot }) {
           <CallButton bot={bot} />
           <button
             onClick={() => dispatch({ type: "toggleComputer" })}
+            aria-label="Bot's computer"
+            aria-pressed={state.computerOpen}
             className={cn(
               "rounded-md p-1.5 hover:bg-raised",
               state.computerOpen ? "text-accent" : "text-ink-secondary hover:text-ink",
             )}
             title="Bot's computer"
           >
-            <Monitor size={18} />
+            <Monitor size={18} aria-hidden="true" />
           </button>
           <button
             onClick={() => dispatch({ type: "toggleInspector" })}

@@ -146,7 +146,7 @@ describe("queueDelegation", () => {
     }, 1);
     const ownSnapshot = pendingDelegationSnapshot().filter((item) => item.sourceThreadId === from.threadId);
     expect(ownSnapshot).toEqual([
-      { sourceThreadId: from.threadId, toBotId: target.id, reason: "followup" },
+      { sourceThreadId: from.threadId, sourceBotId: from.id, toBotId: target.id, reason: "followup" },
     ]);
     expect(JSON.stringify(ownSnapshot)).not.toContain("private customer task details");
   });
@@ -552,6 +552,32 @@ describe("busy retries and receipts", () => {
     const buses = setupBuses(store);
     commsBus = buses.commsBus;
     approvalBus = buses.approvalBus;
+  });
+
+  it("drains a room member's handoff with its sender identity", async () => {
+    const group = store.createGroup("Project room", [from.id, target.id]);
+    const queued = queueDelegation(
+      commsBus,
+      from,
+      { toBotId: target.id, message: "take the follow-up", depth: 0 },
+      1,
+      group.threadId,
+    );
+    const calls: unknown[][] = [];
+
+    drainDelegations(
+      commsBus,
+      approvalBus,
+      group.threadId,
+      (...args: unknown[]) => void calls.push(args),
+      from.id,
+    );
+
+    await waitFor(() => calls.length === 1);
+    expect(calls[0][3]).toBe(group.threadId);
+    expect(calls[0][5]).toBe(queued.id);
+    expect(calls[0][6]).toBe(from.id);
+    expect(store.messagesFor(group.threadId).find((message) => message.tool?.name === "Delegated to @Helper")?.from?.botId).toBe(from.id);
   });
 
   const chipCount = (needle: string) =>

@@ -89,11 +89,13 @@ describe("OpenAICompatDriver", () => {
   });
 
   it("includes streamed token totals in turn.completed", async () => {
+    let sentBody: any = null;
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: string | URL | Request) => {
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
         if (url.endsWith("/models")) return new Response(JSON.stringify({ data: [] }), { status: 200 });
+        sentBody = JSON.parse(String(init?.body));
         return new Response(
           'data: {"choices":[{"delta":{"content":"hello"}}]}\n' +
             'data: {"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":3}}\n' +
@@ -111,9 +113,23 @@ describe("OpenAICompatDriver", () => {
     });
     const recorder = recordEvents(inst.adapter);
 
-    await inst.adapter.sendTurn({ threadId: "thread", text: "private prompt", model: "vendor/model" });
+    await inst.adapter.sendTurn({
+      threadId: "thread",
+      text: "current turn",
+      model: "vendor/model",
+      transcript: [
+        { role: "user", text: "earlier question" },
+        { role: "assistant", text: "earlier answer" },
+      ],
+    });
     const completed = await recorder.until((event) => event.type === "turn.completed");
 
+    expect(inst.adapter.capabilities.transcriptReplay).toBe(true);
+    expect(sentBody.messages).toEqual([
+      { role: "user", content: "earlier question" },
+      { role: "assistant", content: "earlier answer" },
+      { role: "user", content: "current turn" },
+    ]);
     expect(completed).toMatchObject({ ok: true, usage: { input: 12, output: 3 } });
     recorder.stop();
     await inst.dispose();

@@ -54,9 +54,10 @@ export function OptionCard({
           onClick={() =>
             dispatch({ type: "dismissCard", botId, messageId: message.id })
           }
+          aria-label="Dismiss question"
           className="rounded-md p-1 text-ink-secondary hover:bg-control hover:text-ink"
         >
-          <X size={16} />
+          <X size={16} aria-hidden="true" />
         </button>
       </div>
 

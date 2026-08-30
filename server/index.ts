@@ -823,6 +823,7 @@ function notify(notification: Notification | null) {
 // Group threads: the fold needs to know WHO is talking — the turn engine
 // records the active member here before dispatching its turn.
 const groupSpeakers = new Map<string, { botId: string; name: string; color: string }>();
+const settledGroupSpeakers = new Map<string, string>();
 
 // The latest running token totals for the turn in flight on each thread.
 // Providers report cumulative-within-turn numbers; the final value is folded
@@ -1434,6 +1435,7 @@ bus.subscribe((event: RuntimeEvent) => {
       const speaker = groupSpeakers.get(event.threadId);
       const group = store.groupByThread(event.threadId);
       if (speaker && group?.busyBotId === speaker.botId) {
+        settledGroupSpeakers.set(event.threadId, speaker.botId);
         groupSpeakers.delete(event.threadId);
         store.patchGroup(group.id, { busyBotId: null, unread: true });
         const speakingBot = store.bot(speaker.botId);
@@ -1459,7 +1461,7 @@ bus.subscribe((event: RuntimeEvent) => {
 // (target threadId → channel) lets the main fold mirror the delegated
 // turn's TERMINAL state into the A⇄B channel when it completes — the
 // channel stays the full record of the handoff, not just its request.
-const delegationWatch = new Map<string, { channelId?: string; toBotId: string; taskId?: string; sourceThreadId?: string }>();
+const delegationWatch = new Map<string, { channelId?: string; toBotId: string; taskId?: string; sourceThreadId?: string; sourceBotId?: string }>();
 
 /** Consume one delegated-turn watch and mirror exactly one terminal state.
  * Some harness paths settle a busy bot without a provider turn.completed
@@ -1529,13 +1531,13 @@ bus.subscribe((event: RuntimeEvent) => {
 /** How a drained delegation becomes a real turn on the target. Shared by
  * the settle-time drain and the boot-time drain of what a previous process
  * left queued. */
-const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text, commsDepth, sourceThreadId, channel, taskId) => {
+const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text, commsDepth, sourceThreadId, channel, taskId, sourceBotId) => {
     // startTurn REJECTS on an ordinary condition — busy target, deleted bot,
     // unavailable provider. Unhandled, that rejection is fatal to the
     // harness (Node's default), which in the packaged app kills the server
     // child. Every delegation failure has to land as a chip instead.
     const targetThreadId = store.bot(toBotId)?.threadId;
-    if (targetThreadId) delegationWatch.set(targetThreadId, { channelId: channel?.id, toBotId, taskId, sourceThreadId });
+    if (targetThreadId) delegationWatch.set(targetThreadId, { channelId: channel?.id, toBotId, taskId, sourceThreadId, sourceBotId });
     let failureReported = false;
     const reportStartFailure = (error: unknown) => {
       if (failureReported) return;
@@ -1550,17 +1552,20 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text,
           `Delegated turn could not start — ${why.slice(0, 120)}`,
         );
       }
-      const source = store.botByThread(sourceThreadId);
+      const source = store.conversationForBot(sourceBotId, sourceThreadId)?.bot;
       if (!source) return;
       store.appendMessage(sourceThreadId, {
         role: "bot",
         kind: "activity",
         tool: { name: `error: delegation to @${bot?.name ?? toBotId} could not start — ${why.slice(0, 120)}`, ok: false },
+        ...(sourceThreadId !== source.threadId
+          ? { from: { botId: source.id, name: source.name, color: source.color } }
+          : {}),
       });
     };
     return startTurn(toBotId, text, {
       commsDepth,
-      unattended: isUnattended(store.botByThread(sourceThreadId)?.id),
+      unattended: isUnattended(sourceBotId),
       // startTurn schedules provider/integration setup after marking the bot
       // busy. Those asynchronous setup failures do not emit turn.completed,
       // so clear the watch and report them through this callback too.
@@ -1572,11 +1577,13 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text,
 
 bus.subscribe((event: RuntimeEvent) => {
   if (event.type !== "turn.completed") return;
+  const sourceBotId = store.botByThread(event.threadId)?.id ?? settledGroupSpeakers.get(event.threadId);
   // A turn that failed or was interrupted drops its queue rather than
   // firing it later: the user who hit Stop does not expect the delegations
   // that turn queued to run anyway, minutes later, on an unrelated turn.
-  if (!event.ok) discardDelegations(commsBus, event.threadId);
-  else drainDelegations(commsBus, approvalBus, event.threadId, runDelegatedTurn);
+  if (!event.ok) discardDelegations(commsBus, event.threadId, sourceBotId);
+  else drainDelegations(commsBus, approvalBus, event.threadId, runDelegatedTurn, sourceBotId);
+  settledGroupSpeakers.delete(event.threadId);
   // A settling bot frees itself as a delegation TARGET too: handoffs that
   // found it busy earlier were kept queued (bounded retries) on their own
   // source threads, and this is the moment they get their retry.
@@ -1856,7 +1863,7 @@ async function startTurn(
     transcript,
     rewound,
     fresh,
-    replaysNatively: instance.driverKind === "grok",
+    replaysNatively: instance.adapter.capabilities.transcriptReplay === true,
   });
 
   const persona = [
@@ -2955,12 +2962,7 @@ const pendingConnectorResumes = new Map<
 >();
 
 function connectorThread(botId: string, threadId: string) {
-  const bot = store.bot(botId);
-  if (!bot) return null;
-  if (store.taskByThread(botId, threadId)) return { bot, group: undefined };
-  const group = store.groupByThread(threadId);
-  if (group?.memberIds.includes(botId)) return { bot, group };
-  return null;
+  return store.conversationForBot(botId, threadId);
 }
 
 function routineProposalPersistence(botId: string, threadId: string) {
@@ -3584,7 +3586,7 @@ const server = createServer(async (req, res) => {
           return json(res, 403, { error: "that bot belongs to a different section" });
         }
         const fromThreadId = String(body.fromThreadId ?? from.threadId);
-        if (!store.taskByThread(from.id, fromThreadId)) {
+        if (!connectorThread(from.id, fromThreadId)) {
           return json(res, 403, { error: "source thread does not belong to sender" });
         }
         let currentFrom = from;
@@ -3619,7 +3621,7 @@ const server = createServer(async (req, res) => {
           if (sectionKey(freshFrom.section) !== sectionKey(freshTarget.section)) {
             return json(res, 200, { error: "that bot moved to a different section" });
           }
-          if (!store.taskByThread(freshFrom.id, fromThreadId)) {
+          if (!connectorThread(freshFrom.id, fromThreadId)) {
             return json(res, 404, { error: "source task no longer exists" });
           }
           if (freshTarget.busy) return json(res, 200, { busy: true });
@@ -3642,7 +3644,7 @@ const server = createServer(async (req, res) => {
         const fromBotId = String(url.searchParams.get("fromBotId") ?? "");
         const fromThreadId = String(url.searchParams.get("fromThreadId") ?? "");
         const from = store.bot(fromBotId);
-        if (!from || !store.taskByThread(from.id, fromThreadId)) return json(res, 403, { error: "unknown sender" });
+        if (!from || !connectorThread(from.id, fromThreadId)) return json(res, 403, { error: "unknown sender" });
         const waitMs = Math.min(Math.max(Number(url.searchParams.get("wait_ms")) || 0, 0), 240_000);
         const deadline = Date.now() + waitMs;
         // Bounded long-poll: the delegating bot parks ONE cheap HTTP request
@@ -3686,7 +3688,7 @@ const server = createServer(async (req, res) => {
           return json(res, 403, { error: "that bot belongs to a different section" });
         }
         const fromThreadId = String(body.fromThreadId ?? from.threadId);
-        if (!store.taskByThread(from.id, fromThreadId)) {
+        if (!connectorThread(from.id, fromThreadId)) {
           return json(res, 403, { error: "source thread does not belong to sender" });
         }
         const queued = queueDelegation(
@@ -3921,14 +3923,16 @@ const server = createServer(async (req, res) => {
         }))
         .sort((a, b) => b.lastAt - a.lastAt);
       const queued = pendingDelegationSnapshot().flatMap((item) => {
-        const source = store.botByThread(item.sourceThreadId);
+        const source = item.sourceBotId
+          ? store.conversationForBot(item.sourceBotId, item.sourceThreadId)?.bot
+          : store.botByThread(item.sourceThreadId);
         if (!source || !visible.has(source.id) || !visible.has(item.toBotId)) return [];
         return [{ sourceBotId: source.id, targetBotId: item.toBotId, reason: item.reason }];
       });
       const running = [...delegationWatch.entries()].flatMap(([threadId, watch]) => {
         if (!visible.has(watch.toBotId)) return [];
         const channel = watch.channelId ? store.group(watch.channelId) : undefined;
-        const sourceBotId = channel?.memberIds.find((botId) => botId !== watch.toBotId);
+        const sourceBotId = watch.sourceBotId ?? channel?.memberIds.find((botId) => botId !== watch.toBotId);
         if (!sourceBotId || !visible.has(sourceBotId)) return [];
         return [{ sourceBotId, targetBotId: watch.toBotId, threadId, groupId: channel?.id }];
       });

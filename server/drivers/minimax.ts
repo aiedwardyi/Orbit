@@ -308,7 +308,7 @@ export const MinimaxDriver: ProviderDriver<MinimaxConfig> = {
       snapshot,
       adapter: {
         provider: DRIVER_KIND,
-        capabilities: { sessionModelSwitch: "in-session" },
+        capabilities: { sessionModelSwitch: "in-session", transcriptReplay: true },
         sendTurn,
         interruptTurn: async (threadId) => active.get(threadId)?.abort.abort(),
         respondToRequest: async (): Promise<"unavailable"> => "unavailable",

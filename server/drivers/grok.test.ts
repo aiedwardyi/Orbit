@@ -61,6 +61,7 @@ describe("GrokDriver turns (fake fetch)", () => {
   it("normalizes a full turn into the canonical event sequence", async () => {
     script = [];
     await create();
+    expect(instance.adapter.capabilities.transcriptReplay).toBe(true);
     const { turnId } = await instance.adapter.sendTurn({ threadId: "t-happy", text: "hi" });
     await recorder.until((e) => e.type === "turn.completed");
 

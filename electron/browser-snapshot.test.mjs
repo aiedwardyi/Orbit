@@ -75,8 +75,11 @@ describe("browser snapshot", () => {
 
   it("presents as the Chrome it is", () => {
     expect(
-      browserUserAgent("Mozilla/5.0 (Macintosh) AppleWebKit/537.36 (KHTML, like Gecko) OpenMausBot/0.1.38 Chrome/140.0.0.0 Electron/43.4.0 Safari/537.36"),
-    ).toBe("Mozilla/5.0 (Macintosh) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36");
+      browserUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) orbit-desktop/1.0.0 Chrome/150.0.7871.224 Electron/43.4.0 Safari/537.36"),
+    ).toBe("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36");
+    expect(browserUserAgent("OpenMausBot/0.1.38 Orbit/1.0.0 Chrome/140.0.0.0")).toBe(
+      "Chrome/140.0.0.0",
+    );
   });
 
   it("derives one durable partition per bot from safe characters only", () => {

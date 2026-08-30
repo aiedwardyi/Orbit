@@ -110,16 +110,29 @@ describe("MinimaxDriver", () => {
     });
     const recorder = recordEvents(instance.adapter);
 
-    await instance.adapter.sendTurn({ threadId: "thread", text: "private prompt" });
+    await instance.adapter.sendTurn({
+      threadId: "thread",
+      text: "current turn",
+      transcript: [
+        { role: "user", text: "earlier question" },
+        { role: "assistant", text: "earlier answer" },
+      ],
+    });
     const completed = await recorder.until((event) => event.type === "turn.completed");
     const body = JSON.parse(String(request?.body));
 
+    expect(instance.adapter.capabilities.transcriptReplay).toBe(true);
     expect(body).toMatchObject({
       model: "MiniMax-M3",
       stream: true,
       reasoning_split: true,
       stream_options: { include_usage: true },
     });
+    expect(body.messages).toEqual([
+      { role: "user", content: "earlier question" },
+      { role: "assistant", content: "earlier answer" },
+      { role: "user", content: "current turn" },
+    ]);
     expect(request?.signal).toBeInstanceOf(AbortSignal);
     expect(completed).toMatchObject({ ok: true, usage: { input: 12, output: 3 } });
     recorder.stop();

@@ -124,8 +124,7 @@ function browserNavigationAllowed(raw) {
  * Electron actually is. */
 function browserUserAgent(userAgent) {
   return String(userAgent ?? "")
-    .replace(/\s?OpenMausBot\/\S+/g, "")
-    .replace(/\s?openmausbot\/\S+/g, "")
+    .replace(/\s?(?:openmausbot|orbit(?:-desktop)?)\/\S+/gi, "")
     .replace(/\s?Electron\/\S+/g, "")
     .replace(/\s{2,}/g, " ")
     .trim();

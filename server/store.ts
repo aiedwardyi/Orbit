@@ -1063,6 +1063,14 @@ export class Store {
     return this.bots.find((b) => b.threadId === threadId || b.tasks?.some((t) => t.threadId === threadId)) ?? null;
   }
 
+  conversationForBot(botId: string, threadId: string) {
+    const bot = this.bot(botId);
+    if (!bot) return null;
+    if (this.taskByThread(botId, threadId)) return { bot, group: undefined };
+    const group = this.groupByThread(threadId);
+    return group?.memberIds.includes(botId) ? { bot, group } : null;
+  }
+
   createBot(
     profile: Partial<
       Pick<BotRecord, "name" | "title" | "description" | "color" | "mascotExpression" | "modelSelection" | "section">

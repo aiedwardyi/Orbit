@@ -22,6 +22,7 @@ import {
   appendPastedText,
   composeMessage,
   imageAttachmentFromFile,
+  imageSupportForTargets,
   intakeFiles,
   isImageFile,
   isLongPaste,
@@ -269,20 +270,22 @@ export function Composer({
   // what was typed before the mic went on — partials append after it
   const baseText = useRef("");
 
-  // image paste is offered only when every bot that will actually answer
-  // can open one. sendGroup routes to mentions, else the room default —
-  // `members.some` would let a mixed room send <attached-image> to Grok.
-  const botSupportsImages = (candidate?: Bot) =>
-    Boolean(
-      candidate &&
-        state.instances.find((i) => i.instanceId === candidate.modelSelection.instanceId)?.capabilities?.images,
-    );
+  // Image paste is offered unless a known responder refuses it. A missing
+  // instance is still hydrating, so keep the image and validate before send.
   const imageTargetsSupport = (message: string) => {
-    if (!group) return botSupportsImages(bot);
-    const responders = roomRespondersForComposer(message, members ?? [], group);
-    return responders.length > 0 && responders.every(botSupportsImages);
+    const responders = group
+      ? roomRespondersForComposer(message, members ?? [], group)
+      : bot
+        ? [bot]
+        : [];
+    return imageSupportForTargets(state.instances, responders);
   };
-  const engineSupportsImages = imageTargetsSupport(text);
+  const imageSupport = imageTargetsSupport(text);
+  const engineSupportsImages = imageSupport !== "unsupported";
+  const imageSupportError = (support: ReturnType<typeof imageTargetsSupport>) =>
+    support === "unknown"
+      ? "Engine details are still loading. Try sending the image again in a moment."
+      : "The selected responder does not support image attachments.";
 
   // ── @mention picker (tag another bot; the agent reaches it via ask_bot) ──
   const mention = mentionQueryAt(text, caret);
@@ -386,9 +389,12 @@ export function Composer({
 
   const hasContent = Boolean(text.trim()) || attachments.length > 0;
   const retryFailedSend = (failed: FailedComposerSend) => {
-    if (failed.requestText.includes("<attached-image ") && !imageTargetsSupport(failed.requestText)) {
-      dispatch({ type: "error", message: "The selected responder does not support image attachments." });
-      return;
+    if (failed.requestText.includes("<attached-image ")) {
+      const support = imageTargetsSupport(failed.requestText);
+      if (support !== "supported") {
+        dispatch({ type: "error", message: imageSupportError(support) });
+        return;
+      }
     }
     forgetFailedComposerSend(draftId, failed.id);
     const retry = {
@@ -417,9 +423,12 @@ export function Composer({
     // as an editable draft until that send is dispatched; replacing the slot
     // here would silently lose the first message.
     if (locked || (group && queued)) return;
-    if (attachments.some((attachment) => attachment.kind === "image") && !imageTargetsSupport(text)) {
-      dispatch({ type: "error", message: "The selected responder does not support image attachments." });
-      return;
+    if (attachments.some((attachment) => attachment.kind === "image")) {
+      const support = imageTargetsSupport(text);
+      if (support !== "supported") {
+        dispatch({ type: "error", message: imageSupportError(support) });
+        return;
+      }
     }
     const t = composeMessage(text, attachments);
     if (!t) return;
@@ -473,11 +482,14 @@ export function Composer({
   useEffect(() => {
     if (busy || !queued) return;
     if (group) {
-      if (queued.text.includes("<attached-image ") && !imageTargetsSupport(queued.text)) {
-        dispatch({ type: "error", message: "The selected responder does not support image attachments." });
-        clearQueued();
-        restoreDraft(queued.draft);
-        return;
+      if (queued.text.includes("<attached-image ")) {
+        const support = imageTargetsSupport(queued.text);
+        if (support !== "supported") {
+          dispatch({ type: "error", message: imageSupportError(support) });
+          clearQueued();
+          restoreDraft(queued.draft);
+          return;
+        }
       }
       clearQueued();
       dispatch({
@@ -710,12 +722,15 @@ export function Composer({
             setDismissedAt(null);
           }}
           onPaste={(e) => {
-            // an image from the clipboard becomes an uploaded attachment —
-            // but only for engines that can open one; a grok bot politely
-            // refuses instead of receiving a path it cannot read
+            // Keep images while engine details hydrate. Known unsupported
+            // responders get the same visible refusal as the send path.
             const imageFiles = Array.from(e.clipboardData.files).filter(isImageFile);
-            if (imageFiles.length && engineSupportsImages) {
+            if (imageFiles.length) {
               e.preventDefault();
+              if (imageSupport === "unsupported") {
+                dispatch({ type: "error", message: imageSupportError(imageSupport) });
+                return;
+              }
               void (async () => {
                 for (const file of imageFiles) {
                   try {

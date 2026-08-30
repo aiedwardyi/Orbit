@@ -57,6 +57,9 @@ export function mirrorExchange(
     role: "bot",
     kind: "activity",
     tool: { name: `Messaged @${target.name}` },
+    ...(sourceThreadId !== from.threadId
+      ? { from: { botId: from.id, name: from.name, color: from.color } }
+      : {}),
     comm: channel
       ? { groupId: channel.id, withBotId: target.id, withName: target.name, withColor: target.color }
       : undefined,

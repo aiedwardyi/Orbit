@@ -10,7 +10,6 @@ import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
 import { EngineGroupLabel } from "./EngineGroupLabel";
 import { cn } from "@/lib/cn";
-import { COMPACT_SQUARE } from "@/lib/compact-chip";
 
 type ModelOption = InstanceInfo["models"]["options"][number];
 const COMPACT_MODEL_COUNT = 5;
@@ -220,10 +219,6 @@ export function ModelPicker({
       aria-haspopup="dialog"
       className={cn(
         "flex items-center gap-1.5 rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover",
-        // in a narrow chat header fold to a rounded square with just the
-        // provider mark; the model name rides the tooltip (a bot with no
-        // resolved engine keeps its label — the mark is what would hide it)
-        !contained && active && COMPACT_SQUARE,
       )}
       title={active ? `${active.displayName} · ${modelLabel(active, selection.model)}` : selection.model}
     >
@@ -231,6 +226,11 @@ export function ModelPicker({
       <span className={cn("max-w-[160px] truncate", !contained && active && "@max-4xl/chathead:hidden")}>
         {modelLabel(active, selection.model)}
       </span>
+      {!contained && active && (
+        <span className="hidden max-w-[96px] truncate @max-4xl/chathead:inline">
+          {active.displayName}
+        </span>
+      )}
       <ChevronDown
         size={14}
         className={cn(

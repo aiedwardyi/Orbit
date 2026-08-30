@@ -7,6 +7,7 @@ import {
   attachmentBasename,
   attachmentImageUrl,
   composeMessage,
+  imageSupportForTargets,
   isImageFile,
   splitAttachedImages,
   type ImageAttachment,
@@ -112,5 +113,33 @@ describe("isImageFile", () => {
     expect(isImageFile({ type: "image/webp", size: 10 })).toBe(true);
     expect(isImageFile({ type: "image/svg+xml", size: 10 })).toBe(false);
     expect(isImageFile({ type: "text/plain", size: 10 })).toBe(false);
+  });
+});
+
+describe("imageSupportForTargets", () => {
+  const imageBot = { modelSelection: { instanceId: "claude" } };
+  const textBot = { modelSelection: { instanceId: "grok" } };
+
+  it("reports supported when every target supports images", () => {
+    const instances = [{ instanceId: "claude", capabilities: { images: true } }];
+    expect(imageSupportForTargets(instances, [imageBot])).toBe("supported");
+  });
+
+  it("reports unsupported for a known unsupported target", () => {
+    const instances = [{ instanceId: "grok", capabilities: { images: false } }];
+    expect(imageSupportForTargets(instances, [textBot])).toBe("unsupported");
+  });
+
+  it("reports unknown before instance details load", () => {
+    expect(imageSupportForTargets([], [imageBot])).toBe("unknown");
+  });
+
+  it("keeps mixed groups unsupported when any known target refuses images", () => {
+    const instances = [{ instanceId: "grok", capabilities: { images: false } }];
+    expect(imageSupportForTargets(instances, [imageBot, textBot])).toBe("unsupported");
+  });
+
+  it("reports unsupported when no responder is selected", () => {
+    expect(imageSupportForTargets([], [])).toBe("unsupported");
   });
 });

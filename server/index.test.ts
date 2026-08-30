@@ -93,6 +93,12 @@ beforeAll(async () => {
       instances: {
         ghost: { driver: "not-a-real-driver", displayName: "Ghost" },
         claude: { driver: "claudeAgent", displayName: "Fixture Claude", config: { cli: FAKE_CLAUDE_CLI } },
+        claudeHappy: {
+          driver: "claudeAgent",
+          displayName: "Fixture Claude Happy",
+          environment: { FAKE_CLAUDE_MODE: "happy" },
+          config: { cli: FAKE_CLAUDE_CLI },
+        },
       },
     }),
   );
@@ -2569,6 +2575,124 @@ describe("harness HTTP API", () => {
       await api("DELETE", `/api/bots/${second.id}`);
     }
   });
+
+  it("lets room members ask and delegate while rejecting non-members", async () => {
+    const source = (await api("POST", "/api/bots", {})).body.bot;
+    const target = (await api("POST", "/api/bots", {})).body.bot;
+    const outsider = (await api("POST", "/api/bots", {})).body.bot;
+    const room = (await api("POST", "/api/groups", {
+      name: "Peer tools room",
+      memberIds: [source.id, target.id],
+      setup: { bulletin: "", defaultResponder: { kind: "member", botId: source.id } },
+    })).body.group;
+    try {
+      expect((await api("PATCH", `/api/bots/${source.id}`, {
+        name: "Room source",
+        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      })).status).toBe(200);
+      expect((await api("PATCH", `/api/bots/${target.id}`, {
+        name: "Room target",
+        modelSelection: { instanceId: "claudeHappy", model: "claude-sonnet-5" },
+      })).status).toBe(200);
+
+      rmSync(fakeClaudeDump, { force: true });
+      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "open the peer tools" })).status).toBe(202);
+      await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 5_000 }).toBe(true);
+      const dump = JSON.parse(readFileSync(fakeClaudeDump, "utf8")) as {
+        mcpConfig: { mcpServers: { agents: { env: { OMB_COMMS_TOKEN: string } } } };
+      };
+      const token = dump.mcpConfig.mcpServers.agents.env.OMB_COMMS_TOKEN;
+      const internal = async (method: string, path: string, body?: unknown) => {
+        const response = await fetch(`${BASE}${path}`, {
+          method,
+          headers: {
+            authorization: `Bearer ${token}`,
+            ...(body ? { "content-type": "application/json" } : {}),
+          },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        return { status: response.status, body: await response.json() as any };
+      };
+
+      expect((await api("POST", `/api/groups/${room.id}/interrupt`, { threadId: room.threadId })).status).toBe(200);
+      await expect.poll(async () => {
+        const state = (await api("GET", "/api/bots?messages=0")).body;
+        return {
+          working: state.groups.find((group: { id: string }) => group.id === room.id)?.working,
+          busy: state.bots.find((bot: { id: string }) => bot.id === source.id)?.busy,
+        };
+      }, { timeout: 5_000 }).toEqual({ working: false, busy: false });
+
+      const asked = await internal("POST", "/api/internal/ask-bot", {
+        fromBotId: source.id,
+        fromThreadId: room.threadId,
+        toBotId: target.id,
+        message: "reply from the room",
+      });
+      expect(asked.status).toBe(200);
+      expect(asked.body.text).toContain("hello from fake claude");
+
+      const delegated = await internal("POST", "/api/internal/delegate-bot", {
+        fromBotId: source.id,
+        fromThreadId: room.threadId,
+        toBotId: target.id,
+        message: "finish the room follow-up",
+        reason: "room handoff",
+      });
+      expect(delegated).toMatchObject({ status: 200, body: { queued: true } });
+      const taskId = String(delegated.body.taskId);
+      const checked = await internal(
+        "GET",
+        `/api/internal/delegations/${taskId}?fromBotId=${source.id}&fromThreadId=${room.threadId}`,
+      );
+      expect(checked).toMatchObject({ status: 200, body: { status: "queued" } });
+
+      for (const request of [
+        internal("POST", "/api/internal/ask-bot", {
+          fromBotId: outsider.id,
+          fromThreadId: room.threadId,
+          toBotId: target.id,
+          message: "not a member",
+        }),
+        internal("POST", "/api/internal/delegate-bot", {
+          fromBotId: outsider.id,
+          fromThreadId: room.threadId,
+          toBotId: target.id,
+          message: "not a member",
+        }),
+        internal(
+          "GET",
+          `/api/internal/delegations/${taskId}?fromBotId=${outsider.id}&fromThreadId=${room.threadId}`,
+        ),
+      ]) {
+        expect((await request).status).toBe(403);
+      }
+
+      expect((await api("PATCH", `/api/bots/${source.id}`, {
+        modelSelection: { instanceId: "claudeHappy", model: "claude-sonnet-5" },
+      })).status).toBe(200);
+      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "settle the room handoff" })).status).toBe(202);
+      const finished = await internal(
+        "GET",
+        `/api/internal/delegations/${taskId}?fromBotId=${source.id}&fromThreadId=${room.threadId}&wait_ms=10000`,
+      );
+      expect(finished.status).toBe(200);
+      expect(finished.body.status).toBe("done");
+      expect(finished.body.result).toContain("hello from fake claude");
+    } finally {
+      const state = (await api("GET", "/api/bots?messages=0")).body;
+      const ownedGroups = state.groups.filter((group: { memberIds: string[] }) =>
+        group.memberIds.some((id) => id === source.id || id === target.id || id === outsider.id),
+      );
+      for (const group of ownedGroups) {
+        await api("POST", `/api/groups/${group.id}/interrupt`, { threadId: group.threadId });
+        await api("DELETE", `/api/groups/${group.id}`);
+      }
+      await api("DELETE", `/api/bots/${source.id}`);
+      await api("DELETE", `/api/bots/${target.id}`);
+      await api("DELETE", `/api/bots/${outsider.id}`);
+    }
+  }, 30_000);
 
   it("keeps chat-created routines inert until their durable card is confirmed", async () => {
     const bot = (await api("POST", "/api/bots", {})).body.bot;
