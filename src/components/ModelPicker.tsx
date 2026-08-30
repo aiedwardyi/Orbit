@@ -2,7 +2,7 @@
 // show a short suggested list with search and an explicit all-models view;
 // engines that need setup show one focused action instead of a disabled wall.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Search, Sparkles } from "lucide-react";
 import { useStore, type Bot, type InstanceInfo, type ModelSelection } from "@/state/store";
 import { filterCustomModels, partitionCustomModels, suggestedModels } from "@/lib/custom-models";
 import { isCustomOnly, splitEngineRail } from "@/lib/engine-rail";
@@ -112,6 +112,7 @@ export function ModelPicker({
   const rootRef = useRef<HTMLDivElement>(null);
 
   const selection = bot.modelSelection;
+  const isAutomatic = selection.mode === "automatic";
   const active = state.instances.find((instance) => instance.instanceId === selection.instanceId);
   const railInstance =
     state.instances.find((instance) => instance.instanceId === (railId ?? selection.instanceId)) ?? state.instances[0];
@@ -164,6 +165,7 @@ export function ModelPicker({
   const pick = (instance: InstanceInfo, model: string) => {
     const sameInstance = instance.instanceId === selection.instanceId;
     const nextSelection: ModelSelection = {
+      mode: "pinned",
       instanceId: instance.instanceId,
       model,
     };
@@ -172,6 +174,15 @@ export function ModelPicker({
       type: "setModel",
       botId: bot.id,
       selection: nextSelection,
+    });
+    setOpen(false);
+  };
+
+  const chooseAutomatic = () => {
+    dispatch({
+      type: "setModel",
+      botId: bot.id,
+      selection: { ...selection, mode: "automatic" },
     });
     setOpen(false);
   };
@@ -198,7 +209,7 @@ export function ModelPicker({
     <ModelRow
       key={option.id}
       option={option}
-      current={selection.instanceId === railInstance?.instanceId && selection.model === option.id}
+      current={!isAutomatic && selection.instanceId === railInstance?.instanceId && selection.model === option.id}
       defaultId={railInstance?.models.default ?? ""}
       onPick={() => railInstance && pick(railInstance, option.id)}
     />
@@ -220,13 +231,19 @@ export function ModelPicker({
       className={cn(
         "flex items-center gap-1.5 rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover",
       )}
-      title={active ? `${active.displayName} · ${modelLabel(active, selection.model)}` : selection.model}
+      title={
+        isAutomatic
+          ? `Orbit is choosing a working engine for this job. Currently ${active?.displayName ?? "unresolved"}.`
+          : active
+            ? `${active.displayName} · ${modelLabel(active, selection.model)}`
+            : selection.model
+      }
     >
-      {active && <ProviderMark driverKind={active.driverKind} size={14} />}
-      <span className={cn("max-w-[160px] truncate", !contained && active && "@max-4xl/chathead:hidden")}>
-        {modelLabel(active, selection.model)}
+      {isAutomatic ? <Sparkles size={14} className="text-accent" /> : active && <ProviderMark driverKind={active.driverKind} size={14} />}
+      <span className={cn("max-w-[160px] truncate", !isAutomatic && !contained && active && "@max-4xl/chathead:hidden")}>
+        {isAutomatic ? "Automatic" : modelLabel(active, selection.model)}
       </span>
-      {!contained && active && (
+      {!isAutomatic && !contained && active && (
         <span className="hidden max-w-[96px] truncate @max-4xl/chathead:inline">
           {active.displayName}
         </span>
@@ -236,7 +253,7 @@ export function ModelPicker({
         className={cn(
           "text-ink-secondary transition-transform",
           open && "rotate-180",
-          !contained && active && "@max-4xl/chathead:hidden",
+          !isAutomatic && !contained && active && "@max-4xl/chathead:hidden",
         )}
       />
     </button>
@@ -307,6 +324,25 @@ export function ModelPicker({
           </div>
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <button
+              type="button"
+              onClick={chooseAutomatic}
+              className={cn(
+                "flex shrink-0 items-center gap-3 border-b border-hairline/40 px-4 py-3 text-left hover:bg-control/60",
+                isAutomatic && "bg-control/40",
+              )}
+            >
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
+                <Sparkles size={15} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13.5px] font-medium text-ink">Automatic</span>
+                <span className="block truncate text-[11.5px] text-ink-secondary">
+                  Keep the current engine when it works. Switch only when needed.
+                </span>
+              </span>
+              {isAutomatic && <Check size={14} className="shrink-0 text-accent" />}
+            </button>
             {railInstance ? (
               <>
                 <div className="shrink-0 px-4 pb-2 pt-3.5">

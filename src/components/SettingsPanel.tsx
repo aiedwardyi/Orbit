@@ -11,6 +11,7 @@ import { requestNotificationPermission } from "@/lib/notify";
 import { botUsage, costCaption, formatTokens, formatUsd, hasFiniteCost } from "@/lib/usage";
 import { shortPath } from "@/lib/short-path";
 import { instanceSupportsLocalComputer, localComputerDisabledReason, localComputerSelectable } from "@/lib/local-computer";
+import { BotAvatar } from "./Avatar";
 import { BotProfileAvatarCard } from "./BotProfileAvatarCard";
 import { LocalComputerAutoWarning } from "./LocalComputerAutoWarning";
 import { VoiceSettings } from "./VoiceSettings";
@@ -318,6 +319,8 @@ function MemoryCard({ bot }: { bot: Bot }) {
 export function SettingsPanel({ bot }: { bot: Bot }) {
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
+  const [avatarOpen, setAvatarOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const providerSupportsLocal = instanceSupportsLocalComputer(state.instances, bot);
   const localSelectable = localComputerSelectable({ capabilities, providerSupportsLocal });
   const [localAutoWarning, setLocalAutoWarning] = useState<"auto" | "local" | null>(null);
@@ -376,17 +379,17 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
       <div className="flex items-center justify-between px-4 py-3">
         <button
           onClick={() => dispatch({ type: "toggleSettings", open: false })}
-          aria-label="Collapse agent profile"
-          title="Collapse agent profile"
+          aria-label="Collapse bot details"
+          title="Collapse bot details"
           className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-control hover:text-ink"
         >
           <ChevronLeft size={18} />
         </button>
-        <span className="text-[15px] font-semibold text-ink">Agent profile</span>
+        <span className="text-[15px] font-semibold text-ink">Bot details</span>
         <button
           onClick={() => dispatch({ type: "toggleSettings", open: false })}
-          aria-label="Close agent profile"
-          title="Close agent profile"
+          aria-label="Close bot details"
+          title="Close bot details"
           className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-control hover:text-ink"
         >
           <X size={18} />
@@ -395,12 +398,41 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
 
       <div className="flex-1 overflow-y-auto px-5 pb-5">
         <div className="flex flex-col gap-4 pt-4">
-          <BotProfileAvatarCard
-            bot={bot}
-            activeState={activeState}
-            mascotMotion={mascotMotion}
-            onPatch={patch}
-          />
+          <div className="rounded-xl bg-card p-3">
+            <div className="flex items-center gap-3">
+              <BotAvatar
+                bot={bot}
+                state={activeState}
+                size={48}
+                motion={mascotMotion?.kind ?? "none"}
+                motionKey={mascotMotion?.nonce ?? 0}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="text-[15px] font-medium text-ink">Avatar</div>
+                <div className="mt-0.5 text-[12px] text-ink-secondary">
+                  Keep the Orbit mascot or add your own image.
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-expanded={avatarOpen}
+                onClick={() => setAvatarOpen((open) => !open)}
+                className="rounded-lg bg-control px-3 py-2 text-[12.5px] text-ink hover:bg-raised-hover"
+              >
+                {avatarOpen ? "Done" : "Customize"}
+              </button>
+            </div>
+            {avatarOpen && (
+              <div className="mt-3">
+                <BotProfileAvatarCard
+                  bot={bot}
+                  activeState={activeState}
+                  mascotMotion={mascotMotion}
+                  onPatch={patch}
+                />
+              </div>
+            )}
+          </div>
 
           <Field label="Name">
             <input
@@ -414,7 +446,7 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
             <input
               className={inputCls}
               maxLength={BOT_PROFILE_LIMITS.title}
-              placeholder="Describe what your agent does"
+              placeholder="The job, in a few words"
               value={bot.title}
               onChange={(e) => patch({ title: e.target.value })}
             />
@@ -423,16 +455,123 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
             <textarea
               className={cn(inputCls, "min-h-[96px] resize-none")}
               maxLength={BOT_PROFILE_LIMITS.description}
-              placeholder="What this agent is for"
+              placeholder="How this bot should work, and what it must ask before doing"
               value={bot.description}
               onChange={(e) => patch({ description: e.target.value })}
             />
           </Field>
 
-          <div className={cn(
-            "rounded-xl border p-4",
-            bot.chiefOfStaff ? "border-accent/40 bg-accent/10" : "border-hairline/40 bg-card",
-          )}>
+          <div className="rounded-xl bg-card p-4">
+            <ModelPicker
+              bot={bot}
+              contained
+              label={
+                <div>
+                  <div className="text-[15px] font-medium text-ink">Model</div>
+                  <div className="mt-0.5 text-[13px] text-ink-secondary">
+                    Automatic by default, or choose a specific engine
+                  </div>
+                </div>
+              }
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
+            <div>
+              <div className="text-[15px] font-medium text-ink">Connected apps</div>
+              <div className="mt-0.5 text-[13px] text-ink-secondary">
+                {!connectedAppsConfigured
+                  ? "Connect apps in App Settings before giving this bot access."
+                  : !canUseConnectedApps
+                    ? "This bot's current engine cannot use connected apps."
+                    : connectedAppsEnabled
+                      ? "Let this bot use your connected Gmail, Calendar, Slack, and other apps."
+                      : "Keep your connected apps unavailable to this bot."}
+              </div>
+            </div>
+            <button
+              role="switch"
+              aria-checked={connectedAppsEnabled}
+              aria-label="Allow this bot to use connected apps"
+              disabled={!connectedAppsEnabled && (!connectedAppsConfigured || !canUseConnectedApps)}
+              onClick={() => patch({ composio: !connectedAppsEnabled })}
+              title={
+                !connectedAppsEnabled && !connectedAppsConfigured
+                  ? "Connect apps in App Settings first"
+                  : !connectedAppsEnabled && !canUseConnectedApps
+                    ? "This engine cannot use connected apps"
+                    : undefined
+              }
+              className={cn(
+                "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+                connectedAppsEnabled ? "bg-accent" : "bg-control",
+              )}
+            >
+              <span
+                className={cn(
+                  "absolute top-[3px] size-5 rounded-full bg-white transition-all",
+                  connectedAppsEnabled ? "left-[21px]" : "left-[3px]",
+                )}
+              />
+            </button>
+          </div>
+
+          <WorkingFolder bot={bot} />
+          <MemoryCard key={bot.id} bot={bot} />
+
+          <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
+            <div>
+              <div className="text-[15px] font-medium text-ink">Notifications</div>
+              <div className="mt-0.5 text-[13px] text-ink-secondary">
+                Get notified when this bot finishes or needs input
+              </div>
+            </div>
+            <button
+              role="switch"
+              aria-checked={bot.notifications}
+              aria-label="Bot notifications"
+              onClick={() => {
+                const enabled = !bot.notifications;
+                if (enabled) void requestNotificationPermission();
+                patch({ notifications: enabled });
+              }}
+              className={cn(
+                "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors",
+                bot.notifications ? "bg-accent" : "bg-control",
+              )}
+            >
+              <span
+                className={cn(
+                  "absolute top-[3px] size-5 rounded-full bg-white transition-all",
+                  bot.notifications ? "left-[21px]" : "left-[3px]",
+                )}
+              />
+            </button>
+          </div>
+
+          <button
+            type="button"
+            aria-expanded={advancedOpen}
+            onClick={() => setAdvancedOpen((open) => !open)}
+            className="flex w-full items-center justify-between rounded-xl border border-hairline/40 bg-card px-4 py-3 text-left hover:bg-control/60"
+          >
+            <span>
+              <span className="block text-[14px] font-medium text-ink">Advanced</span>
+              <span className="mt-0.5 block text-[12px] text-ink-secondary">
+                Effort, computer, coordination, browser, approvals, voice, and usage
+              </span>
+            </span>
+            <ChevronDown
+              size={16}
+              className={cn("text-ink-secondary transition-transform", advancedOpen && "rotate-180")}
+            />
+          </button>
+
+          {advancedOpen && (
+            <div className={cn(
+              "rounded-xl border p-4",
+              bot.chiefOfStaff ? "border-accent/40 bg-accent/10" : "border-hairline/40 bg-card",
+            )}>
             <div className="flex items-center gap-3">
               <span className={cn(
                 "flex size-8 shrink-0 items-center justify-center rounded-lg",
@@ -475,9 +614,11 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
                     ? `Make this bot the ${sectionName} Chief and hand the role over from ${currentChief.name}.`
                     : `Make this bot the primary contact for the ${sectionName} section.`}
             </div>
-          </div>
+            </div>
+          )}
 
-          <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
+          {advancedOpen && (
+            <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
             <div>
               <div className="text-[15px] font-medium text-ink">
                 Ask me before contacting other bots
@@ -507,51 +648,11 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
                 )}
               />
             </button>
-          </div>
-
-          <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
-            <div>
-              <div className="text-[15px] font-medium text-ink">Connected apps</div>
-              <div className="mt-0.5 text-[13px] text-ink-secondary">
-                {!connectedAppsConfigured
-                  ? "Connect apps in App Settings before giving this bot access."
-                  : !canUseConnectedApps
-                    ? "This bot's current engine cannot use connected apps."
-                    : connectedAppsEnabled
-                      ? "Let this bot use your connected Gmail, Calendar, Slack, and other apps."
-                      : "Keep your connected apps unavailable to this bot."}
-              </div>
             </div>
-            <button
-              role="switch"
-              aria-checked={connectedAppsEnabled}
-              aria-label="Allow this bot to use connected apps"
-              disabled={
-                !connectedAppsEnabled && (!connectedAppsConfigured || !canUseConnectedApps)
-              }
-              onClick={() => patch({ composio: !connectedAppsEnabled })}
-              title={
-                !connectedAppsEnabled && !connectedAppsConfigured
-                  ? "Connect apps in App Settings first"
-                  : !connectedAppsEnabled && !canUseConnectedApps
-                    ? "This engine cannot use connected apps"
-                    : undefined
-              }
-              className={cn(
-                "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-                connectedAppsEnabled ? "bg-accent" : "bg-control",
-              )}
-            >
-              <span
-                className={cn(
-                  "absolute top-[3px] size-5 rounded-full bg-white transition-all",
-                  connectedAppsEnabled ? "left-[21px]" : "left-[3px]",
-                )}
-              />
-            </button>
-          </div>
+          )}
 
-          <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
+          {advancedOpen && (
+            <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
             <div>
               <div className="text-[15px] font-medium text-ink">Browser</div>
               <div className="mt-0.5 text-[13px] text-ink-secondary">
@@ -584,24 +685,10 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
                 )}
               />
             </button>
-          </div>
+            </div>
+          )}
 
-          <div className="rounded-xl bg-card p-4">
-            <ModelPicker
-              bot={bot}
-              contained
-              label={
-                <div>
-                  <div className="text-[15px] font-medium text-ink">Model</div>
-                  <div className="mt-0.5 text-[13px] text-ink-secondary">
-                    Which provider and model this bot runs on
-                  </div>
-                </div>
-              }
-            />
-          </div>
-
-          {!!engine?.capabilities?.effortLevels?.length && (
+          {advancedOpen && !!engine?.capabilities?.effortLevels?.length && (
             <div className="rounded-xl bg-card p-4">
               <div className="text-[15px] font-medium text-ink">Effort</div>
               {/* Says what the app does, not what the engine ends up at:
@@ -634,7 +721,8 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
             </div>
           )}
 
-          <div className="rounded-xl bg-card p-4">
+          {advancedOpen && (
+            <div className="rounded-xl bg-card p-4">
             <div className="text-[15px] font-medium text-ink">Computer</div>
             <div className="mt-0.5 text-[13px] text-ink-secondary">
               Where this bot's computer runs{bot.computer ? "" : " (currently: auto)"}
@@ -704,15 +792,13 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
                 )}
               </>
             )}
-          </div>
+            </div>
+          )}
 
-          <BotUsageCard bot={bot} />
-          <WorkingFolder bot={bot} />
+          {advancedOpen && <BotUsageCard bot={bot} />}
 
-          {/* keyed so switching bots never shows one bot's notes under another's name */}
-          <MemoryCard key={bot.id} bot={bot} />
-
-          <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
+          {advancedOpen && (
+            <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
             <div>
               <div className="text-[15px] font-medium text-ink">Auto mode</div>
               <div className="mt-0.5 text-[13px] text-ink-secondary">
@@ -745,9 +831,11 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
                 )}
               />
             </button>
-          </div>
+            </div>
+          )}
 
-          <div className="rounded-xl bg-card p-4">
+          {advancedOpen && (
+            <div className="rounded-xl bg-card p-4">
             <div className="text-[15px] font-medium text-ink">Review routine approvals</div>
             <div className="mt-0.5 text-[13px] text-ink-secondary">
               {canAutoReview
@@ -780,41 +868,11 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
                 );
               })}
             </div>
-          </div>
-
-          <VoiceSettings bot={bot} onPatch={patch} />
-
-          <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
-            <div>
-              <div className="text-[15px] font-medium text-ink">
-                Notifications
-              </div>
-              <div className="mt-0.5 text-[13px] text-ink-secondary">
-                Get notified when this agent finishes or needs input
-              </div>
             </div>
-            <button
-              role="switch"
-              aria-checked={bot.notifications}
-              aria-label="Agent notifications"
-              onClick={() => {
-                const enabled = !bot.notifications;
-                if (enabled) void requestNotificationPermission();
-                patch({ notifications: enabled });
-              }}
-              className={cn(
-                "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors",
-                bot.notifications ? "bg-accent" : "bg-control",
-              )}
-            >
-              <span
-                className={cn(
-                  "absolute top-[3px] size-5 rounded-full bg-white transition-all",
-                  bot.notifications ? "left-[21px]" : "left-[3px]",
-                )}
-              />
-            </button>
-          </div>
+          )}
+
+          {advancedOpen && <VoiceSettings bot={bot} onPatch={patch} />}
+
         </div>
       </div>
     </aside>

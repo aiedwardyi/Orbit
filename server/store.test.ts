@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { DATA_DIR } from "./config.ts";
 import type { ModelSelection } from "./contracts.ts";
 import { peerAllowKey } from "./peer-approval-key.ts";
-import { Store, type BotRecord } from "./store.ts";
+import { Store, titleFromMessage, type BotRecord } from "./store.ts";
 
 const selection = (): ModelSelection => ({ instanceId: "claude", model: "claude-sonnet-5" });
 
@@ -27,6 +27,24 @@ describe("Store", () => {
     expect(messages[1].kind).toBe("options");
     expect(messages[1].card?.options.length).toBeGreaterThan(1);
     expect(bot.modelSelection).toEqual(selection());
+  });
+
+  it("createBot with a job starts with a useful profile and no lifestyle quiz", () => {
+    const store = new Store(selection);
+    const job = "Keep a weekly competitor brief with links and decisions.";
+    const bot = store.createBot({}, { job });
+
+    expect(bot.title).toBe(titleFromMessage(job));
+    expect(bot.description).toBe(job);
+    const messages = store.messagesFor(bot.threadId);
+    expect(messages).toEqual([
+      expect.objectContaining({
+        role: "bot",
+        kind: "text",
+        text: expect.stringContaining("Send me the first piece of work."),
+      }),
+    ]);
+    expect(messages[0]?.text).not.toContain("….");
   });
 
   it("dismisses the onboarding quiz when the user talks, and leaves live asks", () => {

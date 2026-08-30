@@ -9,6 +9,7 @@ import { extname, join } from "node:path";
 
 import { z } from "zod";
 import { botAvatarUrlFromStoredPath } from "../shared/bot-avatar.ts";
+import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
 import {
   CREDENTIAL_TARGETS,
   credentialResumeOutcome,
@@ -20,6 +21,11 @@ import {
 
 import { approvalKey, autoVerdict } from "./auto-approve.ts";
 import { requestReview, resolveAutoReviewMode, shouldReview } from "./auto-review.ts";
+import {
+  resolveAutomaticSelection,
+  type AutomaticCandidate,
+  type AutomaticCapability,
+} from "./automatic-selection.ts";
 import * as checkpoints from "./checkpoints.ts";
 import { appendDecision, readDecisions } from "./decision-log.ts";
 import { validateBotCwd } from "./bot-cwd.ts";
@@ -108,6 +114,7 @@ import {
   roomResponders,
   sectionKey,
   Store,
+  type BotRecord,
   type GroupDefaultResponder,
   type GroupRecord,
   type Message,
@@ -368,18 +375,100 @@ function askBotAndWait(targetBotId: string, message: string, depth: number, from
   });
 }
 
-// default selection for new bots: first available instance, claude preferred
+const automaticCandidate = (entry: Awaited<ReturnType<typeof registry.describe>>[number]): AutomaticCandidate => ({
+  instanceId: entry.instanceId,
+  defaultModel: entry.models.default,
+  available: entry.snapshot.state === "available",
+  capabilities: entry.capabilities,
+  effortLevels: entry.capabilities.effortLevels,
+});
+
+const automaticAvailability = new Map<string, boolean>();
+
+function rememberAutomaticAvailability(entries: Awaited<ReturnType<typeof registry.describe>>) {
+  for (const entry of entries) {
+    automaticAvailability.set(entry.instanceId, entry.snapshot.state === "available");
+  }
+}
+
+function liveAutomaticCandidate(instance: ProviderInstance): AutomaticCandidate {
+  return {
+    instanceId: instance.instanceId,
+    defaultModel: instance.models.default,
+    available: automaticAvailability.get(instance.instanceId) !== false,
+    capabilities: {
+      agentsMcp: instance.adapter.capabilities.agentsMcp === true,
+      approvalReview: instance.reviewPermission !== undefined,
+      browserMcp: instance.adapter.capabilities.browserMcp === true,
+      composioMcp: instance.adapter.capabilities.composioMcp === true,
+      computerMcp: instance.adapter.capabilities.computerMcp === true,
+      localComputerMcp: instance.adapter.capabilities.localComputerMcp === true,
+    },
+    effortLevels: instance.adapter.capabilities.effortLevels,
+  };
+}
+
+function automaticRequirements(bot: BotRecord): AutomaticCapability[] {
+  const required: AutomaticCapability[] = [];
+  if (bot.chiefOfStaff === true || bot.approvePeerComms === true) required.push("agentsMcp");
+  if (bot.browser === true) required.push("browserMcp");
+  if (bot.composio === true) required.push("composioMcp");
+  if (bot.computer === "cloud") required.push("computerMcp");
+  if (bot.computer === "local") required.push("localComputerMcp");
+  if (bot.autoReview === "shadow" || bot.autoReview === "enforce") required.push("approvalReview");
+  return required;
+}
+
+async function resolvedBotSelection(bot: BotRecord, task?: TaskRecord): Promise<ModelSelection> {
+  if (bot.modelSelection.mode !== "automatic") return bot.modelSelection;
+  const preferredIds = [...new Set([task?.lastInstanceId, bot.modelSelection.instanceId].filter(Boolean))];
+  const preferred = preferredIds.flatMap((instanceId) => {
+    const instance = registry.get(instanceId!);
+    return instance ? [liveAutomaticCandidate(instance)] : [];
+  });
+  const input = {
+    current: bot.modelSelection,
+    continuity: task ? { instanceId: task.lastInstanceId, model: task.lastModel } : undefined,
+    required: automaticRequirements(bot),
+  };
+  let selection = resolveAutomaticSelection({ candidates: preferred, ...input });
+  if (!selection) {
+    const described = await registry.describe();
+    rememberAutomaticAvailability(described);
+    selection = resolveAutomaticSelection({ candidates: described.map(automaticCandidate), ...input });
+  }
+  if (!selection) {
+    throw Object.assign(new Error("no working engine supports this bot's current tools"), { status: 409 });
+  }
+  if (
+    selection.instanceId !== bot.modelSelection.instanceId ||
+    selection.model !== bot.modelSelection.model ||
+    selection.effort !== bot.modelSelection.effort
+  ) {
+    store.patchBot(bot.id, { modelSelection: selection });
+  }
+  return selection;
+}
+
+// New bots start on the first working engine. Automatic keeps the choice
+// stable per task and resolves again only at a turn boundary.
 async function defaultSelection() {
   const described = await registry.describe();
-  const available = described.filter((d) => d.snapshot.state === "available");
+  rememberAutomaticAvailability(described);
   // Deliberately NO fallback to described[0]. Handing a bot an engine whose
   // CLI isn't installed makes it look ready and then fail on send with a raw
   // spawn ENOENT — the single worst first-run experience, and the one every
   // user with no CLIs used to get. An empty selection is honest: the UI shows
   // the setup path instead of a bot that cannot answer.
-  const pick = available.find((d) => d.driverKind === "claudeAgent") ?? available[0];
-  return { instanceId: pick?.instanceId ?? "", model: pick?.models.default ?? "" };
+  return resolveAutomaticSelection({ candidates: described.map(automaticCandidate) }) ?? {
+    mode: "automatic",
+    instanceId: "",
+    model: "",
+  };
 }
+
+const modelSelectionModeSchema = z.enum(["automatic", "pinned"]).optional();
+const botJobSchema = z.string().trim().min(1).max(BOT_PROFILE_LIMITS.description);
 
 function checkedModelSelection(
   raw: unknown,
@@ -389,17 +478,22 @@ function checkedModelSelection(
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { ok: false, status: 400, error: "modelSelection must be an object" };
   }
-  const value = raw as { instanceId?: unknown; model?: unknown; effort?: unknown };
+  const value = raw as { instanceId?: unknown; model?: unknown; mode?: unknown; effort?: unknown };
   if (typeof value.instanceId !== "string" || !value.instanceId.trim()) {
     return { ok: false, status: 400, error: "modelSelection.instanceId is required" };
   }
   if (typeof value.model !== "string" || !value.model.trim()) {
     return { ok: false, status: 400, error: "modelSelection.model is required" };
   }
+  const mode = modelSelectionModeSchema.safeParse(value.mode);
+  if (!mode.success) {
+    return { ok: false, status: 400, error: "modelSelection.mode must be automatic or pinned" };
+  }
   const selection: ModelSelection = {
     instanceId: value.instanceId.trim(),
     model: value.model.trim(),
   };
+  if (mode.data) selection.mode = mode.data;
   if (value.effort !== undefined) {
     if (!isEffortLevel(value.effort)) {
       return { ok: false, status: 400, error: `effort "${String(value.effort)}" is not recognized` };
@@ -409,6 +503,7 @@ function checkedModelSelection(
   const changed = current && (
     selection.instanceId !== current.selection.instanceId ||
     selection.model !== current.selection.model ||
+    (selection.mode ?? "pinned") !== (current.selection.mode ?? "pinned") ||
     selection.effort !== current.selection.effort
   );
   if (current?.busy && changed) {
@@ -472,7 +567,6 @@ let bootSelection = { instanceId: "", model: "" };
 const store = new Store(() => bootSelection);
 const sendSequencer = new SendSequencer();
 bootSelection = await defaultSelection();
-store.seedIfEmpty();
 
 /** A bot as a client may see it: no provider session bookkeeping.
  *
@@ -1792,24 +1886,25 @@ async function startTurn(
   // a task takes its name from the first thing you asked it to do
   if (text.trim() && !opts?.cardContinuation) store.titleTaskFromFirstMessage(bot.id, text, threadId);
 
+  const selection = opts?.runOn === "cloud" ? bot.modelSelection : await resolvedBotSelection(bot, task);
   const instance = opts?.runOn === "cloud"
     ? registry.instances().find((candidate) => candidate.driverKind === "boxAgent") ?? null
-    : registry.get(bot.modelSelection.instanceId);
+    : registry.get(selection.instanceId);
   if (!instance) {
     throw Object.assign(
       new Error(
         opts?.runOn === "cloud"
           ? "the Cloud VM runner is unavailable — configure Box in App Settings"
-          : `provider instance "${bot.modelSelection.instanceId}" is unavailable — pick another model in settings`,
+          : `provider instance "${selection.instanceId}" is unavailable - pick another model in settings`,
       ),
       { status: 409 },
     );
   }
   const instanceId = instance.instanceId;
-  const model = opts?.runOn === "cloud" ? instance.models.default : bot.modelSelection.model;
+  const model = opts?.runOn === "cloud" ? instance.models.default : selection.model;
   // a cloud routine borrows the instance default model, so it borrows no
   // per-bot effort either
-  const effort = opts?.runOn === "cloud" ? undefined : bot.modelSelection.effort;
+  const effort = opts?.runOn === "cloud" ? undefined : selection.effort;
   // A selection can be persisted while its engine is offline. Re-check when
   // the engine returns so an old or unsupported value never reaches a CLI.
   if (effort && !instance.adapter.capabilities.effortLevels?.includes(effort)) {
@@ -2625,8 +2720,33 @@ async function runGroupMemberTurn(
     : Boolean(group && store.groupTaskByThread(group.id, threadId));
   if (!group || !bot || !ownsThread) return false;
   spoken.add(botId);
-  const instance = registry.get(bot.modelSelection.instanceId);
   const userName = cfg.profile?.name?.trim() || "User";
+  if (bot.busy) {
+    const message = `${bot.name} is busy in another conversation - skipped this round`;
+    store.appendMessage(threadId, {
+      role: "bot",
+      kind: "activity",
+      from: { botId: bot.id, name: bot.name, color: bot.color },
+      tool: { name: message, ok: false },
+    });
+    onDispatchError?.(message);
+    return true;
+  }
+  let selection: ModelSelection;
+  try {
+    selection = await resolvedBotSelection(bot);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    store.appendMessage(threadId, {
+      role: "bot",
+      kind: "activity",
+      from: { botId: bot.id, name: bot.name, color: bot.color },
+      tool: { name: `error: ${message}`, ok: false },
+    });
+    onDispatchError?.(message);
+    return true;
+  }
+  const instance = registry.get(selection.instanceId);
   if (!instance) {
     const message = `${bot.name}'s model is unavailable`;
     store.appendMessage(threadId, {
@@ -2639,20 +2759,9 @@ async function runGroupMemberTurn(
     return true;
   }
   // One turn per bot at a time, across BOTH engines. Without this a bot
-  // could run its 1:1 turn and a room turn concurrently — two provider
+  // could run its 1:1 turn and a room turn concurrently, creating two provider
   // processes, interleaved token spend, and an interrupt that only ever
   // reached one of them.
-  if (bot.busy) {
-    const message = `${bot.name} is busy in another conversation — skipped this round`;
-    store.appendMessage(threadId, {
-      role: "bot",
-      kind: "activity",
-      from: { botId: bot.id, name: bot.name, color: bot.color },
-      tool: { name: message, ok: false },
-    });
-    onDispatchError?.(message);
-    return true;
-  }
   const integrations: NonNullable<Parameters<typeof instance.adapter.sendTurn>[0]["integrations"]> = {};
   if (hop < MAX_COMMS_DEPTH && instance.adapter.capabilities.agentsMcp === true) {
     integrations.agents = agentsIntegration(bot.id, threadId, hop);
@@ -2798,7 +2907,7 @@ async function runGroupMemberTurn(
         system: roomSystem,
         cwd,
         integrations,
-        ...memberTurnSelection(bot.modelSelection),
+        ...memberTurnSelection(selection),
       })
       .catch((err) => {
         const message = err instanceof Error ? err.message : "turn failed";
@@ -4964,6 +5073,14 @@ const server = createServer(async (req, res) => {
       if (body.requireAvailableModel === true && body.modelSelection === undefined) {
         return json(res, 400, { error: "requireAvailableModel requires modelSelection" });
       }
+      let job: string | undefined;
+      if (body.job !== undefined) {
+        const parsedJob = botJobSchema.safeParse(body.job);
+        if (!parsedJob.success) {
+          return json(res, 400, { error: `job must be 1-${BOT_PROFILE_LIMITS.description} characters` });
+        }
+        job = parsedJob.data;
+      }
       const profileInput = Object.fromEntries(
         ["name", "title", "description"]
           .filter((key) => body[key] !== undefined)
@@ -4992,7 +5109,7 @@ const server = createServer(async (req, res) => {
       if (store.bots.length >= MAX_WORKSPACE_BOTS) {
         return json(res, 409, { error: `this workspace is limited to ${MAX_WORKSPACE_BOTS} bots` });
       }
-      const bot = store.createBot({ ...profile.patch, section, modelSelection: selection });
+      const bot = store.createBot({ ...profile.patch, section, modelSelection: selection }, { job });
       return json(res, 201, {
         bot: {
           ...wireBot(bot),
@@ -6020,7 +6137,9 @@ const server = createServer(async (req, res) => {
       // Windows never pushes PATH changes into a live process, so without
       // this the answer is frozen at boot and "check again" is a no-op.
       resetPathCache();
-      return json(res, 200, { instances: await registry.describe() });
+      const instances = await registry.describe();
+      rememberAutomaticAvailability(instances);
+      return json(res, 200, { instances });
     }
 
     // ── CLI binary discovery for the Engines "detected" dropdown ──

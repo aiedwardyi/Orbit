@@ -45,6 +45,8 @@ export function isEffortLevel(value: unknown): value is EffortLevel {
 export interface ModelSelection {
   instanceId: InstanceId;
   model: string;
+  /** Missing on existing records, where it continues to mean pinned. */
+  mode?: "automatic" | "pinned";
   /** Optional: no effort means no flag, and the CLI keeps its own default. */
   effort?: EffortLevel;
 }

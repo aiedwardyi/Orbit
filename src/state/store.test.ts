@@ -371,6 +371,34 @@ describe("cross-client bot creation", () => {
   });
 });
 
+describe("job-first bot creation", () => {
+  it("opens the sheet and closes it when the created bot arrives", () => {
+    const opened = reducer(initialState, { type: "newBot" });
+    expect(opened.createBotOpen).toBe(true);
+
+    const bot = {
+      id: "briefing-bot",
+      threadId: "briefing-thread",
+      name: "Scout",
+      title: "Weekly competitor brief",
+      description: "Keep a weekly competitor brief.",
+      notifications: true,
+      color: "green",
+      unread: false,
+      modelSelection: { mode: "automatic", instanceId: "first", model: "default" },
+      messages: [],
+    } satisfies Bot;
+    const added = reducer(opened, { type: "botAdded", bot });
+
+    expect(added.createBotOpen).toBe(false);
+    expect(added.selectedId).toBe(bot.id);
+  });
+
+  it("allows a later create sheet to be cancelled", () => {
+    expect(reducer({ ...initialState, createBotOpen: true }, { type: "closeCreateBot" }).createBotOpen).toBe(false);
+  });
+});
+
 describe("canonical message races", () => {
   it("does not rewind the active branch when POST repeats a user message after the reply", () => {
     const sent = {

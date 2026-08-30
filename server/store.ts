@@ -1081,16 +1081,18 @@ export class Store {
       /** false = no greeting/onboarding seed. Imported bots must not open
        * with a first-person greeting the user never asked for. */
       seedMessages?: boolean;
+      job?: string;
     } = {},
   ): BotRecord {
     const name = profile.name?.trim() || pickBotName(this.bots.map((b) => b.name));
+    const job = opts.job?.trim();
     const section = sectionKey(profile.section);
     const bot: BotRecord = {
       id: newId(),
       threadId: newId(),
       name,
-      title: profile.title ?? "",
-      description: profile.description ?? "",
+      title: profile.title ?? (job ? titleFromMessage(job) : ""),
+      description: profile.description ?? job ?? "",
       notifications: true,
       color: profile.color ?? COLORS[this.bots.length % COLORS.length],
       ...(profile.mascotExpression ? { mascotExpression: profile.mascotExpression } : {}),
@@ -1110,9 +1112,11 @@ export class Store {
       this.appendMessage(bot.threadId, {
         role: "bot",
         kind: "text",
-        text: `Hey — I'm ${name}. Nice to meet you.`,
+        text: job
+          ? `I'm ${name}. I'll handle ${bot.title}${/[.!?…]$/.test(bot.title) ? "" : "."} Send me the first piece of work.`
+          : `Hey, I'm ${name}. Nice to meet you.`,
       });
-      this.appendMessage(bot.threadId, { role: "bot", kind: "options", card: onboardingCard() });
+      if (!job) this.appendMessage(bot.threadId, { role: "bot", kind: "options", card: onboardingCard() });
     }
     return bot;
   }

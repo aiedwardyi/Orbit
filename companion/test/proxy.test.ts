@@ -167,6 +167,13 @@ beforeAll(async () => {
     await new Promise((r) => setTimeout(r, 150));
   }
 
+  const fixtureBot = await fetch(`${HARNESS}/api/bots`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  if (!fixtureBot.ok) throw new Error(`could not create companion test bot: ${fixtureBot.status}`);
+
   sidecar = createServer(
     createProxyHandler({
       harnessPort: HARNESS_PORT,

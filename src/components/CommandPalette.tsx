@@ -2,16 +2,24 @@
 // /api/search. Self-contained — owns its open state and its global chord,
 // so App.tsx only mounts it.
 import { useEffect, useRef, useState } from "react";
-import { Bot as BotIcon, MessageSquare, Search, Users } from "lucide-react";
+import { Bot as BotIcon, Bug, MessageSquare, Search, Users } from "lucide-react";
 import { api, useStore, type Bot, type Group } from "@/state/store";
 import { rankByName } from "@/lib/palette-rank";
 import { cn } from "@/lib/cn";
 import type { SearchHit } from "@/lib/search-hit";
 import { landOnSearchHit } from "@/lib/focus-message";
 
+type PaletteCommand = {
+  kind: "command";
+  id: "inspector";
+  label: string;
+  description: string;
+};
+
 type PaletteEntry =
   | { kind: "bot"; bot: Bot }
   | { kind: "room"; group: Group }
+  | PaletteCommand
   | { kind: "message"; hit: SearchHit };
 
 export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean) => void }) {
@@ -83,9 +91,22 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
 
   const bots = rankByName(state.bots.filter((b) => !b.hidden), q);
   const rooms = rankByName(state.groups, q);
+  const activeBot = state.bots.find((bot) => bot.id === state.selectedId);
+  const commands: PaletteCommand[] =
+    activeBot && "inspector runtime events protocol debug".includes(q)
+      ? [
+          {
+            kind: "command",
+            id: "inspector",
+            label: "Open Inspector",
+            description: `Runtime events and protocol details for ${activeBot.name}.`,
+          },
+        ]
+      : [];
   const entries: PaletteEntry[] = [
     ...bots.map((bot): PaletteEntry => ({ kind: "bot", bot })),
     ...rooms.map((group): PaletteEntry => ({ kind: "room", group })),
+    ...commands,
     // message hits only make sense for a typed query; empty = switcher mode
     ...(q ? messageHits.map((hit): PaletteEntry => ({ kind: "message", hit })) : []),
   ];
@@ -93,7 +114,9 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
   const selected = entries.length ? Math.min(cursor, entries.length - 1) : 0;
 
   const activate = async (entry: PaletteEntry) => {
-    if (entry.kind === "message") {
+    if (entry.kind === "command") {
+      dispatch({ type: "toggleInspector", open: true });
+    } else if (entry.kind === "message") {
       const hit = entry.hit;
       try {
         await landOnSearchHit(hit, state, dispatch);
@@ -127,7 +150,8 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
 
   // flat cursor across sections; each row needs its absolute index
   const roomOffset = bots.length;
-  const messageOffset = bots.length + rooms.length;
+  const commandOffset = bots.length + rooms.length;
+  const messageOffset = commandOffset + commands.length;
 
   const row = (key: string, index: number, onPick: () => void, children: React.ReactNode, twoLine = false) => (
     <button
@@ -211,6 +235,26 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
                 <Users size={16} className="shrink-0 text-ink-secondary" />
                 <span className="truncate text-[14px] text-ink">{group.name}</span>
               </>,
+            ),
+          )}
+          {commands.length > 0 && (
+            <div className="px-3 pb-1 pt-2 text-[11px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
+              Tools
+            </div>
+          )}
+          {commands.map((command, i) =>
+            row(
+              `command:${command.id}`,
+              commandOffset + i,
+              () => void activate(command),
+              <>
+                <span className="flex items-center gap-2 text-[13px] font-medium text-ink">
+                  <Bug size={13} className="shrink-0 text-ink-secondary" />
+                  {command.label}
+                </span>
+                <span className="text-[12.5px] text-ink-secondary">{command.description}</span>
+              </>,
+              true,
             ),
           )}
           {q && messageHits.length > 0 && (

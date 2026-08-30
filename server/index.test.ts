@@ -333,11 +333,22 @@ describe("harness HTTP API", () => {
     expect((await fetch(`${BASE}/api/health`)).status).toBe(200);
   });
 
-  it("seeds one starter bot with its greeting", async () => {
-    const { status, body } = await api("GET", "/api/bots");
-    expect(status).toBe(200);
-    expect(body.bots.length).toBeGreaterThanOrEqual(1);
-    expect(body.bots[0].messages.length).toBeGreaterThanOrEqual(2);
+  it("starts empty and creates the first bot from one job", async () => {
+    const empty = await api("GET", "/api/bots");
+    expect(empty.status).toBe(200);
+    expect(empty.body.bots).toEqual([]);
+
+    const job = "Keep a weekly competitor brief with links and decisions.";
+    const created = await api("POST", "/api/bots", { job });
+    expect(created.status).toBe(201);
+    expect(created.body.bot).toMatchObject({
+      title: expect.any(String),
+      description: job,
+      modelSelection: { mode: "automatic" },
+    });
+    expect(created.body.bot.title).not.toBe("");
+    expect(created.body.bot.messages).toHaveLength(1);
+    expect(created.body.bot.messages[0].text).toContain("Send me the first piece of work.");
   });
 
   it("projects privacy-safe live team-map metadata", async () => {

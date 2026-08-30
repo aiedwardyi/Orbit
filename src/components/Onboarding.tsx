@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, Check, Loader2, LockKeyhole, Sparkles, TerminalSquare } from "lucide-react";
 import { setEmailGateDone, track } from "@/lib/analytics";
 import type { InstanceInfo } from "@/state/store";
@@ -91,21 +91,31 @@ function Principle({ icon, title, text }: { icon: ReactNode; title: string; text
 export function Onboarding({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState(0);
   const [instances, setInstances] = useState<InstanceInfo[] | null>(null);
+  const [instancesError, setInstancesError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     track("onboarding_step", { step });
   }, [step]);
 
   useEffect(() => {
-    if (step !== 1) return;
     let active = true;
     let latestRequest = 0;
     const refresh = () => {
       const request = ++latestRequest;
+      setInstancesError(null);
       fetch("/api/instances")
-        .then((response) => response.json())
+        .then((response) => {
+          if (!response.ok) throw new Error(`engine check failed with ${response.status}`);
+          return response.json();
+        })
         .then((data) => active && request === latestRequest && setInstances(data.instances ?? []))
-        .catch(() => active && request === latestRequest && setInstances([]));
+        .catch(() => {
+          if (active && request === latestRequest) {
+            setInstancesError("Orbit couldn't check the AI engines on this computer.");
+          }
+        });
     };
     refresh();
     window.addEventListener("focus", refresh);
@@ -113,7 +123,38 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
       active = false;
       window.removeEventListener("focus", refresh);
     };
-  }, [step]);
+  }, [refreshKey]);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const controls = () => [...dialog.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )];
+    controls()[0]?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      const focusable = controls();
+      if (!focusable.length) return event.preventDefault();
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    dialog.addEventListener("keydown", onKey);
+    return () => dialog.removeEventListener("keydown", onKey);
+  }, [step, instances, instancesError]);
+
+  const retryInstances = () => {
+    setInstances(null);
+    setInstancesError(null);
+    setRefreshKey((key) => key + 1);
+  };
 
   const finish = () => {
     track("onboarding_completed", {
@@ -139,10 +180,15 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     });
   const readyEngines = engines.filter(engineReady);
   const setupEngines = engines.filter((instance) => !engineReady(instance));
+  const hasReadyEngine = (instances ?? []).some(engineReady);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-app/95 p-6 backdrop-blur-xl">
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="onboarding-title"
         className={`flex max-h-full w-full flex-col overflow-hidden rounded-2xl border border-hairline/50 bg-panel shadow-2xl shadow-black/60 ${
           step === 1 ? "max-w-[680px]" : "max-w-[560px]"
         }`}
@@ -153,21 +199,27 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
               <div className="absolute inset-2 rounded-full bg-accent/20 blur-2xl" />
               <OrbitMark size={82} />
             </div>
-            <h1 className="mt-5 text-[22px] font-semibold tracking-[-0.02em] text-ink">Welcome to Orbit</h1>
+            <h1 id="onboarding-title" className="mt-5 text-[22px] font-semibold tracking-[-0.02em] text-ink">Welcome to Orbit</h1>
             <p className="mt-1.5 max-w-[420px] text-center text-[13.5px] leading-relaxed text-ink-secondary">
-              A calm home for the AI tools already on your computer. Pick a model for each teammate, then message it like anyone else.
+              A calm home for the AI tools already on this computer. Give a bot a job, then message it like anyone else.
             </p>
             <div className="mt-6 grid w-full grid-cols-3 gap-2.5">
               <Principle icon={<TerminalSquare size={14} />} title="Your engines" text="Claude, Codex, Gemini, and Grok use existing logins or API keys." />
               <Principle icon={<LockKeyhole size={14} />} title="Local first" text="Chats, files, and preferences stay on this computer." />
               <Principle icon={<Sparkles size={14} />} title="Real teammates" text="Give every bot a role, memory, tools, and routines." />
             </div>
+            {instancesError && (
+              <div role="alert" className="mt-4 w-full rounded-xl border border-danger/30 bg-danger/10 px-3.5 py-3 text-[12.5px] text-danger">
+                {instancesError} Try again when the local server is ready.
+              </div>
+            )}
             <button
               type="button"
-              onClick={() => setStep(1)}
-              className="mt-6 w-full rounded-xl bg-accent py-2.5 text-[14px] font-semibold text-white transition-[filter,transform] hover:brightness-110 active:scale-[0.99]"
+              disabled={!instances && !instancesError}
+              onClick={() => instancesError ? retryInstances() : hasReadyEngine ? finish() : setStep(1)}
+              className={`${instancesError ? "mt-3" : "mt-6"} w-full rounded-xl bg-accent py-2.5 text-[14px] font-semibold text-white transition-[filter,transform] hover:brightness-110 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40`}
             >
-              Set up Orbit
+              {instancesError ? "Try again" : instances ? "Continue" : "Checking your computer..."}
             </button>
           </div>
         ) : (
@@ -175,12 +227,16 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             <div className="flex items-center gap-3">
               <OrbitMark size={38} />
               <div>
-                <h1 className="text-[18px] font-semibold text-ink">Your engines</h1>
+                <h1 id="onboarding-title" className="text-[18px] font-semibold text-ink">Your engines</h1>
                 <p className="mt-0.5 text-[12.5px] text-ink-secondary">Orbit found the AI tools installed on this computer.</p>
               </div>
             </div>
             <div className="mt-5 flex min-h-0 flex-col gap-2.5 overflow-y-auto pr-1 [scrollbar-width:thin]">
-              {!instances ? (
+              {instancesError ? (
+                <div role="alert" className="rounded-xl border border-danger/30 bg-danger/10 px-3.5 py-3 text-[12.5px] text-danger">
+                  {instancesError} Try again when the local server is ready.
+                </div>
+              ) : !instances ? (
                 <div className="flex items-center justify-center gap-2 py-12 text-[13px] text-ink-secondary">
                   <Loader2 size={15} className="animate-spin" /> Checking your computer…
                 </div>
@@ -208,7 +264,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             </div>
             <div className="mt-5 flex shrink-0 items-center gap-2.5">
               <button type="button" onClick={() => setStep(0)} className="rounded-xl px-4 py-2.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink">Back</button>
-              <button type="button" onClick={finish} className="flex-1 rounded-xl bg-accent py-2.5 text-[14px] font-semibold text-white hover:brightness-110">Open Orbit</button>
+              <button type="button" onClick={instancesError ? retryInstances : finish} disabled={!instancesError && !hasReadyEngine} className="flex-1 rounded-xl bg-accent py-2.5 text-[14px] font-semibold text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">{instancesError ? "Try again" : "Open Orbit"}</button>
             </div>
           </div>
         )}

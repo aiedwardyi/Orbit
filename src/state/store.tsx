@@ -165,6 +165,8 @@ export interface GroupTask {
 export interface ModelSelection {
   instanceId: string;
   model: string;
+  /** Existing bots without a mode remain pinned. */
+  mode?: "automatic" | "pinned";
   effort?: EffortLevel;
 }
 
@@ -405,6 +407,7 @@ export interface AppState {
   webhooks: WebhookTrigger[];
   webhookAttempts: WebhookAttempt[];
   webhookIngress: WebhookIngressStatus | null;
+  createBotOpen: boolean;
   settingsOpen: boolean;
   pluginsOpen: boolean;
   computerOpen: boolean;
@@ -577,6 +580,7 @@ export type Action =
   | { type: "renameTask"; botId: string; threadId: string; title: string }
   | { type: "deleteTask"; botId: string; threadId: string }
   | { type: "newBot" }
+  | { type: "closeCreateBot" }
   | { type: "botAdded"; bot: Bot }
   | { type: "deleteBot"; botId: string }
   | { type: "duplicateBot"; botId: string }
@@ -854,6 +858,7 @@ export function reducer(state: AppState, action: Action): AppState {
         bots: [action.bot, ...state.bots.filter((bot) => bot.id !== action.bot.id)],
         activeView: "chat",
         selectedId: action.bot.id,
+        createBotOpen: false,
       }, action.bot.id, "arrive");
     case "deleteBot": {
       const bots = state.bots.filter((b) => b.id !== action.botId);
@@ -1228,6 +1233,17 @@ export function reducer(state: AppState, action: Action): AppState {
       return reconcileSnapshotQueues(switched, [action.bot]);
     }
     case "newBot":
+      return {
+        ...state,
+        createBotOpen: true,
+        settingsOpen: false,
+        computerOpen: false,
+        inspectorOpen: false,
+        appSettingsOpen: false,
+        pluginsOpen: false,
+      };
+    case "closeCreateBot":
+      return { ...state, createBotOpen: false };
     case "duplicateBot":
     case "interrupt":
     case "createGroup":
@@ -1259,6 +1275,7 @@ export const initialState: AppState = {
   webhooks: [],
   webhookAttempts: [],
   webhookIngress: null,
+  createBotOpen: false,
   settingsOpen: false,
   pluginsOpen: false,
   computerOpen: false,
@@ -1590,11 +1607,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }
           break;
         }
-        case "newBot":
-          api("/api/bots", { method: "POST" })
-            .then(({ bot }) => rawDispatch({ type: "botAdded", bot }))
-            .catch(showError);
-          break;
         case "duplicateBot": {
           const source = stateRef.current.bots.find((b) => b.id === action.botId);
           if (!source) break;
