@@ -137,6 +137,34 @@ describe("Antigravity turns (fake CLI)", () => {
     expect(instance.adapter.hasSession("t-happy")).toBe(false);
   });
 
+  it("uses the portable fallback when a conversation cursor cannot be resumed", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "omb-agy-resume-"));
+    const dump = join(scratch, "dump.json");
+    process.env.FAKE_AGY_DUMP = dump;
+    process.env.FAKE_AGY_RESUME_FAIL = "1";
+    try {
+      await create();
+      await instance.adapter.sendTurn({
+        threadId: "t-resume-fallback",
+        text: "latest prompt",
+        resumeCursor: "missing-conversation",
+        resumeFallback: { text: "durable task record and recent work\n\ncontinue" },
+      });
+      await recorder.until((event) => event.type === "turn.retrying" && event.reason === "resume_cursor");
+      await recorder.until((event) => event.type === "turn.completed");
+
+      const invocation = JSON.parse(readFileSync(dump, "utf8"));
+      expect(invocation.argv).not.toContain("--conversation");
+      expect(invocation.argv[invocation.argv.indexOf("--print") + 1]).toBe("durable task record and recent work\n\ncontinue");
+      expect(recorder.events.filter((event) => event.type === "turn.completed")).toHaveLength(1);
+      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true });
+    } finally {
+      delete process.env.FAKE_AGY_DUMP;
+      delete process.env.FAKE_AGY_RESUME_FAIL;
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
   it("respondToRequest resolves `unavailable` — no interactive permission channel, so the caller denies", async () => {
     await create();
     await expect(instance.adapter.respondToRequest("t-happy", "req-1", { behavior: "allow" })).resolves.toBe("unavailable");

@@ -89,6 +89,22 @@ describe("message-db", () => {
     }
   });
 
+  it("round-trips unknown future compaction versions without deleting them", () => {
+    const future = {
+      ...msg("future", ""),
+      role: "bot" as const,
+      kind: "compaction" as const,
+      compaction: { v: 99, summary: "newer data", preserve: { all: true } },
+    };
+    insertMessage("future-thread", future);
+    setActiveLeaf("future-thread", future.id);
+
+    closeMessageDb();
+    const loaded = readThread("future-thread", legacy("future-thread"));
+    expect(loaded.messages).toEqual([future]);
+    expect(loaded.activeLeafId).toBe(future.id);
+  });
+
   it("deleteThread removes rows and state", () => {
     insertMessage("t4", msg("m1", "gone soon"));
     setActiveLeaf("t4", "m1");

@@ -917,6 +917,47 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         // is just a session ending
         if (session.turn && !session.turn.settled) {
           const message = `claude exited ${code} before result${session.stderr ? `: ${session.stderr.trim().slice(-300)}` : ""}`;
+          const resumeRejected = Boolean(
+            sessionId &&
+            turn.resumeFallback &&
+            !session.turn.sawStreamDelta &&
+            /(?:session|conversation).*(?:not found|missing|invalid|unknown|expired)/i.test(session.stderr),
+          );
+          if (resumeRejected) {
+            session.broker?.pause();
+            session.broker?.close();
+            if (session.mcpConfigPath) {
+              try {
+                rmSync(dirname(session.mcpConfigPath), { recursive: true, force: true });
+              } catch {}
+              session.mcpConfigPath = null;
+            }
+            sessions.delete(threadId);
+            session.turn = null;
+            active.delete(threadId);
+            retryState.delete(threadId);
+            emit({ ...base(threadId, turnId), type: "turn.retrying", attempt: 1, delayMs: 0, reason: "resume_cursor" });
+            void sendTurn({
+              ...turn,
+              text: turn.resumeFallback!.text,
+              resumeCursor: undefined,
+              resumeFallback: undefined,
+            }).catch((error) => {
+              emit({
+                ...base(threadId, turnId),
+                type: "runtime.error",
+                message: error instanceof Error ? error.message : String(error),
+              });
+              emit({
+                ...base(threadId, turnId),
+                type: "turn.completed",
+                ok: false,
+                stopReason: "resume_fallback_failed",
+                cost: null,
+              });
+            });
+            return;
+          }
           const verdict = classifyError({ exitCode: code, stderr: message });
           if (
             !retry.cancelled &&

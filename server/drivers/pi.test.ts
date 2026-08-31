@@ -5,7 +5,7 @@
 //
 // The fake CLI is a shebang script Windows cannot exec directly; spawnCli
 // resolves it to `node <script>`, so these run everywhere.
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -255,6 +255,24 @@ describe("PiDriver turns (fake CLI)", () => {
       | { sessionId: string }
       | undefined;
     expect(secondSession?.sessionId).toBe(firstSession?.sessionId);
+  });
+
+  it("uses portable context when a remembered pi session cannot load", async () => {
+    const dump = join(tmpdir(), `omb-pi-fallback-${Date.now()}.jsonl`);
+    await create("switch-fails", { FAKE_PI_DUMP: dump });
+    const turn = await instance.adapter.sendTurn({
+      threadId: "t-fallback",
+      text: "continue",
+      resumeCursor: "/missing/pi-session.json",
+      resumeFallback: { text: "durable task record and recent work\n\ncontinue" },
+    });
+    const started = await recorder.until((event) => event.type === "session.started" && event.turnId === turn.turnId);
+    await recorder.until((event) => event.type === "turn.completed" && event.turnId === turn.turnId);
+
+    const rows = readFileSync(dump, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    expect(started.type === "session.started" ? started.sessionId : null).not.toBe("/missing/pi-session.json");
+    expect(rows.find((row) => row.prompt)?.prompt).toBe("durable task record and recent work\n\ncontinue");
+    rmSync(dump, { force: true });
   });
 
   it("fails promptly when the pi process exits before replying", async () => {

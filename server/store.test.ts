@@ -6,10 +6,13 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { DATA_DIR } from "./config.ts";
+import { prepareModelContext } from "./context-compaction.ts";
 import type { ModelSelection } from "./contracts.ts";
 import { peerAllowKey } from "./peer-approval-key.ts";
 import { Store, titleFromMessage, type BotRecord } from "./store.ts";
 import { readTaskResumePacket, type TaskResumePacket } from "./task-state.ts";
+import { buildResumeFallback } from "./turn-context.ts";
+import { readContextCompaction } from "../shared/context-compaction.ts";
 
 const selection = (): ModelSelection => ({ instanceId: "claude", model: "claude-sonnet-5" });
 
@@ -481,6 +484,69 @@ describe("Store", () => {
     expect(reloaded.activeLeaf(bot.threadId)).toBe(edited.id);
     expect(reloaded.messagesFor(bot.threadId).map((m) => m.text)).toContain("v1");
     expect(reloaded.activePath(bot.threadId).map((m) => m.text)).not.toContain("v1");
+  });
+
+  it("persists validated redacted compaction state without removing transcript rows", () => {
+    const store = new Store(selection);
+    const bot = store.createBot({}, { seedMessages: false });
+    const first = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "first" });
+    const recent = store.appendMessage(bot.threadId, { role: "bot", kind: "text", text: "recent" });
+    const secret = `sk-${"z".repeat(32)}`;
+    const compacted = store.appendCompaction(bot.threadId, {
+      v: 1,
+      summary: `Completed work with ${secret}`,
+      coveredThroughId: first.id,
+      firstKeptId: recent.id,
+      contextWindow: 8_192,
+      estimatedTokensBefore: 900,
+      sourceMessageCount: 1,
+    });
+
+    const reloaded = new Store(selection);
+    const messages = reloaded.messagesFor(bot.threadId);
+    expect(messages.map((message) => message.id)).toEqual([first.id, recent.id, compacted.id]);
+    const stored = readContextCompaction({ value: messages.at(-1)?.compaction });
+    expect(stored.status).toBe("valid");
+    if (stored.status !== "valid") return;
+    expect(stored.value.summary).not.toContain(secret);
+    expect(stored.value.summary).toContain("redacted");
+  });
+
+  it("retains the resume packet, summary, and tail across restart and cursor recovery", async () => {
+    const store = new Store(selection);
+    const bot = store.createBot({}, { seedMessages: false });
+    const old = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "old work" });
+    const recent = store.appendMessage(bot.threadId, { role: "bot", kind: "text", text: "recent verification passed" });
+    store.appendCompaction(bot.threadId, {
+      v: 1,
+      summary: "Earlier work produced report.json",
+      coveredThroughId: old.id,
+      firstKeptId: recent.id,
+      contextWindow: 8_192,
+      estimatedTokensBefore: 900,
+      sourceMessageCount: 1,
+    });
+    store.writeTaskPacket(taskPacket(bot.id, bot.threadId, {
+      evidence: [{ kind: "file", ref: "report.json" }],
+      artifacts: [{ ref: "dist/orbit.exe", label: "installer" }],
+      nextAction: "Run the smoke test",
+    }));
+
+    const reloaded = new Store(selection);
+    const packet = reloaded.taskPacket(bot.threadId);
+    const prepared = await prepareModelContext({
+      messages: reloaded.activePath(bot.threadId),
+      contextWindow: 8_192,
+      taskRecordText: "unused",
+    });
+    expect(packet).not.toBeNull();
+    expect(prepared.status).toBe("ready");
+    if (!packet || prepared.status !== "ready") return;
+    const fallback = buildResumeFallback({ text: "continue", transcript: prepared.transcript, taskRecord: packet });
+    expect(fallback).toContain("report.json");
+    expect(fallback).toContain("dist/orbit.exe");
+    expect(fallback).toContain("recent verification passed");
+    expect(fallback).toContain("Next action: Run the smoke test");
   });
 
 

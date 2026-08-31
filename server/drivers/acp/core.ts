@@ -589,6 +589,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
 
             const cursor = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
             let sessionResult: any = null;
+            let resumeFailed = false;
             if (cursor) {
               try {
                 sessionResult = await request(
@@ -598,7 +599,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                 );
                 sessionId = cursor;
               } catch {
-                /* session gone, load unsupported, or too slow — start fresh */
+                resumeFailed = true;
               }
             }
             if (!sessionId) {
@@ -668,11 +669,14 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             }
             emitSessionStarted();
             state.promptSent = true;
+            const promptTurn = resumeFailed && turn.resumeFallback
+              ? { ...cliTurn, text: turn.resumeFallback.text }
+              : cliTurn;
             const text = support.buildPromptText
-              ? support.buildPromptText(turn)
-              : turn.system
-                ? `${turn.system}\n\n${turn.text}`
-                : turn.text;
+              ? support.buildPromptText(promptTurn)
+              : promptTurn.system
+                ? `${promptTurn.system}\n\n${promptTurn.text}`
+                : promptTurn.text;
             const result = await request("session/prompt", {
               sessionId,
               prompt: [{ type: "text", text }],

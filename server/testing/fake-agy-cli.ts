@@ -47,6 +47,10 @@ const CONV = "conv-fake-123";
 const printIdx = argv.indexOf("--print");
 const prompt = printIdx !== -1 ? argv[printIdx + 1] : undefined;
 if (!prompt) process.exit(0);
+if (process.env.FAKE_AGY_RESUME_FAIL === "1" && argv.includes("--conversation")) {
+  process.stderr.write("agy: conversation not found\n");
+  process.exit(4);
+}
 
 out({ event: "init", conversation_id: CONV, init: { cwd: process.cwd(), tools: ["run_command", "write_to_file"], permission_mode: "accept-edits" } });
 out({ event: "step_update", conversation_id: CONV, step_update: { conversation_id: CONV, step_index: 0, state: "ACTIVE", step_type: "tool", tool_name: "write_to_file", tool_info: { name: "write_to_file", parameters: {} } } });

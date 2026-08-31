@@ -78,6 +78,7 @@ import {
 import { timelineEvents } from "@/lib/taskTimeline";
 import { useReplyDraft } from "@/lib/drafts";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
+import { readContextCompaction } from "../../shared/context-compaction";
 
 /** Long user messages collapse behind a fade so pasted walls of text don't
  * bury the conversation; bots get full markdown. */
@@ -168,6 +169,28 @@ function DaySeparator({ at }: { at: number }) {
     <div className="py-3 text-center text-[13px] text-ink-secondary">
       {dayLabel(at)} {formatTime(at)}
     </div>
+  );
+}
+
+function ContextCompactionDivider({ message }: { message: Message }) {
+  const parsed = readContextCompaction({ value: message.compaction });
+  if (parsed.status === "invalid") return null;
+  if (parsed.status === "unsupported") {
+    return (
+      <div className="py-2 text-center text-[12px] text-ink-secondary">
+        Context summary requires a newer Orbit version.
+      </div>
+    );
+  }
+  return (
+    <details className="w-full py-2 text-center text-[12px] text-ink-secondary">
+      <summary className="cursor-pointer list-none select-none hover:text-ink">
+        Older context was summarized. Earlier messages remain available.
+      </summary>
+      <div className="mx-auto mt-2 max-w-2xl whitespace-pre-wrap rounded-lg border border-hairline/30 bg-inset/25 px-3 py-2 text-left leading-relaxed">
+        {parsed.value.summary}
+      </div>
+    </details>
   );
 }
 
@@ -763,6 +786,8 @@ const MessagesList = memo(function MessagesList({
         if (m.id === emergingId) return null;
         const row = (() => {
           switch (m.kind) {
+            case "compaction":
+              return <ContextCompactionDivider message={m} />;
             case "secret":
               return m.secret ? <SecretRequestCard botId={bot.id} threadId={bot.threadId} message={m} /> : null;
             case "connector":

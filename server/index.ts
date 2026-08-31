@@ -77,6 +77,7 @@ import {
   NATIVE_DIR,
 } from "./config.ts";
 import { ComputerControl } from "./computer-control.ts";
+import { contextWindowFor, prepareModelContext } from "./context-compaction.ts";
 import { augmentedPath, findCliCandidates, resetPathCache } from "./env-path.ts";
 import { describeSpawnFailure, execCli } from "./procs.ts";
 import { buildNotification, type Notification } from "./notify.ts";
@@ -92,7 +93,7 @@ import { RETRY_MAX_ATTEMPTS } from "./drivers/retry.ts";
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorReply, type CommsBus } from "./comms-visibility.ts";
 import { searchMessages } from "./message-db.ts";
-import { promptWithReply, transcriptText } from "./replies.ts";
+import { promptWithReply } from "./replies.ts";
 import { _loadPending, discardDelegations, drainDelegations, findDelegationReceipt, pendingDelegationInfo, pendingDelegationSnapshot, pendingThreads, queueDelegation, recordDelegationReceipt, threadsWaitingOn, type QueueResult } from "./delegations.ts";
 import {
   cancelSteeredMessage,
@@ -132,7 +133,7 @@ import {
 import type { TaskResumePacket } from "./task-state.ts";
 import * as tts from "./tts/index.ts";
 import { narrateTool, toUtterances } from "./tts/speech-text.ts";
-import { buildTurnContext, engineIsFresh } from "./turn-context.ts";
+import { buildResumeFallback, buildTurnContext, engineIsFresh, taskRecordBlock } from "./turn-context.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import {
   ensureWorkspace,
@@ -2109,47 +2110,11 @@ async function startTurn(
     persistTaskPacket(packet);
   }
 
-  // transcript for API-backed drivers: settled text turns on the ACTIVE
-  // branch only — abandoned forks never reach the model
+  // Model context follows the active branch only. The durable transcript is
+  // never pruned; only this provider-facing projection is bounded.
   const skipTranscript = new Set<string>([userMessage.id, ...(opts?.excludeMessageIds ?? [])]);
   const activeMessages = store.activePath(threadId);
-  // A flat reply may deliberately point across a fork in the same thread.
-  // Resolve its quote from full storage, while the replay itself remains
-  // strictly limited to the selected branch below.
-  const messagesById = new Map(store.messagesFor(threadId).map((message) => [message.id, message]));
-  const transcriptMessages = activeMessages
-    .filter((m) => m.kind === "text" && m.text && !skipTranscript.has(m.id));
-  const contextCapped = transcriptMessages.length > 40;
-  const transcript = transcriptMessages
-    .slice(-40)
-    .map((m) => ({
-      role: m.role === "user" ? ("user" as const) : ("assistant" as const),
-      text: transcriptText(m, messagesById, cfg.profile?.name?.trim() || "User"),
-    }));
-
-  // After a rewind (edit / branch switch) the provider's native session
-  // still contains the abandoned branch: start a fresh session instead of
-  // resuming, and for cursor-resuming drivers replay the surviving path
-  // inline (transcript-replay drivers get it via transcript). The flag is
-  // cleared only once the turn is actually dispatched — clearing it here
-  // would cost the next attempt its history if this dispatch fails.
   const rewound = threadId === bot.threadId && Boolean(bot.rewound);
-  // A fresh engine — the user switched this bot's model mid-thread — has no
-  // current session here either, so it gets the same replay. Distinct from
-  // rewound: the OTHER instances' cursors are left alone (a rewind wipes
-  // them all), and "fresh" is decided by who ran the last turn, not by
-  // whether we hold a cursor — see engineIsFresh.
-  const fresh =
-    !rewound &&
-    engineIsFresh({
-      instanceId,
-      model,
-      lastInstanceId: task.lastInstanceId,
-      lastModel: task.lastModel,
-      sessionModelSwitch: instance.adapter.capabilities.sessionModelSwitch,
-      resumeCursors: task.resumeCursors,
-      transcript,
-    });
   let taskRecord = taskPacketForWrite(threadId);
   const selectionChanged = task.lastInstanceId !== undefined && (
     task.lastInstanceId !== instanceId ||
@@ -2161,21 +2126,87 @@ async function startTurn(
       turnsAtWrite: task.usage?.turns ?? taskRecord.turnsAtWrite,
     })) ?? taskRecord;
   }
-  if (taskRecord && contextCapped) {
-    taskRecord = persistTaskPacket(stampTaskResumePacket(taskRecord, "pre-compaction", {
-      now: Date.now(),
-      turnsAtWrite: task.usage?.turns ?? taskRecord.turnsAtWrite,
-    })) ?? taskRecord;
+  const currentPrompt = promptWithReply(text, opts?.replyTo, cfg.profile?.name?.trim() || "User");
+  const taskRecordToFlush = taskRecord;
+  const modelContextWindow = contextWindowFor(instance.models, model);
+  const durableTaskRecordText = taskRecord
+    ? taskRecordBlock(taskRecord, Math.max(512, Math.floor(modelContextWindow * 0.15) * 3))
+    : "";
+  const prepared = await prepareModelContext({
+    messages: activeMessages,
+    contextWindow: modelContextWindow,
+    taskRecordText: durableTaskRecordText || "No durable task record is available.",
+    excludeIds: skipTranscript,
+    userName: cfg.profile?.name?.trim() || "User",
+    referenceMessages: store.messagesFor(threadId),
+    summarize: instance.generateText ? (prompt) => instance.generateText!(prompt) : undefined,
+    beforeSummarize: taskRecordToFlush ? () => {
+      const saved = persistTaskPacket(stampTaskResumePacket(taskRecordToFlush, "pre-compaction", {
+        now: Date.now(),
+        turnsAtWrite: task.usage?.turns ?? taskRecordToFlush.turnsAtWrite,
+      }));
+      if (!saved) throw new Error("the durable task record could not be flushed");
+      taskRecord = saved;
+    } : undefined,
+  });
+  if (prepared.status !== "ready") {
+    const detail = prepared.status === "unsupported"
+      ? `This conversation uses context summary version ${String(prepared.version)}. Update Orbit before continuing.`
+      : `${prepared.error} Earlier messages and the last valid summary remain intact; retry this turn.`;
+    store.appendMessage(threadId, {
+      role: "bot",
+      kind: "activity",
+      tool: { name: `error: ${detail}`, ok: false },
+    });
+    opts?.onDispatchError?.(detail);
+    return userMessage;
   }
+  if (prepared.compaction) {
+    try {
+      store.appendCompaction(threadId, prepared.compaction);
+    } catch (error) {
+      const detail = `The context summary could not be saved. Earlier messages and the last valid summary remain intact; retry this turn. ${error instanceof Error ? error.message : String(error)}`;
+      store.appendMessage(threadId, {
+        role: "bot",
+        kind: "activity",
+        tool: { name: `error: ${detail}`, ok: false },
+      });
+      opts?.onDispatchError?.(detail);
+      return userMessage;
+    }
+  }
+  const transcript = prepared.transcript;
+  const contextCompacted = prepared.compacted;
+
+  // A fresh engine has no current session here, even if it owns an older
+  // cursor. It gets the same portable replay as a rewound branch.
+  const fresh =
+    !rewound &&
+    engineIsFresh({
+      instanceId,
+      model,
+      lastInstanceId: task.lastInstanceId,
+      lastModel: task.lastModel,
+      sessionModelSwitch: instance.adapter.capabilities.sessionModelSwitch,
+      resumeCursors: task.resumeCursors,
+      transcript,
+    });
   const { turnText, resume } = buildTurnContext({
-    text: promptWithReply(text, opts?.replyTo, cfg.profile?.name?.trim() || "User"),
+    text: currentPrompt,
     transcript,
     rewound,
     fresh,
     replaysNatively: instance.adapter.capabilities.transcriptReplay === true,
     taskRecord: taskRecord ?? undefined,
-    contextCapped,
+    taskRecordText: durableTaskRecordText || undefined,
+    contextCapped: contextCompacted,
     recovering,
+  });
+  const resumeFallback = buildResumeFallback({
+    text: currentPrompt,
+    transcript,
+    taskRecord: taskRecord ?? undefined,
+    taskRecordText: durableTaskRecordText || undefined,
   });
 
   const persona = [
@@ -2473,6 +2504,9 @@ async function startTurn(
         // the active task's own session — another task's cursor would
         // resume the wrong conversation and defeat the context bubble
         resumeCursor: resume ? task.resumeCursors[instanceId] : undefined,
+        resumeFallback: resume && task.resumeCursors[instanceId] !== undefined
+          ? { text: resumeFallback }
+          : undefined,
         transcript,
         system:
           persona +
@@ -2870,21 +2904,10 @@ const webhookIngressStatus = () => ({
 // Room messages go to the configured default responder unless the user
 // explicitly @mentions members. Responders run SEQUENTIALLY (one speaker at
 // a time — the transcript and streaming bubble stay coherent), each on a
-// fresh session with recent room context. A member's reply may @mention
+// fresh session with bounded room context. A member's reply may @mention
 // teammates; those get one chained turn (hop 1), never deeper.
 const groupQueues = new Map<string, Promise<void>>();
-const GROUP_CONTEXT_MESSAGES = 30;
 const MAX_GROUP_HOPS = 1;
-
-function serializeRoomContext(threadId: string, userName: string): string {
-  const messages = store.messagesFor(threadId);
-  const messagesById = new Map(messages.map((message) => [message.id, message]));
-  return messages
-    .filter((m) => m.kind === "text" && m.text)
-    .slice(-GROUP_CONTEXT_MESSAGES)
-    .map((m) => `${m.role === "user" ? userName : (m.from?.name ?? "Bot")}: ${transcriptText(m, messagesById, userName)}`)
-    .join("\n");
-}
 
 
 // comms bus: passed into the visibility helpers in comms-visibility.ts so
@@ -2974,6 +2997,44 @@ async function runGroupMemberTurn(
     onDispatchError?.(message);
     return true;
   }
+  const prepared = await prepareModelContext({
+    messages: store.activePath(threadId),
+    referenceMessages: store.messagesFor(threadId),
+    contextWindow: contextWindowFor(instance.models, selection.model),
+    taskRecordText: `Room: ${group.name}\nBulletin: ${group.bulletin.trim() || "none"}`,
+    userName,
+    includeSpeakers: true,
+    summarize: instance.generateText ? (prompt) => instance.generateText!(prompt) : undefined,
+  });
+  if (prepared.status !== "ready") {
+    const detail = prepared.status === "unsupported"
+      ? `This room uses context summary version ${String(prepared.version)}. Update Orbit before continuing.`
+      : `${prepared.error} Earlier room messages and the last valid summary remain intact; retry this turn.`;
+    store.appendMessage(threadId, {
+      role: "bot",
+      kind: "activity",
+      from: { botId: bot.id, name: bot.name, color: bot.color },
+      tool: { name: `error: ${detail}`, ok: false },
+    });
+    onDispatchError?.(detail);
+    return true;
+  }
+  if (prepared.compaction) {
+    try {
+      store.appendCompaction(threadId, prepared.compaction);
+    } catch (error) {
+      const detail = `The room context summary could not be saved. Earlier messages and the last valid summary remain intact; retry this turn. ${error instanceof Error ? error.message : String(error)}`;
+      store.appendMessage(threadId, {
+        role: "bot",
+        kind: "activity",
+        from: { botId: bot.id, name: bot.name, color: bot.color },
+        tool: { name: `error: ${detail}`, ok: false },
+      });
+      onDispatchError?.(detail);
+      return true;
+    }
+  }
+  const roomContext = prepared.transcript.map((message) => message.text).join("\n");
   // One turn per bot at a time, across BOTH engines. Without this a bot
   // could run its 1:1 turn and a room turn concurrently, creating two provider
   // processes, interleaved token spend, and an interrupt that only ever
@@ -2983,7 +3044,7 @@ async function runGroupMemberTurn(
     integrations.agents = agentsIntegration(bot.id, threadId, hop);
   }
   const selectedSkills = selectBundledSkills(
-    serializeRoomContext(threadId, userName),
+    roomContext,
     instance.adapter.capabilities.phoneMcp === true ? ["phoneMcp"] : [],
     availableSkills(),
   );
@@ -3055,7 +3116,7 @@ async function runGroupMemberTurn(
     .filter(Boolean)
     .join("\n");
 
-  const text = `${serializeRoomContext(threadId, userName)}\n\n(Reply to the conversation above as ${bot.name}.)${
+  const text = `${roomContext}\n\n(Reply to the conversation above as ${bot.name}.)${
     cardContinuation ? `\n\n${cardContinuation}` : ""
   }`;
 

@@ -516,12 +516,13 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         const cursor = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
         let codexThreadId: string | null = null;
         let startedModel: string | null = null;
+        let resumeFailed = false;
         if (cursor) {
           try {
             const resumed = await request("thread/resume", { threadId: cursor });
             codexThreadId = resumed?.thread?.id ?? cursor;
           } catch {
-            /* resume unsupported or thread gone — start fresh below */
+            resumeFailed = true;
           }
         }
         if (!codexThreadId) {
@@ -538,9 +539,10 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           startedModel = started?.model ?? null;
         }
         emit({ ...base(threadId, turnId), type: "session.started", sessionId: codexThreadId, model: startedModel ?? turn.model ?? null });
+        const prompt = resumeFailed ? (turn.resumeFallback?.text ?? turn.text) : turn.text;
         await request("turn/start", {
           threadId: codexThreadId,
-          input: [{ type: "text", text: turn.system ? `${turn.system}\n\n${turn.text}` : turn.text }],
+          input: [{ type: "text", text: turn.system ? `${turn.system}\n\n${prompt}` : prompt }],
           // Spread, not `effort: turn.effort ?? null`. Probed against
           // codex-cli 0.146.0: null is indistinguishable from an absent key
           // — both leave the thread's current effort alone, emitting no

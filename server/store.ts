@@ -22,6 +22,7 @@ import {
 import { botAvatarProfile, type BotAvatarCrop } from "../shared/bot-avatar.ts";
 import type { RoutineRequestCardData } from "../shared/routine-request.ts";
 import type { RoutineRunCardData } from "../shared/routine-run.ts";
+import { readContextCompaction, type ContextCompactionV1 } from "../shared/context-compaction.ts";
 
 export type MausColor =
   | "green"
@@ -94,8 +95,10 @@ export interface SecretRequestCardData {
 export interface Message {
   id: string;
   role: "bot" | "user";
-  kind: "text" | "options" | "activity" | "screen" | "connector" | "secret" | "routine.run";
+  kind: "text" | "options" | "activity" | "screen" | "connector" | "secret" | "routine.run" | "compaction";
   text?: string;
+  /** Versioned model-context state. Unknown versions stay intact on disk. */
+  compaction?: unknown;
   card?: OptionCardData;
   connector?: ConnectorCardData;
   secret?: SecretRequestCardData;
@@ -253,6 +256,10 @@ function redactBotAuthored<T extends Omit<Message, "id" | "at"> & { at?: number 
   if (message.role !== "bot") return message;
   const out = { ...message };
   if (typeof out.text === "string") out.text = redactSecretsInText(out.text);
+  const compaction = readContextCompaction({ value: out.compaction });
+  if (compaction.status === "valid") {
+    out.compaction = { ...compaction.value, summary: redactSecretsInText(compaction.value.summary) };
+  }
   if (out.tool?.name) out.tool = { ...out.tool, name: redactSecretsInText(out.tool.name) };
   if (out.routineRun) {
     const routineRun = { ...out.routineRun };
@@ -1002,6 +1009,21 @@ export class Store {
     // requestId are permission/question prompts and stay until answered.
     if (full.role === "user" && full.kind === "text") this.dismissOnboardingCard(threadId);
     return full;
+  }
+
+  appendCompaction(threadId: string, compaction: ContextCompactionV1): Message {
+    const checked = readContextCompaction({
+      value: {
+        ...compaction,
+        summary: redactSecretsInText(compaction.summary),
+      },
+    });
+    if (checked.status !== "valid") throw new Error("invalid context compaction state");
+    return this.appendMessage(threadId, {
+      role: "bot",
+      kind: "compaction",
+      compaction: checked.value,
+    });
   }
 
   /** Hide the first-run quiz on this thread, if it is still open. */

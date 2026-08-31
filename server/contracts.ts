@@ -155,6 +155,8 @@ export interface SendTurnInput {
   model?: string;
   effort?: EffortLevel;
   resumeCursor?: unknown;
+  /** Portable prompt used only when a remembered provider session cannot load. */
+  resumeFallback?: { text: string };
   /** Prior turns for transcript-replay providers (API-backed drivers). */
   transcript?: Array<{ role: "user" | "assistant"; text: string }>;
   /** Bot persona (name/title/description) as a system prompt. */
