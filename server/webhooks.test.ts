@@ -61,6 +61,7 @@ describe("WebhookManager", () => {
   it("rejects malformed management input before it reaches stored state", () => {
     const h = harness();
     expect(() => h.manager.create({ name: 42, prompt: "Review it", botId: "maus-1" })).toThrow("name");
+    expect(() => h.manager.create({ name: "Review", prompt: "Review it", botId: " " })).toThrow("Choose a bot");
     const created = create(h.manager);
     expect(() => h.manager.update(created.webhook.id, { enabled: "yes" })).toThrow("enabled");
     expect(h.manager.list()).toHaveLength(1);
@@ -148,7 +149,11 @@ describe("WebhookManager", () => {
     expect(result).toMatchObject({ captured: true, duplicate: false });
     expect(h.queued).toHaveLength(0);
     expect(h.manager.list()[0]).toMatchObject({ enabled: false, verificationPending: false, verifiedAt: expect.any(Number) });
-    expect(h.manager.listAttempts().at(-1)).toMatchObject({ outcome: "captured", eventName: "demo" });
+    expect(h.manager.listAttempts().at(-1)).toMatchObject({
+      outcome: "captured",
+      eventName: "demo",
+      reason: "Test event captured; enable the webhook to start bot tasks",
+    });
   });
 
   it("deduplicates retries by delivery id, including after a restart", () => {
@@ -189,7 +194,9 @@ describe("WebhookManager", () => {
     expect(h.queued).toHaveLength(0);
 
     h.setBot("missing");
-    expect(() => h.manager.receive(webhook.endpointId, secret, { payload: {}, eventName: "push" })).toThrow("no longer exists");
+    expect(() => h.manager.receive(webhook.endpointId, secret, { payload: {}, eventName: "push" })).toThrow(
+      "The assigned bot no longer exists",
+    );
 
     h.setBot("ready");
     h.setPending(3);
@@ -199,5 +206,15 @@ describe("WebhookManager", () => {
       h.manager.receive(webhook.endpointId, secret, { payload: { index }, eventName: "push", deliveryId: `delivery-${index}` });
     }
     expect(() => h.manager.receive(webhook.endpointId, secret, { payload: { overflow: true }, eventName: "push" })).toThrow("rate limit");
+  });
+
+  it("uses bot language when a deleted assignment disables a webhook", () => {
+    const h = harness();
+    const { webhook } = create(h.manager);
+
+    h.manager.disableForBot("maus-sales");
+
+    expect(h.manager.list()[0]?.enabled).toBe(false);
+    expect(h.cancelled.at(-1)).toEqual({ id: webhook.id, message: "The assigned bot was deleted" });
   });
 });

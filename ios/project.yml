@@ -46,7 +46,7 @@ targets:
         # What appears under the icon. Distinct from the desktop app on
         # purpose: someone may well have both, and two identical labels on
         # one person's devices is a small cruelty.
-        CFBundleDisplayName: OpenMausMobile
+        CFBundleDisplayName: Orbit Mobile
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.productivity
@@ -75,15 +75,15 @@ targets:
         # It looks exactly like "no computers on this network", which is a
         # confusing hour if you don't know to look here.
         NSLocalNetworkUsageDescription: >-
-          OpenMausBot finds your computer on this network so your bots can
+          Orbit Mobile finds your computer on this network so your bots can
           reach you here.
         NSCameraUsageDescription: >-
-          OpenMausBot uses the camera only to scan a pairing QR code shown on
+          Orbit Mobile uses the camera only to scan a pairing QR code shown on
           your computer.
         NSMicrophoneUsageDescription: >-
-          OpenMausMobile listens while you dictate a message to a bot.
+          Orbit Mobile listens while you dictate a message to a bot.
         NSSpeechRecognitionUsageDescription: >-
-          OpenMausMobile converts your speech into text so you can send it
+          Orbit Mobile converts your speech into text so you can send it
           to a bot. Recognition runs on this phone when it can.
         NSBonjourServices:
           - _openmausbot._tcp
@@ -127,7 +127,7 @@ targets:
     info:
       path: Widgets/Info.plist
       properties:
-        CFBundleDisplayName: OpenMausMobile
+        CFBundleDisplayName: Orbit Mobile
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:

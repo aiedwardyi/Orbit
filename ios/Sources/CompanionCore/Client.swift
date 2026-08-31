@@ -314,7 +314,7 @@ public struct PairingRouteError: Error, LocalizedError, Equatable, Sendable {
 
     public var errorDescription: String? {
         let routes = attemptedHosts.joined(separator: ", ")
-        return "Couldn’t reach this computer through any available route (\(routes)). Keep Phone access turned on in OpenMausBot, then try again."
+        return "Couldn’t reach this computer through any available route (\(routes)). Keep Phone access turned on in Orbit, then try again."
     }
 }
 
@@ -477,7 +477,7 @@ public struct CompanionClient: Sendable {
     /// that exact route is the user's preferred, explicit choice; neither a
     /// pairing credential nor the later bearer token is sprayed onto the
     /// current wifi merely because a private address was once advertised.
-    /// Only the first response that identifies itself as OpenMausBot receives
+    /// Only the first response that carries the expected app identity receives
     /// the one-time pairing POST. The request id makes that redemption safely
     /// replayable by newer desktop builds if its response is lost in transit.
     public static func pairFirstReachable(
