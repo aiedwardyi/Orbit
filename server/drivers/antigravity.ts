@@ -41,6 +41,7 @@ import type {
 } from "../contracts.ts";
 import { newEventId, newId } from "../contracts.ts";
 import { appendNative } from "./native.ts";
+import { isResumeCursorRejected } from "./retry.ts";
 
 const DRIVER_KIND = "antigravityAgent";
 
@@ -662,7 +663,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
             resumeCursor &&
             turn.resumeFallback &&
             !conversationId &&
-            /(?:session|conversation).*(?:not found|missing|invalid|unknown|expired)/i.test(stderr),
+            isResumeCursorRejected(stderr),
           );
           if (resumeRejected) {
             settled = true;

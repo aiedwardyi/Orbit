@@ -137,15 +137,18 @@ describe("Antigravity turns (fake CLI)", () => {
     expect(instance.adapter.hasSession("t-happy")).toBe(false);
   });
 
-  it("uses the portable fallback when a conversation cursor cannot be resumed", async () => {
+  it.each([
+    ["single-line", "1"],
+    ["multiline", "multiline"],
+  ])("uses the portable fallback for a %s diagnostic", async (label, resumeFailure) => {
     const scratch = mkdtempSync(join(tmpdir(), "omb-agy-resume-"));
     const dump = join(scratch, "dump.json");
     process.env.FAKE_AGY_DUMP = dump;
-    process.env.FAKE_AGY_RESUME_FAIL = "1";
+    process.env.FAKE_AGY_RESUME_FAIL = resumeFailure;
     try {
       await create();
       await instance.adapter.sendTurn({
-        threadId: "t-resume-fallback",
+        threadId: `t-resume-fallback-${label}`,
         text: "latest prompt",
         resumeCursor: "missing-conversation",
         resumeFallback: { text: "durable task record and recent work\n\ncontinue" },

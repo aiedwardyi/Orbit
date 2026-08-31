@@ -72,7 +72,9 @@ describe("provider-neutral context compaction", () => {
       summarize: async () => "summary one",
     });
     expect(first.status).toBe("ready");
-    if (first.status !== "ready" || !first.compaction) return;
+    if (first.status !== "ready") return;
+    expect(first.compaction).toBeDefined();
+    if (!first.compaction) return;
 
     const firstRecord = compactionMessage("c1", "m119", first.compaction);
     const summarize = vi.fn(async (_prompt: string) => "summary two");
@@ -99,7 +101,9 @@ describe("provider-neutral context compaction", () => {
       summarize: async () => "engine A summary with early evidence",
     });
     expect(first.status).toBe("ready");
-    if (first.status !== "ready" || !first.compaction) return;
+    if (first.status !== "ready") return;
+    expect(first.compaction).toBeDefined();
+    if (!first.compaction) return;
 
     const marker = compactionMessage("c1", "m119", first.compaction);
     const bResult = message("m120", "engine B verified the installer", { role: "bot" });
@@ -115,7 +119,9 @@ describe("provider-neutral context compaction", () => {
       },
     });
     expect(onB.status).toBe("ready");
-    if (onB.status !== "ready" || !onB.compaction) return;
+    if (onB.status !== "ready") return;
+    expect(onB.compaction).toBeDefined();
+    if (!onB.compaction) return;
     expect(bPrompts.some((prompt) => prompt.includes("work item 0"))).toBe(true);
     expect(bPrompts.some((prompt) => prompt.includes("engine A summary with early evidence"))).toBe(true);
     expect(onB.transcript.at(-1)?.text).toContain("engine B verified the installer");
@@ -189,7 +195,9 @@ describe("provider-neutral context compaction", () => {
       taskRecordText: "Goal: finish the release\nEvidence: first.json",
     });
     expect(first.status).toBe("ready");
-    if (first.status !== "ready" || !first.compaction) return;
+    if (first.status !== "ready") return;
+    expect(first.compaction).toBeDefined();
+    if (!first.compaction) return;
 
     const marker = compactionMessage("c1", "m119", first.compaction);
     const second = await prepareModelContext({
@@ -497,9 +505,86 @@ describe("provider-neutral context compaction", () => {
     if (result.status === "ready") expect(result.compaction).toBeUndefined();
   });
 
-  it("fails safely on an unknown future version without mutating it", async () => {
+  it("uses raw history when the active path has only a malformed compaction marker", async () => {
+    const path = [
+      message("m1", "one"),
+      message("m2", "two", { role: "bot" }),
+      compactionMessage("bad", "m2", { v: 1, summary: "" }),
+      message("m3", "three"),
+    ];
+    const before = structuredClone(path);
+    const result = await prepareModelContext({
+      messages: path,
+      contextWindow: 8_192,
+      taskRecordText: "Goal: recover raw history",
+    });
+
+    expect(result).toMatchObject({
+      status: "ready",
+      compacted: false,
+      transcript: [
+        { role: "user", text: "one" },
+        { role: "assistant", text: "two" },
+        { role: "user", text: "three" },
+      ],
+    });
+    expect(path).toEqual(before);
+  });
+
+  it("uses an older valid compaction when a newer marker is malformed", async () => {
+    const previous: ContextCompactionV1 = {
+      v: 1,
+      summary: "known good summary",
+      coveredThroughId: "m1",
+      firstKeptId: "m2",
+      contextWindow: 8_192,
+      estimatedTokensBefore: 20,
+      sourceMessageCount: 1,
+    };
+    const path = [
+      message("m1", "one"),
+      message("m2", "two", { role: "bot" }),
+      compactionMessage("c1", "m2", previous),
+      compactionMessage("bad", "c1", { v: 1, summary: "broken" }),
+      message("m3", "three"),
+    ];
+    const before = structuredClone(path);
+    const result = await prepareModelContext({
+      messages: path,
+      contextWindow: 8_192,
+      taskRecordText: "Goal: recover valid state",
+    });
+
+    expect(result).toMatchObject({
+      status: "ready",
+      compacted: true,
+      transcript: [
+        { role: "assistant", text: expect.stringContaining("known good summary") },
+        { role: "assistant", text: "two" },
+        { role: "user", text: "three" },
+      ],
+    });
+    expect(path).toEqual(before);
+  });
+
+  it("blocks on an unknown future version behind a malformed marker", async () => {
+    const previous: ContextCompactionV1 = {
+      v: 1,
+      summary: "known good summary",
+      coveredThroughId: "m1",
+      firstKeptId: null,
+      contextWindow: 8_192,
+      estimatedTokensBefore: 10,
+      sourceMessageCount: 1,
+    };
     const future = { v: 99, summary: "future state", extra: { keep: true } };
-    const path = [message("m1", "one"), compactionMessage("future", "m1", future)];
+    const path = [
+      message("m1", "one"),
+      compactionMessage("c1", "m1", previous),
+      compactionMessage("future", "c1", future),
+      compactionMessage("bad", "future", { v: 1, summary: "broken" }),
+    ];
+    const before = structuredClone(path);
     const result = await prepareModelContext({
       messages: path,
       contextWindow: 8_192,
@@ -507,6 +592,6 @@ describe("provider-neutral context compaction", () => {
     });
 
     expect(result).toEqual({ status: "unsupported", messageId: "future", version: 99 });
-    expect(path[1]?.compaction).toEqual(future);
+    expect(path).toEqual(before);
   });
 });

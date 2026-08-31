@@ -512,13 +512,17 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.argv).not.toContain("--session-id");
   });
 
-  it("starts fresh with portable context when a resumed session is missing", async () => {
-    await create("resume-fails");
+  it.each([
+    ["session not found", "resume-fails"],
+    ["invalid session across lines", "resume-fails-multiline"],
+    ["unknown conversation", "resume-fails-unknown"],
+  ])("starts fresh with portable context for %s", async (diagnostic, mode) => {
+    await create(mode);
     const dump = join(scratch, "resume-fallback.json");
     process.env.FAKE_CLAUDE_DUMP = dump;
 
     await instance.adapter.sendTurn({
-      threadId: "t-resume-fallback",
+      threadId: `t-resume-fallback-${diagnostic.replaceAll(" ", "-")}`,
       text: "continue",
       resumeCursor: "missing-session",
       resumeFallback: { text: "durable task record and recent work\n\ncontinue" },

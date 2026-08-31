@@ -4,7 +4,8 @@
 // scripted session. Failure modes are toggled by env var, mirroring how
 // the real thing misbehaves:
 //
-//   FAKE_CLAUDE_MODE   happy (default) | exit-early | resume-fails | hang | malformed
+//   FAKE_CLAUDE_MODE   happy (default) | exit-early | resume-fails | resume-fails-multiline
+//                      | resume-fails-unknown | hang | malformed
 //                      | stream (partial-message text deltas before the
 //                        whole-message frame, plus subagent noise to drop)
 //   FAKE_CLAUDE_DUMP   path to write {argv, env, prompt, mcpConfig} as JSON,
@@ -137,9 +138,16 @@ const playTurn = (prompt: JsonValue) => {
     process.stderr.write("fake-claude: simulated crash before result\n");
     process.exit(3);
   }
-  if (mode === "resume-fails" && argv.includes("--resume")) {
-    process.stderr.write("claude: session not found\n");
-    process.exit(4);
+  const resumeDiagnostic = mode === "resume-fails"
+    ? "claude: session not found\n"
+    : mode === "resume-fails-multiline"
+      ? "claude: invalid\nsession\n"
+      : mode === "resume-fails-unknown"
+        ? "claude: unknown conversation\n"
+        : null;
+  if (resumeDiagnostic && argv.includes("--resume")) {
+    process.stderr.write(resumeDiagnostic, () => process.exit(4));
+    return;
   }
   // transient-failure script for retry tests. FAKE_CLAUDE_TRANSIENTS is how
   // many launches fail transiently (503-shaped stderr, exit 5); the count of

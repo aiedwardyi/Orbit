@@ -30,7 +30,13 @@ import type {
 } from "../contracts.ts";
 import { computerProxyEnv } from "../container-computer.ts";
 import { newEventId, newId } from "../contracts.ts";
-import { classifyError, computeBackoff, interruptibleDelay, RETRY_MAX_ATTEMPTS } from "./retry.ts";
+import {
+  classifyError,
+  computeBackoff,
+  interruptibleDelay,
+  isResumeCursorRejected,
+  RETRY_MAX_ATTEMPTS,
+} from "./retry.ts";
 import {
   applyClaudeInject,
   decodeInjectId,
@@ -921,7 +927,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             sessionId &&
             turn.resumeFallback &&
             !session.turn.sawStreamDelta &&
-            /(?:session|conversation).*(?:not found|missing|invalid|unknown|expired)/i.test(session.stderr),
+            isResumeCursorRejected(session.stderr),
           );
           if (resumeRejected) {
             session.broker?.pause();

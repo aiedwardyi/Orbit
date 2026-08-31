@@ -176,7 +176,7 @@ function replayUnits(
 
 function applicableCompaction(
   messages: Message[],
-): ApplicableCompaction | { unsupported: true; messageId: string; version: number } | { invalid: true; messageId: string } | null {
+): ApplicableCompaction | { unsupported: true; messageId: string; version: number } | null {
   for (let pathIndex = messages.length - 1; pathIndex >= 0; pathIndex--) {
     const message = messages[pathIndex]!;
     if (message.kind !== "compaction") continue;
@@ -184,7 +184,7 @@ function applicableCompaction(
     if (parsed.status === "unsupported") {
       return { unsupported: true, messageId: message.id, version: parsed.version };
     }
-    if (parsed.status === "invalid") return { invalid: true, messageId: message.id };
+    if (parsed.status === "invalid") continue;
     const coveredIndex = messages.findIndex((candidate) => candidate.id === parsed.value.coveredThroughId);
     const firstKeptIndex = parsed.value.firstKeptId === null
       ? null
@@ -194,7 +194,7 @@ function applicableCompaction(
       coveredIndex >= pathIndex ||
       (firstKeptIndex !== null && (firstKeptIndex <= coveredIndex || firstKeptIndex >= pathIndex))
     ) {
-      return { invalid: true, messageId: message.id };
+      continue;
     }
     return { messageId: message.id, pathIndex, coveredIndex, value: parsed.value };
   }
@@ -327,9 +327,6 @@ export async function prepareModelContext(input: {
   const found = applicableCompaction(input.messages);
   if (found && "unsupported" in found) {
     return { status: "unsupported", messageId: found.messageId, version: found.version };
-  }
-  if (found && "invalid" in found) {
-    return { status: "failed", error: `Stored context summary ${found.messageId} is invalid.` };
   }
   const previous = found;
   const previousSummary = previous ? redactSecretsInText(previous.value.summary) : "";
