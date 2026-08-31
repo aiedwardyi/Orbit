@@ -41,6 +41,8 @@ Baseline: `feat/orbit-desktop` at `81890495d03c99bc765c14935be9cd6b3499fe1a`.
 | ORCH-22 | New-bot engine selection uses a provider-name preference instead of a capability contract | Atlas | `automatic-selection.test.ts`; isolated bot persisted `mode=automatic`; legacy no-mode bot stayed pinned | Automatic routing is deterministic, capability-based, availability-aware, and preserves a manual override | CLOSED |
 | ORCH-23a | Long tasks have no provider-neutral resume record before transcript truncation or session loss | Atlas | `task-state.test.ts`, `task-state-fold.test.ts`, `server/index.test.ts` continuity integration, `turn-context.test.ts`; full suite 2,325 passed | Persist a redacted, bounded goal, plan, progress, evidence, artifacts, blockers, and next action record and inject it into recovery turns | CLOSED |
 | ORCH-23b | Restart and user-stop recovery are not visible in the conversation | Atlas | Isolated UI QA at 1440x920 and 900x600; Continue and Dismiss verified; no console errors | Show the saved goal and next action after restart or stop before another user message is required | CLOSED |
+| COMP-1 | Long threads stopped before dispatch when an engine lacked the optional summarizer | Atlas | 97-message Codex harness test; deterministic fallback, repeated compaction, A-B-A, restart, branch, redaction, and atomic tool-result checks; all driver tests | Every shipped engine continues beyond the threshold without provider-name routing or transcript deletion | READY FOR INTEGRATION |
+| COMP-2 | Generated compaction allowed two rapid sends to prepare concurrently before busy state | Atlas | Slow-summary real-server test reproduced two 202 responses, then passed with one claimed turn and one 409 | One bot owns at most one preparation or provider turn at a time | READY FOR INTEGRATION |
 
 ## P2
 
@@ -91,7 +93,8 @@ Baseline: `feat/orbit-desktop` at `81890495d03c99bc765c14935be9cd6b3499fe1a`.
 | Browser user-agent tests | 7 passed |
 | Composer attachment tests | 16 passed |
 | Contrast check | PASS with three carried baseline warnings |
-| Full test suite | 2,325 passed, 99 skipped |
+| Full test suite | 2,413 passed, 102 skipped; 3 packaged-server smoke checks |
 | Production build | PASS |
 | Full lint | BLOCKED by repository baseline: 1,833 current errors, matching 1,833 at baseline; no finding on integrated lines |
+| Compaction changed-line lint | PASS; 1,833 inherited errors and 50 warnings, no finding on local changed lines |
 | Current-source UX audit | PASS WITH NOTES; no open P0 or P1 in the confidence slice |

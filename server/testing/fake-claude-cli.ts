@@ -68,6 +68,10 @@ if (argAfter("--output-format") === "text") {
       JSON.stringify({ pid: process.pid, argv, env: process.env, prompt, mcpConfig: null }, null, 2),
     );
   }
+  const delayMs = Number(process.env.FAKE_CLAUDE_GENERATE_DELAY_MS ?? 0);
+  if (Number.isFinite(delayMs) && delayMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
   process.stdout.write("fake generated text\n");
   process.exit(0);
 }

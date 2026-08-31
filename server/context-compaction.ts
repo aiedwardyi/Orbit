@@ -16,6 +16,7 @@ const MAX_CONTEXT_MESSAGES = 96;
 const MAX_TAIL_MESSAGES = 48;
 const MAX_SUMMARY_TOKENS = 8_192;
 const SUMMARY_HEADER = "[Orbit durable context summary]";
+const FALLBACK_SUMMARY_NOTICE = "Model summary unavailable; full transcript retained by Orbit.";
 
 interface ReplayUnit {
   id: string;
@@ -81,7 +82,8 @@ export function estimateContextTokens(messages: Array<{ text: string }>): number
 
 function clipText(text: string, maxTokens: number): string {
   if (textTokens(text) <= maxTokens) return text;
-  const marker = "\n[shortened for model context; full transcript remains available]";
+  const fullMarker = "\n[shortened for model context; full transcript remains available]";
+  const marker = textTokens(fullMarker) < maxTokens ? fullMarker : "";
   let low = 0;
   let high = text.length;
   while (low < high) {
@@ -90,6 +92,51 @@ function clipText(text: string, maxTokens: number): string {
     else high = middle - 1;
   }
   return `${text.slice(0, low).trimEnd()}${marker}`;
+}
+
+function fallbackSummary(input: {
+  previousSummary: string;
+  history: ReplayUnit[];
+  taskRecordText: string;
+  summaryTokens: number;
+}): string {
+  const contentTokens = Math.max(1, input.summaryTokens - messageTokens(summaryMessage("")) - 2);
+  const conversation = input.history.filter((item) => !item.atomic);
+  const excerptIds = new Set<string>();
+  const excerpts = [...conversation.slice(0, 2), ...conversation.slice(-4)]
+    .filter((item) => {
+      if (excerptIds.has(item.id)) return false;
+      excerptIds.add(item.id);
+      return true;
+    })
+    .map((item) => `${item.role === "user" ? "User" : "Assistant"}: ${item.text}`)
+    .join("\n");
+  const toolOutcomes = input.history.filter((item) => item.atomic).map((item) => item.text).join("\n");
+  const sections = [
+    { weight: 5, text: `[Durable task record]\n${redactSecretsInText(input.taskRecordText)}` },
+    input.previousSummary
+      ? { weight: 3, text: `[Previous durable summary]\n${redactSecretsInText(input.previousSummary)}` }
+      : null,
+    excerpts
+      ? { weight: 2, text: `[Earlier transcript excerpts]\n${redactSecretsInText(excerpts)}` }
+      : null,
+    toolOutcomes
+      ? { weight: 2, text: `[Completed tool outcomes]\n${redactSecretsInText(toolOutcomes)}` }
+      : null,
+  ].filter((section): section is { weight: number; text: string } => section !== null);
+  const noticeTokens = Math.min(contentTokens, textTokens(FALLBACK_SUMMARY_NOTICE));
+  if (noticeTokens === contentTokens) return clipText(FALLBACK_SUMMARY_NOTICE, contentTokens);
+  const sectionTokens = Math.max(1, contentTokens - noticeTokens - sections.length);
+  const totalWeight = sections.reduce((total, section) => total + section.weight, 0);
+  let allocated = 0;
+  const content = sections.map((section, index) => {
+    const tokens = index === sections.length - 1
+      ? Math.max(1, sectionTokens - allocated)
+      : Math.max(1, Math.floor(sectionTokens * section.weight / totalWeight));
+    allocated += tokens;
+    return clipText(section.text, tokens);
+  });
+  return clipText([FALLBACK_SUMMARY_NOTICE, ...content].join("\n"), contentTokens).trim();
 }
 
 function replayUnits(
@@ -311,13 +358,6 @@ export async function prepareModelContext(input: {
       compacted: Boolean(previous),
     };
   }
-  if (!input.summarize) {
-    return failedContext(
-      "This conversation needs context summarization, but the selected engine cannot summarize it.",
-      previous,
-    );
-  }
-
   const summaryBudget = Math.max(
     1,
     Math.min(MAX_SUMMARY_TOKENS, budgetTokens, Math.floor(budgetTokens * SUMMARY_BUDGET_SHARE)),
@@ -331,7 +371,14 @@ export async function prepareModelContext(input: {
   let summary = previousSummary;
   try {
     await input.beforeSummarize?.();
-    if (summary && messageTokens(summaryMessage(summary)) > summaryBudget) {
+    if (!input.summarize) {
+      summary = fallbackSummary({
+        previousSummary,
+        history: old,
+        taskRecordText: input.taskRecordText,
+        summaryTokens: summaryBudget,
+      });
+    } else if (summary && messageTokens(summaryMessage(summary)) > summaryBudget) {
       const previousUnit: ReplayUnit = {
         id: previous!.value.coveredThroughId,
         pathIndex: previous!.coveredIndex,
@@ -354,19 +401,21 @@ export async function prepareModelContext(input: {
         summary = generated;
       }
     }
-    for (const batch of summaryBatches(old, contextWindow)) {
-      const generated = redactSecretsInText((await input.summarize(summaryPrompt({
-        previousSummary: summary,
-        history: batch,
-        taskRecordText: input.taskRecordText,
-        contextWindow,
-        summaryTokens: summaryBudget,
-      }))).trim());
-      if (!generated) throw new Error("the summarizer returned an empty result");
-      if (messageTokens(summaryMessage(generated)) > summaryBudget) {
-        throw new Error("the summarizer exceeded the durable summary budget");
+    if (input.summarize) {
+      for (const batch of summaryBatches(old, contextWindow)) {
+        const generated = redactSecretsInText((await input.summarize(summaryPrompt({
+          previousSummary: summary,
+          history: batch,
+          taskRecordText: input.taskRecordText,
+          contextWindow,
+          summaryTokens: summaryBudget,
+        }))).trim());
+        if (!generated) throw new Error("the summarizer returned an empty result");
+        if (messageTokens(summaryMessage(generated)) > summaryBudget) {
+          throw new Error("the summarizer exceeded the durable summary budget");
+        }
+        summary = generated;
       }
-      summary = generated;
     }
   } catch (error) {
     return failedContext(

@@ -1998,36 +1998,48 @@ async function finalScreenFrame(botId: string): Promise<Frame | null> {
 }
 
 // ── turn dispatch (upstream ProviderCommandReactor, miniature) ──────────
-async function startTurn(
-  botId: string,
-  text: string,
-  opts?: {
-    commsDepth?: number;
-    userMessage?: Message;
-    /** Extra transcript ids to omit (every drained queued line, not just the last). */
-    excludeMessageIds?: string[];
-    /** Routines run in detached tasks; pin the destination for the whole turn. */
-    threadId?: string;
-    /** Cloud routines run the whole agent inside the bot's Box VM instead
-     * of merely mounting that VM's computer tools on the MAUS's provider. */
-    runOn?: RoutineRunOn;
-    /** Lets the system prompt put externally supplied payloads behind an
-     * explicit untrusted-data boundary without changing ordinary chat. */
-    automationSource?: RoutineRunTrigger;
-    /** the caller was already running unattended, so this turn is too */
-    unattended?: boolean;
-    /** Resume an agent after the user completed an inline connection or credential card.
-     * The prompt is control-plane context: it reaches the provider without
-     * masquerading as another message authored by the user. */
-    cardContinuation?: boolean;
-    /** Earlier text message this user turn is replying to. */
-    replyTo?: Message;
-    /** Stable identity supplied by the composer so a network retry cannot
-     * dispatch the same user action twice. */
-    sendId?: string;
-    onDispatchError?: (message: string) => void;
-  },
-) {
+type StartTurnOptions = {
+  commsDepth?: number;
+  userMessage?: Message;
+  /** Extra transcript ids to omit (every drained queued line, not just the last). */
+  excludeMessageIds?: string[];
+  /** Routines run in detached tasks; pin the destination for the whole turn. */
+  threadId?: string;
+  /** Cloud routines run the whole agent inside the bot's Box VM instead
+   * of merely mounting that VM's computer tools on the MAUS's provider. */
+  runOn?: RoutineRunOn;
+  /** Lets the system prompt put externally supplied payloads behind an
+   * explicit untrusted-data boundary without changing ordinary chat. */
+  automationSource?: RoutineRunTrigger;
+  /** the caller was already running unattended, so this turn is too */
+  unattended?: boolean;
+  /** Resume an agent after the user completed an inline connection or credential card.
+   * The prompt is control-plane context: it reaches the provider without
+   * masquerading as another message authored by the user. */
+  cardContinuation?: boolean;
+  /** Earlier text message this user turn is replying to. */
+  replyTo?: Message;
+  /** Stable identity supplied by the composer so a network retry cannot
+   * dispatch the same user action twice. */
+  sendId?: string;
+  onDispatchError?: (message: string) => void;
+};
+
+const turnStartClaims = new Set<string>();
+
+async function startTurn(botId: string, text: string, opts?: StartTurnOptions) {
+  if (turnStartClaims.has(botId)) {
+    throw Object.assign(new Error("the bot is already working - interrupt it first"), { status: 409 });
+  }
+  turnStartClaims.add(botId);
+  try {
+    return await startClaimedTurn(botId, text, opts);
+  } finally {
+    turnStartClaims.delete(botId);
+  }
+}
+
+async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOptions) {
   const bot = store.bot(botId);
   if (!bot) throw Object.assign(new Error("no such bot"), { status: 404 });
   if (checkpointRestoreLeases.has(botId)) {
@@ -2190,6 +2202,9 @@ async function startTurn(
       sessionModelSwitch: instance.adapter.capabilities.sessionModelSwitch,
       resumeCursors: task.resumeCursors,
       transcript,
+      hasPriorUserTurn: activeMessages.some(
+        (message) => message.role === "user" && message.kind === "text" && Boolean(message.text?.trim()) && !skipTranscript.has(message.id),
+      ),
     });
   const { turnText, resume } = buildTurnContext({
     text: currentPrompt,

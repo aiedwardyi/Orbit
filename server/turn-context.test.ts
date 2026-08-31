@@ -173,6 +173,19 @@ describe("engineIsFresh", () => {
     expect(engineIsFresh({ instanceId: "a", model: "a1", lastInstanceId: "b", lastModel: "b1", sessionModelSwitch: "in-session", resumeCursors: cursors, transcript: withUser })).toBe(true);
   });
 
+  it("replays after compaction when the bounded tail contains only assistant entries", () => {
+    expect(engineIsFresh({
+      instanceId: "a",
+      model: "a1",
+      lastInstanceId: "b",
+      lastModel: "b1",
+      sessionModelSwitch: "in-session",
+      resumeCursors: { a: "a-old", b: "b-current" },
+      transcript: [{ role: "assistant", text: "summary and tool outcomes" }],
+      hasPriorUserTurn: true,
+    })).toBe(true);
+  });
+
   it("is true for an instance that has never run this thread", () => {
     expect(engineIsFresh({ instanceId: "codex", model: "gpt-5.2", lastInstanceId: "claude", lastModel: "sonnet", sessionModelSwitch: "unsupported", resumeCursors: { claude: "s1" }, transcript: withUser })).toBe(true);
   });

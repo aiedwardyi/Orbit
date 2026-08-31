@@ -154,6 +154,58 @@ describe("provider-neutral context compaction", () => {
     expect(order.slice(1).every((step) => step === "summarize")).toBe(true);
   });
 
+  it("uses durable harness context when the optional summarizer is absent", async () => {
+    const secret = `sk-${"f".repeat(32)}`;
+    const messages = longHistory(97);
+    messages.splice(10, 0, message("tool", "", {
+      role: "bot",
+      kind: "activity",
+      tool: { name: `Bash: pnpm test ${secret}`, ok: true },
+    }));
+    const beforeSummarize = vi.fn();
+    const result = await prepareModelContext({
+      messages,
+      contextWindow: 8_192,
+      taskRecordText: `Goal: ship the release\nEvidence: reports/green.json\nArtifact: dist/orbit.exe\nSecret: ${secret}`,
+      beforeSummarize,
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(beforeSummarize).toHaveBeenCalledOnce();
+    expect(result.compaction?.summary).toContain("reports/green.json");
+    expect(result.compaction?.summary).toContain("dist/orbit.exe");
+    expect(result.compaction?.summary).toContain("work item 0");
+    expect(result.compaction?.summary).toContain("Bash: pnpm test");
+    expect(result.compaction?.summary).not.toContain(secret);
+    expect(result.transcript.at(-1)?.text).toContain("work item 96");
+    expect(messages).toHaveLength(98);
+  });
+
+  it("folds a deterministic fallback through repeated compaction", async () => {
+    const first = await prepareModelContext({
+      messages: longHistory(120),
+      contextWindow: 2_048,
+      taskRecordText: "Goal: finish the release\nEvidence: first.json",
+    });
+    expect(first.status).toBe("ready");
+    if (first.status !== "ready" || !first.compaction) return;
+
+    const marker = compactionMessage("c1", "m119", first.compaction);
+    const second = await prepareModelContext({
+      messages: [...longHistory(120), marker, ...longHistory(90, 120)],
+      contextWindow: 2_048,
+      taskRecordText: "Goal: finish the release\nEvidence: second.json",
+    });
+
+    expect(second.status).toBe("ready");
+    if (second.status !== "ready") return;
+    expect(second.compaction?.previousCompactionId).toBe("c1");
+    expect(second.compaction?.summary).toContain("[Previous durable summary]");
+    expect(second.compaction?.summary).toContain("second.json");
+    expect(second.transcript.at(-1)?.text).toContain("work item 209");
+  });
+
   it("represents each completed tool call and result as one context item", async () => {
     const result = await prepareModelContext({
       messages: [
