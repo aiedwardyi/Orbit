@@ -270,6 +270,14 @@ export function Composer({
   // what was typed before the mic went on — partials append after it
   const baseText = useRef("");
 
+  useEffect(() => {
+    if (!bot || state.composerFocusBotId !== bot.id) return;
+    const input = inputRef.current;
+    if (!input || input.disabled) return;
+    input.focus();
+    dispatch({ type: "composerFocused", botId: bot.id });
+  }, [bot, dispatch, locked, approval, state.composerFocusBotId]);
+
   // Image paste is offered unless a known responder refuses it. A missing
   // instance is still hydrating, so keep the image and validate before send.
   const imageTargetsSupport = (message: string) => {
@@ -714,6 +722,7 @@ export function Composer({
           )}
           <textarea
           ref={inputRef}
+          data-orbit-composer=""
           rows={1}
           value={text}
           onChange={(e) => {

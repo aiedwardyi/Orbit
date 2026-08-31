@@ -180,6 +180,28 @@ export function InspectorPanel({ bot }: { bot: Bot }) {
   const shown = entries.length;
   const total = lens === "raw" ? (page?.total.native ?? 0) : (page?.total.runtime ?? 0);
 
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('[role="dialog"][aria-modal="true"]')) return;
+      event.preventDefault();
+      dispatch({ type: "toggleInspector", open: false });
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+      requestAnimationFrame(() => {
+        if (document.activeElement !== document.body) return;
+        const target = previousFocus && previousFocus !== document.body && previousFocus.isConnected
+          ? previousFocus
+          : document.querySelector<HTMLElement>("[data-orbit-composer]");
+        target?.focus();
+      });
+    };
+  }, [dispatch]);
+
   return (
     <aside className="animate-panel-in flex h-full w-[460px] shrink-0 flex-col border-l border-hairline/40 bg-panel">
       <div className="flex items-center justify-between px-4 py-3">

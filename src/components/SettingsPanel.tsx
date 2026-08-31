@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronLeft, Crown, FolderOpen, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, useStore, type Bot } from "@/state/store";
 import { stateForBot } from "@/lib/mascot";
 import { CloudBackendPicker } from "./CloudBackendPicker";
@@ -319,6 +319,7 @@ function MemoryCard({ bot }: { bot: Bot }) {
 export function SettingsPanel({ bot }: { bot: Bot }) {
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
+  const panelRef = useRef<HTMLElement>(null);
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const providerSupportsLocal = instanceSupportsLocalComputer(state.instances, bot);
@@ -372,9 +373,32 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
       (candidate.section?.trim() || "") === (bot.section?.trim() || ""),
   );
 
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('[role="dialog"][aria-modal="true"]')) return;
+      if (panelRef.current?.querySelector("[data-model-picker-content]")) return;
+      event.preventDefault();
+      dispatch({ type: "toggleSettings", open: false });
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+      requestAnimationFrame(() => {
+        if (document.activeElement !== document.body) return;
+        const target = previousFocus && previousFocus !== document.body && previousFocus.isConnected
+          ? previousFocus
+          : document.querySelector<HTMLElement>("[data-orbit-composer]");
+        target?.focus();
+      });
+    };
+  }, [dispatch]);
+
   return (
     <>
-    <aside className="animate-panel-in relative z-20 flex h-full w-[400px] shrink-0 flex-col border-l border-hairline/40 bg-panel">
+    <aside ref={panelRef} className="animate-panel-in relative z-20 flex h-full w-[400px] shrink-0 flex-col border-l border-hairline/40 bg-panel">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3">
         <button
