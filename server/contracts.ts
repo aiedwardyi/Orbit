@@ -155,6 +155,8 @@ export interface SendTurnInput {
   model?: string;
   effort?: EffortLevel;
   resumeCursor?: unknown;
+  /** Portable prompt used only when a remembered provider session cannot load. */
+  resumeFallback?: { text: string };
   /** Prior turns for transcript-replay providers (API-backed drivers). */
   transcript?: Array<{ role: "user" | "assistant"; text: string }>;
   /** Bot persona (name/title/description) as a system prompt. */
@@ -214,6 +216,8 @@ export interface ProviderAdapter {
     sessionModelSwitch: "in-session" | "unsupported";
     /** True when sendTurn consumes SendTurnInput.transcript directly. */
     transcriptReplay?: boolean;
+    /** False when session.started IDs cannot resume later turns. */
+    resumeCursor?: boolean;
     /** True when the driver mounts turn.integrations.agents as MCP tools —
      * the harness only offers agents tooling (and prompts about it) to
      * drivers that can actually hand it to the agent. */

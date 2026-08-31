@@ -41,6 +41,7 @@ import type {
 } from "../contracts.ts";
 import { newEventId, newId } from "../contracts.ts";
 import { appendNative } from "./native.ts";
+import { isResumeCursorRejected } from "./retry.ts";
 
 const DRIVER_KIND = "antigravityAgent";
 
@@ -658,6 +659,38 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
         clearTimeout(terminationEscalation);
         finalizeMcp();
         if (!settled) {
+          const resumeRejected = Boolean(
+            resumeCursor &&
+            turn.resumeFallback &&
+            !conversationId &&
+            isResumeCursorRejected(stderr),
+          );
+          if (resumeRejected) {
+            settled = true;
+            clearTimeout(watchdog);
+            active.delete(threadId);
+            emit({ ...base(threadId, turnId), type: "turn.retrying", attempt: 1, delayMs: 0, reason: "resume_cursor" });
+            void sendTurn({
+              ...turn,
+              text: turn.resumeFallback!.text,
+              resumeCursor: undefined,
+              resumeFallback: undefined,
+            }).catch((error) => {
+              emit({
+                ...base(threadId, turnId),
+                type: "runtime.error",
+                message: error instanceof Error ? error.message : String(error),
+              });
+              emit({
+                ...base(threadId, turnId),
+                type: "turn.completed",
+                ok: false,
+                stopReason: "resume_fallback_failed",
+                cost: null,
+              });
+            });
+            return;
+          }
           emit({
             ...base(threadId, turnId),
             type: "runtime.error",

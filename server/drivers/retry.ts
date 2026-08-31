@@ -33,6 +33,13 @@ export interface ErrorClassification {
   reason: string;
 }
 
+const RESUME_CURSOR_REJECTION_PATTERN =
+  /\b(?:(?:session|conversation)\s+(?:(?:\S+\s+)?not found|missing|invalid|unknown|expired)|(?:not found|missing|invalid|unknown|expired)\s+(?:session|conversation))\b/i;
+
+export function isResumeCursorRejected(stderr: string): boolean {
+  return RESUME_CURSOR_REJECTION_PATTERN.test(stderr);
+}
+
 const TRANSIENT_PATTERNS: Array<{ pattern: RegExp; reason: TransientReason }> = [
   { pattern: /\b(?:429|rate.?limit|too many requests)\b/i, reason: "rate_limited" },
   { pattern: /\boverloaded\b|\bcapacity\b/i, reason: "overloaded" },

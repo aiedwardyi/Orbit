@@ -303,6 +303,10 @@ function handle(msg: any) {
       break;
     }
     case "session/load": {
+      if (mode === "load-fails") {
+        out({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: "session not found" } });
+        break;
+      }
       const opts = configOptions();
       const mdls = sessionModels();
       result(msg.id, { ...(opts ? { configOptions: opts } : {}), ...(mdls ? { models: mdls } : {}) });
@@ -357,6 +361,10 @@ function handle(msg: any) {
       break;
     }
     case "session/prompt": {
+      if (process.env.FAKE_ACP_DUMP) {
+        dumpState.prompt = msg.params?.prompt;
+        writeFileSync(process.env.FAKE_ACP_DUMP, JSON.stringify(dumpState, null, 2));
+      }
       if (mode === "hang") {
         // never resolve the prompt — lets tests exercise interrupt
         setInterval(() => {}, 1_000);

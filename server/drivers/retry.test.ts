@@ -1,6 +1,38 @@
 import { describe, expect, it } from "vitest";
 
-import { BACKOFF_BASE_MS, RETRY_MAX_ATTEMPTS, classifyError, computeBackoff } from "./retry.ts";
+import {
+  BACKOFF_BASE_MS,
+  RETRY_MAX_ATTEMPTS,
+  classifyError,
+  computeBackoff,
+  isResumeCursorRejected,
+} from "./retry.ts";
+
+describe("isResumeCursorRejected", () => {
+  it.each([
+    "conversation not found",
+    "Conversation 8f2c\nnot found",
+    "invalid session",
+    "invalid\nsession",
+    "unknown conversation",
+    "missing session",
+    "session expired",
+    "expired conversation",
+  ])("recognizes %j", (stderr) => {
+    expect(isResumeCursorRejected(stderr)).toBe(true);
+  });
+
+  it.each([
+    "invalid API key",
+    "unknown model",
+    "conversation ended normally",
+    "session completed",
+    "Resuming session 8f2c...\nInvalid API key",
+    "Resumed session 8f2c\nAPI error (503): upstream unknown",
+  ])("rejects unrelated diagnostic %j", (stderr) => {
+    expect(isResumeCursorRejected(stderr)).toBe(false);
+  });
+});
 
 describe("classifyError", () => {
   it("calls provider rate limits transient", () => {

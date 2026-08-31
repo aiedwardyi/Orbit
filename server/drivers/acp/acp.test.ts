@@ -620,6 +620,24 @@ describe("ACP turns (fake CLI)", () => {
     expect(done).toMatchObject({ ok: true });
   });
 
+  it("uses portable context when a remembered session cannot load", async () => {
+    const dump = join(scratch, "resume-fallback.json");
+    process.env.FAKE_ACP_DUMP = dump;
+    await create(GrokAgentDriver, "load-fails");
+    await instance.adapter.sendTurn({
+      threadId: "t-resume-fallback",
+      text: "continue",
+      resumeCursor: "missing-session",
+      resumeFallback: { text: "durable task record and recent work\n\ncontinue" },
+    });
+
+    const started = await recorder.until((event) => event.type === "session.started");
+    expect(started).toMatchObject({ sessionId: "fake-acp-session" });
+    await recorder.until((event) => event.type === "turn.completed");
+    const prompt = JSON.parse(readFileSync(dump, "utf8")).prompt;
+    expect(prompt).toEqual([{ type: "text", text: "durable task record and recent work\n\ncontinue" }]);
+  });
+
   it("applyTurnEnv sees the picker model after resolveTurnModel", async () => {
     const dump = join(scratch, "turn-env.json");
     process.env.FAKE_ACP_DUMP = dump;

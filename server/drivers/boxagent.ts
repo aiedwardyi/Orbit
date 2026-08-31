@@ -122,7 +122,7 @@ export const BoxAgentDriver: ProviderDriver<BoxAgentConfig> = {
         },
       });
       emit({ ...base(threadId, turnId), type: "turn.started" });
-      emit({ ...base(threadId, turnId), type: "session.started", sessionId: promptId, model });
+      emit({ ...base(threadId, turnId), type: "session.started", sessionId: null, model });
 
       // poll events + run status until the prompt settles
       (async () => {
@@ -251,7 +251,7 @@ export const BoxAgentDriver: ProviderDriver<BoxAgentConfig> = {
       snapshot,
       adapter: {
         provider: DRIVER_KIND,
-        capabilities: { sessionModelSwitch: "in-session" },
+        capabilities: { sessionModelSwitch: "in-session", resumeCursor: false },
         sendTurn,
         interruptTurn: async (threadId) => active.get(threadId)?.cancel(),
         respondToRequest: async () => "unavailable" as const, // this engine has no asks to answer

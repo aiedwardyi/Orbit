@@ -4,7 +4,8 @@
 // scripted session. Failure modes are toggled by env var, mirroring how
 // the real thing misbehaves:
 //
-//   FAKE_CLAUDE_MODE   happy (default) | exit-early | hang | malformed
+//   FAKE_CLAUDE_MODE   happy (default) | exit-early | resume-fails | resume-fails-multiline
+//                      | resume-fails-unknown | hang | malformed
 //                      | stream (partial-message text deltas before the
 //                        whole-message frame, plus subagent noise to drop)
 //   FAKE_CLAUDE_DUMP   path to write {argv, env, prompt, mcpConfig} as JSON,
@@ -67,6 +68,10 @@ if (argAfter("--output-format") === "text") {
       process.env.FAKE_CLAUDE_DUMP,
       JSON.stringify({ pid: process.pid, argv, env: process.env, prompt, mcpConfig: null }, null, 2),
     );
+  }
+  const delayMs = Number(process.env.FAKE_CLAUDE_GENERATE_DELAY_MS ?? 0);
+  if (Number.isFinite(delayMs) && delayMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
   process.stdout.write("fake generated text\n");
   process.exit(0);
@@ -132,6 +137,17 @@ const playTurn = (prompt: JsonValue) => {
   if (mode === "exit-early") {
     process.stderr.write("fake-claude: simulated crash before result\n");
     process.exit(3);
+  }
+  const resumeDiagnostic = mode === "resume-fails"
+    ? "claude: session not found\n"
+    : mode === "resume-fails-multiline"
+      ? "claude: invalid\nsession\n"
+      : mode === "resume-fails-unknown"
+        ? "claude: unknown conversation\n"
+        : null;
+  if (resumeDiagnostic && argv.includes("--resume")) {
+    process.stderr.write(resumeDiagnostic, () => process.exit(4));
+    return;
   }
   // transient-failure script for retry tests. FAKE_CLAUDE_TRANSIENTS is how
   // many launches fail transiently (503-shaped stderr, exit 5); the count of

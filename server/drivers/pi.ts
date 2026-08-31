@@ -726,6 +726,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
       // sessionFile, which switch_session expects as `sessionPath`.
       const sessionPath = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
       let sessionFile = sessionPath;
+      let resumeFailed = false;
       try {
         const command = sessionPath ? "switch_session" : "new_session";
         const hsPromise = awaitResponse(command);
@@ -739,8 +740,25 @@ export const PiDriver: ProviderDriver<PiConfig> = {
           model: turn.model ?? null,
         });
       } catch {
-        // without a session we can still try a bare prompt; pi --no-session
-        // accepts a prompt without an explicit session.
+        resumeFailed = sessionPath !== null;
+        sessionFile = null;
+        if (resumeFailed) {
+          try {
+            const hsPromise = awaitResponse("new_session");
+            send({ type: "new_session" });
+            // SAFETY: awaitResponse resolves the matching new_session response.
+            const hs = (await hsPromise) as { sessionFile?: string; sessionId?: string } | undefined;
+            sessionFile = hs?.sessionFile ?? null;
+            emit({
+              ...base(threadId, turnId),
+              type: "session.started",
+              sessionId: sessionFile ?? hs?.sessionId ?? null,
+              model: turn.model ?? null,
+            });
+          } catch {
+            // pi --no-session can still accept the portable prompt.
+          }
+        }
       }
 
       // pin the chosen model (composite id or host::model inject → provider + modelId)
@@ -767,7 +785,8 @@ export const PiDriver: ProviderDriver<PiConfig> = {
         }
       }
 
-      const message = turn.system ? `${turn.system}\n\n${turn.text}` : turn.text;
+      const promptText = resumeFailed ? (turn.resumeFallback?.text ?? turn.text) : turn.text;
+      const message = turn.system ? `${turn.system}\n\n${promptText}` : promptText;
       try {
         send({ type: "prompt", message });
       } catch {

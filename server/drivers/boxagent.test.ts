@@ -19,14 +19,17 @@ function json(body: unknown, status = 200) {
 type Poll = { events: unknown[]; status?: { promptRun: { status: string; result?: string } } };
 
 /** Stub fetch so each GET /events + /prompts pair advances one poll in `script`. */
-function installFakeBox(script: Poll[]) {
+function installFakeBox(script: Poll[], promptBodies: string[] = []) {
   let i = 0;
   const previous = globalThis.fetch;
   globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
     const url = String(input);
     const method = String(init?.method ?? "GET").toUpperCase();
     if (url.endsWith("/me")) return json({ ok: true });
-    if (method === "POST" && /\/boxes\/[^/]+\/prompt$/.test(url)) return json({ promptRun: { id: PROMPT } });
+    if (method === "POST" && /\/boxes\/[^/]+\/prompt$/.test(url)) {
+      if (init?.body != null) promptBodies.push(String(init.body));
+      return json({ promptRun: { id: PROMPT } });
+    }
     if (method === "POST" && url.includes("/interrupt")) return json({ ok: true });
     if (url.includes("/events")) {
       const step = script[Math.min(i, script.length - 1)]!;
@@ -103,6 +106,45 @@ describe("BoxAgentDriver turns (fake API)", () => {
       .filter((e) => e.type === "item.completed" && (e as { itemType: string }).itemType === "assistant_text")
       .map((e) => (e as { text: string }).text);
     expect(texts).toEqual(["hel", "lo there"]);
+  });
+
+  it("treats prompt runs as stateless and sends portable context through turn text", async () => {
+    const promptBodies: string[] = [];
+    restoreFetch = installFakeBox([
+      {
+        events: [],
+        status: { promptRun: { status: "finished", result: "done" } },
+      },
+    ], promptBodies);
+    await create();
+    await instance.adapter.sendTurn({
+      threadId: "t-context",
+      text: [
+        "[Orbit durable context summary]",
+        "Earlier transcript excerpt",
+        "Tool call and result",
+        "Recent conversation tail",
+      ].join("\n"),
+      resumeCursor: PROMPT,
+      transcript: [{ role: "user", text: "must not be consumed separately" }],
+      integrations: { computer },
+    });
+    await recorder.until((event) => event.type === "turn.completed");
+
+    expect(instance.adapter.capabilities).toMatchObject({ resumeCursor: false });
+    expect(recorder.events.find((event) => event.type === "session.started")).toMatchObject({
+      sessionId: null,
+    });
+    expect(promptBodies).toHaveLength(1);
+    for (const expected of [
+      "Orbit durable context summary",
+      "Earlier transcript excerpt",
+      "Tool call and result",
+      "Recent conversation tail",
+    ]) {
+      expect(promptBodies[0]).toContain(expected);
+    }
+    expect(promptBodies[0]).not.toContain("must not be consumed separately");
   });
 
   it("keeps a non-prefix response after a flush instead of slicing it away", async () => {

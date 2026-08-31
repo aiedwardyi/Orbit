@@ -512,6 +512,31 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.argv).not.toContain("--session-id");
   });
 
+  it.each([
+    ["session not found", "resume-fails"],
+    ["invalid session across lines", "resume-fails-multiline"],
+    ["unknown conversation", "resume-fails-unknown"],
+  ])("starts fresh with portable context for %s", async (diagnostic, mode) => {
+    await create(mode);
+    const dump = join(scratch, "resume-fallback.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+
+    await instance.adapter.sendTurn({
+      threadId: `t-resume-fallback-${diagnostic.replaceAll(" ", "-")}`,
+      text: "continue",
+      resumeCursor: "missing-session",
+      resumeFallback: { text: "durable task record and recent work\n\ncontinue" },
+    });
+    await recorder.until((event) => event.type === "turn.retrying" && event.reason === "resume_cursor");
+    const done = await recorder.until((event) => event.type === "turn.completed");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.argv).not.toContain("--resume");
+    expect(seen.prompt.message.content).toBe("durable task record and recent work\n\ncontinue");
+    expect(done).toMatchObject({ ok: true });
+    expect(recorder.events.filter((event) => event.type === "turn.completed")).toHaveLength(1);
+  });
+
   it("rejects a second turn while one is in flight", async () => {
     await create("hang");
     await instance.adapter.sendTurn({ threadId: "t-busy", text: "one" });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildTurnContext, engineIsFresh } from "./turn-context.ts";
+import { buildResumeFallback, buildTurnContext, engineIsFresh, taskRecordBlock } from "./turn-context.ts";
 
 const transcript = [
   { role: "user" as const, text: "my dog is named Biscuit" },
@@ -86,6 +86,53 @@ describe("buildTurnContext", () => {
     expect(out.resume).toBe(true);
     expect(out.turnText).toContain("Next action: Compare pricing");
   });
+
+  it("builds a cursor-failure fallback from the task record, summary, and tail", () => {
+    const text = buildResumeFallback({
+      text: "continue",
+      transcript: [
+        { role: "assistant", text: "[Orbit durable context summary]\nEarlier evidence is report.json." },
+        { role: "user", text: "The latest result is green." },
+      ],
+      taskRecord: {
+        goal: "Ship the release",
+        plan: [{ step: "Run smoke tests", status: "active" }],
+        completed: [{ note: "Built the installer" }],
+        evidence: [{ kind: "file", ref: "reports/smoke.json", note: "all checks passed" }],
+        artifacts: [{ ref: "dist/orbit.exe", label: "Windows installer" }],
+        blockers: [],
+        nextAction: "Run smoke tests",
+      },
+    });
+
+    expect(text).toContain("provider session could not be resumed");
+    expect(text).toContain("Goal: Ship the release");
+    expect(text).toContain("1. active: Run smoke tests");
+    expect(text).toContain("reports/smoke.json");
+    expect(text).toContain("dist/orbit.exe");
+    expect(text).toContain("Earlier evidence is report.json");
+    expect(text).toContain("The latest result is green.");
+    expect(text.endsWith("continue")).toBe(true);
+  });
+
+  it("bounds the task record while retaining every continuity field", () => {
+    const secret = `sk-${"q".repeat(32)}`;
+    const text = taskRecordBlock({
+      goal: `Ship the release ${"detail ".repeat(100)}`,
+      plan: [{ step: "Run smoke tests", status: "active" }],
+      completed: [{ note: "Built the installer" }],
+      evidence: [{ kind: "file", ref: `reports/${secret}.json` }],
+      artifacts: [{ ref: "dist/orbit.exe", label: "Windows installer" }],
+      blockers: [{ note: "Signing approval" }],
+      nextAction: `Use ${secret}`,
+    }, 512);
+
+    expect(Array.from(text).length).toBeLessThanOrEqual(512);
+    for (const label of ["Goal:", "Plan:", "Next action:", "Done recently:", "Evidence:", "Artifacts:", "Blockers:"]) {
+      expect(text).toContain(label);
+    }
+    expect(text).not.toContain(secret);
+  });
 });
 
 describe("engineIsFresh", () => {
@@ -120,6 +167,25 @@ describe("engineIsFresh", () => {
     ).toBe(true);
   });
 
+  it("keeps continuity through an A to B to A engine sequence", () => {
+    const cursors = { a: "a-old", b: "b-current" };
+    expect(engineIsFresh({ instanceId: "b", model: "b1", lastInstanceId: "a", lastModel: "a1", sessionModelSwitch: "unsupported", resumeCursors: cursors, transcript: withUser })).toBe(true);
+    expect(engineIsFresh({ instanceId: "a", model: "a1", lastInstanceId: "b", lastModel: "b1", sessionModelSwitch: "in-session", resumeCursors: cursors, transcript: withUser })).toBe(true);
+  });
+
+  it("replays after compaction when the bounded tail contains only assistant entries", () => {
+    expect(engineIsFresh({
+      instanceId: "a",
+      model: "a1",
+      lastInstanceId: "b",
+      lastModel: "b1",
+      sessionModelSwitch: "in-session",
+      resumeCursors: { a: "a-old", b: "b-current" },
+      transcript: [{ role: "assistant", text: "summary and tool outcomes" }],
+      hasPriorUserTurn: true,
+    })).toBe(true);
+  });
+
   it("is true for an instance that has never run this thread", () => {
     expect(engineIsFresh({ instanceId: "codex", model: "gpt-5.2", lastInstanceId: "claude", lastModel: "sonnet", sessionModelSwitch: "unsupported", resumeCursors: { claude: "s1" }, transcript: withUser })).toBe(true);
   });
@@ -127,6 +193,20 @@ describe("engineIsFresh", () => {
   it("is false on a brand-new bot: the seeded greeting alone is nothing to join", () => {
     expect(engineIsFresh({ instanceId: "claude", model: "sonnet", lastInstanceId: undefined, lastModel: undefined, sessionModelSwitch: "in-session", resumeCursors: {}, transcript: greetingOnly })).toBe(false);
     expect(engineIsFresh({ instanceId: "claude", model: "sonnet", lastInstanceId: undefined, lastModel: undefined, sessionModelSwitch: "in-session", resumeCursors: {}, transcript: [] })).toBe(false);
+  });
+
+  it("replays a stateless engine only after a prior user turn", () => {
+    const stateless = {
+      instanceId: "box",
+      model: "box",
+      lastInstanceId: "box",
+      lastModel: "box",
+      sessionModelSwitch: "in-session" as const,
+      resumeCursors: { box: "ignored" },
+      resumeCursor: false,
+    };
+    expect(engineIsFresh({ ...stateless, transcript: greetingOnly })).toBe(false);
+    expect(engineIsFresh({ ...stateless, transcript: withUser })).toBe(true);
   });
 
   it("legacy task without lastInstanceId: trusts a lone cursor for this instance, replays otherwise", () => {

@@ -1,3 +1,5 @@
+import { redactSecretsInText } from "./redact.ts";
+
 // Building the text a driver actually receives. Two situations force an
 // inline replay of the active branch: a rewind (the visible branch
 // changed) and a fresh engine (this instance has no session here — the
@@ -17,6 +19,8 @@ export interface TurnContextInput {
   replaysNatively: boolean;
   /** durable harness state, included only at a recovery boundary */
   taskRecord?: TaskRecordContext;
+  /** Pre-sized durable state for the selected model window. */
+  taskRecordText?: string;
   /** the active transcript exceeded the replay tail */
   contextCapped?: boolean;
   /** the prior process or user stop ended the running turn */
@@ -27,6 +31,8 @@ export interface TaskRecordContext {
   goal: string;
   plan: Array<{ step: string; status: "pending" | "active" | "done" | "skipped" }>;
   completed: Array<{ note: string }>;
+  evidence?: Array<{ kind: string; ref: string; note?: string }>;
+  artifacts?: Array<{ ref: string; label: string }>;
   blockers: Array<{ note: string }>;
   nextAction: string;
 }
@@ -47,10 +53,13 @@ export function engineIsFresh(input: {
   lastModel: string | undefined;
   sessionModelSwitch: "in-session" | "unsupported";
   resumeCursors: Record<string, unknown>;
+  resumeCursor?: boolean;
   transcript: Array<{ role: "user" | "assistant"; text: string }>;
+  hasPriorUserTurn?: boolean;
 }): boolean {
   const { instanceId, model, lastInstanceId, lastModel, sessionModelSwitch, resumeCursors, transcript } = input;
-  if (!transcript.some((m) => m.role === "user")) return false;
+  if (!(input.hasPriorUserTurn ?? transcript.some((message) => message.role === "user"))) return false;
+  if (input.resumeCursor === false) return true;
   if (lastInstanceId !== undefined) {
     if (lastInstanceId !== instanceId || resumeCursors[instanceId] === undefined) return true;
     return sessionModelSwitch === "unsupported" && lastModel !== undefined && lastModel !== model;
@@ -64,19 +73,64 @@ const REWOUND_PREAMBLE =
 const FRESH_PREAMBLE =
   "[You are joining this conversation mid-thread (the user switched this bot over to you). The conversation so far:]";
 
-function taskRecordBlock(record: TaskRecordContext): string {
+function compactValue(value: string, maxCharacters: number): string {
+  const characters = Array.from(value);
+  if (characters.length <= maxCharacters) return value;
+  const marker = " [more saved]";
+  return characters.slice(0, Math.max(1, maxCharacters - marker.length)).join("").trimEnd() + marker;
+}
+
+export function taskRecordBlock(record: TaskRecordContext, maxCharacters = 6_000): string {
   const done = record.plan.filter((item) => item.status === "done").length;
   const active = record.plan.find((item) => item.status === "active")?.step;
+  const pending = record.plan.find((item) => item.status === "pending")?.step;
+  const plan = record.plan.map((item, index) => `${index + 1}. ${item.status}: ${item.step}`).join(" | ") || "none";
   const recent = record.completed.slice(-3).map((item) => item.note).join(" | ") || "none recorded";
-  const blockers = record.blockers.map((item) => item.note).join(" | ") || "none";
+  const evidenceItems = record.evidence ?? [];
+  const evidence = evidenceItems.slice(-3)
+    .map((item) => `${item.kind}: ${item.ref}${item.note ? ` (${item.note})` : ""}`).join(" | ") || "none";
+  const artifactItems = record.artifacts ?? [];
+  const artifacts = artifactItems.slice(-3).map((item) => `${item.label}: ${item.ref}`).join(" | ") || "none";
+  const blockers = record.blockers.slice(-3).map((item) => item.note).join(" | ") || "none";
+  const fields = [
+    ["Goal", record.goal],
+    ["Plan", `${done}/${record.plan.length} done${active ? `; active: ${active}` : ""}${pending ? `; next pending: ${pending}` : ""}; steps: ${plan}`],
+    ["Next action", record.nextAction],
+    ["Done recently", `${record.completed.length} total; ${recent}`],
+    ["Evidence", `${evidenceItems.length} total; ${evidence}`],
+    ["Artifacts", `${artifactItems.length} total; ${artifacts}`],
+    ["Blockers", `${record.blockers.length} total; ${blockers}`],
+  ] as const;
+  const header = "[Orbit task record - saved locally. The conversation is authoritative; verify against it.]";
+  const limit = Math.max(512, maxCharacters);
+  const valueBudget = Math.max(24, Math.floor((limit - header.length - fields.length) / fields.length) - 16);
+  return redactSecretsInText([
+    header,
+    ...fields.map(([label, value]) => `${label}: ${compactValue(value, valueBudget)}`),
+  ].join("\n"));
+}
+
+const RESUME_FALLBACK_PREAMBLE =
+  "[The provider session could not be resumed. Continue from this durable Orbit context:]";
+
+export function buildResumeFallback(input: {
+  text: string;
+  transcript: Array<{ role: "user" | "assistant"; text: string }>;
+  taskRecord?: TaskRecordContext;
+  taskRecordText?: string;
+}): string {
+  const record = input.taskRecordText ?? (input.taskRecord ? taskRecordBlock(input.taskRecord) : "");
   return [
-    "[Orbit task record - saved locally. The conversation is authoritative; verify against it.]",
-    `Goal: ${record.goal}`,
-    `Plan: ${done}/${record.plan.length} done${active ? `; active: ${active}` : ""}`,
-    `Done recently: ${recent}`,
-    `Blockers: ${blockers}`,
-    `Next action: ${record.nextAction}`,
-  ].join("\n");
+    record || null,
+    record ? "" : null,
+    RESUME_FALLBACK_PREAMBLE,
+    "",
+    ...input.transcript.map((message) => `${message.role === "user" ? "User" : "Assistant"}: ${message.text}`),
+    "",
+    "[Now reply to the user's latest message:]",
+    "",
+    input.text,
+  ].filter((line) => line !== null).join("\n");
 }
 
 export function buildTurnContext(input: TurnContextInput): {
@@ -84,11 +138,12 @@ export function buildTurnContext(input: TurnContextInput): {
   /** false when the native session must not be resumed */
   resume: boolean;
 } {
-  const { text, transcript, rewound, fresh, replaysNatively, taskRecord, contextCapped = false, recovering = false } = input;
+  const { text, transcript, rewound, fresh, replaysNatively, taskRecord, taskRecordText, contextCapped = false, recovering = false } = input;
   const resume = !rewound && !fresh;
   const replay = !resume && !replaysNatively && transcript.length > 0;
-  const record = taskRecord && (rewound || fresh || contextCapped || recovering)
-    ? taskRecordBlock(taskRecord)
+  const durableRecord = taskRecordText ?? (taskRecord ? taskRecordBlock(taskRecord) : "");
+  const record = durableRecord && (rewound || fresh || contextCapped || recovering)
+    ? durableRecord
     : "";
   if (!replay && !record) return { turnText: text, resume };
   if (!replay) return { turnText: `${record}\n\n${text}`, resume };

@@ -22,6 +22,7 @@ import {
 import { botAvatarProfile, type BotAvatarCrop } from "../shared/bot-avatar.ts";
 import type { RoutineRequestCardData } from "../shared/routine-request.ts";
 import type { RoutineRunCardData } from "../shared/routine-run.ts";
+import { readContextCompaction, type ContextCompactionV1 } from "../shared/context-compaction.ts";
 
 export type MausColor =
   | "green"
@@ -94,8 +95,10 @@ export interface SecretRequestCardData {
 export interface Message {
   id: string;
   role: "bot" | "user";
-  kind: "text" | "options" | "activity" | "screen" | "connector" | "secret" | "routine.run";
+  kind: "text" | "options" | "activity" | "screen" | "connector" | "secret" | "routine.run" | "compaction";
   text?: string;
+  /** Versioned model-context state. Unknown versions stay intact on disk. */
+  compaction?: unknown;
   card?: OptionCardData;
   connector?: ConnectorCardData;
   secret?: SecretRequestCardData;
@@ -253,6 +256,10 @@ function redactBotAuthored<T extends Omit<Message, "id" | "at"> & { at?: number 
   if (message.role !== "bot") return message;
   const out = { ...message };
   if (typeof out.text === "string") out.text = redactSecretsInText(out.text);
+  const compaction = readContextCompaction({ value: out.compaction });
+  if (compaction.status === "valid") {
+    out.compaction = { ...compaction.value, summary: redactSecretsInText(compaction.value.summary) };
+  }
   if (out.tool?.name) out.tool = { ...out.tool, name: redactSecretsInText(out.tool.name) };
   if (out.routineRun) {
     const routineRun = { ...out.routineRun };
@@ -822,6 +829,7 @@ export class Store {
       Boolean(group.dm),
     );
     this.saveGroups();
+    if (Object.prototype.hasOwnProperty.call(patch, "memberIds")) this.repairRoomTaskPacketOwners(group);
     this.emit({ type: "group", groupId: group.id });
     return group;
   }
@@ -1004,6 +1012,21 @@ export class Store {
     return full;
   }
 
+  appendCompaction(threadId: string, compaction: ContextCompactionV1): Message {
+    const checked = readContextCompaction({
+      value: {
+        ...compaction,
+        summary: redactSecretsInText(compaction.summary),
+      },
+    });
+    if (checked.status !== "valid") throw new Error("invalid context compaction state");
+    return this.appendMessage(threadId, {
+      role: "bot",
+      kind: "compaction",
+      compaction: checked.value,
+    });
+  }
+
   /** Hide the first-run quiz on this thread, if it is still open. */
   dismissOnboardingCard(threadId: string): Message | null {
     const t = this.thread(threadId);
@@ -1152,6 +1175,9 @@ export class Store {
     const bot = this.bot(id);
     if (!bot) return false;
     this.bots = this.bots.filter((b) => b.id !== id);
+    for (const group of this.groups) {
+      if (group.memberIds.includes(id)) this.repairRoomTaskPacketOwners(group);
+    }
     // every task's transcript goes with the bot, not just the open one
     for (const threadId of new Set([bot.threadId, ...(bot.tasks ?? []).map((t) => t.threadId)])) {
       this.deleteThreadRecord(threadId);
@@ -1356,20 +1382,54 @@ export class Store {
     return this.bot(botId)?.tasks?.find((t) => t.threadId === threadId);
   }
 
+  private repairRoomTaskPacketOwner(group: GroupRecord, threadId: string): TaskResumePacket | null {
+    if (!this.taskPackets.has(threadId)) this.taskPackets.set(threadId, readTaskResumePacket(threadId));
+    const packet = this.taskPackets.get(threadId);
+    if (!packet) return null;
+    if (group.memberIds.includes(packet.botId) && this.bot(packet.botId)) return packet;
+    const botId = group.memberIds.find((memberId) => Boolean(this.bot(memberId)));
+    if (!botId) {
+      this.taskPackets.set(threadId, null);
+      try {
+        deleteTaskResumePacket(threadId);
+      } catch {}
+      this.emit({ type: "task.packet", threadId });
+      return null;
+    }
+    let saved: TaskResumePacket;
+    try {
+      saved = writeTaskResumePacket({ ...packet, botId });
+    } catch {
+      return null;
+    }
+    this.taskPackets.set(threadId, saved);
+    this.emit({ type: "task.packet", threadId });
+    return saved;
+  }
+
+  private repairRoomTaskPacketOwners(group: GroupRecord): void {
+    if (group.dm) return;
+    for (const threadId of new Set([group.threadId, ...(group.tasks ?? []).map((task) => task.threadId)])) {
+      this.repairRoomTaskPacketOwner(group, threadId);
+    }
+  }
+
   taskPacket(threadId: string): TaskResumePacket | null {
     if (!this.taskPackets.has(threadId)) {
-      const owner = this.botByThread(threadId);
-      const packet = owner && this.taskByThread(owner.id, threadId)
-        ? readTaskResumePacket(threadId)
-        : null;
-      this.taskPackets.set(threadId, packet?.botId === owner?.id ? packet : null);
+      const knownThread = Boolean(this.botByThread(threadId) || this.groupByThread(threadId));
+      const packet = knownThread ? readTaskResumePacket(threadId) : null;
+      this.taskPackets.set(threadId, packet);
     }
     const packet = this.taskPackets.get(threadId);
-    return packet ? structuredClone(packet) : null;
+    if (!packet) return null;
+    if (this.conversationForBot(packet.botId, threadId)) return structuredClone(packet);
+    const group = this.groupByThread(threadId);
+    const repaired = group && !group.dm ? this.repairRoomTaskPacketOwner(group, threadId) : null;
+    return repaired ? structuredClone(repaired) : null;
   }
 
   writeTaskPacket(packet: TaskResumePacket): TaskResumePacket | null {
-    if (!this.taskByThread(packet.botId, packet.threadId)) return null;
+    if (!this.conversationForBot(packet.botId, packet.threadId)) return null;
     const saved = writeTaskResumePacket(packet);
     this.taskPackets.set(packet.threadId, saved);
     this.emit({ type: "task.packet", threadId: packet.threadId });

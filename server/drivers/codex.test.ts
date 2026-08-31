@@ -330,10 +330,21 @@ describe("CodexDriver turns (fake app-server)", () => {
 
   it("falls back to a fresh thread when resume fails", async () => {
     await create(); // fake rejects thread/resume outside resume mode
-    await instance.adapter.sendTurn({ threadId: "t-fallback", text: "go", resumeCursor: "gone-thread" });
+    const dump = join(scratch, "fallback.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    await instance.adapter.sendTurn({
+      threadId: "t-fallback",
+      text: "go",
+      resumeCursor: "gone-thread",
+      resumeFallback: { text: "durable summary and recent tail\n\ngo" },
+    });
     const started = await recorder.until((e) => e.type === "session.started");
     expect(started).toMatchObject({ sessionId: "codex-thread-1" });
     await recorder.until((e) => e.type === "turn.completed");
+    // SAFETY: the fake owns this dump and writes one method and params pair per call.
+    const calls = JSON.parse(readFileSync(dump, "utf8")).calls as Array<{ method: string; params: any }>;
+    const input = calls.find((call) => call.method === "turn/start")?.params?.input?.[0]?.text;
+    expect(input).toBe("durable summary and recent tail\n\ngo");
   });
 
   it("surfaces an approval request and forwards the user's decision", async () => {
