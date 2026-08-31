@@ -216,6 +216,8 @@ export interface ProviderAdapter {
     sessionModelSwitch: "in-session" | "unsupported";
     /** True when sendTurn consumes SendTurnInput.transcript directly. */
     transcriptReplay?: boolean;
+    /** False when session.started IDs cannot resume later turns. */
+    resumeCursor?: boolean;
     /** True when the driver mounts turn.integrations.agents as MCP tools —
      * the harness only offers agents tooling (and prompts about it) to
      * drivers that can actually hand it to the agent. */

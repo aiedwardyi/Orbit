@@ -1,9 +1,10 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 
@@ -17,10 +18,40 @@ const BOT_ID = "compaction-bot";
 const THREAD_ID = "compaction-thread";
 const CLAUDE_BOT_ID = "compaction-claude-bot";
 const CLAUDE_THREAD_ID = "compaction-claude-thread";
+const ROOM_FIRST = {
+  botId: "room-first-bot",
+  botThreadId: "room-first-direct-thread",
+  groupId: "room-first-group",
+  roomThreadId: "room-first-room-thread",
+};
+const DIRECT_FIRST = {
+  botId: "direct-first-bot",
+  botThreadId: "direct-first-direct-thread",
+  groupId: "direct-first-group",
+  roomThreadId: "direct-first-room-thread",
+};
+const ROOM_TASK = {
+  botId: "room-task-bot",
+  botThreadId: "room-task-direct-thread",
+  groupId: "room-task-group",
+  roomThreadId: "room-task-room-thread",
+};
+const ROOM_TASK_NEXT = { botId: "room-task-next-bot", botThreadId: "room-task-next-thread" };
+const ROOM_TASK_SURVIVOR = { botId: "room-task-survivor-bot", botThreadId: "room-task-survivor-thread" };
+const EDIT_CLAIM = { botId: "edit-claim-bot", botThreadId: "edit-claim-thread" };
+const NEW_TASK_CLAIM = { botId: "new-task-claim-bot", botThreadId: "new-task-claim-thread" };
+const SECRET_COLLISION = {
+  botId: "secret-collision-bot",
+  botThreadId: "secret-collision-direct-thread",
+  groupId: "secret-collision-group",
+  roomThreadId: "secret-collision-room-thread",
+};
 
-interface ApiBody {
-  text: string;
-}
+type ApiBody =
+  | { text: string }
+  | { title: string }
+  | { threadId: string }
+  | { memberIds: string[] };
 
 describe("context compaction e2e", () => {
   let child: ChildProcess;
@@ -37,6 +68,8 @@ describe("context compaction e2e", () => {
     });
     return { status: response.status, body: await response.json() };
   };
+  const storedTaskPacket = (threadId: string) =>
+    JSON.parse(readFileSync(join(home, ".orbit", "task-state", `${threadId}.json`), "utf8"));
 
   const waitFor = async (predicate: () => Promise<boolean>, timeout = 20_000) => {
     const deadline = Date.now() + timeout;
@@ -101,6 +134,164 @@ describe("context compaction e2e", () => {
         createdAt: 1,
         tasks: [{ threadId: CLAUDE_THREAD_ID, title: "Release", createdAt: 1, resumeCursors: {} }],
       },
+      {
+        id: ROOM_FIRST.botId,
+        threadId: ROOM_FIRST.botThreadId,
+        name: "Room first",
+        title: "Release owner",
+        description: "Keep the release moving.",
+        notifications: true,
+        color: "purple",
+        unread: false,
+        modelSelection: { instanceId: "claude", model: "claude-fake" },
+        resumeCursors: {},
+        createdAt: 1,
+        tasks: [{ threadId: ROOM_FIRST.botThreadId, title: "Release", createdAt: 1, resumeCursors: {} }],
+      },
+      {
+        id: DIRECT_FIRST.botId,
+        threadId: DIRECT_FIRST.botThreadId,
+        name: "Direct first",
+        title: "Release owner",
+        description: "Keep the release moving.",
+        notifications: true,
+        color: "orange",
+        unread: false,
+        modelSelection: { instanceId: "claude", model: "claude-fake" },
+        resumeCursors: {},
+        createdAt: 1,
+        tasks: [{ threadId: DIRECT_FIRST.botThreadId, title: "Release", createdAt: 1, resumeCursors: {} }],
+      },
+      {
+        id: ROOM_TASK.botId,
+        threadId: ROOM_TASK.botThreadId,
+        name: "Room continuity",
+        title: "Release owner",
+        description: "Keep the release moving.",
+        notifications: true,
+        color: "blue",
+        unread: false,
+        modelSelection: { instanceId: "codex", model: "gpt-fake-default" },
+        resumeCursors: {},
+        createdAt: 1,
+        tasks: [{ threadId: ROOM_TASK.botThreadId, title: "Release", createdAt: 1, resumeCursors: {} }],
+      },
+      {
+        id: ROOM_TASK_NEXT.botId,
+        threadId: ROOM_TASK_NEXT.botThreadId,
+        name: "Next owner",
+        title: "Release owner",
+        description: "Keep the release moving.",
+        notifications: true,
+        color: "green",
+        unread: false,
+        modelSelection: { instanceId: "codex", model: "gpt-fake-default" },
+        resumeCursors: {},
+        createdAt: 1,
+        tasks: [{ threadId: ROOM_TASK_NEXT.botThreadId, title: "Release", createdAt: 1, resumeCursors: {} }],
+      },
+      {
+        id: ROOM_TASK_SURVIVOR.botId,
+        threadId: ROOM_TASK_SURVIVOR.botThreadId,
+        name: "Survivor",
+        title: "Release owner",
+        description: "Keep the release moving.",
+        notifications: true,
+        color: "orange",
+        unread: false,
+        modelSelection: { instanceId: "codex", model: "gpt-fake-default" },
+        resumeCursors: {},
+        createdAt: 1,
+        tasks: [{ threadId: ROOM_TASK_SURVIVOR.botThreadId, title: "Release", createdAt: 1, resumeCursors: {} }],
+      },
+      {
+        id: EDIT_CLAIM.botId,
+        threadId: EDIT_CLAIM.botThreadId,
+        name: "Edit guard",
+        title: "Release owner",
+        description: "Keep the release moving.",
+        notifications: true,
+        color: "purple",
+        unread: false,
+        modelSelection: { instanceId: "claude", model: "claude-fake" },
+        resumeCursors: {},
+        createdAt: 1,
+        tasks: [{ threadId: EDIT_CLAIM.botThreadId, title: "Release", createdAt: 1, resumeCursors: {} }],
+      },
+      {
+        id: NEW_TASK_CLAIM.botId,
+        threadId: NEW_TASK_CLAIM.botThreadId,
+        name: "Task guard",
+        title: "Release owner",
+        description: "Keep the release moving.",
+        notifications: true,
+        color: "blue",
+        unread: false,
+        modelSelection: { instanceId: "claude", model: "claude-fake" },
+        resumeCursors: {},
+        createdAt: 1,
+        tasks: [{ threadId: NEW_TASK_CLAIM.botThreadId, title: "Release", createdAt: 1, resumeCursors: {} }],
+      },
+      {
+        id: SECRET_COLLISION.botId,
+        threadId: SECRET_COLLISION.botThreadId,
+        name: "Secret retry",
+        title: "Release owner",
+        description: "Keep the release moving.",
+        notifications: true,
+        color: "green",
+        unread: false,
+        modelSelection: { instanceId: "claude", model: "claude-fake" },
+        resumeCursors: {},
+        createdAt: 1,
+        tasks: [{ threadId: SECRET_COLLISION.botThreadId, title: "Release", createdAt: 1, resumeCursors: {} }],
+      },
+    ]));
+    writeFileSync(join(dataDir, "groups.json"), JSON.stringify([
+      {
+        id: ROOM_FIRST.groupId,
+        threadId: ROOM_FIRST.roomThreadId,
+        name: "Room first race",
+        memberIds: [ROOM_FIRST.botId],
+        defaultResponder: { kind: "member", botId: ROOM_FIRST.botId },
+        bulletin: "",
+        unread: false,
+        createdAt: 1,
+        tasks: [{ threadId: ROOM_FIRST.roomThreadId, title: "Release", createdAt: 1 }],
+      },
+      {
+        id: DIRECT_FIRST.groupId,
+        threadId: DIRECT_FIRST.roomThreadId,
+        name: "Direct first race",
+        memberIds: [DIRECT_FIRST.botId],
+        defaultResponder: { kind: "member", botId: DIRECT_FIRST.botId },
+        bulletin: "",
+        unread: false,
+        createdAt: 1,
+        tasks: [{ threadId: DIRECT_FIRST.roomThreadId, title: "Release", createdAt: 1 }],
+      },
+      {
+        id: ROOM_TASK.groupId,
+        threadId: ROOM_TASK.roomThreadId,
+        name: "Room continuity",
+        memberIds: [ROOM_TASK.botId, ROOM_TASK_NEXT.botId, ROOM_TASK_SURVIVOR.botId],
+        defaultResponder: { kind: "member", botId: ROOM_TASK.botId },
+        bulletin: "Preserve verified release evidence.",
+        unread: false,
+        createdAt: 1,
+        tasks: [{ threadId: ROOM_TASK.roomThreadId, title: "Release", createdAt: 1 }],
+      },
+      {
+        id: SECRET_COLLISION.groupId,
+        threadId: SECRET_COLLISION.roomThreadId,
+        name: "Secret retry",
+        memberIds: [SECRET_COLLISION.botId],
+        defaultResponder: { kind: "member", botId: SECRET_COLLISION.botId },
+        bulletin: "",
+        unread: false,
+        createdAt: 1,
+        tasks: [{ threadId: SECRET_COLLISION.roomThreadId, title: "Release", createdAt: 1 }],
+      },
     ]));
     const messages = Array.from({ length: 97 }, (_, index) => ({
       id: `m${index}`,
@@ -110,11 +301,25 @@ describe("context compaction e2e", () => {
       kind: "text",
       text: `history ${index}`,
     }));
-    for (const [threadId, botId] of [[THREAD_ID, BOT_ID], [CLAUDE_THREAD_ID, CLAUDE_BOT_ID]]) {
+    for (const threadId of [
+      THREAD_ID,
+      CLAUDE_THREAD_ID,
+      ROOM_FIRST.botThreadId,
+      ROOM_FIRST.roomThreadId,
+      DIRECT_FIRST.botThreadId,
+      DIRECT_FIRST.roomThreadId,
+      ROOM_TASK.roomThreadId,
+      EDIT_CLAIM.botThreadId,
+      NEW_TASK_CLAIM.botThreadId,
+      SECRET_COLLISION.botThreadId,
+      SECRET_COLLISION.roomThreadId,
+    ]) {
       writeFileSync(join(dataDir, `messages-${threadId}.json`), JSON.stringify({
         activeLeafId: "m96",
         messages,
       }));
+    }
+    for (const [threadId, botId] of [[THREAD_ID, BOT_ID], [CLAUDE_THREAD_ID, CLAUDE_BOT_ID]]) {
       writeFileSync(join(dataDir, "task-state", `${threadId}.json`), JSON.stringify({
         v: 1,
         threadId,
@@ -132,6 +337,22 @@ describe("context compaction e2e", () => {
         turnsAtWrite: 0,
       }));
     }
+    writeFileSync(join(dataDir, "task-state", `${ROOM_TASK.roomThreadId}.json`), JSON.stringify({
+      v: 1,
+      threadId: ROOM_TASK.roomThreadId,
+      botId: ROOM_TASK.botId,
+      goal: "Ship the room release",
+      plan: [{ step: "Verify the room package", status: "active" }],
+      completed: [{ note: "Built the room installer", at: 1 }],
+      evidence: [{ kind: "file", ref: "reports/room-green.json", note: "room checks passed" }],
+      artifacts: [{ ref: "dist/room-orbit.exe", label: "Room installer" }],
+      blockers: [{ kind: "approval", note: "Awaiting release approval" }],
+      nextAction: "Verify the room package",
+      updatedAt: 1,
+      updatedBy: "harness",
+      flushReason: "progress",
+      turnsAtWrite: 0,
+    }));
 
     const env: NodeJS.ProcessEnv = {
       HOME: home,
@@ -216,5 +437,256 @@ describe("context compaction e2e", () => {
     );
     expect(bot.messages.filter((message: { text?: string }) => message.text === "Start final QA")).toHaveLength(1);
     expect(bot.messages.some((message: { text?: string }) => message.text === "Start packaging too")).toBe(false);
+  }, 30_000);
+
+  it("rejects a 1:1 turn while the same bot is preparing room context", async () => {
+    rmSync(claudeDumpPath, { force: true });
+    const room = await api("POST", `/api/groups/${ROOM_FIRST.groupId}/messages`, { text: "Start room QA" });
+    expect(room.status).toBe(202);
+    await expect.poll(() => existsSync(claudeDumpPath), { timeout: 10_000 }).toBe(true);
+
+    const direct = await api("POST", `/api/bots/${ROOM_FIRST.botId}/messages`, { text: "Start direct QA too" });
+    await waitFor(async () => {
+      const state = (await api("GET", "/api/bots")).body;
+      const bot = state.bots.find((candidate: { id: string }) => candidate.id === ROOM_FIRST.botId);
+      const group = state.groups.find((candidate: { id: string }) => candidate.id === ROOM_FIRST.groupId);
+      return bot?.busy === false && group?.working === false;
+    });
+
+    expect(direct.status).toBe(409);
+    expect(direct.body.error).toContain("already working");
+    const state = (await api("GET", "/api/bots")).body;
+    const bot = state.bots.find((candidate: { id: string }) => candidate.id === ROOM_FIRST.botId);
+    expect(bot.messages.some((message: { text?: string }) => message.text === "Start direct QA too")).toBe(false);
+    expect(storedTaskPacket(ROOM_FIRST.roomThreadId)).toMatchObject({
+      threadId: ROOM_FIRST.roomThreadId,
+      botId: ROOM_FIRST.botId,
+      goal: "Start room QA",
+      nextAction: "Start room QA",
+    });
+  }, 30_000);
+
+  it("intentionally skips a room turn while the same bot is preparing 1:1 context", async () => {
+    rmSync(claudeDumpPath, { force: true });
+    const direct = api("POST", `/api/bots/${DIRECT_FIRST.botId}/messages`, { text: "Start direct QA" });
+    await expect.poll(() => existsSync(claudeDumpPath), { timeout: 10_000 }).toBe(true);
+
+    const room = await api("POST", `/api/groups/${DIRECT_FIRST.groupId}/messages`, { text: "Start room QA too" });
+    const directResult = await direct;
+    await waitFor(async () => {
+      const state = (await api("GET", "/api/bots")).body;
+      const bot = state.bots.find((candidate: { id: string }) => candidate.id === DIRECT_FIRST.botId);
+      const group = state.groups.find((candidate: { id: string }) => candidate.id === DIRECT_FIRST.groupId);
+      return bot?.busy === false && group?.working === false;
+    });
+
+    expect(directResult.status).toBe(202);
+    expect(room.status).toBe(202);
+    const state = (await api("GET", "/api/bots")).body;
+    const group = state.groups.find((candidate: { id: string }) => candidate.id === DIRECT_FIRST.groupId);
+    const skipped = group.messages.find(
+      (message: { tool?: { name?: string } }) => message.tool?.name?.includes("skipped this round"),
+    );
+    expect(skipped?.tool).toMatchObject({ ok: false });
+  }, 30_000);
+
+  it("rejects an edit claim before branching the thread", async () => {
+    rmSync(claudeDumpPath, { force: true });
+    const first = api("POST", `/api/bots/${EDIT_CLAIM.botId}/messages`, { text: "Start guarded edit QA" });
+    await expect.poll(() => existsSync(claudeDumpPath), { timeout: 10_000 }).toBe(true);
+
+    const before = (await api("GET", "/api/bots")).body.bots.find(
+      (candidate: { id: string }) => candidate.id === EDIT_CLAIM.botId,
+    );
+    const edited = await api("POST", `/api/bots/${EDIT_CLAIM.botId}/messages/m0/edit`, {
+      text: "mutated while preparing",
+    });
+
+    expect(edited.status).toBe(409);
+    const after = (await api("GET", "/api/bots")).body.bots.find(
+      (candidate: { id: string }) => candidate.id === EDIT_CLAIM.botId,
+    );
+    expect(after.activeLeafId).toBe(before.activeLeafId);
+    expect(after.messages.some((message: { text?: string }) => message.text === "mutated while preparing")).toBe(false);
+    await expect(first).resolves.toMatchObject({ status: 202 });
+    await waitFor(async () => {
+      const bot = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+        (candidate: { id: string }) => candidate.id === EDIT_CLAIM.botId,
+      );
+      return bot?.busy === false;
+    });
+  }, 30_000);
+
+  it("rejects a new task claim before switching threads", async () => {
+    rmSync(claudeDumpPath, { force: true });
+    const first = api("POST", `/api/bots/${NEW_TASK_CLAIM.botId}/messages`, { text: "Start guarded task QA" });
+    await expect.poll(() => existsSync(claudeDumpPath), { timeout: 10_000 }).toBe(true);
+
+    const before = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+      (candidate: { id: string }) => candidate.id === NEW_TASK_CLAIM.botId,
+    );
+    const created = await api("POST", `/api/bots/${NEW_TASK_CLAIM.botId}/tasks`, { title: "Too soon" });
+
+    expect(created.status).toBe(409);
+    const after = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+      (candidate: { id: string }) => candidate.id === NEW_TASK_CLAIM.botId,
+    );
+    expect(after.threadId).toBe(before.threadId);
+    expect(after.tasks).toHaveLength(before.tasks.length);
+    await expect(first).resolves.toMatchObject({ status: 202 });
+    await waitFor(async () => {
+      const bot = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+        (candidate: { id: string }) => candidate.id === NEW_TASK_CLAIM.botId,
+      );
+      return bot?.busy === false;
+    });
+  }, 30_000);
+
+  it("keeps a room credential continuation retryable after a claim collision", async () => {
+    rmSync(claudeDumpPath, { force: true });
+    expect((await api("POST", `/api/groups/${SECRET_COLLISION.groupId}/messages`, {
+      text: "Open the room session",
+    })).status).toBe(202);
+    await expect.poll(() => existsSync(claudeDumpPath), { timeout: 10_000 }).toBe(true);
+    await waitFor(async () => {
+      const group = (await api("GET", "/api/bots?messages=0")).body.groups.find(
+        (candidate: { id: string }) => candidate.id === SECRET_COLLISION.groupId,
+      );
+      return group?.working === false;
+    });
+    const dump = JSON.parse(readFileSync(claudeDumpPath, "utf8"));
+    const token = dump.mcpConfig.mcpServers.agents.env.OMB_COMMS_TOKEN;
+
+    const requested = await fetch(`${BASE}/api/internal/request-credential`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        fromBotId: SECRET_COLLISION.botId,
+        fromThreadId: SECRET_COLLISION.roomThreadId,
+        credentialId: "openaiImageApiKey",
+        reason: "needed for retry coverage",
+      }),
+    });
+    expect(requested.status).toBe(201);
+    const { messageId } = z.object({ messageId: z.string() }).parse(await requested.json());
+
+    rmSync(claudeDumpPath, { force: true });
+    const direct = api("POST", `/api/bots/${SECRET_COLLISION.botId}/messages`, {
+      text: "Hold the direct claim",
+    });
+    await expect.poll(() => existsSync(claudeDumpPath), { timeout: 10_000 }).toBe(true);
+    expect((await api("POST", `/api/bots/${SECRET_COLLISION.botId}/secret-cards/${messageId}/dismiss`, {
+      threadId: SECRET_COLLISION.roomThreadId,
+    })).status).toBe(200);
+    await waitFor(async () => {
+      const group = (await api("GET", "/api/bots?messages=0")).body.groups.find(
+        (candidate: { id: string }) => candidate.id === SECRET_COLLISION.groupId,
+      );
+      return group?.working === false;
+    });
+
+    const collided = (await api("GET", "/api/bots")).body.groups
+      .find((candidate: { id: string }) => candidate.id === SECRET_COLLISION.groupId)
+      .messages.find((message: { id: string }) => message.id === messageId);
+    expect(collided.secret).toMatchObject({ dismissed: true, resumed: false });
+    expect(collided.secret.error).toMatch(/busy/i);
+
+    await expect(direct).resolves.toMatchObject({ status: 202 });
+    await waitFor(async () => {
+      const bot = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+        (candidate: { id: string }) => candidate.id === SECRET_COLLISION.botId,
+      );
+      return bot?.busy === false;
+    });
+    const beforeReplies = (await api("GET", "/api/bots")).body.groups
+      .find((candidate: { id: string }) => candidate.id === SECRET_COLLISION.groupId)
+      .messages.filter((message: { role: string; kind: string }) => message.role === "bot" && message.kind === "text").length;
+    expect((await api("POST", `/api/bots/${SECRET_COLLISION.botId}/secret-cards/${messageId}/resume`, {
+      threadId: SECRET_COLLISION.roomThreadId,
+    })).status).toBe(200);
+    await expect.poll(async () => {
+      const group = (await api("GET", "/api/bots")).body.groups.find(
+        (candidate: { id: string }) => candidate.id === SECRET_COLLISION.groupId,
+      );
+      return group.messages.filter(
+        (message: { role: string; kind: string }) => message.role === "bot" && message.kind === "text",
+      ).length;
+    }, { timeout: 10_000 }).toBeGreaterThan(beforeReplies);
+  }, 40_000);
+
+  it("flushes and injects the room task record before compaction", async () => {
+    const beforeOwnerRemoval = storedTaskPacket(ROOM_TASK.roomThreadId);
+    expect((await api("PATCH", `/api/groups/${ROOM_TASK.groupId}`, {
+      memberIds: [ROOM_TASK_NEXT.botId, ROOM_TASK_SURVIVOR.botId],
+    })).status).toBe(200);
+    expect(storedTaskPacket(ROOM_TASK.roomThreadId)).toEqual({
+      ...beforeOwnerRemoval,
+      botId: ROOM_TASK_NEXT.botId,
+    });
+
+    rmSync(dumpPath, { force: true });
+    expect((await api("POST", `/api/groups/${ROOM_TASK.groupId}/messages`, {
+      text: `Continue after the packet owner left ${"detail ".repeat(6_000)}`,
+    })).status).toBe(202);
+    await expect.poll(() => existsSync(dumpPath), { timeout: 10_000 }).toBe(true);
+    await waitFor(async () => {
+      const group = (await api("GET", "/api/bots?messages=0")).body.groups.find(
+        (candidate: { id: string }) => candidate.id === ROOM_TASK.groupId,
+      );
+      return group?.working === false;
+    });
+    const afterOwnerRemovalDump = JSON.parse(readFileSync(dumpPath, "utf8"));
+    const afterOwnerRemovalTurn = afterOwnerRemovalDump.calls
+      .filter((call: { method: string }) => call.method === "turn/start").at(-1);
+    const afterOwnerRemovalPrompt = afterOwnerRemovalTurn.params.input[0].text;
+    for (const preserved of [
+      "Goal: Ship the room release",
+      "active: Verify the room package",
+      "Done recently: 1 total; Built the room installer",
+      "file: reports/room-green.json (room checks passed)",
+      "Room installer: dist/room-orbit.exe",
+      "Blockers: 1 total; Awaiting release approval",
+      "Next action: Continue after the packet owner left",
+    ]) expect(afterOwnerRemovalPrompt).toContain(preserved);
+
+    const beforeOwnerDeletion = storedTaskPacket(ROOM_TASK.roomThreadId);
+    expect((await api("DELETE", `/api/bots/${ROOM_TASK_NEXT.botId}`)).status).toBe(200);
+    expect(storedTaskPacket(ROOM_TASK.roomThreadId)).toEqual({
+      ...beforeOwnerDeletion,
+      botId: ROOM_TASK_SURVIVOR.botId,
+    });
+
+    rmSync(dumpPath, { force: true });
+    expect((await api("POST", `/api/groups/${ROOM_TASK.groupId}/messages`, {
+      text: `@Survivor continue after the packet owner was deleted ${"detail ".repeat(6_000)}`,
+    })).status).toBe(202);
+    await expect.poll(() => existsSync(dumpPath), { timeout: 10_000 }).toBe(true);
+    await waitFor(async () => {
+      const group = (await api("GET", "/api/bots?messages=0")).body.groups.find(
+        (candidate: { id: string }) => candidate.id === ROOM_TASK.groupId,
+      );
+      return group?.working === false;
+    });
+    const afterOwnerDeletionDump = JSON.parse(readFileSync(dumpPath, "utf8"));
+    const afterOwnerDeletionTurn = afterOwnerDeletionDump.calls
+      .filter((call: { method: string }) => call.method === "turn/start").at(-1);
+    const afterOwnerDeletionPrompt = afterOwnerDeletionTurn.params.input[0].text;
+    for (const preserved of [
+      "Goal: Ship the room release",
+      "active: Verify the room package",
+      "Done recently: 1 total; Built the room installer",
+      "file: reports/room-green.json (room checks passed)",
+      "Room installer: dist/room-orbit.exe",
+      "Blockers: 1 total; Awaiting release approval",
+      "Next action: @Survivor continue after the packet owner was deleted",
+    ]) expect(afterOwnerDeletionPrompt).toContain(preserved);
+    expect(storedTaskPacket(ROOM_TASK.roomThreadId)).toMatchObject({
+      botId: ROOM_TASK_SURVIVOR.botId,
+      threadId: ROOM_TASK.roomThreadId,
+      flushReason: "pre-compaction",
+    });
   }, 30_000);
 });

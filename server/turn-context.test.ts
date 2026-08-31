@@ -195,6 +195,20 @@ describe("engineIsFresh", () => {
     expect(engineIsFresh({ instanceId: "claude", model: "sonnet", lastInstanceId: undefined, lastModel: undefined, sessionModelSwitch: "in-session", resumeCursors: {}, transcript: [] })).toBe(false);
   });
 
+  it("replays a stateless engine only after a prior user turn", () => {
+    const stateless = {
+      instanceId: "box",
+      model: "box",
+      lastInstanceId: "box",
+      lastModel: "box",
+      sessionModelSwitch: "in-session" as const,
+      resumeCursors: { box: "ignored" },
+      resumeCursor: false,
+    };
+    expect(engineIsFresh({ ...stateless, transcript: greetingOnly })).toBe(false);
+    expect(engineIsFresh({ ...stateless, transcript: withUser })).toBe(true);
+  });
+
   it("legacy task without lastInstanceId: trusts a lone cursor for this instance, replays otherwise", () => {
     // one cursor, ours — pre-upgrade single-engine thread, keep resuming
     expect(engineIsFresh({ instanceId: "claude", model: "sonnet", lastInstanceId: undefined, lastModel: undefined, sessionModelSwitch: "in-session", resumeCursors: { claude: "s1" }, transcript: withUser })).toBe(false);

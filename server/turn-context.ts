@@ -53,11 +53,13 @@ export function engineIsFresh(input: {
   lastModel: string | undefined;
   sessionModelSwitch: "in-session" | "unsupported";
   resumeCursors: Record<string, unknown>;
+  resumeCursor?: boolean;
   transcript: Array<{ role: "user" | "assistant"; text: string }>;
   hasPriorUserTurn?: boolean;
 }): boolean {
   const { instanceId, model, lastInstanceId, lastModel, sessionModelSwitch, resumeCursors, transcript } = input;
   if (!(input.hasPriorUserTurn ?? transcript.some((message) => message.role === "user"))) return false;
+  if (input.resumeCursor === false) return true;
   if (lastInstanceId !== undefined) {
     if (lastInstanceId !== instanceId || resumeCursors[instanceId] === undefined) return true;
     return sessionModelSwitch === "unsupported" && lastModel !== undefined && lastModel !== model;

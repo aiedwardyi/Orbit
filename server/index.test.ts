@@ -2855,6 +2855,27 @@ describe("harness HTTP API", () => {
         };
       }, { timeout: 5_000 }).toEqual({ working: false, busy: false });
 
+      const taskUpdate = await fetch(`${BASE}/api/internal/task-state`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          fromBotId: source.id,
+          fromThreadId: room.threadId,
+          goal: "Finish the room release",
+          next_action: "Verify the room handoff",
+        }),
+      });
+      expect(taskUpdate.status).toBe(200);
+      expect(storedTaskPacket(room.threadId)).toMatchObject({
+        botId: source.id,
+        threadId: room.threadId,
+        goal: "Finish the room release",
+        nextAction: "Verify the room handoff",
+      });
+
       const asked = await internal("POST", "/api/internal/ask-bot", {
         fromBotId: source.id,
         fromThreadId: room.threadId,

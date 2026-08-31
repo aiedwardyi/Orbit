@@ -370,10 +370,10 @@ const taskStateUpdateEnvelopeSchema = z.object({
   "at least one task field is required",
 );
 
-function groundedTaskArtifact(task: TaskRecord, ref: string): string | null {
-  if (!task.cwd) return null;
+function groundedTaskArtifact(cwd: string | null | undefined, ref: string): string | null {
+  if (!cwd) return null;
   try {
-    const root = realpathSync(task.cwd);
+    const root = realpathSync(cwd);
     const candidate = realpathSync(resolve(root, ref));
     const fromRoot = relative(root, candidate);
     if (fromRoot.startsWith("..") || isAbsolute(fromRoot) || !statSync(candidate).isFile()) return null;
@@ -979,7 +979,13 @@ function eventTime(event: RuntimeEvent): number {
 }
 
 function taskPacketForWrite(threadId: string): TaskResumePacket | null {
-  return pendingTaskPackets.get(threadId)?.packet ?? store.taskPacket(threadId);
+  const pending = pendingTaskPackets.get(threadId);
+  if (pending && store.conversationForBot(pending.packet.botId, threadId)) return pending.packet;
+  if (pending) {
+    clearTimeout(pending.timer);
+    pendingTaskPackets.delete(threadId);
+  }
+  return store.taskPacket(threadId);
 }
 
 function persistTaskPacket(packet: TaskResumePacket): TaskResumePacket | null {
@@ -2027,11 +2033,20 @@ type StartTurnOptions = {
 
 const turnStartClaims = new Set<string>();
 
+function tryClaimTurnStart(botId: string): boolean {
+  if (turnStartClaims.has(botId)) return false;
+  turnStartClaims.add(botId);
+  return true;
+}
+
+function botHasActiveTurn(botId: string): boolean {
+  return turnStartClaims.has(botId) || Boolean(store.bot(botId)?.busy);
+}
+
 async function startTurn(botId: string, text: string, opts?: StartTurnOptions) {
-  if (turnStartClaims.has(botId)) {
+  if (!tryClaimTurnStart(botId)) {
     throw Object.assign(new Error("the bot is already working - interrupt it first"), { status: 409 });
   }
-  turnStartClaims.add(botId);
   try {
     return await startClaimedTurn(botId, text, opts);
   } finally {
@@ -2192,6 +2207,9 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
 
   // A fresh engine has no current session here, even if it owns an older
   // cursor. It gets the same portable replay as a rewound branch.
+  const hasPriorUserTurn = activeMessages.some(
+    (message) => message.role === "user" && message.kind === "text" && Boolean(message.text?.trim()) && !skipTranscript.has(message.id),
+  );
   const fresh =
     !rewound &&
     engineIsFresh({
@@ -2201,10 +2219,9 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       lastModel: task.lastModel,
       sessionModelSwitch: instance.adapter.capabilities.sessionModelSwitch,
       resumeCursors: task.resumeCursors,
+      resumeCursor: instance.adapter.capabilities.resumeCursor,
       transcript,
-      hasPriorUserTurn: activeMessages.some(
-        (message) => message.role === "user" && message.kind === "text" && Boolean(message.text?.trim()) && !skipTranscript.has(message.id),
-      ),
+      hasPriorUserTurn,
     });
   const { turnText, resume } = buildTurnContext({
     text: currentPrompt,
@@ -2705,7 +2722,7 @@ routines = new RoutineManager({
   emit: broadcast,
   botState: (botId) => {
     const bot = store.bot(botId);
-    return !bot ? "missing" : bot.busy ? "busy" : "ready";
+    return !bot ? "missing" : botHasActiveTurn(botId) ? "busy" : "ready";
   },
   createTask: (botId, title, activate = false) => {
     const task = store.createTask(botId, title, activate);
@@ -2891,7 +2908,7 @@ const webhooks = new WebhookManager({
   emit: broadcast,
   botState: (botId) => {
     const bot = store.bot(botId);
-    return !bot ? "missing" : bot.busy ? "busy" : "ready";
+    return !bot ? "missing" : botHasActiveTurn(botId) ? "busy" : "ready";
   },
   enqueue: (input) => routines!.enqueueWebhook(input),
   cancelQueued: (webhookId, message) => routines!.cancelQueuedWebhook(webhookId, message),
@@ -2959,12 +2976,64 @@ async function runGroupMemberTurn(
   threadId: string,
   botId: string,
   hop: number,
+  spoken: Set<string> = new Set(),
+  cardContinuation?: string,
+  onDispatchError?: (message: string) => void,
+  isCancelled?: () => boolean,
+): Promise<boolean> {
+  if (isCancelled?.()) return false;
+  const group = store.group(groupId);
+  const bot = store.bot(botId);
+  const ownsThread = group?.dm
+    ? group.threadId === threadId
+    : Boolean(group && store.groupTaskByThread(group.id, threadId));
+  if (!group || !bot || !ownsThread) return false;
+  if (!tryClaimTurnStart(botId)) {
+    const message = `${bot.name} is busy in another conversation - skipped this round`;
+    store.appendMessage(threadId, {
+      role: "bot",
+      kind: "activity",
+      from: { botId: bot.id, name: bot.name, color: bot.color },
+      tool: { name: message, ok: false },
+    });
+    onDispatchError?.(message);
+    return true;
+  }
+  let claimHeld = true;
+  const releaseTurnStart = () => {
+    if (!claimHeld) return;
+    claimHeld = false;
+    turnStartClaims.delete(botId);
+  };
+  try {
+    return await runClaimedGroupMemberTurn(
+      groupId,
+      threadId,
+      botId,
+      hop,
+      spoken,
+      cardContinuation,
+      onDispatchError,
+      isCancelled,
+      releaseTurnStart,
+    );
+  } finally {
+    releaseTurnStart();
+  }
+}
+
+async function runClaimedGroupMemberTurn(
+  groupId: string,
+  threadId: string,
+  botId: string,
+  hop: number,
   // bots that already spoke for this user message — "@Scout ask @Pixel"
   // must not run Pixel twice (once chained, once as a direct responder)
   spoken: Set<string> = new Set(),
   cardContinuation?: string,
   onDispatchError?: (message: string) => void,
   isCancelled?: () => boolean,
+  releaseTurnStart?: () => void,
 ): Promise<boolean> {
   if (isCancelled?.()) return false;
   const group = store.group(groupId);
@@ -3012,14 +3081,27 @@ async function runGroupMemberTurn(
     onDispatchError?.(message);
     return true;
   }
+  const taskRecord = taskPacketForWrite(threadId);
+  const taskRecordToFlush = taskRecord;
+  const modelContextWindow = contextWindowFor(instance.models, selection.model);
+  const durableTaskRecordText = taskRecord
+    ? taskRecordBlock(taskRecord, Math.max(512, Math.floor(modelContextWindow * 0.15) * 3))
+    : "";
   const prepared = await prepareModelContext({
     messages: store.activePath(threadId),
     referenceMessages: store.messagesFor(threadId),
-    contextWindow: contextWindowFor(instance.models, selection.model),
-    taskRecordText: `Room: ${group.name}\nBulletin: ${group.bulletin.trim() || "none"}`,
+    contextWindow: modelContextWindow,
+    taskRecordText: durableTaskRecordText || `Room: ${group.name}\nBulletin: ${group.bulletin.trim() || "none"}`,
     userName,
     includeSpeakers: true,
     summarize: instance.generateText ? (prompt) => instance.generateText!(prompt) : undefined,
+    beforeSummarize: taskRecordToFlush ? () => {
+      const saved = persistTaskPacket(stampTaskResumePacket(taskRecordToFlush, "pre-compaction", {
+        now: Date.now(),
+        turnsAtWrite: taskRecordToFlush.turnsAtWrite,
+      }));
+      if (!saved) throw new Error("the durable room task record could not be flushed");
+    } : undefined,
   });
   if (prepared.status !== "ready") {
     const detail = prepared.status === "unsupported"
@@ -3049,7 +3131,10 @@ async function runGroupMemberTurn(
       return true;
     }
   }
-  const roomContext = prepared.transcript.map((message) => message.text).join("\n");
+  const roomContext = [
+    prepared.compacted && durableTaskRecordText ? durableTaskRecordText : null,
+    prepared.transcript.map((message) => message.text).join("\n"),
+  ].filter((value) => value !== null).join("\n\n");
   // One turn per bot at a time, across BOTH engines. Without this a bot
   // could run its 1:1 turn and a room turn concurrently, creating two provider
   // processes, interleaved token spend, and an interrupt that only ever
@@ -3107,6 +3192,7 @@ async function runGroupMemberTurn(
     return true;
   }
   store.setActivity(bot.id, "working");
+  releaseTurnStart?.();
 
   store.patchGroup(group.id, { busyBotId: bot.id }); // the store's change stream carries the frame
   groupSpeakers.set(threadId, { botId: bot.id, name: bot.name, color: bot.color });
@@ -3127,6 +3213,8 @@ async function runGroupMemberTurn(
       "If a supported API key is missing, use request_credential to show the secure in-app card. Never ask the user to paste credentials into chat.",
     integrations.agents &&
       "If the user explicitly asks to list or review, schedule, run, or change routines, use list_routines and propose_routine or propose_routine_action. A proposal is not applied until the user confirms its in-app card, so never claim the action completed before that confirmation.",
+    integrations.agents &&
+      "Keep the durable task record current with update_task_state after meaningful plan changes, completed milestones, new blockers, or created files. Record only verified progress, use it before long operations, and do not call it after every tool.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -3311,6 +3399,26 @@ function startGroupTurn(groupId: string, text: string, replyTo?: Message, sendId
     }
     return message;
   }
+
+  const taskOwner = responders[0];
+  if (!taskOwner) return message;
+  const previousTaskRecord = taskPacketForWrite(threadId);
+  const taskRecord = previousTaskRecord
+    ? recordTaskInstruction(previousTaskRecord, {
+        text,
+        messageId: message.id,
+        now: message.at,
+        turnsAtWrite: previousTaskRecord.turnsAtWrite,
+      })
+    : seedTaskResumePacket({
+        botId: taskOwner.id,
+        threadId,
+        text,
+        messageId: message.id,
+        now: message.at,
+        turnsAtWrite: 0,
+      });
+  persistTaskPacket(taskRecord);
 
   const operation = beginGroupTurnOperation(groupId, threadId);
   const prev = groupQueues.get(groupId) ?? Promise.resolve();
@@ -3911,15 +4019,20 @@ const server = createServer(async (req, res) => {
         const body = parsed.data;
         const bot = store.bot(body.fromBotId);
         if (!bot) return json(res, 403, { error: "unknown sender" });
+        const conversation = store.conversationForBot(bot.id, body.fromThreadId);
+        if (!conversation) return json(res, 403, { error: "source conversation does not belong to sender" });
         const task = store.taskByThread(bot.id, body.fromThreadId);
-        if (!task) return json(res, 403, { error: "source task does not belong to sender" });
-        const current = taskPacketForWrite(task.threadId);
+        const groupTask = conversation.group
+          ? store.groupTaskByThread(conversation.group.id, body.fromThreadId)
+          : undefined;
+        const current = taskPacketForWrite(body.fromThreadId);
         if (!current) return json(res, 409, { error: "task record is not ready" });
-        if (body.artifacts?.length && !task.cwd) {
+        const taskCwd = task?.cwd ?? groupTask?.pinnedCwd;
+        if (body.artifacts?.length && !taskCwd) {
           return json(res, 400, { error: "this task has no working folder for artifacts" });
         }
         const artifacts = body.artifacts?.map((artifact) => ({
-          ref: groundedTaskArtifact(task, artifact.ref),
+          ref: groundedTaskArtifact(taskCwd, artifact.ref),
           label: artifact.label,
         }));
         if (artifacts?.some((artifact) => artifact.ref === null)) {
@@ -3947,7 +4060,7 @@ const server = createServer(async (req, res) => {
         next.updatedAt = Date.now();
         next.updatedBy = "bot";
         if (!["crash", "stop", "shutdown"].includes(current.flushReason)) next.flushReason = "progress";
-        next.turnsAtWrite = task.usage?.turns ?? next.turnsAtWrite;
+        next.turnsAtWrite = task?.usage?.turns ?? next.turnsAtWrite;
         const saved = persistTaskPacket(next);
         return saved
           ? json(res, 200, { ok: true, updatedAt: saved.updatedAt, nextAction: saved.nextAction })
@@ -6119,9 +6232,9 @@ const server = createServer(async (req, res) => {
       const text = String(body.text ?? "").trim();
       if (!text) return json(res, 400, { error: "text required" });
       // everything from here down is synchronous, so two racing edits can
-      // never both get past this check: startTurn flips busy before the
-      // next request is handled
-      if (bot.busy) return json(res, 409, { error: "the bot is working — stop it before editing" });
+      // never both get past this check: startTurn acquires the turn-start
+      // claim before the next request is handled
+      if (botHasActiveTurn(bot.id)) return json(res, 409, { error: "the bot is working — stop it before editing" });
       const source = store.messagesFor(bot.threadId).find((msg) => msg.id === messageId);
       if (!source || source.role !== "user" || source.kind !== "text") {
         return json(res, 404, { error: "only user messages can be edited" });
@@ -6323,7 +6436,9 @@ const server = createServer(async (req, res) => {
     if (m && method === "POST") {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
-      if (bot.busy) return json(res, 409, { error: "this bot is working — let it finish before starting a task" });
+      if (botHasActiveTurn(bot.id)) {
+        return json(res, 409, { error: "this bot is working — let it finish before starting a task" });
+      }
       const body = await readBody(req);
       const task = store.createTask(bot.id, typeof body.title === "string" ? body.title : undefined);
       if (!task) return json(res, 500, { error: "couldn't create that task" });

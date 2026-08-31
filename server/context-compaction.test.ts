@@ -313,7 +313,7 @@ describe("provider-neutral context compaction", () => {
     });
   });
 
-  it("does not replace a valid summary when later summarization fails", async () => {
+  it("uses deterministic fallback without replacing a valid summary when later summarization throws", async () => {
     const previous: ContextCompactionV1 = {
       v: 1,
       summary: "known good summary",
@@ -328,17 +328,89 @@ describe("provider-neutral context compaction", () => {
       compactionMessage("c1", "m9", previous),
       ...longHistory(95, 10),
     ];
+    const beforeSummarize = vi.fn();
     const result = await prepareModelContext({
       messages: path,
       contextWindow: 1_024,
       taskRecordText: "Goal: preserve state",
+      beforeSummarize,
       summarize: async () => {
         throw new Error("summary provider unavailable");
       },
     });
 
-    expect(result).toMatchObject({ status: "failed", previousCompactionId: "c1" });
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(beforeSummarize).toHaveBeenCalledOnce();
+    expect(result.compaction?.previousCompactionId).toBe("c1");
+    expect(result.compaction?.summary).toContain("known good summary");
+    expect(result.compaction?.summary).toContain("Goal: preserve state");
     expect(path.find((item) => item.id === "c1")?.compaction).toEqual(previous);
+  });
+
+  it("uses deterministic fallback when the optional summarizer returns empty", async () => {
+    const beforeSummarize = vi.fn();
+    const result = await prepareModelContext({
+      messages: longHistory(120),
+      contextWindow: 1_024,
+      taskRecordText: "Goal: preserve state\nEvidence: reports/green.json\nArtifact: dist/orbit.exe",
+      beforeSummarize,
+      summarize: async () => "   ",
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(beforeSummarize).toHaveBeenCalledOnce();
+    expect(result.compaction?.summary).toContain("Model summary unavailable");
+    expect(result.compaction?.summary).toContain("reports/green.json");
+    expect(result.compaction?.summary).toContain("dist/orbit.exe");
+    expect(result.compaction?.summary).toContain("work item 0");
+    expect(result.transcript.at(-1)?.text).toContain("work item 119");
+  });
+
+  it("preserves a partial generated summary when a later summarizer call fails", async () => {
+    const secret = `sk-${"z".repeat(32)}`;
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let calls = 0;
+    try {
+      const result = await prepareModelContext({
+        messages: [
+          message("m1", `BEGIN-${"work ".repeat(2_000)}-END`),
+          message("m2", "recent work", { role: "bot" }),
+        ],
+        contextWindow: 2_048,
+        taskRecordText: "Goal: preserve partial progress",
+        summarize: async () => {
+          calls += 1;
+          if (calls === 1) return "partial generated summary marker";
+          throw new Error(`summary provider unavailable ${secret}`);
+        },
+      });
+
+      expect(calls).toBeGreaterThan(1);
+      expect(result.status).toBe("ready");
+      if (result.status !== "ready") return;
+      expect(result.compaction?.summary).toContain("partial generated summary marker");
+      expect(warning).toHaveBeenCalledWith("context compaction: summarizer failed; using deterministic fallback");
+      expect(JSON.stringify(warning.mock.calls)).not.toContain(secret);
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("returns failed context when deterministic fallback throws", async () => {
+    const input = {
+      messages: longHistory(120),
+      contextWindow: 1_024,
+      get taskRecordText(): string {
+        throw new Error("fallback summary failed");
+      },
+    };
+
+    await expect(prepareModelContext(input)).resolves.toMatchObject({
+      status: "failed",
+      error: "Context summarization failed: fallback summary failed",
+    });
   });
 
   it("selects the correct summary after rewind and on alternate branches", async () => {

@@ -1,17 +1,19 @@
 // Store persistence contract: bots.json + messages-<threadId>.json are
 // the durable record — everything here must survive a process restart
 // except `busy`, which never does (no turn survives one either).
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DATA_DIR } from "./config.ts";
 import { prepareModelContext } from "./context-compaction.ts";
 import type { ModelSelection } from "./contracts.ts";
 import { peerAllowKey } from "./peer-approval-key.ts";
 import { Store, titleFromMessage, type BotRecord } from "./store.ts";
+import * as taskState from "./task-state.ts";
 import { readTaskResumePacket, type TaskResumePacket } from "./task-state.ts";
 import { buildResumeFallback } from "./turn-context.ts";
+import { workspaceDir } from "./workspace.ts";
 import { readContextCompaction } from "../shared/context-compaction.ts";
 
 const selection = (): ModelSelection => ({ instanceId: "claude", model: "claude-sonnet-5" });
@@ -353,6 +355,149 @@ describe("Store", () => {
     copy.goal = "mutated outside the store";
     expect(store.taskPacket(bot.threadId)?.goal).toBe("Prepare the weekly report");
     expect(new Store(selection).taskPacket(bot.threadId)).toEqual(saved);
+  });
+
+  it("owns a room task packet through one of its members", () => {
+    const store = new Store(selection);
+    const member = store.createBot();
+    const outsider = store.createBot();
+    const room = store.createGroup("Release", [member.id]);
+
+    const saved = store.writeTaskPacket(taskPacket(member.id, room.threadId));
+
+    expect(saved?.threadId).toBe(room.threadId);
+    expect(new Store(selection).taskPacket(room.threadId)).toEqual(saved);
+    expect(store.writeTaskPacket(taskPacket(outsider.id, room.threadId))).toBeNull();
+  });
+
+  it("re-owns a complete room task packet when its owner leaves", () => {
+    const store = new Store(selection);
+    const owner = store.createBot();
+    const replacement = store.createBot();
+    const room = store.createGroup("Release", [owner.id, replacement.id]);
+    const saved = store.writeTaskPacket(taskPacket(owner.id, room.threadId, {
+      goal: "Ship the room release",
+      plan: [{ step: "Verify the installer", status: "active" }],
+      completed: [{ note: "Built the installer", at: 90 }],
+      evidence: [{ kind: "file", ref: "reports/green.json", note: "smoke tests passed" }],
+      artifacts: [{ ref: "dist/orbit.exe", label: "Windows installer" }],
+      blockers: [{ kind: "approval", note: "Awaiting release approval" }],
+      nextAction: "Verify the installer",
+      lastEventId: "event-1",
+    }));
+    if (!saved) throw new Error("room task packet was not saved");
+
+    store.patchGroup(room.id, { memberIds: [replacement.id] });
+
+    const expected = { ...saved, botId: replacement.id };
+    expect(store.taskPacket(room.threadId)).toEqual(expected);
+    expect(readTaskResumePacket(room.threadId)).toEqual(expected);
+    expect(new Store(selection).taskPacket(room.threadId)).toEqual(expected);
+  });
+
+  it("finishes a room membership change when packet re-ownership cannot be written", () => {
+    const store = new Store(selection);
+    const owner = store.createBot();
+    const replacement = store.createBot();
+    const room = store.createGroup("Release", [owner.id, replacement.id]);
+    const saved = store.writeTaskPacket(taskPacket(owner.id, room.threadId));
+    if (!saved) throw new Error("room task packet was not saved");
+    const events: string[] = [];
+    store.onChange((change) => events.push(change.type));
+    const write = vi.spyOn(taskState, "writeTaskResumePacket").mockImplementationOnce(() => {
+      throw new Error("disk full");
+    });
+    let patched: ReturnType<Store["patchGroup"]> = null;
+
+    try {
+      patched = store.patchGroup(room.id, { memberIds: [replacement.id] });
+      expect(write).toHaveBeenCalledWith({ ...saved, botId: replacement.id });
+      expect(readTaskResumePacket(room.threadId)).toEqual(saved);
+    } finally {
+      write.mockRestore();
+    }
+
+    expect(patched?.memberIds).toEqual([replacement.id]);
+    expect(events).toEqual(["group"]);
+    const restarted = new Store(selection);
+    const expected = { ...saved, botId: replacement.id };
+    expect(restarted.group(room.id)?.memberIds).toEqual([replacement.id]);
+    expect(restarted.taskPacket(room.threadId)).toEqual(expected);
+    expect(readTaskResumePacket(room.threadId)).toEqual(expected);
+  });
+
+  it("re-owns a complete room task packet when its owner bot is deleted", () => {
+    const store = new Store(selection);
+    const owner = store.createBot();
+    const replacement = store.createBot();
+    const room = store.createGroup("Release", [owner.id, replacement.id]);
+    const saved = store.writeTaskPacket(taskPacket(owner.id, room.threadId, {
+      goal: "Ship the room release",
+      plan: [{ step: "Verify the installer", status: "active" }],
+      completed: [{ note: "Built the installer", at: 90 }],
+      evidence: [{ kind: "file", ref: "reports/green.json", note: "smoke tests passed" }],
+      artifacts: [{ ref: "dist/orbit.exe", label: "Windows installer" }],
+      blockers: [{ kind: "approval", note: "Awaiting release approval" }],
+      nextAction: "Verify the installer",
+      lastEventId: "event-1",
+    }));
+    if (!saved) throw new Error("room task packet was not saved");
+
+    store.deleteBot(owner.id);
+
+    const expected = { ...saved, botId: replacement.id };
+    expect(store.taskPacket(room.threadId)).toEqual(expected);
+    expect(readTaskResumePacket(room.threadId)).toEqual(expected);
+    expect(new Store(selection).taskPacket(room.threadId)).toEqual(expected);
+  });
+
+  it("finishes bot deletion when packet re-ownership cannot be written", () => {
+    const store = new Store(selection);
+    const owner = store.createBot();
+    const replacement = store.createBot();
+    const room = store.createGroup("Release", [owner.id, replacement.id]);
+    const saved = store.writeTaskPacket(taskPacket(owner.id, room.threadId));
+    if (!saved) throw new Error("room task packet was not saved");
+    const workspace = workspaceDir(owner.id);
+    mkdirSync(workspace, { recursive: true });
+    writeFileSync(join(workspace, "MEMORY.md"), "owner memory");
+    const events: string[] = [];
+    store.onChange((change) => events.push(change.type));
+    const write = vi.spyOn(taskState, "writeTaskResumePacket").mockImplementationOnce(() => {
+      throw new Error("disk full");
+    });
+    let deleted = false;
+
+    try {
+      deleted = store.deleteBot(owner.id);
+      expect(write).toHaveBeenCalledWith({ ...saved, botId: replacement.id });
+      expect(readTaskResumePacket(room.threadId)).toEqual(saved);
+    } finally {
+      write.mockRestore();
+    }
+
+    expect(deleted).toBe(true);
+    expect(store.bot(owner.id)).toBeNull();
+    expect(events).toEqual(["thread.deleted", "bot.deleted"]);
+    expect(existsSync(workspace)).toBe(false);
+    const restarted = new Store(selection);
+    const expected = { ...saved, botId: replacement.id };
+    expect(restarted.bot(owner.id)).toBeNull();
+    expect(restarted.messagesFor(owner.threadId)).toHaveLength(0);
+    expect(restarted.taskPacket(room.threadId)).toEqual(expected);
+    expect(readTaskResumePacket(room.threadId)).toEqual(expected);
+  });
+
+  it("deletes a room task packet when no valid member remains", () => {
+    const store = new Store(selection);
+    const owner = store.createBot();
+    const room = store.createGroup("Release", [owner.id]);
+    store.writeTaskPacket(taskPacket(owner.id, room.threadId));
+
+    store.deleteBot(owner.id);
+
+    expect(store.taskPacket(room.threadId)).toBeNull();
+    expect(readTaskResumePacket(room.threadId)).toBeNull();
   });
 
   it("rejects a packet whose task does not belong to its bot", () => {

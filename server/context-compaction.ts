@@ -371,37 +371,51 @@ export async function prepareModelContext(input: {
   let summary = previousSummary;
   try {
     await input.beforeSummarize?.();
-    if (!input.summarize) {
+  } catch (error) {
+    return failedContext(
+      `Context summarization failed: ${error instanceof Error ? error.message : String(error)}`,
+      previous,
+    );
+  }
+  if (!input.summarize) {
+    try {
       summary = fallbackSummary({
         previousSummary,
         history: old,
         taskRecordText: input.taskRecordText,
         summaryTokens: summaryBudget,
       });
-    } else if (summary && messageTokens(summaryMessage(summary)) > summaryBudget) {
-      const previousUnit: ReplayUnit = {
-        id: previous!.value.coveredThroughId,
-        pathIndex: previous!.coveredIndex,
-        role: "assistant",
-        text: summary,
-      };
-      summary = "";
-      for (const batch of summaryBatches([previousUnit], contextWindow)) {
-        const generated = redactSecretsInText((await input.summarize(summaryPrompt({
-          previousSummary: summary,
-          history: batch,
-          taskRecordText: input.taskRecordText,
-          contextWindow,
-          summaryTokens: summaryBudget,
-        }))).trim());
-        if (!generated) throw new Error("the summarizer returned an empty result");
-        if (messageTokens(summaryMessage(generated)) > summaryBudget) {
-          throw new Error("the summarizer exceeded the durable summary budget");
-        }
-        summary = generated;
-      }
+    } catch (error) {
+      return failedContext(
+        `Context summarization failed: ${error instanceof Error ? error.message : String(error)}`,
+        previous,
+      );
     }
-    if (input.summarize) {
+  } else {
+    try {
+      if (summary && messageTokens(summaryMessage(summary)) > summaryBudget) {
+        const previousUnit: ReplayUnit = {
+          id: previous!.value.coveredThroughId,
+          pathIndex: previous!.coveredIndex,
+          role: "assistant",
+          text: summary,
+        };
+        summary = "";
+        for (const batch of summaryBatches([previousUnit], contextWindow)) {
+          const generated = redactSecretsInText((await input.summarize(summaryPrompt({
+            previousSummary: summary,
+            history: batch,
+            taskRecordText: input.taskRecordText,
+            contextWindow,
+            summaryTokens: summaryBudget,
+          }))).trim());
+          if (!generated) throw new Error("the summarizer returned an empty result");
+          if (messageTokens(summaryMessage(generated)) > summaryBudget) {
+            return failedContext("Context summarization failed: the summarizer exceeded the durable summary budget", previous);
+          }
+          summary = generated;
+        }
+      }
       for (const batch of summaryBatches(old, contextWindow)) {
         const generated = redactSecretsInText((await input.summarize(summaryPrompt({
           previousSummary: summary,
@@ -412,16 +426,26 @@ export async function prepareModelContext(input: {
         }))).trim());
         if (!generated) throw new Error("the summarizer returned an empty result");
         if (messageTokens(summaryMessage(generated)) > summaryBudget) {
-          throw new Error("the summarizer exceeded the durable summary budget");
+          return failedContext("Context summarization failed: the summarizer exceeded the durable summary budget", previous);
         }
         summary = generated;
       }
+    } catch {
+      console.warn("context compaction: summarizer failed; using deterministic fallback");
+      try {
+        summary = fallbackSummary({
+          previousSummary: summary || previousSummary,
+          history: old,
+          taskRecordText: input.taskRecordText,
+          summaryTokens: summaryBudget,
+        });
+      } catch (error) {
+        return failedContext(
+          `Context summarization failed: ${error instanceof Error ? error.message : String(error)}`,
+          previous,
+        );
+      }
     }
-  } catch (error) {
-    return failedContext(
-      `Context summarization failed: ${error instanceof Error ? error.message : String(error)}`,
-      previous,
-    );
   }
 
   const transcript = [summaryMessage(summary), ...tail.map(({ role, text }) => ({ role, text }))];

@@ -829,6 +829,7 @@ export class Store {
       Boolean(group.dm),
     );
     this.saveGroups();
+    if (Object.prototype.hasOwnProperty.call(patch, "memberIds")) this.repairRoomTaskPacketOwners(group);
     this.emit({ type: "group", groupId: group.id });
     return group;
   }
@@ -1174,6 +1175,9 @@ export class Store {
     const bot = this.bot(id);
     if (!bot) return false;
     this.bots = this.bots.filter((b) => b.id !== id);
+    for (const group of this.groups) {
+      if (group.memberIds.includes(id)) this.repairRoomTaskPacketOwners(group);
+    }
     // every task's transcript goes with the bot, not just the open one
     for (const threadId of new Set([bot.threadId, ...(bot.tasks ?? []).map((t) => t.threadId)])) {
       this.deleteThreadRecord(threadId);
@@ -1378,20 +1382,54 @@ export class Store {
     return this.bot(botId)?.tasks?.find((t) => t.threadId === threadId);
   }
 
+  private repairRoomTaskPacketOwner(group: GroupRecord, threadId: string): TaskResumePacket | null {
+    if (!this.taskPackets.has(threadId)) this.taskPackets.set(threadId, readTaskResumePacket(threadId));
+    const packet = this.taskPackets.get(threadId);
+    if (!packet) return null;
+    if (group.memberIds.includes(packet.botId) && this.bot(packet.botId)) return packet;
+    const botId = group.memberIds.find((memberId) => Boolean(this.bot(memberId)));
+    if (!botId) {
+      this.taskPackets.set(threadId, null);
+      try {
+        deleteTaskResumePacket(threadId);
+      } catch {}
+      this.emit({ type: "task.packet", threadId });
+      return null;
+    }
+    let saved: TaskResumePacket;
+    try {
+      saved = writeTaskResumePacket({ ...packet, botId });
+    } catch {
+      return null;
+    }
+    this.taskPackets.set(threadId, saved);
+    this.emit({ type: "task.packet", threadId });
+    return saved;
+  }
+
+  private repairRoomTaskPacketOwners(group: GroupRecord): void {
+    if (group.dm) return;
+    for (const threadId of new Set([group.threadId, ...(group.tasks ?? []).map((task) => task.threadId)])) {
+      this.repairRoomTaskPacketOwner(group, threadId);
+    }
+  }
+
   taskPacket(threadId: string): TaskResumePacket | null {
     if (!this.taskPackets.has(threadId)) {
-      const owner = this.botByThread(threadId);
-      const packet = owner && this.taskByThread(owner.id, threadId)
-        ? readTaskResumePacket(threadId)
-        : null;
-      this.taskPackets.set(threadId, packet?.botId === owner?.id ? packet : null);
+      const knownThread = Boolean(this.botByThread(threadId) || this.groupByThread(threadId));
+      const packet = knownThread ? readTaskResumePacket(threadId) : null;
+      this.taskPackets.set(threadId, packet);
     }
     const packet = this.taskPackets.get(threadId);
-    return packet ? structuredClone(packet) : null;
+    if (!packet) return null;
+    if (this.conversationForBot(packet.botId, threadId)) return structuredClone(packet);
+    const group = this.groupByThread(threadId);
+    const repaired = group && !group.dm ? this.repairRoomTaskPacketOwner(group, threadId) : null;
+    return repaired ? structuredClone(repaired) : null;
   }
 
   writeTaskPacket(packet: TaskResumePacket): TaskResumePacket | null {
-    if (!this.taskByThread(packet.botId, packet.threadId)) return null;
+    if (!this.conversationForBot(packet.botId, packet.threadId)) return null;
     const saved = writeTaskResumePacket(packet);
     this.taskPackets.set(packet.threadId, saved);
     this.emit({ type: "task.packet", threadId: packet.threadId });
