@@ -229,13 +229,13 @@ describe("hosted endpoint advertisement", () => {
       "PUT",
       "/hosted-endpoint",
       headers,
-      JSON.stringify({ url: "https://C-Opaque.OpenMausBot.Test/" }),
+      JSON.stringify({ url: "https://C-Opaque.Orbit.Test/" }),
     );
     expect(published.status).toBe(200);
     expect(published.body.endpoints[0]).toEqual({
       kind: "hosted",
       priority: 0,
-      url: "https://c-opaque.openmausbot.test",
+      url: "https://c-opaque.orbit.test",
     });
 
     expect(

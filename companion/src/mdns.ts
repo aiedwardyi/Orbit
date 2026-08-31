@@ -410,7 +410,7 @@ export function answersFor(
 
 /** One DNS label: no dots (they would split it into two labels), no control
  * characters, and inside the 63-byte limit even in UTF-8. */
-export function dnsLabel(text: string, fallback = "OpenMausBot"): string {
+export function dnsLabel(text: string, fallback = "Orbit"): string {
   let label = text
     .replace(/[\u0000-\u001f\u007f]/g, "")
     .replace(/\./g, " ")
