@@ -10,6 +10,7 @@ import {
   type Bot,
   type Group,
   type Message,
+  type TaskResumePacket,
 } from "./store";
 import { openLiveEvents, type LiveEventSourceLike, type LiveEventsPlatform } from "../lib/live-events";
 
@@ -368,6 +369,48 @@ describe("cross-client bot creation", () => {
     });
 
     expect(greeted.bots[0]?.messages).toEqual([greeting]);
+  });
+});
+
+describe("task recovery state", () => {
+  it("folds a live task packet into only its owning task", () => {
+    const bot = {
+      id: "echo",
+      threadId: "t1",
+      name: "Echo",
+      title: "",
+      description: "",
+      notifications: true,
+      color: "green",
+      unread: false,
+      modelSelection: { instanceId: "x", model: "y" },
+      messages: [],
+      tasks: [
+        { threadId: "t1", title: "Current", createdAt: 1 },
+        { threadId: "t2", title: "Other", createdAt: 2 },
+      ],
+    } satisfies Bot;
+    const packet = {
+      v: 1,
+      threadId: "t1",
+      botId: bot.id,
+      goal: "Publish the brief",
+      plan: [{ step: "Verify citations", status: "active" }],
+      completed: [],
+      evidence: [],
+      artifacts: [],
+      blockers: [],
+      nextAction: "Verify citations",
+      updatedAt: 100,
+      updatedBy: "harness",
+      flushReason: "crash",
+      turnsAtWrite: 2,
+    } satisfies TaskResumePacket;
+
+    const next = reducer({ ...initialState, bots: [bot] }, { type: "taskPacket", threadId: "t1", packet });
+
+    expect(next.bots[0]?.tasks?.find((task) => task.threadId === "t1")?.taskState).toEqual(packet);
+    expect(next.bots[0]?.tasks?.find((task) => task.threadId === "t2")?.taskState).toBeUndefined();
   });
 });
 

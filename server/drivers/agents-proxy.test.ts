@@ -39,6 +39,17 @@ let routinesResponse: unknown = {
   ],
 };
 let lastRoutineRequestBody: any = null;
+interface TaskStateRequestBody {
+  fromBotId: string;
+  fromThreadId: string;
+  goal?: string;
+  plan?: Array<{ step: string; status: string }>;
+  completed_note?: string;
+  next_action?: string;
+  blockers?: Array<{ kind: string; note: string }>;
+  artifacts?: Array<{ ref: string; label: string }>;
+}
+let lastTaskStateBody: TaskStateRequestBody | null = null;
 
 let child: ChildProcess;
 const pending = new Map<number, (msg: any) => void>();
@@ -132,6 +143,17 @@ beforeAll(async () => {
       });
       return;
     }
+    if (req.method === "POST" && req.url === "/api/internal/task-state") {
+      let data = "";
+      req.on("data", (c) => (data += c));
+      req.on("end", () => {
+        const body: TaskStateRequestBody = JSON.parse(data);
+        lastTaskStateBody = body;
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, nextAction: body.next_action }));
+      });
+      return;
+    }
     res.writeHead(404, { "content-type": "application/json" });
     res.end(JSON.stringify({ error: "unknown" }));
   });
@@ -170,12 +192,13 @@ afterAll(async () => {
 });
 
 describe("agents-proxy MCP surface", () => {
-  it("answers the MCP handshake and lists all eight tools", async () => {
+  it("answers the MCP handshake and lists the tool surface", async () => {
     const init = await rpc("initialize", { protocolVersion: "2024-11-05" });
     expect(init.result.serverInfo.name).toContain("agents");
     const list = await rpc("tools/list");
     expect(list.result.tools.map((t: { name: string }) => t.name)).toEqual([
       "list_bots",
+      "update_task_state",
       "ask_bot",
       "delegate_bot",
       "check_delegation",
@@ -186,6 +209,46 @@ describe("agents-proxy MCP surface", () => {
       "propose_routine",
       "propose_routine_action",
     ]);
+  });
+
+  it("forwards durable task progress with source ownership", async () => {
+    lastTaskStateBody = null;
+    const res = await callTool("update_task_state", {
+      goal: "Publish the weekly brief",
+      plan: [{ step: "Verify citations", status: "active" }],
+      completed_note: "Drafted five sections",
+      next_action: "Verify citations",
+      blockers: [],
+      artifacts: [{ ref: "brief.md", label: "Weekly brief" }],
+    });
+
+    expect(lastTaskStateBody).toEqual({
+      fromBotId: "bot-asker",
+      fromThreadId: "thread-asker-routine",
+      goal: "Publish the weekly brief",
+      plan: [{ step: "Verify citations", status: "active" }],
+      completed_note: "Drafted five sections",
+      next_action: "Verify citations",
+      blockers: [],
+      artifacts: [{ ref: "brief.md", label: "Weekly brief" }],
+    });
+    expect(res.result.content[0].text).toContain("Next action: Verify citations");
+  });
+
+  it("rejects blank task fields before calling the harness", async () => {
+    const list = await rpc("tools/list");
+    const update = list.result.tools.find((tool: { name: string }) => tool.name === "update_task_state");
+    expect(update.inputSchema.properties.goal).toMatchObject({ minLength: 1, pattern: "\\S" });
+    expect(update.inputSchema.properties.plan.items.properties.step).toMatchObject({ minLength: 1, pattern: "\\S" });
+
+    lastTaskStateBody = null;
+    const res = await callTool("update_task_state", {
+      plan: [{ step: "   ", status: "active" }],
+    });
+
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toContain("cannot be blank");
+    expect(lastTaskStateBody).toBeNull();
   });
 
   it("publishes a flat routine schedule schema that survives provider conversion", async () => {

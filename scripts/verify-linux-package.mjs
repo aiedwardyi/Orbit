@@ -443,7 +443,7 @@ try {
     "Name=Orbit",
     "Exec=/opt/Orbit/orbit %U",
     "Icon=orbit",
-    "StartupWMClass=com.orbit.agentdesk.desktop",
+    "StartupWMClass=com.orbit.agentdesk",
     "Categories=Utility;",
   ]) {
     if (!desktop.includes(expected)) fail(`desktop entry is missing ${JSON.stringify(expected)}`);

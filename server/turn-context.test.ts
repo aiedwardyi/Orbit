@@ -41,6 +41,51 @@ describe("buildTurnContext", () => {
     const out = buildTurnContext({ text: "hi", transcript: [], rewound: false, fresh: true, replaysNatively: false });
     expect(out).toEqual({ turnText: "hi", resume: false });
   });
+
+  it("injects the durable task record at recovery boundaries", () => {
+    const taskRecord = {
+      goal: "Publish the weekly brief",
+      plan: [{ step: "Verify citations", status: "active" as const }],
+      completed: [{ note: "Drafted five sections" }],
+      blockers: [],
+      nextAction: "Verify citations",
+    };
+    const out = buildTurnContext({
+      text: "continue",
+      transcript,
+      rewound: false,
+      fresh: false,
+      replaysNatively: false,
+      taskRecord,
+      recovering: true,
+    });
+
+    expect(out.resume).toBe(true);
+    expect(out.turnText).toContain("Orbit task record");
+    expect(out.turnText).toContain("Goal: Publish the weekly brief");
+    expect(out.turnText.endsWith("continue")).toBe(true);
+  });
+
+  it("injects the task record when the replay tail is capped", () => {
+    const out = buildTurnContext({
+      text: "continue",
+      transcript,
+      rewound: false,
+      fresh: false,
+      replaysNatively: true,
+      contextCapped: true,
+      taskRecord: {
+        goal: "Research competitors",
+        plan: [],
+        completed: [],
+        blockers: [],
+        nextAction: "Compare pricing",
+      },
+    });
+
+    expect(out.resume).toBe(true);
+    expect(out.turnText).toContain("Next action: Compare pricing");
+  });
 });
 
 describe("engineIsFresh", () => {

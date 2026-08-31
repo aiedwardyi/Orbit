@@ -2,10 +2,10 @@
 // (upstream rule): the React app dispatches typed commands over HTTP and
 // folds one SSE event stream; every provider process runs here.
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync, unlinkSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { isIP } from "node:net";
-import { extname, join } from "node:path";
+import { extname, isAbsolute, join, relative, resolve } from "node:path";
 
 import { z } from "zod";
 import { botAvatarUrlFromStoredPath } from "../shared/bot-avatar.ts";
@@ -120,6 +120,16 @@ import {
   type Message,
   type TaskRecord,
 } from "./store.ts";
+import {
+  clearTaskBlockers,
+  recordTaskBlocker,
+  recordTaskCompletion,
+  recordTaskEvidence,
+  recordTaskInstruction,
+  seedTaskResumePacket,
+  stampTaskResumePacket,
+} from "./task-state-fold.ts";
+import type { TaskResumePacket } from "./task-state.ts";
 import * as tts from "./tts/index.ts";
 import { narrateTool, toUtterances } from "./tts/speech-text.ts";
 import { buildTurnContext, engineIsFresh } from "./turn-context.ts";
@@ -331,6 +341,46 @@ const routineRequestEnvelopeSchema = z.discriminatedUnion("action", [
     z.object({ ...routineRequestSourceSchema, action: z.literal(action), routineId: z.unknown() }).strict()
   ),
 ]);
+const taskStatePlanSchema = z.array(z.object({
+  step: z.string().trim().min(1).max(200),
+  status: z.enum(["pending", "active", "done", "skipped"]),
+}).strict()).max(20).refine(
+  (plan) => plan.filter((item) => item.status === "active").length <= 1,
+  "at most one plan step may be active",
+);
+const taskStateUpdateEnvelopeSchema = z.object({
+  fromBotId: z.string().min(1).max(128),
+  fromThreadId: z.string().min(1).max(128),
+  goal: z.string().trim().min(1).max(500).optional(),
+  plan: taskStatePlanSchema.optional(),
+  completed_note: z.string().trim().min(1).max(300).optional(),
+  next_action: z.string().trim().min(1).max(300).optional(),
+  blockers: z.array(z.object({
+    kind: z.enum(["login", "input", "engine"]),
+    note: z.string().trim().min(1).max(300),
+  }).strict()).max(10).optional(),
+  artifacts: z.array(z.object({
+    ref: z.string().trim().min(1).max(500),
+    label: z.string().trim().min(1).max(200),
+  }).strict()).max(20).optional(),
+}).strict().refine(
+  (body) => body.goal !== undefined || body.plan !== undefined || body.completed_note !== undefined ||
+    body.next_action !== undefined || body.blockers !== undefined || body.artifacts !== undefined,
+  "at least one task field is required",
+);
+
+function groundedTaskArtifact(task: TaskRecord, ref: string): string | null {
+  if (!task.cwd) return null;
+  try {
+    const root = realpathSync(task.cwd);
+    const candidate = realpathSync(resolve(root, ref));
+    const fromRoot = relative(root, candidate);
+    if (fromRoot.startsWith("..") || isAbsolute(fromRoot) || !statSync(candidate).isFile()) return null;
+    return candidate;
+  } catch {
+    return null;
+  }
+}
 
 /** The loopback endpoint a bot's computer proxy polls before acting. */
 function controlIntegration(botId: string) {
@@ -580,10 +630,10 @@ const wireTask = ({
   lastInstanceId: _lastInstanceId,
   lastModel: _lastModel,
   ...task
-}: TaskRecord) => task;
+}: TaskRecord) => ({ ...task, taskState: store.taskPacket(task.threadId) ?? undefined });
 
 const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
-  const { resumeCursors: _resumeCursors, tasks, ...rest } = bot;
+  const { resumeCursors: _resumeCursors, activeThreadId: _activeThreadId, tasks, ...rest } = bot;
   return { ...rest, avatarUrl: rest.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map(wireTask) } : {}) };
 };
 
@@ -914,7 +964,48 @@ function requestBehavior(value: unknown): "allow" | "deny" | "answer" | null {
 }
 // the last settled assistant text per thread, so a "finished" notification
 // can carry what the bot actually said
-const lastReply = new Map<string, string>();
+const lastReply = new Map<string, { text: string; messageId: string }>();
+
+const TASK_PACKET_FLUSH_MS = 30_000;
+const pendingTaskPackets = new Map<
+  string,
+  { packet: TaskResumePacket; timer: ReturnType<typeof setTimeout> }
+>();
+
+function eventTime(event: RuntimeEvent): number {
+  const parsed = Date.parse(event.createdAt);
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
+function taskPacketForWrite(threadId: string): TaskResumePacket | null {
+  return pendingTaskPackets.get(threadId)?.packet ?? store.taskPacket(threadId);
+}
+
+function persistTaskPacket(packet: TaskResumePacket): TaskResumePacket | null {
+  const pending = pendingTaskPackets.get(packet.threadId);
+  if (pending) clearTimeout(pending.timer);
+  pendingTaskPackets.delete(packet.threadId);
+  try {
+    return store.writeTaskPacket(packet);
+  } catch (error) {
+    console.error("task state: write failed", error);
+    return null;
+  }
+}
+
+function queueTaskPacket(packet: TaskResumePacket): void {
+  const pending = pendingTaskPackets.get(packet.threadId);
+  if (pending) {
+    pending.packet = packet;
+    return;
+  }
+  const timer = setTimeout(() => {
+    const queued = pendingTaskPackets.get(packet.threadId);
+    if (queued) persistTaskPacket(queued.packet);
+  }, TASK_PACKET_FLUSH_MS);
+  timer.unref?.();
+  pendingTaskPackets.set(packet.threadId, { packet, timer });
+}
 
 /** Put a notification on the wire. Clients decide what to do with it — a
  * desktop notification now, a push to a paired phone later. */
@@ -953,6 +1044,17 @@ const watchdog = new TurnWatchdog({
   onStall: (turn) => {
     repeats.settle(turn.threadId);
     const bot = store.bot(turn.botId);
+    const packet = bot && store.taskByThread(bot.id, turn.threadId)
+      ? taskPacketForWrite(turn.threadId)
+      : null;
+    if (packet) {
+      persistTaskPacket(recordTaskCompletion(packet, {
+        ok: false,
+        reply: "",
+        now: Date.now(),
+        turnsAtWrite: store.taskByThread(turn.botId, turn.threadId)?.usage?.turns ?? 0,
+      }));
+    }
     const instance = bot ? registry.get(bot.modelSelection.instanceId) : null;
     void instance?.adapter.interruptTurn(turn.threadId).catch(() => {});
     const minutes = Math.round(TURN_STALL_MS / 60_000);
@@ -1207,10 +1309,10 @@ bus.subscribe((event: RuntimeEvent) => {
       break;
     case "item.completed":
       if (event.itemType === "assistant_text") {
-        pushMessage({ role: "bot", kind: "text", text: event.text });
+        const message = pushMessage({ role: "bot", kind: "text", text: event.text });
         // kept so "finished" can say what it finished with, rather than
         // just that something ended
-        lastReply.set(event.threadId, event.text);
+        lastReply.set(event.threadId, { text: event.text, messageId: message.id });
       } else if (event.itemType === "tool" && event.itemId) {
         const itemKey = `${event.threadId}:${event.itemId}`;
         const messageId = toolMessageByItem.get(itemKey);
@@ -1224,6 +1326,16 @@ bus.subscribe((event: RuntimeEvent) => {
             tool: { name: toolName, ok: event.ok, spoken: existing?.spoken },
           });
           toolMessageByItem.delete(itemKey);
+        }
+        const packet = bot && event.ok && messageId ? taskPacketForWrite(event.threadId) : null;
+        if (packet && messageId) {
+          queueTaskPacket(recordTaskEvidence(packet, {
+            kind: "tool",
+            ref: messageId,
+            note: toolName,
+            now: eventTime(event),
+            lastEventId: event.eventId,
+          }));
         }
         // the bot just acted ON ITS SCREEN — refresh the preview now. Only
         // computer tools can change the screen, and each capture competes
@@ -1317,6 +1429,15 @@ bus.subscribe((event: RuntimeEvent) => {
               },
             });
             askMessageByRequest.set(`${event.threadId}:${requestId}`, card.id);
+            const packet = bot ? taskPacketForWrite(event.threadId) : null;
+            if (packet) {
+              persistTaskPacket(recordTaskBlocker(packet, {
+                kind: "approval",
+                note: summary,
+                now: eventTime(event),
+                lastEventId: event.eventId,
+              }));
+            }
             appendDecision(DATA_DIR, {
               threadId: event.threadId,
               requestId,
@@ -1361,6 +1482,15 @@ bus.subscribe((event: RuntimeEvent) => {
         },
       });
       if (event.requestId) askMessageByRequest.set(`${event.threadId}:${event.requestId}`, message.id);
+      const packet = bot ? taskPacketForWrite(event.threadId) : null;
+      if (packet) {
+        persistTaskPacket(recordTaskBlocker(packet, {
+          kind: permission ? "approval" : "input",
+          note: event.summary,
+          now: eventTime(event),
+          lastEventId: event.eventId,
+        }));
+      }
       const reviewMode = resolveAutoReviewMode(asker?.autoReview);
       let reviewTask: Promise<boolean> | undefined;
       if (
@@ -1454,6 +1584,19 @@ bus.subscribe((event: RuntimeEvent) => {
         }
         if (event.requestId) askMessageByRequest.delete(`${event.threadId}:${event.requestId}`);
       }
+      const packet = bot ? taskPacketForWrite(event.threadId) : null;
+      if (packet) {
+        const clearedApprovals = clearTaskBlockers(packet, {
+          kind: "approval",
+          now: eventTime(event),
+          lastEventId: event.eventId,
+        });
+        persistTaskPacket(clearTaskBlockers(clearedApprovals, {
+          kind: "input",
+          now: eventTime(event),
+          lastEventId: event.eventId,
+        }));
+      }
       break;
     }
     case "turn.retrying":
@@ -1483,7 +1626,8 @@ bus.subscribe((event: RuntimeEvent) => {
       turnUsage.set(event.threadId, { input: event.input, output: event.output, cachedInput: event.cachedInput });
       break;
     case "turn.completed": {
-      const reply = lastReply.get(event.threadId) ?? "";
+      const settledReply = lastReply.get(event.threadId);
+      const reply = settledReply?.text ?? "";
       lastReply.delete(event.threadId);
       const lastReported = turnUsage.get(event.threadId);
       turnUsage.delete(event.threadId);
@@ -1500,12 +1644,23 @@ bus.subscribe((event: RuntimeEvent) => {
         // (turn.completed.usage) is authoritative; a driver that only
         // streams the running indicator falls back to its last value.
         const tokens = event.usage ?? lastReported;
-        store.addTaskUsage(bot.id, event.threadId, {
+        const usage = store.addTaskUsage(bot.id, event.threadId, {
           input: tokens?.input,
           output: tokens?.output,
           cachedInput: tokens?.cachedInput,
           costUsd: event.cost ?? null,
         });
+        const packet = taskPacketForWrite(event.threadId);
+        if (packet) {
+          persistTaskPacket(recordTaskCompletion(packet, {
+            ok: event.ok,
+            reply,
+            messageId: settledReply?.messageId,
+            now: eventTime(event),
+            lastEventId: event.eventId,
+            turnsAtWrite: usage?.turns ?? packet.turnsAtWrite,
+          }));
+        }
         // settled → idle; a setup failure already marked it dead, keep that
         if (store.bot(bot.id)?.activity !== "dead") store.setActivity(bot.id, "idle");
         const routineReportThread = routineRun ? routineSourceThread(routineRun) : null;
@@ -1933,6 +2088,27 @@ async function startTurn(
         });
   }
 
+  const priorTaskPacket = taskPacketForWrite(threadId);
+  const recovering = priorTaskPacket !== null && ["crash", "stop", "shutdown"].includes(priorTaskPacket.flushReason);
+  if (!opts?.cardContinuation && text.trim()) {
+    const packet = priorTaskPacket
+      ? recordTaskInstruction(priorTaskPacket, {
+          text,
+          messageId: userMessage.id,
+          now: userMessage.at,
+          turnsAtWrite: task.usage?.turns ?? 0,
+        })
+      : seedTaskResumePacket({
+          botId: bot.id,
+          threadId,
+          text,
+          messageId: userMessage.id,
+          now: userMessage.at,
+          turnsAtWrite: task.usage?.turns ?? 0,
+        });
+    persistTaskPacket(packet);
+  }
+
   // transcript for API-backed drivers: settled text turns on the ACTIVE
   // branch only — abandoned forks never reach the model
   const skipTranscript = new Set<string>([userMessage.id, ...(opts?.excludeMessageIds ?? [])]);
@@ -1941,8 +2117,10 @@ async function startTurn(
   // Resolve its quote from full storage, while the replay itself remains
   // strictly limited to the selected branch below.
   const messagesById = new Map(store.messagesFor(threadId).map((message) => [message.id, message]));
-  const transcript = activeMessages
-    .filter((m) => m.kind === "text" && m.text && !skipTranscript.has(m.id))
+  const transcriptMessages = activeMessages
+    .filter((m) => m.kind === "text" && m.text && !skipTranscript.has(m.id));
+  const contextCapped = transcriptMessages.length > 40;
+  const transcript = transcriptMessages
     .slice(-40)
     .map((m) => ({
       role: m.role === "user" ? ("user" as const) : ("assistant" as const),
@@ -1972,12 +2150,32 @@ async function startTurn(
       resumeCursors: task.resumeCursors,
       transcript,
     });
+  let taskRecord = taskPacketForWrite(threadId);
+  const selectionChanged = task.lastInstanceId !== undefined && (
+    task.lastInstanceId !== instanceId ||
+    (task.lastModel !== undefined && task.lastModel !== model)
+  );
+  if (taskRecord && selectionChanged) {
+    taskRecord = persistTaskPacket(stampTaskResumePacket(taskRecord, "engine-switch", {
+      now: Date.now(),
+      turnsAtWrite: task.usage?.turns ?? taskRecord.turnsAtWrite,
+    })) ?? taskRecord;
+  }
+  if (taskRecord && contextCapped) {
+    taskRecord = persistTaskPacket(stampTaskResumePacket(taskRecord, "pre-compaction", {
+      now: Date.now(),
+      turnsAtWrite: task.usage?.turns ?? taskRecord.turnsAtWrite,
+    })) ?? taskRecord;
+  }
   const { turnText, resume } = buildTurnContext({
     text: promptWithReply(text, opts?.replyTo, cfg.profile?.name?.trim() || "User"),
     transcript,
     rewound,
     fresh,
     replaysNatively: instance.adapter.capabilities.transcriptReplay === true,
+    taskRecord: taskRecord ?? undefined,
+    contextCapped,
+    recovering,
   });
 
   const persona = [
@@ -1991,7 +2189,7 @@ async function startTurn(
   // busy flips immediately so the composer locks; the dispatch itself runs
   // in the background — box provisioning can take ~90s and must never
   // hang the HTTP request
-  store.setActivity(bot.id, "working");
+  store.setActivity(bot.id, "working", threadId);
   store.patchBot(bot.id, { unread: false });
   turnUsage.delete(threadId);
 
@@ -2254,6 +2452,9 @@ async function startTurn(
       const routinePrompt = integrations.agents
         ? " If the user explicitly asks to list or review, schedule, run, or change routines, use list_routines and propose_routine or propose_routine_action. A proposal is not applied until the user confirms its in-app card, so never claim the action completed before that confirmation."
         : "";
+      const taskStatePrompt = integrations.agents
+        ? " Keep the durable task record current with update_task_state after meaningful plan changes, completed milestones, new blockers, or created files. Record only verified progress, use it before long operations, and do not call it after every tool."
+        : "";
 
       // (activeVpsThreads was already claimed above, before the provision or
       // reuse await, so the backend guards saw this turn the whole time.)
@@ -2300,6 +2501,7 @@ async function startTurn(
           (coordinationPrompt ? ` ${coordinationPrompt}` : "") +
           credentialPrompt +
           routinePrompt +
+          taskStatePrompt +
           sectionContextSystemPrompt(bot.section) +
           (privateWorkspace ? memorySystemPrompt(bot.id) + skillsSystemPrompt(bot.id) : "") +
           skillInstructions +
@@ -2341,6 +2543,15 @@ async function startTurn(
         kind: "activity",
         tool: { name: `error: ${message.slice(0, 160)}`, ok: false },
       });
+      const packet = taskPacketForWrite(threadId);
+      if (packet) {
+        persistTaskPacket(recordTaskCompletion(packet, {
+          ok: false,
+          reply: "",
+          now: Date.now(),
+          turnsAtWrite: store.taskByThread(bot.id, threadId)?.usage?.turns ?? packet.turnsAtWrite,
+        }));
+      }
       store.setActivity(bot.id, "idle");
       opts?.onDispatchError?.(message);
       // a dispatch failure never emits turn.completed, so the settle-driven
@@ -3462,6 +3673,18 @@ function configStatus() {
 /** Rebuild the provider fleet after a config change so new keys take
  * effect without a server restart (kills any in-flight turns). */
 async function reloadProviders() {
+  const interruptedTaskThreads = new Map<string, string>();
+  for (const bot of store.bots) {
+    const threadId = bot.busy ? bot.activeThreadId : undefined;
+    if (!threadId || !store.taskByThread(bot.id, threadId)) continue;
+    interruptedTaskThreads.set(bot.id, threadId);
+    const packet = taskPacketForWrite(threadId);
+    if (!packet || ["crash", "stop", "shutdown"].includes(packet.flushReason)) continue;
+    persistTaskPacket(stampTaskResumePacket(packet, "crash", {
+      now: Date.now(),
+      turnsAtWrite: store.taskByThread(bot.id, threadId)?.usage?.turns ?? packet.turnsAtWrite,
+    }));
+  }
   bus.detachAll();
   await registry.disposeAll();
   await registry.load(instanceConfigs(cfg));
@@ -3470,6 +3693,7 @@ async function reloadProviders() {
   // async under the hood), stranding the bot busy — and its screen poller —
   // forever. Settle anything still marked busy.
   for (const b of store.bots.filter((b) => b.busy)) {
+    const threadId = interruptedTaskThreads.get(b.id) ?? b.threadId;
     const vmThread = [...localVmThreadTargets.entries()].find(([, target]) =>
       localVmLeaseFor(target).current(localVmOwnerBusy)?.botId === b.id
     )?.[0];
@@ -3477,12 +3701,12 @@ async function reloadProviders() {
     stopScreenPoller(b.id);
     activeVpsThreads.delete(b.id);
     finalizeDelegationWatch(
-      b.threadId,
+      threadId,
       false,
       "",
       "Delegated turn did not finish — provider settings changed",
     );
-    store.appendMessage(b.threadId, {
+    store.appendMessage(threadId, {
       role: "bot",
       kind: "activity",
       tool: { name: "error: turn interrupted — provider settings changed", ok: false },
@@ -3604,6 +3828,54 @@ const server = createServer(async (req, res) => {
     if (path.startsWith("/api/internal/")) {
       if (!authorizedComms(req.headers.authorization)) {
         return json(res, 401, { error: "unauthorized" });
+      }
+      if (method === "POST" && path === "/api/internal/task-state") {
+        const parsed = taskStateUpdateEnvelopeSchema.safeParse(await readBody(req));
+        if (!parsed.success) return json(res, 400, { error: "invalid task state update" });
+        const body = parsed.data;
+        const bot = store.bot(body.fromBotId);
+        if (!bot) return json(res, 403, { error: "unknown sender" });
+        const task = store.taskByThread(bot.id, body.fromThreadId);
+        if (!task) return json(res, 403, { error: "source task does not belong to sender" });
+        const current = taskPacketForWrite(task.threadId);
+        if (!current) return json(res, 409, { error: "task record is not ready" });
+        if (body.artifacts?.length && !task.cwd) {
+          return json(res, 400, { error: "this task has no working folder for artifacts" });
+        }
+        const artifacts = body.artifacts?.map((artifact) => ({
+          ref: groundedTaskArtifact(task, artifact.ref),
+          label: artifact.label,
+        }));
+        if (artifacts?.some((artifact) => artifact.ref === null)) {
+          return json(res, 400, { error: "artifacts must be files inside this task's working folder" });
+        }
+
+        const next = structuredClone(current);
+        if (body.goal !== undefined) next.goal = body.goal;
+        if (body.plan !== undefined) next.plan = body.plan;
+        if (body.completed_note !== undefined && next.completed.at(-1)?.note !== body.completed_note) {
+          next.completed.push({ note: body.completed_note, at: Date.now() });
+        }
+        if (body.next_action !== undefined) next.nextAction = body.next_action;
+        if (body.blockers !== undefined) {
+          next.blockers = [
+            ...next.blockers.filter((blocker) => blocker.kind === "approval"),
+            ...body.blockers,
+          ];
+        }
+        for (const artifact of artifacts ?? []) {
+          if (artifact.ref && !next.artifacts.some((existing) => existing.ref === artifact.ref)) {
+            next.artifacts.push({ ref: artifact.ref, label: artifact.label });
+          }
+        }
+        next.updatedAt = Date.now();
+        next.updatedBy = "bot";
+        if (!["crash", "stop", "shutdown"].includes(current.flushReason)) next.flushReason = "progress";
+        next.turnsAtWrite = task.usage?.turns ?? next.turnsAtWrite;
+        const saved = persistTaskPacket(next);
+        return saved
+          ? json(res, 200, { ok: true, updatedAt: saved.updatedAt, nextAction: saved.nextAction })
+          : json(res, 409, { error: "task record could not be saved" });
       }
       if (method === "GET" && path === "/api/internal/agents") {
         const self = url.searchParams.get("self");
@@ -5911,6 +6183,15 @@ const server = createServer(async (req, res) => {
       if (expectedThreadId !== undefined && !busyGroup && bot.threadId !== expectedThreadId) {
         return json(res, 409, { error: "the bot switched tasks before it could be interrupted" });
       }
+      if (!busyGroup && bot.busy) {
+        const packet = taskPacketForWrite(bot.threadId);
+        if (packet) {
+          persistTaskPacket(stampTaskResumePacket(packet, "stop", {
+            now: Date.now(),
+            turnsAtWrite: store.activeTask(bot.id)?.usage?.turns ?? packet.turnsAtWrite,
+          }));
+        }
+      }
       await instance?.adapter.interruptTurn(bot.threadId).catch(() => {});
       closeOpenApprovals(bot.threadId);
       return json(res, 200, { ok: true });
@@ -5926,6 +6207,41 @@ const server = createServer(async (req, res) => {
       activeLeafId: store.activeLeaf(bot.threadId),
       tasks: store.tasks(bot.id).map(wireTask),
     });
+
+    m = path.match(/^\/api\/bots\/([\w-]+)\/tasks\/([\w-]+)\/resume$/);
+    if (m && method === "POST") {
+      const bot = store.bot(m[1]);
+      if (!bot) return json(res, 404, { error: "no such bot" });
+      if (bot.threadId !== m[2]) return json(res, 409, { error: "switch to this task before continuing it" });
+      if (bot.busy) return json(res, 409, { error: "this bot is already working" });
+      const packet = taskPacketForWrite(m[2]);
+      if (!packet || !["crash", "stop", "shutdown"].includes(packet.flushReason)) {
+        return json(res, 409, { error: "this task has no interrupted work to continue" });
+      }
+      await startTurn(
+        bot.id,
+        "Continue the saved task from its recorded next action. Verify the record against the conversation before acting.",
+        { threadId: m[2], cardContinuation: true },
+      );
+      return json(res, 202, { ok: true });
+    }
+
+    m = path.match(/^\/api\/bots\/([\w-]+)\/tasks\/([\w-]+)\/recovery$/);
+    if (m && method === "POST") {
+      const bot = store.bot(m[1]);
+      if (!bot) return json(res, 404, { error: "no such bot" });
+      const task = store.taskByThread(bot.id, m[2]);
+      if (!task) return json(res, 404, { error: "no such task" });
+      const packet = taskPacketForWrite(task.threadId);
+      if (!packet) return json(res, 404, { error: "this task has no saved record" });
+      const saved = persistTaskPacket(stampTaskResumePacket(packet, "progress", {
+        now: Date.now(),
+        turnsAtWrite: task.usage?.turns ?? packet.turnsAtWrite,
+      }));
+      return saved
+        ? json(res, 200, { ok: true })
+        : json(res, 409, { error: "task record could not be saved" });
+    }
 
     m = path.match(/^\/api\/bots\/([\w-]+)\/tasks$/);
     if (m && method === "POST") {
@@ -6647,6 +6963,20 @@ server.listen(PORT, "127.0.0.1", () => {
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
+    for (const bot of store.bots) {
+      if (!bot.busy || store.groups.some((group) => group.busyBotId === bot.id)) continue;
+      const threadId = routines?.activeRunForBot(bot.id)?.threadId ?? bot.threadId;
+      const packet = taskPacketForWrite(threadId);
+      if (!packet) continue;
+      persistTaskPacket(stampTaskResumePacket(packet, "shutdown", {
+        now: Date.now(),
+        turnsAtWrite: store.taskByThread(bot.id, threadId)?.usage?.turns ?? packet.turnsAtWrite,
+      }));
+    }
+    for (const threadId of [...pendingTaskPackets.keys()]) {
+      const packet = pendingTaskPackets.get(threadId)?.packet;
+      if (packet) persistTaskPacket(packet);
+    }
     for (const idle of localVmIdles.values()) idle.cancel();
     vps.closeAllVpsDesktopTunnels();
     watchdog.stop();

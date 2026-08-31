@@ -130,8 +130,7 @@ posixOnly("unattended turns keep asking", () => {
   it(
     "still asks a human when a webhook starts the turn, even with auto mode on",
     async () => {
-      const bots = await api("GET", "/api/bots");
-      const bot = bots.body.bots[0];
+      const bot = (await api("POST", "/api/bots")).body.bot;
       // auto mode ON: an attended turn would sail straight through
       expect(
         (

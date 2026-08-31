@@ -1,5 +1,5 @@
 // Agent-to-agent comms MCP proxy — spawned as an MCP server inside a bot's
-// agent process (via the "agents" integration). Exposes eight tools that
+// agent process (via the "agents" integration). Exposes tools that
 // let one bot talk to another, routed back through the harness so the
 // harness stays the single owner of turns, permissions, and recursion
 // limits:
@@ -16,6 +16,7 @@
 //   list_routines()                       → inspect this bot's scheduled work
 //   propose_routine(...)                  → show a confirmation card for a new routine
 //   propose_routine_action(...)           → show a confirmation card for a routine change
+//   update_task_state(...)                → save goal, progress, blockers, and next action
 //
 // Speaks raw JSON-RPC 2.0 over stdio (no MCP SDK — house style, matches
 // computer-proxy / permission-proxy). All state comes from env, injected by
@@ -189,6 +190,68 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {} },
   },
   {
+    name: "update_task_state",
+    description:
+      "Keep Orbit's durable record for this task current. Call after a meaningful plan change, completed milestone, new blocker, or created artifact, and before a long operation. Do not call after every tool. This record survives restarts and model switches, but it does not replace your final answer.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        goal: { type: "string", minLength: 1, maxLength: 500, pattern: "\\S", description: "The user's durable outcome. Omit when unchanged." },
+        plan: {
+          type: "array",
+          maxItems: 20,
+          description: "The current concise plan. At most one step may be active.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              step: { type: "string", minLength: 1, maxLength: 200, pattern: "\\S" },
+              status: { type: "string", enum: ["pending", "active", "done", "skipped"] },
+            },
+            required: ["step", "status"],
+          },
+        },
+        completed_note: {
+          type: "string",
+          minLength: 1,
+          maxLength: 300,
+          pattern: "\\S",
+          description: "One concise milestone that is actually complete. Omit when nothing new finished.",
+        },
+        next_action: { type: "string", minLength: 1, maxLength: 300, pattern: "\\S", description: "The exact next useful action." },
+        blockers: {
+          type: "array",
+          maxItems: 10,
+          description: "Current blockers. Send an empty array when prior blockers are resolved.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              kind: { type: "string", enum: ["login", "input", "engine"] },
+              note: { type: "string", minLength: 1, maxLength: 300, pattern: "\\S" },
+            },
+            required: ["kind", "note"],
+          },
+        },
+        artifacts: {
+          type: "array",
+          maxItems: 20,
+          description: "New files created inside this task's working folder.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              ref: { type: "string", minLength: 1, maxLength: 500, pattern: "\\S", description: "Relative or absolute file path." },
+              label: { type: "string", minLength: 1, maxLength: 200, pattern: "\\S" },
+            },
+            required: ["ref", "label"],
+          },
+        },
+      },
+    },
+  },
+  {
     name: "ask_bot",
     description:
       "Send a message to another bot in your section and wait for its reply. Use it to delegate a subtask to a specialist bot or ask a peer a question. The other bot runs a full turn under its own model and permissions; the reply is returned to you as text. Returns promptly with a note if that bot is busy.",
@@ -318,6 +381,42 @@ const TOOLS = [
 ];
 
 type Json = Record<string, unknown>;
+
+interface TaskStatePlanItem {
+  step: string;
+  status: "pending" | "active" | "done" | "skipped";
+}
+
+interface TaskStateBlocker {
+  kind: "login" | "input" | "engine";
+  note: string;
+}
+
+interface TaskStateArtifact {
+  ref: string;
+  label: string;
+}
+
+interface TaskStateToolArgs {
+  goal?: string;
+  plan?: TaskStatePlanItem[];
+  completed_note?: string;
+  next_action?: string;
+  blockers?: TaskStateBlocker[];
+  artifacts?: TaskStateArtifact[];
+}
+
+function hasBlankTaskText(args: TaskStateToolArgs): boolean {
+  const values = [
+    args.goal,
+    args.completed_note,
+    args.next_action,
+    ...(args.plan ?? []).map((item) => item.step),
+    ...(args.blockers ?? []).map((item) => item.note),
+    ...(args.artifacts ?? []).flatMap((item) => [item.ref, item.label]),
+  ];
+  return values.some((value) => value !== undefined && !value.trim());
+}
 type RoutineAction = "update" | "pause" | "resume" | "run_now" | "delete";
 
 const send = (msg: Json) => process.stdout.write(JSON.stringify(msg) + "\n");
@@ -367,7 +466,7 @@ function confirmationResult(r: Json, fallback: string): { text: string } {
   };
 }
 
-async function callTool(name: string, args: Json): Promise<{ text: string; isError?: boolean }> {
+async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{ text: string; isError?: boolean }> {
   if (name === "list_bots") {
     const r = await api(`/api/internal/agents?self=${encodeURIComponent(BOT_ID)}`);
     const bots = (r.bots as Array<Json>) ?? [];
@@ -378,6 +477,27 @@ async function callTool(name: string, args: Json): Promise<{ text: string; isErr
       return `- ${b.name}${role}${about} [id: ${b.id}, model: ${b.model}${b.busy ? ", busy" : ""}]`;
     });
     return { text: `Other bots you can message with ask_bot:\n${lines.join("\n")}` };
+  }
+  if (name === "update_task_state") {
+    const supported = ["goal", "plan", "completed_note", "next_action", "blockers", "artifacts"] as const;
+    if (!supported.some((key) => args[key] !== undefined)) {
+      return { text: "update_task_state needs at least one task field.", isError: true };
+    }
+    if (hasBlankTaskText(args)) {
+      return { text: "update_task_state text fields cannot be blank.", isError: true };
+    }
+    const body = {
+      fromBotId: BOT_ID,
+      fromThreadId: THREAD_ID,
+      goal: args.goal,
+      plan: args.plan,
+      completed_note: args.completed_note,
+      next_action: args.next_action,
+      blockers: args.blockers,
+      artifacts: args.artifacts,
+    };
+    const r = await api("/api/internal/task-state", { method: "POST", body: JSON.stringify(body) });
+    return { text: `Task record saved. Next action: ${String(r.nextAction ?? "continue the current plan")}` };
   }
   if (name === "ask_bot") {
     const toBotId = String(args.bot_id ?? "").trim();

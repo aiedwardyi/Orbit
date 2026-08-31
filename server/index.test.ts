@@ -5,7 +5,7 @@
 // the shadow-instance behavior end to end while it's at it.
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, request, type Server } from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,6 +54,24 @@ const storedMessageCount = (threadId: string): number => {
     db.close();
   }
 };
+
+const storedTaskPacket = (threadId: string) => z.object({
+  v: z.literal(1),
+  threadId: z.string(),
+  botId: z.string(),
+  goal: z.string(),
+  plan: z.array(z.object({ step: z.string(), status: z.string() })),
+  completed: z.array(z.object({ note: z.string(), at: z.number() })),
+  evidence: z.array(z.object({ kind: z.string(), ref: z.string(), note: z.string().optional() })),
+  artifacts: z.array(z.object({ ref: z.string(), label: z.string() })),
+  blockers: z.array(z.object({ kind: z.string(), note: z.string() })),
+  nextAction: z.string(),
+  updatedBy: z.enum(["harness", "bot"]),
+  flushReason: z.string(),
+  turnsAtWrite: z.number(),
+}).passthrough().parse(JSON.parse(
+  readFileSync(join(home, ".orbit", "task-state", `${threadId}.json`), "utf8"),
+));
 
 const uploadAvatar = async (mime = "image/png"): Promise<string> => {
   const response = await fetch(`${BASE}/api/attachments`, {
@@ -1952,6 +1970,166 @@ describe("harness HTTP API", () => {
     }
   });
 
+  it("persists task continuity across completed and stopped turns", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    const packetPath = join(home, ".orbit", "task-state", `${bot.threadId}.json`);
+    try {
+      const instances = z.array(z.object({
+        instanceId: z.string(),
+        models: z.object({ default: z.string() }),
+        snapshot: z.object({ state: z.string() }),
+      }).passthrough()).parse((await api("GET", "/api/instances")).body.instances);
+      const happy = instances.find((instance) => instance.instanceId === "claudeHappy");
+      const hanging = instances.find((instance) => instance.instanceId === "claude");
+      expect(happy?.snapshot.state).toBe("available");
+      expect(hanging?.snapshot.state).toBe("available");
+      if (!happy || !hanging) throw new Error("fixture instances unavailable");
+
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claudeHappy", model: happy.models.default },
+      })).status).toBe(200);
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, {
+        text: "Prepare a durable weekly brief",
+      })).status).toBe(202);
+      await expect.poll(() => existsSync(packetPath) && storedTaskPacket(bot.threadId).flushReason).toBe("turn-end");
+
+      const completed = storedTaskPacket(bot.threadId);
+      expect(completed).toMatchObject({
+        botId: bot.id,
+        goal: "Prepare a durable weekly brief",
+        turnsAtWrite: 1,
+      });
+      expect(completed.completed.at(-1)?.note).toContain("hello from fake claude");
+
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claude", model: hanging.models.default },
+      })).status).toBe(200);
+      rmSync(fakeClaudeDump, { force: true });
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, {
+        text: "Continue until I stop you",
+      })).status).toBe(202);
+      await expect.poll(async () => {
+        const state = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+          (candidate: { id: string }) => candidate.id === bot.id,
+        );
+        return state?.busy;
+      }).toBe(true);
+      await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 5_000 }).toBe(true);
+      const dump = z.object({
+        prompt: z.unknown(),
+        mcpConfig: z.object({
+          mcpServers: z.object({
+            agents: z.object({ env: z.object({ OMB_COMMS_TOKEN: z.string() }) }),
+          }),
+        }),
+      }).parse(JSON.parse(readFileSync(fakeClaudeDump, "utf8")));
+      expect(JSON.stringify(dump.prompt)).toContain("Orbit task record");
+      const commsToken = dump.mcpConfig.mcpServers.agents.env.OMB_COMMS_TOKEN;
+      const liveBot = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+        (candidate: { id: string }) => candidate.id === bot.id,
+      );
+      const taskCwd = liveBot.tasks.find(
+        (candidate: { threadId: string; cwd?: string }) => candidate.threadId === bot.threadId,
+      )?.cwd;
+      expect(typeof taskCwd).toBe("string");
+      const artifactPath = join(taskCwd, "weekly-brief.md");
+      writeFileSync(artifactPath, "# Weekly brief\n");
+      const groundedArtifactPath = realpathSync(artifactPath);
+      const updated = await fetch(`${BASE}/api/internal/task-state`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${commsToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          fromBotId: bot.id,
+          fromThreadId: bot.threadId,
+          plan: [
+            { step: "Draft the brief", status: "done" },
+            { step: "Verify citations", status: "active" },
+          ],
+          completed_note: "Drafted the brief",
+          next_action: "Verify citations",
+          blockers: [],
+          artifacts: [{ ref: artifactPath, label: "Weekly brief" }],
+        }),
+      });
+      expect(updated.status).toBe(200);
+      expect(storedTaskPacket(bot.threadId)).toMatchObject({
+        updatedBy: "bot",
+        nextAction: "Verify citations",
+        plan: [
+          { step: "Draft the brief", status: "done" },
+          { step: "Verify citations", status: "active" },
+        ],
+        artifacts: [{ ref: groundedArtifactPath, label: "Weekly brief" }],
+      });
+
+      const outsidePath = join(home, "outside-task.txt");
+      writeFileSync(outsidePath, "outside\n");
+      const outside = await fetch(`${BASE}/api/internal/task-state`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${commsToken}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          fromBotId: bot.id,
+          fromThreadId: bot.threadId,
+          artifacts: [{ ref: outsidePath, label: "Outside" }],
+        }),
+      });
+      expect(outside.status).toBe(400);
+      const foreign = await fetch(`${BASE}/api/internal/task-state`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${commsToken}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          fromBotId: bot.id,
+          fromThreadId: "another-task",
+          next_action: "Wrong task",
+        }),
+      });
+      expect(foreign.status).toBe(403);
+
+      expect((await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId })).status).toBe(200);
+      await expect.poll(() => storedTaskPacket(bot.threadId).flushReason).toBe("stop");
+      expect(storedTaskPacket(bot.threadId).blockers).not.toContainEqual({ kind: "engine", note: expect.any(String) });
+      await expect.poll(async () => {
+        const state = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+          (candidate: { id: string }) => candidate.id === bot.id,
+        );
+        return state?.busy;
+      }).toBe(false);
+
+      const lateUpdate = await fetch(`${BASE}/api/internal/task-state`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${commsToken}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          fromBotId: bot.id,
+          fromThreadId: bot.threadId,
+          next_action: "Verify citations after stopping",
+        }),
+      });
+      expect(lateUpdate.status).toBe(200);
+      expect(storedTaskPacket(bot.threadId)).toMatchObject({
+        flushReason: "stop",
+        nextAction: "Verify citations after stopping",
+      });
+
+      rmSync(fakeClaudeDump, { force: true });
+      expect((await api("POST", `/api/bots/${bot.id}/tasks/${bot.threadId}/resume`, {})).status).toBe(202);
+      await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 5_000 }).toBe(true);
+      const resumedDump = z.object({ prompt: z.unknown() }).passthrough().parse(
+        JSON.parse(readFileSync(fakeClaudeDump, "utf8")),
+      );
+      expect(JSON.stringify(resumedDump.prompt)).toContain("Orbit task record");
+      expect((await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId })).status).toBe(200);
+      await expect.poll(() => storedTaskPacket(bot.threadId).flushReason).toBe("stop");
+      expect((await api("POST", `/api/bots/${bot.id}/tasks/${bot.threadId}/recovery`, {})).status).toBe(200);
+      expect(storedTaskPacket(bot.threadId).flushReason).toBe("progress");
+    } finally {
+      await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
   it("refuses to switch a bot's active task while its turn is running", async () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
     try {
@@ -2315,6 +2493,31 @@ describe("harness HTTP API", () => {
 
     const nothing = await api("PUT", "/api/config", {});
     expect(nothing.status).toBe(400);
+  });
+
+  it("keeps an active task recoverable when provider settings reload", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    try {
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      })).status).toBe(200);
+      rmSync(fakeClaudeDump, { force: true });
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, {
+        text: "Keep this task recoverable",
+      })).status).toBe(202);
+      await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 5_000 }).toBe(true);
+      expect(storedTaskPacket(bot.threadId).flushReason).toBe("progress");
+
+      expect((await api("PUT", "/api/config", { xai: { key: "" } })).status).toBe(200);
+
+      await expect.poll(() => storedTaskPacket(bot.threadId).flushReason).toBe("crash");
+      const refreshed = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+        (candidate: { id: string }) => candidate.id === bot.id,
+      );
+      expect(refreshed?.busy).toBe(false);
+    } finally {
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
   });
 
   it("validates and persists the global room turn timeout", async () => {
