@@ -51,6 +51,7 @@ import {
   type SidebarDensity,
 } from "@/lib/sidebar-preferences";
 import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
+import { t, useI18n } from "@/lib/i18n";
 
 /** "Milind Soni" → "MS", "milind" → "M", "you@x.dev" → "Y", unset → "?" */
 function profileInitials(profile?: { name?: string; email?: string }): string {
@@ -143,15 +144,15 @@ function UpdateButton() {
 }
 
 function preview(bot: Bot): string {
-  if (bot.activity === "waiting-on-you") return "Waiting for you…";
-  if (bot.busy) return "Working…";
+  if (bot.activity === "waiting-on-you") return t("chrome.waitingForYou");
+  if (bot.busy) return t("chrome.working");
   // the visible branch's tail — bot.messages holds every fork, so its last
   // entry can belong to a version the user switched away from
   const last = visibleMessages(bot).at(-1);
   if (!last) return "";
   if (last.kind === "options" && last.card) return last.card.title;
   if (last.kind === "activity" && last.tool) return last.tool.name;
-  if (last.kind === "screen") return "Screen frame";
+  if (last.kind === "screen") return t("chrome.screenFrame");
   return last.text ?? "";
 }
 
@@ -163,13 +164,13 @@ interface MenuState {
 
 function groupPreview(group: Group, bots: Bot[]): string {
   if (group.busyBotId) {
-    return `${bots.find((b) => b.id === group.busyBotId)?.name ?? "A bot"} is working…`;
+    return t("chrome.botWorking", { name: bots.find((b) => b.id === group.busyBotId)?.name ?? t("chrome.aBot") });
   }
   const last = group.messages.at(-1);
-  if (!last) return "No messages yet";
+  if (!last) return t("chrome.noMessages");
   const text = last.kind === "activity" && last.tool ? last.tool.name : (last.text ?? "");
-  if (last.role === "user") return `You: ${text}`;
-  return last.from ? `${last.from.name}: ${text}` : text;
+  if (last.role === "user") return t("chrome.youPrefix", { text });
+  return last.from ? t("chrome.speakerPrefix", { name: last.from.name, text }) : text;
 }
 
 /** Room avatar: 2–3 overlapping mauses in the same 56px slot a bot gets. */
@@ -955,7 +956,7 @@ function ArchivedBotsPanel({
       >
         <header className="flex items-start justify-between gap-4 px-6 pb-4 pt-6 sm:px-8 sm:pt-7">
           <div>
-            <h2 id="archived-bots-title" className="text-[22px] font-semibold tracking-[-0.01em] text-ink">Archived bots</h2>
+            <h2 id="archived-bots-title" className="text-[22px] font-semibold tracking-[-0.01em] text-ink">{t("chrome.archivedBots")}</h2>
             <p className="mt-1 text-[13px] text-ink-secondary">Conversations are kept until you choose to delete a bot.</p>
           </div>
           <div className="flex items-center gap-1">
@@ -973,7 +974,7 @@ function ArchivedBotsPanel({
               onClick={onClose}
               disabled={restoringAll || Boolean(busyId)}
               className="flex size-10 items-center justify-center rounded-lg text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-40"
-              aria-label="Close archived bots"
+              aria-label={t("chrome.closeArchived")}
             >
               <X size={21} />
             </button>
@@ -1009,6 +1010,7 @@ function ArchivedBotsPanel({
 }
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t } = useI18n();
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
   const importReturnRef = useRef<HTMLButtonElement>(null);
@@ -1257,7 +1259,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
 
   return (
     <aside
-      aria-label="Bots and navigation"
+      aria-label={t("chrome.navAria")}
       className={cn(
         "flex h-full shrink-0 flex-col border-r border-hairline/40 bg-panel transition-[width] duration-200",
         density === "icons" ? "w-[80px]" : density === "compact" ? "w-[272px]" : "w-[320px]",
@@ -1407,7 +1409,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                     className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
                   >
                     <Archive size={16} className="text-ink-secondary" />
-                    <span className="flex-1">Archived bots</span>
+                    <span className="flex-1">{t("chrome.archivedBots")}</span>
                     <span className="text-[11.5px] text-ink-secondary">{archivedBots.length}</span>
                   </button>
                 )}
@@ -1425,8 +1427,8 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Escape" && setQuery("")}
-            placeholder="Search"
-            aria-label="Search bots and messages"
+            placeholder={t("chrome.search")}
+            aria-label={t("chrome.searchBotsAria")}
             className="w-full bg-transparent text-[14px] text-ink placeholder:text-ink-secondary focus:outline-none"
           />
         </div>
@@ -1515,7 +1517,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           )}
         >
           <Network size={20} className={state.activeView === "team-map" ? "text-accent" : "text-ink-secondary"} />
-          <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>Team map</span>
+          <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>{t("chrome.teamMap")}</span>
         </button>
         {skillRecorderEnabled(state.config) && (
           <button
@@ -1529,7 +1531,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             )}
           >
             <Sparkles size={20} className={state.activeView === "skill-recorder" ? "text-accent" : "text-ink-secondary"} />
-            <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>Teach a skill</span>
+            <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>{t("chrome.teachSkill")}</span>
           </button>
         )}
         <button
@@ -1543,7 +1545,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           )}
         >
           <CalendarDays size={20} className={state.activeView === "routines" ? "text-accent" : "text-ink-secondary"} />
-          <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>Tasks &amp; routines</span>
+          <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>{t("chrome.routines")}</span>
           {state.routineRuns.some((run) => ["failed", "missed"].includes(run.status) && !run.seenAt) && (
             <span className="size-2 rounded-full bg-danger" />
           )}
@@ -1555,7 +1557,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           title={density === "icons" ? "Connected apps" : undefined}
         >
           <Puzzle size={20} className="text-ink-secondary" />
-          <span className={cn("text-[14px] text-ink", density === "icons" && "hidden")}>Connected apps</span>
+          <span className={cn("text-[14px] text-ink", density === "icons" && "hidden")}>{t("chrome.connectedApps")}</span>
         </button>
         {density === "icons" && (
           <SidebarPhoneButton
@@ -1584,7 +1586,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           {density !== "icons" && <UpdateButton />}
           {density !== "icons" && <button
             onClick={() => dispatch({ type: "toggleAppSettings" })}
-            aria-label="App settings"
+            aria-label={t("chrome.appSettings")}
             className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
             title="App settings"
           >

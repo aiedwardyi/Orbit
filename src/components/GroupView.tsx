@@ -43,6 +43,7 @@ import { shortPath } from "@/lib/short-path";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow } from "@/lib/bottom-follow";
 import { useComposerDockPad } from "@/lib/composer-dock";
 import { showWorkingDots } from "@/lib/turn-tail";
+import { activeLocale, localeTag, t, useI18n } from "@/lib/i18n";
 import { liveActivityLabel } from "@/lib/live-activity";
 import { splitAttachedImages } from "@/lib/composer-attachments";
 import {
@@ -59,9 +60,9 @@ function dayLabel(at: number): string {
   const now = new Date();
   const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const diffDays = Math.round((startOfDay(now) - startOfDay(d)) / 86_400_000);
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Yesterday";
-  return d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+  if (diffDays === 0) return t("chat.today");
+  if (diffDays === 1) return t("chat.yesterday");
+  return d.toLocaleDateString(localeTag(activeLocale()), { weekday: "short", month: "short", day: "numeric" });
 }
 
 /** One activity row in a room: a comm chip that opens its channel, otherwise
@@ -342,7 +343,7 @@ function DefaultResponderSelect({ group, members }: { group: Group; members: Bot
   return (
     <div className="relative shrink-0" title={title}>
       <select
-        aria-label="Default responder"
+        aria-label={t("room.defaultResponder")}
         value={value}
         onChange={(event) => change(event.target.value)}
         className="h-8 max-w-[190px] appearance-none truncate rounded-full border border-hairline/40 bg-raised/60 py-1 pl-3 pr-7 text-[12.5px] font-medium text-ink outline-none hover:bg-raised focus:border-accent"
@@ -422,7 +423,7 @@ function RoomWorkingFolder({ group }: { group: Group }) {
             {group.cwd ? shortPath(group.cwd, home) : <span className="text-ink-secondary">Each bot's own folder</span>}
           </div>
           <button onClick={() => void pick()} disabled={saving} className="flex shrink-0 items-center gap-1.5 rounded-lg bg-raised px-3 py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50">
-            <FolderOpen size={14} /> Choose…
+            <FolderOpen size={14} /> {t("room.choose")}…
           </button>
           {group.cwd && (
             <button onClick={() => void save(null)} disabled={saving} className="shrink-0 rounded-lg px-2 py-2 text-[13px] text-ink-secondary hover:text-ink disabled:opacity-50">
@@ -607,9 +608,9 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
         <div className="flex items-start gap-3">
           <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-accent text-sm font-bold text-white">1</span>
           <div>
-            <h1 id="room-setup-title" className="text-xl font-semibold tracking-tight text-ink">Set up {group.name}</h1>
+            <h1 id="room-setup-title" className="text-xl font-semibold tracking-tight text-ink">{t("room.setupTitle", { name: group.name })}</h1>
             <p className="mt-1 max-w-[560px] text-[13.5px] leading-relaxed text-ink-secondary">
-              Give this room a shared workspace, response style, and a little context before the first conversation starts.
+              {t("room.setupBody")}
             </p>
           </div>
         </div>
@@ -622,13 +623,13 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
         }}
       >
         <label className="block">
-          <span className="text-[13px] font-semibold text-ink">Working folder</span>
-          <span className="mt-1 block text-[12px] text-ink-secondary">Where room members run file and shell tools.</span>
+          <span className="text-[13px] font-semibold text-ink">{t("room.workingFolder")}</span>
+          <span className="mt-1 block text-[12px] text-ink-secondary">{t("room.workingFolderHelp")}</span>
           <div className="mt-2 flex gap-2">
             <input
               value={folder}
               onChange={(event) => setFolder(event.target.value)}
-              placeholder="Each bot's own folder"
+              placeholder={t("room.eachBotFolder")}
               className="min-w-0 flex-1 rounded-xl border border-hairline/50 bg-inset px-3 py-2.5 font-mono text-[12.5px] text-ink placeholder:text-ink-secondary focus:border-accent focus:outline-none"
             />
             {window.ogb?.pickFolder && (
@@ -638,16 +639,16 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
                 disabled={saving}
                 className="flex shrink-0 items-center gap-1.5 rounded-xl border border-hairline/50 bg-raised px-3 py-2 text-[13px] font-medium text-ink hover:bg-raised-hover disabled:opacity-50"
               >
-                <FolderOpen size={14} /> Choose
+                <FolderOpen size={14} /> {t("room.choose")}
               </button>
             )}
           </div>
         </label>
 
         <fieldset className="block">
-          <legend className="text-[13px] font-semibold text-ink">Default responder</legend>
-          <p className="mt-1 text-[12px] text-ink-secondary">Choose who answers when nobody is mentioned.</p>
-          <div role="radiogroup" aria-label="Default responder" className="mt-2 grid gap-2 sm:grid-cols-3">
+          <legend className="text-[13px] font-semibold text-ink">{t("room.defaultResponder")}</legend>
+          <p className="mt-1 text-[12px] text-ink-secondary">{t("room.defaultResponderHelp")}</p>
+          <div role="radiogroup" aria-label={t("room.defaultResponder")} className="mt-2 grid gap-2 sm:grid-cols-3">
             <div ref={leadPickerRef} className="relative min-w-0">
               <button
                 type="button"
@@ -763,7 +764,7 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
                 </span>
                 Everyone responds
               </span>
-              <span className="ml-6 mt-2 text-[11.5px] text-ink-secondary">All room members</span>
+              <span className="ml-6 mt-2 text-[11.5px] text-ink-secondary">{t("room.allMembers")}</span>
             </button>
 
             <button
@@ -799,8 +800,8 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
         </fieldset>
 
         <label className="block">
-          <span className="text-[13px] font-semibold text-ink">Room instructions</span>
-          <span className="mt-1 block text-[12px] text-ink-secondary">A shared brief every member sees on each turn. You can edit it later.</span>
+          <span className="text-[13px] font-semibold text-ink">{t("room.instructions")}</span>
+          <span className="mt-1 block text-[12px] text-ink-secondary">{t("room.instructionsHelp")}</span>
           <textarea
             value={instructions}
             onChange={(event) => setInstructions(event.target.value)}
@@ -834,6 +835,7 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
   );
 }
 export function GroupView({ group }: { group: Group }) {
+  const { t } = useI18n();
   const { state, dispatch } = useStore();
   const stream = useStreaming();
   const streaming = stream.streaming[group.threadId];
@@ -1201,7 +1203,7 @@ export function GroupView({ group }: { group: Group }) {
           style={{ paddingBottom: composerDock.pad }}
           role="log"
           aria-live="polite"
-          aria-label={`Room ${group.name}`}
+          aria-label={t("chat.roomAria", { name: group.name })}
         >
           {group.messages.length === 0 && (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 py-24 text-center">

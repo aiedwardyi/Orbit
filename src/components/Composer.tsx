@@ -34,6 +34,7 @@ import { normalizeState } from "@/lib/mascot";
 import { groupComposerHint, roomRespondersForComposer } from "@/lib/group-routing";
 import { PendingApprovalActions, PendingApprovalPanel, pendingApprovals } from "./PendingApproval";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
+import { t, useI18n } from "@/lib/i18n";
 import { ReplyQuote } from "./ReplyQuote";
 
 /** The active @mention query at the caret: the text between an `@` that
@@ -94,7 +95,7 @@ function PermissionModeSelector({ bot, onSetAuto }: { bot: Bot; onSetAuto: (auto
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={on ? "Auto mode" : "Ask for approval"}
+        aria-label={on ? t("composer.autoMode") : t("composer.askApproval")}
         onClick={() => setOpen((current) => !current)}
         className="flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full border border-hairline/20 bg-transparent px-3 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
       >
@@ -105,7 +106,7 @@ function PermissionModeSelector({ bot, onSetAuto }: { bot: Bot; onSetAuto: (auto
       {open && (
         <div
           role="menu"
-          aria-label={`Permission mode for ${bot.name}`}
+          aria-label={t("composer.permissionMode", { name: bot.name })}
           className="absolute bottom-full left-0 z-30 mb-2 w-80 overflow-hidden rounded-xl border border-hairline/40 bg-raised shadow-lg"
         >
           <div className="border-b border-hairline/20 px-4 py-3 text-[13px] font-medium text-ink-secondary">
@@ -184,6 +185,7 @@ export function Composer({
   locked?: boolean;
   focusBlocked?: boolean;
 }) {
+  const { t } = useI18n();
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
   // Unified target: a 1:1 bot thread or a room. In a room the @ picker
@@ -591,7 +593,7 @@ export function Composer({
             <button
               type="button"
               onClick={() => forgetFailedComposerSend(draftId, failed.id)}
-              aria-label="Dismiss failed message"
+              aria-label={t("composer.dismissFailed")}
               title="Dismiss"
               className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-danger/10"
             >
@@ -617,7 +619,7 @@ export function Composer({
                   dispatch({ type: "cancelQueued", botId: bot.id, queueId: entry.queueId });
                 }
               }}
-              aria-label="Cancel queued message"
+              aria-label={t("composer.cancelQueued")}
               title="Cancel queued message"
               className="ml-auto flex size-5 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-raised hover:text-ink"
             >
@@ -628,7 +630,7 @@ export function Composer({
         {pickerOpen && (
           <div
             role="listbox"
-            aria-label="Tag a bot"
+            aria-label={t("composer.tagBot")}
             className="absolute bottom-full left-2 z-20 mb-2 w-72 overflow-hidden rounded-xl border border-hairline/40 bg-raised shadow-lg"
           >
             {candidates.map((peer, i) => (
@@ -718,7 +720,7 @@ export function Composer({
               <button
                 type="button"
                 onClick={() => fileInput.current?.click()}
-                aria-label="Attach a file"
+                aria-label={t("composer.attach")}
                 title="Attach a file"
                 className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-secondary hover:bg-control hover:text-ink"
               >
@@ -813,22 +815,22 @@ export function Composer({
           disabled={Boolean(approval) || locked}
           placeholder={
             locked
-              ? "Finish room setup to start chatting"
+              ? t("composer.finishSetup")
               : approval
-              ? "Answer the approval above to continue"
+              ? t("composer.answerApproval")
               : recording
-              ? "Listening…"
+              ? t("composer.listening")
               : busy && canSteer
-                ? `${busyName} is working — Enter sends this into the running turn`
+                ? t("composer.steerHint", { name: busyName })
               : busy
                 ? group
-                  ? `${busyName} is working — Enter queues your message`
-                  : `${busyName} is working — sends when this turn finishes`
+                  ? t("composer.queueHint", { name: busyName })
+                  : t("composer.waitHint", { name: busyName })
                 : group
-                  ? `Message ${group.name} — ${groupComposerHint(group, members ?? [])}`
-                  : `Message ${bot?.name ?? ""}`
+                  ? t("composer.roomPlaceholder", { name: group.name, hint: groupComposerHint(group, members ?? []) })
+                  : t("composer.placeholder", { name: bot?.name ?? "" })
           }
-          aria-label={`Message ${group ? group.name : (bot?.name ?? "")}`}
+          aria-label={t("composer.messageAria", { name: group ? group.name : (bot?.name ?? "") })}
             className="col-span-full row-start-1 max-h-[9rem] min-h-6 w-full resize-none overflow-y-auto self-center bg-transparent px-1 py-1 text-[15px] leading-6 text-ink placeholder:text-ink-secondary focus:outline-none"
           />
           <div className="col-start-3 row-start-2 mt-1 flex items-center gap-1">
@@ -838,9 +840,9 @@ export function Composer({
               if (group) dispatch({ type: "interruptGroup", groupId: group.id });
               else if (bot) dispatch({ type: "interrupt", botId: bot.id });
             }}
-            aria-label="Stop this turn"
+            aria-label={t("composer.stopTurn")}
             className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-secondary hover:bg-raised hover:text-ink"
-            title="Stop"
+            title={t("composer.stop")}
           >
             <Square size={14} className="fill-current" />
           </button>

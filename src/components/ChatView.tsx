@@ -79,6 +79,7 @@ import {
 import { timelineEvents } from "@/lib/taskTimeline";
 import { useReplyDraft } from "@/lib/drafts";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
+import { localeTag, t, useI18n } from "@/lib/i18n";
 import { readContextCompaction } from "../../shared/context-compaction";
 
 /** Long user messages collapse behind a fade so pasted walls of text don't
@@ -86,13 +87,13 @@ import { readContextCompaction } from "../../shared/context-compaction";
 const USER_COLLAPSE_CHARS = 600;
 const USER_COLLAPSE_LINES = 8;
 
-function savedAge(updatedAt: number): string {
+function savedAge(updatedAt: number, t: (key: import("@/lib/i18n").MessageKey, vars?: Record<string, string | number>) => string): string {
   const minutes = Math.max(0, Math.floor((Date.now() - updatedAt) / 60_000));
-  if (minutes < 1) return "saved just now";
-  if (minutes < 60) return `saved ${minutes}m ago`;
+  if (minutes < 1) return t("chat.savedJustNow");
+  if (minutes < 60) return t("chat.savedMinutesAgo", { count: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `saved ${hours}h ago`;
-  return `saved ${Math.floor(hours / 24)}d ago`;
+  if (hours < 24) return t("chat.savedHoursAgo", { count: hours });
+  return t("chat.savedDaysAgo", { count: Math.floor(hours / 24) });
 }
 
 function TaskRecoveryCard({
@@ -105,6 +106,7 @@ function TaskRecoveryCard({
   turns: number;
 }) {
   const { dispatch } = useStore();
+  const { t } = useI18n();
   if (!packet || bot.busy || !["crash", "shutdown", "stop"].includes(packet.flushReason)) return null;
   const stopped = packet.flushReason === "stop";
   const mayLag = turns > packet.turnsAtWrite;
@@ -117,18 +119,18 @@ function TaskRecoveryCard({
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-              <p className="text-[13px] font-semibold text-ink">{stopped ? "Task paused" : "Ready to continue"}</p>
+              <p className="text-[13px] font-semibold text-ink">{stopped ? t("chat.taskPaused") : t("chat.readyToContinue")}</p>
               <span className="text-[11px] text-ink-secondary">
-                {savedAge(packet.updatedAt)}{packet.updatedBy === "bot" ? " · bot-maintained" : ""}
+                {savedAge(packet.updatedAt, t)}{packet.updatedBy === "bot" ? t("chat.botMaintained") : ""}
               </span>
             </div>
             <p className="mt-0.5 line-clamp-2 text-[12.5px] leading-snug text-ink-secondary">
-              {stopped ? "You stopped this task." : "Orbit restarted while this task was running."} {packet.goal}
+              {stopped ? t("chat.youStopped") : t("chat.orbitRestarted")} {packet.goal}
             </p>
             <p className="mt-1 truncate text-[12.5px] text-ink">
-              <span className="text-ink-secondary">Next: </span>{packet.nextAction}
+              <span className="text-ink-secondary">{t("chat.next")} </span>{packet.nextAction}
             </p>
-            {mayLag && <p className="mt-1 text-[11px] text-warning">This record may be behind the conversation.</p>}
+            {mayLag && <p className="mt-1 text-[11px] text-warning">{t("chat.recordMayLag")}</p>}
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <button
@@ -136,13 +138,13 @@ function TaskRecoveryCard({
               onClick={() => dispatch({ type: "resumeTask", botId: bot.id, threadId: packet.threadId })}
               className="rounded-full bg-accent px-3 py-1.5 text-[12px] font-medium text-white hover:bg-accent/90"
             >
-              Continue
+              {t("chat.continue")}
             </button>
             <button
               type="button"
               onClick={() => dispatch({ type: "dismissTaskRecovery", botId: bot.id, threadId: packet.threadId })}
-              aria-label="Dismiss saved task reminder"
-              title="Dismiss"
+              aria-label={t("chat.dismissAria")}
+              title={t("chat.dismiss")}
               className="flex size-7 items-center justify-center rounded-full text-ink-secondary hover:bg-raised hover:text-ink"
             >
               <X size={14} aria-hidden="true" />
@@ -155,20 +157,21 @@ function TaskRecoveryCard({
 }
 
 /** "Today" / "Yesterday" / "Mon, Aug 11" — real dates, not a hardcoded label. */
-function dayLabel(at: number): string {
+function dayLabel(at: number, t: (key: import("@/lib/i18n").MessageKey) => string, locale: import("@/lib/i18n").LocaleId): string {
   const d = new Date(at);
   const now = new Date();
   const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const diffDays = Math.round((startOfDay(now) - startOfDay(d)) / 86_400_000);
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Yesterday";
-  return d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+  if (diffDays === 0) return t("chat.today");
+  if (diffDays === 1) return t("chat.yesterday");
+  return d.toLocaleDateString(localeTag(locale), { weekday: "short", month: "short", day: "numeric" });
 }
 
 function DaySeparator({ at }: { at: number }) {
+  const { t, locale } = useI18n();
   return (
     <div className="py-3 text-center text-[13px] text-ink-secondary">
-      {dayLabel(at)} {formatTime(at)}
+      {dayLabel(at, t, locale)} {formatTime(at, localeTag(locale))}
     </div>
   );
 }
@@ -249,7 +252,7 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
         setCopied(true);
         setTimeout(() => setCopied(false), 1200);
       }}
-      aria-label="Copy message"
+      aria-label={t("chat.copyMessage")}
       title="Copy message"
       className={cn(
         "rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100",
@@ -439,7 +442,7 @@ function Bubble({
         {user && message.kind === "text" && !webhookView && !bot.busy && (
           <button
             onClick={onStartEdit}
-            aria-label="Edit message"
+            aria-label={t("chat.editMessage")}
             className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
             title="Edit message"
           >
@@ -453,7 +456,7 @@ function Bubble({
             <button
               type="button"
               onClick={onReply}
-              aria-label="Reply to message"
+              aria-label={t("chat.replyToMessage")}
               className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
               title="Reply"
             >
@@ -467,7 +470,7 @@ function Bubble({
                   patch: { pinnedMessageId: bot.pinnedMessageId === message.id ? "" : message.id },
                 })
               }
-              aria-label={bot.pinnedMessageId === message.id ? "Unpin message" : "Pin message"}
+              aria-label={bot.pinnedMessageId === message.id ? t("chat.unpinMessage") : t("chat.pinMessage")}
               className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
               title={
                 bot.pinnedMessageId === message.id
@@ -558,7 +561,7 @@ function Bubble({
               {isLastBotText && !bot.busy && onRegenerate && (
                 <button
                   onClick={onRegenerate}
-                  aria-label="Regenerate response"
+                  aria-label={t("chat.regenerate")}
                   title="Regenerate response"
                   className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
                 >
@@ -569,7 +572,7 @@ function Bubble({
             <button
               type="button"
               onClick={onReply}
-              aria-label="Reply to message"
+              aria-label={t("chat.replyToMessage")}
               className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
               title="Reply"
             >
@@ -583,7 +586,7 @@ function Bubble({
                   patch: { pinnedMessageId: bot.pinnedMessageId === message.id ? "" : message.id },
                 })
               }
-              aria-label={bot.pinnedMessageId === message.id ? "Unpin message" : "Pin message"}
+              aria-label={bot.pinnedMessageId === message.id ? t("chat.unpinMessage") : t("chat.pinMessage")}
               className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
               title={
                 bot.pinnedMessageId === message.id
@@ -613,7 +616,7 @@ function Bubble({
           <button
             type="button"
             onClick={() => dispatch({ type: "cancelQueued", botId: bot.id, queueId: message.queueId ?? message.id })}
-            aria-label="Cancel queued message"
+            aria-label={t("chat.cancelQueued")}
             title="Cancel queued message"
             className="ml-0.5 flex size-4 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-raised hover:text-ink"
           >
@@ -905,7 +908,7 @@ function PinnedBanner({
         </button>
         <button
           onClick={onUnpin}
-          aria-label="Unpin message"
+          aria-label={t("chat.unpinMessage")}
           title="Unpin"
           className="shrink-0 rounded p-0.5 text-ink-secondary hover:bg-raised hover:text-ink"
         >
@@ -917,6 +920,7 @@ function PinnedBanner({
 }
 
 export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focusComposerBlocked?: boolean }) {
+  useI18n();
   const { state, dispatch } = useStore();
   const { capabilities, ready: capabilitiesReady } = useDesktopCapabilities();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1157,7 +1161,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
             onClick={() => dispatch({ type: "toggleSettings", open: true })}
             className="flex size-10 shrink-0 items-center justify-center rounded-lg hover:bg-raised/50"
             title="Open agent profile"
-            aria-label={`Open ${bot.name}'s profile`}
+            aria-label={t("chat.openProfile", { name: bot.name })}
           >
             <BotAvatar
               bot={bot}
@@ -1185,7 +1189,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
         <div className="flex shrink-0 items-center gap-2">
           <button
             onClick={() => setFindOpen((open) => !open)}
-            aria-label="Find in conversation"
+            aria-label={t("chat.findInConversation")}
             aria-pressed={findOpen}
             className={cn(
               "rounded-md p-1.5 hover:bg-raised",
@@ -1215,7 +1219,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
           {callAvailable && <CallButton bot={bot} />}
           <button
             onClick={() => dispatch({ type: "toggleComputer" })}
-            aria-label="Bot's computer"
+            aria-label={t("chat.botComputer")}
             aria-pressed={state.computerOpen}
             className={cn(
               "rounded-md p-1.5 hover:bg-raised",
@@ -1289,7 +1293,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
           style={{ paddingBottom: composerDock.pad }}
           role="log"
           aria-live="polite"
-          aria-label={`Conversation with ${bot.name}`}
+          aria-label={t("chat.conversationAria", { name: bot.name })}
         >
           {hiddenCount > 0 && (
             <div className="flex justify-center pt-2">
@@ -1364,7 +1368,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
       {!follow && (
         <button
           onClick={jumpToLatest}
-          aria-label="Jump to latest messages"
+          aria-label={t("chat.jumpToLatest")}
           className="animate-pop-in absolute left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline/40 bg-raised px-3 py-1.5 text-[12.5px] text-ink shadow-lg hover:bg-raised-hover"
           style={{ bottom: composerDock.height }}
         >

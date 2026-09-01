@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { liveActivityLabel } from "./live-activity";
+import { applyLocale } from "./i18n";
 import type { Message } from "@/state/store";
 
 const activity = (name: string, extra: Partial<NonNullable<Message["tool"]>> = {}): Message => ({
@@ -15,6 +16,12 @@ describe("liveActivityLabel", () => {
   it("shows thinking before a tool starts and after it settles", () => {
     expect(liveActivityLabel()).toBe("Thinking");
     expect(liveActivityLabel(activity("Read", { ok: true }))).toBe("Thinking");
+  });
+
+  it("leaves server narration untranslated when Korean is active", () => {
+    applyLocale("ko");
+    expect(liveActivityLabel(activity("Edit", { spoken: "editing a file" }))).toBe("Editing a file");
+    applyLocale("en");
   });
 
   it("uses the server's narration for the exact live action", () => {

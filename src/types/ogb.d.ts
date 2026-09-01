@@ -191,6 +191,11 @@ type SkillRecordingPayload = {
       openExternal?(url: string): Promise<boolean>;
       /** Recolor the native window chrome for a skin; absent on older builds. */
       applySkin?(skin: string): Promise<boolean>;
+      /** OS/app locale tag from Electron, e.g. "ko-KR". */
+      getLocale?(): string;
+      /** Remember the Settings language choice for packaged copy. */
+      setLocalePreference?(preference: "system" | "en" | "ko"): Promise<boolean>;
+      getLocalePreference?(): "system" | "en" | "ko";
       /** Receives a GitHub package URL opened through openmausbot://install. */
       onPackageInstall?(cb: (url: string) => void): () => void;
       /** Updates the native Dock/taskbar unread indicator. */

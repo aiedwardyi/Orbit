@@ -40,6 +40,13 @@ import {
 } from "./managed-companion-tunnel.mjs";
 import { createSecureCredentialState } from "./secure-credential-state.mjs";
 import { isKnownSkin } from "./skin-overlay.cjs";
+import {
+  readPreference as readLocalePreference,
+  resolveLocale as resolveUiLocale,
+  translate as translateNative,
+  uiFontStack,
+  writePreference as writeLocalePreference,
+} from "./i18n.mjs";
 import { readSecureCredentials } from "./secure-credentials.mjs";
 import { createControlPlaneClient } from "./control-plane-client.mjs";
 import {
@@ -784,16 +791,23 @@ function escapeHtml(value) {
   return value.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 }
 
+function uiLocale() {
+  return resolveUiLocale(readLocalePreference(app.getPath("userData")), app.getLocale());
+}
+function nativeText(key) {
+  return translateNative(uiLocale(), key);
+}
+
 function buildErrorPage({ allPortsOccupied }) {
   const serverLogPath = path.join(LOG_DIR, "server.log");
   const serverLogHref = pathToFileURL(serverLogPath).href;
   const reason = allPortsOccupied
-    ? "Every Orbit port answered health checks from another process. Quit the other copy or program, then reopen Orbit."
-    : "The background server did not start in time. Quit and reopen Orbit.";
+    ? nativeText("packaged.bootPorts")
+    : nativeText("packaged.bootTimeout");
   return (
     "data:text/html;charset=utf-8," +
     encodeURIComponent(
-      `<body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:#070707;color:#fcfcfc;font:15px -apple-system,system-ui"><div style="text-align:center;max-width:360px"><div style="font-size:40px">🐭</div><h2 style="font-weight:600;margin:12px 0 6px">Couldn't start the bot server</h2><p style="color:#fcfcfc99;line-height:1.5">${escapeHtml(reason)} If it keeps happening, check <a target="_blank" rel="noopener" href="${serverLogHref}" style="color:#fcfcfc">${escapeHtml(serverLogPath)}</a>.</p></div></body>`,
+      `<html lang="${uiLocale()}"><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:#070707;color:#fcfcfc;font:15px ${uiFontStack()}"><div style="text-align:center;max-width:360px"><div style="font-size:40px">🐭</div><h2 style="font-weight:600;margin:12px 0 6px">${escapeHtml(nativeText("packaged.bootTitle"))}</h2><p style="color:#fcfcfc99;line-height:1.5">${escapeHtml(reason)} ${escapeHtml(nativeText("packaged.bootCheckLog"))} <a target="_blank" rel="noopener" href="${serverLogHref}" style="color:#fcfcfc">${escapeHtml(serverLogPath)}</a>.</p></div></body>`,
     )
   );
 }
@@ -1174,20 +1188,20 @@ function createWindow() {
     }
     if (params.linkURL) {
       menuItems.push(
-        { label: "Copy Link", click: () => clipboard.writeText(params.linkURL) },
+        { label: nativeText("native.copyLink"), click: () => clipboard.writeText(params.linkURL) },
         { type: "separator" },
       );
     }
     menuItems.push(
-      { label: "Undo", role: "undo", enabled: params.editFlags.canUndo },
-      { label: "Redo", role: "redo", enabled: params.editFlags.canRedo },
+      { label: nativeText("native.undo"), role: "undo", enabled: params.editFlags.canUndo },
+      { label: nativeText("native.redo"), role: "redo", enabled: params.editFlags.canRedo },
       { type: "separator" },
-      { label: "Cut", role: "cut", enabled: params.editFlags.canCut },
-      { label: "Copy", role: "copy", enabled: params.editFlags.canCopy },
-      { label: "Paste", role: "paste", enabled: params.editFlags.canPaste },
-      { label: "Paste and Match Style", role: "pasteAndMatchStyle", enabled: params.editFlags.canPaste },
+      { label: nativeText("native.cut"), role: "cut", enabled: params.editFlags.canCut },
+      { label: nativeText("native.copy"), role: "copy", enabled: params.editFlags.canCopy },
+      { label: nativeText("native.paste"), role: "paste", enabled: params.editFlags.canPaste },
+      { label: nativeText("native.pasteMatch"), role: "pasteAndMatchStyle", enabled: params.editFlags.canPaste },
       { type: "separator" },
-      { label: "Select All", role: "selectAll", enabled: params.editFlags.canSelectAll },
+      { label: nativeText("native.selectAll"), role: "selectAll", enabled: params.editFlags.canSelectAll },
     );
     Menu.buildFromTemplate(menuItems).popup({ window: win, frame: params.frame });
   });
@@ -1346,7 +1360,7 @@ ipcMain.handle("engine:open-terminal", async (_event, command) => {
 ipcMain.handle("desktop:pick-folder", async (event, current) => {
   const win = BrowserWindow.fromWebContents(event.sender) ?? undefined;
   const result = await dialog.showOpenDialog(win, {
-    title: "Choose a working folder",
+    title: nativeText("packaged.chooseFolder"),
     properties: ["openDirectory", "createDirectory"],
     ...(typeof current === "string" && current ? { defaultPath: current } : {}),
   });
@@ -1360,7 +1374,7 @@ ipcMain.handle("desktop:export-diagnostics", async (event) => {
   const owner = BrowserWindow.fromWebContents(event.sender) ?? undefined;
   const report = await gatherDiagnostics();
   const result = await dialog.showSaveDialog(owner, {
-    title: "Export diagnostics",
+    title: nativeText("packaged.exportDiagnostics"),
     defaultPath: diagnosticsFileName(),
     filters: [{ name: "Text", extensions: ["txt"] }],
   });
@@ -1394,10 +1408,10 @@ ipcMain.handle("desktop:save-file", async (event, rawPath) => {
     const parent = BrowserWindow.fromWebContents(event.sender);
     const defaultPath = await defaultSaveName(app.getPath("downloads"), defaultName);
     const choice = await dialog.showSaveDialog(parent ?? undefined, {
-      title: "Where do you want to save it?",
-      message: "Where do you want to save it?",
+      title: nativeText("packaged.saveWhere"),
+      message: nativeText("packaged.saveWhere"),
       defaultPath,
-      buttonLabel: "Save",
+      buttonLabel: nativeText("packaged.save"),
       properties: ["createDirectory", "showOverwriteConfirmation"],
     });
     // Cancelling is a decision, not a failure — the bubble stays quiet.
@@ -1411,6 +1425,17 @@ ipcMain.handle("desktop:save-file", async (event, rawPath) => {
 // The renderer owns the skin. Native Windows/Linux chrome is intentionally
 // outside that surface; acknowledge the renderer handshake without creating
 // a frameless caption overlay that can cover page controls.
+ipcMain.on("desktop:os-locale", (event) => {
+  event.returnValue = app.getLocale();
+});
+ipcMain.on("desktop:locale-preference-get", (event) => {
+  event.returnValue = readLocalePreference(app.getPath("userData"));
+});
+ipcMain.handle("desktop:locale-preference", (_event, preference) => {
+  writeLocalePreference(app.getPath("userData"), preference);
+  return true;
+});
+
 ipcMain.handle("desktop:skin", (_event, skin) => {
   if (!isKnownSkin(skin)) return false;
   return true;
