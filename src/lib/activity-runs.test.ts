@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { describeRun, groupActivityRuns } from "./activity-runs";
+import { activityVisibleInChat, describeRun, groupActivityRuns } from "./activity-runs";
 import type { Message } from "@/state/store";
 
 let seq = 0;
@@ -87,6 +87,26 @@ describe("groupActivityRuns", () => {
         stepAt("Bash", afterMidnight),
       ]).map((item) => item.kind),
     ).toEqual(["run", "run"]);
+  });
+});
+
+describe("activityVisibleInChat", () => {
+  it("keeps failed activity visible while tool calls are hidden", () => {
+    expect(activityVisibleInChat(tool("Bash", false), false)).toBe(true);
+  });
+
+  it("hides successful plain activity until tool calls are shown", () => {
+    const message = tool("Read");
+    expect(activityVisibleInChat(message, false)).toBe(false);
+    expect(activityVisibleInChat(message, true)).toBe(true);
+  });
+
+  it("keeps communication activity visible while tool calls are hidden", () => {
+    const message: Message = {
+      ...tool("Messaged @Helper"),
+      comm: { groupId: "pair", withBotId: "helper", withName: "Helper", withColor: "blue" },
+    };
+    expect(activityVisibleInChat(message, false)).toBe(true);
   });
 });
 

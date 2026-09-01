@@ -423,6 +423,8 @@ export interface AppState {
   /** selected chat — a bot id OR a group id */
   selectedId: string;
   activeView: "chat" | "team-map" | "routines" | "skill-recorder";
+  /** a bot workspace covers the conversation surface while activeView stays "chat" */
+  workspaceOpen: boolean;
   routines: Routine[];
   routineRuns: RoutineRun[];
   webhooks: WebhookTrigger[];
@@ -625,6 +627,7 @@ export type Action =
   | { type: "togglePlugins"; open?: boolean }
   | { type: "toggleComputer"; open?: boolean }
   | { type: "toggleInspector"; open?: boolean }
+  | { type: "setWorkspaceOpen"; open: boolean }
   | { type: "focusMessage"; threadId: string; messageId: string }
   | { type: "focusMessageConsumed"; nonce: number }
   | { type: "toggleAppSettings"; open?: boolean; section?: AppSettingsSection }
@@ -655,6 +658,15 @@ export function visibleNotificationThread(
     state.bots.find((candidate) => candidate.id === state.selectedId)?.threadId ??
     state.groups.find((candidate) => candidate.id === state.selectedId)?.threadId ??
     null
+  );
+}
+
+export function shouldClearSelectedUnread(
+  state: Pick<AppState, "activeView" | "selectedId" | "workspaceOpen">,
+  owner: { id: string; unread?: boolean },
+): boolean {
+  return Boolean(
+    owner.unread && state.activeView === "chat" && !state.workspaceOpen && state.selectedId === owner.id,
   );
 }
 
@@ -844,19 +856,18 @@ export function reducer(state: AppState, action: Action): AppState {
             : state.activeView,
       };
     case "select": {
+      // reselecting the conversation a workspace covers does not reveal it
+      const covered = state.workspaceOpen && state.selectedId === action.id;
       if (state.groups.some((g) => g.id === action.id)) {
         return {
           ...state,
           activeView: "chat",
           selectedId: action.id,
-          groups: state.groups.map((g) => (g.id === action.id ? { ...g, unread: false } : g)),
+          groups: covered ? state.groups : state.groups.map((g) => (g.id === action.id ? { ...g, unread: false } : g)),
         };
       }
-      return updateBot(
-        withMascotMotion({ ...state, activeView: "chat", selectedId: action.id }, action.id, "switch"),
-        action.id,
-        (b) => ({ ...b, unread: false }),
-      );
+      const selected = withMascotMotion({ ...state, activeView: "chat", selectedId: action.id }, action.id, "switch");
+      return covered ? selected : updateBot(selected, action.id, (b) => ({ ...b, unread: false }));
     }
     // optimistic card settle; the server's message.patch confirms it later
     case "answerCard": {
@@ -1080,6 +1091,17 @@ export function reducer(state: AppState, action: Action): AppState {
     case "focusMessageConsumed":
       if (!state.focusMessage || state.focusMessage.nonce !== action.nonce) return state;
       return { ...state, focusMessage: { ...state.focusMessage, consumed: true } };
+    case "setWorkspaceOpen": {
+      if (state.workspaceOpen === action.open) return state;
+      const next = { ...state, workspaceOpen: action.open };
+      // closing the workspace puts the selected conversation back on screen
+      if (action.open || next.activeView !== "chat") return next;
+      return {
+        ...next,
+        bots: next.bots.map((b) => (b.id === next.selectedId ? { ...b, unread: false } : b)),
+        groups: next.groups.map((g) => (g.id === next.selectedId ? { ...g, unread: false } : g)),
+      };
+    }
     case "toggleComputer": {
       const open = action.open ?? !state.computerOpen;
       return {
@@ -1311,6 +1333,7 @@ export const initialState: AppState = {
   config: null,
   selectedId: "",
   activeView: "chat",
+  workspaceOpen: false,
   routines: [],
   routineRuns: [],
   webhooks: [],
@@ -1686,7 +1709,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             () => {},
           );
           break;
+        case "setWorkspaceOpen": {
+          if (action.open || stateRef.current.activeView !== "chat") break;
+          const selected = stateRef.current.selectedId;
+          const shown = stateRef.current.bots.find((b) => b.id === selected);
+          const shownGroup = stateRef.current.groups.find((g) => g.id === selected);
+          if (shown?.unread) {
+            api(`/api/bots/${selected}`, { method: "PATCH", body: JSON.stringify({ unread: false }) }).catch(() => {});
+          } else if (shownGroup?.unread) {
+            api(`/api/groups/${selected}`, { method: "PATCH", body: JSON.stringify({ unread: false }) }).catch(() => {});
+          }
+          break;
+        }
         case "select": {
+          if (stateRef.current.workspaceOpen && stateRef.current.selectedId === action.id) break;
           const bot = stateRef.current.bots.find((b) => b.id === action.id);
           const group = stateRef.current.groups.find((g) => g.id === action.id);
           if (bot?.unread) {
@@ -2034,7 +2070,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "bot": {
           const bot = frame.bot as BotAnnouncement;
           // reading the selected chat clears its badge immediately
-          if (bot.unread && bot.id === stateRef.current.selectedId) {
+          if (shouldClearSelectedUnread(stateRef.current, bot)) {
             bot.unread = false;
             fetch(`/api/bots/${bot.id}`, {
               method: "PATCH",
@@ -2051,7 +2087,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "group": {
           const group = frame.group as Partial<Group> & { id: string };
           // reading the selected room clears its badge immediately
-          if (group.unread && group.id === stateRef.current.selectedId) {
+          if (shouldClearSelectedUnread(stateRef.current, group)) {
             group.unread = false;
             fetch(`/api/groups/${group.id}`, {
               method: "PATCH",

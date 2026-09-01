@@ -6,6 +6,7 @@ import {
   loadSnapshotBoundary,
   openNotificationTarget,
   reducer,
+  shouldClearSelectedUnread,
   visibleNotificationThread,
   type Bot,
   type Group,
@@ -159,6 +160,56 @@ describe("notification routing", () => {
       bots,
       groups,
     })).toBeNull();
+  });
+
+  it("clears unread only when that exact conversation is visible", () => {
+    const owner = { id: "bot-1", unread: true };
+    const visible = { activeView: "chat" as const, selectedId: "bot-1", workspaceOpen: false };
+    expect(shouldClearSelectedUnread(visible, owner)).toBe(true);
+    expect(shouldClearSelectedUnread({ ...visible, activeView: "routines" }, owner)).toBe(false);
+    expect(shouldClearSelectedUnread({ ...visible, selectedId: "room-1" }, owner)).toBe(false);
+    expect(shouldClearSelectedUnread({ ...visible, workspaceOpen: true }, owner)).toBe(false);
+    expect(shouldClearSelectedUnread(visible, { ...owner, unread: false })).toBe(false);
+  });
+
+  const coveredBot = {
+    id: "bot-1",
+    threadId: "t1",
+    name: "Echo",
+    title: "",
+    description: "",
+    notifications: true,
+    color: "green",
+    unread: true,
+    modelSelection: { instanceId: "x", model: "y" },
+    messages: [],
+  } satisfies Bot;
+
+  const coveredRoom = {
+    id: "room-1",
+    threadId: "room-thread",
+    name: "Case Lab",
+    memberIds: [],
+    defaultResponder: { kind: "everyone" },
+    bulletin: "",
+    unread: true,
+    createdAt: 1,
+    messages: [],
+  } satisfies Group;
+
+  it("clears the badge when a workspace closes over the visible chat", () => {
+    const open = { ...initialState, bots: [coveredBot], selectedId: "bot-1", workspaceOpen: true };
+    expect(reducer(open, { type: "setWorkspaceOpen", open: false }).bots[0]?.unread).toBe(false);
+    const away = { ...open, activeView: "routines" as const };
+    expect(reducer(away, { type: "setWorkspaceOpen", open: false }).bots[0]?.unread).toBe(true);
+    const room = { ...initialState, groups: [coveredRoom], selectedId: "room-1", workspaceOpen: true };
+    expect(reducer(room, { type: "setWorkspaceOpen", open: false }).groups[0]?.unread).toBe(false);
+  });
+
+  it("keeps the badge when the covered conversation is reselected", () => {
+    const open = { ...initialState, bots: [coveredBot], selectedId: "bot-1", workspaceOpen: true };
+    expect(reducer(open, { type: "select", id: "bot-1" }).bots[0]?.unread).toBe(true);
+    expect(reducer({ ...open, workspaceOpen: false }, { type: "select", id: "bot-1" }).bots[0]?.unread).toBe(false);
   });
 });
 

@@ -425,7 +425,7 @@ describe("drainDelegations", () => {
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { _loadPending, _resetPending, discardDelegations, pendingThreads } from "./delegations.ts";
+import { _loadPending, _resetPending, discardDelegations, discardDelegationsFrom, pendingThreads } from "./delegations.ts";
 
 describe("delegations survive a restart", () => {
   let store: Store;
@@ -578,6 +578,164 @@ describe("busy retries and receipts", () => {
     expect(calls[0][5]).toBe(queued.id);
     expect(calls[0][6]).toBe(from.id);
     expect(store.messagesFor(group.threadId).find((message) => message.tool?.name === "Delegated to @Helper")?.from?.botId).toBe(from.id);
+  });
+
+  it("attributes a room waiting status to the initiating bot", async () => {
+    const group = store.createGroup("Project room", [from.id, target.id]);
+    store.patchBot(target.id, { busy: true });
+    queueDelegation(commsBus, from, { toBotId: target.id, message: "later", depth: 0 }, 1, group.threadId);
+
+    drainDelegations(commsBus, approvalBus, group.threadId, () => undefined, from.id);
+
+    const waiting = await waitFor(() =>
+      store.messagesFor(group.threadId).find((message) => message.tool?.name.includes("waiting")),
+    );
+    expect(waiting.from?.botId).toBe(from.id);
+  });
+
+  it("attributes a room denial status to the initiating bot", async () => {
+    const group = store.createGroup("Project room", [from.id, target.id]);
+    store.patchBot(from.id, { approvePeerComms: true });
+    queueDelegation(commsBus, from, { toBotId: target.id, message: "review this", depth: 0 }, 1, group.threadId);
+    drainDelegations(commsBus, approvalBus, group.threadId, () => undefined, from.id);
+
+    const card = await waitFor(() => store.messagesFor(group.threadId).find((message) => message.card?.requestId));
+    const requestId = card.card?.requestId;
+    if (!requestId) throw new Error("approval card has no request id");
+    resolvePeerComms(approvalBus, requestId, "deny");
+
+    const denied = await waitFor(() =>
+      store.messagesFor(group.threadId).find((message) => message.tool?.name.includes("denied by user")),
+    );
+    expect(denied.from?.botId).toBe(from.id);
+  });
+
+  it("attributes a room terminal failure to the initiating bot", async () => {
+    const group = store.createGroup("Project room", [from.id, target.id]);
+    queueDelegation(commsBus, from, { toBotId: target.id, message: "run this", depth: 0 }, 1, group.threadId);
+
+    drainDelegations(
+      commsBus,
+      approvalBus,
+      group.threadId,
+      () => {
+        throw new Error("target runner exploded");
+      },
+      from.id,
+    );
+
+    const failure = await waitFor(() =>
+      store.messagesFor(group.threadId).find((message) => message.tool?.name.includes("delegation failed")),
+    );
+    expect(failure.from?.botId).toBe(from.id);
+  });
+
+  it("stays silent when a discard settles the item while its approval is pending", async () => {
+    const group = store.createGroup("Project room", [from.id, target.id]);
+    store.patchBot(from.id, { approvePeerComms: true });
+    const queued = queueDelegation(commsBus, from, { toBotId: target.id, message: "review this", depth: 0 }, 1, group.threadId);
+
+    drainDelegations(commsBus, approvalBus, group.threadId, () => undefined, from.id);
+    const card = await waitFor(() => store.messagesFor(group.threadId).find((message) => message.card?.requestId));
+    const requestId = card.card?.requestId;
+    if (!requestId) throw new Error("approval card has no request id");
+
+    discardDelegationsFrom(commsBus, from.id);
+    resolvePeerComms(approvalBus, requestId, "deny");
+
+    await waitFor(() => findDelegationReceipt(queued.id!)?.status === "dropped");
+    expect(
+      store.messagesFor(group.threadId).some((message) => message.tool?.name.includes("denied by user")),
+    ).toBe(false);
+    expect(findDelegationReceipt(queued.id!)?.status).toBe("dropped");
+  });
+
+  it("skips a snapshot item discarded while the drain was in flight", async () => {
+    const other = store.createBot();
+    store.patchBot(other.id, { name: "Bravo" });
+    const group = store.createGroup("Project room", [from.id, other.id, target.id]);
+    queueDelegation(commsBus, from, { toBotId: target.id, message: "one", depth: 0 }, 1, group.threadId);
+    const second = queueDelegation(commsBus, other, { toBotId: target.id, message: "two", depth: 0 }, 1, group.threadId);
+
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started = 0;
+    drainDelegations(commsBus, approvalBus, group.threadId, async () => {
+      started += 1;
+      await held;
+    });
+
+    await waitFor(() => started === 1);
+    discardDelegationsFrom(commsBus, other.id);
+    release();
+
+    await waitFor(() => _pendingCount(group.threadId) === 0);
+    expect(started).toBe(1);
+    expect(findDelegationReceipt(second.id!)?.status).toBe("dropped");
+    expect(
+      store.messagesFor(group.threadId).some((message) => message.tool?.name.includes("delegation failed")),
+    ).toBe(false);
+  });
+
+  it("drops the room queues a bot owns and still names it", () => {
+    const group = store.createGroup("Project room", [from.id, target.id]);
+    queueDelegation(commsBus, from, { toBotId: target.id, message: "never runs", depth: 0 }, 1, group.threadId);
+
+    discardDelegationsFrom(commsBus, from.id);
+
+    expect(_pendingCount(group.threadId)).toBe(0);
+    const dropped = store
+      .messagesFor(group.threadId)
+      .find((message) => message.tool?.name.includes("dropped"));
+    expect(dropped?.from?.botId).toBe(from.id);
+  });
+
+  it("names the source bot on a room failure after a roster edit drops it", async () => {
+    const group = store.createGroup("Project room", [from.id, target.id]);
+    queueDelegation(commsBus, from, { toBotId: target.id, message: "run this", depth: 0 }, 1, group.threadId);
+    store.patchGroup(group.id, { memberIds: [target.id] });
+
+    drainDelegations(commsBus, approvalBus, group.threadId, () => undefined, from.id);
+
+    const failure = await waitFor(() =>
+      store.messagesFor(group.threadId).find((message) => message.tool?.name.includes("delegation failed")),
+    );
+    expect(failure.from?.botId).toBe(from.id);
+  });
+
+  it("names the source bot on a room drop after a roster edit drops it", () => {
+    const group = store.createGroup("Project room", [from.id, target.id]);
+    queueDelegation(commsBus, from, { toBotId: target.id, message: "never runs", depth: 0 }, 1, group.threadId);
+    store.patchGroup(group.id, { memberIds: [target.id] });
+
+    discardDelegations(commsBus, group.threadId);
+
+    const dropped = store
+      .messagesFor(group.threadId)
+      .find((message) => message.tool?.name.includes("dropped"));
+    expect(dropped?.from?.botId).toBe(from.id);
+  });
+
+  it("attributes an unfiltered room drop to each source bot", () => {
+    const other = store.createBot();
+    store.patchBot(other.id, { name: "Bravo" });
+    const group = store.createGroup("Project room", [from.id, other.id, target.id]);
+    queueDelegation(commsBus, from, { toBotId: target.id, message: "one", depth: 0 }, 1, group.threadId);
+    queueDelegation(commsBus, from, { toBotId: target.id, message: "two", depth: 0 }, 1, group.threadId);
+    queueDelegation(commsBus, other, { toBotId: target.id, message: "three", depth: 0 }, 1, group.threadId);
+
+    discardDelegations(commsBus, group.threadId);
+
+    const dropped = store
+      .messagesFor(group.threadId)
+      .filter((message) => message.tool?.name.includes("dropped"))
+      .map((message) => [message.from?.botId, message.tool?.name.split(" ")[0]]);
+    expect(dropped).toEqual([
+      [from.id, "2"],
+      [other.id, "1"],
+    ]);
   });
 
   const chipCount = (needle: string) =>

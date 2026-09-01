@@ -238,6 +238,19 @@ export function pendingDelegationSnapshot(): PendingDelegationSnapshot[] {
  * thing standing between a confused bot and a fan-out of real turns. */
 const MAX_QUEUED_PER_THREAD = 4;
 
+function appendDelegationActivity(
+  bus: CommsBus,
+  sourceThreadId: string,
+  tool: NonNullable<Message["tool"]>,
+  from?: BotRecord | null,
+): void {
+  const activity: Omit<Message, "id" | "at"> = { role: "bot", kind: "activity", tool };
+  if (from && sourceThreadId !== from.threadId) {
+    activity.from = { botId: from.id, name: from.name, color: from.color };
+  }
+  bus.store.appendMessage(sourceThreadId, activity);
+}
+
 /** Validate and enqueue a delegation. Pushes a "Delegated to @B: reason"
  * chip to the source thread so the user can see what was queued. */
 export function queueDelegation(
@@ -261,15 +274,7 @@ export function queueDelegation(
   pendingDelegations.set(sourceThreadId, list);
   savePending();
   const label = `Delegated to @${target.name}${item.reason ? `: ${item.reason}` : ""}`;
-  const activity: Omit<Message, "id" | "at"> = {
-    role: "bot",
-    kind: "activity",
-    tool: { name: label },
-  };
-  if (sourceThreadId !== from.threadId) {
-    activity.from = { botId: from.id, name: from.name, color: from.color };
-  }
-  bus.store.appendMessage(sourceThreadId, activity);
+  appendDelegationActivity(bus, sourceThreadId, { name: label }, from);
   return { result: "ok", id };
 }
 
@@ -309,10 +314,15 @@ export function drainDelegations(
   drainingThreads.add(threadId);
   void (async () => {
     for (const item of snapshot) {
+      // a discard while this drain awaited approval already settled the item
+      if (!pendingDelegations.get(threadId)?.some((pending) => pending.id === item.id)) continue;
       let outcome: "settled" | "requeued" = "settled";
+      // a roster edit between queue and drain must not anonymise the status
+      let sender: BotRecord | null = null;
       try {
         const fromId = itemSourceId(item);
-        const from = fromId ? bus.store.conversationForBot(fromId, threadId)?.bot : null;
+        sender = fromId ? bus.store.bot(fromId) : null;
+        const from = fromId ? bus.store.conversationForBot(fromId, threadId)?.bot ?? null : null;
         if (!from) throw new Error("source bot no longer belongs to this conversation");
         outcome = await processOne(bus, approvalBus, from, threadId, item, runTarget);
       } catch (error) {
@@ -326,11 +336,12 @@ export function drainDelegations(
           result: why.slice(0, 200),
         });
         try {
-          bus.store.appendMessage(threadId, {
-            role: "bot",
-            kind: "activity",
-            tool: { name: `error: delegation failed — ${why.slice(0, 120)}`, ok: false },
-          });
+          appendDelegationActivity(
+            bus,
+            threadId,
+            { name: `error: delegation failed — ${why.slice(0, 120)}`, ok: false },
+            sender,
+          );
         } catch (reportError) {
           console.error("delegation failed and could not be reported", reportError);
         }
@@ -391,17 +402,34 @@ export function discardDelegations(bus: CommsBus, threadId: string, sourceBotId?
       result: "the delegating turn did not finish",
     });
   }
-  const fromId = dropped[0]?.fromBotId ?? privateSourceId;
-  const from = fromId ? bus.store.conversationForBot(fromId, threadId)?.bot : null;
-  const activity: Omit<Message, "id" | "at"> = {
-    role: "bot",
-    kind: "activity",
-    tool: { name: `${dropped.length} queued delegation${dropped.length > 1 ? "s" : ""} dropped — the turn did not finish`, ok: false },
-  };
-  if (from && threadId !== from.threadId) {
-    activity.from = { botId: from.id, name: from.name, color: from.color };
+  // An unfiltered drop can span several room members; one status per source
+  // keeps every dropped handoff attributable to the bot that queued it.
+  const counts = new Map<string | undefined, number>();
+  for (const item of dropped) {
+    const fromId = item.fromBotId ?? privateSourceId;
+    counts.set(fromId, (counts.get(fromId) ?? 0) + 1);
   }
-  bus.store.appendMessage(threadId, activity);
+  for (const [fromId, count] of counts) {
+    const from = fromId ? bus.store.bot(fromId) : null;
+    appendDelegationActivity(
+      bus,
+      threadId,
+      { name: `${count} queued delegation${count > 1 ? "s" : ""} dropped — the turn did not finish`, ok: false },
+      from,
+    );
+  }
+}
+
+/** Drop every queue this bot owns, wherever it queued them. A room queue lives
+ * on the room thread, so deleting the bot would strand it there without a
+ * sender. Call this before the bot record disappears. */
+export function discardDelegationsFrom(bus: CommsBus, sourceBotId: string): void {
+  const threads = new Set(
+    pendingDelegationSnapshot()
+      .filter((queued) => queued.sourceBotId === sourceBotId)
+      .map((queued) => queued.sourceThreadId),
+  );
+  for (const threadId of threads) discardDelegations(bus, threadId, sourceBotId);
 }
 
 async function processOne(
@@ -431,22 +459,24 @@ async function processOne(
       status: "error",
       result: "no such bot",
     });
-    bus.store.appendMessage(sourceThreadId, {
-      role: "bot",
-      kind: "activity",
-      tool: { name: `error: delegation to ${item.toBotId} failed — no such bot`, ok: false },
-    });
+    appendDelegationActivity(
+      bus,
+      sourceThreadId,
+      { name: `error: delegation to ${item.toBotId} failed — no such bot`, ok: false },
+      sender,
+    );
     return "settled";
   }
   if (target.busy) {
     item.attempts += 1;
     if (item.attempts < MAX_BUSY_ATTEMPTS) {
       savePending();
-      bus.store.appendMessage(sourceThreadId, {
-        role: "bot",
-        kind: "activity",
-        tool: { name: `Delegation to @${target.name} waiting — they're busy (retry ${item.attempts}/${MAX_BUSY_ATTEMPTS} when they finish)` },
-      });
+      appendDelegationActivity(
+        bus,
+        sourceThreadId,
+        { name: `Delegation to @${target.name} waiting — they're busy (retry ${item.attempts}/${MAX_BUSY_ATTEMPTS} when they finish)` },
+        sender,
+      );
       return "requeued";
     }
     recordDelegationReceipt({
@@ -457,11 +487,12 @@ async function processOne(
       status: "busy_gave_up",
       result: `@${target.name} stayed busy through ${MAX_BUSY_ATTEMPTS} retries`,
     });
-    bus.store.appendMessage(sourceThreadId, {
-      role: "bot",
-      kind: "activity",
-      tool: { name: `Delegation to @${target.name} canceled — still busy after ${MAX_BUSY_ATTEMPTS} retries`, ok: false },
-    });
+    appendDelegationActivity(
+      bus,
+      sourceThreadId,
+      { name: `Delegation to @${target.name} canceled — still busy after ${MAX_BUSY_ATTEMPTS} retries`, ok: false },
+      sender,
+    );
     return "settled";
   }
   if (sender.approvePeerComms) {
@@ -473,6 +504,9 @@ async function processOne(
       "delegate_bot",
       sourceThreadId,
     );
+    // A discard while the approval sat already settled this item; reporting a
+    // verdict now would contradict its dropped receipt with a second status.
+    if (!pendingDelegations.get(sourceThreadId)?.some((pending) => pending.id === item.id)) return "settled";
     if (verdict !== "allow") {
       recordDelegationReceipt({
         id: item.id,
@@ -482,11 +516,12 @@ async function processOne(
         status: "denied",
         result: "the user denied this handoff",
       });
-      bus.store.appendMessage(sourceThreadId, {
-        role: "bot",
-        kind: "activity",
-        tool: { name: `Delegation to @${target.name} denied by user`, ok: false },
-      });
+      appendDelegationActivity(
+        bus,
+        sourceThreadId,
+        { name: `Delegation to @${target.name} denied by user`, ok: false },
+        sender,
+      );
       return "settled";
     }
     // The approval could have been sitting for up to 15 minutes. Everything
@@ -500,11 +535,12 @@ async function processOne(
       item.attempts += 1;
       if (item.attempts < MAX_BUSY_ATTEMPTS) {
         savePending();
-        bus.store.appendMessage(sourceThreadId, {
-          role: "bot",
-          kind: "activity",
-          tool: { name: `Delegation to @${current.name} waiting — they're busy (retry ${item.attempts}/${MAX_BUSY_ATTEMPTS} when they finish)` },
-        });
+        appendDelegationActivity(
+          bus,
+          sourceThreadId,
+          { name: `Delegation to @${current.name} waiting — they're busy (retry ${item.attempts}/${MAX_BUSY_ATTEMPTS} when they finish)` },
+          currentSender,
+        );
         return "requeued";
       }
       recordDelegationReceipt({
@@ -515,11 +551,12 @@ async function processOne(
         status: "busy_gave_up",
         result: `@${current.name} stayed busy through ${MAX_BUSY_ATTEMPTS} retries`,
       });
-      bus.store.appendMessage(sourceThreadId, {
-        role: "bot",
-        kind: "activity",
-        tool: { name: `Delegation to @${current.name} canceled — still busy after ${MAX_BUSY_ATTEMPTS} retries`, ok: false },
-      });
+      appendDelegationActivity(
+        bus,
+        sourceThreadId,
+        { name: `Delegation to @${current.name} canceled — still busy after ${MAX_BUSY_ATTEMPTS} retries`, ok: false },
+        currentSender,
+      );
       return "settled";
     }
     sender = currentSender;
