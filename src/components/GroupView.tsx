@@ -3,7 +3,7 @@
 // does not become a wall of competing motion. Plain messages go to the room's
 // default responder; @mentions override that routing.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, Check, ChevronDown, Folder, FolderOpen, Loader2, MessageSquareReply, Pin, PinOff, Plus, Search, X } from "lucide-react";
+import { ArrowDown, Check, ChevronDown, ChevronRight, Folder, FolderOpen, Loader2, MessageSquareReply, Pin, PinOff, Plus, Search, X } from "lucide-react";
 import {
   api,
   useStore,
@@ -34,6 +34,7 @@ import { ReactionBar, ReactionChips } from "./Reactions";
 import { ApprovalCard } from "./ApprovalCard";
 import { ManageMembersPanel } from "./ManageMembersPanel";
 import { groupActivityRuns } from "@/lib/activity-runs";
+import { roomTranscriptRows } from "@/lib/room-transcript";
 import { ActivityRun } from "./ActivityRun";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
@@ -63,11 +64,29 @@ function dayLabel(at: number): string {
   return d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
 }
 
-/** One finished tool step in a room. Same pill the 1:1 chat uses, minus the
- * status glyph — a room reads as a conversation, not a build log. */
+/** One activity row in a room: a comm chip that opens its channel, otherwise
+ * the 1:1 pill minus its status glyph — a room reads as a conversation. */
 function RoomToolChip({ message }: { message: Message }) {
+  const { dispatch } = useStore();
   const tool = message.tool;
   if (!tool) return null;
+  const comm = message.comm;
+  if (comm) {
+    return (
+      <div className="flex justify-start">
+        <button
+          type="button"
+          onClick={() => dispatch({ type: "select", id: comm.groupId })}
+          title={`Open the conversation with ${comm.withName}`}
+          className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
+        >
+          <MausAvatar color={comm.withColor} state="happy" size={16} animated={false} />
+          <span className="max-w-[480px] truncate">{tool.name}</span>
+          <ChevronRight size={13} />
+        </button>
+      </div>
+    );
+  }
   return (
     <div className="flex justify-start">
       <div
@@ -144,18 +163,19 @@ const Transcript = memo(function Transcript({
   // Several bots working at once turn a room into a wall of chips; fold the
   // finished ones the same way a 1:1 chat does.
   const items = useMemo(() => groupActivityRuns(messages), [messages]);
+  const rows = useMemo(
+    () => roomTranscriptRows(items, { showToolCalls, emergingId }),
+    [items, showToolCalls, emergingId],
+  );
   const focus = state.focusMessage;
   const focusedId = focus && !focus.consumed && focus.threadId === group.threadId ? focus.messageId : null;
   return (
     <>
       {items.map((item, i) => {
-        const previous = items[i - 1];
-        const prev = previous && (previous.kind === "run" ? previous.messages.at(-1) : previous.message);
-        const first = item.kind === "run" ? item.messages[0] : item.message;
-        const newDay = !prev || new Date(prev.at).toDateString() !== new Date(first.at).toDateString();
+        const { visible, newDay, cluster } = rows[i];
+        if (!visible) return null;
         if (item.kind === "run") {
-          if (!showToolCalls) return null;
-          const cluster = !prev || prev.role !== first.role || prev.from?.botId !== first.from?.botId || newDay;
+          const first = item.messages[0];
           return (
             <div key={item.id} className="contents">
               {newDay && (
@@ -177,10 +197,8 @@ const Transcript = memo(function Transcript({
           );
         }
         const m = item.message;
-        if (m.id === emergingId) return null;
         const user = m.role === "user";
         const attachedImages = user && m.text ? splitAttachedImages(m.text) : null;
-        const newCluster = !prev || prev.role !== m.role || prev.from?.botId !== m.from?.botId || newDay;
         const routineOwner = m.kind === "routine.run" ? memberOf(m.from?.botId) : undefined;
         const routineExecutionThreadId = m.routineRun?.executionThreadId;
         const routineTarget = routineOwner && hasRoutineExecutionTask(routineOwner.tasks, routineExecutionThreadId)
@@ -210,9 +228,7 @@ const Transcript = memo(function Transcript({
               />
             </div>
           ) : m.kind === "activity" && m.tool ? (
-            m.tool.ok === false || m.tool.name.startsWith("error:") || showToolCalls ? (
-              <RoomToolChip message={m} />
-            ) : null
+            <RoomToolChip message={m} />
           ) : m.kind === "text" && m.text ? (
             <div className={cn("group flex w-full flex-col", user ? "items-end" : "items-start")}>
               <div className={cn("flex w-full items-end gap-1.5", user ? "justify-end" : "justify-start")}>
@@ -292,7 +308,7 @@ const Transcript = memo(function Transcript({
                 {dayLabel(m.at)} {formatTime(m.at)}
               </div>
             )}
-            {!user && m.from && newCluster && (
+            {!user && m.from && cluster && (
               <ClusterLabel bot={memberOf(m.from.botId)} name={m.from.name} color={m.from.color} />
             )}
             {row}
