@@ -63,6 +63,7 @@ import { cn } from "@/lib/cn";
 import { COMPACT_BUBBLE, COMPACT_SQUARE } from "@/lib/compact-chip";
 import { useFocusMessage } from "@/lib/focus-message";
 import { activityVisibleInChat, groupActivityRuns } from "@/lib/activity-runs";
+import { chatTranscriptRows } from "@/lib/chat-transcript";
 import { ActivityRun } from "./ActivityRun";
 import { webhookMessageView } from "@/lib/webhook-message";
 import { splitAttachedImages } from "@/lib/composer-attachments";
@@ -746,6 +747,10 @@ const MessagesList = memo(function MessagesList({
   // Fold finished tool chips into runs, so a stretch of them cannot bury
   // what the bot actually said. Hidden unless Settings → Tool calls is on.
   const items = useMemo(() => groupActivityRuns(messages), [messages]);
+  const rows = useMemo(
+    () => chatTranscriptRows(items, { showToolCalls, emergingId, transcript }),
+    [items, showToolCalls, emergingId, transcript],
+  );
   // A search hit inside a folded run has to open it: the fold keeps the
   // row out of the DOM, and there is nothing for the scroll to land on.
   const focus = state.focusMessage;
@@ -767,12 +772,10 @@ const MessagesList = memo(function MessagesList({
         </div>
       )}
       {items.map((item, i) => {
-        const previous = items[i - 1];
-        const prev = previous && (previous.kind === "run" ? previous.messages.at(-1) : previous.message);
-        const first = item.kind === "run" ? item.messages[0] : item.message;
-        const newDay = !prev || new Date(prev.at).toDateString() !== new Date(first.at).toDateString();
+        const { visible, newDay } = rows[i];
+        if (!visible) return null;
         if (item.kind === "run") {
-          if (!showToolCalls) return null;
+          const first = item.messages[0];
           return (
             <div key={item.id} className="contents">
               {newDay && <DaySeparator at={first.at} />}
@@ -787,7 +790,6 @@ const MessagesList = memo(function MessagesList({
           );
         }
         const m = item.message;
-        if (m.id === emergingId) return null;
         const row = (() => {
           switch (m.kind) {
             case "compaction":
