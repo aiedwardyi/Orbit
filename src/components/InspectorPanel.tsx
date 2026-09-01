@@ -196,7 +196,8 @@ export function InspectorPanel({ bot }: { bot: Bot }) {
         if (document.activeElement !== document.body) return;
         const target = previousFocus && previousFocus !== document.body && previousFocus.isConnected
           ? previousFocus
-          : document.querySelector<HTMLElement>("[data-orbit-composer]");
+          : document.querySelector<HTMLElement>("[data-orbit-composer]:not(:disabled)") ??
+            document.querySelector<HTMLElement>("[data-orbit-chat-focus-fallback]");
         target?.focus();
       });
     };

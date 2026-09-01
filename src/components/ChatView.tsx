@@ -354,7 +354,11 @@ function BubbleEditor({
             e.preventDefault();
             submit();
           }
-          if (e.key === "Escape") onCancel();
+          if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            onCancel();
+          }
         }}
         rows={Math.min(10, Math.max(2, draft.split("\n").length))}
         className="w-full resize-none bg-transparent text-[15px] leading-relaxed text-ink focus:outline-none"
@@ -1147,6 +1151,7 @@ export function ChatView({ bot }: { bot: Bot }) {
       >
         <div className="flex min-w-0 items-center gap-2.5 rounded-lg px-1.5 py-1">
           <button
+            data-orbit-chat-focus-fallback=""
             onClick={() => dispatch({ type: "toggleSettings", open: true })}
             className="flex size-10 shrink-0 items-center justify-center rounded-lg hover:bg-raised/50"
             title="Open agent profile"
