@@ -241,7 +241,7 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
           )}
           {commands.length > 0 && (
             <div className="px-3 pb-1 pt-2 text-[11px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
-              Tools
+              {t("palette.commands")}
             </div>
           )}
           {commands.map((command, i) =>
@@ -261,7 +261,7 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
           )}
           {q && messageHits.length > 0 && (
             <div className="px-3 pb-1 pt-2 text-[11px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
-              Messages
+              {t("palette.messages")}
             </div>
           )}
           {q &&

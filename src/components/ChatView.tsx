@@ -87,13 +87,13 @@ import { readContextCompaction } from "../../shared/context-compaction";
 const USER_COLLAPSE_CHARS = 600;
 const USER_COLLAPSE_LINES = 8;
 
-function savedAge(updatedAt: number, t: (key: import("@/lib/i18n").MessageKey, vars?: Record<string, string | number>) => string): string {
+function savedAge(updatedAt: number, t: (key: import("@/lib/i18n").MessageKey, vars?: Record<string, string | number>) => string, botMaintained = false): string {
   const minutes = Math.max(0, Math.floor((Date.now() - updatedAt) / 60_000));
-  if (minutes < 1) return t("chat.savedJustNow");
-  if (minutes < 60) return t("chat.savedMinutesAgo", { count: minutes });
+  if (minutes < 1) return t(botMaintained ? "chat.savedJustNowBot" : "chat.savedJustNow");
+  if (minutes < 60) return t(botMaintained ? "chat.savedMinutesAgoBot" : "chat.savedMinutesAgo", { count: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return t("chat.savedHoursAgo", { count: hours });
-  return t("chat.savedDaysAgo", { count: Math.floor(hours / 24) });
+  if (hours < 24) return t(botMaintained ? "chat.savedHoursAgoBot" : "chat.savedHoursAgo", { count: hours });
+  return t(botMaintained ? "chat.savedDaysAgoBot" : "chat.savedDaysAgo", { count: Math.floor(hours / 24) });
 }
 
 function TaskRecoveryCard({
@@ -105,8 +105,8 @@ function TaskRecoveryCard({
   packet: TaskResumePacket | undefined;
   turns: number;
 }) {
-  const { dispatch } = useStore();
   const { t } = useI18n();
+  const { dispatch } = useStore();
   if (!packet || bot.busy || !["crash", "shutdown", "stop"].includes(packet.flushReason)) return null;
   const stopped = packet.flushReason === "stop";
   const mayLag = turns > packet.turnsAtWrite;
@@ -121,7 +121,7 @@ function TaskRecoveryCard({
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
               <p className="text-[13px] font-semibold text-ink">{stopped ? t("chat.taskPaused") : t("chat.readyToContinue")}</p>
               <span className="text-[11px] text-ink-secondary">
-                {savedAge(packet.updatedAt, t)}{packet.updatedBy === "bot" ? t("chat.botMaintained") : ""}
+                {savedAge(packet.updatedAt, t, packet.updatedBy === "bot")}
               </span>
             </div>
             <p className="mt-0.5 line-clamp-2 text-[12.5px] leading-snug text-ink-secondary">
@@ -244,6 +244,7 @@ function TaskTimeline({ messages, busy }: { messages: Message[]; busy: boolean }
 
 /** Hover/focus-revealed copy control shared by user + bot bubbles. */
 function CopyButton({ text, className }: { text: string; className?: string }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   return (
     <button
@@ -253,7 +254,7 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
         setTimeout(() => setCopied(false), 1200);
       }}
       aria-label={t("chat.copyMessage")}
-      title="Copy message"
+      title={t("chat.copyMessage")}
       className={cn(
         "rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100",
         className,
@@ -409,6 +410,7 @@ function Bubble({
   replyTarget?: Message;
   onReply: () => void;
 }) {
+  const { t } = useI18n();
   const { dispatch } = useStore();
   const user = message.role === "user";
   const [expanded, setExpanded] = useState(false);
@@ -444,7 +446,7 @@ function Bubble({
             onClick={onStartEdit}
             aria-label={t("chat.editMessage")}
             className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-            title="Edit message"
+            title={t("chat.editMessage")}
           >
             <Pencil size={14} />
           </button>
@@ -458,7 +460,7 @@ function Bubble({
               onClick={onReply}
               aria-label={t("chat.replyToMessage")}
               className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-              title="Reply"
+              title={t("chat.replyToMessage")}
             >
               <MessageSquareReply size={14} />
             </button>
@@ -472,11 +474,7 @@ function Bubble({
               }
               aria-label={bot.pinnedMessageId === message.id ? t("chat.unpinMessage") : t("chat.pinMessage")}
               className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-              title={
-                bot.pinnedMessageId === message.id
-                  ? "Unpin this message"
-                  : "Pin this message to the top of the thread"
-              }
+              title={bot.pinnedMessageId === message.id ? t("chat.unpinMessage") : t("chat.pinMessage")}
             >
               {bot.pinnedMessageId === message.id ? <PinOff size={14} /> : <Pin size={14} />}
             </button>
@@ -562,7 +560,7 @@ function Bubble({
                 <button
                   onClick={onRegenerate}
                   aria-label={t("chat.regenerate")}
-                  title="Regenerate response"
+                  title={t("chat.regenerate")}
                   className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
                 >
                   <RefreshCw size={14} />
@@ -574,7 +572,7 @@ function Bubble({
               onClick={onReply}
               aria-label={t("chat.replyToMessage")}
               className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-              title="Reply"
+              title={t("chat.replyToMessage")}
             >
               <MessageSquareReply size={14} />
             </button>
@@ -588,11 +586,7 @@ function Bubble({
               }
               aria-label={bot.pinnedMessageId === message.id ? t("chat.unpinMessage") : t("chat.pinMessage")}
               className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-              title={
-                bot.pinnedMessageId === message.id
-                  ? "Unpin this message"
-                  : "Pin this message to the top of the thread"
-              }
+              title={bot.pinnedMessageId === message.id ? t("chat.unpinMessage") : t("chat.pinMessage")}
             >
               {bot.pinnedMessageId === message.id ? <PinOff size={14} /> : <Pin size={14} />}
             </button>
@@ -617,7 +611,7 @@ function Bubble({
             type="button"
             onClick={() => dispatch({ type: "cancelQueued", botId: bot.id, queueId: message.queueId ?? message.id })}
             aria-label={t("chat.cancelQueued")}
-            title="Cancel queued message"
+            title={t("chat.cancelQueued")}
             className="ml-0.5 flex size-4 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-raised hover:text-ink"
           >
             <X size={11} strokeWidth={2.5} />
@@ -631,7 +625,7 @@ function Bubble({
             onClick={() => switchTo(versions[versionIndex - 1])}
             disabled={versionIndex <= 0 || bot.busy}
             className="rounded p-0.5 hover:bg-raised hover:text-ink disabled:opacity-30 disabled:hover:bg-transparent"
-            title="Previous version"
+            title={t("chat.previousVersion")}
           >
             <ChevronLeft size={14} />
           </button>
@@ -642,7 +636,7 @@ function Bubble({
             onClick={() => switchTo(versions[versionIndex + 1])}
             disabled={versionIndex >= versions.length - 1 || bot.busy}
             className="rounded p-0.5 hover:bg-raised hover:text-ink disabled:opacity-30 disabled:hover:bg-transparent"
-            title="Next version"
+            title={t("chat.nextVersion")}
           >
             <ChevronRight size={14} />
           </button>
@@ -888,10 +882,11 @@ function PinnedBanner({
   onJump: (messageId: string) => void;
   onUnpin: () => void;
 }) {
+  const { t } = useI18n();
   const pinned = messages.find((m) => m.id === pinnedId);
   if (!pinned || pinned.kind !== "text") return null;
   const sender =
-    pinned.role === "user" ? "You" : (pinned.from?.name ?? bot.name);
+    pinned.role === "user" ? t("chat.you") : (pinned.from?.name ?? bot.name);
   const text = (pinned.text ?? "").replace(/\s+/g, " ").trim();
   if (!text) return null;
   return (
@@ -901,7 +896,7 @@ function PinnedBanner({
         <button
           onClick={() => onJump(pinned.id)}
           className="flex min-w-0 flex-1 items-baseline gap-2 text-left"
-          title="Jump to the pinned message"
+          title={t("chat.jumpToPinned")}
         >
           <span className="shrink-0 text-[11.5px] font-medium text-accent">{sender}</span>
           <span className="truncate text-[12.5px] text-ink-secondary">{text}</span>
@@ -909,7 +904,7 @@ function PinnedBanner({
         <button
           onClick={onUnpin}
           aria-label={t("chat.unpinMessage")}
-          title="Unpin"
+          title={t("chat.unpin")}
           className="shrink-0 rounded p-0.5 text-ink-secondary hover:bg-raised hover:text-ink"
         >
           <X size={13} />
@@ -1160,7 +1155,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
             data-orbit-chat-focus-fallback=""
             onClick={() => dispatch({ type: "toggleSettings", open: true })}
             className="flex size-10 shrink-0 items-center justify-center rounded-lg hover:bg-raised/50"
-            title="Open agent profile"
+            title={t("chat.openProfile", { name: bot.name })}
             aria-label={t("chat.openProfile", { name: bot.name })}
           >
             <BotAvatar
@@ -1195,7 +1190,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
               "rounded-md p-1.5 hover:bg-raised",
               findOpen ? "text-accent" : "text-ink-secondary hover:text-ink",
             )}
-            title="Find in conversation (⌘F)"
+            title={t("chat.findInConversation")}
           >
             <Search size={18} />
           </button>
@@ -1206,7 +1201,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
                 "flex items-center gap-1.5 rounded-full border border-hairline/40 bg-raised/60 px-2.5 py-1 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink",
                 COMPACT_BUBBLE,
               )}
-              title="Stop this turn"
+              title={t("composer.stopTurn")}
             >
               <Square size={12} className="fill-current" />
               <span className="@max-4xl/chathead:hidden">Stop</span>
@@ -1225,7 +1220,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
               "rounded-md p-1.5 hover:bg-raised",
               state.computerOpen ? "text-accent" : "text-ink-secondary hover:text-ink",
             )}
-            title="Bot's computer"
+            title={t("chat.botComputer")}
           >
             <Monitor size={18} aria-hidden="true" />
           </button>
@@ -1372,7 +1367,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
           className="animate-pop-in absolute left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline/40 bg-raised px-3 py-1.5 text-[12.5px] text-ink shadow-lg hover:bg-raised-hover"
           style={{ bottom: composerDock.height }}
         >
-          <ArrowDown size={13} /> Jump to latest
+          <ArrowDown size={13} /> {t("chat.jumpToLatest")}
         </button>
       )}
 

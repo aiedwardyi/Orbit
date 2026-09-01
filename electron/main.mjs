@@ -854,14 +854,17 @@ function desktopViewerErrorPage(message, retryUrl) {
       .replaceAll('"', "&quot;")
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;");
+  const title = nativeText("packaged.desktopUnavailable");
+  const heading = nativeText("packaged.liveDesktopFailed");
+  const open = nativeText("packaged.openInBrowser");
   return (
     "data:text/html;charset=utf-8," +
-    encodeURIComponent(`<!doctype html><meta name="color-scheme" content="dark"><title>Desktop unavailable</title>
-      <body style="margin:0;display:grid;place-items:center;height:100vh;background:#070707;color:#f5f5f5;font:14px -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif">
-        <main style="max-width:420px;padding:32px;text-align:center"><h2 style="margin:0 0 10px;font-size:18px">Couldn't open the live desktop</h2>
+    encodeURIComponent(`<!doctype html><html lang="${uiLocale()}"><meta name="color-scheme" content="dark"><title>${escape(title)}</title>
+      <body style="margin:0;display:grid;place-items:center;height:100vh;background:#070707;color:#f5f5f5;font:14px ${uiFontStack()}">
+        <main style="max-width:420px;padding:32px;text-align:center"><h2 style="margin:0 0 10px;font-size:18px">${escape(heading)}</h2>
         <p style="margin:0 0 20px;color:#a1a1aa;line-height:1.5">${escape(message)}</p>
-        <a href="${escape(retryUrl)}" target="_blank" rel="noreferrer" style="display:inline-block;border-radius:9px;background:#fff;color:#111;padding:9px 14px;text-decoration:none;font-weight:600">Open in browser</a></main>
-      </body>`)
+        <a href="${escape(retryUrl)}" target="_blank" rel="noreferrer" style="display:inline-block;border-radius:9px;background:#fff;color:#111;padding:9px 14px;text-decoration:none;font-weight:600">${escape(open)}</a></main>
+      </body></html>`)
   );
 }
 
@@ -869,7 +872,7 @@ function openDesktopViewer(owner, rawUrl, rawTitle, contextId) {
   if (!owner || owner.isDestroyed()) throw new Error("The Orbit window is unavailable");
   const url = desktopViewerUrl(rawUrl);
   const titleCandidate = Object.prototype.toString.call(rawTitle) === "[object String]" ? rawTitle.trim() : "";
-  const title = titleCandidate ? titleCandidate.slice(0, 80) : "Live desktop";
+  const title = titleCandidate ? titleCandidate.slice(0, 80) : nativeText("packaged.liveDesktop");
 
   const nextContextId =
     Object.prototype.toString.call(contextId) === "[object String]" ? contextId.slice(0, 120) : null;

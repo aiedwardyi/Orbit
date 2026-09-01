@@ -72,6 +72,7 @@ function profileInitials(profile?: { name?: string; email?: string }): string {
  * restart, with a brief "up to date" tick when a check finds nothing so a
  * click is never silent. The bottom-left popup handles the loud cases. */
 function UpdateButton() {
+  const { t } = useI18n();
   const s = useUpdaterState();
   const [checkedAt, setCheckedAt] = useState(0);
   const updater = window.ogb?.updater;
@@ -93,20 +94,20 @@ function UpdateButton() {
     pending || status === "checking" || status === "downloading" || status === "installing";
   const label =
     status === "available"
-      ? `Version ${s?.version ?? ""} available — download`
+      ? t("update.versionAvailable", { version: s?.version ?? "" })
       : status === "downloading"
         ? s?.percent == null
-          ? "Starting download…"
-          : `Downloading… ${Math.round(s.percent)}%`
+          ? t("update.startingDownload")
+          : t("update.downloadingPercent", { percent: Math.round(s.percent) })
         : status === "downloaded"
-          ? `Version ${s?.version ?? ""} ready — restart to update`
+          ? t("update.versionReady", { version: s?.version ?? "" })
           : status === "installing"
-            ? "Restarting to update…"
+            ? t("update.restarting")
             : status === "checking"
-              ? "Checking for updates…"
+              ? t("update.checking")
               : upToDate
-                ? "You're up to date"
-                : "Check for updates";
+                ? t("update.upToDate")
+                : t("settings.updates.check");
 
   return (
     <button
@@ -270,6 +271,7 @@ function RoomContextMenu({
   onClose: () => void;
   onMoveToSection: (groupId: string) => void;
 }) {
+  const { t } = useI18n();
   const { state, dispatch } = useStore();
   const group = state.groups.find((g) => g.id === menu.groupId);
   const [renaming, setRenaming] = useState(false);
@@ -310,7 +312,7 @@ function RoomContextMenu({
             autoFocus
             value={draft}
             maxLength={100}
-            aria-label={`Rename ${group.name}`}
+            aria-label={t("chrome.renameChannel", { name: group.name })}
             onFocus={(event) => event.currentTarget.select()}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
@@ -328,8 +330,8 @@ function RoomContextMenu({
           <button
             type="button"
             onClick={saveRename}
-            aria-label="Save channel name"
-            title="Save"
+            aria-label={t("chrome.saveChannelName")}
+            title={t("room.save")}
             className="flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-secondary hover:bg-raised hover:text-ink"
           >
             <Check size={15} />
@@ -337,8 +339,8 @@ function RoomContextMenu({
           <button
             type="button"
             onClick={onClose}
-            aria-label="Cancel channel rename"
-            title="Cancel"
+            aria-label={t("chrome.cancelChannelRename")}
+            title={t("settings.browserProfiles.cancel")}
             className="flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-secondary hover:bg-raised hover:text-ink"
           >
             <X size={15} />
@@ -353,7 +355,7 @@ function RoomContextMenu({
           className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
         >
           <Pencil size={16} className="text-ink-secondary" />
-          Rename Channel
+          {t("chrome.renameChannel", { name: group.name })}
         </button>
       )}
       <button
@@ -443,8 +445,8 @@ function NewRoomPanel({ onClose }: { onClose: () => void }) {
             if (e.key === "Enter") create();
             if (e.key === "Escape") onClose();
           }}
-          placeholder="Context (optional): Work, Personal, Client…"
-          aria-label="Channel context"
+          placeholder={t("chrome.channelContext")}
+          aria-label={t("chrome.channelContext")}
           className="mb-3 w-full rounded-lg bg-raised/70 px-3 py-2 text-[14px] text-ink placeholder:text-ink-secondary focus:outline-none"
         />
         <BotPickerList
@@ -570,8 +572,8 @@ function SectionPicker({
           maxLength={60}
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="New context…"
-          aria-label="New context name"
+          placeholder={t("chrome.newContextName")}
+          aria-label={t("chrome.newContextName")}
           className="w-full rounded-lg bg-raised/70 px-2.5 py-1.5 text-[13px] text-ink placeholder:text-ink-secondary focus:outline-none"
         />
         <button
@@ -858,13 +860,13 @@ function BotListItem({
         type="button"
         disabled={archiveDisabled}
         onClick={() => onArchive(bot)}
-        aria-label={`Archive ${bot.name}`}
+        aria-label={t("chrome.archiveBot", { name: bot.name })}
         title={
           bot.chiefOfStaff
             ? "Choose another Chief of Staff first"
             : archiveDisabled
               ? "Keep at least one active bot"
-              : `Archive ${bot.name}`
+              : t("chrome.archiveBot", { name: bot.name })
         }
         className="absolute right-1 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-lg bg-card/90 text-ink-secondary opacity-0 shadow-sm transition hover:bg-raised hover:text-ink focus:opacity-100 disabled:cursor-default disabled:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100"
       >
@@ -883,6 +885,7 @@ function ArchivedBotsPanel({
   onClose: () => void;
   onRestored: (message: string) => void;
 }) {
+  const { t } = useI18n();
   const { dispatch } = useStore();
   const dialogRef = useRef<HTMLDivElement>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -957,7 +960,7 @@ function ArchivedBotsPanel({
         <header className="flex items-start justify-between gap-4 px-6 pb-4 pt-6 sm:px-8 sm:pt-7">
           <div>
             <h2 id="archived-bots-title" className="text-[22px] font-semibold tracking-[-0.01em] text-ink">{t("chrome.archivedBots")}</h2>
-            <p className="mt-1 text-[13px] text-ink-secondary">Conversations are kept until you choose to delete a bot.</p>
+            <p className="mt-1 text-[13px] text-ink-secondary">{t("chrome.archiveKept")}</p>
           </div>
           <div className="flex items-center gap-1">
             {bots.length > 1 && (
@@ -1296,9 +1299,9 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           <button
             type="button"
             onClick={toggleCollapsed}
-            aria-label={density === "icons" ? "Expand sidebar" : "Collapse sidebar to avatars"}
+            aria-label={density === "icons" ? t("chrome.expandSidebar") : t("chrome.collapseSidebar")}
             className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
-            title={density === "icons" ? "Expand sidebar" : "Collapse to avatars"}
+            title={density === "icons" ? t("chrome.expandSidebar") : t("chrome.collapseSidebar")}
           >
             {density === "icons" ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
           </button>
@@ -1306,10 +1309,10 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             <button
               type="button"
               onClick={() => setDensityOpen((value) => !value)}
-              aria-label="Choose sidebar density"
+              aria-label={t("chrome.sidebarDensity")}
               aria-expanded={densityOpen}
               className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
-              title="Sidebar density"
+              title={t("chrome.sidebarDensity")}
             >
               <span aria-hidden="true" className="flex size-5 flex-col items-center justify-center gap-[3px]">
                 <span className="h-px w-3.5 rounded-full bg-current" />
@@ -1345,9 +1348,9 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           <button
             ref={importReturnRef}
             onClick={() => setPlusOpen((o) => !o)}
-            aria-label="New or share"
+            aria-label={t("chrome.newOrShare")}
             className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
-            title="New or share"
+            title={t("chrome.newOrShare")}
           >
             <Plus size={20} strokeWidth={2} />
           </button>
@@ -1569,8 +1572,8 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           <button
             onClick={() => dispatch({ type: "toggleAppSettings" })}
             className={cn("flex min-w-0 items-center rounded-xl py-2 text-left hover:bg-raised/50", density === "icons" ? "justify-center px-2" : "flex-1 gap-3 px-3")}
-            aria-label={density === "icons" ? "App settings" : undefined}
-            title={density === "icons" ? (state.config?.profile?.name?.trim() || "App settings") : undefined}
+            aria-label={density === "icons" ? t("chrome.appSettings") : undefined}
+            title={density === "icons" ? (state.config?.profile?.name?.trim() || t("chrome.appSettings")) : undefined}
           >
             <InitialsAvatar initials={profileInitials(state.config?.profile)} size={28} />
             <span className={cn("truncate text-[14px] text-ink", density === "icons" && "hidden")}>
@@ -1588,7 +1591,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             onClick={() => dispatch({ type: "toggleAppSettings" })}
             aria-label={t("chrome.appSettings")}
             className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
-            title="App settings"
+            title={t("chrome.appSettings")}
           >
             <Settings size={18} aria-hidden="true" />
           </button>}

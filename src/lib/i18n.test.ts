@@ -111,3 +111,26 @@ describe("html locale", () => {
     expect(localeTag("en")).toBe("en");
   });
 });
+
+describe("complete phrases", () => {
+  it("keeps Korean room composer placeholders as complete phrases, not English fragments", () => {
+    expect(ko["composer.roomEveryone"]).not.toMatch(/everyone responds|Message \{name\}/i);
+    expect(ko["composer.roomMentions"]).not.toMatch(/bring a bot in|Message \{name\}/i);
+    expect(ko["composer.roomLead"]).not.toMatch(/responds$|Message \{name\}/i);
+    expect(ko["composer.roomDm"]).not.toMatch(/continue the conversation|Message \{name\}/i);
+    expect(ko["composer.roomEveryone"]).toContain("{name}");
+    expect(ko["composer.roomLead"]).toContain("{lead}");
+  });
+
+  it("does not append an English bot-maintained fragment", () => {
+    expect(en["chat.savedJustNowBot"]).toContain("bot-maintained");
+    expect(ko["chat.savedJustNowBot"]).not.toMatch(/bot-maintained/i);
+    expect(ko["chat.savedJustNowBot"]).toContain("봇이 유지");
+  });
+
+  it("does not glue an ellipsis onto room.choose", () => {
+    expect(en["room.chooseEllipsis"]).toBe("Choose…");
+    expect(ko["room.chooseEllipsis"]).toBe("선택…");
+    expect(ko["room.choose"]).not.toContain("…");
+  });
+});

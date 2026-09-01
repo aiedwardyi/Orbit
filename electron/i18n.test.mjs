@@ -35,3 +35,14 @@ describe("packaged locale", () => {
     expect(uiFontStack()).toContain("Malgun Gothic");
   });
 });
+
+describe("desktop viewer copy", () => {
+  it("paints the error page from packaged keys and includes Malgun Gothic", () => {
+    const main = readFileSync(join(import.meta.dirname, "main.mjs"), "utf8");
+    expect(main).toContain('nativeText("packaged.desktopUnavailable")');
+    expect(main).toContain('nativeText("packaged.liveDesktopFailed")');
+    expect(main).toContain('nativeText("packaged.openInBrowser")');
+    expect(main).toContain('nativeText("packaged.liveDesktop")');
+    expect(main).toMatch(/desktopViewerErrorPage[\s\S]*uiFontStack\(\)/);
+  });
+});
