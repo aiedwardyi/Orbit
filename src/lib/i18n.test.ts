@@ -14,7 +14,11 @@ import {
   translate,
 } from "./i18n";
 
-const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../styles.css"), "utf8");
+const here = dirname(fileURLToPath(import.meta.url));
+const css = readFileSync(join(here, "../styles.css"), "utf8");
+const updateBanner = readFileSync(join(here, "../components/UpdateBanner.tsx"), "utf8");
+const chatView = readFileSync(join(here, "../components/ChatView.tsx"), "utf8");
+const sidebar = readFileSync(join(here, "../components/Sidebar.tsx"), "utf8");
 
 afterEach(() => {
   applyLocale("en");
@@ -132,5 +136,46 @@ describe("complete phrases", () => {
     expect(en["room.chooseEllipsis"]).toBe("Choose…");
     expect(ko["room.chooseEllipsis"]).toBe("선택…");
     expect(ko["room.choose"]).not.toContain("…");
+  });
+});
+
+describe("remaining P1 surfaces", () => {
+  it("keeps Stop, update banner, and sidebar menu copy as complete EN+KO phrases", () => {
+    expect(en["composer.stop"]).toBe("Stop");
+    expect(ko["composer.stop"]).toBe("중지");
+    expect(en["update.available"]).toContain("{version}");
+    expect(ko["update.available"]).toContain("{version}");
+    expect(ko["update.available"]).not.toMatch(/is available/i);
+    expect(en["update.later"]).toBe("Later");
+    expect(ko["update.later"]).toBe("나중에");
+    expect(en["chrome.newChannel"]).toBe("New Channel");
+    expect(ko["chrome.newChannel"]).toBe("새 채널");
+    expect(ko["chrome.newChannel"]).not.toMatch(/New Channel/i);
+    expect(ko["chrome.createBotFirst"]).not.toMatch(/Create a bot first/i);
+    expect(ko["chrome.chooseAnotherChief"]).not.toMatch(/Chief of Staff/i);
+  });
+
+  it("wires those phrases into UpdateBanner, the Stop chip, and the sidebar", () => {
+    expect(updateBanner).toContain('t("update.available"');
+    expect(updateBanner).toContain('t("update.downloadingGeneric")');
+    expect(updateBanner).toContain('t("update.ready"');
+    expect(updateBanner).toContain('t("update.checkFailed")');
+    expect(updateBanner).toContain('t("update.newerReady")');
+    expect(updateBanner).toContain('t("update.restartToFinish")');
+    expect(updateBanner).toContain('t("update.willReopen")');
+    expect(updateBanner).toContain('t("update.genericError")');
+    expect(updateBanner).toContain('t("update.nonePublished")');
+    expect(updateBanner).toContain('t("update.unreachable")');
+    expect(updateBanner).toContain('t("update.dismiss")');
+    expect(updateBanner).toContain('t("update.later")');
+    expect(updateBanner).toContain('t("update.download")');
+    expect(updateBanner).not.toMatch(/>Later</);
+    expect(chatView).toContain('t("composer.stop")');
+    expect(chatView).not.toMatch(/<span className="@max-4xl\/chathead:hidden">Stop<\/span>/);
+    expect(sidebar).toContain('t("chrome.newChannel")');
+    expect(sidebar).toContain('t("chrome.createBotFirst")');
+    expect(sidebar).toContain('t("chrome.chooseAnotherChief")');
+    expect(sidebar).toContain('t("chrome.teamMap")');
+    expect(sidebar).not.toMatch(/aria-label=\{density === "icons" \? "Team map"/);
   });
 });

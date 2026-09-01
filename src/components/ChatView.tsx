@@ -1204,7 +1204,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
               title={t("composer.stopTurn")}
             >
               <Square size={12} className="fill-current" />
-              <span className="@max-4xl/chathead:hidden">Stop</span>
+              <span className="@max-4xl/chathead:hidden">{t("composer.stop")}</span>
             </button>
           )}
           <TaskPicker bot={bot} />
