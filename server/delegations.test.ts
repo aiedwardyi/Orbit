@@ -580,6 +580,56 @@ describe("busy retries and receipts", () => {
     expect(store.messagesFor(group.threadId).find((message) => message.tool?.name === "Delegated to @Helper")?.from?.botId).toBe(from.id);
   });
 
+  it("attributes a room waiting status to the initiating bot", async () => {
+    const group = store.createGroup("Project room", [from.id, target.id]);
+    store.patchBot(target.id, { busy: true });
+    queueDelegation(commsBus, from, { toBotId: target.id, message: "later", depth: 0 }, 1, group.threadId);
+
+    drainDelegations(commsBus, approvalBus, group.threadId, () => undefined, from.id);
+
+    const waiting = await waitFor(() =>
+      store.messagesFor(group.threadId).find((message) => message.tool?.name.includes("waiting")),
+    );
+    expect(waiting.from?.botId).toBe(from.id);
+  });
+
+  it("attributes a room denial status to the initiating bot", async () => {
+    const group = store.createGroup("Project room", [from.id, target.id]);
+    store.patchBot(from.id, { approvePeerComms: true });
+    queueDelegation(commsBus, from, { toBotId: target.id, message: "review this", depth: 0 }, 1, group.threadId);
+    drainDelegations(commsBus, approvalBus, group.threadId, () => undefined, from.id);
+
+    const card = await waitFor(() => store.messagesFor(group.threadId).find((message) => message.card?.requestId));
+    const requestId = card.card?.requestId;
+    if (!requestId) throw new Error("approval card has no request id");
+    resolvePeerComms(approvalBus, requestId, "deny");
+
+    const denied = await waitFor(() =>
+      store.messagesFor(group.threadId).find((message) => message.tool?.name.includes("denied by user")),
+    );
+    expect(denied.from?.botId).toBe(from.id);
+  });
+
+  it("attributes a room terminal failure to the initiating bot", async () => {
+    const group = store.createGroup("Project room", [from.id, target.id]);
+    queueDelegation(commsBus, from, { toBotId: target.id, message: "run this", depth: 0 }, 1, group.threadId);
+
+    drainDelegations(
+      commsBus,
+      approvalBus,
+      group.threadId,
+      () => {
+        throw new Error("target runner exploded");
+      },
+      from.id,
+    );
+
+    const failure = await waitFor(() =>
+      store.messagesFor(group.threadId).find((message) => message.tool?.name.includes("delegation failed")),
+    );
+    expect(failure.from?.botId).toBe(from.id);
+  });
+
   const chipCount = (needle: string) =>
     store.messagesFor(from.threadId).filter((m) => m.kind === "activity" && m.tool?.name?.includes(needle)).length;
 

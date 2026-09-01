@@ -11,6 +11,15 @@ export type TranscriptItem =
   | { kind: "message"; message: Message }
   | { kind: "run"; id: string; messages: Message[] };
 
+export function activityVisibleInChat(message: Message, showToolCalls: boolean): boolean {
+  const tool = message.tool;
+  return Boolean(
+    message.kind === "activity" &&
+      tool &&
+      (showToolCalls || message.comm || tool.ok === false || tool.name.startsWith("error:")),
+  );
+}
+
 /** A step that may be folded away: finished, a real tool, and not a
  * bot⇄bot chip (those are navigation, not work) or a failed turn (that
  * renders as an error). A step still running stays out, so live progress

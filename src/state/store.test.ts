@@ -6,6 +6,7 @@ import {
   loadSnapshotBoundary,
   openNotificationTarget,
   reducer,
+  shouldClearSelectedUnread,
   visibleNotificationThread,
   type Bot,
   type Group,
@@ -159,6 +160,17 @@ describe("notification routing", () => {
       bots,
       groups,
     })).toBeNull();
+  });
+
+  it("clears unread only when that exact conversation is visible", () => {
+    const owner = { id: "bot-1", unread: true };
+    expect(shouldClearSelectedUnread({ activeView: "chat", selectedId: "bot-1" }, owner)).toBe(true);
+    expect(shouldClearSelectedUnread({ activeView: "routines", selectedId: "bot-1" }, owner)).toBe(false);
+    expect(shouldClearSelectedUnread({ activeView: "chat", selectedId: "room-1" }, owner)).toBe(false);
+    expect(shouldClearSelectedUnread(
+      { activeView: "chat", selectedId: "bot-1" },
+      { ...owner, unread: false },
+    )).toBe(false);
   });
 });
 

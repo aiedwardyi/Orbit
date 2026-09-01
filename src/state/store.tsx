@@ -658,6 +658,13 @@ export function visibleNotificationThread(
   );
 }
 
+export function shouldClearSelectedUnread(
+  state: Pick<AppState, "activeView" | "selectedId">,
+  owner: { id: string; unread?: boolean },
+): boolean {
+  return Boolean(owner.unread && state.activeView === "chat" && state.selectedId === owner.id);
+}
+
 export function openNotificationTarget(
   dispatch: (action: Action) => void,
   target: NotificationTarget,
@@ -2034,7 +2041,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "bot": {
           const bot = frame.bot as BotAnnouncement;
           // reading the selected chat clears its badge immediately
-          if (bot.unread && bot.id === stateRef.current.selectedId) {
+          if (shouldClearSelectedUnread(stateRef.current, bot)) {
             bot.unread = false;
             fetch(`/api/bots/${bot.id}`, {
               method: "PATCH",
@@ -2051,7 +2058,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "group": {
           const group = frame.group as Partial<Group> & { id: string };
           // reading the selected room clears its badge immediately
-          if (group.unread && group.id === stateRef.current.selectedId) {
+          if (shouldClearSelectedUnread(stateRef.current, group)) {
             group.unread = false;
             fetch(`/api/groups/${group.id}`, {
               method: "PATCH",
