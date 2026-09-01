@@ -4,8 +4,10 @@ import { Loader2 } from "lucide-react";
 import { BOT_PROFILE_LIMITS } from "../../shared/bot-profile";
 import { api, useStore, type Bot } from "@/state/store";
 import { OrbitMark } from "./OrbitMark";
+import { useI18n } from "@/lib/i18n";
 
 export function CreateBotSheet({ required }: { required: boolean }) {
+  const { t } = useI18n();
   const { dispatch } = useStore();
   const [job, setJob] = useState("");
   const [saving, setSaving] = useState(false);
@@ -83,10 +85,10 @@ export function CreateBotSheet({ required }: { required: boolean }) {
           </div>
           <div>
             <h1 id="create-bot-title" className="text-[20px] font-semibold tracking-[-0.02em] text-ink">
-              What should this bot handle?
+              {t("createBot.title")}
             </h1>
             <p id="create-bot-help" className="mt-1 text-[13px] leading-relaxed text-ink-secondary">
-              Describe one ongoing job. Orbit will name the bot and pick a working engine. You can change both later.
+              {t("createBot.help")}
             </p>
           </div>
         </div>
@@ -98,14 +100,14 @@ export function CreateBotSheet({ required }: { required: boolean }) {
             void submit();
           }}
         >
-          <label htmlFor="create-bot-job" className="sr-only">Bot job</label>
+          <label htmlFor="create-bot-job" className="sr-only">{t("createBot.jobLabel")}</label>
           <textarea
             ref={inputRef}
             id="create-bot-job"
             value={job}
             maxLength={BOT_PROFILE_LIMITS.description}
             onChange={(event) => setJob(event.target.value)}
-            placeholder="For example: Keep a weekly competitor brief with links and a short list of decisions I need to make."
+            placeholder={t("createBot.placeholder")}
             className="min-h-[150px] w-full resize-y rounded-xl border border-hairline/50 bg-inset px-4 py-3 text-[15px] leading-relaxed text-ink placeholder:text-ink-secondary focus:border-accent/70 focus:outline-none"
           />
           {error && <div role="alert" className="mt-2 text-[12.5px] text-danger">{error}</div>}
@@ -117,7 +119,7 @@ export function CreateBotSheet({ required }: { required: boolean }) {
                 disabled={saving}
                 className="rounded-xl px-4 py-2.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink disabled:opacity-50"
               >
-                Cancel
+                {t("createBot.cancel")}
               </button>
             )}
             <button
@@ -126,7 +128,7 @@ export function CreateBotSheet({ required }: { required: boolean }) {
               className="flex min-w-[140px] items-center justify-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-[14px] font-semibold text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {saving && <Loader2 size={15} className="animate-spin" />}
-              Start chatting
+              {t("createBot.start")}
             </button>
           </div>
         </form>

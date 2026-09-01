@@ -51,6 +51,7 @@ import {
   type SidebarDensity,
 } from "@/lib/sidebar-preferences";
 import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
+import { t, useI18n } from "@/lib/i18n";
 
 /** "Milind Soni" → "MS", "milind" → "M", "you@x.dev" → "Y", unset → "?" */
 function profileInitials(profile?: { name?: string; email?: string }): string {
@@ -71,6 +72,7 @@ function profileInitials(profile?: { name?: string; email?: string }): string {
  * restart, with a brief "up to date" tick when a check finds nothing so a
  * click is never silent. The bottom-left popup handles the loud cases. */
 function UpdateButton() {
+  const { t } = useI18n();
   const s = useUpdaterState();
   const [checkedAt, setCheckedAt] = useState(0);
   const updater = window.ogb?.updater;
@@ -92,20 +94,20 @@ function UpdateButton() {
     pending || status === "checking" || status === "downloading" || status === "installing";
   const label =
     status === "available"
-      ? `Version ${s?.version ?? ""} available — download`
+      ? t("update.versionAvailable", { version: s?.version ?? "" })
       : status === "downloading"
         ? s?.percent == null
-          ? "Starting download…"
-          : `Downloading… ${Math.round(s.percent)}%`
+          ? t("update.startingDownload")
+          : t("update.downloadingPercent", { percent: Math.round(s.percent) })
         : status === "downloaded"
-          ? `Version ${s?.version ?? ""} ready — restart to update`
+          ? t("update.versionReady", { version: s?.version ?? "" })
           : status === "installing"
-            ? "Restarting to update…"
+            ? t("update.restarting")
             : status === "checking"
-              ? "Checking for updates…"
+              ? t("update.checking")
               : upToDate
-                ? "You're up to date"
-                : "Check for updates";
+                ? t("update.upToDate")
+                : t("settings.updates.check");
 
   return (
     <button
@@ -143,15 +145,15 @@ function UpdateButton() {
 }
 
 function preview(bot: Bot): string {
-  if (bot.activity === "waiting-on-you") return "Waiting for you…";
-  if (bot.busy) return "Working…";
+  if (bot.activity === "waiting-on-you") return t("chrome.waitingForYou");
+  if (bot.busy) return t("chrome.working");
   // the visible branch's tail — bot.messages holds every fork, so its last
   // entry can belong to a version the user switched away from
   const last = visibleMessages(bot).at(-1);
   if (!last) return "";
   if (last.kind === "options" && last.card) return last.card.title;
   if (last.kind === "activity" && last.tool) return last.tool.name;
-  if (last.kind === "screen") return "Screen frame";
+  if (last.kind === "screen") return t("chrome.screenFrame");
   return last.text ?? "";
 }
 
@@ -163,13 +165,13 @@ interface MenuState {
 
 function groupPreview(group: Group, bots: Bot[]): string {
   if (group.busyBotId) {
-    return `${bots.find((b) => b.id === group.busyBotId)?.name ?? "A bot"} is working…`;
+    return t("chrome.botWorking", { name: bots.find((b) => b.id === group.busyBotId)?.name ?? t("chrome.aBot") });
   }
   const last = group.messages.at(-1);
-  if (!last) return "No messages yet";
+  if (!last) return t("chrome.noMessages");
   const text = last.kind === "activity" && last.tool ? last.tool.name : (last.text ?? "");
-  if (last.role === "user") return `You: ${text}`;
-  return last.from ? `${last.from.name}: ${text}` : text;
+  if (last.role === "user") return t("chrome.youPrefix", { text });
+  return last.from ? t("chrome.speakerPrefix", { name: last.from.name, text }) : text;
 }
 
 /** Room avatar: 2–3 overlapping mauses in the same 56px slot a bot gets. */
@@ -269,6 +271,7 @@ function RoomContextMenu({
   onClose: () => void;
   onMoveToSection: (groupId: string) => void;
 }) {
+  const { t } = useI18n();
   const { state, dispatch } = useStore();
   const group = state.groups.find((g) => g.id === menu.groupId);
   const [renaming, setRenaming] = useState(false);
@@ -309,7 +312,7 @@ function RoomContextMenu({
             autoFocus
             value={draft}
             maxLength={100}
-            aria-label={`Rename ${group.name}`}
+            aria-label={t("chrome.renameChannel", { name: group.name })}
             onFocus={(event) => event.currentTarget.select()}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
@@ -327,8 +330,8 @@ function RoomContextMenu({
           <button
             type="button"
             onClick={saveRename}
-            aria-label="Save channel name"
-            title="Save"
+            aria-label={t("chrome.saveChannelName")}
+            title={t("room.save")}
             className="flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-secondary hover:bg-raised hover:text-ink"
           >
             <Check size={15} />
@@ -336,8 +339,8 @@ function RoomContextMenu({
           <button
             type="button"
             onClick={onClose}
-            aria-label="Cancel channel rename"
-            title="Cancel"
+            aria-label={t("chrome.cancelChannelRename")}
+            title={t("settings.browserProfiles.cancel")}
             className="flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-secondary hover:bg-raised hover:text-ink"
           >
             <X size={15} />
@@ -352,7 +355,7 @@ function RoomContextMenu({
           className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
         >
           <Pencil size={16} className="text-ink-secondary" />
-          Rename Channel
+          {t("chrome.renameChannel", { name: group.name })}
         </button>
       )}
       <button
@@ -363,7 +366,7 @@ function RoomContextMenu({
         className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
       >
         <FolderPlus size={16} className="text-ink-secondary" />
-        Move to context
+        {t("chrome.moveToContext")}
       </button>
       <button
         onClick={() => {
@@ -373,7 +376,7 @@ function RoomContextMenu({
         className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
       >
         <ClipboardCopy size={16} className="text-ink-secondary" />
-        Copy conversation ID
+        {t("chrome.copyConversationId")}
       </button>
       <button
         onClick={() => {
@@ -383,7 +386,7 @@ function RoomContextMenu({
         className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-danger hover:bg-raised/70"
       >
         <Trash2 size={16} />
-        Delete Channel
+        {t("chrome.deleteChannel")}
       </button>
     </div>,
     document.body,
@@ -392,6 +395,7 @@ function RoomContextMenu({
 
 /** Pick members and an optional Work/Personal/project context, then create. */
 function NewRoomPanel({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
   const { state, dispatch } = useStore();
   const [name, setName] = useState("");
   const [section, setSection] = useState("");
@@ -421,7 +425,7 @@ function NewRoomPanel({ onClose }: { onClose: () => void }) {
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="w-[340px] rounded-2xl border border-hairline/50 bg-card p-4 shadow-2xl">
-        <div className="mb-3 text-[15px] font-semibold text-ink">New Channel</div>
+        <div className="mb-3 text-[15px] font-semibold text-ink">{t("chrome.newChannel")}</div>
         <input
           autoFocus
           maxLength={100}
@@ -431,7 +435,8 @@ function NewRoomPanel({ onClose }: { onClose: () => void }) {
             if (e.key === "Enter") create();
             if (e.key === "Escape") onClose();
           }}
-          placeholder="Channel name (for example, Website launch)"
+          placeholder={t("chrome.channelNamePlaceholder")}
+          aria-label={t("chrome.channelNamePlaceholder")}
           className="mb-3 w-full rounded-lg bg-raised/70 px-3 py-2 text-[14px] text-ink placeholder:text-ink-secondary focus:outline-none"
         />
         <input
@@ -442,22 +447,26 @@ function NewRoomPanel({ onClose }: { onClose: () => void }) {
             if (e.key === "Enter") create();
             if (e.key === "Escape") onClose();
           }}
-          placeholder="Context (optional): Work, Personal, Client…"
-          aria-label="Channel context"
+          placeholder={t("chrome.channelContext")}
+          aria-label={t("chrome.channelContext")}
           className="mb-3 w-full rounded-lg bg-raised/70 px-3 py-2 text-[14px] text-ink placeholder:text-ink-secondary focus:outline-none"
         />
         <BotPickerList
           bots={bots}
           picked={picked}
           onToggle={toggle}
-          emptyHint="Create a bot first — channels are made of bots."
+          emptyHint={t("chrome.createBotFirst")}
         />
         <button
           onClick={create}
           disabled={!picked.size}
           className="mt-3 w-full rounded-lg bg-accent py-2 text-[14px] font-medium text-white hover:brightness-110 disabled:opacity-40"
         >
-          Create Channel{picked.size ? ` · ${picked.size} ${picked.size === 1 ? "bot" : "bots"}` : ""}
+          {picked.size === 0
+            ? t("chrome.createChannel")
+            : t(picked.size === 1 ? "chrome.createChannelOne" : "chrome.createChannelMany", {
+                count: picked.size,
+              })}
         </button>
       </div>
     </div>
@@ -494,6 +503,7 @@ function SectionPicker({
   /** "" clears — the server drops an empty section */
   onAssign: (section: string) => void;
 }) {
+  const { t } = useI18n();
   const { state } = useStore();
   const [name, setName] = useState("");
   const trimmed = name.trim();
@@ -537,7 +547,7 @@ function SectionPicker({
       className="fixed z-40 w-[236px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-2 shadow-2xl shadow-black/60"
     >
       <div className="px-3.5 pb-1 text-[10px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
-        Move to context
+        {t("chrome.moveToContext")}
       </div>
       {sections.length > 0 && (
         <div className="flex flex-col gap-0.5 px-1.5 py-1">
@@ -569,8 +579,8 @@ function SectionPicker({
           maxLength={60}
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="New context…"
-          aria-label="New context name"
+          placeholder={t("chrome.newContextName")}
+          aria-label={t("chrome.newContextName")}
           className="w-full rounded-lg bg-raised/70 px-2.5 py-1.5 text-[13px] text-ink placeholder:text-ink-secondary focus:outline-none"
         />
         <button
@@ -611,6 +621,7 @@ function BotContextMenu({
   onArchive: (bot: Bot) => void;
   onMoveToSection: (botId: string) => void;
 }) {
+  const { t } = useI18n();
   const { state, dispatch } = useStore();
   const bot = state.bots.find((b) => b.id === menu.botId);
 
@@ -635,9 +646,9 @@ function BotContextMenu({
   const visibleBotCount = state.bots.filter((candidate) => !candidate.hidden).length;
   const archiveBlocked = Boolean(bot.chiefOfStaff) || visibleBotCount <= 1;
   const archiveHint = bot.chiefOfStaff
-    ? "Choose another Chief of Staff first"
+    ? t("chrome.chooseAnotherChief")
     : visibleBotCount <= 1
-      ? "Keep at least one active bot"
+      ? t("chrome.keepOneBot")
       : undefined;
   // keep the menu on-screen near the click
   const top = Math.max(8, Math.min(menu.y, window.innerHeight - 380));
@@ -678,48 +689,48 @@ function BotContextMenu({
       {[
         item(
           bot.pinned ? <PinOff size={16} className="text-ink-secondary" /> : <Pin size={16} className="text-ink-secondary" />,
-          bot.pinned ? "Unpin" : "Pin",
+          bot.pinned ? t("chrome.unpin") : t("chrome.pin"),
           () => dispatch({ type: "updateBot", botId: bot.id, patch: { pinned: !bot.pinned } }),
         ),
         item(
           <Crown size={16} className={bot.chiefOfStaff ? "text-accent" : "text-ink-secondary"} />,
-          bot.chiefOfStaff ? "Remove Chief of Staff" : "Make Chief of Staff",
+          bot.chiefOfStaff ? t("chrome.removeChief") : t("chrome.makeChief"),
           () => dispatch({ type: "updateBot", botId: bot.id, patch: { chiefOfStaff: !bot.chiefOfStaff } }),
           {
             disabled: !bot.chiefOfStaff && !canCoordinate,
-            hint: !bot.chiefOfStaff && !canCoordinate ? "Choose a Claude or ACP engine first" : undefined,
+            hint: !bot.chiefOfStaff && !canCoordinate ? t("chrome.chooseEngineFirst") : undefined,
           },
         ),
-        item(<FolderPlus size={16} className="text-ink-secondary" />, "Move to section", () => {
+        item(<FolderPlus size={16} className="text-ink-secondary" />, t("chrome.moveToSection"), () => {
           onClose();
           onMoveToSection(bot.id);
         }),
-        item(<BellDot size={16} className="text-ink-secondary" />, "Mark as Unread", () =>
+        item(<BellDot size={16} className="text-ink-secondary" />, t("chrome.markUnread"), () =>
           dispatch({ type: "markUnread", botId: bot.id }),
         ),
         divider("d1"),
-        item(<Pencil size={16} className="text-ink-secondary" />, "Edit Profile", () => {
+        item(<Pencil size={16} className="text-ink-secondary" />, t("chrome.editProfile"), () => {
           dispatch({ type: "select", id: bot.id });
           dispatch({ type: "toggleSettings", open: true });
         }),
-        item(<Copy size={16} className="text-ink-secondary" />, "Duplicate", () =>
+        item(<Copy size={16} className="text-ink-secondary" />, t("chrome.duplicate"), () =>
           dispatch({ type: "duplicateBot", botId: bot.id }),
         ),
         divider("d2"),
-        item(<ClipboardCopy size={16} className="text-ink-secondary" />, "Copy conversation ID", () => {
+        item(<ClipboardCopy size={16} className="text-ink-secondary" />, t("chrome.copyConversationId"), () => {
           void navigator.clipboard?.writeText(bot.threadId);
         }),
         divider("d3"),
         item(
           <Archive size={16} className="text-ink-secondary" />,
-          "Archive",
+          t("chrome.archive"),
           () => onArchive(bot),
           {
             disabled: archiveBlocked,
             hint: archiveHint,
           },
         ),
-        item(<Trash2 size={16} />, "Delete", () => dispatch({ type: "deleteBot", botId: bot.id }), {
+        item(<Trash2 size={16} />, t("chrome.delete"), () => dispatch({ type: "deleteBot", botId: bot.id }), {
           danger: true,
         }),
       ]}
@@ -740,6 +751,7 @@ function BotListItem({
   onArchive: (bot: Bot) => void;
   archiveDisabled: boolean;
 }) {
+  const { t } = useI18n();
   const { state, dispatch } = useStore();
   const [renaming, setRenaming] = useState(false);
   const selected = state.activeView === "chat" && state.selectedId === bot.id;
@@ -804,7 +816,7 @@ function BotListItem({
           <span className="flex min-w-0 items-center gap-1.5 truncate text-[13px] text-ink-secondary">
             {bot.chiefOfStaff && (
               <span className="flex shrink-0 items-center gap-1 text-[11.5px] font-medium text-accent">
-                <Crown size={11} /> Chief of Staff
+                <Crown size={11} /> {t("chrome.chiefOfStaff")}
               </span>
             )}
             {bot.chiefOfStaff && preview(bot) && <span className="shrink-0 text-ink-secondary/60">·</span>}
@@ -857,13 +869,13 @@ function BotListItem({
         type="button"
         disabled={archiveDisabled}
         onClick={() => onArchive(bot)}
-        aria-label={`Archive ${bot.name}`}
+        aria-label={t("chrome.archiveBot", { name: bot.name })}
         title={
           bot.chiefOfStaff
-            ? "Choose another Chief of Staff first"
+            ? t("chrome.chooseAnotherChief")
             : archiveDisabled
-              ? "Keep at least one active bot"
-              : `Archive ${bot.name}`
+              ? t("chrome.keepOneBot")
+              : t("chrome.archiveBot", { name: bot.name })
         }
         className="absolute right-1 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-lg bg-card/90 text-ink-secondary opacity-0 shadow-sm transition hover:bg-raised hover:text-ink focus:opacity-100 disabled:cursor-default disabled:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100"
       >
@@ -882,6 +894,7 @@ function ArchivedBotsPanel({
   onClose: () => void;
   onRestored: (message: string) => void;
 }) {
+  const { t } = useI18n();
   const { dispatch } = useStore();
   const dialogRef = useRef<HTMLDivElement>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -955,8 +968,8 @@ function ArchivedBotsPanel({
       >
         <header className="flex items-start justify-between gap-4 px-6 pb-4 pt-6 sm:px-8 sm:pt-7">
           <div>
-            <h2 id="archived-bots-title" className="text-[22px] font-semibold tracking-[-0.01em] text-ink">Archived bots</h2>
-            <p className="mt-1 text-[13px] text-ink-secondary">Conversations are kept until you choose to delete a bot.</p>
+            <h2 id="archived-bots-title" className="text-[22px] font-semibold tracking-[-0.01em] text-ink">{t("chrome.archivedBots")}</h2>
+            <p className="mt-1 text-[13px] text-ink-secondary">{t("chrome.archiveKept")}</p>
           </div>
           <div className="flex items-center gap-1">
             {bots.length > 1 && (
@@ -973,7 +986,7 @@ function ArchivedBotsPanel({
               onClick={onClose}
               disabled={restoringAll || Boolean(busyId)}
               className="flex size-10 items-center justify-center rounded-lg text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-40"
-              aria-label="Close archived bots"
+              aria-label={t("chrome.closeArchived")}
             >
               <X size={21} />
             </button>
@@ -1009,6 +1022,7 @@ function ArchivedBotsPanel({
 }
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t } = useI18n();
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
   const importReturnRef = useRef<HTMLButtonElement>(null);
@@ -1257,7 +1271,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
 
   return (
     <aside
-      aria-label="Bots and navigation"
+      aria-label={t("chrome.navAria")}
       className={cn(
         "flex h-full shrink-0 flex-col border-r border-hairline/40 bg-panel transition-[width] duration-200",
         density === "icons" ? "w-[80px]" : density === "compact" ? "w-[272px]" : "w-[320px]",
@@ -1294,9 +1308,9 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           <button
             type="button"
             onClick={toggleCollapsed}
-            aria-label={density === "icons" ? "Expand sidebar" : "Collapse sidebar to avatars"}
+            aria-label={density === "icons" ? t("chrome.expandSidebar") : t("chrome.collapseSidebar")}
             className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
-            title={density === "icons" ? "Expand sidebar" : "Collapse to avatars"}
+            title={density === "icons" ? t("chrome.expandSidebar") : t("chrome.collapseSidebar")}
           >
             {density === "icons" ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
           </button>
@@ -1304,10 +1318,10 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             <button
               type="button"
               onClick={() => setDensityOpen((value) => !value)}
-              aria-label="Choose sidebar density"
+              aria-label={t("chrome.sidebarDensity")}
               aria-expanded={densityOpen}
               className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
-              title="Sidebar density"
+              title={t("chrome.sidebarDensity")}
             >
               <span aria-hidden="true" className="flex size-5 flex-col items-center justify-center gap-[3px]">
                 <span className="h-px w-3.5 rounded-full bg-current" />
@@ -1328,11 +1342,15 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                       type="button"
                       onClick={() => setDensity(option)}
                       className={cn(
-                        "flex w-full items-center justify-between px-3 py-2 text-left text-[13px] capitalize hover:bg-raised/70",
+                        "flex w-full items-center justify-between px-3 py-2 text-left text-[13px] hover:bg-raised/70",
                         density === option ? "text-accent" : "text-ink",
                       )}
                     >
-                      {option === "icons" ? "Avatars only" : option}
+                      {option === "icons"
+                        ? t("chrome.densityAvatars")
+                        : option === "compact"
+                          ? t("chrome.densityCompact")
+                          : t("chrome.densityComfortable")}
                       {density === option && <Check size={14} />}
                     </button>
                   ))}
@@ -1343,9 +1361,9 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           <button
             ref={importReturnRef}
             onClick={() => setPlusOpen((o) => !o)}
-            aria-label="New or share"
+            aria-label={t("chrome.newOrShare")}
             className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
-            title="New or share"
+            title={t("chrome.newOrShare")}
           >
             <Plus size={20} strokeWidth={2} />
           </button>
@@ -1365,7 +1383,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                   className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
                 >
                   <BotIcon size={16} className="text-ink-secondary" />
-                  New Bot
+                  {t("chrome.newBot")}
                 </button>
                 <button
                   onClick={() => {
@@ -1375,7 +1393,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                   className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
                 >
                   <Users size={16} className="text-ink-secondary" />
-                  New Channel
+                  {t("chrome.newChannel")}
                 </button>
                 <button
                   onClick={() => {
@@ -1386,7 +1404,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                   className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
                 >
                   {exportingTeam ? <Loader2 size={16} className="animate-spin text-ink-secondary" /> : <ArrowDownToLine size={16} className="text-ink-secondary" />}
-                  {exportingTeam ? "Exporting…" : "Export all bots"}
+                  {exportingTeam ? t("chrome.exporting") : t("chrome.exportAllBots")}
                 </button>
                 <button
                   onClick={() => {
@@ -1396,7 +1414,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                   className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
                 >
                   <Library size={16} className="text-ink-secondary" />
-                  Teams
+                  {t("chrome.teams")}
                 </button>
                 {archivedBots.length > 0 && (
                   <button
@@ -1407,7 +1425,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                     className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
                   >
                     <Archive size={16} className="text-ink-secondary" />
-                    <span className="flex-1">Archived bots</span>
+                    <span className="flex-1">{t("chrome.archivedBots")}</span>
                     <span className="text-[11.5px] text-ink-secondary">{archivedBots.length}</span>
                   </button>
                 )}
@@ -1425,8 +1443,8 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Escape" && setQuery("")}
-            placeholder="Search"
-            aria-label="Search bots and messages"
+            placeholder={t("chrome.search")}
+            aria-label={t("chrome.searchBotsAria")}
             className="w-full bg-transparent text-[14px] text-ink placeholder:text-ink-secondary focus:outline-none"
           />
         </div>
@@ -1449,11 +1467,11 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               />
             </div>
           )}
-          {unsectionedGroups.length > 0 && density !== "icons" && <SectionDivider name="Channels" />}
+          {unsectionedGroups.length > 0 && density !== "icons" && <SectionDivider name={t("chrome.channels")} />}
           {unsectionedGroups.map((g) => (
             <GroupListItem key={g.id} group={g} density={density} onMenu={setRoomMenu} />
           ))}
-          {visibleBots.length > 0 && density !== "icons" && <SectionDivider name="Bots" />}
+          {visibleBots.length > 0 && density !== "icons" && <SectionDivider name={t("chrome.bots")} />}
           {visibleBots.map((b) => (
             <BotListItem
               key={b.id}
@@ -1506,8 +1524,8 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       <div className={cn("pb-3 pt-2", density === "icons" ? "px-2" : "px-3")}>
         <button
           onClick={() => dispatch({ type: "showTeamMap" })}
-          aria-label={density === "icons" ? "Team map" : undefined}
-          title={density === "icons" ? "Team map" : undefined}
+          aria-label={density === "icons" ? t("chrome.teamMap") : undefined}
+          title={density === "icons" ? t("chrome.teamMap") : undefined}
           className={cn(
             "flex min-h-10 w-full items-center rounded-xl py-2 text-left transition-colors",
             density === "icons" ? "justify-center px-2" : "gap-3 px-3",
@@ -1515,13 +1533,13 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           )}
         >
           <Network size={20} className={state.activeView === "team-map" ? "text-accent" : "text-ink-secondary"} />
-          <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>Team map</span>
+          <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>{t("chrome.teamMap")}</span>
         </button>
         {skillRecorderEnabled(state.config) && (
           <button
             onClick={() => dispatch({ type: "showSkillRecorder" })}
-            aria-label={density === "icons" ? "Teach a skill" : undefined}
-            title={density === "icons" ? "Teach a skill" : undefined}
+            aria-label={density === "icons" ? t("chrome.teachSkill") : undefined}
+            title={density === "icons" ? t("chrome.teachSkill") : undefined}
             className={cn(
               "flex min-h-10 w-full items-center rounded-xl py-2 text-left transition-colors",
               density === "icons" ? "justify-center px-2" : "gap-3 px-3",
@@ -1529,13 +1547,13 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             )}
           >
             <Sparkles size={20} className={state.activeView === "skill-recorder" ? "text-accent" : "text-ink-secondary"} />
-            <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>Teach a skill</span>
+            <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>{t("chrome.teachSkill")}</span>
           </button>
         )}
         <button
           onClick={() => dispatch({ type: "showRoutines" })}
-          aria-label={density === "icons" ? "Tasks and routines" : undefined}
-          title={density === "icons" ? "Tasks and routines" : undefined}
+          aria-label={density === "icons" ? t("chrome.routines") : undefined}
+          title={density === "icons" ? t("chrome.routines") : undefined}
           className={cn(
             "flex min-h-10 w-full items-center rounded-xl py-2 text-left transition-colors",
             density === "icons" ? "justify-center px-2" : "gap-3 px-3",
@@ -1543,7 +1561,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           )}
         >
           <CalendarDays size={20} className={state.activeView === "routines" ? "text-accent" : "text-ink-secondary"} />
-          <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>Tasks &amp; routines</span>
+          <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>{t("chrome.routines")}</span>
           {state.routineRuns.some((run) => ["failed", "missed"].includes(run.status) && !run.seenAt) && (
             <span className="size-2 rounded-full bg-danger" />
           )}
@@ -1551,11 +1569,11 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         <button
           onClick={() => dispatch({ type: "togglePlugins", open: true })}
           className={cn("flex min-h-10 w-full items-center rounded-xl py-2 text-left hover:bg-raised/50", density === "icons" ? "justify-center px-2" : "gap-3 px-3")}
-          aria-label={density === "icons" ? "Connected apps" : undefined}
-          title={density === "icons" ? "Connected apps" : undefined}
+          aria-label={density === "icons" ? t("chrome.connectedApps") : undefined}
+          title={density === "icons" ? t("chrome.connectedApps") : undefined}
         >
           <Puzzle size={20} className="text-ink-secondary" />
-          <span className={cn("text-[14px] text-ink", density === "icons" && "hidden")}>Connected apps</span>
+          <span className={cn("text-[14px] text-ink", density === "icons" && "hidden")}>{t("chrome.connectedApps")}</span>
         </button>
         {density === "icons" && (
           <SidebarPhoneButton
@@ -1567,12 +1585,12 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           <button
             onClick={() => dispatch({ type: "toggleAppSettings" })}
             className={cn("flex min-w-0 items-center rounded-xl py-2 text-left hover:bg-raised/50", density === "icons" ? "justify-center px-2" : "flex-1 gap-3 px-3")}
-            aria-label={density === "icons" ? "App settings" : undefined}
-            title={density === "icons" ? (state.config?.profile?.name?.trim() || "App settings") : undefined}
+            aria-label={density === "icons" ? t("chrome.appSettings") : undefined}
+            title={density === "icons" ? (state.config?.profile?.name?.trim() || t("chrome.appSettings")) : undefined}
           >
             <InitialsAvatar initials={profileInitials(state.config?.profile)} size={28} />
             <span className={cn("truncate text-[14px] text-ink", density === "icons" && "hidden")}>
-              {state.config?.profile?.name?.trim() || state.config?.profile?.email?.trim() || "You"}
+              {state.config?.profile?.name?.trim() || state.config?.profile?.email?.trim() || t("chrome.you")}
             </span>
           </button>
           {density !== "icons" && (
@@ -1584,9 +1602,9 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           {density !== "icons" && <UpdateButton />}
           {density !== "icons" && <button
             onClick={() => dispatch({ type: "toggleAppSettings" })}
-            aria-label="App settings"
+            aria-label={t("chrome.appSettings")}
             className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
-            title="App settings"
+            title={t("chrome.appSettings")}
           >
             <Settings size={18} aria-hidden="true" />
           </button>}

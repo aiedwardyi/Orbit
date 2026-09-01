@@ -121,6 +121,9 @@ contextBridge.exposeInMainWorld("ogb", {
   /** Tell the window which skin the page wears, so the native chrome the
    * renderer cannot paint (the Windows caption-button overlay) matches. */
   applySkin: (skin) => ipcRenderer.invoke("desktop:skin", skin),
+  getLocale: () => ipcRenderer.sendSync("desktop:os-locale"),
+  getLocalePreference: () => ipcRenderer.sendSync("desktop:locale-preference-get"),
+  setLocalePreference: (preference) => ipcRenderer.invoke("desktop:locale-preference", preference),
   /** A reviewed BotMRR package opened through openmausbot://install. */
   onPackageInstall: (cb) => {
     packageInstallListeners.add(cb);

@@ -4,6 +4,7 @@ import { setEmailGateDone, track } from "@/lib/analytics";
 import type { InstanceInfo } from "@/state/store";
 import { EngineSetup } from "./EngineSetup";
 import { OrbitMark } from "./OrbitMark";
+import { useI18n } from "@/lib/i18n";
 import { ProviderMark } from "./ProviderIcons";
 
 const CORE_DRIVERS = new Set(["grokAgent", "claudeAgent", "codex", "geminiAgent"]);
@@ -48,6 +49,7 @@ function engineReady(instance: InstanceInfo): boolean {
 }
 
 function ReadyTile({ instance }: { instance: InstanceInfo }) {
+  const { t } = useI18n();
   const version = instance.snapshot.version?.split(" ")[0];
   return (
     <div className="flex min-w-0 items-start gap-2.5 rounded-xl border border-hairline/30 bg-card p-3">
@@ -56,7 +58,7 @@ function ReadyTile({ instance }: { instance: InstanceInfo }) {
         <div className="truncate text-[13.5px] font-medium text-ink">
           {instance.displayName}{version ? ` · ${version}` : ""}
         </div>
-        <div className="mt-0.5 text-[12px] leading-snug text-ink-secondary">Ready to power a bot.</div>
+        <div className="mt-0.5 text-[12px] leading-snug text-ink-secondary">{t("onboarding.engineReady")}</div>
       </div>
     </div>
   );
@@ -89,6 +91,7 @@ function Principle({ icon, title, text }: { icon: ReactNode; title: string; text
 }
 
 export function Onboarding({ onDone }: { onDone: () => void }) {
+  const { t } = useI18n();
   const [step, setStep] = useState(0);
   const [instances, setInstances] = useState<InstanceInfo[] | null>(null);
   const [instancesError, setInstancesError] = useState<string | null>(null);
@@ -113,7 +116,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
         .then((data) => active && request === latestRequest && setInstances(data.instances ?? []))
         .catch(() => {
           if (active && request === latestRequest) {
-            setInstancesError("Orbit couldn't check the AI engines on this computer.");
+            setInstancesError(t("onboarding.enginesError"));
           }
         });
     };
@@ -199,18 +202,18 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
               <div className="absolute inset-2 rounded-full bg-accent/20 blur-2xl" />
               <OrbitMark size={82} />
             </div>
-            <h1 id="onboarding-title" className="mt-5 text-[22px] font-semibold tracking-[-0.02em] text-ink">Welcome to Orbit</h1>
+            <h1 id="onboarding-title" className="mt-5 text-[22px] font-semibold tracking-[-0.02em] text-ink">{t("onboarding.welcomeTitle")}</h1>
             <p className="mt-1.5 max-w-[420px] text-center text-[13.5px] leading-relaxed text-ink-secondary">
-              A calm home for the AI tools already on this computer. Give a bot a job, then message it like anyone else.
+              {t("onboarding.welcomeBody")}
             </p>
             <div className="mt-6 grid w-full grid-cols-3 gap-2.5">
-              <Principle icon={<TerminalSquare size={14} />} title="Your engines" text="Claude, Codex, Gemini, and Grok use existing logins or API keys." />
-              <Principle icon={<LockKeyhole size={14} />} title="Local first" text="Chats, files, and preferences stay on this computer." />
-              <Principle icon={<Sparkles size={14} />} title="Real teammates" text="Give every bot a role, memory, tools, and routines." />
+              <Principle icon={<TerminalSquare size={14} />} title={t("onboarding.principle.engines.title")} text={t("onboarding.principle.engines.text")} />
+              <Principle icon={<LockKeyhole size={14} />} title={t("onboarding.principle.local.title")} text={t("onboarding.principle.local.text")} />
+              <Principle icon={<Sparkles size={14} />} title={t("onboarding.principle.teammates.title")} text={t("onboarding.principle.teammates.text")} />
             </div>
             {instancesError && (
               <div role="alert" className="mt-4 w-full rounded-xl border border-danger/30 bg-danger/10 px-3.5 py-3 text-[12.5px] text-danger">
-                {instancesError} Try again when the local server is ready.
+                {instancesError} {t("onboarding.enginesErrorHint")}
               </div>
             )}
             <button
@@ -219,7 +222,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
               onClick={() => instancesError ? retryInstances() : hasReadyEngine ? finish() : setStep(1)}
               className={`${instancesError ? "mt-3" : "mt-6"} w-full rounded-xl bg-accent py-2.5 text-[14px] font-semibold text-white transition-[filter,transform] hover:brightness-110 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40`}
             >
-              {instancesError ? "Try again" : instances ? "Continue" : "Checking your computer..."}
+              {instancesError ? t("onboarding.tryAgain") : instances ? t("onboarding.continue") : t("onboarding.checking")}
             </button>
           </div>
         ) : (
@@ -227,24 +230,24 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             <div className="flex items-center gap-3">
               <OrbitMark size={38} />
               <div>
-                <h1 id="onboarding-title" className="text-[18px] font-semibold text-ink">Your engines</h1>
-                <p className="mt-0.5 text-[12.5px] text-ink-secondary">Orbit found the AI tools installed on this computer.</p>
+                <h1 id="onboarding-title" className="text-[18px] font-semibold text-ink">{t("onboarding.enginesTitle")}</h1>
+                <p className="mt-0.5 text-[12.5px] text-ink-secondary">{t("onboarding.enginesFound")}</p>
               </div>
             </div>
             <div className="mt-5 flex min-h-0 flex-col gap-2.5 overflow-y-auto pr-1 [scrollbar-width:thin]">
               {instancesError ? (
                 <div role="alert" className="rounded-xl border border-danger/30 bg-danger/10 px-3.5 py-3 text-[12.5px] text-danger">
-                  {instancesError} Try again when the local server is ready.
+                  {instancesError} {t("onboarding.enginesErrorHint")}
                 </div>
               ) : !instances ? (
                 <div className="flex items-center justify-center gap-2 py-12 text-[13px] text-ink-secondary">
-                  <Loader2 size={15} className="animate-spin" /> Checking your computer…
+                  <Loader2 size={15} className="animate-spin" /> {t("onboarding.checking")}
                 </div>
               ) : (
                 <>
                   {readyEngines.length > 0 && (
                     <section>
-                      <div className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">Ready</div>
+                      <div className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">{t("onboarding.ready")}</div>
                       <div className="grid grid-cols-2 gap-2.5">
                         {readyEngines.map((instance) => <ReadyTile key={instance.instanceId} instance={instance} />)}
                       </div>
@@ -252,19 +255,19 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                   )}
                   {setupEngines.length > 0 && (
                     <section className={readyEngines.length ? "mt-2" : ""}>
-                      <div className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">Optional setup</div>
+                      <div className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">{t("onboarding.optionalSetup")}</div>
                       <div className="flex flex-col gap-2.5">
                         {setupEngines.map((instance) => <SetupRow key={instance.instanceId} instance={instance} />)}
                       </div>
                     </section>
                   )}
-                  <p className="px-1 pt-1 text-[11px] text-ink-secondary/70">More engines stay available in Settings.</p>
+                  <p className="px-1 pt-1 text-[11px] text-ink-secondary/70">{t("onboarding.moreInSettings")}</p>
                 </>
               )}
             </div>
             <div className="mt-5 flex shrink-0 items-center gap-2.5">
-              <button type="button" onClick={() => setStep(0)} className="rounded-xl px-4 py-2.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink">Back</button>
-              <button type="button" onClick={instancesError ? retryInstances : finish} disabled={!instancesError && !hasReadyEngine} className="flex-1 rounded-xl bg-accent py-2.5 text-[14px] font-semibold text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">{instancesError ? "Try again" : "Open Orbit"}</button>
+              <button type="button" onClick={() => setStep(0)} className="rounded-xl px-4 py-2.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink">{t("onboarding.back")}</button>
+              <button type="button" onClick={instancesError ? retryInstances : finish} disabled={!instancesError && !hasReadyEngine} className="flex-1 rounded-xl bg-accent py-2.5 text-[14px] font-semibold text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">{instancesError ? t("onboarding.tryAgain") : t("onboarding.openOrbit")}</button>
             </div>
           </div>
         )}

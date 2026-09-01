@@ -4,8 +4,10 @@ import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
 import { landOnSearchHit } from "@/lib/focus-message";
 import type { SearchHit } from "@/lib/search-hit";
 import { api, useStore } from "@/state/store";
+import { useI18n } from "@/lib/i18n";
 
 export function ChatFindBar({ threadId, onClose }: { threadId: string; onClose: () => void }) {
+  const { t } = useI18n();
   const { state, dispatch } = useStore();
   const inputRef = useRef<HTMLInputElement>(null);
   const requestRef = useRef(0);
@@ -85,18 +87,18 @@ export function ChatFindBar({ threadId, onClose }: { threadId: string; onClose: 
               move(event.shiftKey ? -1 : 1);
             }
           }}
-          placeholder="Find in this conversation"
-          aria-label="Find in this conversation"
+          placeholder={t("find.placeholder")}
+          aria-label={t("find.placeholder")}
           className="min-w-0 flex-1 bg-transparent px-1 text-[13px] text-ink outline-none placeholder:text-ink-secondary/70"
         />
         <span className="min-w-[58px] text-right text-[11.5px] tabular-nums text-ink-secondary">
-          {loading ? "Searching…" : query.trim() ? (hits.length ? `${index + 1} of ${hits.length}` : "No results") : ""}
+          {loading ? t("find.searching") : query.trim() ? (hits.length ? t("find.of", { current: index + 1, total: hits.length }) : t("find.noResults")) : ""}
         </span>
         <button
           type="button"
           onClick={() => move(-1)}
           disabled={!hits.length}
-          aria-label="Previous result"
+          aria-label={t("find.previous")}
           className="rounded-md p-1 text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-30"
         >
           <ChevronUp size={15} />
@@ -105,7 +107,7 @@ export function ChatFindBar({ threadId, onClose }: { threadId: string; onClose: 
           type="button"
           onClick={() => move(1)}
           disabled={!hits.length}
-          aria-label="Next result"
+          aria-label={t("find.next")}
           className="rounded-md p-1 text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-30"
         >
           <ChevronDown size={15} />
@@ -113,7 +115,7 @@ export function ChatFindBar({ threadId, onClose }: { threadId: string; onClose: 
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close find"
+          aria-label={t("find.close")}
           className="rounded-md p-1 text-ink-secondary hover:bg-raised hover:text-ink"
         >
           <X size={15} />

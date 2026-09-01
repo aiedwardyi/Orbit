@@ -34,6 +34,7 @@ import { normalizeState } from "@/lib/mascot";
 import { groupComposerHint, roomRespondersForComposer } from "@/lib/group-routing";
 import { PendingApprovalActions, PendingApprovalPanel, pendingApprovals } from "./PendingApproval";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
+import { useI18n } from "@/lib/i18n";
 import { ReplyQuote } from "./ReplyQuote";
 
 /** The active @mention query at the caret: the text between an `@` that
@@ -64,6 +65,7 @@ interface QueuedGroupSend {
  * — picking Auto mode here turns that on. The chip only changes its name,
  * not its color. */
 function PermissionModeSelector({ bot, onSetAuto }: { bot: Bot; onSetAuto: (auto: boolean) => void }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const on = Boolean(bot.autoApprove);
@@ -94,22 +96,22 @@ function PermissionModeSelector({ bot, onSetAuto }: { bot: Bot; onSetAuto: (auto
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={on ? "Auto mode" : "Ask for approval"}
+        aria-label={on ? t("composer.autoMode") : t("composer.askApproval")}
         onClick={() => setOpen((current) => !current)}
         className="flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full border border-hairline/20 bg-transparent px-3 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
       >
         {on ? <ShieldCheck size={14} className="opacity-70" /> : <Hand size={14} className="opacity-70" />}
-        {on ? "Auto mode" : "Ask for approval"}
+        {on ? t("composer.autoMode") : t("composer.askApproval")}
       </button>
 
       {open && (
         <div
           role="menu"
-          aria-label={`Permission mode for ${bot.name}`}
+          aria-label={t("composer.permissionMode", { name: bot.name })}
           className="absolute bottom-full left-0 z-30 mb-2 w-80 overflow-hidden rounded-xl border border-hairline/40 bg-raised shadow-lg"
         >
           <div className="border-b border-hairline/20 px-4 py-3 text-[13px] font-medium text-ink-secondary">
-            How should {bot.name} actions be approved?
+            {t("composer.approvalMenu", { name: bot.name })}
           </div>
           <div className="flex flex-col py-1">
             <button
@@ -125,10 +127,10 @@ function PermissionModeSelector({ bot, onSetAuto }: { bot: Bot; onSetAuto: (auto
               <Hand size={16} className="mt-0.5 shrink-0 opacity-70" />
               <div className="flex w-full flex-col gap-0.5">
                 <div className="flex items-center justify-between text-[14px] text-ink">
-                  Ask for approval
+                  {t("composer.askApproval")}
                   {!on && <Check size={14} />}
                 </div>
-                <div className="text-[13px] text-ink-secondary">Ask before actions that need your permission</div>
+                <div className="text-[13px] text-ink-secondary">{t("composer.askApprovalHelp")}</div>
               </div>
             </button>
             <button
@@ -144,11 +146,11 @@ function PermissionModeSelector({ bot, onSetAuto }: { bot: Bot; onSetAuto: (auto
               <ShieldCheck size={16} className="mt-0.5 shrink-0 opacity-70" />
               <div className="flex w-full flex-col gap-0.5">
                 <div className="flex items-center justify-between text-[14px] text-ink">
-                  Auto mode
+                  {t("composer.autoMode")}
                   {on && <Check size={14} />}
                 </div>
                 <div className="text-[13px] text-ink-secondary">
-                  Keep going automatically; destructive and sensitive actions still ask
+                  {t("composer.autoModeHelp")}
                 </div>
               </div>
             </button>
@@ -184,6 +186,7 @@ export function Composer({
   locked?: boolean;
   focusBlocked?: boolean;
 }) {
+  const { t } = useI18n();
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
   // Unified target: a 1:1 bot thread or a room. In a room the @ picker
@@ -205,8 +208,8 @@ export function Composer({
       members?.find((member) => member.id === group.busyBotId)
     : bot;
   const busyName = group
-    ? (members?.find((b) => b.id === group.busyBotId)?.name ?? "A bot")
-    : (bot?.name ?? "The bot");
+    ? (members?.find((b) => b.id === group.busyBotId)?.name ?? t("chrome.aBot"))
+    : (bot?.name ?? t("chrome.aBot"));
   // Per-thread draft: switching bots unmounts this component, so both the
   // text and its attachment chips have to outlive it (see lib/drafts).
   const draftId = group
@@ -299,8 +302,8 @@ export function Composer({
   const engineSupportsImages = imageSupport !== "unsupported";
   const imageSupportError = (support: ReturnType<typeof imageTargetsSupport>) =>
     support === "unknown"
-      ? "Engine details are still loading. Try sending the image again in a moment."
-      : "The selected responder does not support image attachments.";
+      ? t("composer.imageLoading")
+      : t("composer.imageUnsupported");
 
   // ── @mention picker (tag another bot; the agent reaches it via ask_bot) ──
   const mention = mentionQueryAt(text, caret);
@@ -539,11 +542,9 @@ export function Composer({
     const offEnd = bridge.onSpeechEnd(({ code }) => {
       setRecording(false);
       if (code === 2) {
-        setSpeechError("Dictation is only available on macOS for now.");
+        setSpeechError(t("composer.dictationMacOnly"));
       } else if (code === 1) {
-        setSpeechError(
-          "Dictation needs Microphone + Speech Recognition access — System Settings → Privacy & Security.",
-        );
+        setSpeechError(t("composer.dictationPermission"));
       }
     });
     void bridge.speechStart();
@@ -556,7 +557,7 @@ export function Composer({
 
   const toggleMic = () => {
     if (!capabilities.dictation.available || !window.ogb) {
-      setSpeechError("Dictation isn't available in this build.");
+      setSpeechError(t("composer.dictationUnavailable"));
       return;
     }
     baseText.current = text.trim();
@@ -579,20 +580,20 @@ export function Composer({
             className="mb-2 flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[12.5px] text-danger"
           >
             <span className="min-w-0 flex-1 truncate">
-              Not sent: “{failed.text.trim() || "attachment"}”
+              {t("composer.notSent", { text: failed.text.trim() || t("composer.attachment") })}
             </span>
             <button
               type="button"
               onClick={() => retryFailedSend(failed)}
               className="shrink-0 rounded px-2 py-1 font-medium hover:bg-danger/10"
             >
-              Retry
+              {t("composer.retry")}
             </button>
             <button
               type="button"
               onClick={() => forgetFailedComposerSend(draftId, failed.id)}
-              aria-label="Dismiss failed message"
-              title="Dismiss"
+              aria-label={t("composer.dismissFailed")}
+              title={t("chat.dismiss")}
               className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-danger/10"
             >
               <X size={13} strokeWidth={2.5} />
@@ -603,7 +604,7 @@ export function Composer({
           <div className="mb-2 flex items-center gap-2 rounded-lg border border-hairline/40 bg-panel px-3 py-2 text-[12.5px] text-ink-secondary">
             <Clock size={13} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">
-              Queued — sends when {busyName} finishes: “{pendingChip}”
+              {t("composer.queuedUntil", { name: busyName, text: pendingChip })}
             </span>
             <button
               type="button"
@@ -617,8 +618,8 @@ export function Composer({
                   dispatch({ type: "cancelQueued", botId: bot.id, queueId: entry.queueId });
                 }
               }}
-              aria-label="Cancel queued message"
-              title="Cancel queued message"
+              aria-label={t("composer.cancelQueued")}
+              title={t("composer.cancelQueued")}
               className="ml-auto flex size-5 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-raised hover:text-ink"
             >
               <X size={13} strokeWidth={2.5} />
@@ -628,7 +629,7 @@ export function Composer({
         {pickerOpen && (
           <div
             role="listbox"
-            aria-label="Tag a bot"
+            aria-label={t("composer.tagBot")}
             className="absolute bottom-full left-2 z-20 mb-2 w-72 overflow-hidden rounded-xl border border-hairline/40 bg-raised shadow-lg"
           >
             {candidates.map((peer, i) => (
@@ -655,7 +656,7 @@ export function Composer({
                   </span>
                 )}
                 <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-ink">{peer.name}</span>
-                <span className="shrink-0 text-xs text-ink-secondary">{peer.bot ? "Agent" : "Channel"}</span>
+                <span className="shrink-0 text-xs text-ink-secondary">{peer.bot ? t("composer.agent") : t("composer.channel")}</span>
               </button>
             ))}
           </div>
@@ -718,8 +719,8 @@ export function Composer({
               <button
                 type="button"
                 onClick={() => fileInput.current?.click()}
-                aria-label="Attach a file"
-                title="Attach a file"
+                aria-label={t("composer.attach")}
+                title={t("composer.attach")}
                 className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-secondary hover:bg-control hover:text-ink"
               >
                 <Paperclip size={17} />
@@ -813,22 +814,22 @@ export function Composer({
           disabled={Boolean(approval) || locked}
           placeholder={
             locked
-              ? "Finish room setup to start chatting"
+              ? t("composer.finishSetup")
               : approval
-              ? "Answer the approval above to continue"
+              ? t("composer.answerApproval")
               : recording
-              ? "Listening…"
+              ? t("composer.listening")
               : busy && canSteer
-                ? `${busyName} is working — Enter sends this into the running turn`
+                ? t("composer.steerHint", { name: busyName })
               : busy
                 ? group
-                  ? `${busyName} is working — Enter queues your message`
-                  : `${busyName} is working — sends when this turn finishes`
+                  ? t("composer.queueHint", { name: busyName })
+                  : t("composer.waitHint", { name: busyName })
                 : group
-                  ? `Message ${group.name} — ${groupComposerHint(group, members ?? [])}`
-                  : `Message ${bot?.name ?? ""}`
+                  ? groupComposerHint(group, members ?? [], t)
+                  : t("composer.placeholder", { name: bot?.name ?? "" })
           }
-          aria-label={`Message ${group ? group.name : (bot?.name ?? "")}`}
+          aria-label={t("composer.messageAria", { name: group ? group.name : (bot?.name ?? "") })}
             className="col-span-full row-start-1 max-h-[9rem] min-h-6 w-full resize-none overflow-y-auto self-center bg-transparent px-1 py-1 text-[15px] leading-6 text-ink placeholder:text-ink-secondary focus:outline-none"
           />
           <div className="col-start-3 row-start-2 mt-1 flex items-center gap-1">
@@ -838,9 +839,9 @@ export function Composer({
               if (group) dispatch({ type: "interruptGroup", groupId: group.id });
               else if (bot) dispatch({ type: "interrupt", botId: bot.id });
             }}
-            aria-label="Stop this turn"
+            aria-label={t("composer.stopTurn")}
             className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-secondary hover:bg-raised hover:text-ink"
-            title="Stop"
+            title={t("composer.stop")}
           >
             <Square size={14} className="fill-current" />
           </button>
@@ -848,14 +849,14 @@ export function Composer({
         {!locked && !busy && !hasContent && capabilities.dictation.available && (
           <button
             onClick={toggleMic}
-            aria-label={recording ? "Stop dictation" : "Start dictation"}
+            aria-label={recording ? t("composer.stopDictation") : t("composer.startDictation")}
             className={cn(
               "flex size-8 shrink-0 items-center justify-center rounded-full",
               recording
                 ? "animate-pulse bg-danger/20 text-danger"
                 : "text-ink-secondary hover:bg-raised hover:text-ink",
             )}
-            title={recording ? "Stop dictation (Esc)" : "Dictate"}
+            title={recording ? t("composer.stopDictationEsc") : t("composer.dictate")}
           >
             <Mic size={18} />
           </button>
@@ -866,21 +867,21 @@ export function Composer({
             disabled={Boolean(group && queued)}
             aria-label={
               group && queued
-                ? "Waiting for queued message"
+                ? t("composer.waitingQueued")
                 : busy && canSteer
-                  ? "Send into the running turn"
+                  ? t("composer.sendIntoTurn")
                   : busy
-                    ? "Queue message"
-                    : "Send message"
+                    ? t("composer.queueMessage")
+                    : t("composer.sendMessage")
             }
             title={
               group && queued
-                ? "Your earlier message will send when the current turn finishes"
+                ? t("composer.queuedSendsLater")
                 : busy && canSteer
-                  ? "Send into the running turn"
+                  ? t("composer.sendIntoTurn")
                   : busy
-                    ? "Sends when the current turn finishes"
-                    : "Send"
+                    ? t("composer.sendsWhenFinished")
+                    : t("composer.send")
             }
             className={cn(
               "flex size-8 shrink-0 items-center justify-center rounded-full text-white",

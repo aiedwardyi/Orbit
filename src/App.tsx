@@ -22,8 +22,10 @@ import { BrowserWorkspace } from "@/components/BrowserWorkspace";
 import { SkillRecorderPage } from "@/components/SkillRecorderPage";
 import { TeamMapPage } from "@/components/TeamMapPage";
 import { CreateBotSheet } from "@/components/CreateBotSheet";
+import { I18nProvider, useI18n } from "@/lib/i18n";
 
 function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
+  const { t } = useI18n();
   const { state, dispatch } = useStore();
   const unreadCount = unreadConversationCount(state.bots, state.groups);
   // Mobile-only drawer state. Above md, none of these properties are emitted
@@ -182,7 +184,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       <button
         type="button"
         ref={menuButtonRef}
-        aria-label="Open bot list"
+        aria-label={t("chrome.openBotList")}
         aria-expanded={drawerOpen}
         onClick={() => setDrawerOpen(true)}
         className="absolute left-3 top-3 z-30 rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink md:hidden"
@@ -228,11 +230,11 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
         <main className="flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-app text-ink-secondary">
           <Loader2 size={20} className="animate-spin" />
           <div className="text-[14px]">
-            {state.connected ? "No bots yet" : "Connecting to the bot server…"}
+            {state.connected ? t("chrome.noBots") : t("chrome.connecting")}
           </div>
           {!state.connected && (
             <div className="text-[12px]">
-              Start it with <code className="rounded bg-raised px-1.5 py-0.5">pnpm dev:server</code>
+              {t("chrome.startServerHint")} <code className="rounded bg-raised px-1.5 py-0.5">pnpm dev:server</code>
             </div>
           )}
         </main>
@@ -261,11 +263,13 @@ export default function App() {
     initAnalytics();
   }, []);
   return (
-    <DesktopCapabilitiesProvider>
+    <I18nProvider>
+      <DesktopCapabilitiesProvider>
       <StoreProvider>
         <Shell onboardingOpen={gated} />
         {gated && <Onboarding onDone={() => setGated(false)} />}
       </StoreProvider>
-    </DesktopCapabilitiesProvider>
+      </DesktopCapabilitiesProvider>
+    </I18nProvider>
   );
 }

@@ -1,4 +1,5 @@
 import type { Bot, Group, GroupDefaultResponder } from "@/state/store";
+import { t, type Translate } from "./i18n";
 
 /** Be defensive around rooms loaded while an older server is still running,
  * and around a lead removed by another client before the group patch arrives. */
@@ -12,27 +13,29 @@ export function effectiveDefaultResponder(
   return members[0] ? { kind: "member", botId: members[0].id } : { kind: "mentions" };
 }
 
-export function defaultResponderName(group: Group, members: Bot[]): string | null {
+export function defaultResponderName(group: Pick<Group, "defaultResponder">, members: Array<Pick<Bot, "id" | "name">>): string | null {
   const value = effectiveDefaultResponder(group, members);
   if (value.kind !== "member") return null;
   return members.find((member) => member.id === value.botId)?.name ?? null;
 }
 
-export function groupResponseHint(group: Group, members: Bot[]): string {
-  if (group.dm) return "Reply here to continue the bot-to-bot conversation.";
+export function groupResponseHint(group: Pick<Group, "dm" | "defaultResponder">, members: Array<Pick<Bot, "id" | "name">>, translate: Translate = t): string {
+  if (group.dm) return translate("room.hint.dm");
   const value = effectiveDefaultResponder(group, members);
-  if (value.kind === "everyone") return "Everyone responds unless you @mention specific bots.";
-  if (value.kind === "mentions") return "Mention a bot with @ to bring them in.";
-  const name = defaultResponderName(group, members) ?? "The lead bot";
-  return `${name} responds by default — @mention someone else to choose them instead.`;
+  if (value.kind === "everyone") return translate("room.hint.everyone");
+  if (value.kind === "mentions") return translate("room.hint.mentions");
+  const name = defaultResponderName(group, members) ?? translate("room.leadBot");
+  return translate("room.hint.lead", { name });
 }
 
-export function groupComposerHint(group: Group, members: Bot[]): string {
-  if (group.dm) return "continue the conversation";
+/** Complete composer placeholder for a room — never an English fragment glued into another phrase. */
+export function groupComposerHint(group: Pick<Group, "name" | "dm" | "defaultResponder">, members: Array<Pick<Bot, "id" | "name">>, translate: Translate = t): string {
+  if (group.dm) return translate("composer.roomDm", { name: group.name });
   const value = effectiveDefaultResponder(group, members);
-  if (value.kind === "everyone") return "everyone responds";
-  if (value.kind === "mentions") return "@ to bring a bot in";
-  return `${defaultResponderName(group, members) ?? "Lead"} responds`;
+  if (value.kind === "everyone") return translate("composer.roomEveryone", { name: group.name });
+  if (value.kind === "mentions") return translate("composer.roomMentions", { name: group.name });
+  const lead = defaultResponderName(group, members) ?? translate("room.lead");
+  return translate("composer.roomLead", { name: group.name, lead });
 }
 
 /** Same routing sendGroup uses: explicit @mentions win, otherwise the

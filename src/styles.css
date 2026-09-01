@@ -54,7 +54,7 @@
   --color-warning: #ff9800;
 
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
-    "Segoe UI", system-ui, sans-serif;
+    "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
 }
 
 /* Tokens that no utility generates — declared outside `@theme` so Tailwind
@@ -103,7 +103,7 @@
   --color-maus-line: #fcfcfc;
 
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
-    "Segoe UI", system-ui, sans-serif;
+    "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   --radius-lg: 0.5rem;
   --radius-xl: 0.75rem;
 }
@@ -149,7 +149,7 @@
 
   /* System faces rather than Inter: paper reads as the platform's own. */
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, sans-serif;
+    "Malgun Gothic", "Apple SD Gothic Neo", Roboto, sans-serif;
   --radius-lg: 6px;
   --radius-xl: 10px;
 }
@@ -200,7 +200,7 @@
   --color-maus-line: #b0a696;
 
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
-    "Segoe UI", system-ui, sans-serif;
+    "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   --radius-lg: 4px;
   --radius-xl: 8px;
 }
@@ -258,7 +258,7 @@
   --color-maus-line: #4d5c5b;
 
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, sans-serif;
+    "Malgun Gothic", "Apple SD Gothic Neo", Roboto, sans-serif;
   --radius-lg: 8px;
   --radius-xl: 14px;
 }
