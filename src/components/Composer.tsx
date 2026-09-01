@@ -170,6 +170,7 @@ export function Composer({
   onConsumeReply,
   onRestoreReply,
   locked = false,
+  focusBlocked = false,
 }: {
   bot?: Bot;
   group?: Group;
@@ -181,6 +182,7 @@ export function Composer({
   onRestoreReply?: (message: Message, threadId: string) => void;
   /** New rooms keep the composer inert until their setup is saved or skipped. */
   locked?: boolean;
+  focusBlocked?: boolean;
 }) {
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
@@ -274,12 +276,14 @@ export function Composer({
   const baseText = useRef("");
 
   useEffect(() => {
-    if (!bot || state.composerFocusBotId !== bot.id) return;
+    if (!bot || focusBlocked || state.composerFocusBotId !== bot.id) return;
+    const active = document.activeElement;
+    if (active instanceof Element && active.closest('[role="dialog"][aria-modal="true"]')) return;
     const input = inputRef.current;
     if (!input || input.disabled) return;
     input.focus();
     dispatch({ type: "composerFocused", botId: bot.id });
-  }, [bot, dispatch, locked, approval, state.composerFocusBotId]);
+  }, [bot, dispatch, focusBlocked, locked, approval, state.composerFocusBotId]);
 
   // Image paste is offered unless a known responder refuses it. A missing
   // instance is still hydrating, so keep the image and validate before send.

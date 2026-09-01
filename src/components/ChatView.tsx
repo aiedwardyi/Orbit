@@ -914,7 +914,7 @@ function PinnedBanner({
   );
 }
 
-export function ChatView({ bot }: { bot: Bot }) {
+export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focusComposerBlocked?: boolean }) {
   const { state, dispatch } = useStore();
   const { capabilities, ready: capabilitiesReady } = useDesktopCapabilities();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1383,6 +1383,7 @@ export function ChatView({ bot }: { bot: Bot }) {
         <Composer
           key={bot.threadId}
           bot={bot}
+          focusBlocked={focusComposerBlocked}
           replyTo={replyTo}
           onClearReply={clearReply}
           onConsumeReply={consumeReply}
