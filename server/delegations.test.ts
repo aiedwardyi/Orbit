@@ -425,7 +425,7 @@ describe("drainDelegations", () => {
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { _loadPending, _resetPending, discardDelegations, pendingThreads } from "./delegations.ts";
+import { _loadPending, _resetPending, discardDelegations, discardDelegationsFrom, pendingThreads } from "./delegations.ts";
 
 describe("delegations survive a restart", () => {
   let store: Store;
@@ -628,6 +628,19 @@ describe("busy retries and receipts", () => {
       store.messagesFor(group.threadId).find((message) => message.tool?.name.includes("delegation failed")),
     );
     expect(failure.from?.botId).toBe(from.id);
+  });
+
+  it("drops the room queues a bot owns and still names it", () => {
+    const group = store.createGroup("Project room", [from.id, target.id]);
+    queueDelegation(commsBus, from, { toBotId: target.id, message: "never runs", depth: 0 }, 1, group.threadId);
+
+    discardDelegationsFrom(commsBus, from.id);
+
+    expect(_pendingCount(group.threadId)).toBe(0);
+    const dropped = store
+      .messagesFor(group.threadId)
+      .find((message) => message.tool?.name.includes("dropped"));
+    expect(dropped?.from?.botId).toBe(from.id);
   });
 
   it("names the source bot on a room failure after a roster edit drops it", async () => {

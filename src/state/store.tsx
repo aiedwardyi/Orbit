@@ -1092,8 +1092,17 @@ export function reducer(state: AppState, action: Action): AppState {
     case "focusMessageConsumed":
       if (!state.focusMessage || state.focusMessage.nonce !== action.nonce) return state;
       return { ...state, focusMessage: { ...state.focusMessage, consumed: true } };
-    case "setWorkspaceOpen":
-      return state.workspaceOpen === action.open ? state : { ...state, workspaceOpen: action.open };
+    case "setWorkspaceOpen": {
+      if (state.workspaceOpen === action.open) return state;
+      const next = { ...state, workspaceOpen: action.open };
+      // closing the workspace puts the selected conversation back on screen
+      if (action.open || next.activeView !== "chat") return next;
+      return {
+        ...next,
+        bots: next.bots.map((b) => (b.id === next.selectedId ? { ...b, unread: false } : b)),
+        groups: next.groups.map((g) => (g.id === next.selectedId ? { ...g, unread: false } : g)),
+      };
+    }
     case "toggleComputer": {
       const open = action.open ?? !state.computerOpen;
       return {
@@ -1701,6 +1710,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             () => {},
           );
           break;
+        case "setWorkspaceOpen": {
+          if (action.open || stateRef.current.activeView !== "chat") break;
+          const selected = stateRef.current.selectedId;
+          const shown = stateRef.current.bots.find((b) => b.id === selected);
+          const shownGroup = stateRef.current.groups.find((g) => g.id === selected);
+          if (shown?.unread) {
+            api(`/api/bots/${selected}`, { method: "PATCH", body: JSON.stringify({ unread: false }) }).catch(() => {});
+          } else if (shownGroup?.unread) {
+            api(`/api/groups/${selected}`, { method: "PATCH", body: JSON.stringify({ unread: false }) }).catch(() => {});
+          }
+          break;
+        }
         case "select": {
           const bot = stateRef.current.bots.find((b) => b.id === action.id);
           const group = stateRef.current.groups.find((g) => g.id === action.id);

@@ -418,6 +418,18 @@ export function discardDelegations(bus: CommsBus, threadId: string, sourceBotId?
   }
 }
 
+/** Drop every queue this bot owns, wherever it queued them. A room queue lives
+ * on the room thread, so deleting the bot would strand it there without a
+ * sender. Call this before the bot record disappears. */
+export function discardDelegationsFrom(bus: CommsBus, sourceBotId: string): void {
+  const threads = new Set(
+    pendingDelegationSnapshot()
+      .filter((queued) => queued.sourceBotId === sourceBotId)
+      .map((queued) => queued.sourceThreadId),
+  );
+  for (const threadId of threads) discardDelegations(bus, threadId, sourceBotId);
+}
+
 async function processOne(
   bus: CommsBus,
   approvalBus: ApprovalBus,

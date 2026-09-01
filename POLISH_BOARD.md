@@ -85,6 +85,7 @@ Baseline: `feat/orbit-desktop` at `81890495d03c99bc765c14935be9cd6b3499fe1a`.
 | UI-12 | Escape does not close Bot details or Inspector | Atlas | `LOCAL-UI-KEYBOARD-01`; both panels close and restore the header trigger or composer; model-picker Escape remains nested | Escape closes either side panel and returns focus sensibly | CLOSED |
 | UI-13 | Bot details compresses the chat to an unreadable strip at 900x600 | UI auditor | `UX-AUDIT-UNCOMMITTED-01`; 180px chat column and collapsed identity | Keep identity and composer readable with details open at minimum size | OPEN |
 | A2A-5 | Room delegation status can omit the initiating sender | Atlas | `delegations.test.ts`; waiting, denial, terminal failure, unfiltered two-bot drop, and roster-edit attribution paths | Every room status carries the initiating bot identity | READY FOR INDEPENDENT REVIEW |
+| A2A-6 | Chat day dividers are computed from hidden transcript rows | Atlas | Codex review of `f481442`; `ChatView.tsx` derives `newDay` from `items[i - 1]` ahead of six visibility checks | The day separator follows the previous visible row, as rooms already do | OPEN |
 
 ## Verification log
 
@@ -108,4 +109,4 @@ Baseline: `feat/orbit-desktop` at `81890495d03c99bc765c14935be9cd6b3499fe1a`.
 | Current-source UX audit | PASS WITH NOTES; UI-2 and QA-ASSET-1 promoted from current source and closed above |
 | P1 identity slice | PASS; 35 focused tests, typecheck, production build, 2,395 Vitest checks, 7 broker checks, 54 desktop and packaged checks passed with 3 skipped, source scans, and lint unchanged at 1,833 errors plus 50 warnings |
 | Local keyboard-flow QA | PASS at 1440x920 and 900x600; UI-11 and UI-12 acceptance passed with no console errors |
-| A2A reliability slice | PASS; 94 focused tests, 396 client tests, typecheck, diff check, and changed-line lint |
+| A2A reliability slice | PASS; 96 focused tests, 397 client tests, 136 server integration tests, typecheck, diff check, and changed-line lint |

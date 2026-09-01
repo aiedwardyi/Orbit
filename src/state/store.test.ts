@@ -171,6 +171,25 @@ describe("notification routing", () => {
     expect(shouldClearSelectedUnread({ ...visible, workspaceOpen: true }, owner)).toBe(false);
     expect(shouldClearSelectedUnread(visible, { ...owner, unread: false })).toBe(false);
   });
+
+  it("clears the badge when a workspace closes over the visible chat", () => {
+    const bot = {
+      id: "bot-1",
+      threadId: "t1",
+      name: "Echo",
+      title: "",
+      description: "",
+      notifications: true,
+      color: "green",
+      unread: true,
+      modelSelection: { instanceId: "x", model: "y" },
+      messages: [],
+    } satisfies Bot;
+    const open = { ...initialState, bots: [bot], selectedId: "bot-1", workspaceOpen: true };
+    expect(reducer(open, { type: "setWorkspaceOpen", open: false }).bots[0]?.unread).toBe(false);
+    const away = { ...open, activeView: "routines" as const };
+    expect(reducer(away, { type: "setWorkspaceOpen", open: false }).bots[0]?.unread).toBe(true);
+  });
 });
 
 describe("config status frames", () => {
