@@ -128,6 +128,10 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     }
   }, [browserWorkspaceBotId, state.activeView, state.selectedId]);
 
+  useEffect(() => {
+    dispatch({ type: "setWorkspaceOpen", open: Boolean(browserWorkspaceBotId || localVmWorkspaceBotId) });
+  }, [browserWorkspaceBotId, localVmWorkspaceBotId, dispatch]);
+
   const openComputerFromWorkspace = (botId: string) => {
     setLocalVmWorkspaceBotId(null);
     dispatch({ type: "select", id: botId });

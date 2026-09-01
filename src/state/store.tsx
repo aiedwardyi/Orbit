@@ -423,6 +423,8 @@ export interface AppState {
   /** selected chat — a bot id OR a group id */
   selectedId: string;
   activeView: "chat" | "team-map" | "routines" | "skill-recorder";
+  /** a bot workspace covers the conversation surface while activeView stays "chat" */
+  workspaceOpen: boolean;
   routines: Routine[];
   routineRuns: RoutineRun[];
   webhooks: WebhookTrigger[];
@@ -625,6 +627,7 @@ export type Action =
   | { type: "togglePlugins"; open?: boolean }
   | { type: "toggleComputer"; open?: boolean }
   | { type: "toggleInspector"; open?: boolean }
+  | { type: "setWorkspaceOpen"; open: boolean }
   | { type: "focusMessage"; threadId: string; messageId: string }
   | { type: "focusMessageConsumed"; nonce: number }
   | { type: "toggleAppSettings"; open?: boolean; section?: AppSettingsSection }
@@ -659,10 +662,12 @@ export function visibleNotificationThread(
 }
 
 export function shouldClearSelectedUnread(
-  state: Pick<AppState, "activeView" | "selectedId">,
+  state: Pick<AppState, "activeView" | "selectedId" | "workspaceOpen">,
   owner: { id: string; unread?: boolean },
 ): boolean {
-  return Boolean(owner.unread && state.activeView === "chat" && state.selectedId === owner.id);
+  return Boolean(
+    owner.unread && state.activeView === "chat" && !state.workspaceOpen && state.selectedId === owner.id,
+  );
 }
 
 export function openNotificationTarget(
@@ -1087,6 +1092,8 @@ export function reducer(state: AppState, action: Action): AppState {
     case "focusMessageConsumed":
       if (!state.focusMessage || state.focusMessage.nonce !== action.nonce) return state;
       return { ...state, focusMessage: { ...state.focusMessage, consumed: true } };
+    case "setWorkspaceOpen":
+      return state.workspaceOpen === action.open ? state : { ...state, workspaceOpen: action.open };
     case "toggleComputer": {
       const open = action.open ?? !state.computerOpen;
       return {
@@ -1318,6 +1325,7 @@ export const initialState: AppState = {
   config: null,
   selectedId: "",
   activeView: "chat",
+  workspaceOpen: false,
   routines: [],
   routineRuns: [],
   webhooks: [],

@@ -315,10 +315,12 @@ export function drainDelegations(
   void (async () => {
     for (const item of snapshot) {
       let outcome: "settled" | "requeued" = "settled";
-      let from: BotRecord | null = null;
+      // a roster edit between queue and drain must not anonymise the status
+      let sender: BotRecord | null = null;
       try {
         const fromId = itemSourceId(item);
-        from = fromId ? bus.store.conversationForBot(fromId, threadId)?.bot ?? null : null;
+        sender = fromId ? bus.store.bot(fromId) : null;
+        const from = fromId ? bus.store.conversationForBot(fromId, threadId)?.bot ?? null : null;
         if (!from) throw new Error("source bot no longer belongs to this conversation");
         outcome = await processOne(bus, approvalBus, from, threadId, item, runTarget);
       } catch (error) {
@@ -336,7 +338,7 @@ export function drainDelegations(
             bus,
             threadId,
             { name: `error: delegation failed — ${why.slice(0, 120)}`, ok: false },
-            from,
+            sender,
           );
         } catch (reportError) {
           console.error("delegation failed and could not be reported", reportError);
@@ -406,7 +408,7 @@ export function discardDelegations(bus: CommsBus, threadId: string, sourceBotId?
     counts.set(fromId, (counts.get(fromId) ?? 0) + 1);
   }
   for (const [fromId, count] of counts) {
-    const from = fromId ? bus.store.conversationForBot(fromId, threadId)?.bot : null;
+    const from = fromId ? bus.store.bot(fromId) : null;
     appendDelegationActivity(
       bus,
       threadId,

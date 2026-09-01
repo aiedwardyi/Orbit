@@ -164,13 +164,12 @@ describe("notification routing", () => {
 
   it("clears unread only when that exact conversation is visible", () => {
     const owner = { id: "bot-1", unread: true };
-    expect(shouldClearSelectedUnread({ activeView: "chat", selectedId: "bot-1" }, owner)).toBe(true);
-    expect(shouldClearSelectedUnread({ activeView: "routines", selectedId: "bot-1" }, owner)).toBe(false);
-    expect(shouldClearSelectedUnread({ activeView: "chat", selectedId: "room-1" }, owner)).toBe(false);
-    expect(shouldClearSelectedUnread(
-      { activeView: "chat", selectedId: "bot-1" },
-      { ...owner, unread: false },
-    )).toBe(false);
+    const visible = { activeView: "chat" as const, selectedId: "bot-1", workspaceOpen: false };
+    expect(shouldClearSelectedUnread(visible, owner)).toBe(true);
+    expect(shouldClearSelectedUnread({ ...visible, activeView: "routines" }, owner)).toBe(false);
+    expect(shouldClearSelectedUnread({ ...visible, selectedId: "room-1" }, owner)).toBe(false);
+    expect(shouldClearSelectedUnread({ ...visible, workspaceOpen: true }, owner)).toBe(false);
+    expect(shouldClearSelectedUnread(visible, { ...owner, unread: false })).toBe(false);
   });
 });
 

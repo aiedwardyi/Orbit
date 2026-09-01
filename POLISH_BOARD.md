@@ -46,7 +46,7 @@ Baseline: `feat/orbit-desktop` at `81890495d03c99bc765c14935be9cd6b3499fe1a`.
 | COMP-2 | Generated compaction allowed two rapid sends to prepare concurrently before busy state | Atlas | Slow-summary real-server test reproduced two 202 responses, then passed with one claimed turn and one 409; final independent PASS covers retryable connector/secret collisions, failed skip activity, and pre-mutation edit/new-task guards; 5 review fixes and 9 independently validated declines | One bot owns at most one preparation or provider turn at a time | CLOSED |
 | A2A-1 | Hidden room activity can remove the next visible speaker label or day divider | Atlas | `7d860ed`; 47 focused tests; isolated visual QA at 1440x920 and 900x600 | Clusters and dates use the previous visible row | CLOSED |
 | A2A-2 | Room communication chips disappear with tool calls off and do not navigate | Atlas | `7d860ed`; tools off/on, focus, Enter, and Space visual QA | Communication chips stay visible and open their pairwise channel | CLOSED |
-| A2A-3 | Selected conversations lose unread state while hidden behind another app view | Atlas | `store.test.ts`; full client suite and typecheck | Only the selected conversation on the chat view clears unread | READY FOR INDEPENDENT REVIEW |
+| A2A-3 | Selected conversations lose unread state while hidden behind another app view | Atlas | `store.test.ts` including a workspace covering the chat surface; full client suite and typecheck | Only the selected conversation on the chat view clears unread | READY FOR INDEPENDENT REVIEW |
 | A2A-4 | Failed 1:1 activity disappears while tool calls are hidden | Atlas | `activity-runs.test.ts`; focused visibility cases | Failed activity stays visible; successful plain activity remains hidden | READY FOR UI QA |
 
 ## P2
@@ -84,7 +84,7 @@ Baseline: `feat/orbit-desktop` at `81890495d03c99bc765c14935be9cd6b3499fe1a`.
 | UI-11 | Composer is not focused after required first-bot creation | Atlas | `LOCAL-UI-KEYBOARD-01`; active element changed from `BODY` to the new bot composer | Focus the new bot composer after the required job flow | CLOSED |
 | UI-12 | Escape does not close Bot details or Inspector | Atlas | `LOCAL-UI-KEYBOARD-01`; both panels close and restore the header trigger or composer; model-picker Escape remains nested | Escape closes either side panel and returns focus sensibly | CLOSED |
 | UI-13 | Bot details compresses the chat to an unreadable strip at 900x600 | UI auditor | `UX-AUDIT-UNCOMMITTED-01`; 180px chat column and collapsed identity | Keep identity and composer readable with details open at minimum size | OPEN |
-| A2A-5 | Room delegation status can omit the initiating sender | Atlas | `delegations.test.ts`; waiting, denial, terminal failure, and unfiltered two-bot drop paths | Every room status carries the initiating bot identity | READY FOR INDEPENDENT REVIEW |
+| A2A-5 | Room delegation status can omit the initiating sender | Atlas | `delegations.test.ts`; waiting, denial, terminal failure, unfiltered two-bot drop, and roster-edit attribution paths | Every room status carries the initiating bot identity | READY FOR INDEPENDENT REVIEW |
 
 ## Verification log
 
@@ -108,4 +108,4 @@ Baseline: `feat/orbit-desktop` at `81890495d03c99bc765c14935be9cd6b3499fe1a`.
 | Current-source UX audit | PASS WITH NOTES; UI-2 and QA-ASSET-1 promoted from current source and closed above |
 | P1 identity slice | PASS; 35 focused tests, typecheck, production build, 2,395 Vitest checks, 7 broker checks, 54 desktop and packaged checks passed with 3 skipped, source scans, and lint unchanged at 1,833 errors plus 50 warnings |
 | Local keyboard-flow QA | PASS at 1440x920 and 900x600; UI-11 and UI-12 acceptance passed with no console errors |
-| A2A reliability slice | PASS; 78 focused tests, 382 client tests, typecheck, diff check, and changed-line lint |
+| A2A reliability slice | PASS; 94 focused tests, 396 client tests, typecheck, diff check, and changed-line lint |

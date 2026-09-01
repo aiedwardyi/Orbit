@@ -630,6 +630,32 @@ describe("busy retries and receipts", () => {
     expect(failure.from?.botId).toBe(from.id);
   });
 
+  it("names the source bot on a room failure after a roster edit drops it", async () => {
+    const group = store.createGroup("Project room", [from.id, target.id]);
+    queueDelegation(commsBus, from, { toBotId: target.id, message: "run this", depth: 0 }, 1, group.threadId);
+    store.patchGroup(group.id, { memberIds: [target.id] });
+
+    drainDelegations(commsBus, approvalBus, group.threadId, () => undefined, from.id);
+
+    const failure = await waitFor(() =>
+      store.messagesFor(group.threadId).find((message) => message.tool?.name.includes("delegation failed")),
+    );
+    expect(failure.from?.botId).toBe(from.id);
+  });
+
+  it("names the source bot on a room drop after a roster edit drops it", () => {
+    const group = store.createGroup("Project room", [from.id, target.id]);
+    queueDelegation(commsBus, from, { toBotId: target.id, message: "never runs", depth: 0 }, 1, group.threadId);
+    store.patchGroup(group.id, { memberIds: [target.id] });
+
+    discardDelegations(commsBus, group.threadId);
+
+    const dropped = store
+      .messagesFor(group.threadId)
+      .find((message) => message.tool?.name.includes("dropped"));
+    expect(dropped?.from?.botId).toBe(from.id);
+  });
+
   it("attributes an unfiltered room drop to each source bot", () => {
     const other = store.createBot();
     store.patchBot(other.id, { name: "Bravo" });
