@@ -185,11 +185,25 @@ describe("notification routing", () => {
     messages: [],
   } satisfies Bot;
 
+  const coveredRoom = {
+    id: "room-1",
+    threadId: "room-thread",
+    name: "Case Lab",
+    memberIds: [],
+    defaultResponder: { kind: "everyone" },
+    bulletin: "",
+    unread: true,
+    createdAt: 1,
+    messages: [],
+  } satisfies Group;
+
   it("clears the badge when a workspace closes over the visible chat", () => {
     const open = { ...initialState, bots: [coveredBot], selectedId: "bot-1", workspaceOpen: true };
     expect(reducer(open, { type: "setWorkspaceOpen", open: false }).bots[0]?.unread).toBe(false);
     const away = { ...open, activeView: "routines" as const };
     expect(reducer(away, { type: "setWorkspaceOpen", open: false }).bots[0]?.unread).toBe(true);
+    const room = { ...initialState, groups: [coveredRoom], selectedId: "room-1", workspaceOpen: true };
+    expect(reducer(room, { type: "setWorkspaceOpen", open: false }).groups[0]?.unread).toBe(false);
   });
 
   it("keeps the badge when the covered conversation is reselected", () => {

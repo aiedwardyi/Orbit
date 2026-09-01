@@ -5886,7 +5886,8 @@ const server = createServer(async (req, res) => {
       // now, and its caller would otherwise wait out the 15-minute timeout
       cancelPeerApprovalsFor(bot.id);
       discardDelegations(commsBus, bot.threadId);
-      // room queues live on the room thread, so they outlive the bot record
+      // the call above clears this bot's own thread; room queues live on the room
+      // thread instead, so they outlive the bot record unless dropped by owner
       discardDelegationsFrom(commsBus, bot.id);
       computerControl.forget(bot.id);
       const target = perBotLocalVmTarget(bot.id);

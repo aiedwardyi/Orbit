@@ -504,6 +504,9 @@ async function processOne(
       "delegate_bot",
       sourceThreadId,
     );
+    // A discard while the approval sat already settled this item; reporting a
+    // verdict now would contradict its dropped receipt with a second status.
+    if (!pendingDelegations.get(sourceThreadId)?.some((pending) => pending.id === item.id)) return "settled";
     if (verdict !== "allow") {
       recordDelegationReceipt({
         id: item.id,

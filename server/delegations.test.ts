@@ -630,6 +630,26 @@ describe("busy retries and receipts", () => {
     expect(failure.from?.botId).toBe(from.id);
   });
 
+  it("stays silent when a discard settles the item while its approval is pending", async () => {
+    const group = store.createGroup("Project room", [from.id, target.id]);
+    store.patchBot(from.id, { approvePeerComms: true });
+    const queued = queueDelegation(commsBus, from, { toBotId: target.id, message: "review this", depth: 0 }, 1, group.threadId);
+
+    drainDelegations(commsBus, approvalBus, group.threadId, () => undefined, from.id);
+    const card = await waitFor(() => store.messagesFor(group.threadId).find((message) => message.card?.requestId));
+    const requestId = card.card?.requestId;
+    if (!requestId) throw new Error("approval card has no request id");
+
+    discardDelegationsFrom(commsBus, from.id);
+    resolvePeerComms(approvalBus, requestId, "deny");
+
+    await waitFor(() => findDelegationReceipt(queued.id!)?.status === "dropped");
+    expect(
+      store.messagesFor(group.threadId).some((message) => message.tool?.name.includes("denied by user")),
+    ).toBe(false);
+    expect(findDelegationReceipt(queued.id!)?.status).toBe("dropped");
+  });
+
   it("skips a snapshot item discarded while the drain was in flight", async () => {
     const other = store.createBot();
     store.patchBot(other.id, { name: "Bravo" });
