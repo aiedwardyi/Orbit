@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Loader2, Menu } from "lucide-react";
 import { StoreProvider, useStore } from "@/state/store";
 import { Onboarding } from "@/components/Onboarding";
@@ -128,7 +128,9 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     }
   }, [browserWorkspaceBotId, state.activeView, state.selectedId]);
 
-  useEffect(() => {
+  // the workspace paints before a passive effect would run, and an unread frame
+  // landing in that gap would clear a badge for a chat nobody can see
+  useLayoutEffect(() => {
     dispatch({ type: "setWorkspaceOpen", open: Boolean(browserWorkspaceBotId || localVmWorkspaceBotId) });
   }, [browserWorkspaceBotId, localVmWorkspaceBotId, dispatch]);
 
