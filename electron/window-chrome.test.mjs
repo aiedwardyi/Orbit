@@ -1,20 +1,21 @@
 import { describe, expect, it } from "vitest";
 
-import { windowChromeOptions } from "./window-chrome.mjs";
+import { windowStartupOptions } from "./window-chrome.mjs";
 
-describe("window chrome", () => {
+describe("window startup", () => {
   it("uses inset traffic lights on macOS", () => {
-    expect(windowChromeOptions("darwin")).toEqual({
+    expect(windowStartupOptions("darwin")).toEqual({
+      show: true,
       titleBarStyle: "hiddenInset",
       trafficLightPosition: { x: 16, y: 16 },
     });
   });
 
-  it("keeps Windows controls in the native title bar, outside app content", () => {
-    expect(windowChromeOptions("win32")).toEqual({});
+  it("shows Windows immediately with controls in the native title bar", () => {
+    expect(windowStartupOptions("win32")).toEqual({ show: true });
   });
 
   it("keeps Linux window chrome native", () => {
-    expect(windowChromeOptions("linux")).toEqual({});
+    expect(windowStartupOptions("linux")).toEqual({ show: true });
   });
 });

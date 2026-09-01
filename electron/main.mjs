@@ -22,7 +22,7 @@ import { migrateWorkspaceCredentials, workspaceCredentialEnv } from "./workspace
 import { activateExistingWindow } from "./single-instance.mjs";
 import { pollServerIdentity } from "./server-boot-probe.mjs";
 import { packageUrlFromCommandLine, packageUrlFromDeepLink } from "./package-link.mjs";
-import { windowChromeOptions } from "./window-chrome.mjs";
+import { windowStartupOptions } from "./window-chrome.mjs";
 import { defaultSaveName, withSavableFile } from "./save-file.mjs";
 import {
   ensureManagedComposioCredentials,
@@ -39,7 +39,6 @@ import {
   withoutManagedCompanionTunnelAccess,
 } from "./managed-companion-tunnel.mjs";
 import { createSecureCredentialState } from "./secure-credential-state.mjs";
-import { isKnownSkin } from "./skin-overlay.cjs";
 import { readSecureCredentials } from "./secure-credentials.mjs";
 import { createControlPlaneClient } from "./control-plane-client.mjs";
 import {
@@ -1107,7 +1106,6 @@ ipcMain.on("desktop:unread-count", (event, value) => {
 });
 
 function createWindow() {
-  const waitsForSkinSync = process.platform === "win32";
   const primary = screen.getPrimaryDisplay();
   const displays = [primary, ...screen.getAllDisplays().filter((display) => display.id !== primary.id)];
   const restored = resolveWindowState(readWindowState(), displays.map((display) => display.workArea));
@@ -1115,15 +1113,10 @@ function createWindow() {
     ...restored.bounds,
     minWidth: 900,
     minHeight: 600,
-    // The renderer restores its persisted skin before mounting React and
-    // mirrors it over desktop:skin. Keep Windows hidden until that handshake
-    // recolors the native caption-button overlay, otherwise a saved light
-    // skin still flashes the Midnight-black block on every cold start.
-    show: !waitsForSkinSync,
     icon: APP_ICON,
     backgroundColor: "#070707",
     autoHideMenuBar: process.platform !== "darwin",
-    ...windowChromeOptions(process.platform),
+    ...windowStartupOptions(process.platform),
     webPreferences: {
       contextIsolation: true,
       preload: path.join(__dirname, "preload.cjs"),
@@ -1131,18 +1124,6 @@ function createWindow() {
   });
   mainWindow = win;
   void startBrowserSurface(win);
-  if (waitsForSkinSync) {
-    // A broken renderer or preload must not strand the app as an invisible
-    // process. Normal startup shows from desktop:skin almost immediately;
-    // this is only the bounded recovery path.
-    const skinSyncFallback = setTimeout(() => {
-      if (!win.isDestroyed() && !win.isVisible()) win.show();
-    }, 5_000);
-    skinSyncFallback.unref?.();
-    const clearSkinSyncFallback = () => clearTimeout(skinSyncFallback);
-    win.once("show", clearSkinSyncFallback);
-    win.once("closed", clearSkinSyncFallback);
-  }
   installWindowStatePersistence(win);
   applyUnreadBadge(win);
   if (restored.maximized) win.maximize();
@@ -1406,14 +1387,6 @@ ipcMain.handle("desktop:save-file", async (event, rawPath) => {
     shell.showItemInFolder(choice.filePath);
     return choice.filePath;
   });
-});
-
-// The renderer owns the skin. Native Windows/Linux chrome is intentionally
-// outside that surface; acknowledge the renderer handshake without creating
-// a frameless caption overlay that can cover page controls.
-ipcMain.handle("desktop:skin", (_event, skin) => {
-  if (!isKnownSkin(skin)) return false;
-  return true;
 });
 
 ipcMain.handle("desktop:open-external", async (_event, rawUrl) => {

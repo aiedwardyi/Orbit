@@ -4,8 +4,8 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { describe, expect, it } from "vitest";
-import { SKINS, SKIN_IDS, DEFAULT_SKIN } from "./skins";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { applySkin, readSkin, SKINS, SKIN_IDS, DEFAULT_SKIN } from "./skins";
 
 const css = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "../styles.css"),
@@ -16,7 +16,24 @@ const blocks = new Set(
   [...css.matchAll(/\[data-skin="([a-z-]+)"\]/g)].map(([, id]) => id),
 );
 
+afterEach(() => vi.unstubAllGlobals());
+
 describe("skins", () => {
+  it("applies and remembers the selected skin", () => {
+    const store = new Map<string, string>();
+    const dataset: Record<string, string> = {};
+    vi.stubGlobal("document", { documentElement: { dataset } });
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+    });
+
+    applySkin("lagoon");
+
+    expect(dataset.skin).toBe("lagoon");
+    expect(readSkin()).toBe("lagoon");
+  });
+
   it("gives every registered skin a stylesheet block", () => {
     for (const id of SKIN_IDS) expect(blocks).toContain(id);
   });
