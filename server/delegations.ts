@@ -314,6 +314,8 @@ export function drainDelegations(
   drainingThreads.add(threadId);
   void (async () => {
     for (const item of snapshot) {
+      // a discard while this drain awaited approval already settled the item
+      if (!pendingDelegations.get(threadId)?.some((pending) => pending.id === item.id)) continue;
       let outcome: "settled" | "requeued" = "settled";
       // a roster edit between queue and drain must not anonymise the status
       let sender: BotRecord | null = null;

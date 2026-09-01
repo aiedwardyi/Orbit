@@ -856,19 +856,18 @@ export function reducer(state: AppState, action: Action): AppState {
             : state.activeView,
       };
     case "select": {
+      // reselecting the conversation a workspace covers does not reveal it
+      const covered = state.workspaceOpen && state.selectedId === action.id;
       if (state.groups.some((g) => g.id === action.id)) {
         return {
           ...state,
           activeView: "chat",
           selectedId: action.id,
-          groups: state.groups.map((g) => (g.id === action.id ? { ...g, unread: false } : g)),
+          groups: covered ? state.groups : state.groups.map((g) => (g.id === action.id ? { ...g, unread: false } : g)),
         };
       }
-      return updateBot(
-        withMascotMotion({ ...state, activeView: "chat", selectedId: action.id }, action.id, "switch"),
-        action.id,
-        (b) => ({ ...b, unread: false }),
-      );
+      const selected = withMascotMotion({ ...state, activeView: "chat", selectedId: action.id }, action.id, "switch");
+      return covered ? selected : updateBot(selected, action.id, (b) => ({ ...b, unread: false }));
     }
     // optimistic card settle; the server's message.patch confirms it later
     case "answerCard": {
@@ -1723,6 +1722,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           break;
         }
         case "select": {
+          if (stateRef.current.workspaceOpen && stateRef.current.selectedId === action.id) break;
           const bot = stateRef.current.bots.find((b) => b.id === action.id);
           const group = stateRef.current.groups.find((g) => g.id === action.id);
           if (bot?.unread) {

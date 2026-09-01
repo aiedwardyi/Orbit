@@ -109,4 +109,4 @@ Baseline: `feat/orbit-desktop` at `81890495d03c99bc765c14935be9cd6b3499fe1a`.
 | Current-source UX audit | PASS WITH NOTES; UI-2 and QA-ASSET-1 promoted from current source and closed above |
 | P1 identity slice | PASS; 35 focused tests, typecheck, production build, 2,395 Vitest checks, 7 broker checks, 54 desktop and packaged checks passed with 3 skipped, source scans, and lint unchanged at 1,833 errors plus 50 warnings |
 | Local keyboard-flow QA | PASS at 1440x920 and 900x600; UI-11 and UI-12 acceptance passed with no console errors |
-| A2A reliability slice | PASS; 96 focused tests, 397 client tests, 136 server integration tests, typecheck, diff check, and changed-line lint |
+| A2A reliability slice | PASS; 98 focused tests, 398 client tests, 136 server integration tests, typecheck, diff check, and changed-line lint |

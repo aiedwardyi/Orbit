@@ -630,6 +630,35 @@ describe("busy retries and receipts", () => {
     expect(failure.from?.botId).toBe(from.id);
   });
 
+  it("skips a snapshot item discarded while the drain was in flight", async () => {
+    const other = store.createBot();
+    store.patchBot(other.id, { name: "Bravo" });
+    const group = store.createGroup("Project room", [from.id, other.id, target.id]);
+    queueDelegation(commsBus, from, { toBotId: target.id, message: "one", depth: 0 }, 1, group.threadId);
+    const second = queueDelegation(commsBus, other, { toBotId: target.id, message: "two", depth: 0 }, 1, group.threadId);
+
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started = 0;
+    drainDelegations(commsBus, approvalBus, group.threadId, async () => {
+      started += 1;
+      await held;
+    });
+
+    await waitFor(() => started === 1);
+    discardDelegationsFrom(commsBus, other.id);
+    release();
+
+    await waitFor(() => _pendingCount(group.threadId) === 0);
+    expect(started).toBe(1);
+    expect(findDelegationReceipt(second.id!)?.status).toBe("dropped");
+    expect(
+      store.messagesFor(group.threadId).some((message) => message.tool?.name.includes("delegation failed")),
+    ).toBe(false);
+  });
+
   it("drops the room queues a bot owns and still names it", () => {
     const group = store.createGroup("Project room", [from.id, target.id]);
     queueDelegation(commsBus, from, { toBotId: target.id, message: "never runs", depth: 0 }, 1, group.threadId);
