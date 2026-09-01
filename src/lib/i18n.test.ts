@@ -19,6 +19,7 @@ const css = readFileSync(join(here, "../styles.css"), "utf8");
 const updateBanner = readFileSync(join(here, "../components/UpdateBanner.tsx"), "utf8");
 const chatView = readFileSync(join(here, "../components/ChatView.tsx"), "utf8");
 const sidebar = readFileSync(join(here, "../components/Sidebar.tsx"), "utf8");
+const createBotSheet = readFileSync(join(here, "../components/CreateBotSheet.tsx"), "utf8");
 
 afterEach(() => {
   applyLocale("en");
@@ -177,5 +178,97 @@ describe("remaining P1 surfaces", () => {
     expect(sidebar).toContain('t("chrome.chooseAnotherChief")');
     expect(sidebar).toContain('t("chrome.teamMap")');
     expect(sidebar).not.toMatch(/aria-label=\{density === "icons" \? "Team map"/);
+  });
+});
+
+describe("sidebar create channel and bot/room chrome", () => {
+  it("keeps Create Channel, Duplicate, Archive, Delete, and Move to context as complete EN+KO phrases", () => {
+    expect(en["chrome.createChannel"]).toBe("Create Channel");
+    expect(en["chrome.createChannelOne"]).toBe("Create Channel · {count} bot");
+    expect(en["chrome.createChannelMany"]).toBe("Create Channel · {count} bots");
+    expect(ko["chrome.createChannel"]).toBe("채널 만들기");
+    expect(ko["chrome.createChannelOne"]).toBe("채널 만들기 · 봇 {count}개");
+    expect(ko["chrome.createChannelMany"]).toBe("채널 만들기 · 봇 {count}개");
+    expect(ko["chrome.createChannelOne"]).not.toMatch(/Create Channel|\bbot\b|\bbots\b/i);
+    expect(ko["chrome.createChannelMany"]).not.toMatch(/Create Channel|\bbot\b|\bbots\b/i);
+    expect(en["chrome.duplicate"]).toBe("Duplicate");
+    expect(ko["chrome.duplicate"]).toBe("복제");
+    expect(ko["chrome.duplicate"]).not.toMatch(/Duplicate/i);
+    expect(en["chrome.archive"]).toBe("Archive");
+    expect(ko["chrome.archive"]).toBe("보관");
+    expect(ko["chrome.archive"]).not.toMatch(/Archive/i);
+    expect(en["chrome.delete"]).toBe("Delete");
+    expect(ko["chrome.delete"]).toBe("삭제");
+    expect(en["chrome.chooseEngineFirst"]).toBe("Choose a Claude or ACP engine first");
+    expect(ko["chrome.chooseEngineFirst"]).toBe("먼저 Claude 또는 ACP 엔진을 선택하세요");
+    expect(ko["chrome.chooseEngineFirst"]).not.toMatch(/Choose a Claude/i);
+    expect(en["chrome.moveToContext"]).toBe("Move to context");
+    expect(ko["chrome.moveToContext"]).toBe("맥락으로 이동");
+    expect(ko["chrome.moveToContext"]).not.toMatch(/Move to context/i);
+    expect(en["chrome.deleteChannel"]).toBe("Delete Channel");
+    expect(ko["chrome.deleteChannel"]).toBe("채널 삭제");
+    expect(ko["chrome.deleteChannel"]).not.toMatch(/Delete Channel/i);
+  });
+
+  it("wires those phrases into Sidebar instead of hardcoded English", () => {
+    expect(sidebar).toContain('t("chrome.createChannel")');
+    expect(sidebar).toContain('"chrome.createChannelOne"');
+    expect(sidebar).toContain('"chrome.createChannelMany"');
+    expect(sidebar).toContain('picked.size === 1 ? "chrome.createChannelOne" : "chrome.createChannelMany"');
+    expect(sidebar).toContain('t("chrome.duplicate")');
+    expect(sidebar).toContain('t("chrome.archive")');
+    expect(sidebar).toContain('t("chrome.delete")');
+    expect(sidebar).toContain('t("chrome.chooseEngineFirst")');
+    expect(sidebar).toContain('t("chrome.moveToContext")');
+    expect(sidebar).toContain('t("chrome.deleteChannel")');
+    expect(sidebar).not.toMatch(/Create Channel\{picked\.size/);
+    expect(sidebar).not.toMatch(/picked\.size === 1 \? "bot" : "bots"/);
+    expect(sidebar).not.toMatch(/,\s*"Duplicate",/);
+    expect(sidebar).not.toMatch(/,\s*"Archive",/);
+    expect(sidebar).not.toMatch(/,\s*"Delete",/);
+    expect(sidebar).not.toMatch(/Choose a Claude or ACP engine first/);
+    expect(sidebar).not.toMatch(/Move to context/);
+    expect(sidebar).not.toMatch(/Delete Channel/);
+    expect(sidebar).toContain('t("chrome.you")');
+    expect(sidebar).not.toMatch(/\|\| "You"}/);
+  });
+});
+
+describe("create-bot sheet", () => {
+  it("keeps the job-first onboarding question as complete EN+KO phrases", () => {
+    expect(en["createBot.title"]).toBe("What should this bot handle?");
+    expect(ko["createBot.title"]).toBe("이 봇은 어떤 일을 맡을까요?");
+    expect(ko["createBot.title"]).not.toMatch(/What should this bot handle/i);
+    expect(en["createBot.help"]).toContain("ongoing job");
+    expect(ko["createBot.help"]).not.toMatch(/Describe one ongoing job/i);
+    expect(ko["createBot.help"]).not.toMatch(/Start chatting/i);
+    expect(en["createBot.jobLabel"]).toBe("Bot job");
+    expect(ko["createBot.jobLabel"]).toBe("봇이 맡을 일");
+    expect(en["createBot.placeholder"]).toContain("For example");
+    expect(ko["createBot.placeholder"]).toContain("예:");
+    expect(ko["createBot.placeholder"]).not.toMatch(/Keep a weekly competitor brief/i);
+    expect(en["createBot.cancel"]).toBe("Cancel");
+    expect(ko["createBot.cancel"]).toBe("취소");
+    expect(en["createBot.start"]).toBe("Start chatting");
+    expect(ko["createBot.start"]).toBe("대화 시작");
+    expect(ko["createBot.start"]).not.toMatch(/Start chatting/i);
+    expect(en["chrome.you"]).toBe("You");
+    expect(ko["chrome.you"]).toBe("나");
+  });
+
+  it("wires those phrases and never sends the user's job text through t()", () => {
+    expect(createBotSheet).toContain('t("createBot.title")');
+    expect(createBotSheet).toContain('t("createBot.help")');
+    expect(createBotSheet).toContain('t("createBot.jobLabel")');
+    expect(createBotSheet).toContain('t("createBot.placeholder")');
+    expect(createBotSheet).toContain('t("createBot.cancel")');
+    expect(createBotSheet).toContain('t("createBot.start")');
+    expect(createBotSheet).not.toMatch(/What should this bot handle\?/);
+    expect(createBotSheet).not.toMatch(/Describe one ongoing job/);
+    expect(createBotSheet).not.toMatch(/Keep a weekly competitor brief/);
+    expect(createBotSheet).not.toMatch(/Start chatting/);
+    expect(createBotSheet).not.toMatch(/>Bot job</);
+    expect(createBotSheet).not.toMatch(/t\(job/);
+    expect(createBotSheet).not.toMatch(/t\(normalized/);
   });
 });

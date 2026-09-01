@@ -366,7 +366,7 @@ function RoomContextMenu({
         className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
       >
         <FolderPlus size={16} className="text-ink-secondary" />
-        Move to context
+        {t("chrome.moveToContext")}
       </button>
       <button
         onClick={() => {
@@ -386,7 +386,7 @@ function RoomContextMenu({
         className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-danger hover:bg-raised/70"
       >
         <Trash2 size={16} />
-        Delete Channel
+        {t("chrome.deleteChannel")}
       </button>
     </div>,
     document.body,
@@ -462,7 +462,11 @@ function NewRoomPanel({ onClose }: { onClose: () => void }) {
           disabled={!picked.size}
           className="mt-3 w-full rounded-lg bg-accent py-2 text-[14px] font-medium text-white hover:brightness-110 disabled:opacity-40"
         >
-          Create Channel{picked.size ? ` · ${picked.size} ${picked.size === 1 ? "bot" : "bots"}` : ""}
+          {picked.size === 0
+            ? t("chrome.createChannel")
+            : t(picked.size === 1 ? "chrome.createChannelOne" : "chrome.createChannelMany", {
+                count: picked.size,
+              })}
         </button>
       </div>
     </div>
@@ -499,6 +503,7 @@ function SectionPicker({
   /** "" clears — the server drops an empty section */
   onAssign: (section: string) => void;
 }) {
+  const { t } = useI18n();
   const { state } = useStore();
   const [name, setName] = useState("");
   const trimmed = name.trim();
@@ -542,7 +547,7 @@ function SectionPicker({
       className="fixed z-40 w-[236px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-2 shadow-2xl shadow-black/60"
     >
       <div className="px-3.5 pb-1 text-[10px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
-        Move to context
+        {t("chrome.moveToContext")}
       </div>
       {sections.length > 0 && (
         <div className="flex flex-col gap-0.5 px-1.5 py-1">
@@ -693,7 +698,7 @@ function BotContextMenu({
           () => dispatch({ type: "updateBot", botId: bot.id, patch: { chiefOfStaff: !bot.chiefOfStaff } }),
           {
             disabled: !bot.chiefOfStaff && !canCoordinate,
-            hint: !bot.chiefOfStaff && !canCoordinate ? "Choose a Claude or ACP engine first" : undefined,
+            hint: !bot.chiefOfStaff && !canCoordinate ? t("chrome.chooseEngineFirst") : undefined,
           },
         ),
         item(<FolderPlus size={16} className="text-ink-secondary" />, t("chrome.moveToSection"), () => {
@@ -708,7 +713,7 @@ function BotContextMenu({
           dispatch({ type: "select", id: bot.id });
           dispatch({ type: "toggleSettings", open: true });
         }),
-        item(<Copy size={16} className="text-ink-secondary" />, "Duplicate", () =>
+        item(<Copy size={16} className="text-ink-secondary" />, t("chrome.duplicate"), () =>
           dispatch({ type: "duplicateBot", botId: bot.id }),
         ),
         divider("d2"),
@@ -718,14 +723,14 @@ function BotContextMenu({
         divider("d3"),
         item(
           <Archive size={16} className="text-ink-secondary" />,
-          "Archive",
+          t("chrome.archive"),
           () => onArchive(bot),
           {
             disabled: archiveBlocked,
             hint: archiveHint,
           },
         ),
-        item(<Trash2 size={16} />, "Delete", () => dispatch({ type: "deleteBot", botId: bot.id }), {
+        item(<Trash2 size={16} />, t("chrome.delete"), () => dispatch({ type: "deleteBot", botId: bot.id }), {
           danger: true,
         }),
       ]}
@@ -1585,7 +1590,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           >
             <InitialsAvatar initials={profileInitials(state.config?.profile)} size={28} />
             <span className={cn("truncate text-[14px] text-ink", density === "icons" && "hidden")}>
-              {state.config?.profile?.name?.trim() || state.config?.profile?.email?.trim() || "You"}
+              {state.config?.profile?.name?.trim() || state.config?.profile?.email?.trim() || t("chrome.you")}
             </span>
           </button>
           {density !== "icons" && (
