@@ -431,10 +431,14 @@ describe("job-first bot creation", () => {
       modelSelection: { mode: "automatic", instanceId: "first", model: "default" },
       messages: [],
     } satisfies Bot;
-    const added = reducer(opened, { type: "botAdded", bot });
+    const added = reducer(opened, { type: "botAdded", bot, focusComposer: true });
 
     expect(added.createBotOpen).toBe(false);
     expect(added.selectedId).toBe(bot.id);
+    expect(added.composerFocusBotId).toBe(bot.id);
+    expect(reducer(added, { type: "composerFocused", botId: "another-bot" })).toBe(added);
+    expect(reducer(added, { type: "composerFocused", botId: bot.id }).composerFocusBotId).toBeNull();
+    expect(reducer(opened, { type: "botAdded", bot }).composerFocusBotId).toBeNull();
   });
 
   it("allows a later create sheet to be cancelled", () => {

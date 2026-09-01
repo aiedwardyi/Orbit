@@ -56,7 +56,7 @@ export function CreateBotSheet({ required }: { required: boolean }) {
         method: "POST",
         body: JSON.stringify({ job: normalized }),
       });
-      dispatch({ type: "botAdded", bot: result.bot });
+      dispatch({ type: "botAdded", bot: result.bot, focusComposer: true });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
       setSaving(false);

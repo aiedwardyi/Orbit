@@ -429,6 +429,7 @@ export interface AppState {
   webhookAttempts: WebhookAttempt[];
   webhookIngress: WebhookIngressStatus | null;
   createBotOpen: boolean;
+  composerFocusBotId: string | null;
   settingsOpen: boolean;
   pluginsOpen: boolean;
   computerOpen: boolean;
@@ -605,7 +606,8 @@ export type Action =
   | { type: "dismissTaskRecovery"; botId: string; threadId: string }
   | { type: "newBot" }
   | { type: "closeCreateBot" }
-  | { type: "botAdded"; bot: Bot }
+  | { type: "botAdded"; bot: Bot; focusComposer?: boolean }
+  | { type: "composerFocused"; botId: string }
   | { type: "deleteBot"; botId: string }
   | { type: "duplicateBot"; botId: string }
   | { type: "markUnread"; botId: string }
@@ -883,7 +885,10 @@ export function reducer(state: AppState, action: Action): AppState {
         activeView: "chat",
         selectedId: action.bot.id,
         createBotOpen: false,
+        composerFocusBotId: action.focusComposer ? action.bot.id : state.composerFocusBotId,
       }, action.bot.id, "arrive");
+    case "composerFocused":
+      return state.composerFocusBotId === action.botId ? { ...state, composerFocusBotId: null } : state;
     case "deleteBot": {
       const bots = state.bots.filter((b) => b.id !== action.botId);
       const selectedId =
@@ -1312,6 +1317,7 @@ export const initialState: AppState = {
   webhookAttempts: [],
   webhookIngress: null,
   createBotOpen: false,
+  composerFocusBotId: null,
   settingsOpen: false,
   pluginsOpen: false,
   computerOpen: false,

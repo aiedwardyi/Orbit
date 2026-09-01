@@ -28,6 +28,7 @@ export function InspectorPanel({ bot }: { bot: Bot }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const listRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
+  const restoreFocusOnUnmount = useRef(false);
   const loadAbort = useRef<AbortController | null>(null);
   const managedRefresh = useRef<() => void>(() => {});
 
@@ -179,6 +180,36 @@ export function InspectorPanel({ bot }: { bot: Bot }) {
 
   const shown = entries.length;
   const total = lens === "raw" ? (page?.total.native ?? 0) : (page?.total.runtime ?? 0);
+  const closeInspector = () => {
+    restoreFocusOnUnmount.current = true;
+    dispatch({ type: "toggleInspector", open: false });
+  };
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('[role="dialog"][aria-modal="true"]')) return;
+      if (document.querySelector("[data-model-picker-content]")) return;
+      event.preventDefault();
+      restoreFocusOnUnmount.current = true;
+      dispatch({ type: "toggleInspector", open: false });
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+      if (!restoreFocusOnUnmount.current) return;
+      requestAnimationFrame(() => {
+        if (document.activeElement !== document.body) return;
+        const target = previousFocus && previousFocus !== document.body && previousFocus.isConnected
+          ? previousFocus
+          : document.querySelector<HTMLElement>("[data-orbit-composer]:not(:disabled)") ??
+            document.querySelector<HTMLElement>("[data-orbit-chat-focus-fallback]");
+        target?.focus();
+      });
+    };
+  }, [dispatch]);
 
   return (
     <aside className="animate-panel-in flex h-full w-[460px] shrink-0 flex-col border-l border-hairline/40 bg-panel">
@@ -187,7 +218,7 @@ export function InspectorPanel({ bot }: { bot: Bot }) {
           <Bug size={16} className="text-ink-secondary" /> Inspector
         </span>
         <button
-          onClick={() => dispatch({ type: "toggleInspector", open: false })}
+          onClick={closeInspector}
           aria-label="Close the Inspector"
           title="Close the Inspector"
           className="rounded-md p-1 text-ink-secondary hover:bg-raised hover:text-ink"

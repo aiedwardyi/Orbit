@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronLeft, Crown, FolderOpen, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, useStore, type Bot } from "@/state/store";
 import { stateForBot } from "@/lib/mascot";
 import { CloudBackendPicker } from "./CloudBackendPicker";
@@ -319,6 +319,8 @@ function MemoryCard({ bot }: { bot: Bot }) {
 export function SettingsPanel({ bot }: { bot: Bot }) {
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
+  const panelRef = useRef<HTMLElement>(null);
+  const restoreFocusOnUnmount = useRef(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const providerSupportsLocal = instanceSupportsLocalComputer(state.instances, bot);
@@ -371,14 +373,44 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
       candidate.chiefOfStaff &&
       (candidate.section?.trim() || "") === (bot.section?.trim() || ""),
   );
+  const closeSettings = () => {
+    restoreFocusOnUnmount.current = true;
+    dispatch({ type: "toggleSettings", open: false });
+  };
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('[role="dialog"][aria-modal="true"]')) return;
+      if (panelRef.current?.querySelector("[data-model-picker-content]")) return;
+      event.preventDefault();
+      restoreFocusOnUnmount.current = true;
+      dispatch({ type: "toggleSettings", open: false });
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+      if (!restoreFocusOnUnmount.current) return;
+      requestAnimationFrame(() => {
+        if (document.activeElement !== document.body) return;
+        const target = previousFocus && previousFocus !== document.body && previousFocus.isConnected
+          ? previousFocus
+          : document.querySelector<HTMLElement>("[data-orbit-composer]:not(:disabled)") ??
+            document.querySelector<HTMLElement>("[data-orbit-chat-focus-fallback]");
+        target?.focus();
+      });
+    };
+  }, [dispatch]);
 
   return (
     <>
-    <aside className="animate-panel-in relative z-20 flex h-full w-[400px] shrink-0 flex-col border-l border-hairline/40 bg-panel">
+    <aside ref={panelRef} className="animate-panel-in relative z-20 flex h-full w-[400px] shrink-0 flex-col border-l border-hairline/40 bg-panel">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3">
         <button
-          onClick={() => dispatch({ type: "toggleSettings", open: false })}
+          onClick={closeSettings}
           aria-label="Collapse bot details"
           title="Collapse bot details"
           className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-control hover:text-ink"
@@ -387,7 +419,7 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
         </button>
         <span className="text-[15px] font-semibold text-ink">Bot details</span>
         <button
-          onClick={() => dispatch({ type: "toggleSettings", open: false })}
+          onClick={closeSettings}
           aria-label="Close bot details"
           title="Close bot details"
           className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-control hover:text-ink"

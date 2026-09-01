@@ -149,6 +149,8 @@ function ConversationTaskPicker({
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (renaming) return;
+      e.preventDefault();
+      e.stopPropagation();
       if (dismissTimer.current) {
         clearTimeout(dismissTimer.current);
         dismissTimer.current = null;
@@ -157,10 +159,10 @@ function ConversationTaskPicker({
       setOpen(false);
     };
     window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey);
     };
   }, [open, renaming]);
 

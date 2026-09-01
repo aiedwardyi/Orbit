@@ -77,8 +77,8 @@ Baseline: `feat/orbit-desktop` at `81890495d03c99bc765c14935be9cd6b3499fe1a`.
 | PKG-8 | Existing OpenMausBot profiles have no migration guidance | Package auditor | Data and userData paths | Document fresh-start intent or migrate | OPEN |
 | PKG-9 | Release defaults still call third-party account services | Package auditor | Electron service defaults | Confirm release ownership decision | OPEN |
 | UI-10 | Phone and mobile integration remain visible before the desktop core is complete | Atlas | `Sidebar.tsx`, `ChatView.tsx`; product scope decision | Keep phone out of the primary path until desktop QA and supported-platform behavior are complete | OPEN |
-| UI-11 | Composer is not focused after required first-bot creation | UI auditor | `UX-AUDIT-UNCOMMITTED-01`; active element was `BODY` after creation | Focus the new bot composer after the required job flow | OPEN |
-| UI-12 | Escape does not close Bot details or Inspector | UI auditor | `UX-AUDIT-UNCOMMITTED-01`; live Escape checks and missing handlers | Escape closes either side panel and returns focus sensibly | OPEN |
+| UI-11 | Composer is not focused after required first-bot creation | Atlas | `LOCAL-UI-KEYBOARD-01`; active element changed from `BODY` to the new bot composer | Focus the new bot composer after the required job flow | CLOSED |
+| UI-12 | Escape does not close Bot details or Inspector | Atlas | `LOCAL-UI-KEYBOARD-01`; both panels close and restore the header trigger or composer; model-picker Escape remains nested | Escape closes either side panel and returns focus sensibly | CLOSED |
 | UI-13 | Bot details compresses the chat to an unreadable strip at 900x600 | UI auditor | `UX-AUDIT-UNCOMMITTED-01`; 180px chat column and collapsed identity | Keep identity and composer readable with details open at minimum size | OPEN |
 
 ## Verification log
@@ -102,3 +102,4 @@ Baseline: `feat/orbit-desktop` at `81890495d03c99bc765c14935be9cd6b3499fe1a`.
 | Durable context fallback recovery | PASS; malformed compaction markers recover to an older valid summary or raw history; Antigravity and Claude reject bounded multiline resume diagnostics; compaction guards and fake CLI diagnostics hardened; 5 review fixes and 9 independently validated declines |
 | Current-source UX audit | PASS WITH NOTES; UI-2 and QA-ASSET-1 promoted from current source and closed above |
 | P1 identity slice | PASS; 35 focused tests, typecheck, production build, 2,395 Vitest checks, 7 broker checks, 54 desktop and packaged checks passed with 3 skipped, source scans, and lint unchanged at 1,833 errors plus 50 warnings |
+| Local keyboard-flow QA | PASS at 1440x920 and 900x600; UI-11 and UI-12 acceptance passed with no console errors |
