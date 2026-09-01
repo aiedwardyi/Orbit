@@ -12,6 +12,41 @@ const say = (botId: string, text: string, when = at(1)): Message =>
   ({ id: `m${++seq}`, at: when, role: "bot", kind: "text", text, from: from(botId) });
 const step = (botId: string, name: string, ok = true, when = at(1)): Message =>
   ({ id: `t${++seq}`, at: when, role: "bot", kind: "activity", tool: { name, ok }, from: from(botId) });
+const secret = (botId?: string): Message => {
+  const message: Message = {
+    id: `s${++seq}`,
+    at: at(1),
+    role: "bot",
+    kind: "secret",
+    secret: {
+      target: "xaiApiKey",
+      label: "API key",
+      description: "Connect the provider.",
+      placeholder: "Key",
+      helpUrl: "https://example.com",
+      requestKey: "request-key",
+    },
+  };
+  if (botId) message.from = from(botId);
+  return message;
+};
+const connector = (botId?: string): Message => {
+  const message: Message = {
+    id: `c${++seq}`,
+    at: at(1),
+    role: "bot",
+    kind: "connector",
+    connector: {
+      slug: "github",
+      label: "GitHub",
+      description: "Connect GitHub.",
+      status: "required",
+      resumeKey: "resume-key",
+    },
+  };
+  if (botId) message.from = from(botId);
+  return message;
+};
 
 const rows = (messages: Message[], showToolCalls = false) =>
   roomTranscriptRows(groupActivityRuns(messages), { showToolCalls });
@@ -75,6 +110,21 @@ describe("roomTranscriptRows", () => {
     expect(result.map((row) => row.visible)).toEqual([true, false]);
   });
 
+  it("keeps emerging text outside a visible activity run", () => {
+    const emerging = say("challenge", "Popping in.");
+    const items = groupActivityRuns([
+      step("challenge", "Read"),
+      step("challenge", "Grep"),
+      emerging,
+    ]);
+    expect(items.map((item) => item.kind)).toEqual(["run", "message"]);
+    expect(
+      roomTranscriptRows(items, { showToolCalls: true, emergingId: emerging.id }).map(
+        (row) => row.visible,
+      ),
+    ).toEqual([true, false]);
+  });
+
   it("keeps the day divider on the first visible line after activity crosses midnight", () => {
     const result = rows([
       say("defense", "Late.", at(1, 23)),
@@ -109,6 +159,18 @@ describe("roomTranscriptRows", () => {
     expect(result.map((row) => row.visible)).toEqual([true, true, true]);
     expect(result[1].cluster).toBe(true);
     expect(result[2].cluster).toBe(false);
+  });
+
+  it("shows secret cards only when their room sender is known", () => {
+    const result = rows([say("defense", "One."), secret(), secret("challenge")]);
+    expect(result.map((row) => row.visible)).toEqual([true, false, true]);
+    expect(result[2].cluster).toBe(true);
+  });
+
+  it("shows connector cards only when their room sender is known", () => {
+    const result = rows([say("defense", "One."), connector(), connector("challenge")]);
+    expect(result.map((row) => row.visible)).toEqual([true, false, true]);
+    expect(result[2].cluster).toBe(true);
   });
 
   it("keeps activity and labels unchanged when tool calls are shown", () => {
