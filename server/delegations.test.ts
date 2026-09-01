@@ -630,6 +630,26 @@ describe("busy retries and receipts", () => {
     expect(failure.from?.botId).toBe(from.id);
   });
 
+  it("attributes an unfiltered room drop to each source bot", () => {
+    const other = store.createBot();
+    store.patchBot(other.id, { name: "Bravo" });
+    const group = store.createGroup("Project room", [from.id, other.id, target.id]);
+    queueDelegation(commsBus, from, { toBotId: target.id, message: "one", depth: 0 }, 1, group.threadId);
+    queueDelegation(commsBus, from, { toBotId: target.id, message: "two", depth: 0 }, 1, group.threadId);
+    queueDelegation(commsBus, other, { toBotId: target.id, message: "three", depth: 0 }, 1, group.threadId);
+
+    discardDelegations(commsBus, group.threadId);
+
+    const dropped = store
+      .messagesFor(group.threadId)
+      .filter((message) => message.tool?.name.includes("dropped"))
+      .map((message) => [message.from?.botId, message.tool?.name.split(" ")[0]]);
+    expect(dropped).toEqual([
+      [from.id, "2"],
+      [other.id, "1"],
+    ]);
+  });
+
   const chipCount = (needle: string) =>
     store.messagesFor(from.threadId).filter((m) => m.kind === "activity" && m.tool?.name?.includes(needle)).length;
 

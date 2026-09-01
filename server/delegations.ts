@@ -398,14 +398,22 @@ export function discardDelegations(bus: CommsBus, threadId: string, sourceBotId?
       result: "the delegating turn did not finish",
     });
   }
-  const fromId = dropped[0]?.fromBotId ?? privateSourceId;
-  const from = fromId ? bus.store.conversationForBot(fromId, threadId)?.bot : null;
-  appendDelegationActivity(
-    bus,
-    threadId,
-    { name: `${dropped.length} queued delegation${dropped.length > 1 ? "s" : ""} dropped — the turn did not finish`, ok: false },
-    from,
-  );
+  // An unfiltered drop can span several room members; one status per source
+  // keeps every dropped handoff attributable to the bot that queued it.
+  const counts = new Map<string | undefined, number>();
+  for (const item of dropped) {
+    const fromId = item.fromBotId ?? privateSourceId;
+    counts.set(fromId, (counts.get(fromId) ?? 0) + 1);
+  }
+  for (const [fromId, count] of counts) {
+    const from = fromId ? bus.store.conversationForBot(fromId, threadId)?.bot : null;
+    appendDelegationActivity(
+      bus,
+      threadId,
+      { name: `${count} queued delegation${count > 1 ? "s" : ""} dropped — the turn did not finish`, ok: false },
+      from,
+    );
+  }
 }
 
 async function processOne(
