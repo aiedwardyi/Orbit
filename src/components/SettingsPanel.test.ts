@@ -100,4 +100,18 @@ describe("SettingsPanel friends effort", () => {
     expect(html).not.toMatch(/>Effort</);
     expect(html).not.toContain("Effort, computer");
   });
+
+  it("keeps Chief of Staff switchable on an engine that cannot coordinate", async () => {
+    const { SettingsPanel } = await import("./SettingsPanel");
+    const { I18nProvider } = await import("@/lib/i18n");
+    const html = renderToStaticMarkup(
+      createElement(I18nProvider, null, createElement(SettingsPanel, { bot, defaultAdvancedOpen: true })),
+    );
+    const fromLabel = html.slice(html.indexOf('aria-label="Chief of Staff"'));
+    const buttonTag = fromLabel.slice(0, fromLabel.indexOf(">"));
+
+    expect(buttonTag).not.toContain("disabled");
+    expect(html).toContain("This engine cannot contact teammates yet.");
+    expect(html).not.toContain("Choose a Claude or ACP engine");
+  });
 });
