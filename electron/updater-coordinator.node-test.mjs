@@ -14,7 +14,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-function harness() {
+function harness(options = {}) {
   const updater = new EventEmitter();
   // electron-updater has its own error listener; model that without routing it.
   updater.on("error", () => {});
@@ -23,7 +23,7 @@ function harness() {
   const coordinator = createUpdaterCoordinator(updater, (patch) => {
     state = { ...state, ...patch };
     states.push({ ...state });
-  });
+  }, options);
   return { updater, coordinator, states, getState: () => state };
 }
 
@@ -166,6 +166,25 @@ test("a synchronous install failure becomes a user-visible error", () => {
   coordinator.install();
 
   assert.deepEqual(getState(), { status: "error", message: "install threw" });
+});
+
+test("install quits for cleanup instead of racing quitAndInstall", () => {
+  let quitCalls = 0;
+  const { updater, coordinator, getState } = harness({
+    quitForInstall: () => {
+      quitCalls += 1;
+    },
+  });
+  let installCalls = 0;
+  updater.quitAndInstall = () => {
+    installCalls += 1;
+  };
+
+  coordinator.install();
+
+  assert.equal(quitCalls, 1);
+  assert.equal(installCalls, 0);
+  assert.equal(getState().status, "installing");
 });
 
 test("an active download state survives a later background check failure", async () => {

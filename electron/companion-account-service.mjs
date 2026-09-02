@@ -9,8 +9,6 @@ import {
   withoutManagedCompanionTunnelAccess,
 } from "./managed-companion-tunnel.mjs";
 
-export const DEFAULT_COMPANION_CONTROL_PLANE_URL = "https://accounts.openmausbot.com";
-
 export const COMPANION_CLIENT_INSTANCE_FIELD = "companionClientInstanceId";
 export const COMPANION_ACCOUNT_TOKEN_FIELD = "companionAccountToken";
 export const COMPANION_ACCOUNT_USER_ID_FIELD = "companionAccountUserId";
@@ -28,18 +26,17 @@ const DEFAULT_HEALTH_CACHE_MS = 30_000;
 const ownString = (document, field) =>
   typeof document?.[field] === "string" ? document[field] : "";
 
-/** Packaged builds have a safe hosted default. Development must opt into an
- * exact HTTPS origin (or HTTP loopback Worker) so a contributor never sends
- * an OTP or bearer to an accidental host. An explicitly invalid override
- * disables the feature instead of silently falling back to production. */
+/** No hosted default. Packaged and development both require an explicit
+ * HTTPS origin (or HTTP loopback Worker) via OMB_CONTROL_PLANE_URL so the
+ * app never sends an OTP or bearer to someone else's control plane. An
+ * explicitly invalid override disables the feature instead of falling back. */
 export function resolveCompanionControlPlaneURL({
-  isPackaged,
   environment = process.env,
 } = {}) {
   if (Object.hasOwn(environment, "OMB_CONTROL_PLANE_URL")) {
     return normalizeControlPlaneURL(environment.OMB_CONTROL_PLANE_URL);
   }
-  return isPackaged ? DEFAULT_COMPANION_CONTROL_PLANE_URL : "";
+  return "";
 }
 
 export function companionAccountCleanupPending(credentials) {

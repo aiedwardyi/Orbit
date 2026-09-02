@@ -14,6 +14,12 @@ export function normalizeManagedComposioBrokerUrl(value) {
   return `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}`;
 }
 
+/** Packaged Orbit has no hosted Connected Apps broker until we operate our
+ * own. An explicit OMB_COMPOSIO_BROKER_URL still wins in development. */
+export function resolveComposioBrokerUrl(configured) {
+  return normalizeManagedComposioBrokerUrl(typeof configured === "string" ? configured : "");
+}
+
 export function managedComposioAccess(brokerUrl, credentials) {
   const url = normalizeManagedComposioBrokerUrl(brokerUrl);
   const token = credentials?.composioBrokerToken;
