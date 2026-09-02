@@ -4,14 +4,14 @@ artifactName: Orbit-${version}-${arch}.${ext}
 
 protocols:
   - name: Orbit package install
-    schemes: [openmausbot]
+    schemes: [orbit]
 
 # In-app updates come from the public release repository, not the source
 # repository. electron-builder writes this destination into app-update.yml.
 publish:
   - provider: github
-    owner: milind-soni
-    repo: openmausbot-releases
+    owner: aiedwardyi
+    repo: orbit-releases
 
 directories:
   buildResources: build
@@ -156,7 +156,7 @@ linux:
   executableName: orbit
   synopsis: Your AI teammates in one calm workspace
   description: A local-first desktop workspace for AI teammates.
-  maintainer: Milind Soni <46266943+milind-soni@users.noreply.github.com>
+  maintainer: Edward Yi <41576951+aiedwardyi@users.noreply.github.com>
   vendor: Orbit
   syncDesktopName: true
   # The reviewed x64 CLI runtime is staged before packaging and remains
