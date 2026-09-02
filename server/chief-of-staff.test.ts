@@ -135,8 +135,13 @@ describe("room turns mount the Chief framing", () => {
     // the tools were always mounted in rooms; only the framing was missing,
     // so the guard is that BOTH turn kinds now build this prompt
     // scoped to the room turn on purpose: the 1:1 site declares an identically
-    // named coordinationPrompt, so a file-wide search proves nothing here
-    const roomTurn = index.slice(index.indexOf("async function runClaimedGroupMemberTurn"));
+    // named coordinationPrompt, so a file-wide search proves nothing here. The
+    // slice stops at the next top-level function so later code cannot satisfy
+    // these assertions on the room path's behalf.
+    const start = index.indexOf("async function runClaimedGroupMemberTurn");
+    const nextFn = index.slice(start + 1).search(/\n(?:async )?function [a-zA-Z]/);
+    const roomTurn = index.slice(start, nextFn === -1 ? undefined : start + 1 + nextFn);
+    expect(roomTurn).not.toContain("function startGroupTurn");
     expect(roomTurn).toContain("    coordinationPrompt,");
     // the room flag is the whole fix: without it the room silently falls back
     // to the 1:1 framing and every other assertion here still passes
