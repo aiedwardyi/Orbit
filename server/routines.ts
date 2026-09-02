@@ -7,6 +7,7 @@ import { DATA_DIR } from "./config.ts";
 import type { RuntimeEvent } from "./contracts.ts";
 import { redactSecretsInText } from "./redact.ts";
 import type { RoutineRequestOperation } from "../shared/routine-request.ts";
+import { activeRunForRoutine } from "../shared/working-thread.ts";
 
 export type RoutineSchedule =
   | { type: "once"; at: number }
@@ -506,6 +507,15 @@ export class RoutineManager {
     }
     const routine = this.routines.find((r) => r.id === id);
     if (!routine) return null;
+    const existing = activeRunForRoutine(this.runs, id);
+    if (existing) {
+      if (request) {
+        this.commitMutation(() => {
+          this.rememberRoutineRequest(request, existing.id, this.now());
+        });
+      }
+      return { ...existing };
+    }
     let run!: RoutineRun;
     this.commitMutation(() => {
       run = this.newRun(routine, this.now(), true);

@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildNotificationOptions,
+  canClaimGetNotified,
+  desktopNotificationHint,
   requestNotificationPermission,
   showNotification,
   type NotifyFrame,
@@ -113,6 +115,47 @@ describe("desktop notifications", () => {
 
     showNotification(frame, vi.fn(), null);
     expect(notices[1]?.options?.icon).toBeUndefined();
+  });
+
+  it("hands a background toast to the desktop shell instead of the renderer Notification", () => {
+    const { notices } = installNotification("default");
+    const showNative = vi.fn();
+    vi.stubGlobal("window", { focus: vi.fn(), ogb: { showNotification: showNative } });
+
+    showNotification(frame, vi.fn(), "/avatar.png", "other-thread");
+
+    expect(showNative).toHaveBeenCalledOnce();
+    expect(showNative).toHaveBeenCalledWith({
+      title: frame.title,
+      body: frame.body,
+      icon: "/avatar.png",
+      botId: frame.botId,
+      threadId: frame.threadId,
+      visibleThreadId: "other-thread",
+    });
+    expect(notices).toHaveLength(0);
+  });
+
+  it("still asks the shell to toast when a minimized window reports renderer focus", () => {
+    const { notices } = installNotification("granted", true);
+    const showNative = vi.fn();
+    vi.stubGlobal("window", { focus: vi.fn(), ogb: { showNotification: showNative } });
+
+    showNotification(frame, vi.fn(), undefined, frame.threadId);
+
+    expect(showNative).toHaveBeenCalledOnce();
+    expect(notices).toHaveLength(0);
+  });
+});
+
+describe("desktop notification copy", () => {
+  it("keeps the friends toggle line only when a toast can actually fire", () => {
+    expect(canClaimGetNotified({ toastsAvailable: true, html5: false })).toBe(true);
+    expect(canClaimGetNotified({ toastsAvailable: false, html5: true })).toBe(false);
+    expect(canClaimGetNotified({ html5: true })).toBe(true);
+    expect(canClaimGetNotified({ html5: false })).toBe(false);
+    expect(desktopNotificationHint(true)).toBe("Get notified when this bot finishes or needs input");
+    expect(desktopNotificationHint(false)).not.toMatch(/Get notified/i);
   });
 });
 

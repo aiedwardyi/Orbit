@@ -2202,6 +2202,80 @@ describe("harness HTTP API", () => {
     }
   });
 
+  it("coalesces run-now and lets the open chat align to a detached routine thread", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    let routineId = "";
+    try {
+      const instances = (await api("GET", "/api/instances")).body.instances;
+      const claude = instances.find((instance: { instanceId: string }) => instance.instanceId === "claude");
+      expect(claude.snapshot.state).toBe("available");
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claude", model: claude.models.default },
+      })).status).toBe(200);
+
+      const viewed = bot.threadId;
+      const created = await api("POST", "/api/routines", {
+        name: "Morning brief",
+        prompt: "keep running",
+        botId: bot.id,
+        runOn: "maus",
+        enabled: true,
+        schedule: { type: "once", at: Date.now() + 86_400_000 },
+        durationMinutes: 15,
+      });
+      expect(created.status).toBe(201);
+      routineId = created.body.routine.id;
+
+      const first = await api("POST", `/api/routines/${routineId}/run`);
+      const second = await api("POST", `/api/routines/${routineId}/run`);
+      expect(first.status).toBe(201);
+      expect(second.status).toBe(201);
+      expect(second.body.run.id).toBe(first.body.run.id);
+
+      await expect.poll(async () => {
+        const runs = (await api("GET", "/api/routines")).body.runs as Array<{
+          id: string;
+          threadId?: string;
+          status: string;
+        }>;
+        const run = runs.find((candidate) => candidate.id === first.body.run.id);
+        return Boolean(run?.threadId) && run?.status === "running";
+      }).toBe(true);
+
+      const run = ((await api("GET", "/api/routines")).body.runs as Array<{
+        id: string;
+        threadId?: string;
+      }>).find((candidate) => candidate.id === first.body.run.id)!;
+      expect(run.threadId).toBeTruthy();
+      expect(run.threadId).not.toBe(viewed);
+
+      const current = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+        (candidate: { id: string }) => candidate.id === bot.id,
+      );
+      expect(current.busy).toBe(true);
+      expect(current.threadId).toBe(viewed);
+
+      const aligned = await api("POST", `/api/bots/${bot.id}/tasks/${run.threadId}`);
+      expect(aligned.status).toBe(200);
+      expect(aligned.body.bot.threadId).toBe(run.threadId);
+
+      const away = await api("POST", `/api/bots/${bot.id}/tasks/${viewed}`);
+      expect(away.status).toBe(409);
+      expect(away.body.error).toMatch(/stop it before switching tasks/i);
+
+      const deleteRunning = await api("DELETE", `/api/bots/${bot.id}/tasks/${run.threadId}`);
+      expect(deleteRunning.status).toBe(409);
+      expect(deleteRunning.body.error).toMatch(/this task is running/i);
+
+      const deleteIdle = await api("DELETE", `/api/bots/${bot.id}/tasks/${viewed}`);
+      expect(deleteIdle.status).toBe(200);
+    } finally {
+      await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
+      if (routineId) await api("DELETE", `/api/routines/${routineId}`).catch(() => undefined);
+      await api("DELETE", `/api/bots/${bot.id}`).catch(() => undefined);
+    }
+  });
+
   it("refuses to interrupt a conversation after its active task changed", async () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
     const room = (await api("POST", "/api/groups", { name: "Exact stop", memberIds: [bot.id] })).body.group;

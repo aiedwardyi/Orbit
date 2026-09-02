@@ -10,6 +10,7 @@ import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { z } from "zod";
 import { botAvatarUrlFromStoredPath } from "../shared/bot-avatar.ts";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
+import { canDeleteWhileWorking, canSwitchWhileWorking, workingThreadId } from "../shared/working-thread.ts";
 import {
   CREDENTIAL_TARGETS,
   credentialResumeOutcome,
@@ -6481,11 +6482,16 @@ const server = createServer(async (req, res) => {
     if (m && method === "POST") {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
-      // Switching the active thread while its provider turn is still running
-      // loses ownership of the process and can make a later interrupt target
-      // the wrong task. Keep this mutation atomic at the HTTP boundary; an
-      // MCP client cannot make a safe check-then-switch across two requests.
-      if (bot.busy) return json(res, 409, { error: "this bot is working — stop it before switching tasks" });
+      // Switching away from the thread that owns the live process loses
+      // interrupt targeting. Aligning the open chat onto that thread is safe.
+      const working = workingThreadId({
+        busy: Boolean(bot.busy),
+        viewedThreadId: bot.threadId,
+        liveRoutineThreadId: routines!.activeRunForBot(bot.id)?.threadId,
+      });
+      if (!canSwitchWhileWorking(m[2], working)) {
+        return json(res, 409, { error: "this bot is working — stop it before switching tasks" });
+      }
       const switched = store.switchTask(bot.id, m[2]);
       if (!switched) return json(res, 404, { error: "no such task" });
       const fresh = botWithThread(switched);
@@ -6505,8 +6511,15 @@ const server = createServer(async (req, res) => {
     }
     if (m && method === "DELETE") {
       const bot = store.bot(m[1]);
-      if (bot?.busy && (bot.threadId === m[2] || routines!.isActiveThread(m[2]))) {
-        return json(res, 409, { error: "this task is running — stop it first" });
+      if (bot) {
+        const working = workingThreadId({
+          busy: Boolean(bot.busy),
+          viewedThreadId: bot.threadId,
+          liveRoutineThreadId: routines!.activeRunForBot(bot.id)?.threadId,
+        });
+        if (!canDeleteWhileWorking(m[2], working)) {
+          return json(res, 409, { error: "this task is running — stop it first" });
+        }
       }
       const updated = store.deleteTask(m[1], m[2]);
       if (!updated) return json(res, 400, { error: "a bot keeps at least one task" });

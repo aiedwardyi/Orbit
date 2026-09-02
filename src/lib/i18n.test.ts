@@ -31,6 +31,8 @@ const enginesSettings = readFileSync(join(here, "../components/EnginesSettings.t
 const searchResults = readFileSync(join(here, "../components/SearchResults.tsx"), "utf8");
 const manageMembers = readFileSync(join(here, "../components/ManageMembersPanel.tsx"), "utf8");
 const usageSection = readFileSync(join(here, "../components/UsageSection.tsx"), "utf8");
+const composer = readFileSync(join(here, "../components/Composer.tsx"), "utf8");
+const routinesPage = readFileSync(join(here, "../components/RoutinesPage.tsx"), "utf8");
 
 afterEach(() => {
   applyLocale("en");
@@ -151,6 +153,58 @@ describe("complete phrases", () => {
   });
 });
 
+describe("Friends Routine naming and one Stop", () => {
+  it("uses Routine as the product name, not Tasks & routines", () => {
+    expect(en["chrome.routines"]).toBe("Routines");
+    expect(ko["chrome.routines"]).toBe("루틴");
+    expect(en["chrome.routines"]).not.toMatch(/Task/i);
+    expect(ko["chrome.routines"]).not.toMatch(/작업/);
+    expect(en["routine.runNow"]).toBe("Run now");
+    expect(ko["routine.runNow"]).toBe("지금 실행");
+    expect(en["routine.queuing"]).toBe("Queuing this routine…");
+    expect(ko["routine.queuing"]).toBe("이 루틴을 대기열에 넣는 중…");
+    expect(en["routine.queuedNamed"]).toBe("{name} is queued.");
+    expect(ko["routine.queuedNamed"]).toBe("{name} 루틴이 대기 중입니다.");
+    expect(en["routine.runningNamed"]).toBe("{name} is running.");
+    expect(ko["routine.runningNamed"]).toBe("{name} 루틴이 실행 중입니다.");
+    expect(en["routine.waitingNamed"]).toBe("{name} needs your input.");
+    expect(ko["routine.waitingNamed"]).toBe("{name} 루틴이 응답을 기다립니다.");
+    expect(en["routine.openThread"]).toBe("Open this routine thread");
+    expect(ko["routine.openThread"]).toBe("이 루틴 대화 열기");
+    expect(en["chat.routineQueuedElsewhere"]).toBe("{name} is queued on this bot.");
+    expect(ko["chat.routineQueuedElsewhere"]).toBe("이 봇에서 {name} 루틴이 대기 중입니다.");
+    expect(en["chat.routineRunningElsewhere"]).toBe("{name} is running in another thread on this bot.");
+    expect(ko["chat.routineRunningElsewhere"]).toBe("이 봇의 다른 대화에서 {name} 루틴이 실행 중입니다.");
+    expect(en["chat.routineWaitingElsewhere"]).toBe("{name} is waiting for you in another thread on this bot.");
+    expect(ko["chat.routineWaitingElsewhere"]).toBe("이 봇의 다른 대화에서 {name} 루틴이 응답을 기다립니다.");
+    expect(en["chat.openRoutineThread"]).toBe("Open that thread");
+    expect(ko["chat.openRoutineThread"]).toBe("그 대화 열기");
+    expect(en["task.running"]).toBe("Running");
+    expect(ko["task.running"]).toBe("실행 중");
+    expect(en["routine.pageHelp"]).toBe("A routine starts a fresh conversation on this bot each time it runs.");
+    expect(ko["routine.pageHelp"]).toBe("루틴은 실행될 때마다 이 봇에서 새 대화를 시작합니다.");
+    expect(translate("en", "chat.routineRunningElsewhere", { name: "keep this name" })).toContain("keep this name");
+    expect(translate("ko", "chat.routineRunningElsewhere", { name: "keep this name" })).toContain("keep this name");
+    expect(Object.hasOwn(catalogs.en, "keep this name")).toBe(false);
+  });
+
+  it("wires Routine copy into the sidebar and calendar, and keeps a single Stop in the composer", () => {
+    expect(sidebar).toContain('t("chrome.routines")');
+    expect(routinesPage).toContain('t("chrome.routines")');
+    expect(routinesPage).toContain('t("routine.pageHelp")');
+    expect(routinesPage).toContain('t("routine.runNow")');
+    expect(routinesPage).toContain('t("routine.openThread")');
+    expect(routinesPage).not.toMatch(/Tasks &amp; routines|Tasks & routines/);
+    expect(routinesPage).not.toMatch(/>Run now</);
+    expect(routinesPage).not.toMatch(/>Open task</);
+    expect(taskPicker).toContain('t("task.running")');
+    expect(chatView).toContain('t("chat.routineRunningElsewhere"');
+    expect(chatView).toContain('t("chat.openRoutineThread")');
+    expect(composer).toContain('t("composer.stop")');
+    expect(chatView).not.toContain('t("composer.stop")');
+  });
+});
+
 describe("remaining P1 surfaces", () => {
   it("keeps Stop, update banner, and sidebar menu copy as complete EN+KO phrases", () => {
     expect(en["composer.stop"]).toBe("Stop");
@@ -182,8 +236,9 @@ describe("remaining P1 surfaces", () => {
     expect(updateBanner).toContain('t("update.later")');
     expect(updateBanner).toContain('t("update.download")');
     expect(updateBanner).not.toMatch(/>Later</);
-    expect(chatView).toContain('t("composer.stop")');
-    expect(chatView).not.toMatch(/<span className="@max-4xl\/chathead:hidden">Stop<\/span>/);
+    expect(composer).toContain('t("composer.stop")');
+    expect(chatView).not.toContain('t("composer.stop")');
+    expect(chatView).not.toMatch(/type: "interrupt"/);
     expect(sidebar).toContain('t("chrome.newChannel")');
     expect(sidebar).toContain('t("chrome.createBotFirst")');
     expect(sidebar).toContain('t("chrome.chooseAnotherChief")');

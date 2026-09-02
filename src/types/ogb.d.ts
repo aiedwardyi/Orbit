@@ -92,6 +92,8 @@ type SkillRecordingPayload = {
       session?: "x11" | "wayland" | "headless" | "unknown";
       compositor?: "gnome-mutter";
     };
+    /** Present in the desktop shell when it has probed native toast support. */
+    toasts?: { available: boolean };
   };
 
   interface DesktopWorkspaceBounds {
@@ -200,6 +202,19 @@ type SkillRecordingPayload = {
       onPackageInstall?(cb: (url: string) => void): () => void;
       /** Updates the native Dock/taskbar unread indicator. */
       setUnreadCount?(count: number): void;
+      /** Windows taskbar progress while any bot turn is running. */
+      setTaskbarBusy?(busy: boolean): void;
+      /** Asks the main process to fire a native toast. */
+      showNotification?(payload: {
+        title: string;
+        body?: string;
+        icon?: string;
+        botId: string;
+        threadId: string;
+        visibleThreadId?: string | null;
+      }): void;
+      /** Toast click: focus already happened in main; open this bot/thread. */
+      onNotificationClick?(cb: (target: { botId: string; threadId: string }) => void): () => void;
       /** Opens a live desktop as a sandboxed window owned by Orbit. */
       desktopViewer?: {
         open(url: string, title: string, contextId: string): Promise<boolean>;
