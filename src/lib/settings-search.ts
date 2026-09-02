@@ -13,6 +13,7 @@ const SECTION_PHRASE_KEYS = {
     "settings.profile.emailPlaceholder",
     "settings.skin.title",
     "settings.skin.subtitle",
+    "settings.skin.ledger.tagline",
     "settings.channelTurns.title",
     "settings.channelTurns.subtitle",
     "settings.toolCalls.title",

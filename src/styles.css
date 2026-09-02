@@ -263,6 +263,57 @@
   --radius-xl: 14px;
 }
 
+/* ── Ledger ────────────────────────────────────────────────────────────────
+   Neutral daylight — light without a tint. The four corners of the grid are
+   already spoken for: Midnight dark/cool, Atelier light/warm, Foundry dark/
+   warm, Lagoon light/cool (porcelain and teal). Ledger is the first-class
+   light mode that refuses a cast. Its neutrals sit on the gray axis, so the
+   ground reads as stone rather than cream paper or glazed ceramic, and the
+   accent is document navy — ink on stone, not brown, teal, or purple.
+
+   Structural difference from the other light skins: raised is a ruled fill,
+   not a second white. Atelier and Lagoon paint raised and card the same
+   #ffffff, so chips, hover fills and answered rows vanish. Ledger keeps
+   card at white and puts raised one step down in stone, so a chip on a
+   card is visible.
+
+   Corners sit between Atelier paper (6/10) and Lagoon ceramic (8/14) at
+   4px / 8px, and the face is Inter: a typeset daybook, not system-ui.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="ledger"] {
+  --color-app: #e9e9e9;           /* achromatic stone near #e9e9e9 */
+  --color-panel: #f4f4f4;         /* sidebar, one step up */
+  --color-raised: #dcdcdc;        /* ruled fill — NOT white */
+  --color-raised-hover: #d0d0d0;
+  --color-card: #ffffff;          /* reading surface, the contrast anchor */
+  --color-inset: #d6d6d6;
+  --color-control: #c6c6c6;       /* own tone, distinct from raised and card */
+  --color-hairline: #8f8f8f;      /* distinct gray rule */
+
+  --color-ink: #1a1a1a;           /* charcoal, not petrol, not warm black */
+  --color-ink-secondary: #575757; /* opaque — the overlay cannot take alpha */
+
+  /* Document navy. Not brown, teal, purple, graphite, green, or orange. */
+  --color-accent: #1f4d99;
+  --color-accent-border: #2a5aab;
+  --color-accent-text: #1a4080;
+  --color-focus: #1a4080;         /* own ring, not Midnight's Grok blue */
+  --color-accent-ink: #ffffff;
+  --color-bubble-user: #dcdcdc;
+
+  --color-success: #2f6b4a;
+  --color-danger: #a33a32;
+  --color-danger-ink: #ffffff;
+  --color-warning: #7a5a28;
+  --color-scrollbar: #8f8f8f;
+  --color-maus-line: #575757;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+}
+
 html,
 body,
 #root {
