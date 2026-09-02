@@ -397,7 +397,7 @@ const fields = execFileSync(
 for (const expected of [
   "Package: orbit-desktop",
   "Architecture: amd64",
-  "Maintainer: Milind Soni",
+  "Maintainer: Edward Yi",
   "Section: utils",
   "Priority: optional",
 ]) {

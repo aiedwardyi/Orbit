@@ -16,7 +16,10 @@ import {
   stopRecorder,
 } from "./skill-recorder.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
-import { registerUpdaterIpc } from "./updater.mjs";
+import { applyPendingUpdateInstall, consumePendingUpdateInstall, registerUpdaterIpc, startUpdater } from "./updater.mjs";
+import { completeQuitAfterCleanup } from "./app-quit.mjs";
+import { companionParkedOnDesktop } from "./companion-policy.mjs";
+import { stopUtilityChild } from "./utility-child.mjs";
 import { buildDiagnosticsReport, decodeLogTail, diagnosticsFileName } from "./diagnostics.mjs";
 import { migrateWorkspaceCredentials, workspaceCredentialEnv } from "./workspace-credentials.mjs";
 import { activateExistingWindow } from "./single-instance.mjs";
@@ -28,7 +31,7 @@ import {
   ensureManagedComposioCredentials,
   managedComposioAccess,
   managedComposioChildEnvironment,
-  normalizeManagedComposioBrokerUrl,
+  resolveComposioBrokerUrl,
 } from "./managed-composio.mjs";
 import {
   createManagedCompanionTunnel,
@@ -75,7 +78,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 127.0.0.1 explicitly — vite binds IPv4; a bare "localhost" here can
 // resolve to ::1 and paint a black window
 const DEV_URL = process.env.ELECTRON_START_URL ?? "http://127.0.0.1:5199";
-const DEFAULT_COMPOSIO_BROKER_URL = "https://openmausbot-composio.milindsoni201.workers.dev";
 let SERVER_PORT = 8799;
 const APP_ICON = path.join(__dirname, "resources/app-icon.png");
 let desktopViewerWindow = null;
@@ -325,10 +327,7 @@ async function secureWorkspaceConfig() {
 }
 
 function composioBrokerUrl() {
-  const configured = process.env.OMB_COMPOSIO_BROKER_URL?.trim();
-  return normalizeManagedComposioBrokerUrl(
-    configured || (app.isPackaged ? DEFAULT_COMPOSIO_BROKER_URL : ""),
-  );
+  return resolveComposioBrokerUrl(process.env.OMB_COMPOSIO_BROKER_URL);
 }
 
 // The packaged app has no terminal: everything about the server child's life
@@ -356,6 +355,10 @@ import {
 } from "./companion.mjs";
 
 let companionPowerBlocker = null;
+
+function companionParked() {
+  return companionParkedOnDesktop({ platform: process.platform, packaged: app.isPackaged });
+}
 
 function syncCompanionKeepAwake(companionEnabled, keepAwake) {
   const shouldBlock = companionEnabled && keepAwake;
@@ -510,6 +513,7 @@ async function startManagedCompanionConnection({ waitForVerification = true } = 
 }
 
 async function startDesktopCompanion({ waitForHosted = true, remember = true } = {}) {
+  if (companionParked()) return desktopCompanionState();
   companionDesiredThisLaunch = true;
   companionLaunchGeneration += 1;
   // Direct LAN comes up first. The hosted endpoint is added in place only
@@ -1779,14 +1783,15 @@ app.whenReady().then(async () => {
   // exact options the IPC handler uses. A failure surfaces in companionState
   // (the panel shows the error) rather than retrying; and it never delays
   // the window.
-  if (serverReady && companionEnabledAtRest()) {
+  if (serverReady && companionEnabledAtRest() && !companionParked()) {
     void startDesktopCompanion({ waitForHosted: false, remember: false });
   }
   const win = createWindow();
+  startUpdater(win);
   // Reconcile incomplete setup and resume interrupted sign-out only after the
   // local app is usable. This background network work never gates LAN pairing
   // or the first window.
-  void hostedAccount.restore().catch(() => {});
+  if (!companionParked()) void hostedAccount.restore().catch(() => {});
   // Registration is optional network work. Start it only after the local
   // server and first window are usable, then update the server child over its
   // private parent port so Connected Apps becomes available without restart.
@@ -1842,9 +1847,6 @@ process.once("SIGTERM", requestSignalQuit);
 app.on("before-quit", (e) => {
   if (cuaCleanedUp) return;
   e.preventDefault();
-  try {
-    serverProc?.kill();
-  } catch {}
   // Release the sleep blocker synchronously; child shutdown is awaited below.
   syncCompanionKeepAwake(false, false);
   // a live dictation session runs its own helper child that holds the mic —
@@ -1856,6 +1858,13 @@ app.on("before-quit", (e) => {
   } catch {}
   const cleanup = Promise.race([
     Promise.all([
+      // Windows utilityProcess.kill() is TerminateProcess: ask the child to
+      // run disposeAll/killCliTree first, then force-kill if it ignores us.
+      stopUtilityChild(serverProc, { timeoutMs: CUA_STOP_TIMEOUT_MS })
+        .catch(() => {})
+        .then(() => {
+          serverProc = null;
+        }),
       stopCua().catch(() => {}),
       browserHost?.stop().catch(() => {}) ?? Promise.resolve(),
       // Both listeners reachable from outside the app are owned children.
@@ -1866,7 +1875,15 @@ app.on("before-quit", (e) => {
     new Promise((resolve) => setTimeout(resolve, CUA_STOP_TIMEOUT_MS).unref()),
   ]);
   cleanup.then(() => {
+    try {
+      serverProc?.kill();
+    } catch {}
+    serverProc = null;
     cuaCleanedUp = true;
-    app.quit();
+    completeQuitAfterCleanup({
+      pendingUpdateInstall: consumePendingUpdateInstall(),
+      quitAndInstall: () => applyPendingUpdateInstall(),
+      quit: () => app.quit(),
+    });
   });
 });

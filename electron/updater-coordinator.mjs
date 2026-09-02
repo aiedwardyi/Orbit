@@ -1,4 +1,4 @@
-export function createUpdaterCoordinator(updater, setState) {
+export function createUpdaterCoordinator(updater, setState, { quitForInstall } = {}) {
   let checkOperation = null;
   let downloadOperation = null;
   let installOperation = null;
@@ -124,7 +124,11 @@ export function createUpdaterCoordinator(updater, setState) {
     installOperation = operation;
     setState({ status: "installing" });
     try {
-      updater.quitAndInstall(true, true);
+      // Windows NSIS (and any before-quit preventDefault cleanup) must run
+      // *before* quitAndInstall spawns the installer. The app quit path
+      // calls quitAndInstall only after that cleanup settles.
+      if (typeof quitForInstall === "function") quitForInstall();
+      else updater.quitAndInstall(true, true);
     } catch (error) {
       routeError(true, error);
       return;

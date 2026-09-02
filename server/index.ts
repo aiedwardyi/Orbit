@@ -42,6 +42,7 @@ import { RoomTurnDeadline, RoomTurnStallRegistry, roomTurnTimeoutMessage } from 
 import * as box from "./box.ts";
 import { cloudBackendChangeError, vpsAliasChangeError } from "./cloud-backend.ts";
 import * as composio from "./composio.ts";
+import { isUtilityShutdownMessage } from "./utility-parent.ts";
 import { chiefOfStaffSystemPrompt } from "./chief-of-staff.ts";
 import { openMausStatusSystemPrompt } from "./openmaus-status-capsule.ts";
 import {
@@ -217,8 +218,13 @@ type UtilityParentPort = {
   on(event: "message", listener: (event: { data?: unknown }) => void): void;
 };
 const utilityParentPort = (process as NodeJS.Process & { parentPort?: UtilityParentPort }).parentPort;
+let hostShutdown = () => {};
 utilityParentPort?.on("message", (event) => {
   const message = event?.data;
+  if (isUtilityShutdownMessage(message)) {
+    hostShutdown();
+    return;
+  }
   try {
     composio.applyManagedBrokerMessage(message);
   } catch (error) {
@@ -7155,27 +7161,31 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log(`openmausbot server on http://127.0.0.1:${PORT}`);
 });
 
+let hostShutdownStarted = false;
+hostShutdown = () => {
+  if (hostShutdownStarted) return;
+  hostShutdownStarted = true;
+  for (const bot of store.bots) {
+    if (!bot.busy || store.groups.some((group) => group.busyBotId === bot.id)) continue;
+    const threadId = routines?.activeRunForBot(bot.id)?.threadId ?? bot.threadId;
+    const packet = taskPacketForWrite(threadId);
+    if (!packet) continue;
+    persistTaskPacket(stampTaskResumePacket(packet, "shutdown", {
+      now: Date.now(),
+      turnsAtWrite: store.taskByThread(bot.id, threadId)?.usage?.turns ?? packet.turnsAtWrite,
+    }));
+  }
+  for (const threadId of [...pendingTaskPackets.keys()]) {
+    const packet = pendingTaskPackets.get(threadId)?.packet;
+    if (packet) persistTaskPacket(packet);
+  }
+  for (const idle of localVmIdles.values()) idle.cancel();
+  vps.closeAllVpsDesktopTunnels();
+  watchdog.stop();
+  routines?.stop();
+  webhookIngress?.server.close();
+  void registry.disposeAll().finally(() => process.exit(0));
+};
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, () => {
-    for (const bot of store.bots) {
-      if (!bot.busy || store.groups.some((group) => group.busyBotId === bot.id)) continue;
-      const threadId = routines?.activeRunForBot(bot.id)?.threadId ?? bot.threadId;
-      const packet = taskPacketForWrite(threadId);
-      if (!packet) continue;
-      persistTaskPacket(stampTaskResumePacket(packet, "shutdown", {
-        now: Date.now(),
-        turnsAtWrite: store.taskByThread(bot.id, threadId)?.usage?.turns ?? packet.turnsAtWrite,
-      }));
-    }
-    for (const threadId of [...pendingTaskPackets.keys()]) {
-      const packet = pendingTaskPackets.get(threadId)?.packet;
-      if (packet) persistTaskPacket(packet);
-    }
-    for (const idle of localVmIdles.values()) idle.cancel();
-    vps.closeAllVpsDesktopTunnels();
-    watchdog.stop();
-    routines?.stop();
-    webhookIngress?.server.close();
-    void registry.disposeAll().finally(() => process.exit(0));
-  });
+  process.on(signal, hostShutdown);
 }

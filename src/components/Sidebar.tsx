@@ -51,6 +51,7 @@ import {
   type SidebarDensity,
 } from "@/lib/sidebar-preferences";
 import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
+import { phoneSettingsAvailable } from "@/lib/phone-availability";
 import { t, useI18n } from "@/lib/i18n";
 
 /** "Milind Soni" → "MS", "milind" → "M", "you@x.dev" → "Y", unset → "?" */
@@ -1025,6 +1026,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
+  const showPhone = phoneSettingsAvailable(capabilities.host);
   const importReturnRef = useRef<HTMLButtonElement>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [sectionPicker, setSectionPicker] = useState<MenuState | null>(null);
@@ -1575,7 +1577,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           <Puzzle size={20} className="text-ink-secondary" />
           <span className={cn("text-[14px] text-ink", density === "icons" && "hidden")}>{t("chrome.connectedApps")}</span>
         </button>
-        {density === "icons" && (
+        {showPhone && density === "icons" && (
           <SidebarPhoneButton
             density={density}
             onOpen={() => dispatch(phoneSettingsAction())}
@@ -1593,7 +1595,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               {state.config?.profile?.name?.trim() || state.config?.profile?.email?.trim() || t("chrome.you")}
             </span>
           </button>
-          {density !== "icons" && (
+          {showPhone && density !== "icons" && (
             <SidebarPhoneButton
               density={density}
               onOpen={() => dispatch(phoneSettingsAction())}

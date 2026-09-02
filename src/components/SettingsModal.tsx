@@ -17,7 +17,9 @@ import { UsageSection } from "./UsageSection";
 import { SkinPicker } from "./SkinPicker";
 import { LanguagePicker } from "./LanguagePicker";
 import { useI18n } from "@/lib/i18n";
+import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { settingsSectionMatches } from "@/lib/settings-search";
+import { phoneSettingsAvailable } from "@/lib/phone-availability";
 import { RoomTurnTimeoutSettings } from "./RoomTurnTimeoutSettings";
 import { TranscriptionSettings } from "./TranscriptionSettings";
 import { cn } from "@/lib/cn";
@@ -458,18 +460,24 @@ function DiagnosticsRow() {
 export function SettingsModal() {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
+  const { capabilities } = useDesktopCapabilities();
   const section = state.appSettingsSection;
   const dialogRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
-  const visibleSections = SECTIONS.filter((entry) => sectionMatches(entry, q));
+  const phoneAvailable = phoneSettingsAvailable(capabilities.host);
+  const visibleSections = SECTIONS.filter(
+    (entry) => (entry.id !== "companion" || phoneAvailable) && sectionMatches(entry, q),
+  );
 
   useEffect(() => {
-    const visible = SECTIONS.filter((entry) => sectionMatches(entry, q));
+    const visible = SECTIONS.filter(
+      (entry) => (entry.id !== "companion" || phoneAvailable) && sectionMatches(entry, q),
+    );
     if (visible.some((entry) => entry.id === section)) return;
     const first = visible[0];
     if (first) dispatch({ type: "toggleAppSettings", open: true, section: first.id });
-  }, [dispatch, q, section]);
+  }, [dispatch, phoneAvailable, q, section]);
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -637,7 +645,9 @@ export function SettingsModal() {
               </Card>
             )}
 
-            {section === "companion" && <CompanionSection profileEmail={state.config?.profile?.email} />}
+            {section === "companion" && phoneAvailable && (
+              <CompanionSection profileEmail={state.config?.profile?.email} />
+            )}
 
             {section === "computer" && <LocalComputerSection />}
 

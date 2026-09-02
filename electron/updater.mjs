@@ -11,6 +11,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { createUpdaterCoordinator } from "./updater-coordinator.mjs";
+import { callQuitAndInstall } from "./app-quit.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -19,6 +20,18 @@ let win = null;
 // status: idle | checking | available | downloading | downloaded | installing | error
 let state = { status: "idle" };
 let updaterCoordinator = null;
+let pendingUpdateInstall = false;
+
+export function consumePendingUpdateInstall() {
+  const pending = pendingUpdateInstall;
+  pendingUpdateInstall = false;
+  return pending;
+}
+
+export function applyPendingUpdateInstall() {
+  if (!autoUpdater) throw new Error("updater unavailable");
+  return callQuitAndInstall(autoUpdater);
+}
 
 function updaterLogger() {
   const directory = app.getPath("logs");
@@ -75,7 +88,12 @@ export function startUpdater(mainWindow) {
   autoUpdater.autoInstallOnAppQuit = process.platform === "darwin";
   autoUpdater.logger = updaterLogger();
 
-  updaterCoordinator = createUpdaterCoordinator(autoUpdater, setState);
+  updaterCoordinator = createUpdaterCoordinator(autoUpdater, setState, {
+    quitForInstall: () => {
+      pendingUpdateInstall = true;
+      app.quit();
+    },
+  });
 
   // first check ~15s after launch (let the app settle), then hourly — both
   // silent on failure, hence the arrow: a bare `check` would receive the
