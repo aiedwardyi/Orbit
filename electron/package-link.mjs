@@ -1,5 +1,8 @@
 const ALLOWED_PACKAGE_HOSTS = new Set(["github.com", "www.github.com", "raw.githubusercontent.com"]);
 
+/** Packaged deep-link scheme. Local unpackaged Electron does not register it. */
+export const PACKAGE_INSTALL_SCHEME = "orbit";
+
 export function packageUrlFromDeepLink(rawValue) {
   let link;
   try {
@@ -7,7 +10,7 @@ export function packageUrlFromDeepLink(rawValue) {
   } catch {
     return null;
   }
-  if (link.protocol !== "openmausbot:" || link.hostname !== "install") return null;
+  if (link.protocol !== `${PACKAGE_INSTALL_SCHEME}:` || link.hostname !== "install") return null;
   const rawPackage = link.searchParams.get("url");
   if (!rawPackage) return null;
   let packageUrl;

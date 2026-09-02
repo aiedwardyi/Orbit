@@ -196,7 +196,7 @@ type SkillRecordingPayload = {
       /** Remember the Settings language choice for packaged copy. */
       setLocalePreference?(preference: "system" | "en" | "ko"): Promise<boolean>;
       getLocalePreference?(): "system" | "en" | "ko";
-      /** Receives a GitHub package URL opened through openmausbot://install. */
+      /** Receives a GitHub package URL opened through orbit://install. */
       onPackageInstall?(cb: (url: string) => void): () => void;
       /** Updates the native Dock/taskbar unread indicator. */
       setUnreadCount?(count: number): void;

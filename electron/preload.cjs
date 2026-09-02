@@ -124,7 +124,7 @@ contextBridge.exposeInMainWorld("ogb", {
   getLocale: () => ipcRenderer.sendSync("desktop:os-locale"),
   getLocalePreference: () => ipcRenderer.sendSync("desktop:locale-preference-get"),
   setLocalePreference: (preference) => ipcRenderer.invoke("desktop:locale-preference", preference),
-  /** A reviewed BotMRR package opened through openmausbot://install. */
+  /** A reviewed BotMRR package opened through orbit://install. */
   onPackageInstall: (cb) => {
     packageInstallListeners.add(cb);
     if (pendingPackageInstallUrl) cb(pendingPackageInstallUrl);
