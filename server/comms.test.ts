@@ -795,9 +795,9 @@ describe("comms e2e (fake ACP fleet)", () => {
     }
 
     // B must not have started: no inbound user message, no depth-1 reply.
-    // (Every bot's thread has a seeded greeting of role:"bot" kind:"text",
-    // so a generic text search would always match — check for the actual
-    // happy-turn reply text and the inbound user text from A's exchange.)
+    // A generic text search on role:"bot" kind:"text" can match an older
+    // scripted greeting, so check for the actual happy-turn reply text
+    // and the inbound user text from A's exchange.
     expect(helperBot.busy).toBeFalsy();
     expect(
       helperBot.messages.some((m: any) => m.role === "user" && m.kind === "text"),

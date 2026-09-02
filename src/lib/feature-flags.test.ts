@@ -17,6 +17,7 @@ describe("experimental feature flags", () => {
     expect(showToolCallsEnabled(null)).toBe(false);
     expect(showToolCallsEnabled({})).toBe(false);
     expect(showToolCallsEnabled({ features: { showToolCalls: false } })).toBe(false);
+    expect(showToolCallsEnabled({ features: {} })).toBe(false);
   });
 
   it("shows tool-call chips only after explicit opt-in", () => {

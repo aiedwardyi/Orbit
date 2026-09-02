@@ -79,6 +79,16 @@ describe("chatTranscriptRows", () => {
     expect(result.map((row) => row.visible)).toEqual([true, false]);
   });
 
+  it("hides MCP agent tool walls when tool calls are off", () => {
+    const result = rows([
+      user("hey"),
+      step("mcp__agents__create_bot"),
+      step("mcp__agents__list_bots"),
+      say("Hi."),
+    ]);
+    expect(result.map((row) => row.visible)).toEqual([true, false, true]);
+  });
+
   it("does not let a talked-past onboarding card suppress the next day divider", () => {
     const quiz: Message = {
       id: "quiz",

@@ -62,6 +62,16 @@ describe("chiefOfStaffSystemPrompt", () => {
     expect(prompt).not.toContain("Use ask_bot");
   });
 
+  it("does not tell a solo Chief to scan the roster or spawn bots", () => {
+    const prompt = chiefOfStaffSystemPrompt("chief", [{ id: "chief", name: "Clover", section: "Work" }], true);
+
+    expect(prompt).toContain("Chief of Staff for the Work section");
+    expect(prompt).toMatch(/Answer the user directly/i);
+    expect(prompt).not.toMatch(/list_bots/);
+    expect(prompt).not.toMatch(/create_bot/);
+    expect(prompt).not.toContain("No other visible bots are available yet.");
+  });
+
   it("includes trusted OpenMaus status only when the Chief caller supplies it", () => {
     const status = "TRUSTED OPENMAUSBOT STATUS\nfreshness=fresh; runtime_state=degraded";
 

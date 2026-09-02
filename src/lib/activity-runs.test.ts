@@ -101,6 +101,13 @@ describe("activityVisibleInChat", () => {
     expect(activityVisibleInChat(message, true)).toBe(true);
   });
 
+  it("hides successful MCP agent tools until tool calls are shown", () => {
+    const message = tool("mcp__agents__create_bot");
+    expect(activityVisibleInChat(message, false)).toBe(false);
+    expect(activityVisibleInChat(message, true)).toBe(true);
+    expect(activityVisibleInChat(running("mcp__agents__create_bot"), false)).toBe(false);
+  });
+
   it("keeps communication activity visible while tool calls are hidden", () => {
     const message: Message = {
       ...tool("Messaged @Helper"),

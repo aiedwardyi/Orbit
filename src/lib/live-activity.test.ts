@@ -34,6 +34,8 @@ describe("liveActivityLabel", () => {
     expect(liveActivityLabel(activity("Bash: pnpm test"))).toBe("Running a command");
     expect(liveActivityLabel(activity("mcp__computer__click"))).toBe("Using the computer");
     expect(liveActivityLabel(activity("web_search"))).toBe("Searching the web");
+    expect(liveActivityLabel(activity("mcp__agents__create_bot"))).toBe("Working");
+    expect(liveActivityLabel(activity("mcp__agents__create_bot"))).not.toMatch(/mcp__|create_bot/);
   });
 
   it("does not present bot-to-bot communication chips as the active action", () => {

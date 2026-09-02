@@ -45,15 +45,16 @@ describe("Store", () => {
     rmSync(DATA_DIR, { recursive: true, force: true });
   });
 
-  it("createBot seeds a greeting and an onboarding card", () => {
+  it("createBot seeds an onboarding card without a fake chat bubble", () => {
     const store = new Store(selection);
     const bot = store.createBot();
 
     const messages = store.messagesFor(bot.threadId);
-    expect(messages).toHaveLength(2);
-    expect(messages[0]).toMatchObject({ role: "bot", kind: "text" });
-    expect(messages[1].kind).toBe("options");
-    expect(messages[1].card?.options.length).toBeGreaterThan(1);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ role: "bot", kind: "options" });
+    expect(messages[0].card?.options.length).toBeGreaterThan(1);
+    expect(messages.some((message) => message.kind === "text")).toBe(false);
+    expect(JSON.stringify(messages)).not.toMatch(/I'll handle|Nice to meet you|first piece of work/);
     expect(bot.modelSelection).toEqual(selection());
   });
 
@@ -95,20 +96,14 @@ describe("Store", () => {
     expect(bot.title).toBe(titleFromMessage(job));
     expect(bot.description).toBe(job);
     const messages = store.messagesFor(bot.threadId);
-    expect(messages).toEqual([
-      expect.objectContaining({
-        role: "bot",
-        kind: "text",
-        text: expect.stringContaining("Send me the first piece of work."),
-      }),
-    ]);
-    expect(messages[0]?.text).not.toContain("….");
+    expect(messages).toEqual([]);
+    expect(JSON.stringify(messages)).not.toMatch(/I'll handle|first piece of work/);
   });
 
   it("dismisses the onboarding quiz when the user talks, and leaves live asks", () => {
     const store = new Store(selection);
     const bot = store.createBot();
-    const quiz = store.messagesFor(bot.threadId)[1]!;
+    const quiz = store.messagesFor(bot.threadId)[0]!;
     expect(quiz.card?.dismissed).toBeUndefined();
 
     store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "hi" });
@@ -136,7 +131,7 @@ describe("Store", () => {
     const store = new Store(selection);
     const bot = store.createBot();
     store.appendMessage(bot.threadId, { role: "bot", kind: "text", text: "still here" });
-    expect(store.messagesFor(bot.threadId)[1]?.card?.dismissed).toBeUndefined();
+    expect(store.messagesFor(bot.threadId)[0]?.card?.dismissed).toBeUndefined();
   });
 
   it("createBot with seedMessages:false starts with an empty transcript", () => {
@@ -350,7 +345,7 @@ describe("Store", () => {
   it("patchMessage merges card patches and returns null for unknown ids", () => {
     const store = new Store(selection);
     const bot = store.createBot();
-    const card = store.messagesFor(bot.threadId)[1];
+    const card = store.messagesFor(bot.threadId)[0]!;
 
     const patched = store.patchMessage(bot.threadId, card.id, {
       card: { ...card.card!, answered: "Work & projects" },
@@ -607,7 +602,7 @@ describe("Store", () => {
     const user = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "hi" });
 
     const messages = store.messagesFor(bot.threadId);
-    expect(user.parentId).toBe(messages[1].id); // follows the onboarding card
+    expect(user.parentId).toBe(messages[0].id); // follows the onboarding card
     expect(store.activeLeaf(bot.threadId)).toBe(user.id);
     expect(store.activePath(bot.threadId).map((m) => m.id)).toEqual(messages.map((m) => m.id));
   });
@@ -813,7 +808,7 @@ describe("Store change stream", () => {
   it("emits a card patch after a user message hides the onboarding quiz", () => {
     const store = new Store(selection);
     const bot = store.createBot();
-    const quiz = store.messagesFor(bot.threadId)[1]!;
+    const quiz = store.messagesFor(bot.threadId)[0]!;
     const events = record(store);
     const m = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "hi" });
     expect(events.map((event) => event.type)).toEqual(["message", "message.patch"]);
@@ -829,7 +824,7 @@ describe("Store change stream", () => {
     const store = new Store(selection);
     const events = record(store);
     const bot = store.createBot();
-    expect(events.map((event) => event.type)).toEqual(["bot", "message", "message"]);
+    expect(events.map((event) => event.type)).toEqual(["bot", "message"]);
     expect(events[0]).toEqual({ type: "bot", botId: bot.id });
     expect(events.slice(1).every((event) => event.threadId === bot.threadId)).toBe(true);
   });
