@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Search, Sparkles } from "lucide-react";
 import { useStore, type Bot, type InstanceInfo, type ModelSelection } from "@/state/store";
 import { filterCustomModels, partitionCustomModels, suggestedModels } from "@/lib/custom-models";
+import { engineBadgeText, modelChipText, modelChipTitle } from "@/lib/model-chip";
 import { isCustomOnly, splitEngineRail } from "@/lib/engine-rail";
 import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
@@ -15,14 +16,18 @@ import { useI18n } from "@/lib/i18n";
 type ModelOption = InstanceInfo["models"]["options"][number];
 const COMPACT_MODEL_COUNT = 5;
 
-function modelLabel(instance: InstanceInfo | undefined, model: string): string {
-  return instance?.models.options.find((option) => option.id === model)?.label ?? model;
+function engineStatus(instance: InstanceInfo, tr: ReturnType<typeof useI18n>["t"]): string {
+  if (needsCli(instance)) return engineBadgeText(instance.snapshot, "not-installed", tr);
+  if (needsSignIn(instance)) return engineBadgeText(instance.snapshot, "sign-in", tr);
+  return engineBadgeText(instance.snapshot, "ready", tr);
 }
 
-function engineStatus(instance: InstanceInfo, tr: ReturnType<typeof useI18n>["t"]): string {
-  if (needsCli(instance)) return tr("model.notInstalled");
-  if (needsSignIn(instance)) return tr("model.signInRequired");
-  return instance.snapshot.version ?? tr("onboarding.ready");
+function pickerPaneFor(instance: InstanceInfo | undefined, model: string): "main" | "custom" {
+  const official = instance?.models.options.filter((option) => !option.custom) ?? [];
+  const selectedIsCustom = instance?.models.options.some(
+    (option) => option.id === model && option.custom,
+  );
+  return selectedIsCustom || isCustomOnly(instance) || official.length === 0 ? "custom" : "main";
 }
 
 function ModelRow({
@@ -98,6 +103,7 @@ export function ModelPicker({
   className,
   contained = false,
   label,
+  defaultOpen = false,
 }: {
   bot: Bot;
   className?: string;
@@ -105,19 +111,22 @@ export function ModelPicker({
    * narrow parent (the Agent profile sidebar). */
   contained?: boolean;
   label?: ReactNode;
+  /** Start with the menu open (tests). */
+  defaultOpen?: boolean;
 }) {
   const { t } = useI18n();
   const { state, dispatch, refreshInstances } = useStore();
-  const [open, setOpen] = useState(false);
-  const [railId, setRailId] = useState<string | null>(null);
-  const [pane, setPane] = useState<"main" | "custom">("main");
-  const [query, setQuery] = useState("");
-  const [showAll, setShowAll] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-
   const selection = bot.modelSelection;
   const isAutomatic = selection.mode === "automatic";
   const active = state.instances.find((instance) => instance.instanceId === selection.instanceId);
+  const [open, setOpen] = useState(defaultOpen);
+  const [railId, setRailId] = useState<string | null>(null);
+  const [pane, setPane] = useState<"main" | "custom">(() =>
+    defaultOpen ? pickerPaneFor(active, selection.model) : "main",
+  );
+  const [query, setQuery] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const railInstance =
     state.instances.find((instance) => instance.instanceId === (railId ?? selection.instanceId)) ?? state.instances[0];
 
@@ -151,11 +160,7 @@ export function ModelPicker({
   };
 
   const openFor = (instance: InstanceInfo | undefined) => {
-    const official = instance?.models.options.filter((option) => !option.custom) ?? [];
-    const selectedIsCustom = instance?.models.options.some(
-      (option) => option.id === selection.model && option.custom,
-    );
-    setPane(selectedIsCustom || isCustomOnly(instance) || official.length === 0 ? "custom" : "main");
+    setPane(pickerPaneFor(instance, selection.model));
     resetList();
   };
 
@@ -235,29 +240,21 @@ export function ModelPicker({
       className={cn(
         "flex items-center gap-1.5 rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover",
       )}
-      title={
-        isAutomatic
-          ? t("model.automaticTitle", { name: active?.displayName ?? t("model.unresolved") })
-          : active
-            ? `${active.displayName} · ${modelLabel(active, selection.model)}`
-            : selection.model
-      }
+      title={modelChipTitle({ mode: selection.mode, instance: active, model: selection.model }, t)}
     >
-      {isAutomatic ? <Sparkles size={14} className="text-accent" /> : active && <ProviderMark driverKind={active.driverKind} size={14} />}
-      <span className={cn("max-w-[160px] truncate", !isAutomatic && !contained && active && "@max-4xl/chathead:hidden")}>
-        {isAutomatic ? t("model.automatic") : modelLabel(active, selection.model)}
+      {active ? <ProviderMark driverKind={active.driverKind} size={14} /> : <Sparkles size={14} className="text-accent" />}
+      <span className={cn("max-w-[160px] truncate", !contained && active && "@max-4xl/chathead:hidden")}>
+        {modelChipText({ instance: active, model: selection.model }, t)}
       </span>
-      {!isAutomatic && !contained && active && (
-        <span className="hidden max-w-[96px] truncate @max-4xl/chathead:inline">
-          {active.displayName}
-        </span>
+      {!contained && active && (
+        <span className="hidden max-w-[96px] truncate @max-4xl/chathead:inline">{active.displayName}</span>
       )}
       <ChevronDown
         size={14}
         className={cn(
           "text-ink-secondary transition-transform",
           open && "rotate-180",
-          !isAutomatic && !contained && active && "@max-4xl/chathead:hidden",
+          !contained && active && "@max-4xl/chathead:hidden",
         )}
       />
     </button>
@@ -341,7 +338,7 @@ export function ModelPicker({
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block text-[13.5px] font-medium text-ink">{t("model.automatic")}</span>
-                <span className="block truncate text-[11.5px] text-ink-secondary">
+                <span className="block text-[11.5px] leading-snug text-ink-secondary">
                   {t("model.automaticHelp")}
                 </span>
               </span>
