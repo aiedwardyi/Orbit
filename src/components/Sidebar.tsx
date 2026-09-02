@@ -697,7 +697,7 @@ function BotContextMenu({
           <Crown size={16} className={bot.chiefOfStaff ? "text-accent" : "text-ink-secondary"} />,
           bot.chiefOfStaff ? t("chrome.removeChief") : t("chrome.makeChief"),
           () => dispatch({ type: "updateBot", botId: bot.id, patch: { chiefOfStaff: !bot.chiefOfStaff } }),
-          { hint: !canCoordinate ? t("chrome.cannotContactTeammates") : undefined },
+          { hint: !bot.chiefOfStaff && !canCoordinate ? t("chrome.cannotContactTeammates") : undefined },
         ),
         item(<FolderPlus size={16} className="text-ink-secondary" />, t("chrome.moveToSection"), () => {
           onClose();

@@ -85,6 +85,8 @@ describe("chiefOfStaffSystemPrompt", () => {
     expect(prompt).toContain("shared room");
     expect(prompt).toContain("call create_bot directly");
     expect(prompt).toContain("joins this section, not this room");
+    // delegate_bot cannot report back inside this turn; ask_bot is the one that waits
+    expect(prompt).toContain("Reach it with ask_bot");
     expect(prompt).toMatch(/Never scan the environment, ports, or processes/);
   });
 
