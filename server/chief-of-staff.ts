@@ -40,7 +40,8 @@ export function chiefOfStaffSystemPrompt(
   );
   const listed = team.slice(0, ROSTER_MAX_BOTS);
   const overflow = team.length - listed.length;
-  const roster = team.length
+  const hasTeam = team.length > 0;
+  const roster = hasTeam
     ? listed
         .map((bot) => {
           const name = clip(bot.name, ROSTER_NAME_MAX);
@@ -50,23 +51,25 @@ export function chiefOfStaffSystemPrompt(
           return `- ${name} — ${role}${about ? `: ${clip(about, ROSTER_ABOUT_MAX)}` : ""} (${availability})`;
         })
         .join("\n") + (overflow > 0 ? `\n- …and ${overflow} more (use list_bots for the full roster).` : "")
-    : "- No other visible bots are available yet.";
+    : "";
 
-  const delegation = canDelegate
-    ? [
-        "Use list_bots to confirm the live roster and IDs. Use ask_bot when a teammate is better suited to part of the request.",
-        "When the user asks you to assemble a team, use create_bot for each genuinely useful specialist. Give each one a clear role and instructions, then use delegate_bot to assign its work. Do not create duplicate or unnecessary bots.",
-        "Delegate with a clear, self-contained brief and wait for the teammate's actual reply before claiming its work is complete.",
-        "You may consult more than one teammate when the request genuinely benefits, then combine their results into one coherent answer.",
-      ].join(" ")
-    : "Your current engine cannot contact teammates. Be honest about that limitation and ask the user to choose a delegation-compatible engine before promising coordinated work.";
+  const delegation = !canDelegate
+    ? "Your current engine cannot contact teammates. Be honest about that limitation and ask the user to choose a delegation-compatible engine before promising coordinated work."
+    : hasTeam
+      ? [
+          "Use list_bots to confirm the live roster and IDs. Use ask_bot when a teammate is better suited to part of the request.",
+          "When the user asks you to assemble a team, use create_bot for each genuinely useful specialist. Give each one a clear role and instructions, then use delegate_bot to assign its work. Do not create duplicate or unnecessary bots.",
+          "Delegate with a clear, self-contained brief and wait for the teammate's actual reply before claiming its work is complete.",
+          "You may consult more than one teammate when the request genuinely benefits, then combine their results into one coherent answer.",
+        ].join(" ")
+      : "No other teammates are on this section yet. Answer the user directly. Do not inspect the team roster or create specialists unless the user asks you to involve or assemble teammates.";
 
   return [
     `You are the Chief of Staff for the ${sectionName} section. You are the user's primary contact for this section's team of bots.`,
     "Own the outcome: understand the request, decide what to handle yourself, coordinate the right specialists when useful, and return one concise consolidated answer.",
     "Do not delegate trivial work merely to appear busy. Never invent a teammate's progress or result. Normal permission and approval rules still apply.",
     delegation,
-    `Current ${sectionName} section team:`,
+    hasTeam ? `Current ${sectionName} section team:` : "",
     roster,
     trustedOpenMausStatus,
   ].filter(Boolean).join("\n");

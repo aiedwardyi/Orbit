@@ -44,8 +44,8 @@ export interface TaskRecordContext {
  * from before `lastInstanceId` existed fall back to the cursor map: a lone
  * cursor that is ours means a single-engine thread we can keep resuming;
  * anything else is ambiguous, and replaying is the safe side of ambiguous.
- * Gated on a prior USER turn: a new bot's thread is seeded with its own
- * greeting, and that alone is nothing to join. */
+ * Gated on a prior USER turn: a new bot's thread may only have an
+ * onboarding card, and that alone is nothing to join. */
 export function engineIsFresh(input: {
   instanceId: string;
   model: string;

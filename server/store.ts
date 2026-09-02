@@ -1009,8 +1009,8 @@ export class Store {
     }
     this.emit({ type: "message", threadId, message: full });
     // The first-run quiz is not a live ask. Talking past it hides it so the
-    // transcript is just the greeting plus what they said. Cards with a
-    // requestId are permission/question prompts and stay until answered.
+    // transcript is just what they said. Cards with a requestId are
+    // permission/question prompts and stay until answered.
     if (full.role === "user" && full.kind === "text") this.dismissOnboardingCard(threadId);
     return full;
   }
@@ -1131,8 +1131,8 @@ export class Store {
       Pick<BotRecord, "name" | "title" | "description" | "color" | "mascotExpression" | "modelSelection" | "section" | "computer">
     > = {},
     opts: {
-      /** false = no greeting/onboarding seed. Imported bots must not open
-       * with a first-person greeting the user never asked for. */
+      /** false = no onboarding seed. Imported bots must not open with a
+       * first-person greeting the user never asked for. */
       seedMessages?: boolean;
       job?: string;
       /** Test seam for the packaged-Windows first-run computer default. */
@@ -1165,15 +1165,10 @@ export class Store {
     // Announce the owner before its onboarding transcript. SSE clients need
     // the bot/thread mapping before they can place either message.
     this.emit({ type: "bot", botId: bot.id });
-    if (opts.seedMessages !== false) {
-      this.appendMessage(bot.threadId, {
-        role: "bot",
-        kind: "text",
-        text: job
-          ? `I'm ${name}. I'll handle ${bot.title}${/[.!?…]$/.test(bot.title) ? "" : "."} Send me the first piece of work.`
-          : `Hey, I'm ${name}. Nice to meet you.`,
-      });
-      if (!job) this.appendMessage(bot.threadId, { role: "bot", kind: "options", card: onboardingCard() });
+    if (opts.seedMessages !== false && !job) {
+      // Job-first bots open on the existing ChatView empty state. A scripted
+      // "I'll handle …" line looks like the bot already spoke.
+      this.appendMessage(bot.threadId, { role: "bot", kind: "options", card: onboardingCard() });
     }
     return bot;
   }

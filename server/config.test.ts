@@ -107,6 +107,7 @@ describe("configuration boundaries", () => {
 
   it("keeps tool-call chips off by default and accepts an explicit opt-in", () => {
     expect(showToolCallsEnabled({})).toBe(false);
+    expect(showToolCallsEnabled(loadConfig())).toBe(false);
     expect(parseConfigPatch({ features: { showToolCalls: true } })).toEqual({
       features: { showToolCalls: true },
     });

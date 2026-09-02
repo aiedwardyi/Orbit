@@ -369,8 +369,8 @@ describe("harness HTTP API", () => {
     });
     expect(created.body.bot.title).not.toBe("");
     expect(created.body.bot.computer).toEqual(defaultComputerForNewBot());
-    expect(created.body.bot.messages).toHaveLength(1);
-    expect(created.body.bot.messages[0].text).toContain("Send me the first piece of work.");
+    expect(created.body.bot.messages).toEqual([]);
+    expect(JSON.stringify(created.body.bot.messages)).not.toMatch(/I'll handle|first piece of work/);
   });
 
   it("projects privacy-safe live team-map metadata", async () => {
@@ -978,8 +978,19 @@ describe("harness HTTP API", () => {
 
   it("searches transcripts and exports a conversation", async () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
-    // every new bot opens with a seeded greeting — a known searchable string
-    const hits = await api("GET", "/api/search?q=nice%20to%20meet");
+    expect(bot.messages.filter((message: { kind: string }) => message.kind === "text")).toEqual([]);
+    expect((await api("GET", "/api/search?q=nice%20to%20meet")).body.hits.find((h: { botId?: string }) => h.botId === bot.id)).toBeUndefined();
+
+    const hanging = (await api("GET", "/api/instances")).body.instances.find(
+      (instance: { instanceId: string }) => instance.instanceId === "claude",
+    );
+    expect((await api("PATCH", `/api/bots/${bot.id}`, {
+      modelSelection: { instanceId: "claude", model: hanging.models.default },
+    })).status).toBe(200);
+    expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "please find the railway widgets" })).status).toBe(202);
+    expect((await api("POST", `/api/bots/${bot.id}/interrupt`)).status).toBe(200);
+
+    const hits = await api("GET", "/api/search?q=railway%20widgets");
     expect(hits.status).toBe(200);
     const hit = hits.body.hits.find((h: { botId?: string }) => h.botId === bot.id);
     expect(hit).toMatchObject({
@@ -989,10 +1000,10 @@ describe("harness HTTP API", () => {
       kind: "text",
       onActivePath: true,
     });
-    expect(hit.snippet.toLowerCase()).toContain("nice to meet");
-    expect(hit.snippet.slice(hit.matchStart, hit.matchStart + hit.matchLength).toLowerCase()).toBe("nice to meet");
+    expect(hit.snippet.toLowerCase()).toContain("railway widgets");
+    expect(hit.snippet.slice(hit.matchStart, hit.matchStart + hit.matchLength).toLowerCase()).toBe("railway widgets");
     expect((await api("GET", "/api/search?q=")).body.hits).toEqual([]);
-    const scoped = await api("GET", `/api/search?q=nice%20to%20meet&threadId=${bot.threadId}`);
+    const scoped = await api("GET", `/api/search?q=railway%20widgets&threadId=${bot.threadId}`);
     expect(scoped.status).toBe(200);
     expect(scoped.body.hits.every((candidate: { threadId: string }) => candidate.threadId === bot.threadId)).toBe(true);
     expect((await api("GET", "/api/search?q=hello&threadId=missing-thread")).status).toBe(404);
@@ -1002,7 +1013,8 @@ describe("harness HTTP API", () => {
     expect(markdown.headers.get("content-type")).toContain("text/markdown");
     expect(markdown.headers.get("content-disposition")).toContain("attachment");
     const text = await markdown.text();
-    expect(text).toContain("Nice to meet you");
+    expect(text).toContain("railway widgets");
+    expect(text).not.toContain("Nice to meet you");
 
     const asJson = await api("GET", `/api/threads/${bot.threadId}/export?format=json`);
     expect(asJson.status).toBe(200);
@@ -1879,7 +1891,7 @@ describe("harness HTTP API", () => {
     expect(patched.body.error).toContain("not recognized");
   });
 
-  it("creates a fully configured bot in one request and greets with its final name", async () => {
+  it("creates a fully configured bot in one request without a fake greeting", async () => {
     const created = await api("POST", "/api/bots", {
       name: "  Pathfinder  ",
       title: "Researcher",
@@ -1897,8 +1909,8 @@ describe("harness HTTP API", () => {
         section: "Work",
         modelSelection: { instanceId: "ghost", model: "ghost-1", effort: "high" },
       });
-      expect(bot.messages[0].text).toContain("Pathfinder");
-      expect(bot.messages[0].text).not.toContain("Maus");
+      expect(bot.messages.filter((message: { kind: string }) => message.kind === "text")).toEqual([]);
+      expect(JSON.stringify(bot.messages)).not.toMatch(/I'll handle|Nice to meet you|Pathfinder/);
     } finally {
       await api("DELETE", `/api/bots/${bot.id}`);
     }
@@ -2543,25 +2555,16 @@ describe("harness HTTP API", () => {
   });
 
   it("refuses to fork a message when the provider is unavailable, without mutating", async () => {
-    const { body } = await api("GET", "/api/bots");
-    const bot = body.bots[0];
+    const bot = (await api("POST", "/api/bots")).body.bot;
     const before = bot.messages.length;
 
-    // greeting is a bot message — not editable
-    const greeting = bot.messages.find((m: { role: string }) => m.role === "bot");
-    const notUser = await api("POST", `/api/bots/${bot.id}/messages/${greeting.id}/edit`, { text: "x" });
-    expect(notUser.status).toBe(404);
+    // the first-run quiz is a bot card — not an editable user message
+    const quiz = bot.messages.find((m: { kind: string }) => m.kind === "options");
+    expect((await api("POST", `/api/bots/${bot.id}/messages/${quiz.id}/edit`, { text: "x" })).status).toBe(404);
+    expect((await api("POST", `/api/bots/${bot.id}/messages/${quiz.id}/edit`, { text: "  " })).status).toBe(400);
 
-    // no user message exists yet, so fabricate the check via the card id
-    const card = bot.messages.find((m: { kind: string }) => m.kind === "options");
-    const res = await api("POST", `/api/bots/${bot.id}/messages/${card.id}/edit`, { text: "x" });
-    expect(res.status).toBe(404); // options card, not a user text message
-
-    const empty = await api("POST", `/api/bots/${bot.id}/messages/${greeting.id}/edit`, { text: "  " });
-    expect(empty.status).toBe(400);
-
-    const after = await api("GET", "/api/bots");
-    expect(after.body.bots[0].messages.length).toBe(before);
+    const after = (await api("GET", "/api/bots")).body.bots.find((candidate: { id: string }) => candidate.id === bot.id);
+    expect(after.messages.length).toBe(before);
   });
 
   it("switches the active branch and reports the new leaf", async () => {
