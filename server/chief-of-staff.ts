@@ -75,6 +75,10 @@ export function chiefOfStaffSystemPrompt(
       ? [
           "You are in a shared room where everyone sees your tool calls.",
           hasTeam ? "When you are asked to add a teammate, call create_bot directly." : "",
+          // create-bot files the new bot under the Chief's section and never
+          // touches group.memberIds, and room mentions only route to members —
+          // so without this the Chief reports a teammate the room cannot see
+          "A teammate you add joins this section, not this room, so give it work with ask_bot or delegate_bot and report the result yourself. Mentioning someone who is not a room member does nothing.",
           "Never scan the environment, ports, or processes to check whether your tools are connected, and never announce that a tool is unavailable before you have tried it.",
         ]
           .filter(Boolean)

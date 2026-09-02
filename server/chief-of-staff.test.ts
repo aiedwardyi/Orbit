@@ -84,6 +84,7 @@ describe("chiefOfStaffSystemPrompt", () => {
 
     expect(prompt).toContain("shared room");
     expect(prompt).toContain("call create_bot directly");
+    expect(prompt).toContain("joins this section, not this room");
     expect(prompt).toMatch(/Never scan the environment, ports, or processes/);
   });
 
@@ -133,8 +134,14 @@ describe("room turns mount the Chief framing", () => {
   it("builds the Chief prompt for a room and emits it into the room system block", () => {
     // the tools were always mounted in rooms; only the framing was missing,
     // so the guard is that BOTH turn kinds now build this prompt
-    expect(index.match(/chiefOfStaffSystemPrompt\(/g)).toHaveLength(2);
-    expect(index).toMatch(/const coordinationPrompt = bot\.chiefOfStaff/);
-    expect(index).toContain("    coordinationPrompt,");
+    // scoped to the room turn on purpose: the 1:1 site declares an identically
+    // named coordinationPrompt, so a file-wide search proves nothing here
+    const roomTurn = index.slice(index.indexOf("async function runClaimedGroupMemberTurn"));
+    expect(roomTurn).toContain("    coordinationPrompt,");
+    // the room flag is the whole fix: without it the room silently falls back
+    // to the 1:1 framing and every other assertion here still passes
+    expect(roomTurn).toMatch(
+      /coordinationPrompt = bot\.chiefOfStaff[\s\S]*?openMausStatusSystemPrompt\(\),\s*true,/,
+    );
   });
 });
