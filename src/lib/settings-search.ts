@@ -33,11 +33,18 @@ const SECTION_PHRASE_KEYS = {
     "settings.connections.subtitle",
     "settings.connections.ready",
     "settings.connections.selfHost",
+    "connections.gemini.label",
+    "connections.box.label",
+    "connections.vps.label",
+    "connections.transcription.label",
   ],
   engines: [
     "settings.section.engines",
     "settings.engines.title",
     "settings.engines.subtitle",
+    "engines.setCli",
+    "engines.help",
+    "engines.none",
   ],
   companion: [
     "settings.section.companion",

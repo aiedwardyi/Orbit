@@ -20,6 +20,14 @@ const updateBanner = readFileSync(join(here, "../components/UpdateBanner.tsx"), 
 const chatView = readFileSync(join(here, "../components/ChatView.tsx"), "utf8");
 const sidebar = readFileSync(join(here, "../components/Sidebar.tsx"), "utf8");
 const createBotSheet = readFileSync(join(here, "../components/CreateBotSheet.tsx"), "utf8");
+const engineSetup = readFileSync(join(here, "../components/EngineSetup.tsx"), "utf8");
+const approvalCard = readFileSync(join(here, "../components/ApprovalCard.tsx"), "utf8");
+const pendingApproval = readFileSync(join(here, "../components/PendingApproval.tsx"), "utf8");
+const secretRequestCard = readFileSync(join(here, "../components/SecretRequestCard.tsx"), "utf8");
+const modelPicker = readFileSync(join(here, "../components/ModelPicker.tsx"), "utf8");
+const taskPicker = readFileSync(join(here, "../components/TaskPicker.tsx"), "utf8");
+const renameTitle = readFileSync(join(here, "../components/RenameTitle.tsx"), "utf8");
+const enginesSettings = readFileSync(join(here, "../components/EnginesSettings.tsx"), "utf8");
 
 afterEach(() => {
   applyLocale("en");
@@ -270,5 +278,73 @@ describe("create-bot sheet", () => {
     expect(createBotSheet).not.toMatch(/>Bot job</);
     expect(createBotSheet).not.toMatch(/t\(job/);
     expect(createBotSheet).not.toMatch(/t\(normalized/);
+  });
+});
+
+describe("first-run core path leftovers", () => {
+  it("keeps engine setup, approvals, pickers, and rename chrome as complete EN+KO phrases", () => {
+    expect(en["engine.signInTo"]).toContain("{name}");
+    expect(ko["engine.signInTo"]).toContain("{name}");
+    expect(ko["engine.signInTo"]).not.toMatch(/Sign in to/i);
+    expect(en["engine.copyCommand"]).toBe("Copy command");
+    expect(ko["engine.copyCommand"]).toBe("명령 복사");
+    expect(en["approval.wantsNamed"]).toContain("{action}");
+    expect(ko["approval.wantsNamed"]).toContain("{action}");
+    expect(ko["approval.action.runCommand"]).not.toMatch(/run a command/i);
+    expect(en["approval.alwaysAllow"]).toBe("Always allow");
+    expect(ko["approval.alwaysAllow"]).toBe("항상 허용");
+    expect(en["secret.saveSecurely"]).toBe("Save securely");
+    expect(ko["secret.saveSecurely"]).not.toMatch(/Save securely/i);
+    expect(en["chrome.add"]).toBe("Add");
+    expect(ko["chrome.add"]).toBe("추가");
+    expect(en["chrome.removeFromContext"]).toBe("Remove from context");
+    expect(ko["chrome.removeFromContext"]).not.toMatch(/Remove from context/i);
+    expect(en["task.new"]).toBe("New task");
+    expect(ko["task.new"]).toBe("새 작업");
+    expect(en["task.matching"]).toContain("{count}");
+    expect(ko["task.matching"]).toContain("{count}");
+    expect(en["chat.startConversation"]).toContain("Send a message");
+    expect(ko["chat.startConversation"]).not.toMatch(/Send a message/i);
+    expect(en["model.automatic"]).toBe("Automatic");
+    expect(ko["model.automatic"]).toBe("자동");
+    expect(en["model.showAll"]).toContain("{count}");
+    expect(ko["model.showAll"]).toContain("{count}");
+    expect(en["engines.setCli"]).toBe("Set CLI…");
+    expect(ko["engines.setCli"]).toBe("CLI 지정…");
+    expect(en["connections.connected"]).toBe("Connected");
+    expect(ko["connections.connected"]).toBe("연결됨");
+  });
+
+  it("wires those phrases instead of hardcoded English", () => {
+    expect(engineSetup).toContain('t("engine.signInTo"');
+    expect(engineSetup).toContain('t("engine.installName"');
+    expect(engineSetup).toContain('t("engine.copyCommand")');
+    expect(engineSetup).not.toMatch(/Open install in Terminal/);
+    expect(approvalCard).toContain('t("approval.wantsNamed"');
+    expect(approvalCard).toContain('t("approval.allowed")');
+    expect(pendingApproval).toContain('t("approval.alwaysAllow")');
+    expect(pendingApproval).toContain('t("approval.cancelTurn")');
+    expect(pendingApproval).not.toMatch(/>Always allow</);
+    expect(secretRequestCard).toContain('t("secret.saveSecurely")');
+    expect(secretRequestCard).not.toMatch(/Where to get this key/);
+    expect(sidebar).toContain('t("chrome.add")');
+    expect(sidebar).toContain('t("chrome.removeFromContext")');
+    expect(sidebar).toContain('t("palette.noMatch"');
+    expect(sidebar).not.toMatch(/Remove from context/);
+    expect(taskPicker).toContain('t("task.new")');
+    expect(taskPicker).toContain('t("palette.noMatch"');
+    expect(taskPicker).not.toMatch(/>New task</);
+    expect(renameTitle).toContain('t("rename.named"');
+    expect(renameTitle).toContain('t("chat.openProfile"');
+    expect(chatView).toContain('t("createBot.cancel")');
+    expect(chatView).toContain('t("composer.send")');
+    expect(chatView).toContain('t("chat.startConversation")');
+    expect(chatView).toContain('t("chrome.chiefOfStaff")');
+    expect(chatView).not.toMatch(/Send a message to start the conversation/);
+    expect(modelPicker).toContain('t("palette.noMatch"');
+    expect(modelPicker).toContain('t("model.automatic")');
+    expect(modelPicker).not.toMatch(/Nothing matches/);
+    expect(enginesSettings).toContain('t("engines.setCli")');
+    expect(enginesSettings).not.toMatch(/>Set CLI…</);
   });
 });

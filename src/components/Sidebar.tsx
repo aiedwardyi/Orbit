@@ -591,7 +591,7 @@ function SectionPicker({
             trimmed ? "bg-accent text-panel" : "bg-raised/70 text-ink-secondary",
           )}
         >
-          Add
+          {t("chrome.add")}
         </button>
       </form>
       {current && (
@@ -602,7 +602,7 @@ function SectionPicker({
             className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[13px] text-danger hover:bg-raised/70"
           >
             <FolderMinus size={15} />
-            Remove from context
+            {t("chrome.removeFromContext")}
           </button>
         </>
       )}
@@ -1454,7 +1454,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       <div className="flex-1 overflow-y-auto px-2">
         <div className="flex flex-col gap-0.5">
           {!unsectionedChief && sectionChiefs.length === 0 && visibleBots.length === 0 && sectionedBots.length === 0 && visibleGroups.length === 0 && q && q.length < MIN_QUERY && (
-            <div className="px-3 py-6 text-center text-[13px] text-ink-secondary">Nothing matches “{query}”</div>
+            <div className="px-3 py-6 text-center text-[13px] text-ink-secondary">{t("palette.noMatch", { query })}</div>
           )}
           {unsectionedChief && (
             <div className="mb-1.5">

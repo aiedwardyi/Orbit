@@ -5,6 +5,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Check, CircleHelp, ExternalLink, Loader2, TriangleAlert } from "lucide-react";
 import { api, useStore, type ConfigStatus } from "@/state/store";
 import { cn } from "@/lib/cn";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 
 export type ConfigSection = "composio" | "gemini" | "box" | "opencodeGo";
 
@@ -34,52 +35,53 @@ const ELECTRON_CREDENTIAL: Record<ConfigSection, "composioApiKey" | "geminiApiKe
 const CREDENTIALS: Record<
   ConfigSection,
   {
-    label: string;
-    placeholder: string;
-    description: string;
+    label: MessageKey;
+    placeholder: string | MessageKey;
+    description: MessageKey;
     href: string;
-    linkLabel: string;
+    linkLabel: MessageKey;
     optional: boolean;
-    warning?: string;
+    warning?: MessageKey;
   }
 > = {
   composio: {
-    label: "Composio project key",
+    label: "connections.composio.label",
     placeholder: "ak_…",
-    description: "Connect Gmail, GitHub, Slack, Notion, and other apps through your own Composio project.",
+    description: "connections.composio.description",
     href: "https://dashboard.composio.dev",
-    linkLabel: "Create or copy a project key",
+    linkLabel: "connections.composio.link",
     optional: true,
   },
   gemini: {
-    label: "Gemini API key",
-    placeholder: "Paste a Gemini API key",
-    description: "Runs the native Gemini CLI directly. Google subscription accounts can use Gemini through Antigravity without this key.",
+    label: "connections.gemini.label",
+    placeholder: "connections.gemini.placeholder",
+    description: "connections.gemini.description",
     href: "https://aistudio.google.com/apikey",
-    linkLabel: "Create a Gemini API key",
+    linkLabel: "connections.gemini.link",
     optional: true,
-    warning: "Direct API usage may incur charges outside your subscription.",
+    warning: "connections.gemini.warning",
   },
   box: {
-    label: "Box API key",
-    placeholder: "Paste your Box API key",
-    description: "Give bots an isolated remote Linux computer with a desktop and terminal.",
+    label: "connections.box.label",
+    placeholder: "connections.box.placeholder",
+    description: "connections.box.description",
     href: "https://docs.ascii.dev/box/api-keys",
-    linkLabel: "Open Box API key guide",
+    linkLabel: "connections.box.link",
     optional: true,
-    warning: "Box is a paid service after its trial. Usage may incur charges.",
+    warning: "connections.box.warning",
   },
   opencodeGo: {
-    label: "OpenCode API key",
-    placeholder: "Paste an OpenCode API key",
-    description: "Optional. Existing OpenCode Zen, Go, and other provider connections are detected automatically.",
+    label: "connections.opencode.label",
+    placeholder: "connections.opencode.placeholder",
+    description: "connections.opencode.description",
     href: "https://opencode.ai/docs/providers/",
-    linkLabel: "Open the OpenCode provider guide",
+    linkLabel: "connections.opencode.link",
     optional: true,
   },
 };
 
 function CredentialHelp({ section }: { section: ConfigSection }) {
+  const { t } = useI18n();
   const credential = CREDENTIALS[section];
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -111,7 +113,7 @@ function CredentialHelp({ section }: { section: ConfigSection }) {
       <button
         ref={buttonRef}
         type="button"
-        aria-label={`About ${credential.label}`}
+        aria-label={t("connections.about", { label: t(credential.label) })}
         aria-expanded={open}
         aria-controls={popoverId}
         onClick={() => setOpen((current) => !current)}
@@ -123,14 +125,14 @@ function CredentialHelp({ section }: { section: ConfigSection }) {
         <div
           id={popoverId}
           role="group"
-          aria-label={`${credential.label} help`}
+          aria-label={t("connections.helpAria", { label: t(credential.label) })}
           className="animate-pop-in absolute right-0 z-30 mt-1.5 w-[270px] rounded-xl border border-hairline bg-panel p-3 text-left shadow-2xl"
         >
-          <div className="text-[12px] leading-[1.45] text-ink-secondary">{credential.description}</div>
+          <div className="text-[12px] leading-[1.45] text-ink-secondary">{t(credential.description)}</div>
           {credential.warning && (
             <div className="mt-2 flex gap-1.5 rounded-lg border border-warning/25 bg-warning/10 px-2 py-1.5 text-[11px] leading-[1.4] text-warning">
               <TriangleAlert size={13} className="mt-px shrink-0" aria-hidden="true" />
-              <span>{credential.warning}</span>
+              <span>{t(credential.warning)}</span>
             </div>
           )}
           <a
@@ -140,7 +142,7 @@ function CredentialHelp({ section }: { section: ConfigSection }) {
             onClick={() => setOpen(false)}
             className="mt-2.5 flex items-center gap-1.5 text-[12px] font-medium text-accent hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
           >
-            {credential.linkLabel}
+            {t(credential.linkLabel)}
             <ExternalLink size={12} aria-hidden="true" />
           </a>
         </div>
@@ -157,6 +159,7 @@ export function ApiKeyRow({
   /** Called after a successful save with the section's new configured flag. */
   onSaved?: (configured: boolean) => void;
 }) {
+  const { t } = useI18n();
   const { state, dispatch } = useStore();
   const [value, setValue] = useState("");
   const [saving, setSaving] = useState(false);
@@ -190,13 +193,13 @@ export function ApiKeyRow({
     <div>
       <div className="mb-1.5 flex items-center gap-2 text-[13px] text-ink-secondary">
         <span className={cn("size-1.5 rounded-full", configured ? "bg-success" : "bg-raised-hover")} />
-        <span>{credential.label}</span>
+        <span>{t(credential.label)}</span>
         {credential.optional && (
           <span className="rounded bg-control px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-ink-secondary">
-            Optional
+            {t("connections.optional")}
           </span>
         )}
-        {configured && <span className="text-[11px] text-success">Connected</span>}
+        {configured && <span className="text-[11px] text-success">{t("connections.connected")}</span>}
         <CredentialHelp section={section} />
       </div>
       <div className="flex gap-2">
@@ -205,8 +208,8 @@ export function ApiKeyRow({
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && save()}
-          placeholder={configured ? "••••••••  (paste to replace)" : credential.placeholder}
-          aria-label={credential.label}
+          placeholder={configured ? t("connections.pasteToReplace") : (credential.placeholder.startsWith("connections.") ? t(credential.placeholder as MessageKey) : credential.placeholder)}
+          aria-label={t(credential.label)}
           autoComplete="off"
           className="w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[13px] text-ink placeholder:text-ink-secondary focus:border-hairline focus:outline-none"
         />
@@ -220,9 +223,9 @@ export function ApiKeyRow({
               : "bg-control text-ink hover:bg-raised-hover",
             "disabled:cursor-not-allowed disabled:opacity-50",
           )}
-          title={clearing ? "Remove the saved key" : "Save"}
+          title={clearing ? t("connections.removeKey") : t("settings.browserProfiles.save")}
         >
-          {saving ? <Loader2 size={13} className="animate-spin" /> : clearing ? "Clear" : <><Check size={13} />Save</>}
+          {saving ? <Loader2 size={13} className="animate-spin" /> : clearing ? t("room.clear") : <><Check size={13} />{t("settings.browserProfiles.save")}</>}
         </button>
       </div>
       {error && <div className="mt-1 text-[12px] text-danger">{error}</div>}
@@ -232,6 +235,7 @@ export function ApiKeyRow({
 
 /** Non-secret Docker-over-SSH target. Keys and passwords stay with SSH. */
 export function VpsConnection() {
+  const { t } = useI18n();
   const { state, dispatch } = useStore();
   const [alias, setAlias] = useState("");
   const [saving, setSaving] = useState(false);
@@ -262,24 +266,22 @@ export function VpsConnection() {
     <div>
       <div className="mb-1.5 flex items-center gap-2 text-[13px] text-ink-secondary">
         <span className={cn("size-1.5 rounded-full", configured ? "bg-success" : "bg-raised-hover")} />
-        <span>Self-hosted VPS</span>
+        <span>{t("connections.vps.label")}</span>
         <span className="rounded bg-control px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-ink-secondary">
-          Optional
+          {t("connections.optional")}
         </span>
-        {configured && <span className="text-[11px] text-success">Connected</span>}
+        {configured && <span className="text-[11px] text-success">{t("connections.connected")}</span>}
       </div>
       <div className="mb-1.5 text-[12px] leading-relaxed text-ink-secondary">
-        SSH config alias for the Linux VPS. Orbit uses your normal SSH config and agent; it does not store keys or passwords.{" "}
-        See the{" "}
+        {t("connections.vps.help")}{" "}
         <a
           href="https://github.com/milind-soni/OpenMausBot/blob/main/docs/byo-vps.md"
           target="_blank"
           rel="noopener noreferrer"
           className="text-accent hover:underline"
         >
-          setup guide
-        </a>{" "}
-        for the required SSH alias shape.
+          {t("connections.vps.guide")}
+        </a>
       </div>
       <div className="flex gap-2">
         <input
@@ -288,7 +290,7 @@ export function VpsConnection() {
           onChange={(e) => setAlias(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && save()}
           placeholder="my-vps"
-          aria-label="Self-hosted VPS SSH config alias"
+          aria-label={t("connections.vps.aliasAria")}
           autoComplete="off"
           className="w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[13px] text-ink placeholder:text-ink-secondary focus:border-hairline focus:outline-none"
         />
@@ -300,9 +302,9 @@ export function VpsConnection() {
             !alias.trim() && configured ? "bg-control text-danger hover:bg-raised-hover" : "bg-control text-ink hover:bg-raised-hover",
             "disabled:cursor-not-allowed disabled:opacity-50",
           )}
-          title={!alias.trim() && configured ? "Remove the saved alias" : "Save"}
+          title={!alias.trim() && configured ? t("connections.removeAlias") : t("settings.browserProfiles.save")}
         >
-          {saving ? <Loader2 size={13} className="animate-spin" /> : !alias.trim() && configured ? "Clear" : <><Check size={13} />Save</>}
+          {saving ? <Loader2 size={13} className="animate-spin" /> : !alias.trim() && configured ? t("room.clear") : <><Check size={13} />{t("settings.browserProfiles.save")}</>}
         </button>
       </div>
       {error && <div className="mt-1 text-[12px] text-danger">{error}</div>}

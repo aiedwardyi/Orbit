@@ -10,6 +10,7 @@ import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
 import { EngineGroupLabel } from "./EngineGroupLabel";
 import { cn } from "@/lib/cn";
+import { useI18n } from "@/lib/i18n";
 
 type ModelOption = InstanceInfo["models"]["options"][number];
 const COMPACT_MODEL_COUNT = 5;
@@ -18,10 +19,10 @@ function modelLabel(instance: InstanceInfo | undefined, model: string): string {
   return instance?.models.options.find((option) => option.id === model)?.label ?? model;
 }
 
-function engineStatus(instance: InstanceInfo): string {
-  if (needsCli(instance)) return "Not installed";
-  if (needsSignIn(instance)) return "Sign-in required";
-  return instance.snapshot.version ?? "Ready";
+function engineStatus(instance: InstanceInfo, tr: ReturnType<typeof useI18n>["t"]): string {
+  if (needsCli(instance)) return tr("model.notInstalled");
+  if (needsSignIn(instance)) return tr("model.signInRequired");
+  return instance.snapshot.version ?? tr("onboarding.ready");
 }
 
 function ModelRow({
@@ -35,6 +36,7 @@ function ModelRow({
   defaultId: string;
   onPick: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <button
       type="button"
@@ -47,10 +49,10 @@ function ModelRow({
       <span className="flex min-w-0 items-center gap-2">
         <span className="truncate">{option.label}</span>
         {option.id === defaultId && (
-          <span className="shrink-0 rounded bg-inset px-1.5 py-px text-[10px] text-ink-secondary">Default</span>
+          <span className="shrink-0 rounded bg-inset px-1.5 py-px text-[10px] text-ink-secondary">{t("model.default")}</span>
         )}
         {option.loaded && (
-          <span className="shrink-0 rounded bg-accent/10 px-1.5 py-px text-[10px] text-accent">Loaded</span>
+          <span className="shrink-0 rounded bg-accent/10 px-1.5 py-px text-[10px] text-accent">{t("model.loaded")}</span>
         )}
       </span>
       {current && <Check size={14} className="shrink-0 text-accent" />}
@@ -69,6 +71,7 @@ function ModelSearch({
   onEscape: () => void;
   local: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <div className="shrink-0 px-2 pb-2">
       <div className="flex items-center gap-2 rounded-lg border border-hairline/40 bg-inset px-2.5 py-1.5 focus-within:border-accent/60">
@@ -81,8 +84,8 @@ function ModelSearch({
             event.stopPropagation();
             onEscape();
           }}
-          placeholder="Search models"
-          aria-label={local ? "Search local models" : "Search models"}
+          placeholder={local ? t("model.searchLocal") : t("model.search")}
+          aria-label={local ? t("model.searchLocal") : t("model.search")}
           className="w-full bg-transparent text-[12.5px] text-ink placeholder:text-ink-secondary focus:outline-none"
         />
       </div>
@@ -103,6 +106,7 @@ export function ModelPicker({
   contained?: boolean;
   label?: ReactNode;
 }) {
+  const { t } = useI18n();
   const { state, dispatch, refreshInstances } = useStore();
   const [open, setOpen] = useState(false);
   const [railId, setRailId] = useState<string | null>(null);
@@ -233,7 +237,7 @@ export function ModelPicker({
       )}
       title={
         isAutomatic
-          ? `Orbit is choosing a working engine for this job. Currently ${active?.displayName ?? "unresolved"}.`
+          ? t("model.automaticTitle", { name: active?.displayName ?? t("model.unresolved") })
           : active
             ? `${active.displayName} · ${modelLabel(active, selection.model)}`
             : selection.model
@@ -241,7 +245,7 @@ export function ModelPicker({
     >
       {isAutomatic ? <Sparkles size={14} className="text-accent" /> : active && <ProviderMark driverKind={active.driverKind} size={14} />}
       <span className={cn("max-w-[160px] truncate", !isAutomatic && !contained && active && "@max-4xl/chathead:hidden")}>
-        {isAutomatic ? "Automatic" : modelLabel(active, selection.model)}
+        {isAutomatic ? t("model.automatic") : modelLabel(active, selection.model)}
       </span>
       {!isAutomatic && !contained && active && (
         <span className="hidden max-w-[96px] truncate @max-4xl/chathead:inline">
@@ -274,7 +278,7 @@ export function ModelPicker({
         <div
           data-model-picker-content
           role="dialog"
-          aria-label="Choose model"
+          aria-label={t("model.choose")}
           className={cn(
             "flex overflow-hidden rounded-2xl border border-hairline/50 bg-card",
             contained
@@ -295,7 +299,7 @@ export function ModelPicker({
                     onClick={() => selectRail(instance)}
                     aria-label={instance.displayName}
                     aria-pressed={selected}
-                    title={`${instance.displayName} · ${engineStatus(instance)}`}
+                    title={`${instance.displayName} · ${engineStatus(instance, t)}`}
                     className={cn(
                       "relative flex size-9 items-center justify-center rounded-lg",
                       selected ? "bg-control ring-1 ring-hairline/50" : "hover:bg-control/60",
@@ -311,11 +315,11 @@ export function ModelPicker({
               return (
                 <>
                   {subscription.length > 0 && (
-                    <EngineGroupLabel className="px-0 pb-0.5 pt-0.5 text-center text-[9px]">Cloud</EngineGroupLabel>
+                    <EngineGroupLabel className="px-0 pb-0.5 pt-0.5 text-center text-[9px]">{t("noEngines.cloud")}</EngineGroupLabel>
                   )}
                   {subscription.map(railButton)}
                   {local.length > 0 && (
-                    <EngineGroupLabel className="px-0 pb-0.5 pt-2 text-center text-[9px]">Local</EngineGroupLabel>
+                    <EngineGroupLabel className="px-0 pb-0.5 pt-2 text-center text-[9px]">{t("noEngines.local")}</EngineGroupLabel>
                   )}
                   {local.map(railButton)}
                 </>
@@ -336,9 +340,9 @@ export function ModelPicker({
                 <Sparkles size={15} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-[13.5px] font-medium text-ink">Automatic</span>
+                <span className="block text-[13.5px] font-medium text-ink">{t("model.automatic")}</span>
                 <span className="block truncate text-[11.5px] text-ink-secondary">
-                  Keep the current engine when it works. Switch only when needed.
+                  {t("model.automaticHelp")}
                 </span>
               </span>
               {isAutomatic && <Check size={14} className="shrink-0 text-accent" />}
@@ -354,13 +358,13 @@ export function ModelPicker({
                         blocked ? "bg-warning/10 text-warning" : "bg-success/10 text-success",
                       )}
                     >
-                      {pane === "custom" && !blocked ? "Local models" : engineStatus(railInstance)}
+                      {pane === "custom" && !blocked ? t("model.localModels") : engineStatus(railInstance, t)}
                     </span>
                   </div>
                   <div className="mt-0.5 text-[11.5px] text-ink-secondary">
                     {pane === "custom"
-                      ? "Run this agent with a model already on your machine."
-                      : "Choose a model for this bot."}
+                      ? t("model.localHelp")
+                      : t("model.chooseForBot")}
                   </div>
                 </div>
 
@@ -373,7 +377,7 @@ export function ModelPicker({
                     }}
                     className="mx-2 mb-1 flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[12px] text-ink-secondary hover:bg-control/60"
                   >
-                    <ChevronLeft size={13} /> Back to {railInstance.displayName} models
+                    <ChevronLeft size={13} /> {t("model.backTo", { name: railInstance.displayName })}
                   </button>
                 )}
 
@@ -382,8 +386,8 @@ export function ModelPicker({
                     <EngineSetup instance={railInstance} intent={pane === "custom" ? "inject" : "cloud"} />
                     <p className="mt-2 text-center text-[11.5px] text-ink-secondary/70">
                       {pane === "main" && official.length > 0
-                        ? `${official.length} ${official.length === 1 ? "model" : "models"} will appear after setup.`
-                        : "Local models will appear as soon as the agent is installed."}
+                        ? t(official.length === 1 ? "model.willAppearOne" : "model.willAppearMany", { count: official.length })
+                        : t("model.localWillAppear")}
                     </p>
                   </div>
                 ) : (
@@ -408,12 +412,12 @@ export function ModelPicker({
                       {pane === "main" ? (
                         <>
                           <EngineGroupLabel className="px-2 pb-1 pt-0.5">
-                            {query ? `${filteredOfficial.length} results` : showAll ? `All models · ${official.length}` : "Suggested"}
+                            {query ? t("model.results", { count: filteredOfficial.length }) : showAll ? t("model.allModels", { count: official.length }) : t("model.suggested")}
                           </EngineGroupLabel>
                           {shownOfficial.map(renderRow)}
                           {shownOfficial.length === 0 && (
                             <div className="px-2 py-5 text-center text-[12.5px] text-ink-secondary">
-                              Nothing matches “{query.trim()}”
+                              {t("palette.noMatch", { query: query.trim() })}
                             </div>
                           )}
                           {!query && !showAll && official.length > compactOfficial.length && (
@@ -422,7 +426,7 @@ export function ModelPicker({
                               onClick={() => setShowAll(true)}
                               className="mt-1 flex w-full items-center justify-between rounded-lg border-t border-hairline/40 px-2.5 py-2 text-[12.5px] font-medium text-ink-secondary hover:bg-control/60 hover:text-ink"
                             >
-                              Show all {official.length} models <ChevronDown size={13} />
+                              {t("model.showAll", { count: official.length })} <ChevronDown size={13} />
                             </button>
                           )}
                           {!query && showAll && official.length > COMPACT_MODEL_COUNT && (
@@ -431,14 +435,14 @@ export function ModelPicker({
                               onClick={() => setShowAll(false)}
                               className="mt-1 w-full rounded-lg px-2.5 py-2 text-[12px] text-ink-secondary hover:bg-control/60 hover:text-ink"
                             >
-                              Show suggested only
+                              {t("model.showSuggested")}
                             </button>
                           )}
                         </>
                       ) : (
                         <>
                           {pinned.length > 0 && (
-                            <EngineGroupLabel className="px-2 pb-1 pt-0.5">Loaded now</EngineGroupLabel>
+                            <EngineGroupLabel className="px-2 pb-1 pt-0.5">{t("model.loadedNow")}</EngineGroupLabel>
                           )}
                           {pinned.map(renderRow)}
                           {pinned.length > 0 && rest.length > 0 && (
@@ -447,15 +451,15 @@ export function ModelPicker({
                           {rest.map(renderRow)}
                           {custom.length === 0 && (
                             <div className="mx-1 rounded-xl border border-dashed border-hairline/50 px-3 py-5 text-center">
-                              <div className="text-[12.5px] font-medium text-ink">No local models found</div>
+                              <div className="text-[12.5px] font-medium text-ink">{t("model.noLocal")}</div>
                               <div className="mt-1 text-[11.5px] leading-relaxed text-ink-secondary">
-                                Start oMLX, Ollama, Unsloth, LM Studio, or EXO, then reopen this picker.
+                                {t("model.noLocalHelp")}
                               </div>
                             </div>
                           )}
                           {custom.length > 0 && filteredCustom.length === 0 && (
                             <div className="px-2 py-5 text-center text-[12.5px] text-ink-secondary">
-                              Nothing matches “{query.trim()}”
+                              {t("palette.noMatch", { query: query.trim() })}
                             </div>
                           )}
                         </>
@@ -468,7 +472,7 @@ export function ModelPicker({
                   <button
                     type="button"
                     aria-label={
-                      custom.length > 0 ? `Use a local model (${custom.length} available)` : "Use a local model"
+                      custom.length > 0 ? t("model.useLocalCount", { count: custom.length }) : t("model.useLocal")
                     }
                     disabled={!canOpenCustom}
                     onClick={() => {
@@ -477,11 +481,11 @@ export function ModelPicker({
                     }}
                     className="flex w-full shrink-0 items-center justify-between gap-2 border-t border-hairline/40 px-4 py-3 text-left text-[12.5px] font-medium text-ink hover:bg-control/60 disabled:cursor-not-allowed disabled:text-ink-secondary/40 disabled:hover:bg-transparent"
                   >
-                    <span>Use a local model</span>
+                    <span>{t("model.useLocal")}</span>
                     <span className="flex items-center gap-2">
                       {custom.length > 0 && (
                         <span className="rounded-full bg-inset px-2 py-0.5 text-[10.5px] text-ink-secondary">
-                          {custom.length} available
+                          {t("model.available", { count: custom.length })}
                         </span>
                       )}
                       <ChevronRight size={14} className="text-ink-secondary" />
@@ -490,7 +494,7 @@ export function ModelPicker({
                 )}
               </>
             ) : (
-              <div className="px-4 py-5 text-[13px] text-ink-secondary">No model providers are available.</div>
+              <div className="px-4 py-5 text-[13px] text-ink-secondary">{t("model.noProviders")}</div>
             )}
           </div>
         </div>
