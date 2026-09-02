@@ -10,6 +10,7 @@
 import { memo } from "react";
 import { useStore, type Bot, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
+import { t } from "@/lib/i18n";
 
 interface ApprovalLabels {
   [tool: string]: string;
@@ -51,27 +52,28 @@ export function pendingApprovals(messages: Message[]): Pending[] {
 export function spokenApprovalPrompt(pending: Pending, requester: string): string {
   const isRoutineRequest = isRoutineApproval(pending);
   if (!isRoutineRequest) {
-    return `${requester} wants to ${pending.tool}. ${pending.detail}. Should I allow it?`;
+    return t("approval.spoken", { name: requester, tool: pending.tool, detail: pending.detail });
   }
-  const title = pending.message.card?.title.trim() || "Confirm this routine?";
-  return `${requester} asks: ${title}${/[.!?]$/.test(title) ? "" : "."} Review the schedule and instructions on screen. Should I confirm it?`;
+  const raw = pending.message.card?.title.trim() || t("approval.confirmThisRoutine");
+  const title = /[.!?]$/.test(raw) ? raw : `${raw}.`;
+  return t("approval.spokenRoutine", { name: requester, title });
 }
 
 function label(pending: Pending): string {
   if (isRoutineApproval(pending)) {
     return pending.message.card?.routineRequest?.operation.action === "create"
-      ? "Confirm this routine"
-      : "Confirm this routine change";
+      ? t("approval.confirmRoutine")
+      : t("approval.confirmRoutineChange");
   }
   const nice: ApprovalLabels = {
-    Bash: "Command approval requested",
-    shell: "Command approval requested",
-    Read: "File-read approval requested",
-    Write: "File-change approval requested",
-    Edit: "File-change approval requested",
-    edit: "File-change approval requested",
+    Bash: t("approval.commandRequested"),
+    shell: t("approval.commandRequested"),
+    Read: t("approval.fileReadRequested"),
+    Write: t("approval.fileChangeRequested"),
+    Edit: t("approval.fileChangeRequested"),
+    edit: t("approval.fileChangeRequested"),
   };
-  return nice[pending.tool] ?? "Approval requested";
+  return nice[pending.tool] ?? t("approval.requested");
 }
 
 export const PendingApprovalPanel = memo(function PendingApprovalPanel({
@@ -86,14 +88,14 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
   return (
     <div
       role="region"
-      aria-label={isRoutineApproval(pending) ? "Pending routine confirmation" : "Pending approval"}
+      aria-label={isRoutineApproval(pending) ? t("approval.pendingRoutineAria") : t("approval.pending")}
       className="rounded-t-2xl border-b border-hairline/50 bg-control/40 px-4 py-3"
     >
       <div className="flex flex-wrap items-center gap-2" aria-live="polite">
-        <span className="text-[11px] uppercase tracking-[0.18em] text-ink-secondary">Pending approval</span>
+        <span className="text-[11px] uppercase tracking-[0.18em] text-ink-secondary">{t("approval.pending")}</span>
         {count > 1 && (
           <span className="rounded-full bg-control px-1.5 py-0.5 text-[11px] tabular-nums text-ink-secondary">
-            {index + 1} of {count}
+            {t("find.of", { current: index + 1, total: count })}
           </span>
         )}
         <span className="text-[13px] text-ink">{label(pending)}</span>
@@ -108,7 +110,7 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
       {/* never truncated — long commands wrap and scroll */}
       <pre
         tabIndex={0}
-        aria-label={isRoutineApproval(pending) ? "Routine details to review" : "Approval details to review"}
+        aria-label={isRoutineApproval(pending) ? t("approval.reviewRoutine") : t("approval.reviewDetails")}
         className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-ink"
       >
         {pending.detail}
@@ -147,29 +149,29 @@ export function PendingApprovalActions({
     <div className="flex flex-wrap items-center justify-end gap-2 px-2 py-2">
       {!isRoutineRequest && (
         <button onClick={onCancelTurn} className={cn(base, "text-ink-secondary hover:bg-control hover:text-ink")}>
-          Cancel turn
+          {t("approval.cancelTurn")}
         </button>
       )}
       <button
         onClick={() => decide("deny")}
         className={cn(base, "border border-danger/40 text-danger hover:bg-danger/10")}
       >
-        {isRoutineRequest ? "Cancel" : "Deny"}
+        {isRoutineRequest ? t("createBot.cancel") : t("approval.deny")}
       </button>
       {!isRoutineRequest && bot && pending.allowKey && (
         <button
           onClick={() => decide("allow", true)}
-          title={`Stop asking ${bot.name} about ${pending.allowKey}`}
+          title={t("approval.alwaysAllowTitle", { name: bot.name, key: pending.allowKey })}
           className={cn(base, "border border-hairline/50 text-ink hover:bg-control")}
         >
-          Always allow
+          {t("approval.alwaysAllow")}
         </button>
       )}
       <button
         onClick={() => decide("allow")}
         className={cn(base, "bg-accent font-medium text-white hover:brightness-110")}
       >
-        {isRoutineRequest ? "Confirm" : "Allow once"}
+        {isRoutineRequest ? t("approval.confirm") : t("approval.allowOnce")}
       </button>
     </div>
   );

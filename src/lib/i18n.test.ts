@@ -20,6 +20,16 @@ const updateBanner = readFileSync(join(here, "../components/UpdateBanner.tsx"), 
 const chatView = readFileSync(join(here, "../components/ChatView.tsx"), "utf8");
 const sidebar = readFileSync(join(here, "../components/Sidebar.tsx"), "utf8");
 const createBotSheet = readFileSync(join(here, "../components/CreateBotSheet.tsx"), "utf8");
+const engineSetup = readFileSync(join(here, "../components/EngineSetup.tsx"), "utf8");
+const approvalCard = readFileSync(join(here, "../components/ApprovalCard.tsx"), "utf8");
+const pendingApproval = readFileSync(join(here, "../components/PendingApproval.tsx"), "utf8");
+const secretRequestCard = readFileSync(join(here, "../components/SecretRequestCard.tsx"), "utf8");
+const modelPicker = readFileSync(join(here, "../components/ModelPicker.tsx"), "utf8");
+const taskPicker = readFileSync(join(here, "../components/TaskPicker.tsx"), "utf8");
+const renameTitle = readFileSync(join(here, "../components/RenameTitle.tsx"), "utf8");
+const enginesSettings = readFileSync(join(here, "../components/EnginesSettings.tsx"), "utf8");
+const searchResults = readFileSync(join(here, "../components/SearchResults.tsx"), "utf8");
+const manageMembers = readFileSync(join(here, "../components/ManageMembersPanel.tsx"), "utf8");
 
 afterEach(() => {
   applyLocale("en");
@@ -270,5 +280,112 @@ describe("create-bot sheet", () => {
     expect(createBotSheet).not.toMatch(/>Bot job</);
     expect(createBotSheet).not.toMatch(/t\(job/);
     expect(createBotSheet).not.toMatch(/t\(normalized/);
+  });
+});
+
+describe("first-run core path leftovers", () => {
+  it("keeps engine setup, approvals, pickers, and rename chrome as complete EN+KO phrases", () => {
+    expect(en["engine.signInTo"]).toContain("{name}");
+    expect(ko["engine.signInTo"]).toContain("{name}");
+    expect(ko["engine.signInTo"]).not.toMatch(/Sign in to/i);
+    expect(en["engine.copyCommand"]).toBe("Copy command");
+    expect(ko["engine.copyCommand"]).toBe("명령 복사");
+    expect(en["approval.wantsNamed"]).toContain("{action}");
+    expect(ko["approval.wantsNamed"]).toContain("{action}");
+    expect(ko["approval.action.runCommand"]).not.toMatch(/run a command/i);
+    expect(en["approval.alwaysAllow"]).toBe("Always allow");
+    expect(ko["approval.alwaysAllow"]).toBe("항상 허용");
+    expect(en["secret.saveSecurely"]).toBe("Save securely");
+    expect(ko["secret.saveSecurely"]).not.toMatch(/Save securely/i);
+    expect(en["chrome.add"]).toBe("Add");
+    expect(ko["chrome.add"]).toBe("추가");
+    expect(en["chrome.removeFromContext"]).toBe("Remove from context");
+    expect(ko["chrome.removeFromContext"]).not.toMatch(/Remove from context/i);
+    expect(en["task.new"]).toBe("New task");
+    expect(ko["task.new"]).toBe("새 작업");
+    expect(en["task.matching"]).toContain("{count}");
+    expect(ko["task.matching"]).toContain("{count}");
+    expect(en["chat.startConversation"]).toContain("Send a message");
+    expect(ko["chat.startConversation"]).not.toMatch(/Send a message/i);
+    expect(en["model.automatic"]).toBe("Automatic");
+    expect(ko["model.automatic"]).toBe("자동");
+    expect(en["model.showAll"]).toContain("{count}");
+    expect(ko["model.showAll"]).toContain("{count}");
+    expect(en["engines.setCli"]).toBe("Set CLI…");
+    expect(ko["engines.setCli"]).toBe("CLI 지정…");
+    expect(en["connections.connected"]).toBe("Connected");
+    expect(ko["connections.connected"]).toBe("연결됨");
+  });
+
+  it("wires those phrases instead of hardcoded English", () => {
+    expect(engineSetup).toContain('t("engine.signInTo"');
+    expect(engineSetup).toContain('t("engine.installName"');
+    expect(engineSetup).toContain('t("engine.copyCommand")');
+    expect(engineSetup).not.toMatch(/Open install in Terminal/);
+    expect(approvalCard).toContain('t("approval.wantsNamed"');
+    expect(approvalCard).toContain('t("approval.allowed")');
+    expect(pendingApproval).toContain('t("approval.alwaysAllow")');
+    expect(pendingApproval).toContain('t("approval.cancelTurn")');
+    expect(pendingApproval).not.toMatch(/>Always allow</);
+    expect(secretRequestCard).toContain('t("secret.saveSecurely")');
+    expect(secretRequestCard).not.toMatch(/Where to get this key/);
+    expect(sidebar).toContain('t("chrome.add")');
+    expect(sidebar).toContain('t("chrome.removeFromContext")');
+    expect(sidebar).toContain('t("palette.noMatch"');
+    expect(sidebar).not.toMatch(/Remove from context/);
+    expect(taskPicker).toContain('t("task.new")');
+    expect(taskPicker).toContain('t("palette.noMatch"');
+    expect(taskPicker).not.toMatch(/>New task</);
+    expect(renameTitle).toContain('t("rename.named"');
+    expect(renameTitle).toContain('t("chat.openProfile"');
+    expect(chatView).toContain('t("createBot.cancel")');
+    expect(chatView).toContain('t("composer.send")');
+    expect(chatView).toContain('t("chat.startConversation")');
+    expect(chatView).toContain('t("chrome.chiefOfStaff")');
+    expect(chatView).not.toMatch(/Send a message to start the conversation/);
+    expect(modelPicker).toContain('t("palette.noMatch"');
+    expect(modelPicker).toContain('t("model.automatic")');
+    expect(modelPicker).not.toMatch(/Nothing matches/);
+    expect(enginesSettings).toContain('t("engines.setCli")');
+    expect(enginesSettings).not.toMatch(/>Set CLI…</);
+  });
+});
+
+describe("sidebar empty message search", () => {
+  it("keeps sidebar message-search empty copy as complete EN+KO phrases", () => {
+    expect(en["palette.messages"]).toBe("Messages");
+    expect(ko["palette.messages"]).toBe("메시지");
+    expect(en["search.messagesCount"]).toBe("Messages · {count}");
+    expect(ko["search.messagesCount"]).toBe("메시지 · {count}");
+    expect(en["search.noMatch"]).toBe("No messages match “{query}”");
+    expect(ko["search.noMatch"]).toBe("“{query}”와 일치하는 메시지가 없습니다");
+    expect(ko["search.noMatch"]).not.toMatch(/No messages match/i);
+    expect(ko["search.messagesCount"]).not.toMatch(/Messages/i);
+    expect(translate("en", "search.noMatch", { query: "keep this query" })).toBe("No messages match “keep this query”");
+    expect(translate("ko", "search.noMatch", { query: "keep this query" })).toContain("keep this query");
+    expect(Object.hasOwn(catalogs.en, "keep this query")).toBe(false);
+    expect(en["room.saveMembersOne"]).toBe("Save · {count} bot");
+    expect(en["room.saveMembersMany"]).toBe("Save · {count} bots");
+    expect(ko["room.saveMembersOne"]).toBe("저장 · 봇 {count}개");
+    expect(ko["room.saveMembersMany"]).toBe("저장 · 봇 {count}개");
+    expect(ko["room.saveMembersOne"]).not.toMatch(/Save|\bbot\b/i);
+    expect(ko["room.saveMembersMany"]).not.toMatch(/Save|\bbots\b/i);
+  });
+
+  it("wires those phrases into SearchResults and Manage Members without t(query)", () => {
+    expect(searchResults).toContain('t("palette.messages")');
+    expect(searchResults).toContain('t("search.messagesCount"');
+    expect(searchResults).toContain('t("search.noMatch"');
+    expect(searchResults).toContain("{ query: q }");
+    expect(searchResults).not.toMatch(/No messages match/);
+    expect(searchResults).not.toMatch(/Messages\{hits/);
+    expect(searchResults).toContain('t("search.noMatch", { query: q })');
+    expect(searchResults).not.toMatch(/\bt\(\s*(q|query)\s*\)/);
+    expect(manageMembers).toContain('t("createBot.cancel")');
+    expect(manageMembers).toContain('t("room.save")');
+    expect(manageMembers).toContain('"room.saveMembersOne"');
+    expect(manageMembers).toContain('"room.saveMembersMany"');
+    expect(manageMembers).not.toMatch(/>Cancel</);
+    expect(manageMembers).not.toMatch(/Save\{memberIds/);
   });
 });

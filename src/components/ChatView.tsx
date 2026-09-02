@@ -79,7 +79,7 @@ import {
 import { timelineEvents } from "@/lib/taskTimeline";
 import { useReplyDraft } from "@/lib/drafts";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
-import { localeTag, t, useI18n } from "@/lib/i18n";
+import { localeTag, useI18n } from "@/lib/i18n";
 import { readContextCompaction } from "../../shared/context-compaction";
 
 /** Long user messages collapse behind a fade so pasted walls of text don't
@@ -336,6 +336,7 @@ function BubbleEditor({
   onCancel: () => void;
   onSubmit: (text: string) => void;
 }) {
+  const { t } = useI18n();
   const [draft, setDraft] = useState(initial);
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -373,14 +374,14 @@ function BubbleEditor({
           onClick={onCancel}
           className="rounded-full px-3 py-1 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
         >
-          Cancel
+          {t("createBot.cancel")}
         </button>
         <button
           onClick={submit}
           disabled={!draft.trim()}
           className="rounded-full bg-accent px-3 py-1 text-[13px] font-medium text-white disabled:opacity-40"
         >
-          Send
+          {t("composer.send")}
         </button>
       </div>
     </div>
@@ -739,6 +740,7 @@ const MessagesList = memo(function MessagesList({
   onRegenerate: () => void;
   onReply: (message: Message) => void;
 }) {
+  const { t } = useI18n();
   const { state, dispatch } = useStore();
   const showToolCalls = showToolCallsEnabled(state.config);
   // Fold finished tool chips into runs, so a stretch of them cannot bury
@@ -764,7 +766,7 @@ const MessagesList = memo(function MessagesList({
             inputClassName="rounded bg-inset px-1.5 py-0.5 text-center text-[17px] font-semibold"
           />
           <div className="max-w-[360px] text-[14px] text-ink-secondary">
-            {bot.description || "Send a message to start the conversation."}
+            {bot.description || t("chat.startConversation")}
           </div>
         </div>
       )}
@@ -915,7 +917,7 @@ function PinnedBanner({
 }
 
 export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focusComposerBlocked?: boolean }) {
-  useI18n();
+  const { t } = useI18n();
   const { state, dispatch } = useStore();
   const { capabilities, ready: capabilitiesReady } = useDesktopCapabilities();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1176,7 +1178,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
           />
           {bot.chiefOfStaff && (
             <span className="flex items-center gap-1 rounded-full bg-accent/12 px-2 py-0.5 text-[11px] font-medium text-accent">
-              <Crown size={11} /> Chief of Staff
+              <Crown size={11} /> {t("chrome.chiefOfStaff")}
             </span>
           )}
           {bot.busy && <Loader2 size={14} className="animate-spin text-ink-secondary" />}
