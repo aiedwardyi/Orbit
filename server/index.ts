@@ -3231,6 +3231,18 @@ async function runClaimedGroupMemberTurn(
     .filter((b): b is NonNullable<typeof b> => Boolean(b))
     .map((b) => `@${b.name}${b.title ? ` (${b.title})` : ""}`)
     .join(", ");
+  // A Chief answering in a room gets the same roster and delegation framing as
+  // its 1:1 turns. Without it the tools are mounted but unexplained, and the
+  // Chief improvises in front of the whole room (QA 13).
+  const coordinationPrompt = bot.chiefOfStaff
+    ? chiefOfStaffSystemPrompt(
+        bot.id,
+        store.bots,
+        Boolean(integrations.agents),
+        openMausStatusSystemPrompt(),
+        true,
+      )
+    : "";
   const system = [
     `You are ${bot.name}, a bot in the room "${group.name}" in Orbit.`,
     bot.title && `Role: ${bot.title}.`,
@@ -3238,6 +3250,7 @@ async function runClaimedGroupMemberTurn(
     `Room members: ${roster}, and ${userName} (the human).`,
     group.bulletin.trim() && `Room bulletin (shared instructions for everyone):\n${group.bulletin.trim()}`,
     `Reply as yourself, briefly and conversationally. To bring a teammate in, mention them like @Name — they'll see the conversation and respond.`,
+    coordinationPrompt,
     integrations.agents &&
       "If a supported API key is missing, use request_credential to show the secure in-app card. Never ask the user to paste credentials into chat.",
     integrations.agents &&

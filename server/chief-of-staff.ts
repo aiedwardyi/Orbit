@@ -31,6 +31,7 @@ export function chiefOfStaffSystemPrompt(
   bots: ChiefTeamMember[],
   canDelegate: boolean,
   trustedOpenMausStatus = "",
+  inRoom = false,
 ): string {
   const chief = bots.find((bot) => bot.id === chiefId);
   const chiefSection = sectionKey(chief?.section);
@@ -64,11 +65,28 @@ export function chiefOfStaffSystemPrompt(
         ].join(" ")
       : "No other teammates are on this section yet. Answer the user directly. Do not inspect the team roster or create specialists unless the user asks you to involve or assemble teammates.";
 
+  // QA 13: an in-room Chief used to hunt for its own tools in public, dumping
+  // env vars and scanning ports before spawning. The room is the only place
+  // that misfire is visible to the whole team, so the discipline lives here.
+  // create_bot stays unmentioned when the section is empty, so this never
+  // re-opens the tool wall the empty-team branch above closes.
+  const roomDiscipline =
+    inRoom && canDelegate
+      ? [
+          "You are in a shared room where everyone sees your tool calls.",
+          hasTeam ? "When you are asked to add a teammate, call create_bot directly." : "",
+          "Never scan the environment, ports, or processes to check whether your tools are connected, and never announce that a tool is unavailable before you have tried it.",
+        ]
+          .filter(Boolean)
+          .join(" ")
+      : "";
+
   return [
     `You are the Chief of Staff for the ${sectionName} section. You are the user's primary contact for this section's team of bots.`,
     "Own the outcome: understand the request, decide what to handle yourself, coordinate the right specialists when useful, and return one concise consolidated answer.",
     "Do not delegate trivial work merely to appear busy. Never invent a teammate's progress or result. Normal permission and approval rules still apply.",
     delegation,
+    roomDiscipline,
     hasTeam ? `Current ${sectionName} section team:` : "",
     roster,
     trustedOpenMausStatus,

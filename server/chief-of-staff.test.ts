@@ -1,6 +1,13 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import { chiefOfStaffSystemPrompt } from "./chief-of-staff.ts";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const index = readFileSync(join(here, "index.ts"), "utf8");
 
 describe("chiefOfStaffSystemPrompt roster caps", () => {
   it("clips oversized persona fields instead of interpolating them whole", () => {
@@ -72,6 +79,45 @@ describe("chiefOfStaffSystemPrompt", () => {
     expect(prompt).not.toContain("No other visible bots are available yet.");
   });
 
+  it("tells an in-room Chief to spawn directly instead of probing the machine", () => {
+    const prompt = chiefOfStaffSystemPrompt("chief", bots, true, "", true);
+
+    expect(prompt).toContain("shared room");
+    expect(prompt).toContain("call create_bot directly");
+    expect(prompt).toMatch(/Never scan the environment, ports, or processes/);
+  });
+
+  it("keeps 1:1 prompts free of the room framing", () => {
+    const roomPrompt = chiefOfStaffSystemPrompt("chief", bots, true, "", true);
+    const directPrompt = chiefOfStaffSystemPrompt("chief", bots, true);
+
+    expect(directPrompt).not.toContain("shared room");
+    expect(directPrompt).not.toMatch(/Never scan the environment/);
+    const direct = directPrompt.split("\n");
+    const extra = roomPrompt.split("\n").filter((line) => !direct.includes(line));
+    expect(extra).toHaveLength(1);
+    expect(extra[0]).toContain("shared room");
+  });
+
+  it("does not mount room discipline on an engine that cannot delegate", () => {
+    const prompt = chiefOfStaffSystemPrompt("chief", bots, false, "", true);
+
+    expect(prompt).toContain("cannot contact teammates");
+    expect(prompt).not.toContain("shared room");
+    expect(prompt).not.toContain("create_bot");
+  });
+
+  it("keeps the solo-Chief tool wall shut in a room", () => {
+    const prompt = chiefOfStaffSystemPrompt("chief", [{ id: "chief", name: "Clover", section: "Work" }], true, "", true);
+
+    expect(prompt).toMatch(/Answer the user directly/i);
+    expect(prompt).toContain("shared room");
+    // the empty-team branch owns whether to spawn at all; the room line only
+    // governs how, so it must not reintroduce the tool it deliberately omits
+    expect(prompt).not.toMatch(/create_bot/);
+    expect(prompt).not.toMatch(/list_bots/);
+  });
+
   it("includes trusted OpenMaus status only when the Chief caller supplies it", () => {
     const status = "TRUSTED OPENMAUSBOT STATUS\nfreshness=fresh; runtime_state=degraded";
 
@@ -80,5 +126,15 @@ describe("chiefOfStaffSystemPrompt", () => {
 
     expect(chiefPrompt).toContain(status);
     expect(ordinaryPrompt).not.toContain("TRUSTED OPENMAUSBOT STATUS");
+  });
+});
+
+describe("room turns mount the Chief framing", () => {
+  it("builds the Chief prompt for a room and emits it into the room system block", () => {
+    // the tools were always mounted in rooms; only the framing was missing,
+    // so the guard is that BOTH turn kinds now build this prompt
+    expect(index.match(/chiefOfStaffSystemPrompt\(/g)).toHaveLength(2);
+    expect(index).toMatch(/const coordinationPrompt = bot\.chiefOfStaff/);
+    expect(index).toContain("    coordinationPrompt,");
   });
 });
