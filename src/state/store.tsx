@@ -13,7 +13,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { CloudBackend, EffortLevel } from "../../server/contracts.ts";
+import type { CloudBackend, EffortLevel, RateLimitWindow } from "../../server/contracts.ts";
 import type { MausColor, MausMotion } from "@/lib/mascot";
 import type { BotAvatarCrop } from "../../shared/bot-avatar";
 import type { RoutineRequestCardData } from "../../shared/routine-request";
@@ -367,6 +367,11 @@ export interface EngineInstall {
   needsNode?: boolean;
 }
 
+export interface RateLimitReport {
+  windows: RateLimitWindow[];
+  observedAt: string;
+}
+
 /** One row of GET /api/instances — the model picker's data. */
 export interface InstanceInfo {
   instanceId: string;
@@ -394,9 +399,15 @@ export interface InstanceInfo {
     /** This engine can answer a bounded review prompt without changing the
      * bot's active conversation. */
     approvalReview?: boolean;
+    /** the driver forwards the account's subscription windows; without it
+     * the Usage screen says the engine does not report a limit */
+    rateLimits?: boolean;
   };
   /** `custom` agents sit below the rail divider — no subscription catalog. */
   access?: "subscription" | "custom";
+  /** newest subscription-window report for this engine's account; absent
+   * until a turn on it reports one (server keeps it in memory only) */
+  rateLimits?: RateLimitReport;
   install?: EngineInstall;
   /** Configured CLI path override — set ONLY when the user overrode it;
    * absent means the driver default is in effect. */
@@ -566,6 +577,7 @@ export type Action =
   | { type: "toggleReaction"; threadId: string; messageId: string; emoji: string }
   | { type: "interruptGroup"; groupId: string }
   | { type: "instances"; instances: InstanceInfo[] }
+  | { type: "rateLimits"; instanceId: string; report: RateLimitReport }
   | { type: "configStatus"; config: ConfigStatus }
   | { type: "select"; id: string }
   | {
@@ -846,6 +858,13 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "instances":
       return { ...state, instances: action.instances };
+    case "rateLimits":
+      return {
+        ...state,
+        instances: state.instances.map((instance) =>
+          instance.instanceId === action.instanceId ? { ...instance, rateLimits: action.report } : instance,
+        ),
+      };
     case "configStatus":
       return {
         ...state,
@@ -2155,6 +2174,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             // flush any buffered tail before clearing so no tokens are lost
             flushDeltas();
             clearStream(event.threadId);
+          } else if (
+            event.type === "account.rate-limits.updated" &&
+            typeof event.providerInstanceId === "string" &&
+            Array.isArray(event.windows)
+          ) {
+            rawDispatch({
+              type: "rateLimits",
+              instanceId: event.providerInstanceId,
+              report: { windows: event.windows, observedAt: event.createdAt },
+            });
           }
           break;
         }

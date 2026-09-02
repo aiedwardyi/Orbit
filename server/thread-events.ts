@@ -228,6 +228,18 @@ function isRuntimeEvent(value: unknown): value is RuntimeEvent {
       return typeof value.input === "number" && typeof value.output === "number";
     case "runtime.error":
       return typeof value.message === "string" && (value.setup === undefined || typeof value.setup === "boolean");
+    case "account.rate-limits.updated":
+      return (
+        Array.isArray(value.windows) &&
+        value.windows.every(
+          (window) =>
+            isRecord(window) &&
+            typeof window.id === "string" &&
+            typeof window.usedPercent === "number" &&
+            numberOrNullOrMissing(window.resetsAt) &&
+            (window.windowMinutes === undefined || typeof window.windowMinutes === "number"),
+        )
+      );
     default:
       return false;
   }

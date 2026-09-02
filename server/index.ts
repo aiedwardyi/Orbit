@@ -86,6 +86,7 @@ import {
   isEffortLevel,
   type ModelSelection,
   type ProviderInstance,
+  type RateLimitWindow,
   type RequestOutcome,
   type RuntimeEvent,
 } from "./contracts.ts";
@@ -1038,6 +1039,18 @@ const settledGroupSpeakers = new Map<string, string>();
 // into the task's tally when the turn settles.
 const turnUsage = new Map<string, { input: number; output: number; cachedInput?: number }>();
 
+// The newest subscription-window report per engine instance. Per account,
+// not per turn, so it lives here and rides /api/instances rather than being
+// banked on a task. A restart forgets it until the next turn reports again.
+const rateLimitsByInstance = new Map<string, { windows: RateLimitWindow[]; observedAt: string }>();
+
+function withRateLimits<T extends { instanceId: string }>(instances: T[]) {
+  return instances.map((instance) => {
+    const rateLimits = rateLimitsByInstance.get(instance.instanceId);
+    return rateLimits ? { ...instance, rateLimits } : instance;
+  });
+}
+
 // Bounded per active turn. OpenHands uses a bounded recent-event scan for
 // the same class of stuck-loop detection; retaining an unlimited set of
 // unique arguments would let one pathological turn grow the server forever.
@@ -1303,6 +1316,9 @@ bus.subscribe((event: RuntimeEvent) => {
     releaseLocalVmThread(event.threadId);
   }
   broadcast({ kind: "runtime", event });
+  if (event.type === "account.rate-limits.updated" && event.providerInstanceId) {
+    rateLimitsByInstance.set(event.providerInstanceId, { windows: event.windows, observedAt: event.createdAt });
+  }
   const routineRun = routines?.handleRuntimeEvent(event) ?? null;
   const bot = store.botByThread(event.threadId);
   const group = bot ? undefined : store.groupByThread(event.threadId);
@@ -6664,7 +6680,7 @@ const server = createServer(async (req, res) => {
       // Windows never pushes PATH changes into a live process, so without
       // this the answer is frozen at boot and "check again" is a no-op.
       resetPathCache();
-      const instances = await registry.describe();
+      const instances = withRateLimits(await registry.describe());
       rememberAutomaticAvailability(instances);
       return json(res, 200, { instances });
     }
@@ -6729,7 +6745,7 @@ const server = createServer(async (req, res) => {
         // from the memoized PATH, so resetting after would answer this request
         // with the pre-reset cache
         resetPathCache();
-        return json(res, 200, { instances: await registry.describe() });
+        return json(res, 200, { instances: withRateLimits(await registry.describe()) });
       } finally {
         providerConfigBusy = false;
       }

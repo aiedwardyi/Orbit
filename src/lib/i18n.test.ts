@@ -30,6 +30,7 @@ const renameTitle = readFileSync(join(here, "../components/RenameTitle.tsx"), "u
 const enginesSettings = readFileSync(join(here, "../components/EnginesSettings.tsx"), "utf8");
 const searchResults = readFileSync(join(here, "../components/SearchResults.tsx"), "utf8");
 const manageMembers = readFileSync(join(here, "../components/ManageMembersPanel.tsx"), "utf8");
+const usageSection = readFileSync(join(here, "../components/UsageSection.tsx"), "utf8");
 
 afterEach(() => {
   applyLocale("en");
@@ -387,5 +388,58 @@ describe("sidebar empty message search", () => {
     expect(manageMembers).toContain('"room.saveMembersMany"');
     expect(manageMembers).not.toMatch(/>Cancel</);
     expect(manageMembers).not.toMatch(/Save\{memberIds/);
+  });
+});
+
+describe("plan usage", () => {
+  it("keeps the usage window phrases complete in English and Korean", () => {
+    expect(en["usage.limits.title"]).toBe("Plan usage");
+    expect(ko["usage.limits.title"]).toBe("요금제 사용량");
+    expect(en["usage.limits.percentUsed"]).toBe("{percent}% used");
+    expect(ko["usage.limits.percentUsed"]).toBe("{percent}% 사용");
+    expect(en["usage.limits.resetsInDays"]).toBe("Resets in {days} days");
+    expect(ko["usage.limits.resetsInDays"]).toBe("{days}일 후 초기화");
+    expect(en["usage.limits.resetsInOneDay"]).toBe("Resets in 1 day");
+    expect(ko["usage.limits.resetsInOneDay"]).toBe("1일 후 초기화");
+    expect(en["usage.limits.resetsInHours"]).toBe("Resets in {hours} hours");
+    expect(ko["usage.limits.resetsInHours"]).toBe("{hours}시간 후 초기화");
+    expect(en["usage.limits.resetsInMinutes"]).toBe("Resets in {minutes} minutes");
+    expect(ko["usage.limits.resetsInMinutes"]).toBe("{minutes}분 후 초기화");
+    for (const key of [
+      "usage.limits.session",
+      "usage.limits.weekly",
+      "usage.limits.resetsInHours",
+      "usage.limits.resetsInOneHour",
+      "usage.limits.resetsInMinutes",
+      "usage.limits.resetsInOneMinute",
+      "usage.limits.resetUnknown",
+      "usage.limits.resetPassed",
+      "usage.limits.pending",
+      "usage.limits.notReported",
+    ] as const) {
+      expect(ko[key]).not.toMatch(/Resets|window|report|used|Weekly/i);
+    }
+    expect(ko["usage.limits.pending"]).toContain("{name}");
+    expect(ko["usage.limits.notReported"]).toContain("{name}");
+    expect(translate("ko", "usage.limits.resetsInDays", { days: 2 })).toBe("2일 후 초기화");
+    expect(translate("en", "usage.limits.resetsInDays", { days: 2 })).toBe("Resets in 2 days");
+    expect(translate("en", "usage.limits.percentUsed", { percent: 76 })).toBe("76% used");
+    expect(translate("ko", "usage.limits.notReported", { name: "Grok" })).toBe("Grok은(는) 사용 한도를 보고하지 않습니다.");
+  });
+
+  it("wires those phrases into the Usage settings surface instead of hardcoded English", () => {
+    expect(usageSection).toContain('t("usage.limits.title")');
+    expect(usageSection).toContain('t("usage.limits.subtitle")');
+    expect(usageSection).toContain('t("usage.limits.empty")');
+    expect(usageSection).toContain('"usage.limits.session"');
+    expect(usageSection).toContain('"usage.limits.weekly"');
+    expect(usageSection).toContain('"usage.limits.window"');
+    expect(usageSection).toContain('t("usage.limits.percentUsed", { percent })');
+    expect(usageSection).toContain('"usage.limits.pending"');
+    expect(usageSection).toContain('"usage.limits.notReported"');
+    expect(usageSection).toContain("t(reset.key, reset.vars)");
+    expect(usageSection).not.toMatch(/Resets in/);
+    expect(usageSection).not.toMatch(/% used/);
+    expect(usageSection).not.toMatch(/does not report/);
   });
 });

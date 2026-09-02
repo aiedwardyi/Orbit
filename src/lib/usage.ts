@@ -1,5 +1,6 @@
 // Turning banked token/cost figures into something a header chip can show.
 // Pure, so the numbers can be tested without the components.
+import type { MessageKey } from "./i18n-catalog";
 import type { Bot, TaskUsage } from "@/state/store";
 
 export const EMPTY_USAGE: TaskUsage = { input: 0, output: 0, costUsd: null, turns: 0 };
@@ -77,4 +78,71 @@ export function costCaption(billing: "metered" | "subscription" | undefined): st
   if (billing === "subscription") return "equivalent — on your subscription, not billed";
   if (billing === "metered") return "billed to your API key";
   return "as reported by the engine";
+}
+
+export type WindowKind = "session" | "weekly" | "other";
+
+/** Which window a person plans around: the 5-hour session or the week.
+ * Known ids win; an unnamed window is classed by its length. */
+export function windowKind(id: string, windowMinutes?: number): WindowKind {
+  if (id === "five_hour") return "session";
+  if (id.startsWith("seven_day")) return "weekly";
+  if (hasFiniteCost(windowMinutes)) {
+    if (windowMinutes <= 6 * 60) return "session";
+    if (windowMinutes >= 6 * 24 * 60) return "weekly";
+  }
+  return "other";
+}
+
+/** Whole percent for display, null when the figure is unusable. Not capped:
+ * an account in overage really is past 100. */
+export function percentUsed(usedPercent: unknown): number | null {
+  return hasFiniteCost(usedPercent) ? Math.max(0, Math.round(usedPercent)) : null;
+}
+
+/** True when the provider gave a reset time and it has passed: the fill
+ * level was read before the reset, so it no longer describes the window. */
+export function windowExpired(resetsAt: number | null | undefined, now = Date.now()): boolean {
+  return hasFiniteCost(resetsAt) && resetsAt <= now;
+}
+
+export interface ResetCountdown {
+  unit: "days" | "hours" | "minutes";
+  value: number;
+}
+
+/** Time left before a window resets, coarsened to what a person plans
+ * around: whole days when about a day or more is left, otherwise hours,
+ * otherwise minutes, never below 1. null when the reset time is unknown or
+ * has already passed. */
+export function resetCountdown(resetsAt: number | null | undefined, now = Date.now()): ResetCountdown | null {
+  if (!hasFiniteCost(resetsAt) || resetsAt <= now) return null;
+  const minutes = Math.ceil((resetsAt - now) / 60_000);
+  if (minutes < 60) return { unit: "minutes", value: Math.max(1, minutes) };
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return { unit: "hours", value: Math.max(1, hours) };
+  return { unit: "days", value: Math.max(1, Math.round(hours / 24)) };
+}
+
+/** The complete phrase for a window's reset: a countdown, "not reported",
+ * or "already reset". Singular and plural are separate phrases rather than
+ * a glued "s", so the Korean word order survives. */
+export function resetPhrase(
+  resetsAt: number | null | undefined,
+  now = Date.now(),
+): { key: MessageKey; vars?: Record<string, number> } {
+  if (!hasFiniteCost(resetsAt)) return { key: "usage.limits.resetUnknown" };
+  const countdown = resetCountdown(resetsAt, now);
+  if (!countdown) return { key: "usage.limits.resetPassed" };
+  const one = countdown.value === 1;
+  switch (countdown.unit) {
+    case "days":
+      return one ? { key: "usage.limits.resetsInOneDay" } : { key: "usage.limits.resetsInDays", vars: { days: countdown.value } };
+    case "hours":
+      return one ? { key: "usage.limits.resetsInOneHour" } : { key: "usage.limits.resetsInHours", vars: { hours: countdown.value } };
+    default:
+      return one
+        ? { key: "usage.limits.resetsInOneMinute" }
+        : { key: "usage.limits.resetsInMinutes", vars: { minutes: countdown.value } };
+  }
 }

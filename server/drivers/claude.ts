@@ -45,6 +45,7 @@ import {
   resolveInjectId,
 } from "./local-inject.ts";
 import { appendNative } from "./native.ts";
+import { claudeRateLimitWindows } from "./rate-limits.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
 
 /** Whether `claude` has been signed in.
@@ -869,6 +870,14 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               }
             }
             break;
+          case "rate_limit_event": {
+            // the account's subscription windows, read by the CLI from the
+            // API's rate-limit headers. Per account, so the harness keeps
+            // the newest per instance rather than banking it on the task
+            const windows = claudeRateLimitWindows(o.rate_limit_info);
+            if (windows.length > 0) emit({ ...base(threadId, currentTurnId()), type: "account.rate-limits.updated", windows });
+            break;
+          }
           case "result":
             // result.usage is this invocation's total — one process per turn,
             // so it is the turn's figure. cache reads count as input: they
@@ -1179,6 +1188,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           effortLevels: ["low", "medium", "high", "xhigh", "max"],
           queueing: true,
           localComputerMcp: config.permissionMode !== "bypassPermissions",
+          rateLimits: true,
         },
         sendTurn,
         steer,
