@@ -39,7 +39,7 @@ import {
   withoutManagedCompanionTunnelAccess,
 } from "./managed-companion-tunnel.mjs";
 import { createSecureCredentialState } from "./secure-credential-state.mjs";
-import { isKnownSkin, skinChrome } from "./skin-overlay.cjs";
+import { isKnownSkin, readPersistedSkin, skinChrome, skinThemeSource, writePersistedSkin } from "./skin-overlay.cjs";
 import {
   readPreference as readLocalePreference,
   resolveLocale as resolveUiLocale,
@@ -1124,7 +1124,11 @@ ipcMain.on("desktop:unread-count", (event, value) => {
 });
 
 function createWindow() {
-  const waitsForSkinSync = process.platform === "win32";
+  const persistedSkin = readPersistedSkin(app.getPath("userData"));
+  if (isKnownSkin(persistedSkin)) {
+    nativeTheme.themeSource = skinThemeSource(persistedSkin);
+  }
+  const chrome = skinChrome(persistedSkin);
   const primary = screen.getPrimaryDisplay();
   const displays = [primary, ...screen.getAllDisplays().filter((display) => display.id !== primary.id)];
   const restored = resolveWindowState(readWindowState(), displays.map((display) => display.workArea));
@@ -1132,13 +1136,12 @@ function createWindow() {
     ...restored.bounds,
     minWidth: 900,
     minHeight: 600,
-    // The renderer restores its persisted skin before mounting React and
-    // mirrors it over desktop:skin. Keep Windows hidden until that handshake
-    // recolors the native caption-button overlay, otherwise a saved light
-    // skin still flashes the Midnight-black block on every cold start.
-    show: !waitsForSkinSync,
+    // Recolor from the stored skin (omb-skin / last desktop:skin), then show.
+    // Waiting for the renderer IPC races a 5s fallback and hides a ready
+    // Ledger window until the page loads.
+    show: false,
     icon: APP_ICON,
-    backgroundColor: "#070707",
+    backgroundColor: chrome.color,
     autoHideMenuBar: process.platform !== "darwin",
     ...windowChromeOptions(process.platform),
     webPreferences: {
@@ -1148,18 +1151,10 @@ function createWindow() {
   });
   mainWindow = win;
   void startBrowserSurface(win);
-  if (waitsForSkinSync) {
-    // A broken renderer or preload must not strand the app as an invisible
-    // process. Normal startup shows from desktop:skin almost immediately;
-    // this is only the bounded recovery path.
-    const skinSyncFallback = setTimeout(() => {
-      if (!win.isDestroyed() && !win.isVisible()) win.show();
-    }, 5_000);
-    skinSyncFallback.unref?.();
-    const clearSkinSyncFallback = () => clearTimeout(skinSyncFallback);
-    win.once("show", clearSkinSyncFallback);
-    win.once("closed", clearSkinSyncFallback);
+  if (isKnownSkin(persistedSkin)) {
+    win.setBackgroundColor(chrome.color);
   }
+  if (!win.isDestroyed() && !win.isVisible()) win.show();
   installWindowStatePersistence(win);
   applyUnreadBadge(win);
   if (restored.maximized) win.maximize();
@@ -1441,8 +1436,8 @@ ipcMain.handle("desktop:locale-preference", (_event, preference) => {
 
 ipcMain.handle("desktop:skin", (event, skin) => {
   if (!isKnownSkin(skin)) return false;
-  nativeTheme.themeSource =
-    skin === "atelier" || skin === "lagoon" || skin === "ledger" ? "light" : "dark";
+  writePersistedSkin(app.getPath("userData"), skin);
+  nativeTheme.themeSource = skinThemeSource(skin);
   const win = BrowserWindow.fromWebContents(event.sender);
   if (win && !win.isDestroyed()) {
     win.setBackgroundColor(skinChrome(skin).color);

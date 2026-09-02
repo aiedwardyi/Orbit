@@ -1,15 +1,36 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { SKIN_CHROME, DEFAULT_SKIN, skinChrome, isKnownSkin } = require("./skin-overlay.cjs");
+const {
+  SKIN_CHROME,
+  DEFAULT_SKIN,
+  skinChrome,
+  isKnownSkin,
+  skinThemeSource,
+  readPersistedSkin,
+  writePersistedSkin,
+} = require("./skin-overlay.cjs");
 
 const here = dirname(fileURLToPath(import.meta.url));
 const css = readFileSync(join(here, "../src/styles.css"), "utf8");
 const skinIds = readFileSync(join(here, "../src/lib/skins.ts"), "utf8");
+
+const scratchDirs = [];
+function scratch() {
+  const dir = mkdtempSync(join(tmpdir(), "omb-skin-"));
+  scratchDirs.push(dir);
+  return dir;
+}
+afterEach(() => {
+  while (scratchDirs.length) {
+    rmSync(scratchDirs.pop(), { recursive: true, force: true });
+  }
+});
 
 // The value CSS defines for one custom property inside one skin's block.
 function cssToken(skin, name) {
@@ -53,6 +74,24 @@ describe("skin overlay chrome", () => {
     expect(handler).toContain("setBackgroundColor");
     expect(handler).toContain("nativeTheme.themeSource");
     expect(handler).toContain(".show()");
+    expect(handler).toContain("writePersistedSkin");
+  });
+
+  it("shows from the persisted skin at create, not after renderer IPC", () => {
+    // Visual QA: first visible frame was Ledger gray, but only after the
+    // 5s desktop:skin fallback. createWindow must read the stored skin,
+    // paint nativeTheme + backgroundColor, then show() without waiting.
+    const main = readFileSync(join(here, "main.mjs"), "utf8");
+    expect(main).toContain("readPersistedSkin(app.getPath(\"userData\"))");
+    expect(main).toContain("skinThemeSource");
+    expect(main).not.toContain("waitsForSkinSync");
+    expect(main).not.toContain("skinSyncFallback");
+    const create = main.slice(main.indexOf("function createWindow()"), main.indexOf("ipcMain.handle(\"screen:frame\""));
+    expect(create).toContain("nativeTheme.themeSource");
+    expect(create).toContain("setBackgroundColor");
+    expect(create).toContain("win.show()");
+    expect(create).toContain("backgroundColor: chrome.color");
+    expect(create).not.toContain("5_000");
   });
 
   it("falls back to the default skin for anything unknown, never throwing", () => {
@@ -62,5 +101,43 @@ describe("skin overlay chrome", () => {
     expect(isKnownSkin(42)).toBe(false);
     expect(skinChrome("does-not-exist")).toEqual(SKIN_CHROME[DEFAULT_SKIN]);
     expect(skinChrome(null)).toEqual(SKIN_CHROME[DEFAULT_SKIN]);
+  });
+
+  it("maps light skins to nativeTheme light and the rest dark", () => {
+    expect(skinThemeSource("ledger")).toBe("light");
+    expect(skinThemeSource("atelier")).toBe("light");
+    expect(skinThemeSource("lagoon")).toBe("light");
+    expect(skinThemeSource("midnight")).toBe("dark");
+    expect(skinThemeSource("foundry")).toBe("dark");
+    expect(skinThemeSource("not-a-skin")).toBe("dark");
+  });
+
+  it("round-trips a known skin through the userData preference file", () => {
+    const dir = scratch();
+    expect(readPersistedSkin(dir)).toBe(null);
+    writePersistedSkin(dir, "ledger");
+    expect(readPersistedSkin(dir)).toBe("ledger");
+    expect(JSON.parse(readFileSync(join(dir, "skin-preference.json"), "utf8"))).toEqual({
+      skin: "ledger",
+    });
+    writePersistedSkin(dir, "not-a-skin");
+    expect(readPersistedSkin(dir)).toBe("ledger");
+  });
+
+  it("reads omb-skin out of Chromium localStorage logs when no preference file exists", () => {
+    const dir = scratch();
+    const level = join(dir, "Local Storage", "leveldb");
+    mkdirSync(level, { recursive: true });
+    writeFileSync(join(level, "000003.log"), Buffer.from("xxomb-skin\u0000\u0001ledger\u0000yy"));
+    expect(readPersistedSkin(dir)).toBe("ledger");
+  });
+
+  it("prefers the preference file over a stale localStorage log", () => {
+    const dir = scratch();
+    const level = join(dir, "Local Storage", "leveldb");
+    mkdirSync(level, { recursive: true });
+    writeFileSync(join(level, "000003.log"), Buffer.from("omb-skin\u0000\u0001ledger"));
+    writePersistedSkin(dir, "atelier");
+    expect(readPersistedSkin(dir)).toBe("atelier");
   });
 });
