@@ -243,12 +243,19 @@ export function ModelPicker({
       title={modelChipTitle({ mode: selection.mode, instance: active, model: selection.model }, t)}
     >
       {active ? <ProviderMark driverKind={active.driverKind} size={14} /> : <Sparkles size={14} className="text-accent" />}
-      <span className="max-w-[160px] truncate">
-        {modelChipText({ instance: active, model: selection.model })}
+      <span className={cn("max-w-[160px] truncate", !contained && active && "@max-4xl/chathead:hidden")}>
+        {modelChipText({ instance: active, model: selection.model }, t)}
       </span>
+      {!contained && active && (
+        <span className="hidden max-w-[96px] truncate @max-4xl/chathead:inline">{active.displayName}</span>
+      )}
       <ChevronDown
         size={14}
-        className={cn("text-ink-secondary transition-transform", open && "rotate-180")}
+        className={cn(
+          "text-ink-secondary transition-transform",
+          open && "rotate-180",
+          !contained && active && "@max-4xl/chathead:hidden",
+        )}
       />
     </button>
   );

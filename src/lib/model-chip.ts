@@ -10,11 +10,14 @@ export function catalogModelLabel(
 }
 
 /** Chip copy is the live engine/model. Automatic is a picker mode, not a name. */
-export function modelChipText(input: {
-  instance?: { displayName: string; models: { options: readonly { id: string; label: string }[] } };
-  model: string;
-}): string {
-  return catalogModelLabel(input.instance, input.model);
+export function modelChipText(
+  input: {
+    instance?: { displayName: string; models: { options: readonly { id: string; label: string }[] } };
+    model: string;
+  },
+  t: Translate,
+): string {
+  return catalogModelLabel(input.instance, input.model) || t("model.unresolved");
 }
 
 export function modelChipTitle(
@@ -25,7 +28,7 @@ export function modelChipTitle(
   },
   t: Translate,
 ): string {
-  const live = modelChipText(input);
+  const live = modelChipText(input, t);
   if (input.mode === "automatic") {
     return t("model.automaticTitle", {
       name: input.instance ? live : t("model.unresolved"),

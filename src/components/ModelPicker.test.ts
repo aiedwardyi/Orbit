@@ -67,6 +67,19 @@ describe("ModelPicker friends chip", () => {
     expect(html).toContain('title="Orbit is choosing a working engine for this job. Currently Grok 4.6."');
   });
 
+  it("folds the chip to the engine name in a narrow chat header", () => {
+    const html = markup();
+    expect(html).toMatch(/max-w-\[160px\] truncate[^"]*@max-4xl\/chathead:hidden"[^>]*>Grok 4\.6</);
+    expect(html).toMatch(/hidden max-w-\[96px\] truncate @max-4xl\/chathead:inline"[^>]*>Grok</);
+    expect(html).toContain("@max-4xl/chathead:hidden");
+  });
+
+  it("shows unresolved when automatic has no live model", () => {
+    const html = markup({ instanceId: "", model: "", mode: "automatic" });
+    expect(html).toContain(">unresolved<");
+    expect(html).toContain("Currently unresolved.");
+  });
+
   it("lets the automatic help sentence wrap instead of truncating it", () => {
     const html = markup(bot.modelSelection, true);
     expect(html).toContain("Keep the current engine when it works. Switch only when needed.");

@@ -24,16 +24,20 @@ const t = (key: Parameters<typeof translate>[1], vars?: Record<string, string | 
 
 describe("modelChipText", () => {
   it("shows the live model name in automatic mode, never the word Automatic", () => {
-    expect(modelChipText({ instance: grok, model: "grok-4.6" })).toBe("Grok 4.6");
-    expect(modelChipText({ instance: grok, model: "grok-4.6" })).not.toMatch(/automatic/i);
+    expect(modelChipText({ instance: grok, model: "grok-4.6" }, t)).toBe("Grok 4.6");
+    expect(modelChipText({ instance: grok, model: "grok-4.6" }, t)).not.toMatch(/automatic/i);
   });
 
   it("keeps the pinned model label", () => {
-    expect(modelChipText({ instance: grok, model: "grok-4.5" })).toBe("Grok 4.5");
+    expect(modelChipText({ instance: grok, model: "grok-4.5" }, t)).toBe("Grok 4.5");
   });
 
   it("falls back to the raw id when the catalog row is missing", () => {
-    expect(modelChipText({ model: "grok-4.6" })).toBe("grok-4.6");
+    expect(modelChipText({ model: "grok-4.6" }, t)).toBe("grok-4.6");
+  });
+
+  it("uses unresolved when there is no live model id", () => {
+    expect(modelChipText({ model: "" }, t)).toBe("unresolved");
   });
 });
 
