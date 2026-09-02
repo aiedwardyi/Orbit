@@ -2247,6 +2247,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("focus", onFocus);
   }, [refreshInstances]);
 
+  useEffect(() => {
+    return window.ogb?.onNotificationClick?.((target) => {
+      window.focus();
+      openNotificationTarget(dispatch, target, stateRef.current);
+    });
+  }, [dispatch]);
+
   const flushBotPatches = useCallback(
     (botId: string) => botPatchQueue.flush(botId),
     [botPatchQueue],

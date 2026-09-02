@@ -132,6 +132,15 @@ contextBridge.exposeInMainWorld("ogb", {
   },
   /** Mirrors durable unread state into the native Dock/taskbar badge. */
   setUnreadCount: (count) => ipcRenderer.send("desktop:unread-count", count),
+  /** Windows taskbar progress: indeterminate while any bot turn is running. */
+  setTaskbarBusy: (busy) => ipcRenderer.send("desktop:taskbar-busy", busy === true),
+  /** Main-process toast. Win10 renderer Notification is silent without AUMID. */
+  showNotification: (payload) => ipcRenderer.send("desktop:notify", payload),
+  onNotificationClick: (cb) => {
+    const handler = (_event, target) => cb(target);
+    ipcRenderer.on("desktop:notification-click", handler);
+    return () => ipcRenderer.removeListener("desktop:notification-click", handler);
+  },
   /** Live VNC/noVNC in a sandboxed window owned by the app window. */
   desktopViewer: {
     open: (url, title, contextId) => ipcRenderer.invoke("desktop-viewer:open", url, title, contextId),

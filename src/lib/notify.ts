@@ -14,6 +14,23 @@ export function requestNotificationPermission(): Promise<NotificationPermission>
   return Notification.requestPermission();
 }
 
+/** The Settings line "Get notified…" is a promise. Do not show it unless
+ * this surface can actually deliver a toast. */
+export function canClaimGetNotified(input: {
+  toastsAvailable?: boolean;
+  html5: boolean;
+}): boolean {
+  if (input.toastsAvailable === false) return false;
+  if (input.toastsAvailable === true) return true;
+  return input.html5;
+}
+
+export function desktopNotificationHint(canNotify: boolean): string {
+  return canNotify
+    ? "Get notified when this bot finishes or needs input"
+    : "Desktop alerts aren't available on this computer";
+}
+
 /** The identity a notification groups under: one bot, wherever it was
  * working. Keyed by bot rather than thread so a single bot running across
  * tasks and rooms coalesces into one stack instead of stacking banners. */
@@ -38,6 +55,19 @@ export function showNotification(
   avatarUrl?: string | null,
   visibleThreadId?: string | null,
 ) {
+  const native = typeof window !== "undefined" ? window.ogb?.showNotification : undefined;
+  if (typeof native === "function") {
+    native({
+      title: frame.title,
+      body: frame.body,
+      icon: avatarUrl ?? undefined,
+      botId: frame.botId,
+      threadId: frame.threadId,
+      visibleThreadId: visibleThreadId ?? null,
+    });
+    return;
+  }
+
   if (typeof Notification === "undefined") return;
   if (document.hasFocus() && visibleThreadId === frame.threadId) return;
 

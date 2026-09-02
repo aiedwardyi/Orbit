@@ -1,4 +1,4 @@
-import { app, BrowserWindow, WebContentsView, clipboard, desktopCapturer, dialog, ipcMain, Menu, nativeImage, nativeTheme, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, utilityProcess } from "electron";
+import { app, BrowserWindow, Notification, WebContentsView, clipboard, desktopCapturer, dialog, ipcMain, Menu, nativeImage, nativeTheme, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, utilityProcess } from "electron";
 import { createRequire } from "node:module";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -23,6 +23,12 @@ import { stopUtilityChild } from "./utility-child.mjs";
 import { buildDiagnosticsReport, decodeLogTail, diagnosticsFileName } from "./diagnostics.mjs";
 import { migrateWorkspaceCredentials, workspaceCredentialEnv } from "./workspace-credentials.mjs";
 import { activateExistingWindow } from "./single-instance.mjs";
+import {
+  handleDesktopNotify,
+  taskbarBusyIndicator,
+  windowsAppUserModelId,
+  withToastCapability,
+} from "./desktop-notify.mjs";
 import { pollServerIdentity } from "./server-boot-probe.mjs";
 import { PACKAGE_INSTALL_SCHEME, packageUrlFromCommandLine, packageUrlFromDeepLink } from "./package-link.mjs";
 import { windowChromeOptions } from "./window-chrome.mjs";
@@ -173,6 +179,13 @@ function applyUnreadBadge(win = mainWindow) {
 if (process.platform === "linux") {
   app.disableHardwareAcceleration();
   app.setDesktopName("com.orbit.agentdesk.desktop");
+}
+
+// Windows toasts are silent without an AppUserModelID that matches the
+// Start Menu shortcut electron-builder writes (appId). Set it before any
+// window exists — after ready is too late.
+if (process.platform === "win32") {
+  app.setAppUserModelId(windowsAppUserModelId());
 }
 
 // One instance per user: without this lock a second launch forks a second
@@ -1119,6 +1132,42 @@ ipcMain.on("desktop:unread-count", (event, value) => {
   applyUnreadBadge(sender);
 });
 
+function toastIconFor(win, payload) {
+  // Win10 toasts take a local file. An http avatar URL here is a silent no-op.
+  if (process.platform === "win32") return APP_ICON;
+  const icon = typeof payload?.icon === "string" ? payload.icon : "";
+  if (!icon) return APP_ICON;
+  try {
+    return new URL(icon, win.webContents.getURL()).href;
+  } catch {
+    return APP_ICON;
+  }
+}
+
+ipcMain.on("desktop:notify", (event, payload) => {
+  const sender = BrowserWindow.fromWebContents(event.sender);
+  if (!sender || sender !== mainWindow || sender.isDestroyed()) return;
+  handleDesktopNotify({
+    win: sender,
+    payload,
+    Notification,
+    nativeSupported: Notification.isSupported(),
+    icon: toastIconFor(sender, payload),
+    activate: (win) => activateExistingWindow([win]),
+    sendClick: (target) => {
+      if (!sender.isDestroyed()) sender.webContents.send("desktop:notification-click", target);
+    },
+  });
+});
+
+ipcMain.on("desktop:taskbar-busy", (event, value) => {
+  const sender = BrowserWindow.fromWebContents(event.sender);
+  if (!sender || sender !== mainWindow || sender.isDestroyed()) return;
+  if (process.platform !== "win32") return;
+  const { progress, mode } = taskbarBusyIndicator(value === true);
+  sender.setProgressBar(progress, { mode });
+});
+
 function createWindow() {
   const persistedSkin = readPersistedSkin(app.getPath("userData"));
   if (isKnownSkin(persistedSkin)) {
@@ -1596,12 +1645,15 @@ ipcMain.handle("companion-account:retry", () => ensureCompanionAccountService().
 ipcMain.handle("companion-account:sign-out", () => ensureCompanionAccountService().signOut());
 
 ipcMain.handle("desktop:capabilities", async () =>
-  desktopCapabilities({
-    platform: process.platform,
-    env: process.env,
-    packaged: app.isPackaged,
-    localConnection: await cuaReady,
-  }),
+  withToastCapability(
+    desktopCapabilities({
+      platform: process.platform,
+      env: process.env,
+      packaged: app.isPackaged,
+      localConnection: await cuaReady,
+    }),
+    Notification.isSupported(),
+  ),
 );
 
 ipcMain.handle("assemblyai:status", () => ({
@@ -1675,12 +1727,15 @@ ipcMain.handle("credential:set", async (_event, name, value) => {
 });
 
 async function broadcastDesktopCapabilities() {
-  const capabilities = desktopCapabilities({
-    platform: process.platform,
-    env: process.env,
-    packaged: app.isPackaged,
-    localConnection: await cuaReady,
-  });
+  const capabilities = withToastCapability(
+    desktopCapabilities({
+      platform: process.platform,
+      env: process.env,
+      packaged: app.isPackaged,
+      localConnection: await cuaReady,
+    }),
+    Notification.isSupported(),
+  );
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) window.webContents.send("desktop:capabilities-changed", capabilities);
   }
