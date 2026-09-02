@@ -53,6 +53,17 @@ const finishTurn = () => {
   }
   notify("item/completed", { item: { id: "m1", type: "agentMessage", text: "done from fake codex" } });
   notify("thread/tokenUsage/updated", { tokenUsage: { total: { inputTokens: 7, cachedInputTokens: 4, outputTokens: 3 } } });
+  // ChatGPT-plan accounts get this alongside the token count; resetsAt is
+  // epoch SECONDS on the wire
+  if (process.env.FAKE_CODEX_RATE_LIMITS) {
+    notify("account/rateLimits/updated", {
+      rateLimits: {
+        planType: "plus",
+        primary: { usedPercent: 12, windowDurationMins: 300, resetsAt: 1_790_000_000 },
+        secondary: { usedPercent: 76, windowDurationMins: 10_080, resetsAt: 1_790_172_800 },
+      },
+    });
+  }
   dump();
   notify("turn/completed", { turn: { status: "completed" } });
 };

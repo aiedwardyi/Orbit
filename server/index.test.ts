@@ -266,6 +266,8 @@ beforeAll(async () => {
       OMB_SSE_HEARTBEAT_MS: "50",
       FAKE_CLAUDE_MODE: "hang",
       FAKE_CLAUDE_DUMP: fakeClaudeDump,
+      // every settling fake turn also reports the account's subscription windows
+      FAKE_CLAUDE_RATE_LIMITS: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -1967,6 +1969,38 @@ describe("harness HTTP API", () => {
         (candidate: { id: string }) => candidate.id === bot.id,
       );
       expect(reread.modelSelection).toEqual(bot.modelSelection);
+    } finally {
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
+  it("carries the engine's newest subscription windows on /api/instances", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    const findHappy = async () =>
+      (await api("GET", "/api/instances")).body.instances.find(
+        (instance: { instanceId: string }) => instance.instanceId === "claudeHappy",
+      );
+    try {
+      const happy = await findHappy();
+      expect(happy.capabilities.rateLimits).toBe(true);
+      // the ghost driver cannot report one, and the row says so instead of guessing
+      const ghost = (await api("GET", "/api/instances")).body.instances.find(
+        (instance: { instanceId: string }) => instance.instanceId === "ghost",
+      );
+      expect(ghost.rateLimits).toBeUndefined();
+
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claudeHappy", model: happy.models.default },
+      })).status).toBe(200);
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "how full is my week" })).status).toBe(202);
+      await expect.poll(async () =>
+        (await findHappy()).rateLimits?.windows?.map(
+          (window: { id: string; usedPercent: number }) => `${window.id}=${window.usedPercent}`,
+        ),
+      ).toEqual(["five_hour=12", "seven_day=76"]);
+      const reported = (await findHappy()).rateLimits;
+      expect(reported.windows[1]).toEqual({ id: "seven_day", usedPercent: 76, resetsAt: 1_790_172_800_000, windowMinutes: 10_080 });
+      expect(typeof reported.observedAt).toBe("string");
     } finally {
       await api("DELETE", `/api/bots/${bot.id}`);
     }

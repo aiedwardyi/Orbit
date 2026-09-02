@@ -31,6 +31,7 @@ import { codexLocalProviderArgs } from "./local-inject.ts";
 import { augmentedPath } from "../env-path.ts";
 import { classifyError, computeBackoff, RETRY_MAX_ATTEMPTS } from "./retry.ts";
 import { appendNative } from "./native.ts";
+import { codexRateLimitWindows } from "./rate-limits.ts";
 
 export { decodeCodexSelection, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
 
@@ -432,6 +433,13 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             }
             break;
           }
+          case "account/rateLimits/updated": {
+            // the ChatGPT plan's 5-hour and weekly windows; API-key accounts
+            // never send this, and the Usage screen says so instead of guessing
+            const windows = codexRateLimitWindows(p.rateLimits ?? p);
+            if (windows.length > 0) emit({ ...base(threadId, turnId), type: "account.rate-limits.updated", windows });
+            break;
+          }
           case "turn/completed": {
             const t = p.turn ?? {};
             settle(t.status === "completed", t.status === "completed" ? null : (t.error?.message ?? t.status ?? "failed"));
@@ -639,6 +647,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         browserMcp: true,
         images: true,
         effortLevels: ["low", "medium", "high", "xhigh", "max"],
+        rateLimits: true,
       },
       sendTurn,
       interruptTurn: async (threadId) => active.get(threadId)?.stop(),

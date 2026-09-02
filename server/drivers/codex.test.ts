@@ -59,12 +59,31 @@ describe("CodexDriver turns (fake app-server)", () => {
     delete process.env.FAKE_CODEX_PARTIAL_FAILS;
     delete process.env.FAKE_CODEX_STATE;
     delete process.env.FAKE_CODEX_RETRY_SCALE;
+    delete process.env.FAKE_CODEX_RATE_LIMITS;
     delete process.env.OPENAI_API_KEY;
     delete process.env.BOX_TOKEN;
     delete process.env.OMB_TTS_KEY;
     recorder?.stop();
     await instance?.dispose();
     await removeTempDir(scratch);
+  });
+
+  it("forwards the app-server's account rate limits as account.rate-limits.updated", async () => {
+    process.env.FAKE_CODEX_RATE_LIMITS = "1";
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-limits", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    expect(instance.adapter.capabilities.rateLimits).toBe(true);
+    // primary/secondary become the named windows; epoch seconds become milliseconds
+    expect(recorder.events.filter((e) => e.type === "account.rate-limits.updated")).toMatchObject([
+      {
+        windows: [
+          { id: "five_hour", usedPercent: 12, resetsAt: 1_790_000_000_000, windowMinutes: 300 },
+          { id: "seven_day", usedPercent: 76, resetsAt: 1_790_172_800_000, windowMinutes: 10_080 },
+        ],
+      },
+    ]);
   });
 
   it("runs the handshake and normalizes a full turn", async () => {

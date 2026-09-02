@@ -131,10 +131,27 @@ export type RuntimeEvent = RuntimeEventBase &
         approvalScope?: "local-computer";
       }
     | { type: "thread.token-usage.updated"; input: number; output: number; cachedInput?: number }
+    /** The account's subscription windows as the provider last reported
+     * them. Per account, not per thread: the harness keeps the newest
+     * report per instance. Only sent when the provider actually says how
+     * full a window is, never derived from token counts. */
+    | { type: "account.rate-limits.updated"; windows: RateLimitWindow[] }
     // `setup: true` marks a failure the user fixes by installing or
     // configuring something, not by retrying — the UI offers setup instead.
     | { type: "runtime.error"; message: string; setup?: boolean }
   );
+
+/** One subscription usage window (a 5-hour session, a week) as the provider
+ * reports it. `usedPercent` is 0-100 and may exceed 100 on accounts that
+ * allow overage; `resetsAt` is epoch milliseconds, null when the provider
+ * gave a fill level but no reset time. */
+export interface RateLimitWindow {
+  /** provider's own window id, e.g. "five_hour" or "seven_day" */
+  id: string;
+  usedPercent: number;
+  resetsAt: number | null;
+  windowMinutes?: number;
+}
 
 export type RuntimeEventListener = (event: RuntimeEvent) => void;
 
@@ -236,6 +253,10 @@ export interface ProviderAdapter {
     /** True when the driver can mount the built-in browser MCP. Same rule:
      * a bot must never be told it has a browser its driver cannot hand it. */
     browserMcp?: boolean;
+    /** True when the driver forwards the account's subscription windows
+     * (account.rate-limits.updated). The Usage screen tells the user an
+     * engine without it does not report a limit, rather than guessing one. */
+    rateLimits?: boolean;
     /** True when this engine accepts images in the prompt — gates image
      * paste in the composer. Same rule as computerMcp: never offer an
      * attachment an engine cannot open (a bot told it has an image it

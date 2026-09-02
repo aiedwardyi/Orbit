@@ -603,6 +603,24 @@ export const en = {
   "native.paste": "Paste",
   "native.pasteMatch": "Paste and Match Style",
   "native.selectAll": "Select All",
+
+  "usage.limits.title": "Plan usage",
+  "usage.limits.subtitle": "How much of each engine's subscription window is used and when it resets, as the engine reports it on every message.",
+  "usage.limits.empty": "No engine has reported a usage limit yet. Claude and Codex report theirs after the next message.",
+  "usage.limits.session": "5-hour window",
+  "usage.limits.weekly": "Weekly",
+  "usage.limits.window": "Usage window",
+  "usage.limits.percentUsed": "{percent}% used",
+  "usage.limits.resetsInDays": "Resets in {days} days",
+  "usage.limits.resetsInOneDay": "Resets in 1 day",
+  "usage.limits.resetsInHours": "Resets in {hours} hours",
+  "usage.limits.resetsInOneHour": "Resets in 1 hour",
+  "usage.limits.resetsInMinutes": "Resets in {minutes} minutes",
+  "usage.limits.resetsInOneMinute": "Resets in 1 minute",
+  "usage.limits.resetUnknown": "Reset time not reported",
+  "usage.limits.resetPassed": "Reset since the last check. Updates on the next message.",
+  "usage.limits.pending": "{name} reports its limit after the next message.",
+  "usage.limits.notReported": "{name} does not report a usage limit.",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -1208,6 +1226,24 @@ export const ko = {
   "native.paste": "붙여넣기",
   "native.pasteMatch": "붙여넣고 서식 맞추기",
   "native.selectAll": "모두 선택",
+
+  "usage.limits.title": "요금제 사용량",
+  "usage.limits.subtitle": "엔진별 구독 한도를 얼마나 썼는지, 언제 초기화되는지 보여줍니다. 메시지를 보낼 때마다 엔진이 보고한 값입니다.",
+  "usage.limits.empty": "아직 사용 한도를 보고한 엔진이 없습니다. Claude와 Codex는 다음 메시지 이후에 보고합니다.",
+  "usage.limits.session": "5시간 한도",
+  "usage.limits.weekly": "주간 한도",
+  "usage.limits.window": "사용 한도",
+  "usage.limits.percentUsed": "{percent}% 사용",
+  "usage.limits.resetsInDays": "{days}일 후 초기화",
+  "usage.limits.resetsInOneDay": "1일 후 초기화",
+  "usage.limits.resetsInHours": "{hours}시간 후 초기화",
+  "usage.limits.resetsInOneHour": "1시간 후 초기화",
+  "usage.limits.resetsInMinutes": "{minutes}분 후 초기화",
+  "usage.limits.resetsInOneMinute": "1분 후 초기화",
+  "usage.limits.resetUnknown": "초기화 시각이 보고되지 않았습니다",
+  "usage.limits.resetPassed": "마지막 확인 이후 초기화되었습니다. 다음 메시지에서 갱신됩니다.",
+  "usage.limits.pending": "{name}은(는) 다음 메시지 이후에 한도를 보고합니다.",
+  "usage.limits.notReported": "{name}은(는) 사용 한도를 보고하지 않습니다.",
 } satisfies { [K in MessageKey]: string };
 
 export const catalogs = { en, ko } as const;

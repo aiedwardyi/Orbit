@@ -118,6 +118,28 @@ describe("readThreadEvents", () => {
     expect(page.entries.map((entry) => (entry.data as { eventId: string }).eventId)).toEqual(["valid-retry"]);
   });
 
+  it("keeps a well-formed account rate-limit report and drops malformed ones", () => {
+    const eventsDir = tmp();
+    const nativeDir = tmp();
+    const report = (eventId: string, windows: unknown) =>
+      runtime({ eventId, createdAt: eventId, type: "account.rate-limits.updated", windows });
+    writeFileSync(
+      join(eventsDir, "t1.ndjson"),
+      line(report("not-a-list", { id: "seven_day", usedPercent: 76 })) +
+        line(report("percent-as-text", [{ id: "seven_day", usedPercent: "76", resetsAt: null }])) +
+        line(report("missing-id", [{ usedPercent: 76, resetsAt: null }])) +
+        line(
+          report("valid-report", [
+            { id: "seven_day", usedPercent: 76, resetsAt: 1_790_172_800_000, windowMinutes: 10_080 },
+            { id: "five_hour", usedPercent: 12, resetsAt: null },
+          ]),
+        ),
+    );
+
+    const page = readThreadEvents({ eventsDir, nativeDir, threadId: "t1" });
+    expect(page.entries.map((entry) => (entry.data as { eventId: string }).eventId)).toEqual(["valid-report"]);
+  });
+
   it("keeps walking backward when a corrupt tail record would otherwise consume the limit", () => {
     const eventsDir = tmp();
     const nativeDir = tmp();

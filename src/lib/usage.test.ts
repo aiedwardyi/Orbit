@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import { botUsage, cachedInput, costCaption, formatTokens, formatUsd, sumUsage, usageChip, usageDetail } from "./usage";
+import {
+  botUsage,
+  cachedInput,
+  costCaption,
+  formatTokens,
+  formatUsd,
+  percentUsed,
+  resetCountdown,
+  resetPhrase,
+  sumUsage,
+  usageChip,
+  usageDetail,
+  windowExpired,
+  windowKind,
+} from "./usage";
 
 describe("usage formatting", () => {
   it("formats token counts compactly", () => {
@@ -82,5 +96,67 @@ describe("usage formatting", () => {
     expect(costCaption("subscription")).toMatch(/not billed/);
     expect(costCaption("metered")).toMatch(/API key/);
     expect(costCaption(undefined)).toMatch(/reported/);
+  });
+});
+
+describe("subscription windows", () => {
+  const now = Date.UTC(2026, 8, 3, 12, 0, 0);
+  const hours = (n: number) => now + n * 3_600_000;
+  const minutes = (n: number) => now + n * 60_000;
+
+  it("classes a window by its id first, then by its length", () => {
+    expect(windowKind("five_hour")).toBe("session");
+    expect(windowKind("seven_day")).toBe("weekly");
+    expect(windowKind("seven_day_opus")).toBe("weekly");
+    expect(windowKind("primary", 300)).toBe("session");
+    expect(windowKind("secondary", 10_080)).toBe("weekly");
+    expect(windowKind("primary")).toBe("other");
+    expect(windowKind("primary", 1_440)).toBe("other");
+  });
+
+  it("shows whole percents and keeps overage honest", () => {
+    expect(percentUsed(76.4)).toBe(76);
+    expect(percentUsed(0)).toBe(0);
+    expect(percentUsed(120)).toBe(120);
+    expect(percentUsed(-3)).toBe(0);
+    expect(percentUsed(Number.NaN)).toBeNull();
+    expect(percentUsed(Number.POSITIVE_INFINITY)).toBeNull();
+    expect(percentUsed(undefined)).toBeNull();
+    expect(percentUsed("76")).toBeNull();
+  });
+
+  it("counts down in days, then hours, then minutes", () => {
+    expect(resetCountdown(hours(49), now)).toEqual({ unit: "days", value: 2 });
+    expect(resetCountdown(hours(36), now)).toEqual({ unit: "days", value: 2 });
+    expect(resetCountdown(hours(30), now)).toEqual({ unit: "days", value: 1 });
+    expect(resetCountdown(hours(23.6), now)).toEqual({ unit: "days", value: 1 });
+    expect(resetCountdown(hours(5.4), now)).toEqual({ unit: "hours", value: 5 });
+    expect(resetCountdown(minutes(59.4), now)).toEqual({ unit: "hours", value: 1 });
+    expect(resetCountdown(minutes(20), now)).toEqual({ unit: "minutes", value: 20 });
+    expect(resetCountdown(now + 10, now)).toEqual({ unit: "minutes", value: 1 });
+    expect(resetCountdown(now, now)).toBeNull();
+    expect(resetCountdown(now - 1, now)).toBeNull();
+    expect(resetCountdown(null, now)).toBeNull();
+    expect(resetCountdown(undefined, now)).toBeNull();
+  });
+
+  it("phrases the reset as one complete message, including unknown and passed", () => {
+    expect(resetPhrase(hours(49), now)).toEqual({ key: "usage.limits.resetsInDays", vars: { days: 2 } });
+    expect(resetPhrase(hours(30), now)).toEqual({ key: "usage.limits.resetsInOneDay" });
+    expect(resetPhrase(hours(3), now)).toEqual({ key: "usage.limits.resetsInHours", vars: { hours: 3 } });
+    expect(resetPhrase(hours(1), now)).toEqual({ key: "usage.limits.resetsInOneHour" });
+    expect(resetPhrase(minutes(5), now)).toEqual({ key: "usage.limits.resetsInMinutes", vars: { minutes: 5 } });
+    expect(resetPhrase(now + 30_000, now)).toEqual({ key: "usage.limits.resetsInOneMinute" });
+    expect(resetPhrase(null, now)).toEqual({ key: "usage.limits.resetUnknown" });
+    expect(resetPhrase(Number.NaN, now)).toEqual({ key: "usage.limits.resetUnknown" });
+    expect(resetPhrase(now - 1, now)).toEqual({ key: "usage.limits.resetPassed" });
+  });
+
+  it("knows a passed reset from a missing one", () => {
+    expect(windowExpired(now - 1, now)).toBe(true);
+    expect(windowExpired(now, now)).toBe(true);
+    expect(windowExpired(hours(1), now)).toBe(false);
+    expect(windowExpired(null, now)).toBe(false);
+    expect(windowExpired(undefined, now)).toBe(false);
   });
 });

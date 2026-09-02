@@ -212,6 +212,26 @@ const playTurn = (prompt: JsonValue) => {
   });
   out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-1", is_error: false }] } });
 
+  // the real CLI (2.1.x) emits this whenever the API's unified rate-limit
+  // headers change; resetsAt is epoch SECONDS on the wire
+  if (process.env.FAKE_CLAUDE_RATE_LIMITS) {
+    out({
+      type: "rate_limit_event",
+      rate_limit_info: {
+        status: "allowed",
+        rateLimitType: "seven_day",
+        utilization: 0.76,
+        resetsAt: 1_790_172_800,
+        unifiedWindows: {
+          five_hour: { utilization: 0.12, resetsAt: 1_790_000_000 },
+          seven_day: { utilization: 0.76, resetsAt: 1_790_172_800 },
+        },
+      },
+      uuid: "rl-1",
+      session_id: sessionId,
+    });
+  }
+
   const finish = () => {
     out({ type: "result", is_error: false, stop_reason: "end_turn", total_cost_usd: 0.01, usage: { input_tokens: 10, cache_read_input_tokens: 2, output_tokens: 5 } });
     turnRunning = false;

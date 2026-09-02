@@ -190,6 +190,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     delete process.env.FAKE_CLAUDE_PARTIAL_FAILS;
     delete process.env.FAKE_CLAUDE_STATE;
     delete process.env.FAKE_CLAUDE_RETRY_SCALE;
+    delete process.env.FAKE_CLAUDE_RATE_LIMITS;
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.XAI_API_KEY;
     delete process.env.COMPOSIO_API_KEY;
@@ -228,6 +229,24 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     // the harness has one figure to bank per turn
     expect(done).toMatchObject({ type: "turn.completed", ok: true, cost: 0.01, usage: { input: 12, output: 5, cachedInput: 2 } });
     expect(instance.adapter.hasSession("t-happy")).toBe(false);
+  });
+
+  it("forwards the CLI's subscription windows as account.rate-limits.updated", async () => {
+    process.env.FAKE_CLAUDE_RATE_LIMITS = "1";
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-limits", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    expect(instance.adapter.capabilities.rateLimits).toBe(true);
+    // one report per CLI event; the wire's epoch seconds become milliseconds
+    expect(recorder.events.filter((e) => e.type === "account.rate-limits.updated")).toMatchObject([
+      {
+        windows: [
+          { id: "five_hour", usedPercent: 12, resetsAt: 1_790_000_000_000, windowMinutes: 300 },
+          { id: "seven_day", usedPercent: 76, resetsAt: 1_790_172_800_000, windowMinutes: 10_080 },
+        ],
+      },
+    ]);
   });
 
   it("streams partial-message text deltas without re-emitting the whole message", async () => {
