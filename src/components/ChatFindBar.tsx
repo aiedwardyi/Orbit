@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
 
-import { landOnSearchHit } from "@/lib/focus-message";
+import { landOnSearchHit, restoreChatChrome } from "@/lib/focus-message";
 import type { SearchHit } from "@/lib/search-hit";
 import { api, useStore } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
@@ -19,6 +19,7 @@ export function ChatFindBar({ threadId, onClose }: { threadId: string; onClose: 
   useEffect(() => {
     inputRef.current?.focus();
     inputRef.current?.select();
+    return () => restoreChatChrome();
   }, []);
 
   useEffect(() => {

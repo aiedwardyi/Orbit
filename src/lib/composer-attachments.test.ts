@@ -8,8 +8,10 @@ import {
   attachmentImageUrl,
   composeMessage,
   imageSupportForTargets,
+  imageSupportNotice,
   isImageFile,
   splitAttachedImages,
+  visibleComposerNotice,
   type ImageAttachment,
 } from "./composer-attachments";
 
@@ -141,5 +143,31 @@ describe("imageSupportForTargets", () => {
 
   it("reports unsupported when no responder is selected", () => {
     expect(imageSupportForTargets([], [])).toBe("unsupported");
+  });
+});
+
+describe("image attachment notice", () => {
+  const copy = {
+    unsupported: "The selected responder does not support image attachments.",
+    loading: "Engine details are still loading.",
+  };
+
+  it("returns the unsupported copy for a known refusal", () => {
+    expect(imageSupportNotice("unsupported", copy)).toBe(copy.unsupported);
+  });
+
+  it("returns the loading copy while the engine is still hydrating", () => {
+    expect(imageSupportNotice("unknown", copy)).toBe(copy.loading);
+  });
+
+  it("returns nothing when images are supported", () => {
+    expect(imageSupportNotice("supported", copy)).toBeNull();
+  });
+
+  it("does not carry a notice into a different conversation", () => {
+    const notice = { threadId: "pim", text: copy.unsupported };
+    expect(visibleComposerNotice(notice, "pim")).toBe(copy.unsupported);
+    expect(visibleComposerNotice(notice, "nova")).toBeNull();
+    expect(visibleComposerNotice(null, "pim")).toBeNull();
   });
 });

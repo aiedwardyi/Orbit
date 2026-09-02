@@ -1,11 +1,8 @@
-// The Browser tab of the computer panel. The page itself is a native
-// WebContentsView the Electron main process owns; this component only draws
-// the chrome around it (address, back, take-over, profile) and keeps main
-// told where its rectangle is. Anything the renderer draws is painted UNDER
-// the native view, so menus and dialogs that would overlap it hide it
-// instead. Compact in the panel; expanded when handed the main column.
+// The Browser tab of the computer panel. Compact is a React preview — the
+// native WebContentsView stays off-screen so it cannot paint over the app.
+// Expanded hands that view the main column, clipped to the host rectangle.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ExternalLink, Globe, Hand, Loader2, Maximize2, Minimize2, Plus, UserRound } from "lucide-react";
+import { ArrowLeft, ExternalLink, Globe, Hand, Loader2, Maximize2, Minimize2, Plus, Search, UserRound } from "lucide-react";
 import { usePageVisible } from "@/lib/page-visible";
 import { cn } from "@/lib/cn";
 import { useStore, type Bot, type BrowserProfile } from "@/state/store";
@@ -298,8 +295,8 @@ export function BrowserPanel({
         )}
       </form>
 
-      {/* The native view is positioned over this box by the main process. In
-          the panel it is a small preview — click it to expand. */}
+      {/* Compact: a React preview. The native view stays off-screen so it
+          cannot paint over the main window; click expands it into the column. */}
       <div
         ref={hostRef}
         data-native-view-host
@@ -308,13 +305,25 @@ export function BrowserPanel({
         title={!expanded && onExpand ? "Click to expand" : undefined}
         className={cn(
           "relative overflow-hidden rounded-xl border border-hairline/40 bg-inset",
-          expanded ? "min-h-[320px] flex-1" : "aspect-[16/10] w-full shrink-0 cursor-zoom-in",
+          expanded ? "min-h-[320px] flex-1" : "group/preview aspect-[16/10] w-full shrink-0 cursor-zoom-in",
         )}
       >
+        {!expanded && (
+          <span className="pointer-events-none absolute right-2 top-2 z-10 flex items-center gap-1 rounded-md bg-black/70 px-2 py-1 text-[11px] font-medium text-white opacity-80 shadow-sm transition group-hover/preview:opacity-100 group-focus-visible/preview:opacity-100">
+            <Search size={12} />
+            Expand
+          </span>
+        )}
         {!currentUrl && !surface?.loading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center text-[13px] text-ink-secondary">
             <Globe size={22} className="opacity-60" />
             <span>Nothing open yet. Ask {bot.name} to look something up, or enter an address above.</span>
+          </div>
+        )}
+        {!expanded && currentUrl && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center text-[13px] text-ink-secondary">
+            <Globe size={22} className="opacity-60" />
+            <span className="truncate">{displayUrl(currentUrl)}</span>
           </div>
         )}
       </div>

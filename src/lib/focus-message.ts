@@ -8,6 +8,29 @@ import type { SearchHit } from "@/lib/search-hit";
 
 const FLASH_CLASSES = ["ring-2", "ring-accent/70", "rounded-2xl", "transition-shadow"];
 
+/** Scroll a message into the transcript pane without moving the window.
+ * `scrollIntoView({ block: "center" })` walks every scrollable ancestor,
+ * including the Electron visual viewport — that hides the chat header and
+ * leaves a black bar at the bottom after in-chat find. */
+export function scrollElementIntoContainer(
+  container: { scrollTop: number; getBoundingClientRect(): { top: number; height: number } },
+  target: { getBoundingClientRect(): { top: number; height: number } },
+): void {
+  const cRect = container.getBoundingClientRect();
+  const tRect = target.getBoundingClientRect();
+  container.scrollTop += tRect.top + tRect.height / 2 - (cRect.top + cRect.height / 2);
+}
+
+/** Pin the window back to the top-left after find closes or a search lands. */
+export function restoreChatChrome(
+  win: { scrollTo(x: number, y: number): void } = window,
+  doc: { documentElement?: { scrollTop: number }; body?: { scrollTop: number } } = document,
+): void {
+  win.scrollTo(0, 0);
+  if (doc.documentElement) doc.documentElement.scrollTop = 0;
+  if (doc.body) doc.body.scrollTop = 0;
+}
+
 /** Select and prepare the exact conversation represented by a search hit. */
 export async function landOnSearchHit(
   hit: SearchHit,
@@ -59,8 +82,13 @@ export function useFocusMessage(threadId: string, ready: boolean) {
         if (tries++ < 20) retryTimer = setTimeout(attempt, 100);
         return;
       }
-      const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-      target.scrollIntoView({ block: "center", behavior: reducedMotion ? "auto" : "smooth" });
+      const scroller = target.closest("[data-orbit-transcript]");
+      if (scroller instanceof HTMLElement) scrollElementIntoContainer(scroller, target);
+      else {
+        const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+        target.scrollIntoView({ block: "nearest", behavior: reducedMotion ? "auto" : "smooth" });
+      }
+      restoreChatChrome();
       target.classList.add(...FLASH_CLASSES);
       // Consume only after the target is mounted and the flash has begun.
       // `consumed` is intentionally not an effect dependency, so this active

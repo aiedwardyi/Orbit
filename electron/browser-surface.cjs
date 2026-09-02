@@ -48,9 +48,19 @@ const MAX_TEXT = 4_000;
 const MAX_READ_CHARS = 24_000;
 const AX_TREE_DEPTH = 24;
 /** The page lays out at this size whatever the panel's rectangle is; the
- * compact preview scales it down, the expanded view shows it 1:1. Bots see
- * one consistent desktop viewport regardless of how wide the panel is. */
+ * compact preview stays off-screen at this size, the expanded view shows it
+ * 1:1. Bots see one consistent desktop viewport regardless of how wide the
+ * panel is. */
 const VIEWPORT = Object.freeze({ width: 1280, height: 800 });
+
+function hiddenBrowserViewBounds() {
+  return {
+    x: -VIEWPORT.width * 2,
+    y: -VIEWPORT.height * 2,
+    width: VIEWPORT.width,
+    height: VIEWPORT.height,
+  };
+}
 
 /** Keys a bot may press by name → CDP key event fields. `text` is what makes
  * Enter/Tab actually fire in inputs; the virtual key code is what makes
@@ -349,7 +359,7 @@ function createBrowserSurfaceManager({
     }
     active.set(botId, entry);
     touch(entry);
-    if (entry.bounds && takesOverScreen) {
+    if (entry.bounds && takesOverScreen && entry.mode === "expanded") {
       entry.view.setBounds(entry.bounds);
       entry.visible = true;
       entry.view.setVisible(true);
@@ -383,28 +393,15 @@ function createBrowserSurfaceManager({
     return dbg.sendCommand(method, params);
   };
 
-  /** Fit the fixed desktop viewport into the rectangle the panel gave us:
-   * scaled down for the compact preview, 1:1 when expanded. */
+  /** Fit the page into the panel without painting over the app window.
+   * Compact lives off-screen at the real desktop size so bots keep a stable
+   * viewport; only expanded mode shows a native view, clipped to the host. */
   const applyMode = (entry, mode) => {
     const contents = entry.view.webContents;
     entry.mode = mode;
-    if (mode === "compact" && entry.bounds) {
-      const scale = Math.min(entry.bounds.width / VIEWPORT.width, entry.bounds.height / VIEWPORT.height);
-      try {
-        contents.enableDeviceEmulation({
-          screenPosition: "desktop",
-          screenSize: { ...VIEWPORT },
-          viewPosition: { x: 0, y: 0 },
-          deviceScaleFactor: 0,
-          viewSize: { ...VIEWPORT },
-          scale: Math.max(0.1, Math.min(1, scale)),
-        });
-      } catch {}
-    } else {
-      try {
-        contents.disableDeviceEmulation();
-      } catch {}
-    }
+    try {
+      contents.disableDeviceEmulation();
+    } catch {}
   };
 
   /** Wait for the page to be idle enough to observe: a short settle, and if a
@@ -562,22 +559,33 @@ function createBrowserSurfaceManager({
     },
 
     /** Position the bot's active view over the renderer's rectangle (or hide
-     * it: null). `profile` switches views; `mode` picks the scaling. */
+     * it: null). Compact never paints a native view into the app window. */
     layout(botId, bounds, profile, mode) {
       if (bounds === null || bounds === undefined) {
         const entry = active.get(botIdOf(botId));
         if (!entry) return closedState(botIdOf(botId));
+        entry.bounds = hiddenBrowserViewBounds();
+        entry.view.setBounds(entry.bounds);
         entry.visible = false;
         entry.view.setVisible(false);
         return stateFor(entry);
       }
       const entry = ensure(botId, profile);
-      const normalized = normalizeDesktopWorkspaceBounds(bounds, owner.getContentSize());
-      entry.bounds = normalized;
-      entry.view.setBounds(normalized);
-      applyMode(entry, mode === "expanded" ? "expanded" : "compact");
-      entry.visible = true;
-      entry.view.setVisible(true);
+      const expanded = mode === "expanded";
+      if (expanded) {
+        const normalized = normalizeDesktopWorkspaceBounds(bounds, owner.getContentSize());
+        entry.bounds = normalized;
+        entry.view.setBounds(normalized);
+        applyMode(entry, "expanded");
+        entry.visible = true;
+        entry.view.setVisible(true);
+      } else {
+        entry.bounds = hiddenBrowserViewBounds();
+        entry.view.setBounds(entry.bounds);
+        applyMode(entry, "compact");
+        entry.visible = false;
+        entry.view.setVisible(false);
+      }
       return stateFor(entry);
     },
 
@@ -870,4 +878,4 @@ function createBrowserSurfaceManager({
   return api;
 }
 
-module.exports = { GUEST_PROFILE, KEYS, MAX_VIEWS, VIEWPORT, createBrowserSurfaceManager };
+module.exports = { GUEST_PROFILE, KEYS, MAX_VIEWS, VIEWPORT, createBrowserSurfaceManager, hiddenBrowserViewBounds };

@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { GUEST_PROFILE, VIEWPORT, createBrowserSurfaceManager } = require("./browser-surface.cjs");
+const { GUEST_PROFILE, VIEWPORT, createBrowserSurfaceManager, hiddenBrowserViewBounds } = require("./browser-surface.cjs");
 
 const AX_NODES = [
   { role: { value: "link" }, name: { value: "Docs" }, backendDOMNodeId: 11 },
@@ -176,10 +176,10 @@ describe("browser surface manager", () => {
     const state = manager.layout("bot-a", { x: 20.4, y: 30.6, width: 5000, height: 300 }, "", "compact");
     expect(views).toHaveLength(1);
     expect(views[0].partition).toBe("persist:openmausbot-browser-bot-a");
-    expect(views[0].bounds).toEqual({ x: 20, y: 31, width: 1180, height: 300 });
-    expect(views[0].visible).toBe(true);
+    expect(views[0].bounds).toEqual(hiddenBrowserViewBounds());
+    expect(views[0].visible).toBe(false);
     expect(owner.contentView.children).toEqual([views[0]]);
-    expect(state).toMatchObject({ botId: "bot-a", open: true, visible: true, url: "about:blank", profile: "", mode: "compact" });
+    expect(state).toMatchObject({ botId: "bot-a", open: true, visible: false, url: "about:blank", profile: "", mode: "compact" });
     expect(views[0].calls).toContainEqual(["setUserAgent", "Mozilla/5.0 Chrome/1"]);
 
     manager.layout("bot-a", null);
@@ -187,16 +187,19 @@ describe("browser surface manager", () => {
     expect(() => manager.layout("../bad", BOUNDS)).toThrow(/bot id/);
   });
 
-  it("scales the fixed desktop viewport into the compact box and shows it 1:1 when expanded", () => {
+  it("keeps the compact preview off the window and paints only when expanded", () => {
     const { manager, views } = harness();
     manager.layout("bot-a", BOUNDS, "", "compact");
-    const emulation = views[0].calls.find(([name]) => name === "enableDeviceEmulation")[1];
-    expect(emulation.viewSize).toEqual(VIEWPORT);
-    // 400/1280 = 0.3125 and 250/800 = 0.3125 — fit on both axes
-    expect(emulation.scale).toBeCloseTo(0.3125, 4);
+    expect(views[0].visible).toBe(false);
+    expect(views[0].bounds).toEqual(hiddenBrowserViewBounds());
+    expect(views[0].calls.find(([name]) => name === "enableDeviceEmulation")).toBeUndefined();
+    expect(views[0].bounds.x + views[0].bounds.width).toBeLessThanOrEqual(0);
+    expect(views[0].bounds.y + views[0].bounds.height).toBeLessThanOrEqual(0);
     manager.layout("bot-a", { x: 0, y: 0, width: 1100, height: 700 }, "", "expanded");
-    expect(views[0].calls.at(-1)).toEqual(["disableDeviceEmulation"]);
+    expect(views[0].visible).toBe(true);
+    expect(views[0].bounds).toEqual({ x: 0, y: 0, width: 1100, height: 700 });
     expect(manager.state("bot-a").mode).toBe("expanded");
+    expect(views[0].calls.filter(([name]) => name === "disableDeviceEmulation").length).toBeGreaterThan(0);
   });
 
   it("navigates only to web pages and answers with the page's elements plus a scroll hint", async () => {
@@ -223,17 +226,17 @@ describe("browser surface manager", () => {
     expect(views).toHaveLength(2);
     expect(views[1].partition).toBe("persist:openmausbot-browser-profile-work");
     expect(views[0].visible).toBe(false);
-    expect(views[1].visible).toBe(true);
-    expect(views[1].bounds).toEqual(BOUNDS);
+    expect(views[1].visible).toBe(false);
+    expect(views[1].bounds).toEqual(hiddenBrowserViewBounds());
     expect(manager.state("bot-a")).toMatchObject({ profile: "work", url: "about:blank" });
     await manager.navigate("bot-a", "https://work.example");
     // back to the bot's own session: the first view is still there with its page
     manager.layout("bot-a", BOUNDS, "", "compact");
     expect(views).toHaveLength(2);
     expect(manager.state("bot-a")).toMatchObject({ profile: "", url: "https://own.example/" });
-    expect(views[0].visible).toBe(true);
+    expect(views[0].visible).toBe(false);
     expect(views[1].visible).toBe(false);
-    expect(owner.contentView.children.at(-1)).toBe(views[0]);
+    expect(owner.contentView.children).toEqual(expect.arrayContaining([views[0], views[1]]));
     // a caller that does not know the profile acts on whatever is active
     const page = await manager.snapshot("bot-a");
     expect(page.url).toBe("https://own.example/");

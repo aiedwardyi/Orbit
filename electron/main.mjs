@@ -26,6 +26,7 @@ import { activateExistingWindow } from "./single-instance.mjs";
 import { pollServerIdentity } from "./server-boot-probe.mjs";
 import { PACKAGE_INSTALL_SCHEME, packageUrlFromCommandLine, packageUrlFromDeepLink } from "./package-link.mjs";
 import { windowChromeOptions } from "./window-chrome.mjs";
+import { applyZoomShortcut } from "./window-zoom.mjs";
 import { defaultSaveName, withSavableFile } from "./save-file.mjs";
 import {
   ensureManagedComposioCredentials,
@@ -66,7 +67,7 @@ const { createDisplayMediaGuard, invokeDisplayMediaCallback, selectCaptureSource
   "./screen-preview.cjs",
 );
 const { STAGE_PREFIX: APPIMAGE_CUA_STAGE_PREFIX } = require("./cua-linux-bundle.cjs");
-const { desktopViewerUrl, sameDesktopViewerOrigin } = require("./desktop-viewer.cjs");
+const { desktopViewerUrl, desktopViewerWindowOptions, sameDesktopViewerOrigin } = require("./desktop-viewer.cjs");
 const { createDesktopWorkspaceManager } = require("./desktop-workspace.cjs");
 const { createBrowserSurfaceManager } = require("./browser-surface.cjs");
 const { browserProfilePartition } = require("./browser-snapshot.cjs");
@@ -900,19 +901,9 @@ function openDesktopViewer(owner, rawUrl, rawTitle, contextId) {
   desktopViewerContextId = nextContextId;
 
   const viewer = new BrowserWindow({
-    width: 1220,
-    height: 820,
-    minWidth: 760,
-    minHeight: 520,
-    parent: owner,
-    // Not modal: the person still needs the app's "Hand control back" button
-    // while the desktop is open. `parent` keeps it floating above the app.
-    modal: false,
-    show: false,
+    ...desktopViewerWindowOptions(),
     title,
     icon: APP_ICON,
-    backgroundColor: "#070707",
-    autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -1172,6 +1163,10 @@ function createWindow() {
     return { action: "deny" };
   });
   win.webContents.on("did-finish-load", () => deliverPackageInstall(win));
+
+  win.webContents.on("before-input-event", (event, input) => {
+    if (applyZoomShortcut(win.webContents, input)) event.preventDefault();
+  });
 
   // Native context menu for text inputs — without this, right-click does
   // nothing in the Electron window (no Cut/Copy/Paste/Select All).

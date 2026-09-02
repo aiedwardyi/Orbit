@@ -1174,6 +1174,7 @@ export function GroupView({ group }: { group: Group }) {
       <div className="relative min-h-0 flex-1">
       <div
         ref={scrollRef}
+        data-orbit-transcript
         className="h-full overflow-x-hidden overflow-y-auto px-5 [overflow-anchor:none]"
         onWheel={(e) => {
           if (e.deltaY < 0) setBottomFollow(false);

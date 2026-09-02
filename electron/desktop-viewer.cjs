@@ -27,6 +27,22 @@ function desktopViewerUrl(rawUrl) {
   return url;
 }
 
+function desktopViewerWindowOptions() {
+  // Not parented: a parented BrowserWindow on Windows covers the main
+  // window as a gray sheet. Keep the live desktop independent so Orbit
+  // stays usable underneath.
+  return {
+    width: 1220,
+    height: 820,
+    minWidth: 760,
+    minHeight: 520,
+    modal: false,
+    show: false,
+    backgroundColor: "#070707",
+    autoHideMenuBar: true,
+  };
+}
+
 function sameDesktopViewerOrigin(rawUrl, origin) {
   try {
     return desktopViewerUrl(rawUrl).origin === origin;
@@ -35,4 +51,4 @@ function sameDesktopViewerOrigin(rawUrl, origin) {
   }
 }
 
-module.exports = { desktopViewerUrl, sameDesktopViewerOrigin };
+module.exports = { desktopViewerUrl, desktopViewerWindowOptions, sameDesktopViewerOrigin };
