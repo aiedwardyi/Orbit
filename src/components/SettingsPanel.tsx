@@ -7,7 +7,7 @@ import { ModelPicker } from "./ModelPicker";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
 import { builtInBrowserEnabled } from "@/lib/feature-flags";
-import { requestNotificationPermission } from "@/lib/notify";
+import { requestNotificationPermission, canClaimGetNotified, desktopNotificationHint } from "@/lib/notify";
 import { botUsage, costCaption, formatTokens, formatUsd, hasFiniteCost } from "@/lib/usage";
 import { shortPath } from "@/lib/short-path";
 import { instanceSupportsLocalComputer, localComputerDisabledReason, localComputerSelectable } from "@/lib/local-computer";
@@ -327,6 +327,10 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
   const localSelectable = localComputerSelectable({ capabilities, providerSupportsLocal });
   const [localAutoWarning, setLocalAutoWarning] = useState<"auto" | "local" | null>(null);
   const localDisabledReason = localComputerDisabledReason({ capabilities, providerSupportsLocal });
+  const canNotify = canClaimGetNotified({
+    toastsAvailable: capabilities.toasts?.available,
+    html5: typeof Notification !== "undefined",
+  });
   const patch = (
     p: Partial<
       Pick<
@@ -555,7 +559,7 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
             <div>
               <div className="text-[15px] font-medium text-ink">Notifications</div>
               <div className="mt-0.5 text-[13px] text-ink-secondary">
-                Get notified when this bot finishes or needs input
+                {desktopNotificationHint(canNotify)}
               </div>
             </div>
             <button
@@ -564,7 +568,7 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
               aria-label="Bot notifications"
               onClick={() => {
                 const enabled = !bot.notifications;
-                if (enabled) void requestNotificationPermission();
+                if (enabled && !window.ogb?.showNotification) void requestNotificationPermission();
                 patch({ notifications: enabled });
               }}
               className={cn(

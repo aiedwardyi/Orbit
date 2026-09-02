@@ -85,6 +85,11 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     window.ogb?.setUnreadCount?.(unreadCount);
   }, [unreadCount]);
 
+  const taskbarBusy = state.bots.some((candidate) => candidate.busy);
+  useEffect(() => {
+    window.ogb?.setTaskbarBusy?.(taskbarBusy);
+  }, [taskbarBusy]);
+
   // Warm connected-account state as soon as the local server is available.
   // The modal then opens with the correct Connect/Add account buttons and
   // quietly revalidates instead of rediscovering every account from scratch.
