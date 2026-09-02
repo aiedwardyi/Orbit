@@ -57,6 +57,7 @@ describe("packaging identity", () => {
       /isPackaged \? DEFAULT_COMPANION_CONTROL_PLANE_URL/,
     );
     assert.match(main, /startUpdater\(win\)/);
+    assert.match(main, /OMB_PACKAGED: "1"/);
   });
 
   it("expects DEB metadata to match the Orbit maintainer", () => {

@@ -16,6 +16,7 @@ import { z } from "zod";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { openSse } from "./testing/sse.ts";
 import { IMAGE_MAX_BYTES } from "./attachments.ts";
+import { defaultComputerForNewBot } from "./local-routing.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
@@ -365,6 +366,7 @@ describe("harness HTTP API", () => {
       modelSelection: { mode: "automatic" },
     });
     expect(created.body.bot.title).not.toBe("");
+    expect(created.body.bot.computer).toEqual(defaultComputerForNewBot());
     expect(created.body.bot.messages).toHaveLength(1);
     expect(created.body.bot.messages[0].text).toContain("Send me the first piece of work.");
   });
@@ -1773,7 +1775,7 @@ describe("harness HTTP API", () => {
     expect(impostor.chiefOfStaff).toBeUndefined();
     expect(impostor.approvePeerComms).toBeUndefined();
     expect(impostor.composio).toBe(false);
-    expect(impostor.computer).toBeUndefined();
+    expect(impostor.computer).toEqual(defaultComputerForNewBot());
     expect(impostor.cloudBackend).toBeUndefined();
     expect(impostor.cwd).toBeUndefined();
 
