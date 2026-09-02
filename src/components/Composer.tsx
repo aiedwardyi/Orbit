@@ -23,11 +23,14 @@ import {
   composeMessage,
   imageAttachmentFromFile,
   imageSupportForTargets,
+  imageSupportNotice,
   intakeFiles,
   isImageFile,
   isLongPaste,
   pasteAttachment,
+  visibleComposerNotice,
   type Attachment,
+  type ComposerThreadNotice,
   type PasteAttachment,
 } from "@/lib/composer-attachments";
 import { normalizeState } from "@/lib/mascot";
@@ -300,10 +303,18 @@ export function Composer({
   };
   const imageSupport = imageTargetsSupport(text);
   const engineSupportsImages = imageSupport !== "unsupported";
-  const imageSupportError = (support: ReturnType<typeof imageTargetsSupport>) =>
-    support === "unknown"
-      ? t("composer.imageLoading")
-      : t("composer.imageUnsupported");
+  const [imageNotice, setImageNotice] = useState<ComposerThreadNotice | null>(null);
+  const shownImageNotice = visibleComposerNotice(imageNotice, threadId);
+  const showImageSupportNotice = (support: ReturnType<typeof imageTargetsSupport>) => {
+    const text = imageSupportNotice(support, {
+      unsupported: t("composer.imageUnsupported"),
+      loading: t("composer.imageLoading"),
+    });
+    if (text && threadId) setImageNotice({ threadId, text });
+  };
+  useEffect(() => {
+    setImageNotice(null);
+  }, [draftId]);
 
   // ── @mention picker (tag another bot; the agent reaches it via ask_bot) ──
   const mention = mentionQueryAt(text, caret);
@@ -410,7 +421,7 @@ export function Composer({
     if (failed.requestText.includes("<attached-image ")) {
       const support = imageTargetsSupport(failed.requestText);
       if (support !== "supported") {
-        dispatch({ type: "error", message: imageSupportError(support) });
+        showImageSupportNotice(support);
         return;
       }
     }
@@ -444,7 +455,7 @@ export function Composer({
     if (attachments.some((attachment) => attachment.kind === "image")) {
       const support = imageTargetsSupport(text);
       if (support !== "supported") {
-        dispatch({ type: "error", message: imageSupportError(support) });
+        showImageSupportNotice(support);
         return;
       }
     }
@@ -503,7 +514,7 @@ export function Composer({
       if (queued.text.includes("<attached-image ")) {
         const support = imageTargetsSupport(queued.text);
         if (support !== "supported") {
-          dispatch({ type: "error", message: imageSupportError(support) });
+          showImageSupportNotice(support);
           clearQueued();
           restoreDraft(queued.draft);
           return;
@@ -571,6 +582,20 @@ export function Composer({
       {speechError && (
         <div className="pointer-events-auto mb-2 w-full rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12px] text-warning">
           {speechError}
+        </div>
+      )}
+      {shownImageNotice && (
+        <div className="pointer-events-auto mb-2 flex w-full items-start gap-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">
+          <span className="min-w-0 flex-1">{shownImageNotice}</span>
+          <button
+            type="button"
+            onClick={() => setImageNotice(null)}
+            aria-label={t("chat.dismiss")}
+            title={t("chat.dismiss")}
+            className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-danger/10"
+          >
+            <X size={13} strokeWidth={2.5} />
+          </button>
         </div>
       )}
       <div className="pointer-events-auto relative w-full">
@@ -745,7 +770,7 @@ export function Composer({
             if (imageFiles.length) {
               e.preventDefault();
               if (imageSupport === "unsupported") {
-                dispatch({ type: "error", message: imageSupportError(imageSupport) });
+                showImageSupportNotice(imageSupport);
                 return;
               }
               void (async () => {

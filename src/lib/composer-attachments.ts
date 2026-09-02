@@ -30,6 +30,26 @@ export type Attachment = PasteAttachment | FileAttachment | ImageAttachment;
 
 export type ImageSupport = "supported" | "unsupported" | "unknown";
 
+export type ComposerThreadNotice = { threadId: string; text: string };
+
+/** Image-refusal copy for the composer that produced it. */
+export function imageSupportNotice(
+  support: ImageSupport,
+  copy: { unsupported: string; loading: string },
+): string | null {
+  if (support === "supported") return null;
+  return support === "unknown" ? copy.loading : copy.unsupported;
+}
+
+/** A composer notice follows its thread, never the app shell. */
+export function visibleComposerNotice(
+  notice: ComposerThreadNotice | null,
+  threadId: string,
+): string | null {
+  if (!notice || notice.threadId !== threadId) return null;
+  return notice.text;
+}
+
 export function imageSupportForTargets(
   instances: readonly { instanceId: string; capabilities?: { images?: boolean } }[],
   targets: readonly { modelSelection: { instanceId: string } }[],
