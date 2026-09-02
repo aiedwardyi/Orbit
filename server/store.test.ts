@@ -57,6 +57,36 @@ describe("Store", () => {
     expect(bot.modelSelection).toEqual(selection());
   });
 
+  it("createBot on packaged Windows defaults Runs-on to Off, not Local VM", () => {
+    const store = new Store(selection);
+    const bot = store.createBot({}, { host: { platform: "win32", packaged: true } });
+    expect(bot.computer).toBe("off");
+    expect(JSON.parse(readFileSync(join(DATA_DIR, "bots.json"), "utf8"))[0].computer).toBe("off");
+  });
+
+  it("createBot still records an explicit Local VM opt-in on packaged Windows", () => {
+    const store = new Store(selection);
+    const bot = store.createBot({ computer: "vm" }, { host: { platform: "win32", packaged: true } });
+    expect(bot.computer).toBe("vm");
+  });
+
+  it("createBot reads OMB_PACKAGED when host.packaged is omitted", () => {
+    vi.stubEnv("OMB_PACKAGED", "1");
+    try {
+      const store = new Store(selection);
+      const bot = store.createBot({}, { host: { platform: "win32" } });
+      expect(bot.computer).toBe("off");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("createBot keeps Auto on packaged macOS so This computer can still be the fallback", () => {
+    const store = new Store(selection);
+    const bot = store.createBot({}, { host: { platform: "darwin", packaged: true } });
+    expect(bot.computer).toBeUndefined();
+  });
+
   it("createBot with a job starts with a useful profile and no lifestyle quiz", () => {
     const store = new Store(selection);
     const job = "Keep a weekly competitor brief with links and decisions.";

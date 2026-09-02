@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { writeFileAtomic } from "./atomic.ts";
 import { peerAllowKey, type PeerAction } from "./peer-approval-key.ts";
 import { DATA_DIR } from "./config.ts";
+import { defaultComputerForNewBot } from "./local-routing.ts";
 import * as mdb from "./message-db.ts";
 import { workspaceDir } from "./workspace.ts";
 import { newId, type CloudBackend, type ModelSelection, type ThreadId } from "./contracts.ts";
@@ -378,8 +379,10 @@ export interface BotRecord {
   modelSelection: ModelSelection;
   /** provider-native continuation per instance (e.g. claude session id) */
   resumeCursors: Record<string, unknown>;
-  /** which computer the bot acts on: its cloud box, this Mac (local CUA),
-   * or none. Unset = auto (box when it exists, else local when available). */
+  /** which computer the bot acts on: its cloud box, Local VM, this machine
+   * (local CUA), or none. Unset = auto (box when it exists, else local when
+   * available). Packaged Windows first-run defaults to off so chat does not
+   * require a container runtime. */
   computer?: "cloud" | "vm" | "local" | "off";
   /** Which cloud computer backs `computer: "cloud"`; absent means Box. */
   cloudBackend?: CloudBackend;
@@ -1125,18 +1128,21 @@ export class Store {
 
   createBot(
     profile: Partial<
-      Pick<BotRecord, "name" | "title" | "description" | "color" | "mascotExpression" | "modelSelection" | "section">
+      Pick<BotRecord, "name" | "title" | "description" | "color" | "mascotExpression" | "modelSelection" | "section" | "computer">
     > = {},
     opts: {
       /** false = no greeting/onboarding seed. Imported bots must not open
        * with a first-person greeting the user never asked for. */
       seedMessages?: boolean;
       job?: string;
+      /** Test seam for the packaged-Windows first-run computer default. */
+      host?: { platform?: string; packaged?: boolean };
     } = {},
   ): BotRecord {
     const name = profile.name?.trim() || pickBotName(this.bots.map((b) => b.name));
     const job = opts.job?.trim();
     const section = sectionKey(profile.section);
+    const computer = profile.computer ?? defaultComputerForNewBot(opts.host);
     const bot: BotRecord = {
       id: newId(),
       threadId: newId(),
@@ -1150,6 +1156,7 @@ export class Store {
       modelSelection: profile.modelSelection ?? this.defaultSelection(),
       resumeCursors: {},
       createdAt: Date.now(),
+      ...(computer ? { computer } : {}),
     };
     if (section) bot.section = section;
     bot.tasks = [{ threadId: bot.threadId, title: UNTITLED_TASK, createdAt: bot.createdAt, resumeCursors: {} }];

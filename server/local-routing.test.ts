@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { shouldMountLocalComputer } from "./local-routing.ts";
+import { describe, expect, it, vi } from "vitest";
+import {
+  defaultComputerForNewBot,
+  localVmTurnPlan,
+  packagedOrbitServer,
+  shouldMountLocalComputer,
+} from "./local-routing.ts";
 
 describe("local computer routing", () => {
   it("never lets Linux Auto fall back to the user's desktop", () => {
@@ -56,5 +61,42 @@ describe("local computer routing", () => {
         providerSupportsLocal: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("packaged Windows first-run computer default", () => {
+  it("defaults Runs-on to Off so a packaged Windows install can chat without Docker", () => {
+    expect(defaultComputerForNewBot({ platform: "win32", packaged: true })).toBe("off");
+  });
+
+  it("keeps Auto on unpackaged Windows and on other packaged desktops", () => {
+    expect(defaultComputerForNewBot({ platform: "win32", packaged: false })).toBeUndefined();
+    expect(defaultComputerForNewBot({ platform: "darwin", packaged: true })).toBeUndefined();
+    expect(defaultComputerForNewBot({ platform: "linux", packaged: true })).toBeUndefined();
+  });
+
+  it("treats the packaged Electron harness env as packaged", () => {
+    expect(packagedOrbitServer({ OMB_PACKAGED: "1" })).toBe(true);
+    expect(packagedOrbitServer({ OMB_STATIC_DIR: "/tmp/ui" })).toBe(false);
+    expect(packagedOrbitServer({})).toBe(false);
+  });
+
+  it("uses OMB_PACKAGED when host.packaged is omitted", () => {
+    vi.stubEnv("OMB_PACKAGED", "1");
+    expect(defaultComputerForNewBot({ platform: "win32" })).toBe("off");
+    vi.stubEnv("OMB_PACKAGED", "");
+    expect(defaultComputerForNewBot({ platform: "win32" })).toBeUndefined();
+    vi.unstubAllEnvs();
+  });
+});
+
+describe("Local VM turn planning", () => {
+  it("does not hard-fail a chat when no container runtime is installed", () => {
+    expect(localVmTurnPlan({ runtime: null, ready: false })).toBe("skip-uninstalled");
+  });
+
+  it("still mounts an explicit Local VM that is ready, and fails when a runtime exists but the VM is not", () => {
+    expect(localVmTurnPlan({ runtime: "docker", ready: true })).toBe("mount");
+    expect(localVmTurnPlan({ runtime: "docker", ready: false })).toBe("fail");
   });
 });

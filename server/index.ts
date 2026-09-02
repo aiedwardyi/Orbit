@@ -187,7 +187,7 @@ import { SPAWNED_PROXIES } from "./proxy-paths.ts";
 import { loadBundledSkills, loadUserSkills, mergeSkills, renderSkillInstructions, selectBundledSkills } from "./skill-library.ts";
 import { installedPlaybookInstructions } from "./installed-playbooks.ts";
 import { createBotPackageExport } from "./package-export.ts";
-import { shouldMountLocalComputer } from "./local-routing.ts";
+import { localVmTurnPlan, shouldMountLocalComputer } from "./local-routing.ts";
 
 const PORT = Number(process.env.OMB_PORT || process.env.OGB_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.OMB_WEBHOOK_PORT || PORT + 1);
@@ -2350,15 +2350,21 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         localVmActiveThreads.set(localVmTarget.key, threadId);
         localVmIdleFor(localVmTarget).touch();
         const localVm = await containerComputerStatus(undefined, undefined, localVmTarget);
-        if (!localVm.ready || !localVm.runtime) {
+        const vmPlan = localVmTurnPlan(localVm);
+        if (vmPlan === "skip-uninstalled") {
+          // Ordinary chat must not require Docker. Release the lease so an
+          // explicit Local VM setup can still claim it later.
+          releaseLocalVmThread(threadId);
+        } else if (vmPlan === "fail") {
           throw new Error(`${localVm.problem ?? "the Local VM is not ready"} (App Settings → Local VM)`);
+        } else if (localVm.runtime) {
+          integrations.localComputer = containerComputerMcp(
+            localVm.runtime,
+            controlIntegration(bot.id),
+            localVmTarget,
+          );
+          computerKind = "vm";
         }
-        integrations.localComputer = containerComputerMcp(
-          localVm.runtime,
-          controlIntegration(bot.id),
-          localVmTarget,
-        );
-        computerKind = "vm";
       } else if (wants === "local") {
         if (!shouldMountLocalComputer({
           requested: "local",
