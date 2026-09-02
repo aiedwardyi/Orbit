@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
 
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { canDeleteWhileWorking } from "../../shared/working-thread";
 import {
   TASK_PICKER_DISMISS_MS,
   TASK_RENAME_HINT,
   filterTasks,
   taskPickerPointerIntent,
 } from "./TaskPicker";
+
+const taskPicker = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "TaskPicker.tsx"), "utf8");
 
 describe("taskPickerPointerIntent", () => {
   it("treats a single click as switch, not rename", () => {
@@ -30,6 +37,14 @@ describe("taskPickerPointerIntent", () => {
 });
 
 describe("task picker copy", () => {
+  it("does not treat an unchecked idle thread as undeletable just because another thread is running", () => {
+    expect(canDeleteWhileWorking("idle-thread", "exec-thread")).toBe(true);
+    expect(canDeleteWhileWorking("exec-thread", "exec-thread")).toBe(false);
+    expect(taskPicker).toContain("canDeleteWhileWorking");
+    expect(taskPicker).not.toMatch(/disabled=\{busy && active\}/);
+    expect(taskPicker).toContain('t("task.running")');
+  });
+
   it("advertises both gestures the row actually handles", () => {
     expect(TASK_RENAME_HINT).toContain("double-click");
     expect(TASK_RENAME_HINT).toContain("right-click");

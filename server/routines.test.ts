@@ -336,6 +336,24 @@ describe("RoutineManager", () => {
     });
   });
 
+  it("reuses an already queued or running run-now instead of stacking silent duplicates", () => {
+    const h = harness();
+    const routine = h.manager.create({
+      name: "Morning brief",
+      prompt: "Write the brief",
+      botId: "maus-1",
+      schedule: { type: "daily", time: "09:00", weekdays: [1] },
+    });
+
+    const first = h.manager.runNow(routine.id)!;
+    const second = h.manager.runNow(routine.id)!;
+    const third = h.manager.runNow(routine.id)!;
+
+    expect(second.id).toBe(first.id);
+    expect(third.id).toBe(first.id);
+    expect(h.manager.listRuns().filter((run) => run.routineId === routine.id && run.status === "queued")).toHaveLength(1);
+  });
+
   it("queues behind a busy bot, then dispatches into a detached task", async () => {
     const h = harness();
     h.setBot("busy");

@@ -19,7 +19,6 @@ import {
   PinOff,
   RefreshCw,
   Search,
-  Square,
   Webhook,
   X,
 } from "lucide-react";
@@ -60,7 +59,7 @@ import { ReactionBar, ReactionChips } from "./Reactions";
 import { SpeakButton } from "./SpeakButton";
 import { CallButton, CallOverlay } from "./CallView";
 import { cn } from "@/lib/cn";
-import { COMPACT_BUBBLE, COMPACT_SQUARE } from "@/lib/compact-chip";
+import { COMPACT_SQUARE } from "@/lib/compact-chip";
 import { useFocusMessage } from "@/lib/focus-message";
 import { activityVisibleInChat, groupActivityRuns } from "@/lib/activity-runs";
 import { chatTranscriptRows } from "@/lib/chat-transcript";
@@ -80,6 +79,7 @@ import { timelineEvents } from "@/lib/taskTimeline";
 import { useReplyDraft } from "@/lib/drafts";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { localeTag, useI18n } from "@/lib/i18n";
+import { activeRunForBot, routineWorkingElsewhere } from "../../shared/working-thread";
 import { readContextCompaction } from "../../shared/context-compaction";
 
 /** Long user messages collapse behind a fade so pasted walls of text don't
@@ -932,6 +932,10 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
   const mascotMotion = state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
   const callAvailable =
     capabilitiesReady && capabilities.dictation.available && Boolean(window.ogb?.speechStart);
+  const elsewhere = routineWorkingElsewhere(
+    bot.threadId,
+    activeRunForBot(state.routineRuns, bot.id),
+  );
   const [findOpen, setFindOpen] = useState(false);
   const { replyTo, selectReply, clearReply, consumeReply, restoreReply } = useReplyDraft(
     bot.threadId,
@@ -1196,19 +1200,6 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
           >
             <Search size={18} />
           </button>
-          {bot.busy && (
-            <button
-              onClick={() => dispatch({ type: "interrupt", botId: bot.id })}
-              className={cn(
-                "flex items-center gap-1.5 rounded-full border border-hairline/40 bg-raised/60 px-2.5 py-1 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink",
-                COMPACT_BUBBLE,
-              )}
-              title={t("composer.stopTurn")}
-            >
-              <Square size={12} className="fill-current" />
-              <span className="@max-4xl/chathead:hidden">{t("composer.stop")}</span>
-            </button>
-          )}
           <TaskPicker bot={bot} />
           <UsageChip bot={bot} />
           <WorkingFolderChip bot={bot} />
@@ -1236,6 +1227,37 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
         <div className="w-full px-5">
           <div className="mb-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">
             {state.error}
+          </div>
+        </div>
+      )}
+
+      {elsewhere && (
+        <div className="w-full px-5">
+          <div
+            role="status"
+            className="mb-2 flex items-center gap-2 rounded-lg border border-accent/25 bg-accent/[0.07] px-3 py-1.5"
+          >
+            <Loader2 size={13} className="shrink-0 animate-spin text-accent" />
+            <p className="min-w-0 flex-1 text-[12.5px] text-ink">
+              {elsewhere.status === "queued"
+                ? t("chat.routineQueuedElsewhere", { name: elsewhere.name })
+                : elsewhere.status === "waiting"
+                  ? t("chat.routineWaitingElsewhere", { name: elsewhere.name })
+                  : t("chat.routineRunningElsewhere", { name: elsewhere.name })}
+            </p>
+            {elsewhere.threadId && (
+              <button
+                type="button"
+                onClick={() => {
+                  const threadId = elsewhere.threadId;
+                  if (!threadId) return;
+                  dispatch({ type: "switchTask", botId: bot.id, threadId });
+                }}
+                className="shrink-0 rounded-md px-2 py-1 text-[12px] font-medium text-accent hover:bg-accent/10"
+              >
+                {t("chat.openRoutineThread")}
+              </button>
+            )}
           </div>
         </div>
       )}
