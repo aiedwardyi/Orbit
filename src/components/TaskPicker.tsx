@@ -12,6 +12,7 @@ import { COMPACT_BUBBLE } from "@/lib/compact-chip";
 import { formatTokens } from "@/lib/format-tokens";
 import { nextRename } from "@/lib/rename";
 import { useI18n } from "@/lib/i18n";
+import { canDeleteWhileWorking, liveRunForBot, workingThreadId } from "../../shared/working-thread";
 
 /** Click-to-switch used to close this menu immediately, which unmounted the
  * row before a double-click (or right-click) could start a rename. Linger
@@ -69,6 +70,7 @@ function ConversationTaskPicker({
   threadId,
   tasks,
   busy,
+  runningThreadId,
   onNew,
   onSwitch,
   onRename,
@@ -77,6 +79,7 @@ function ConversationTaskPicker({
   threadId: string;
   tasks: PickerTask[];
   busy: boolean;
+  runningThreadId: string | null;
   onNew: () => void;
   onSwitch: (threadId: string) => void;
   onRename: (threadId: string, title: string) => void;
@@ -322,7 +325,12 @@ function ConversationTaskPicker({
                       className="min-w-0 flex-1 text-left"
                       title={t("task.renameHint")}
                     >
-                      <div className="truncate text-[13px] text-ink">{task.title}</div>
+                      <div className="truncate text-[13px] text-ink">
+                        {task.title}
+                        {task.threadId === runningThreadId && (
+                          <span className="ml-1.5 text-[11px] font-medium text-accent">{t("task.running")}</span>
+                        )}
+                      </div>
                       <div className="text-[11px] text-ink-secondary">
                         {formatTime(task.createdAt)}
                         <TaskUsage usage={task.usage} />
@@ -343,7 +351,7 @@ function ConversationTaskPicker({
                   <button
                     type="button"
                     onClick={() => onDelete(task.threadId)}
-                    disabled={busy && active}
+                    disabled={!canDeleteWhileWorking(task.threadId, runningThreadId)}
                     aria-label={t("task.delete")}
                     title={t("task.deleteTitle")}
                     className="rounded p-1 text-ink-secondary opacity-0 hover:bg-raised hover:text-danger group-hover:opacity-100 disabled:opacity-20"
@@ -372,12 +380,18 @@ function ConversationTaskPicker({
 }
 
 export function TaskPicker({ bot }: { bot: Bot }) {
-  const { dispatch } = useStore();
+  const { dispatch, state } = useStore();
+  const live = liveRunForBot(state.routineRuns, bot.id);
   return (
     <ConversationTaskPicker
       threadId={bot.threadId}
       tasks={bot.tasks ?? []}
       busy={Boolean(bot.busy)}
+      runningThreadId={workingThreadId({
+        busy: Boolean(bot.busy),
+        viewedThreadId: bot.threadId,
+        liveRoutineThreadId: live?.threadId,
+      })}
       onNew={() => dispatch({ type: "newTask", botId: bot.id })}
       onSwitch={(threadId) => dispatch({ type: "switchTask", botId: bot.id, threadId })}
       onRename={(threadId, title) => dispatch({ type: "renameTask", botId: bot.id, threadId, title })}
@@ -395,6 +409,7 @@ export function GroupTaskPicker({ group }: { group: Group }) {
       threadId={group.threadId}
       tasks={group.tasks ?? []}
       busy={Boolean(group.busyBotId)}
+      runningThreadId={group.busyBotId ? group.threadId : null}
       onNew={() => dispatch({ type: "newGroupTask", groupId: group.id })}
       onSwitch={(threadId) => dispatch({ type: "switchGroupTask", groupId: group.id, threadId })}
       onRename={(threadId, title) => dispatch({ type: "renameGroupTask", groupId: group.id, threadId, title })}

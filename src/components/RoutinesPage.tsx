@@ -21,9 +21,16 @@ import {
 import { BotAvatar } from "@/components/Avatar";
 import { WebhooksPanel } from "@/components/WebhooksPanel";
 import { cn } from "@/lib/cn";
+import { useI18n } from "@/lib/i18n";
 import { MAUS_COLORS, type MausState } from "@/lib/mascot";
 import type { Routine, RoutineInput, RoutineRun, RoutineRunOn, RoutineRunStatus } from "@/lib/routines";
 import { api, useStore, type Bot } from "@/state/store";
+import {
+  activeRunForRoutine,
+  isActiveRunStatus,
+  liveCalendarSelection,
+  runNowClick,
+} from "../../shared/working-thread";
 
 const HOUR_HEIGHT = 68;
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -467,15 +474,40 @@ export function RoutineEditor({
   );
 }
 
-function RoutineDetails({ item, bot, onClose, onEdit }: { item: CalendarItem; bot: Bot; onClose: () => void; onEdit: (routine: Routine) => void }) {
-  const { dispatch } = useStore();
+function RoutineDetails({
+  item,
+  bot,
+  onClose,
+  onEdit,
+  onShowRun,
+}: {
+  item: CalendarItem;
+  bot: Bot;
+  onClose: () => void;
+  onEdit: (routine: Routine) => void;
+  onShowRun: (run: RoutineRun) => void;
+}) {
+  const { t } = useI18n();
+  const { dispatch, state } = useStore();
   const routine = item.routine;
   const run = item.run;
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
+  const inFlight = useRef<string | null>(null);
   const title = routine?.name ?? run?.routineName ?? "Routine";
   const webhookParts = run?.triggerSource === "webhook" ? webhookPromptParts(run.prompt) : null;
   const visibleInstructions = webhookParts?.instructions ?? routine?.prompt ?? run?.prompt;
+  const active = routine ? activeRunForRoutine(state.routineRuns, routine.id) : undefined;
+  const runName = routine?.name ?? run?.routineName ?? "";
+  const runNowLabel = working && !isActiveRunStatus(run?.status ?? "")
+    ? t("routine.queuing")
+    : run?.status === "queued"
+      ? t("routine.queuedNamed", { name: runName })
+      : run?.status === "running"
+        ? t("routine.runningNamed", { name: runName })
+        : run?.status === "waiting"
+          ? t("routine.waitingNamed", { name: runName })
+          : t("routine.runNow");
 
   const invoke = async (path: string, method = "POST") => {
     setWorking(true);
@@ -491,6 +523,35 @@ function RoutineDetails({ item, bot, onClose, onEdit }: { item: CalendarItem; bo
     }
   };
 
+  const startRunNow = async () => {
+    if (!routine) return;
+    const decision = runNowClick({
+      inFlightRoutineId: inFlight.current,
+      routineId: routine.id,
+      activeRun: active,
+    });
+    if (decision === "ignore") return;
+    if (decision === "focus-active" && active) {
+      onShowRun(active);
+      return;
+    }
+    inFlight.current = routine.id;
+    setWorking(true);
+    setError("");
+    try {
+      const response = await api(`/api/routines/${routine.id}/run`, { method: "POST" });
+      if (response.run) {
+        dispatch({ type: "routineRunPatched", run: response.run });
+        onShowRun(response.run);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      inFlight.current = null;
+      setWorking(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <div className="w-full max-w-[520px] overflow-hidden rounded-2xl border border-hairline/60 bg-panel shadow-2xl">
@@ -501,10 +562,18 @@ function RoutineDetails({ item, bot, onClose, onEdit }: { item: CalendarItem; bo
             <div className="min-w-0">
               <div className="truncate text-[20px] font-semibold text-white">{title}</div>
               <div className="mt-1 flex items-center gap-2 text-[13px] text-white/65"><span>{bot.name}</span><span>·</span><span>{niceDate(item.at)}, {niceTime(item.at)}</span></div>
-              <div className={cn("mt-2 inline-flex items-center gap-1.5 rounded-full bg-black/25 px-2.5 py-1 text-[11px] font-medium capitalize", run ? statusTone(run.status) : "text-white/70")}>
-                {run?.status === "running" && <Loader2 size={11} className="animate-spin" />}
+              <div className={cn("mt-2 inline-flex items-center gap-1.5 rounded-full bg-black/25 px-2.5 py-1 text-[11px] font-medium", run ? statusTone(run.status) : "text-white/70")}>
+                {(run?.status === "running" || run?.status === "queued") && <Loader2 size={11} className="animate-spin" />}
                 {run?.status === "completed" && <CheckCircle2 size={11} />}
-                {run ? run.status.replace("waiting", "needs you") : "scheduled"}
+                {run
+                  ? run.status === "queued"
+                    ? t("task.queued")
+                    : run.status === "running"
+                      ? t("task.running")
+                      : run.status === "waiting"
+                        ? t("chrome.waitingForYou")
+                        : run.status
+                  : "scheduled"}
               </div>
             </div>
           </div>
@@ -532,8 +601,8 @@ function RoutineDetails({ item, bot, onClose, onEdit }: { item: CalendarItem; bo
           {run?.status === "waiting" && <div className="rounded-xl border border-warning/30 bg-warning/10 px-3.5 py-3 text-[13px] text-warning">This bot needs your answer. Open its task to continue the run.</div>}
         </div>
         <div className="flex flex-wrap items-center gap-2 border-t border-hairline/40 px-5 py-4">
-          {routine && <button disabled={working} onClick={() => void invoke(`/api/routines/${routine.id}/run`)} className="flex items-center gap-2 rounded-xl bg-accent px-3.5 py-2 text-[13px] font-medium text-white hover:brightness-110 disabled:opacity-40"><Play size={14} />Run now</button>}
-          {run?.threadId && <button onClick={() => { dispatch({ type: "select", id: bot.id }); dispatch({ type: "switchTask", botId: bot.id, threadId: run.threadId! }); onClose(); }} className="flex items-center gap-2 rounded-xl bg-raised px-3.5 py-2 text-[13px] text-ink hover:bg-raised-hover"><ExternalLink size={14} />Open task</button>}
+          {routine && <button disabled={working || Boolean(active)} onClick={() => void startRunNow()} className="flex items-center gap-2 rounded-xl bg-accent px-3.5 py-2 text-[13px] font-medium text-white hover:brightness-110 disabled:opacity-40"><Play size={14} />{runNowLabel}</button>}
+          {run?.threadId && <button onClick={() => { dispatch({ type: "select", id: bot.id }); dispatch({ type: "switchTask", botId: bot.id, threadId: run.threadId! }); onClose(); }} className="flex items-center gap-2 rounded-xl bg-raised px-3.5 py-2 text-[13px] text-ink hover:bg-raised-hover"><ExternalLink size={14} />{t("routine.openThread")}</button>}
           {run && ["queued", "running", "waiting"].includes(run.status) && <button disabled={working} onClick={() => void invoke(`/api/routine-runs/${run.id}/cancel`)} className="flex items-center gap-2 rounded-xl bg-raised px-3.5 py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-40"><X size={14} />Cancel run</button>}
           <div className="flex-1" />
           {routine && canToggleRoutine(routine) && <button disabled={working} onClick={async () => { setWorking(true); setError(""); try { const response = await api(`/api/routines/${routine.id}`, { method: "PATCH", body: JSON.stringify({ enabled: !routine.enabled }) }); dispatch({ type: "routinePatched", routine: response.routine }); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } finally { setWorking(false); } }} className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-40">{routine.enabled ? <Pause size={14} /> : <Play size={14} />}{routine.enabled ? "Pause" : "Resume"}</button>}
@@ -574,6 +643,7 @@ function PausedRoutines({ routines, bots, onClose, onEdit }: { routines: Routine
 }
 
 export function RoutinesPage() {
+  const { t } = useI18n();
   const { state, dispatch } = useStore();
   const [section, setSection] = useState<"calendar" | "webhooks">("calendar");
   const [viewDays, setViewDays] = useState<1 | 3 | 7>(7);
@@ -590,11 +660,7 @@ export function RoutinesPage() {
     [state.routines, state.routineRuns, rangeStart, rangeEnd, botFilter],
   );
   const liveSelected = selected
-    ? {
-        ...selected,
-        routine: selected.routine ? state.routines.find((routine) => routine.id === selected.routine?.id) ?? null : null,
-        run: selected.run ? state.routineRuns.find((run) => run.id === selected.run?.id) ?? selected.run : null,
-      }
+    ? liveCalendarSelection(selected, state.routines, state.routineRuns)
     : null;
   const selectedBot = liveSelected
     ? state.bots.find((bot) => bot.id === (liveSelected.routine?.botId ?? liveSelected.run?.botId))
@@ -626,8 +692,8 @@ export function RoutinesPage() {
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="flex items-center gap-2.5">{section === "calendar" ? <CalendarDays size={21} className="text-accent" /> : <Webhook size={21} className="text-accent" />}<h1 className="text-[20px] font-semibold tracking-tight text-ink">Tasks &amp; routines</h1></div>
-            <p className="mt-1 text-[12.5px] text-ink-secondary">{section === "calendar" ? "Routines start fresh agent tasks on a schedule." : "Webhooks start fresh agent tasks when an event arrives."}</p>
+            <div className="flex items-center gap-2.5">{section === "calendar" ? <CalendarDays size={21} className="text-accent" /> : <Webhook size={21} className="text-accent" />}<h1 className="text-[20px] font-semibold tracking-tight text-ink">{t("chrome.routines")}</h1></div>
+            <p className="mt-1 text-[12.5px] text-ink-secondary">{section === "calendar" ? t("routine.pageHelp") : t("routine.webhookHelp")}</p>
           </div>
           <div className="flex items-center gap-2">
             {running > 0 && <span className="flex items-center gap-1.5 rounded-full border border-accent/25 bg-accent/10 px-2.5 py-1.5 text-[11px] text-accent"><Loader2 size={12} className="animate-spin" />{running} active</span>}
@@ -637,15 +703,8 @@ export function RoutinesPage() {
           </div>
         </div>
         <div className="mt-4 flex items-center gap-1 rounded-xl bg-panel p-1 sm:w-fit">
-          <button onClick={() => setSection("calendar")} className={cn("flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-medium", section === "calendar" ? "bg-raised text-ink shadow" : "text-ink-secondary hover:text-ink")}><CalendarDays size={13} />Routines</button>
+          <button onClick={() => setSection("calendar")} className={cn("flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-medium", section === "calendar" ? "bg-raised text-ink shadow" : "text-ink-secondary hover:text-ink")}><CalendarDays size={13} />{t("chrome.routines")}</button>
           <button onClick={() => setSection("webhooks")} className={cn("flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-medium", section === "webhooks" ? "bg-raised text-ink shadow" : "text-ink-secondary hover:text-ink")}><Webhook size={13} />Webhooks{state.webhooks.length > 0 && <span className="rounded-full bg-accent/15 px-1.5 text-[10px] text-accent">{state.webhooks.length}</span>}</button>
-        </div>
-        <div className="mt-3 rounded-xl border border-hairline/45 bg-panel/70 px-3.5 py-2.5 text-[11.5px] leading-relaxed text-ink-secondary">
-          {section === "calendar" ? (
-            <><strong className="font-medium text-ink">Task</strong> = one conversation and result. <strong className="font-medium text-ink">Routine</strong> = a reusable schedule that creates a fresh task each run, using that agent's model, tools, permissions, computer, and connected apps.</>
-          ) : (
-            <><strong className="font-medium text-ink">Webhook</strong> = an event endpoint that creates a fresh task. Connected services can call it when something happens; the receiving agent keeps its existing tools and permissions.</>
-          )}
         </div>
         {section === "calendar" && <div className="mt-3 flex flex-wrap items-center gap-2">
           <div className="flex items-center rounded-xl border border-hairline/50 bg-panel p-0.5">
@@ -686,7 +745,7 @@ export function RoutinesPage() {
       )}
 
       {editor && <RoutineEditor routine={editor === "new" ? undefined : editor} bots={visibleBots} onClose={() => setEditor(null)} />}
-      {liveSelected && selectedBot && <RoutineDetails item={liveSelected} bot={selectedBot} onClose={() => setSelected(null)} onEdit={(routine) => { setSelected(null); setEditor(routine); }} />}
+      {liveSelected && selectedBot && <RoutineDetails item={liveSelected} bot={selectedBot} onClose={() => setSelected(null)} onEdit={(routine) => { setSelected(null); setEditor(routine); }} onShowRun={(run) => setSelected({ id: `run-${run.id}`, at: run.scheduledFor, routine: state.routines.find((candidate) => candidate.id === run.routineId) ?? liveSelected.routine, run })} />}
       {pausedOpen && <PausedRoutines routines={paused} bots={state.bots} onClose={() => setPausedOpen(false)} onEdit={(routine) => { setPausedOpen(false); setEditor(routine); }} />}
     </main>
   );
