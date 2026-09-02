@@ -152,3 +152,15 @@ describe("room turns mount the Chief framing", () => {
     );
   });
 });
+
+describe("the Chief role does not gate engine selection", () => {
+  it("leaves agentsMcp required only by approvePeerComms", () => {
+    const start = index.indexOf("function automaticRequirements");
+    const body = index.slice(start, start + index.slice(start).indexOf("\n}"));
+
+    expect(body).toContain('if (bot.approvePeerComms === true) required.push("agentsMcp")');
+    // re-tying the Chief flag to agentsMcp strands an automatic-mode bot on a
+    // workspace with no capable engine: every turn 409s instead of degrading
+    expect(body).not.toMatch(/chiefOfStaff[^\n]*agentsMcp/);
+  });
+});

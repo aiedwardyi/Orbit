@@ -469,7 +469,11 @@ function liveAutomaticCandidate(instance: ProviderInstance): AutomaticCandidate 
 
 function automaticRequirements(bot: BotRecord): AutomaticCapability[] {
   const required: AutomaticCapability[] = [];
-  if (bot.chiefOfStaff === true || bot.approvePeerComms === true) required.push("agentsMcp");
+  // The Chief role is deliberately not a hard requirement: it can be set on any
+  // engine, and making it one strands an automatic-mode bot on a workspace with
+  // no agentsMcp engine: every turn 409s instead of the prompt simply saying
+  // it cannot contact teammates. approvePeerComms genuinely needs the tools.
+  if (bot.approvePeerComms === true) required.push("agentsMcp");
   if (bot.browser === true) required.push("browserMcp");
   if (bot.composio === true) required.push("composioMcp");
   if (bot.computer === "cloud") required.push("computerMcp");
