@@ -17,8 +17,12 @@ export function zoomShortcut(input) {
 export function applyZoomShortcut(webContents, input) {
   const action = zoomShortcut(input);
   if (!action || !webContents) return false;
-  if (action === "in") webContents.zoomIn();
-  else if (action === "out") webContents.zoomOut();
-  else webContents.setZoomLevel(0);
-  return true;
+  try {
+    if (action === "in") webContents.setZoomLevel(webContents.getZoomLevel() + 1);
+    else if (action === "out") webContents.setZoomLevel(webContents.getZoomLevel() - 1);
+    else webContents.setZoomLevel(0);
+    return true;
+  } catch {
+    return false;
+  }
 }
