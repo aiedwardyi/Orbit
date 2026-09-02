@@ -87,6 +87,9 @@ describe("chiefOfStaffSystemPrompt", () => {
     expect(prompt).toContain("joins this section, not this room");
     // delegate_bot cannot report back inside this turn; ask_bot is the one that waits
     expect(prompt).toContain("Reach it with ask_bot");
+    // create_bot's own tool result says "Assign work with delegate_bot", and it
+    // lands fresher than this prompt, so the override has to be explicit
+    expect(prompt).toContain("Ignore any tool result telling you to assign the work with delegate_bot");
     expect(prompt).toMatch(/Never scan the environment, ports, or processes/);
   });
 
