@@ -319,6 +319,8 @@ export const en = {
   "room.unpin": "Unpin",
   "room.manageMembers": "Manage members",
   "room.manageMembersCount": "Manage members — {count} bots in this channel",
+  "room.saveMembersOne": "Save · {count} bot",
+  "room.saveMembersMany": "Save · {count} bots",
   "room.you": "You",
 
   "activity.thinking": "Thinking",
@@ -345,6 +347,9 @@ export const en = {
   "palette.rooms": "Channels",
   "palette.commands": "Commands",
   "palette.messages": "Messages",
+
+  "search.messagesCount": "Messages · {count}",
+  "search.noMatch": "No messages match “{query}”",
 
   "find.placeholder": "Find in this conversation",
   "find.searching": "Searching…",
@@ -903,6 +908,8 @@ export const ko = {
   "room.unpin": "고정 해제",
   "room.manageMembers": "구성원 관리",
   "room.manageMembersCount": "구성원 관리 — 이 채널에 봇 {count}명",
+  "room.saveMembersOne": "저장 · 봇 {count}개",
+  "room.saveMembersMany": "저장 · 봇 {count}개",
   "room.you": "나",
 
   "activity.thinking": "생각 중",
@@ -929,6 +936,9 @@ export const ko = {
   "palette.rooms": "채널",
   "palette.commands": "명령",
   "palette.messages": "메시지",
+
+  "search.messagesCount": "메시지 · {count}",
+  "search.noMatch": "“{query}”와 일치하는 메시지가 없습니다",
 
   "find.placeholder": "이 대화에서 찾기",
   "find.searching": "검색 중…",

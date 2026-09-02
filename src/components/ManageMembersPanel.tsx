@@ -7,6 +7,7 @@ import { track } from "@/lib/analytics";
 import { useStore, type Group } from "@/state/store";
 import { BotPickerList } from "./BotPickerList";
 import { nextMemberIds } from "@/lib/room-members";
+import { useI18n } from "@/lib/i18n";
 
 export function ManageMembersPanel({
   group,
@@ -17,6 +18,7 @@ export function ManageMembersPanel({
   onClose: () => void;
   triggerRef: RefObject<HTMLButtonElement | null>;
 }) {
+  const { t } = useI18n();
   const { state, dispatch } = useStore();
   const [picked, setPicked] = useState<Set<string>>(() => new Set(group.memberIds));
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -125,14 +127,16 @@ export function ManageMembersPanel({
             onClick={onClose}
             className="flex-1 rounded-lg bg-raised py-2 text-[14px] font-medium text-ink hover:brightness-110"
           >
-            Cancel
+            {t("createBot.cancel")}
           </button>
           <button
             onClick={save}
             disabled={!memberIds.length}
             className="flex-1 rounded-lg bg-accent py-2 text-[14px] font-medium text-white hover:brightness-110 disabled:opacity-40"
           >
-            Save{memberIds.length ? ` · ${memberIds.length} ${memberIds.length === 1 ? "bot" : "bots"}` : ""}
+            {memberIds.length
+              ? t(memberIds.length === 1 ? "room.saveMembersOne" : "room.saveMembersMany", { count: memberIds.length })
+              : t("room.save")}
           </button>
         </div>
       </div>

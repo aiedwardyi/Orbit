@@ -28,6 +28,8 @@ const modelPicker = readFileSync(join(here, "../components/ModelPicker.tsx"), "u
 const taskPicker = readFileSync(join(here, "../components/TaskPicker.tsx"), "utf8");
 const renameTitle = readFileSync(join(here, "../components/RenameTitle.tsx"), "utf8");
 const enginesSettings = readFileSync(join(here, "../components/EnginesSettings.tsx"), "utf8");
+const searchResults = readFileSync(join(here, "../components/SearchResults.tsx"), "utf8");
+const manageMembers = readFileSync(join(here, "../components/ManageMembersPanel.tsx"), "utf8");
 
 afterEach(() => {
   applyLocale("en");
@@ -346,5 +348,44 @@ describe("first-run core path leftovers", () => {
     expect(modelPicker).not.toMatch(/Nothing matches/);
     expect(enginesSettings).toContain('t("engines.setCli")');
     expect(enginesSettings).not.toMatch(/>Set CLI…</);
+  });
+});
+
+describe("sidebar empty message search", () => {
+  it("keeps sidebar message-search empty copy as complete EN+KO phrases", () => {
+    expect(en["palette.messages"]).toBe("Messages");
+    expect(ko["palette.messages"]).toBe("메시지");
+    expect(en["search.messagesCount"]).toBe("Messages · {count}");
+    expect(ko["search.messagesCount"]).toBe("메시지 · {count}");
+    expect(en["search.noMatch"]).toBe("No messages match “{query}”");
+    expect(ko["search.noMatch"]).toBe("“{query}”와 일치하는 메시지가 없습니다");
+    expect(ko["search.noMatch"]).not.toMatch(/No messages match/i);
+    expect(ko["search.messagesCount"]).not.toMatch(/Messages/i);
+    expect(translate("en", "search.noMatch", { query: "keep this query" })).toBe("No messages match “keep this query”");
+    expect(translate("ko", "search.noMatch", { query: "keep this query" })).toContain("keep this query");
+    expect(Object.hasOwn(catalogs.en, "keep this query")).toBe(false);
+    expect(en["room.saveMembersOne"]).toBe("Save · {count} bot");
+    expect(en["room.saveMembersMany"]).toBe("Save · {count} bots");
+    expect(ko["room.saveMembersOne"]).toBe("저장 · 봇 {count}개");
+    expect(ko["room.saveMembersMany"]).toBe("저장 · 봇 {count}개");
+    expect(ko["room.saveMembersOne"]).not.toMatch(/Save|\bbot\b/i);
+    expect(ko["room.saveMembersMany"]).not.toMatch(/Save|\bbots\b/i);
+  });
+
+  it("wires those phrases into SearchResults and Manage Members without t(query)", () => {
+    expect(searchResults).toContain('t("palette.messages")');
+    expect(searchResults).toContain('t("search.messagesCount"');
+    expect(searchResults).toContain('t("search.noMatch"');
+    expect(searchResults).toContain("{ query: q }");
+    expect(searchResults).not.toMatch(/No messages match/);
+    expect(searchResults).not.toMatch(/Messages\{hits/);
+    expect(searchResults).toContain('t("search.noMatch", { query: q })');
+    expect(searchResults).not.toMatch(/\bt\(\s*(q|query)\s*\)/);
+    expect(manageMembers).toContain('t("createBot.cancel")');
+    expect(manageMembers).toContain('t("room.save")');
+    expect(manageMembers).toContain('"room.saveMembersOne"');
+    expect(manageMembers).toContain('"room.saveMembersMany"');
+    expect(manageMembers).not.toMatch(/>Cancel</);
+    expect(manageMembers).not.toMatch(/Save\{memberIds/);
   });
 });
