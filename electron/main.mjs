@@ -39,7 +39,7 @@ import {
   withoutManagedCompanionTunnelAccess,
 } from "./managed-companion-tunnel.mjs";
 import { createSecureCredentialState } from "./secure-credential-state.mjs";
-import { isKnownSkin } from "./skin-overlay.cjs";
+import { isKnownSkin, skinChrome } from "./skin-overlay.cjs";
 import {
   readPreference as readLocalePreference,
   resolveLocale as resolveUiLocale,
@@ -1439,8 +1439,16 @@ ipcMain.handle("desktop:locale-preference", (_event, preference) => {
   return true;
 });
 
-ipcMain.handle("desktop:skin", (_event, skin) => {
+ipcMain.handle("desktop:skin", (event, skin) => {
   if (!isKnownSkin(skin)) return false;
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win && !win.isDestroyed()) {
+    // Recolor the native window ground to this skin's --color-app. Without
+    // it a saved Ledger (or any light skin) sits behind Midnight #070707
+    // until the 5s show-fallback, which is the first-paint hole on Windows.
+    win.setBackgroundColor(skinChrome(skin).color);
+    if (!win.isVisible()) win.show();
+  }
   return true;
 });
 

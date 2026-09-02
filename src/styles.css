@@ -263,6 +263,61 @@
   --radius-xl: 14px;
 }
 
+/* ── Ledger ────────────────────────────────────────────────────────────────
+   Neutral daylight — light without a tint. The four corners of the grid are
+   already spoken for: Midnight dark/cool, Atelier light/warm, Foundry dark/
+   warm, Lagoon light/cool (porcelain and teal). Ledger is the first-class
+   light mode that refuses a cast. Its neutrals sit on the gray axis, so the
+   ground reads as stone rather than cream paper or glazed ceramic, and the
+   accent is graphite-slate — iron-gall ink, not brown and not teal.
+
+   Structural difference from the other light skins: raised is a ruled fill,
+   not a second white. Atelier and Lagoon paint raised and card the same
+   #ffffff, so chips, hover fills and answered rows vanish. Ledger keeps
+   card at white and puts raised one step down in stone, so a chip on a
+   card is visible.
+
+   Corners are the tightest of the set (3px / 6px) and the face is Inter:
+   a typeset daybook, not Atelier/Lagoon's system-ui paper/ceramic.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="ledger"] {
+  --color-app: #e2e4e8;           /* stone ground; channel spread of 6 vs
+                                     Atelier's warm 10 and Lagoon's teal 13 */
+  --color-panel: #eef0f3;         /* sidebar, one step up */
+  --color-raised: #d9dde4;        /* ruled fill — NOT white. chips on a card
+                                     have to be seen, unlike Atelier/Lagoon */
+  --color-raised-hover: #cdd1d9;
+  --color-card: #ffffff;          /* reading surface, the contrast anchor */
+  --color-inset: #d4d8df;
+  --color-control: #c2c6ce;       /* own tone, distinct from raised and card:
+                                     1.71:1 on a card, 1.12:1 on hover */
+  --color-hairline: #9aa0ab;      /* 2.07:1 on the stone ground */
+
+  --color-ink: #1a1c20;           /* charcoal, not petrol, not warm black */
+  --color-ink-secondary: #545960; /* opaque — the overlay cannot take alpha;
+                                     7.06:1 on white, 4.94:1 on raised */
+
+  /* Graphite-slate. Dark fill, white lettering — ink on stone. */
+  --color-accent: #3a4658;        /* carries white at 9.56:1 */
+  --color-accent-border: #4a5668;
+  --color-accent-text: #334054;   /* 10.49:1 on a card, for links */
+  --color-focus: #334054;         /* own ring, not Midnight's Grok blue */
+  --color-accent-ink: #ffffff;
+  --color-bubble-user: #d9dde4;   /* your own messages in the ruled fill */
+
+  --color-success: #2f6b4a;
+  --color-danger: #a33a32;
+  --color-danger-ink: #ffffff;
+  --color-warning: #7a5a28;
+  --color-scrollbar: #9aa0ab;
+  --color-maus-line: #545960;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 3px;
+  --radius-xl: 6px;
+}
+
 html,
 body,
 #root {

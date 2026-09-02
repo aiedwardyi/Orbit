@@ -12,6 +12,7 @@ const SKIN_CHROME = Object.freeze({
   atelier: Object.freeze({ color: "#f5f1eb", symbolColor: "#6b6559" }),
   foundry: Object.freeze({ color: "#100e0b", symbolColor: "#b0a696" }),
   lagoon: Object.freeze({ color: "#dfeceb", symbolColor: "#4d5c5b" }),
+  ledger: Object.freeze({ color: "#e2e4e8", symbolColor: "#545960" }),
 });
 
 const DEFAULT_SKIN = "midnight";
