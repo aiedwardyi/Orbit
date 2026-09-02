@@ -12,8 +12,15 @@ afterEach(() => {
 });
 
 describe("readClaudeModelCatalog", () => {
-  it("returns the official four when settings are missing", () => {
+  it("returns the official catalog, including Fable 5.1, when settings are missing", () => {
     expect(readClaudeModelCatalog({ HOME: join(tmpdir(), "omb-claude-missing-home") })).toEqual(STATIC_CLAUDE_MODELS);
+    expect(STATIC_CLAUDE_MODELS.options).toEqual(
+      expect.arrayContaining([
+        { id: "claude-fable-5-1", label: "Claude Fable 5.1" },
+        { id: "claude-fable-5", label: "Claude Fable 5" },
+      ]),
+    );
+    expect(STATIC_CLAUDE_MODELS.options[0]).toEqual({ id: "claude-fable-5-1", label: "Claude Fable 5.1" });
   });
 
   it("tags extra settings models as custom and leaves official rows untagged", () => {

@@ -316,13 +316,20 @@ function MemoryCard({ bot }: { bot: Bot }) {
   );
 }
 
-export function SettingsPanel({ bot }: { bot: Bot }) {
+export function SettingsPanel({
+  bot,
+  defaultAdvancedOpen = false,
+}: {
+  bot: Bot;
+  /** Start with Advanced expanded (tests). */
+  defaultAdvancedOpen?: boolean;
+}) {
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
   const panelRef = useRef<HTMLElement>(null);
   const restoreFocusOnUnmount = useRef(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(defaultAdvancedOpen);
   const providerSupportsLocal = instanceSupportsLocalComputer(state.instances, bot);
   const localSelectable = localComputerSelectable({ capabilities, providerSupportsLocal });
   const [localAutoWarning, setLocalAutoWarning] = useState<"auto" | "local" | null>(null);
@@ -594,7 +601,7 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
             <span>
               <span className="block text-[14px] font-medium text-ink">Advanced</span>
               <span className="mt-0.5 block text-[12px] text-ink-secondary">
-                Effort, computer, coordination, browser, approvals, voice, and usage
+                Computer, coordination, browser, approvals, voice, and usage
               </span>
             </span>
             <ChevronDown
@@ -721,39 +728,6 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
                 )}
               />
             </button>
-            </div>
-          )}
-
-          {advancedOpen && !!engine?.capabilities?.effortLevels?.length && (
-            <div className="rounded-xl bg-card p-4">
-              <div className="text-[15px] font-medium text-ink">Effort</div>
-              {/* Says what the app does, not what the engine ends up at:
-                  Codex applies a level to the whole thread and has no way to
-                  take one back, so "currently: engine default" was a promise
-                  we could not keep for a thread that had already been sent
-                  one. Sending nothing is true on every engine. */}
-              <div className="mt-0.5 text-[13px] text-ink-secondary">
-                How hard this bot thinks{bot.modelSelection.effort ? "" : " (Default: no level is sent)"}
-              </div>
-              <div className="mt-3 flex overflow-hidden rounded-lg border border-hairline/40">
-                {([undefined, ...engine.capabilities.effortLevels] as const).map((level, i) => (
-                  <button
-                    key={level ?? "default"}
-                    aria-pressed={bot.modelSelection.effort === level}
-                    onClick={() => patch({ modelSelection: { ...bot.modelSelection, effort: level } })}
-                    className={cn(
-                      "flex-1 py-1.5 text-[13px] capitalize",
-                      i > 0 && "border-l border-hairline/40",
-                      bot.modelSelection.effort === level
-                        ? "bg-control text-ink"
-                        : "text-ink-secondary hover:bg-control/60 hover:text-ink",
-                    )}
-                  >
-                    {/* the others capitalize cleanly; "xhigh" would read "Xhigh" */}
-                    {level === "xhigh" ? "X-High" : (level ?? "Default")}
-                  </button>
-                ))}
-              </div>
             </div>
           )}
 

@@ -24,24 +24,24 @@ export function partitionCustomModels<T extends { id: string; loaded?: boolean }
   return { pinned, rest };
 }
 
-/** Keep the active and default choices visible, then fill the compact list
- * from catalog order. Catalog order is provider-owned and already reflects
- * its preferred/current models. */
+/** Compact suggested list in catalog order. Default and current stay in
+ * that order so a click moves the checkmark, not the rows. Must-show ids
+ * (default, current) are always included even if they exceed limit. */
 export function suggestedModels<T extends { id: string }>(
   options: readonly T[],
   defaultId: string,
   currentId: string | undefined,
   limit = 5,
 ): T[] {
+  const must = new Set<string>();
+  if (defaultId) must.add(defaultId);
+  if (currentId) must.add(currentId);
   const picked: T[] = [];
   const seen = new Set<string>();
-  const add = (option: T | undefined) => {
-    if (!option || seen.has(option.id) || picked.length >= limit) return;
+  for (const option of options) {
+    if (seen.has(option.id)) continue;
     seen.add(option.id);
-    picked.push(option);
-  };
-  add(currentId ? options.find((option) => option.id === currentId) : undefined);
-  add(options.find((option) => option.id === defaultId));
-  for (const option of options) add(option);
+    if (picked.length < limit || must.has(option.id)) picked.push(option);
+  }
   return picked;
 }

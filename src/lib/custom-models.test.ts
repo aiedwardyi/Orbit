@@ -40,13 +40,43 @@ describe("partitionCustomModels", () => {
 });
 
 describe("suggestedModels", () => {
-  it("pins the active and default models before filling from catalog order", () => {
+  it("keeps catalog order so default and selected stay put after a click", () => {
+    const grok = [{ id: "grok-4.6" }, { id: "grok-4.5" }];
+    expect(suggestedModels(grok, "grok-4.6", "grok-4.5").map((option) => option.id)).toEqual([
+      "grok-4.6",
+      "grok-4.5",
+    ]);
+    expect(suggestedModels(grok, "grok-4.6", "grok-4.6").map((option) => option.id)).toEqual([
+      "grok-4.6",
+      "grok-4.5",
+    ]);
+  });
+
+  it("keeps catalog order while still showing a later current model", () => {
     const options = ["a", "b", "c", "d", "e", "f"].map((id) => ({ id }));
-    expect(suggestedModels(options, "b", "f", 4).map((option) => option.id)).toEqual(["f", "b", "a", "c"]);
+    expect(suggestedModels(options, "b", "f", 4).map((option) => option.id)).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+      "f",
+    ]);
   });
 
   it("does not duplicate a current default", () => {
     const options = ["a", "b", "c"].map((id) => ({ id }));
-    expect(suggestedModels(options, "b", "b", 3).map((option) => option.id)).toEqual(["b", "a", "c"]);
+    expect(suggestedModels(options, "b", "b", 3).map((option) => option.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("keeps the first row when a catalog id is listed twice", () => {
+    const options = [
+      { id: "grok-4.6", label: "first" },
+      { id: "grok-4.6", label: "again" },
+      { id: "grok-4.5", label: "Grok 4.5" },
+    ];
+    expect(suggestedModels(options, "grok-4.6", "grok-4.5").map((option) => option.label)).toEqual([
+      "first",
+      "Grok 4.5",
+    ]);
   });
 });

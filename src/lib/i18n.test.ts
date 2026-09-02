@@ -364,6 +364,14 @@ describe("first-run core path leftovers", () => {
     expect(ko["chat.startConversation"]).not.toMatch(/Send a message/i);
     expect(en["model.automatic"]).toBe("Automatic");
     expect(ko["model.automatic"]).toBe("자동");
+    expect(en["model.cliVersion"]).toBe("CLI {version}");
+    expect(ko["model.cliVersion"]).toBe("CLI 패키지 {version}");
+    expect(en["model.pinnedTitle"]).toBe("{engine} · {model}");
+    expect(ko["model.pinnedTitle"]).toBe("{engine} · {model}");
+    expect(en["model.automaticHelp"]).toContain("when it works");
+    expect(ko["model.automaticHelp"]).not.toMatch(/when it works/i);
+    expect(translate("en", "model.cliVersion", { version: "1.0.13" })).toBe("CLI 1.0.13");
+    expect(translate("ko", "model.cliVersion", { version: "1.0.13" })).toBe("CLI 패키지 1.0.13");
     expect(en["model.showAll"]).toContain("{count}");
     expect(ko["model.showAll"]).toContain("{count}");
     expect(en["engines.setCli"]).toBe("Set CLI…");
