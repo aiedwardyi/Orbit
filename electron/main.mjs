@@ -1,4 +1,4 @@
-import { app, BrowserWindow, WebContentsView, clipboard, desktopCapturer, dialog, ipcMain, Menu, nativeImage, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, utilityProcess } from "electron";
+import { app, BrowserWindow, WebContentsView, clipboard, desktopCapturer, dialog, ipcMain, Menu, nativeImage, nativeTheme, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, utilityProcess } from "electron";
 import { createRequire } from "node:module";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -1441,11 +1441,10 @@ ipcMain.handle("desktop:locale-preference", (_event, preference) => {
 
 ipcMain.handle("desktop:skin", (event, skin) => {
   if (!isKnownSkin(skin)) return false;
+  nativeTheme.themeSource =
+    skin === "atelier" || skin === "lagoon" || skin === "ledger" ? "light" : "dark";
   const win = BrowserWindow.fromWebContents(event.sender);
   if (win && !win.isDestroyed()) {
-    // Recolor the native window ground to this skin's --color-app. Without
-    // it a saved Ledger (or any light skin) sits behind Midnight #070707
-    // until the 5s show-fallback, which is the first-paint hole on Windows.
     win.setBackgroundColor(skinChrome(skin).color);
     if (!win.isVisible()) win.show();
   }

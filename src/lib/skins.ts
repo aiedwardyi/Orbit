@@ -19,7 +19,7 @@ export const SKINS: readonly Skin[] = [
   { id: "atelier", name: "Atelier", tagline: "Daylight on paper, warm and quiet." },
   { id: "foundry", name: "Foundry", tagline: "Night shift. Dark, warm, lit in brass." },
   { id: "lagoon", name: "Lagoon", tagline: "Cool daylight. Porcelain and deep teal." },
-  { id: "ledger", name: "Ledger", tagline: "Neutral daylight. Stone and graphite." },
+  { id: "ledger", name: "Ledger", tagline: "Neutral daylight. Stone and ink." },
 ];
 
 export const DEFAULT_SKIN: SkinId = "midnight";

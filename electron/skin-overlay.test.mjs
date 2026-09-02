@@ -51,6 +51,7 @@ describe("skin overlay chrome", () => {
     const handler = main.match(/ipcMain\.handle\("desktop:skin",[\s\S]*?\n\}\);/)?.[0] ?? "";
     expect(handler).toContain("skinChrome");
     expect(handler).toContain("setBackgroundColor");
+    expect(handler).toContain("nativeTheme.themeSource");
     expect(handler).toContain(".show()");
   });
 

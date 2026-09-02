@@ -269,7 +269,7 @@
    warm, Lagoon light/cool (porcelain and teal). Ledger is the first-class
    light mode that refuses a cast. Its neutrals sit on the gray axis, so the
    ground reads as stone rather than cream paper or glazed ceramic, and the
-   accent is graphite-slate — iron-gall ink, not brown and not teal.
+   accent is document navy — ink on stone, not brown, teal, or purple.
 
    Structural difference from the other light skins: raised is a ruled fill,
    not a second white. Atelier and Lagoon paint raised and card the same
@@ -277,45 +277,41 @@
    card at white and puts raised one step down in stone, so a chip on a
    card is visible.
 
-   Corners are the tightest of the set (3px / 6px) and the face is Inter:
-   a typeset daybook, not Atelier/Lagoon's system-ui paper/ceramic.
+   Corners sit between Atelier paper (6/10) and Lagoon ceramic (8/14) at
+   4px / 8px, and the face is Inter: a typeset daybook, not system-ui.
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="ledger"] {
-  --color-app: #e2e4e8;           /* stone ground; channel spread of 6 vs
-                                     Atelier's warm 10 and Lagoon's teal 13 */
-  --color-panel: #eef0f3;         /* sidebar, one step up */
-  --color-raised: #d9dde4;        /* ruled fill — NOT white. chips on a card
-                                     have to be seen, unlike Atelier/Lagoon */
-  --color-raised-hover: #cdd1d9;
+  --color-app: #e9e9e9;           /* achromatic stone near #e9e9e9 */
+  --color-panel: #f4f4f4;         /* sidebar, one step up */
+  --color-raised: #dcdcdc;        /* ruled fill — NOT white */
+  --color-raised-hover: #d0d0d0;
   --color-card: #ffffff;          /* reading surface, the contrast anchor */
-  --color-inset: #d4d8df;
-  --color-control: #c2c6ce;       /* own tone, distinct from raised and card:
-                                     1.71:1 on a card, 1.12:1 on hover */
-  --color-hairline: #9aa0ab;      /* 2.07:1 on the stone ground */
+  --color-inset: #d6d6d6;
+  --color-control: #c6c6c6;       /* own tone, distinct from raised and card */
+  --color-hairline: #8f8f8f;      /* distinct gray rule */
 
-  --color-ink: #1a1c20;           /* charcoal, not petrol, not warm black */
-  --color-ink-secondary: #545960; /* opaque — the overlay cannot take alpha;
-                                     7.06:1 on white, 4.94:1 on raised */
+  --color-ink: #1a1a1a;           /* charcoal, not petrol, not warm black */
+  --color-ink-secondary: #575757; /* opaque — the overlay cannot take alpha */
 
-  /* Graphite-slate. Dark fill, white lettering — ink on stone. */
-  --color-accent: #3a4658;        /* carries white at 9.56:1 */
-  --color-accent-border: #4a5668;
-  --color-accent-text: #334054;   /* 10.49:1 on a card, for links */
-  --color-focus: #334054;         /* own ring, not Midnight's Grok blue */
+  /* Document navy. Not brown, teal, purple, graphite, green, or orange. */
+  --color-accent: #1f4d99;
+  --color-accent-border: #2a5aab;
+  --color-accent-text: #1a4080;
+  --color-focus: #1a4080;         /* own ring, not Midnight's Grok blue */
   --color-accent-ink: #ffffff;
-  --color-bubble-user: #d9dde4;   /* your own messages in the ruled fill */
+  --color-bubble-user: #dcdcdc;
 
   --color-success: #2f6b4a;
   --color-danger: #a33a32;
   --color-danger-ink: #ffffff;
   --color-warning: #7a5a28;
-  --color-scrollbar: #9aa0ab;
-  --color-maus-line: #545960;
+  --color-scrollbar: #8f8f8f;
+  --color-maus-line: #575757;
 
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
-  --radius-lg: 3px;
-  --radius-xl: 6px;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
 }
 
 html,
