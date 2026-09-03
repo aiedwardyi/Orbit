@@ -35,6 +35,7 @@ import { ApprovalCard } from "./ApprovalCard";
 import { ManageMembersPanel } from "./ManageMembersPanel";
 import { groupActivityRuns } from "@/lib/activity-runs";
 import { roomTranscriptRows } from "@/lib/room-transcript";
+import { nextBulletin } from "@/lib/room-bulletin";
 import { ActivityRun } from "./ActivityRun";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
@@ -966,10 +967,14 @@ export function GroupView({ group }: { group: Group }) {
   }, [group.messages, group.threadId, setBottomFollow, state.focusMessage, transcriptKey]);
   useFocusMessage(group.threadId, group.messages.length > 0);
 
-  useEffect(() => setBulletinDraft(group.bulletin), [group.id, group.bulletin]);
+  // an open draft outranks an incoming bulletin patch — resyncing under the cursor loses the edit
+  useEffect(() => {
+    if (!bulletinOpen) setBulletinDraft(group.bulletin);
+  }, [bulletinOpen, group.id, group.bulletin]);
   // an open folder editor belongs to the room it was opened in
   useEffect(() => setFolderOpen(false), [group.id]);
   useEffect(() => setMembersOpen(false), [group.id]);
+  useEffect(() => setBulletinOpen(false), [group.id]);
   // deps track the FULL messages.length, so expanding the window (which only
   // changes windowedMessages) can never re-trigger this bottom scrollTo.
   // `follow` is intentionally omitted — see ChatView.
@@ -1015,9 +1020,15 @@ export function GroupView({ group }: { group: Group }) {
 
   const saveBulletin = () => {
     setBulletinOpen(false);
-    if (bulletinDraft !== group.bulletin) {
-      dispatch({ type: "patchGroup", groupId: group.id, patch: { bulletin: bulletinDraft } });
+    const next = nextBulletin(group.bulletin, bulletinDraft);
+    if (next !== null) {
+      dispatch({ type: "patchGroup", groupId: group.id, patch: { bulletin: next } });
     }
+  };
+
+  const discardBulletin = () => {
+    setBulletinDraft(group.bulletin);
+    setBulletinOpen(false);
   };
 
   // Static mauses: one per member, a ring + dot on whoever is working.
@@ -1104,18 +1115,34 @@ export function GroupView({ group }: { group: Group }) {
               autoFocus
               value={bulletinDraft}
               onChange={(e) => setBulletinDraft(e.target.value)}
-              onBlur={saveBulletin}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) saveBulletin();
-                if (e.key === "Escape") {
-                  setBulletinDraft(group.bulletin);
-                  setBulletinOpen(false);
-                }
+                if (e.key === "Escape") discardBulletin();
               }}
               placeholder={t("room.bulletinPlaceholder")}
               rows={4}
               className="w-full resize-none bg-transparent text-[13px] leading-relaxed text-ink placeholder:text-ink-secondary focus:outline-none"
             />
+            <div className="flex items-center justify-end gap-1">
+              <button
+                type="button"
+                onClick={discardBulletin}
+                aria-label={t("room.discardInstructions")}
+                title={t("room.discardInstructions")}
+                className="flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-secondary hover:bg-raised hover:text-ink"
+              >
+                <X size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={saveBulletin}
+                aria-label={t("room.saveInstructions")}
+                title={t("room.save")}
+                className="flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-secondary hover:bg-raised hover:text-ink"
+              >
+                <Check size={15} />
+              </button>
+            </div>
           </div>
         ) : (
           <button
