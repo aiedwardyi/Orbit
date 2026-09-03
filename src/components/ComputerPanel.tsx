@@ -4,10 +4,15 @@
 // in-panel capture. Linux local mode is an automation readiness state and its
 // separate preview remains explicitly user-initiated. Auto never selects a
 // Linux user's desktop.
+//
+// Friends chrome: idle surface is the screen preview plus Off / This
+// computer. Cloud, Local VM, Box, backend, VPS, Sleep, and schedules stay
+// folded behind Advanced — same pattern as the model-picker rail.
 import { useEffect, useRef, useState } from "react";
 import {
   CalendarClock,
   CalendarDays,
+  ChevronDown,
   Columns2,
   Globe,
   Hand,
@@ -43,6 +48,16 @@ import {
   localComputerSelectable,
 } from "@/lib/local-computer";
 import { vpsComputerNeedsReplacement, type VpsComputerStatus } from "@/lib/vps-computer";
+import {
+  computerRunsOnLabel,
+  computerStatusKind,
+  computerStatusLabel,
+  FRIENDS_COMPUTER_DESTINATIONS,
+  initialComputerPhase,
+  isFriendsComputerDestination,
+  showComputerAdvancedControls,
+  showComputerHostControls,
+} from "@/lib/computer-panel";
 
 async function api(path: string, init?: RequestInit): Promise<any> {
   const res = await fetch(path, { headers: { "content-type": "application/json" }, ...init });
@@ -130,10 +145,13 @@ export function ComputerPanel({
   bot,
   onOpenVmWorkspace,
   onExpandBrowser,
+  defaultAdvancedOpen = false,
 }: {
   bot: Bot;
   onOpenVmWorkspace?: (botId: string) => void;
   onExpandBrowser?: (botId: string) => void;
+  /** Start with destination/host controls expanded (tests). */
+  defaultAdvancedOpen?: boolean;
 }) {
   // The panel is a fixed column by default; a drag handle on its left edge
   // makes it wide enough to actually read a page in the Browser tab.
@@ -166,7 +184,8 @@ export function ComputerPanel({
   const localSelectable = localComputerSelectable({ capabilities, providerSupportsLocal });
   const [localAutoWarning, setLocalAutoWarning] = useState(false);
   const localDisabledReason = localComputerDisabledReason({ capabilities, providerSupportsLocal });
-  const [phase, setPhase] = useState<Phase>("checking");
+  const [phase, setPhase] = useState<Phase>(() => initialComputerPhase(bot.computer));
+  const [advancedOpen, setAdvancedOpen] = useState(defaultAdvancedOpen);
   const [boxState, setBoxState] = useState<string | null>(null);
   const [polledFrame, setPolledFrame] = useState<{ png: string; mime: string } | null>(null);
   const [vmFrame, setVmFrame] = useState<string | null>(null);
@@ -764,6 +783,50 @@ export function ComputerPanel({
     off: "This bot's computer is off",
     error: "Couldn't reach the computer",
   } satisfies Record<Exclude<Phase, "ready" | "local" | "vm">, string>;
+  const advancedShown = showComputerAdvancedControls(advancedOpen);
+  const hostShown = showComputerHostControls({
+    computer: bot.computer,
+    phase,
+    advancedOpen,
+  });
+  const statusKind = computerStatusKind({ computer: bot.computer, phase });
+  const statusLabel = computerStatusLabel(statusKind);
+  const destinationButton = (mode: "cloud" | "vm" | "local" | "off", label: string, i: number) => {
+    const disabled =
+      (mode === "cloud" && !cloudSupported) ||
+      (mode === "vm" && !vmSupported) ||
+      (mode === "local" && !localSelectable);
+    const unavailableTitle =
+      mode === "vm" && !vmSupported
+        ? "This model engine cannot use the Local VM"
+        : mode === "cloud" && !cloudSupported
+          ? "This model engine cannot use cloud computer tools"
+          : mode === "local" && !localSelectable
+            ? localDisabledReason ?? "Local computer control isn't ready"
+            : undefined;
+    return (
+      <button
+        key={mode}
+        disabled={disabled}
+        title={unavailableTitle}
+        onClick={() => {
+          if (mode === bot.computer) return;
+          if (mode === "local" && bot.autoApprove) setLocalAutoWarning(true);
+          else dispatch({ type: "updateBot", botId: bot.id, patch: { computer: mode } });
+        }}
+        className={cn(
+          "flex-1 py-1.5 text-[13px]",
+          i > 0 && "border-l border-hairline/40",
+          disabled && "cursor-not-allowed opacity-40",
+          bot.computer === mode
+            ? "bg-control text-ink"
+            : "text-ink-secondary hover:bg-control/60 hover:text-ink",
+        )}
+      >
+        {label}
+      </button>
+    );
+  };
 
   return (
     <>
@@ -971,46 +1034,6 @@ export function ComputerPanel({
             {error}
           </div>
         )}
-        {phase === "unconfigured" && (
-          <div className="mt-3 rounded-xl bg-card p-4">
-            <div className="mb-3 text-[13px] text-ink-secondary">
-              Add a Box API key to give this bot a cloud computer — it spins up right here.
-            </div>
-            <ApiKeyRow
-              section="box"
-              onSaved={(configured) => configured && setRetry((n) => n + 1)}
-            />
-          </div>
-        )}
-        {phase === "vps-unconfigured" && (
-          <div className="mt-3 rounded-xl bg-card p-4">
-            <div className="mb-3 text-[13px] text-ink-secondary">
-              Configure the VPS SSH alias in App Settings → Connections. Auto only reuses an existing ready container.
-            </div>
-            <button
-              onClick={openConnectionSettings}
-              className="rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover"
-            >
-              Open VPS settings
-            </button>
-          </div>
-        )}
-
-        {phase === "vm" &&
-          vmStatus?.mode === "per-bot" &&
-          window.ogb?.desktopWorkspace &&
-          onOpenVmWorkspace && (
-            <button
-              type="button"
-              onClick={() => onOpenVmWorkspace(bot.id)}
-              disabled={pending !== null}
-              className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-accent/30 bg-accent/10 py-2 text-[13px] font-medium text-ink hover:bg-accent/15 disabled:opacity-50"
-              title="Watch two Local VM desktops together without pausing either bot"
-            >
-              <Columns2 size={14} />
-              Open two desktops
-            </button>
-          )}
 
         {/* Who is driving — take the wheel / hand it back */}
         {(phase === "ready" || phase === "vm") && control.helpReason && !control.held && (
@@ -1081,65 +1104,104 @@ export function ComputerPanel({
             Take control
           </button>
         )}
-        {phase === "vm" && vmStatus?.mode === "per-bot" && (
+        {/* Cloud-only actions */}
+        {phase === "ready" && !control.held && !control.helpReason && (
           <button
-            onClick={() => void runVmAction("vm-delete")}
-            disabled={pending !== null || bot.busy}
-            className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-danger/30 py-2 text-[13px] text-danger hover:bg-danger/10 disabled:opacity-50"
-            title={bot.busy ? "Stop this bot's turn before deleting its VM" : `Delete ${bot.name}'s Local VM`}
+            onClick={() => void openDesktop()}
+            disabled={controlPending || pending === "join"}
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-control py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50"
+            title="Pause the bot's hands and drive this computer yourself"
           >
-            {pending === "vm-delete" ? <Loader2 size={14} className="animate-spin" /> : <Power size={14} />}
-            Delete this bot's VM
+            {pending === "join" ? <Loader2 size={14} className="animate-spin" /> : <Hand size={14} />}
+            Take control
           </button>
         )}
-        {/* Cloud-only actions */}
-        {phase === "ready" && (
-          <div className="mt-3 flex gap-2">
-            {!control.held && !control.helpReason && (
-              <button
-                onClick={() =>
-                  void openDesktop()
-                }
-                disabled={controlPending || pending === "join"}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-control py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50"
-                title="Pause the bot's hands and drive this computer yourself"
-              >
-                {pending === "join" ? <Loader2 size={14} className="animate-spin" /> : <Hand size={14} />}
-                Take control
-              </button>
-            )}
-            {control.held && (
-              <button
-                onClick={() => void openDesktop()}
-                disabled={pending === "join"}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-control py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50"
-              >
-                {pending === "join" ? <Loader2 size={14} className="animate-spin" /> : <Monitor size={14} />}
-                Open live desktop
-              </button>
-            )}
-            {(cloudBackend === "vps" || boxState !== "archived") && (
-              <button
-                onClick={() => run("sleep")}
-                disabled={pending === "sleep"}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50"
-                title="Put the computer to sleep"
-              >
-                {pending === "sleep" ? <Loader2 size={14} className="animate-spin" /> : <Moon size={14} />}
-                Sleep
-              </button>
-            )}
-          </div>
+
+        {hostShown && !advancedShown && (
+          <>
+            <LocalScreenPreview />
+            <LinuxLocalControl />
+            <MacLocalControl />
+          </>
         )}
 
-        <LocalScreenPreview />
-        <LinuxLocalControl />
-        <MacLocalControl />
+        <div
+          data-computer-friends-destination
+          className="mt-4 flex overflow-hidden rounded-xl border border-hairline/40 bg-card"
+        >
+          {FRIENDS_COMPUTER_DESTINATIONS.map((mode, i) =>
+            destinationButton(mode, mode === "off" ? "Off" : "This computer", i),
+          )}
+        </div>
 
-        {/* Computer source */}
-          <div className="mt-4 rounded-xl bg-card p-4">
-            <div className="text-[15px] font-medium text-ink">Runs on</div>
-            <div className="mt-0.5 text-[13px] text-ink-secondary">
+        {/* Advanced computer rows — folded until asked */}
+          <div className="mt-3 rounded-xl border border-hairline/40 bg-card">
+            <button
+              type="button"
+              aria-expanded={advancedShown}
+              onClick={() => setAdvancedOpen((open) => !open)}
+              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-control/60"
+            >
+              <span className="min-w-0">
+                <span className="block text-[14px] font-medium text-ink">Advanced</span>
+                <span className="mt-0.5 block truncate text-[12px] text-ink-secondary">
+                  {isFriendsComputerDestination(bot.computer)
+                    ? "More destinations, backend, and schedules"
+                    : `${computerRunsOnLabel(bot.computer)}${
+                        cloudBackend === "vps" && (!bot.computer || bot.computer === "cloud")
+                          ? " · Self-hosted VPS"
+                          : ""
+                      }`}
+                </span>
+              </span>
+              <span className="flex shrink-0 items-center gap-2">
+                {statusLabel && !isFriendsComputerDestination(bot.computer) && (
+                  <span
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-[10.5px] font-medium",
+                      statusKind === "ready"
+                        ? "bg-success/10 text-success"
+                        : statusKind === "attention"
+                          ? "bg-warning/10 text-warning"
+                          : "bg-control text-ink-secondary",
+                    )}
+                  >
+                    {statusLabel}
+                  </span>
+                )}
+                <ChevronDown
+                  size={16}
+                  className={cn("text-ink-secondary transition-transform", advancedShown && "rotate-180")}
+                />
+              </span>
+            </button>
+            {advancedShown && (
+            <div data-computer-advanced className="border-t border-hairline/40 px-4 pb-4 pt-3">
+            {phase === "unconfigured" && (
+              <div className="mb-3 rounded-xl bg-inset p-3">
+                <div className="mb-3 text-[13px] text-ink-secondary">
+                  Add a Box API key to give this bot a cloud computer — it spins up right here.
+                </div>
+                <ApiKeyRow
+                  section="box"
+                  onSaved={(configured) => configured && setRetry((n) => n + 1)}
+                />
+              </div>
+            )}
+            {phase === "vps-unconfigured" && (
+              <div className="mb-3 rounded-xl bg-inset p-3">
+                <div className="mb-3 text-[13px] text-ink-secondary">
+                  Configure the VPS SSH alias in App Settings → Connections. Auto only reuses an existing ready container.
+                </div>
+                <button
+                  onClick={openConnectionSettings}
+                  className="rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover"
+                >
+                  Open VPS settings
+                </button>
+              </div>
+            )}
+            <div className="text-[13px] text-ink-secondary">
               {!bot.computer &&
                 (isLinux || !localSelectable
                   ? cloudBackend === "vps"
@@ -1160,44 +1222,7 @@ export function ComputerPanel({
                 ["local", "This computer"],
                 ["off", "Off"],
               ] as const
-            ).map(([mode, label], i) => (
-              (() => {
-                const disabled =
-                  (mode === "cloud" && !cloudSupported) ||
-                  (mode === "vm" && !vmSupported) ||
-                  (mode === "local" && !localSelectable);
-                const unavailableTitle =
-                  mode === "vm" && !vmSupported
-                    ? "This model engine cannot use the Local VM"
-                    : mode === "cloud" && !cloudSupported
-                      ? "This model engine cannot use cloud computer tools"
-                      : mode === "local" && !localSelectable
-                        ? localDisabledReason ?? "Local computer control isn't ready"
-                          : undefined;
-                return (
-              <button
-                key={mode}
-                disabled={disabled}
-                title={unavailableTitle}
-                onClick={() => {
-                  if (mode === bot.computer) return;
-                  if (mode === "local" && bot.autoApprove) setLocalAutoWarning(true);
-                  else dispatch({ type: "updateBot", botId: bot.id, patch: { computer: mode } });
-                }}
-                className={cn(
-                  "flex-1 py-1.5 text-[13px]",
-                  i > 0 && "border-l border-hairline/40",
-                  disabled && "cursor-not-allowed opacity-40",
-                  bot.computer === mode
-                    ? "bg-control text-ink"
-                    : "text-ink-secondary hover:bg-control/60 hover:text-ink",
-                )}
-              >
-                {label}
-              </button>
-                );
-              })()
-            ))}
+            ).map(([mode, label], i) => destinationButton(mode, label, i))}
           </div>
           {(!bot.computer || bot.computer === "cloud") && (
             <>
@@ -1239,10 +1264,51 @@ export function ComputerPanel({
               )}
             </>
           )}
-        </div>
-
-        {/* Routines */}
-        <div className="mt-4 rounded-xl bg-card p-4">
+              {phase === "ready" && (cloudBackend === "vps" || boxState !== "archived") && (
+                <button
+                  onClick={() => run("sleep")}
+                  disabled={pending === "sleep"}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50"
+                  title="Put the computer to sleep"
+                >
+                  {pending === "sleep" ? <Loader2 size={14} className="animate-spin" /> : <Moon size={14} />}
+                  Sleep
+                </button>
+              )}
+              {phase === "vm" &&
+                vmStatus?.mode === "per-bot" &&
+                window.ogb?.desktopWorkspace &&
+                onOpenVmWorkspace && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenVmWorkspace(bot.id)}
+                    disabled={pending !== null}
+                    className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-accent/30 bg-accent/10 py-2 text-[13px] font-medium text-ink hover:bg-accent/15 disabled:opacity-50"
+                    title="Watch two Local VM desktops together without pausing either bot"
+                  >
+                    <Columns2 size={14} />
+                    Open two desktops
+                  </button>
+                )}
+              {phase === "vm" && vmStatus?.mode === "per-bot" && (
+                <button
+                  onClick={() => void runVmAction("vm-delete")}
+                  disabled={pending !== null || bot.busy}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-danger/30 py-2 text-[13px] text-danger hover:bg-danger/10 disabled:opacity-50"
+                  title={bot.busy ? "Stop this bot's turn before deleting its VM" : `Delete ${bot.name}'s Local VM`}
+                >
+                  {pending === "vm-delete" ? <Loader2 size={14} className="animate-spin" /> : <Power size={14} />}
+                  Delete this bot's VM
+                </button>
+              )}
+              {hostShown && (
+                <>
+                  <LocalScreenPreview />
+                  <LinuxLocalControl />
+                  <MacLocalControl />
+                </>
+              )}
+        <div className="mt-4 rounded-xl bg-inset p-3">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-[15px] font-medium text-ink">
               <CalendarClock size={16} className="text-accent" />
@@ -1280,7 +1346,7 @@ export function ComputerPanel({
                 <button
                   key={routine.id}
                   onClick={() => dispatch({ type: "showRoutines" })}
-                  className="flex w-full items-center gap-2 rounded-lg bg-inset px-3 py-2 text-left hover:bg-control/60"
+                  className="flex w-full items-center gap-2 rounded-lg bg-card px-3 py-2 text-left hover:bg-control/60"
                 >
                   <span className={cn("size-1.5 shrink-0 rounded-full", routine.enabled ? "bg-success" : "bg-ink-secondary/40")} />
                   <span className="min-w-0 flex-1">
@@ -1312,6 +1378,9 @@ export function ComputerPanel({
             </button>
           </div>
         </div>
+            </div>
+            )}
+          </div>
       </div>
       )}
       {creatingRoutine && (
