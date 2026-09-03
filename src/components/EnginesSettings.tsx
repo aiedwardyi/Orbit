@@ -10,7 +10,7 @@ import { Check, ChevronDown, Loader2, TriangleAlert } from "lucide-react";
 import { api, useStore, type InstanceInfo } from "@/state/store";
 import { EngineGroupLabel } from "./EngineGroupLabel";
 import { ProviderMark } from "./ProviderIcons";
-import { splitEngineRail } from "@/lib/engine-rail";
+import { splitEngineRail, splitFriendsEngines } from "@/lib/engine-rail";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
 
@@ -285,10 +285,16 @@ function EngineRow({ instance }: { instance: InstanceInfo }) {
 export function EnginesSettings() {
   const { t } = useI18n();
   const { state } = useStore();
+  const [showAll, setShowAll] = useState(false);
   // every KNOWN-driver instance has cliDefault; unknown-driver shadows have
   // neither unless an override was set. Including them keeps a Reset-able row
   // (and a Set CLI… path) for engines the running build doesn't recognize.
   const rows = state.instances.filter((i) => i.cli !== undefined || i.cliDefault !== undefined || i.snapshot.state === "unavailable");
+  const { friends, rest } = splitFriendsEngines(rows);
+  // Folding away every row would leave a lone toggle, so only fold when a
+  // friends engine stays on screen.
+  const collapsible = friends.length > 0 && rest.length > 0;
+  const visible = collapsible && !showAll ? friends : rows;
 
   return (
     <div className="flex flex-col gap-5">
@@ -296,7 +302,7 @@ export function EnginesSettings() {
         <div className="text-[13px] text-ink-secondary">{t("engines.none")}</div>
       )}
       {(() => {
-        const { subscription, custom } = splitEngineRail(rows);
+        const { subscription, custom } = splitEngineRail(visible);
         return (
           <>
             {subscription.length > 0 && <EngineGroupLabel>{t("noEngines.cloud")}</EngineGroupLabel>}
@@ -310,6 +316,16 @@ export function EnginesSettings() {
           </>
         );
       })()}
+      {collapsible && (
+        <button
+          type="button"
+          onClick={() => setShowAll((open) => !open)}
+          aria-expanded={showAll}
+          className="self-start rounded-lg text-[12px] text-ink-secondary hover:text-ink"
+        >
+          {showAll ? t("engines.showFewer") : t("engines.showAll", { count: rest.length })}
+        </button>
+      )}
       <div className="text-[12px] leading-relaxed text-ink-secondary">
         {t("engines.help")}
       </div>

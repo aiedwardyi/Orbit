@@ -6,6 +6,7 @@ import { CloudBackendPicker } from "./CloudBackendPicker";
 import { ModelPicker } from "./ModelPicker";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
+import { useI18n } from "@/lib/i18n";
 import { builtInBrowserEnabled } from "@/lib/feature-flags";
 import { requestNotificationPermission, canClaimGetNotified, desktopNotificationHint } from "@/lib/notify";
 import { botUsage, costCaption, formatTokens, formatUsd, hasFiniteCost } from "@/lib/usage";
@@ -325,6 +326,7 @@ export function SettingsPanel({
   defaultAdvancedOpen?: boolean;
 }) {
   const { state, dispatch } = useStore();
+  const { t } = useI18n();
   const { capabilities } = useDesktopCapabilities();
   const panelRef = useRef<HTMLElement>(null);
   const restoreFocusOnUnmount = useRef(false);
@@ -646,7 +648,7 @@ export function SettingsPanel({
             </div>
             <div className="mt-3 text-[13px] leading-relaxed text-ink-secondary">
               {!canCoordinate
-                ? "This engine cannot contact teammates yet."
+                ? t("chrome.cannotContactTeammates")
                 : bot.chiefOfStaff
                   ? `This is the primary contact for ${sectionName}. It can create and coordinate specialists in this section, then combine their work into one answer.`
                   : currentChief
@@ -663,20 +665,20 @@ export function SettingsPanel({
                 Ask me before contacting other bots
               </div>
               <div className="mt-0.5 text-[13px] text-ink-secondary">
-                {bot.approvePeerComms
-                  ? "This bot will stop and ask before it reaches out to another bot."
-                  : "Let this bot talk to teammates on its own, without a confirmation step."}
+                {!canCoordinate
+                  ? t("chrome.cannotContactTeammates")
+                  : bot.approvePeerComms
+                    ? "This bot will stop and ask before it reaches out to another bot."
+                    : "Let this bot talk to teammates on its own, without a confirmation step."}
               </div>
             </div>
             <button
               role="switch"
               aria-checked={Boolean(bot.approvePeerComms)}
               aria-label="Ask me before contacting other bots"
-              disabled={!bot.approvePeerComms && !canCoordinate}
               onClick={() => patch({ approvePeerComms: !bot.approvePeerComms })}
-              title={!bot.approvePeerComms && !canCoordinate ? "This engine cannot contact other bots" : undefined}
               className={cn(
-                "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+                "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors",
                 bot.approvePeerComms ? "bg-accent" : "bg-control",
               )}
             >

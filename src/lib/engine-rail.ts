@@ -19,3 +19,37 @@ export function splitEngineRail<T>(instances: readonly T[]): {
   }
   return { subscription, custom };
 }
+
+// The four friends engines — Claude, Codex, Gemini, Grok — across five drivers:
+// Gemini ships both a direct and an Antigravity route, and QA_PROMPT.md tests it
+// through Antigravity. Everything else stays one click away behind Show all: a
+// disclosure, never a removal. An engine the user pointed at a binary is always
+// shown, because hiding a configured engine would read as Orbit having dropped it.
+const FRIENDS_DRIVERS = new Set([
+  "claudeAgent",
+  "codex",
+  "grokAgent",
+  "geminiAgent",
+  "antigravityAgent",
+]);
+
+export function isFriendsEngine(
+  instance: { driverKind?: string; cli?: string } | undefined,
+): boolean {
+  if (instance?.cli) return true;
+  return FRIENDS_DRIVERS.has(instance?.driverKind ?? "");
+}
+
+export function splitFriendsEngines<T>(instances: readonly T[]): {
+  friends: T[];
+  rest: T[];
+} {
+  const friends: T[] = [];
+  const rest: T[] = [];
+  for (const instance of instances) {
+    // SAFETY: the generic preserves the caller's row type; this split reads only these two fields.
+    if (isFriendsEngine(instance as { driverKind?: string; cli?: string })) friends.push(instance);
+    else rest.push(instance);
+  }
+  return { friends, rest };
+}

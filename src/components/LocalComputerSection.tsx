@@ -87,6 +87,7 @@ function ActionButton({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={pending !== null}
       className={cn(
@@ -107,6 +108,7 @@ export function LocalComputerSection() {
   const [error, setError] = useState<string | null>(null);
   const [policyPending, setPolicyPending] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [vmSetupOpen, setVmSetupOpen] = useState<boolean | null>(null);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const response = await fetch("/api/local-computer", { signal });
@@ -219,6 +221,10 @@ export function LocalComputerSection() {
   const host = status?.platform === "darwin" ? "Mac" : "computer";
   const perBot = status?.mode === "per-bot";
   const perBotRuntimeUnsupported = perBot && status?.runtime === "container";
+  // The VM apparatus is opt-in for friends: fold it until asked, but start
+  // open for anyone who already has a VM. `existing` is still true while the
+  // status request is in flight, so read the container state directly.
+  const setupOpen = vmSetupOpen ?? (status?.container === "running" || status?.container === "stopped");
   const headerReady = perBot ? Boolean(status?.daemonUp && status?.image && !perBotRuntimeUnsupported) : ready;
 
   return (
@@ -250,6 +256,7 @@ export function LocalComputerSection() {
                     : (status?.problem ?? "Not ready")}
           </span>
           <button
+            type="button"
             onClick={() => {
               setLoading(true);
               setRefreshKey((key) => key + 1);
@@ -258,6 +265,14 @@ export function LocalComputerSection() {
             className="flex items-center gap-1.5 rounded-lg border border-hairline/40 px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-control hover:text-ink disabled:opacity-40"
           >
             <RefreshCw size={12} /> Re-check
+          </button>
+          <button
+            type="button"
+            onClick={() => setVmSetupOpen(!setupOpen)}
+            aria-expanded={setupOpen}
+            className="rounded-lg border border-hairline/40 px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-control hover:text-ink"
+          >
+            {setupOpen ? "Hide Local VM setup" : "Show Local VM setup"}
           </button>
           {ready && !perBot && (
             <a
@@ -273,6 +288,7 @@ export function LocalComputerSection() {
         {error && <div className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-[12px] text-danger">{error}</div>}
       </Card>
 
+      {setupOpen && (<>
       <Card
         title="Isolation"
         subtitle="Shared keeps the original single-desktop behavior. Per bot gives each bot its own container, workspace, viewer port, lease, and idle timer."
@@ -384,6 +400,7 @@ export function LocalComputerSection() {
           </Step>
         </div>
       </Card>
+      </>)}
 
       {unavailable && (
         <Card>
@@ -394,6 +411,7 @@ export function LocalComputerSection() {
         </Card>
       )}
 
+      {setupOpen && (
       <Card
         title="Safety and storage"
         subtitle={perBot
@@ -418,6 +436,7 @@ export function LocalComputerSection() {
           {status?.base_image_ref ? <> · Base: {status.base_image_ref}</> : null}
         </div>
       </Card>
+      )}
     </>
   );
 }
