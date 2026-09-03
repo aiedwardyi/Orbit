@@ -30,6 +30,16 @@ vi.mock("@/state/store", async (importOriginal) => {
               ],
             },
           },
+          {
+            instanceId: "claude",
+            driverKind: "claudeAgent",
+            displayName: "Claude",
+            snapshot: { state: "available", authenticated: true, version: "1.0.0" },
+            models: {
+              default: "claude-fable-5-1",
+              options: [{ id: "claude-fable-5-1", label: "Fable 5.1" }],
+            },
+          },
         ],
       },
       dispatch: () => undefined,
@@ -53,12 +63,20 @@ const bot = {
   messages: [],
 } as Bot;
 
-function markup(selection: Bot["modelSelection"] = bot.modelSelection, defaultOpen = false) {
+function markup(
+  selection: Bot["modelSelection"] = bot.modelSelection,
+  defaultOpen = false,
+  defaultRailOpen = false,
+) {
   return renderToStaticMarkup(
     createElement(
       I18nProvider,
       null,
-      createElement(ModelPicker, { bot: { ...bot, modelSelection: selection }, defaultOpen }),
+      createElement(ModelPicker, {
+        bot: { ...bot, modelSelection: selection },
+        defaultOpen,
+        defaultRailOpen,
+      }),
     ),
   );
 }
@@ -68,6 +86,8 @@ describe("ModelPicker friends chip", () => {
     const html = markup();
     expect(html).toContain("Grok 4.6");
     expect(html).not.toContain("Automatic");
+    expect(html).not.toContain("Switch engine");
+    expect(html).not.toContain("data-model-picker-content");
     expect(html).toContain('title="Orbit is choosing a working engine for this job. Currently Grok 4.6."');
   });
 
@@ -120,5 +140,27 @@ describe("ModelPicker friends chip", () => {
     expect(list).toContain("Run this agent with a model already on your machine.");
     expect(list).toContain("local (oMLX)");
     expect(list).not.toContain("Suggested");
+  });
+
+  it("folds the Cloud/Local engine rail while the open picker is idle", () => {
+    const html = markup(bot.modelSelection, true);
+    const list = html.slice(html.indexOf("data-model-picker-content"));
+    expect(list).toContain("Grok 4.6");
+    expect(list).toContain("Automatic");
+    expect(list).toMatch(/bg-success\/10 text-success[^"]*"[^>]*>Ready</);
+    expect(list).toContain("Switch engine");
+    expect(list).not.toContain("w-14 shrink-0");
+    expect(list).not.toContain('aria-label="Claude"');
+    expect(list).not.toContain("Fable 5.1");
+  });
+
+  it("shows the engine rail when the user asks to switch", () => {
+    const html = markup(bot.modelSelection, true, true);
+    const list = html.slice(html.indexOf("data-model-picker-content"));
+    expect(list).toContain("data-engine-rail");
+    expect(list).toContain("w-14 shrink-0");
+    expect(list).toContain('aria-label="Claude"');
+    expect(list).toContain('title="Claude · Ready"');
+    expect(list).toContain("Grok 4.6");
   });
 });
