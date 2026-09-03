@@ -20,10 +20,11 @@ export function splitEngineRail<T>(instances: readonly T[]): {
   return { subscription, custom };
 }
 
-// The engines a friend is expected to have (Orbit 1.0.1 QA item 16). Everything
-// else stays one click away behind Show all — a disclosure, never a removal.
-// An engine the user pointed at a binary is always shown: hiding a configured
-// engine would read as Orbit having dropped it.
+// The four friends engines — Claude, Codex, Gemini, Grok — across five drivers:
+// Gemini ships both a direct and an Antigravity route, and QA_PROMPT.md tests it
+// through Antigravity. Everything else stays one click away behind Show all: a
+// disclosure, never a removal. An engine the user pointed at a binary is always
+// shown, because hiding a configured engine would read as Orbit having dropped it.
 const FRIENDS_DRIVERS = new Set([
   "claudeAgent",
   "codex",

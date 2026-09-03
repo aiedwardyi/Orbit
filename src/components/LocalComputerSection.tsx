@@ -87,6 +87,7 @@ function ActionButton({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={pending !== null}
       className={cn(
@@ -255,6 +256,7 @@ export function LocalComputerSection() {
                     : (status?.problem ?? "Not ready")}
           </span>
           <button
+            type="button"
             onClick={() => {
               setLoading(true);
               setRefreshKey((key) => key + 1);
@@ -265,6 +267,7 @@ export function LocalComputerSection() {
             <RefreshCw size={12} /> Re-check
           </button>
           <button
+            type="button"
             onClick={() => setVmSetupOpen(!setupOpen)}
             aria-expanded={setupOpen}
             className="rounded-lg border border-hairline/40 px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-control hover:text-ink"

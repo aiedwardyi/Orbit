@@ -21,17 +21,19 @@ describe("splitEngineRail", () => {
 });
 
 describe("splitFriendsEngines", () => {
-  it("keeps the four friends engines out front and folds the rest", () => {
+  it("keeps the four friends engines, across five drivers, out front", () => {
     const { friends, rest } = splitFriendsEngines([
       { instanceId: "claude", driverKind: "claudeAgent" },
       { instanceId: "kimi", driverKind: "kimiAgent" },
       { instanceId: "codex", driverKind: "codex" },
       { instanceId: "qwen", driverKind: "qwenAgent" },
       { instanceId: "grok", driverKind: "grokAgent" },
+      { instanceId: "gemini", driverKind: "geminiAgent" },
       { instanceId: "antigravity", driverKind: "antigravityAgent" },
       { instanceId: "cursor", driverKind: "cursorAgent" },
     ]);
-    expect(friends.map((row) => row.instanceId)).toEqual(["claude", "codex", "grok", "antigravity"]);
+    // Gemini counts once as an engine but twice as a driver.
+    expect(friends.map((row) => row.instanceId)).toEqual(["claude", "codex", "grok", "gemini", "antigravity"]);
     expect(rest.map((row) => row.instanceId)).toEqual(["kimi", "qwen", "cursor"]);
   });
 
