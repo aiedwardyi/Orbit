@@ -17,7 +17,6 @@ import {
   Moon,
   Plus,
   Power,
-  Settings,
   Smartphone,
   X,
 } from "lucide-react";
@@ -784,13 +783,6 @@ export function ComputerPanel({
       />
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3">
-        <button
-          onClick={() => dispatch({ type: "toggleSettings", open: true })}
-          className="rounded-md p-1 text-ink-secondary hover:bg-control hover:text-ink"
-          title="Bot settings"
-        >
-          <Settings size={18} />
-        </button>
         {androidConnected || browserEnabled ? (
           <div className="flex overflow-hidden rounded-lg border border-hairline/40">
             <button
