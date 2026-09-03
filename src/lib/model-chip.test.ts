@@ -62,9 +62,15 @@ describe("modelChipTitle", () => {
 });
 
 describe("engineBadgeText", () => {
-  it("labels a CLI package version so it is not read as the chat model", () => {
-    expect(engineBadgeText({ version: "1.0.13" }, "ready", t)).toBe("CLI 1.0.13");
-    expect(engineBadgeText({ version: "1.0.13" }, "ready", t)).not.toBe("1.0.13");
+  it("shows a Ready label, never the raw CLI --version dump", () => {
+    expect(engineBadgeText({ version: "1.0.13" }, "ready", t)).toBe("Ready");
+    expect(
+      engineBadgeText({ version: "grok 1.0.13 (5e9a58528b76) [stable]" }, "ready", t),
+    ).toBe("Ready");
+    expect(engineBadgeText({ version: "2.1.259 (Claude Code)" }, "ready", t)).toBe("Ready");
+    expect(engineBadgeText({ version: "2.1.259 (Claude Code)" }, "ready", t)).not.toMatch(
+      /CLI|2\.1\.259|Claude Code/,
+    );
   });
 
   it("keeps install and sign-in states as complete phrases", () => {

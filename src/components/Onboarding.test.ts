@@ -32,4 +32,10 @@ describe("onboarding empty-engine path", () => {
     expect(source).toContain('t("noEngines.body")');
     expect(source).toContain('t("noEngines.checkAgain")');
   });
+
+  it("does not suffix Ready tiles with a CLI version token", () => {
+    expect(source).toContain("{instance.displayName}");
+    expect(source).not.toContain("snapshot.version?.split");
+    expect(source).not.toMatch(/displayName\}.*version \? ` · \$\{version\}/);
+  });
 });

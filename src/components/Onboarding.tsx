@@ -51,13 +51,12 @@ function engineReady(instance: InstanceInfo): boolean {
 
 function ReadyTile({ instance }: { instance: InstanceInfo }) {
   const { t } = useI18n();
-  const version = instance.snapshot.version?.split(" ")[0];
   return (
     <div className="flex min-w-0 items-start gap-2.5 rounded-xl border border-hairline/30 bg-card p-3">
       <ProviderMark driverKind={instance.driverKind} size={17} />
       <div className="min-w-0">
         <div className="truncate text-[13.5px] font-medium text-ink">
-          {instance.displayName}{version ? ` · ${version}` : ""}
+          {instance.displayName}
         </div>
         <div className="mt-0.5 text-[12px] leading-snug text-ink-secondary">{t("onboarding.engineReady")}</div>
       </div>
