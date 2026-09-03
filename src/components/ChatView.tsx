@@ -452,7 +452,6 @@ function Bubble({
             <Pencil size={14} />
           </button>
         )}
-        {user && message.kind === "text" && <ReactionBar threadId={bot.threadId} message={message} />}
         {user && <CopyButton text={visibleText} />}
         {user && (
           <>
