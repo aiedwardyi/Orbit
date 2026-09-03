@@ -35,7 +35,13 @@ const zoo: InstanceInfo[] = [
     instanceId: "claude",
     driverKind: "claudeAgent",
     displayName: "Claude",
-    install: { docsUrl: "https://claude.com/claude-code", command: { darwin: "npm install -g @anthropic-ai/claude-code" } },
+    install: {
+      docsUrl: "https://claude.com/claude-code",
+      command: {
+        darwin: "npm install -g @anthropic-ai/claude-code",
+        win32: "irm https://claude.ai/install.ps1 | iex",
+      },
+    },
   }),
   unavailable({
     instanceId: "kimi",
@@ -53,7 +59,13 @@ const zoo: InstanceInfo[] = [
     instanceId: "grok",
     driverKind: "grokAgent",
     displayName: "Grok",
-    install: { docsUrl: "https://x.ai/cli", command: { darwin: "curl -fsSL https://x.ai/cli/install.sh | bash" } },
+    install: {
+      docsUrl: "https://x.ai/cli",
+      command: {
+        darwin: "curl -fsSL https://x.ai/cli/install.sh | bash",
+        win32: "irm https://x.ai/cli/install.ps1 | iex",
+      },
+    },
   }),
   unavailable({
     instanceId: "antigravity",
@@ -100,5 +112,27 @@ describe("empty-engine first launch screen", () => {
     expect(html).not.toContain("Install Antigravity");
     expect(html).not.toContain(">Cloud<");
     expect(html).not.toContain(">Local<");
+  });
+
+  it("shows Windows PowerShell one-liners when the host is win32", () => {
+    const previous = window.ogb;
+    Object.defineProperty(window, "ogb", {
+      value: { platform: "win32" },
+      configurable: true,
+      writable: true,
+    });
+    try {
+      const html = markup();
+      expect(html).toContain("irm https://x.ai/cli/install.ps1 | iex");
+      expect(html).toContain("irm https://claude.ai/install.ps1 | iex");
+      expect(html).not.toContain("curl -fsSL https://x.ai/cli/install.sh | bash");
+      expect(html).not.toContain("npm install -g @anthropic-ai/claude-code");
+    } finally {
+      Object.defineProperty(window, "ogb", {
+        value: previous,
+        configurable: true,
+        writable: true,
+      });
+    }
   });
 });

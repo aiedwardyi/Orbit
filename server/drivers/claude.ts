@@ -435,13 +435,13 @@ function firstText(content: unknown): string {
 export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
   driverKind: DRIVER_KIND,
   metadata: { displayName: "Claude", supportsMultipleInstances: true },
-  // npm on all three: the one recipe that is genuinely cross-platform. The
-  // native installers differ per OS and would need verifying separately.
+  // Native Windows PowerShell installer. macOS/Linux stay on npm until a
+  // later slice verifies those native one-liners.
   install: {
     command: {
       darwin: "npm install -g @anthropic-ai/claude-code",
       linux: "npm install -g @anthropic-ai/claude-code",
-      win32: "npm install -g @anthropic-ai/claude-code",
+      win32: "irm https://claude.ai/install.ps1 | iex",
     },
     needsNode: true,
     docsUrl: "https://claude.com/claude-code",

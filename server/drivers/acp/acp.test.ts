@@ -117,6 +117,15 @@ describe("ACP decodeConfig", () => {
   it("grok defaults to the grok binary", () => {
     expect(GrokAgentDriver.decodeConfig({})).toEqual({ cli: "grok", fullAuto: false, workspace: undefined });
   });
+  it("grok declares official installers including Windows PowerShell", () => {
+    expect(GrokAgentDriver.install?.command).toEqual({
+      darwin: "curl -fsSL https://x.ai/cli/install.sh | bash",
+      linux: "curl -fsSL https://x.ai/cli/install.sh | bash",
+      win32: "irm https://x.ai/cli/install.ps1 | iex",
+    });
+    expect(GrokAgentDriver.install?.docsUrl).toBe("https://x.ai/cli");
+    expect(GrokAgentDriver.install?.signInCommand).toBe("grok login");
+  });
   it("gemini defaults to the gemini binary", () => {
     expect(GeminiAgentDriver.decodeConfig(undefined)).toEqual({ cli: "gemini", fullAuto: false, workspace: undefined });
   });

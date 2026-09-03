@@ -194,13 +194,13 @@ const support: AcpSupport = {
   nativeSource: "grok.acp",
   loginNote: "Grok CLI is not signed in — run `grok login` in a terminal",
 
-  // No Windows one-liner: the installer is a POSIX shell script, and offering
-  // `curl … | bash` there would be advice that cannot run. Windows falls back
-  // to docsUrl, which is honest rather than broken.
+  // Official one-liners: POSIX curl|bash on macOS/Linux, PowerShell irm|iex
+  // on Windows (https://x.ai/cli/install.ps1 usage header).
   install: {
     command: {
       darwin: "curl -fsSL https://x.ai/cli/install.sh | bash",
       linux: "curl -fsSL https://x.ai/cli/install.sh | bash",
+      win32: "irm https://x.ai/cli/install.ps1 | iex",
     },
     docsUrl: "https://x.ai/cli",
     signInCommand: "grok login",
