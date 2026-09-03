@@ -2,7 +2,6 @@ import { useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
-  ExternalLink,
   Loader2,
   MonitorCog,
   Power,
@@ -11,9 +10,6 @@ import {
 
 import { cn } from "@/lib/cn";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
-
-const LINUX_GUIDE_URL =
-  "https://github.com/milind-soni/OpenMausBot/blob/main/docs/linux-desktop.md#enable-local-control";
 
 export function LinuxLocalControl() {
   const { capabilities } = useDesktopCapabilities();
@@ -158,15 +154,6 @@ export function LinuxLocalControl() {
           </>
         )}
       </div>}
-
-      <button
-        type="button"
-        onClick={() => window.open(LINUX_GUIDE_URL, "_blank", "noopener,noreferrer")}
-        className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg py-1.5 text-[11px] text-ink-secondary hover:bg-raised hover:text-ink"
-      >
-        {capabilities.host.packaged ? "Local control guide" : "Driver setup and troubleshooting"}{" "}
-        <ExternalLink size={11} />
-      </button>
     </section>
   );
 }

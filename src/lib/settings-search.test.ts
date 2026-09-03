@@ -16,5 +16,8 @@ describe("settings section search", () => {
     expect(settingsSectionMatches("general", "updates")).toBe(true);
     expect(settingsSectionMatches("general", "analytics")).toBe(true);
     expect(settingsSectionMatches("connections", "keys")).toBe(true);
+    expect(settingsSectionMatches("general", "vm")).toBe(true);
+    expect(settingsSectionMatches("general", "more services")).toBe(false);
+    expect(settingsSectionMatches("connections", "more services")).toBe(true);
   });
 });
