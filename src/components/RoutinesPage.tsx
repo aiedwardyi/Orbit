@@ -34,6 +34,33 @@ import {
 
 const HOUR_HEIGHT = 68;
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DEFAULT_ROUTINE_DURATION_MINUTES = 30;
+
+export function routineEditorSaveInput({
+  name,
+  prompt,
+  botId,
+  runOn,
+  schedule,
+  routine,
+}: {
+  name: string;
+  prompt: string;
+  botId: string;
+  runOn: RoutineRunOn;
+  schedule: Routine["schedule"];
+  routine?: Pick<Routine, "durationMinutes">;
+}): RoutineInput {
+  return {
+    name,
+    prompt,
+    botId,
+    runOn,
+    enabled: routine ? undefined : true,
+    durationMinutes: routine?.durationMinutes ?? DEFAULT_ROUTINE_DURATION_MINUTES,
+    schedule,
+  };
+}
 
 type CalendarItem = {
   id: string;
@@ -334,25 +361,23 @@ export function RoutineEditor({
   const [weekdays, setWeekdays] = useState(
     routine?.schedule.type === "daily" ? routine.schedule.weekdays : [1, 2, 3, 4, 5],
   );
-  const [durationMinutes, setDurationMinutes] = useState(routine?.durationMinutes ?? 30);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const cloudInstance = state.instances.find((instance) => instance.driverKind === "boxAgent");
   const cloudReady = Boolean(state.config?.box.configured && cloudInstance?.snapshot.state === "available");
 
   const save = async () => {
-    const input: RoutineInput = {
+    const input = routineEditorSaveInput({
       name,
       prompt,
       botId,
       runOn,
-      enabled: routine ? undefined : true,
-      durationMinutes,
+      routine,
       schedule:
         kind === "once"
           ? { type: "once", at: new Date(at).getTime() }
           : { type: "daily", time, weekdays },
-    };
+    });
     setSaving(true);
     setError("");
     try {
@@ -455,12 +480,6 @@ export function RoutineEditor({
               </div>
             )}
           </div>
-          <label className="block">
-            <span className="mb-1.5 block text-[12px] font-medium text-ink-secondary">Calendar block</span>
-            <select value={durationMinutes} onChange={(event) => setDurationMinutes(Number(event.target.value))} className="rounded-xl border border-hairline/60 bg-inset px-3.5 py-2.5 text-[14px] text-ink outline-none focus:border-accent/70">
-              {[15, 30, 45, 60, 90, 120].map((minutes) => <option key={minutes} value={minutes}>{minutes < 60 ? `${minutes} minutes` : `${minutes / 60} ${minutes === 60 ? "hour" : "hours"}`}</option>)}
-            </select>
-          </label>
           {error && <div className="flex items-start gap-2 rounded-xl border border-danger/30 bg-danger/10 px-3 py-2.5 text-[13px] text-danger"><CircleAlert size={16} className="mt-0.5 shrink-0" />{error}</div>}
         </div>
         <div className="sticky bottom-0 flex justify-end gap-2 border-t border-hairline/40 bg-panel/95 px-5 py-4 backdrop-blur">
