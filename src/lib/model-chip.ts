@@ -40,7 +40,7 @@ export function modelChipTitle(
   return live;
 }
 
-/** Short status for the picker/onboarding pill. CLI --version belongs on Set CLI. */
+/** Short status for the model-picker engine pill. CLI --version belongs on Set CLI. */
 export function engineBadgeText(
   _snapshot: { version?: string | null },
   kind: "not-installed" | "sign-in" | "ready",
