@@ -1105,32 +1105,16 @@ export function ComputerPanel({
           </button>
         )}
         {/* Cloud-only actions */}
-        {phase === "ready" && (control.held || !control.helpReason) && (
-          <div className="mt-3 flex gap-2">
-            {!control.held && !control.helpReason && (
-              <button
-                onClick={() =>
-                  void openDesktop()
-                }
-                disabled={controlPending || pending === "join"}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-control py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50"
-                title="Pause the bot's hands and drive this computer yourself"
-              >
-                {pending === "join" ? <Loader2 size={14} className="animate-spin" /> : <Hand size={14} />}
-                Take control
-              </button>
-            )}
-            {control.held && (
-              <button
-                onClick={() => void openDesktop()}
-                disabled={pending === "join"}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-control py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50"
-              >
-                {pending === "join" ? <Loader2 size={14} className="animate-spin" /> : <Monitor size={14} />}
-                Open live desktop
-              </button>
-            )}
-          </div>
+        {phase === "ready" && !control.held && !control.helpReason && (
+          <button
+            onClick={() => void openDesktop()}
+            disabled={controlPending || pending === "join"}
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-control py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50"
+            title="Pause the bot's hands and drive this computer yourself"
+          >
+            {pending === "join" ? <Loader2 size={14} className="animate-spin" /> : <Hand size={14} />}
+            Take control
+          </button>
         )}
 
         {hostShown && !advancedShown && (

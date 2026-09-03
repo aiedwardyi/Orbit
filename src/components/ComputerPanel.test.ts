@@ -196,4 +196,17 @@ describe("ComputerPanel friends chrome", () => {
     expect(before).not.toContain("<ApiKeyRow");
     expect(before).not.toContain("<CloudBackendPicker");
   });
+
+  it("renders the cloud Take control row only when the user does not already hold control", () => {
+    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "ComputerPanel.tsx"), "utf8");
+    const start = source.indexOf("{/* Cloud-only actions");
+    expect(start).toBeGreaterThan(-1);
+    const end = source.indexOf("{hostShown && !advancedShown", start);
+    expect(end).toBeGreaterThan(start);
+    const block = source.slice(start, end);
+    expect(block).toContain('phase === "ready" && !control.held && !control.helpReason');
+    expect(block).not.toContain("control.held ||");
+    expect(block).toContain("Take control");
+    expect(block).not.toContain("Open live desktop");
+  });
 });
