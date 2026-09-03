@@ -409,6 +409,10 @@ describe("first-run core path leftovers", () => {
     expect(ko["model.showAll"]).toContain("{count}");
     expect(en["engines.setCli"]).toBe("Set CLI…");
     expect(ko["engines.setCli"]).toBe("CLI 지정…");
+    expect(en["engines.inUseSuffix"]).toBe("{cli} · in use");
+    expect(ko["engines.inUseSuffix"]).toBe("{cli} · 사용 중");
+    expect(translate("en", "engines.inUseSuffix", { cli: "/usr/bin/claude" })).toBe("/usr/bin/claude · in use");
+    expect(translate("ko", "engines.inUseSuffix", { cli: "/usr/bin/claude" })).toBe("/usr/bin/claude · 사용 중");
     expect(en["connections.connected"]).toBe("Connected");
     expect(ko["connections.connected"]).toBe("연결됨");
   });
@@ -443,7 +447,9 @@ describe("first-run core path leftovers", () => {
     expect(modelPicker).toContain('t("model.automatic")');
     expect(modelPicker).not.toMatch(/Nothing matches/);
     expect(enginesSettings).toContain('t("engines.setCli")');
+    expect(enginesSettings).toContain('t("engines.inUseSuffix"');
     expect(enginesSettings).not.toMatch(/>Set CLI…</);
+    expect(enginesSettings).not.toMatch(/· in use/);
   });
 });
 

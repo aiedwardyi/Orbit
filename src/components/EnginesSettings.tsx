@@ -20,7 +20,25 @@ interface ProbeResult {
   message?: string;
 }
 
-function CustomPicker({ instance, cliDefault, onClose, onSaved }: {
+/** The PATH candidate this engine is actually running, if it appears in
+ * `candidates`. An override (`cli`) wins when it is a detected path;
+ * otherwise the first PATH hit is what a bare driver default would run.
+ * A wrapper / moved binary that is not in the list is not marked. */
+export function inUseCliPath(
+  instance: { cli?: string; cliDefault?: string },
+  candidates: readonly string[],
+): string | undefined {
+  if (instance.cli) return candidates.includes(instance.cli) ? instance.cli : undefined;
+  if (instance.cliDefault && candidates.includes(instance.cliDefault)) return instance.cliDefault;
+  return candidates[0];
+}
+
+/** Value probed and PATCHed: a typed manual path wins over the dropdown. */
+export function cliPickerCommitValue(manual: string, selected: string): string {
+  return manual.trim() || selected;
+}
+
+export function CustomPicker({ instance, cliDefault, onClose, onSaved }: {
   instance: InstanceInfo;
   cliDefault?: string;
   onClose: () => void;
@@ -61,9 +79,10 @@ function CustomPicker({ instance, cliDefault, onClose, onSaved }: {
       .catch(() => setCandidates((prev) => prev ?? []));
   }, [cliDefault, instance.cli]);
 
-  const value = manual.trim() || selected;
+  const value = cliPickerCommitValue(manual, selected);
   const dirty = value !== (instance.cli ?? "");
   const busy = probing || saving;
+  const inUse = inUseCliPath(instance, candidates ?? []);
 
   // Editing the path invalidates a previous probe result.
   useEffect(() => {
@@ -122,7 +141,7 @@ function CustomPicker({ instance, cliDefault, onClose, onSaved }: {
           >
             <option value="">{t("engines.selectBinary")}</option>
             {candidates.map((p) => (
-              <option key={p} value={p}>{p}</option>
+              <option key={p} value={p}>{p === inUse ? t("engines.inUseSuffix", { cli: p }) : p}</option>
             ))}
           </select>
           <ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-secondary" />
