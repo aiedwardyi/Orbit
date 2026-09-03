@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
@@ -131,7 +134,7 @@ describe("ComputerPanel friends chrome", () => {
     const html = markup();
     expect(html).toContain("Runs on");
     expect(html).toContain("Off");
-    expect(html).toMatch(/bg-control[^"]*"[^>]*>Off</);
+    expect(html).not.toMatch(/bg-success\/10 text-success[^"]*"[^>]*>Ready</);
     expect(html).toContain("This bot");
     expect(html).toContain("computer is off");
     expect(html).toContain("Scheduled tasks");
@@ -165,5 +168,21 @@ describe("ComputerPanel friends chrome", () => {
     expect(html).not.toContain("Pick where this bot");
     expect(html).not.toContain("computer lives");
     expect(html).not.toContain("Cloud backend");
+  });
+
+  it("keeps Sleep, Delete VM, and two-desktops inside the folded advanced body", () => {
+    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "ComputerPanel.tsx"), "utf8");
+    const marker = 'data-computer-advanced';
+    const start = source.indexOf(marker);
+    expect(start).toBeGreaterThan(-1);
+    const advanced = source.slice(start);
+    expect(advanced).toContain("Sleep");
+    expect(advanced).toContain("Delete this bot's VM");
+    expect(advanced).toContain("Open two desktops");
+    const before = source.slice(0, start);
+    expect(before).not.toContain("Put the computer to sleep");
+    expect(before).not.toContain("Delete this bot's VM");
+    expect(before).not.toContain("Open two desktops");
+    expect(before).not.toContain(">Sleep<");
   });
 });

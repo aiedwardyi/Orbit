@@ -1119,7 +1119,7 @@ export function ComputerPanel({
           </div>
         )}
 
-        {hostShown && (
+        {hostShown && !advancedShown && (
           <>
             <LocalScreenPreview />
             <LinuxLocalControl />
@@ -1132,7 +1132,6 @@ export function ComputerPanel({
             <button
               type="button"
               aria-expanded={advancedShown}
-              aria-label="Computer options"
               onClick={() => setAdvancedOpen((open) => !open)}
               className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-control/60"
             >
@@ -1146,7 +1145,7 @@ export function ComputerPanel({
                 </span>
               </span>
               <span className="flex shrink-0 items-center gap-2">
-                {statusLabel && (
+                {statusLabel && statusKind !== "off" && (
                   <span
                     className={cn(
                       "rounded-full px-2 py-0.5 text-[10.5px] font-medium",
@@ -1304,6 +1303,13 @@ export function ComputerPanel({
                   {pending === "vm-delete" ? <Loader2 size={14} className="animate-spin" /> : <Power size={14} />}
                   Delete this bot's VM
                 </button>
+              )}
+              {hostShown && (
+                <>
+                  <LocalScreenPreview />
+                  <LinuxLocalControl />
+                  <MacLocalControl />
+                </>
               )}
             </div>
             )}
