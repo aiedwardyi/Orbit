@@ -154,8 +154,12 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     return () => dialog.removeEventListener("keydown", onKey);
   }, [step, instances, instancesError]);
 
+  const emptyConnect = instances !== null && isEmptyEngineLaunch(instances);
+
   const retryInstances = () => {
-    setInstances(null);
+    // Keep the Grok/Claude cards up while we recheck. Nulling the list here
+    // would flash the disabled Open Orbit button and look like a dead app.
+    if (!emptyConnect) setInstances(null);
     setInstancesError(null);
     setRefreshKey((key) => key + 1);
   };
@@ -185,7 +189,6 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const readyEngines = engines.filter(engineReady);
   const setupEngines = engines.filter((instance) => !engineReady(instance));
   const hasReadyEngine = (instances ?? []).some(engineReady);
-  const emptyConnect = instances !== null && isEmptyEngineLaunch(instances);
   const connectEngines = emptyConnect ? firstLaunchConnectInstances(instances) : setupEngines;
 
   return (
