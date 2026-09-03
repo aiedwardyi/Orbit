@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { I18nProvider, translate } from "@/lib/i18n";
+import { applyLocale, I18nProvider, translate } from "@/lib/i18n";
 import type { InstanceInfo } from "@/state/store";
 
 vi.hoisted(() => {
@@ -11,9 +11,15 @@ vi.hoisted(() => {
     configurable: true,
     writable: true,
   });
+  Object.defineProperty(globalThis, "navigator", {
+    value: { language: "en" },
+    configurable: true,
+  });
 });
 
 import { CustomPicker, cliPickerCommitValue, inUseCliPath } from "./EnginesSettings";
+
+applyLocale("en");
 
 const PATH_DEFAULT = "/usr/bin/claude";
 const OTHER = "/opt/homebrew/bin/claude";
@@ -90,6 +96,13 @@ describe("CLI-candidates in-use marker", () => {
     const html = pickerMarkup();
     expect(html).toContain(`${PATH_DEFAULT} · in use`);
     expect(html).not.toContain(`${OTHER} · in use`);
+    expect(html).toContain(`value="${PATH_DEFAULT}"`);
+    expect(html).toContain(`value="${OTHER}"`);
+  });
+
+  it("does not label any detected path when the override is a wrapper outside the list", () => {
+    const html = pickerMarkup({ cli: "/ag claude agp" });
+    expect(html).not.toContain(" · in use");
     expect(html).toContain(`value="${PATH_DEFAULT}"`);
     expect(html).toContain(`value="${OTHER}"`);
   });
