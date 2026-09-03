@@ -34,6 +34,8 @@ const manageMembers = readFileSync(join(here, "../components/ManageMembersPanel.
 const usageSection = readFileSync(join(here, "../components/UsageSection.tsx"), "utf8");
 const composer = readFileSync(join(here, "../components/Composer.tsx"), "utf8");
 const routinesPage = readFileSync(join(here, "../components/RoutinesPage.tsx"), "utf8");
+const noEngines = readFileSync(join(here, "../components/NoEngines.tsx"), "utf8");
+const onboarding = readFileSync(join(here, "../components/Onboarding.tsx"), "utf8");
 
 afterEach(() => {
   applyLocale("en");
@@ -304,6 +306,29 @@ describe("sidebar create channel and bot/room chrome", () => {
     expect(settingsPanel).toContain('t("chrome.cannotContactTeammates")');
     expect(settingsPanel).not.toMatch(/This engine cannot contact teammates yet/);
     expect(settingsPanel).not.toMatch(/This engine cannot contact other bots/);
+  });
+});
+
+describe("empty-engine first launch copy", () => {
+  it("keeps the Grok-or-Claude connect path as complete EN+KO phrases", () => {
+    expect(en["noEngines.title"]).toBe("Connect Grok or Claude");
+    expect(ko["noEngines.title"]).toBe("Grok 또는 Claude를 연결하세요");
+    expect(ko["noEngines.title"]).not.toMatch(/Connect Grok or Claude/i);
+    expect(en["noEngines.body"]).toBe("Your bots need one of these to run. Pick the one you already use.");
+    expect(ko["noEngines.body"]).toBe("봇을 쓰려면 둘 중 하나가 필요합니다. 이미 쓰는 쪽을 고르세요.");
+    expect(ko["noEngines.body"]).not.toMatch(/Your bots need one of these/i);
+    expect(en["noEngines.checkAgain"]).toBe("Check again");
+    expect(ko["noEngines.checkAgain"]).toBe("다시 확인");
+  });
+
+  it("wires that path into NoEngines and first-run onboarding", () => {
+    expect(noEngines).toContain('t("noEngines.title")');
+    expect(noEngines).toContain('t("noEngines.body")');
+    expect(noEngines).toContain('t("noEngines.checkAgain")');
+    expect(noEngines).not.toMatch(/Install an AI engine to get started/);
+    expect(onboarding).toContain('t("noEngines.title")');
+    expect(onboarding).toContain('t("noEngines.body")');
+    expect(onboarding).toContain('t("noEngines.checkAgain")');
   });
 });
 

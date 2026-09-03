@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { splitEngineRail, splitFriendsEngines } from "./engine-rail";
+import {
+  firstLaunchConnectInstances,
+  isEmptyEngineLaunch,
+  splitEngineRail,
+  splitFriendsEngines,
+  starterConnectEngines,
+} from "./engine-rail";
 
 describe("splitEngineRail", () => {
   it("keeps Cloud engines above Local engines", () => {
@@ -44,5 +50,42 @@ describe("splitFriendsEngines", () => {
     ]);
     expect(friends.map((row) => row.instanceId)).toEqual(["hermes"]);
     expect(rest.map((row) => row.instanceId)).toEqual(["pi"]);
+  });
+});
+
+describe("empty-engine first launch", () => {
+  it("is empty only after instances arrive and none can run a bot", () => {
+    expect(isEmptyEngineLaunch([])).toBe(false);
+    expect(isEmptyEngineLaunch([
+      { snapshot: { state: "unavailable" } },
+      { snapshot: { state: "available" } },
+    ])).toBe(false);
+    expect(isEmptyEngineLaunch([
+      { snapshot: { state: "unavailable" } },
+      { snapshot: { state: "unavailable" } },
+    ])).toBe(true);
+  });
+
+  it("keeps only Grok and Claude, Grok first, from the default-fleet zoo", () => {
+    const starter = starterConnectEngines([
+      { instanceId: "gemini", driverKind: "geminiAgent", install: { docsUrl: "https://gemini" } },
+      { instanceId: "claude", driverKind: "claudeAgent", install: { docsUrl: "https://claude" } },
+      { instanceId: "kimi", driverKind: "kimiAgent", install: { docsUrl: "https://kimi" } },
+      { instanceId: "codex", driverKind: "codex", install: { docsUrl: "https://codex" } },
+      { instanceId: "grok", driverKind: "grokAgent", install: { docsUrl: "https://grok" } },
+      { instanceId: "antigravity", driverKind: "antigravityAgent", install: { docsUrl: "https://antigravity" } },
+      { instanceId: "cursor", driverKind: "cursorAgent" },
+    ]);
+    expect(starter.map((row) => row.instanceId)).toEqual(["grok", "claude"]);
+  });
+
+  it("drops a starter engine that has no connect flow", () => {
+    expect(
+      firstLaunchConnectInstances([
+        { instanceId: "grok", driverKind: "grokAgent" },
+        { instanceId: "claude", driverKind: "claudeAgent", install: { docsUrl: "https://claude" } },
+        { instanceId: "codex", driverKind: "codex", install: { docsUrl: "https://codex" } },
+      ]).map((row) => row.instanceId),
+    ).toEqual(["claude"]);
   });
 });

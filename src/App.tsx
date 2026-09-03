@@ -22,6 +22,7 @@ import { BrowserWorkspace } from "@/components/BrowserWorkspace";
 import { SkillRecorderPage } from "@/components/SkillRecorderPage";
 import { TeamMapPage } from "@/components/TeamMapPage";
 import { CreateBotSheet } from "@/components/CreateBotSheet";
+import { isEmptyEngineLaunch } from "@/lib/engine-rail";
 import { I18nProvider, useI18n } from "@/lib/i18n";
 
 function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
@@ -44,13 +45,9 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? state.bots[0]);
 
   // Nothing on this machine can run a bot. A missing cloud login does not
-  // count — that CLI can still host a local model. Wait for the first
-  // /api/instances response before deciding: an empty list means "not asked
-  // yet", and flashing the setup screen at every launch would be worse.
-  const noEngines =
-    state.connected &&
-    state.instances.length > 0 &&
-    !state.instances.some((i) => i.snapshot.state === "available");
+  // count: that CLI can still host a local model. An empty list means the
+  // first /api/instances response has not arrived yet.
+  const noEngines = state.connected && isEmptyEngineLaunch(state.instances);
 
   // App-wide shortcuts: ⌘N new bot · ⌘1–9 jump to bot · ⌘⇧[ / ⌘⇧] prev/next.
   // Kept deliberately small; every panel already closes on Esc.
