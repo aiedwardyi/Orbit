@@ -78,7 +78,7 @@ export function chiefOfStaffSystemPrompt(
           // create-bot files the new bot under the Chief's section and never
           // touches group.memberIds, and room mentions only route to members,
           // so without this the Chief reports a teammate the room cannot see
-          "A teammate you add joins this section, not this room. Reach it with ask_bot, which waits and returns its reply for you to fold into your answer here. Ignore any tool result telling you to assign the work with delegate_bot: delegations start only after this turn ends, so they cannot produce the answer this room is waiting for. Mentioning someone who is not a room member does nothing.",
+          "A teammate you add joins this section, not this room. Use ask_bot rather than delegate_bot whenever you must report back in this room, including when the delegation guidance above or a tool result says otherwise: ask_bot waits and returns the reply for you to fold into your answer here, while delegations start only after this turn ends and so cannot produce the answer this room is waiting for. Mentioning someone who is not a room member does nothing.",
           "Never scan the environment, ports, or processes to check whether your tools are connected, and never announce that a tool is unavailable before you have tried it.",
         ]
           .filter(Boolean)

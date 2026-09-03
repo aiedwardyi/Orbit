@@ -86,10 +86,11 @@ describe("chiefOfStaffSystemPrompt", () => {
     expect(prompt).toContain("call create_bot directly");
     expect(prompt).toContain("joins this section, not this room");
     // delegate_bot cannot report back inside this turn; ask_bot is the one that waits
-    expect(prompt).toContain("Reach it with ask_bot");
-    // create_bot's tool result still names delegate_bot, and tool results land
-    // fresher than this prompt, so the override stays explicit
-    expect(prompt).toContain("Ignore any tool result telling you to assign the work with delegate_bot");
+    // the hasTeam delegation paragraph above still says "then use delegate_bot",
+    // and create_bot's tool result names it too, so the room override has to
+    // supersede both by name, not just tool results
+    expect(prompt).toContain("Use ask_bot rather than delegate_bot");
+    expect(prompt).toContain("including when the delegation guidance above or a tool result says otherwise");
     expect(prompt).toMatch(/Never scan the environment, ports, or processes/);
   });
 
