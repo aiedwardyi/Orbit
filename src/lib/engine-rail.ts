@@ -7,6 +7,14 @@ export function isCustomOnly(instance: { access?: InstanceInfo["access"] } | und
   return instance?.access === "custom";
 }
 
+/** The Cloud/Local icon rail stays folded until the user asks to switch. */
+export function isEngineRailOpen(input: {
+  instanceCount: number;
+  railOpen: boolean;
+}): boolean {
+  return input.instanceCount > 1 && input.railOpen;
+}
+
 export function splitEngineRail<T>(instances: readonly T[]): {
   subscription: T[];
   custom: T[];

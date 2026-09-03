@@ -3,10 +3,25 @@ import { describe, expect, it } from "vitest";
 import {
   firstLaunchConnectInstances,
   isEmptyEngineLaunch,
+  isEngineRailOpen,
   splitEngineRail,
   splitFriendsEngines,
   starterConnectEngines,
 } from "./engine-rail";
+
+describe("isEngineRailOpen", () => {
+  it("keeps the engine rail folded when idle", () => {
+    expect(isEngineRailOpen({ instanceCount: 5, railOpen: false })).toBe(false);
+  });
+
+  it("does not open a rail when there is only one engine", () => {
+    expect(isEngineRailOpen({ instanceCount: 1, railOpen: true })).toBe(false);
+  });
+
+  it("opens the rail when the user asks and more than one engine is present", () => {
+    expect(isEngineRailOpen({ instanceCount: 2, railOpen: true })).toBe(true);
+  });
+});
 
 describe("splitEngineRail", () => {
   it("keeps Cloud engines above Local engines", () => {

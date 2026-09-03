@@ -397,6 +397,9 @@ describe("first-run core path leftovers", () => {
     expect(ko["chat.startConversation"]).not.toMatch(/Send a message/i);
     expect(en["model.automatic"]).toBe("Automatic");
     expect(ko["model.automatic"]).toBe("자동");
+    expect(en["model.switchEngine"]).toBe("Switch engine");
+    expect(ko["model.switchEngine"]).toBe("엔진 바꾸기");
+    expect(ko["model.switchEngine"]).not.toMatch(/Switch engine/i);
     expect(en["model.cliVersion"]).toBe("CLI {version}");
     expect(ko["model.cliVersion"]).toBe("CLI 패키지 {version}");
     expect(en["model.pinnedTitle"]).toBe("{engine} · {model}");
@@ -445,7 +448,9 @@ describe("first-run core path leftovers", () => {
     expect(chatView).not.toMatch(/Send a message to start the conversation/);
     expect(modelPicker).toContain('t("palette.noMatch"');
     expect(modelPicker).toContain('t("model.automatic")');
+    expect(modelPicker).toContain('t("model.switchEngine")');
     expect(modelPicker).not.toMatch(/Nothing matches/);
+    expect(modelPicker).not.toMatch(/>Switch engine</);
     expect(enginesSettings).toContain('t("engines.setCli")');
     expect(enginesSettings).toContain('t("engines.inUseSuffix"');
     expect(enginesSettings).not.toMatch(/>Set CLI…</);
