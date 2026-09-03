@@ -6,6 +6,12 @@ import { describe, expect, it } from "vitest";
 
 import { chiefOfStaffSystemPrompt } from "./chief-of-staff.ts";
 
+// Two describe blocks below assert on index.ts SOURCE rather than behaviour.
+// runClaimedGroupMemberTurn and automaticRequirements are both private, and the
+// properties worth pinning are structural: the room path passes the room flag,
+// and the Chief flag never gates engine selection. Same idiom as i18n.test.ts.
+// Moving this file, splitting index.ts, or adding an inline `function` helper
+// inside runClaimedGroupMemberTurn will break the slicing, not the behaviour.
 const here = dirname(fileURLToPath(import.meta.url));
 const index = readFileSync(join(here, "index.ts"), "utf8");
 
@@ -100,10 +106,12 @@ describe("chiefOfStaffSystemPrompt", () => {
 
     expect(directPrompt).not.toContain("shared room");
     expect(directPrompt).not.toMatch(/Never scan the environment/);
+    // the property is "1:1 loses nothing, the room gains framing", not a line
+    // count: roomDiscipline joins with spaces today but must be free to change
     const direct = directPrompt.split("\n");
     const extra = roomPrompt.split("\n").filter((line) => !direct.includes(line));
-    expect(extra).toHaveLength(1);
-    expect(extra[0]).toContain("shared room");
+    expect(direct.every((line) => roomPrompt.includes(line))).toBe(true);
+    expect(extra.join(" ")).toContain("shared room");
   });
 
   it("does not mount room discipline on an engine that cannot delegate", () => {
