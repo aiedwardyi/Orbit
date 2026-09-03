@@ -189,7 +189,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const readyEngines = engines.filter(engineReady);
   const setupEngines = engines.filter((instance) => !engineReady(instance));
   const hasReadyEngine = (instances ?? []).some(engineReady);
-  const connectEngines = emptyConnect ? firstLaunchConnectInstances(instances) : setupEngines;
+  const connectEngines = emptyConnect ? firstLaunchConnectInstances(instances ?? []) : setupEngines;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-app/95 p-6 backdrop-blur-xl">
