@@ -237,7 +237,6 @@ const Transcript = memo(function Transcript({
           ) : m.kind === "text" && m.text ? (
             <div className={cn("group flex w-full flex-col", user ? "items-end" : "items-start")}>
               <div className={cn("flex w-full items-end gap-1.5", user ? "justify-end" : "justify-start")}>
-                {user && <ReactionBar threadId={group.threadId} message={m} />}
                 {user && (
                   <>
                     <button
