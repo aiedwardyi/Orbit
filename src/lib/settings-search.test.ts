@@ -17,4 +17,12 @@ describe("settings section search", () => {
     expect(settingsSectionMatches("general", "analytics")).toBe(true);
     expect(settingsSectionMatches("connections", "keys")).toBe(true);
   });
+
+  it("finds folded Local VM and extra services from General and Connections search", () => {
+    expect(settingsSectionMatches("general", "vm")).toBe(true);
+    expect(settingsSectionMatches("general", "로컬 VM")).toBe(true);
+    expect(settingsSectionMatches("general", "advanced")).toBe(true);
+    expect(settingsSectionMatches("connections", "more services")).toBe(true);
+    expect(settingsSectionMatches("connections", "opencode")).toBe(true);
+  });
 });

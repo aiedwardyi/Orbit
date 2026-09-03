@@ -26,6 +26,9 @@ const SECTION_PHRASE_KEYS = {
     "settings.updates.title",
     "settings.diagnostics.title",
     "settings.analytics.title",
+    "settings.advanced.title",
+    "settings.advanced.subtitle",
+    "settings.section.computer",
   ],
   connections: [
     "settings.section.connections",
@@ -33,10 +36,12 @@ const SECTION_PHRASE_KEYS = {
     "settings.connections.subtitle",
     "settings.connections.ready",
     "settings.connections.selfHost",
+    "settings.connections.moreServices",
     "connections.gemini.label",
     "connections.box.label",
     "connections.vps.label",
     "connections.transcription.label",
+    "connections.opencode.label",
   ],
   engines: [
     "settings.section.engines",
@@ -58,7 +63,7 @@ const SECTION_PHRASE_KEYS = {
 } as const satisfies Record<AppSettingsSection, readonly MessageKey[]>;
 
 const EXTRA_KEYWORDS = {
-  general: ["profile", "name", "email", "skin", "theme", "appearance", "analytics", "updates", "tools", "tool calls", "language", "locale"],
+  general: ["profile", "name", "email", "skin", "theme", "appearance", "analytics", "updates", "tools", "tool calls", "language", "locale", "vm", "virtual", "desktop", "diagnostics", "experimental"],
   connections: ["keys", "api", "composio", "box", "xai", "vps"],
   engines: ["models", "claude", "grok", "providers", "cli"],
   companion: ["companion", "phone", "pair", "mobile"],

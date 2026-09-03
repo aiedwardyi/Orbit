@@ -3,10 +3,11 @@
 // is the stuff shared by every bot: who you are, your keys, and the
 // machine your bots can borrow.
 import { useEffect, useRef, useState } from "react";
-import { Coins, Globe, KeyRound, Monitor, Search, Smartphone, Terminal, Trash2, User, X } from "lucide-react";
+import { ChevronDown, Coins, Globe, KeyRound, Monitor, Search, Smartphone, Terminal, Trash2, User, X } from "lucide-react";
 import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
 import { analyticsEnabled, setAnalyticsEnabled } from "@/lib/analytics";
 import { builtInBrowserEnabled, showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
+import { friendsAppSettingsNavVisible, showMoreServices, showSettingsAdvanced } from "@/lib/settings-chrome";
 import { ApiKeyRow, VpsConnection } from "./ApiKeys";
 import { useUpdaterState } from "@/lib/updater";
 import { EnginesSettings } from "./EnginesSettings";
@@ -457,24 +458,37 @@ function DiagnosticsRow() {
   );
 }
 
-export function SettingsModal() {
+export function SettingsModal({
+  defaultAdvancedOpen = false,
+  defaultMoreServicesOpen = false,
+}: {
+  /** Start with Advanced expanded (tests). */
+  defaultAdvancedOpen?: boolean;
+  /** Start with More services expanded (tests). */
+  defaultMoreServicesOpen?: boolean;
+} = {}) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
   const section = state.appSettingsSection;
   const dialogRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
+  const [advancedOpen, setAdvancedOpen] = useState(defaultAdvancedOpen || section === "computer");
+  const [moreServicesOpen, setMoreServicesOpen] = useState(defaultMoreServicesOpen);
   const q = query.trim().toLowerCase();
   const phoneAvailable = phoneSettingsAvailable(capabilities.host);
+  const advancedShown = showSettingsAdvanced(advancedOpen);
+  const moreServicesShown = showMoreServices(moreServicesOpen);
   const visibleSections = SECTIONS.filter(
-    (entry) => (entry.id !== "companion" || phoneAvailable) && sectionMatches(entry, q),
+    (entry) => friendsAppSettingsNavVisible(entry.id, phoneAvailable) && sectionMatches(entry, q),
   );
 
   useEffect(() => {
     const visible = SECTIONS.filter(
-      (entry) => (entry.id !== "companion" || phoneAvailable) && sectionMatches(entry, q),
+      (entry) => friendsAppSettingsNavVisible(entry.id, phoneAvailable) && sectionMatches(entry, q),
     );
     if (visible.some((entry) => entry.id === section)) return;
+    if (section === "computer") setAdvancedOpen(true);
     const first = visible[0];
     if (first) dispatch({ type: "toggleAppSettings", open: true, section: first.id });
   }, [dispatch, phoneAvailable, q, section]);
@@ -564,6 +578,7 @@ export function SettingsModal() {
           {visibleSections.map(({ id, icon: Icon }) => (
             <button
               key={id}
+              data-settings-nav={id}
               onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: id })}
               aria-current={section === id ? "page" : undefined}
               className={cn(
@@ -601,15 +616,39 @@ export function SettingsModal() {
                 <Card title={t("settings.skin.title")} subtitle={t("settings.skin.subtitle")}>
                   <SkinPicker />
                 </Card>
-                <Card title={t("settings.channelTurns.title")} subtitle={t("settings.channelTurns.subtitle")}>
-                  <RoomTurnTimeoutSettings />
-                </Card>
                 <ToolCallsRow />
-                <ExperimentalFeaturesRow />
                 <BrowserProfilesRow />
                 <UpdatesRow />
-                <DiagnosticsRow />
                 <AnalyticsRow />
+                <div data-settings-advanced className="rounded-xl border border-hairline/40 bg-card">
+                  <button
+                    type="button"
+                    aria-expanded={advancedShown}
+                    onClick={() => setAdvancedOpen((open) => !open)}
+                    className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-control/60"
+                  >
+                    <span>
+                      <span className="block text-[14px] font-medium text-ink">{t("settings.advanced.title")}</span>
+                      <span className="mt-0.5 block text-[12px] text-ink-secondary">
+                        {t("settings.advanced.subtitle")}
+                      </span>
+                    </span>
+                    <ChevronDown
+                      size={16}
+                      className={cn("text-ink-secondary transition-transform", advancedShown && "rotate-180")}
+                    />
+                  </button>
+                  {advancedShown && (
+                    <div data-settings-advanced-body className="flex flex-col gap-4 border-t border-hairline/40 px-4 pb-4 pt-3">
+                      <LocalComputerSection />
+                      <Card title={t("settings.channelTurns.title")} subtitle={t("settings.channelTurns.subtitle")}>
+                        <RoomTurnTimeoutSettings />
+                      </Card>
+                      <ExperimentalFeaturesRow />
+                      <DiagnosticsRow />
+                    </div>
+                  )}
+                </div>
               </>
             )}
 
@@ -625,16 +664,34 @@ export function SettingsModal() {
                     </div>
                   ) : null}
                   <ApiKeyRow section="gemini" />
-                  <TranscriptionSettings />
-                  <ApiKeyRow section="box" />
-                  <VpsConnection />
-                  <ApiKeyRow section="opencodeGo" />
-                  <details className="rounded-lg border border-hairline/40 bg-inset px-3 py-2">
-                    <summary className="cursor-pointer text-[13px] text-ink-secondary">{t("settings.connections.selfHost")}</summary>
-                    <div className="mt-3">
-                      <ApiKeyRow section="composio" />
-                    </div>
-                  </details>
+                  <div data-settings-more-services className="rounded-lg border border-hairline/40 bg-inset">
+                    <button
+                      type="button"
+                      aria-expanded={moreServicesShown}
+                      onClick={() => setMoreServicesOpen((open) => !open)}
+                      className="flex w-full items-center justify-between px-3 py-2 text-left"
+                    >
+                      <span className="text-[13px] text-ink-secondary">{t("settings.connections.moreServices")}</span>
+                      <ChevronDown
+                        size={14}
+                        className={cn("text-ink-secondary transition-transform", moreServicesShown && "rotate-180")}
+                      />
+                    </button>
+                    {moreServicesShown && (
+                      <div data-settings-more-services-body className="flex flex-col gap-4 border-t border-hairline/40 px-3 py-3">
+                        <TranscriptionSettings />
+                        <ApiKeyRow section="box" />
+                        <VpsConnection />
+                        <ApiKeyRow section="opencodeGo" />
+                        <details className="rounded-lg border border-hairline/40 bg-card px-3 py-2">
+                          <summary className="cursor-pointer text-[13px] text-ink-secondary">{t("settings.connections.selfHost")}</summary>
+                          <div className="mt-3">
+                            <ApiKeyRow section="composio" />
+                          </div>
+                        </details>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </Card>
             )}
@@ -648,8 +705,6 @@ export function SettingsModal() {
             {section === "companion" && phoneAvailable && (
               <CompanionSection profileEmail={state.config?.profile?.email} />
             )}
-
-            {section === "computer" && <LocalComputerSection />}
 
             {section === "usage" && <UsageSection />}
           </div>
