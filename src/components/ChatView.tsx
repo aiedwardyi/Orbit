@@ -36,7 +36,7 @@ import {
   type TaskResumePacket,
 } from "@/state/store";
 import { EngineSetup } from "./EngineSetup";
-import { BotAvatar, MausAvatar } from "./Avatar";
+import { BotAvatar } from "./Avatar";
 import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { stateForBot } from "@/lib/mascot";
@@ -649,12 +649,13 @@ function Bubble({
 
 /** A tool run: spinner while live, check/cross once settled. */
 function ActivityChip({ message }: { message: Message }) {
-  const { dispatch } = useStore();
+  const { dispatch, state } = useStore();
   const tool = message.tool;
   if (!tool) return null;
   // bot⇄bot comm chip: opens the channel where the exchange lives
   const comm = message.comm;
   if (comm) {
+    const peer = state.bots.find((bot) => bot.id === comm.withBotId);
     return (
       <div className="flex justify-start">
         <button
@@ -662,7 +663,7 @@ function ActivityChip({ message }: { message: Message }) {
           title={`Open the conversation with ${comm.withName}`}
           className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
         >
-          <MausAvatar color={comm.withColor} state="happy" size={16} />
+          <BotAvatar bot={peer ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} />
           <span className="max-w-[480px] truncate">{tool.name}</span>
           <ChevronRight size={13} />
         </button>
@@ -1360,8 +1361,8 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
           )}
           <TurnPresence
             avatar={
-              <MausAvatar
-                color={bot.color}
+              <BotAvatar
+                bot={bot}
                 state={toolInFlight ? "working" : "thinking"}
                 size={36}
                 forward={false}

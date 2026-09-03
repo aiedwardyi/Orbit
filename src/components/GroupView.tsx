@@ -15,7 +15,7 @@ import {
   type GroupDefaultResponder,
   type Message,
 } from "@/state/store";
-import { MausAvatar } from "./Avatar";
+import { BotAvatar } from "./Avatar";
 import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { normalizeState } from "@/lib/mascot";
@@ -69,11 +69,12 @@ function dayLabel(at: number): string {
 /** One activity row in a room: a comm chip that opens its channel, otherwise
  * the 1:1 pill minus its status glyph — a room reads as a conversation. */
 function RoomToolChip({ message }: { message: Message }) {
-  const { dispatch } = useStore();
+  const { dispatch, state } = useStore();
   const tool = message.tool;
   if (!tool) return null;
   const comm = message.comm;
   if (comm) {
+    const peer = state.bots.find((bot) => bot.id === comm.withBotId);
     return (
       <div className="flex justify-start">
         <button
@@ -82,7 +83,7 @@ function RoomToolChip({ message }: { message: Message }) {
           title={`Open the conversation with ${comm.withName}`}
           className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
         >
-          <MausAvatar color={comm.withColor} state="happy" size={16} animated={false} />
+          <BotAvatar bot={peer ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} animated={false} />
           <span className="max-w-[480px] truncate">{tool.name}</span>
           <ChevronRight size={13} />
         </button>
@@ -104,11 +105,11 @@ function RoomToolChip({ message }: { message: Message }) {
 }
 
 /** 16px maus + name, shown once per sender cluster. */
-function ClusterLabel({ bot, name, color }: { bot?: Bot; name: string; color: string }) {
+function ClusterLabel({ bot, name, color }: { bot?: Bot; name: string; color: Bot["color"] }) {
   return (
     <div className="mt-1 flex items-center gap-1.5 pl-0.5">
-      <MausAvatar
-        color={(bot?.color ?? color) as Bot["color"]}
+      <BotAvatar
+        bot={bot ?? { name, color }}
         state={normalizeState(bot?.mascotExpression) ?? "happy"}
         size={16}
         motion="none"
@@ -725,8 +726,8 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
                             selected ? "bg-accent/10" : "hover:bg-raised",
                           )}
                         >
-                          <MausAvatar
-                            color={member.color}
+                          <BotAvatar
+                            bot={member}
                             state={normalizeState(member.mascotExpression) ?? "happy"}
                             size={24}
                             animated={false}
@@ -1041,7 +1042,7 @@ export function GroupView({ group }: { group: Group }) {
         group.busyBotId === b.id && "ring-2 ring-accent/50 ring-offset-1 ring-offset-app",
       )}
     >
-      <MausAvatar color={b.color} state={normalizeState(b.mascotExpression) ?? "happy"} size={24} animated={false} />
+      <BotAvatar bot={b} state={normalizeState(b.mascotExpression) ?? "happy"} size={24} animated={false} />
       {group.busyBotId === b.id && (
         <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full border border-app bg-accent" />
       )}
@@ -1243,9 +1244,9 @@ export function GroupView({ group }: { group: Group }) {
             <div className="flex flex-1 flex-col items-center justify-center gap-3 py-24 text-center">
               <div className="flex -space-x-2">
                 {members.slice(0, 3).map((b) => (
-                  <MausAvatar
+                  <BotAvatar
                     key={b.id}
-                    color={b.color}
+                    bot={b}
                     state="happy"
                     size={44}
                     motion="none"
@@ -1291,8 +1292,8 @@ export function GroupView({ group }: { group: Group }) {
           {(speaker || presenceVisible) && (
             <TurnPresence
               avatar={
-                <MausAvatar
-                  color={presenceSpeaker?.color ?? "green"}
+                <BotAvatar
+                  bot={presenceSpeaker ?? { color: "green" }}
                   state={toolInFlight ? "working" : "thinking"}
                   size={36}
                   forward={false}
