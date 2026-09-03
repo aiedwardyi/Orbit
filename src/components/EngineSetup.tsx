@@ -163,7 +163,8 @@ export function EngineSetup({
         </p>
       )}
 
-      {!signInOnly && install.needsNode && (
+      {/* needsNode is engine-wide; only show it when this machine's command is npm. */}
+      {!signInOnly && install.needsNode && (installCommand?.includes("npm") ?? true) && (
         <p className="mt-2 text-[11px] leading-relaxed text-ink-secondary/70">
           {t("engine.needsNode")}
         </p>

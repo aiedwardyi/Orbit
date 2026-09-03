@@ -76,6 +76,18 @@ describe("ClaudeDriver.decodeConfig", () => {
     expect(ClaudeDriver.decodeConfig(undefined)).toEqual({ cli: "claude", permissionMode: "acceptEdits" });
   });
 
+  it("publishes the native Windows installer and npm on macOS/Linux", () => {
+    expect(ClaudeDriver.install).toMatchObject({
+      command: {
+        darwin: "npm install -g @anthropic-ai/claude-code",
+        linux: "npm install -g @anthropic-ai/claude-code",
+        win32: "irm https://claude.ai/install.ps1 | iex",
+      },
+      docsUrl: "https://claude.com/claude-code",
+      signInCommand: "claude",
+    });
+  });
+
   it("accepts the three known permission modes", () => {
     for (const permissionMode of ["acceptEdits", "auto", "bypassPermissions"] as const) {
       expect(ClaudeDriver.decodeConfig({ permissionMode }).permissionMode).toBe(permissionMode);
