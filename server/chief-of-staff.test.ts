@@ -160,11 +160,19 @@ describe("room turns mount the Chief framing", () => {
 describe("the Chief role does not gate engine selection", () => {
   it("leaves agentsMcp required only by approvePeerComms", () => {
     const start = index.indexOf("function automaticRequirements");
+    expect(start).toBeGreaterThan(0);
     const body = index.slice(start, start + index.slice(start).indexOf("\n}"));
+    // collapse whitespace first: a reformatted multi-line condition must not be
+    // able to hide from these assertions
+    const normalized = body.replace(/\s+/g, " ");
 
-    expect(body).toContain('if (bot.approvePeerComms === true) required.push("agentsMcp")');
+    // exactly one push, and it must carry the approvePeerComms condition. An
+    // added unconditional push fails the count; replacing the conditional one
+    // fails the second assertion.
+    expect([...normalized.matchAll(/required\.push\("agentsMcp"\)/g)]).toHaveLength(1);
+    expect(normalized).toContain('if (bot.approvePeerComms === true) required.push("agentsMcp")');
     // re-tying the Chief flag to agentsMcp strands an automatic-mode bot on a
     // workspace with no capable engine: every turn 409s instead of degrading
-    expect(body).not.toMatch(/chiefOfStaff[^\n]*agentsMcp/);
+    expect(normalized).not.toContain("chiefOfStaff");
   });
 });
