@@ -37,6 +37,7 @@ const zoo: InstanceInfo[] = [
     displayName: "Claude",
     install: {
       docsUrl: "https://claude.com/claude-code",
+      needsNode: true,
       command: {
         darwin: "npm install -g @anthropic-ai/claude-code",
         win32: "irm https://claude.ai/install.ps1 | iex",
@@ -103,6 +104,7 @@ describe("empty-engine first launch screen", () => {
     expect(html).toContain("Install Claude");
     expect(html).toContain("curl -fsSL https://x.ai/cli/install.sh | bash");
     expect(html).toContain("npm install -g @anthropic-ai/claude-code");
+    expect(html).toContain("Requires Node.js and npm.");
     expect(html.indexOf("Install Grok")).toBeLessThan(html.indexOf("Install Claude"));
     expect(html).toContain("Check again");
     expect(html).not.toContain("Install an AI engine to get started");
@@ -127,6 +129,7 @@ describe("empty-engine first launch screen", () => {
       expect(html).toContain("irm https://claude.ai/install.ps1 | iex");
       expect(html).not.toContain("curl -fsSL https://x.ai/cli/install.sh | bash");
       expect(html).not.toContain("npm install -g @anthropic-ai/claude-code");
+      expect(html).not.toContain("Requires Node.js and npm.");
     } finally {
       Object.defineProperty(window, "ogb", {
         value: previous,
