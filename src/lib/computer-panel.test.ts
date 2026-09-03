@@ -4,10 +4,23 @@ import {
   computerRunsOnLabel,
   computerStatusKind,
   computerStatusLabel,
+  FRIENDS_COMPUTER_DESTINATIONS,
   initialComputerPhase,
+  isFriendsComputerDestination,
   showComputerAdvancedControls,
   showComputerHostControls,
 } from "./computer-panel";
+
+describe("friends computer destinations", () => {
+  it("keeps Off and This computer on the idle surface", () => {
+    expect(FRIENDS_COMPUTER_DESTINATIONS).toEqual(["off", "local"]);
+    expect(isFriendsComputerDestination("off")).toBe(true);
+    expect(isFriendsComputerDestination("local")).toBe(true);
+    expect(isFriendsComputerDestination("cloud")).toBe(false);
+    expect(isFriendsComputerDestination("vm")).toBe(false);
+    expect(isFriendsComputerDestination(undefined)).toBe(false);
+  });
+});
 
 describe("computerRunsOnLabel", () => {
   it("names each destination the Runs-on row already uses", () => {
@@ -39,10 +52,16 @@ describe("computerStatusKind", () => {
 
   it("flags setup and error phases as needing attention", () => {
     expect(computerStatusKind({ computer: "cloud", phase: "unconfigured" })).toBe("attention");
+    expect(computerStatusKind({ computer: "cloud", phase: "vps-unconfigured" })).toBe("attention");
+    expect(computerStatusKind({ computer: "cloud", phase: "vps-incompatible" })).toBe("attention");
     expect(computerStatusKind({ computer: "cloud", phase: "vps-stopped" })).toBe("attention");
     expect(computerStatusKind({ computer: "vm", phase: "vm-unavailable" })).toBe("attention");
     expect(computerStatusKind({ computer: "local", phase: "local-unavailable" })).toBe("attention");
     expect(computerStatusKind({ computer: "cloud", phase: "error" })).toBe("attention");
+  });
+
+  it("returns null for an unrecognised phase", () => {
+    expect(computerStatusKind({ computer: "cloud", phase: "unknown" })).toBeNull();
   });
 });
 

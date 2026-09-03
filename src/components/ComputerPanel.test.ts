@@ -130,35 +130,40 @@ describe("ComputerPanel friends chrome", () => {
     }
   });
 
-  it("folds the destination zoo while the idle panel is closed", () => {
+  it("keeps preview plus Off and This computer while the idle panel is closed", () => {
     const html = markup();
-    expect(html).toContain("Runs on");
+    expect(html).toContain("data-computer-friends-destination");
     expect(html).toContain("Off");
-    expect(html).not.toMatch(/bg-success\/10 text-success[^"]*"[^>]*>Ready</);
+    expect(html).toContain("This computer");
     expect(html).toContain("This bot");
     expect(html).toContain("computer is off");
-    expect(html).toContain("Scheduled tasks");
+    expect(html).not.toContain("Scheduled tasks");
     expect(html).not.toContain("Pick where this bot");
     expect(html).not.toContain("computer lives");
     expect(html).not.toContain("Cua-controlled");
     expect(html).not.toContain("Cloud backend");
     expect(html).not.toContain("Start VPS automatically");
+    expect(html).not.toContain("Local VM");
+    expect(html).not.toContain("Add a Box API key");
     expect(html).not.toContain("Delete this bot's VM");
     expect(html).not.toContain("Open two desktops");
     expect(html).not.toContain("data-computer-advanced");
     expect(html).not.toContain("data-computer-host");
     expect(html).not.toContain(">Sleep<");
+    expect(html).not.toMatch(/>Cloud</);
   });
 
-  it("reveals destination and host controls when the user asks", () => {
+  it("reveals Cloud, backend, Box, and schedules when the user asks", () => {
     const html = markup({ computer: undefined }, true);
     expect(html).toContain("data-computer-advanced");
+    expect(html).toContain("data-computer-friends-destination");
     expect(html).toContain("Pick where this bot");
     expect(html).toContain("computer lives");
     expect(html).toContain("Cua-controlled");
     expect(html).toContain("Cloud backend");
     expect(html).toContain("Local VM");
     expect(html).toContain("This computer");
+    expect(html).toContain("Scheduled tasks");
     expect(html).toContain("data-computer-host");
   });
 
@@ -170,19 +175,25 @@ describe("ComputerPanel friends chrome", () => {
     expect(html).not.toContain("Cloud backend");
   });
 
-  it("keeps Sleep, Delete VM, and two-desktops inside the folded advanced body", () => {
+  it("keeps Cloud, Box, backend, and schedules inside the folded advanced body", () => {
     const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "ComputerPanel.tsx"), "utf8");
-    const marker = 'data-computer-advanced';
+    const marker = "data-computer-advanced";
     const start = source.indexOf(marker);
     expect(start).toBeGreaterThan(-1);
     const advanced = source.slice(start);
     expect(advanced).toContain("Sleep");
     expect(advanced).toContain("Delete this bot's VM");
     expect(advanced).toContain("Open two desktops");
+    expect(advanced).toContain("Scheduled tasks");
+    expect(advanced).toContain("<ApiKeyRow");
+    expect(advanced).toContain("<CloudBackendPicker");
     const before = source.slice(0, start);
     expect(before).not.toContain("Put the computer to sleep");
     expect(before).not.toContain("Delete this bot's VM");
     expect(before).not.toContain("Open two desktops");
     expect(before).not.toContain(">Sleep<");
+    expect(before).not.toContain("Scheduled tasks");
+    expect(before).not.toContain("<ApiKeyRow");
+    expect(before).not.toContain("<CloudBackendPicker");
   });
 });

@@ -1,6 +1,14 @@
-/** Friends Computer-panel chrome: fold the destination zoo until asked. */
+/** Friends Computer-panel chrome: preview plus Off / This computer.
+ * Cloud, Local VM, backend, Box, and schedules stay folded until asked. */
 
 export type ComputerMode = "cloud" | "vm" | "local" | "off" | undefined;
+
+/** The two destinations on the idle friends surface. */
+export const FRIENDS_COMPUTER_DESTINATIONS = ["off", "local"] as const;
+
+export function isFriendsComputerDestination(computer: ComputerMode): boolean {
+  return computer === "off" || computer === "local";
+}
 
 export function computerRunsOnLabel(computer: ComputerMode): string {
   switch (computer) {
@@ -60,7 +68,7 @@ export function initialComputerPhase(computer: ComputerMode): "off" | "checking"
   return computer === "off" ? "off" : "checking";
 }
 
-/** Destination picker, cloud backend, VPS auto-start, Sleep, Delete VM, two-desktops. */
+/** Cloud / Local VM / backend / Box / schedules stay folded until asked. */
 export function showComputerAdvancedControls(advancedOpen: boolean): boolean {
   return advancedOpen;
 }
