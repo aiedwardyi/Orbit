@@ -7,10 +7,9 @@
 import { Loader2, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { useStore } from "@/state/store";
-import { EngineGroupLabel } from "@/components/EngineGroupLabel";
-import { EngineSetup, installCommandFor } from "@/components/EngineSetup";
+import { EngineSetup } from "@/components/EngineSetup";
 import { ProviderMark } from "@/components/ProviderIcons";
-import { splitEngineRail } from "@/lib/engine-rail";
+import { firstLaunchConnectInstances } from "@/lib/engine-rail";
 import { useI18n } from "@/lib/i18n";
 
 export function NoEngines() {
@@ -18,20 +17,10 @@ export function NoEngines() {
   const { state, refreshInstances } = useStore();
   const [rechecking, setRechecking] = useState(false);
 
-  // Only things you actually install belong on a "get started" screen. The
-  // Box cloud runner also reports unavailable here, but it's configured with
-  // a token in settings rather than installed, so listing it would just be a
-  // dead end alongside the real options.
-  const engines = state.instances
-    .filter((i) => i.install)
-    // An engine with a command for this platform is one the user can act on
-    // right now; the rest (GUI downloads, POSIX-only installers on Windows)
-    // sort below so the actionable path is the obvious one.
-    .sort((a, b) => {
-      const aCmd = installCommandFor(a.install) ? 0 : 1;
-      const bCmd = installCommandFor(b.install) ? 0 : 1;
-      return aCmd - bCmd;
-    });
+  // Grok or Claude only. The rest of the fleet is a Settings concern; listing
+  // it here turns first launch into a zoo. Box has no installer, so it never
+  // belongs on this screen.
+  const engines = firstLaunchConnectInstances(state.instances);
 
   const recheck = async () => {
     setRechecking(true);
@@ -51,30 +40,15 @@ export function NoEngines() {
         </p>
 
         <div className="mt-6 flex flex-col gap-2.5">
-          {(() => {
-            const { subscription, custom } = splitEngineRail(engines);
-            const card = (instance: (typeof engines)[number]) => (
-              <div key={instance.instanceId} className="rounded-xl border border-hairline/40 bg-card p-3.5">
-                <div className="flex items-center gap-2 text-[14px] font-medium text-ink">
-                  <ProviderMark driverKind={instance.driverKind} size={16} />
-                  {instance.displayName}
-                </div>
-                <EngineSetup
-                  instance={instance}
-                  intent={instance.access === "custom" ? "inject" : "cloud"}
-                  className="mt-0.5"
-                />
+          {engines.map((instance) => (
+            <div key={instance.instanceId} className="rounded-xl border border-hairline/40 bg-card p-3.5">
+              <div className="flex items-center gap-2 text-[14px] font-medium text-ink">
+                <ProviderMark driverKind={instance.driverKind} size={16} />
+                {instance.displayName}
               </div>
-            );
-            return (
-              <>
-                {subscription.length > 0 && <EngineGroupLabel className="px-1">{t("noEngines.cloud")}</EngineGroupLabel>}
-                {subscription.map(card)}
-                {custom.length > 0 && <EngineGroupLabel className="px-1 pt-1">{t("noEngines.local")}</EngineGroupLabel>}
-                {custom.map(card)}
-              </>
-            );
-          })()}
+              <EngineSetup instance={instance} intent="cloud" className="mt-0.5" />
+            </div>
+          ))}
         </div>
 
         <button

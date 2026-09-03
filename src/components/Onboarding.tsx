@@ -4,6 +4,7 @@ import { setEmailGateDone, track } from "@/lib/analytics";
 import type { InstanceInfo } from "@/state/store";
 import { EngineSetup } from "./EngineSetup";
 import { OrbitMark } from "./OrbitMark";
+import { firstLaunchConnectInstances, isEmptyEngineLaunch } from "@/lib/engine-rail";
 import { useI18n } from "@/lib/i18n";
 import { ProviderMark } from "./ProviderIcons";
 
@@ -153,8 +154,12 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     return () => dialog.removeEventListener("keydown", onKey);
   }, [step, instances, instancesError]);
 
+  const emptyConnect = instances !== null && isEmptyEngineLaunch(instances);
+
   const retryInstances = () => {
-    setInstances(null);
+    // Keep the Grok/Claude cards up while we recheck. Nulling the list here
+    // would flash the disabled Open Orbit button and look like a dead app.
+    if (!emptyConnect) setInstances(null);
     setInstancesError(null);
     setRefreshKey((key) => key + 1);
   };
@@ -184,6 +189,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const readyEngines = engines.filter(engineReady);
   const setupEngines = engines.filter((instance) => !engineReady(instance));
   const hasReadyEngine = (instances ?? []).some(engineReady);
+  const connectEngines = emptyConnect ? firstLaunchConnectInstances(instances) : setupEngines;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-app/95 p-6 backdrop-blur-xl">
@@ -222,7 +228,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
               onClick={() => instancesError ? retryInstances() : hasReadyEngine ? finish() : setStep(1)}
               className={`${instancesError ? "mt-3" : "mt-6"} w-full rounded-xl bg-accent py-2.5 text-[14px] font-semibold text-white transition-[filter,transform] hover:brightness-110 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40`}
             >
-              {instancesError ? t("onboarding.tryAgain") : instances ? t("onboarding.continue") : t("onboarding.checking")}
+              {instancesError ? t("onboarding.tryAgain") : !instances ? t("onboarding.checking") : emptyConnect ? t("noEngines.title") : t("onboarding.continue")}
             </button>
           </div>
         ) : (
@@ -230,8 +236,8 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             <div className="flex items-center gap-3">
               <OrbitMark size={38} />
               <div>
-                <h1 id="onboarding-title" className="text-[18px] font-semibold text-ink">{t("onboarding.enginesTitle")}</h1>
-                <p className="mt-0.5 text-[12.5px] text-ink-secondary">{t("onboarding.enginesFound")}</p>
+                <h1 id="onboarding-title" className="text-[18px] font-semibold text-ink">{emptyConnect ? t("noEngines.title") : t("onboarding.enginesTitle")}</h1>
+                <p className="mt-0.5 text-[12.5px] text-ink-secondary">{emptyConnect ? t("noEngines.body") : t("onboarding.enginesFound")}</p>
               </div>
             </div>
             <div className="mt-5 flex min-h-0 flex-col gap-2.5 overflow-y-auto pr-1 [scrollbar-width:thin]">
@@ -243,6 +249,8 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                 <div className="flex items-center justify-center gap-2 py-12 text-[13px] text-ink-secondary">
                   <Loader2 size={15} className="animate-spin" /> {t("onboarding.checking")}
                 </div>
+              ) : emptyConnect ? (
+                connectEngines.map((instance) => <SetupRow key={instance.instanceId} instance={instance} />)
               ) : (
                 <>
                   {readyEngines.length > 0 && (
@@ -267,7 +275,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             </div>
             <div className="mt-5 flex shrink-0 items-center gap-2.5">
               <button type="button" onClick={() => setStep(0)} className="rounded-xl px-4 py-2.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink">{t("onboarding.back")}</button>
-              <button type="button" onClick={instancesError ? retryInstances : finish} disabled={!instancesError && !hasReadyEngine} className="flex-1 rounded-xl bg-accent py-2.5 text-[14px] font-semibold text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">{instancesError ? t("onboarding.tryAgain") : t("onboarding.openOrbit")}</button>
+              <button type="button" onClick={instancesError || emptyConnect ? retryInstances : finish} disabled={!instancesError && !emptyConnect && !hasReadyEngine} className="flex-1 rounded-xl bg-accent py-2.5 text-[14px] font-semibold text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">{instancesError ? t("onboarding.tryAgain") : emptyConnect ? t("noEngines.checkAgain") : t("onboarding.openOrbit")}</button>
             </div>
           </div>
         )}

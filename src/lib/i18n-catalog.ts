@@ -375,8 +375,8 @@ export const en = {
   "palette.openInspector": "Open Inspector",
   "palette.inspectorDescription": "Runtime events and protocol details for {name}.",
 
-  "noEngines.title": "Install an AI engine to get started",
-  "noEngines.body": "Orbit doesn't ship a model of its own. Your bots run on an AI CLI installed on this computer, using your existing login. Set up any one of these and your bots come alive.",
+  "noEngines.title": "Connect Grok or Claude",
+  "noEngines.body": "Your bots need one of these to run. Pick the one you already use.",
   "noEngines.cloud": "Cloud",
   "noEngines.local": "Local",
   "noEngines.checking": "Checking…",
@@ -1002,8 +1002,8 @@ export const ko = {
   "palette.openInspector": "검사기 열기",
   "palette.inspectorDescription": "{name}의 런타임 이벤트와 프로토콜 세부 정보입니다.",
 
-  "noEngines.title": "시작하려면 AI 엔진을 설치하세요",
-  "noEngines.body": "Orbit는 자체 모델을 포함하지 않습니다. 봇은 이 컴퓨터에 설치된 AI CLI와 기존 로그인을 사용합니다. 하나만 설정하면 봇이 동작합니다.",
+  "noEngines.title": "Grok 또는 Claude를 연결하세요",
+  "noEngines.body": "봇을 쓰려면 둘 중 하나가 필요합니다. 이미 쓰는 쪽을 고르세요.",
   "noEngines.cloud": "클라우드",
   "noEngines.local": "로컬",
   "noEngines.checking": "확인 중…",

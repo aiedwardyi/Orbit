@@ -53,3 +53,32 @@ export function splitFriendsEngines<T>(instances: readonly T[]): {
   }
   return { friends, rest };
 }
+
+// First launch with nothing connected: one path, Grok or Claude. The rest of
+// the fleet stays in Settings. An empty list means "not asked yet" so we do
+// not flash this screen before /api/instances returns.
+const STARTER_CONNECT_DRIVERS = ["grokAgent", "claudeAgent"] as const;
+
+export function isEmptyEngineLaunch(
+  instances: readonly { snapshot?: { state?: string } }[],
+): boolean {
+  return instances.length > 0 && !instances.some((instance) => instance.snapshot?.state === "available");
+}
+
+export function starterConnectEngines<T>(instances: readonly T[]): T[] {
+  const picked: T[] = [];
+  for (const driverKind of STARTER_CONNECT_DRIVERS) {
+    for (const instance of instances) {
+      // SAFETY: the generic preserves the caller's row type; this pick reads only driverKind.
+      if ((instance as { driverKind?: string }).driverKind === driverKind) picked.push(instance);
+    }
+  }
+  return picked;
+}
+
+export function firstLaunchConnectInstances<T>(instances: readonly T[]): T[] {
+  return starterConnectEngines(
+    // SAFETY: the generic preserves the caller's row type; this filter reads only install.
+    instances.filter((instance) => Boolean((instance as { install?: unknown }).install)),
+  );
+}
