@@ -630,11 +630,9 @@ export function SettingsPanel({
                 role="switch"
                 aria-checked={Boolean(bot.chiefOfStaff)}
                 aria-label="Chief of Staff"
-                disabled={!bot.chiefOfStaff && !canCoordinate}
                 onClick={() => patch({ chiefOfStaff: !bot.chiefOfStaff })}
-                title={!bot.chiefOfStaff && !canCoordinate ? "This engine cannot contact other bots" : undefined}
                 className={cn(
-                  "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+                  "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors",
                   bot.chiefOfStaff ? "bg-accent" : "bg-control",
                 )}
               >
@@ -647,12 +645,10 @@ export function SettingsPanel({
               </button>
             </div>
             <div className="mt-3 text-[13px] leading-relaxed text-ink-secondary">
-              {bot.chiefOfStaff && !canCoordinate
-                ? "This bot still holds the role, but its current engine cannot contact teammates. Choose a Claude or ACP engine to restore coordination."
+              {!canCoordinate
+                ? "This engine cannot contact teammates yet."
                 : bot.chiefOfStaff
                   ? `This is the primary contact for ${sectionName}. It can create and coordinate specialists in this section, then combine their work into one answer.`
-                : !canCoordinate
-                  ? "Choose a Claude or ACP engine to let this bot coordinate teammates."
                   : currentChief
                     ? `Make this bot the ${sectionName} Chief and hand the role over from ${currentChief.name}.`
                     : `Make this bot the primary contact for the ${sectionName} section.`}

@@ -576,7 +576,7 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
     });
     createdThisTurn += 1;
     return {
-      text: `Created @${r.name ?? botName} in ${r.section ?? "General"} [id: ${r.id}]. Assign work with delegate_bot.`,
+      text: `Created @${r.name ?? botName} in ${r.section ?? "General"} [id: ${r.id}]. Assign work with ask_bot if you must report back this turn, otherwise delegate_bot.`,
     };
   }
   if (name === "request_credential") {

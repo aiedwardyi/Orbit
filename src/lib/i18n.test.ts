@@ -265,9 +265,9 @@ describe("sidebar create channel and bot/room chrome", () => {
     expect(ko["chrome.archive"]).not.toMatch(/Archive/i);
     expect(en["chrome.delete"]).toBe("Delete");
     expect(ko["chrome.delete"]).toBe("삭제");
-    expect(en["chrome.chooseEngineFirst"]).toBe("Choose a Claude or ACP engine first");
-    expect(ko["chrome.chooseEngineFirst"]).toBe("먼저 Claude 또는 ACP 엔진을 선택하세요");
-    expect(ko["chrome.chooseEngineFirst"]).not.toMatch(/Choose a Claude/i);
+    expect(en["chrome.cannotContactTeammates"]).toBe("This engine cannot contact teammates yet");
+    expect(ko["chrome.cannotContactTeammates"]).toBe("이 엔진은 아직 팀원에게 연락할 수 없습니다");
+    expect(ko["chrome.cannotContactTeammates"]).not.toMatch(/cannot contact/i);
     expect(en["chrome.moveToContext"]).toBe("Move to context");
     expect(ko["chrome.moveToContext"]).toBe("맥락으로 이동");
     expect(ko["chrome.moveToContext"]).not.toMatch(/Move to context/i);
@@ -284,7 +284,7 @@ describe("sidebar create channel and bot/room chrome", () => {
     expect(sidebar).toContain('t("chrome.duplicate")');
     expect(sidebar).toContain('t("chrome.archive")');
     expect(sidebar).toContain('t("chrome.delete")');
-    expect(sidebar).toContain('t("chrome.chooseEngineFirst")');
+    expect(sidebar).toContain('t("chrome.cannotContactTeammates")');
     expect(sidebar).toContain('t("chrome.moveToContext")');
     expect(sidebar).toContain('t("chrome.deleteChannel")');
     expect(sidebar).not.toMatch(/Create Channel\{picked\.size/);
@@ -292,7 +292,7 @@ describe("sidebar create channel and bot/room chrome", () => {
     expect(sidebar).not.toMatch(/,\s*"Duplicate",/);
     expect(sidebar).not.toMatch(/,\s*"Archive",/);
     expect(sidebar).not.toMatch(/,\s*"Delete",/);
-    expect(sidebar).not.toMatch(/Choose a Claude or ACP engine first/);
+    expect(sidebar).not.toMatch(/This engine cannot contact teammates yet/);
     expect(sidebar).not.toMatch(/Move to context/);
     expect(sidebar).not.toMatch(/Delete Channel/);
     expect(sidebar).toContain('t("chrome.you")');
