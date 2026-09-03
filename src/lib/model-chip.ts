@@ -40,14 +40,13 @@ export function modelChipTitle(
   return live;
 }
 
+/** Short status for the model-picker engine pill. CLI --version belongs on Set CLI. */
 export function engineBadgeText(
-  snapshot: { version?: string | null },
+  _snapshot: { version?: string | null },
   kind: "not-installed" | "sign-in" | "ready",
   t: Translate,
 ): string {
   if (kind === "not-installed") return t("model.notInstalled");
   if (kind === "sign-in") return t("model.signInRequired");
-  const version = snapshot.version?.trim();
-  if (version) return t("model.cliVersion", { version });
   return t("onboarding.ready");
 }

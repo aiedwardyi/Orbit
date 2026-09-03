@@ -16,7 +16,11 @@ vi.mock("@/state/store", async (importOriginal) => {
             instanceId: "grok",
             driverKind: "grokAgent",
             displayName: "Grok",
-            snapshot: { state: "available", authenticated: true, version: "1.0.13" },
+            snapshot: {
+              state: "available",
+              authenticated: true,
+              version: "grok 1.0.13 (5e9a58528b76) [stable]",
+            },
             models: {
               default: "grok-4.6",
               options: [
@@ -87,10 +91,15 @@ describe("ModelPicker friends chip", () => {
     expect(html).not.toMatch(/truncate[^"]*"[^>]*>Keep the current engine when it works/);
   });
 
-  it("labels the Grok CLI package version on the open engine pane", () => {
+  it("shows Ready on the open engine pane, not the CLI --version dump", () => {
     const html = markup(bot.modelSelection, true);
-    expect(html).toContain("CLI 1.0.13");
-    expect(html).not.toMatch(/>1\.0\.13</);
+    expect(html).toMatch(/bg-success\/10 text-success[^"]*"[^>]*>Ready</);
+    expect(html).toContain('title="Grok · Ready"');
+    expect(html).not.toContain("CLI 1.0.13");
+    expect(html).not.toContain("CLI grok");
+    expect(html).not.toContain("1.0.13");
+    expect(html).not.toContain("5e9a58528b76");
+    expect(html).not.toContain("[stable]");
   });
 
   it("keeps catalog order with one default badge and one check", () => {
