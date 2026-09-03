@@ -19,6 +19,7 @@ const css = readFileSync(join(here, "../styles.css"), "utf8");
 const updateBanner = readFileSync(join(here, "../components/UpdateBanner.tsx"), "utf8");
 const chatView = readFileSync(join(here, "../components/ChatView.tsx"), "utf8");
 const sidebar = readFileSync(join(here, "../components/Sidebar.tsx"), "utf8");
+const settingsPanel = readFileSync(join(here, "../components/SettingsPanel.tsx"), "utf8");
 const createBotSheet = readFileSync(join(here, "../components/CreateBotSheet.tsx"), "utf8");
 const engineSetup = readFileSync(join(here, "../components/EngineSetup.tsx"), "utf8");
 const approvalCard = readFileSync(join(here, "../components/ApprovalCard.tsx"), "utf8");
@@ -297,6 +298,12 @@ describe("sidebar create channel and bot/room chrome", () => {
     expect(sidebar).not.toMatch(/Delete Channel/);
     expect(sidebar).toContain('t("chrome.you")');
     expect(sidebar).not.toMatch(/\|\| "You"}/);
+  });
+
+  it("shares the teammates line with Bot details instead of a second hardcoded copy", () => {
+    expect(settingsPanel).toContain('t("chrome.cannotContactTeammates")');
+    expect(settingsPanel).not.toMatch(/This engine cannot contact teammates yet/);
+    expect(settingsPanel).not.toMatch(/This engine cannot contact other bots/);
   });
 });
 
