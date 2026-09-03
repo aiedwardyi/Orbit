@@ -80,8 +80,11 @@ export const en = {
   "settings.analytics.aria": "Send usage analytics",
   "settings.connections.title": "Connections",
   "settings.connections.subtitle": "Connected apps work automatically in the installed app. Other optional service keys stay on this computer.",
+  "settings.advanced.title": "Advanced",
+  "settings.advanced.subtitle": "Local VM, turn limits, experiments, and diagnostics",
   "settings.connections.ready": "Connected apps service is ready",
   "settings.connections.selfHost": "Self-host connected apps",
+  "settings.connections.moreServices": "More services",
   "settings.engines.title": "Engine CLIs",
   "settings.engines.subtitle": "Which binary each engine runs. Saved as you go.",
 
@@ -709,8 +712,11 @@ export const ko = {
   "settings.analytics.aria": "사용 분석 보내기",
   "settings.connections.title": "연결",
   "settings.connections.subtitle": "설치된 앱에서는 연결 앱이 자동으로 동작합니다. 그 밖의 선택 서비스 키는 이 컴퓨터에 남습니다.",
+  "settings.advanced.title": "고급",
+  "settings.advanced.subtitle": "로컬 VM, 턴 제한, 실험 기능, 진단",
   "settings.connections.ready": "연결 앱 서비스를 사용할 수 있습니다",
   "settings.connections.selfHost": "연결 앱 직접 호스팅",
+  "settings.connections.moreServices": "다른 서비스",
   "settings.engines.title": "엔진 CLI",
   "settings.engines.subtitle": "각 엔진이 실행하는 프로그램입니다. 입력하는 대로 저장됩니다.",
 
