@@ -466,7 +466,7 @@ export function SettingsModal({
   defaultAdvancedOpen?: boolean;
   /** Start with More services expanded (tests). */
   defaultMoreServicesOpen?: boolean;
-} = {}) {
+}) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
