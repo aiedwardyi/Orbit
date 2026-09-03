@@ -13,10 +13,18 @@ const sources = {
   "ChatView.tsx": readFileSync(join(here, "ChatView.tsx"), "utf8"),
 } as const;
 
+const botAvatarFloors = {
+  "GroupView.tsx": 6,
+  "TeamMapPage.tsx": 1,
+  "ChatView.tsx": 4,
+} as const;
+
 describe("channel avatar renderer", () => {
-  for (const [file, source] of Object.entries(sources)) {
+  for (const file of Object.keys(botAvatarFloors) as Array<keyof typeof botAvatarFloors>) {
     it(`${file} uses BotAvatar and never mounts MausAvatar directly`, () => {
-      expect(source).toContain("BotAvatar");
+      const source = sources[file];
+      const renders = source.match(/<BotAvatar/g)?.length ?? 0;
+      expect(renders).toBeGreaterThanOrEqual(botAvatarFloors[file]);
       expect(source).not.toContain("<MausAvatar");
     });
   }
