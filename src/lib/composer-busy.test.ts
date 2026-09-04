@@ -55,6 +55,18 @@ describe("composerBusyChrome", () => {
     expect(chrome.sendTitleKey).toBe("composer.sendsWhenFinished");
   });
 
+  it("keeps room queue chrome even if a member could steer a 1:1 turn", () => {
+    const chrome = composerBusyChrome({
+      busy: true,
+      isRoom: true,
+      canSteer: true,
+      name: "Scout",
+      idlePlaceholder: "Message Launch",
+    });
+    expect(chrome.sendLooksQueued).toBe(true);
+    expect(chrome.placeholder).toBe("Scout is working — Enter queues your message");
+  });
+
   it("is idle chrome when nobody is working", () => {
     const chrome = composerBusyChrome({
       busy: false,
