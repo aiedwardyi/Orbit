@@ -941,7 +941,7 @@ describe("harness HTTP API", () => {
       const created = await createChannel({
         name: "Skye & Nova",
         memberIds: [peer.id],
-        bulletin: "Peer talk lives here.",
+        bulletin: "  Peer talk lives here.  ",
       });
       expect(created.status).toBe(201);
       expect(created.body).toMatchObject({
@@ -974,6 +974,27 @@ describe("harness HTTP API", () => {
       const emptyMembers = await createChannel({ name: "Empty", memberIds: [] });
       expect(emptyMembers.status).toBe(400);
       expect(emptyMembers.body.error).toMatch(/at least one bot/);
+
+      const notAnObject = await fetch(`${BASE}/api/internal/create-channel`, {
+        method: "POST",
+        headers: internalHeaders,
+        body: "null",
+      });
+      expect(notAnObject.status).toBe(400);
+      expect(await notAnObject.json()).toEqual({ error: "channel must be a JSON object" });
+
+      const sectionType = await createChannel({ name: "Typed", memberIds: [peer.id], section: 12 });
+      expect(sectionType).toEqual({ status: 400, body: { error: "section must be a string" } });
+
+      const sectionLength = await createChannel({
+        name: "Long section",
+        memberIds: [peer.id],
+        section: "S".repeat(61),
+      });
+      expect(sectionLength).toEqual({
+        status: 400,
+        body: { error: "section must be at most 60 characters" },
+      });
 
       expect((await api("PATCH", `/api/bots/${otherSection.id}`, {
         section: "Channel tool test",

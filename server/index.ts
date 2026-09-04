@@ -4485,6 +4485,9 @@ const server = createServer(async (req, res) => {
       }
       if (method === "POST" && path === "/api/internal/create-channel") {
         const body = await readBody(req);
+        if (!body || typeof body !== "object" || Array.isArray(body)) {
+          return json(res, 400, { error: "channel must be a JSON object" });
+        }
         const fromBotId = String(body.fromBotId ?? "");
         const sender = store.bot(fromBotId);
         if (!sender) return json(res, 403, { error: "unknown sender" });
@@ -4516,19 +4519,19 @@ const server = createServer(async (req, res) => {
         if (name.length > 100) return json(res, 400, { error: "channel name must be at most 100 characters" });
         let section: string | undefined = sender.section;
         if (body.section !== undefined && body.section !== null) {
-          if (typeof body.section !== "string") return json(res, 400, { error: "context must be a string" });
+          if (typeof body.section !== "string") return json(res, 400, { error: "section must be a string" });
           section = body.section.trim() || undefined;
           if (section && section.length > 60) {
-            return json(res, 400, { error: "context must be at most 60 characters" });
+            return json(res, 400, { error: "section must be at most 60 characters" });
           }
         }
         let bulletin = "";
         if (body.bulletin !== undefined) {
           if (typeof body.bulletin !== "string") return json(res, 400, { error: "bulletin must be a string" });
-          if (body.bulletin.length > 12_000) {
+          bulletin = body.bulletin.trim();
+          if (bulletin.length > 12_000) {
             return json(res, 400, { error: "setup.bulletin must be at most 12000 characters" });
           }
-          bulletin = body.bulletin;
         }
         const group = store.createGroup(name, memberIds, false, section, {
           bulletin,
