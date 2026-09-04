@@ -91,8 +91,8 @@ describe("groupActivityRuns", () => {
 });
 
 describe("activityVisibleInChat", () => {
-  it("hides failed tool chips until tool calls are shown", () => {
-    expect(activityVisibleInChat(tool("Bash", false), false)).toBe(false);
+  it("keeps failed tool chips visible while tool calls are hidden", () => {
+    expect(activityVisibleInChat(tool("Bash", false), false)).toBe(true);
     expect(activityVisibleInChat(tool("Bash", false), true)).toBe(true);
   });
 

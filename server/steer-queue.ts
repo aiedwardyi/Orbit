@@ -89,6 +89,9 @@ export type DrainRun = (
   room?: RoomDrain,
 ) => void | Promise<void>;
 
+/** True while startTurn holds a claim or the bot is already working. */
+export type HasActiveTurn = (botId: string) => boolean;
+
 function entryFor(botId: string, threadId: string): QueueEntry {
   const key = entryKey(botId, threadId);
   const entry = queues.get(key) ?? { botId, threadId, items: [] };
@@ -169,7 +172,11 @@ function isRoomItem(item: QueueItem): item is RoomItem {
  * leave the map BEFORE running so a settle racing another settle can never
  * fire the same item twice. A bot with both a 1:1 wait and a room wait
  * yields one run per settle so the two cannot start together. */
-export function drainSteeredMessages(store: SteerStore, run: DrainRun): void {
+export function drainSteeredMessages(
+  store: SteerStore,
+  run: DrainRun,
+  hasActiveTurn?: HasActiveTurn,
+): void {
   const draining = new Set<string>();
   // deleting only the entry being visited is safe under Map iteration
   for (const [key, entry] of queues) {
@@ -179,7 +186,8 @@ export function drainSteeredMessages(store: SteerStore, run: DrainRun): void {
       queues.delete(key);
       continue;
     }
-    if (bot.busy || draining.has(entry.botId)) continue; // still working — the next settle tries again
+    // busy, or startTurn has claimed this bot but has not flipped busy yet
+    if (bot.busy || hasActiveTurn?.(entry.botId) || draining.has(entry.botId)) continue;
     // committed to draining: the entry leaves the map before anything runs,
     // so a settle racing another settle can never fire the same queue twice
     queues.delete(key);
@@ -191,6 +199,8 @@ export function drainSteeredMessages(store: SteerStore, run: DrainRun): void {
       const [item, ...rest] = steerItems;
       if (!item) continue;
       if (rest.length || roomItems.length) {
+        // leftover 1:1 lines stay ahead of a same-entry room wait; production
+        // keys 1:1 and room separately, so this mix is rare
         queues.set(key, { botId: entry.botId, threadId: entry.threadId, items: [...rest, ...roomItems] });
       }
       // queueId is the pending-chip identity from the 202; append still
@@ -245,15 +255,18 @@ export function cancelSteeredMessage(botId: string, messageId: string): boolean 
 }
 
 /** After a drained start fails, try the next queued send only if this
- * bot is still idle. A busy bot will drain on its own turn.completed.
- * No backoff: the failed item is already off the queue, so each call
- * makes progress and a broken provider cannot loop the same send. */
+ * bot is still idle. A busy bot — or one whose startTurn claim is still
+ * held — waits for turn.completed. Provider rejection re-drains on
+ * purpose: that item is already off the queue, so walking the rest
+ * writes an error chip per line instead of stalling later user words. */
 export function continueQueuedDrainIfIdle(
   store: Pick<SteerStore, "bot">,
   botId: string,
   drain: () => void,
+  hasActiveTurn?: HasActiveTurn,
 ): void {
-  if (!store.bot(botId)?.busy) drain();
+  if (store.bot(botId)?.busy || hasActiveTurn?.(botId)) return;
+  drain();
 }
 
 /** Test helper: how many messages remain queued for a thread. */

@@ -322,8 +322,28 @@ describe("steer-queue module", () => {
 
   it("wires the failed-start re-drain through continueQueuedDrainIfIdle", () => {
     const index = readFileSync(join(SERVER_DIR, "index.ts"), "utf8");
-    expect(index).toContain("continueQueuedDrainIfIdle(store, botId, drainQueuedSends)");
+    expect(index).toContain("continueQueuedDrainIfIdle(store, botId, drainQueuedSends, botHasActiveTurn)");
+    expect(index).toMatch(/drainSteeredMessages\(store,[\s\S]*?botHasActiveTurn\)/);
     expect(index).not.toMatch(/if \(!store\.bot\(botId\)\?\.busy\) drainQueuedSends\(\)/);
+  });
+
+  it("does not peel the next send while a startTurn claim is held and the bot is not busy yet", () => {
+    const bot = fakeBot("bot-claimed", "thread-claimed", false);
+    const store = fakeStore([bot]);
+    queueSteeredMessage(bot.id, bot.threadId, "first");
+    queueSteeredMessage(bot.id, bot.threadId, "second");
+    const claimed = new Set<string>([bot.id]);
+    const run = vi.fn();
+    drainSteeredMessages(store, run, (id) => claimed.has(id));
+    expect(run).not.toHaveBeenCalled();
+    expect(_queuedCount("thread-claimed")).toBe(2);
+  });
+
+  it("does not re-drain while a startTurn claim is held even if the bot looks idle", () => {
+    const bot = fakeBot("bot-claimed-idle", "thread-claimed-idle", false);
+    const drain = vi.fn();
+    continueQueuedDrainIfIdle(fakeStore([bot]), bot.id, drain, () => true);
+    expect(drain).not.toHaveBeenCalled();
   });
 
   it("re-drains only when the failed start left the bot idle", () => {

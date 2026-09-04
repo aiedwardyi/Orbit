@@ -1,7 +1,8 @@
 // Which 1:1 ChatView rows render, and where a day divider belongs. ChatView
 // hides tool activity and screen frames unless Show tool calls is on, so
 // dating against the previous ITEM can drop the divider off the next visible
-// line. Turn-level errors stay visible so a dead engine is not a blank chat.
+// line. Failed tools and turn-level errors stay visible so a broken step
+// is not a blank chat.
 import { shouldHideOnboardingCard } from "@/components/OptionCard";
 import { readContextCompaction } from "../../shared/context-compaction";
 import { activityVisibleInChat, type TranscriptItem } from "./activity-runs";

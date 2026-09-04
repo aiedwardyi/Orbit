@@ -1935,9 +1935,9 @@ function drainQueuedSends() {
       });
       // This send is already off the queue. If the bot is still idle, the
       // next queued line should get its own turn instead of waiting forever.
-      continueQueuedDrainIfIdle(store, botId, drainQueuedSends);
+      continueQueuedDrainIfIdle(store, botId, drainQueuedSends, botHasActiveTurn);
     });
-  });
+  }, botHasActiveTurn);
 }
 
 // ── live screen: poll the bot's computer while it works ───────────────

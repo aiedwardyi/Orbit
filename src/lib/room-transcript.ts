@@ -20,7 +20,7 @@ export interface RoomTranscriptRow {
 /** Mirrors the row Transcript renders for one message. A turn-level error
  * and a bot⇄bot chip stay whatever the setting says: one is the reason to
  * look, the other is a link to another conversation, not tool work. Failed
- * tool pills wait for Show tool calls — default-off stays a calm chat. */
+ * named-tool pills stay too — quiet default-off hides success, not failure. */
 function messageVisible(message: Message, showToolCalls: boolean): boolean {
   switch (message.kind) {
     case "text":

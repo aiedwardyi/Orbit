@@ -151,14 +151,15 @@ describe("roomTranscriptRows", () => {
     expect(shown.map((row) => row.visible)).toEqual([true, true, true]);
   });
 
-  it("hides a failed tool step while tool calls are hidden", () => {
+  it("keeps a failed tool step visible while tool calls are hidden", () => {
     const result = rows([
       say("defense", "Here is the argument."),
       step("challenge", "Bash", false),
       say("challenge", "That failed."),
     ]);
-    expect(result.map((row) => row.visible)).toEqual([true, false, true]);
-    expect(result[2].cluster).toBe(true);
+    expect(result.map((row) => row.visible)).toEqual([true, true, true]);
+    expect(result[1].cluster).toBe(true);
+    expect(result[2].cluster).toBe(false);
   });
 
   it("keeps a turn-level error visible and labelled while tool calls are hidden", () => {
