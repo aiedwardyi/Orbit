@@ -20,7 +20,7 @@ import {
   writeTaskResumePacket,
   type TaskResumePacket,
 } from "./task-state.ts";
-import { botAvatarProfile, type BotAvatarCrop } from "../shared/bot-avatar.ts";
+import { botAvatarProfile, mascotStyleSchema, type BotAvatarCrop, type MascotStyle } from "../shared/bot-avatar.ts";
 import type { RoutineRequestCardData } from "../shared/routine-request.ts";
 import type { RoutineRunCardData } from "../shared/routine-run.ts";
 import { readContextCompaction, type ContextCompactionV1 } from "../shared/context-compaction.ts";
@@ -371,6 +371,8 @@ export interface BotRecord {
   notifications: boolean;
   color: MausColor;
   mascotExpression?: MausExpression | null;
+  /** One of the four static cute faces; missing values color-map at render. */
+  mascotStyle?: MascotStyle;
   /** App-owned attachment served as this bot's custom profile image. */
   avatarUrl?: string;
   /** Mascot, or the crop applied to avatarUrl. */
@@ -632,6 +634,10 @@ export class Store {
       }
       if (b.avatarCrop !== undefined && avatar.avatarCrop !== b.avatarCrop) {
         delete b.avatarCrop;
+        botsMigrated = true;
+      }
+      if (b.mascotStyle !== undefined && !mascotStyleSchema.safeParse(b.mascotStyle).success) {
+        delete b.mascotStyle;
         botsMigrated = true;
       }
     }
@@ -1128,7 +1134,7 @@ export class Store {
 
   createBot(
     profile: Partial<
-      Pick<BotRecord, "name" | "title" | "description" | "color" | "mascotExpression" | "modelSelection" | "section" | "computer">
+      Pick<BotRecord, "name" | "title" | "description" | "color" | "mascotExpression" | "mascotStyle" | "modelSelection" | "section" | "computer">
     > = {},
     opts: {
       /** false = no onboarding seed. Imported bots must not open with a
@@ -1152,6 +1158,7 @@ export class Store {
       notifications: true,
       color: profile.color ?? COLORS[this.bots.length % COLORS.length],
       ...(profile.mascotExpression ? { mascotExpression: profile.mascotExpression } : {}),
+      ...(profile.mascotStyle ? { mascotStyle: profile.mascotStyle } : {}),
       unread: false,
       modelSelection: profile.modelSelection ?? this.defaultSelection(),
       resumeCursors: {},

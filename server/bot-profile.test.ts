@@ -16,8 +16,14 @@ describe("parseBotProfilePatch (strict — the paired boundary)", () => {
   });
 
   it("refuses unknown cosmetic keys too — strict means the allowlist IS the contract", () => {
-    const result = parseBotProfilePatch({ color: "red" } as never, true);
-    expect(result).toEqual({ ok: false, error: "unsupported profile field: color" });
+    expect(parseBotProfilePatch({ color: "red" } as never, true)).toEqual({
+      ok: false,
+      error: "unsupported profile field: color",
+    });
+    expect(parseBotProfilePatch({ mascotStyle: "peach" } as never, true)).toEqual({
+      ok: false,
+      error: "unsupported profile field: mascotStyle",
+    });
   });
 
   it("accepts the full identity surface", () => {

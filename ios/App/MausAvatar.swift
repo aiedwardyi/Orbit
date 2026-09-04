@@ -204,35 +204,116 @@ enum MausSilhouette {
 /// drifts through them on its cadence, a spring morphs the eyes and mouth
 /// between them, it blinks on its own rhythm, and the body bobs, sways,
 /// breathes or jitters per state. Same data, same numbers, same face.
+struct CuteMascotView: View {
+    let style: MascotStyle
+    let color: String
+    var size: CGFloat = 52
+
+    var body: some View {
+        Canvas { context, canvasSize in
+            let scale = min(canvasSize.width, canvasSize.height) / 256
+            context.translateBy(x: (canvasSize.width - 256 * scale) / 2, y: (canvasSize.height - 256 * scale) / 2)
+            context.scaleBy(x: scale, y: scale)
+            draw(in: &context)
+        }
+        .frame(width: size, height: size)
+    }
+
+    private var fill: Color { MausPalette.color(color) }
+    private var light: Color { fill.mixed(with: .white, amount: 0.55) }
+    private var shadow: Color { fill.mixed(with: .black, amount: 0.42) }
+    private var deep: Color { fill.mixed(with: .black, amount: 0.28) }
+
+    private func draw(in context: inout GraphicsContext) {
+        switch style {
+        case .peach: drawPeach(&context)
+        case .teal: drawTeal(&context)
+        case .lavender: drawLavender(&context)
+        case .coral: drawCoral(&context)
+        }
+    }
+
+    private func blob(_ context: inout GraphicsContext, rect: CGRect) {
+        context.fill(Path(ellipseIn: rect), with: .linearGradient(
+            Gradient(colors: [light, fill, shadow]),
+            startPoint: CGPoint(x: rect.minX + rect.width * 0.3, y: rect.minY),
+            endPoint: CGPoint(x: rect.maxX, y: rect.maxY)
+        ))
+    }
+
+    private func face(_ context: inout GraphicsContext, origin: CGPoint, eyeColor: Color = Color(hex: "#1A1210")) {
+        context.fill(Path(ellipseIn: CGRect(x: origin.x + 84, y: origin.y + 114, width: 32, height: 32)), with: .color(eyeColor))
+        context.fill(Path(ellipseIn: CGRect(x: origin.x + 140, y: origin.y + 114, width: 32, height: 32)), with: .color(eyeColor))
+        context.fill(Path(ellipseIn: CGRect(x: origin.x + 89, y: origin.y + 118, width: 11, height: 11)), with: .color(.white))
+        context.fill(Path(ellipseIn: CGRect(x: origin.x + 145, y: origin.y + 118, width: 11, height: 11)), with: .color(.white))
+        context.fill(Path(ellipseIn: CGRect(x: origin.x + 105, y: origin.y + 135, width: 5, height: 5)), with: .color(.white))
+        context.fill(Path(ellipseIn: CGRect(x: origin.x + 161, y: origin.y + 135, width: 5, height: 5)), with: .color(.white))
+        context.fill(Path(ellipseIn: CGRect(x: origin.x + 63, y: origin.y + 143, width: 34, height: 18)), with: .color(Color(hex: "#F4A0B4").opacity(0.5)))
+        context.fill(Path(ellipseIn: CGRect(x: origin.x + 159, y: origin.y + 143, width: 34, height: 18)), with: .color(Color(hex: "#F4A0B4").opacity(0.5)))
+        var smile = Path()
+        smile.move(to: CGPoint(x: origin.x + 116, y: origin.y + 156))
+        smile.addQuadCurve(to: CGPoint(x: origin.x + 140, y: origin.y + 156), control: CGPoint(x: origin.x + 128, y: origin.y + 170))
+        context.stroke(smile, with: .color(Color(hex: "#3A241C")), style: StrokeStyle(lineWidth: 3.3, lineCap: .round))
+    }
+
+    private func drawPeach(_ context: inout GraphicsContext) {
+        blob(&context, rect: CGRect(x: 26, y: 56, width: 204, height: 172))
+        face(&context, origin: .zero)
+    }
+
+    private func drawTeal(_ context: inout GraphicsContext) {
+        context.fill(Path(ellipseIn: CGRect(x: 116, y: 28, width: 24, height: 24)), with: .color(fill))
+        context.fill(Path(roundedRect: CGRect(x: 123.5, y: 48, width: 9, height: 26), cornerRadius: 4.5), with: .color(fill))
+        blob(&context, rect: CGRect(x: 36, y: 70, width: 184, height: 166))
+        context.fill(Path(ellipseIn: CGRect(x: 78, y: 168, width: 15, height: 15)), with: .color(deep.opacity(0.42)))
+        context.fill(Path(ellipseIn: CGRect(x: 98, y: 184, width: 12, height: 12)), with: .color(deep.opacity(0.36)))
+        context.fill(Path(ellipseIn: CGRect(x: 73, y: 189, width: 10, height: 10)), with: .color(deep.opacity(0.32)))
+        face(&context, origin: .zero)
+        context.fill(Path(ellipseIn: CGRect(x: 117, y: 153, width: 22, height: 18)), with: .color(Color(hex: "#8B3040")))
+    }
+
+    private func drawLavender(_ context: inout GraphicsContext) {
+        var leftEar = Path()
+        leftEar.move(to: CGPoint(x: 74, y: 118))
+        leftEar.addLine(to: CGPoint(x: 86, y: 64))
+        leftEar.addLine(to: CGPoint(x: 122, y: 108))
+        leftEar.closeSubpath()
+        context.fill(leftEar, with: .color(fill))
+        var rightEar = Path()
+        rightEar.move(to: CGPoint(x: 182, y: 118))
+        rightEar.addLine(to: CGPoint(x: 170, y: 64))
+        rightEar.addLine(to: CGPoint(x: 134, y: 108))
+        rightEar.closeSubpath()
+        context.fill(rightEar, with: .color(fill))
+        blob(&context, rect: CGRect(x: 34, y: 66, width: 188, height: 164))
+        face(&context, origin: .zero, eyeColor: Color(hex: "#3A2458"))
+        var mouth = Path()
+        mouth.move(to: CGPoint(x: 118, y: 164))
+        mouth.addQuadCurve(to: CGPoint(x: 128, y: 164), control: CGPoint(x: 123, y: 172))
+        mouth.addQuadCurve(to: CGPoint(x: 138, y: 164), control: CGPoint(x: 133, y: 172))
+        context.stroke(mouth, with: .color(Color(hex: "#4A2A6A")), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+    }
+
+    private func drawCoral(_ context: inout GraphicsContext) {
+        blob(&context, rect: CGRect(x: 24, y: 100, width: 60, height: 112))
+        blob(&context, rect: CGRect(x: 172, y: 100, width: 60, height: 112))
+        blob(&context, rect: CGRect(x: 32, y: 54, width: 192, height: 168))
+        face(&context, origin: .zero)
+    }
+}
+
 struct MausAvatar: View {
     let color: String
     var size: CGFloat = 52
     var state: MausState = .idle
-    /// Animation is OPT-IN: a mounted face costs a 30fps Canvas redraw, and a
-    /// roster of them once pegged the app (and SimRenderServer) all night.
-    /// Pass true only where motion carries meaning — a busy bot, an open
-    /// profile, the needs-you island's opening beat.
+    /// Animation is parked — the cute pack is static for this release.
     var animated: Bool = false
-    /// Comets orbiting the body — the island's "something is happening".
     var comets: Bool = false
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var engine = MausFaceEngine()
+    var style: String? = nil
 
     var body: some View {
-        // Even an opted-in face stops when the app is not active: nothing is
-        // watching, and in the background the redraws only cost battery.
-        let live = animated && !reduceMotion && scenePhase == .active
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !live)) { timeline in
-            Canvas { context, canvasSize in
-                engine.setState(state, now: timeline.date)
-                if live { engine.step(now: timeline.date) }
-                engine.draw(in: &context, size: canvasSize, color: color, bodyMotion: live, comets: comets, at: timeline.date)
-            }
-        }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
+        CuteMascotView(style: MascotStyle.resolved(style, color: color), color: color, size: size)
+            .accessibilityHidden(true)
     }
 }
 
@@ -247,14 +328,11 @@ struct MausFaceStill: View {
     /// The clock for the comets' phase; a different date is a different frame.
     var at: Date = Date()
 
+    var style: String? = nil
+
     var body: some View {
-        Canvas { context, canvasSize in
-            let engine = MausFaceEngine()
-            engine.setState(state, now: Date(timeIntervalSinceReferenceDate: 0))
-            engine.draw(in: &context, size: canvasSize, color: color, bodyMotion: false, comets: comets, at: at)
-        }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
+        CuteMascotView(style: MascotStyle.resolved(style, color: color), color: color, size: size)
+            .accessibilityHidden(true)
     }
 }
 

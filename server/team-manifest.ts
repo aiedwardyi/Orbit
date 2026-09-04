@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { mascotStyleSchema, type MascotStyle } from "../shared/bot-avatar.ts";
 import { schemaIssue, type JsonValue } from "./schema.ts";
 import type { MausColor } from "./store.ts";
 
@@ -47,6 +48,7 @@ const memberSchema = z.object({
   appearance: z.object({
     color: z.enum(COLORS, { error: "is not supported" }),
     mascotExpression: optionalText(80),
+    mascotStyle: mascotStyleSchema.optional(),
   }),
 });
 
@@ -89,6 +91,7 @@ export interface TeamManifestMember {
   appearance: {
     color: MausColor;
     mascotExpression?: string;
+    mascotStyle?: MascotStyle;
   };
 }
 
@@ -134,6 +137,7 @@ interface ExportableBot {
   description: string;
   color: MausColor;
   mascotExpression?: string | null;
+  mascotStyle?: MascotStyle;
 }
 
 interface ExportableTeam {
@@ -160,6 +164,7 @@ export function parseTeamManifest(value: TeamManifestInput): ParsedTeamManifest 
     seenKeys.add(member.key);
     const appearance: TeamManifestMember["appearance"] = { color: member.appearance.color };
     if (member.appearance.mascotExpression) appearance.mascotExpression = member.appearance.mascotExpression;
+    if (member.appearance.mascotStyle) appearance.mascotStyle = member.appearance.mascotStyle;
     return {
       key: member.key,
       name: member.name,
@@ -201,6 +206,7 @@ export interface ImportedMemberProfile {
   description: string;
   color: MausColor;
   mascotExpression?: string;
+  mascotStyle?: MascotStyle;
 }
 
 const MAX_MEMBER_NAME = 100;
@@ -254,6 +260,7 @@ export function importedMemberProfile(
     color: member.appearance.color,
   };
   if (member.appearance.mascotExpression) profile.mascotExpression = member.appearance.mascotExpression;
+  if (member.appearance.mascotStyle) profile.mascotStyle = member.appearance.mascotStyle;
   return profile;
 }
 
@@ -283,6 +290,7 @@ export function createTeamManifest(team: ExportableTeam, bots: ExportableBot[]):
     const key = memberKey(bot.name, index, usedKeys);
     const appearance: TeamManifestMember["appearance"] = { color: bot.color };
     if (bot.mascotExpression) appearance.mascotExpression = bot.mascotExpression;
+    if (bot.mascotStyle) appearance.mascotStyle = bot.mascotStyle;
     return {
       key,
       name: bot.name,

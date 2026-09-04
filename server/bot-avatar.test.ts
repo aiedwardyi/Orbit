@@ -5,6 +5,12 @@ import {
   botAvatarCropSchema,
   botAvatarUrlFromStoredPath,
   botAvatarUrlSchema,
+  DEFAULT_MASCOT_STYLE,
+  MASCOT_STYLE_ASSETS,
+  MASCOT_STYLES,
+  mascotStyleFromColor,
+  mascotStyleSchema,
+  resolveMascotStyle,
 } from "../shared/bot-avatar.ts";
 
 describe("bot avatar profile schema", () => {
@@ -38,6 +44,59 @@ describe("bot avatar profile schema", () => {
 
   it("falls back safely for malformed persisted data", () => {
     expect(botAvatarProfile({ avatarUrl: "https://example.test/pixel.png", avatarCrop: "round" }))
-      .toEqual({ avatarCrop: "mascot" });
+      .toEqual({ avatarCrop: "mascot", mascotStyle: DEFAULT_MASCOT_STYLE });
+  });
+});
+
+describe("mascot style ids", () => {
+  it("names the four approved static styles", () => {
+    expect(MASCOT_STYLES).toEqual(["peach", "teal", "lavender", "coral"]);
+    for (const style of MASCOT_STYLES) {
+      expect(mascotStyleSchema.parse(style)).toBe(style);
+      expect(MASCOT_STYLE_ASSETS[style]).toMatch(new RegExp(`${style}\\.svg$`));
+    }
+    expect(mascotStyleSchema.safeParse("arrow-head").success).toBe(false);
+    expect(mascotStyleSchema.safeParse("cursor").success).toBe(false);
+  });
+
+  it("maps existing arrow-head colors onto a cute style without rewriting the profile", () => {
+    expect(mascotStyleFromColor("red")).toBe("peach");
+    expect(mascotStyleFromColor("orange")).toBe("peach");
+    expect(mascotStyleFromColor("yellow")).toBe("peach");
+    expect(mascotStyleFromColor("green")).toBe("teal");
+    expect(mascotStyleFromColor("teal")).toBe("teal");
+    expect(mascotStyleFromColor("cyan")).toBe("teal");
+    expect(mascotStyleFromColor("blue")).toBe("lavender");
+    expect(mascotStyleFromColor("purple")).toBe("lavender");
+    expect(mascotStyleFromColor("pink")).toBe("coral");
+    expect(mascotStyleFromColor("coral")).toBe("coral");
+    expect(mascotStyleFromColor("not-a-color")).toBe("peach");
+    expect(mascotStyleFromColor(undefined)).toBe("peach");
+  });
+
+  it("keeps an explicit style and color-maps only when the stored id is missing or junk", () => {
+    expect(resolveMascotStyle("lavender", "red")).toBe("lavender");
+    expect(resolveMascotStyle(undefined, "teal")).toBe("teal");
+    expect(resolveMascotStyle("triangle", "purple")).toBe("lavender");
+    expect(resolveMascotStyle("__proto__", "green")).toBe("teal");
+  });
+
+  it("includes the resolved style on a runtime-safe avatar profile", () => {
+    expect(
+      botAvatarProfile({
+        avatarUrl: "/api/attachments/123e4567-e89b-12d3-a456-426614174000.webp",
+        avatarCrop: "circle",
+        mascotStyle: "teal",
+        color: "red",
+      }),
+    ).toEqual({
+      avatarCrop: "circle",
+      avatarUrl: "/api/attachments/123e4567-e89b-12d3-a456-426614174000.webp",
+      mascotStyle: "teal",
+    });
+    expect(botAvatarProfile({ color: "purple" })).toEqual({
+      avatarCrop: "mascot",
+      mascotStyle: "lavender",
+    });
   });
 });

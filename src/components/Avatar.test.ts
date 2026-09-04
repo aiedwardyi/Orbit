@@ -11,6 +11,8 @@ const sources = {
   "GroupView.tsx": readFileSync(join(here, "GroupView.tsx"), "utf8"),
   "TeamMapPage.tsx": readFileSync(join(here, "TeamMapPage.tsx"), "utf8"),
   "ChatView.tsx": readFileSync(join(here, "ChatView.tsx"), "utf8"),
+  "Avatar.tsx": readFileSync(join(here, "Avatar.tsx"), "utf8"),
+  "BotProfileAvatarCard.tsx": readFileSync(join(here, "BotProfileAvatarCard.tsx"), "utf8"),
 } as const;
 
 const botAvatarFloors = {
@@ -40,6 +42,21 @@ describe("bot avatar profile", () => {
     ).toEqual({
       avatarCrop: "circle",
       avatarUrl: "/api/attachments/123e4567-e89b-12d3-a456-426614174000.webp",
+      mascotStyle: "peach",
     });
+  });
+});
+
+describe("cute mascot renderer", () => {
+  it("does not wrap the Cursor arrow-head path for default bot avatars", () => {
+    expect(sources["Avatar.tsx"]).not.toContain("CursorAvatar");
+    expect(sources["Avatar.tsx"]).toContain("mascotDataUrl");
+    expect(sources["Avatar.tsx"]).toContain("mascotStyle");
+  });
+
+  it("offers styles A–D on the avatar editor instead of expression swatches", () => {
+    expect(sources["BotProfileAvatarCard.tsx"]).toContain("MASCOT_STYLES");
+    expect(sources["BotProfileAvatarCard.tsx"]).toContain("mascotStyle");
+    expect(sources["BotProfileAvatarCard.tsx"]).not.toContain("PICKABLE_STATES");
   });
 });

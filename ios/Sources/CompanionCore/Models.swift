@@ -194,6 +194,9 @@ public struct Bot: Codable, Hashable, Identifiable, Sendable {
     public var speakReplies: Bool?
     public var voice: String?
     public var mascotExpression: String?
+    /// One of peach / teal / lavender / coral. Missing or unknown values
+    /// color-map at render so an older payload still decodes.
+    public var mascotStyle: String? = nil
     public var tasks: [BotTask]?
     public var messages: [Message]?
     public var activeLeafId: String?
@@ -215,6 +218,21 @@ public enum AvatarCrop: String, Codable, CaseIterable, Hashable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)
+    }
+}
+
+public enum MascotStyle: String, CaseIterable, Hashable, Sendable {
+    case peach, teal, lavender, coral
+
+    /// Same color-map as `resolveMascotStyle` on the desktop.
+    public static func resolved(_ raw: String?, color: String) -> MascotStyle {
+        if let raw, let style = Self(rawValue: raw) { return style }
+        switch color {
+        case "green", "teal", "cyan": return .teal
+        case "blue", "purple": return .lavender
+        case "pink", "coral": return .coral
+        default: return .peach
+        }
     }
 }
 

@@ -29,7 +29,7 @@ struct BotAvatarView: View {
                     .frame(width: size, height: size)
                     .clipShape(mask)
             } else {
-                MausAvatar(color: bot.color, size: size, state: state, animated: animated, comets: comets)
+                MausAvatar(color: bot.color, size: size, state: state, animated: animated, comets: comets, style: bot.mascotStyle)
             }
         }
         .frame(width: size, height: size)

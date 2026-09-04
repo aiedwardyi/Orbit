@@ -227,6 +227,8 @@ export interface Bot {
   notifications: boolean;
   color: MausColor;
   mascotExpression?: string | null;
+  /** One of the four static cute faces; missing values color-map at render. */
+  mascotStyle?: string | null;
   /** App-owned image attachment used for this bot's profile. */
   avatarUrl?: string | null;
   /** Mascot, or the crop applied to avatarUrl. */
@@ -1156,7 +1158,8 @@ export function reducer(state: AppState, action: Action): AppState {
     case "updateBot": {
       const mascotChanged =
         Object.prototype.hasOwnProperty.call(action.patch, "color") ||
-        Object.prototype.hasOwnProperty.call(action.patch, "mascotExpression");
+        Object.prototype.hasOwnProperty.call(action.patch, "mascotExpression") ||
+        Object.prototype.hasOwnProperty.call(action.patch, "mascotStyle");
       const animated = mascotChanged
         ? withMascotMotion(state, action.botId, "customize")
         : state;
@@ -1703,6 +1706,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             computer: source.computer,
             cloudBackend: source.cloudBackend,
             autoStartVps: source.autoStartVps,
+            color: source.color,
+            mascotStyle: source.mascotStyle,
             avatarUrl: source.avatarUrl,
             avatarCrop: source.avatarCrop,
           };

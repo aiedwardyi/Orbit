@@ -68,6 +68,15 @@ final class DecodingTests: XCTestCase {
         XCTAssertEqual(newBot.speakReplies, true)
     }
 
+    func testMascotStyleColorMapsAndKeepsAnExplicitId() {
+        XCTAssertEqual(MascotStyle.resolved(nil, color: "red"), .peach)
+        XCTAssertEqual(MascotStyle.resolved(nil, color: "teal"), .teal)
+        XCTAssertEqual(MascotStyle.resolved(nil, color: "purple"), .lavender)
+        XCTAssertEqual(MascotStyle.resolved(nil, color: "pink"), .coral)
+        XCTAssertEqual(MascotStyle.resolved("lavender", color: "red"), .lavender)
+        XCTAssertEqual(MascotStyle.resolved("triangle", color: "purple"), .lavender)
+    }
+
     func testFutureAvatarCropFallsBackWithoutDroppingTheBot() throws {
         let fixture = String(decoding: try fixture("bot-avatar-profile"), as: UTF8.self)
             .replacingOccurrences(of: #""avatarCrop":"rounded""#, with: #""avatarCrop":"hexagon""#)
