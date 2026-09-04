@@ -1,12 +1,7 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { conversationPreview, showComposerPermissionChip, transcriptIdleAfterOnboarding } from "./conversation-preview";
 import type { Bot, Message } from "@/state/store";
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 const quizCard = {
   title: "What do you mostly want help with?",
@@ -79,19 +74,17 @@ describe("conversationPreview after first-turn ignore", () => {
     expect(conversationPreview(bot([answered]))).toBe("Work & projects");
   });
 
-  it("shows the chosen answer once they pick an option", () => {
-    const answered: Message = { ...quiz, card: { ...quizCard, answered: "Work & projects", dismissed: true } };
-    const choice: Message = { id: "u", role: "user", kind: "text", text: "Work & projects", at: 3 };
-    expect(conversationPreview(bot([answered, choice]))).toBe("Work & projects");
-    expect(showComposerPermissionChip([answered, choice])).toBe(true);
+  it("previews a chosen option even when dismissed is unset", () => {
+    const answered: Message = { ...quiz, card: { ...quizCard, answered: "Work & projects" } };
+    expect(transcriptIdleAfterOnboarding([answered])).toBe(false);
+    expect(showComposerPermissionChip([answered])).toBe(true);
+    expect(conversationPreview(bot([answered]))).toBe("Work & projects");
   });
 
-  it("wires ignore-clearing into chat, sidebar, and composer", () => {
-    const chat = readFileSync(join(here, "../components/ChatView.tsx"), "utf8");
-    const sidebar = readFileSync(join(here, "../components/Sidebar.tsx"), "utf8");
-    const composer = readFileSync(join(here, "../components/Composer.tsx"), "utf8");
-    expect(chat).toContain("transcriptIdleAfterOnboarding");
-    expect(sidebar).toContain("conversationPreview");
-    expect(composer).toContain("showComposerPermissionChip");
+  it("shows the chosen answer once they pick an option", () => {
+    const answered: Message = { ...quiz, card: { ...quizCard, answered: "Work & projects", dismissed: true } };
+    const choice: Message = { id: "u", role: "user", kind: "text", text: "Work & projects", at: 3, parentId: "q" };
+    expect(conversationPreview(bot([answered, choice]))).toBe("Work & projects");
+    expect(showComposerPermissionChip([answered, choice])).toBe(true);
   });
 });

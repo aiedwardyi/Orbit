@@ -35,4 +35,13 @@ describe("mascot attention after first-turn ignore", () => {
       }),
     ).toBe("idle");
   });
+
+  it("does not stay attentive after the first-turn quiz is answered", () => {
+    expect(
+      stateForBot({
+        name: "Nova",
+        messages: [{ kind: "options", card: { answered: "Work & projects" } }],
+      }),
+    ).toBe("idle");
+  });
 });
