@@ -274,15 +274,15 @@ struct CuteMascotView: View {
 
     private func drawLavender(_ context: inout GraphicsContext) {
         var leftEar = Path()
-        leftEar.move(to: CGPoint(x: 74, y: 118))
-        leftEar.addLine(to: CGPoint(x: 86, y: 64))
-        leftEar.addLine(to: CGPoint(x: 122, y: 108))
+        leftEar.move(to: CGPoint(x: 70, y: 122))
+        leftEar.addLine(to: CGPoint(x: 78, y: 48))
+        leftEar.addLine(to: CGPoint(x: 128, y: 108))
         leftEar.closeSubpath()
         context.fill(leftEar, with: .color(fill))
         var rightEar = Path()
-        rightEar.move(to: CGPoint(x: 182, y: 118))
-        rightEar.addLine(to: CGPoint(x: 170, y: 64))
-        rightEar.addLine(to: CGPoint(x: 134, y: 108))
+        rightEar.move(to: CGPoint(x: 186, y: 122))
+        rightEar.addLine(to: CGPoint(x: 178, y: 48))
+        rightEar.addLine(to: CGPoint(x: 128, y: 108))
         rightEar.closeSubpath()
         context.fill(rightEar, with: .color(fill))
         blob(&context, rect: CGRect(x: 34, y: 66, width: 188, height: 164))
@@ -295,9 +295,9 @@ struct CuteMascotView: View {
     }
 
     private func drawCoral(_ context: inout GraphicsContext) {
-        blob(&context, rect: CGRect(x: 24, y: 100, width: 60, height: 112))
-        blob(&context, rect: CGRect(x: 172, y: 100, width: 60, height: 112))
-        blob(&context, rect: CGRect(x: 32, y: 54, width: 192, height: 168))
+        blob(&context, rect: CGRect(x: 18, y: 88, width: 64, height: 128))
+        blob(&context, rect: CGRect(x: 174, y: 88, width: 64, height: 128))
+        blob(&context, rect: CGRect(x: 38, y: 58, width: 180, height: 160))
         face(&context, origin: .zero)
     }
 }

@@ -6,11 +6,11 @@
       <stop offset="100%" stop-color="{{BODY_SHADOW}}"/>
     </radialGradient>
   </defs>
-  <path id="ear-left" d="M74 118c-8-48 22-72 48-46l-14 50z" fill="url(#lavender-body)"/>
-  <path d="M86 92c2-16 16-24 26-12l-8 28z" fill="{{BODY_DEEP}}" opacity="0.45"/>
-  <path id="ear-right" d="M182 118c8-48-22-72-48-46l14 50z" fill="url(#lavender-body)"/>
-  <path d="M170 92c-2-16-16-24-26-12l8 28z" fill="{{BODY_DEEP}}" opacity="0.45"/>
-  <path d="M118 68l6 18 4-16 4 16 6-18" stroke="{{BODY_SHADOW}}" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path id="ear-left" d="M70 122c-14-62 28-86 58-48l-18 52z" fill="url(#lavender-body)"/>
+  <path d="M84 88c0-20 18-28 30-12l-10 32z" fill="{{BODY_DEEP}}" opacity="0.45"/>
+  <path id="ear-right" d="M186 122c14-62-28-86-58-48l18 52z" fill="url(#lavender-body)"/>
+  <path d="M172 88c0-20-18-28-30-12l10 32z" fill="{{BODY_DEEP}}" opacity="0.45"/>
+  <path d="M116 62l7 20 5-18 5 18 7-20" stroke="{{BODY_SHADOW}}" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
   <ellipse cx="128" cy="148" rx="94" ry="82" fill="url(#lavender-body)"/>
   <path d="M42 150c8-16 6-28-6-22 4 10 2 18 6 22z" fill="url(#lavender-body)"/>
   <path d="M214 150c-8-16-6-28 6-22-4 10-2 18-6 22z" fill="url(#lavender-body)"/>
