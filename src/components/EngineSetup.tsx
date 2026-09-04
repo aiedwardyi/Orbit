@@ -51,8 +51,8 @@ export function isApiKeySetupMessage(message: string): boolean {
 }
 
 /** Null-instance fallback: Gemini/OpenCode copy only, not "Invalid API key". */
-function isFriendsApiKeySetupMessage(message: string): boolean {
-  return /gemini api key/i.test(message) || /opencode(?:go)? api key/i.test(message);
+function isGeminiOrOpenCodeApiKeyMessage(message: string): boolean {
+  return /gemini api key/i.test(message) || /opencode(?:\s*go)? api key/i.test(message);
 }
 
 /** What a failed turn should offer: install/sign-in, paste a key, or Retry.
@@ -69,7 +69,7 @@ export function setupErrorAction(
   if (instance && needsCli(instance)) return "cli";
   if (needsApiKey(instance)) return "key";
   if (instance && isApiKeyEngine(instance) && isApiKeySetupMessage(message)) return "key";
-  if (instance == null && isFriendsApiKeySetupMessage(message)) return "key";
+  if (instance == null && isGeminiOrOpenCodeApiKeyMessage(message)) return "key";
   if (instance && needsSignIn(instance)) return "cli";
   return "retry";
 }
