@@ -162,6 +162,8 @@ describe("friends chrome call sites keep the feature code", () => {
     const resizeStart = sourceBetween(sidebar, "const onSidebarResizeStart", "const onSidebarResizeMove");
     expect(resizeStart).toContain("if (!sidebarCollapsedRef.current && density === \"icons\") return");
     expect(resizeStart).toContain("setPointerCapture");
+    const resizeKey = sourceBetween(sidebar, "const onSidebarResizeKeyDown", "useEffect(() => {");
+    expect(resizeKey).toContain("if (!sidebarCollapsedRef.current && density === \"icons\") return");
     expect(sidebar).toContain("snapSidebarDrag");
     expect(sidebar).toContain("stepSidebarLayout");
     expect(sidebar).toContain("loadSidebarCollapsed");

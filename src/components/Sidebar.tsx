@@ -1137,6 +1137,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     setResizing(false);
   };
   const onSidebarResizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!sidebarCollapsedRef.current && density === "icons") return;
     const next = stepSidebarLayout(
       { width: sidebarWidthRef.current, collapsed: sidebarCollapsedRef.current },
       event.key,
