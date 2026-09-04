@@ -89,7 +89,7 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
         <div
           ref={pickerRef}
           data-reaction-picker
-          className="absolute bottom-full left-0 z-40 mb-1.5 w-[218px] rounded-xl border border-hairline/50 bg-card p-2 shadow-2xl shadow-black/60"
+          className="absolute top-full left-0 z-40 mt-1.5 w-[218px] rounded-xl border border-hairline/50 bg-card p-2 shadow-2xl shadow-black/60"
         >
           <div className="grid grid-cols-6 gap-0.5">
             {EXTENDED_REACTIONS.map((emoji) => {
