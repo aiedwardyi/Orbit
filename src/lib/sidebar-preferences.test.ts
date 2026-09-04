@@ -61,6 +61,8 @@ describe("sidebar width preferences", () => {
     expect(stepSidebarWidth(320, "ArrowLeft")).toBe(310);
     expect(stepSidebarWidth(SIDEBAR_MIN_WIDTH, "ArrowLeft")).toBe(SIDEBAR_MIN_WIDTH);
     expect(stepSidebarWidth(SIDEBAR_MAX_WIDTH, "ArrowRight")).toBe(SIDEBAR_MAX_WIDTH);
+    expect(stepSidebarWidth(320, "Home")).toBe(SIDEBAR_MIN_WIDTH);
+    expect(stepSidebarWidth(320, "End")).toBe(SIDEBAR_MAX_WIDTH);
     expect(stepSidebarWidth(320, "ArrowUp")).toBe(null);
     expect(stepSidebarWidth(320, "Enter")).toBe(null);
   });

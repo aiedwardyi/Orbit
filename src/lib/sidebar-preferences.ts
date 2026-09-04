@@ -47,8 +47,10 @@ export function clampSidebarWidth(value: number): number {
 }
 
 export function stepSidebarWidth(current: number, key: string): number | null {
+  if (key === "Home") return SIDEBAR_MIN_WIDTH;
+  if (key === "End") return SIDEBAR_MAX_WIDTH;
   const delta = key === "ArrowRight" ? SIDEBAR_WIDTH_STEP : key === "ArrowLeft" ? -SIDEBAR_WIDTH_STEP : 0;
-  if (!delta) return null;
+  if (delta === 0) return null;
   return clampSidebarWidth(current + delta);
 }
 

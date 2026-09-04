@@ -122,6 +122,7 @@ describe("skin overlay chrome", () => {
   it("returns null when the omb-skin marker is missing or the buffer is empty", () => {
     expect(extractOmbSkin(Buffer.from("no marker here"))).toBe(null);
     expect(extractOmbSkin(Buffer.alloc(0))).toBe(null);
+    expect(extractOmbSkin(Buffer.from("xxomb-skin\u0000\u0001future-skin\u0000yy"))).toBe(null);
   });
 
   it("maps light skins to nativeTheme light and the rest dark", () => {
