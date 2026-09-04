@@ -134,6 +134,7 @@ module.exports = {
   skinChrome,
   isKnownSkin,
   skinThemeSource,
+  extractOmbSkin,
   readPersistedSkin,
   writePersistedSkin,
 };

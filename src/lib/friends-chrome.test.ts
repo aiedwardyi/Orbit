@@ -123,6 +123,28 @@ describe("friends chrome call sites keep the feature code", () => {
     expect(sidebar).toContain('t("chrome.densityAvatars")');
     expect(sidebar).toContain('t("chrome.resizeSidebar")');
     expect(sidebar).toContain("data-sidebar-resize");
+    const resizeHandle = sidebar.slice(
+      sidebar.indexOf("{density !== \"icons\" && ("),
+      sidebar.indexOf("macOS owns inset traffic lights"),
+    );
+    expect(resizeHandle).toContain("data-sidebar-resize");
+    expect(resizeHandle).toContain("tabIndex={0}");
+    expect(resizeHandle).toContain("aria-valuenow={sidebarWidth}");
+    expect(resizeHandle).toContain("aria-valuemin={SIDEBAR_MIN_WIDTH}");
+    expect(resizeHandle).toContain("aria-valuemax={SIDEBAR_MAX_WIDTH}");
+    expect(resizeHandle).toContain("aria-valuetext={`${sidebarWidth} pixels`}");
+    expect(resizeHandle).toContain("onKeyDown={onSidebarResizeKeyDown}");
+    expect(resizeHandle).toContain("onPointerUp={onSidebarResizeEnd}");
+    expect(resizeHandle).toContain("onPointerCancel={onSidebarResizeCancel}");
+    expect(resizeHandle).not.toMatch(/onPointerCancel=\{onSidebarResizeEnd\}/);
+    const resizeEnd = sidebar.match(/const onSidebarResizeEnd = \(event: PointerEvent<HTMLDivElement>\) => \{[\s\S]*?\n  \};/)?.[0] ?? "";
+    expect(resizeEnd).toContain("releasePointerCapture");
+    expect(resizeEnd).toContain("saveSidebarWidth");
+    const resizeCancel = sidebar.match(/const onSidebarResizeCancel = \(\) => \{[\s\S]*?\n  \};/)?.[0] ?? "";
+    expect(resizeCancel).toContain("setResizing(false)");
+    expect(resizeCancel).not.toContain("saveSidebarWidth");
+    expect(sidebar).toContain("stepSidebarWidth");
+    expect(sidebar).toContain("saveSidebarWidth(next)");
     expect(sidebar).toContain('t("chrome.newOrShare")');
     expect(sidebar).toContain('t("chrome.newBot")');
     expect(sidebar).toContain('t("chrome.newChannel")');

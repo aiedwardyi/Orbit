@@ -6,6 +6,7 @@ export const SIDEBAR_MIN_WIDTH = 220;
 export const SIDEBAR_MAX_WIDTH = 480;
 export const SIDEBAR_DEFAULT_WIDTH = 320;
 export const SIDEBAR_ICONS_WIDTH = 80;
+export const SIDEBAR_WIDTH_STEP = 10;
 
 export function parseSidebarDensity(value: string | null): SidebarDensity {
   switch (value) {
@@ -43,6 +44,12 @@ export function saveSidebarDensity(
 export function clampSidebarWidth(value: number): number {
   if (!Number.isFinite(value)) return SIDEBAR_DEFAULT_WIDTH;
   return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(value)));
+}
+
+export function stepSidebarWidth(current: number, key: string): number | null {
+  const delta = key === "ArrowRight" ? SIDEBAR_WIDTH_STEP : key === "ArrowLeft" ? -SIDEBAR_WIDTH_STEP : 0;
+  if (!delta) return null;
+  return clampSidebarWidth(current + delta);
 }
 
 export function parseSidebarWidth(value: string | null): number {
