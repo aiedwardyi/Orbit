@@ -258,7 +258,12 @@ struct CuteMascotView: View {
         ))
     }
 
-    private func face(_ context: inout GraphicsContext, origin: CGPoint, eyeColor: Color = Color(hex: "#1A1210")) {
+    private func face(
+        _ context: inout GraphicsContext,
+        origin: CGPoint,
+        eyeColor: Color = Color(hex: "#1A1210"),
+        smile: Bool = true
+    ) {
         context.fill(Path(ellipseIn: CGRect(x: origin.x + 84, y: origin.y + 114, width: 32, height: 32)), with: .color(eyeColor))
         context.fill(Path(ellipseIn: CGRect(x: origin.x + 140, y: origin.y + 114, width: 32, height: 32)), with: .color(eyeColor))
         context.fill(Path(ellipseIn: CGRect(x: origin.x + 89, y: origin.y + 118, width: 11, height: 11)), with: .color(.white))
@@ -267,10 +272,11 @@ struct CuteMascotView: View {
         context.fill(Path(ellipseIn: CGRect(x: origin.x + 161, y: origin.y + 135, width: 5, height: 5)), with: .color(.white))
         context.fill(Path(ellipseIn: CGRect(x: origin.x + 63, y: origin.y + 143, width: 34, height: 18)), with: .color(Color(hex: "#F4A0B4").opacity(0.5)))
         context.fill(Path(ellipseIn: CGRect(x: origin.x + 159, y: origin.y + 143, width: 34, height: 18)), with: .color(Color(hex: "#F4A0B4").opacity(0.5)))
-        var smile = Path()
-        smile.move(to: CGPoint(x: origin.x + 116, y: origin.y + 156))
-        smile.addQuadCurve(to: CGPoint(x: origin.x + 140, y: origin.y + 156), control: CGPoint(x: origin.x + 128, y: origin.y + 170))
-        context.stroke(smile, with: .color(Color(hex: "#3A241C")), style: StrokeStyle(lineWidth: 3.3, lineCap: .round))
+        guard smile else { return }
+        var smilePath = Path()
+        smilePath.move(to: CGPoint(x: origin.x + 116, y: origin.y + 156))
+        smilePath.addQuadCurve(to: CGPoint(x: origin.x + 140, y: origin.y + 156), control: CGPoint(x: origin.x + 128, y: origin.y + 170))
+        context.stroke(smilePath, with: .color(Color(hex: "#3A241C")), style: StrokeStyle(lineWidth: 3.3, lineCap: .round))
     }
 
     private func drawPeach(_ context: inout GraphicsContext) {
@@ -285,7 +291,7 @@ struct CuteMascotView: View {
         context.fill(Path(ellipseIn: CGRect(x: 78, y: 168, width: 15, height: 15)), with: .color(deep.opacity(0.42)))
         context.fill(Path(ellipseIn: CGRect(x: 98, y: 184, width: 12, height: 12)), with: .color(deep.opacity(0.36)))
         context.fill(Path(ellipseIn: CGRect(x: 73, y: 189, width: 10, height: 10)), with: .color(deep.opacity(0.32)))
-        face(&context, origin: .zero)
+        face(&context, origin: .zero, smile: false)
         context.fill(Path(ellipseIn: CGRect(x: 117, y: 153, width: 22, height: 18)), with: .color(Color(hex: "#8B3040")))
     }
 
@@ -303,7 +309,7 @@ struct CuteMascotView: View {
         rightEar.closeSubpath()
         context.fill(rightEar, with: .color(fill))
         blob(&context, rect: CGRect(x: 34, y: 66, width: 188, height: 164))
-        face(&context, origin: .zero, eyeColor: Color(hex: "#3A2458"))
+        face(&context, origin: .zero, eyeColor: Color(hex: "#3A2458"), smile: false)
         var mouth = Path()
         mouth.move(to: CGPoint(x: 118, y: 164))
         mouth.addQuadCurve(to: CGPoint(x: 128, y: 164), control: CGPoint(x: 123, y: 172))

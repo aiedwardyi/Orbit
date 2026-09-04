@@ -54,6 +54,7 @@ export function BotProfileAvatarCard({
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const crop = bot.avatarCrop ?? "mascot";
+  const selectedStyle = resolveMascotStyle(bot.mascotStyle, bot.color);
   const cropRef = useRef(crop);
   cropRef.current = crop;
   const imageConfigured = state.config?.imageGen?.configured === true;
@@ -228,11 +229,11 @@ export function BotProfileAvatarCard({
                 <button
                   key={style}
                   type="button"
-                  aria-pressed={resolveMascotStyle(bot.mascotStyle, bot.color) === style}
+                  aria-pressed={selectedStyle === style}
                   onClick={() => onPatch({ mascotStyle: style })}
                   className={cn(
                     "flex h-[70px] items-center justify-center rounded-xl bg-inset transition-colors hover:bg-control",
-                    resolveMascotStyle(bot.mascotStyle, bot.color) === style && "ring-2 ring-accent-border",
+                    selectedStyle === style && "ring-2 ring-accent-border",
                   )}
                   title={MASCOT_STYLE_LABELS[style]}
                   aria-label={`Use ${MASCOT_STYLE_LABELS[style]} mascot`}
