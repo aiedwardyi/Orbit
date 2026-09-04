@@ -12,6 +12,8 @@
 //                                          the peer's reply as its own turn
 //   create_bot(name, role, instructions) → Chiefs can add a specialist to
 //                                          their own section
+//   create_channel(name, member_ids, …)  → open a shared room with existing
+//                                          bots (self is added automatically)
 //   request_credential(id, reason?)       → show a secure, allowlisted key card
 //   list_routines()                       → inspect this bot's scheduled work
 //   propose_routine(...)                  → show a confirmation card for a new routine
@@ -306,7 +308,7 @@ const TOOLS = [
   {
     name: "create_bot",
     description:
-      "Create a specialist bot in your section. Only a section's Chief of Staff may use this. The new bot inherits the Chief's engine, starts with connected apps and automatic approvals disabled, and can then receive work through delegate_bot. Create only the smallest useful team (maximum four per turn).",
+      "Create a specialist bot in your section. Only a section's Chief of Staff may use this. The new bot inherits the Chief's engine, starts with connected apps and automatic approvals disabled, and can then receive work through delegate_bot. Create only the smallest useful team (maximum four per turn). If the user asked for a shared channel or two-bot room, call create_channel next with this bot in member_ids — do not leave them only in the new bot's 1:1.",
     inputSchema: {
       type: "object",
       properties: {
@@ -315,6 +317,25 @@ const TOOLS = [
         instructions: { type: "string", description: "What this specialist is responsible for and how it should work." },
       },
       required: ["name", "role", "instructions"],
+    },
+  },
+  {
+    name: "create_channel",
+    description:
+      "Create a shared channel (room) with existing bots. Use this when the user asks to start a two-bot channel, a group chat, or a room. Never scan ports, environment variables, or localhost APIs — call this tool. Include the other bot(s) in member_ids; you are added automatically if omitted. After create_bot, call this so the user talks in the room rather than only in the new bot's 1:1. ask_bot remains the way to talk to a peer this turn.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Channel name shown in the sidebar." },
+        member_ids: {
+          type: "array",
+          items: { type: "string" },
+          description: "Bot ids to include (from list_bots or create_bot). You are added automatically if omitted.",
+        },
+        section: { type: "string", description: "Optional sidebar section. Defaults to your section." },
+        bulletin: { type: "string", description: "Optional shared instructions for everyone in the room." },
+      },
+      required: ["name", "member_ids"],
     },
   },
   {
@@ -576,7 +597,41 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
     });
     createdThisTurn += 1;
     return {
-      text: `Created @${r.name ?? botName} in ${r.section ?? "General"} [id: ${r.id}]. Assign work with ask_bot if you must report back this turn, otherwise delegate_bot.`,
+      text: `Created @${r.name ?? botName} in ${r.section ?? "General"} [id: ${r.id}]. If the user asked for a shared channel or two-bot room, call create_channel next with this bot in member_ids. Assign work with ask_bot if you must report back this turn, otherwise delegate_bot.`,
+    };
+  }
+  if (name === "create_channel") {
+    const channelName = String(args.name ?? "").trim();
+    const rawIds = Array.isArray(args.member_ids)
+      ? args.member_ids
+      : Array.isArray(args.memberIds)
+        ? args.memberIds
+        : null;
+    if (!channelName) {
+      return { text: "create_channel needs name and member_ids.", isError: true };
+    }
+    if (!rawIds) {
+      return {
+        text: "create_channel needs member_ids: a list of bot ids. Include the other bot(s); you are added automatically.",
+        isError: true,
+      };
+    }
+    const memberIds = [...new Set(rawIds.map((id) => String(id).trim()).filter(Boolean))];
+    if (!memberIds.length) {
+      return { text: "create_channel needs member_ids: a list of bot ids.", isError: true };
+    }
+    const body: Json = {
+      fromBotId: BOT_ID,
+      fromThreadId: THREAD_ID,
+      name: channelName,
+      memberIds,
+    };
+    if (typeof args.section === "string" && args.section.trim()) body.section = args.section.trim();
+    if (typeof args.bulletin === "string") body.bulletin = args.bulletin;
+    const r = await api("/api/internal/create-channel", { method: "POST", body: JSON.stringify(body) });
+    const members = Array.isArray(r.memberIds) ? (r.memberIds as string[]).join(", ") : memberIds.join(", ");
+    return {
+      text: `Created channel “${r.name ?? channelName}” [id: ${r.id}]. Members: ${members}. Tell the user to open this channel for the shared room. Use ask_bot if you need a peer's reply this turn — do not leave them only in a new bot's 1:1.`,
     };
   }
   if (name === "request_credential") {

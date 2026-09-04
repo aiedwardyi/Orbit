@@ -883,6 +883,167 @@ describe("harness HTTP API", () => {
     }
   });
 
+  it("lets a bot with agents tools create a two-bot channel that mirrors UI group constraints", async () => {
+    const chief = (await api("POST", "/api/bots")).body.bot;
+    const peer = (await api("POST", "/api/bots")).body.bot;
+    const otherSection = (await api("POST", "/api/bots")).body.bot;
+    const createdChannelIds: string[] = [];
+    try {
+      expect((await api("PATCH", `/api/bots/${chief.id}`, {
+        name: "Skye",
+        section: "Channel tool test",
+        chiefOfStaff: true,
+        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      })).status).toBe(200);
+      expect((await api("PATCH", `/api/bots/${peer.id}`, {
+        name: "Nova",
+        section: "Channel tool test",
+      })).status).toBe(200);
+      expect((await api("PATCH", `/api/bots/${otherSection.id}`, {
+        name: "Elsewhere",
+        section: "Personal",
+      })).status).toBe(200);
+
+      rmSync(fakeClaudeDump, { force: true });
+      expect((await api("POST", `/api/bots/${chief.id}/messages`, { text: "prepare a two-bot room" })).status).toBe(202);
+      await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 5_000 }).toBe(true);
+      const dump = z.object({
+        mcpConfig: z.object({
+          mcpServers: z.object({
+            agents: z.object({ env: z.object({ OMB_COMMS_TOKEN: z.string() }) }),
+          }),
+        }),
+      }).parse(JSON.parse(readFileSync(fakeClaudeDump, "utf8")));
+      const internalHeaders = {
+        authorization: `Bearer ${dump.mcpConfig.mcpServers.agents.env.OMB_COMMS_TOKEN}`,
+        "content-type": "application/json",
+      };
+      expect((await api("POST", `/api/bots/${chief.id}/interrupt`)).status).toBe(200);
+
+      const createChannel = async (body: Record<string, unknown>, fromThreadId = chief.threadId) => {
+        const response = await fetch(`${BASE}/api/internal/create-channel`, {
+          method: "POST",
+          headers: internalHeaders,
+          body: JSON.stringify({ fromBotId: chief.id, fromThreadId, ...body }),
+        });
+        const parsed = z.object({
+          id: z.string().optional(),
+          name: z.string().optional(),
+          memberIds: z.array(z.string()).optional(),
+          section: z.string().optional(),
+          threadId: z.string().optional(),
+          error: z.string().optional(),
+        }).passthrough().parse(await response.json());
+        if (response.status === 201 && parsed.id) createdChannelIds.push(parsed.id);
+        return { status: response.status, body: parsed };
+      };
+
+      const created = await createChannel({
+        name: "Skye & Nova",
+        memberIds: [peer.id],
+        bulletin: "  Peer talk lives here.  ",
+      });
+      expect(created.status).toBe(201);
+      expect(created.body).toMatchObject({
+        name: "Skye & Nova",
+        memberIds: [chief.id, peer.id],
+        section: "Channel tool test",
+      });
+      const room = (await api("GET", "/api/bots?messages=0")).body.groups.find(
+        (group: { id: string }) => group.id === created.body.id,
+      );
+      expect(room.setupCompletedAt).toBeTruthy();
+      expect(room.defaultResponder).toEqual({ kind: "member", botId: chief.id });
+      expect(room.bulletin).toBe("Peer talk lives here.");
+      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "hello room" })).status).toBe(202);
+      expect((await api("POST", `/api/groups/${room.id}/interrupt`)).status).toBe(200);
+
+      const tooLong = await createChannel({ name: "N".repeat(101), memberIds: [peer.id] });
+      expect(tooLong).toEqual({ status: 400, body: { error: "channel name must be at most 100 characters" } });
+
+      const unknown = await createChannel({ name: "Missing", memberIds: ["no-such-bot"] });
+      expect(unknown.status).toBe(400);
+      expect(unknown.body.error).toMatch(/unknown channel member/);
+
+      const crossSection = await createChannel({ name: "Cross", memberIds: [otherSection.id] });
+      expect(crossSection).toEqual({
+        status: 403,
+        body: { error: "that bot belongs to a different section" },
+      });
+
+      const emptyMembers = await createChannel({ name: "Empty", memberIds: [] });
+      expect(emptyMembers.status).toBe(400);
+      expect(emptyMembers.body.error).toMatch(/at least one bot/);
+
+      const notAnObject = await fetch(`${BASE}/api/internal/create-channel`, {
+        method: "POST",
+        headers: internalHeaders,
+        body: "null",
+      });
+      expect(notAnObject.status).toBe(400);
+      expect(await notAnObject.json()).toEqual({ error: "channel must be a JSON object" });
+
+      const sectionType = await createChannel({ name: "Typed", memberIds: [peer.id], section: 12 });
+      expect(sectionType).toEqual({ status: 400, body: { error: "section must be a string" } });
+
+      const sectionLength = await createChannel({
+        name: "Long section",
+        memberIds: [peer.id],
+        section: "S".repeat(61),
+      });
+      expect(sectionLength).toEqual({
+        status: 400,
+        body: { error: "section must be at most 60 characters" },
+      });
+
+      expect((await api("PATCH", `/api/bots/${otherSection.id}`, {
+        section: "Channel tool test",
+        hidden: true,
+      })).status).toBe(200);
+      const archived = await createChannel({ name: "Archived", memberIds: [otherSection.id] });
+      expect(archived.status).toBe(400);
+      expect(archived.body.error).toMatch(/unknown channel member/);
+
+      const stolen = await fetch(`${BASE}/api/internal/create-channel`, {
+        method: "POST",
+        headers: internalHeaders,
+        body: JSON.stringify({
+          fromBotId: chief.id,
+          fromThreadId: peer.threadId,
+          name: "Stolen thread",
+          memberIds: [peer.id],
+        }),
+      });
+      expect(stolen.status).toBe(403);
+      expect(await stolen.json()).toEqual({ error: "source conversation does not belong to sender" });
+
+      const outsider = await fetch(`${BASE}/api/internal/create-channel`, {
+        method: "POST",
+        headers: internalHeaders,
+        body: JSON.stringify({
+          fromBotId: peer.id,
+          fromThreadId: peer.threadId,
+          name: "Nova's room",
+          memberIds: [chief.id],
+        }),
+      });
+      const outsiderBody = z.object({
+        id: z.string().optional(),
+        memberIds: z.array(z.string()).optional(),
+        error: z.string().optional(),
+      }).passthrough().parse(await outsider.json());
+      if (outsider.status === 201 && outsiderBody.id) createdChannelIds.push(outsiderBody.id);
+      expect(outsider.status).toBe(201);
+      expect(outsiderBody.memberIds).toEqual([peer.id, chief.id]);
+    } finally {
+      await api("POST", `/api/bots/${chief.id}/interrupt`);
+      for (const id of createdChannelIds) await api("DELETE", `/api/groups/${id}`);
+      await api("DELETE", `/api/bots/${otherSection.id}`);
+      await api("DELETE", `/api/bots/${peer.id}`);
+      await api("DELETE", `/api/bots/${chief.id}`);
+    }
+  });
+
   it("rejects null and array task, channel, and bot mutation bodies", async () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
     const room = (await api("POST", "/api/groups", { name: "Object bodies", memberIds: [bot.id] })).body.group;

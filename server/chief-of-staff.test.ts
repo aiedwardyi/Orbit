@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { chiefOfStaffSystemPrompt } from "./chief-of-staff.ts";
+import { chiefOfStaffSystemPrompt, peerAgentsSystemPrompt } from "./chief-of-staff.ts";
 
 // Two describe blocks below assert on index.ts SOURCE rather than behaviour.
 // runClaimedGroupMemberTurn and automaticRequirements are both private, and the
@@ -66,6 +66,9 @@ describe("chiefOfStaffSystemPrompt", () => {
     expect(prompt).not.toContain("Atlas —");
     expect(prompt).toContain("Use ask_bot");
     expect(prompt).toContain("use create_bot");
+    expect(prompt).toContain("create_channel");
+    expect(prompt).toMatch(/Never scan the environment, ports, or processes/);
+    expect(prompt).toMatch(/never invent localhost APIs/i);
   });
 
   it("does not promise delegation when the engine cannot mount agent tools", () => {
@@ -73,16 +76,22 @@ describe("chiefOfStaffSystemPrompt", () => {
 
     expect(prompt).toContain("cannot contact teammates");
     expect(prompt).not.toContain("Use ask_bot");
+    expect(prompt).not.toContain("create_channel");
   });
 
-  it("does not tell a solo Chief to scan the roster or spawn bots", () => {
+  it("does not tell a solo Chief to scan the roster or spawn bots unasked", () => {
     const prompt = chiefOfStaffSystemPrompt("chief", [{ id: "chief", name: "Clover", section: "Work" }], true);
 
     expect(prompt).toContain("Chief of Staff for the Work section");
     expect(prompt).toMatch(/Answer the user directly/i);
     expect(prompt).not.toMatch(/list_bots/);
-    expect(prompt).not.toMatch(/create_bot/);
     expect(prompt).not.toContain("No other visible bots are available yet.");
+    // tools stay unnamed for idle turns, but a two-bot-channel ask must have
+    // a named path — otherwise the Chief greps the repo and probes :8799
+    expect(prompt).toMatch(/If they ask[\s\S]*create_bot/);
+    expect(prompt).toContain("create_channel");
+    expect(prompt).toMatch(/Never scan the environment, ports, or processes/);
+    expect(prompt).toMatch(/never invent localhost APIs/i);
   });
 
   it("tells an in-room Chief to spawn directly instead of probing the machine", () => {
@@ -91,6 +100,7 @@ describe("chiefOfStaffSystemPrompt", () => {
     expect(prompt).toContain("shared room");
     expect(prompt).toContain("call create_bot directly");
     expect(prompt).toContain("joins this section, not this room");
+    expect(prompt).toContain("create_channel");
     // delegate_bot cannot report back inside this turn; ask_bot is the one that waits
     // the hasTeam delegation paragraph above still says "then use delegate_bot",
     // and create_bot's tool result names it too, so the room override has to
@@ -105,7 +115,7 @@ describe("chiefOfStaffSystemPrompt", () => {
     const directPrompt = chiefOfStaffSystemPrompt("chief", bots, true);
 
     expect(directPrompt).not.toContain("shared room");
-    expect(directPrompt).not.toMatch(/Never scan the environment/);
+    expect(directPrompt).toMatch(/Never scan the environment/);
     // the property is "1:1 loses nothing, the room gains framing", not a line
     // count: roomDiscipline joins with spaces today but must be free to change
     const direct = directPrompt.split("\n");
@@ -120,17 +130,28 @@ describe("chiefOfStaffSystemPrompt", () => {
     expect(prompt).toContain("cannot contact teammates");
     expect(prompt).not.toContain("shared room");
     expect(prompt).not.toContain("create_bot");
+    expect(prompt).not.toContain("create_channel");
   });
 
-  it("keeps the solo-Chief tool wall shut in a room", () => {
+  it("keeps the solo-Chief idle wall shut in a room but names the asked path", () => {
     const prompt = chiefOfStaffSystemPrompt("chief", [{ id: "chief", name: "Clover", section: "Work" }], true, "", true);
 
     expect(prompt).toMatch(/Answer the user directly/i);
     expect(prompt).toContain("shared room");
-    // the empty-team branch owns whether to spawn at all; the room line only
-    // governs how, so it must not reintroduce the tool it deliberately omits
-    expect(prompt).not.toMatch(/create_bot/);
     expect(prompt).not.toMatch(/list_bots/);
+    expect(prompt).toMatch(/If they ask[\s\S]*create_bot/);
+    expect(prompt).toContain("create_channel");
+  });
+
+  it("tells any agents-tool bot to create a channel instead of probing localhost", () => {
+    const prompt = peerAgentsSystemPrompt();
+
+    expect(prompt).toContain("list_bots");
+    expect(prompt).toContain("ask_bot");
+    expect(prompt).toContain("create_channel");
+    expect(prompt).toMatch(/Never scan the environment, ports, or processes/);
+    expect(prompt).toMatch(/never invent localhost APIs/i);
+    expect(prompt).not.toContain("create_bot");
   });
 
   it("includes trusted OpenMaus status only when the Chief caller supplies it", () => {
@@ -162,6 +183,15 @@ describe("room turns mount the Chief framing", () => {
     expect(roomTurn).toMatch(
       /coordinationPrompt = bot\.chiefOfStaff[\s\S]*?openMausStatusSystemPrompt\(\),\s*true,/,
     );
+  });
+});
+
+describe("1:1 turns mount the agents-tool channel path", () => {
+  it("uses the shared peer-agents prompt instead of an inline tool list", () => {
+    const start = index.indexOf("const tagged = integrations.agents");
+    const slice = index.slice(start, start + 2500);
+    expect(slice).toContain("peerAgentsSystemPrompt()");
+    expect(slice).not.toContain("You can work with the other bots in your section through the agents tools");
   });
 });
 

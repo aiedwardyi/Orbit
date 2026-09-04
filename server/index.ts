@@ -44,7 +44,7 @@ import * as box from "./box.ts";
 import { cloudBackendChangeError, vpsAliasChangeError } from "./cloud-backend.ts";
 import * as composio from "./composio.ts";
 import { isUtilityShutdownMessage } from "./utility-parent.ts";
-import { chiefOfStaffSystemPrompt } from "./chief-of-staff.ts";
+import { chiefOfStaffSystemPrompt, peerAgentsSystemPrompt } from "./chief-of-staff.ts";
 import { openMausStatusSystemPrompt } from "./openmaus-status-capsule.ts";
 import {
   containerComputerAction,
@@ -2549,7 +2549,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
             openMausStatusSystemPrompt(),
           )
         : integrations.agents && sectionPeers.length > 0
-          ? "You can work with the other bots in your section through the agents tools — list_bots shows who's available, ask_bot sends one of them a message and returns their reply."
+          ? peerAgentsSystemPrompt()
           : "";
       const credentialPrompt = integrations.agents
         ? " If a supported API key is missing, use request_credential to show the secure in-app card. Never ask the user to paste credentials into chat."
@@ -3316,7 +3316,9 @@ async function runClaimedGroupMemberTurn(
         openMausStatusSystemPrompt(),
         true,
       )
-    : "";
+    : integrations.agents
+      ? peerAgentsSystemPrompt()
+      : "";
   const system = [
     `You are ${bot.name}, a bot in the room "${group.name}" in Orbit.`,
     bot.title && `Role: ${bot.title}.`,
@@ -4479,6 +4481,69 @@ const server = createServer(async (req, res) => {
           title: safeBot.title,
           section: safeBot.section || "General",
           model: safeBot.modelSelection.model,
+        });
+      }
+      if (method === "POST" && path === "/api/internal/create-channel") {
+        const body = await readBody(req);
+        if (!body || typeof body !== "object" || Array.isArray(body)) {
+          return json(res, 400, { error: "channel must be a JSON object" });
+        }
+        const fromBotId = String(body.fromBotId ?? "");
+        const sender = store.bot(fromBotId);
+        if (!sender) return json(res, 403, { error: "unknown sender" });
+        const fromThreadId = String(body.fromThreadId ?? sender.threadId);
+        if (!connectorThread(sender.id, fromThreadId)) {
+          return json(res, 403, { error: "source conversation does not belong to sender" });
+        }
+        if (!Array.isArray(body.memberIds) || body.memberIds.length === 0) {
+          return json(res, 400, { error: "a channel needs at least one bot" });
+        }
+        const roster = checkedMemberIds(body.memberIds);
+        if (!roster.ok) return json(res, 400, { error: roster.error });
+        const memberIds = [...new Set([sender.id, ...roster.memberIds])];
+        for (const id of memberIds) {
+          const member = store.bot(id);
+          if (!member || member.hidden) {
+            return json(res, 400, { error: `unknown channel member: ${id}` });
+          }
+          if (sectionKey(member.section) !== sectionKey(sender.section)) {
+            return json(res, 403, { error: "that bot belongs to a different section" });
+          }
+        }
+        if (body.name !== undefined && typeof body.name !== "string") {
+          return json(res, 400, { error: "channel name must be a string" });
+        }
+        const name = typeof body.name === "string" && body.name.trim()
+          ? body.name.trim()
+          : `${store.bot(memberIds[0])!.name} & co.`;
+        if (name.length > 100) return json(res, 400, { error: "channel name must be at most 100 characters" });
+        let section: string | undefined = sender.section;
+        if (body.section !== undefined && body.section !== null) {
+          if (typeof body.section !== "string") return json(res, 400, { error: "section must be a string" });
+          section = body.section.trim() || undefined;
+          if (section && section.length > 60) {
+            return json(res, 400, { error: "section must be at most 60 characters" });
+          }
+        }
+        let bulletin = "";
+        if (body.bulletin !== undefined) {
+          if (typeof body.bulletin !== "string") return json(res, 400, { error: "bulletin must be a string" });
+          bulletin = body.bulletin.trim();
+          if (bulletin.length > 12_000) {
+            return json(res, 400, { error: "setup.bulletin must be at most 12000 characters" });
+          }
+        }
+        const group = store.createGroup(name, memberIds, false, section, {
+          bulletin,
+          defaultResponder: { kind: "member", botId: memberIds[0] },
+          completed: true,
+        });
+        return json(res, 201, {
+          id: group.id,
+          name: group.name,
+          memberIds: group.memberIds,
+          section: group.section || "General",
+          threadId: group.threadId,
         });
       }
       if (method === "POST" && path === "/api/internal/request-credential") {

@@ -23,6 +23,7 @@ let lastDelegationUrl: string | null = null;
 let delegationStatusResponse: unknown = { status: "done", toBotName: "Helper", result: "All done." };
 let delegateResponse: unknown = { queued: true, message: "Delegation queued." };
 let lastCreateBody: any = null;
+let lastCreateChannelBody: any = null;
 let lastCredentialBody: any = null;
 let lastRoutineQuery = "";
 let routinesResponse: unknown = {
@@ -118,6 +119,24 @@ beforeAll(async () => {
       });
       return;
     }
+    if (req.method === "POST" && req.url === "/api/internal/create-channel") {
+      let data = "";
+      req.on("data", (c) => (data += c));
+      req.on("end", () => {
+        lastCreateChannelBody = JSON.parse(data);
+        res.writeHead(201, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            id: "channel-two-bot",
+            name: lastCreateChannelBody.name,
+            memberIds: ["bot-asker", ...(lastCreateChannelBody.memberIds ?? [])],
+            section: lastCreateChannelBody.section ?? "Work",
+            threadId: "thread-channel-two-bot",
+          }),
+        );
+      });
+      return;
+    }
     if (req.method === "POST" && req.url === "/api/internal/request-credential") {
       let data = "";
       req.on("data", (c) => (data += c));
@@ -204,6 +223,7 @@ describe("agents-proxy MCP surface", () => {
       "check_delegation",
       "wait_delegation",
       "create_bot",
+      "create_channel",
       "request_credential",
       "list_routines",
       "propose_routine",
@@ -344,6 +364,7 @@ describe("agents-proxy MCP surface", () => {
       instructions: "Design and review the user experience.",
     });
     expect(res.result.content[0].text).toContain("Created @Pixel in Work");
+    expect(res.result.content[0].text).toContain("create_channel");
     expect(lastCreateBody).toEqual({
       fromBotId: "bot-asker",
       fromThreadId: "thread-asker-routine",
@@ -351,6 +372,54 @@ describe("agents-proxy MCP surface", () => {
       role: "Product designer",
       instructions: "Design and review the user experience.",
     });
+  });
+
+  it("create_channel tells the model to call the tool instead of scanning localhost", async () => {
+    const list = await rpc("tools/list");
+    const tool = list.result.tools.find((t: { name: string }) => t.name === "create_channel");
+    expect(tool).toBeTruthy();
+    expect(tool.description).toMatch(/two-bot channel|shared channel|shared room/i);
+    expect(tool.description).toMatch(/Never scan/i);
+    expect(tool.description).toContain("ask_bot");
+    expect(tool.inputSchema.required).toEqual(["name", "member_ids"]);
+    expect(JSON.stringify(tool.inputSchema)).not.toMatch(/"oneOf"|"anyOf"|"allOf"|"const"/);
+  });
+
+  it("forwards a two-bot channel to the harness and points the user at the room", async () => {
+    lastCreateChannelBody = null;
+    const res = await callTool("create_channel", {
+      name: "Skye & Nova",
+      member_ids: ["bot-designer"],
+      section: "Work",
+      bulletin: "Talk here, not in 1:1.",
+    });
+    expect(lastCreateChannelBody).toEqual({
+      fromBotId: "bot-asker",
+      fromThreadId: "thread-asker-routine",
+      name: "Skye & Nova",
+      memberIds: ["bot-designer"],
+      section: "Work",
+      bulletin: "Talk here, not in 1:1.",
+    });
+    expect(res.result.content[0].text).toContain("Created channel");
+    expect(res.result.content[0].text).toContain("Skye & Nova");
+    expect(res.result.content[0].text).toContain("channel-two-bot");
+    expect(res.result.content[0].text).toMatch(/ask_bot/i);
+    expect(res.result.content[0].text).toMatch(/1:1/);
+    expect(res.result.isError).toBeFalsy();
+  });
+
+  it("rejects create_channel without a name or members before calling the harness", async () => {
+    lastCreateChannelBody = null;
+    const missingName = await callTool("create_channel", { member_ids: ["bot-designer"] });
+    expect(missingName.result.isError).toBe(true);
+    expect(missingName.result.content[0].text).toContain("name");
+    expect(lastCreateChannelBody).toBeNull();
+
+    const missingMembers = await callTool("create_channel", { name: "Empty" });
+    expect(missingMembers.result.isError).toBe(true);
+    expect(missingMembers.result.content[0].text).toContain("member_ids");
+    expect(lastCreateChannelBody).toBeNull();
   });
 
   it("requests an allowlisted credential without putting a secret in the request", async () => {
