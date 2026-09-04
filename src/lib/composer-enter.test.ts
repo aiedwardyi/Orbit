@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { composerEnterIntent } from "./composer-enter";
+import { composerEnterIntent, isComposerEnterKey } from "./composer-enter";
 
 function enter(
   overrides: {
@@ -21,6 +21,16 @@ function enter(
 }
 
 const idle = { composing: false, justEnded: false };
+
+describe("isComposerEnterKey", () => {
+  it("matches Enter and NumpadEnter, including NumpadEnter without key Enter", () => {
+    expect(isComposerEnterKey({ key: "Enter" })).toBe(true);
+    expect(isComposerEnterKey({ key: "Enter", code: "NumpadEnter" })).toBe(true);
+    expect(isComposerEnterKey({ key: "Unidentified", code: "NumpadEnter" })).toBe(true);
+    expect(isComposerEnterKey({ key: "Tab", code: "Tab" })).toBe(false);
+    expect(isComposerEnterKey({ key: "Unidentified", code: "Enter" })).toBe(false);
+  });
+});
 
 describe("composerEnterIntent", () => {
   it("sends on plain Enter when the composer is idle", () => {
@@ -55,6 +65,7 @@ describe("composerEnterIntent", () => {
 
   it("sends NumpadEnter the same as Enter", () => {
     expect(composerEnterIntent(enter({ code: "NumpadEnter", keyCode: 13 }), idle)).toBe("send");
+    expect(composerEnterIntent(enter({ key: "Unidentified", code: "NumpadEnter", keyCode: 13 }), idle)).toBe("send");
   });
 
   it("does not treat code Enter alone as a send key", () => {

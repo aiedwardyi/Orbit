@@ -38,7 +38,7 @@ import { normalizeState } from "@/lib/mascot";
 import { groupComposerHint, roomRespondersForComposer } from "@/lib/group-routing";
 import { PendingApprovalActions, PendingApprovalPanel, pendingApprovals } from "./PendingApproval";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
-import { composerEnterIntent } from "@/lib/composer-enter";
+import { composerEnterIntent, isComposerEnterKey } from "@/lib/composer-enter";
 import { useI18n } from "@/lib/i18n";
 import { ReplyQuote } from "./ReplyQuote";
 
@@ -823,6 +823,7 @@ export function Composer({
           }}
           onBlur={() => {
             composingRef.current = false;
+            compositionEndedAtRef.current = 0;
           }}
           onKeyDown={(e) => {
             if (pickerOpen) {
@@ -832,7 +833,7 @@ export function Composer({
                 setHighlight((h) => (h + delta + candidates.length) % candidates.length);
                 return;
               }
-              if (e.key === "Enter" || e.key === "Tab") {
+              if (isComposerEnterKey(e) || e.key === "Tab") {
                 e.preventDefault();
                 pickMention(candidates[highlight]);
                 return;
