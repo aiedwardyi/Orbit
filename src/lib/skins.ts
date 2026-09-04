@@ -4,7 +4,16 @@
 // that keeps the two halves from drifting apart, and it means adding a skin is
 // one CSS block plus one line in SKINS.
 
-export const SKIN_IDS = ["midnight", "atelier", "foundry", "lagoon", "ledger"] as const;
+export const SKIN_IDS = [
+  "midnight",
+  "atelier",
+  "foundry",
+  "lagoon",
+  "ledger",
+  "catppuccin-mocha",
+  "tokyo-night",
+  "vesper",
+] as const;
 export type SkinId = (typeof SKIN_IDS)[number];
 
 export type Skin = {
@@ -20,6 +29,9 @@ export const SKINS: readonly Skin[] = [
   { id: "foundry", name: "Foundry", tagline: "Night shift. Dark, warm, lit in brass." },
   { id: "lagoon", name: "Lagoon", tagline: "Cool daylight. Porcelain and deep teal." },
   { id: "ledger", name: "Ledger", tagline: "Neutral daylight. Stone and ink." },
+  { id: "catppuccin-mocha", name: "Catppuccin Mocha", tagline: "Soft pastel on navy." },
+  { id: "tokyo-night", name: "Tokyo Night", tagline: "Indigo night, cool counterpart to Foundry." },
+  { id: "vesper", name: "Vesper", tagline: "Warm near-black, peach accent." },
 ];
 
 export const DEFAULT_SKIN: SkinId = "midnight";

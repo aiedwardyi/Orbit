@@ -109,6 +109,9 @@ describe("skin overlay chrome", () => {
     expect(skinThemeSource("lagoon")).toBe("light");
     expect(skinThemeSource("midnight")).toBe("dark");
     expect(skinThemeSource("foundry")).toBe("dark");
+    expect(skinThemeSource("catppuccin-mocha")).toBe("dark");
+    expect(skinThemeSource("tokyo-night")).toBe("dark");
+    expect(skinThemeSource("vesper")).toBe("dark");
     expect(skinThemeSource("not-a-skin")).toBe("dark");
   });
 
@@ -130,6 +133,14 @@ describe("skin overlay chrome", () => {
     mkdirSync(level, { recursive: true });
     writeFileSync(join(level, "000003.log"), Buffer.from("xxomb-skin\u0000\u0001ledger\u0000yy"));
     expect(readPersistedSkin(dir)).toBe("ledger");
+  });
+
+  it("reads a hyphenated skin id longer than 16 characters from localStorage logs", () => {
+    const dir = scratch();
+    const level = join(dir, "Local Storage", "leveldb");
+    mkdirSync(level, { recursive: true });
+    writeFileSync(join(level, "000003.log"), Buffer.from("xxomb-skin\u0000\u0001catppuccin-mocha\u0000yy"));
+    expect(readPersistedSkin(dir)).toBe("catppuccin-mocha");
   });
 
   it("prefers the preference file over a stale localStorage log", () => {

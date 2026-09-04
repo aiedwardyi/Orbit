@@ -314,6 +314,122 @@
   --radius-xl: 8px;
 }
 
+/* ── Catppuccin Mocha ──────────────────────────────────────────────────────
+   Soft pastel on navy. The mapped tokens are the Mocha flavor's base,
+   surface0, text, subtext0, mauve, surface1, red, and green. Accent and
+   danger fills carry the ground as ink — Foundry's inversion, not Midnight
+   white — so the pastels stay lit.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="catppuccin-mocha"] {
+  --color-app: #1e1e2e;
+  --color-panel: #262637;
+  --color-raised: #313244;
+  --color-raised-hover: #3c3e50;
+  --color-card: #292a3b;
+  --color-inset: #181825;
+  --color-control: #313244;       /* = raised */
+  --color-hairline: #45475a;
+
+  --color-ink: #cdd6f4;
+  --color-ink-secondary: #a6adc8;
+
+  --color-accent: #cba6f7;
+  --color-accent-border: #d1b1f8;
+  --color-accent-text: #cba6f7;
+  --color-focus: #cba6f7;
+  --color-accent-ink: #1e1e2e;    /* ground on the mauve fill */
+  --color-bubble-user: #2e2f42;
+
+  --color-success: #a6e3a1;
+  --color-danger: #f38ba8;
+  --color-danger-ink: #1e1e2e;
+  --color-warning: #f9e2af;
+  --color-scrollbar: #45475a;
+  --color-maus-line: #a6adc8;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+}
+
+/* ── Tokyo Night ───────────────────────────────────────────────────────────
+   Indigo night, the cool counterpart to Foundry. Mapped tokens follow the
+   Tokyo Night palette (bg, bg_highlight-adjacent raised, fg, fg_dark, blue,
+   comment-adjacent hairline, red, green). Dark ink on the cool accent so
+   filled buttons read as lit, not painted.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="tokyo-night"] {
+  --color-app: #1a1b26;
+  --color-panel: #1d1e2b;
+  --color-raised: #24283b;
+  --color-raised-hover: #313650;
+  --color-card: #1f2231;
+  --color-inset: #16161e;
+  --color-control: #24283b;       /* = raised */
+  --color-hairline: #3b4261;
+
+  --color-ink: #c0caf5;
+  --color-ink-secondary: #a9b1d6;
+
+  --color-accent: #7aa2f7;
+  --color-accent-border: #8aadf8;
+  --color-accent-text: #7aa2f7;
+  --color-focus: #7aa2f7;
+  --color-accent-ink: #1a1b26;    /* ground on the blue fill */
+  --color-bubble-user: #22263a;
+
+  --color-success: #9ece6a;
+  --color-danger: #f7768e;
+  --color-danger-ink: #1a1b26;
+  --color-warning: #e0af68;
+  --color-scrollbar: #3b4261;
+  --color-maus-line: #a9b1d6;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+}
+
+/* ── Vesper ────────────────────────────────────────────────────────────────
+   Warm near-black, peach accent. Surfaces stay on the gray axis so the
+   peach is the only warm light in the room. Same Foundry inversion: the
+   ground rides the accent and danger fills.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="vesper"] {
+  --color-app: #101010;
+  --color-panel: #141414;
+  --color-raised: #1c1c1c;
+  --color-raised-hover: #2a2a2a;
+  --color-card: #161616;
+  --color-inset: #0b0b0b;
+  --color-control: #1c1c1c;       /* = raised */
+  --color-hairline: #363636;
+
+  --color-ink: #ffffff;
+  --color-ink-secondary: #a0a0a0;
+
+  --color-accent: #ffc799;
+  --color-accent-border: #ffcea5;
+  --color-accent-text: #ffc799;
+  --color-focus: #ffc799;
+  --color-accent-ink: #101010;    /* ground on the peach fill */
+  --color-bubble-user: #1a1a1a;
+
+  --color-success: #99ffe4;
+  --color-danger: #ff8080;
+  --color-danger-ink: #101010;
+  --color-warning: #ffc799;
+  --color-scrollbar: #363636;
+  --color-maus-line: #a0a0a0;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+}
+
 html,
 body,
 #root {

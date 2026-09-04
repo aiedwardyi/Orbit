@@ -87,10 +87,9 @@ describe("Ledger", () => {
       expect(SKIN_IDS).toContain(id);
     }
     const ids: readonly string[] = SKIN_IDS;
-    expect(ids).not.toContain("vesper");
     expect(ids).not.toContain("graphite");
     expect(ids).not.toContain("boreal");
-    expect(css).not.toMatch(/\[data-skin="vesper"\]/);
+    expect(css).not.toMatch(/\[data-skin="graphite"\]/);
   });
 
   it("is a neutral gray, distinct from Atelier's paper and Lagoon's porcelain", () => {
@@ -150,6 +149,92 @@ describe("Ledger", () => {
   });
 });
 
+const DARK_INK_SKINS = [
+  {
+    id: "catppuccin-mocha",
+    name: "Catppuccin Mocha",
+    tokens: {
+      "--color-app": "#1e1e2e",
+      "--color-raised": "#313244",
+      "--color-ink": "#cdd6f4",
+      "--color-ink-secondary": "#a6adc8",
+      "--color-accent": "#cba6f7",
+      "--color-hairline": "#45475a",
+      "--color-danger": "#f38ba8",
+      "--color-success": "#a6e3a1",
+    },
+  },
+  {
+    id: "tokyo-night",
+    name: "Tokyo Night",
+    tokens: {
+      "--color-app": "#1a1b26",
+      "--color-raised": "#24283b",
+      "--color-ink": "#c0caf5",
+      "--color-ink-secondary": "#a9b1d6",
+      "--color-accent": "#7aa2f7",
+      "--color-hairline": "#3b4261",
+      "--color-danger": "#f7768e",
+      "--color-success": "#9ece6a",
+    },
+  },
+  {
+    id: "vesper",
+    name: "Vesper",
+    tokens: {
+      "--color-app": "#101010",
+      "--color-raised": "#1c1c1c",
+      "--color-ink": "#ffffff",
+      "--color-ink-secondary": "#a0a0a0",
+      "--color-accent": "#ffc799",
+      "--color-hairline": "#363636",
+      "--color-danger": "#ff8080",
+      "--color-success": "#99ffe4",
+    },
+  },
+] as const;
+
+describe("Catppuccin Mocha, Tokyo Night, and Vesper", () => {
+  it("registers each as a first-class dark skin", () => {
+    for (const skin of DARK_INK_SKINS) {
+      expect(SKIN_IDS).toContain(skin.id);
+      expect(SKINS.some((s) => s.id === skin.id && s.name === skin.name)).toBe(true);
+    }
+  });
+
+  it("keeps the existing light skins", () => {
+    for (const id of ["atelier", "lagoon", "ledger"]) {
+      expect(SKIN_IDS).toContain(id);
+    }
+  });
+
+  it("does not add parked skins", () => {
+    const ids: readonly string[] = SKIN_IDS;
+    for (const id of ["onyx", "dracula", "cobalt"]) {
+      expect(ids).not.toContain(id);
+      expect(css).not.toMatch(new RegExp(`\\[data-skin="${id}"\\]`));
+    }
+  });
+
+  it("ships the given palette tokens exactly", () => {
+    for (const skin of DARK_INK_SKINS) {
+      for (const [token, value] of Object.entries(skin.tokens)) {
+        expect(cssToken(skin.id, token)).toBe(value);
+      }
+    }
+  });
+
+  it("puts each skin's ground on accent and danger fills, not Midnight white", () => {
+    for (const skin of DARK_INK_SKINS) {
+      const bg = skin.tokens["--color-app"];
+      expect(cssToken(skin.id, "--color-accent-ink")).toBe(bg);
+      expect(cssToken(skin.id, "--color-danger-ink")).toBe(bg);
+      expect(cssToken(skin.id, "--color-accent-ink")).not.toBe("#ffffff");
+      expect(cssToken(skin.id, "--color-danger-ink")).not.toBe("#ffffff");
+    }
+  });
+});
+
 describe("skin persistence", () => {
   const store = new Map<string, string>();
   const dataset = { skin: "" };
@@ -179,7 +264,7 @@ describe("skin persistence", () => {
   });
 
   it("falls back to Midnight for an unknown stored value", () => {
-    store.set("omb-skin", "vesper");
+    store.set("omb-skin", "onyx");
     expect(readSkin()).toBe(DEFAULT_SKIN);
   });
 

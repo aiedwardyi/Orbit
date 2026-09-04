@@ -16,6 +16,9 @@ const SKIN_CHROME = Object.freeze({
   foundry: Object.freeze({ color: "#100e0b", symbolColor: "#b0a696" }),
   lagoon: Object.freeze({ color: "#dfeceb", symbolColor: "#4d5c5b" }),
   ledger: Object.freeze({ color: "#e9e9e9", symbolColor: "#575757" }),
+  "catppuccin-mocha": Object.freeze({ color: "#1e1e2e", symbolColor: "#a6adc8" }),
+  "tokyo-night": Object.freeze({ color: "#1a1b26", symbolColor: "#a9b1d6" }),
+  vesper: Object.freeze({ color: "#101010", symbolColor: "#a0a0a0" }),
 });
 
 const DEFAULT_SKIN = "midnight";
@@ -23,7 +26,9 @@ const LIGHT_SKINS = new Set(["atelier", "lagoon", "ledger"]);
 const SKIN_PREFERENCE_FILE = "skin-preference.json";
 const LOCAL_STORAGE_DIR = path.join("Local Storage", "leveldb");
 const OMB_SKIN_MARKER = Buffer.from("omb-skin");
-const KNOWN_SKIN_RE = /^(midnight|atelier|foundry|lagoon|ledger)(?![A-Za-z0-9_-])/;
+const KNOWN_SKIN_RE =
+  /^(midnight|atelier|foundry|lagoon|ledger|catppuccin-mocha|tokyo-night|vesper)(?![A-Za-z0-9_-])/;
+const MAX_SKIN_ID_LEN = Math.max(...Object.keys(SKIN_CHROME).map((id) => id.length));
 
 /** The chrome colours for a skin id sent by the renderer. Anything that is
  * not a known skin — a renamed skin, a stale value, a non-string — falls
@@ -74,7 +79,7 @@ function extractOmbSkin(bytes) {
     if (at === -1) break;
     let i = at + OMB_SKIN_MARKER.length;
     while (i < bytes.length && bytes[i] < 0x20) i += 1;
-    const slice = bytes.toString("utf8", i, Math.min(bytes.length, i + 16));
+    const slice = bytes.toString("utf8", i, Math.min(bytes.length, i + MAX_SKIN_ID_LEN));
     const match = slice.match(KNOWN_SKIN_RE);
     if (match) found = match[1];
     from = at + OMB_SKIN_MARKER.length;
