@@ -74,7 +74,7 @@ export function visibleFriendsRail<T extends { instanceId: string }>(
   const { friends, rest } = splitFriendsEngines(instances);
   const collapsible = friends.length > 0 && rest.length > 0;
   if (options.showAll || !collapsible) {
-    return { visible: [...instances], hiddenCount: 0 };
+    return { visible: [...friends, ...rest], hiddenCount: 0 };
   }
   const visible = [...friends];
   if (options.activeId && !visible.some((row) => row.instanceId === options.activeId)) {

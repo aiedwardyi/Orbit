@@ -373,9 +373,8 @@ export async function readCodexModelCatalog(
   fetchImpl: typeof fetch = fetch,
   cli?: string,
 ): Promise<ModelCatalog> {
-  const official = withSuggestedCodexAstra(
-    (cli ? await readCodexAppServerModelCatalog(cli, env) : null) ?? STATIC_CODEX_MODELS,
-  );
+  const advertised = cli ? await readCodexAppServerModelCatalog(cli, env) : null;
+  const official = advertised ? withSuggestedCodexAstra(advertised) : STATIC_CODEX_MODELS;
   const home = codexHome(env);
   const mainText = readText(join(home, "config.toml"));
   if (!mainText) return mergeLocalInject(official, env, fetchImpl);

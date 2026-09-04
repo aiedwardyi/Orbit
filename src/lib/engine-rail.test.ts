@@ -106,9 +106,16 @@ describe("visibleFriendsRail", () => {
     expect(withActiveRest.hiddenCount).toBe(1);
   });
 
-  it("reveals the full fleet after Show all engines", () => {
+  it("reveals the rest after Show all without reordering the friends already on the rail", () => {
     const opened = visibleFriendsRail(fleet, { showAll: true, activeId: "grok" });
-    expect(opened.visible.map((row) => row.instanceId)).toEqual(fleet.map((row) => row.instanceId));
+    expect(opened.visible.map((row) => row.instanceId)).toEqual([
+      "claude",
+      "codex",
+      "grok",
+      "opencode",
+      "kimi",
+      "cursor",
+    ]);
     expect(opened.hiddenCount).toBe(0);
   });
 });
