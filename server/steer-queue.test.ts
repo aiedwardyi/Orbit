@@ -1,13 +1,13 @@
 // Queue-and-steer for busy 1:1 bots, at two levels:
 //
 // Unit: the steer-queue module against a fake store — queue bookkeeping,
-// the drain-once property, and the joined single-prompt shape.
+// the drain-once property, and one follow-up turn per queued 1:1 send.
 //
 // e2e: the real harness server with the grokAgent driver on the fake ACP
 // CLI in echo-gated mode, whose turns stay open until a gate file exists —
 // a deterministic busy window. The echo reply carries the FULL prompt
-// (system + turn text), which pins both what a drained turn was sent (the
-// queued texts joined with newlines, in ONE turn) and what it was not (the
+// (system + turn text), which pins both what a drained turn was sent (one
+// queued send, not a newline-joined burst) and what it was not (the
 // webhook untrusted-data paragraph an attended turn must never get).
 import { spawn, type ChildProcess } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -18,6 +18,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   cancelSteeredMessage,
+  continueQueuedDrainIfIdle,
   drainSteeredMessages,
   queuedSteeredMessage,
   queueRoomParticipation,
@@ -137,19 +138,33 @@ describe("steer-queue module", () => {
     const [botId, threadId, prompt, userMessage] = run.mock.calls[0];
     expect(botId).toBe("bot-b");
     expect(threadId).toBe("thread-b");
-    // ONE turn for the whole burst: the texts joined with newlines
-    expect(prompt).toBe("first note\nsecond note");
-    // appended at drain, last message so startTurn adds nothing new
-    expect(store.messages.map((m) => m.text)).toEqual(["first note", "second note"]);
-    expect(store.messages.map((m) => m.queueId)).toEqual([first.id, second.id]);
-    expect(userMessage.text).toBe("second note");
-    expect(run.mock.calls[0][4]).toEqual(store.messages.map((m) => m.id));
+    // One queued send per settle — later lines wait for the next idle.
+    expect(prompt).toBe("first note");
+    expect(store.messages.map((m) => m.text)).toEqual(["first note"]);
+    expect(store.messages.map((m) => m.queueId)).toEqual([first.id]);
+    expect(userMessage.text).toBe("first note");
+    expect(run.mock.calls[0][4]).toEqual([store.messages[0]!.id]);
     expect(store.messages.every((m) => !m.queued)).toBe(true);
-    expect(_queuedCount("thread-b")).toBe(0);
+    expect(_queuedCount("thread-b")).toBe(1);
 
-    // drain-once: a second settle finds nothing and fires nothing
+    // Still working on the drained turn — the second line stays queued.
+    bot.busy = true;
     drainSteeredMessages(store, run);
     expect(run).toHaveBeenCalledTimes(1);
+    expect(_queuedCount("thread-b")).toBe(1);
+
+    bot.busy = false;
+    drainSteeredMessages(store, run);
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(run.mock.calls[1][2]).toBe("second note");
+    expect(store.messages.map((m) => m.text)).toEqual(["first note", "second note"]);
+    expect(store.messages.map((m) => m.queueId)).toEqual([first.id, second.id]);
+    expect(run.mock.calls[1][3].text).toBe("second note");
+    expect(_queuedCount("thread-b")).toBe(0);
+
+    // drain-once: a third settle finds nothing and fires nothing
+    drainSteeredMessages(store, run);
+    expect(run).toHaveBeenCalledTimes(2);
   });
 
   it("drops a cancelled message so drain does not send it", () => {
@@ -305,6 +320,65 @@ describe("steer-queue module", () => {
     expect(_queuedCount("room-pair")).toBe(0);
   });
 
+  it("wires the failed-start re-drain through continueQueuedDrainIfIdle", () => {
+    const index = readFileSync(join(SERVER_DIR, "index.ts"), "utf8");
+    expect(index).toContain("continueQueuedDrainIfIdle(store, botId, drainQueuedSends, botHasActiveTurn)");
+    expect(index).toMatch(/drainSteeredMessages\(store,[\s\S]*?botHasActiveTurn\)/);
+    expect(index).not.toMatch(/if \(!store\.bot\(botId\)\?\.busy\) drainQueuedSends\(\)/);
+  });
+
+  it("does not peel the next send while a startTurn claim is held and the bot is not busy yet", () => {
+    const bot = fakeBot("bot-claimed", "thread-claimed", false);
+    const store = fakeStore([bot]);
+    queueSteeredMessage(bot.id, bot.threadId, "first");
+    queueSteeredMessage(bot.id, bot.threadId, "second");
+    const claimed = new Set<string>([bot.id]);
+    const run = vi.fn();
+    drainSteeredMessages(store, run, (id) => claimed.has(id));
+    expect(run).not.toHaveBeenCalled();
+    expect(_queuedCount("thread-claimed")).toBe(2);
+  });
+
+  it("does not re-drain while a startTurn claim is held even if the bot looks idle", () => {
+    const bot = fakeBot("bot-claimed-idle", "thread-claimed-idle", false);
+    const drain = vi.fn();
+    continueQueuedDrainIfIdle(fakeStore([bot]), bot.id, drain, () => true);
+    expect(drain).not.toHaveBeenCalled();
+  });
+
+  it("re-drains only when the failed start left the bot idle", () => {
+    const bot = fakeBot("bot-busy-fail", "thread-busy-fail", false);
+    const drain = vi.fn();
+    continueQueuedDrainIfIdle(fakeStore([bot]), bot.id, drain);
+    expect(drain).toHaveBeenCalledTimes(1);
+
+    bot.busy = true;
+    continueQueuedDrainIfIdle(fakeStore([bot]), bot.id, drain);
+    expect(drain).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts the next queued send after a failed start leaves the bot idle", async () => {
+    const bot = fakeBot("bot-fail-next", "thread-fail-next", true);
+    const store = fakeStore([bot]);
+    queueSteeredMessage(bot.id, bot.threadId, "first");
+    queueSteeredMessage(bot.id, bot.threadId, "second");
+    bot.busy = false;
+
+    const prompts: string[] = [];
+    const drain = () => {
+      drainSteeredMessages(store, (_botId, _threadId, prompt) => {
+        void Promise.reject(new Error("provider unavailable")).catch(() => {
+          prompts.push(prompt);
+          continueQueuedDrainIfIdle(store, bot.id, drain);
+        });
+      });
+    };
+    drain();
+    await vi.waitFor(() => expect(prompts).toEqual(["first", "second"]));
+    expect(store.messages.map((message) => message.text)).toEqual(["first", "second"]);
+    expect(_queuedCount("thread-fail-next")).toBe(0);
+  });
+
   it("drains only one queue per bot per settle so a 1:1 and a room wait cannot double-fire", () => {
     const skye = fakeBot("skye-both", "skye-both-1to1", true);
     const store = fakeStore([skye]);
@@ -453,7 +527,7 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
   });
 
   it(
-    "queues sends while busy and drains them into exactly one attended turn",
+    "queues sends while busy and drains them as separate attended turns",
     async () => {
       const bot = await newBot("steer", "Steerable");
 
@@ -477,24 +551,26 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
       ]);
       expect(echoes(snapshot)).toHaveLength(0); // nothing has answered yet
 
-      // open the gate: turn 1 settles, and the queue drains into ONE turn
+      // open the gate: turn 1 settles, then each queued send runs its own turn
       writeFileSync(drainGate, "open");
       await until(async () => {
         snapshot = await botById(bot.id);
-        return !snapshot.busy && echoes(snapshot).length >= 2;
-      }, "the queued turn");
+        return !snapshot.busy && echoes(snapshot).length >= 3;
+      }, "the queued turns");
 
       const replies = echoes(snapshot);
-      // exactly one drained turn for two queued messages — not one each
-      expect(replies).toHaveLength(2);
+      // two queued messages → two drained turns — not one joined prompt
+      expect(replies).toHaveLength(3);
       expect(replies[0].text).toContain("first task please");
-      // the drained prompt is the queued texts joined with newlines
-      expect(replies[1].text).toContain("steer two\nsteer three");
-      // ...and it is an ordinary attended turn: no webhook untrusted-data
+      expect(replies[1].text).toContain("steer two");
+      expect(replies[1].text).not.toContain("steer three");
+      expect(replies[2].text).toContain("steer three");
+      expect(replies[2].text).not.toContain("steer two\nsteer three");
+      // ...and each is an ordinary attended turn: no webhook untrusted-data
       // framing, no rewind replay wrapper
       expect(replies[1].text).not.toContain("authenticated external webhook");
       expect(replies[1].text).not.toContain("[The user rewound");
-      // drain appends the queued lines after the first turn's reply
+      // drain appends each queued line just before its own turn
       const userTexts = snapshot.messages.filter((m: any) => m.role === "user").map((m: any) => m.text);
       expect(userTexts).toEqual(["first task please", "steer two", "steer three"]);
       expect(snapshot.messages.some((m: any) => m.queued)).toBe(false);
@@ -505,9 +581,9 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
       expect(followUp.body.queued).toBeUndefined();
       await until(async () => {
         snapshot = await botById(bot.id);
-        return !snapshot.busy && echoes(snapshot).length >= 3;
+        return !snapshot.busy && echoes(snapshot).length >= 4;
       }, "the follow-up turn");
-      expect(echoes(snapshot)).toHaveLength(3);
+      expect(echoes(snapshot)).toHaveLength(4);
     },
     60_000,
   );

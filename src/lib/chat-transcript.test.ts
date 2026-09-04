@@ -63,14 +63,42 @@ describe("chatTranscriptRows", () => {
     expect(result.map((row) => row.newDay)).toEqual([true, true, false]);
   });
 
-  it("lets a failed step own the divider while tool calls are hidden", () => {
+  it("keeps a failed tool step visible while tool calls are hidden", () => {
     const result = rows([
       say("Late.", at(1, 23)),
       step("Bash", false, at(2, 0)),
       say("That failed.", at(2, 0)),
     ]);
     expect(result.map((row) => row.visible)).toEqual([true, true, true]);
+    expect(result[1].newDay).toBe(true);
+    expect(result[2].newDay).toBe(false);
+  });
+
+  it("lets a turn-level error own the divider while tool calls are hidden", () => {
+    const err: Message = {
+      id: `e${++seq}`,
+      at: at(2, 0),
+      role: "bot",
+      kind: "activity",
+      tool: { name: "error: provider failed", ok: false },
+    };
+    const result = rows([say("Late.", at(1, 23)), err, say("That failed.", at(2, 0))]);
+    expect(result.map((row) => row.visible)).toEqual([true, true, true]);
     expect(result.map((row) => row.newDay)).toEqual([true, true, false]);
+  });
+
+  it("hides computer-use screen frames while tool calls are hidden", () => {
+    const frame: Message = {
+      id: `s${++seq}`,
+      at: at(1, 13),
+      role: "bot",
+      kind: "screen",
+      png: "frame",
+    };
+    const hidden = rows([say("One.", at(1, 12)), frame, say("Two.", at(1, 14))]);
+    expect(hidden.map((row) => row.visible)).toEqual([true, false, true]);
+    const shown = rows([say("One.", at(1, 12)), frame, say("Two.", at(1, 14))], true);
+    expect(shown.map((row) => row.visible)).toEqual([true, true, true]);
   });
 
   it("skips the emerging reply, which renders above the transcript", () => {

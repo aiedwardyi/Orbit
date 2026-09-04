@@ -101,6 +101,7 @@ import { reactionSystemGuidance } from "../shared/reactions.ts";
 import { _loadPending, discardDelegations, discardDelegationsFrom, drainDelegations, findDelegationReceipt, pendingDelegationInfo, pendingDelegationSnapshot, pendingThreads, queueDelegation, recordDelegationReceipt, threadsWaitingOn, type QueueResult } from "./delegations.ts";
 import {
   cancelSteeredMessage,
+  continueQueuedDrainIfIdle,
   drainSteeredMessages,
   queuedSteeredMessage,
   queueRoomParticipation,
@@ -1915,9 +1916,10 @@ function drainQueuedSends() {
     }
     // A plain attended turn — no automationSource, no unattended, no comms
     // depth: exactly what typing the same words into an idle bot would run.
-    // Drain just appended the held lines; userMessage keeps startTurn
-    // from duplicating the last one, and excludeIds drops every drained
-    // line from the transcript-replay so they are not also in `prompt`.
+    // Drain just appended this held line; userMessage keeps startTurn
+    // from duplicating it, and excludeIds drops it from the
+    // transcript-replay so it is not also in `prompt`. Later queued
+    // sends wait for the next settle.
     startTurn(botId, prompt, {
       threadId,
       userMessage: userMessage ?? undefined,
@@ -1931,8 +1933,11 @@ function drainQueuedSends() {
           ok: false,
         },
       });
+      // This send is already off the queue. If the bot is still idle, the
+      // next queued line should get its own turn instead of waiting forever.
+      continueQueuedDrainIfIdle(store, botId, drainQueuedSends, botHasActiveTurn);
     });
-  });
+  }, botHasActiveTurn);
 }
 
 // ── live screen: poll the bot's computer while it works ───────────────

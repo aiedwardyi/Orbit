@@ -1,8 +1,8 @@
 // Which room transcript rows render, and where a speaker label or a day
-// divider belongs. A room hides successful tool activity unless Show tool
-// calls is on, so clustering against the previous ITEM drops the label off a
-// bot's first visible line and the bubble reads as the previous speaker's.
-import type { TranscriptItem } from "./activity-runs";
+// divider belongs. A room hides tool activity unless Show tool calls is on,
+// so clustering against the previous ITEM drops the label off a bot's first
+// visible line and the bubble reads as the previous speaker's.
+import { activityVisibleInChat, type TranscriptItem } from "./activity-runs";
 import type { Message } from "@/state/store";
 
 export interface RoomTranscriptOptions {
@@ -17,21 +17,16 @@ export interface RoomTranscriptRow {
   cluster: boolean;
 }
 
-/** Mirrors the row Transcript renders for one message. A failed step and a
- * bot⇄bot chip stay whatever the setting says: one is the reason to look, the
- * other is a link to another conversation, not tool work. */
+/** Mirrors the row Transcript renders for one message. A turn-level error
+ * and a bot⇄bot chip stay whatever the setting says: one is the reason to
+ * look, the other is a link to another conversation, not tool work. Failed
+ * named-tool pills stay too — quiet default-off hides success, not failure. */
 function messageVisible(message: Message, showToolCalls: boolean): boolean {
   switch (message.kind) {
     case "text":
       return Boolean(message.text);
     case "activity":
-      return Boolean(
-        message.tool &&
-          (message.comm ||
-            message.tool.ok === false ||
-            message.tool.name.startsWith("error:") ||
-            showToolCalls),
-      );
+      return activityVisibleInChat(message, showToolCalls);
     case "secret":
       return Boolean(message.secret && message.from?.botId);
     case "connector":
@@ -40,6 +35,8 @@ function messageVisible(message: Message, showToolCalls: boolean): boolean {
       return Boolean(message.card?.requestId && message.card.tool);
     case "routine.run":
       return true;
+    case "screen":
+      return Boolean(message.png) && showToolCalls;
     default:
       return false;
   }

@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { composerBusyChrome } from "./composer-busy";
+import { composerBusyChrome, pendingSteerEntries } from "./composer-busy";
 import { applyLocale, translate } from "./i18n";
 import { en, ko } from "./i18n-catalog";
 
@@ -111,8 +111,34 @@ describe("Composer wiring", () => {
     expect(composer).not.toContain("composer.waitHint");
     expect(composer).toContain("disabled={Boolean(approval) || locked}");
     expect(composer).not.toMatch(/disabled=\{[^}]*busy/);
-    expect(composer).toContain('t("composer.queuedUntil", { text: pendingChip })');
+    expect(composer).toContain("pendingSteerEntries");
+    expect(composer).not.toMatch(/entry\.text\)\.join\(/);
+    expect(composer).toContain('t("composer.queuedUntil", { text: entry.text })');
     expect(composer).not.toMatch(/composer\.queuedUntil", \{ name:/);
+  });
+});
+
+describe("pendingSteerEntries", () => {
+  it("keeps each queued 1:1 send as its own chip instead of joining them", () => {
+    expect(
+      pendingSteerEntries(
+        {
+          t1: [
+            { queueId: "a", text: "one" },
+            { queueId: "b", text: "two" },
+          ],
+        },
+        "t1",
+      ),
+    ).toEqual([
+      { queueId: "a", text: "one" },
+      { queueId: "b", text: "two" },
+    ]);
+  });
+
+  it("returns no chips when the thread has nothing waiting", () => {
+    expect(pendingSteerEntries(undefined, "t1")).toEqual([]);
+    expect(pendingSteerEntries({ t2: [{ queueId: "x", text: "other" }] }, "t1")).toEqual([]);
   });
 });
 

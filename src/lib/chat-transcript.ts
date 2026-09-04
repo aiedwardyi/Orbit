@@ -1,6 +1,8 @@
 // Which 1:1 ChatView rows render, and where a day divider belongs. ChatView
-// hides successful tool activity unless Show tool calls is on, so dating
-// against the previous ITEM can drop the divider off the next visible line.
+// hides tool activity and screen frames unless Show tool calls is on, so
+// dating against the previous ITEM can drop the divider off the next visible
+// line. Failed tools and turn-level errors stay visible so a broken step
+// is not a blank chat.
 import { shouldHideOnboardingCard } from "@/components/OptionCard";
 import { readContextCompaction } from "../../shared/context-compaction";
 import { activityVisibleInChat, type TranscriptItem } from "./activity-runs";
@@ -40,7 +42,7 @@ function messageVisible(message: Message, options: ChatTranscriptOptions): boole
         message.tool?.name.startsWith("error:") || activityVisibleInChat(message, options.showToolCalls),
       );
     case "screen":
-      return Boolean(message.png);
+      return Boolean(message.png) && options.showToolCalls;
     default:
       return true;
   }

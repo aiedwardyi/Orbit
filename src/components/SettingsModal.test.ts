@@ -105,6 +105,9 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain("Profile");
     expect(html).toContain("Skin");
     expect(html).toContain("Tool calls");
+    expect(html).toContain("Show tool calls");
+    expect(html).toContain("Failed tools, turn-level errors, and bot-to-bot messages still appear.");
+    expect(html).toMatch(/aria-label="Show tool calls in chat"[^>]*aria-checked="false"|aria-checked="false"[^>]*aria-label="Show tool calls in chat"/);
     expect(html).toContain("Usage analytics");
     expect(html).toContain("Save name and email");
     expect(html).not.toContain("Advanced");
