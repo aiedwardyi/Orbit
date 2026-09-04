@@ -466,6 +466,26 @@ describe("provider-neutral context compaction", () => {
     expect(result.transcript.filter((item) => item.text === "abandoned branch detail")).toHaveLength(0);
   });
 
+  it("replays reaction tone on the message that received it", async () => {
+    const asked = message("m1", "Ship the plan?");
+    const answered = message("m2", "Yes — here is the plan", {
+      role: "bot",
+      parentId: asked.id,
+      reactions: [{ emoji: "❤️", by: "user" }],
+    });
+    const result = await prepareModelContext({
+      messages: [asked, answered],
+      contextWindow: 8_192,
+      taskRecordText: "Goal: keep reaction tone",
+      userName: "Milind",
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.transcript.at(-1)?.text).toContain("Yes — here is the plan");
+    expect(result.transcript.at(-1)?.text).toContain("[reactions: ❤️ Milind — strong affection/love-it]");
+  });
+
   it("redacts credential-like values before returning persisted state", async () => {
     const secret = `sk-${"a".repeat(32)}`;
     const prompts: string[] = [];

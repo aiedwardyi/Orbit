@@ -590,7 +590,6 @@ function Bubble({
             </button>
           </>
         )}
-        {!user && message.kind === "text" && <ReactionBar threadId={bot.threadId} message={message} />}
         <span
           className={cn(
             "self-end pb-1 text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100",
@@ -600,6 +599,7 @@ function Bubble({
           {formatTime(message.at)}
         </span>
       </div>
+      {!user && message.kind === "text" && <ReactionBar threadId={bot.threadId} message={message} />}
       {/* busy-gated so a flag stranded by a server restart shows nothing */}
       {user && message.queued && bot.busy && (
         <div className="mt-1 flex items-center gap-1 pr-1 text-[11px] text-ink-secondary/70">

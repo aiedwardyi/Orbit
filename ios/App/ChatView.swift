@@ -735,7 +735,7 @@ struct MessageRow: View {
     @State private var editingText = ""
     @State private var showingEdit = false
 
-    private static let reactionChoices = ["👍", "❤️", "😂", "🎉", "👀"]
+    private static let reactionChoices = ["👍", "👎", "❤️", "😂", "🎉", "👀"]
 
     private var versions: [Message] {
         session.state.versions(of: message, inThread: chat.threadId)

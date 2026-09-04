@@ -2355,6 +2355,64 @@ describe("harness HTTP API", () => {
     }
   });
 
+  it("forwards message reactions into the next provider turn", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    try {
+      const instances = z.array(z.object({
+        instanceId: z.string(),
+        models: z.object({ default: z.string() }),
+        snapshot: z.object({ state: z.string() }),
+      }).passthrough()).parse((await api("GET", "/api/instances")).body.instances);
+      const happy = instances.find((instance) => instance.instanceId === "claudeHappy");
+      const hanging = instances.find((instance) => instance.instanceId === "claude");
+      expect(happy?.snapshot.state).toBe("available");
+      expect(hanging?.snapshot.state).toBe("available");
+      if (!happy || !hanging) throw new Error("fixture instances unavailable");
+
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claudeHappy", model: happy.models.default },
+      })).status).toBe(200);
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "draft a plan" })).status).toBe(202);
+      await expect.poll(async () => {
+        const live = (await api("GET", "/api/bots")).body.bots.find(
+          (candidate: { id: string }) => candidate.id === bot.id,
+        );
+        return live?.busy === false
+          && live.messages.some((message: { role: string; kind: string; text?: string }) =>
+            message.role === "bot" && message.kind === "text" && Boolean(message.text));
+      }).toBe(true);
+
+      const live = (await api("GET", "/api/bots")).body.bots.find(
+        (candidate: { id: string }) => candidate.id === bot.id,
+      );
+      const assistant = [...live.messages].reverse().find(
+        (message: { role: string; kind: string; id: string }) => message.role === "bot" && message.kind === "text",
+      );
+      expect(assistant?.id).toEqual(expect.any(String));
+      expect((await api("POST", `/api/threads/${bot.threadId}/messages/${assistant.id}/reactions`, {
+        emoji: "👍",
+        by: "user",
+      })).status).toBe(200);
+
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claude", model: hanging.models.default },
+      })).status).toBe(200);
+      rmSync(fakeClaudeDump, { force: true });
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "next step please" })).status).toBe(202);
+      await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 5_000 }).toBe(true);
+      const dump = z.object({ prompt: z.unknown() }).passthrough().parse(
+        JSON.parse(readFileSync(fakeClaudeDump, "utf8")),
+      );
+      const haystack = JSON.stringify(dump.prompt);
+      expect(haystack).toContain("👍");
+      expect(haystack).toContain("approve/proceed/positive");
+      expect((await api("POST", `/api/bots/${bot.id}/interrupt`)).status).toBe(200);
+    } finally {
+      await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
   it("refuses to switch a bot's active task while its turn is running", async () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
     try {

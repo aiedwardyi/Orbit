@@ -96,7 +96,8 @@ import { RETRY_MAX_ATTEMPTS } from "./drivers/retry.ts";
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorReply, type CommsBus } from "./comms-visibility.ts";
 import { searchMessages } from "./message-db.ts";
-import { promptWithReply } from "./replies.ts";
+import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript } from "./replies.ts";
+import { reactionSystemGuidance } from "../shared/reactions.ts";
 import { _loadPending, discardDelegations, discardDelegationsFrom, drainDelegations, findDelegationReceipt, pendingDelegationInfo, pendingDelegationSnapshot, pendingThreads, queueDelegation, recordDelegationReceipt, threadsWaitingOn, type QueueResult } from "./delegations.ts";
 import {
   cancelSteeredMessage,
@@ -2189,7 +2190,6 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       turnsAtWrite: task.usage?.turns ?? taskRecord.turnsAtWrite,
     })) ?? taskRecord;
   }
-  const currentPrompt = promptWithReply(text, opts?.replyTo, cfg.profile?.name?.trim() || "User");
   const taskRecordToFlush = taskRecord;
   const modelContextWindow = contextWindowFor(instance.models, model);
   const durableTaskRecordText = taskRecord
@@ -2259,12 +2259,26 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       transcript,
       hasPriorUserTurn,
     });
+  const replaysNatively = instance.adapter.capabilities.transcriptReplay === true;
+  const currentPrompt = composeUserTurnPrompt(text, {
+    replyTo: opts?.replyTo,
+    messages: store.activePath(threadId),
+    userName: cfg.profile?.name?.trim() || "User",
+    replayedTranscript: turnReplaysTranscript({
+      rewound,
+      fresh,
+      replaysNatively,
+      transcriptLength: transcript.length,
+    })
+      ? transcript
+      : undefined,
+  });
   const { turnText, resume } = buildTurnContext({
     text: currentPrompt,
     transcript,
     rewound,
     fresh,
-    replaysNatively: instance.adapter.capabilities.transcriptReplay === true,
+    replaysNatively,
     taskRecord: taskRecord ?? undefined,
     taskRecordText: durableTaskRecordText || undefined,
     contextCapped: contextCompacted,
@@ -2281,6 +2295,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     `You are ${bot.name}, a personal bot in Orbit.`,
     bot.title && `Role: ${bot.title}.`,
     bot.description && `About: ${bot.description}`,
+    reactionSystemGuidance(),
   ]
     .filter(Boolean)
     .join(" ");
@@ -3326,6 +3341,7 @@ async function runClaimedGroupMemberTurn(
     `Room members: ${roster}, and ${userName} (the human).`,
     group.bulletin.trim() && `Room bulletin (shared instructions for everyone):\n${group.bulletin.trim()}`,
     `Reply as yourself, briefly and conversationally. To bring a teammate in, mention them like @Name — they'll see the conversation and respond.`,
+    reactionSystemGuidance(),
     coordinationPrompt,
     integrations.agents &&
       "If a supported API key is missing, use request_credential to show the secure in-app card. Never ask the user to paste credentials into chat.",
@@ -6348,7 +6364,11 @@ const server = createServer(async (req, res) => {
             let steered = false;
             if (instance?.adapter.capabilities.queueing && instance.adapter.steer) {
               steered = await instance.adapter
-                .steer(threadId, promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"))
+                .steer(threadId, composeUserTurnPrompt(text, {
+                  replyTo,
+                  messages: store.activePath(threadId),
+                  userName: cfg.profile?.name?.trim() || "User",
+                }))
                 .catch(() => false);
             }
             // steer() is awaited adapter work. The turn can settle, the task can
@@ -6392,6 +6412,7 @@ const server = createServer(async (req, res) => {
             const queued = queueSteeredMessage(current.id, threadId, text, {
               replyToId: replyTo?.id,
               sendId,
+              // Reply quote only — startTurn wraps reactions when this drains.
               prompt: promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"),
             });
             return { ok: true as const, queued: true as const, queueId: queued.id, threadId };
