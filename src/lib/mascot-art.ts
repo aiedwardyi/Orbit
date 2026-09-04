@@ -35,6 +35,16 @@ export function mascotSvgMarkup(style: MascotStyle, color: string): string {
     .replaceAll("{{BODY_DEEP}}", mix(fill, "#000000", 0.28));
 }
 
+/** Prefix ids so two inlined mascots on one page cannot share a gradient. */
+export function scopeMascotSvgIds(svg: string, scope: string): string {
+  const prefix = scope.replace(/[^A-Za-z0-9_-]/g, "") || "m";
+  return svg
+    .replace(/\srole="img"/, "")
+    .replace(/\saria-label="[^"]*"/, "")
+    .replace(/\bid="([^"]+)"/g, `id="${prefix}-$1"`)
+    .replace(/url\(#([^)]+)\)/g, `url(#${prefix}-$1)`);
+}
+
 export function mascotDataUrl(style: MascotStyle, color: string): string {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(mascotSvgMarkup(style, color))}`;
 }

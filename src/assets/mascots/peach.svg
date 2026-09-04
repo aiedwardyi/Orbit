@@ -10,12 +10,16 @@
   <ellipse cx="172" cy="176" rx="24" ry="18" fill="{{BODY_SHADOW}}" opacity="0.16"/>
   <path d="M88 108c10-7 24-7 34 1" stroke="{{BODY_SHADOW}}" stroke-width="2.6" stroke-linecap="round" opacity="0.35"/>
   <path d="M136 109c10-7 24-7 34 1" stroke="{{BODY_SHADOW}}" stroke-width="2.6" stroke-linecap="round" opacity="0.35"/>
-  <circle cx="100" cy="130" r="16" fill="#1A1210"/>
-  <circle cx="156" cy="130" r="16" fill="#1A1210"/>
-  <circle cx="94.5" cy="123.5" r="5.4" fill="#fff"/>
-  <circle cx="150.5" cy="123.5" r="5.4" fill="#fff"/>
-  <circle cx="107.5" cy="137.5" r="2.2" fill="#fff"/>
-  <circle cx="163.5" cy="137.5" r="2.2" fill="#fff"/>
+  <g class="mascot-idle">
+    <g class="mascot-blink">
+      <circle cx="100" cy="130" r="16" fill="#1A1210"/>
+      <circle cx="156" cy="130" r="16" fill="#1A1210"/>
+      <circle cx="94.5" cy="123.5" r="5.4" fill="#fff"/>
+      <circle cx="150.5" cy="123.5" r="5.4" fill="#fff"/>
+      <circle cx="107.5" cy="137.5" r="2.2" fill="#fff"/>
+      <circle cx="163.5" cy="137.5" r="2.2" fill="#fff"/>
+    </g>
+  </g>
   <ellipse cx="80" cy="152" rx="17" ry="9" fill="#F4A0B4" opacity="0.55"/>
   <ellipse cx="176" cy="152" rx="17" ry="9" fill="#F4A0B4" opacity="0.55"/>
   <path d="M116 156c6 11 18 11 24 0" stroke="#3A241C" stroke-width="3.3" stroke-linecap="round"/>

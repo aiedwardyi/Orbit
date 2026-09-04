@@ -671,6 +671,45 @@ body {
 .turn-mascot-tight {
   margin-top: max(0px, calc(5mm - 10px));
 }
+
+/* Cute mascot idle: Grok-style blink + soft eye drift. No body bounce. */
+.mascot-avatar {
+  line-height: 0;
+}
+.mascot-avatar svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.mascot-avatar .mascot-idle,
+.mascot-avatar .mascot-blink {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.mascot-avatar .mascot-idle {
+  animation: mascot-idle-eyes 8s ease-in-out infinite;
+  animation-delay: var(--mascot-idle-delay, 0s);
+}
+.mascot-avatar .mascot-blink {
+  animation: mascot-blink 5.4s ease-in-out infinite;
+  animation-delay: var(--mascot-blink-delay, 0s);
+}
+.mascot-avatar.mascot-avatar--nudge .mascot-blink {
+  animation: mascot-blink-once 0.18s ease-in-out;
+}
+@keyframes mascot-idle-eyes {
+  0%, 100% { transform: translate(0, 0); }
+  40% { transform: translate(4%, 3%); }
+  72% { transform: translate(-3%, 1.5%); }
+}
+@keyframes mascot-blink {
+  0%, 41%, 44%, 90%, 93.5%, 100% { transform: scaleY(1); }
+  42.2%, 91.6% { transform: scaleY(0.08); }
+}
+@keyframes mascot-blink-once {
+  0%, 100% { transform: scaleY(1); }
+  45% { transform: scaleY(0.08); }
+}
 /* "Thinking…" label sheen while the model reasons */
 @keyframes shimmer {
   from { background-position: 200% 50%; }
@@ -691,6 +730,8 @@ body {
   .animate-caret, .animate-msg-in, .animate-shimmer { animation: none; }
   .thinking-shimmer { background: none; color: var(--color-ink-secondary); }
   .turn-mascot-in, .turn-mascot-out, .turn-answer { animation: none; }
+  .mascot-avatar .mascot-idle,
+  .mascot-avatar .mascot-blink { animation: none; }
   /* The drawer still moves, it just arrives instantly. */
   aside { transition: none; }
 }

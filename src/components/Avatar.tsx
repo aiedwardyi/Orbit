@@ -1,9 +1,19 @@
-// Bot avatar — four static cute mascot styles, wrapped in the historical
-// MausAvatar API so call sites keep compiling. Animation stays parked:
-// motion / expression / pointer props are accepted and ignored.
-import { forwardRef, memo, useEffect, useImperativeHandle, useMemo, useState } from "react";
+// Bot avatar — four cute mascot styles, wrapped in the historical MausAvatar
+// API so call sites keep compiling. Motion is blink + soft idle eyes only;
+// expression / pointer props are still accepted and ignored.
+import {
+  forwardRef,
+  memo,
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { type MausColor, type MausMotion, type MausState } from "@/lib/mascot";
-import { mascotDataUrl } from "@/lib/mascot-art";
+import { mascotSvgMarkup, scopeMascotSvgIds } from "@/lib/mascot-art";
 import {
   botAvatarProfile,
   resolveMascotStyle,
@@ -49,30 +59,55 @@ export type MausAvatarProps = {
   faceScale?: number;
 };
 
+function motionDelay(style: string, color: string): { idle: string; blink: string } {
+  let n = 0;
+  const key = `${style}:${color}`;
+  for (let i = 0; i < key.length; i++) n = (n * 33 + key.charCodeAt(i)) >>> 0;
+  return { idle: `${(n % 80) / 10}s`, blink: `${((n >> 3) % 54) / 10}s` };
+}
+
 function MausAvatarComponent(
   { color, mascotStyle, size = 44, label }: MausAvatarProps,
   ref: React.Ref<MausAvatarHandle>,
 ) {
+  const reactId = useId();
+  const rootRef = useRef<HTMLSpanElement>(null);
+
   useImperativeHandle(ref, () => ({
-    blink: () => {},
+    blink: () => {
+      const el = rootRef.current;
+      if (!el) return;
+      el.classList.remove("mascot-avatar--nudge");
+      void el.offsetWidth;
+      el.classList.add("mascot-avatar--nudge");
+      el.addEventListener("animationend", () => el.classList.remove("mascot-avatar--nudge"), { once: true });
+    },
     spin: () => {},
     setExpression: () => {},
   }));
 
   const style = resolveMascotStyle(mascotStyle, color);
-  const src = useMemo(() => mascotDataUrl(style, color), [style, color]);
+  const markup = useMemo(
+    () => scopeMascotSvgIds(mascotSvgMarkup(style, color), reactId),
+    [style, color, reactId],
+  );
+  const delay = motionDelay(style, color);
   return (
-    <span className="inline-flex shrink-0">
-      <img
-        src={src}
-        alt={label ?? `${style} mascot`}
-        width={size}
-        height={size}
-        draggable={false}
-        className="block shrink-0"
-        style={{ width: size, height: size }}
-      />
-    </span>
+    <span
+      ref={rootRef}
+      className="mascot-avatar inline-flex shrink-0"
+      role="img"
+      aria-label={label ?? `${style} mascot`}
+      style={
+        {
+          width: size,
+          height: size,
+          "--mascot-idle-delay": delay.idle,
+          "--mascot-blink-delay": delay.blink,
+        } as CSSProperties
+      }
+      dangerouslySetInnerHTML={{ __html: markup }}
+    />
   );
 }
 
