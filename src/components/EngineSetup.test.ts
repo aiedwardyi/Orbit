@@ -49,6 +49,9 @@ describe("API key setup", () => {
     expect(needsApiKey(missingKey)).toBe(true);
     expect(setupErrorAction("Gemini API key missing", missingKey)).toBe("key");
     expect(setupErrorAction("Gemini API key missing", undefined)).toBe("key");
+    expect(setupErrorAction("OpenCode API key missing", undefined)).toBe("key");
+    expect(setupErrorAction("OpenCode Go API key missing", undefined)).toBe("key");
+    expect(setupErrorAction("Invalid API key provided", undefined)).toBe("retry");
     expect(isApiKeySetupMessage("Gemini API key missing")).toBe(true);
   });
 

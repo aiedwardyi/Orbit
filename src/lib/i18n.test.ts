@@ -37,6 +37,13 @@ const routinesPage = readFileSync(join(here, "../components/RoutinesPage.tsx"), 
 const noEngines = readFileSync(join(here, "../components/NoEngines.tsx"), "utf8");
 const onboarding = readFileSync(join(here, "../components/Onboarding.tsx"), "utf8");
 
+function splitTwoSentences(text: string): { cli: string; key: string } {
+  const dotIdx = text.indexOf(". ");
+  expect(dotIdx).toBeGreaterThan(-1);
+  expect(text.indexOf(". ", dotIdx + 1)).toBe(-1);
+  return { cli: text.slice(0, dotIdx + 1), key: text.slice(dotIdx + 2) };
+}
+
 afterEach(() => {
   applyLocale("en");
 });
@@ -426,6 +433,31 @@ describe("first-run core path leftovers", () => {
     expect(translate("ko", "engines.inUseSuffix", { cli: "/usr/bin/claude" })).toBe("/usr/bin/claude · 사용 중");
     expect(en["connections.connected"]).toBe("Connected");
     expect(ko["connections.connected"]).toBe("연결됨");
+    expect(en["settings.connections.subtitle"]).toBe(
+      "Set the CLI for Grok, Claude, Codex, and Antigravity. Paste an API key for Gemini and OpenCode.",
+    );
+    expect(ko["settings.connections.subtitle"]).toBe(
+      "Grok, Claude, Codex, Antigravity는 CLI를 지정합니다. Gemini와 OpenCode는 API 키를 붙여넣습니다.",
+    );
+    expect(ko["settings.connections.subtitle"]).not.toMatch(/Set the CLI|Paste an API key/i);
+    const enParts = splitTwoSentences(en["settings.connections.subtitle"]);
+    expect(enParts.cli).toMatch(/Grok/);
+    expect(enParts.cli).toMatch(/Claude/);
+    expect(enParts.cli).toMatch(/Codex/);
+    expect(enParts.cli).toMatch(/Antigravity/);
+    expect(enParts.cli).not.toMatch(/Gemini|OpenCode/);
+    expect(enParts.key).toMatch(/Gemini/);
+    expect(enParts.key).toMatch(/OpenCode/);
+    expect(enParts.key).not.toMatch(/Grok|Claude|Codex|Antigravity/);
+    const koParts = splitTwoSentences(ko["settings.connections.subtitle"]);
+    expect(koParts.cli).toMatch(/Grok/);
+    expect(koParts.cli).toMatch(/Claude/);
+    expect(koParts.cli).toMatch(/Codex/);
+    expect(koParts.cli).toMatch(/Antigravity/);
+    expect(koParts.cli).not.toMatch(/Gemini|OpenCode/);
+    expect(koParts.key).toMatch(/Gemini/);
+    expect(koParts.key).toMatch(/OpenCode/);
+    expect(koParts.key).not.toMatch(/Grok|Claude|Codex|Antigravity/);
   });
 
   it("wires those phrases instead of hardcoded English", () => {
