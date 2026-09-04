@@ -192,9 +192,51 @@ const DARK_INK_SKINS = [
       "--color-success": "#99ffe4",
     },
   },
+  {
+    id: "onyx",
+    name: "Onyx",
+    tokens: {
+      "--color-app": "#0a0a0b",
+      "--color-raised": "#1a1a1d",
+      "--color-ink": "#ededf0",
+      "--color-ink-secondary": "#9c9ca5",
+      "--color-accent": "#e4e4e7",
+      "--color-hairline": "#343438",
+      "--color-danger": "#f2655f",
+      "--color-success": "#5fcf86",
+    },
+  },
+  {
+    id: "dracula",
+    name: "Dracula",
+    tokens: {
+      "--color-app": "#282a36",
+      "--color-raised": "#343746",
+      "--color-ink": "#f8f8f2",
+      "--color-ink-secondary": "#a4abcc",
+      "--color-accent": "#bd93f9",
+      "--color-hairline": "#44475a",
+      "--color-danger": "#ff6b6b",
+      "--color-success": "#50fa7b",
+    },
+  },
+  {
+    id: "cobalt",
+    name: "Cobalt",
+    tokens: {
+      "--color-app": "#193549",
+      "--color-raised": "#1f4662",
+      "--color-ink": "#e1efff",
+      "--color-ink-secondary": "#a9c0d3",
+      "--color-accent": "#ffc600",
+      "--color-hairline": "#2b5a7a",
+      "--color-danger": "#ff7aa0",
+      "--color-success": "#3ad900",
+    },
+  },
 ] as const;
 
-describe("Catppuccin Mocha, Tokyo Night, and Vesper", () => {
+describe("dark ink skins", () => {
   it("registers each as a first-class dark skin", () => {
     for (const skin of DARK_INK_SKINS) {
       expect(SKIN_IDS).toContain(skin.id);
@@ -205,14 +247,6 @@ describe("Catppuccin Mocha, Tokyo Night, and Vesper", () => {
   it("keeps the existing light skins", () => {
     for (const id of ["atelier", "lagoon", "ledger"]) {
       expect(SKIN_IDS).toContain(id);
-    }
-  });
-
-  it("does not add parked skins", () => {
-    const ids: readonly string[] = SKIN_IDS;
-    for (const id of ["onyx", "dracula", "cobalt"]) {
-      expect(ids).not.toContain(id);
-      expect(css).not.toMatch(new RegExp(`\\[data-skin="${id}"\\]`));
     }
   });
 
@@ -232,6 +266,18 @@ describe("Catppuccin Mocha, Tokyo Night, and Vesper", () => {
       expect(cssToken(skin.id, "--color-accent-ink")).not.toBe("#ffffff");
       expect(cssToken(skin.id, "--color-danger-ink")).not.toBe("#ffffff");
     }
+  });
+
+  it("gives Onyx a blue link colour so silver accent is not the only cue", () => {
+    expect(cssToken("onyx", "--color-accent-text")).toBe("#8fb3e6");
+  });
+
+  it("gives Cobalt a warning amber distinct from the yellow lamp accent", () => {
+    const warning = cssToken("cobalt", "--color-warning");
+    const accent = cssToken("cobalt", "--color-accent");
+    expect(warning).toBeTruthy();
+    expect(accent).toBe("#ffc600");
+    expect(warning).not.toBe(accent);
   });
 });
 
@@ -264,7 +310,7 @@ describe("skin persistence", () => {
   });
 
   it("falls back to Midnight for an unknown stored value", () => {
-    store.set("omb-skin", "onyx");
+    store.set("omb-skin", "graphite");
     expect(readSkin()).toBe(DEFAULT_SKIN);
   });
 

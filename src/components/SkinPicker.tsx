@@ -76,8 +76,9 @@ export function SkinPicker() {
   );
 
   return (
-    // Two even rows of four on a wide settings card. Five columns left a
-    // leftover trio on the second row once the dark skins joined the set.
+    // Four columns on a wide settings card. Five columns left a leftover
+    // trio once the dark skins joined the set; wrapping a short last row
+    // is better than shrinking the miniatures.
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
       {SKINS.map((skin) => {
         const selected = skin.id === active;

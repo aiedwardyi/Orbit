@@ -112,6 +112,12 @@ describe("skin overlay chrome", () => {
     expect(skinThemeSource("catppuccin-mocha")).toBe("dark");
     expect(skinThemeSource("tokyo-night")).toBe("dark");
     expect(skinThemeSource("vesper")).toBe("dark");
+    expect(isKnownSkin("onyx")).toBe(true);
+    expect(isKnownSkin("dracula")).toBe(true);
+    expect(isKnownSkin("cobalt")).toBe(true);
+    expect(skinThemeSource("onyx")).toBe("dark");
+    expect(skinThemeSource("dracula")).toBe("dark");
+    expect(skinThemeSource("cobalt")).toBe("dark");
     expect(skinThemeSource("not-a-skin")).toBe("dark");
   });
 
