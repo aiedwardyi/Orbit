@@ -38,6 +38,7 @@ import { BotAvatar } from "./Avatar";
 import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { stateForBot } from "@/lib/mascot";
+import { transcriptIdleAfterOnboarding } from "@/lib/conversation-preview";
 import { showWorkingDots } from "@/lib/turn-tail";
 import { liveActivityLabel } from "@/lib/live-activity";
 import { ChatMarkdown } from "./ChatMarkdown";
@@ -753,7 +754,7 @@ const MessagesList = memo(function MessagesList({
   const focusedId = focus && !focus.consumed && focus.threadId === bot.threadId ? focus.messageId : null;
   return (
     <>
-      {messages.length === 0 && !bot.busy && (
+      {transcriptIdleAfterOnboarding(transcript) && !bot.busy && (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 py-24 text-center">
           <BotAvatar bot={bot} state="idle" size={64} motion="none" motionKey={0} />
           <RenameTitle

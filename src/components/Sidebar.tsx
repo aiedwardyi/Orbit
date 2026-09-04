@@ -31,6 +31,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { conversationPreview } from "@/lib/conversation-preview";
 import { api, useStore, formatTime, visibleMessages, type Bot, type Group } from "@/state/store";
 
 import { BotAvatar, InitialsAvatar } from "./Avatar";
@@ -146,16 +147,7 @@ function UpdateButton() {
 }
 
 function preview(bot: Bot): string {
-  if (bot.activity === "waiting-on-you") return t("chrome.waitingForYou");
-  if (bot.busy) return t("chrome.working");
-  // the visible branch's tail — bot.messages holds every fork, so its last
-  // entry can belong to a version the user switched away from
-  const last = visibleMessages(bot).at(-1);
-  if (!last) return "";
-  if (last.kind === "options" && last.card) return last.card.title;
-  if (last.kind === "activity" && last.tool) return last.tool.name;
-  if (last.kind === "screen") return t("chrome.screenFrame");
-  return last.text ?? "";
+  return conversationPreview(bot);
 }
 
 interface MenuState {

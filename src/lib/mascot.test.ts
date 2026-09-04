@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_MAUS_COLOR, MAUS_COLORS, mausColorHex } from "./mascot";
+import { DEFAULT_MAUS_COLOR, MAUS_COLORS, mausColorHex, stateForBot } from "./mascot";
 
 describe("mascot color fallback", () => {
   it("treats red as the default mascot color", () => {
@@ -19,5 +19,28 @@ describe("mascot color fallback", () => {
   it("does not treat inherited object keys as palette colors", () => {
     expect(mausColorHex("__proto__")).toBe("#D94B52");
     expect(mausColorHex("constructor")).toBe("#D94B52");
+  });
+});
+
+describe("mascot attention after first-turn ignore", () => {
+  const quiz = {
+    kind: "options" as const,
+    card: {
+      title: "What do you mostly want help with?",
+      options: ["Work & projects"],
+    },
+  };
+
+  it("looks curious while the first-turn quiz is still open", () => {
+    expect(stateForBot({ name: "Nova", messages: [quiz] })).toBe("curious");
+  });
+
+  it("does not stay attentive after the first-turn quiz is ignored", () => {
+    expect(
+      stateForBot({
+        name: "Nova",
+        messages: [{ ...quiz, card: { ...quiz.card, dismissed: true } }],
+      }),
+    ).toBe("idle");
   });
 });

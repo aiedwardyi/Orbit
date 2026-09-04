@@ -360,6 +360,12 @@ describe("onboarding quiz", () => {
     });
   });
 
+  it("hides the quiz when they ignore it", () => {
+    const state = { ...initialState, bots: [bot], selectedId: bot.id };
+    const next = reducer(state, { type: "dismissCard", botId: bot.id, messageId: "q" });
+    expect(next.bots[0]?.messages.find((message) => message.id === "q")?.card?.dismissed).toBe(true);
+  });
+
   it("leaves a live permission card in place", () => {
     const askBot: Bot = {
       ...bot,
