@@ -426,6 +426,31 @@ describe("first-run core path leftovers", () => {
     expect(translate("ko", "engines.inUseSuffix", { cli: "/usr/bin/claude" })).toBe("/usr/bin/claude · 사용 중");
     expect(en["connections.connected"]).toBe("Connected");
     expect(ko["connections.connected"]).toBe("연결됨");
+    expect(en["settings.connections.subtitle"]).toBe(
+      "Set the CLI for Grok, Claude, Codex, and Antigravity. Paste an API key for Gemini and OpenCode.",
+    );
+    expect(ko["settings.connections.subtitle"]).toBe(
+      "Grok, Claude, Codex, Antigravity는 CLI를 지정합니다. Gemini와 OpenCode는 API 키를 붙여넣습니다.",
+    );
+    expect(ko["settings.connections.subtitle"]).not.toMatch(/Set the CLI|Paste an API key/i);
+    const [enCli, enKey] = en["settings.connections.subtitle"].split(/(?<=\.)\s/);
+    expect(enCli).toMatch(/Grok/);
+    expect(enCli).toMatch(/Claude/);
+    expect(enCli).toMatch(/Codex/);
+    expect(enCli).toMatch(/Antigravity/);
+    expect(enCli).not.toMatch(/Gemini|OpenCode/);
+    expect(enKey).toMatch(/Gemini/);
+    expect(enKey).toMatch(/OpenCode/);
+    expect(enKey).not.toMatch(/Grok|Claude|Codex|Antigravity/);
+    const [koCli, koKey] = ko["settings.connections.subtitle"].split(/(?<=\.)\s/);
+    expect(koCli).toMatch(/Grok/);
+    expect(koCli).toMatch(/Claude/);
+    expect(koCli).toMatch(/Codex/);
+    expect(koCli).toMatch(/Antigravity/);
+    expect(koCli).not.toMatch(/Gemini|OpenCode/);
+    expect(koKey).toMatch(/Gemini/);
+    expect(koKey).toMatch(/OpenCode/);
+    expect(koKey).not.toMatch(/Grok|Claude|Codex|Antigravity/);
   });
 
   it("wires those phrases instead of hardcoded English", () => {

@@ -18,8 +18,14 @@ describe("settings section search", () => {
     expect(settingsSectionMatches("connections", "keys")).toBe(true);
     expect(settingsSectionMatches("general", "vm")).toBe(true);
     expect(settingsSectionMatches("general", "more services")).toBe(false);
-    expect(settingsSectionMatches("connections", "more services")).toBe(true);
+    expect(settingsSectionMatches("connections", "more services")).toBe(false);
+    expect(settingsSectionMatches("connections", "box")).toBe(false);
+    expect(settingsSectionMatches("connections", "assemblyai")).toBe(false);
+    expect(settingsSectionMatches("connections", "vps")).toBe(false);
+    expect(settingsSectionMatches("connections", "self-host")).toBe(false);
     expect(settingsSectionMatches("connections", "grok")).toBe(true);
+    expect(settingsSectionMatches("connections", "gemini")).toBe(true);
+    expect(settingsSectionMatches("connections", "opencode")).toBe(true);
     expect(settingsSectionMatches("connections", "cli")).toBe(true);
   });
 });

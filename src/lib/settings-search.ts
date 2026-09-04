@@ -1,4 +1,5 @@
 import type { AppSettingsSection } from "@/state/store";
+import { showSettingsMoreServicesSection } from "./friends-chrome";
 import { catalogs, type MessageKey } from "./i18n-catalog";
 
 /** Settings nav search matches both English and Korean labels/body copy so a
@@ -65,6 +66,23 @@ const SECTION_PHRASE_KEYS = {
   ],
 } as const satisfies Record<AppSettingsSection, readonly MessageKey[]>;
 
+/** Box, VPS, AssemblyAI, and self-host stay in the catalog for when More
+ * services is flipped back on; they must not match Connections search while
+ * that block is hidden. */
+const CONNECTIONS_MORE_SERVICES_KEYS = new Set<MessageKey>([
+  "settings.connections.selfHost",
+  "settings.connections.moreServices",
+  "connections.box.label",
+  "connections.vps.label",
+  "connections.transcription.label",
+]);
+
+function phraseKeysFor(id: AppSettingsSection): readonly MessageKey[] {
+  const keys = SECTION_PHRASE_KEYS[id];
+  if (id !== "connections" || showSettingsMoreServicesSection()) return keys;
+  return keys.filter((key) => !CONNECTIONS_MORE_SERVICES_KEYS.has(key));
+}
+
 const EXTRA_KEYWORDS = {
   general: ["profile", "name", "email", "skin", "theme", "appearance", "analytics", "updates", "tools", "tool calls", "language", "locale", "vm", "diagnostics", "experimental"],
   connections: ["keys", "api", "gemini", "opencode", "claude", "grok", "codex", "antigravity", "cli"],
@@ -75,7 +93,7 @@ const EXTRA_KEYWORDS = {
 } as const satisfies Record<AppSettingsSection, readonly string[]>;
 
 export function settingsSectionSearchHaystack(id: AppSettingsSection): string {
-  const phrases = SECTION_PHRASE_KEYS[id].flatMap((key) => [catalogs.en[key], catalogs.ko[key]]);
+  const phrases = phraseKeysFor(id).flatMap((key) => [catalogs.en[key], catalogs.ko[key]]);
   return [...phrases, ...EXTRA_KEYWORDS[id]].join("\n").toLowerCase();
 }
 
