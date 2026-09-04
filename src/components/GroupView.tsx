@@ -374,13 +374,13 @@ function DefaultResponderSelect({ group, members }: { group: Group; members: Bot
   );
 }
 
-/** The room's shared desk: where every member's shell and file tools run,
- * overriding each bot's own folder for room turns. The room pins its own
- * copy on its first turn (the server does the pinning — engines key their
- * sessions to the folder a thread starts in, so a folder must not move
- * under a room that already worked somewhere). The PATCH is made directly
- * rather than through patchGroup: the server validates the path and a
- * rejected folder must not stick in local state. */
+/** The room's shared project folder: where every member's shell and file
+ * tools run, overriding each bot's own folder for room turns. The room
+ * pins its own copy on its first turn (the server does the pinning —
+ * engines key their sessions to the folder a thread starts in, so a
+ * folder must not move under a room that already worked somewhere). The
+ * PATCH is made directly rather than through patchGroup: the server
+ * validates the path and a rejected folder must not stick in local state. */
 function RoomWorkingFolder({ group }: { group: Group }) {
   const { t } = useI18n();
   const { capabilities } = useDesktopCapabilities();
@@ -392,6 +392,7 @@ function RoomWorkingFolder({ group }: { group: Group }) {
   const pinned = group.pinnedCwd; // undefined = not yet, null = each bot's own, string = folder
   const locked = pinned !== undefined;
   const shownCwd = locked ? (pinned ?? undefined) : group.cwd;
+  const emptyLabel = locked ? t("room.eachBotFolder") : t("room.chooseSharedFolder");
 
   const save = async (cwd: string | null) => {
     setSaving(true);
@@ -417,7 +418,7 @@ function RoomWorkingFolder({ group }: { group: Group }) {
       {locked ? (
         <div className="mt-3">
           <div className="truncate rounded-lg border border-hairline/40 bg-inset px-3 py-2 font-mono text-[12.5px] text-ink" title={shownCwd}>
-            {shownCwd ? shortPath(shownCwd, home) : <span className="text-ink-secondary">{t("room.eachBotFolder")}</span>}
+            {shownCwd ? shortPath(shownCwd, home) : <span className="text-ink-secondary">{emptyLabel}</span>}
           </div>
           <div className="mt-2 text-[12px] text-ink-secondary">
             {t("room.fixedFolder")}
@@ -426,7 +427,7 @@ function RoomWorkingFolder({ group }: { group: Group }) {
       ) : canPick ? (
         <div className="mt-3 flex items-center gap-2">
           <div className="min-w-0 flex-1 truncate rounded-lg border border-hairline/40 bg-inset px-3 py-2 font-mono text-[12.5px] text-ink" title={group.cwd}>
-            {group.cwd ? shortPath(group.cwd, home) : <span className="text-ink-secondary">{t("room.eachBotFolder")}</span>}
+            {group.cwd ? shortPath(group.cwd, home) : <span className="text-ink-secondary">{emptyLabel}</span>}
           </div>
           <button onClick={() => void pick()} disabled={saving} className="flex shrink-0 items-center gap-1.5 rounded-lg bg-raised px-3 py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50">
             <FolderOpen size={14} /> {t("room.chooseEllipsis")}
@@ -463,31 +464,20 @@ function RoomWorkingFolder({ group }: { group: Group }) {
 }
 
 /** The folder this room's turns run in — the pinned folder once a turn ran,
- * else the room folder a first turn would pin. Always present so the desk
- * is settable before any folder exists; quiet (icon only) until then. */
+ * else the room folder a first turn would pin. Always labeled so the channel
+ * has one clear shared project-folder control. */
 function RoomWorkingFolderChip({ group, onToggle }: { group: Group; onToggle: () => void }) {
   const { t } = useI18n();
   const folder = group.pinnedCwd === undefined ? group.cwd : (group.pinnedCwd ?? undefined);
-  if (!folder) {
-    return (
-      <button
-        onClick={onToggle}
-        className="rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink"
-        title={t("room.workingFolderChip")}
-      >
-        <Folder size={14} />
-      </button>
-    );
-  }
-  const name = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || folder;
+  const name = folder ? folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || folder : t("room.projectFolderChip");
   return (
     <button
       onClick={onToggle}
-      className="flex max-w-[180px] items-center gap-1.5 rounded-full border border-hairline/40 bg-raised/60 px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
-      title={t("room.workingFolderNamed", { folder })}
+      className="flex max-w-[220px] items-center gap-1.5 rounded-full border border-hairline/40 bg-raised/60 px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
+      title={folder ? t("room.workingFolderNamed", { folder }) : t("room.workingFolderChip")}
     >
       <Folder size={12} />
-      <span className="truncate font-mono">{name}</span>
+      <span className={cn("truncate", folder && "font-mono")}>{name}</span>
     </button>
   );
 }
@@ -637,7 +627,7 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
             <input
               value={folder}
               onChange={(event) => setFolder(event.target.value)}
-              placeholder={t("room.eachBotFolder")}
+              placeholder={t("room.chooseSharedFolder")}
               className="min-w-0 flex-1 rounded-xl border border-hairline/50 bg-inset px-3 py-2.5 font-mono text-[12.5px] text-ink placeholder:text-ink-secondary focus:border-accent focus:outline-none"
             />
             {window.ogb?.pickFolder && (
@@ -1159,7 +1149,7 @@ export function GroupView({ group }: { group: Group }) {
         )}
       </div>}
 
-      {/* Working folder card — the chip in the header toggles it */}
+      {/* Shared project folder — the chip in the header toggles it */}
       {!setupPending && folderOpen && !group.dm && (
         <div className="w-full px-5">
           <div className="mb-1">

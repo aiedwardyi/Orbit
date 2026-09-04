@@ -154,6 +154,21 @@ describe("complete phrases", () => {
     expect(ko["room.chooseEllipsis"]).toBe("선택…");
     expect(ko["room.choose"]).not.toContain("…");
   });
+
+  it("calls the channel folder a shared project folder, not a per-task pin", () => {
+    expect(en["room.workingFolder"]).toBe("Shared project folder");
+    expect(ko["room.workingFolder"]).toBe("공유 프로젝트 폴더");
+    expect(en["room.workingFolderHelp"]).toMatch(/All bots in this channel/);
+    expect(ko["room.workingFolderHelp"]).not.toMatch(/Where room members/i);
+    expect(en["room.fixedFolder"]).not.toMatch(/task/i);
+    expect(ko["room.fixedFolder"]).not.toMatch(/새 작업/);
+    expect(en["room.chooseSharedFolder"]).toBe("Choose a shared folder");
+    expect(ko["room.chooseSharedFolder"]).toBe("공유 폴더를 선택하세요");
+    expect(en["room.projectFolderChip"]).toBe("Project folder");
+    expect(ko["room.projectFolderChip"]).toBe("프로젝트 폴더");
+    expect(en["chrome.resizeSidebar"]).toBe("Resize sidebar");
+    expect(ko["chrome.resizeSidebar"]).toBe("사이드바 너비 조절");
+  });
 });
 
 describe("Friends Routine naming and one Stop", () => {
@@ -246,6 +261,7 @@ describe("remaining P1 surfaces", () => {
     expect(sidebar).toContain('t("chrome.createBotFirst")');
     expect(sidebar).toContain('t("chrome.chooseAnotherChief")');
     expect(sidebar).toContain('t("chrome.teamMap")');
+    expect(sidebar).toContain('t("chrome.resizeSidebar")');
     expect(sidebar).not.toMatch(/aria-label=\{density === "icons" \? "Team map"/);
   });
 });

@@ -18,6 +18,7 @@ import {
   showSettingsEnginesNav,
   showUsagePerBotTable,
   showEngineRailZoo,
+  showSidebarDensityControls,
   showSidebarRoutines,
   showSidebarTeachSkill,
 } from "./friends-chrome";
@@ -47,6 +48,7 @@ describe("friends chrome flags", () => {
     expect(showCommunityRepoLink()).toBe(false);
     expect(showAvatarImageGenerate()).toBe(false);
     expect(showAvatarShapeOptions()).toBe(false);
+    expect(showSidebarDensityControls()).toBe(false);
     expect(showSettingsMoreServicesSection()).toBe(false);
     expect(showSettingsEnginesNav()).toBe(false);
     expect(showUsagePerBotTable()).toBe(false);
@@ -110,5 +112,29 @@ describe("friends chrome call sites keep the feature code", () => {
     expect(avatarCard).toContain("showAvatarShapeOptions()");
     expect(avatarCard).toContain("Generate with GPT Image 2");
     expect(avatarCard).toContain("BOT_AVATAR_CROPS");
+    expect(avatarCard).toContain("Upload image");
+    expect(avatarCard).toContain("MAUS_COLOR_NAMES");
+  });
+
+  it("gates sidebar density toys and keeps a drag-resize handle plus the create menu", () => {
+    expect(sidebar).toContain("showSidebarDensityControls()");
+    expect(sidebar).toContain('t("chrome.collapseSidebar")');
+    expect(sidebar).toContain('t("chrome.sidebarDensity")');
+    expect(sidebar).toContain('t("chrome.densityAvatars")');
+    expect(sidebar).toContain('t("chrome.resizeSidebar")');
+    expect(sidebar).toContain("data-sidebar-resize");
+    expect(sidebar).toContain('t("chrome.newOrShare")');
+    expect(sidebar).toContain('t("chrome.newBot")');
+    expect(sidebar).toContain('t("chrome.newChannel")');
+  });
+
+  it("calls the channel folder a shared project folder instead of a per-task pin", () => {
+    expect(groupView).toContain('t("room.workingFolder")');
+    expect(groupView).toContain('t("room.workingFolderHelp")');
+    expect(groupView).toContain('t("room.chooseSharedFolder")');
+    expect(groupView).toContain('t("room.projectFolderChip")');
+    expect(groupView).toContain("<RoomWorkingFolderChip");
+    expect(groupView).not.toMatch(/Start a new task/);
+    expect(groupView).not.toMatch(/Fixed for this task/);
   });
 });
