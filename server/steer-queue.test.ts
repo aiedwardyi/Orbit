@@ -18,6 +18,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   cancelSteeredMessage,
+  continueQueuedDrainIfIdle,
   drainSteeredMessages,
   queuedSteeredMessage,
   queueRoomParticipation,
@@ -317,6 +318,45 @@ describe("steer-queue module", () => {
     expect(run).toHaveBeenCalledTimes(2);
     expect(run.mock.calls[1][0]).toBe("nova-pair");
     expect(_queuedCount("room-pair")).toBe(0);
+  });
+
+  it("wires the failed-start re-drain through continueQueuedDrainIfIdle", () => {
+    const index = readFileSync(join(SERVER_DIR, "index.ts"), "utf8");
+    expect(index).toContain("continueQueuedDrainIfIdle(store, botId, drainQueuedSends)");
+    expect(index).not.toMatch(/if \(!store\.bot\(botId\)\?\.busy\) drainQueuedSends\(\)/);
+  });
+
+  it("re-drains only when the failed start left the bot idle", () => {
+    const bot = fakeBot("bot-busy-fail", "thread-busy-fail", false);
+    const drain = vi.fn();
+    continueQueuedDrainIfIdle(fakeStore([bot]), bot.id, drain);
+    expect(drain).toHaveBeenCalledTimes(1);
+
+    bot.busy = true;
+    continueQueuedDrainIfIdle(fakeStore([bot]), bot.id, drain);
+    expect(drain).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts the next queued send after a failed start leaves the bot idle", async () => {
+    const bot = fakeBot("bot-fail-next", "thread-fail-next", true);
+    const store = fakeStore([bot]);
+    queueSteeredMessage(bot.id, bot.threadId, "first");
+    queueSteeredMessage(bot.id, bot.threadId, "second");
+    bot.busy = false;
+
+    const prompts: string[] = [];
+    const drain = () => {
+      drainSteeredMessages(store, (_botId, _threadId, prompt) => {
+        void Promise.reject(new Error("provider unavailable")).catch(() => {
+          prompts.push(prompt);
+          continueQueuedDrainIfIdle(store, bot.id, drain);
+        });
+      });
+    };
+    drain();
+    await vi.waitFor(() => expect(prompts).toEqual(["first", "second"]));
+    expect(store.messages.map((message) => message.text)).toEqual(["first", "second"]);
+    expect(_queuedCount("thread-fail-next")).toBe(0);
   });
 
   it("drains only one queue per bot per settle so a 1:1 and a room wait cannot double-fire", () => {

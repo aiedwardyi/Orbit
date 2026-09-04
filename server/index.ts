@@ -101,6 +101,7 @@ import { reactionSystemGuidance } from "../shared/reactions.ts";
 import { _loadPending, discardDelegations, discardDelegationsFrom, drainDelegations, findDelegationReceipt, pendingDelegationInfo, pendingDelegationSnapshot, pendingThreads, queueDelegation, recordDelegationReceipt, threadsWaitingOn, type QueueResult } from "./delegations.ts";
 import {
   cancelSteeredMessage,
+  continueQueuedDrainIfIdle,
   drainSteeredMessages,
   queuedSteeredMessage,
   queueRoomParticipation,
@@ -1934,7 +1935,7 @@ function drainQueuedSends() {
       });
       // This send is already off the queue. If the bot is still idle, the
       // next queued line should get its own turn instead of waiting forever.
-      if (!store.bot(botId)?.busy) drainQueuedSends();
+      continueQueuedDrainIfIdle(store, botId, drainQueuedSends);
     });
   });
 }

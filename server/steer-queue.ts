@@ -244,6 +244,18 @@ export function cancelSteeredMessage(botId: string, messageId: string): boolean 
   return false;
 }
 
+/** After a drained start fails, try the next queued send only if this
+ * bot is still idle. A busy bot will drain on its own turn.completed.
+ * No backoff: the failed item is already off the queue, so each call
+ * makes progress and a broken provider cannot loop the same send. */
+export function continueQueuedDrainIfIdle(
+  store: Pick<SteerStore, "bot">,
+  botId: string,
+  drain: () => void,
+): void {
+  if (!store.bot(botId)?.busy) drain();
+}
+
 /** Test helper: how many messages remain queued for a thread. */
 export function _queuedCount(threadId: string): number {
   let count = 0;
