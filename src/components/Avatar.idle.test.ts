@@ -1,9 +1,9 @@
 import "./ProfileFields.test-dom.ts";
-import { act, createElement, type ReactNode } from "react";
+import { act, createElement, createRef, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { BotAvatar, MausAvatar } from "./Avatar";
+import { BotAvatar, MausAvatar, type MausAvatarHandle } from "./Avatar";
 
 async function renderInto(node: ReactNode) {
   const host = document.createElement("div");
@@ -46,5 +46,22 @@ describe("mascot idle motion mount", () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids.some((id) => id.includes("peach-body"))).toBe(true);
     expect(ids.some((id) => id.includes("teal-body"))).toBe(true);
+  });
+
+  it("clears a forced blink class if animationend never fires", async () => {
+    const handle = createRef<MausAvatarHandle>();
+    const { host } = await renderInto(
+      createElement(MausAvatar, { ref: handle, color: "red", mascotStyle: "peach", size: 44, label: "Peach" }),
+    );
+
+    await act(async () => {
+      handle.current?.blink();
+    });
+    expect(host.querySelector(".mascot-avatar--nudge")).toBeTruthy();
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 230));
+    });
+    expect(host.querySelector(".mascot-avatar--nudge")).toBeNull();
   });
 });

@@ -731,7 +731,8 @@ body {
   .thinking-shimmer { background: none; color: var(--color-ink-secondary); }
   .turn-mascot-in, .turn-mascot-out, .turn-answer { animation: none; }
   .mascot-avatar .mascot-idle,
-  .mascot-avatar .mascot-blink { animation: none; }
+  .mascot-avatar .mascot-blink,
+  .mascot-avatar.mascot-avatar--nudge .mascot-blink { animation: none; }
   /* The drawer still moves, it just arrives instantly. */
   aside { transition: none; }
 }

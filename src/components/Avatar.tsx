@@ -72,15 +72,34 @@ function MausAvatarComponent(
 ) {
   const reactId = useId();
   const rootRef = useRef<HTMLSpanElement>(null);
+  const nudgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nudgeEnd = useRef<(() => void) | null>(null);
+
+  useEffect(() => () => {
+    if (nudgeTimer.current) clearTimeout(nudgeTimer.current);
+  }, []);
 
   useImperativeHandle(ref, () => ({
     blink: () => {
       const el = rootRef.current;
       if (!el) return;
-      el.classList.remove("mascot-avatar--nudge");
+      const finish = () => {
+        el.classList.remove("mascot-avatar--nudge");
+        if (nudgeEnd.current) {
+          el.removeEventListener("animationend", nudgeEnd.current);
+          nudgeEnd.current = null;
+        }
+        if (nudgeTimer.current) {
+          clearTimeout(nudgeTimer.current);
+          nudgeTimer.current = null;
+        }
+      };
+      finish();
       void el.offsetWidth;
       el.classList.add("mascot-avatar--nudge");
-      el.addEventListener("animationend", () => el.classList.remove("mascot-avatar--nudge"), { once: true });
+      nudgeEnd.current = finish;
+      el.addEventListener("animationend", finish);
+      nudgeTimer.current = setTimeout(finish, 220);
     },
     spin: () => {},
     setExpression: () => {},

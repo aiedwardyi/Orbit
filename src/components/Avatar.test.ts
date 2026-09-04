@@ -74,13 +74,17 @@ describe("cute mascot renderer", () => {
 
   it("ships blink + soft idle eye motion and parks it under reduced motion", () => {
     expect(stylesCss).toContain("@keyframes mascot-blink");
+    expect(stylesCss).toContain("@keyframes mascot-blink-once");
     expect(stylesCss).toContain("@keyframes mascot-idle-eyes");
     expect(stylesCss).toMatch(/\.mascot-avatar \.mascot-blink/);
     expect(stylesCss).toMatch(/\.mascot-avatar \.mascot-idle/);
     const reduce = stylesCss.slice(stylesCss.indexOf("@media (prefers-reduced-motion: reduce)"));
     expect(reduce).toContain(".mascot-avatar .mascot-blink");
     expect(reduce).toContain(".mascot-avatar .mascot-idle");
+    expect(reduce).toContain(".mascot-avatar.mascot-avatar--nudge .mascot-blink");
     expect(reduce).toContain("animation: none");
     expect(stylesCss).not.toMatch(/\.mascot-avatar[^{]*\{[^}]*bounce/i);
+    expect(sources["Avatar.tsx"]).toContain("setTimeout");
+    expect(sources["Avatar.tsx"]).toContain("220");
   });
 });
