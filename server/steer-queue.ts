@@ -1,8 +1,9 @@
 // Queue-and-steer for busy 1:1 bots, and queue-and-speak for busy room members.
 //
 // A message sent to a bot mid-turn used to bounce with a 409. Now it waits
-// here until the bot settles, then lands in the thread and runs as ONE
-// follow-up turn whose prompt is the queued texts joined with newlines.
+// here until the bot settles, then lands in the thread and runs as its own
+// follow-up turn. Several short sends stay separate queued turns — joining
+// them into one prompt made forever-chat feel like a coalesced task dump.
 //
 // A room member who is busy elsewhere used to get a permanent "skipped this
 // round" activity line. Their participation now waits here and runs as ONE
@@ -158,15 +159,16 @@ function isRoomItem(item: QueueItem): item is RoomItem {
   return item.kind === "room";
 }
 
-/** Drain every queue whose bot is idle: append held 1:1 lines (leaf is now
- * the finished turn's last item), then one run per thread whose prompt is
- * the texts joined with newlines. Room items do not append — the user line
- * is already on the room thread. `userMessage` is the last appended 1:1
- * line so startTurn does not duplicate it; `excludeIds` is every drained
- * line so transcript-replay adapters do not also see earlier queued texts.
- * Entries leave the map BEFORE running so a settle racing another settle
- * can never fire the same queue twice. A bot with both a 1:1 wait and a
- * room wait yields one run per settle so the two cannot start together. */
+/** Drain every queue whose bot is idle: append the next held 1:1 line
+ * (leaf is now the finished turn's last item), then one run for that
+ * send. Remaining 1:1 lines stay queued for the next settle so multi-send
+ * stays one turn each. Room items do not append — the user line is already
+ * on the room thread. `userMessage` is the appended 1:1 line so startTurn
+ * does not duplicate it; `excludeIds` is that drained line so
+ * transcript-replay adapters do not also see it in the prompt. Entries
+ * leave the map BEFORE running so a settle racing another settle can never
+ * fire the same item twice. A bot with both a 1:1 wait and a room wait
+ * yields one run per settle so the two cannot start together. */
 export function drainSteeredMessages(store: SteerStore, run: DrainRun): void {
   const draining = new Set<string>();
   // deleting only the entry being visited is safe under Map iteration
@@ -185,36 +187,23 @@ export function drainSteeredMessages(store: SteerStore, run: DrainRun): void {
 
     const steerItems = entry.items.filter((item): item is SteerItem => !isRoomItem(item));
     const roomItems = entry.items.filter(isRoomItem);
-    if (steerItems.length && roomItems.length) {
-      queues.set(key, { botId: entry.botId, threadId: entry.threadId, items: roomItems });
-    }
-
     if (steerItems.length) {
-      const appended: Message[] = [];
-      for (const item of steerItems) {
-        // queueId is the pending-chip identity from the 202; append still
-        // assigns a fresh transcript id so replay/exclude keep using message.id.
-        appended.push(
-          store.appendMessage(entry.threadId, {
-            role: "user",
-            kind: "text",
-            text: item.text,
-            replyToId: item.replyToId,
-            sendId: item.sendId,
-            queueId: item.messageId,
-          }),
-        );
+      const [item, ...rest] = steerItems;
+      if (!item) continue;
+      if (rest.length || roomItems.length) {
+        queues.set(key, { botId: entry.botId, threadId: entry.threadId, items: [...rest, ...roomItems] });
       }
-      const last = appended.at(-1);
-      if (!last) continue;
-      const prompt = steerItems.map((item) => item.prompt).join("\n");
-      void run(
-        entry.botId,
-        entry.threadId,
-        prompt,
-        last,
-        appended.map((message) => message.id),
-      );
+      // queueId is the pending-chip identity from the 202; append still
+      // assigns a fresh transcript id so replay/exclude keep using message.id.
+      const appended = store.appendMessage(entry.threadId, {
+        role: "user",
+        kind: "text",
+        text: item.text,
+        replyToId: item.replyToId,
+        sendId: item.sendId,
+        queueId: item.messageId,
+      });
+      void run(entry.botId, entry.threadId, item.prompt, appended, [appended.id]);
       continue;
     }
 

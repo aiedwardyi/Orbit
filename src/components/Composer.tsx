@@ -38,7 +38,7 @@ import { normalizeState } from "@/lib/mascot";
 import { groupComposerHint, roomRespondersForComposer } from "@/lib/group-routing";
 import { PendingApprovalActions, PendingApprovalPanel, pendingApprovals } from "./PendingApproval";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
-import { composerBusyChrome } from "@/lib/composer-busy";
+import { composerBusyChrome, pendingSteerEntries } from "@/lib/composer-busy";
 import { composerEnterIntent, isComposerEnterKey } from "@/lib/composer-enter";
 import { useI18n } from "@/lib/i18n";
 import { ReplyQuote } from "./ReplyQuote";
@@ -388,11 +388,8 @@ export function Composer({
     },
     [draftId, restoreDraft],
   );
-  const pendingChip = group
-    ? queued?.text
-    : bot
-      ? state.pendingQueued?.[bot.threadId]?.map((entry) => entry.text).join("\n")
-      : undefined;
+  const pendingSteer = !group && bot ? pendingSteerEntries(state.pendingQueued, bot.threadId) : [];
+  const pendingChip = group ? queued?.text : undefined;
   // a chip on its own is a message: the send control has to appear for it
   const fileInput = useRef<HTMLInputElement>(null);
   const [autoWarn, setAutoWarn] = useState(false);
@@ -648,16 +645,7 @@ export function Composer({
             </span>
             <button
               type="button"
-              onClick={() => {
-                if (group) {
-                  clearQueued();
-                  return;
-                }
-                if (!bot) return;
-                for (const entry of state.pendingQueued?.[bot.threadId] ?? []) {
-                  dispatch({ type: "cancelQueued", botId: bot.id, queueId: entry.queueId });
-                }
-              }}
+              onClick={clearQueued}
               aria-label={t("composer.cancelQueued")}
               title={t("composer.cancelQueued")}
               className="ml-auto flex size-5 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-raised hover:text-ink"
@@ -666,6 +654,29 @@ export function Composer({
             </button>
           </div>
         )}
+        {pendingSteer.map((entry) => (
+          <div
+            key={entry.queueId}
+            className="mb-2 flex items-center gap-2 rounded-lg border border-hairline/40 bg-panel px-3 py-2 text-[12.5px] text-ink-secondary"
+          >
+            <Clock size={13} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">
+              {t("composer.queuedUntil", { text: entry.text })}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                if (!bot) return;
+                dispatch({ type: "cancelQueued", botId: bot.id, queueId: entry.queueId });
+              }}
+              aria-label={t("composer.cancelQueued")}
+              title={t("composer.cancelQueued")}
+              className="ml-auto flex size-5 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-raised hover:text-ink"
+            >
+              <X size={13} strokeWidth={2.5} />
+            </button>
+          </div>
+        ))}
         {pickerOpen && (
           <div
             role="listbox"

@@ -11,12 +11,15 @@ export type TranscriptItem =
   | { kind: "message"; message: Message }
   | { kind: "run"; id: string; messages: Message[] };
 
+/** Default-off stays a calm chat: hide named tool pills, including failed
+ * ones. Show tool calls reveals them. Bot⇄bot chips and `error:` turn
+ * failures stay — those are conversation, not execution theatre. */
 export function activityVisibleInChat(message: Message, showToolCalls: boolean): boolean {
   const tool = message.tool;
   return Boolean(
     message.kind === "activity" &&
       tool &&
-      (showToolCalls || message.comm || tool.ok === false || tool.name.startsWith("error:")),
+      (showToolCalls || message.comm || tool.name.startsWith("error:")),
   );
 }
 

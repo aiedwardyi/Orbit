@@ -135,12 +135,26 @@ describe("roomTranscriptRows", () => {
     expect(result[2].cluster).toBe(true);
   });
 
-  it("keeps a failed step visible and labelled while tool calls are hidden", () => {
+  it("hides a failed tool step while tool calls are hidden", () => {
     const result = rows([
       say("defense", "Here is the argument."),
       step("challenge", "Bash", false),
       say("challenge", "That failed."),
     ]);
+    expect(result.map((row) => row.visible)).toEqual([true, false, true]);
+    expect(result[2].cluster).toBe(true);
+  });
+
+  it("keeps a turn-level error visible and labelled while tool calls are hidden", () => {
+    const err: Message = {
+      id: `e${++seq}`,
+      at: at(1),
+      role: "bot",
+      kind: "activity",
+      tool: { name: "error: provider failed", ok: false },
+      from: from("challenge"),
+    };
+    const result = rows([say("defense", "Here is the argument."), err, say("challenge", "That failed.")]);
     expect(result.map((row) => row.visible)).toEqual([true, true, true]);
     expect(result[1].cluster).toBe(true);
     expect(result[2].cluster).toBe(false);

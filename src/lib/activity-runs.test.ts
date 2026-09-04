@@ -91,8 +91,13 @@ describe("groupActivityRuns", () => {
 });
 
 describe("activityVisibleInChat", () => {
-  it("keeps failed activity visible while tool calls are hidden", () => {
-    expect(activityVisibleInChat(tool("Bash", false), false)).toBe(true);
+  it("hides failed tool chips until tool calls are shown", () => {
+    expect(activityVisibleInChat(tool("Bash", false), false)).toBe(false);
+    expect(activityVisibleInChat(tool("Bash", false), true)).toBe(true);
+  });
+
+  it("keeps turn-level errors visible while tool calls are hidden", () => {
+    expect(activityVisibleInChat(tool("error: the CLI exited", false), false)).toBe(true);
   });
 
   it("hides successful plain activity until tool calls are shown", () => {

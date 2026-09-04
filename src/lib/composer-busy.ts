@@ -23,6 +23,15 @@ export interface ComposerBusyChrome {
   sendTitleKey: MessageKey;
 }
 
+/** 1:1 pending chips, one per queued send — never joined into one line. */
+export function pendingSteerEntries(
+  pending: Record<string, Array<{ queueId: string; text: string }>> | undefined,
+  threadId: string | undefined,
+): Array<{ queueId: string; text: string }> {
+  if (!threadId || !pending) return [];
+  return pending[threadId] ?? [];
+}
+
 export function composerBusyChrome(
   input: ComposerBusyInput,
   translate: Translate = t,
