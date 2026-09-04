@@ -295,13 +295,13 @@ const Transcript = memo(function Transcript({
                       <MessageSquareReply size={14} />
                     </button>
                     <PinToggle group={group} message={m} />
-                    <ReactionBar threadId={group.threadId} message={m} />
                   </>
                 )}
                 <span className="self-end pb-1 text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100">
                   {formatTime(m.at, localeTag(locale))}
                 </span>
               </div>
+              {!user && <ReactionBar threadId={group.threadId} message={m} />}
               <ReactionChips threadId={group.threadId} message={m} members={members} align={user ? "right" : "left"} />
             </div>
           ) : null;

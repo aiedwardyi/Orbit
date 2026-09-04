@@ -648,3 +648,28 @@ describe("plan usage", () => {
     expect(chatView).toContain("engine?.rateLimits?.windows");
   });
 });
+
+describe("chat reactions", () => {
+  const reactions = readFileSync(join(here, "../components/Reactions.tsx"), "utf8");
+
+  it("keeps reaction chrome as complete EN+KO phrases", () => {
+    expect(en["chat.reactEmoji"]).toBe("React {emoji}");
+    expect(ko["chat.reactEmoji"]).toBe("{emoji} 반응 달기");
+    expect(en["chat.removeReaction"]).toBe("Remove {emoji} reaction");
+    expect(ko["chat.removeReaction"]).toBe("{emoji} 반응 취소");
+    expect(en["chat.moreReactions"]).toBe("More reactions");
+    expect(ko["chat.moreReactions"]).toBe("다른 반응");
+    expect(en["chat.closeReactions"]).toBe("Close reactions");
+    expect(ko["chat.closeReactions"]).toBe("반응 닫기");
+    expect(ko["chat.moreReactions"]).not.toMatch(/More reactions/i);
+  });
+
+  it("wires those phrases into the reaction rail instead of hardcoded English", () => {
+    expect(reactions).toContain('t("chat.reactEmoji"');
+    expect(reactions).toContain('t("chat.removeReaction"');
+    expect(reactions).toContain('t("chat.moreReactions")');
+    expect(reactions).toContain('t("chat.closeReactions")');
+    expect(reactions).not.toMatch(/aria-label="More reactions"/);
+    expect(reactions).not.toMatch(/title="More reactions"/);
+  });
+});

@@ -1,3 +1,8 @@
+import {
+  formatReactionAnnotation,
+  promptWithReactions,
+  type ReactionMessage,
+} from "../shared/reactions.ts";
 import type { Message } from "./store.ts";
 
 const MAX_REPLY_EXCERPT = 900;
@@ -32,8 +37,27 @@ export function promptWithReply(text: string, target: Message | undefined, userN
 
 /** Compact relationship marker used while replaying room/direct history. */
 export function transcriptText(message: Message, messagesById: ReadonlyMap<string, Message>, userName = "User"): string {
-  if (!message.text || !message.replyToId) return message.text ?? "";
-  const target = messagesById.get(message.replyToId);
-  if (!target?.text) return message.text;
-  return `[replying to ${replySpeaker(target, userName)}: “${replyExcerpt(target.text, 220)}”]\n${message.text}`;
+  let body = message.text ?? "";
+  if (message.text && message.replyToId) {
+    const target = messagesById.get(message.replyToId);
+    if (target?.text) {
+      body = `[replying to ${replySpeaker(target, userName)}: “${replyExcerpt(target.text, 220)}”]\n${message.text}`;
+    }
+  }
+  const annotation = formatReactionAnnotation(message, userName, messagesById.values());
+  if (!annotation) return body;
+  return body ? `${body}\n${annotation}` : annotation;
+}
+
+/** Reply quote plus current reaction state for a user turn. */
+export function composeUserTurnPrompt(
+  text: string,
+  opts: {
+    replyTo?: Message;
+    messages: readonly ReactionMessage[];
+    userName?: string;
+  },
+): string {
+  const userName = opts.userName ?? "User";
+  return promptWithReactions(promptWithReply(text, opts.replyTo, userName), opts.messages, userName);
 }
