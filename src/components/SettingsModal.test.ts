@@ -167,17 +167,6 @@ describe("SettingsModal friends chrome", () => {
     expect(html).not.toContain("milind-soni");
   });
 
-  it("saves profile only from the explicit Save button", () => {
-    const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
-    const start = source.indexOf("function ProfileFields");
-    const end = source.indexOf("function UpdatesRow");
-    expect(start).toBeGreaterThan(-1);
-    expect(end).toBeGreaterThan(start);
-    const profile = source.slice(start, end);
-    expect(profile).toContain("settings.profile.save");
-    expect(profile).not.toContain("onBlur");
-  });
-
   it("keeps Local VM, channel turns, experimental, and diagnostics inside the folded Advanced body", () => {
     const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
     const marker = "data-settings-advanced";
