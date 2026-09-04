@@ -177,11 +177,24 @@ describe("Store", () => {
     expect(reloaded.bot(bot.id)?.composio).toBe(false);
   });
 
-  it("rotates colors across created bots", () => {
+  it("defaults a new bot without an explicit color to red", () => {
     const store = new Store(selection);
-    const first = store.createBot();
-    const second = store.createBot();
-    expect(first.color).not.toBe(second.color);
+    expect(store.createBot().color).toBe("red");
+  });
+
+  it("keeps an explicit stored green color instead of reminting red", () => {
+    const store = new Store(selection);
+    const bot = store.createBot({ color: "green" });
+    expect(bot.color).toBe("green");
+    expect(new Store(selection).bot(bot.id)?.color).toBe("green");
+  });
+
+  it("rotates colors across created bots and cycles back to red", () => {
+    const store = new Store(selection);
+    const colors = Array.from({ length: 11 }, () => store.createBot().color);
+    expect(colors[0]).toBe("red");
+    expect(colors[10]).toBe("red");
+    expect(new Set(colors.slice(0, 10)).size).toBe(10);
   });
 
   it("defaults a room to its first member and repairs the lead when membership changes", () => {

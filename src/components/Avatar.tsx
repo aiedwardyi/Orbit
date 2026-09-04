@@ -13,7 +13,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { MAUS_COLORS, type MausColor, type MausMotion, type MausState } from "@/lib/mascot";
+import { mausColorHex, type MausColor, type MausMotion, type MausState } from "@/lib/mascot";
 import {
   CursorAvatar,
   DEFAULT_SILHOUETTE,
@@ -97,7 +97,7 @@ function mix(hex: string, toward: string, t: number): string {
  * ["#9FE6B5", "#3FAE6E", "#1C7A4C"].
  */
 const gradientFor = (color: MausColor): [string, string, string] => {
-  const fill = MAUS_COLORS[color] ?? MAUS_COLORS.green;
+  const fill = mausColorHex(color);
   return [mix(fill, "#ffffff", 0.55), fill, mix(fill, "#000000", 0.42)];
 };
 
