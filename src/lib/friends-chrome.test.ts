@@ -132,9 +132,10 @@ describe("friends chrome call sites keep the feature code", () => {
     expect(sidebar).toContain('t("chrome.densityAvatars")');
     expect(sidebar).toContain('t("chrome.resizeSidebar")');
     expect(sidebar).toContain("data-sidebar-resize");
-    const resizeHandle = sidebar.slice(
-      sidebar.indexOf("{density !== \"icons\" && ("),
-      sidebar.indexOf("macOS owns inset traffic lights"),
+    const resizeHandle = sourceBetween(
+      sidebar,
+      "{density !== \"icons\" && (",
+      "macOS owns inset traffic lights",
     );
     expect(resizeHandle).toContain("data-sidebar-resize");
     expect(resizeHandle).toContain("tabIndex={0}");

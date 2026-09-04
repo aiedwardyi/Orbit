@@ -177,6 +177,8 @@ describe("complete phrases", () => {
     expect(ko["chrome.resizeSidebar"]).toBe("사이드바 너비 조절");
     expect(en["chrome.sidebarWidthPixels"]).toBe("{width} pixels");
     expect(ko["chrome.sidebarWidthPixels"]).toBe("{width}픽셀");
+    expect(translate("en", "chrome.sidebarWidthPixels", { width: 320 })).toBe("320 pixels");
+    expect(translate("ko", "chrome.sidebarWidthPixels", { width: 320 })).toBe("320픽셀");
   });
 });
 
