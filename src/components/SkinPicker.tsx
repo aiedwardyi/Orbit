@@ -76,9 +76,9 @@ export function SkinPicker() {
   );
 
   return (
-    // One row, so the whole set is visible without scrolling the modal —
-    // wrapping pushed the second row below the fold of its 560px frame.
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+    // Two even rows of four on a wide settings card. Five columns left a
+    // leftover trio on the second row once the dark skins joined the set.
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
       {SKINS.map((skin) => {
         const selected = skin.id === active;
         return (
