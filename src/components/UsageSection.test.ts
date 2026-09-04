@@ -35,7 +35,13 @@ const { mockState } = vi.hoisted(() => {
           capabilities: { rateLimits: true },
           rateLimits: {
             observedAt: new Date().toISOString(),
-            windows: [{ id: "five_hour", usedPercent: 10, resetsAt: Date.now() + 3_600_000 }],
+            windows: [
+              { id: "five_hour", usedPercent: 10, resetsAt: Date.now() + 3_600_000 },
+              { id: "seven_day", usedPercent: 49, resetsAt: Date.now() + 6 * 86_400_000 },
+              { id: "seven_day_opus", usedPercent: 75, resetsAt: Date.now() + 6 * 86_400_000 },
+              { id: "primary", usedPercent: 90, resetsAt: Date.now() + 3_600_000 },
+              { id: "stale", usedPercent: 40, resetsAt: Date.now() - 60_000 },
+            ],
           },
         }),
         engine("kimi", "kimiAgent", "Kimi"),
@@ -90,5 +96,26 @@ describe("UsageSection friends plan card", () => {
     expect(codex).toBeGreaterThan(claude);
     expect(antigravity).toBeGreaterThan(codex);
     expect(opencode).toBeGreaterThan(antigravity);
+  });
+
+  it("renders a tight Grok-style header and a thin warn/danger progress bar", () => {
+    const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+    expect(html).toContain("5-hour window");
+    expect(html).toContain("Weekly");
+    expect(html).toContain(">10%<");
+    expect(html).toContain(">49%<");
+    expect(html).toContain(">75%<");
+    expect(html).toContain(">90%<");
+    expect(html).not.toContain("% used");
+    expect(html).not.toContain(">40%<");
+    expect(html).toContain("h-1 ");
+    expect(html).not.toContain("h-1.5");
+    expect(html).toContain("bg-ink/10");
+    expect(html).toContain("bg-accent");
+    expect(html).toContain("bg-warning");
+    expect(html).toContain("bg-danger");
+    expect(html).toContain("Resets in 1 hour");
+    expect(html).toContain("Resets in 6 days");
+    expect(html).toContain("Reset since the last check");
   });
 });
