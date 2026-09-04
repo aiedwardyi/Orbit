@@ -7,6 +7,7 @@ import {
   splitEngineRail,
   splitFriendsEngines,
   starterConnectEngines,
+  visibleFriendsRail,
 } from "./engine-rail";
 
 describe("isEngineRailOpen", () => {
@@ -42,7 +43,7 @@ describe("splitEngineRail", () => {
 });
 
 describe("splitFriendsEngines", () => {
-  it("keeps the four friends engines, across five drivers, out front", () => {
+  it("keeps the friends engines, including both Gemini routes and OpenCode, out front", () => {
     const { friends, rest } = splitFriendsEngines([
       { instanceId: "claude", driverKind: "claudeAgent" },
       { instanceId: "kimi", driverKind: "kimiAgent" },
@@ -52,10 +53,20 @@ describe("splitFriendsEngines", () => {
       { instanceId: "gemini", driverKind: "geminiAgent" },
       { instanceId: "antigravity", driverKind: "antigravityAgent" },
       { instanceId: "cursor", driverKind: "cursorAgent" },
+      { instanceId: "opencode", driverKind: "opencodeGo" },
+      { instanceId: "hermes", driverKind: "hermesAgent" },
     ]);
-    // Gemini counts once as an engine but twice as a driver.
-    expect(friends.map((row) => row.instanceId)).toEqual(["claude", "codex", "grok", "gemini", "antigravity"]);
-    expect(rest.map((row) => row.instanceId)).toEqual(["kimi", "qwen", "cursor"]);
+    // Gemini counts once as an engine but twice as a driver. OpenCode is a
+    // real driver (opencodeGo); Muse is not in the repo and stays out.
+    expect(friends.map((row) => row.instanceId)).toEqual([
+      "claude",
+      "codex",
+      "grok",
+      "gemini",
+      "antigravity",
+      "opencode",
+    ]);
+    expect(rest.map((row) => row.instanceId)).toEqual(["kimi", "qwen", "cursor", "hermes"]);
   });
 
   it("never folds away an engine the user pointed at a binary", () => {
@@ -65,6 +76,39 @@ describe("splitFriendsEngines", () => {
     ]);
     expect(friends.map((row) => row.instanceId)).toEqual(["hermes"]);
     expect(rest.map((row) => row.instanceId)).toEqual(["pi"]);
+  });
+});
+
+describe("visibleFriendsRail", () => {
+  const fleet = [
+    { instanceId: "claude", driverKind: "claudeAgent" },
+    { instanceId: "kimi", driverKind: "kimiAgent" },
+    { instanceId: "codex", driverKind: "codex" },
+    { instanceId: "grok", driverKind: "grokAgent" },
+    { instanceId: "opencode", driverKind: "opencodeGo" },
+    { instanceId: "cursor", driverKind: "cursorAgent" },
+  ];
+
+  it("hides the rest until Show all, and always keeps the active engine", () => {
+    const folded = visibleFriendsRail(fleet, { showAll: false, activeId: "grok" });
+    expect(folded.visible.map((row) => row.instanceId)).toEqual(["claude", "codex", "grok", "opencode"]);
+    expect(folded.hiddenCount).toBe(2);
+
+    const withActiveRest = visibleFriendsRail(fleet, { showAll: false, activeId: "kimi" });
+    expect(withActiveRest.visible.map((row) => row.instanceId)).toEqual([
+      "claude",
+      "codex",
+      "grok",
+      "opencode",
+      "kimi",
+    ]);
+    expect(withActiveRest.hiddenCount).toBe(1);
+  });
+
+  it("reveals the full fleet after Show all engines", () => {
+    const opened = visibleFriendsRail(fleet, { showAll: true, activeId: "grok" });
+    expect(opened.visible.map((row) => row.instanceId)).toEqual(fleet.map((row) => row.instanceId));
+    expect(opened.hiddenCount).toBe(0);
   });
 });
 

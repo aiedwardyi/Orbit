@@ -1,13 +1,14 @@
 // Compact model picker: the Cloud/Local engine rail stays folded until the
-// user asks to switch. Ready engines show a short suggested list with search
+// user asks to switch, then shows friends engines (plus the active one) with
+// Show all for the rest. Ready engines show a short suggested list with search
 // and an explicit all-models view; engines that need setup show one focused
-// action instead of a disabled wall.
+// action instead of a disabled wall. The local-model zoo stays behind Show all.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Search, Sparkles } from "lucide-react";
 import { useStore, type Bot, type InstanceInfo, type ModelSelection } from "@/state/store";
 import { filterCustomModels, partitionCustomModels, suggestedModels } from "@/lib/custom-models";
 import { engineBadgeText, modelChipText, modelChipTitle } from "@/lib/model-chip";
-import { isCustomOnly, isEngineRailOpen, splitEngineRail } from "@/lib/engine-rail";
+import { isCustomOnly, isEngineRailOpen, splitEngineRail, visibleFriendsRail } from "@/lib/engine-rail";
 import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
 import { EngineGroupLabel } from "./EngineGroupLabel";
@@ -106,6 +107,7 @@ export function ModelPicker({
   label,
   defaultOpen = false,
   defaultRailOpen = false,
+  defaultShowAllEngines = false,
 }: {
   bot: Bot;
   className?: string;
@@ -117,6 +119,8 @@ export function ModelPicker({
   defaultOpen?: boolean;
   /** Start with the engine rail open (tests). */
   defaultRailOpen?: boolean;
+  /** Start with the overflow engines visible (tests). */
+  defaultShowAllEngines?: boolean;
 }) {
   const { t } = useI18n();
   const { state, dispatch, refreshInstances } = useStore();
@@ -125,6 +129,7 @@ export function ModelPicker({
   const active = state.instances.find((instance) => instance.instanceId === selection.instanceId);
   const [open, setOpen] = useState(defaultOpen);
   const [railOpen, setRailOpen] = useState(defaultRailOpen);
+  const [showAllEngines, setShowAllEngines] = useState(defaultShowAllEngines);
   const [railId, setRailId] = useState<string | null>(null);
   const [pane, setPane] = useState<"main" | "custom">(() =>
     defaultOpen ? pickerPaneFor(active, selection.model) : "main",
@@ -148,7 +153,10 @@ export function ModelPicker({
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (query) setQuery("");
-      else if (railOpen) setRailOpen(false);
+      else if (railOpen) {
+        setRailOpen(false);
+        setShowAllEngines(false);
+      }
       else if (pane === "custom" && railInstance?.models.options.some((option) => !option.custom)) setPane("main");
       else setOpen(false);
     };
@@ -224,6 +232,12 @@ export function ModelPicker({
     railOpen,
   });
   const canSwitchEngine = state.instances.length > 1;
+  const { visible: railVisible, hiddenCount } = visibleFriendsRail(state.instances, {
+    showAll: showAllEngines,
+    activeId: selection.instanceId,
+  });
+  const { subscription, custom: local } = splitEngineRail(railVisible);
+  const collapsibleEngines = hiddenCount > 0 || showAllEngines;
 
   const renderRow = (option: ModelOption) => (
     <ModelRow
@@ -244,6 +258,7 @@ export function ModelPicker({
           const next = !wasOpen;
           if (next) {
             setRailOpen(false);
+            setShowAllEngines(false);
             openFor(state.instances.find((instance) => instance.instanceId === selection.instanceId));
           }
           return next;
@@ -303,7 +318,6 @@ export function ModelPicker({
               className="flex w-14 shrink-0 flex-col gap-1 overflow-y-auto border-r border-hairline/40 bg-panel p-2"
             >
               {(() => {
-                const { subscription, custom: local } = splitEngineRail(state.instances);
                 const railButton = (instance: InstanceInfo) => {
                   const selected = instance.instanceId === railInstance?.instanceId;
                   const attention = needsCli(instance) || needsSignIn(instance);
@@ -370,7 +384,13 @@ export function ModelPicker({
                     {canSwitchEngine ? (
                       <button
                         type="button"
-                        onClick={() => setRailOpen((open) => !open)}
+                        onClick={() => {
+                          setRailOpen((open) => {
+                            const next = !open;
+                            if (!next) setShowAllEngines(false);
+                            return next;
+                          });
+                        }}
                         aria-expanded={railShown}
                         aria-label={t("model.switchEngine")}
                         title={`${railInstance.displayName} · ${engineStatus(railInstance, t)}`}
@@ -402,6 +422,16 @@ export function ModelPicker({
                       ? t("model.localHelp")
                       : t("model.chooseForBot")}
                   </div>
+                  {railShown && collapsibleEngines && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllEngines((open) => !open)}
+                      aria-expanded={showAllEngines}
+                      className="mt-1.5 text-[12px] text-ink-secondary hover:text-ink"
+                    >
+                      {showAllEngines ? t("engines.showFewer") : t("engines.showAll", { count: hiddenCount })}
+                    </button>
+                  )}
                 </div>
 
                 {pane === "custom" && canReturnToOfficial && (
@@ -504,7 +534,7 @@ export function ModelPicker({
                   </>
                 )}
 
-                {pane === "main" && (
+                {pane === "main" && showAllEngines && (
                   <button
                     type="button"
                     aria-label={
