@@ -54,6 +54,10 @@ export function stepSidebarWidth(current: number, key: string): number | null {
   return clampSidebarWidth(current + delta);
 }
 
+export function restoreSidebarDragWidth(drag: { width: number } | null): number | null {
+  return drag ? drag.width : null;
+}
+
 export function parseSidebarWidth(value: string | null): number {
   if (value == null || value.trim() === "") return SIDEBAR_DEFAULT_WIDTH;
   return clampSidebarWidth(Number(value));

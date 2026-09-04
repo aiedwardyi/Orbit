@@ -13,6 +13,7 @@ import {
   parseSidebarDensity,
   parseSidebarWidth,
   saveSidebarDensity,
+  restoreSidebarDragWidth,
   saveSidebarWidth,
   stepSidebarWidth,
 } from "./sidebar-preferences";
@@ -65,5 +66,11 @@ describe("sidebar width preferences", () => {
     expect(stepSidebarWidth(320, "End")).toBe(SIDEBAR_MAX_WIDTH);
     expect(stepSidebarWidth(320, "ArrowUp")).toBe(null);
     expect(stepSidebarWidth(320, "Enter")).toBe(null);
+  });
+
+  it("restores the pre-drag width when a pointer drag is cancelled", () => {
+    expect(restoreSidebarDragWidth({ width: 320 })).toBe(320);
+    expect(restoreSidebarDragWidth({ width: 410 })).toBe(410);
+    expect(restoreSidebarDragWidth(null)).toBe(null);
   });
 });

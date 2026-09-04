@@ -151,6 +151,9 @@ describe("friends chrome call sites keep the feature code", () => {
     expect(resizeEnd).toContain("releasePointerCapture");
     expect(resizeEnd).toContain("saveSidebarWidth");
     const resizeCancel = sourceBetween(sidebar, "const onSidebarResizeCancel", "const onSidebarResizeKeyDown");
+    expect(resizeCancel).toContain("restoreSidebarDragWidth");
+    expect(resizeCancel).toContain("setSidebarWidth(startWidth)");
+    expect(resizeCancel).toContain("sidebarWidthRef.current = startWidth");
     expect(resizeCancel).toContain("setResizing(false)");
     expect(resizeCancel).not.toContain("saveSidebarWidth");
     expect(sidebar).toContain("stepSidebarWidth");

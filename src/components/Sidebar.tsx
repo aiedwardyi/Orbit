@@ -56,6 +56,7 @@ import {
   SIDEBAR_ICONS_WIDTH,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
+  restoreSidebarDragWidth,
   stepSidebarWidth,
   type SidebarDensity,
 } from "@/lib/sidebar-preferences";
@@ -1085,8 +1086,11 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     saveSidebarWidth(sidebarWidthRef.current);
   };
   const onSidebarResizeCancel = () => {
-    if (!resizeFrom.current) return;
+    const startWidth = restoreSidebarDragWidth(resizeFrom.current);
+    if (startWidth == null) return;
     resizeFrom.current = null;
+    sidebarWidthRef.current = startWidth;
+    setSidebarWidth(startWidth);
     setResizing(false);
   };
   const onSidebarResizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
