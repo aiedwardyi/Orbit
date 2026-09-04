@@ -1093,6 +1093,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   };
 
   const onSidebarResizeStart = (event: PointerEvent<HTMLDivElement>) => {
+    if (!sidebarCollapsedRef.current && density === "icons") return;
     resizeFrom.current = {
       x: event.clientX,
       width: sidebarWidthRef.current,
