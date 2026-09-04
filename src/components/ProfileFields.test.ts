@@ -59,12 +59,14 @@ async function renderProfile() {
   await act(async () => {
     root.render(createElement(ProfileFields));
   });
-  const name = host.querySelector<HTMLInputElement>('input[placeholder="Your name"]');
-  const email = host.querySelector<HTMLInputElement>('input[placeholder="you@example.com"]');
+  const name = host.querySelector<HTMLInputElement>("#settings-profile-name");
+  const email = host.querySelector<HTMLInputElement>("#settings-profile-email");
   const save = host.querySelector<HTMLButtonElement>('button[aria-label="Save name and email"]');
   expect(name).toBeTruthy();
   expect(email).toBeTruthy();
   expect(save).toBeTruthy();
+  expect(host.querySelector('label[for="settings-profile-name"]')?.textContent).toBe("Name");
+  expect(host.querySelector('label[for="settings-profile-email"]')?.textContent).toBe("Email");
   return { host, root, name: name!, email: email!, save: save! };
 }
 

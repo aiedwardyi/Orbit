@@ -36,14 +36,18 @@ export function ProfileFields() {
     "w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[14px] text-ink placeholder:text-ink-secondary focus:border-hairline focus:outline-none disabled:cursor-wait disabled:opacity-50";
   return (
     <div className="flex flex-col gap-3">
+      <label htmlFor="settings-profile-name" className="sr-only">{t("settings.profile.nameLabel")}</label>
       <input
+        id="settings-profile-name"
         value={name}
         onChange={(e) => setName(e.target.value)}
         placeholder={t("settings.profile.namePlaceholder")}
         disabled={saving}
         className={inputClass}
       />
+      <label htmlFor="settings-profile-email" className="sr-only">{t("settings.profile.emailLabel")}</label>
       <input
+        id="settings-profile-email"
         type="email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
