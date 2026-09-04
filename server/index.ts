@@ -102,6 +102,7 @@ import {
   cancelSteeredMessage,
   drainSteeredMessages,
   queuedSteeredMessage,
+  queueRoomParticipation,
   queueSteeredMessage,
 } from "./steer-queue.ts";
 import {
@@ -1906,13 +1907,21 @@ bus.subscribe((event: RuntimeEvent) => {
 });
 
 function drainQueuedSends() {
-  drainSteeredMessages(store, (botId, threadId, prompt, userMessage, excludeIds) =>
+  drainSteeredMessages(store, (botId, threadId, prompt, userMessage, excludeIds, room) => {
+    if (room) {
+      enqueueDrainedRoomTurn(botId, threadId, room);
+      return;
+    }
     // A plain attended turn — no automationSource, no unattended, no comms
     // depth: exactly what typing the same words into an idle bot would run.
     // Drain just appended the held lines; userMessage keeps startTurn
     // from duplicating the last one, and excludeIds drops every drained
     // line from the transcript-replay so they are not also in `prompt`.
-    startTurn(botId, prompt, { threadId, userMessage, excludeMessageIds: excludeIds }).then(() => undefined).catch((err) => {
+    startTurn(botId, prompt, {
+      threadId,
+      userMessage: userMessage ?? undefined,
+      excludeMessageIds: excludeIds,
+    }).then(() => undefined).catch((err) => {
       store.appendMessage(threadId, {
         role: "bot",
         kind: "activity",
@@ -1921,8 +1930,8 @@ function drainQueuedSends() {
           ok: false,
         },
       });
-    }),
-  );
+    });
+  });
 }
 
 // ── live screen: poll the bot's computer while it works ───────────────
@@ -2974,6 +2983,65 @@ const webhookIngressStatus = () => ({
 const groupQueues = new Map<string, Promise<void>>();
 const MAX_GROUP_HOPS = 1;
 
+function queueBusyRoomMember(
+  groupId: string,
+  threadId: string,
+  bot: BotRecord,
+  hop: number,
+  spoken: Set<string>,
+  cardContinuation?: string,
+): true {
+  spoken.add(bot.id);
+  queueRoomParticipation(bot.id, threadId, {
+    groupId,
+    hop,
+    cardContinuation,
+  });
+  return true;
+}
+
+function enqueueDrainedRoomTurn(
+  botId: string,
+  threadId: string,
+  room: { groupId: string; hop: number; cardContinuation?: string },
+) {
+  const group = store.group(room.groupId);
+  if (!group) return;
+  const ownsThread = group.dm
+    ? group.threadId === threadId
+    : Boolean(store.groupTaskByThread(group.id, threadId));
+  if (!ownsThread) return;
+  const operation = beginGroupTurnOperation(group.id, threadId);
+  const previous = groupQueues.get(group.id) ?? Promise.resolve();
+  const next = previous.then(async () => {
+    if (operation.cancelled) return;
+    await runGroupMemberTurn(
+      group.id,
+      threadId,
+      botId,
+      room.hop,
+      new Set(),
+      room.cardContinuation,
+      undefined,
+      () => operation.cancelled,
+    );
+  });
+  const tracked = next.finally(() => finishGroupTurnOperation(group.id, operation));
+  groupQueues.set(
+    group.id,
+    tracked.catch((err) => {
+      store.appendMessage(threadId, {
+        role: "bot",
+        kind: "activity",
+        tool: {
+          name: `error: queued room turn could not start — ${(err instanceof Error ? err.message : String(err)).slice(0, 120)}`,
+          ok: false,
+        },
+      });
+    }),
+  );
+}
+
 
 // comms bus: passed into the visibility helpers in comms-visibility.ts so
 // they can mirror messages + chips without re-deriving SSE plumbing. Same
@@ -3021,16 +3089,8 @@ async function runGroupMemberTurn(
     ? group.threadId === threadId
     : Boolean(group && store.groupTaskByThread(group.id, threadId));
   if (!group || !bot || !ownsThread) return false;
-  if (!tryClaimTurnStart(botId)) {
-    const message = `${bot.name} is busy in another conversation - skipped this round`;
-    store.appendMessage(threadId, {
-      role: "bot",
-      kind: "activity",
-      from: { botId: bot.id, name: bot.name, color: bot.color },
-      tool: { name: message, ok: false },
-    });
-    onDispatchError?.(message);
-    return true;
+  if (botHasActiveTurn(botId) || !tryClaimTurnStart(botId)) {
+    return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation);
   }
   let claimHeld = true;
   const releaseTurnStart = () => {
@@ -3078,15 +3138,7 @@ async function runClaimedGroupMemberTurn(
   spoken.add(botId);
   const userName = cfg.profile?.name?.trim() || "User";
   if (bot.busy) {
-    const message = `${bot.name} is busy in another conversation - skipped this round`;
-    store.appendMessage(threadId, {
-      role: "bot",
-      kind: "activity",
-      from: { botId: bot.id, name: bot.name, color: bot.color },
-      tool: { name: message, ok: false },
-    });
-    onDispatchError?.(message);
-    return true;
+    return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation);
   }
   let selection: ModelSelection;
   try {
@@ -3214,15 +3266,7 @@ async function runClaimedGroupMemberTurn(
   const readyBot = store.bot(bot.id);
   if (!readyBot) return false;
   if (readyBot.busy) {
-    const message = `${bot.name} became busy in another conversation — skipped this round`;
-    store.appendMessage(threadId, {
-      role: "bot",
-      kind: "activity",
-      from: { botId: bot.id, name: bot.name, color: bot.color },
-      tool: { name: message, ok: false },
-    });
-    onDispatchError?.(message);
-    return true;
+    return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation);
   }
   store.setActivity(bot.id, "working");
   releaseTurnStart?.();

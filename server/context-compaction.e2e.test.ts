@@ -466,7 +466,7 @@ describe("context compaction e2e", () => {
     });
   }, 30_000);
 
-  it("intentionally skips a room turn while the same bot is preparing 1:1 context", async () => {
+  it("queues a room turn while the same bot is preparing 1:1 context", async () => {
     rmSync(claudeDumpPath, { force: true });
     const direct = api("POST", `/api/bots/${DIRECT_FIRST.botId}/messages`, { text: "Start direct QA" });
     await expect.poll(() => existsSync(claudeDumpPath), { timeout: 10_000 }).toBe(true);
@@ -487,7 +487,12 @@ describe("context compaction e2e", () => {
     const skipped = group.messages.find(
       (message: { tool?: { name?: string } }) => message.tool?.name?.includes("skipped this round"),
     );
-    expect(skipped?.tool).toMatchObject({ ok: false });
+    expect(skipped).toBeUndefined();
+    const roomReplies = group.messages.filter(
+      (message: { role?: string; kind?: string; from?: { botId?: string } }) =>
+        message.role === "bot" && message.kind === "text" && message.from?.botId === DIRECT_FIRST.botId,
+    );
+    expect(roomReplies).toHaveLength(1);
   }, 30_000);
 
   it("rejects an edit claim before branching the thread", async () => {
