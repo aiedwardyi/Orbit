@@ -1,20 +1,29 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  SIDEBAR_COLLAPSED_KEY,
+  SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_DENSITY_KEY,
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
+  SIDEBAR_SNAP_DISTANCE,
   SIDEBAR_WIDTH_KEY,
   SIDEBAR_WIDTH_STEP,
   clampSidebarWidth,
+  displaySidebarWidth,
+  loadSidebarCollapsed,
   loadSidebarDensity,
   loadSidebarWidth,
+  parseSidebarCollapsed,
   parseSidebarDensity,
   parseSidebarWidth,
+  saveSidebarCollapsed,
   saveSidebarDensity,
   restoreSidebarDragWidth,
   saveSidebarWidth,
+  snapSidebarDrag,
+  stepSidebarLayout,
   stepSidebarWidth,
 } from "./sidebar-preferences";
 
@@ -68,9 +77,91 @@ describe("sidebar width preferences", () => {
     expect(stepSidebarWidth(320, "Enter")).toBe(null);
   });
 
-  it("restores the pre-drag width when a pointer drag is cancelled", () => {
-    expect(restoreSidebarDragWidth({ width: 320 })).toBe(320);
-    expect(restoreSidebarDragWidth({ width: 410 })).toBe(410);
+  it("restores the pre-drag labeled width and collapsed flag when a pointer drag is cancelled", () => {
+    expect(restoreSidebarDragWidth({ width: 320, collapsed: false })).toEqual({ width: 320, collapsed: false });
+    expect(restoreSidebarDragWidth({ width: 410, collapsed: true })).toEqual({ width: 410, collapsed: true });
     expect(restoreSidebarDragWidth(null)).toBe(null);
+  });
+});
+
+describe("sidebar icon-rail snap", () => {
+  it("keeps the collapsed rail inside the Grok-style 56–72px band", () => {
+    expect(SIDEBAR_COLLAPSED_WIDTH).toBeGreaterThanOrEqual(56);
+    expect(SIDEBAR_COLLAPSED_WIDTH).toBeLessThanOrEqual(72);
+    expect(SIDEBAR_COLLAPSED_WIDTH).toBeLessThan(SIDEBAR_MIN_WIDTH);
+    expect(displaySidebarWidth({ width: 320, collapsed: false })).toBe(320);
+    expect(displaySidebarWidth({ width: 320, collapsed: true })).toBe(SIDEBAR_COLLAPSED_WIDTH);
+  });
+
+  it("snaps into the icon rail a little past the labeled minimum and keeps that labeled width", () => {
+    const labeled = { width: SIDEBAR_MIN_WIDTH, collapsed: false };
+    expect(snapSidebarDrag(labeled, -(SIDEBAR_SNAP_DISTANCE - 1))).toEqual(labeled);
+    expect(snapSidebarDrag(labeled, -SIDEBAR_SNAP_DISTANCE)).toEqual({
+      width: SIDEBAR_MIN_WIDTH,
+      collapsed: true,
+    });
+    expect(snapSidebarDrag({ width: 320, collapsed: false }, -(320 - SIDEBAR_MIN_WIDTH + SIDEBAR_SNAP_DISTANCE))).toEqual({
+      width: 320,
+      collapsed: true,
+    });
+  });
+
+  it("snaps back to the last labeled width when dragged out of the rail", () => {
+    const rail = { width: 360, collapsed: true };
+    expect(snapSidebarDrag(rail, SIDEBAR_SNAP_DISTANCE - 1)).toEqual(rail);
+    expect(snapSidebarDrag(rail, SIDEBAR_SNAP_DISTANCE)).toEqual({ width: 360, collapsed: false });
+  });
+
+  it("still live-resizes inside the labeled min/max range", () => {
+    expect(snapSidebarDrag({ width: 320, collapsed: false }, 40)).toEqual({ width: 360, collapsed: false });
+    expect(snapSidebarDrag({ width: 320, collapsed: false }, -40)).toEqual({ width: 280, collapsed: false });
+    expect(snapSidebarDrag({ width: SIDEBAR_MAX_WIDTH, collapsed: false }, 80)).toEqual({
+      width: SIDEBAR_MAX_WIDTH,
+      collapsed: false,
+    });
+  });
+
+  it("persists collapsed separately from the last labeled width", () => {
+    const setItem = vi.fn();
+    saveSidebarCollapsed(true, { setItem });
+    expect(setItem).toHaveBeenCalledWith(SIDEBAR_COLLAPSED_KEY, "1");
+    saveSidebarCollapsed(false, { setItem });
+    expect(setItem).toHaveBeenCalledWith(SIDEBAR_COLLAPSED_KEY, "0");
+    expect(parseSidebarCollapsed("1")).toBe(true);
+    expect(parseSidebarCollapsed("true")).toBe(true);
+    expect(parseSidebarCollapsed("0")).toBe(false);
+    expect(parseSidebarCollapsed(null)).toBe(false);
+    expect(loadSidebarCollapsed({ getItem: () => "1" })).toBe(true);
+    expect(loadSidebarCollapsed({ getItem: () => "0" })).toBe(false);
+    expect(loadSidebarCollapsed({ getItem: () => { throw new Error("blocked"); } })).toBe(false);
+  });
+
+  it("steps Home/End/arrows across the rail snap without dropping the last labeled width", () => {
+    expect(stepSidebarLayout({ width: 320, collapsed: false }, "Home")).toEqual({ width: 320, collapsed: true });
+    expect(stepSidebarLayout({ width: 320, collapsed: true }, "End")).toEqual({
+      width: SIDEBAR_MAX_WIDTH,
+      collapsed: false,
+    });
+    expect(stepSidebarLayout({ width: SIDEBAR_MIN_WIDTH, collapsed: false }, "ArrowLeft")).toEqual({
+      width: SIDEBAR_MIN_WIDTH,
+      collapsed: true,
+    });
+    expect(stepSidebarLayout({ width: 230, collapsed: false }, "ArrowLeft")).toEqual({
+      width: 220,
+      collapsed: false,
+    });
+    expect(stepSidebarLayout({ width: 360, collapsed: true }, "ArrowRight")).toEqual({
+      width: 360,
+      collapsed: false,
+    });
+    expect(stepSidebarLayout({ width: 360, collapsed: true }, "ArrowLeft")).toEqual({
+      width: 360,
+      collapsed: true,
+    });
+    expect(stepSidebarLayout({ width: 320, collapsed: false }, "ArrowRight")).toEqual({
+      width: 330,
+      collapsed: false,
+    });
+    expect(stepSidebarLayout({ width: 320, collapsed: false }, "ArrowUp")).toBe(null);
   });
 });

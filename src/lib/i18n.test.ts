@@ -273,7 +273,7 @@ describe("remaining P1 surfaces", () => {
     expect(sidebar).toContain('t("chrome.chooseAnotherChief")');
     expect(sidebar).toContain('t("chrome.teamMap")');
     expect(sidebar).toContain('t("chrome.resizeSidebar")');
-    expect(sidebar).toContain('t("chrome.sidebarWidthPixels", { width: sidebarWidth })');
+    expect(sidebar).toContain('t("chrome.sidebarWidthPixels", { width: sidebarDisplayWidth })');
     expect(sidebar).not.toMatch(/aria-label=\{density === "icons" \? "Team map"/);
   });
 });

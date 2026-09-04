@@ -1,11 +1,19 @@
 export type SidebarDensity = "comfortable" | "compact" | "icons";
 
+export type SidebarLayout = {
+  collapsed: boolean;
+  width: number;
+};
+
 export const SIDEBAR_DENSITY_KEY = "openmausbot.sidebarDensity";
 export const SIDEBAR_WIDTH_KEY = "openmausbot.sidebarWidth";
+export const SIDEBAR_COLLAPSED_KEY = "openmausbot.sidebarCollapsed";
 export const SIDEBAR_MIN_WIDTH = 220;
 export const SIDEBAR_MAX_WIDTH = 480;
 export const SIDEBAR_DEFAULT_WIDTH = 320;
 export const SIDEBAR_ICONS_WIDTH = 80;
+export const SIDEBAR_COLLAPSED_WIDTH = 64;
+export const SIDEBAR_SNAP_DISTANCE = 24;
 export const SIDEBAR_WIDTH_STEP = 10;
 
 export function parseSidebarDensity(value: string | null): SidebarDensity {
@@ -46,6 +54,22 @@ export function clampSidebarWidth(value: number): number {
   return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(value)));
 }
 
+export function displaySidebarWidth(layout: SidebarLayout): number {
+  return layout.collapsed ? SIDEBAR_COLLAPSED_WIDTH : layout.width;
+}
+
+export function snapSidebarDrag(drag: SidebarLayout, deltaX: number): SidebarLayout {
+  if (drag.collapsed) {
+    if (deltaX >= SIDEBAR_SNAP_DISTANCE) return { collapsed: false, width: drag.width };
+    return { collapsed: true, width: drag.width };
+  }
+  const proposed = drag.width + deltaX;
+  if (proposed <= SIDEBAR_MIN_WIDTH - SIDEBAR_SNAP_DISTANCE) {
+    return { collapsed: true, width: drag.width };
+  }
+  return { collapsed: false, width: clampSidebarWidth(proposed) };
+}
+
 export function stepSidebarWidth(current: number, key: string): number | null {
   if (key === "Home") return SIDEBAR_MIN_WIDTH;
   if (key === "End") return SIDEBAR_MAX_WIDTH;
@@ -54,13 +78,32 @@ export function stepSidebarWidth(current: number, key: string): number | null {
   return clampSidebarWidth(current + delta);
 }
 
-export function restoreSidebarDragWidth(drag: { width: number } | null): number | null {
-  return drag ? drag.width : null;
+export function stepSidebarLayout(layout: SidebarLayout, key: string): SidebarLayout | null {
+  if (key === "Home") return { collapsed: true, width: layout.width };
+  if (key === "End") return { collapsed: false, width: SIDEBAR_MAX_WIDTH };
+  if (key === "ArrowLeft") {
+    if (layout.collapsed) return layout;
+    if (layout.width <= SIDEBAR_MIN_WIDTH) return { collapsed: true, width: layout.width };
+    return { collapsed: false, width: clampSidebarWidth(layout.width - SIDEBAR_WIDTH_STEP) };
+  }
+  if (key === "ArrowRight") {
+    if (layout.collapsed) return { collapsed: false, width: layout.width };
+    return { collapsed: false, width: clampSidebarWidth(layout.width + SIDEBAR_WIDTH_STEP) };
+  }
+  return null;
+}
+
+export function restoreSidebarDragWidth(drag: SidebarLayout | null): SidebarLayout | null {
+  return drag ? { width: drag.width, collapsed: drag.collapsed } : null;
 }
 
 export function parseSidebarWidth(value: string | null): number {
   if (value == null || value.trim() === "") return SIDEBAR_DEFAULT_WIDTH;
   return clampSidebarWidth(Number(value));
+}
+
+export function parseSidebarCollapsed(value: string | null): boolean {
+  return value === "1" || value === "true";
 }
 
 export function loadSidebarWidth(storage?: Pick<Storage, "getItem"> | null): number {
@@ -81,5 +124,26 @@ export function saveSidebarWidth(
     target?.setItem(SIDEBAR_WIDTH_KEY, String(clampSidebarWidth(width)));
   } catch {
     // Same localStorage failure mode as density — width still applies this session.
+  }
+}
+
+export function loadSidebarCollapsed(storage?: Pick<Storage, "getItem"> | null): boolean {
+  try {
+    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
+    return parseSidebarCollapsed(target?.getItem(SIDEBAR_COLLAPSED_KEY) ?? null);
+  } catch {
+    return false;
+  }
+}
+
+export function saveSidebarCollapsed(
+  collapsed: boolean,
+  storage?: Pick<Storage, "setItem"> | null,
+): void {
+  try {
+    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
+    target?.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
+  } catch {
+    // Same localStorage failure mode as width — collapse still applies this session.
   }
 }

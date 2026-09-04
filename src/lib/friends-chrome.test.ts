@@ -134,15 +134,16 @@ describe("friends chrome call sites keep the feature code", () => {
     expect(sidebar).toContain("data-sidebar-resize");
     const resizeHandle = sourceBetween(
       sidebar,
-      "{density !== \"icons\" && (",
+      "role=\"separator\"",
       "macOS owns inset traffic lights",
     );
     expect(resizeHandle).toContain("data-sidebar-resize");
+    expect(resizeHandle).not.toMatch(/density !== "icons"/);
     expect(resizeHandle).toContain("tabIndex={0}");
-    expect(resizeHandle).toContain("aria-valuenow={sidebarWidth}");
-    expect(resizeHandle).toContain("aria-valuemin={SIDEBAR_MIN_WIDTH}");
+    expect(resizeHandle).toContain("aria-valuenow={sidebarDisplayWidth}");
+    expect(resizeHandle).toContain("aria-valuemin={SIDEBAR_COLLAPSED_WIDTH}");
     expect(resizeHandle).toContain("aria-valuemax={SIDEBAR_MAX_WIDTH}");
-    expect(resizeHandle).toContain('t("chrome.sidebarWidthPixels", { width: sidebarWidth })');
+    expect(resizeHandle).toContain('t("chrome.sidebarWidthPixels", { width: sidebarDisplayWidth })');
     expect(resizeHandle).toContain("onKeyDown={onSidebarResizeKeyDown}");
     expect(resizeHandle).toContain("onPointerUp={onSidebarResizeEnd}");
     expect(resizeHandle).toContain("onPointerCancel={onSidebarResizeCancel}");
@@ -150,14 +151,22 @@ describe("friends chrome call sites keep the feature code", () => {
     const resizeEnd = sourceBetween(sidebar, "const onSidebarResizeEnd", "const onSidebarResizeCancel");
     expect(resizeEnd).toContain("releasePointerCapture");
     expect(resizeEnd).toContain("saveSidebarWidth");
+    expect(resizeEnd).toContain("saveSidebarCollapsed");
     const resizeCancel = sourceBetween(sidebar, "const onSidebarResizeCancel", "const onSidebarResizeKeyDown");
     expect(resizeCancel).toContain("restoreSidebarDragWidth");
-    expect(resizeCancel).toContain("setSidebarWidth(startWidth)");
-    expect(resizeCancel).toContain("sidebarWidthRef.current = startWidth");
+    expect(resizeCancel).toContain("start.width");
+    expect(resizeCancel).toContain("start.collapsed");
     expect(resizeCancel).toContain("setResizing(false)");
     expect(resizeCancel).not.toContain("saveSidebarWidth");
-    expect(sidebar).toContain("stepSidebarWidth");
-    expect(sidebar).toContain("saveSidebarWidth(next)");
+    expect(resizeCancel).not.toContain("saveSidebarCollapsed");
+    expect(sidebar).toContain("snapSidebarDrag");
+    expect(sidebar).toContain("stepSidebarLayout");
+    expect(sidebar).toContain("loadSidebarCollapsed");
+    expect(sidebar).toContain("saveSidebarWidth(next.width)");
+    expect(sidebar).toContain("saveSidebarCollapsed(next.collapsed)");
+    const searchChrome = sourceBetween(sidebar, "{/* Search */}", "{/* Bot list */}");
+    expect(searchChrome).toContain('t("chrome.searchBotsAria")');
+    expect(searchChrome).not.toMatch(/density === "icons" \? "hidden"/);
     expect(sidebar).toContain('t("chrome.newOrShare")');
     expect(sidebar).toContain('t("chrome.newBot")');
     expect(sidebar).toContain('t("chrome.newChannel")');
