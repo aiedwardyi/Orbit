@@ -108,7 +108,7 @@ describe("UsageSection friends plan card", () => {
     expect(html).toContain(">90%<");
     expect(html).not.toContain("% used");
     expect(html).not.toContain(">40%<");
-    expect(html).toContain("h-1 ");
+    expect(html).toMatch(/\bh-1\b/);
     expect(html).not.toContain("h-1.5");
     expect(html).toContain("bg-ink/10");
     const fillAt = (pct: number) => {

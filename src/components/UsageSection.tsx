@@ -51,6 +51,8 @@ function WindowRow({ window, now }: { window: RateLimitReport["windows"][number]
   const percent = windowExpired(window.resetsAt, now) ? null : percentUsed(window.usedPercent);
   const fill = percent === null ? 0 : Math.min(100, percent);
   const reset = resetPhrase(window.resetsAt, now);
+  // Bare {percent}% in every locale — Grok chrome. KO “used” lives on the
+  // window labels (주간 한도 / 요금제 사용량), not glued onto the figure.
   return (
     <div>
       <div className="flex items-center justify-between gap-3 text-[13px] text-ink">

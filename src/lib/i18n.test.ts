@@ -569,8 +569,11 @@ describe("plan usage", () => {
   it("keeps the usage window phrases complete in English and Korean", () => {
     expect(en["usage.limits.title"]).toBe("Plan usage");
     expect(ko["usage.limits.title"]).toBe("요금제 사용량");
+    // Same glyphs on purpose: the Grok row is a bare figure. Korean “used”
+    // stays on the window labels below, not as a suffix on the percent.
     expect(en["usage.limits.percentUsed"]).toBe("{percent}%");
     expect(ko["usage.limits.percentUsed"]).toBe("{percent}%");
+    expect(ko["usage.limits.weekly"]).toBe("주간 한도");
     expect(en["usage.limits.resetsInDays"]).toBe("Resets in {days} days");
     expect(ko["usage.limits.resetsInDays"]).toBe("{days}일 후 초기화");
     expect(en["usage.limits.resetsInOneDay"]).toBe("Resets in 1 day");
