@@ -126,6 +126,20 @@ describe("SettingsModal friends chrome", () => {
     expect(html).not.toContain("accounts.openmausbot.com");
   });
 
+  it("offers Catppuccin Mocha, Tokyo Night, and Vesper in Skin without parked palettes", () => {
+    const html = markup("general");
+    expect(html).toContain("Catppuccin Mocha");
+    expect(html).toContain("Tokyo Night");
+    expect(html).toContain("Vesper");
+    expect(html).toContain("Ledger");
+    expect(html).toContain('data-skin="catppuccin-mocha"');
+    expect(html).toContain('data-skin="tokyo-night"');
+    expect(html).toContain('data-skin="vesper"');
+    expect(html).not.toContain("Onyx");
+    expect(html).not.toContain("Dracula");
+    expect(html).not.toContain("Cobalt");
+  });
+
   it("does not reveal Local VM, channel turns, experimental, or diagnostics when Advanced would have been open", () => {
     const html = markup("general", true);
     expect(html).not.toContain("data-settings-advanced");
