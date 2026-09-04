@@ -231,7 +231,7 @@ const DARK_INK_SKINS = [
       "--color-accent": "#19f9d8",
       "--color-hairline": "#4a4e5c",
       "--color-danger": "#ff75b5",
-      "--color-success": "#19f9d8",
+      "--color-success": "#6fe7d2",
     },
   },
 ] as const;
@@ -278,6 +278,14 @@ describe("dark ink skins", () => {
     expect(warning).toBe("#ffb86c");
     expect(accent).toBe("#19f9d8");
     expect(warning).not.toBe(accent);
+  });
+
+  it("gives Panda a light-green success distinct from the mint accent", () => {
+    const success = cssToken("cobalt", "--color-success");
+    const accent = cssToken("cobalt", "--color-accent");
+    expect(success).toBe("#6fe7d2");
+    expect(accent).toBe("#19f9d8");
+    expect(success).not.toBe(accent);
   });
 });
 

@@ -512,37 +512,38 @@
 /* ── Panda Syntax ──────────────────────────────────────────────────────────
    Warm charcoal, mint lamp. Slot id stays `cobalt` so a saved choice keeps
    working. Mapped tokens follow the Panda Syntax palette (background-light
-   ground, seal-adjacent raised, foreground, muted lavender, mint, steel
-   hairline, pink, mint-green). Warning is apricot (keywords) rather than the
-   mint, so status colour is not a clickable teal. Dark ink on the mint fill.
-   Hairline is a step above official steel-gray so the 1.5:1 chrome rule holds.
+   ground, gray raised, seal card, foreground, muted lavender, mint, steel
+   hairline, pink, light-green). Warning is apricot (keywords) and success is
+   light-green, so neither status colour is the clickable mint. Dark ink on
+   the mint fill. Hairline is a step above official steel-gray so the 1.5:1
+   chrome rule holds.
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="cobalt"] {
-  --color-app: #292A2B;
+  --color-app: #292a2b;
   --color-panel: #2f3031;
-  --color-raised: #373B41;
-  --color-raised-hover: #3E4250;
+  --color-raised: #373b41;
+  --color-raised-hover: #3e4250;
   --color-card: #31353a;
   --color-inset: #242526;
-  --color-control: #373B41;       /* = raised */
+  --color-control: #373b41;       /* = raised */
   --color-hairline: #4a4e5c;
 
-  --color-ink: #E6E6E6;
-  --color-ink-secondary: #BCAAFE;
+  --color-ink: #e6e6e6;
+  --color-ink-secondary: #bcaafe;
 
-  --color-accent: #19F9D8;
-  --color-accent-border: #6FE7D2;
-  --color-accent-text: #19F9D8;
-  --color-focus: #19F9D8;
-  --color-accent-ink: #292A2B;    /* ground on the mint fill */
+  --color-accent: #19f9d8;
+  --color-accent-border: #6fe7d2;
+  --color-accent-text: #19f9d8;
+  --color-focus: #19f9d8;
+  --color-accent-ink: #292a2b;    /* ground on the mint fill */
   --color-bubble-user: #333536;
 
-  --color-success: #19F9D8;
-  --color-danger: #FF75B5;
-  --color-danger-ink: #292A2B;
-  --color-warning: #FFB86C;       /* apricot keywords; not clickable mint */
+  --color-success: #6fe7d2;       /* official light-green; not the mint accent */
+  --color-danger: #ff75b5;
+  --color-danger-ink: #292a2b;
+  --color-warning: #ffb86c;       /* apricot keywords; not clickable mint */
   --color-scrollbar: #4a4e5c;
-  --color-maus-line: #BCAAFE;
+  --color-maus-line: #bcaafe;
 
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
