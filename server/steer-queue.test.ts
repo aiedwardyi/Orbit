@@ -20,6 +20,7 @@ import {
   cancelSteeredMessage,
   drainSteeredMessages,
   queuedSteeredMessage,
+  queueRoomParticipation,
   queueSteeredMessage,
   _queuedCount,
   type SteerStore,
@@ -209,6 +210,119 @@ describe("steer-queue module", () => {
     expect(_queuedCount("thread-d")).toBe(0);
   });
 
+  it("does not append a room participation until drain, and never as a user line", () => {
+    const skye = fakeBot("skye", "skye-1to1", true);
+    const store = fakeStore([skye]);
+    const queued = queueRoomParticipation(skye.id, "room-thread", { groupId: "room-two-bots" });
+    expect(queued).toMatchObject({ id: expect.any(String) });
+    expect(store.messages).toHaveLength(0);
+    expect(_queuedCount("room-thread")).toBe(1);
+
+    skye.busy = false;
+    const run = vi.fn();
+    drainSteeredMessages(store, run);
+    expect(store.messages).toHaveLength(0);
+    expect(run).toHaveBeenCalledTimes(1);
+    const [botId, threadId, prompt, userMessage, excludeIds, room] = run.mock.calls[0];
+    expect(botId).toBe("skye");
+    expect(threadId).toBe("room-thread");
+    expect(prompt).toBe("");
+    expect(userMessage).toBeNull();
+    expect(excludeIds).toEqual([]);
+    expect(room).toEqual({ groupId: "room-two-bots", hop: 0 });
+    expect(_queuedCount("room-thread")).toBe(0);
+
+    drainSteeredMessages(store, run);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes a room dispatch-error hook through drain without appending", () => {
+    const skye = fakeBot("skye-card", "skye-card-1to1", true);
+    const store = fakeStore([skye]);
+    const onDispatchError = vi.fn();
+    queueRoomParticipation(skye.id, "room-card", { groupId: "room-card", onDispatchError });
+    skye.busy = false;
+    const run = vi.fn();
+    drainSteeredMessages(store, run);
+    expect(store.messages).toHaveLength(0);
+    expect(run.mock.calls[0][5]).toMatchObject({ groupId: "room-card", hop: 0 });
+    expect(run.mock.calls[0][5].onDispatchError).toBe(onDispatchError);
+  });
+
+  it("holds a room participation while the bot is busy and drains it once when idle", () => {
+    const skye = fakeBot("skye-hold", "skye-hold-1to1", true);
+    const store = fakeStore([skye]);
+    queueRoomParticipation(skye.id, "room-hold", { groupId: "room-hold", hop: 1 });
+    const run = vi.fn();
+    drainSteeredMessages(store, run);
+    expect(run).not.toHaveBeenCalled();
+    expect(store.messages).toHaveLength(0);
+    expect(_queuedCount("room-hold")).toBe(1);
+
+    skye.busy = false;
+    drainSteeredMessages(store, run);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0][5]).toEqual({ groupId: "room-hold", hop: 1 });
+    expect(_queuedCount("room-hold")).toBe(0);
+  });
+
+  it("coalesces another room queue for the same member so drain cannot double-fire", () => {
+    const skye = fakeBot("skye-once", "skye-once-1to1", true);
+    const store = fakeStore([skye]);
+    const first = queueRoomParticipation(skye.id, "room-once", { groupId: "room-once" });
+    const second = queueRoomParticipation(skye.id, "room-once", { groupId: "room-once", hop: 1 });
+    expect(second.id).toBe(first.id);
+    expect(_queuedCount("room-once")).toBe(1);
+
+    skye.busy = false;
+    const run = vi.fn();
+    drainSteeredMessages(store, run);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0][5]).toEqual({ groupId: "room-once", hop: 0 });
+    drainSteeredMessages(store, run);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets two busy room members queue on the same thread independently", () => {
+    const skye = fakeBot("skye-pair", "skye-pair-1to1", true);
+    const nova = fakeBot("nova-pair", "nova-pair-1to1", true);
+    const store = fakeStore([skye, nova]);
+    queueRoomParticipation(skye.id, "room-pair", { groupId: "room-pair" });
+    queueRoomParticipation(nova.id, "room-pair", { groupId: "room-pair" });
+    expect(_queuedCount("room-pair")).toBe(2);
+
+    skye.busy = false;
+    const run = vi.fn();
+    drainSteeredMessages(store, run);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0][0]).toBe("skye-pair");
+    expect(_queuedCount("room-pair")).toBe(1);
+
+    nova.busy = false;
+    drainSteeredMessages(store, run);
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(run.mock.calls[1][0]).toBe("nova-pair");
+    expect(_queuedCount("room-pair")).toBe(0);
+  });
+
+  it("drains only one queue per bot per settle so a 1:1 and a room wait cannot double-fire", () => {
+    const skye = fakeBot("skye-both", "skye-both-1to1", true);
+    const store = fakeStore([skye]);
+    queueSteeredMessage(skye.id, skye.threadId, "1:1 follow-up");
+    queueRoomParticipation(skye.id, "room-both", { groupId: "room-both" });
+    skye.busy = false;
+    const run = vi.fn();
+    drainSteeredMessages(store, run);
+    expect(run).toHaveBeenCalledTimes(1);
+
+    drainSteeredMessages(store, run);
+    expect(run).toHaveBeenCalledTimes(2);
+    const kinds = run.mock.calls.map((call) => (call[5] ? "room" : "steer"));
+    expect(kinds.sort()).toEqual(["room", "steer"]);
+    expect(_queuedCount(skye.threadId)).toBe(0);
+    expect(_queuedCount("room-both")).toBe(0);
+  });
+
 });
 
 // ── e2e: the real server on the gated fake ACP fleet ───────────────────
@@ -218,10 +332,11 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
   let stderr = "";
   let drainGate: string;
   let stopGate: string;
+  let roomBusyGate: string;
   let stopRpcDump: string;
 
-  /** the flat command payloads these tests POST/PATCH */
-  type ApiBody = Record<string, string | boolean | { instanceId: string; model: string }>;
+  /** the command payloads these tests POST/PATCH */
+  type ApiBody = Record<string, unknown>;
 
   const api = async (method: string, path: string, body?: ApiBody): Promise<{ status: number; body: any }> => {
     const res = await fetch(`${BASE}${path}`, {
@@ -260,6 +375,7 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
     mkdirSync(join(home, "gates"), { recursive: true });
     drainGate = join(home, "gates", "drain.gate");
     stopGate = join(home, "gates", "stop.gate");
+    roomBusyGate = join(home, "gates", "room-busy.gate");
     stopRpcDump = join(home, "gates", "stop.rpc");
     writeFileSync(
       join(home, ".orbit", "config.json"),
@@ -280,6 +396,17 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
               FAKE_ACP_GATE_FILE: stopGate,
               FAKE_ACP_RPC_DUMP: stopRpcDump,
             },
+            config: { cli: FAKE_CLI, fullAuto: true },
+          },
+          // Immediate echo — the free room member while another bot is gated.
+          steerNow: {
+            driver: "grokAgent",
+            environment: { FAKE_ACP_MODE: "echo-gated" },
+            config: { cli: FAKE_CLI, fullAuto: true },
+          },
+          steerRoomBusy: {
+            driver: "grokAgent",
+            environment: { FAKE_ACP_MODE: "echo-gated", FAKE_ACP_GATE_FILE: roomBusyGate },
             config: { cli: FAKE_CLI, fullAuto: true },
           },
         },
@@ -427,6 +554,76 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
       const replies = echoes(snapshot);
       expect(replies).toHaveLength(1);
       expect(replies[0].text).toContain("after stop please");
+    },
+    60_000,
+  );
+
+  it(
+    "queues a busy room member and lets the free member answer now",
+    async () => {
+      const skye = await newBot("steerRoomBusy", "Skye");
+      const nova = await newBot("steerNow", "Nova");
+      const room = (
+        await api("POST", "/api/groups", {
+          name: "Two bots",
+          memberIds: [skye.id, nova.id],
+          setup: { bulletin: "", defaultResponder: { kind: "everyone" } },
+        })
+      ).body.group;
+
+      const first = await api("POST", `/api/bots/${skye.id}/messages`, { text: "skye is busy elsewhere" });
+      expect(first.status).toBe(202);
+      expect((await botById(skye.id)).busy).toBe(true);
+
+      const sent = await api("POST", `/api/groups/${room.id}/messages`, { text: "안뇽" });
+      expect(sent.status).toBe(202);
+
+      let snapshot: any;
+      await until(async () => {
+        snapshot = (await api("GET", "/api/bots")).body;
+        const group = snapshot.groups.find((candidate: any) => candidate.id === room.id);
+        const novaReply = group?.messages.some(
+          (message: any) => message.role === "bot" && message.kind === "text" && message.from?.botId === nova.id,
+        );
+        return Boolean(novaReply) && !snapshot.groups.find((candidate: any) => candidate.id === room.id)?.working;
+      }, "Nova's room reply while Skye is busy");
+
+      const group = snapshot.groups.find((candidate: any) => candidate.id === room.id);
+      expect(
+        group.messages.some((message: any) => message.tool?.name?.includes("skipped this round")),
+      ).toBe(false);
+      expect(
+        group.messages.filter(
+          (message: any) => message.role === "bot" && message.kind === "text" && message.from?.botId === skye.id,
+        ),
+      ).toHaveLength(0);
+      expect((await botById(skye.id)).busy).toBe(true);
+
+      writeFileSync(roomBusyGate, "open");
+      await until(async () => {
+        snapshot = (await api("GET", "/api/bots")).body;
+        const current = snapshot.groups.find((candidate: any) => candidate.id === room.id);
+        const skyeReplies = current?.messages.filter(
+          (message: any) => message.role === "bot" && message.kind === "text" && message.from?.botId === skye.id,
+        ) ?? [];
+        const skyeBusy = snapshot.bots.find((candidate: any) => candidate.id === skye.id)?.busy;
+        return !skyeBusy && !current?.working && skyeReplies.length >= 1;
+      }, "Skye's queued room turn");
+
+      const drained = snapshot.groups.find((candidate: any) => candidate.id === room.id);
+      expect(
+        drained.messages.some((message: any) => message.tool?.name?.includes("skipped this round")),
+      ).toBe(false);
+      expect(
+        drained.messages.filter(
+          (message: any) => message.role === "bot" && message.kind === "text" && message.from?.botId === skye.id,
+        ),
+      ).toHaveLength(1);
+      expect(
+        drained.messages.filter(
+          (message: any) => message.role === "bot" && message.kind === "text" && message.from?.botId === nova.id,
+        ).length,
+      ).toBeGreaterThanOrEqual(1);
     },
     60_000,
   );

@@ -466,7 +466,7 @@ describe("context compaction e2e", () => {
     });
   }, 30_000);
 
-  it("intentionally skips a room turn while the same bot is preparing 1:1 context", async () => {
+  it("queues a room turn while the same bot is preparing 1:1 context", async () => {
     rmSync(claudeDumpPath, { force: true });
     const direct = api("POST", `/api/bots/${DIRECT_FIRST.botId}/messages`, { text: "Start direct QA" });
     await expect.poll(() => existsSync(claudeDumpPath), { timeout: 10_000 }).toBe(true);
@@ -487,7 +487,12 @@ describe("context compaction e2e", () => {
     const skipped = group.messages.find(
       (message: { tool?: { name?: string } }) => message.tool?.name?.includes("skipped this round"),
     );
-    expect(skipped?.tool).toMatchObject({ ok: false });
+    expect(skipped).toBeUndefined();
+    const roomReplies = group.messages.filter(
+      (message: { role?: string; kind?: string; from?: { botId?: string } }) =>
+        message.role === "bot" && message.kind === "text" && message.from?.botId === DIRECT_FIRST.botId,
+    );
+    expect(roomReplies).toHaveLength(1);
   }, 30_000);
 
   it("rejects an edit claim before branching the thread", async () => {
@@ -542,7 +547,7 @@ describe("context compaction e2e", () => {
     });
   }, 30_000);
 
-  it("keeps a room credential continuation retryable after a claim collision", async () => {
+  it("queues a room credential continuation after a claim collision", async () => {
     rmSync(claudeDumpPath, { force: true });
     expect((await api("POST", `/api/groups/${SECRET_COLLISION.groupId}/messages`, {
       text: "Open the room session",
@@ -556,6 +561,9 @@ describe("context compaction e2e", () => {
     });
     const dump = JSON.parse(readFileSync(claudeDumpPath, "utf8"));
     const token = dump.mcpConfig.mcpServers.agents.env.OMB_COMMS_TOKEN;
+    const beforeReplies = (await api("GET", "/api/bots")).body.groups
+      .find((candidate: { id: string }) => candidate.id === SECRET_COLLISION.groupId)
+      .messages.filter((message: { role: string; kind: string }) => message.role === "bot" && message.kind === "text").length;
 
     const requested = await fetch(`${BASE}/api/internal/request-credential`, {
       method: "POST",
@@ -581,40 +589,26 @@ describe("context compaction e2e", () => {
     expect((await api("POST", `/api/bots/${SECRET_COLLISION.botId}/secret-cards/${messageId}/dismiss`, {
       threadId: SECRET_COLLISION.roomThreadId,
     })).status).toBe(200);
-    await waitFor(async () => {
-      const group = (await api("GET", "/api/bots?messages=0")).body.groups.find(
-        (candidate: { id: string }) => candidate.id === SECRET_COLLISION.groupId,
-      );
-      return group?.working === false;
-    });
-
-    const collided = (await api("GET", "/api/bots")).body.groups
-      .find((candidate: { id: string }) => candidate.id === SECRET_COLLISION.groupId)
-      .messages.find((message: { id: string }) => message.id === messageId);
-    expect(collided.secret).toMatchObject({ dismissed: true, resumed: false });
-    expect(collided.secret.error).toMatch(/busy/i);
 
     await expect(direct).resolves.toMatchObject({ status: 202 });
     await waitFor(async () => {
-      const bot = (await api("GET", "/api/bots?messages=0")).body.bots.find(
-        (candidate: { id: string }) => candidate.id === SECRET_COLLISION.botId,
-      );
-      return bot?.busy === false;
-    });
-    const beforeReplies = (await api("GET", "/api/bots")).body.groups
-      .find((candidate: { id: string }) => candidate.id === SECRET_COLLISION.groupId)
-      .messages.filter((message: { role: string; kind: string }) => message.role === "bot" && message.kind === "text").length;
-    expect((await api("POST", `/api/bots/${SECRET_COLLISION.botId}/secret-cards/${messageId}/resume`, {
-      threadId: SECRET_COLLISION.roomThreadId,
-    })).status).toBe(200);
-    await expect.poll(async () => {
-      const group = (await api("GET", "/api/bots")).body.groups.find(
-        (candidate: { id: string }) => candidate.id === SECRET_COLLISION.groupId,
-      );
-      return group.messages.filter(
+      const state = (await api("GET", "/api/bots")).body;
+      const bot = state.bots.find((candidate: { id: string }) => candidate.id === SECRET_COLLISION.botId);
+      const group = state.groups.find((candidate: { id: string }) => candidate.id === SECRET_COLLISION.groupId);
+      const replies = group.messages.filter(
         (message: { role: string; kind: string }) => message.role === "bot" && message.kind === "text",
-      ).length;
-    }, { timeout: 10_000 }).toBeGreaterThan(beforeReplies);
+      );
+      return bot?.busy === false && group?.working === false && replies.length > beforeReplies;
+    });
+
+    const group = (await api("GET", "/api/bots")).body.groups
+      .find((candidate: { id: string }) => candidate.id === SECRET_COLLISION.groupId);
+    expect(group.messages.some(
+      (message: { tool?: { name?: string } }) => message.tool?.name?.includes("skipped this round"),
+    )).toBe(false);
+    const collided = group.messages.find((message: { id: string }) => message.id === messageId);
+    expect(collided.secret).toMatchObject({ dismissed: true });
+    expect(collided.secret.error).toBeUndefined();
   }, 40_000);
 
   it("flushes and injects the room task record before compaction", async () => {
