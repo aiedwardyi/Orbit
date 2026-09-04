@@ -97,7 +97,7 @@ function mix(hex: string, toward: string, t: number): string {
  * ["#9FE6B5", "#3FAE6E", "#1C7A4C"].
  */
 const gradientFor = (color: MausColor): [string, string, string] => {
-  const fill = MAUS_COLORS[color] ?? MAUS_COLORS.green;
+  const fill = MAUS_COLORS[color] ?? MAUS_COLORS.red;
   return [mix(fill, "#ffffff", 0.55), fill, mix(fill, "#000000", 0.42)];
 };
 
