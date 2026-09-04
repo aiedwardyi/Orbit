@@ -8,7 +8,7 @@ import { Check, ChevronDown, ChevronLeft, ChevronRight, Search, Sparkles } from 
 import { useStore, type Bot, type InstanceInfo, type ModelSelection } from "@/state/store";
 import { filterCustomModels, partitionCustomModels, suggestedModels } from "@/lib/custom-models";
 import { engineBadgeText, modelChipText, modelChipTitle } from "@/lib/model-chip";
-import { isCustomOnly, isEngineRailOpen, splitEngineRail, visibleFriendsRail } from "@/lib/engine-rail";
+import { isCustomOnly, isEngineRailOpen, showFriendsLocalZoo, splitEngineRail, visibleFriendsRail } from "@/lib/engine-rail";
 import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
 import { EngineGroupLabel } from "./EngineGroupLabel";
@@ -234,10 +234,16 @@ export function ModelPicker({
   const canSwitchEngine = state.instances.length > 1;
   const { visible: railVisible, hiddenCount } = visibleFriendsRail(state.instances, {
     showAll: showAllEngines,
-    activeId: selection.instanceId,
+    activeId: railId ?? selection.instanceId,
   });
   const { subscription, custom: local } = splitEngineRail(railVisible);
   const collapsibleEngines = hiddenCount > 0 || showAllEngines;
+  const showLocalZoo = showFriendsLocalZoo({
+    showAllEngines,
+    railShown,
+    hasOverflow: hiddenCount > 0,
+    canSwitchEngine,
+  });
 
   const renderRow = (option: ModelOption) => (
     <ModelRow
@@ -534,7 +540,7 @@ export function ModelPicker({
                   </>
                 )}
 
-                {pane === "main" && showAllEngines && (
+                {pane === "main" && showLocalZoo && (
                   <button
                     type="button"
                     aria-label={

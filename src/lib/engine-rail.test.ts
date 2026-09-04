@@ -6,6 +6,7 @@ import {
   isEngineRailOpen,
   splitEngineRail,
   splitFriendsEngines,
+  showFriendsLocalZoo,
   starterConnectEngines,
   visibleFriendsRail,
 } from "./engine-rail";
@@ -109,6 +110,38 @@ describe("visibleFriendsRail", () => {
     const opened = visibleFriendsRail(fleet, { showAll: true, activeId: "grok" });
     expect(opened.visible.map((row) => row.instanceId)).toEqual(fleet.map((row) => row.instanceId));
     expect(opened.hiddenCount).toBe(0);
+  });
+});
+
+describe("showFriendsLocalZoo", () => {
+  it("keeps the local zoo off the idle friends picker when overflow exists", () => {
+    expect(showFriendsLocalZoo({
+      showAllEngines: false,
+      railShown: false,
+      hasOverflow: true,
+      canSwitchEngine: true,
+    })).toBe(false);
+  });
+
+  it("opens the local zoo behind Show all, or when there is no overflow left to disclose", () => {
+    expect(showFriendsLocalZoo({
+      showAllEngines: true,
+      railShown: true,
+      hasOverflow: true,
+      canSwitchEngine: true,
+    })).toBe(true);
+    expect(showFriendsLocalZoo({
+      showAllEngines: false,
+      railShown: true,
+      hasOverflow: false,
+      canSwitchEngine: true,
+    })).toBe(true);
+    expect(showFriendsLocalZoo({
+      showAllEngines: false,
+      railShown: false,
+      hasOverflow: false,
+      canSwitchEngine: false,
+    })).toBe(true);
   });
 });
 

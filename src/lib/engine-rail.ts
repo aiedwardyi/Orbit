@@ -84,6 +84,19 @@ export function visibleFriendsRail<T extends { instanceId: string }>(
   return { visible, hiddenCount: instances.length - visible.length };
 }
 
+/** Local/custom models stay off the idle friends picker. Show all, a rail
+ * with nothing left to disclose, or a single-engine chip is the way back. */
+export function showFriendsLocalZoo(input: {
+  showAllEngines: boolean;
+  railShown: boolean;
+  hasOverflow: boolean;
+  canSwitchEngine: boolean;
+}): boolean {
+  if (input.showAllEngines) return true;
+  if (!input.canSwitchEngine) return true;
+  return input.railShown && !input.hasOverflow;
+}
+
 // First launch with nothing connected: one path, Grok or Claude. The rest of
 // the fleet stays in Settings. An empty list means "not asked yet" so we do
 // not flash this screen before /api/instances returns.

@@ -230,4 +230,16 @@ describe("ModelPicker friends chip", () => {
     expect(list).not.toContain('aria-label="Cursor"');
     expect(list).toContain("Show all engines · 3 more");
   });
+
+  it("still offers local models when Switch engine has no overflow to disclose", () => {
+    const overflow = mockInstances.splice(6);
+    try {
+      const html = markup(bot.modelSelection, true, true);
+      const list = html.slice(html.indexOf("data-model-picker-content"));
+      expect(list).not.toContain("Show all engines");
+      expect(list).toContain("Use a local model");
+    } finally {
+      mockInstances.push(...overflow);
+    }
+  });
 });
