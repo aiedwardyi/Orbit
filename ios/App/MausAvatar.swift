@@ -18,11 +18,12 @@ import SwiftUI
 
 /// Cute static mascot pack. Duplicated from CompanionCore so the widget
 /// target — which compiles this file without the package — still type-checks.
-/// `fileprivate` so the app target does not shadow CompanionCore's type.
-fileprivate enum MascotStyle: String, CaseIterable {
+/// Named apart from CompanionCore.MascotStyle so the app target does not
+/// see two types with the same name.
+enum CuteMascotStyle: String, CaseIterable {
     case peach, teal, lavender, coral
 
-    static func resolved(_ raw: String?, color: String) -> MascotStyle {
+    static func resolved(_ raw: String?, color: String) -> CuteMascotStyle {
         if let raw, let style = Self(rawValue: raw) { return style }
         switch color {
         case "green", "teal", "cyan": return .teal
@@ -222,7 +223,7 @@ enum MausSilhouette {
 /// between them, it blinks on its own rhythm, and the body bobs, sways,
 /// breathes or jitters per state. Same data, same numbers, same face.
 struct CuteMascotView: View {
-    let style: MascotStyle
+    let style: CuteMascotStyle
     let color: String
     var size: CGFloat = 52
 
@@ -335,7 +336,7 @@ struct MausAvatar: View {
     var style: String? = nil
 
     var body: some View {
-        CuteMascotView(style: MascotStyle.resolved(style, color: color), color: color, size: size)
+        CuteMascotView(style: CuteMascotStyle.resolved(style, color: color), color: color, size: size)
             .accessibilityHidden(true)
     }
 }
@@ -354,7 +355,7 @@ struct MausFaceStill: View {
     var style: String? = nil
 
     var body: some View {
-        CuteMascotView(style: MascotStyle.resolved(style, color: color), color: color, size: size)
+        CuteMascotView(style: CuteMascotStyle.resolved(style, color: color), color: color, size: size)
             .accessibilityHidden(true)
     }
 }
