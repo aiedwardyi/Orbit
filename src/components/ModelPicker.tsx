@@ -1,14 +1,13 @@
-// Compact model picker: the Cloud/Local engine rail stays folded until the
-// user asks to switch, then shows friends engines (plus the active one) with
-// Show all for the rest. Ready engines show a short suggested list with search
-// and an explicit all-models view; engines that need setup show one focused
-// action instead of a disabled wall. The local-model zoo stays behind Show all.
+// Compact model picker: featured engines as a Models icon rail (Grok, Claude,
+// Codex, Antigravity, OpenCode). Models nest under the selected engine. The
+// engine name is a heading, not a fake dropdown. Missing keys open Connections.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Search, Sparkles } from "lucide-react";
 import { useStore, type Bot, type InstanceInfo, type ModelSelection } from "@/state/store";
 import { filterCustomModels, partitionCustomModels, suggestedModels } from "@/lib/custom-models";
 import { engineBadgeText, modelChipText, modelChipTitle } from "@/lib/model-chip";
 import { isCustomOnly, isEngineRailOpen, showFriendsLocalZoo, splitEngineRail, visibleFriendsRail } from "@/lib/engine-rail";
+import { showEngineRailZoo } from "@/lib/friends-chrome";
 import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
 import { EngineGroupLabel } from "./EngineGroupLabel";
@@ -106,7 +105,6 @@ export function ModelPicker({
   contained = false,
   label,
   defaultOpen = false,
-  defaultRailOpen = false,
   defaultShowAllEngines = false,
 }: {
   bot: Bot;
@@ -117,9 +115,7 @@ export function ModelPicker({
   label?: ReactNode;
   /** Start with the menu open (tests). */
   defaultOpen?: boolean;
-  /** Start with the engine rail open (tests). */
-  defaultRailOpen?: boolean;
-  /** Start with the overflow engines visible (tests). */
+  /** Start with the overflow engines visible (tests; friends chrome hides this). */
   defaultShowAllEngines?: boolean;
 }) {
   const { t } = useI18n();
@@ -128,8 +124,7 @@ export function ModelPicker({
   const isAutomatic = selection.mode === "automatic";
   const active = state.instances.find((instance) => instance.instanceId === selection.instanceId);
   const [open, setOpen] = useState(defaultOpen);
-  const [railOpen, setRailOpen] = useState(defaultRailOpen);
-  const [showAllEngines, setShowAllEngines] = useState(defaultShowAllEngines);
+  const [showAllEngines, setShowAllEngines] = useState(defaultShowAllEngines && showEngineRailZoo());
   const [railId, setRailId] = useState<string | null>(null);
   const [pane, setPane] = useState<"main" | "custom">(() =>
     defaultOpen ? pickerPaneFor(active, selection.model) : "main",
@@ -153,10 +148,6 @@ export function ModelPicker({
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (query) setQuery("");
-      else if (railOpen) {
-        setRailOpen(false);
-        setShowAllEngines(false);
-      }
       else if (pane === "custom" && railInstance?.models.options.some((option) => !option.custom)) setPane("main");
       else setOpen(false);
     };
@@ -166,7 +157,7 @@ export function ModelPicker({
       window.removeEventListener("mousedown", closeOnOutsideClick);
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [open, pane, query, railInstance, railOpen]);
+  }, [open, pane, query, railInstance]);
 
   const resetList = () => {
     setQuery("");
@@ -227,23 +218,15 @@ export function ModelPicker({
     : false;
   const canOpenCustom = Boolean(railInstance && !needsCli(railInstance));
   const canReturnToOfficial = official.length > 0 && !isCustomOnly(railInstance);
-  const railShown = isEngineRailOpen({
-    instanceCount: state.instances.length,
-    railOpen,
-  });
-  const canSwitchEngine = state.instances.length > 1;
   const { visible: railVisible, hiddenCount } = visibleFriendsRail(state.instances, {
     showAll: showAllEngines,
     activeId: railId ?? selection.instanceId,
   });
+  const railShown = isEngineRailOpen({ featuredCount: railVisible.length });
   const { subscription, custom: local } = splitEngineRail(railVisible);
-  const collapsibleEngines = hiddenCount > 0 || showAllEngines;
-  const showLocalZoo = showFriendsLocalZoo({
-    showAllEngines,
-    railShown,
-    hasOverflow: hiddenCount > 0,
-    canSwitchEngine,
-  });
+  const collapsibleEngines = showEngineRailZoo() && (hiddenCount > 0 || showAllEngines);
+  const showLocalZoo = showFriendsLocalZoo({ customCount: custom.length });
+  const automaticLive = modelChipText({ instance: active, model: selection.model }, t);
 
   const renderRow = (option: ModelOption) => (
     <ModelRow
@@ -263,7 +246,6 @@ export function ModelPicker({
         setOpen((wasOpen) => {
           const next = !wasOpen;
           if (next) {
-            setRailOpen(false);
             setShowAllEngines(false);
             openFor(state.instances.find((instance) => instance.instanceId === selection.instanceId));
           }
@@ -321,6 +303,7 @@ export function ModelPicker({
           {railShown && (
             <div
               data-engine-rail
+              aria-label={t("model.switchEngine")}
               className="flex w-14 shrink-0 flex-col gap-1 overflow-y-auto border-r border-hairline/40 bg-panel p-2"
             >
               {(() => {
@@ -350,13 +333,13 @@ export function ModelPicker({
                 return (
                   <>
                     {subscription.length > 0 && (
-                      <EngineGroupLabel className="px-0 pb-0.5 pt-0.5 text-center text-[9px]">{t("noEngines.cloud")}</EngineGroupLabel>
+                      <EngineGroupLabel className="px-0 pb-0.5 pt-0.5 text-center text-[9px]">{t("engines.models")}</EngineGroupLabel>
                     )}
                     {subscription.map(railButton)}
-                    {local.length > 0 && (
+                    {showEngineRailZoo() && local.length > 0 && (
                       <EngineGroupLabel className="px-0 pb-0.5 pt-2 text-center text-[9px]">{t("noEngines.local")}</EngineGroupLabel>
                     )}
-                    {local.map(railButton)}
+                    {showEngineRailZoo() && local.map(railButton)}
                   </>
                 );
               })()}
@@ -378,7 +361,7 @@ export function ModelPicker({
               <span className="min-w-0 flex-1">
                 <span className="block text-[13.5px] font-medium text-ink">{t("model.automatic")}</span>
                 <span className="block text-[11.5px] leading-snug text-ink-secondary">
-                  {t("model.automaticHelp")}
+                  {t("model.automaticHelp", { name: automaticLive })}
                 </span>
               </span>
               {isAutomatic && <Check size={14} className="shrink-0 text-accent" />}
@@ -387,33 +370,12 @@ export function ModelPicker({
               <>
                 <div className="shrink-0 px-4 pb-2 pt-3.5">
                   <div className="flex items-center justify-between gap-3">
-                    {canSwitchEngine ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRailOpen((open) => {
-                            const next = !open;
-                            if (!next) setShowAllEngines(false);
-                            return next;
-                          });
-                        }}
-                        aria-expanded={railShown}
-                        aria-label={t("model.switchEngine")}
-                        title={`${railInstance.displayName} · ${engineStatus(railInstance, t)}`}
-                        className="-mx-1 flex min-w-0 items-center gap-1 rounded-lg px-1 py-0.5 text-left hover:bg-control/60"
-                      >
-                        <span className="truncate text-[14px] font-semibold text-ink">{railInstance.displayName}</span>
-                        <ChevronDown
-                          size={14}
-                          className={cn(
-                            "shrink-0 text-ink-secondary transition-transform",
-                            railShown && "rotate-180",
-                          )}
-                        />
-                      </button>
-                    ) : (
-                      <div className="truncate text-[14px] font-semibold text-ink">{railInstance.displayName}</div>
-                    )}
+                    <div
+                      className="min-w-0 truncate text-[14px] font-semibold text-ink"
+                      title={`${railInstance.displayName} · ${engineStatus(railInstance, t)}`}
+                    >
+                      {railInstance.displayName}
+                    </div>
                     <span
                       className={cn(
                         "shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-medium",

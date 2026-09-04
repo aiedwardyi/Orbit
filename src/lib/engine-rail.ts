@@ -2,17 +2,17 @@
 // (no catalog — inject a model). A missing `access` is Cloud so older
 // payloads stay in the top group. VibeCoder would join Local later.
 import type { InstanceInfo } from "@/state/store";
+import { showEngineRailZoo } from "./friends-chrome";
 
 export function isCustomOnly(instance: { access?: InstanceInfo["access"] } | undefined): boolean {
   return instance?.access === "custom";
 }
 
-/** The Cloud/Local icon rail stays folded until the user asks to switch. */
+/** Featured engines as a visible icon list whenever more than one is present. */
 export function isEngineRailOpen(input: {
-  instanceCount: number;
-  railOpen: boolean;
+  featuredCount: number;
 }): boolean {
-  return input.instanceCount > 1 && input.railOpen;
+  return input.featuredCount > 1;
 }
 
 export function splitEngineRail<T>(instances: readonly T[]): {
@@ -28,27 +28,48 @@ export function splitEngineRail<T>(instances: readonly T[]): {
   return { subscription, custom };
 }
 
-// Friends engines — Claude, Codex, Gemini, Grok, OpenCode — across six drivers:
-// Gemini ships both a direct and an Antigravity route, and QA_PROMPT.md tests it
-// through Antigravity. OpenCode is the existing `opencodeGo` driver; Muse is not
-// in this repo and is not invented here. Everything else stays one click away
-// behind Show all: a disclosure, never a removal. An engine the user pointed at
-// a binary is always shown, because hiding a configured engine would read as
-// Orbit having dropped it.
-const FRIENDS_DRIVERS = new Set([
+// Friends featured rail — Grok, Claude, Codex, Antigravity, OpenCode.
+// Gemini API is not a rail engine: Gemini models live on Antigravity.
+// The local/custom zoo stays off this list (showEngineRailZoo can restore it).
+export const FRIENDS_DRIVER_ORDER = [
+  "grokAgent",
   "claudeAgent",
   "codex",
-  "grokAgent",
-  "geminiAgent",
   "antigravityAgent",
   "opencodeGo",
+] as const;
+
+export const FRIENDS_CLI_DRIVERS = new Set([
+  "grokAgent",
+  "claudeAgent",
+  "codex",
+  "antigravityAgent",
 ]);
 
+const FRIENDS_DRIVERS = new Set<string>(FRIENDS_DRIVER_ORDER);
+
+export function friendsDriverRank(driverKind: string | undefined): number {
+  const index = FRIENDS_DRIVER_ORDER.indexOf(driverKind as (typeof FRIENDS_DRIVER_ORDER)[number]);
+  return index === -1 ? FRIENDS_DRIVER_ORDER.length : index;
+}
+
 export function isFriendsEngine(
-  instance: { driverKind?: string; cli?: string } | undefined,
+  instance: { driverKind?: string } | undefined,
 ): boolean {
-  if (instance?.cli) return true;
   return FRIENDS_DRIVERS.has(instance?.driverKind ?? "");
+}
+
+export function isFriendsCliEngine(
+  instance: { driverKind?: string } | undefined,
+): boolean {
+  return FRIENDS_CLI_DRIVERS.has(instance?.driverKind ?? "");
+}
+
+export function orderFriendsEngines<T>(instances: readonly T[]): T[] {
+  return [...instances].sort((left, right) =>
+    friendsDriverRank((left as { driverKind?: string }).driverKind)
+    - friendsDriverRank((right as { driverKind?: string }).driverKind),
+  );
 }
 
 export function splitFriendsEngines<T>(instances: readonly T[]): {
@@ -58,20 +79,23 @@ export function splitFriendsEngines<T>(instances: readonly T[]): {
   const friends: T[] = [];
   const rest: T[] = [];
   for (const instance of instances) {
-    // SAFETY: the generic preserves the caller's row type; this split reads only these two fields.
-    if (isFriendsEngine(instance as { driverKind?: string; cli?: string })) friends.push(instance);
+    // SAFETY: the generic preserves the caller's row type; this split reads only driverKind.
+    if (isFriendsEngine(instance as { driverKind?: string })) friends.push(instance);
     else rest.push(instance);
   }
-  return { friends, rest };
+  return { friends: orderFriendsEngines(friends), rest };
 }
 
-/** Chat-header Switch-engine rail: friends first, plus the active engine so
- * a non-friends pin does not disappear. Show all reveals the rest. */
+/** Chat-header engine rail: featured friends only, in Grok → Claude → Codex
+ * → Antigravity → OpenCode order. The zoo expander is a friends-chrome flag. */
 export function visibleFriendsRail<T extends { instanceId: string }>(
   instances: readonly T[],
-  options: { showAll: boolean; activeId?: string },
+  options: { showAll?: boolean; activeId?: string } = {},
 ): { visible: T[]; hiddenCount: number } {
   const { friends, rest } = splitFriendsEngines(instances);
+  if (!showEngineRailZoo()) {
+    return { visible: friends, hiddenCount: 0 };
+  }
   const collapsible = friends.length > 0 && rest.length > 0;
   if (options.showAll || !collapsible) {
     return { visible: [...friends, ...rest], hiddenCount: 0 };
@@ -84,17 +108,12 @@ export function visibleFriendsRail<T extends { instanceId: string }>(
   return { visible, hiddenCount: instances.length - visible.length };
 }
 
-/** Local/custom models stay off the idle friends picker. Show all, a rail
- * with nothing left to disclose, or a single-engine chip is the way back. */
+/** Quiet "Use a local model" on the selected engine when it already has
+ * custom/local options. Never a rail of local engines. */
 export function showFriendsLocalZoo(input: {
-  showAllEngines: boolean;
-  railShown: boolean;
-  hasOverflow: boolean;
-  canSwitchEngine: boolean;
+  customCount: number;
 }): boolean {
-  if (input.showAllEngines) return true;
-  if (!input.canSwitchEngine) return true;
-  return input.railShown && !input.hasOverflow;
+  return input.customCount > 0;
 }
 
 // First launch with nothing connected: one path, Grok or Claude. The rest of

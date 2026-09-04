@@ -48,3 +48,23 @@ export function showAvatarImageGenerate(): boolean {
 export function showAvatarShapeOptions(): boolean {
   return false;
 }
+
+/** AssemblyAI, Box, VPS, and self-host stay in code, off the Connections page. */
+export function showSettingsMoreServicesSection(): boolean {
+  return false;
+}
+
+/** Engines is folded into Connections. Flip to restore a separate tab. */
+export function showSettingsEnginesNav(): boolean {
+  return false;
+}
+
+/** Per-bot tokens/turns/cost table under Settings → Usage. */
+export function showUsagePerBotTable(): boolean {
+  return false;
+}
+
+/** "Show all engines · N more" and the local engine zoo on the picker rail. */
+export function showEngineRailZoo(): boolean {
+  return false;
+}

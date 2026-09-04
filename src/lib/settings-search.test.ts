@@ -19,5 +19,7 @@ describe("settings section search", () => {
     expect(settingsSectionMatches("general", "vm")).toBe(true);
     expect(settingsSectionMatches("general", "more services")).toBe(false);
     expect(settingsSectionMatches("connections", "more services")).toBe(true);
+    expect(settingsSectionMatches("connections", "grok")).toBe(true);
+    expect(settingsSectionMatches("connections", "cli")).toBe(true);
   });
 });

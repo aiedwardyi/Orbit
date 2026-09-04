@@ -5,6 +5,29 @@ import { describe, expect, it, vi } from "vitest";
 import { applyLocale, I18nProvider, translate } from "@/lib/i18n";
 import type { InstanceInfo } from "@/state/store";
 
+const { mockInstances } = vi.hoisted(() => {
+  const row = (instanceId: string, driverKind: string, displayName: string): InstanceInfo => ({
+    instanceId,
+    driverKind,
+    displayName,
+    snapshot: { state: "available", authenticated: true },
+    models: { default: "default", options: [] },
+    cliDefault: instanceId,
+  });
+  return {
+    mockInstances: [
+      row("claude", "claudeAgent", "Claude"),
+      row("kimi", "kimiAgent", "Kimi"),
+      row("codex", "codex", "Codex"),
+      row("grok", "grokAgent", "Grok"),
+      row("gemini", "geminiAgent", "Gemini API"),
+      row("antigravity", "antigravityAgent", "Gemini (Antigravity)"),
+      row("opencode", "opencodeGo", "OpenCode"),
+      row("hermes", "hermesAgent", "Hermes"),
+    ],
+  };
+});
+
 vi.hoisted(() => {
   Object.defineProperty(globalThis, "window", {
     value: { ogb: undefined },
@@ -17,7 +40,18 @@ vi.hoisted(() => {
   });
 });
 
-import { CustomPicker, cliPickerCommitValue, inUseCliPath } from "./EnginesSettings";
+vi.mock("@/state/store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/state/store")>();
+  return {
+    ...actual,
+    useStore: () => ({
+      state: { instances: mockInstances },
+      refreshInstances: async () => undefined,
+    }),
+  };
+});
+
+import { CustomPicker, EnginesSettings, cliPickerCommitValue, inUseCliPath } from "./EnginesSettings";
 
 applyLocale("en");
 
@@ -115,5 +149,33 @@ describe("CLI-candidates in-use marker", () => {
     expect(cliPickerCommitValue("", OTHER)).toBe(OTHER);
     expect(cliPickerCommitValue("", OTHER)).not.toBe(labeled);
     expect(cliPickerCommitValue("/tmp/wrapper", OTHER)).toBe("/tmp/wrapper");
+  });
+});
+
+describe("EnginesSettings friends Connections list", () => {
+  it("shows Set CLI for Grok Claude Codex Antigravity, not Gemini API or OpenCode or the zoo", () => {
+    const html = renderToStaticMarkup(
+      createElement(I18nProvider, null, createElement(EnginesSettings)),
+    );
+    expect(html).toContain("Grok");
+    expect(html).toContain("Claude");
+    expect(html).toContain("Codex");
+    expect(html).toContain("Gemini (Antigravity)");
+    expect(html).toContain("Set CLI…");
+    expect(html).toContain(">Models<");
+    expect(html).not.toContain(">Cloud<");
+    expect(html).not.toContain("Gemini API");
+    expect(html).not.toContain("OpenCode");
+    expect(html).not.toContain("Kimi");
+    expect(html).not.toContain("Hermes");
+    expect(html).not.toContain("Show all engines");
+    const grok = html.indexOf("Grok");
+    const claude = html.indexOf("Claude");
+    const codex = html.indexOf("Codex");
+    const antigravity = html.indexOf("Gemini (Antigravity)");
+    expect(grok).toBeGreaterThan(-1);
+    expect(claude).toBeGreaterThan(grok);
+    expect(codex).toBeGreaterThan(claude);
+    expect(antigravity).toBeGreaterThan(codex);
   });
 });

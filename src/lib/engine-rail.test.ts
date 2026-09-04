@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   firstLaunchConnectInstances,
+  friendsDriverRank,
   isEmptyEngineLaunch,
   isEngineRailOpen,
+  isFriendsCliEngine,
+  isFriendsEngine,
   splitEngineRail,
   splitFriendsEngines,
   showFriendsLocalZoo,
@@ -12,16 +15,12 @@ import {
 } from "./engine-rail";
 
 describe("isEngineRailOpen", () => {
-  it("keeps the engine rail folded when idle", () => {
-    expect(isEngineRailOpen({ instanceCount: 5, railOpen: false })).toBe(false);
+  it("shows the Models rail when more than one featured engine is present", () => {
+    expect(isEngineRailOpen({ featuredCount: 5 })).toBe(true);
   });
 
-  it("does not open a rail when there is only one engine", () => {
-    expect(isEngineRailOpen({ instanceCount: 1, railOpen: true })).toBe(false);
-  });
-
-  it("opens the rail when the user asks and more than one engine is present", () => {
-    expect(isEngineRailOpen({ instanceCount: 2, railOpen: true })).toBe(true);
+  it("does not open a rail when there is only one featured engine", () => {
+    expect(isEngineRailOpen({ featuredCount: 1 })).toBe(false);
   });
 });
 
@@ -44,7 +43,7 @@ describe("splitEngineRail", () => {
 });
 
 describe("splitFriendsEngines", () => {
-  it("keeps the friends engines, including both Gemini routes and OpenCode, out front", () => {
+  it("keeps the featured rail in Grok → Claude → Codex → Antigravity → OpenCode order", () => {
     const { friends, rest } = splitFriendsEngines([
       { instanceId: "claude", driverKind: "claudeAgent" },
       { instanceId: "kimi", driverKind: "kimiAgent" },
@@ -57,26 +56,34 @@ describe("splitFriendsEngines", () => {
       { instanceId: "opencode", driverKind: "opencodeGo" },
       { instanceId: "hermes", driverKind: "hermesAgent" },
     ]);
-    // Gemini counts once as an engine but twice as a driver. OpenCode is a
-    // real driver (opencodeGo); Muse is not in the repo and stays out.
     expect(friends.map((row) => row.instanceId)).toEqual([
+      "grok",
       "claude",
       "codex",
-      "grok",
-      "gemini",
       "antigravity",
       "opencode",
     ]);
-    expect(rest.map((row) => row.instanceId)).toEqual(["kimi", "qwen", "cursor", "hermes"]);
+    expect(rest.map((row) => row.instanceId)).toEqual(["kimi", "qwen", "gemini", "cursor", "hermes"]);
   });
 
-  it("never folds away an engine the user pointed at a binary", () => {
+  it("does not promote a local CLI override onto the featured rail", () => {
     const { friends, rest } = splitFriendsEngines([
       { instanceId: "hermes", driverKind: "hermesAgent", cli: "/opt/hermes/bin/hermes" },
       { instanceId: "pi", driverKind: "piAgent" },
     ]);
-    expect(friends.map((row) => row.instanceId)).toEqual(["hermes"]);
-    expect(rest.map((row) => row.instanceId)).toEqual(["pi"]);
+    expect(friends.map((row) => row.instanceId)).toEqual([]);
+    expect(rest.map((row) => row.instanceId)).toEqual(["hermes", "pi"]);
+  });
+
+  it("treats Gemini API as off-rail and Antigravity as the Gemini CLI slot", () => {
+    expect(isFriendsEngine({ driverKind: "geminiAgent" })).toBe(false);
+    expect(isFriendsEngine({ driverKind: "antigravityAgent" })).toBe(true);
+    expect(isFriendsCliEngine({ driverKind: "antigravityAgent" })).toBe(true);
+    expect(isFriendsCliEngine({ driverKind: "opencodeGo" })).toBe(false);
+    expect(friendsDriverRank("grokAgent")).toBeLessThan(friendsDriverRank("claudeAgent"));
+    expect(friendsDriverRank("claudeAgent")).toBeLessThan(friendsDriverRank("codex"));
+    expect(friendsDriverRank("codex")).toBeLessThan(friendsDriverRank("antigravityAgent"));
+    expect(friendsDriverRank("antigravityAgent")).toBeLessThan(friendsDriverRank("opencodeGo"));
   });
 });
 
@@ -86,69 +93,51 @@ describe("visibleFriendsRail", () => {
     { instanceId: "kimi", driverKind: "kimiAgent" },
     { instanceId: "codex", driverKind: "codex" },
     { instanceId: "grok", driverKind: "grokAgent" },
+    { instanceId: "gemini", driverKind: "geminiAgent" },
     { instanceId: "opencode", driverKind: "opencodeGo" },
+    { instanceId: "antigravity", driverKind: "antigravityAgent" },
     { instanceId: "cursor", driverKind: "cursorAgent" },
   ];
 
-  it("hides the rest until Show all, and always keeps the active engine", () => {
+  it("shows only the featured five, in order, with no zoo expander", () => {
     const folded = visibleFriendsRail(fleet, { showAll: false, activeId: "grok" });
-    expect(folded.visible.map((row) => row.instanceId)).toEqual(["claude", "codex", "grok", "opencode"]);
-    expect(folded.hiddenCount).toBe(2);
+    expect(folded.visible.map((row) => row.instanceId)).toEqual([
+      "grok",
+      "claude",
+      "codex",
+      "antigravity",
+      "opencode",
+    ]);
+    expect(folded.hiddenCount).toBe(0);
 
     const withActiveRest = visibleFriendsRail(fleet, { showAll: false, activeId: "kimi" });
     expect(withActiveRest.visible.map((row) => row.instanceId)).toEqual([
+      "grok",
       "claude",
       "codex",
-      "grok",
+      "antigravity",
       "opencode",
-      "kimi",
     ]);
-    expect(withActiveRest.hiddenCount).toBe(1);
+    expect(withActiveRest.hiddenCount).toBe(0);
   });
 
-  it("reveals the rest after Show all without reordering the friends already on the rail", () => {
+  it("does not reveal the rest after Show all while the zoo flag is off", () => {
     const opened = visibleFriendsRail(fleet, { showAll: true, activeId: "grok" });
     expect(opened.visible.map((row) => row.instanceId)).toEqual([
+      "grok",
       "claude",
       "codex",
-      "grok",
+      "antigravity",
       "opencode",
-      "kimi",
-      "cursor",
     ]);
     expect(opened.hiddenCount).toBe(0);
   });
 });
 
 describe("showFriendsLocalZoo", () => {
-  it("keeps the local zoo off the idle friends picker when overflow exists", () => {
-    expect(showFriendsLocalZoo({
-      showAllEngines: false,
-      railShown: false,
-      hasOverflow: true,
-      canSwitchEngine: true,
-    })).toBe(false);
-  });
-
-  it("opens the local zoo behind Show all, or when there is no overflow left to disclose", () => {
-    expect(showFriendsLocalZoo({
-      showAllEngines: true,
-      railShown: true,
-      hasOverflow: true,
-      canSwitchEngine: true,
-    })).toBe(true);
-    expect(showFriendsLocalZoo({
-      showAllEngines: false,
-      railShown: true,
-      hasOverflow: false,
-      canSwitchEngine: true,
-    })).toBe(true);
-    expect(showFriendsLocalZoo({
-      showAllEngines: false,
-      railShown: false,
-      hasOverflow: false,
-      canSwitchEngine: false,
-    })).toBe(true);
+  it("keeps Use a local model quiet unless the selected engine already has local options", () => {
+    expect(showFriendsLocalZoo({ customCount: 0 })).toBe(false);
+    expect(showFriendsLocalZoo({ customCount: 2 })).toBe(true);
   });
 });
 

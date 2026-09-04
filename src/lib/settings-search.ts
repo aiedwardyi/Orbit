@@ -39,6 +39,9 @@ const SECTION_PHRASE_KEYS = {
     "settings.connections.selfHost",
     "settings.connections.moreServices",
     "connections.gemini.label",
+    "connections.opencode.label",
+    "engines.setCli",
+    "engines.help",
     "connections.box.label",
     "connections.vps.label",
     "connections.transcription.label",
@@ -64,7 +67,7 @@ const SECTION_PHRASE_KEYS = {
 
 const EXTRA_KEYWORDS = {
   general: ["profile", "name", "email", "skin", "theme", "appearance", "analytics", "updates", "tools", "tool calls", "language", "locale", "vm", "diagnostics", "experimental"],
-  connections: ["keys", "api", "composio", "box", "xai", "vps"],
+  connections: ["keys", "api", "gemini", "opencode", "claude", "grok", "codex", "antigravity", "cli"],
   engines: ["models", "claude", "grok", "providers", "cli"],
   companion: ["companion", "phone", "pair", "mobile"],
   computer: ["vm", "virtual", "desktop"],

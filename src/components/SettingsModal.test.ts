@@ -154,31 +154,27 @@ describe("SettingsModal friends chrome", () => {
     expect(html).not.toContain("Cua Linux");
   });
 
-  it("shows only the Gemini key on idle Connections", () => {
+  it("folds Gemini and OpenCode keys into Connections and hides the zoo services", () => {
     const html = markup("connections");
     expect(html).toContain("Gemini API key");
-    expect(html).toContain("More services");
+    expect(html).toContain("OpenCode API key");
+    expect(html).not.toContain("More services");
     expect(html).not.toContain("data-settings-more-services");
     expect(html).not.toContain("Box API key");
     expect(html).not.toContain("AssemblyAI");
     expect(html).not.toContain("Self-hosted VPS");
-    expect(html).not.toContain("OpenCode API key");
     expect(html).not.toContain("Composio project key");
     expect(html).not.toContain("Self-host connected apps");
     expect(html).not.toContain("OpenMausBot");
+    expect(html).not.toMatch(/>Engines</);
   });
 
-  it("reveals the other four service connections behind More services", () => {
-    const html = markup("connections", false, true);
-    expect(html).toContain("data-settings-more-services");
+  it("opens Engines as the unified Connections page", () => {
+    const html = markup("engines");
     expect(html).toContain("Gemini API key");
-    expect(html).toContain("Box API key");
-    expect(html).toContain("AssemblyAI");
-    expect(html).toContain("Self-hosted VPS");
     expect(html).toContain("OpenCode API key");
-    expect(html).toContain("Self-host connected apps");
-    expect(html).not.toContain("OpenMausBot");
-    expect(html).not.toContain("milind-soni");
+    expect(html).not.toContain("More services");
+    expect(html).not.toMatch(/>Engines</);
   });
 
   it("keeps Local VM, channel turns, experimental, and diagnostics inside the folded Advanced body", () => {
@@ -207,14 +203,13 @@ describe("SettingsModal friends chrome", () => {
     expect(more).toContain("<TranscriptionSettings");
     expect(more).toContain('section="box"');
     expect(more).toContain("<VpsConnection");
-    expect(more).toContain('section="opencodeGo"');
     expect(more).toContain('section="composio"');
     const before = source.slice(0, start);
     expect(before).toContain('section="gemini"');
+    expect(before).toContain('section="opencodeGo"');
     expect(before).not.toContain("<TranscriptionSettings");
     expect(before).not.toContain('section="box"');
     expect(before).not.toContain("<VpsConnection");
-    expect(before).not.toContain('section="opencodeGo"');
   });
 });
 

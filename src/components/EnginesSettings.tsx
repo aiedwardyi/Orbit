@@ -10,7 +10,8 @@ import { Check, ChevronDown, Loader2, TriangleAlert } from "lucide-react";
 import { api, useStore, type InstanceInfo } from "@/state/store";
 import { EngineGroupLabel } from "./EngineGroupLabel";
 import { ProviderMark } from "./ProviderIcons";
-import { splitEngineRail, splitFriendsEngines } from "@/lib/engine-rail";
+import { isFriendsCliEngine, orderFriendsEngines, splitEngineRail, splitFriendsEngines } from "@/lib/engine-rail";
+import { showEngineRailZoo } from "@/lib/friends-chrome";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
 
@@ -309,11 +310,18 @@ export function EnginesSettings() {
   // neither unless an override was set. Including them keeps a Reset-able row
   // (and a Set CLI… path) for engines the running build doesn't recognize.
   const rows = state.instances.filter((i) => i.cli !== undefined || i.cliDefault !== undefined || i.snapshot.state === "unavailable");
+  const cliRows = orderFriendsEngines(rows.filter(isFriendsCliEngine));
   const { friends, rest } = splitFriendsEngines(rows);
+  const zoo = showEngineRailZoo();
   // Folding away every row would leave a lone toggle, so only fold when a
   // friends engine stays on screen.
-  const collapsible = friends.length > 0 && rest.length > 0;
-  const visible = collapsible && !showAll ? friends : rows;
+  const collapsible = zoo && friends.length > 0 && rest.length > 0;
+  let visible = cliRows;
+  if (zoo && collapsible && !showAll) {
+    visible = friends.filter(isFriendsCliEngine);
+  } else if (zoo && showAll) {
+    visible = rows;
+  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -324,7 +332,7 @@ export function EnginesSettings() {
         const { subscription, custom } = splitEngineRail(visible);
         return (
           <>
-            {subscription.length > 0 && <EngineGroupLabel>{t("noEngines.cloud")}</EngineGroupLabel>}
+            {subscription.length > 0 && <EngineGroupLabel>{t("engines.models")}</EngineGroupLabel>}
             {subscription.map((i) => (
               <EngineRow key={i.instanceId} instance={i} />
             ))}

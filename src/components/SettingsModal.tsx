@@ -9,10 +9,13 @@ import { analyticsEnabled, setAnalyticsEnabled } from "@/lib/analytics";
 import { builtInBrowserEnabled, showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
 import {
   showSettingsAdvancedSection,
+  showSettingsEnginesNav,
+  showSettingsMoreServicesSection,
   showSettingsSearch,
 } from "@/lib/friends-chrome";
 import {
   friendsSettingsNavVisible,
+  resolvedAppSettingsSection,
   showSettingsAdvancedControls,
   showSettingsMoreServices,
 } from "@/lib/settings-chrome";
@@ -442,7 +445,7 @@ export function SettingsModal({
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
-  const section = state.appSettingsSection;
+  const section = resolvedAppSettingsSection(state.appSettingsSection);
   const dialogRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(defaultAdvancedOpen);
@@ -633,7 +636,11 @@ export function SettingsModal({
                       {t("settings.connections.ready")}
                     </div>
                   ) : null}
+                  <EnginesSettings />
                   <ApiKeyRow section="gemini" />
+                  <ApiKeyRow section="opencodeGo" />
+                  {showSettingsMoreServicesSection() && (
+                    <>
                   <button
                     type="button"
                     aria-expanded={moreServicesShown}
@@ -651,7 +658,6 @@ export function SettingsModal({
                       <TranscriptionSettings />
                       <ApiKeyRow section="box" />
                       <VpsConnection />
-                      <ApiKeyRow section="opencodeGo" />
                       <details className="rounded-lg border border-hairline/40 bg-inset px-3 py-2">
                         <summary className="cursor-pointer text-[13px] text-ink-secondary">{t("settings.connections.selfHost")}</summary>
                         <div className="mt-3">
@@ -660,11 +666,13 @@ export function SettingsModal({
                       </details>
                     </div>
                   )}
+                    </>
+                  )}
                 </div>
               </Card>
             )}
 
-            {section === "engines" && (
+            {showSettingsEnginesNav() && section === "engines" && (
               <Card title={t("settings.engines.title")} subtitle={t("settings.engines.subtitle")}>
                 <EnginesSettings />
               </Card>

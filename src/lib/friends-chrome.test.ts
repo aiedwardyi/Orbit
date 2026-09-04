@@ -14,6 +14,10 @@ import {
   showComputerPanelChrome,
   showSettingsAdvancedSection,
   showSettingsSearch,
+  showSettingsMoreServicesSection,
+  showSettingsEnginesNav,
+  showUsagePerBotTable,
+  showEngineRailZoo,
   showSidebarRoutines,
   showSidebarTeachSkill,
 } from "./friends-chrome";
@@ -43,6 +47,10 @@ describe("friends chrome flags", () => {
     expect(showCommunityRepoLink()).toBe(false);
     expect(showAvatarImageGenerate()).toBe(false);
     expect(showAvatarShapeOptions()).toBe(false);
+    expect(showSettingsMoreServicesSection()).toBe(false);
+    expect(showSettingsEnginesNav()).toBe(false);
+    expect(showUsagePerBotTable()).toBe(false);
+    expect(showEngineRailZoo()).toBe(false);
   });
 });
 
@@ -50,7 +58,10 @@ describe("friends chrome call sites keep the feature code", () => {
   it("gates Settings search and Advanced instead of deleting them", () => {
     expect(settingsModal).toContain("showSettingsSearch()");
     expect(settingsModal).toContain("showSettingsAdvancedSection()");
+    expect(settingsModal).toContain("showSettingsMoreServicesSection()");
+    expect(settingsModal).toContain("showSettingsEnginesNav()");
     expect(settingsModal).toContain("data-settings-advanced");
+    expect(settingsModal).toContain("data-settings-more-services");
     expect(settingsModal).toContain("<LocalComputerSection");
     expect(settingsModal).toContain("<ExperimentalFeaturesRow");
     expect(settingsModal).toContain("<DiagnosticsRow");
@@ -62,6 +73,14 @@ describe("friends chrome call sites keep the feature code", () => {
     expect(settingsPanel).toContain('aria-label="Chief of Staff"');
     expect(settingsPanel).toContain("<VoiceSettings");
     expect(settingsPanel).toContain("<BotUsageCard");
+  });
+
+  it("gates the Usage per-bot table instead of deleting it", () => {
+    const usage = readFileSync(join(components, "UsageSection.tsx"), "utf8");
+    expect(usage).toContain("showUsagePerBotTable()");
+    expect(usage).toContain("Turns");
+    expect(usage).toContain("Tokens");
+    expect(usage).toContain("Cost");
   });
 
   it("gates the Computer panel and bot new-task control in chat chrome", () => {

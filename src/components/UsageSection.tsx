@@ -11,6 +11,8 @@ import { Card } from "./SettingsPrimitives";
 import { ProviderMark } from "./ProviderIcons";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
+import { showUsagePerBotTable } from "@/lib/friends-chrome";
+import { splitFriendsEngines } from "@/lib/engine-rail";
 import {
   botUsage,
   cachedInput,
@@ -70,17 +72,14 @@ function PlanUsage() {
   const { t } = useI18n();
   const { state } = useStore();
   const now = useNow();
-  // engines this workspace actually runs on, plus any that already reported;
-  // the rest of the installed zoo stays out of it
-  const inUse = new Set(state.bots.filter((b) => !b.hidden).map((b) => b.modelSelection.instanceId));
-  const engines = state.instances
-    .filter((instance) => inUse.has(instance.instanceId) || instance.rateLimits)
-    .sort(
-      (a, b) =>
-        Number(Boolean(b.rateLimits)) - Number(Boolean(a.rateLimits)) || a.displayName.localeCompare(b.displayName),
-    );
+  const engines = splitFriendsEngines(state.instances).friends;
+  // Claude/Codex declare rateLimits but only emit a window after a turn.
+  // Engines that never report (Grok, Antigravity, OpenCode) stay on the flat
+  // "not available" line so a missing observation is not mistaken for none.
   const honestCaption = (instance: InstanceInfo) =>
-    t(instance.capabilities?.rateLimits ? "usage.limits.pending" : "usage.limits.notReported", { name: instance.displayName });
+    t(instance.capabilities?.rateLimits ? "usage.limits.pending" : "usage.limits.unavailable", {
+      name: instance.displayName,
+    });
 
   return (
     <Card title={t("usage.limits.title")} subtitle={t("usage.limits.subtitle")}>
@@ -133,6 +132,7 @@ export function UsageSection() {
   return (
     <>
       <PlanUsage />
+      {showUsagePerBotTable() && (
       <Card title="Usage" subtitle="Tokens and cost per bot, added up from every settled turn. Only engines that report a price show one.">
         {rows.length === 0 ? (
           <div className="text-[13px] text-ink-secondary">Nothing spent yet — figures appear after a bot's first turn.</div>
@@ -178,6 +178,7 @@ export function UsageSection() {
           </div>
         )}
       </Card>
+      )}
     </>
   );
 }
