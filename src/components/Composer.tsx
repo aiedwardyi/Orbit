@@ -644,7 +644,7 @@ export function Composer({
           <div className="mb-2 flex items-center gap-2 rounded-lg border border-hairline/40 bg-panel px-3 py-2 text-[12.5px] text-ink-secondary">
             <Clock size={13} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">
-              {t("composer.queuedUntil", { name: busyName, text: pendingChip })}
+              {t("composer.queuedUntil", { text: pendingChip })}
             </span>
             <button
               type="button"

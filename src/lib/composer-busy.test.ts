@@ -1,10 +1,18 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { composerBusyChrome } from "./composer-busy";
+import { applyLocale, translate } from "./i18n";
 import { en, ko } from "./i18n-catalog";
+
+const enT = (key: Parameters<typeof translate>[1], vars?: Parameters<typeof translate>[2]) =>
+  translate("en", key, vars);
+
+afterEach(() => {
+  applyLocale("en");
+});
 
 const here = dirname(fileURLToPath(import.meta.url));
 const composer = readFileSync(join(here, "../components/Composer.tsx"), "utf8");
@@ -20,7 +28,7 @@ describe("composerBusyChrome", () => {
       canSteer: false,
       name: "Scout",
       idlePlaceholder: idle,
-    });
+    }, enT);
     expect(chrome.placeholder).toBe(idle);
     expect(chrome.sendLooksQueued).toBe(false);
     expect(chrome.sendAriaKey).toBe("composer.sendMessage");
@@ -35,10 +43,22 @@ describe("composerBusyChrome", () => {
       canSteer: true,
       name: "Scout",
       idlePlaceholder: idle,
-    });
+    }, enT);
     expect(chrome.placeholder).toBe(idle);
     expect(chrome.sendLooksQueued).toBe(false);
     expect(chrome.sendAriaKey).toBe("composer.sendIntoTurn");
+  });
+
+  it("uses the supplied English translator even when Korean is active", () => {
+    applyLocale("ko");
+    const chrome = composerBusyChrome({
+      busy: true,
+      isRoom: true,
+      canSteer: false,
+      name: "Scout",
+      idlePlaceholder: "Message Launch",
+    }, enT);
+    expect(chrome.placeholder).toBe("Scout is working — Enter queues your message");
   });
 
   it("keeps room busy-queue chrome so a second Enter cannot drop the held line", () => {
@@ -48,7 +68,7 @@ describe("composerBusyChrome", () => {
       canSteer: false,
       name: "Scout",
       idlePlaceholder: "Message Launch",
-    });
+    }, enT);
     expect(chrome.placeholder).toBe("Scout is working — Enter queues your message");
     expect(chrome.sendLooksQueued).toBe(true);
     expect(chrome.sendAriaKey).toBe("composer.queueMessage");
@@ -62,7 +82,7 @@ describe("composerBusyChrome", () => {
       canSteer: true,
       name: "Scout",
       idlePlaceholder: "Message Launch",
-    });
+    }, enT);
     expect(chrome.sendLooksQueued).toBe(true);
     expect(chrome.placeholder).toBe("Scout is working — Enter queues your message");
   });
@@ -74,7 +94,7 @@ describe("composerBusyChrome", () => {
       canSteer: false,
       name: "Scout",
       idlePlaceholder: idle,
-    });
+    }, enT);
     expect(chrome).toEqual({
       placeholder: idle,
       sendLooksQueued: false,
@@ -91,6 +111,8 @@ describe("Composer wiring", () => {
     expect(composer).not.toContain("composer.waitHint");
     expect(composer).toContain("disabled={Boolean(approval) || locked}");
     expect(composer).not.toMatch(/disabled=\{[^}]*busy/);
+    expect(composer).toContain('t("composer.queuedUntil", { text: pendingChip })');
+    expect(composer).not.toMatch(/composer\.queuedUntil", \{ name:/);
   });
 });
 

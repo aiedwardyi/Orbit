@@ -1,9 +1,10 @@
 // How the composer should look while a turn is in flight.
 //
-// Rooms keep a real one-slot queue (PR 36): the placeholder says so, and
-// send looks queued. 1:1 already POSTs mid-turn (steer-queue); lecturing
-// the empty box about "the turn" made forever-chat feel like supervising
-// an agent. Keep the queue; drop the gate-y chrome.
+// Rooms hold one client-side line while a member speaks — a second Enter
+// would drop that held send — so the placeholder says so and send looks
+// queued. 1:1 already POSTs mid-turn (steer-queue); lecturing the empty
+// box about "the turn" made forever-chat feel like supervising an agent.
+// Keep the queue; drop the gate-y chrome.
 import { t, type MessageKey, type Translate } from "./i18n";
 
 export interface ComposerBusyInput {
