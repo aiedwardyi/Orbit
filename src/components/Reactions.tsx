@@ -1,15 +1,12 @@
 // Emoji reactions — Grok-style bubbly rail under a bot bubble, chips
 // under the message to show them. `by` is "user" or a member botId; in rooms
 // a bot's own reactions render with its name in the tooltip.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { EXTENDED_REACTIONS, PRIMARY_REACTIONS } from "../../shared/reactions";
 import { useStore, type Bot, type Message } from "@/state/store";
 import { useI18n, type Translate } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
-
-/** Primary rail (👍 👎 ❤️). Extra emoticons live in `EXTENDED_REACTIONS`. */
-export const REACTION_SET = PRIMARY_REACTIONS;
 
 function reactLabel(t: Translate, emoji: string, pressed: boolean) {
   return pressed ? t("chat.removeReaction", { emoji }) : t("chat.reactEmoji", { emoji });
@@ -21,8 +18,11 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
   const [pickerOpen, setPickerOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
-  const mine = new Set(
-    (message.reactions ?? []).filter((reaction) => reaction.by === "user").map((reaction) => reaction.emoji),
+  const mine = useMemo(
+    () => new Set(
+      (message.reactions ?? []).filter((reaction) => reaction.by === "user").map((reaction) => reaction.emoji),
+    ),
+    [message.reactions],
   );
 
   // same dismiss contract as the sidebar menus: outside click, Escape, blur

@@ -169,4 +169,10 @@ describe("reaction plumbing", () => {
     expect(indexSource).toMatch(/queueSteeredMessage\([\s\S]{0,500}promptWithReply\(/);
     expect(indexSource).not.toMatch(/queueSteeredMessage\([\s\S]{0,400}composeUserTurnPrompt/);
   });
+
+  it("omits already-replayed bot reactions from the 1:1 user-turn preamble", () => {
+    expect(repliesSource).toContain("replayedTranscript");
+    expect(indexSource).toContain("turnReplaysTranscript");
+    expect(indexSource).toContain("replayedTranscript");
+  });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { composeUserTurnPrompt, promptWithReply, replyExcerpt, transcriptText } from "./replies.ts";
+import { composeUserTurnPrompt, promptWithReply, replyExcerpt, transcriptText, turnReplaysTranscript } from "./replies.ts";
 import type { Message } from "./store.ts";
 
 const message = (patch: Partial<Message> = {}): Message => ({
@@ -64,5 +64,77 @@ describe("flat replies", () => {
     expect(prompt).toContain("quoted excerpt");
     expect(prompt).toContain("strong affection/love-it");
     expect(prompt).toContain("Current message:\nWhy that?");
+  });
+
+  it("keeps the reaction preamble on resume-only turns that will not replay history", () => {
+    const answered = message({
+      reactions: [{ emoji: "👍", by: "user" }],
+    });
+    const prompt = composeUserTurnPrompt("keep going", {
+      messages: [answered],
+      userName: "Milind",
+    });
+    expect(prompt).toContain("The following message reactions are conversation feedback.");
+    expect(prompt).toContain("approve/proceed/positive");
+  });
+
+  it("does not double-inject reactions already on the replayed transcript", () => {
+    const answered = message({
+      reactions: [{ emoji: "👍", by: "user" }],
+    });
+    const replayed = [
+      {
+        text: transcriptText(answered, new Map([[answered.id, answered]]), "Milind"),
+      },
+    ];
+    const prompt = composeUserTurnPrompt("keep going", {
+      messages: [answered],
+      userName: "Milind",
+      replayedTranscript: replayed,
+    });
+    expect(replayed[0]!.text).toContain("[reactions: 👍 Milind — approve/proceed/positive]");
+    expect(prompt).toBe("keep going");
+    const combined = `${replayed[0]!.text}\n${prompt}`;
+    expect(combined.match(/approve\/proceed\/positive/g)).toHaveLength(1);
+    expect(prompt).not.toContain("The following message reactions are conversation feedback.");
+  });
+
+  it("still prepends reactions that are not in this turn's replayed transcript", () => {
+    const kept = message({
+      id: "m-kept",
+      text: "Older plan",
+      reactions: [{ emoji: "👎", by: "user" }],
+    });
+    const replayed = message({
+      id: "m-replayed",
+      text: "Visible answer",
+      reactions: [{ emoji: "👍", by: "user" }],
+    });
+    const prompt = composeUserTurnPrompt("next", {
+      messages: [kept, replayed],
+      userName: "Milind",
+      replayedTranscript: [
+        {
+          text: transcriptText(replayed, new Map([[replayed.id, replayed]]), "Milind"),
+        },
+      ],
+    });
+    expect(prompt).toContain("reject/negative");
+    expect(prompt).toContain("Older plan");
+    expect(prompt).not.toContain("approve/proceed/positive");
+    expect(prompt).not.toContain("Visible answer");
+  });
+});
+
+describe("turnReplaysTranscript", () => {
+  it("is true when history will be inlined or sent natively", () => {
+    expect(turnReplaysTranscript({ rewound: true, fresh: false, replaysNatively: false, transcriptLength: 2 })).toBe(true);
+    expect(turnReplaysTranscript({ rewound: false, fresh: true, replaysNatively: false, transcriptLength: 2 })).toBe(true);
+    expect(turnReplaysTranscript({ rewound: false, fresh: false, replaysNatively: true, transcriptLength: 2 })).toBe(true);
+  });
+
+  it("is false on a plain resume with no native transcript replay", () => {
+    expect(turnReplaysTranscript({ rewound: false, fresh: false, replaysNatively: false, transcriptLength: 2 })).toBe(false);
+    expect(turnReplaysTranscript({ rewound: true, fresh: true, replaysNatively: true, transcriptLength: 0 })).toBe(false);
   });
 });

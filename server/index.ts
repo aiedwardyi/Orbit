@@ -96,7 +96,7 @@ import { RETRY_MAX_ATTEMPTS } from "./drivers/retry.ts";
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorReply, type CommsBus } from "./comms-visibility.ts";
 import { searchMessages } from "./message-db.ts";
-import { composeUserTurnPrompt, promptWithReply } from "./replies.ts";
+import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript } from "./replies.ts";
 import { reactionSystemGuidance } from "../shared/reactions.ts";
 import { _loadPending, discardDelegations, discardDelegationsFrom, drainDelegations, findDelegationReceipt, pendingDelegationInfo, pendingDelegationSnapshot, pendingThreads, queueDelegation, recordDelegationReceipt, threadsWaitingOn, type QueueResult } from "./delegations.ts";
 import {
@@ -2190,11 +2190,6 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       turnsAtWrite: task.usage?.turns ?? taskRecord.turnsAtWrite,
     })) ?? taskRecord;
   }
-  const currentPrompt = composeUserTurnPrompt(text, {
-    replyTo: opts?.replyTo,
-    messages: store.activePath(threadId),
-    userName: cfg.profile?.name?.trim() || "User",
-  });
   const taskRecordToFlush = taskRecord;
   const modelContextWindow = contextWindowFor(instance.models, model);
   const durableTaskRecordText = taskRecord
@@ -2264,12 +2259,26 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       transcript,
       hasPriorUserTurn,
     });
+  const replaysNatively = instance.adapter.capabilities.transcriptReplay === true;
+  const currentPrompt = composeUserTurnPrompt(text, {
+    replyTo: opts?.replyTo,
+    messages: store.activePath(threadId),
+    userName: cfg.profile?.name?.trim() || "User",
+    replayedTranscript: turnReplaysTranscript({
+      rewound,
+      fresh,
+      replaysNatively,
+      transcriptLength: transcript.length,
+    })
+      ? transcript
+      : undefined,
+  });
   const { turnText, resume } = buildTurnContext({
     text: currentPrompt,
     transcript,
     rewound,
     fresh,
-    replaysNatively: instance.adapter.capabilities.transcriptReplay === true,
+    replaysNatively,
     taskRecord: taskRecord ?? undefined,
     taskRecordText: durableTaskRecordText || undefined,
     contextCapped: contextCompacted,

@@ -97,18 +97,20 @@ export function reactionSystemGuidance(): string {
 
 /**
  * Current reaction state for engines that resume without replaying history.
- * Replay engines already see `formatReactionAnnotation` on each transcript
- * line; this preamble can therefore duplicate those marks. That is accepted:
- * resume-only adapters never see the transcript, and a second copy on replay
- * engines is still untrusted conversation feedback, not a tool instruction.
+ * Full-replay turns should pass `omitMessageIds` for bot messages whose
+ * `[reactions: …]` marker is already on the replayed transcript so those
+ * marks are not prepended a second time. Resume-only turns omit nothing.
  */
 export function promptWithReactions(
   text: string,
   messages: readonly ReactionMessage[],
   userName = "User",
+  opts?: { omitMessageIds?: ReadonlySet<string> },
 ): string {
   if (text.startsWith(REACTION_PROMPT_PREFIX)) return text;
-  const marked = messages.filter((message) => (message.reactions?.length ?? 0) > 0);
+  const marked = messages.filter((message) =>
+    (message.reactions?.length ?? 0) > 0 && !opts?.omitMessageIds?.has(message.id),
+  );
   if (!marked.length) return text;
   const recent = marked.slice(-MAX_REACTION_MESSAGES);
   const lines = recent.map((message) => {

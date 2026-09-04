@@ -44,5 +44,7 @@ describe("reaction rail", () => {
     expect(rail).toContain('aria-pressed');
     expect(rail).toContain('t("chat.moreReactions")');
     expect(rail).toContain('t("chat.reactEmoji"');
+    expect(rail).toMatch(/const mine = useMemo\(/);
+    expect(rail).not.toContain("export const REACTION_SET");
   });
 });
