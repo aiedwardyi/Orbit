@@ -32,6 +32,8 @@ const enginesSettings = readFileSync(join(here, "../components/EnginesSettings.t
 const searchResults = readFileSync(join(here, "../components/SearchResults.tsx"), "utf8");
 const manageMembers = readFileSync(join(here, "../components/ManageMembersPanel.tsx"), "utf8");
 const usageSection = readFileSync(join(here, "../components/UsageSection.tsx"), "utf8");
+const planUsageBar = readFileSync(join(here, "../components/PlanUsageBar.tsx"), "utf8");
+const chatPlanMeters = readFileSync(join(here, "../components/ChatPlanMeters.tsx"), "utf8");
 const composer = readFileSync(join(here, "../components/Composer.tsx"), "utf8");
 const routinesPage = readFileSync(join(here, "../components/RoutinesPage.tsx"), "utf8");
 const noEngines = readFileSync(join(here, "../components/NoEngines.tsx"), "utf8");
@@ -574,6 +576,14 @@ describe("plan usage", () => {
     expect(en["usage.limits.percentUsed"]).toBe("{percent}%");
     expect(ko["usage.limits.percentUsed"]).toBe("{percent}%");
     expect(ko["usage.limits.weekly"]).toBe("주간 한도");
+    expect(en["usage.limits.sessionShort"]).toBe("5h");
+    expect(ko["usage.limits.sessionShort"]).toBe("5시간");
+    expect(en["usage.limits.weeklyShort"]).toBe("Weekly");
+    expect(ko["usage.limits.weeklyShort"]).toBe("주간");
+    expect(en["usage.limits.compactHm"]).toBe("{hours}h{minutes}m");
+    expect(ko["usage.limits.compactHm"]).toBe("{hours}h{minutes}m");
+    expect(en["usage.limits.compactDh"]).toBe("{days}d{hours}h");
+    expect(ko["usage.limits.compactDh"]).toBe("{days}d{hours}h");
     expect(en["usage.limits.resetsInDays"]).toBe("Resets in {days} days");
     expect(ko["usage.limits.resetsInDays"]).toBe("{days}일 후 초기화");
     expect(en["usage.limits.resetsInOneDay"]).toBe("Resets in 1 day");
@@ -585,6 +595,8 @@ describe("plan usage", () => {
     for (const key of [
       "usage.limits.session",
       "usage.limits.weekly",
+      "usage.limits.sessionShort",
+      "usage.limits.weeklyShort",
       "usage.limits.resetsInHours",
       "usage.limits.resetsInOneHour",
       "usage.limits.resetsInMinutes",
@@ -602,6 +614,12 @@ describe("plan usage", () => {
     expect(translate("en", "usage.limits.resetsInDays", { days: 2 })).toBe("Resets in 2 days");
     expect(translate("en", "usage.limits.percentUsed", { percent: 76 })).toBe("76%");
     expect(translate("ko", "usage.limits.percentUsed", { percent: 76 })).toBe("76%");
+    expect(translate("en", "usage.limits.compactHm", { hours: 1, minutes: 55 })).toBe("1h55m");
+    expect(translate("ko", "usage.limits.compactHm", { hours: 1, minutes: 55 })).toBe("1h55m");
+    expect(translate("en", "usage.limits.compactDh", { days: 2, hours: 5 })).toBe("2d5h");
+    expect(translate("en", "usage.limits.compactD", { days: 2 })).toBe("2d");
+    expect(translate("en", "usage.limits.compactH", { hours: 3 })).toBe("3h");
+    expect(translate("en", "usage.limits.compactM", { minutes: 20 })).toBe("20m");
     expect(translate("ko", "usage.limits.notReported", { name: "Grok" })).toBe("Grok은(는) 사용 한도를 보고하지 않습니다.");
   });
 
@@ -609,16 +627,24 @@ describe("plan usage", () => {
     expect(usageSection).toContain('t("usage.limits.title")');
     expect(usageSection).toContain('t("usage.limits.subtitle")');
     expect(usageSection).toContain('t("usage.limits.empty")');
-    expect(usageSection).toContain('"usage.limits.session"');
-    expect(usageSection).toContain('"usage.limits.weekly"');
-    expect(usageSection).toContain('"usage.limits.window"');
-    expect(usageSection).toContain('t("usage.limits.percentUsed", { percent })');
+    expect(planUsageBar).toContain('"usage.limits.session"');
+    expect(planUsageBar).toContain('"usage.limits.weekly"');
+    expect(planUsageBar).toContain('"usage.limits.window"');
+    expect(planUsageBar).toContain('"usage.limits.sessionShort"');
+    expect(planUsageBar).toContain('"usage.limits.weeklyShort"');
+    expect(planUsageBar).toContain('t("usage.limits.percentUsed", { percent })');
     expect(usageSection).toContain('"usage.limits.pending"');
     expect(usageSection).toContain('"usage.limits.unavailable"');
-    expect(usageSection).toContain("t(reset.key, reset.vars)");
+    expect(planUsageBar).toContain("t(phrase.key, phrase.vars)");
+    expect(planUsageBar).toContain("t(compactReset.key, compactReset.vars)");
     expect(usageSection).not.toMatch(/Resets in/);
+    expect(planUsageBar).not.toMatch(/Resets in/);
     expect(usageSection).not.toMatch(/% used/);
     expect(usageSection).not.toMatch(/does not report/);
     expect(usageSection).not.toMatch(/not available at the moment/);
+    expect(chatPlanMeters).toContain('t("usage.limits.title")');
+    expect(chatPlanMeters).not.toMatch(/Resets in/);
+    expect(chatView).toContain("<ChatPlanMeters");
+    expect(chatView).toContain("engine?.rateLimits?.windows");
   });
 });

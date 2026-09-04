@@ -644,6 +644,13 @@ export const en = {
   "usage.limits.pending": "{name} reports its limit after the next message.",
   "usage.limits.notReported": "{name} does not report a usage limit.",
   "usage.limits.unavailable": "not available at the moment",
+  "usage.limits.sessionShort": "5h",
+  "usage.limits.weeklyShort": "Weekly",
+  "usage.limits.compactDh": "{days}d{hours}h",
+  "usage.limits.compactD": "{days}d",
+  "usage.limits.compactHm": "{hours}h{minutes}m",
+  "usage.limits.compactH": "{hours}h",
+  "usage.limits.compactM": "{minutes}m",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -1290,6 +1297,13 @@ export const ko = {
   "usage.limits.pending": "{name}은(는) 다음 메시지 이후에 한도를 보고합니다.",
   "usage.limits.notReported": "{name}은(는) 사용 한도를 보고하지 않습니다.",
   "usage.limits.unavailable": "지금은 확인할 수 없습니다",
+  "usage.limits.sessionShort": "5시간",
+  "usage.limits.weeklyShort": "주간",
+  "usage.limits.compactDh": "{days}d{hours}h",
+  "usage.limits.compactD": "{days}d",
+  "usage.limits.compactHm": "{hours}h{minutes}m",
+  "usage.limits.compactH": "{hours}h",
+  "usage.limits.compactM": "{minutes}m",
 } satisfies { [K in MessageKey]: string };
 
 export const catalogs = { en, ko } as const;

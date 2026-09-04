@@ -1,5 +1,6 @@
 // Turning banked token/cost figures into something a header chip can show.
 // Pure, so the numbers can be tested without the components.
+import type { RateLimitWindow } from "../../server/contracts.ts";
 import type { MessageKey } from "./i18n-catalog";
 import type { Bot, TaskUsage } from "@/state/store";
 
@@ -90,7 +91,13 @@ export function windowKind(id: string, windowMinutes?: number): WindowKind {
   if (hasFiniteCost(windowMinutes)) {
     if (windowMinutes <= 6 * 60) return "session";
     if (windowMinutes >= 6 * 24 * 60) return "weekly";
+    return "other";
   }
+  // Codex names the short window primary and the long one secondary when
+  // it omits a duration. A reported length still wins so a 1-day primary
+  // is not labeled as the 5-hour session.
+  if (id === "primary") return "session";
+  if (id === "secondary") return "weekly";
   return "other";
 }
 
@@ -104,6 +111,14 @@ export function percentUsed(usedPercent: unknown): number | null {
  * level was read before the reset, so it no longer describes the window. */
 export function windowExpired(resetsAt: number | null | undefined, now = Date.now()): boolean {
   return hasFiniteCost(resetsAt) && resetsAt <= now;
+}
+
+/** Used percent for display. A passed reset makes the last fill history. */
+export function windowFillPercent(
+  window: { usedPercent: unknown; resetsAt?: number | null },
+  now = Date.now(),
+): number | null {
+  return windowExpired(window.resetsAt, now) ? null : percentUsed(window.usedPercent);
 }
 
 export interface ResetCountdown {
@@ -145,4 +160,50 @@ export function resetPhrase(
         ? { key: "usage.limits.resetsInOneMinute" }
         : { key: "usage.limits.resetsInMinutes", vars: { minutes: countdown.value } };
   }
+}
+
+export type CompactReset =
+  | { key: "usage.limits.compactDh"; vars: { days: number; hours: number } }
+  | { key: "usage.limits.compactD"; vars: { days: number } }
+  | { key: "usage.limits.compactHm"; vars: { hours: number; minutes: number } }
+  | { key: "usage.limits.compactH"; vars: { hours: number } }
+  | { key: "usage.limits.compactM"; vars: { minutes: number } };
+
+/** Remaining time as `1h55m` / `2d5h` — the under-chat strip, not a sentence. */
+export function resetCompact(
+  resetsAt: number | null | undefined,
+  now = Date.now(),
+): CompactReset | null {
+  if (!hasFiniteCost(resetsAt) || resetsAt <= now) return null;
+  const totalMinutes = Math.max(1, Math.ceil((resetsAt - now) / 60_000));
+  const days = Math.floor(totalMinutes / (24 * 60));
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) {
+    return hours > 0
+      ? { key: "usage.limits.compactDh", vars: { days, hours } }
+      : { key: "usage.limits.compactD", vars: { days } };
+  }
+  if (hours > 0) {
+    return minutes > 0
+      ? { key: "usage.limits.compactHm", vars: { hours, minutes } }
+      : { key: "usage.limits.compactH", vars: { hours } };
+  }
+  return { key: "usage.limits.compactM", vars: { minutes } };
+}
+
+/** The 5-hour and weekly windows a chat strip can show. Stale fills drop
+ * out — Settings still lists those rows with an empty bar. */
+export function planMeterWindows(
+  windows: RateLimitWindow[] | undefined,
+  now = Date.now(),
+): RateLimitWindow[] {
+  if (!windows?.length) return [];
+  const live = windows.filter((window) => !windowExpired(window.resetsAt, now));
+  const pick = (kind: WindowKind, preferredId?: string) =>
+    (preferredId ? live.find((window) => window.id === preferredId) : undefined) ??
+    live.find((window) => windowKind(window.id, window.windowMinutes) === kind);
+  return [pick("session", "five_hour"), pick("weekly", "seven_day")].filter(
+    (window): window is RateLimitWindow => window !== undefined,
+  );
 }

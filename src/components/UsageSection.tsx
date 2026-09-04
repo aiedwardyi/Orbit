@@ -4,13 +4,11 @@
 // summed here; nothing is fetched. Plan usage sits above the table: how full
 // each engine's subscription window is, straight from the engine's own
 // report on its last turn, so nobody has to guess from a token count.
-import { useEffect, useState } from "react";
-import { useStore, type InstanceInfo, type RateLimitReport } from "@/state/store";
+import { useStore, type InstanceInfo } from "@/state/store";
 import { MausAvatar } from "./Avatar";
 import { Card } from "./SettingsPrimitives";
 import { ProviderMark } from "./ProviderIcons";
 import { useI18n } from "@/lib/i18n";
-import { cn } from "@/lib/cn";
 import { showUsagePerBotTable } from "@/lib/friends-chrome";
 import { splitFriendsEngines } from "@/lib/engine-rail";
 import {
@@ -20,55 +18,10 @@ import {
   formatTokens,
   formatUsd,
   hasFiniteCost,
-  percentUsed,
-  resetPhrase,
   sumUsage,
   usageDetail,
-  windowExpired,
-  windowKind,
 } from "@/lib/usage";
-
-const WINDOW_LABEL_KEY = {
-  session: "usage.limits.session",
-  weekly: "usage.limits.weekly",
-  other: "usage.limits.window",
-} as const;
-
-/** A minute tick so countdowns stay right while Settings is open. */
-function useNow(): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 60_000);
-    return () => clearInterval(timer);
-  }, []);
-  return now;
-}
-
-function WindowRow({ window, now }: { window: RateLimitReport["windows"][number]; now: number }) {
-  const { t } = useI18n();
-  // a reset that has already passed makes the last fill level history, not
-  // a measurement: the bar empties and the caption says why
-  const percent = windowExpired(window.resetsAt, now) ? null : percentUsed(window.usedPercent);
-  const fill = percent === null ? 0 : Math.min(100, percent);
-  const reset = resetPhrase(window.resetsAt, now);
-  // Bare {percent}% in every locale — Grok chrome. KO “used” lives on the
-  // window labels (주간 한도 / 요금제 사용량), not glued onto the figure.
-  return (
-    <div>
-      <div className="flex items-center justify-between gap-3 text-[13px] text-ink">
-        <span>{t(WINDOW_LABEL_KEY[windowKind(window.id, window.windowMinutes)])}</span>
-        {percent !== null && <span className="tabular-nums">{t("usage.limits.percentUsed", { percent })}</span>}
-      </div>
-      <div className="mt-1 h-1 overflow-hidden rounded-full bg-ink/10" aria-hidden="true">
-        <div
-          className={cn("h-full rounded-full", fill >= 90 ? "bg-danger" : fill >= 75 ? "bg-warning" : "bg-accent")}
-          style={{ width: `${fill}%` }}
-        />
-      </div>
-      <div className="mt-1 text-[12px] text-ink-secondary">{t(reset.key, reset.vars)}</div>
-    </div>
-  );
-}
+import { PlanWindowMeter, useNow } from "./PlanUsageBar";
 
 function PlanUsage() {
   const { t } = useI18n();
@@ -98,7 +51,7 @@ function PlanUsage() {
               {instance.rateLimits ? (
                 <div className="mt-2 flex flex-col gap-3">
                   {instance.rateLimits.windows.map((window) => (
-                    <WindowRow key={window.id} window={window} now={now} />
+                    <PlanWindowMeter key={window.id} window={window} now={now} />
                   ))}
                 </div>
               ) : (

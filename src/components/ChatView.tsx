@@ -46,6 +46,7 @@ import { ChatMarkdown } from "./ChatMarkdown";
 import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
 import { ApprovalCard } from "./ApprovalCard";
 import { Composer } from "./Composer";
+import { ChatPlanMeters } from "./ChatPlanMeters";
 import { ChatFindBar } from "./ChatFindBar";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
@@ -926,6 +927,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
   const reasoning = stream.reasoning[bot.threadId];
   const provisioning = state.provisioning[bot.id];
   const activeTask = bot.tasks?.find((task) => task.threadId === bot.threadId);
+  const engine = state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId);
   const mascotMotion = state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
   const callAvailable =
     capabilitiesReady && capabilities.dictation.available && Boolean(window.ogb?.speechStart);
@@ -1330,7 +1332,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
             lastBotTextId={lastBotTextId}
             emergingId={popping?.id}
             canRetryLast={!bot.busy && Boolean(lastUserMessage)}
-            engine={state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId)}
+            engine={engine}
             onStartEdit={startEdit}
             onCancelEdit={cancelEdit}
             onSubmitEdit={submitEdit}
@@ -1403,6 +1405,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
           packet={activeTask?.taskState}
           turns={activeTask?.usage?.turns ?? 0}
         />
+        <ChatPlanMeters windows={engine?.rateLimits?.windows} />
         <Composer
           key={bot.threadId}
           bot={bot}
