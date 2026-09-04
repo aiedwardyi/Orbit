@@ -79,7 +79,7 @@ function extractOmbSkin(bytes) {
     if (at === -1) break;
     let i = at + OMB_SKIN_MARKER.length;
     while (i < bytes.length && bytes[i] < 0x20) i += 1;
-    const slice = bytes.toString("utf8", i, Math.min(bytes.length, i + MAX_SKIN_ID_LEN));
+    const slice = bytes.toString("utf8", i, Math.min(bytes.length, i + MAX_SKIN_ID_LEN + 1));
     const match = slice.match(KNOWN_SKIN_RE);
     if (match) found = match[1];
     from = at + OMB_SKIN_MARKER.length;

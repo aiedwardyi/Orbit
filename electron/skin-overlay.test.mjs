@@ -135,12 +135,20 @@ describe("skin overlay chrome", () => {
     expect(readPersistedSkin(dir)).toBe("ledger");
   });
 
-  it("reads a hyphenated skin id longer than 16 characters from localStorage logs", () => {
+  it("reads a hyphenated skin id at the 16-character buffer limit from localStorage logs", () => {
     const dir = scratch();
     const level = join(dir, "Local Storage", "leveldb");
     mkdirSync(level, { recursive: true });
     writeFileSync(join(level, "000003.log"), Buffer.from("xxomb-skin\u0000\u0001catppuccin-mocha\u0000yy"));
     expect(readPersistedSkin(dir)).toBe("catppuccin-mocha");
+  });
+
+  it("does not treat a longer hyphenated value as a known skin", () => {
+    const dir = scratch();
+    const level = join(dir, "Local Storage", "leveldb");
+    mkdirSync(level, { recursive: true });
+    writeFileSync(join(level, "000003.log"), Buffer.from("xxomb-skin\u0000\u0001catppuccin-mocha-extra\u0000yy"));
+    expect(readPersistedSkin(dir)).toBe(null);
   });
 
   it("prefers the preference file over a stale localStorage log", () => {
