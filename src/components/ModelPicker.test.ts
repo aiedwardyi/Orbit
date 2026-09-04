@@ -165,7 +165,7 @@ describe("ModelPicker friends chip", () => {
 
   it("keeps catalog order with one default badge and one check", () => {
     const html = markup({ instanceId: "grok", model: "grok-4.5", mode: "pinned" }, true);
-    const list = html.slice(html.indexOf("data-model-picker-content"));
+    const list = html.slice(html.indexOf("Suggested"));
     const grok46 = list.indexOf("Grok 4.6");
     const grok45 = list.indexOf("Grok 4.5");
     const defaultAt = list.indexOf("Default");
