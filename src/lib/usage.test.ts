@@ -7,12 +7,15 @@ import {
   formatTokens,
   formatUsd,
   percentUsed,
+  planMeterWindows,
+  resetCompact,
   resetCountdown,
   resetPhrase,
   sumUsage,
   usageChip,
   usageDetail,
   windowExpired,
+  windowFillPercent,
   windowKind,
 } from "./usage";
 
@@ -158,5 +161,46 @@ describe("subscription windows", () => {
     expect(windowExpired(hours(1), now)).toBe(false);
     expect(windowExpired(null, now)).toBe(false);
     expect(windowExpired(undefined, now)).toBe(false);
+  });
+
+  it("treats a passed reset as an unusable fill, same as Settings", () => {
+    expect(windowFillPercent({ usedPercent: 40, resetsAt: now - 1 }, now)).toBeNull();
+    expect(windowFillPercent({ usedPercent: 40, resetsAt: hours(1) }, now)).toBe(40);
+    expect(windowFillPercent({ usedPercent: 76.4, resetsAt: null }, now)).toBe(76);
+  });
+
+  it("writes the remaining time as 1h55m / 2d5h, not a sentence", () => {
+    expect(resetCompact(minutes(115), now)).toEqual({
+      key: "usage.limits.compactHm",
+      vars: { hours: 1, minutes: 55 },
+    });
+    expect(resetCompact(hours(53), now)).toEqual({
+      key: "usage.limits.compactDh",
+      vars: { days: 2, hours: 5 },
+    });
+    expect(resetCompact(hours(48), now)).toEqual({ key: "usage.limits.compactD", vars: { days: 2 } });
+    expect(resetCompact(hours(3), now)).toEqual({ key: "usage.limits.compactH", vars: { hours: 3 } });
+    expect(resetCompact(minutes(20), now)).toEqual({ key: "usage.limits.compactM", vars: { minutes: 20 } });
+    expect(resetCompact(now + 10, now)).toEqual({ key: "usage.limits.compactM", vars: { minutes: 1 } });
+    expect(resetCompact(null, now)).toBeNull();
+    expect(resetCompact(now - 1, now)).toBeNull();
+  });
+
+  it("picks a live 5-hour and weekly window and hides empty or stale reports", () => {
+    expect(planMeterWindows(undefined, now)).toEqual([]);
+    expect(planMeterWindows([], now)).toEqual([]);
+    expect(
+      planMeterWindows([{ id: "five_hour", usedPercent: 40, resetsAt: now - 60_000 }], now),
+    ).toEqual([]);
+
+    const five = { id: "five_hour", usedPercent: 10, resetsAt: hours(2) };
+    const week = { id: "seven_day", usedPercent: 49, resetsAt: hours(53) };
+    const opus = { id: "seven_day_opus", usedPercent: 75, resetsAt: hours(53) };
+    const stale = { id: "stale", usedPercent: 40, resetsAt: now - 60_000 };
+    expect(planMeterWindows([five, week, opus, stale], now)).toEqual([five, week]);
+    expect(planMeterWindows([opus], now)).toEqual([opus]);
+    expect(planMeterWindows([{ id: "primary", usedPercent: 12, resetsAt: hours(2), windowMinutes: 300 }], now)).toEqual([
+      { id: "primary", usedPercent: 12, resetsAt: hours(2), windowMinutes: 300 },
+    ]);
   });
 });
