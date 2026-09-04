@@ -236,6 +236,19 @@ describe("steer-queue module", () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
+  it("passes a room dispatch-error hook through drain without appending", () => {
+    const skye = fakeBot("skye-card", "skye-card-1to1", true);
+    const store = fakeStore([skye]);
+    const onDispatchError = vi.fn();
+    queueRoomParticipation(skye.id, "room-card", { groupId: "room-card", onDispatchError });
+    skye.busy = false;
+    const run = vi.fn();
+    drainSteeredMessages(store, run);
+    expect(store.messages).toHaveLength(0);
+    expect(run.mock.calls[0][5]).toMatchObject({ groupId: "room-card", hop: 0 });
+    expect(run.mock.calls[0][5].onDispatchError).toBe(onDispatchError);
+  });
+
   it("holds a room participation while the bot is busy and drains it once when idle", () => {
     const skye = fakeBot("skye-hold", "skye-hold-1to1", true);
     const store = fakeStore([skye]);

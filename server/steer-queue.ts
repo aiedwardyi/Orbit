@@ -48,6 +48,7 @@ interface RoomItem {
   groupId: string;
   hop: number;
   cardContinuation?: string;
+  onDispatchError?: (message: string) => void;
 }
 
 type QueueItem = SteerItem | RoomItem;
@@ -75,6 +76,7 @@ export interface RoomDrain {
   groupId: string;
   hop: number;
   cardContinuation?: string;
+  onDispatchError?: (message: string) => void;
 }
 
 export type DrainRun = (
@@ -122,7 +124,12 @@ export function queueSteeredMessage(
 export function queueRoomParticipation(
   botId: string,
   threadId: string,
-  options: { groupId: string; hop?: number; cardContinuation?: string },
+  options: {
+    groupId: string;
+    hop?: number;
+    cardContinuation?: string;
+    onDispatchError?: (message: string) => void;
+  },
 ): QueuedSteer {
   const entry = entryFor(botId, threadId);
   const existing = entry.items.find((item): item is RoomItem => item.kind === "room");
@@ -131,6 +138,7 @@ export function queueRoomParticipation(
     if (!existing.cardContinuation && options.cardContinuation) {
       existing.cardContinuation = options.cardContinuation;
     }
+    existing.onDispatchError ??= options.onDispatchError;
     return { id: existing.messageId };
   }
   const id = newId();
@@ -140,6 +148,7 @@ export function queueRoomParticipation(
     groupId: options.groupId,
     hop: options.hop ?? 0,
     cardContinuation: options.cardContinuation,
+    onDispatchError: options.onDispatchError,
   });
   queues.set(entryKey(botId, threadId), entry);
   return { id };
@@ -213,6 +222,7 @@ export function drainSteeredMessages(store: SteerStore, run: DrainRun): void {
     if (!room) continue;
     const roomDrain: RoomDrain = { groupId: room.groupId, hop: room.hop };
     if (room.cardContinuation) roomDrain.cardContinuation = room.cardContinuation;
+    if (room.onDispatchError) roomDrain.onDispatchError = room.onDispatchError;
     void run(entry.botId, entry.threadId, room.cardContinuation ?? "", null, [], roomDrain);
   }
 }

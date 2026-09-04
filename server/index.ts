@@ -2983,6 +2983,9 @@ const webhookIngressStatus = () => ({
 const groupQueues = new Map<string, Promise<void>>();
 const MAX_GROUP_HOPS = 1;
 
+// Same memory-only wait as 1:1 steer-queue: Stop on the current room
+// operation does not discard it. The original round already moved on;
+// the member still owes the user's words when they become idle.
 function queueBusyRoomMember(
   groupId: string,
   threadId: string,
@@ -2990,12 +2993,14 @@ function queueBusyRoomMember(
   hop: number,
   spoken: Set<string>,
   cardContinuation?: string,
+  onDispatchError?: (message: string) => void,
 ): true {
   spoken.add(bot.id);
   queueRoomParticipation(bot.id, threadId, {
     groupId,
     hop,
     cardContinuation,
+    onDispatchError,
   });
   return true;
 }
@@ -3003,18 +3008,25 @@ function queueBusyRoomMember(
 function enqueueDrainedRoomTurn(
   botId: string,
   threadId: string,
-  room: { groupId: string; hop: number; cardContinuation?: string },
+  room: { groupId: string; hop: number; cardContinuation?: string; onDispatchError?: (message: string) => void },
 ) {
+  const fail = (message: string) => room.onDispatchError?.(message);
   const group = store.group(room.groupId);
-  if (!group) return;
-  const ownsThread = group.dm
+  const stillMember = Boolean(group?.memberIds.includes(botId));
+  const ownsThread = group?.dm
     ? group.threadId === threadId
-    : Boolean(store.groupTaskByThread(group.id, threadId));
-  if (!ownsThread) return;
+    : Boolean(group && store.groupTaskByThread(group.id, threadId));
+  if (!group || !stillMember || !ownsThread) {
+    fail("the room is no longer available");
+    return;
+  }
   const operation = beginGroupTurnOperation(group.id, threadId);
   const previous = groupQueues.get(group.id) ?? Promise.resolve();
   const next = previous.then(async () => {
-    if (operation.cancelled) return;
+    if (operation.cancelled) {
+      fail("the room turn was cancelled");
+      return;
+    }
     await runGroupMemberTurn(
       group.id,
       threadId,
@@ -3022,7 +3034,7 @@ function enqueueDrainedRoomTurn(
       room.hop,
       new Set(),
       room.cardContinuation,
-      undefined,
+      room.onDispatchError,
       () => operation.cancelled,
     );
   });
@@ -3030,11 +3042,13 @@ function enqueueDrainedRoomTurn(
   groupQueues.set(
     group.id,
     tracked.catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      fail(message);
       store.appendMessage(threadId, {
         role: "bot",
         kind: "activity",
         tool: {
-          name: `error: queued room turn could not start — ${(err instanceof Error ? err.message : String(err)).slice(0, 120)}`,
+          name: `error: queued room turn could not start — ${message.slice(0, 120)}`,
           ok: false,
         },
       });
@@ -3090,7 +3104,7 @@ async function runGroupMemberTurn(
     : Boolean(group && store.groupTaskByThread(group.id, threadId));
   if (!group || !bot || !ownsThread) return false;
   if (botHasActiveTurn(botId) || !tryClaimTurnStart(botId)) {
-    return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation);
+    return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError);
   }
   let claimHeld = true;
   const releaseTurnStart = () => {
@@ -3138,7 +3152,7 @@ async function runClaimedGroupMemberTurn(
   spoken.add(botId);
   const userName = cfg.profile?.name?.trim() || "User";
   if (bot.busy) {
-    return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation);
+    return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError);
   }
   let selection: ModelSelection;
   try {
@@ -3266,7 +3280,7 @@ async function runClaimedGroupMemberTurn(
   const readyBot = store.bot(bot.id);
   if (!readyBot) return false;
   if (readyBot.busy) {
-    return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation);
+    return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError);
   }
   store.setActivity(bot.id, "working");
   releaseTurnStart?.();
