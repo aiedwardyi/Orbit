@@ -79,18 +79,23 @@ export function stepSidebarWidth(current: number, key: string): number | null {
 }
 
 export function stepSidebarLayout(layout: SidebarLayout, key: string): SidebarLayout | null {
-  if (key === "Home") return { collapsed: true, width: layout.width };
-  if (key === "End") return { collapsed: false, width: SIDEBAR_MAX_WIDTH };
-  if (key === "ArrowLeft") {
-    if (layout.collapsed) return layout;
-    if (layout.width <= SIDEBAR_MIN_WIDTH) return { collapsed: true, width: layout.width };
-    return { collapsed: false, width: clampSidebarWidth(layout.width - SIDEBAR_WIDTH_STEP) };
+  let next: SidebarLayout;
+  if (key === "Home") next = { collapsed: true, width: layout.width };
+  else if (key === "End") next = { collapsed: false, width: SIDEBAR_MAX_WIDTH };
+  else if (key === "ArrowLeft") {
+    if (layout.collapsed) return null;
+    next = layout.width <= SIDEBAR_MIN_WIDTH
+      ? { collapsed: true, width: layout.width }
+      : { collapsed: false, width: clampSidebarWidth(layout.width - SIDEBAR_WIDTH_STEP) };
+  } else if (key === "ArrowRight") {
+    next = layout.collapsed
+      ? { collapsed: false, width: layout.width }
+      : { collapsed: false, width: clampSidebarWidth(layout.width + SIDEBAR_WIDTH_STEP) };
+  } else {
+    return null;
   }
-  if (key === "ArrowRight") {
-    if (layout.collapsed) return { collapsed: false, width: layout.width };
-    return { collapsed: false, width: clampSidebarWidth(layout.width + SIDEBAR_WIDTH_STEP) };
-  }
-  return null;
+  if (next.collapsed === layout.collapsed && next.width === layout.width) return null;
+  return next;
 }
 
 export function restoreSidebarDragWidth(drag: SidebarLayout | null): SidebarLayout | null {

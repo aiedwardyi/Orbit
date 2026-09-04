@@ -154,10 +154,10 @@ describe("sidebar icon-rail snap", () => {
       width: 360,
       collapsed: false,
     });
-    expect(stepSidebarLayout({ width: 360, collapsed: true }, "ArrowLeft")).toEqual({
-      width: 360,
-      collapsed: true,
-    });
+    expect(stepSidebarLayout({ width: 360, collapsed: true }, "ArrowLeft")).toBe(null);
+    expect(stepSidebarLayout({ width: 320, collapsed: true }, "Home")).toBe(null);
+    expect(stepSidebarLayout({ width: SIDEBAR_MAX_WIDTH, collapsed: false }, "End")).toBe(null);
+    expect(stepSidebarLayout({ width: SIDEBAR_MAX_WIDTH, collapsed: false }, "ArrowRight")).toBe(null);
     expect(stepSidebarLayout({ width: 320, collapsed: false }, "ArrowRight")).toEqual({
       width: 330,
       collapsed: false,

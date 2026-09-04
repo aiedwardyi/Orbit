@@ -1060,8 +1060,6 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const [sidebarWidth, setSidebarWidth] = useState(() => loadSidebarWidth());
   const sidebarWidthRef = useRef(sidebarWidth);
   const sidebarCollapsedRef = useRef(sidebarCollapsed);
-  sidebarWidthRef.current = sidebarWidth;
-  sidebarCollapsedRef.current = sidebarCollapsed;
   const searchInputRef = useRef<HTMLInputElement>(null);
   const focusSearchAfterExpand = useRef(false);
   const resizeFrom = useRef<{ x: number; width: number; collapsed: boolean; query: string } | null>(null);
@@ -1168,8 +1166,14 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   }, [sidebarCollapsed]);
 
   const toggleCollapsed = () => {
-    if (density === "icons") setDensity(lastExpandedDensity);
-    else {
+    if (density === "icons") {
+      if (sidebarCollapsed) {
+        const next = { width: sidebarWidthRef.current, collapsed: false };
+        applySidebarLayout(next);
+        persistSidebarLayout(next);
+      }
+      setDensity(lastExpandedDensity);
+    } else {
       setLastExpandedDensity(density);
       setDensity("icons");
     }

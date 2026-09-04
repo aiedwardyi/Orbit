@@ -170,6 +170,10 @@ describe("friends chrome call sites keep the feature code", () => {
     expect(sidebar).toContain('t("chrome.newOrShare")');
     expect(sidebar).toContain('t("chrome.newBot")');
     expect(sidebar).toContain('t("chrome.newChannel")');
+    const toggleCollapsed = sourceBetween(sidebar, "const toggleCollapsed", "Esc closes the drawer");
+    expect(toggleCollapsed).toContain("sidebarCollapsed");
+    expect(toggleCollapsed).toContain("applySidebarLayout");
+    expect(toggleCollapsed).toContain("persistSidebarLayout");
   });
 
   it("calls the channel folder a shared project folder instead of a per-task pin", () => {
