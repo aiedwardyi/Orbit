@@ -1,6 +1,7 @@
 import { track } from "@/lib/analytics";
 import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { ArrowUp, Check, Clock, Hand, Mic, Paperclip, ShieldCheck, Square, Users, X } from "lucide-react";
+import { showComposerPermissionChip } from "@/lib/conversation-preview";
 import { useStore, visibleMessages, type Bot, type Group, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
 import {
@@ -204,7 +205,8 @@ export function Composer({
   const threadId = group?.threadId ?? bot?.threadId ?? "";
   // the VISIBLE branch only — an approval left on a branch you edited away
   // from must not keep blocking the composer
-  const approvals = pendingApprovals(group ? group.messages : bot ? visibleMessages(bot) : []);
+  const threadMessages = group ? group.messages : bot ? visibleMessages(bot) : [];
+  const approvals = pendingApprovals(threadMessages);
   const approval = approvals[0];
   const approvalBot = group
     ? members?.find((member) => member.id === approval?.message.from?.botId) ??
@@ -750,7 +752,9 @@ export function Composer({
               >
                 <Paperclip size={17} />
               </button>
-              {autoBot && <PermissionModeSelector bot={autoBot} onSetAuto={setAuto} />}
+              {autoBot && showComposerPermissionChip(threadMessages) && (
+                <PermissionModeSelector bot={autoBot} onSetAuto={setAuto} />
+              )}
             </div>
           )}
           <textarea

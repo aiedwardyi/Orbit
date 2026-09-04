@@ -162,6 +162,7 @@ export const PICKABLE_STATES: MausState[] = [
 type MascotMessage = {
   kind: string;
   tool?: { ok?: boolean };
+  card?: { dismissed?: boolean; answered?: string; requestId?: string };
 };
 
 export type MascotBotProfile = {
@@ -188,7 +189,9 @@ export function stateForBot(bot: MascotBotProfile): MausState {
   if (last?.kind === "activity" && last.tool?.ok === false) return "alerting";
   if (bot.busy) return "working";
   if (bot.unread) return "notifying";
-  if (last?.kind === "options") return "curious";
+  const isOpenAsk =
+    last?.kind === "options" && !last.card?.dismissed && !last.card?.answered;
+  if (isOpenAsk) return "curious";
 
   const profile = `${bot.name} ${bot.title ?? ""} ${bot.description ?? ""}`.toLowerCase();
   const matches = (words: RegExp) => words.test(profile);
