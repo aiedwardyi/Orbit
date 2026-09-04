@@ -20,7 +20,7 @@ export type ComposerImeState = {
 };
 
 export function isComposerEnterKey(event: Pick<ComposerEnterEvent, "key" | "code">): boolean {
-  return event.key === "Enter" || event.code === "Enter" || event.code === "NumpadEnter";
+  return event.key === "Enter" || event.code === "NumpadEnter";
 }
 
 export function composerEnterIntent(event: ComposerEnterEvent, ime: ComposerImeState): ComposerEnterIntent {
@@ -33,7 +33,8 @@ export function composerEnterIntent(event: ComposerEnterEvent, ime: ComposerImeS
   // Windows IME reports the confirm-Enter as keyCode 229 (Process).
   if (keyCode === 229) return "none";
   if (ime.composing || ime.justEnded) return "none";
-  // A stuck isComposing flag must not swallow a real Enter (keyCode 13).
-  if (nativeComposing && keyCode !== 13) return "none";
+  // Stuck isComposing after commit: only a real Enter (keyCode 13) sends.
+  // A missing keyCode is not 13 — do not take the send-through.
+  if (nativeComposing) return keyCode === 13 ? "send" : "none";
   return "send";
 }

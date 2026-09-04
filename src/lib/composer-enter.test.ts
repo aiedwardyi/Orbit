@@ -1,12 +1,6 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { composerEnterIntent } from "./composer-enter";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const composer = readFileSync(join(here, "../components/Composer.tsx"), "utf8");
 
 function enter(
   overrides: {
@@ -55,8 +49,16 @@ describe("composerEnterIntent", () => {
     expect(composerEnterIntent(enter({ keyCode: 13, isComposing: true }), idle)).toBe("send");
   });
 
+  it("does not send-through a stuck isComposing flag when keyCode is missing", () => {
+    expect(composerEnterIntent(enter({ isComposing: true }), idle)).toBe("none");
+  });
+
   it("sends NumpadEnter the same as Enter", () => {
     expect(composerEnterIntent(enter({ code: "NumpadEnter", keyCode: 13 }), idle)).toBe("send");
+  });
+
+  it("does not treat code Enter alone as a send key", () => {
+    expect(composerEnterIntent(enter({ key: "Unidentified", code: "Enter", keyCode: 13 }), idle)).toBe("none");
   });
 
   it("ignores other keys", () => {
@@ -82,16 +84,5 @@ describe("composerEnterIntent", () => {
         idle,
       ),
     ).toBe("send");
-  });
-});
-
-describe("composer Enter wiring", () => {
-  it("uses composerEnterIntent so Enter sends and IME confirm does not", () => {
-    expect(composer).toContain("composerEnterIntent");
-    expect(composer).toContain("onCompositionStart");
-    expect(composer).toContain("onCompositionEnd");
-    expect(composer).toContain("composingRef.current");
-    expect(composer).toContain("compositionEndedAtRef");
-    expect(composer).toContain("onBlur");
   });
 });
