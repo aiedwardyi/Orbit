@@ -73,6 +73,14 @@ export const MAUS_COLORS = {
   coral: "#E5634E",
 } satisfies Record<MausColor, string>;
 
+/** First-cycled / missing-color default. Stored "green" is still a valid color. */
+export const DEFAULT_MAUS_COLOR = "red" as const satisfies MausColor;
+
+/** Resolves a stored or unknown name to a palette hex. Junk falls back to red. */
+export function mausColorHex(color: string | null | undefined): string {
+  return MAUS_COLORS[color as MausColor] ?? MAUS_COLORS[DEFAULT_MAUS_COLOR];
+}
+
 export const MAUS_MOTIONS = [
   "arrive",
   "switch",

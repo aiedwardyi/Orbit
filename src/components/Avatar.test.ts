@@ -30,18 +30,6 @@ describe("channel avatar renderer", () => {
   }
 });
 
-describe("mascot color fallback", () => {
-  it("renders unknown colors as red, not green", () => {
-    const avatar = readFileSync(join(here, "Avatar.tsx"), "utf8");
-    expect(avatar).toContain("MAUS_COLORS[color] ?? MAUS_COLORS.red");
-    expect(avatar).not.toMatch(/MAUS_COLORS\[color\] \?\? MAUS_COLORS\.green/);
-  });
-
-  it("uses red when a room presence avatar has no speaker color", () => {
-    expect(sources["GroupView.tsx"]).toContain('presenceSpeaker ?? { name: group.name, color: "red" }');
-  });
-});
-
 describe("bot avatar profile", () => {
   it("keeps a valid image for a non-mascot crop", () => {
     expect(

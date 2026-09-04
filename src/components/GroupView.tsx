@@ -18,7 +18,7 @@ import {
 import { BotAvatar } from "./Avatar";
 import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
-import { normalizeState } from "@/lib/mascot";
+import { DEFAULT_MAUS_COLOR, normalizeState } from "@/lib/mascot";
 import { effectiveDefaultResponder, groupResponseHint } from "@/lib/group-routing";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { Composer } from "./Composer";
@@ -1292,7 +1292,7 @@ export function GroupView({ group }: { group: Group }) {
             <TurnPresence
               avatar={
                 <BotAvatar
-                  bot={presenceSpeaker ?? { name: group.name, color: "red" }}
+                  bot={presenceSpeaker ?? { name: group.name, color: DEFAULT_MAUS_COLOR }}
                   state={toolInFlight ? "working" : "thinking"}
                   size={36}
                   forward={false}
