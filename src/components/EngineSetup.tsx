@@ -50,19 +50,26 @@ export function isApiKeySetupMessage(message: string): boolean {
   return /api key/i.test(message);
 }
 
+/** Null-instance fallback: Gemini/OpenCode copy only, not "Invalid API key". */
+function isFriendsApiKeySetupMessage(message: string): boolean {
+  return /gemini api key/i.test(message) || /opencode(?:go)? api key/i.test(message);
+}
+
 /** What a failed turn should offer: install/sign-in, paste a key, or Retry.
  *
  * `/api key/` in the error text is not enough on its own — Grok/Claude can
- * say "Invalid API key" and still need Terminal, not Connections. Match the
- * message only when the instance is a key engine (or unknown), so Gemini
- * with `authenticated` true/unset still gets the paste CTA instead of Retry. */
+ * say "Invalid API key" and still need Terminal, not Connections. With an
+ * instance, match that text only for key engines (Gemini with `authenticated`
+ * true/unset still gets the paste CTA). With no instance — ChatView omits it
+ * when the error is not `setup` — only Gemini/OpenCode copy counts. */
 export function setupErrorAction(
   message: string,
   instance: InstanceInfo | undefined,
 ): "cli" | "key" | "retry" {
   if (instance && needsCli(instance)) return "cli";
   if (needsApiKey(instance)) return "key";
-  if (isApiKeySetupMessage(message) && (!instance || isApiKeyEngine(instance))) return "key";
+  if (instance && isApiKeyEngine(instance) && isApiKeySetupMessage(message)) return "key";
+  if (instance == null && isFriendsApiKeySetupMessage(message)) return "key";
   if (instance && needsSignIn(instance)) return "cli";
   return "retry";
 }
