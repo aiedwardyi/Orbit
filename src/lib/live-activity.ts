@@ -27,9 +27,13 @@ function sentenceCase(value: string): string {
  * live-activity model: thinking before a tool starts, then the current verb.
  * The server-provided narration is authoritative; fallbacks cover older
  * messages and third-party drivers that only report a tool name.
+ *
+ * Default matches Settings (Show tool calls off): stay on "Thinking".
+ * Named verbs and spoken tool lines are execution chrome, not chat presence.
  */
-export function liveActivityLabel(message?: Message): string {
+export function liveActivityLabel(message?: Message, showToolCalls = false): string {
   if (
+    !showToolCalls ||
     message?.kind !== "activity" ||
     !message.tool ||
     message.tool.ok !== undefined ||

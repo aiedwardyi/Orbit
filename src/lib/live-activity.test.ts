@@ -1,8 +1,15 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { liveActivityLabel } from "./live-activity";
 import { applyLocale } from "./i18n";
 import type { Message } from "@/state/store";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const chatView = readFileSync(join(here, "../components/ChatView.tsx"), "utf8");
+const groupView = readFileSync(join(here, "../components/GroupView.tsx"), "utf8");
 
 const activity = (name: string, extra: Partial<NonNullable<Message["tool"]>> = {}): Message => ({
   id: "activity",
@@ -20,22 +27,27 @@ describe("liveActivityLabel", () => {
 
   it("leaves server narration untranslated when Korean is active", () => {
     applyLocale("ko");
-    expect(liveActivityLabel(activity("Edit", { spoken: "editing a file" }))).toBe("Editing a file");
+    expect(liveActivityLabel(activity("Edit", { spoken: "editing a file" }), true)).toBe("Editing a file");
     applyLocale("en");
   });
 
+  it("defaults to Thinking so a missed Show tool calls flag cannot leak theatre", () => {
+    expect(liveActivityLabel(activity("Bash: pnpm test"))).toBe("Thinking");
+    expect(liveActivityLabel(activity("Edit", { spoken: "editing a file" }))).toBe("Thinking");
+  });
+
   it("uses the server's narration for the exact live action", () => {
-    expect(liveActivityLabel(activity("Edit", { spoken: "editing a file" }))).toBe(
+    expect(liveActivityLabel(activity("Edit", { spoken: "editing a file" }), true)).toBe(
       "Editing a file",
     );
   });
 
   it("maps common native and MCP tool names when narration is unavailable", () => {
-    expect(liveActivityLabel(activity("Bash: pnpm test"))).toBe("Running a command");
-    expect(liveActivityLabel(activity("mcp__computer__click"))).toBe("Using the computer");
-    expect(liveActivityLabel(activity("web_search"))).toBe("Searching the web");
-    expect(liveActivityLabel(activity("mcp__agents__create_bot"))).toBe("Working");
-    expect(liveActivityLabel(activity("mcp__agents__create_bot"))).not.toMatch(/mcp__|create_bot/);
+    expect(liveActivityLabel(activity("Bash: pnpm test"), true)).toBe("Running a command");
+    expect(liveActivityLabel(activity("mcp__computer__click"), true)).toBe("Using the computer");
+    expect(liveActivityLabel(activity("web_search"), true)).toBe("Searching the web");
+    expect(liveActivityLabel(activity("mcp__agents__create_bot"), true)).toBe("Working");
+    expect(liveActivityLabel(activity("mcp__agents__create_bot"), true)).not.toMatch(/mcp__|create_bot/);
   });
 
   it("does not present bot-to-bot communication chips as the active action", () => {
@@ -45,5 +57,17 @@ describe("liveActivityLabel", () => {
         comm: { groupId: "room", withBotId: "bot", withName: "Peer", withColor: "blue" },
       }),
     ).toBe("Thinking");
+  });
+
+  it("hides tool-name theatre when Show tool calls is off", () => {
+    expect(liveActivityLabel(activity("Bash: pnpm test"), false)).toBe("Thinking");
+    expect(liveActivityLabel(activity("Edit", { spoken: "editing a file" }), false)).toBe("Thinking");
+    expect(liveActivityLabel(activity("web_search"), false)).toBe("Thinking");
+    expect(liveActivityLabel(activity("Bash: pnpm test"), true)).toBe("Running a command");
+  });
+
+  it("passes Show tool calls into ChatView and GroupView presence labels", () => {
+    expect(chatView).toMatch(/liveActivityLabel\([^,]+,\s*showToolCalls\)/);
+    expect(groupView).toMatch(/liveActivityLabel\([^,]+,\s*showToolCalls\)/);
   });
 });
