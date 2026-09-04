@@ -1,7 +1,7 @@
 // Bot avatar — four static cute mascot styles, wrapped in the historical
 // MausAvatar API so call sites keep compiling. Animation stays parked:
 // motion / expression / pointer props are accepted and ignored.
-import { forwardRef, memo, useEffect, useImperativeHandle, useState } from "react";
+import { forwardRef, memo, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import { type MausColor, type MausMotion, type MausState } from "@/lib/mascot";
 import { mascotDataUrl } from "@/lib/mascot-art";
 import {
@@ -60,10 +60,11 @@ function MausAvatarComponent(
   }));
 
   const style = resolveMascotStyle(mascotStyle, color);
+  const src = useMemo(() => mascotDataUrl(style, color), [style, color]);
   return (
     <span className="inline-flex shrink-0">
       <img
-        src={mascotDataUrl(style, color)}
+        src={src}
         alt={label ?? `${style} mascot`}
         width={size}
         height={size}

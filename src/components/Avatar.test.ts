@@ -13,6 +13,7 @@ const sources = {
   "ChatView.tsx": readFileSync(join(here, "ChatView.tsx"), "utf8"),
   "Avatar.tsx": readFileSync(join(here, "Avatar.tsx"), "utf8"),
   "BotProfileAvatarCard.tsx": readFileSync(join(here, "BotProfileAvatarCard.tsx"), "utf8"),
+  "store.tsx": readFileSync(join(here, "../state/store.tsx"), "utf8"),
 } as const;
 
 const botAvatarFloors = {
@@ -57,6 +58,13 @@ describe("cute mascot renderer", () => {
   it("offers styles A–D on the avatar editor instead of expression swatches", () => {
     expect(sources["BotProfileAvatarCard.tsx"]).toContain("MASCOT_STYLES");
     expect(sources["BotProfileAvatarCard.tsx"]).toContain("mascotStyle");
+    expect(sources["BotProfileAvatarCard.tsx"]).toContain("resolvedStyle");
     expect(sources["BotProfileAvatarCard.tsx"]).not.toContain("PICKABLE_STATES");
+  });
+
+  it("types Bot.mascotStyle as the style union and does not animate style-only edits", () => {
+    expect(sources["store.tsx"]).toContain("mascotStyle?: MascotStyle | null");
+    expect(sources["store.tsx"]).not.toContain('hasOwnProperty.call(action.patch, "mascotStyle")');
+    expect(sources["Avatar.tsx"]).toContain("useMemo(() => mascotDataUrl(style, color), [style, color])");
   });
 });

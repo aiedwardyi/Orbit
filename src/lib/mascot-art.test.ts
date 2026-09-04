@@ -39,3 +39,22 @@ describe("cute mascot art pack", () => {
     expect(coral).toContain('id="flop-left"');
   });
 });
+
+describe("iOS color-map lockstep", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const cute = readFileSync(join(here, "../../ios/App/MausAvatar.swift"), "utf8");
+  const core = readFileSync(join(here, "../../ios/Sources/CompanionCore/Models.swift"), "utf8");
+  const cases = [
+    'case "green", "teal", "cyan": return .teal',
+    'case "blue", "purple": return .lavender',
+    'case "pink", "coral": return .coral',
+    "default: return .peach",
+  ];
+
+  it("keeps CuteMascotStyle.resolved and CompanionCore.MascotStyle.resolved on the same map", () => {
+    for (const line of cases) {
+      expect(cute, `MausAvatar.swift missing ${line}`).toContain(line);
+      expect(core, `Models.swift missing ${line}`).toContain(line);
+    }
+  });
+});

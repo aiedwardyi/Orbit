@@ -15,7 +15,7 @@ import {
 } from "react";
 import type { CloudBackend, EffortLevel, RateLimitWindow } from "../../server/contracts.ts";
 import type { MausColor, MausMotion } from "@/lib/mascot";
-import type { BotAvatarCrop } from "../../shared/bot-avatar";
+import type { BotAvatarCrop, MascotStyle } from "../../shared/bot-avatar";
 import type { RoutineRequestCardData } from "../../shared/routine-request";
 import type { RoutineRunCardData } from "../../shared/routine-run";
 import type { Routine, RoutineInput, RoutineRun } from "@/lib/routines";
@@ -228,7 +228,7 @@ export interface Bot {
   color: MausColor;
   mascotExpression?: string | null;
   /** One of the four static cute faces; missing values color-map at render. */
-  mascotStyle?: string | null;
+  mascotStyle?: MascotStyle | null;
   /** App-owned image attachment used for this bot's profile. */
   avatarUrl?: string | null;
   /** Mascot, or the crop applied to avatarUrl. */
@@ -1158,8 +1158,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case "updateBot": {
       const mascotChanged =
         Object.prototype.hasOwnProperty.call(action.patch, "color") ||
-        Object.prototype.hasOwnProperty.call(action.patch, "mascotExpression") ||
-        Object.prototype.hasOwnProperty.call(action.patch, "mascotStyle");
+        Object.prototype.hasOwnProperty.call(action.patch, "mascotExpression");
       const animated = mascotChanged
         ? withMascotMotion(state, action.botId, "customize")
         : state;

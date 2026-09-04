@@ -54,7 +54,6 @@ export function BotProfileAvatarCard({
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const crop = bot.avatarCrop ?? "mascot";
-  const selectedStyle = resolveMascotStyle(bot.mascotStyle, bot.color);
   const cropRef = useRef(crop);
   cropRef.current = crop;
   const imageConfigured = state.config?.imageGen?.configured === true;
@@ -225,22 +224,25 @@ export function BotProfileAvatarCard({
               Style
             </div>
             <div className="grid grid-cols-4 gap-2">
-              {MASCOT_STYLES.map((style) => (
-                <button
-                  key={style}
-                  type="button"
-                  aria-pressed={selectedStyle === style}
-                  onClick={() => onPatch({ mascotStyle: style })}
-                  className={cn(
-                    "flex h-[70px] items-center justify-center rounded-xl bg-inset transition-colors hover:bg-control",
-                    selectedStyle === style && "ring-2 ring-accent-border",
-                  )}
-                  title={MASCOT_STYLE_LABELS[style]}
-                  aria-label={`Use ${MASCOT_STYLE_LABELS[style]} mascot`}
-                >
-                  <MausAvatar color={bot.color} mascotStyle={style} size={52} animated={false} />
-                </button>
-              ))}
+              {MASCOT_STYLES.map((style) => {
+                const resolvedStyle = resolveMascotStyle(bot.mascotStyle, bot.color);
+                return (
+                  <button
+                    key={style}
+                    type="button"
+                    aria-pressed={resolvedStyle === style}
+                    onClick={() => onPatch({ mascotStyle: style })}
+                    className={cn(
+                      "flex h-[70px] items-center justify-center rounded-xl bg-inset transition-colors hover:bg-control",
+                      resolvedStyle === style && "ring-2 ring-accent-border",
+                    )}
+                    title={MASCOT_STYLE_LABELS[style]}
+                    aria-label={`Use ${MASCOT_STYLE_LABELS[style]} mascot`}
+                  >
+                    <MausAvatar color={bot.color} mascotStyle={style} size={52} animated={false} />
+                  </button>
+                );
+              })}
             </div>
 
             <div className="mb-2 mt-4 text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
