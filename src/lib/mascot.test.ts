@@ -44,4 +44,28 @@ describe("mascot attention after first-turn ignore", () => {
       }),
     ).toBe("idle");
   });
+
+  it("looks curious while a live ask is still open", () => {
+    expect(
+      stateForBot({
+        name: "Nova",
+        messages: [{ kind: "options", card: { requestId: "r1" } }],
+      }),
+    ).toBe("curious");
+  });
+
+  it("does not stay curious after a live ask is resolved", () => {
+    expect(
+      stateForBot({
+        name: "Nova",
+        messages: [{ kind: "options", card: { requestId: "r1", answered: "allow" } }],
+      }),
+    ).toBe("idle");
+    expect(
+      stateForBot({
+        name: "Nova",
+        messages: [{ kind: "options", card: { requestId: "r1", dismissed: true } }],
+      }),
+    ).toBe("idle");
+  });
 });
