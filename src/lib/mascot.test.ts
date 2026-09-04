@@ -15,4 +15,9 @@ describe("mascot color fallback", () => {
     expect(mausColorHex(undefined)).toBe("#D94B52");
     expect(mausColorHex(null)).toBe("#D94B52");
   });
+
+  it("does not treat inherited object keys as palette colors", () => {
+    expect(mausColorHex("__proto__")).toBe("#D94B52");
+    expect(mausColorHex("constructor")).toBe("#D94B52");
+  });
 });
