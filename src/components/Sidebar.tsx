@@ -48,17 +48,21 @@ import { TeamLibraryPanel, type TeamImportResult } from "./TeamLibraryPanel";
 import { RenameTitle } from "./RenameTitle";
 import { BotPickerList } from "./BotPickerList";
 import {
-  clampSidebarWidth,
+  displaySidebarWidth,
+  loadSidebarCollapsed,
   loadSidebarDensity,
   loadSidebarWidth,
+  saveSidebarCollapsed,
   saveSidebarDensity,
   saveSidebarWidth,
+  SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_ICONS_WIDTH,
   SIDEBAR_MAX_WIDTH,
-  SIDEBAR_MIN_WIDTH,
   restoreSidebarDragWidth,
-  stepSidebarWidth,
+  snapSidebarDrag,
+  stepSidebarLayout,
   type SidebarDensity,
+  type SidebarLayout,
 } from "@/lib/sidebar-preferences";
 import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
 import { phoneSettingsAvailable } from "@/lib/phone-availability";
@@ -1044,7 +1048,10 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   } | null>(null);
   const [query, setQuery] = useState("");
   const [densityState, setDensityState] = useState<SidebarDensity>(() => loadSidebarDensity());
-  const density: SidebarDensity = showSidebarDensityControls() ? densityState : "comfortable";
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => loadSidebarCollapsed());
+  const density: SidebarDensity = sidebarCollapsed
+    ? "icons"
+    : showSidebarDensityControls() ? densityState : "comfortable";
   const [lastExpandedDensity, setLastExpandedDensity] = useState<Exclude<SidebarDensity, "icons">>(() => {
     const saved = loadSidebarDensity();
     return saved === "icons" ? "comfortable" : saved;
@@ -1052,9 +1059,28 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const [densityOpen, setDensityOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => loadSidebarWidth());
   const sidebarWidthRef = useRef(sidebarWidth);
-  sidebarWidthRef.current = sidebarWidth;
-  const resizeFrom = useRef<{ x: number; width: number } | null>(null);
+  const sidebarCollapsedRef = useRef(sidebarCollapsed);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const focusSearchAfterExpand = useRef(false);
+  const resizeFrom = useRef<{ x: number; width: number; collapsed: boolean; query: string } | null>(null);
   const [resizing, setResizing] = useState(false);
+  const sidebarDisplayWidth = displaySidebarWidth({
+    collapsed: sidebarCollapsed,
+    width: !sidebarCollapsed && density === "icons" ? SIDEBAR_ICONS_WIDTH : sidebarWidth,
+  });
+
+  const applySidebarLayout = (next: SidebarLayout) => {
+    if (next.collapsed) setQuery("");
+    sidebarWidthRef.current = next.width;
+    sidebarCollapsedRef.current = next.collapsed;
+    setSidebarWidth(next.width);
+    setSidebarCollapsed(next.collapsed);
+  };
+
+  const persistSidebarLayout = (next: SidebarLayout) => {
+    saveSidebarWidth(next.width);
+    saveSidebarCollapsed(next.collapsed);
+  };
 
   const setDensity = (next: SidebarDensity) => {
     setDensityState(next);
@@ -1067,16 +1093,31 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   };
 
   const onSidebarResizeStart = (event: PointerEvent<HTMLDivElement>) => {
-    if (density === "icons") return;
-    resizeFrom.current = { x: event.clientX, width: sidebarWidthRef.current };
+    if (!sidebarCollapsedRef.current && density === "icons") return;
+    resizeFrom.current = {
+      x: event.clientX,
+      width: sidebarWidthRef.current,
+      collapsed: sidebarCollapsedRef.current,
+      query,
+    };
     setResizing(true);
     event.currentTarget.setPointerCapture(event.pointerId);
   };
   const onSidebarResizeMove = (event: PointerEvent<HTMLDivElement>) => {
     if (!resizeFrom.current) return;
-    const next = clampSidebarWidth(resizeFrom.current.width + (event.clientX - resizeFrom.current.x));
-    sidebarWidthRef.current = next;
-    setSidebarWidth(next);
+    const next = snapSidebarDrag(
+      { width: resizeFrom.current.width, collapsed: resizeFrom.current.collapsed },
+      event.clientX - resizeFrom.current.x,
+    );
+    if (next.collapsed !== resizeFrom.current.collapsed) {
+      resizeFrom.current = {
+        x: event.clientX,
+        width: next.width,
+        collapsed: next.collapsed,
+        query: resizeFrom.current.query,
+      };
+    }
+    applySidebarLayout(next);
   };
   const onSidebarResizeEnd = (event: PointerEvent<HTMLDivElement>) => {
     if (!resizeFrom.current) return;
@@ -1084,22 +1125,28 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     setResizing(false);
     event.currentTarget.releasePointerCapture(event.pointerId);
     saveSidebarWidth(sidebarWidthRef.current);
+    saveSidebarCollapsed(sidebarCollapsedRef.current);
   };
   const onSidebarResizeCancel = () => {
-    const startWidth = restoreSidebarDragWidth(resizeFrom.current);
-    if (startWidth == null) return;
+    const start = restoreSidebarDragWidth(resizeFrom.current);
+    if (start == null || !resizeFrom.current) return;
+    const queryToRestore = resizeFrom.current.query;
     resizeFrom.current = null;
-    sidebarWidthRef.current = startWidth;
-    setSidebarWidth(startWidth);
+    applySidebarLayout({ width: start.width, collapsed: start.collapsed });
+    setQuery(queryToRestore);
     setResizing(false);
   };
   const onSidebarResizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    const next = stepSidebarWidth(sidebarWidthRef.current, event.key);
+    if (!sidebarCollapsedRef.current && density === "icons") return;
+    const next = stepSidebarLayout(
+      { width: sidebarWidthRef.current, collapsed: sidebarCollapsedRef.current },
+      event.key,
+    );
     if (next == null) return;
     event.preventDefault();
-    sidebarWidthRef.current = next;
-    setSidebarWidth(next);
-    saveSidebarWidth(next);
+    applySidebarLayout(next);
+    saveSidebarWidth(next.width);
+    saveSidebarCollapsed(next.collapsed);
   };
 
   useEffect(() => {
@@ -1114,9 +1161,21 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     };
   }, [resizing]);
 
+  useEffect(() => {
+    if (sidebarCollapsed || !focusSearchAfterExpand.current) return;
+    focusSearchAfterExpand.current = false;
+    searchInputRef.current?.focus();
+  }, [sidebarCollapsed]);
+
   const toggleCollapsed = () => {
-    if (density === "icons") setDensity(lastExpandedDensity);
-    else {
+    if (density === "icons") {
+      if (sidebarCollapsed) {
+        const next = { width: sidebarWidthRef.current, collapsed: false };
+        applySidebarLayout(next);
+        persistSidebarLayout(next);
+      }
+      setDensity(lastExpandedDensity);
+    } else {
       setLastExpandedDensity(density);
       setDensity("icons");
     }
@@ -1328,7 +1387,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       aria-label={t("chrome.navAria")}
       className={cn(
         "relative flex h-full shrink-0 flex-col border-r border-hairline/40 bg-panel",
-        !resizing && showSidebarDensityControls() && "transition-[width] duration-200",
+        !resizing && "transition-[width] duration-200",
         // Below md only: the sidebar leaves the flow and slides in over the chat.
         // Scoped with max-md: rather than cancelled with md: on purpose — Tailwind
         // v4 emits the native `translate` property, and any value other than
@@ -1340,27 +1399,25 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         "max-md:transition-transform max-md:duration-200",
         open ? "max-md:translate-x-0" : "max-md:-translate-x-full",
       )}
-      style={{ width: density === "icons" ? SIDEBAR_ICONS_WIDTH : sidebarWidth }}
+      style={{ width: sidebarDisplayWidth }}
     >
-      {density !== "icons" && (
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label={t("chrome.resizeSidebar")}
-          tabIndex={0}
-          aria-valuenow={sidebarWidth}
-          aria-valuemin={SIDEBAR_MIN_WIDTH}
-          aria-valuemax={SIDEBAR_MAX_WIDTH}
-          aria-valuetext={t("chrome.sidebarWidthPixels", { width: sidebarWidth })}
-          data-sidebar-resize
-          onPointerDown={onSidebarResizeStart}
-          onPointerMove={onSidebarResizeMove}
-          onPointerUp={onSidebarResizeEnd}
-          onPointerCancel={onSidebarResizeCancel}
-          onKeyDown={onSidebarResizeKeyDown}
-          className="absolute inset-y-0 right-0 z-10 hidden w-1.5 cursor-col-resize touch-none hover:bg-accent/40 focus-visible:bg-accent/60 md:block"
-        />
-      )}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t("chrome.resizeSidebar")}
+        tabIndex={0}
+        aria-valuenow={sidebarDisplayWidth}
+        aria-valuemin={SIDEBAR_COLLAPSED_WIDTH}
+        aria-valuemax={SIDEBAR_MAX_WIDTH}
+        aria-valuetext={t("chrome.sidebarWidthPixels", { width: sidebarDisplayWidth })}
+        data-sidebar-resize
+        onPointerDown={onSidebarResizeStart}
+        onPointerMove={onSidebarResizeMove}
+        onPointerUp={onSidebarResizeEnd}
+        onPointerCancel={onSidebarResizeCancel}
+        onKeyDown={onSidebarResizeKeyDown}
+        className="absolute inset-y-0 right-0 z-10 hidden w-1.5 cursor-col-resize touch-none hover:bg-accent/40 focus-visible:bg-accent/60 md:block"
+      />
       {/* macOS owns inset traffic lights; Linux/Windows use native chrome. */}
       <div
         className={cn("flex items-center pt-3.5 pb-1", density === "icons" ? "flex-col gap-1 px-2" : "justify-between px-4")}
@@ -1514,22 +1571,42 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       </div>
 
       {/* Search */}
-      <div className={cn("pt-2 pb-3", density === "icons" ? "hidden" : "px-3")}>
-        <div className="flex items-center gap-2 rounded-lg bg-raised/70 px-3 py-2">
-          <Search size={16} className="text-ink-secondary" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === "Escape" && setQuery("")}
-            placeholder={t("chrome.search")}
+      {density === "icons" ? (
+        <div className="flex justify-center px-1 pt-2 pb-2">
+          <button
+            type="button"
+            onClick={() => {
+              const next = { width: sidebarWidthRef.current, collapsed: false };
+              applySidebarLayout(next);
+              persistSidebarLayout(next);
+              focusSearchAfterExpand.current = true;
+            }}
             aria-label={t("chrome.searchBotsAria")}
-            className="w-full bg-transparent text-[14px] text-ink placeholder:text-ink-secondary focus:outline-none"
-          />
+            title={t("chrome.search")}
+            className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
+          >
+            <Search size={16} />
+          </button>
         </div>
-      </div>
+      ) : (
+        <div className="px-3 pt-2 pb-3">
+          <div className="flex items-center gap-2 rounded-lg bg-raised/70 px-3 py-2">
+            <Search size={16} className="text-ink-secondary" />
+            <input
+              ref={searchInputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Escape" && setQuery("")}
+              placeholder={t("chrome.search")}
+              aria-label={t("chrome.searchBotsAria")}
+              className="w-full bg-transparent text-[14px] text-ink placeholder:text-ink-secondary focus:outline-none"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Bot list */}
-      <div className="flex-1 overflow-y-auto px-2">
+      <div className={cn("flex-1 overflow-y-auto", density === "icons" ? "px-0" : "px-2")}>
         <div className="flex flex-col gap-0.5">
           {!unsectionedChief && sectionChiefs.length === 0 && visibleBots.length === 0 && sectionedBots.length === 0 && visibleGroups.length === 0 && q && q.length < MIN_QUERY && (
             <div className="px-3 py-6 text-center text-[13px] text-ink-secondary">{t("palette.noMatch", { query })}</div>
