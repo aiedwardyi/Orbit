@@ -23,23 +23,15 @@ describe("mascot color fallback", () => {
 });
 
 describe("mascot attention after first-turn ignore", () => {
-  const quiz = {
-    kind: "options" as const,
-    card: {
-      title: "What do you mostly want help with?",
-      options: ["Work & projects"],
-    },
-  };
-
   it("looks curious while the first-turn quiz is still open", () => {
-    expect(stateForBot({ name: "Nova", messages: [quiz] })).toBe("curious");
+    expect(stateForBot({ name: "Nova", messages: [{ kind: "options", card: {} }] })).toBe("curious");
   });
 
   it("does not stay attentive after the first-turn quiz is ignored", () => {
     expect(
       stateForBot({
         name: "Nova",
-        messages: [{ ...quiz, card: { ...quiz.card, dismissed: true } }],
+        messages: [{ kind: "options", card: { dismissed: true } }],
       }),
     ).toBe("idle");
   });
