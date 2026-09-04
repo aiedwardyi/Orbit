@@ -76,6 +76,7 @@ describe("chiefOfStaffSystemPrompt", () => {
 
     expect(prompt).toContain("cannot contact teammates");
     expect(prompt).not.toContain("Use ask_bot");
+    expect(prompt).not.toContain("create_channel");
   });
 
   it("does not tell a solo Chief to scan the roster or spawn bots unasked", () => {
@@ -129,6 +130,7 @@ describe("chiefOfStaffSystemPrompt", () => {
     expect(prompt).toContain("cannot contact teammates");
     expect(prompt).not.toContain("shared room");
     expect(prompt).not.toContain("create_bot");
+    expect(prompt).not.toContain("create_channel");
   });
 
   it("keeps the solo-Chief idle wall shut in a room but names the asked path", () => {

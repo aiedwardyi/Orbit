@@ -80,7 +80,7 @@ export function chiefOfStaffSystemPrompt(
         ].join(" ")
       : [
           "No other teammates are on this section yet. Answer the user directly. Do not inspect the team roster or create specialists unless the user asks you to involve or assemble teammates.",
-          "If they ask you to involve a teammate, assemble a team, or start a two-bot channel or shared channel, call create_bot for the specialist, then create_channel with yourself and that bot.",
+          "If they ask you to involve a teammate or assemble a team, call create_bot for the specialist. If they ask for a two-bot channel or shared channel, call create_bot if needed, then create_channel with yourself and that bot. Use ask_bot for peer talk this turn; do not leave the user only in a new bot's 1:1.",
           AGENTS_TOOLS_DISCIPLINE,
         ].join(" ");
 

@@ -953,7 +953,7 @@ describe("harness HTTP API", () => {
         (group: { id: string }) => group.id === created.body.id,
       );
       expect(room.setupCompletedAt).toBeTruthy();
-      expect(room.defaultResponder).toEqual({ kind: "everyone" });
+      expect(room.defaultResponder).toEqual({ kind: "member", botId: chief.id });
       expect(room.bulletin).toBe("Peer talk lives here.");
       expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "hello room" })).status).toBe(202);
       expect((await api("POST", `/api/groups/${room.id}/interrupt`)).status).toBe(200);
@@ -974,6 +974,27 @@ describe("harness HTTP API", () => {
       const emptyMembers = await createChannel({ name: "Empty", memberIds: [] });
       expect(emptyMembers.status).toBe(400);
       expect(emptyMembers.body.error).toMatch(/at least one bot/);
+
+      expect((await api("PATCH", `/api/bots/${otherSection.id}`, {
+        section: "Channel tool test",
+        hidden: true,
+      })).status).toBe(200);
+      const archived = await createChannel({ name: "Archived", memberIds: [otherSection.id] });
+      expect(archived.status).toBe(400);
+      expect(archived.body.error).toMatch(/unknown channel member/);
+
+      const stolen = await fetch(`${BASE}/api/internal/create-channel`, {
+        method: "POST",
+        headers: internalHeaders,
+        body: JSON.stringify({
+          fromBotId: chief.id,
+          fromThreadId: peer.threadId,
+          name: "Stolen thread",
+          memberIds: [peer.id],
+        }),
+      });
+      expect(stolen.status).toBe(403);
+      expect(await stolen.json()).toEqual({ error: "source conversation does not belong to sender" });
 
       const outsider = await fetch(`${BASE}/api/internal/create-channel`, {
         method: "POST",

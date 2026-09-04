@@ -4530,13 +4530,9 @@ const server = createServer(async (req, res) => {
           }
           bulletin = body.bulletin;
         }
-        const defaultResponder =
-          memberIds.length >= 2
-            ? { kind: "everyone" as const }
-            : { kind: "member" as const, botId: memberIds[0] };
         const group = store.createGroup(name, memberIds, false, section, {
           bulletin,
-          defaultResponder,
+          defaultResponder: { kind: "member", botId: memberIds[0] },
           completed: true,
         });
         return json(res, 201, {
