@@ -113,7 +113,8 @@ describe("subscription windows", () => {
     expect(windowKind("seven_day_opus")).toBe("weekly");
     expect(windowKind("primary", 300)).toBe("session");
     expect(windowKind("secondary", 10_080)).toBe("weekly");
-    expect(windowKind("primary")).toBe("other");
+    expect(windowKind("primary")).toBe("session");
+    expect(windowKind("secondary")).toBe("weekly");
     expect(windowKind("primary", 1_440)).toBe("other");
   });
 
@@ -202,5 +203,8 @@ describe("subscription windows", () => {
     expect(planMeterWindows([{ id: "primary", usedPercent: 12, resetsAt: hours(2), windowMinutes: 300 }], now)).toEqual([
       { id: "primary", usedPercent: 12, resetsAt: hours(2), windowMinutes: 300 },
     ]);
+    const primary = { id: "primary", usedPercent: 12, resetsAt: hours(2) };
+    const secondary = { id: "secondary", usedPercent: 40, resetsAt: hours(53) };
+    expect(planMeterWindows([primary, secondary], now)).toEqual([primary, secondary]);
   });
 });

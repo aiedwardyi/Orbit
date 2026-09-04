@@ -617,6 +617,9 @@ describe("plan usage", () => {
     expect(translate("en", "usage.limits.compactHm", { hours: 1, minutes: 55 })).toBe("1h55m");
     expect(translate("ko", "usage.limits.compactHm", { hours: 1, minutes: 55 })).toBe("1h55m");
     expect(translate("en", "usage.limits.compactDh", { days: 2, hours: 5 })).toBe("2d5h");
+    expect(translate("en", "usage.limits.compactD", { days: 2 })).toBe("2d");
+    expect(translate("en", "usage.limits.compactH", { hours: 3 })).toBe("3h");
+    expect(translate("en", "usage.limits.compactM", { minutes: 20 })).toBe("20m");
     expect(translate("ko", "usage.limits.notReported", { name: "Grok" })).toBe("Grok은(는) 사용 한도를 보고하지 않습니다.");
   });
 
@@ -632,7 +635,8 @@ describe("plan usage", () => {
     expect(planUsageBar).toContain('t("usage.limits.percentUsed", { percent })');
     expect(usageSection).toContain('"usage.limits.pending"');
     expect(usageSection).toContain('"usage.limits.unavailable"');
-    expect(planUsageBar).toContain("t(reset.key, reset.vars)");
+    expect(planUsageBar).toContain("t(phrase.key, phrase.vars)");
+    expect(planUsageBar).toContain("t(compactReset.key, compactReset.vars)");
     expect(usageSection).not.toMatch(/Resets in/);
     expect(planUsageBar).not.toMatch(/Resets in/);
     expect(usageSection).not.toMatch(/% used/);

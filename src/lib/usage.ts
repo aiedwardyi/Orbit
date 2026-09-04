@@ -91,7 +91,13 @@ export function windowKind(id: string, windowMinutes?: number): WindowKind {
   if (hasFiniteCost(windowMinutes)) {
     if (windowMinutes <= 6 * 60) return "session";
     if (windowMinutes >= 6 * 24 * 60) return "weekly";
+    return "other";
   }
+  // Codex names the short window primary and the long one secondary when
+  // it omits a duration. A reported length still wins so a 1-day primary
+  // is not labeled as the 5-hour session.
+  if (id === "primary") return "session";
+  if (id === "secondary") return "weekly";
   return "other";
 }
 

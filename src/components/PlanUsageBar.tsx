@@ -63,24 +63,34 @@ export function PlanWindowMeter({
   const fill = planUsageFill(percent);
   const kind = windowKind(window.id, window.windowMinutes);
   const labelKey = (compact ? PLAN_WINDOW_SHORT_LABEL_KEY : PLAN_WINDOW_LABEL_KEY)[kind];
-  const reset = compact ? resetCompact(window.resetsAt, now) : resetPhrase(window.resetsAt, now);
+  const phrase = resetPhrase(window.resetsAt, now);
+  const compactReset = resetCompact(window.resetsAt, now);
+  if (compact) {
+    return (
+      <div>
+        <div className="flex items-center justify-between gap-2 text-[11.5px] text-ink">
+          <span>{t(labelKey)}</span>
+          <span className="flex min-w-0 items-center gap-1.5 tabular-nums">
+            {percent !== null && <span>{t("usage.limits.percentUsed", { percent })}</span>}
+            {compactReset && (
+              <span className="text-ink-secondary" title={t(phrase.key, phrase.vars)}>
+                {t(compactReset.key, compactReset.vars)}
+              </span>
+            )}
+          </span>
+        </div>
+        <PlanUsageBar fill={fill} className="mt-1" />
+      </div>
+    );
+  }
   return (
     <div>
-      <div
-        className={cn(
-          "flex items-center justify-between text-ink",
-          compact ? "gap-2 text-[11.5px]" : "gap-3 text-[13px]",
-        )}
-      >
+      <div className="flex items-center justify-between gap-3 text-[13px] text-ink">
         <span>{t(labelKey)}</span>
         {percent !== null && <span className="tabular-nums">{t("usage.limits.percentUsed", { percent })}</span>}
       </div>
       <PlanUsageBar fill={fill} className="mt-1" />
-      {reset && (
-        <div className={cn("text-ink-secondary", compact ? "mt-0.5 text-[11px] tabular-nums" : "mt-1 text-[12px]")}>
-          {t(reset.key, reset.vars)}
-        </div>
-      )}
+      <div className="mt-1 text-[12px] text-ink-secondary">{t(phrase.key, phrase.vars)}</div>
     </div>
   );
 }

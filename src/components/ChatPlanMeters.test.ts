@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { I18nProvider } from "@/lib/i18n";
+import { applyLocale } from "@/lib/i18n";
 import type { RateLimitWindow } from "../../server/contracts.ts";
 
 import { ChatPlanMeters } from "./ChatPlanMeters";
@@ -10,9 +10,8 @@ import { ChatPlanMeters } from "./ChatPlanMeters";
 const now = Date.UTC(2026, 8, 4, 12, 0, 0);
 
 function render(windows: RateLimitWindow[] | undefined) {
-  return renderToStaticMarkup(
-    createElement(I18nProvider, null, createElement(ChatPlanMeters, { windows, now })),
-  );
+  applyLocale("en");
+  return renderToStaticMarkup(createElement(ChatPlanMeters, { windows, now }));
 }
 
 describe("ChatPlanMeters", () => {
@@ -40,7 +39,8 @@ describe("ChatPlanMeters", () => {
     expect(html).not.toContain(">75%<");
     expect(html).not.toContain(">40%<");
     expect(html).not.toContain(">90%<");
-    expect(html).not.toContain("Resets in");
+    expect(html).not.toMatch(/>Resets in/);
+    expect(html).toContain('title="Resets in');
     expect(html).not.toContain("% used");
     expect(html).not.toContain("$");
     expect(html).not.toContain("Fixed");
@@ -48,5 +48,7 @@ describe("ChatPlanMeters", () => {
     expect(html).toMatch(/\bh-1\b/);
     expect(html).toContain("bg-ink/10");
     expect(html).toContain("bg-accent");
+    expect(html).not.toContain("bg-app");
+    expect(html).not.toContain("h-1.5");
   });
 });
