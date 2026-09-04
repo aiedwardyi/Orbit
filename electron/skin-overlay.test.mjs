@@ -96,6 +96,9 @@ describe("skin overlay chrome", () => {
 
   it("falls back to the default skin for anything unknown, never throwing", () => {
     expect(isKnownSkin("midnight")).toBe(true);
+    expect(isKnownSkin("onyx")).toBe(true);
+    expect(isKnownSkin("dracula")).toBe(true);
+    expect(isKnownSkin("cobalt")).toBe(true);
     expect(isKnownSkin("does-not-exist")).toBe(false);
     expect(isKnownSkin(undefined)).toBe(false);
     expect(isKnownSkin(42)).toBe(false);
@@ -112,9 +115,6 @@ describe("skin overlay chrome", () => {
     expect(skinThemeSource("catppuccin-mocha")).toBe("dark");
     expect(skinThemeSource("tokyo-night")).toBe("dark");
     expect(skinThemeSource("vesper")).toBe("dark");
-    expect(isKnownSkin("onyx")).toBe(true);
-    expect(isKnownSkin("dracula")).toBe(true);
-    expect(isKnownSkin("cobalt")).toBe(true);
     expect(skinThemeSource("onyx")).toBe("dark");
     expect(skinThemeSource("dracula")).toBe("dark");
     expect(skinThemeSource("cobalt")).toBe("dark");
