@@ -96,7 +96,7 @@ import { RETRY_MAX_ATTEMPTS } from "./drivers/retry.ts";
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorReply, type CommsBus } from "./comms-visibility.ts";
 import { searchMessages } from "./message-db.ts";
-import { composeUserTurnPrompt } from "./replies.ts";
+import { composeUserTurnPrompt, promptWithReply } from "./replies.ts";
 import { reactionSystemGuidance } from "../shared/reactions.ts";
 import { _loadPending, discardDelegations, discardDelegationsFrom, drainDelegations, findDelegationReceipt, pendingDelegationInfo, pendingDelegationSnapshot, pendingThreads, queueDelegation, recordDelegationReceipt, threadsWaitingOn, type QueueResult } from "./delegations.ts";
 import {
@@ -6403,11 +6403,8 @@ const server = createServer(async (req, res) => {
             const queued = queueSteeredMessage(current.id, threadId, text, {
               replyToId: replyTo?.id,
               sendId,
-              prompt: composeUserTurnPrompt(text, {
-                replyTo,
-                messages: store.activePath(threadId),
-                userName: cfg.profile?.name?.trim() || "User",
-              }),
+              // Reply quote only — startTurn wraps reactions when this drains.
+              prompt: promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"),
             });
             return { ok: true as const, queued: true as const, queueId: queued.id, threadId };
           }

@@ -98,6 +98,7 @@ export function promptWithReactions(
   messages: readonly ReactionMessage[],
   userName = "User",
 ): string {
+  if (text.includes("The following message reactions are conversation feedback.")) return text;
   const marked = messages.filter((message) => (message.reactions?.length ?? 0) > 0);
   if (!marked.length) return text;
   const recent = marked.slice(-MAX_REACTION_MESSAGES);

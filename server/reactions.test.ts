@@ -101,6 +101,13 @@ describe("next-turn reaction prompt", () => {
     expect(prompt).toContain("Current message:\nkeep going");
   });
 
+  it("does not wrap an already-annotated turn a second time", () => {
+    const once = promptWithReactions("keep going", [
+      message({ reactions: [{ emoji: "👍", by: "user" }] }),
+    ]);
+    expect(promptWithReactions(once, [message({ reactions: [{ emoji: "👍", by: "user" }] })])).toBe(once);
+  });
+
   it("does not treat reaction text as system or tool instructions", () => {
     const prompt = promptWithReactions("ok", [
       message({
@@ -134,5 +141,10 @@ describe("reaction plumbing", () => {
     expect(indexSource).toContain("reactionSystemGuidance");
     expect(indexSource.match(/composeUserTurnPrompt/g)?.length).toBeGreaterThanOrEqual(3);
     expect(indexSource.match(/reactionSystemGuidance/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("does not pre-bake reactions into the queued prompt that startTurn will wrap", () => {
+    expect(indexSource).toMatch(/queueSteeredMessage\([\s\S]{0,500}promptWithReply\(/);
+    expect(indexSource).not.toMatch(/queueSteeredMessage\([\s\S]{0,400}composeUserTurnPrompt/);
   });
 });
