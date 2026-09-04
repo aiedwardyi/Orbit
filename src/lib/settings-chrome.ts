@@ -2,7 +2,10 @@ import type { AppSettingsSection } from "@/state/store";
 import { showSettingsAdvancedSection } from "./friends-chrome";
 import { settingsSectionMatches } from "./settings-search";
 
-/** Power controls stay folded until asked — same as the Computer panel Advanced. */
+/** Fold Local VM / channel turns / experiments / diagnostics when that
+ * section is on the surface. `advancedOpen` is ignored while
+ * `showSettingsAdvancedSection()` is off; it matters again if that flag
+ * is flipped. */
 export function showSettingsAdvancedControls(advancedOpen: boolean): boolean {
   return showSettingsAdvancedSection() && advancedOpen;
 }

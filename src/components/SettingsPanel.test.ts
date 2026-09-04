@@ -1,8 +1,10 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { Bot } from "@/state/store";
+
+const chrome = vi.hoisted(() => ({ botDetailsAdvanced: false }));
 
 vi.hoisted(() => {
   Object.defineProperty(globalThis, "window", {
@@ -10,6 +12,14 @@ vi.hoisted(() => {
     configurable: true,
     writable: true,
   });
+});
+
+vi.mock("@/lib/friends-chrome", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/friends-chrome")>();
+  return {
+    ...actual,
+    showBotDetailsAdvanced: () => chrome.botDetailsAdvanced,
+  };
 });
 
 vi.mock("@/state/store", async (importOriginal) => {
@@ -88,6 +98,10 @@ describe("SettingsPanel friends effort", () => {
     }
   });
 
+  afterEach(() => {
+    chrome.botDetailsAdvanced = false;
+  });
+
   it("does not bury a blank Effort control — Advanced stays off the idle surface", async () => {
     const { SettingsPanel } = await import("./SettingsPanel");
     const { I18nProvider } = await import("@/lib/i18n");
@@ -101,28 +115,32 @@ describe("SettingsPanel friends effort", () => {
     expect(html).not.toContain("Effort, computer");
   });
 
-  it("keeps Chief of Staff switchable in source when Advanced is re-enabled", async () => {
-    const { readFileSync } = await import("node:fs");
-    const { dirname, join } = await import("node:path");
-    const { fileURLToPath } = await import("node:url");
-    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "SettingsPanel.tsx"), "utf8");
-    const start = source.indexOf('aria-label="Chief of Staff"');
-    expect(start).toBeGreaterThan(-1);
-    const button = source.slice(start, start + 500);
-    expect(button).not.toContain("disabled");
-    expect(source).toContain('t("chrome.cannotContactTeammates")');
-    expect(source).not.toContain("Choose a Claude or ACP engine");
+  it("keeps Chief of Staff switchable on an engine that cannot coordinate", async () => {
+    chrome.botDetailsAdvanced = true;
+    const { SettingsPanel } = await import("./SettingsPanel");
+    const { I18nProvider } = await import("@/lib/i18n");
+    const html = renderToStaticMarkup(
+      createElement(I18nProvider, null, createElement(SettingsPanel, { bot, defaultAdvancedOpen: true })),
+    );
+    const fromLabel = html.slice(html.indexOf('aria-label="Chief of Staff"'));
+    const buttonTag = fromLabel.slice(0, fromLabel.indexOf(">"));
+
+    expect(buttonTag).not.toContain("disabled");
+    expect(html).toContain("This engine cannot contact teammates yet");
+    expect(html).not.toContain("Choose a Claude or ACP engine");
   });
 
-  it("keeps peer comms switchable in source when Advanced is re-enabled", async () => {
-    const { readFileSync } = await import("node:fs");
-    const { dirname, join } = await import("node:path");
-    const { fileURLToPath } = await import("node:url");
-    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "SettingsPanel.tsx"), "utf8");
-    const start = source.indexOf('aria-label="Ask me before contacting other bots"');
-    expect(start).toBeGreaterThan(-1);
-    const button = source.slice(start, start + 500);
-    expect(button).not.toContain("disabled");
-    expect(source).not.toContain("This engine cannot contact other bots");
+  it("keeps peer comms switchable on an engine that cannot coordinate", async () => {
+    chrome.botDetailsAdvanced = true;
+    const { SettingsPanel } = await import("./SettingsPanel");
+    const { I18nProvider } = await import("@/lib/i18n");
+    const html = renderToStaticMarkup(
+      createElement(I18nProvider, null, createElement(SettingsPanel, { bot, defaultAdvancedOpen: true })),
+    );
+    const fromLabel = html.slice(html.indexOf('aria-label="Ask me before contacting other bots"'));
+    const buttonTag = fromLabel.slice(0, fromLabel.indexOf(">"));
+
+    expect(buttonTag).not.toContain("disabled");
+    expect(html).not.toContain("This engine cannot contact other bots");
   });
 });

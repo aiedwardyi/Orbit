@@ -60,7 +60,7 @@ function sectionNavVisible(
   return friendsSettingsNavVisible(section.id, query, { phoneAvailable });
 }
 
-/** Name + email. Autosave on blur; an explicit Save confirms in the UI. */
+/** Name + email. Persist only when Save is pressed. */
 function ProfileFields() {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
@@ -86,12 +86,11 @@ function ProfileFields() {
     "w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[14px] text-ink placeholder:text-ink-secondary focus:border-hairline focus:outline-none";
   return (
     <div className="flex flex-col gap-3">
-      <input value={name} onChange={(e) => setName(e.target.value)} onBlur={save} placeholder={t("settings.profile.namePlaceholder")} className={inputClass} />
+      <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("settings.profile.namePlaceholder")} className={inputClass} />
       <input
         type="email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
-        onBlur={save}
         placeholder={t("settings.profile.emailPlaceholder")}
         className={inputClass}
       />
@@ -500,10 +499,7 @@ export function SettingsModal({
   const visibleSections = SECTIONS.filter((entry) => sectionNavVisible(entry, q, phoneAvailable));
 
   useEffect(() => {
-    const visible = SECTIONS.filter((entry) =>
-      (showSettingsAdvancedSection() && entry.id === "computer" && section === "computer") ||
-      sectionNavVisible(entry, q, phoneAvailable),
-    );
+    const visible = SECTIONS.filter((entry) => sectionNavVisible(entry, q, phoneAvailable));
     if (visible.some((entry) => entry.id === section)) return;
     const first = visible[0];
     if (first) dispatch({ type: "toggleAppSettings", open: true, section: first.id });
