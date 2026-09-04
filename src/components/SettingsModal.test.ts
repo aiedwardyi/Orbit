@@ -126,7 +126,7 @@ describe("SettingsModal friends chrome", () => {
     expect(html).not.toContain("accounts.openmausbot.com");
   });
 
-  it("offers Onyx, Dracula, and Cobalt in Skin alongside the shipped palettes", () => {
+  it("offers Onyx, Dracula, and Panda Syntax in Skin alongside the shipped palettes", () => {
     const html = markup("general");
     expect(html).toContain("Catppuccin Mocha");
     expect(html).toContain("Tokyo Night");
@@ -134,7 +134,8 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain("Ledger");
     expect(html).toContain("Onyx");
     expect(html).toContain("Dracula");
-    expect(html).toContain("Cobalt");
+    expect(html).toContain("Panda Syntax");
+    expect(html).not.toContain("Cobalt");
     expect(html).toContain('data-skin="catppuccin-mocha"');
     expect(html).toContain('data-skin="tokyo-night"');
     expect(html).toContain('data-skin="vesper"');

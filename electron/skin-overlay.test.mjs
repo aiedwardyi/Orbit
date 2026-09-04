@@ -110,7 +110,7 @@ describe("skin overlay chrome", () => {
   it("locks caption chrome for onyx, dracula, and cobalt", () => {
     expect(SKIN_CHROME.onyx).toEqual({ color: "#0a0a0b", symbolColor: "#9c9ca5" });
     expect(SKIN_CHROME.dracula).toEqual({ color: "#282a36", symbolColor: "#a4abcc" });
-    expect(SKIN_CHROME.cobalt).toEqual({ color: "#193549", symbolColor: "#a9c0d3" });
+    expect(SKIN_CHROME.cobalt).toEqual({ color: "#292A2B", symbolColor: "#BCAAFE" });
   });
 
   it("extracts onyx, dracula, and cobalt from the omb-skin marker", () => {

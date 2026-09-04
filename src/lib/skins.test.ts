@@ -222,16 +222,16 @@ const DARK_INK_SKINS = [
   },
   {
     id: "cobalt",
-    name: "Cobalt",
+    name: "Panda Syntax",
     tokens: {
-      "--color-app": "#193549",
-      "--color-raised": "#1f4662",
-      "--color-ink": "#e1efff",
-      "--color-ink-secondary": "#a9c0d3",
-      "--color-accent": "#ffc600",
-      "--color-hairline": "#2b5a7a",
-      "--color-danger": "#ff7aa0",
-      "--color-success": "#3ad900",
+      "--color-app": "#292a2b",
+      "--color-raised": "#373b41",
+      "--color-ink": "#e6e6e6",
+      "--color-ink-secondary": "#bcaafe",
+      "--color-accent": "#19f9d8",
+      "--color-hairline": "#4a4e5c",
+      "--color-danger": "#ff75b5",
+      "--color-success": "#19f9d8",
     },
   },
 ] as const;
@@ -272,11 +272,11 @@ describe("dark ink skins", () => {
     expect(cssToken("onyx", "--color-accent-text")).toBe("#8fb3e6");
   });
 
-  it("gives Cobalt a warning amber distinct from the yellow lamp accent", () => {
+  it("gives Panda a warning apricot distinct from the mint accent", () => {
     const warning = cssToken("cobalt", "--color-warning");
     const accent = cssToken("cobalt", "--color-accent");
-    expect(warning).toBeTruthy();
-    expect(accent).toBe("#ffc600");
+    expect(warning).toBe("#ffb86c");
+    expect(accent).toBe("#19f9d8");
     expect(warning).not.toBe(accent);
   });
 });

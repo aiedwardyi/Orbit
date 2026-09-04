@@ -509,38 +509,40 @@
   --radius-xl: 8px;
 }
 
-/* ── Cobalt ────────────────────────────────────────────────────────────────
-   Deep ocean, yellow lamp. Mapped tokens are the ocean ground, current-line
-   raised, ice ink, muted steel-blue, lamp yellow, trench hairline, pink, and
-   green. Warning is Cobalt2 orange rather than the lamp, so status colour is
-   not a clickable yellow. Body-size danger is stepped up from #ff628c for AA.
+/* ── Panda Syntax ──────────────────────────────────────────────────────────
+   Warm charcoal, mint lamp. Slot id stays `cobalt` so a saved choice keeps
+   working. Mapped tokens follow the Panda Syntax palette (background-light
+   ground, seal-adjacent raised, foreground, muted lavender, mint, steel
+   hairline, pink, mint-green). Warning is apricot (keywords) rather than the
+   mint, so status colour is not a clickable teal. Dark ink on the mint fill.
+   Hairline is a step above official steel-gray so the 1.5:1 chrome rule holds.
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="cobalt"] {
-  --color-app: #193549;
-  --color-panel: #1b3b51;
-  --color-raised: #1f4662;
-  --color-raised-hover: #244e6c;
-  --color-card: #1c3e56;
-  --color-inset: #122635;
-  --color-control: #1f4662;       /* = raised */
-  --color-hairline: #2b5a7a;
+  --color-app: #292A2B;
+  --color-panel: #2f3031;
+  --color-raised: #373B41;
+  --color-raised-hover: #3E4250;
+  --color-card: #31353a;
+  --color-inset: #242526;
+  --color-control: #373B41;       /* = raised */
+  --color-hairline: #4a4e5c;
 
-  --color-ink: #e1efff;
-  --color-ink-secondary: #a9c0d3;
+  --color-ink: #E6E6E6;
+  --color-ink-secondary: #BCAAFE;
 
-  --color-accent: #ffc600;
-  --color-accent-border: #ffcd1f;
-  --color-accent-text: #ffc600;
-  --color-focus: #ffc600;
-  --color-accent-ink: #193549;    /* ground on the lamp fill */
-  --color-bubble-user: #1e435e;
+  --color-accent: #19F9D8;
+  --color-accent-border: #6FE7D2;
+  --color-accent-text: #19F9D8;
+  --color-focus: #19F9D8;
+  --color-accent-ink: #292A2B;    /* ground on the mint fill */
+  --color-bubble-user: #333536;
 
-  --color-success: #3ad900;
-  --color-danger: #ff7aa0;        /* #ff628c was 3.94:1 on card → 4.56:1 */
-  --color-danger-ink: #193549;
-  --color-warning: #ff9d00;       /* warmer than the lamp; not clickable yellow */
-  --color-scrollbar: #2b5a7a;
-  --color-maus-line: #a9c0d3;
+  --color-success: #19F9D8;
+  --color-danger: #FF75B5;
+  --color-danger-ink: #292A2B;
+  --color-warning: #FFB86C;       /* apricot keywords; not clickable mint */
+  --color-scrollbar: #4a4e5c;
+  --color-maus-line: #BCAAFE;
 
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;

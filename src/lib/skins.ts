@@ -37,7 +37,7 @@ export const SKINS: readonly Skin[] = [
   { id: "vesper", name: "Vesper", tagline: "Warm near-black, peach accent." },
   { id: "onyx", name: "Onyx", tagline: "Black glass, silver trim." },
   { id: "dracula", name: "Dracula", tagline: "Slate purple, neon status." },
-  { id: "cobalt", name: "Cobalt", tagline: "Deep ocean, yellow lamp." },
+  { id: "cobalt", name: "Panda Syntax", tagline: "Warm charcoal, mint lamp." },
 ];
 
 export const DEFAULT_SKIN: SkinId = "midnight";
