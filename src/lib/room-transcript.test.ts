@@ -135,6 +135,22 @@ describe("roomTranscriptRows", () => {
     expect(result[2].cluster).toBe(true);
   });
 
+  it("hides computer-use screen frames while tool calls are hidden", () => {
+    const frame: Message = {
+      id: `s${++seq}`,
+      at: at(1),
+      role: "bot",
+      kind: "screen",
+      png: "frame",
+      from: from("challenge"),
+    };
+    const hidden = rows([say("defense", "One."), frame, say("challenge", "Two.")]);
+    expect(hidden.map((row) => row.visible)).toEqual([true, false, true]);
+    expect(hidden[2].cluster).toBe(true);
+    const shown = rows([say("defense", "One."), frame, say("challenge", "Two.")], true);
+    expect(shown.map((row) => row.visible)).toEqual([true, true, true]);
+  });
+
   it("hides a failed tool step while tool calls are hidden", () => {
     const result = rows([
       say("defense", "Here is the argument."),

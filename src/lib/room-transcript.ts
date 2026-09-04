@@ -35,6 +35,8 @@ function messageVisible(message: Message, showToolCalls: boolean): boolean {
       return Boolean(message.card?.requestId && message.card.tool);
     case "routine.run":
       return true;
+    case "screen":
+      return Boolean(message.png) && showToolCalls;
     default:
       return false;
   }

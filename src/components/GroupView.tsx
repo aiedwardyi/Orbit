@@ -235,6 +235,14 @@ const Transcript = memo(function Transcript({
             </div>
           ) : m.kind === "activity" && m.tool ? (
             <RoomToolChip message={m} />
+          ) : m.kind === "screen" && m.png ? (
+            <div className="flex justify-start">
+              <img
+                src={`data:${m.mime ?? "image/png"};base64,${m.png}`}
+                alt={t("chrome.screenFrame")}
+                className="w-fit max-w-[min(42rem,78%)] rounded-2xl border border-hairline/40"
+              />
+            </div>
           ) : m.kind === "text" && m.text ? (
             <div className={cn("group flex w-full flex-col", user ? "items-end" : "items-start")}>
               <div className={cn("flex w-full items-end gap-1.5", user ? "justify-end" : "justify-start")}>
