@@ -71,15 +71,17 @@ describe("API key setup", () => {
   });
 
   it("does not send CLI engines to Connections just because the error mentions an API key", () => {
-    const grok = (authenticated: boolean): InstanceInfo => ({
-      instanceId: "grok",
-      driverKind: "grokAgent",
-      displayName: "Grok",
-      models: { default: "grok-4.6", options: [] },
+    const cli = (driverKind: string, authenticated: boolean): InstanceInfo => ({
+      instanceId: driverKind,
+      driverKind,
+      displayName: driverKind,
+      models: { default: "default", options: [] },
       snapshot: { state: "available", authenticated },
     });
-    expect(setupErrorAction("Invalid API key provided", grok(false))).toBe("cli");
-    expect(setupErrorAction("Invalid API key provided", grok(true))).toBe("retry");
+    for (const kind of ["grokAgent", "claudeAgent"] as const) {
+      expect(setupErrorAction("Invalid API key provided", cli(kind, false))).toBe("cli");
+      expect(setupErrorAction("Invalid API key provided", cli(kind, true))).toBe("retry");
+    }
   });
 
   it("still pastes a key when Gemini is installed but the snapshot has not flagged unauthenticated", () => {
