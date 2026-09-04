@@ -72,6 +72,13 @@ describe("conversationPreview after first-turn ignore", () => {
     expect(showComposerPermissionChip([{ ...quiz, card: { ...quizCard, dismissed: true } }])).toBe(false);
   });
 
+  it("does not treat a chosen option as an ignored leftover", () => {
+    const answered: Message = { ...quiz, card: { ...quizCard, answered: "Work & projects", dismissed: true } };
+    expect(transcriptIdleAfterOnboarding([answered])).toBe(false);
+    expect(showComposerPermissionChip([answered])).toBe(true);
+    expect(conversationPreview(bot([answered]))).toBe("Work & projects");
+  });
+
   it("shows the chosen answer once they pick an option", () => {
     const answered: Message = { ...quiz, card: { ...quizCard, answered: "Work & projects", dismissed: true } };
     const choice: Message = { id: "u", role: "user", kind: "text", text: "Work & projects", at: 3 };
