@@ -39,6 +39,7 @@ import { stateForBot } from "@/lib/mascot";
 import { useUpdaterState } from "@/lib/updater";
 import { cn } from "@/lib/cn";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
+import { showSidebarRoutines, showSidebarTeachSkill } from "@/lib/friends-chrome";
 import { nextRename } from "@/lib/rename";
 import { downloadAllBots } from "@/lib/team-files";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
@@ -1526,7 +1527,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           <Network size={20} className={state.activeView === "team-map" ? "text-accent" : "text-ink-secondary"} />
           <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>{t("chrome.teamMap")}</span>
         </button>
-        {skillRecorderEnabled(state.config) && (
+        {showSidebarTeachSkill() && skillRecorderEnabled(state.config) && (
           <button
             onClick={() => dispatch({ type: "showSkillRecorder" })}
             aria-label={density === "icons" ? t("chrome.teachSkill") : undefined}
@@ -1541,6 +1542,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>{t("chrome.teachSkill")}</span>
           </button>
         )}
+        {showSidebarRoutines() && (
         <button
           onClick={() => dispatch({ type: "showRoutines" })}
           aria-label={density === "icons" ? t("chrome.routines") : undefined}
@@ -1557,6 +1559,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             <span className="size-2 rounded-full bg-danger" />
           )}
         </button>
+        )}
         <button
           onClick={() => dispatch({ type: "togglePlugins", open: true })}
           className={cn("flex min-h-10 w-full items-center rounded-xl py-2 text-left hover:bg-raised/50", density === "icons" ? "justify-center px-2" : "gap-3 px-3")}

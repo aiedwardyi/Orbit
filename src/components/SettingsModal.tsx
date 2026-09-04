@@ -8,6 +8,10 @@ import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/sta
 import { analyticsEnabled, setAnalyticsEnabled } from "@/lib/analytics";
 import { builtInBrowserEnabled, showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
 import {
+  showSettingsAdvancedSection,
+  showSettingsSearch,
+} from "@/lib/friends-chrome";
+import {
   friendsSettingsNavVisible,
   showSettingsAdvancedControls,
   showSettingsMoreServices,
@@ -56,7 +60,7 @@ function sectionNavVisible(
   return friendsSettingsNavVisible(section.id, query, { phoneAvailable });
 }
 
-/** Name + email, persisted to /api/config {profile} on blur. */
+/** Name + email. Autosave on blur; an explicit Save confirms in the UI. */
 function ProfileFields() {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
@@ -91,6 +95,14 @@ function ProfileFields() {
         placeholder={t("settings.profile.emailPlaceholder")}
         className={inputClass}
       />
+      <button
+        type="button"
+        onClick={save}
+        aria-label={t("settings.profile.saveAria")}
+        className="self-start rounded-lg border border-hairline/40 px-3 py-1.5 text-[13px] text-ink hover:bg-control"
+      >
+        {t("settings.profile.save")}
+      </button>
     </div>
   );
 }
@@ -488,10 +500,9 @@ export function SettingsModal({
   const visibleSections = SECTIONS.filter((entry) => sectionNavVisible(entry, q, phoneAvailable));
 
   useEffect(() => {
-    const visible = SECTIONS.filter(
-      (entry) =>
-        (entry.id === "computer" && section === "computer") ||
-        sectionNavVisible(entry, q, phoneAvailable),
+    const visible = SECTIONS.filter((entry) =>
+      (showSettingsAdvancedSection() && entry.id === "computer" && section === "computer") ||
+      sectionNavVisible(entry, q, phoneAvailable),
     );
     if (visible.some((entry) => entry.id === section)) return;
     const first = visible[0];
@@ -559,6 +570,7 @@ export function SettingsModal({
           <div id="app-settings-title" className="px-2 pb-2 pt-1 text-[15px] font-semibold text-ink">
             {t("settings.title")}
           </div>
+          {showSettingsSearch() && (
           <div className="mb-1.5 flex items-center gap-2 rounded-lg bg-control/70 px-2.5 py-1.5">
             <Search size={14} className="shrink-0 text-ink-secondary" />
             <input
@@ -575,6 +587,7 @@ export function SettingsModal({
               className="w-full bg-transparent text-[13px] text-ink placeholder:text-ink-secondary focus:outline-none"
             />
           </div>
+          )}
           {visibleSections.length === 0 && (
             <div className="px-2.5 py-4 text-[12.5px] leading-relaxed text-ink-secondary">
               {t("settings.noMatch", { query: query.trim() })}
@@ -624,6 +637,8 @@ export function SettingsModal({
                 <BrowserProfilesRow />
                 <UpdatesRow />
                 <AnalyticsRow />
+                {showSettingsAdvancedSection() && (
+                  <>
                 <button
                   type="button"
                   aria-expanded={advancedShown}
@@ -650,6 +665,8 @@ export function SettingsModal({
                     <ExperimentalFeaturesRow />
                     <DiagnosticsRow />
                   </div>
+                )}
+                  </>
                 )}
               </>
             )}
@@ -702,7 +719,7 @@ export function SettingsModal({
               </Card>
             )}
 
-            {section === "computer" && <LocalComputerSection />}
+            {showSettingsAdvancedSection() && section === "computer" && <LocalComputerSection />}
 
             {section === "usage" && <UsageSection />}
           </div>

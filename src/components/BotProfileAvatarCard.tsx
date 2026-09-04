@@ -11,6 +11,7 @@ import {
   type MausMotion,
   type MausState,
 } from "@/lib/mascot";
+import { showAvatarImageGenerate, showAvatarShapeOptions } from "@/lib/friends-chrome";
 import {
   BOT_AVATAR_CROPS,
   botAvatarUrlFromStoredPath,
@@ -181,6 +182,8 @@ export function BotProfileAvatarCard({
         </div>
         <div className="mt-1.5 text-[11.5px] text-ink-secondary">PNG, JPEG, GIF, or WebP · up to 10 MB</div>
 
+        {showAvatarShapeOptions() && (
+          <>
         <div className="mb-2 mt-4 text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
           Shape
         </div>
@@ -201,6 +204,8 @@ export function BotProfileAvatarCard({
             </button>
           ))}
         </div>
+          </>
+        )}
 
         {crop === "mascot" && (
           <>
@@ -249,6 +254,7 @@ export function BotProfileAvatarCard({
           </>
         )}
 
+        {showAvatarImageGenerate() && (
         <div className="mt-5 border-t border-hairline/40 pt-4">
           <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
             <Sparkles size={14} className="text-accent" /> Generate with GPT Image 2
@@ -329,6 +335,7 @@ export function BotProfileAvatarCard({
             </div>
           )}
         </div>
+        )}
 
         {error && <div role="alert" className="mt-3 text-[12px] text-danger">{error}</div>}
       </div>

@@ -7,9 +7,9 @@ import {
 } from "./settings-chrome";
 
 describe("showSettingsAdvancedControls", () => {
-  it("keeps Local VM, channel turns, experimental, and diagnostics folded until asked", () => {
+  it("keeps Local VM, channel turns, experimental, and diagnostics off the friends surface", () => {
     expect(showSettingsAdvancedControls(false)).toBe(false);
-    expect(showSettingsAdvancedControls(true)).toBe(true);
+    expect(showSettingsAdvancedControls(true)).toBe(false);
   });
 });
 
@@ -31,9 +31,9 @@ describe("friendsSettingsNavVisible", () => {
     expect(friendsSettingsNavVisible("usage", "", { phoneAvailable: false })).toBe(true);
   });
 
-  it("still surfaces Local VM when search asks for it", () => {
-    expect(friendsSettingsNavVisible("computer", "vm", { phoneAvailable: false })).toBe(true);
-    expect(friendsSettingsNavVisible("computer", "local vm", { phoneAvailable: false })).toBe(true);
+  it("never surfaces Local VM from search — Advanced is off this surface", () => {
+    expect(friendsSettingsNavVisible("computer", "vm", { phoneAvailable: false })).toBe(false);
+    expect(friendsSettingsNavVisible("computer", "local vm", { phoneAvailable: false })).toBe(false);
   });
 
   it("keeps Phone off the idle surface even when the host would otherwise show it", () => {

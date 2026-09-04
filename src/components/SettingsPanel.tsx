@@ -8,6 +8,7 @@ import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
 import { builtInBrowserEnabled } from "@/lib/feature-flags";
+import { showBotDetailsAdvanced } from "@/lib/friends-chrome";
 import { requestNotificationPermission, canClaimGetNotified, desktopNotificationHint } from "@/lib/notify";
 import { botUsage, costCaption, formatTokens, formatUsd, hasFiniteCost } from "@/lib/usage";
 import { shortPath } from "@/lib/short-path";
@@ -594,6 +595,8 @@ export function SettingsPanel({
             </button>
           </div>
 
+          {showBotDetailsAdvanced() && (
+            <>
           <button
             type="button"
             aria-expanded={advancedOpen}
@@ -880,6 +883,8 @@ export function SettingsPanel({
           )}
 
           {advancedOpen && <VoiceSettings bot={bot} onPatch={patch} />}
+            </>
+          )}
 
         </div>
       </div>
