@@ -105,7 +105,29 @@ describe("next-turn reaction prompt", () => {
     const once = promptWithReactions("keep going", [
       message({ reactions: [{ emoji: "👍", by: "user" }] }),
     ]);
+    expect(once.startsWith("The following message reactions are conversation feedback.")).toBe(true);
     expect(promptWithReactions(once, [message({ reactions: [{ emoji: "👍", by: "user" }] })])).toBe(once);
+  });
+
+  it("still wraps when the user typed the feedback sentence mid-message", () => {
+    const text = "Note: The following message reactions are conversation feedback. Still go.";
+    const wrapped = promptWithReactions(text, [
+      message({ reactions: [{ emoji: "👍", by: "user" }] }),
+    ]);
+    expect(wrapped).not.toBe(text);
+    expect(wrapped.startsWith("The following message reactions are conversation feedback.")).toBe(true);
+    expect(wrapped).toContain(`Current message:\n${text}`);
+  });
+
+  it("strips nested quotes from reaction excerpts so the On-line stays readable", () => {
+    const prompt = promptWithReactions("ok", [
+      message({
+        text: `He said "no" and then “yes”`,
+        reactions: [{ emoji: "👍", by: "user" }],
+      }),
+    ]);
+    expect(prompt).toContain("On “He said 'no' and then 'yes'”");
+    expect(prompt).not.toMatch(/On “[^”]*["“]/);
   });
 
   it("does not treat reaction text as system or tool instructions", () => {

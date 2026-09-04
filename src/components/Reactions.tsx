@@ -8,6 +8,7 @@ import { useStore, type Bot, type Message } from "@/state/store";
 import { useI18n, type Translate } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 
+/** Primary rail (👍 👎 ❤️). Extra emoticons live in `EXTENDED_REACTIONS`. */
 export const REACTION_SET = PRIMARY_REACTIONS;
 
 function reactLabel(t: Translate, emoji: string, pressed: boolean) {

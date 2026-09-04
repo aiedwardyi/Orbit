@@ -49,7 +49,12 @@ export function transcriptText(message: Message, messagesById: ReadonlyMap<strin
   return body ? `${body}\n${annotation}` : annotation;
 }
 
-/** Reply quote plus current reaction state for a user turn. */
+/**
+ * Reply quote plus current reaction state for a user turn.
+ * Transcript replay already appends `[reactions: …]` per message; this also
+ * prepends `promptWithReactions` so resume-only engines (no history replay)
+ * still see tone. Duplicate marks on replay engines are accepted.
+ */
 export function composeUserTurnPrompt(
   text: string,
   opts: {
