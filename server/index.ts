@@ -3005,30 +3005,42 @@ function queueBusyRoomMember(
   return true;
 }
 
+function roomTurnStillAssigned(groupId: string, threadId: string, botId: string): boolean {
+  const group = store.group(groupId);
+  if (!group?.memberIds.includes(botId)) return false;
+  return group.dm
+    ? group.threadId === threadId
+    : Boolean(store.groupTaskByThread(group.id, threadId));
+}
+
 function enqueueDrainedRoomTurn(
   botId: string,
   threadId: string,
   room: { groupId: string; hop: number; cardContinuation?: string; onDispatchError?: (message: string) => void },
 ) {
   const fail = (message: string) => room.onDispatchError?.(message);
-  const group = store.group(room.groupId);
-  const stillMember = Boolean(group?.memberIds.includes(botId));
-  const ownsThread = group?.dm
-    ? group.threadId === threadId
-    : Boolean(group && store.groupTaskByThread(group.id, threadId));
-  if (!group || !stillMember || !ownsThread) {
+  if (!roomTurnStillAssigned(room.groupId, threadId, botId)) {
     fail("the room is no longer available");
     return;
   }
-  const operation = beginGroupTurnOperation(group.id, threadId);
-  const previous = groupQueues.get(group.id) ?? Promise.resolve();
+  const operation = beginGroupTurnOperation(room.groupId, threadId);
+  const previous = groupQueues.get(room.groupId) ?? Promise.resolve();
   const next = previous.then(async () => {
     if (operation.cancelled) {
       fail("the room turn was cancelled");
       return;
     }
+    // Prior group work can run long enough for a remove/archive. Recheck
+    // roster and thread ownership here — runGroupMemberTurn does not.
+    if (!roomTurnStillAssigned(room.groupId, threadId, botId)) {
+      fail("the room is no longer available");
+      return;
+    }
+    // New participation, not a replay of the original user-message round.
+    // Hop-1 @mentions from this reply are the same as any hop-0 room turn.
+    // Self-summon is already excluded in the chain loop (`id !== bot.id`).
     await runGroupMemberTurn(
-      group.id,
+      room.groupId,
       threadId,
       botId,
       room.hop,
@@ -3038,9 +3050,9 @@ function enqueueDrainedRoomTurn(
       () => operation.cancelled,
     );
   });
-  const tracked = next.finally(() => finishGroupTurnOperation(group.id, operation));
+  const tracked = next.finally(() => finishGroupTurnOperation(room.groupId, operation));
   groupQueues.set(
-    group.id,
+    room.groupId,
     tracked.catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       fail(message);

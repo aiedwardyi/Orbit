@@ -223,7 +223,7 @@ export function drainSteeredMessages(store: SteerStore, run: DrainRun): void {
     const roomDrain: RoomDrain = { groupId: room.groupId, hop: room.hop };
     if (room.cardContinuation) roomDrain.cardContinuation = room.cardContinuation;
     if (room.onDispatchError) roomDrain.onDispatchError = room.onDispatchError;
-    void run(entry.botId, entry.threadId, room.cardContinuation ?? "", null, [], roomDrain);
+    void run(entry.botId, entry.threadId, "", null, [], roomDrain);
   }
 }
 
