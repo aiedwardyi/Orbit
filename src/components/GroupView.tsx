@@ -878,7 +878,8 @@ export function GroupView({ group }: { group: Group }) {
   // Mascot stays while a member works; the finished reply pops in above it.
   const lastGroupMessage = group.messages.at(-1);
   const toolInFlight = lastGroupMessage?.kind === "activity" && lastGroupMessage.tool?.ok === undefined;
-  const activityLabel = liveActivityLabel(lastGroupMessage);
+  const showToolCalls = showToolCallsEnabled(state.config);
+  const activityLabel = liveActivityLabel(lastGroupMessage, showToolCalls);
   const waiting = Boolean(
     speaker && showWorkingDots(true, undefined, group.messages.at(-1), speaker.id),
   );

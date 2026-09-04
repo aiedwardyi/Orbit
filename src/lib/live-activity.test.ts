@@ -1,8 +1,15 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { liveActivityLabel } from "./live-activity";
 import { applyLocale } from "./i18n";
 import type { Message } from "@/state/store";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const chatView = readFileSync(join(here, "../components/ChatView.tsx"), "utf8");
+const groupView = readFileSync(join(here, "../components/GroupView.tsx"), "utf8");
 
 const activity = (name: string, extra: Partial<NonNullable<Message["tool"]>> = {}): Message => ({
   id: "activity",
@@ -45,5 +52,17 @@ describe("liveActivityLabel", () => {
         comm: { groupId: "room", withBotId: "bot", withName: "Peer", withColor: "blue" },
       }),
     ).toBe("Thinking");
+  });
+
+  it("hides tool-name theatre when Show tool calls is off", () => {
+    expect(liveActivityLabel(activity("Bash: pnpm test"), false)).toBe("Thinking");
+    expect(liveActivityLabel(activity("Edit", { spoken: "editing a file" }), false)).toBe("Thinking");
+    expect(liveActivityLabel(activity("web_search"), false)).toBe("Thinking");
+    expect(liveActivityLabel(activity("Bash: pnpm test"), true)).toBe("Running a command");
+  });
+
+  it("passes Show tool calls into ChatView and GroupView presence labels", () => {
+    expect(chatView).toMatch(/liveActivityLabel\([^,]+,\s*showToolCalls\)/);
+    expect(groupView).toMatch(/liveActivityLabel\([^,]+,\s*showToolCalls\)/);
   });
 });

@@ -604,7 +604,7 @@ function Bubble({
       {user && message.queued && bot.busy && (
         <div className="mt-1 flex items-center gap-1 pr-1 text-[11px] text-ink-secondary/70">
           <Clock size={11} aria-hidden="true" />
-          <span>Queued — sends when this turn finishes</span>
+          <span>{t("chat.queuedSendsNext")}</span>
           <button
             type="button"
             onClick={() => dispatch({ type: "cancelQueued", botId: bot.id, queueId: message.queueId ?? message.id })}
@@ -1012,7 +1012,8 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
   // is finished, the whole bubble pops in above the mascot.
   const lastMessage = messages.at(-1);
   const toolInFlight = lastMessage?.kind === "activity" && lastMessage.tool?.ok === undefined;
-  const activityLabel = liveActivityLabel(lastMessage);
+  const showToolCalls = showToolCallsEnabled(state.config);
+  const activityLabel = liveActivityLabel(lastMessage, showToolCalls);
   const waiting = Boolean(
     bot.busy &&
       bot.activity !== "waiting-on-you" &&

@@ -38,6 +38,7 @@ import { normalizeState } from "@/lib/mascot";
 import { groupComposerHint, roomRespondersForComposer } from "@/lib/group-routing";
 import { PendingApprovalActions, PendingApprovalPanel, pendingApprovals } from "./PendingApproval";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
+import { composerBusyChrome } from "@/lib/composer-busy";
 import { composerEnterIntent, isComposerEnterKey } from "@/lib/composer-enter";
 import { useI18n } from "@/lib/i18n";
 import { ReplyQuote } from "./ReplyQuote";
@@ -423,6 +424,13 @@ export function Composer({
     dispatch({ type: "updateBot", botId: autoBot.id, patch: { autoApprove: auto } });
   };
 
+  const idlePlaceholder = group
+    ? groupComposerHint(group, members ?? [], t)
+    : t("composer.placeholder", { name: bot?.name ?? "" });
+  const busyChrome = composerBusyChrome(
+    { busy, isRoom: Boolean(group), canSteer, name: busyName, idlePlaceholder },
+    t,
+  );
   const hasContent = Boolean(text.trim()) || attachments.length > 0;
   const retryFailedSend = (failed: FailedComposerSend) => {
     if (failed.requestText.includes("<attached-image ")) {
@@ -870,15 +878,7 @@ export function Composer({
               ? t("composer.answerApproval")
               : recording
               ? t("composer.listening")
-              : busy && canSteer
-                ? t("composer.steerHint", { name: busyName })
-              : busy
-                ? group
-                  ? t("composer.queueHint", { name: busyName })
-                  : t("composer.waitHint", { name: busyName })
-                : group
-                  ? groupComposerHint(group, members ?? [], t)
-                  : t("composer.placeholder", { name: bot?.name ?? "" })
+              : busyChrome.placeholder
           }
           aria-label={t("composer.messageAria", { name: group ? group.name : (bot?.name ?? "") })}
             className="col-span-full row-start-1 max-h-[9rem] min-h-6 w-full resize-none overflow-y-auto self-center bg-transparent px-1 py-1 text-[15px] leading-6 text-ink placeholder:text-ink-secondary focus:outline-none"
@@ -919,31 +919,23 @@ export function Composer({
             aria-label={
               group && queued
                 ? t("composer.waitingQueued")
-                : busy && canSteer
-                  ? t("composer.sendIntoTurn")
-                  : busy
-                    ? t("composer.queueMessage")
-                    : t("composer.sendMessage")
+                : t(busyChrome.sendAriaKey)
             }
             title={
               group && queued
                 ? t("composer.queuedSendsLater")
-                : busy && canSteer
-                  ? t("composer.sendIntoTurn")
-                  : busy
-                    ? t("composer.sendsWhenFinished")
-                    : t("composer.send")
+                : t(busyChrome.sendTitleKey)
             }
             className={cn(
               "flex size-8 shrink-0 items-center justify-center rounded-full text-white",
               group && queued
                 ? "cursor-not-allowed bg-raised text-ink-secondary"
-                : busy && !canSteer
+                : busyChrome.sendLooksQueued
                   ? "bg-raised text-ink-secondary hover:bg-raised-hover"
                   : "bg-accent hover:brightness-110",
             )}
           >
-            {busy && !canSteer ? <Clock size={15} /> : <ArrowUp size={17} />}
+            {busyChrome.sendLooksQueued ? <Clock size={15} /> : <ArrowUp size={17} />}
           </button>
           )}
           </div>
