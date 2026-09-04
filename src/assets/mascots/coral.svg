@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none" role="img" aria-label="Coral bean">
+  <defs>
+    <radialGradient id="coral-body" cx="40%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="{{BODY_LIGHT}}"/>
+      <stop offset="55%" stop-color="{{BODY}}"/>
+      <stop offset="100%" stop-color="{{BODY_SHADOW}}"/>
+    </radialGradient>
+  </defs>
+  <path id="flop-left" d="M78 96c-46 10-64 78-38 122 10 16 34 14 44-4 12-22 16-64 10-96-2-12-8-20-16-22z" fill="url(#coral-body)"/>
+  <path id="flop-right" d="M178 96c46 10 64 78 38 122-10 16-34 14-44-4-12-22-16-64-10-96 2-12 8-20 16-22z" fill="url(#coral-body)"/>
+  <ellipse cx="128" cy="138" rx="90" ry="80" fill="url(#coral-body)"/>
+  <path d="M52 168c8 22 22 34 34 28" stroke="{{BODY_SHADOW}}" stroke-width="10" stroke-linecap="round" opacity="0.12"/>
+  <path d="M204 168c-8 22-22 34-34 28" stroke="{{BODY_SHADOW}}" stroke-width="10" stroke-linecap="round" opacity="0.12"/>
+  <path d="M90 108c10-7 22-7 32 1" stroke="{{BODY_SHADOW}}" stroke-width="2.6" stroke-linecap="round" opacity="0.35"/>
+  <path d="M136 109c10-7 22-7 32 1" stroke="{{BODY_SHADOW}}" stroke-width="2.6" stroke-linecap="round" opacity="0.35"/>
+  <circle cx="100" cy="130" r="16" fill="#1A1210"/>
+  <circle cx="156" cy="130" r="16" fill="#1A1210"/>
+  <circle cx="94.5" cy="123.5" r="5.4" fill="#fff"/>
+  <circle cx="150.5" cy="123.5" r="5.4" fill="#fff"/>
+  <circle cx="107.5" cy="137.5" r="2.2" fill="#fff"/>
+  <circle cx="163.5" cy="137.5" r="2.2" fill="#fff"/>
+  <ellipse cx="80" cy="152" rx="17" ry="9" fill="#F4A0B4" opacity="0.5"/>
+  <ellipse cx="176" cy="152" rx="17" ry="9" fill="#F4A0B4" opacity="0.5"/>
+  <path d="M116 156c6 11 18 11 24 0" stroke="#3A241C" stroke-width="3.3" stroke-linecap="round"/>
+</svg>

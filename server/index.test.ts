@@ -1505,6 +1505,22 @@ describe("harness HTTP API", () => {
     expect(cleared.body.bot.avatarCrop).toBe("mascot");
   });
 
+  it("persists the four cute mascot styles and rejects the old arrow-head id", async () => {
+    const created = await api("POST", "/api/bots");
+    const bot = created.body.bot;
+
+    const saved = await api("PATCH", `/api/bots/${bot.id}`, { mascotStyle: "lavender", color: "purple" });
+    expect(saved.status).toBe(200);
+    expect(saved.body.bot).toMatchObject({ mascotStyle: "lavender", color: "purple" });
+
+    expect((await api("PATCH", `/api/bots/${bot.id}`, { mascotStyle: "arrow-head" })).status).toBe(400);
+    expect((await api("PATCH", `/api/bots/${bot.id}`, { mascotStyle: "cursor" })).status).toBe(400);
+
+    const cleared = await api("PATCH", `/api/bots/${bot.id}`, { mascotStyle: null });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.bot.mascotStyle).toBeUndefined();
+  });
+
   it("limits paired profile writes to validated profile fields and broadcasts the result", async () => {
     const created = await api("POST", "/api/bots");
     const bot = created.body.bot;

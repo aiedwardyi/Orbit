@@ -8,7 +8,7 @@ import { isIP } from "node:net";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 
 import { z } from "zod";
-import { botAvatarUrlFromStoredPath } from "../shared/bot-avatar.ts";
+import { botAvatarUrlFromStoredPath, mascotStyleSchema } from "../shared/bot-avatar.ts";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
 import { canDeleteWhileWorking, canSwitchWhileWorking, workingThreadId } from "../shared/working-thread.ts";
 import {
@@ -5902,6 +5902,17 @@ const server = createServer(async (req, res) => {
       }
       for (const key of ["unread", "computer", "cloudBackend", "color", "mascotExpression", "pinned", "hidden"] as const) {
         if (body[key] !== undefined) patch[key] = body[key];
+      }
+      if (body.mascotStyle !== undefined) {
+        if (body.mascotStyle === null || body.mascotStyle === "") {
+          patch.mascotStyle = undefined;
+        } else {
+          const parsedStyle = mascotStyleSchema.safeParse(body.mascotStyle);
+          if (!parsedStyle.success) {
+            return json(res, 400, { error: "mascotStyle must be peach, teal, lavender, or coral" });
+          }
+          patch.mascotStyle = parsedStyle.data;
+        }
       }
       if (normalizedSelection) patch.modelSelection = normalizedSelection;
       // one pinned message per thread; null/"" clears. The id is not

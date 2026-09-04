@@ -15,7 +15,7 @@ import {
 } from "react";
 import type { CloudBackend, EffortLevel, RateLimitWindow } from "../../server/contracts.ts";
 import type { MausColor, MausMotion } from "@/lib/mascot";
-import type { BotAvatarCrop } from "../../shared/bot-avatar";
+import type { BotAvatarCrop, MascotStyle } from "../../shared/bot-avatar";
 import type { RoutineRequestCardData } from "../../shared/routine-request";
 import type { RoutineRunCardData } from "../../shared/routine-run";
 import type { Routine, RoutineInput, RoutineRun } from "@/lib/routines";
@@ -227,6 +227,8 @@ export interface Bot {
   notifications: boolean;
   color: MausColor;
   mascotExpression?: string | null;
+  /** One of the four static cute faces; missing values color-map at render. */
+  mascotStyle?: MascotStyle | null;
   /** App-owned image attachment used for this bot's profile. */
   avatarUrl?: string | null;
   /** Mascot, or the crop applied to avatarUrl. */
@@ -1703,6 +1705,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             computer: source.computer,
             cloudBackend: source.cloudBackend,
             autoStartVps: source.autoStartVps,
+            color: source.color,
+            mascotStyle: source.mascotStyle,
             avatarUrl: source.avatarUrl,
             avatarCrop: source.avatarCrop,
           };

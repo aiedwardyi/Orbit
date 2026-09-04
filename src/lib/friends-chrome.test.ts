@@ -123,6 +123,8 @@ describe("friends chrome call sites keep the feature code", () => {
     expect(avatarCard).toContain("BOT_AVATAR_CROPS");
     expect(avatarCard).toContain("Upload image");
     expect(avatarCard).toContain("MAUS_COLOR_NAMES");
+    expect(avatarCard).toContain("MASCOT_STYLES");
+    expect(avatarCard).toContain("mascotStyle");
   });
 
   it("gates sidebar density toys and keeps a drag-resize handle plus the create menu", () => {

@@ -354,6 +354,7 @@ export function SettingsPanel({
         | "autoStartVps"
         | "color"
         | "mascotExpression"
+        | "mascotStyle"
         | "avatarUrl"
         | "avatarCrop"
         | "autoApprove"
