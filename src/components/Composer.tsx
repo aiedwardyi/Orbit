@@ -284,7 +284,7 @@ export function Composer({
   // IME composition: native isComposing can stay true after Hangul
   // commits, which used to make Enter insert a newline instead of send.
   const composingRef = useRef(false);
-  const compositionJustEndedRef = useRef(false);
+  const compositionEndedAtRef = useRef(0);
   // what was typed before the mic went on — partials append after it
   const baseText = useRef("");
 
@@ -815,14 +815,14 @@ export function Composer({
           onClick={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
           onCompositionStart={() => {
             composingRef.current = true;
-            compositionJustEndedRef.current = false;
+            compositionEndedAtRef.current = 0;
           }}
           onCompositionEnd={() => {
             composingRef.current = false;
-            compositionJustEndedRef.current = true;
-            requestAnimationFrame(() => {
-              compositionJustEndedRef.current = false;
-            });
+            compositionEndedAtRef.current = Date.now();
+          }}
+          onBlur={() => {
+            composingRef.current = false;
           }}
           onKeyDown={(e) => {
             if (pickerOpen) {
@@ -853,7 +853,7 @@ export function Composer({
             if (
               composerEnterIntent(e, {
                 composing: composingRef.current,
-                justEnded: compositionJustEndedRef.current,
+                justEnded: Date.now() - compositionEndedAtRef.current < 50,
               }) === "send"
             ) {
               e.preventDefault();

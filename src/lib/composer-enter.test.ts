@@ -90,5 +90,8 @@ describe("composer Enter wiring", () => {
     expect(composer).toContain("composerEnterIntent");
     expect(composer).toContain("onCompositionStart");
     expect(composer).toContain("onCompositionEnd");
+    expect(composer).toContain("composingRef.current");
+    expect(composer).toContain("compositionEndedAtRef");
+    expect(composer).toContain("onBlur");
   });
 });
