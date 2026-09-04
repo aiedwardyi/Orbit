@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { installCommandFor, needsCli, needsSignIn } from "./EngineSetup";
+import { installCommandFor, isApiKeySetupMessage, needsApiKey, needsCli, needsSignIn, setupErrorAction } from "./EngineSetup";
 import type { InstanceInfo } from "@/state/store";
 
 function instance(snapshot: InstanceInfo["snapshot"]): InstanceInfo {
@@ -30,6 +30,44 @@ describe("needsCli / needsSignIn", () => {
     const ready = instance({ state: "available", authenticated: true, version: "0.36.1" });
     expect(needsCli(ready)).toBe(false);
     expect(needsSignIn(ready)).toBe(false);
+  });
+});
+
+describe("API key setup", () => {
+  function gemini(snapshot: InstanceInfo["snapshot"]): InstanceInfo {
+    return {
+      instanceId: "gemini",
+      driverKind: "geminiAgent",
+      displayName: "Gemini API",
+      models: { default: "auto", options: [] },
+      snapshot,
+    };
+  }
+
+  it("treats an installed Gemini CLI without a key as an API-key paste, not Retry", () => {
+    const missingKey = gemini({ state: "available", authenticated: false, version: "0.1.0" });
+    expect(needsApiKey(missingKey)).toBe(true);
+    expect(setupErrorAction("Gemini API key missing", missingKey)).toBe("key");
+    expect(setupErrorAction("Gemini API key missing", undefined)).toBe("key");
+    expect(isApiKeySetupMessage("Gemini API key missing")).toBe(true);
+  });
+
+  it("still installs the CLI first when the binary is absent", () => {
+    const missingCli = gemini({ state: "unavailable", reason: "`gemini` CLI not found" });
+    expect(needsCli(missingCli)).toBe(true);
+    expect(setupErrorAction("Gemini API key missing", missingCli)).toBe("cli");
+  });
+
+  it("keeps Grok on the Terminal sign-in path", () => {
+    const grok: InstanceInfo = {
+      instanceId: "grok",
+      driverKind: "grokAgent",
+      displayName: "Grok",
+      models: { default: "grok-4.6", options: [] },
+      snapshot: { state: "available", authenticated: false },
+    };
+    expect(needsApiKey(grok)).toBe(false);
+    expect(setupErrorAction("Grok CLI is not signed in", grok)).toBe("cli");
   });
 });
 

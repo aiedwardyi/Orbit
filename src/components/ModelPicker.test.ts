@@ -94,8 +94,6 @@ const bot = {
 function markup(
   selection: Bot["modelSelection"] = bot.modelSelection,
   defaultOpen = false,
-  defaultRailOpen = false,
-  defaultShowAllEngines = false,
 ) {
   return renderToStaticMarkup(
     createElement(
@@ -104,20 +102,23 @@ function markup(
       createElement(ModelPicker, {
         bot: { ...bot, modelSelection: selection },
         defaultOpen,
-        defaultRailOpen,
-        defaultShowAllEngines,
       }),
     ),
   );
 }
 
-const NON_FRIENDS_LABELS = ['aria-label="Kimi"', 'aria-label="Qwen"', 'aria-label="Cursor"', 'aria-label="Hermes"'];
+const NON_FRIENDS_LABELS = [
+  'aria-label="Kimi"',
+  'aria-label="Qwen"',
+  'aria-label="Cursor"',
+  'aria-label="Hermes"',
+  'aria-label="Gemini API"',
+];
 const FRIENDS_LABELS = [
   'aria-label="Grok"',
   'aria-label="Claude"',
-  'aria-label="Gemini API"',
-  'aria-label="Gemini (Antigravity)"',
   'aria-label="Codex"',
+  'aria-label="Gemini (Antigravity)"',
   'aria-label="OpenCode"',
 ];
 
@@ -144,17 +145,17 @@ describe("ModelPicker friends chip", () => {
     expect(html).toContain("Currently unresolved.");
   });
 
-  it("lets the automatic help sentence wrap instead of truncating it", () => {
+  it("names the current model on the Automatic row", () => {
     const html = markup(bot.modelSelection, true);
-    expect(html).toContain("Keep the current engine when it works. Switch only when needed.");
-    expect(html).toMatch(/leading-snug[^"]*"[^>]*>Keep the current engine when it works/);
-    expect(html).not.toMatch(/truncate[^"]*"[^>]*>Keep the current engine when it works/);
+    expect(html).toContain("Currently Grok 4.6. Keep this engine when it works.");
+    expect(html).toMatch(/leading-snug[^"]*"[^>]*>Currently Grok 4\.6/);
+    expect(html).not.toMatch(/truncate[^"]*"[^>]*>Currently Grok 4\.6/);
   });
 
   it("shows Ready on the open engine pane, not the CLI --version dump", () => {
     const html = markup(bot.modelSelection, true);
     expect(html).toMatch(/bg-success\/10 text-success[^"]*"[^>]*>Ready</);
-    expect(html).toContain('title="Grok · Ready"');
+    expect(html).toContain("Grok · Ready");
     expect(html).not.toContain("CLI 1.0.13");
     expect(html).not.toContain("CLI grok");
     expect(html).not.toContain("1.0.13");
@@ -182,64 +183,40 @@ describe("ModelPicker friends chip", () => {
     expect(list).not.toContain("Suggested");
   });
 
-  it("folds the Cloud/Local engine rail while the open picker is idle", () => {
+  it("shows the Models icon rail when the picker opens, without a fake Grok dropdown", () => {
     const html = markup(bot.modelSelection, true);
-    const list = html.slice(html.indexOf("data-model-picker-content"));
-    expect(list).toContain("Grok 4.6");
-    expect(list).toContain("Automatic");
-    expect(list).toMatch(/bg-success\/10 text-success[^"]*"[^>]*>Ready</);
-    expect(list).toContain("Switch engine");
-    expect(list).not.toContain("w-14 shrink-0");
-    expect(list).not.toContain('aria-label="Claude"');
-    expect(list).not.toContain("Fable 5.1");
-    for (const label of NON_FRIENDS_LABELS) expect(list).not.toContain(label);
-    expect(list).not.toContain("Use a local model");
-  });
-
-  it("shows the friends-only engine rail when the user asks to switch", () => {
-    const html = markup(bot.modelSelection, true, true);
     const list = html.slice(html.indexOf("data-model-picker-content"));
     expect(list).toContain("data-engine-rail");
     expect(list).toContain("w-14 shrink-0");
-    expect(list).toContain('aria-label="Claude"');
-    expect(list).toContain('title="Claude · Ready"');
+    expect(list).toContain('aria-label="Switch engine"');
+    expect(list).toContain(">Models<");
+    expect(list).not.toContain(">Cloud<");
     expect(list).toContain("Grok 4.6");
+    expect(list).toContain("Automatic");
+    expect(list).toMatch(/bg-success\/10 text-success[^"]*"[^>]*>Ready</);
+    expect(list).not.toMatch(/aria-label="Switch engine"[^>]*aria-expanded/);
     for (const label of FRIENDS_LABELS) expect(list).toContain(label);
     for (const label of NON_FRIENDS_LABELS) expect(list).not.toContain(label);
-    expect(list).toContain("Show all engines · 4 more");
-    expect(list).not.toContain("Use a local model");
+    expect(list).not.toContain("Show all engines");
     expect(list).not.toContain(">Local<");
-  });
-
-  it("reveals the rest of the fleet after Show all engines", () => {
-    const html = markup(bot.modelSelection, true, true, true);
-    const list = html.slice(html.indexOf("data-model-picker-content"));
-    for (const label of FRIENDS_LABELS) expect(list).toContain(label);
-    for (const label of NON_FRIENDS_LABELS) expect(list).toContain(label);
-    expect(list).toContain("Show fewer engines");
     expect(list).toContain("Use a local model");
-    expect(list).toContain(">Local<");
-    expect(list).toContain('aria-label="Hermes"');
+    const grok = list.indexOf('aria-label="Grok"');
+    const claude = list.indexOf('aria-label="Claude"');
+    const codex = list.indexOf('aria-label="Codex"');
+    const antigravity = list.indexOf('aria-label="Gemini (Antigravity)"');
+    const opencode = list.indexOf('aria-label="OpenCode"');
+    expect(grok).toBeGreaterThan(-1);
+    expect(claude).toBeGreaterThan(grok);
+    expect(codex).toBeGreaterThan(claude);
+    expect(antigravity).toBeGreaterThan(codex);
+    expect(opencode).toBeGreaterThan(antigravity);
   });
 
-  it("keeps the active non-friends engine on the folded friends rail", () => {
-    const html = markup({ instanceId: "kimi", model: "kimi-default", mode: "pinned" }, true, true);
+  it("does not put a non-friends pin or Gemini API on the featured rail", () => {
+    const html = markup({ instanceId: "kimi", model: "kimi-default", mode: "pinned" }, true);
     const list = html.slice(html.indexOf("data-model-picker-content"));
-    expect(list).toContain('aria-label="Kimi"');
-    expect(list).not.toContain('aria-label="Qwen"');
-    expect(list).not.toContain('aria-label="Cursor"');
-    expect(list).toContain("Show all engines · 3 more");
-  });
-
-  it("still offers local models when Switch engine has no overflow to disclose", () => {
-    const overflow = mockInstances.splice(6);
-    try {
-      const html = markup(bot.modelSelection, true, true);
-      const list = html.slice(html.indexOf("data-model-picker-content"));
-      expect(list).not.toContain("Show all engines");
-      expect(list).toContain("Use a local model");
-    } finally {
-      mockInstances.push(...overflow);
-    }
+    expect(list).not.toContain('aria-label="Kimi"');
+    expect(list).not.toContain('aria-label="Gemini API"');
+    expect(list).not.toContain("Show all engines");
   });
 });

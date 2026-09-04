@@ -33,7 +33,7 @@ import {
   type Message,
   type TaskResumePacket,
 } from "@/state/store";
-import { EngineSetup } from "./EngineSetup";
+import { EngineSetup, OpenConnectionsCta, setupErrorAction } from "./EngineSetup";
 import { BotAvatar } from "./Avatar";
 import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
@@ -280,6 +280,7 @@ function ErrorRow({
   onRetry?: () => void;
   setupInstance?: InstanceInfo;
 }) {
+  const action = setupErrorAction(message, setupInstance);
   return (
     <div className="flex justify-start">
       <div className="w-fit max-w-[min(42rem,78%)] rounded-xl border border-danger/30 bg-danger/10 px-3.5 py-2.5 text-[13.5px] text-danger">
@@ -287,9 +288,10 @@ function ErrorRow({
           <AlertTriangle size={15} className="mt-0.5 shrink-0" />
           <span className="min-w-0 break-words">{message}</span>
         </div>
-        {setupInstance &&
-        !(setupInstance.snapshot.state === "available" && setupInstance.snapshot.authenticated !== false) ? (
+        {action === "cli" && setupInstance ? (
           <EngineSetup instance={setupInstance} className="mt-2 text-ink-secondary" />
+        ) : action === "key" ? (
+          <OpenConnectionsCta className="mt-2" />
         ) : (
           onRetry && (
             <button

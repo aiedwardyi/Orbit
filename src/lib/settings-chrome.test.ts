@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   friendsSettingsNavVisible,
+  resolvedAppSettingsSection,
   showSettingsAdvancedControls,
   showSettingsMoreServices,
 } from "./settings-chrome";
@@ -14,20 +15,20 @@ describe("showSettingsAdvancedControls", () => {
 });
 
 describe("showSettingsMoreServices", () => {
-  it("keeps non-Gemini connections folded until asked", () => {
+  it("keeps AssemblyAI, Box, VPS, and self-host off the friends Connections page", () => {
     expect(showSettingsMoreServices(false)).toBe(false);
-    expect(showSettingsMoreServices(true)).toBe(true);
+    expect(showSettingsMoreServices(true)).toBe(false);
   });
 });
 
 describe("friendsSettingsNavVisible", () => {
-  it("hides Local VM from the idle nav and Phone when parked", () => {
+  it("hides Local VM, Phone, and the Engines tab", () => {
     expect(friendsSettingsNavVisible("computer", "", { phoneAvailable: false })).toBe(false);
     expect(friendsSettingsNavVisible("computer", "", { phoneAvailable: true })).toBe(false);
     expect(friendsSettingsNavVisible("companion", "", { phoneAvailable: false })).toBe(false);
     expect(friendsSettingsNavVisible("general", "", { phoneAvailable: false })).toBe(true);
     expect(friendsSettingsNavVisible("connections", "", { phoneAvailable: false })).toBe(true);
-    expect(friendsSettingsNavVisible("engines", "", { phoneAvailable: false })).toBe(true);
+    expect(friendsSettingsNavVisible("engines", "", { phoneAvailable: false })).toBe(false);
     expect(friendsSettingsNavVisible("usage", "", { phoneAvailable: false })).toBe(true);
   });
 
@@ -39,5 +40,13 @@ describe("friendsSettingsNavVisible", () => {
   it("keeps Phone off the idle surface even when the host would otherwise show it", () => {
     expect(friendsSettingsNavVisible("companion", "", { phoneAvailable: true })).toBe(false);
     expect(friendsSettingsNavVisible("companion", "phone", { phoneAvailable: true })).toBe(false);
+  });
+});
+
+describe("resolvedAppSettingsSection", () => {
+  it("folds Engines into Connections", () => {
+    expect(resolvedAppSettingsSection("engines")).toBe("connections");
+    expect(resolvedAppSettingsSection("connections")).toBe("connections");
+    expect(resolvedAppSettingsSection("usage")).toBe("usage");
   });
 });

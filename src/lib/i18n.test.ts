@@ -405,7 +405,15 @@ describe("first-run core path leftovers", () => {
     expect(en["model.pinnedTitle"]).toBe("{engine} · {model}");
     expect(ko["model.pinnedTitle"]).toBe("{engine} · {model}");
     expect(en["model.automaticHelp"]).toContain("when it works");
+    expect(en["model.automaticHelp"]).toContain("{name}");
+    expect(ko["model.automaticHelp"]).toContain("{name}");
     expect(ko["model.automaticHelp"]).not.toMatch(/when it works/i);
+    expect(translate("en", "model.automaticHelp", { name: "Grok 4.6" })).toContain("Grok 4.6");
+    expect(en["engine.openConnections"]).toBe("Enter API key");
+    expect(ko["engine.openConnections"]).toBe("API 키 입력");
+    expect(en["engines.models"]).toBe("Models");
+    expect(ko["engines.models"]).toBe("모델");
+    expect(en["usage.limits.unavailable"]).toBe("not available at the moment");
     expect(translate("en", "model.cliVersion", { version: "1.0.13" })).toBe("CLI 1.0.13");
     expect(translate("ko", "model.cliVersion", { version: "1.0.13" })).toBe("CLI 패키지 1.0.13");
     expect(en["model.showAll"]).toContain("{count}");
@@ -424,6 +432,8 @@ describe("first-run core path leftovers", () => {
     expect(engineSetup).toContain('t("engine.signInTo"');
     expect(engineSetup).toContain('t("engine.installName"');
     expect(engineSetup).toContain('t("engine.copyCommand")');
+    expect(engineSetup).toContain('t("engine.openConnections")');
+    expect(engineSetup).toContain('t("engine.needsKey")');
     expect(engineSetup).not.toMatch(/Open install in Terminal/);
     expect(approvalCard).toContain('t("approval.wantsNamed"');
     expect(approvalCard).toContain('t("approval.allowed")');
@@ -449,12 +459,17 @@ describe("first-run core path leftovers", () => {
     expect(modelPicker).toContain('t("palette.noMatch"');
     expect(modelPicker).toContain('t("model.automatic")');
     expect(modelPicker).toContain('t("model.switchEngine")');
+    expect(modelPicker).toContain('t("model.automaticHelp"');
+    expect(modelPicker).toContain('t("engines.models")');
     expect(modelPicker).not.toMatch(/Nothing matches/);
     expect(modelPicker).not.toMatch(/>Switch engine</);
+    expect(modelPicker).not.toMatch(/>Cloud</);
     expect(enginesSettings).toContain('t("engines.setCli")');
+    expect(enginesSettings).toContain('t("engines.models")');
     expect(enginesSettings).toContain('t("engines.inUseSuffix"');
     expect(enginesSettings).not.toMatch(/>Set CLI…</);
     expect(enginesSettings).not.toMatch(/· in use/);
+    expect(enginesSettings).not.toMatch(/>Cloud</);
   });
 });
 
@@ -541,11 +556,11 @@ describe("plan usage", () => {
     expect(usageSection).toContain('"usage.limits.weekly"');
     expect(usageSection).toContain('"usage.limits.window"');
     expect(usageSection).toContain('t("usage.limits.percentUsed", { percent })');
-    expect(usageSection).toContain('"usage.limits.pending"');
-    expect(usageSection).toContain('"usage.limits.notReported"');
+    expect(usageSection).toContain('t("usage.limits.unavailable")');
     expect(usageSection).toContain("t(reset.key, reset.vars)");
     expect(usageSection).not.toMatch(/Resets in/);
     expect(usageSection).not.toMatch(/% used/);
     expect(usageSection).not.toMatch(/does not report/);
+    expect(usageSection).not.toMatch(/not available at the moment/);
   });
 });

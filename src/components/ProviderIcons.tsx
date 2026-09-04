@@ -166,7 +166,8 @@ export function ProviderMark({ driverKind, size, className }: IconProps & { driv
     case "cursorAgent":
       return <CursorMark size={size} className={className} />;
     case "antigravityAgent":
-      return <AntigravityMark size={size} className={className} />;
+      // Friends Gemini slot: Antigravity keeps agy CLI, Gemini logo + models.
+      return <GeminiMark size={size} className={className} />;
     case "opencodeGo":
       return <OpenCodeMark size={size} className={className} />;
     case "qwenAgent":
