@@ -28,17 +28,20 @@ export function splitEngineRail<T>(instances: readonly T[]): {
   return { subscription, custom };
 }
 
-// The four friends engines — Claude, Codex, Gemini, Grok — across five drivers:
+// Friends engines — Claude, Codex, Gemini, Grok, OpenCode — across six drivers:
 // Gemini ships both a direct and an Antigravity route, and QA_PROMPT.md tests it
-// through Antigravity. Everything else stays one click away behind Show all: a
-// disclosure, never a removal. An engine the user pointed at a binary is always
-// shown, because hiding a configured engine would read as Orbit having dropped it.
+// through Antigravity. OpenCode is the existing `opencodeGo` driver; Muse is not
+// in this repo and is not invented here. Everything else stays one click away
+// behind Show all: a disclosure, never a removal. An engine the user pointed at
+// a binary is always shown, because hiding a configured engine would read as
+// Orbit having dropped it.
 const FRIENDS_DRIVERS = new Set([
   "claudeAgent",
   "codex",
   "grokAgent",
   "geminiAgent",
   "antigravityAgent",
+  "opencodeGo",
 ]);
 
 export function isFriendsEngine(
@@ -60,6 +63,38 @@ export function splitFriendsEngines<T>(instances: readonly T[]): {
     else rest.push(instance);
   }
   return { friends, rest };
+}
+
+/** Chat-header Switch-engine rail: friends first, plus the active engine so
+ * a non-friends pin does not disappear. Show all reveals the rest. */
+export function visibleFriendsRail<T extends { instanceId: string }>(
+  instances: readonly T[],
+  options: { showAll: boolean; activeId?: string },
+): { visible: T[]; hiddenCount: number } {
+  const { friends, rest } = splitFriendsEngines(instances);
+  const collapsible = friends.length > 0 && rest.length > 0;
+  if (options.showAll || !collapsible) {
+    return { visible: [...friends, ...rest], hiddenCount: 0 };
+  }
+  const visible = [...friends];
+  if (options.activeId && !visible.some((row) => row.instanceId === options.activeId)) {
+    const active = instances.find((row) => row.instanceId === options.activeId);
+    if (active) visible.push(active);
+  }
+  return { visible, hiddenCount: instances.length - visible.length };
+}
+
+/** Local/custom models stay off the idle friends picker. Show all, a rail
+ * with nothing left to disclose, or a single-engine chip is the way back. */
+export function showFriendsLocalZoo(input: {
+  showAllEngines: boolean;
+  railShown: boolean;
+  hasOverflow: boolean;
+  canSwitchEngine: boolean;
+}): boolean {
+  if (input.showAllEngines) return true;
+  if (!input.canSwitchEngine) return true;
+  return input.railShown && !input.hasOverflow;
 }
 
 // First launch with nothing connected: one path, Grok or Claude. The rest of

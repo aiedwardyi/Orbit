@@ -5,43 +5,71 @@ import { describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/lib/i18n";
 import type { Bot } from "@/state/store";
 
+const { mockInstances } = vi.hoisted(() => {
+  const readyEngine = (
+    instanceId: string,
+    driverKind: string,
+    displayName: string,
+    extra: Record<string, unknown> = {},
+  ) => ({
+    instanceId,
+    driverKind,
+    displayName,
+    snapshot: { state: "available" as const, authenticated: true, version: "1.0.0" },
+    models: {
+      default: `${instanceId}-default`,
+      options: [{ id: `${instanceId}-default`, label: `${displayName} default` }],
+    },
+    ...extra,
+  });
+  return {
+    mockInstances: [
+      {
+        instanceId: "grok",
+        driverKind: "grokAgent",
+        displayName: "Grok",
+        snapshot: {
+          state: "available" as const,
+          authenticated: true,
+          version: "grok 1.0.13 (5e9a58528b76) [stable]",
+        },
+        models: {
+          default: "grok-4.6",
+          options: [
+            { id: "grok-4.6", label: "Grok 4.6" },
+            { id: "grok-4.5", label: "Grok 4.5" },
+            { id: "omlx::local", label: "local (oMLX)", custom: true },
+          ],
+        },
+      },
+      {
+        instanceId: "claude",
+        driverKind: "claudeAgent",
+        displayName: "Claude",
+        snapshot: { state: "available" as const, authenticated: true, version: "1.0.0" },
+        models: {
+          default: "claude-fable-5-1",
+          options: [{ id: "claude-fable-5-1", label: "Fable 5.1" }],
+        },
+      },
+      readyEngine("gemini", "geminiAgent", "Gemini API"),
+      readyEngine("antigravity", "antigravityAgent", "Gemini (Antigravity)"),
+      readyEngine("codex", "codex", "Codex"),
+      readyEngine("opencode", "opencodeGo", "OpenCode"),
+      readyEngine("kimi", "kimiAgent", "Kimi"),
+      readyEngine("qwen", "qwenAgent", "Qwen"),
+      readyEngine("cursor", "cursorAgent", "Cursor"),
+      readyEngine("hermes", "hermesAgent", "Hermes", { access: "custom" }),
+    ],
+  };
+});
+
 vi.mock("@/state/store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/state/store")>();
   return {
     ...actual,
     useStore: () => ({
-      state: {
-        instances: [
-          {
-            instanceId: "grok",
-            driverKind: "grokAgent",
-            displayName: "Grok",
-            snapshot: {
-              state: "available",
-              authenticated: true,
-              version: "grok 1.0.13 (5e9a58528b76) [stable]",
-            },
-            models: {
-              default: "grok-4.6",
-              options: [
-                { id: "grok-4.6", label: "Grok 4.6" },
-                { id: "grok-4.5", label: "Grok 4.5" },
-                { id: "omlx::local", label: "local (oMLX)", custom: true },
-              ],
-            },
-          },
-          {
-            instanceId: "claude",
-            driverKind: "claudeAgent",
-            displayName: "Claude",
-            snapshot: { state: "available", authenticated: true, version: "1.0.0" },
-            models: {
-              default: "claude-fable-5-1",
-              options: [{ id: "claude-fable-5-1", label: "Fable 5.1" }],
-            },
-          },
-        ],
-      },
+      state: { instances: mockInstances },
       dispatch: () => undefined,
       refreshInstances: async () => undefined,
     }),
@@ -67,6 +95,7 @@ function markup(
   selection: Bot["modelSelection"] = bot.modelSelection,
   defaultOpen = false,
   defaultRailOpen = false,
+  defaultShowAllEngines = false,
 ) {
   return renderToStaticMarkup(
     createElement(
@@ -76,10 +105,21 @@ function markup(
         bot: { ...bot, modelSelection: selection },
         defaultOpen,
         defaultRailOpen,
+        defaultShowAllEngines,
       }),
     ),
   );
 }
+
+const NON_FRIENDS_LABELS = ['aria-label="Kimi"', 'aria-label="Qwen"', 'aria-label="Cursor"', 'aria-label="Hermes"'];
+const FRIENDS_LABELS = [
+  'aria-label="Grok"',
+  'aria-label="Claude"',
+  'aria-label="Gemini API"',
+  'aria-label="Gemini (Antigravity)"',
+  'aria-label="Codex"',
+  'aria-label="OpenCode"',
+];
 
 describe("ModelPicker friends chip", () => {
   it("paints Grok 4.6 on the chip while automatic is the mode", () => {
@@ -152,9 +192,11 @@ describe("ModelPicker friends chip", () => {
     expect(list).not.toContain("w-14 shrink-0");
     expect(list).not.toContain('aria-label="Claude"');
     expect(list).not.toContain("Fable 5.1");
+    for (const label of NON_FRIENDS_LABELS) expect(list).not.toContain(label);
+    expect(list).not.toContain("Use a local model");
   });
 
-  it("shows the engine rail when the user asks to switch", () => {
+  it("shows the friends-only engine rail when the user asks to switch", () => {
     const html = markup(bot.modelSelection, true, true);
     const list = html.slice(html.indexOf("data-model-picker-content"));
     expect(list).toContain("data-engine-rail");
@@ -162,5 +204,42 @@ describe("ModelPicker friends chip", () => {
     expect(list).toContain('aria-label="Claude"');
     expect(list).toContain('title="Claude · Ready"');
     expect(list).toContain("Grok 4.6");
+    for (const label of FRIENDS_LABELS) expect(list).toContain(label);
+    for (const label of NON_FRIENDS_LABELS) expect(list).not.toContain(label);
+    expect(list).toContain("Show all engines · 4 more");
+    expect(list).not.toContain("Use a local model");
+    expect(list).not.toContain(">Local<");
+  });
+
+  it("reveals the rest of the fleet after Show all engines", () => {
+    const html = markup(bot.modelSelection, true, true, true);
+    const list = html.slice(html.indexOf("data-model-picker-content"));
+    for (const label of FRIENDS_LABELS) expect(list).toContain(label);
+    for (const label of NON_FRIENDS_LABELS) expect(list).toContain(label);
+    expect(list).toContain("Show fewer engines");
+    expect(list).toContain("Use a local model");
+    expect(list).toContain(">Local<");
+    expect(list).toContain('aria-label="Hermes"');
+  });
+
+  it("keeps the active non-friends engine on the folded friends rail", () => {
+    const html = markup({ instanceId: "kimi", model: "kimi-default", mode: "pinned" }, true, true);
+    const list = html.slice(html.indexOf("data-model-picker-content"));
+    expect(list).toContain('aria-label="Kimi"');
+    expect(list).not.toContain('aria-label="Qwen"');
+    expect(list).not.toContain('aria-label="Cursor"');
+    expect(list).toContain("Show all engines · 3 more");
+  });
+
+  it("still offers local models when Switch engine has no overflow to disclose", () => {
+    const overflow = mockInstances.splice(6);
+    try {
+      const html = markup(bot.modelSelection, true, true);
+      const list = html.slice(html.indexOf("data-model-picker-content"));
+      expect(list).not.toContain("Show all engines");
+      expect(list).toContain("Use a local model");
+    } finally {
+      mockInstances.push(...overflow);
+    }
   });
 });

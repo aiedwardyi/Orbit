@@ -11,6 +11,7 @@ import {
   OFFICIAL_CODEX_PROVIDER,
   readCodexModelCatalog,
   STATIC_CODEX_MODELS,
+  withSuggestedCodexAstra,
 } from "./codex-catalog.ts";
 
 const scratchDirs: string[] = [];
@@ -56,6 +57,37 @@ describe("decodeCodexSelection", () => {
   });
 });
 
+describe("STATIC_CODEX_MODELS", () => {
+  it("includes GPT-6 Astra in the suggested official rows", () => {
+    expect(STATIC_CODEX_MODELS.options[0]).toEqual({ id: "gpt-6-astra", label: "GPT-6 Astra" });
+    expect(STATIC_CODEX_MODELS.default).toBe("gpt-5.6-sol");
+  });
+
+  it("prepends Astra when a live catalog omitted it", () => {
+    expect(
+      withSuggestedCodexAstra({
+        default: "gpt-fake-default",
+        options: [{ id: "gpt-fake-default", label: "GPT Fake Default" }],
+      }).options.map((option) => option.id),
+    ).toEqual(["gpt-6-astra", "gpt-fake-default"]);
+  });
+
+  it("keeps a live Astra row and its label when the catalog already has one", () => {
+    const live = {
+      default: "gpt-fake-default",
+      options: [
+        { id: "gpt-fake-default", label: "GPT Fake Default" },
+        { id: "gpt-6-astra", label: "GPT-6-Astra Fast" },
+      ],
+    };
+    const merged = withSuggestedCodexAstra(live);
+    expect(merged.default).toBe("gpt-fake-default");
+    expect(merged.options.filter((option) => option.id === "gpt-6-astra")).toEqual([
+      { id: "gpt-6-astra", label: "GPT-6-Astra Fast" },
+    ]);
+  });
+});
+
 describe("readCodexModelCatalog", () => {
   it("returns the static cloud fallback when there is no config or CLI probe", async () => {
     expect(await readCodexModelCatalog({ HOME: join(tmpdir(), "omb-codex-missing-home") })).toEqual(
@@ -74,6 +106,7 @@ describe("readCodexModelCatalog", () => {
     expect(catalog).toEqual({
       default: "gpt-fake-default",
       options: [
+        { id: "gpt-6-astra", label: "GPT-6 Astra" },
         { id: "gpt-fake-default", label: "GPT Fake Default" },
         { id: "gpt-page-two", label: "GPT Page Two" },
       ],

@@ -14,6 +14,10 @@ import { mergeLocalInject } from "./local-inject.ts";
 export const STATIC_CODEX_MODELS: ModelCatalog = {
   default: "gpt-5.6-sol",
   options: [
+    // Official ChatGPT / Codex slug from the 2026-09-03 Codex 0.153 catalog
+    // and OpenAI model docs (`codex -m gpt-6-astra`). Kept first so the
+    // compact picker suggested list includes it. Default stays Sol.
+    { id: "gpt-6-astra", label: "GPT-6 Astra" },
     { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
     { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
     { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
@@ -353,13 +357,24 @@ async function probeProviderModels(
   }
 }
 
-/** Local slugs Codex already knows, plus the three official cloud rows. */
+const CODEX_ASTRA = { id: "gpt-6-astra", label: "GPT-6 Astra" } as const;
+
+/** Keep Astra on the official suggested list even when a live CLI catalog
+ * hides it (Codex 0.153.1 advertised the slug without showing it in its
+ * own picker). A live row with the same id wins. */
+export function withSuggestedCodexAstra(catalog: ModelCatalog): ModelCatalog {
+  if (catalog.options.some((option) => option.id === CODEX_ASTRA.id)) return catalog;
+  return { ...catalog, options: [{ ...CODEX_ASTRA }, ...catalog.options] };
+}
+
+/** Local slugs Codex already knows, plus the official cloud rows. */
 export async function readCodexModelCatalog(
   env: Record<string, string | undefined> = process.env,
   fetchImpl: typeof fetch = fetch,
   cli?: string,
 ): Promise<ModelCatalog> {
-  const official = (cli ? await readCodexAppServerModelCatalog(cli, env) : null) ?? STATIC_CODEX_MODELS;
+  const advertised = cli ? await readCodexAppServerModelCatalog(cli, env) : null;
+  const official = advertised ? withSuggestedCodexAstra(advertised) : STATIC_CODEX_MODELS;
   const home = codexHome(env);
   const mainText = readText(join(home, "config.toml"));
   if (!mainText) return mergeLocalInject(official, env, fetchImpl);
