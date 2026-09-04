@@ -13,6 +13,9 @@ export const SKIN_IDS = [
   "catppuccin-mocha",
   "tokyo-night",
   "vesper",
+  "onyx",
+  "dracula",
+  "cobalt",
 ] as const;
 export type SkinId = (typeof SKIN_IDS)[number];
 
@@ -32,6 +35,9 @@ export const SKINS: readonly Skin[] = [
   { id: "catppuccin-mocha", name: "Catppuccin Mocha", tagline: "Soft pastel on navy." },
   { id: "tokyo-night", name: "Tokyo Night", tagline: "Indigo night, cool counterpart to Foundry." },
   { id: "vesper", name: "Vesper", tagline: "Warm near-black, peach accent." },
+  { id: "onyx", name: "Onyx", tagline: "Black glass, silver trim." },
+  { id: "dracula", name: "Dracula", tagline: "Slate purple, neon status." },
+  { id: "cobalt", name: "Cobalt", tagline: "Deep ocean, yellow lamp." },
 ];
 
 export const DEFAULT_SKIN: SkinId = "midnight";

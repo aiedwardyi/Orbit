@@ -430,6 +430,124 @@
   --radius-xl: 8px;
 }
 
+/* ── Onyx ──────────────────────────────────────────────────────────────────
+   Black glass, silver trim. Mapped tokens are the near-black ground, raised
+   steel, bright ink, muted silver, silver accent, hairline, coral, and green.
+   Accent and danger fills carry the ground as ink. Links use a distinct blue
+   so they are not the same silver as body copy.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="onyx"] {
+  --color-app: #0a0a0b;
+  --color-panel: #0f0f11;
+  --color-raised: #1a1a1d;
+  --color-raised-hover: #28282c;
+  --color-card: #121214;
+  --color-inset: #070708;
+  --color-control: #1a1a1d;       /* = raised */
+  --color-hairline: #343438;
+
+  --color-ink: #ededf0;
+  --color-ink-secondary: #9c9ca5;
+
+  --color-accent: #e4e4e7;
+  --color-accent-border: #e7e7ea;
+  --color-accent-text: #8fb3e6;   /* silver accent is too close to ink for links */
+  --color-focus: #e4e4e7;
+  --color-accent-ink: #0a0a0b;    /* ground on the silver fill */
+  --color-bubble-user: #18181a;
+
+  --color-success: #5fcf86;
+  --color-danger: #f2655f;
+  --color-danger-ink: #0a0a0b;
+  --color-warning: #e0b44a;
+  --color-scrollbar: #343438;
+  --color-maus-line: #9c9ca5;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+}
+
+/* ── Dracula ───────────────────────────────────────────────────────────────
+   Slate purple, neon status. Mapped tokens follow the Dracula palette
+   (background, background-lighter, foreground, muted comment-adjacent ink,
+   purple, current-line hairline, red, green). Dark ink on the purple fill.
+   Body-size danger text is a step brighter than palette #ff5555 so it clears
+   AA on a card; icons and bold were already fine at the listed tone.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="dracula"] {
+  --color-app: #282a36;
+  --color-panel: #2c2e3b;
+  --color-raised: #343746;
+  --color-raised-hover: #3a3d4e;
+  --color-card: #2e313e;
+  --color-inset: #21222c;
+  --color-control: #343746;       /* = raised */
+  --color-hairline: #44475a;
+
+  --color-ink: #f8f8f2;
+  --color-ink-secondary: #a4abcc;
+
+  --color-accent: #bd93f9;
+  --color-accent-border: #c5a0fa;
+  --color-accent-text: #bd93f9;
+  --color-focus: #bd93f9;
+  --color-accent-ink: #282a36;    /* ground on the purple fill */
+  --color-bubble-user: #323544;
+
+  --color-success: #50fa7b;
+  --color-danger: #ff6b6b;        /* #ff5555 was 4.11:1 on card → 4.66:1 */
+  --color-danger-ink: #282a36;
+  --color-warning: #ffb86c;
+  --color-scrollbar: #44475a;
+  --color-maus-line: #a4abcc;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+}
+
+/* ── Cobalt ────────────────────────────────────────────────────────────────
+   Deep ocean, yellow lamp. Mapped tokens are the ocean ground, current-line
+   raised, ice ink, muted steel-blue, lamp yellow, trench hairline, pink, and
+   green. Warning is Cobalt2 orange rather than the lamp, so status colour is
+   not a clickable yellow. Body-size danger is stepped up from #ff628c for AA.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="cobalt"] {
+  --color-app: #193549;
+  --color-panel: #1b3b51;
+  --color-raised: #1f4662;
+  --color-raised-hover: #244e6c;
+  --color-card: #1c3e56;
+  --color-inset: #122635;
+  --color-control: #1f4662;       /* = raised */
+  --color-hairline: #2b5a7a;
+
+  --color-ink: #e1efff;
+  --color-ink-secondary: #a9c0d3;
+
+  --color-accent: #ffc600;
+  --color-accent-border: #ffcd1f;
+  --color-accent-text: #ffc600;
+  --color-focus: #ffc600;
+  --color-accent-ink: #193549;    /* ground on the lamp fill */
+  --color-bubble-user: #1e435e;
+
+  --color-success: #3ad900;
+  --color-danger: #ff7aa0;        /* #ff628c was 3.94:1 on card → 4.56:1 */
+  --color-danger-ink: #193549;
+  --color-warning: #ff9d00;       /* warmer than the lamp; not clickable yellow */
+  --color-scrollbar: #2b5a7a;
+  --color-maus-line: #a9c0d3;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+}
+
 html,
 body,
 #root {

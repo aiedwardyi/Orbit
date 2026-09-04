@@ -19,6 +19,9 @@ const SKIN_CHROME = Object.freeze({
   "catppuccin-mocha": Object.freeze({ color: "#1e1e2e", symbolColor: "#a6adc8" }),
   "tokyo-night": Object.freeze({ color: "#1a1b26", symbolColor: "#a9b1d6" }),
   vesper: Object.freeze({ color: "#101010", symbolColor: "#a0a0a0" }),
+  onyx: Object.freeze({ color: "#0a0a0b", symbolColor: "#9c9ca5" }),
+  dracula: Object.freeze({ color: "#282a36", symbolColor: "#a4abcc" }),
+  cobalt: Object.freeze({ color: "#193549", symbolColor: "#a9c0d3" }),
 });
 
 const DEFAULT_SKIN = "midnight";
@@ -27,7 +30,7 @@ const SKIN_PREFERENCE_FILE = "skin-preference.json";
 const LOCAL_STORAGE_DIR = path.join("Local Storage", "leveldb");
 const OMB_SKIN_MARKER = Buffer.from("omb-skin");
 const KNOWN_SKIN_RE =
-  /^(midnight|atelier|foundry|lagoon|ledger|catppuccin-mocha|tokyo-night|vesper)(?![A-Za-z0-9_-])/;
+  /^(midnight|atelier|foundry|lagoon|ledger|catppuccin-mocha|tokyo-night|vesper|onyx|dracula|cobalt)(?![A-Za-z0-9_-])/;
 const MAX_SKIN_ID_LEN = Math.max(...Object.keys(SKIN_CHROME).map((id) => id.length));
 
 /** The chrome colours for a skin id sent by the renderer. Anything that is
