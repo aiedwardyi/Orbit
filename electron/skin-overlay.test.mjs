@@ -117,6 +117,8 @@ describe("skin overlay chrome", () => {
     expect(extractOmbSkin(Buffer.from("xxomb-skin\u0000\u0001onyx\u0000yy"))).toBe("onyx");
     expect(extractOmbSkin(Buffer.from("xxomb-skin\u0000\u0001dracula\u0000yy"))).toBe("dracula");
     expect(extractOmbSkin(Buffer.from("xxomb-skin\u0000\u0001cobalt\u0000yy"))).toBe("cobalt");
+    expect(extractOmbSkin(Buffer.from("no marker here"))).toBe(null);
+    expect(extractOmbSkin(Buffer.alloc(0))).toBe(null);
   });
 
   it("maps light skins to nativeTheme light and the rest dark", () => {

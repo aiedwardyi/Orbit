@@ -34,6 +34,15 @@ const sidebar = readFileSync(join(components, "Sidebar.tsx"), "utf8");
 const teamLibrary = readFileSync(join(components, "TeamLibraryPanel.tsx"), "utf8");
 const avatarCard = readFileSync(join(components, "BotProfileAvatarCard.tsx"), "utf8");
 
+function sourceBetween(source: string, start: string, end: string): string {
+  const from = source.indexOf(start);
+  const to = source.indexOf(end, from === -1 ? 0 : from + start.length);
+  if (from < 0 || to < 0) {
+    throw new Error(`missing source markers ${JSON.stringify(start)} .. ${JSON.stringify(end)}`);
+  }
+  return source.slice(from, to);
+}
+
 describe("friends chrome flags", () => {
   it("keeps Advanced, Computer, tasks, call, Teach/Routines, and avatar extras off the idle surface", () => {
     expect(showSettingsSearch()).toBe(false);
@@ -132,15 +141,15 @@ describe("friends chrome call sites keep the feature code", () => {
     expect(resizeHandle).toContain("aria-valuenow={sidebarWidth}");
     expect(resizeHandle).toContain("aria-valuemin={SIDEBAR_MIN_WIDTH}");
     expect(resizeHandle).toContain("aria-valuemax={SIDEBAR_MAX_WIDTH}");
-    expect(resizeHandle).toContain("aria-valuetext={`${sidebarWidth} pixels`}");
+    expect(resizeHandle).toContain('t("chrome.sidebarWidthPixels", { width: sidebarWidth })');
     expect(resizeHandle).toContain("onKeyDown={onSidebarResizeKeyDown}");
     expect(resizeHandle).toContain("onPointerUp={onSidebarResizeEnd}");
     expect(resizeHandle).toContain("onPointerCancel={onSidebarResizeCancel}");
     expect(resizeHandle).not.toMatch(/onPointerCancel=\{onSidebarResizeEnd\}/);
-    const resizeEnd = sidebar.match(/const onSidebarResizeEnd = \(event: PointerEvent<HTMLDivElement>\) => \{[\s\S]*?\n  \};/)?.[0] ?? "";
+    const resizeEnd = sourceBetween(sidebar, "const onSidebarResizeEnd", "const onSidebarResizeCancel");
     expect(resizeEnd).toContain("releasePointerCapture");
     expect(resizeEnd).toContain("saveSidebarWidth");
-    const resizeCancel = sidebar.match(/const onSidebarResizeCancel = \(\) => \{[\s\S]*?\n  \};/)?.[0] ?? "";
+    const resizeCancel = sourceBetween(sidebar, "const onSidebarResizeCancel", "const onSidebarResizeKeyDown");
     expect(resizeCancel).toContain("setResizing(false)");
     expect(resizeCancel).not.toContain("saveSidebarWidth");
     expect(sidebar).toContain("stepSidebarWidth");

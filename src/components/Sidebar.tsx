@@ -1347,7 +1347,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           aria-valuenow={sidebarWidth}
           aria-valuemin={SIDEBAR_MIN_WIDTH}
           aria-valuemax={SIDEBAR_MAX_WIDTH}
-          aria-valuetext={`${sidebarWidth} pixels`}
+          aria-valuetext={t("chrome.sidebarWidthPixels", { width: sidebarWidth })}
           data-sidebar-resize
           onPointerDown={onSidebarResizeStart}
           onPointerMove={onSidebarResizeMove}
