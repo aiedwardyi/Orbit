@@ -38,6 +38,7 @@ import { normalizeState } from "@/lib/mascot";
 import { groupComposerHint, roomRespondersForComposer } from "@/lib/group-routing";
 import { PendingApprovalActions, PendingApprovalPanel, pendingApprovals } from "./PendingApproval";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
+import { composerEnterIntent } from "@/lib/composer-enter";
 import { useI18n } from "@/lib/i18n";
 import { ReplyQuote } from "./ReplyQuote";
 
@@ -280,6 +281,10 @@ export function Composer({
   const [highlight, setHighlight] = useState(0);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null); // Esc'd this @
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // IME composition: native isComposing can stay true after Hangul
+  // commits, which used to make Enter insert a newline instead of send.
+  const composingRef = useRef(false);
+  const compositionJustEndedRef = useRef(false);
   // what was typed before the mic went on — partials append after it
   const baseText = useRef("");
 
@@ -808,6 +813,17 @@ export function Composer({
           }}
           onKeyUp={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
           onClick={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
+          onCompositionStart={() => {
+            composingRef.current = true;
+            compositionJustEndedRef.current = false;
+          }}
+          onCompositionEnd={() => {
+            composingRef.current = false;
+            compositionJustEndedRef.current = true;
+            requestAnimationFrame(() => {
+              compositionJustEndedRef.current = false;
+            });
+          }}
           onKeyDown={(e) => {
             if (pickerOpen) {
               if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -834,7 +850,12 @@ export function Composer({
               return;
             }
             // Shift+Enter inserts a newline; plain Enter sends
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+            if (
+              composerEnterIntent(e, {
+                composing: composingRef.current,
+                justEnded: compositionJustEndedRef.current,
+              }) === "send"
+            ) {
               e.preventDefault();
               send();
             }
