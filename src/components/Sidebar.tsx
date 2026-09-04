@@ -54,6 +54,10 @@ import {
   saveSidebarDensity,
   saveSidebarWidth,
   SIDEBAR_ICONS_WIDTH,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+  restoreSidebarDragWidth,
+  stepSidebarWidth,
   type SidebarDensity,
 } from "@/lib/sidebar-preferences";
 import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
@@ -1081,6 +1085,22 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     event.currentTarget.releasePointerCapture(event.pointerId);
     saveSidebarWidth(sidebarWidthRef.current);
   };
+  const onSidebarResizeCancel = () => {
+    const startWidth = restoreSidebarDragWidth(resizeFrom.current);
+    if (startWidth == null) return;
+    resizeFrom.current = null;
+    sidebarWidthRef.current = startWidth;
+    setSidebarWidth(startWidth);
+    setResizing(false);
+  };
+  const onSidebarResizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const next = stepSidebarWidth(sidebarWidthRef.current, event.key);
+    if (next == null) return;
+    event.preventDefault();
+    sidebarWidthRef.current = next;
+    setSidebarWidth(next);
+    saveSidebarWidth(next);
+  };
 
   useEffect(() => {
     if (!resizing) return;
@@ -1327,12 +1347,18 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           role="separator"
           aria-orientation="vertical"
           aria-label={t("chrome.resizeSidebar")}
+          tabIndex={0}
+          aria-valuenow={sidebarWidth}
+          aria-valuemin={SIDEBAR_MIN_WIDTH}
+          aria-valuemax={SIDEBAR_MAX_WIDTH}
+          aria-valuetext={t("chrome.sidebarWidthPixels", { width: sidebarWidth })}
           data-sidebar-resize
           onPointerDown={onSidebarResizeStart}
           onPointerMove={onSidebarResizeMove}
           onPointerUp={onSidebarResizeEnd}
-          onPointerCancel={onSidebarResizeEnd}
-          className="absolute inset-y-0 right-0 z-10 hidden w-1.5 cursor-col-resize touch-none hover:bg-accent/40 md:block"
+          onPointerCancel={onSidebarResizeCancel}
+          onKeyDown={onSidebarResizeKeyDown}
+          className="absolute inset-y-0 right-0 z-10 hidden w-1.5 cursor-col-resize touch-none hover:bg-accent/40 focus-visible:bg-accent/60 md:block"
         />
       )}
       {/* macOS owns inset traffic lights; Linux/Windows use native chrome. */}

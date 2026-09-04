@@ -6,13 +6,16 @@ import {
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
   SIDEBAR_WIDTH_KEY,
+  SIDEBAR_WIDTH_STEP,
   clampSidebarWidth,
   loadSidebarDensity,
   loadSidebarWidth,
   parseSidebarDensity,
   parseSidebarWidth,
   saveSidebarDensity,
+  restoreSidebarDragWidth,
   saveSidebarWidth,
+  stepSidebarWidth,
 } from "./sidebar-preferences";
 
 describe("sidebar density preferences", () => {
@@ -51,5 +54,23 @@ describe("sidebar width preferences", () => {
     expect(setItem).toHaveBeenCalledWith(SIDEBAR_WIDTH_KEY, "410");
     expect(loadSidebarWidth({ getItem: () => "240" })).toBe(240);
     expect(loadSidebarWidth({ getItem: () => { throw new Error("blocked"); } })).toBe(SIDEBAR_DEFAULT_WIDTH);
+  });
+
+  it("steps ten pixels on horizontal arrows and clamps at the named-list range", () => {
+    expect(SIDEBAR_WIDTH_STEP).toBe(10);
+    expect(stepSidebarWidth(320, "ArrowRight")).toBe(330);
+    expect(stepSidebarWidth(320, "ArrowLeft")).toBe(310);
+    expect(stepSidebarWidth(SIDEBAR_MIN_WIDTH, "ArrowLeft")).toBe(SIDEBAR_MIN_WIDTH);
+    expect(stepSidebarWidth(SIDEBAR_MAX_WIDTH, "ArrowRight")).toBe(SIDEBAR_MAX_WIDTH);
+    expect(stepSidebarWidth(320, "Home")).toBe(SIDEBAR_MIN_WIDTH);
+    expect(stepSidebarWidth(320, "End")).toBe(SIDEBAR_MAX_WIDTH);
+    expect(stepSidebarWidth(320, "ArrowUp")).toBe(null);
+    expect(stepSidebarWidth(320, "Enter")).toBe(null);
+  });
+
+  it("restores the pre-drag width when a pointer drag is cancelled", () => {
+    expect(restoreSidebarDragWidth({ width: 320 })).toBe(320);
+    expect(restoreSidebarDragWidth({ width: 410 })).toBe(410);
+    expect(restoreSidebarDragWidth(null)).toBe(null);
   });
 });

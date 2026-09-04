@@ -12,6 +12,7 @@ const {
   skinChrome,
   isKnownSkin,
   skinThemeSource,
+  extractOmbSkin,
   readPersistedSkin,
   writePersistedSkin,
 } = require("./skin-overlay.cjs");
@@ -104,6 +105,24 @@ describe("skin overlay chrome", () => {
     expect(isKnownSkin(42)).toBe(false);
     expect(skinChrome("does-not-exist")).toEqual(SKIN_CHROME[DEFAULT_SKIN]);
     expect(skinChrome(null)).toEqual(SKIN_CHROME[DEFAULT_SKIN]);
+  });
+
+  it("locks caption chrome for onyx, dracula, and cobalt", () => {
+    expect(SKIN_CHROME.onyx).toEqual({ color: "#0a0a0b", symbolColor: "#9c9ca5" });
+    expect(SKIN_CHROME.dracula).toEqual({ color: "#282a36", symbolColor: "#a4abcc" });
+    expect(SKIN_CHROME.cobalt).toEqual({ color: "#193549", symbolColor: "#a9c0d3" });
+  });
+
+  it("extracts onyx, dracula, and cobalt from the omb-skin marker", () => {
+    expect(extractOmbSkin(Buffer.from("xxomb-skin\u0000\u0001onyx\u0000yy"))).toBe("onyx");
+    expect(extractOmbSkin(Buffer.from("xxomb-skin\u0000\u0001dracula\u0000yy"))).toBe("dracula");
+    expect(extractOmbSkin(Buffer.from("xxomb-skin\u0000\u0001cobalt\u0000yy"))).toBe("cobalt");
+  });
+
+  it("returns null when the omb-skin marker is missing or the buffer is empty", () => {
+    expect(extractOmbSkin(Buffer.from("no marker here"))).toBe(null);
+    expect(extractOmbSkin(Buffer.alloc(0))).toBe(null);
+    expect(extractOmbSkin(Buffer.from("xxomb-skin\u0000\u0001future-skin\u0000yy"))).toBe(null);
   });
 
   it("maps light skins to nativeTheme light and the rest dark", () => {
