@@ -48,11 +48,15 @@ describe("bot avatar profile", () => {
   });
 });
 
+const stylesCss = readFileSync(join(here, "../styles.css"), "utf8");
+
 describe("cute mascot renderer", () => {
   it("does not wrap the Cursor arrow-head path for default bot avatars", () => {
     expect(sources["Avatar.tsx"]).not.toContain("CursorAvatar");
-    expect(sources["Avatar.tsx"]).toContain("mascotDataUrl");
+    expect(sources["Avatar.tsx"]).toContain("mascotSvgMarkup");
     expect(sources["Avatar.tsx"]).toContain("mascotStyle");
+    expect(sources["Avatar.tsx"]).toContain("dangerouslySetInnerHTML");
+    expect(sources["Avatar.tsx"]).toContain("mascot-avatar");
   });
 
   it("offers styles A–D on the avatar editor instead of expression swatches", () => {
@@ -65,6 +69,22 @@ describe("cute mascot renderer", () => {
   it("types Bot.mascotStyle as the style union and does not animate style-only edits", () => {
     expect(sources["store.tsx"]).toContain("mascotStyle?: MascotStyle | null");
     expect(sources["store.tsx"]).not.toContain('hasOwnProperty.call(action.patch, "mascotStyle")');
-    expect(sources["Avatar.tsx"]).toContain("useMemo(() => mascotDataUrl(style, color), [style, color])");
+    expect(sources["Avatar.tsx"]).toContain("scopeMascotSvgIds");
+  });
+
+  it("ships blink + soft idle eye motion and parks it under reduced motion", () => {
+    expect(stylesCss).toContain("@keyframes mascot-blink");
+    expect(stylesCss).toContain("@keyframes mascot-blink-once");
+    expect(stylesCss).toContain("@keyframes mascot-idle-eyes");
+    expect(stylesCss).toMatch(/\.mascot-avatar \.mascot-blink/);
+    expect(stylesCss).toMatch(/\.mascot-avatar \.mascot-idle/);
+    const reduce = stylesCss.slice(stylesCss.indexOf("@media (prefers-reduced-motion: reduce)"));
+    expect(reduce).toContain(".mascot-avatar .mascot-blink");
+    expect(reduce).toContain(".mascot-avatar .mascot-idle");
+    expect(reduce).toContain(".mascot-avatar.mascot-avatar--nudge .mascot-blink");
+    expect(reduce).toContain("animation: none");
+    expect(stylesCss).not.toMatch(/\.mascot-avatar[^{]*\{[^}]*bounce/i);
+    expect(sources["Avatar.tsx"]).toContain("setTimeout");
+    expect(sources["Avatar.tsx"]).toContain("220");
   });
 });
