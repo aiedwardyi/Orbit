@@ -569,8 +569,11 @@ describe("plan usage", () => {
   it("keeps the usage window phrases complete in English and Korean", () => {
     expect(en["usage.limits.title"]).toBe("Plan usage");
     expect(ko["usage.limits.title"]).toBe("요금제 사용량");
-    expect(en["usage.limits.percentUsed"]).toBe("{percent}% used");
-    expect(ko["usage.limits.percentUsed"]).toBe("{percent}% 사용");
+    // Same glyphs on purpose: the Grok row is a bare figure. Korean “used”
+    // stays on the window labels below, not as a suffix on the percent.
+    expect(en["usage.limits.percentUsed"]).toBe("{percent}%");
+    expect(ko["usage.limits.percentUsed"]).toBe("{percent}%");
+    expect(ko["usage.limits.weekly"]).toBe("주간 한도");
     expect(en["usage.limits.resetsInDays"]).toBe("Resets in {days} days");
     expect(ko["usage.limits.resetsInDays"]).toBe("{days}일 후 초기화");
     expect(en["usage.limits.resetsInOneDay"]).toBe("Resets in 1 day");
@@ -597,7 +600,8 @@ describe("plan usage", () => {
     expect(ko["usage.limits.notReported"]).toContain("{name}");
     expect(translate("ko", "usage.limits.resetsInDays", { days: 2 })).toBe("2일 후 초기화");
     expect(translate("en", "usage.limits.resetsInDays", { days: 2 })).toBe("Resets in 2 days");
-    expect(translate("en", "usage.limits.percentUsed", { percent: 76 })).toBe("76% used");
+    expect(translate("en", "usage.limits.percentUsed", { percent: 76 })).toBe("76%");
+    expect(translate("ko", "usage.limits.percentUsed", { percent: 76 })).toBe("76%");
     expect(translate("ko", "usage.limits.notReported", { name: "Grok" })).toBe("Grok은(는) 사용 한도를 보고하지 않습니다.");
   });
 

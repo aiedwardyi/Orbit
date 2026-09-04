@@ -51,13 +51,15 @@ function WindowRow({ window, now }: { window: RateLimitReport["windows"][number]
   const percent = windowExpired(window.resetsAt, now) ? null : percentUsed(window.usedPercent);
   const fill = percent === null ? 0 : Math.min(100, percent);
   const reset = resetPhrase(window.resetsAt, now);
+  // Bare {percent}% in every locale — Grok chrome. KO “used” lives on the
+  // window labels (주간 한도 / 요금제 사용량), not glued onto the figure.
   return (
     <div>
-      <div className="flex items-baseline justify-between gap-3 text-[12.5px]">
-        <span className="text-ink-secondary">{t(WINDOW_LABEL_KEY[windowKind(window.id, window.windowMinutes)])}</span>
-        {percent !== null && <span className="tabular-nums text-ink">{t("usage.limits.percentUsed", { percent })}</span>}
+      <div className="flex items-center justify-between gap-3 text-[13px] text-ink">
+        <span>{t(WINDOW_LABEL_KEY[windowKind(window.id, window.windowMinutes)])}</span>
+        {percent !== null && <span className="tabular-nums">{t("usage.limits.percentUsed", { percent })}</span>}
       </div>
-      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-raised" aria-hidden="true">
+      <div className="mt-1 h-1 overflow-hidden rounded-full bg-ink/10" aria-hidden="true">
         <div
           className={cn("h-full rounded-full", fill >= 90 ? "bg-danger" : fill >= 75 ? "bg-warning" : "bg-accent")}
           style={{ width: `${fill}%` }}
