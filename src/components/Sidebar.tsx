@@ -1,5 +1,5 @@
 import { track } from "@/lib/analytics";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
 import {
   Archive,
@@ -39,7 +39,7 @@ import { stateForBot } from "@/lib/mascot";
 import { useUpdaterState } from "@/lib/updater";
 import { cn } from "@/lib/cn";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
-import { showSidebarRoutines, showSidebarTeachSkill } from "@/lib/friends-chrome";
+import { showSidebarDensityControls, showSidebarRoutines, showSidebarTeachSkill } from "@/lib/friends-chrome";
 import { nextRename } from "@/lib/rename";
 import { downloadAllBots } from "@/lib/team-files";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
@@ -48,8 +48,12 @@ import { TeamLibraryPanel, type TeamImportResult } from "./TeamLibraryPanel";
 import { RenameTitle } from "./RenameTitle";
 import { BotPickerList } from "./BotPickerList";
 import {
+  clampSidebarWidth,
   loadSidebarDensity,
+  loadSidebarWidth,
   saveSidebarDensity,
+  saveSidebarWidth,
+  SIDEBAR_ICONS_WIDTH,
   type SidebarDensity,
 } from "@/lib/sidebar-preferences";
 import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
@@ -1035,12 +1039,18 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     restoreBot?: { id: string; name: string };
   } | null>(null);
   const [query, setQuery] = useState("");
-  const [density, setDensityState] = useState<SidebarDensity>(() => loadSidebarDensity());
+  const [densityState, setDensityState] = useState<SidebarDensity>(() => loadSidebarDensity());
+  const density: SidebarDensity = showSidebarDensityControls() ? densityState : "comfortable";
   const [lastExpandedDensity, setLastExpandedDensity] = useState<Exclude<SidebarDensity, "icons">>(() => {
     const saved = loadSidebarDensity();
     return saved === "icons" ? "comfortable" : saved;
   });
   const [densityOpen, setDensityOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(() => loadSidebarWidth());
+  const sidebarWidthRef = useRef(sidebarWidth);
+  sidebarWidthRef.current = sidebarWidth;
+  const resizeFrom = useRef<{ x: number; width: number } | null>(null);
+  const [resizing, setResizing] = useState(false);
 
   const setDensity = (next: SidebarDensity) => {
     setDensityState(next);
@@ -1051,6 +1061,38 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     saveSidebarDensity(next);
     setDensityOpen(false);
   };
+
+  const onSidebarResizeStart = (event: PointerEvent<HTMLDivElement>) => {
+    if (density === "icons") return;
+    resizeFrom.current = { x: event.clientX, width: sidebarWidthRef.current };
+    setResizing(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const onSidebarResizeMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (!resizeFrom.current) return;
+    const next = clampSidebarWidth(resizeFrom.current.width + (event.clientX - resizeFrom.current.x));
+    sidebarWidthRef.current = next;
+    setSidebarWidth(next);
+  };
+  const onSidebarResizeEnd = (event: PointerEvent<HTMLDivElement>) => {
+    if (!resizeFrom.current) return;
+    resizeFrom.current = null;
+    setResizing(false);
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    saveSidebarWidth(sidebarWidthRef.current);
+  };
+
+  useEffect(() => {
+    if (!resizing) return;
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+    };
+  }, [resizing]);
 
   const toggleCollapsed = () => {
     if (density === "icons") setDensity(lastExpandedDensity);
@@ -1265,8 +1307,8 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     <aside
       aria-label={t("chrome.navAria")}
       className={cn(
-        "flex h-full shrink-0 flex-col border-r border-hairline/40 bg-panel transition-[width] duration-200",
-        density === "icons" ? "w-[80px]" : density === "compact" ? "w-[272px]" : "w-[320px]",
+        "relative flex h-full shrink-0 flex-col border-r border-hairline/40 bg-panel",
+        !resizing && showSidebarDensityControls() && "transition-[width] duration-200",
         // Below md only: the sidebar leaves the flow and slides in over the chat.
         // Scoped with max-md: rather than cancelled with md: on purpose — Tailwind
         // v4 emits the native `translate` property, and any value other than
@@ -1278,7 +1320,21 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         "max-md:transition-transform max-md:duration-200",
         open ? "max-md:translate-x-0" : "max-md:-translate-x-full",
       )}
+      style={{ width: density === "icons" ? SIDEBAR_ICONS_WIDTH : sidebarWidth }}
     >
+      {density !== "icons" && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t("chrome.resizeSidebar")}
+          data-sidebar-resize
+          onPointerDown={onSidebarResizeStart}
+          onPointerMove={onSidebarResizeMove}
+          onPointerUp={onSidebarResizeEnd}
+          onPointerCancel={onSidebarResizeEnd}
+          className="absolute inset-y-0 right-0 z-10 hidden w-1.5 cursor-col-resize touch-none hover:bg-accent/40 md:block"
+        />
+      )}
       {/* macOS owns inset traffic lights; Linux/Windows use native chrome. */}
       <div
         className={cn("flex items-center pt-3.5 pb-1", density === "icons" ? "flex-col gap-1 px-2" : "justify-between px-4")}
@@ -1297,6 +1353,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           className={cn("relative flex items-center", density === "icons" ? "flex-col gap-1" : "gap-1")}
           style={windowNoDragStyle}
         >
+          {showSidebarDensityControls() && (
           <button
             type="button"
             onClick={toggleCollapsed}
@@ -1306,6 +1363,8 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           >
             {density === "icons" ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
           </button>
+          )}
+          {showSidebarDensityControls() && (
           <div className="relative">
             <button
               type="button"
@@ -1350,6 +1409,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               </>
             )}
           </div>
+          )}
           <button
             ref={importReturnRef}
             onClick={() => setPlusOpen((o) => !o)}
