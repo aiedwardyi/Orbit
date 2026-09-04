@@ -21,7 +21,7 @@ const SKIN_CHROME = Object.freeze({
   vesper: Object.freeze({ color: "#101010", symbolColor: "#a0a0a0" }),
   onyx: Object.freeze({ color: "#0a0a0b", symbolColor: "#9c9ca5" }),
   dracula: Object.freeze({ color: "#282a36", symbolColor: "#a4abcc" }),
-  cobalt: Object.freeze({ color: "#193549", symbolColor: "#a9c0d3" }),
+  cobalt: Object.freeze({ color: "#292a2b", symbolColor: "#bcaafe" }),
 });
 
 const DEFAULT_SKIN = "midnight";
