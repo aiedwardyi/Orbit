@@ -111,9 +111,17 @@ describe("UsageSection friends plan card", () => {
     expect(html).toContain("h-1 ");
     expect(html).not.toContain("h-1.5");
     expect(html).toContain("bg-ink/10");
-    expect(html).toContain("bg-accent");
-    expect(html).toContain("bg-warning");
-    expect(html).toContain("bg-danger");
+    const fillAt = (pct: number) => {
+      const needle = `style="width:${pct}%"`;
+      const at = html.indexOf(needle);
+      expect(at).toBeGreaterThan(-1);
+      return html.slice(Math.max(0, at - 80), at);
+    };
+    expect(fillAt(10)).toContain("bg-accent");
+    expect(fillAt(49)).toContain("bg-accent");
+    expect(fillAt(75)).toContain("bg-warning");
+    expect(fillAt(90)).toContain("bg-danger");
+    expect(fillAt(0)).toContain("bg-accent");
     expect(html).toContain("Resets in 1 hour");
     expect(html).toContain("Resets in 6 days");
     expect(html).toContain("Reset since the last check");
