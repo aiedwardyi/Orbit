@@ -5,7 +5,7 @@
 // each engine's subscription window is, straight from the engine's own
 // report on its last turn, so nobody has to guess from a token count.
 import { useEffect, useState } from "react";
-import { useStore, type RateLimitReport } from "@/state/store";
+import { useStore, type InstanceInfo, type RateLimitReport } from "@/state/store";
 import { MausAvatar } from "./Avatar";
 import { Card } from "./SettingsPrimitives";
 import { ProviderMark } from "./ProviderIcons";
@@ -73,6 +73,13 @@ function PlanUsage() {
   const { state } = useStore();
   const now = useNow();
   const engines = splitFriendsEngines(state.instances).friends;
+  // Claude/Codex declare rateLimits but only emit a window after a turn.
+  // Engines that never report (Grok, Antigravity, OpenCode) stay on the flat
+  // "not available" line so a missing observation is not mistaken for none.
+  const honestCaption = (instance: InstanceInfo) =>
+    t(instance.capabilities?.rateLimits ? "usage.limits.pending" : "usage.limits.unavailable", {
+      name: instance.displayName,
+    });
 
   return (
     <Card title={t("usage.limits.title")} subtitle={t("usage.limits.subtitle")}>
@@ -93,7 +100,7 @@ function PlanUsage() {
                   ))}
                 </div>
               ) : (
-                <div className="mt-1 text-[12px] text-ink-secondary">{t("usage.limits.unavailable")}</div>
+                <div className="mt-1 text-[12px] text-ink-secondary">{honestCaption(instance)}</div>
               )}
             </div>
           ))}

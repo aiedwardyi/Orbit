@@ -32,13 +32,14 @@ const { mockState } = vi.hoisted(() => {
       ],
       instances: [
         engine("claude", "claudeAgent", "Claude", {
+          capabilities: { rateLimits: true },
           rateLimits: {
             observedAt: new Date().toISOString(),
             windows: [{ id: "five_hour", usedPercent: 10, resetsAt: Date.now() + 3_600_000 }],
           },
         }),
         engine("kimi", "kimiAgent", "Kimi"),
-        engine("codex", "codex", "Codex"),
+        engine("codex", "codex", "Codex", { capabilities: { rateLimits: true } }),
         engine("grok", "grokAgent", "Grok"),
         engine("gemini", "geminiAgent", "Gemini API"),
         engine("antigravity", "antigravityAgent", "Gemini (Antigravity)"),
@@ -73,6 +74,8 @@ describe("UsageSection friends plan card", () => {
     expect(html).not.toContain("Gemini API");
     expect(html).not.toContain("Kimi");
     expect(html).toContain("not available at the moment");
+    expect(html).toContain("Codex reports its limit after the next message.");
+    expect(html).not.toContain("Grok reports its limit after the next message.");
     expect(html).not.toContain(">Turns<");
     expect(html).not.toContain(">Tokens<");
     expect(html).not.toContain(">Cost<");

@@ -50,13 +50,19 @@ export function isApiKeySetupMessage(message: string): boolean {
   return /api key/i.test(message);
 }
 
-/** What a failed turn should offer: install/sign-in, paste a key, or Retry. */
+/** What a failed turn should offer: install/sign-in, paste a key, or Retry.
+ *
+ * `/api key/` in the error text is not enough on its own — Grok/Claude can
+ * say "Invalid API key" and still need Terminal, not Connections. Match the
+ * message only when the instance is a key engine (or unknown), so Gemini
+ * with `authenticated` true/unset still gets the paste CTA instead of Retry. */
 export function setupErrorAction(
   message: string,
   instance: InstanceInfo | undefined,
 ): "cli" | "key" | "retry" {
   if (instance && needsCli(instance)) return "cli";
-  if (isApiKeySetupMessage(message) || needsApiKey(instance)) return "key";
+  if (needsApiKey(instance)) return "key";
+  if (isApiKeySetupMessage(message) && (!instance || isApiKeyEngine(instance))) return "key";
   if (instance && needsSignIn(instance)) return "cli";
   return "retry";
 }

@@ -556,7 +556,8 @@ describe("plan usage", () => {
     expect(usageSection).toContain('"usage.limits.weekly"');
     expect(usageSection).toContain('"usage.limits.window"');
     expect(usageSection).toContain('t("usage.limits.percentUsed", { percent })');
-    expect(usageSection).toContain('t("usage.limits.unavailable")');
+    expect(usageSection).toContain('"usage.limits.pending"');
+    expect(usageSection).toContain('"usage.limits.unavailable"');
     expect(usageSection).toContain("t(reset.key, reset.vars)");
     expect(usageSection).not.toMatch(/Resets in/);
     expect(usageSection).not.toMatch(/% used/);

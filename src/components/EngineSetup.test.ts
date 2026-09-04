@@ -69,6 +69,27 @@ describe("API key setup", () => {
     expect(needsApiKey(grok)).toBe(false);
     expect(setupErrorAction("Grok CLI is not signed in", grok)).toBe("cli");
   });
+
+  it("does not send CLI engines to Connections just because the error mentions an API key", () => {
+    const grok = (authenticated: boolean): InstanceInfo => ({
+      instanceId: "grok",
+      driverKind: "grokAgent",
+      displayName: "Grok",
+      models: { default: "grok-4.6", options: [] },
+      snapshot: { state: "available", authenticated },
+    });
+    expect(setupErrorAction("Invalid API key provided", grok(false))).toBe("cli");
+    expect(setupErrorAction("Invalid API key provided", grok(true))).toBe("retry");
+  });
+
+  it("still pastes a key when Gemini is installed but the snapshot has not flagged unauthenticated", () => {
+    const installed = gemini({ state: "available", authenticated: true, version: "0.1.0" });
+    const unset = gemini({ state: "available", version: "0.1.0" });
+    expect(needsApiKey(installed)).toBe(false);
+    expect(needsApiKey(unset)).toBe(false);
+    expect(setupErrorAction("Gemini API key missing", installed)).toBe("key");
+    expect(setupErrorAction("Gemini API key missing", unset)).toBe("key");
+  });
 });
 
 describe("installCommandFor", () => {

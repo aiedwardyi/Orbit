@@ -316,7 +316,12 @@ export function EnginesSettings() {
   // Folding away every row would leave a lone toggle, so only fold when a
   // friends engine stays on screen.
   const collapsible = zoo && friends.length > 0 && rest.length > 0;
-  const visible = zoo && collapsible && !showAll ? friends.filter(isFriendsCliEngine) : zoo && showAll ? rows : cliRows;
+  let visible = cliRows;
+  if (zoo && collapsible && !showAll) {
+    visible = friends.filter(isFriendsCliEngine);
+  } else if (zoo && showAll) {
+    visible = rows;
+  }
 
   return (
     <div className="flex flex-col gap-5">

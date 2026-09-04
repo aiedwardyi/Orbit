@@ -291,7 +291,7 @@ function ErrorRow({
         {action === "cli" && setupInstance ? (
           <EngineSetup instance={setupInstance} className="mt-2 text-ink-secondary" />
         ) : action === "key" ? (
-          <OpenConnectionsCta className="mt-2" />
+          <OpenConnectionsCta />
         ) : (
           onRetry && (
             <button
