@@ -16,6 +16,23 @@
 // animation engine is 1,600 lines and would show up as nothing at this size.
 import SwiftUI
 
+/// Cute static mascot pack. Duplicated from CompanionCore so the widget
+/// target — which compiles this file without the package — still type-checks.
+/// `fileprivate` so the app target does not shadow CompanionCore's type.
+fileprivate enum MascotStyle: String, CaseIterable {
+    case peach, teal, lavender, coral
+
+    static func resolved(_ raw: String?, color: String) -> MascotStyle {
+        if let raw, let style = Self(rawValue: raw) { return style }
+        switch color {
+        case "green", "teal", "cyan": return .teal
+        case "blue", "purple": return .lavender
+        case "pink", "coral": return .coral
+        default: return .peach
+        }
+    }
+}
+
 enum MausPalette {
     /// src/lib/mascot.ts — MAUS_COLORS
     private static let hex: [String: String] = [
