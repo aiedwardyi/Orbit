@@ -8,6 +8,10 @@ import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/sta
 import { analyticsEnabled, setAnalyticsEnabled } from "@/lib/analytics";
 import { builtInBrowserEnabled, showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
 import {
+  showSettingsAdvancedSection,
+  showSettingsSearch,
+} from "@/lib/friends-chrome";
+import {
   friendsSettingsNavVisible,
   showSettingsAdvancedControls,
   showSettingsMoreServices,
@@ -16,6 +20,7 @@ import { ApiKeyRow, VpsConnection } from "./ApiKeys";
 import { useUpdaterState } from "@/lib/updater";
 import { EnginesSettings } from "./EnginesSettings";
 import { LocalComputerSection } from "./LocalComputerSection";
+import { ProfileFields } from "./ProfileFields";
 import { Card } from "./SettingsPrimitives";
 import { UsageSection } from "./UsageSection";
 import { SkinPicker } from "./SkinPicker";
@@ -54,45 +59,6 @@ function sectionNavVisible(
   phoneAvailable: boolean,
 ): boolean {
   return friendsSettingsNavVisible(section.id, query, { phoneAvailable });
-}
-
-/** Name + email, persisted to /api/config {profile} on blur. */
-function ProfileFields() {
-  const { t } = useI18n();
-  const { state, dispatch } = useStore();
-  const [name, setName] = useState(state.config?.profile?.name ?? "");
-  const [email, setEmail] = useState(state.config?.profile?.email ?? "");
-  useEffect(() => {
-    setName(state.config?.profile?.name ?? "");
-    setEmail(state.config?.profile?.email ?? "");
-  }, [state.config?.profile?.name, state.config?.profile?.email]);
-
-  const save = () => {
-    void fetch("/api/config", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ profile: { name: name.trim(), email: email.trim().toLowerCase() } }),
-    })
-      .then((r) => r.json())
-      .then((config) => dispatch({ type: "configStatus", config }))
-      .catch(() => {});
-  };
-
-  const inputClass =
-    "w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[14px] text-ink placeholder:text-ink-secondary focus:border-hairline focus:outline-none";
-  return (
-    <div className="flex flex-col gap-3">
-      <input value={name} onChange={(e) => setName(e.target.value)} onBlur={save} placeholder={t("settings.profile.namePlaceholder")} className={inputClass} />
-      <input
-        type="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        onBlur={save}
-        placeholder={t("settings.profile.emailPlaceholder")}
-        className={inputClass}
-      />
-    </div>
-  );
 }
 
 function UpdatesRow() {
@@ -488,11 +454,7 @@ export function SettingsModal({
   const visibleSections = SECTIONS.filter((entry) => sectionNavVisible(entry, q, phoneAvailable));
 
   useEffect(() => {
-    const visible = SECTIONS.filter(
-      (entry) =>
-        (entry.id === "computer" && section === "computer") ||
-        sectionNavVisible(entry, q, phoneAvailable),
-    );
+    const visible = SECTIONS.filter((entry) => sectionNavVisible(entry, q, phoneAvailable));
     if (visible.some((entry) => entry.id === section)) return;
     const first = visible[0];
     if (first) dispatch({ type: "toggleAppSettings", open: true, section: first.id });
@@ -559,6 +521,7 @@ export function SettingsModal({
           <div id="app-settings-title" className="px-2 pb-2 pt-1 text-[15px] font-semibold text-ink">
             {t("settings.title")}
           </div>
+          {showSettingsSearch() && (
           <div className="mb-1.5 flex items-center gap-2 rounded-lg bg-control/70 px-2.5 py-1.5">
             <Search size={14} className="shrink-0 text-ink-secondary" />
             <input
@@ -575,6 +538,7 @@ export function SettingsModal({
               className="w-full bg-transparent text-[13px] text-ink placeholder:text-ink-secondary focus:outline-none"
             />
           </div>
+          )}
           {visibleSections.length === 0 && (
             <div className="px-2.5 py-4 text-[12.5px] leading-relaxed text-ink-secondary">
               {t("settings.noMatch", { query: query.trim() })}
@@ -624,6 +588,8 @@ export function SettingsModal({
                 <BrowserProfilesRow />
                 <UpdatesRow />
                 <AnalyticsRow />
+                {showSettingsAdvancedSection() && (
+                  <>
                 <button
                   type="button"
                   aria-expanded={advancedShown}
@@ -650,6 +616,8 @@ export function SettingsModal({
                     <ExperimentalFeaturesRow />
                     <DiagnosticsRow />
                   </div>
+                )}
+                  </>
                 )}
               </>
             )}
@@ -702,7 +670,7 @@ export function SettingsModal({
               </Card>
             )}
 
-            {section === "computer" && <LocalComputerSection />}
+            {showSettingsAdvancedSection() && section === "computer" && <LocalComputerSection />}
 
             {section === "usage" && <UsageSection />}
           </div>

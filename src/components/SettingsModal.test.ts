@@ -100,15 +100,16 @@ describe("SettingsModal friends chrome", () => {
     }
   });
 
-  it("keeps idle General short: Advanced folded, no Local VM / channel / experimental / diagnostics blocks", () => {
+  it("keeps idle General short: no Advanced, no Local VM / channel / experimental / diagnostics", () => {
     const html = markup("general");
-    expect(html).toContain("Advanced");
-    expect(html).toContain("aria-expanded=\"false\"");
     expect(html).toContain("Profile");
     expect(html).toContain("Skin");
     expect(html).toContain("Tool calls");
     expect(html).toContain("Usage analytics");
+    expect(html).toContain("Save name and email");
+    expect(html).not.toContain("Advanced");
     expect(html).not.toContain("data-settings-advanced");
+    expect(html).not.toContain('aria-label="Search settings"');
     expect(html).not.toMatch(/>Channel turns</);
     expect(html).not.toContain("Set one maximum duration");
     expect(html).not.toContain("Maximum turn length");
@@ -125,18 +126,18 @@ describe("SettingsModal friends chrome", () => {
     expect(html).not.toContain("accounts.openmausbot.com");
   });
 
-  it("reveals Local VM, channel turns, experimental, and diagnostics when Advanced is open", () => {
+  it("does not reveal Local VM, channel turns, experimental, or diagnostics when Advanced would have been open", () => {
     const html = markup("general", true);
-    expect(html).toContain("data-settings-advanced");
-    expect(html).toContain("aria-expanded=\"true\"");
-    expect(html).toMatch(/>Channel turns</);
-    expect(html).toContain("Set one maximum duration");
-    expect(html).toMatch(/>Experimental features</);
-    expect(html).toContain("Teach a skill");
-    expect(html).toMatch(/>Diagnostics</);
-    expect(html).toContain("Export Diagnostics");
-    expect(html).toMatch(/>Local VM</);
-    expect(html).toContain("Cua Linux");
+    expect(html).not.toContain("data-settings-advanced");
+    expect(html).not.toContain("Advanced");
+    expect(html).not.toMatch(/>Channel turns</);
+    expect(html).not.toContain("Set one maximum duration");
+    expect(html).not.toMatch(/>Experimental features</);
+    expect(html).not.toContain("Teach a skill");
+    expect(html).not.toMatch(/>Diagnostics</);
+    expect(html).not.toContain("Export Diagnostics");
+    expect(html).not.toMatch(/>Local VM</);
+    expect(html).not.toContain("Cua Linux");
   });
 
   it("shows only the Gemini key on idle Connections", () => {

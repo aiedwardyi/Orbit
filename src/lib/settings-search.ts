@@ -11,6 +11,7 @@ const SECTION_PHRASE_KEYS = {
     "settings.profile.subtitle",
     "settings.profile.namePlaceholder",
     "settings.profile.emailPlaceholder",
+    "settings.profile.save",
     "settings.skin.title",
     "settings.skin.subtitle",
     "settings.skin.ledger.tagline",

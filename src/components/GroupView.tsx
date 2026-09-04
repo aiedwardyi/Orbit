@@ -24,6 +24,7 @@ import { ChatMarkdown } from "./ChatMarkdown";
 import { Composer } from "./Composer";
 import { ChatFindBar } from "./ChatFindBar";
 import { GroupTaskPicker } from "./TaskPicker";
+import { showChannelCallControl, showChannelNewTaskControl } from "@/lib/friends-chrome";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
@@ -1064,7 +1065,7 @@ export function GroupView({ group }: { group: Group }) {
       >
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate text-[15px] font-semibold text-ink">{group.name}</span>
-          {!setupPending && !group.dm && <GroupTaskPicker group={group} />}
+          {!setupPending && !group.dm && showChannelNewTaskControl() && <GroupTaskPicker group={group} />}
         </div>
         <div className="flex items-center gap-1.5">
           <button
@@ -1080,7 +1081,7 @@ export function GroupView({ group }: { group: Group }) {
           >
             <Search size={18} />
           </button>
-          <GroupCallButton group={group} members={members} />
+          {showChannelCallControl() && <GroupCallButton group={group} members={members} />}
           {!setupPending && !group.dm && <RoomWorkingFolderChip group={group} onToggle={() => setFolderOpen((open) => !open)} />}
           {!setupPending && !group.dm && <DefaultResponderSelect group={group} members={members} />}
           {group.dm ? (

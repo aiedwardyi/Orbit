@@ -1,8 +1,10 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { Bot } from "@/state/store";
+
+const chrome = vi.hoisted(() => ({ botDetailsAdvanced: false }));
 
 vi.hoisted(() => {
   Object.defineProperty(globalThis, "window", {
@@ -10,6 +12,14 @@ vi.hoisted(() => {
     configurable: true,
     writable: true,
   });
+});
+
+vi.mock("@/lib/friends-chrome", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/friends-chrome")>();
+  return {
+    ...actual,
+    showBotDetailsAdvanced: () => chrome.botDetailsAdvanced,
+  };
 });
 
 vi.mock("@/state/store", async (importOriginal) => {
@@ -88,20 +98,25 @@ describe("SettingsPanel friends effort", () => {
     }
   });
 
-  it("does not bury a blank Effort control under Advanced", async () => {
+  afterEach(() => {
+    chrome.botDetailsAdvanced = false;
+  });
+
+  it("does not bury a blank Effort control — Advanced stays off the idle surface", async () => {
     const { SettingsPanel } = await import("./SettingsPanel");
     const { I18nProvider } = await import("@/lib/i18n");
     const html = renderToStaticMarkup(
       createElement(I18nProvider, null, createElement(SettingsPanel, { bot, defaultAdvancedOpen: true })),
     );
-    expect(html).toContain("Advanced");
-    expect(html).toContain("Computer, coordination, browser, approvals, voice, and usage");
+    expect(html).not.toContain("Advanced");
+    expect(html).not.toContain("Computer, coordination, browser, approvals, voice, and usage");
     expect(html).not.toContain("How hard this bot thinks");
     expect(html).not.toMatch(/>Effort</);
     expect(html).not.toContain("Effort, computer");
   });
 
   it("keeps Chief of Staff switchable on an engine that cannot coordinate", async () => {
+    chrome.botDetailsAdvanced = true;
     const { SettingsPanel } = await import("./SettingsPanel");
     const { I18nProvider } = await import("@/lib/i18n");
     const html = renderToStaticMarkup(
@@ -116,6 +131,7 @@ describe("SettingsPanel friends effort", () => {
   });
 
   it("keeps peer comms switchable on an engine that cannot coordinate", async () => {
+    chrome.botDetailsAdvanced = true;
     const { SettingsPanel } = await import("./SettingsPanel");
     const { I18nProvider } = await import("@/lib/i18n");
     const html = renderToStaticMarkup(

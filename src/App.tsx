@@ -23,6 +23,7 @@ import { SkillRecorderPage } from "@/components/SkillRecorderPage";
 import { TeamMapPage } from "@/components/TeamMapPage";
 import { CreateBotSheet } from "@/components/CreateBotSheet";
 import { isEmptyEngineLaunch } from "@/lib/engine-rail";
+import { showComputerPanelChrome } from "@/lib/friends-chrome";
 import { I18nProvider, useI18n } from "@/lib/i18n";
 
 function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
@@ -242,7 +243,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
         </main>
       )}
       {state.settingsOpen && bot && <SettingsPanel key={bot.id} bot={bot} />}
-      {state.computerOpen && bot && (
+      {showComputerPanelChrome() && state.computerOpen && bot && (
         <ComputerPanel bot={bot} onOpenVmWorkspace={openLocalVmWorkspace} onExpandBrowser={openBrowserWorkspace} />
       )}
       {state.inspectorOpen && bot && <InspectorPanel bot={bot} />}

@@ -37,6 +37,7 @@ import { EngineSetup } from "./EngineSetup";
 import { BotAvatar } from "./Avatar";
 import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
+import { showBotNewTaskControl, showComputerPanelChrome } from "@/lib/friends-chrome";
 import { stateForBot } from "@/lib/mascot";
 import { transcriptIdleAfterOnboarding } from "@/lib/conversation-preview";
 import { showWorkingDots } from "@/lib/turn-tail";
@@ -1198,9 +1199,10 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
           >
             <Search size={18} />
           </button>
-          <TaskPicker bot={bot} />
+          {showBotNewTaskControl() && <TaskPicker bot={bot} />}
           <ModelPicker bot={bot} />
           {callAvailable && <CallButton bot={bot} />}
+          {showComputerPanelChrome() && (
           <button
             onClick={() => dispatch({ type: "toggleComputer" })}
             aria-label={t("chat.botComputer")}
@@ -1213,6 +1215,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
           >
             <Monitor size={18} aria-hidden="true" />
           </button>
+          )}
         </div>
       </div>
 

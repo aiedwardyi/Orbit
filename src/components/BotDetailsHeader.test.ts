@@ -37,6 +37,13 @@ describe("QA 17 one Bot-details header entry", () => {
     expect(chatHeader).toMatch(/onClick=\{\(\) => dispatch\(\{ type: "toggleSettings", open: true \}\)\}/);
   });
 
+  it("hides Computer and new-task chrome from the ChatView header", () => {
+    expect(chatHeader).toContain("showComputerPanelChrome()");
+    expect(chatHeader).toContain("showBotNewTaskControl()");
+    expect(chatHeader).toContain("<TaskPicker");
+    expect(chatHeader).toContain('type: "toggleComputer"');
+  });
+
   it("does not keep a Bot-settings gear on the ComputerPanel header", () => {
     expect(computerHeader).not.toContain('title="Bot settings"');
     expect(computerHeader).not.toContain("<Settings");
@@ -150,7 +157,7 @@ describe("SettingsPanel still owns folder and usage", () => {
     }
   });
 
-  it("renders Working folder and Usage cards in Bot details", async () => {
+  it("renders Working folder in Bot details and keeps Usage behind Advanced", async () => {
     const { SettingsPanel } = await import("./SettingsPanel");
     const { I18nProvider } = await import("@/lib/i18n");
     const html = renderToStaticMarkup(
@@ -162,7 +169,7 @@ describe("SettingsPanel still owns folder and usage", () => {
     );
     expect(html).toContain("Working folder");
     expect(html).toContain("Where this bot runs its shell and file tools.");
-    expect(html).toContain("Usage");
-    expect(html).toContain("All bots");
+    expect(html).not.toContain("All bots");
+    expect(settingsPanel).toContain("{advancedOpen && <BotUsageCard bot={bot} />}");
   });
 });
