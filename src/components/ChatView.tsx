@@ -56,7 +56,6 @@ import { ModelPicker } from "./ModelPicker";
 import { RenameTitle } from "./RenameTitle";
 import { TaskPicker } from "./TaskPicker";
 import { ReactionBar, ReactionChips } from "./Reactions";
-import { SpeakButton } from "./SpeakButton";
 import { CallButton, CallOverlay } from "./CallView";
 import { cn } from "@/lib/cn";
 import { useFocusMessage } from "@/lib/focus-message";
@@ -554,9 +553,6 @@ function Bubble({
           <>
             <div className="flex flex-col gap-0.5 self-end pb-0.5">
               <CopyButton text={text} />
-              {message.kind === "text" && (
-                <SpeakButton text={text} botId={bot.id} messageId={message.id} voiceId={bot.voice} />
-              )}
               {isLastBotText && !bot.busy && onRegenerate && (
                 <button
                   onClick={onRegenerate}
