@@ -4309,15 +4309,23 @@ interface CliProbe {
 const PROBE_VERSION_MAX = 200;
 
 /** What a wrapper's fixed argument looks like: a subcommand, a flag, or a
- * path. Script payloads need characters no engine subcommand has — spaces,
- * quotes, parentheses, `;`, `|`, `$` — so the shape is the whole check. */
+ * path. An inline script payload needs characters no engine subcommand has —
+ * spaces, quotes, parentheses, `;`, `|`, `$`. */
 const PROBE_ARG = /^[A-Za-z0-9._@:+=/\\-]+$/;
+
+/** A file an interpreter would execute. `node x.mjs` reads as a plain path to
+ * the rule above, so the extension is what separates a wrapper's subcommand
+ * from a script handed to this route to run. Renaming a script defeats it —
+ * this narrows the endpoint, it does not seal it; the child env allowlist and
+ * the redacted, bounded output are what make the run uninteresting. */
+const PROBE_SCRIPT_ARG = /\.(js|mjs|cjs|ts|mts|cts|jar|sh|bash|zsh|fish|py|rb|pl|php|lua|ps1|psm1|bat|cmd|vbs)$/i;
 
 /** Reject a `cli` this route must not run, wording the failure the way a
  * failed spawn would. Two rules: the command has to be a real executable, and
- * its fixed arguments have to be literal — subcommands, flags, or paths that
- * exist. `sh -c "<anything>"` fails the second one, and that is the shape that
- * turns a pre-save probe into a general-purpose command runner. */
+ * its fixed arguments have to be a wrapper's own — literal subcommands, flags,
+ * or non-script paths. `sh -c "<anything>"` and `node ./x.mjs` both fail the
+ * second one, and those are the shapes that turn a pre-save probe into a
+ * general-purpose command runner. */
 function probeCommandError(cli: string): string | null {
   const notInstalled = (name: string) => {
     const enoent: NodeJS.ErrnoException = new Error(`spawn ${name} ENOENT`);
@@ -4330,8 +4338,8 @@ function probeCommandError(cli: string): string | null {
   // path-ish one back unchecked, so the existsSync covers both spellings
   const [resolved] = findCliCandidates(command);
   if (!resolved || !existsSync(resolved)) return notInstalled(command);
-  if (fixed.some((arg) => !PROBE_ARG.test(arg) && !existsSync(arg))) {
-    return `\`${cli}\` is not a CLI path — a fixed argument may be a flag, a subcommand, or a path, never a script`;
+  if (fixed.some((arg) => PROBE_SCRIPT_ARG.test(arg) || !(PROBE_ARG.test(arg) || existsSync(arg)))) {
+    return `\`${cli}\` is not a CLI path — a fixed argument may be a flag, a subcommand, or a non-script path`;
   }
   return null;
 }

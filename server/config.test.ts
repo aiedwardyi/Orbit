@@ -480,6 +480,20 @@ describe("workspace credential env strip", () => {
     expect(env).toEqual({ PATH: "/usr/bin", MY_FLAG: "1", ANTHROPIC_API_KEY: "secret" });
   });
 
+  it("excludes an invented key by every spelling a provider ships one under", () => {
+    const env = {
+      NEWPROVIDER_TOKEN: "secret",
+      NEWPROVIDER_API_KEY: "secret",
+      NEWPROVIDER_ACCESS_TOKEN: "secret",
+      NEWPROVIDER_API_SECRET: "secret",
+      NEWPROVIDER_SECRET_KEY: "secret",
+      // named for a credential without being one — a token BUDGET, not a token
+      NEWPROVIDER_TOKEN_LIMIT: "4096",
+    };
+    applyCredentialAllowlist(env);
+    expect(env).toEqual({ NEWPROVIDER_TOKEN_LIMIT: "4096" });
+  });
+
   it("builds a CLI probe env from names only, never from what the process holds", () => {
     const env = cliProbeEnvironment({
       PATH: "/usr/bin",

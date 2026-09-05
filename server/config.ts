@@ -311,10 +311,11 @@ export const PROVIDER_CREDENTIAL_ENV = [
   "CURSOR_AUTH_TOKEN",
 ] as const;
 
-/** What a credential is *shaped* like, whatever provider ships it next. The
- * two lists above can only name keys someone remembered to add; this catches
- * the one they didn't, which is the whole point of an allowlist. */
-const CREDENTIAL_ENV_NAME = /(^|_)(API_KEY|AUTH_TOKEN)$/;
+/** What a credential is *named* like, whatever provider ships it next. The two
+ * lists above can only name keys someone remembered to add; this catches the
+ * one they didn't, which is the whole point of an allowlist. TOKEN covers
+ * every AUTH_/ACCESS_/BOX_ spelling, SECRET covers API_SECRET. */
+const CREDENTIAL_ENV_NAME = /(^|_)(API_KEY|SECRET_KEY|SECRET|TOKEN)$/;
 
 /** Drop every credential from a child env (in place) except the names
  * `allowed` grants. Allowlist, not denylist: a provider key nobody has added

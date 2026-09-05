@@ -21,10 +21,15 @@ import { removeTempDir } from "../testing/cleanup.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-claude-cli.ts");
 
-/** Every credential this process could be holding, plus one nobody has heard
- * of yet — the allowlist has to exclude that one for the same reason. */
-const FOREIGN_CREDENTIALS = [...PROVIDER_CREDENTIAL_ENV, ...WORKSPACE_CREDENTIAL_ENV, "ACME_API_KEY"];
-
+/** Every credential this process could be holding, plus two nobody has heard
+ * of yet — the allowlist has to exclude those for the same reason, under
+ * whichever name their provider ships them. */
+const FOREIGN_CREDENTIALS = [
+  ...PROVIDER_CREDENTIAL_ENV,
+  ...WORKSPACE_CREDENTIAL_ENV,
+  "ACME_API_KEY",
+  "NEWPROVIDER_TOKEN",
+];
 
 /** Thread ids for the four ask-id-collision tests. Each must truncate to a
  * unique 8-char tag so no two tests share a broker socket/pipe name. */

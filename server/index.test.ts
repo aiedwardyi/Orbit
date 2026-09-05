@@ -4548,6 +4548,14 @@ describe("resumable event stream", () => {
   });
 });
 
+/** A probe target spawnable as itself: POSIX honours the shebang, and win32
+ * resolveCliSpawn parses it into `node <script>`. */
+const writeProbeWrapper = (name: string, body: string): string => {
+  const script = join(home, `${name}.mjs`);
+  writeFileSync(script, `#!/usr/bin/env node\n${body}`, { mode: 0o755 });
+  return script;
+};
+
 describe("instance CLI override API", () => {
   it("round-trips a set, clear, and rejects bad input", async () => {
     // ghost is the fixture's one shadow instance (unknown driver)
@@ -4583,27 +4591,23 @@ describe("instance CLI override API", () => {
   });
 
   it("probes the complete wrapper with fixed arguments and no inherited credentials", async () => {
-    const script = join(home, "cli-wrapper-probe.mjs");
-    writeFileSync(
-      script,
+    const script = writeProbeWrapper(
+      "cli-wrapper-probe",
       `if (process.argv.slice(2).join(" ") !== "fixed --version") process.exit(9);\nif (process.env.COMPOSIO_API_KEY) process.exit(8);\nconsole.log("wrapper-ok");\n`,
     );
-    const cli = `${JSON.stringify(process.execPath)} ${JSON.stringify(script)} fixed`;
+    const cli = `${JSON.stringify(script)} fixed`;
     const res = await api("POST", "/api/cli-test", { cli });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ ok: true, version: "wrapper-ok" });
   });
 
   it("gives the probe child no credential, known or not, and never echoes one back", async () => {
-    const script = join(home, "cli-credential-probe.mjs");
-    writeFileSync(
-      script,
-      `const names = Object.keys(process.env).filter((k) => /key|token|secret/i.test(k));
-` +
-        `console.log(names.length ? "leaked " + names.sort().join(",") : "no-credentials");
-`,
+    const script = writeProbeWrapper(
+      "cli-credential-probe",
+      `const names = Object.keys(process.env).filter((k) => /key|token|secret/i.test(k));\n` +
+        `console.log(names.length ? "leaked " + names.sort().join(",") : "no-credentials");\n`,
     );
-    const cli = `${JSON.stringify(process.execPath)} ${JSON.stringify(script)}`;
+    const cli = JSON.stringify(script);
     const res = await api("POST", "/api/cli-test", { cli });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ ok: true, version: "no-credentials" });
@@ -4618,16 +4622,21 @@ describe("instance CLI override API", () => {
   });
 
   it("refuses a scripted argument instead of running it as a probe", async () => {
-    const res = await api("POST", "/api/cli-test", { cli: `${JSON.stringify(process.execPath)} -e "console.log(1)"` });
-    expect(res.status).toBe(200);
-    expect(res.body.ok).toBe(false);
-    expect(res.body.message).toContain("never a script");
+    const inline = `${JSON.stringify(process.execPath)} -e "console.log(1)"`;
+    // the same capability spelled as a path, which reads as an ordinary
+    // argument — the extension is the only thing that rejects it
+    const onDisk = `${JSON.stringify(process.execPath)} ${JSON.stringify(writeProbeWrapper("cli-inert", ""))}`;
+    for (const cli of [inline, onDisk]) {
+      const res = await api("POST", "/api/cli-test", { cli });
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(false);
+      expect(res.body.message).toContain("non-script path");
+    }
   });
 
   it("reports excessive probe output without presenting install guidance", async () => {
-    const script = join(home, "cli-noisy-probe.mjs");
-    writeFileSync(script, `process.stdout.write("x".repeat(70 * 1024));\n`);
-    const cli = `${JSON.stringify(process.execPath)} ${JSON.stringify(script)}`;
+    const script = writeProbeWrapper("cli-noisy-probe", `process.stdout.write("x".repeat(70 * 1024));\n`);
+    const cli = JSON.stringify(script);
     const res = await api("POST", "/api/cli-test", { cli, driver: "claudeAgent" });
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(false);
