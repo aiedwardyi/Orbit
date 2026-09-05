@@ -489,6 +489,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       idleTimer: ReturnType<typeof setTimeout> | null;
       closing: boolean;
       stderr: string;
+      /** settle the current turn; set once the spawn handlers exist */
+      settleTurn?: (ok: boolean, stopReason: string | null) => void;
     }
     const sessions = new Map<string, Session>();
     const configuredIdleMinimum = Number(process.env.OMB_CLAUDE_SESSION_IDLE_MIN_MS);
@@ -689,7 +691,17 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (live && !live.turn && !live.closing && live.child.exitCode === null && live.argsKey === argsKey && (!sessionId || sessionId === live.sessionId)) {
         if (live.idleTimer) clearTimeout(live.idleTimer);
         live.turn = { turnId, settled: false, sawStreamDelta: false };
-        active.set(threadId, { stop: () => killCliTree(live.child), turnId, broker: live.broker });
+        active.set(threadId, {
+          stop: () => {
+            retry.cancelled = true;
+            retryAbort.abort();
+            killCliTree(live.child);
+            closeSession(threadId, "interrupted");
+            live.settleTurn?.(false, "exit_before_result");
+          },
+          turnId,
+          broker: live.broker,
+        });
         emit({ ...base(threadId, turnId), type: "turn.started" });
         const written = await writeUser(live, threadId, turn.text);
         if (!written) {
@@ -793,7 +805,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           } catch {}
           session.mcpConfigPath = null;
         }
-        active.delete(threadId);
+        // Only drop *this* turn. A replacement sendTurn after interrupt may
+        // already own `active`; a late close must not steal it.
+        if (active.get(threadId)?.turnId === t.turnId) active.delete(threadId);
         session.turn = null;
         // A settled turn owns no retry budget. Retained CLI sessions may run
         // many later turns on this thread, and each must start fresh.
@@ -801,6 +815,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         emit({ ...base(threadId, t.turnId), type: "turn.completed", ok, stopReason, cost, ...(usage ? { usage } : {}) });
         if (session.child.exitCode === null && !session.closing) armIdle(threadId);
       };
+      session.settleTurn = settle;
       const currentTurnId = () => session.turn?.turnId ?? turnId;
 
       const handleLine = (line: string) => {
@@ -1070,6 +1085,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         retry.cancelled = true;
         retryAbort.abort();
         killCliTree(child);
+        closeSession(threadId, "interrupted");
+        // Release the thread now. On Windows killCliTree is async taskkill, so
+        // waiting for `close` before active.delete rejects Resume-after-Stop
+        // with "a turn is already running on this thread".
+        settle(false, "exit_before_result");
+        if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
       };
       active.set(threadId, { stop, turnId, broker });
       emit({ ...base(threadId, turnId), type: "turn.started" });
