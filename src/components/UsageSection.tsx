@@ -28,11 +28,12 @@ function PlanUsage() {
   const { state } = useStore();
   const now = useNow();
   const engines = splitFriendsEngines(state.instances).friends;
-  // Claude/Codex declare rateLimits but only emit a window after a turn.
-  // Engines that never report (Grok, Antigravity, OpenCode) stay on the flat
-  // "not available" line so a missing observation is not mistaken for none.
+  // Claude/Codex declare rateLimits but only emit a window after a turn —
+  // pending, not an outage. Engines that never report (Grok, Antigravity,
+  // OpenCode) stay on the unsupported line so a missing observation is not
+  // mistaken for downtime.
   const honestCaption = (instance: InstanceInfo) =>
-    t(instance.capabilities?.rateLimits ? "usage.limits.pending" : "usage.limits.unavailable", {
+    t(instance.capabilities?.rateLimits ? "usage.limits.pending" : "usage.limits.notReported", {
       name: instance.displayName,
     });
 

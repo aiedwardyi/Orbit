@@ -443,7 +443,10 @@ describe("first-run core path leftovers", () => {
     expect(ko["engine.openConnections"]).toBe("API 키 입력");
     expect(en["engines.models"]).toBe("Models");
     expect(ko["engines.models"]).toBe("모델");
-    expect(en["usage.limits.unavailable"]).toBe("not available at the moment");
+    expect(en["usage.limits.notReported"]).toBe("{name} does not report a usage limit.");
+    expect(en["usage.limits.pending"]).toBe("Appears after your next {name} message.");
+    expect(en["usage.limits.pending"]).not.toBe(en["usage.limits.notReported"]);
+    expect(Object.hasOwn(en, "usage.limits.unavailable")).toBe(false);
     expect(translate("en", "model.cliVersion", { version: "1.0.13" })).toBe("CLI 1.0.13");
     expect(translate("ko", "model.cliVersion", { version: "1.0.13" })).toBe("CLI 패키지 1.0.13");
     expect(en["model.showAll"]).toContain("{count}");
@@ -610,6 +613,15 @@ describe("plan usage", () => {
     }
     expect(ko["usage.limits.pending"]).toContain("{name}");
     expect(ko["usage.limits.notReported"]).toContain("{name}");
+    expect(ko["usage.limits.pending"]).not.toBe(ko["usage.limits.notReported"]);
+    expect(ko["usage.limits.pending"]).not.toMatch(/not available|at the moment/i);
+    expect(ko["usage.limits.notReported"]).not.toMatch(/not available|at the moment/i);
+    expect(translate("en", "usage.limits.pending", { name: "Claude" })).toBe(
+      "Appears after your next Claude message.",
+    );
+    expect(translate("en", "usage.limits.notReported", { name: "Grok" })).toBe(
+      "Grok does not report a usage limit.",
+    );
     expect(translate("ko", "usage.limits.resetsInDays", { days: 2 })).toBe("2일 후 초기화");
     expect(translate("en", "usage.limits.resetsInDays", { days: 2 })).toBe("Resets in 2 days");
     expect(translate("en", "usage.limits.percentUsed", { percent: 76 })).toBe("76%");
@@ -634,7 +646,8 @@ describe("plan usage", () => {
     expect(planUsageBar).toContain('"usage.limits.weeklyShort"');
     expect(planUsageBar).toContain('t("usage.limits.percentUsed", { percent })');
     expect(usageSection).toContain('"usage.limits.pending"');
-    expect(usageSection).toContain('"usage.limits.unavailable"');
+    expect(usageSection).toContain('"usage.limits.notReported"');
+    expect(usageSection).not.toContain('"usage.limits.unavailable"');
     expect(planUsageBar).toContain("t(phrase.key, phrase.vars)");
     expect(planUsageBar).toContain("t(compactReset.key, compactReset.vars)");
     expect(usageSection).not.toMatch(/Resets in/);

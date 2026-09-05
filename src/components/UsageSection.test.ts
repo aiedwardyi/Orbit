@@ -79,9 +79,11 @@ describe("UsageSection friends plan card", () => {
     expect(html).toContain("OpenCode");
     expect(html).not.toContain("Gemini API");
     expect(html).not.toContain("Kimi");
-    expect(html).toContain("not available at the moment");
-    expect(html).toContain("Codex reports its limit after the next message.");
-    expect(html).not.toContain("Grok reports its limit after the next message.");
+    expect(html).not.toContain("not available at the moment");
+    expect(html).toContain("Grok does not report a usage limit.");
+    expect(html).toContain("Appears after your next Codex message.");
+    expect(html).not.toContain("Appears after your next Grok message.");
+    expect(html).not.toContain("Codex reports its limit after the next message.");
     expect(html).not.toContain(">Turns<");
     expect(html).not.toContain(">Tokens<");
     expect(html).not.toContain(">Cost<");

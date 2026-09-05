@@ -581,13 +581,13 @@ export function SettingsModal({
             {section === "general" && (
               <>
                 <LanguagePicker />
-                <Card title={t("settings.profile.title")} subtitle={t("settings.profile.subtitle")}>
+                <Card title={t("settings.profile.title")} subtitle={t("settings.profile.subtitle")} compact>
                   <ProfileFields />
                 </Card>
+                <ToolCallsRow />
                 <Card title={t("settings.skin.title")} subtitle={t("settings.skin.subtitle")}>
                   <SkinPicker />
                 </Card>
-                <ToolCallsRow />
                 <BrowserProfilesRow />
                 <UpdatesRow />
                 <AnalyticsRow />

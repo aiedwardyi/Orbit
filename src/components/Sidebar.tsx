@@ -64,6 +64,7 @@ import {
   type SidebarDensity,
   type SidebarLayout,
 } from "@/lib/sidebar-preferences";
+import { sidebarConversationRowTone } from "@/lib/sidebar-row";
 import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
 import { phoneSettingsAvailable } from "@/lib/phone-availability";
 import { t, useI18n } from "@/lib/i18n";
@@ -774,13 +775,7 @@ function BotListItem({
       : density === "compact"
         ? "gap-2 px-2 py-1.5 pr-12"
         : "gap-3 px-3 py-2.5 pr-12",
-    bot.chiefOfStaff
-      ? selected
-        ? "border-accent/40 bg-accent/15"
-        : "border-accent/25 bg-accent/5 hover:bg-accent/10"
-      : selected
-        ? "border-transparent bg-raised"
-        : "border-transparent hover:bg-raised/50",
+    sidebarConversationRowTone(selected),
   );
   const body = (
     <>
