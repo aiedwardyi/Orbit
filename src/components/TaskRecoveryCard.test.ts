@@ -81,12 +81,19 @@ describe("TaskRecoveryStrip", () => {
   });
 
   it("stays click-to-resume and lives in the composer column", () => {
-    expect(source).not.toMatch(/useEffect\([\s\S]*resumeTask/);
-    expect(source).toContain("resumeTask");
+    const resetEffect = source.match(/useEffect\(\(\) => \{[\s\S]*?\}, \[bot\.id, packet\?\.threadId\]\)/)?.[0] ?? "";
+    expect(resetEffect).toContain("setResuming(false)");
+    expect(resetEffect).not.toContain("resumeTask");
+    expect(source).toContain('type: "resumeTask"');
     expect(source).toContain("onSettled");
     expect(chatView).toContain("<TaskRecoveryCard");
     expect(chatView).toContain("CHAT_COLUMN_CLASS");
     expect(chatView.indexOf("<TaskRecoveryCard")).toBeGreaterThan(chatView.indexOf("composerDockRef"));
+  });
+
+  it("resets pending and error chrome when the bot or task changes", () => {
+    expect(chatView).toContain("key={`${bot.id}:${activeTask?.threadId ?? bot.threadId}`}");
+    expect(source).toMatch(/bot\.id.*packet\?\.threadId|packet\?\.threadId.*bot\.id/);
   });
 });
 

@@ -1311,6 +1311,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
           rewinds the thread, which a live turn forbids (the server 409s it). */}
       <div ref={composerDockRef} className={cn("absolute inset-x-0 bottom-0 z-[2]", CHAT_COLUMN_CLASS)}>
         <TaskRecoveryCard
+          key={`${bot.id}:${activeTask?.threadId ?? bot.threadId}`}
           bot={bot}
           packet={activeTask?.taskState}
           turns={activeTask?.usage?.turns ?? 0}

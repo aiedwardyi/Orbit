@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, X } from "lucide-react";
 
 import { isTaskRecoveryVisible } from "@/lib/task-recovery";
@@ -93,6 +93,12 @@ export function TaskRecoveryCard({
   const { dispatch } = useStore();
   const [resuming, setResuming] = useState(false);
   const [resumeError, setResumeError] = useState<string | null>(null);
+  const settleGen = useRef(0);
+  useEffect(() => {
+    settleGen.current += 1;
+    setResuming(false);
+    setResumeError(null);
+  }, [bot.id, packet?.threadId]);
   if (!isTaskRecoveryVisible(packet, bot.busy)) return null;
   return (
     <TaskRecoveryStrip
@@ -101,6 +107,7 @@ export function TaskRecoveryCard({
       resuming={resuming}
       resumeError={resumeError}
       onResume={() => {
+        const gen = settleGen.current;
         setResuming(true);
         setResumeError(null);
         dispatch({
@@ -108,6 +115,7 @@ export function TaskRecoveryCard({
           botId: bot.id,
           threadId: packet.threadId,
           onSettled: (error) => {
+            if (gen !== settleGen.current) return;
             setResuming(false);
             if (error) setResumeError(error);
           },
@@ -131,7 +139,7 @@ export function ContextCompactionDivider({ message }: { message: Message }) {
   }
   return (
     <details className="group w-full py-2 text-center text-[12px] text-ink-secondary">
-      <summary className="inline-flex cursor-pointer list-none select-none items-center justify-center gap-1 hover:text-ink">
+      <summary className="mx-auto flex w-full max-w-2xl cursor-pointer list-none select-none items-center justify-center gap-1 hover:text-ink">
         <ChevronDown size={13} className="transition-transform group-open:rotate-180" aria-hidden="true" />
         {t("chat.compactionSummarized")}
       </summary>
