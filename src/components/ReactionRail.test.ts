@@ -47,7 +47,7 @@ describe("reaction rail", () => {
     expect(sources["GroupView.tsx"]).toContain("right-full");
     const chatRows = sources["ChatView.tsx"].split("data-message-hover-actions").slice(1);
     expect(chatRows.length).toBeGreaterThanOrEqual(2);
-    expect(chatRows.some((row) => row.includes("flex items-center"))).toBe(true);
+    expect(chatRows.every((row) => row.includes("flex -translate-y-1/2 items-center"))).toBe(true);
   });
 
   it("reveals the hover row on group hover and keyboard focus, not as a permanent tray", () => {
@@ -73,6 +73,7 @@ describe("reaction rail", () => {
     expect(bar).toContain("data-reaction-bar");
     expect(bar).toContain("SmilePlus");
     expect(bar).toContain("data-reaction-picker");
+    expect(bar).toContain("top-full left-0");
     const trigger = bar.slice(0, bar.indexOf("data-reaction-picker"));
     expect(trigger).not.toContain("PRIMARY_REACTIONS.map");
     expect(trigger).not.toContain("EXTENDED_REACTIONS.map");
