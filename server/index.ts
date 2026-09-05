@@ -721,12 +721,13 @@ const wireGroupTask = (task: GroupTaskRecord) => ({
 });
 
 function publicGroupState(group: GroupRecord) {
-  return {
+  const next = {
     ...group,
     working: groupIsWorking(group),
     taskState: store.taskPacket(group.threadId) ?? undefined,
-    ...(group.dm ? {} : { tasks: store.groupTasks(group.id).map(wireGroupTask) }),
   };
+  if (group.dm) return next;
+  return { ...next, tasks: store.groupTasks(group.id).map(wireGroupTask) };
 }
 
 const groupWithThread = (group: GroupRecord) => ({
