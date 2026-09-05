@@ -356,11 +356,8 @@ function Bubble({
         {user && (
           <div
             data-message-hover-actions
-            className="pointer-events-none absolute right-full bottom-0 z-20 mr-0.5 flex items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+            className="pointer-events-none absolute top-1/2 right-full z-20 mr-0.5 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
           >
-            <span className="px-1 pb-0.5 text-[11px] tabular-nums text-ink-secondary/70">
-              {formatTime(message.at)}
-            </span>
             {/* editing rewinds the thread, so it waits for the turn to end —
                 same rule as the version switcher below */}
             {message.kind === "text" && !webhookView && !bot.busy && (
@@ -472,7 +469,7 @@ function Bubble({
         {!user && (
           <div
             data-message-hover-actions
-            className="pointer-events-none absolute bottom-0 left-full z-20 ml-0.5 flex items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+            className="pointer-events-none absolute top-1/2 left-full z-20 ml-0.5 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
           >
             {message.kind === "text" && <ReactionBar threadId={bot.threadId} message={message} />}
             <CopyButton text={text} className="opacity-100" />
@@ -510,12 +507,12 @@ function Bubble({
             >
               {bot.pinnedMessageId === message.id ? <PinOff size={14} /> : <Pin size={14} />}
             </button>
-            <span className="px-1 pb-0.5 text-[11px] tabular-nums text-ink-secondary/70">
-              {formatTime(message.at)}
-            </span>
           </div>
         )}
       </div>
+      <span className="mt-0.5 text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+        {formatTime(message.at)}
+      </span>
       {/* busy-gated so a flag stranded by a server restart shows nothing */}
       {user && message.queued && bot.busy && (
         <div className="mt-1 flex items-center gap-1 pr-1 text-[11px] text-ink-secondary/70">

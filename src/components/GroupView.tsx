@@ -256,11 +256,8 @@ const Transcript = memo(function Transcript({
                 {user && (
                   <div
                     data-message-hover-actions
-                    className="pointer-events-none absolute right-full bottom-0 z-20 mr-0.5 flex items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+                    className="pointer-events-none absolute top-1/2 right-full z-20 mr-0.5 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
                   >
-                    <span className="px-1 pb-0.5 text-[11px] tabular-nums text-ink-secondary/70">
-                      {formatTime(m.at, localeTag(locale))}
-                    </span>
                     <button
                       type="button"
                       onClick={() => onReply(m)}
@@ -307,7 +304,7 @@ const Transcript = memo(function Transcript({
                 {!user && (
                   <div
                     data-message-hover-actions
-                    className="pointer-events-none absolute bottom-0 left-full z-20 ml-0.5 flex items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+                    className="pointer-events-none absolute top-1/2 left-full z-20 ml-0.5 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
                   >
                     <ReactionBar threadId={group.threadId} message={m} />
                     <button
@@ -320,12 +317,12 @@ const Transcript = memo(function Transcript({
                       <MessageSquareReply size={14} />
                     </button>
                     <PinToggle group={group} message={m} />
-                    <span className="px-1 pb-0.5 text-[11px] tabular-nums text-ink-secondary/70">
-                      {formatTime(m.at, localeTag(locale))}
-                    </span>
                   </div>
                 )}
               </div>
+              <span className="mt-0.5 text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                {formatTime(m.at, localeTag(locale))}
+              </span>
               <ReactionChips threadId={group.threadId} message={m} members={members} align={user ? "right" : "left"} />
             </div>
           ) : null;
