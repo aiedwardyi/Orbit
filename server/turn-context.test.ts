@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildResumeFallback, buildTurnContext, engineIsFresh, shouldRecycleProviderSession, taskRecordBlock } from "./turn-context.ts";
+import { buildResumeFallback, buildTurnContext, engineIsFresh, shouldRecycleProviderSession, TASK_RESUME_PROMPT, taskRecordBlock } from "./turn-context.ts";
 
 const transcript = [
   { role: "user" as const, text: "my dog is named Biscuit" },
@@ -78,6 +78,8 @@ describe("buildTurnContext", () => {
     });
     expect(out.resume).toBe(true);
     expect(out.turnText).toContain("Orbit task record");
+    expect(out.turnText).not.toContain("Goal: Publish the weekly brief");
+    expect(out.turnText).not.toContain("Next action: Verify citations");
   });
 
   it("injects compacted history plus the task record after Stop on a compacted thread", () => {
@@ -153,8 +155,56 @@ describe("buildTurnContext", () => {
 
     expect(out.resume).toBe(true);
     expect(out.turnText).toContain("Orbit task record");
-    expect(out.turnText).toContain("Goal: Publish the weekly brief");
+    expect(out.turnText).toContain("Current request: my dog is named Biscuit");
+    expect(out.turnText).toContain("Drafted five sections");
+    expect(out.turnText).not.toContain("Goal: Publish the weekly brief");
+    expect(out.turnText).not.toContain("Next action: Verify citations");
+    expect(out.turnText).not.toMatch(/verify against/i);
     expect(out.turnText.endsWith("continue")).toBe(true);
+  });
+
+  it("aligns the Resume preamble with the latest user turn when the saved goal drifted", () => {
+    const taskRecord = {
+      goal: "Prepare a weekly competitor brief",
+      plan: [
+        { step: "Prepare a weekly competitor brief", status: "active" as const },
+        { step: "Verify citations", status: "pending" as const },
+      ],
+      completed: [{ note: "Drafted five sections with citations." }],
+      blockers: [],
+      nextAction: "Verify citations",
+    };
+    const prebuilt = taskRecordBlock(taskRecord);
+    expect(prebuilt).toContain("Goal: Prepare a weekly competitor brief");
+    expect(prebuilt).toContain("Next action: Verify citations");
+    expect(prebuilt).toMatch(/verify against/i);
+
+    const out = buildTurnContext({
+      text: TASK_RESUME_PROMPT,
+      transcript: [
+        { role: "user", text: "Prepare a weekly competitor brief" },
+        { role: "assistant", text: "Drafted five sections with citations." },
+        { role: "user", text: "Now add a pricing comparison" },
+      ],
+      rewound: false,
+      fresh: false,
+      recycled: false,
+      replaysNatively: false,
+      recovering: true,
+      taskRecord,
+      taskRecordText: prebuilt,
+    });
+
+    expect(out.resume).toBe(true);
+    expect(out.turnText).toContain("Orbit task record");
+    expect(out.turnText).toContain("Current request: Now add a pricing comparison");
+    expect(out.turnText).toContain("Drafted five sections with citations.");
+    expect(out.turnText).not.toContain("Goal: Prepare a weekly competitor brief");
+    expect(out.turnText).not.toContain("Next action: Verify citations");
+    expect(out.turnText).not.toMatch(/Plan:/);
+    expect(out.turnText).not.toMatch(/verify against/i);
+    expect(out.turnText).not.toContain("Continue the saved task from its recorded next action");
+    expect(out.turnText.endsWith(TASK_RESUME_PROMPT)).toBe(true);
   });
 
   it("injects the task record when the replay tail is capped", () => {

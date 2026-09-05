@@ -131,6 +131,15 @@ describe("normal-reopen shutdown stamps", () => {
   });
 });
 
+describe("Continuity Resume prompt", () => {
+  it("does not tell the model to verify a saved Goal/Next against the conversation", () => {
+    expect(indexSource).toContain("TASK_RESUME_PROMPT");
+    expect(indexSource).toContain("startTurn(bot.id, TASK_RESUME_PROMPT");
+    expect(indexSource).not.toContain("Continue the saved task from its recorded next action");
+    expect(indexSource).not.toContain("Verify the record against the conversation before acting");
+  });
+});
+
 describe("turn completion disposition after stop", () => {
   it("keeps an interrupted completion when no newer turn is live", () => {
     expect(turnCompletionDisposition({

@@ -137,7 +137,20 @@ export function recordTaskCompletion(
   if (!input.ok && !keepRecovery) {
     next.blockers.push({ kind: "engine", note: "The last turn ended before completing." });
   }
+  if (input.ok && !input.interrupted) foldCompletedNextAction(next);
   return next;
+}
+
+/** After verified completion, do not leave that same work as the next action. */
+export function foldCompletedNextAction(packet: TaskResumePacket): TaskResumePacket {
+  const action = firstLine(packet.nextAction);
+  const done = packet.plan.filter((item) => item.status === "done").map((item) => firstLine(item.step));
+  const completed = packet.completed.map((item) => firstLine(item.note));
+  if (!action || (!done.includes(action) && !completed.includes(action))) return packet;
+  const pending = packet.plan.find((item) => item.status === "pending");
+  const active = packet.plan.find((item) => item.status === "active" && firstLine(item.step) !== action);
+  packet.nextAction = firstLine(pending?.step ?? active?.step ?? "Continue from the conversation");
+  return packet;
 }
 
 export function stampTaskResumePacket(

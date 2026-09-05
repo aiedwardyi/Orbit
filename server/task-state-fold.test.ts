@@ -108,6 +108,31 @@ describe("task state folding", () => {
     expect(failed.blockers).toContainEqual({ kind: "engine", note: expect.any(String) });
   });
 
+  it("does not keep completed work as nextAction after a successful turn", () => {
+    const withDoneStep = {
+      ...seed(),
+      plan: [
+        { step: "Prepare a weekly competitor brief", status: "done" as const },
+        { step: "Add a pricing comparison", status: "pending" as const },
+      ],
+      nextAction: "Prepare a weekly competitor brief",
+    };
+    const advanced = recordTaskCompletion(withDoneStep, {
+      ok: true,
+      reply: "Draft complete with five cited sources.",
+      now: 300,
+    });
+    expect(advanced.nextAction).toBe("Add a pricing comparison");
+
+    const echoed = recordTaskCompletion(seed(), {
+      ok: true,
+      reply: "Prepare a weekly competitor brief",
+      now: 300,
+    });
+    expect(echoed.nextAction).toBe("Continue from the conversation");
+    expect(echoed.completed.at(-1)?.note).toBe("Prepare a weekly competitor brief");
+  });
+
   it("stamps engine switches and stops without changing task content", () => {
     const packet = seed();
     const switched = stampTaskResumePacket(packet, "engine-switch", { now: 200 });

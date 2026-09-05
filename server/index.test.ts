@@ -2511,7 +2511,13 @@ describe("harness HTTP API", () => {
       const resumedDump = z.object({ prompt: z.unknown() }).passthrough().parse(
         JSON.parse(readFileSync(fakeClaudeDump, "utf8")),
       );
-      expect(JSON.stringify(resumedDump.prompt)).toContain("Orbit task record");
+      const resumedPrompt = JSON.stringify(resumedDump.prompt);
+      expect(resumedPrompt).toContain("Orbit task record");
+      expect(resumedPrompt).toContain("Current request: Continue until I stop you");
+      expect(resumedPrompt).toContain("The previous turn was interrupted. Continue from the conversation.");
+      expect(resumedPrompt).not.toContain("Goal: Prepare a durable weekly brief");
+      expect(resumedPrompt).not.toContain("Next action: Verify citations after stopping");
+      expect(resumedPrompt).not.toContain("Verify the record against the conversation");
       expect((await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId })).status).toBe(200);
       await expect.poll(() => storedTaskPacket(bot.threadId).flushReason).toBe("stop");
       expect((await api("POST", `/api/bots/${bot.id}/tasks/${bot.threadId}/recovery`, {})).status).toBe(200);
