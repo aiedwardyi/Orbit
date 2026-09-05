@@ -26,6 +26,16 @@ import { speaker } from "@/lib/tts";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
 import { openLiveEvents } from "@/lib/live-events";
+import {
+  acceptedSendPaint,
+  applyOptimisticBusy,
+  clearAcceptedThinking,
+  forgetAcceptedSend,
+  hasAcceptedThinking,
+  rememberAcceptedSend,
+  settleAcceptedSend,
+  type AcceptedSends,
+} from "@/lib/send-accept";
 
 export type { MausColor } from "@/lib/mascot";
 export type { RoutineRunCardData } from "../../shared/routine-run";
@@ -481,6 +491,10 @@ export interface AppState {
   /** queueIds whose drain frame beat the POST continuation. One-shot and
    * bounded to a short event window so other clients cannot grow it forever. */
   consumedQueueIds: Record<string, true>;
+  /** Sends the composer accepted this tick; Thinking / Sends-next paint
+   * from this until POST or SSE confirms, so chrome does not wait on
+   * startTurn's prepareModelContext waterfall. */
+  acceptedSends: AcceptedSends;
 }
 
 const MAX_CONSUMED_QUEUE_IDS = 64;
@@ -599,6 +613,8 @@ export type Action =
   | { type: "pendingQueued"; threadId: string; queueId: string; text: string }
   | { type: "consumePendingQueued"; threadId: string; queueId: string }
   | { type: "cancelQueued"; botId: string; queueId: string }
+  | { type: "sendSettled"; threadId: string; sendId: string }
+  | { type: "sendRejected"; threadId: string; sendId: string; botId?: string }
   | { type: "editMessage"; botId: string; messageId: string; text: string }
   | { type: "switchBranch"; botId: string; messageId: string }
   | { type: "threadActive"; threadId: string; activeLeafId: string }
@@ -766,7 +782,7 @@ export function reducer(state: AppState, action: Action): AppState {
       const known = (id: string) => action.bots.some((b) => b.id === id) || action.groups.some((g) => g.id === id);
       const selectedId =
         state.selectedId && known(state.selectedId) ? state.selectedId : (action.bots[0]?.id ?? "");
-      return reconcileSnapshotQueues(
+      const hydrated = reconcileSnapshotQueues(
         {
           ...state,
           bots: action.bots,
@@ -776,6 +792,7 @@ export function reducer(state: AppState, action: Action): AppState {
         },
         [...action.bots, ...action.groups],
       );
+      return { ...hydrated, bots: applyOptimisticBusy(hydrated.bots, hydrated.acceptedSends) };
     }
     case "showRoutines":
       return {
@@ -856,7 +873,12 @@ export function reducer(state: AppState, action: Action): AppState {
       const groups = exists
         ? state.groups.map((g) => (g.id === action.group.id ? { ...g, ...action.group, messages: action.group.messages ?? g.messages } : g))
         : [{ ...(action.group as Group), messages: action.group.messages ?? [] }, ...state.groups];
-      return { ...state, groups };
+      const patchedGroup = groups.find((group) => group.id === action.group.id);
+      const acceptedSends =
+        patchedGroup?.busyBotId
+          ? clearAcceptedThinking(state.acceptedSends, patchedGroup.threadId)
+          : state.acceptedSends;
+      return { ...state, groups, acceptedSends };
     }
     case "groupDeleted": {
       const groups = state.groups.filter((g) => g.id !== action.groupId);
@@ -952,7 +974,9 @@ export function reducer(state: AppState, action: Action): AppState {
           ? "surprise"
           : action.bot.busy === true && !before?.busy
             ? "working"
-            : action.bot.busy === false && before?.busy
+            : action.bot.busy === false &&
+                before?.busy &&
+                !hasAcceptedThinking(state.acceptedSends[before.threadId])
               ? "celebrate"
               : null;
       const animated = kind ? withMascotMotion(state, action.bot.id, kind) : state;
@@ -980,9 +1004,19 @@ export function reducer(state: AppState, action: Action): AppState {
             ? action.bot.messages
             : b.messages,
       }));
-      return switchedThread && Array.isArray(action.bot.messages)
-        ? reconcileSnapshotQueues(patched, [action.bot])
-        : patched;
+      const reconciled =
+        switchedThread && Array.isArray(action.bot.messages)
+          ? reconcileSnapshotQueues(patched, [action.bot])
+          : patched;
+      const acceptedSends =
+        action.bot.busy === true
+          ? clearAcceptedThinking(reconciled.acceptedSends, before.threadId)
+          : reconciled.acceptedSends;
+      return {
+        ...reconciled,
+        acceptedSends,
+        bots: applyOptimisticBusy(reconciled.bots, acceptedSends),
+      };
     }
     case "messageAdded": {
       const bot = state.bots.find((b) => b.threadId === action.threadId);
@@ -1269,8 +1303,95 @@ export function reducer(state: AppState, action: Action): AppState {
       else delete pendingQueued[bot.threadId];
       return { ...state, pendingQueued };
     }
-    case "send":
-      return withMascotMotion(dismissOnboardingCard(state, action.botId), action.botId, "working");
+    case "send": {
+      const dismissed = dismissOnboardingCard(state, action.botId);
+      const bot = dismissed.bots.find((candidate) => candidate.id === action.botId);
+      if (!bot) return withMascotMotion(dismissed, action.botId, "working");
+      const sendId = action.sendId ?? crypto.randomUUID();
+      const paint = acceptedSendPaint({ alreadyBusy: Boolean(bot.busy) });
+      const threadId = action.threadId ?? bot.threadId;
+      let next: AppState = {
+        ...dismissed,
+        acceptedSends: rememberAcceptedSend(dismissed.acceptedSends, threadId, {
+          sendId,
+          kind: paint.kind,
+          text: action.text,
+        }),
+      };
+      if (paint.kind === "thinking") {
+        next = updateBot(next, action.botId, (current) => ({
+          ...current,
+          busy: true,
+          activity: "working",
+        }));
+      }
+      return withMascotMotion(next, action.botId, "working");
+    }
+    case "sendGroup": {
+      const group = state.groups.find((candidate) => candidate.id === action.groupId);
+      if (!group) return state;
+      const sendId = action.sendId ?? crypto.randomUUID();
+      const paint = acceptedSendPaint({ alreadyBusy: Boolean(group.busyBotId) });
+      return {
+        ...state,
+        acceptedSends: rememberAcceptedSend(state.acceptedSends, action.threadId ?? group.threadId, {
+          sendId,
+          kind: paint.kind,
+          text: action.text,
+        }),
+      };
+    }
+    case "sendSettled":
+      return {
+        ...state,
+        acceptedSends: settleAcceptedSend(state.acceptedSends, action.threadId, action.sendId),
+      };
+    case "sendRejected": {
+      const rejected = (state.acceptedSends[action.threadId] ?? []).find(
+        (entry) => entry.sendId === action.sendId,
+      );
+      const acceptedSends = forgetAcceptedSend(state.acceptedSends, action.threadId, action.sendId);
+      let next: AppState = { ...state, acceptedSends };
+      if (
+        rejected?.kind === "thinking" &&
+        action.botId &&
+        !hasAcceptedThinking(acceptedSends[action.threadId])
+      ) {
+        const bot = next.bots.find((candidate) => candidate.id === action.botId);
+        const last = bot?.messages.at(-1);
+        if (!bot || last?.sendId !== action.sendId) {
+          next = updateBot(next, action.botId, (current) => ({
+            ...current,
+            busy: false,
+            activity: current.activity === "working" ? "idle" : current.activity,
+          }));
+        }
+      }
+      return next;
+    }
+    case "interrupt": {
+      const bot = state.bots.find((candidate) => candidate.id === action.botId);
+      if (!bot) return state;
+      const hadThinking = hasAcceptedThinking(state.acceptedSends[bot.threadId]);
+      let next: AppState = {
+        ...state,
+        acceptedSends: clearAcceptedThinking(state.acceptedSends, bot.threadId),
+      };
+      if (hadThinking) {
+        next = updateBot(next, action.botId, (current) => ({
+          ...current,
+          busy: false,
+          activity: current.activity === "working" ? "idle" : current.activity,
+        }));
+      }
+      return next;
+    }
+    case "interruptGroup": {
+      const group = state.groups.find((candidate) => candidate.id === action.groupId);
+      return group
+        ? { ...state, acceptedSends: clearAcceptedThinking(state.acceptedSends, group.threadId) }
+        : state;
+    }
     case "editMessage":
       return withMascotMotion(state, action.botId, "working");
     case "newTask":
@@ -1341,11 +1462,8 @@ export function reducer(state: AppState, action: Action): AppState {
     case "closeCreateBot":
       return { ...state, createBotOpen: false };
     case "duplicateBot":
-    case "interrupt":
     case "createGroup":
-    case "sendGroup":
     case "deleteGroup":
-    case "interruptGroup":
     case "createRoutine":
     case "updateRoutine":
     case "deleteRoutine":
@@ -1389,6 +1507,7 @@ export const initialState: AppState = {
   mascotMotion: null,
   pendingQueued: {},
   consumedQueueIds: {},
+  acceptedSends: {},
 };
 
 // ── API client ─────────────────────────────────────────────────────────
@@ -1461,6 +1580,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, rawDispatch] = useReducer(reducer, initialState);
   const stateRef = useRef(state);
   stateRef.current = state;
+  const cancelledSendsRef = useRef(new Set<string>());
   // per-frame stream-delta batching (see the "runtime" SSE case); stream
   // state is intentionally OUTSIDE the reducer so token frames re-render
   // only StreamContext consumers
@@ -1550,7 +1670,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }).catch(() => {});
     };
 
-    const wrapped: React.Dispatch<Action> = (action) => {
+    const wrapped: React.Dispatch<Action> = (rawAction) => {
+      const action =
+        (rawAction.type === "send" || rawAction.type === "sendGroup") && !rawAction.sendId
+          ? { ...rawAction, sendId: crypto.randomUUID() }
+          : rawAction;
       const botBeforeUpdate =
         action.type === "updateBot"
           ? stateRef.current.bots.find((candidate) => candidate.id === action.botId)
@@ -1561,6 +1685,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return bot ? openOnboardingCard(bot) : undefined;
       })();
       if (action.type === "deleteBot") botPatchQueue.cancel(action.botId);
+      if (action.type === "interrupt") {
+        const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
+        for (const entry of bot ? (stateRef.current.acceptedSends[bot.threadId] ?? []) : []) {
+          cancelledSendsRef.current.add(entry.sendId);
+        }
+      }
+      if (action.type === "interruptGroup") {
+        const group = stateRef.current.groups.find((candidate) => candidate.id === action.groupId);
+        for (const entry of group ? (stateRef.current.acceptedSends[group.threadId] ?? []) : []) {
+          cancelledSendsRef.current.add(entry.sendId);
+        }
+      }
       // A queued message is still real until the server confirms deletion.
       // All other actions keep their existing optimistic behavior.
       if (action.type !== "cancelQueued") rawDispatch(action);
@@ -1586,23 +1722,54 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "markRoutineRunSeen":
           api(`/api/routine-runs/${action.runId}/seen`, { method: "POST" }).catch(showError);
           break;
-        case "cancelQueued":
+        case "cancelQueued": {
+          const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
+          const accepted = bot
+            ? (stateRef.current.acceptedSends[bot.threadId] ?? []).find((entry) => entry.sendId === action.queueId)
+            : undefined;
+          if (bot && accepted) {
+            cancelledSendsRef.current.add(action.queueId);
+            rawDispatch({
+              type: "sendRejected",
+              botId: action.botId,
+              threadId: bot.threadId,
+              sendId: action.queueId,
+            });
+            break;
+          }
           void api(`/api/bots/${action.botId}/queue/${action.queueId}`, { method: "DELETE" })
             .then(() => rawDispatch(action))
             .catch(showError);
           break;
+        }
         case "send": {
           // persist through the existing card route so an older server that
           // does not auto-dismiss still hides the quiz on this client
           if (quizBeforeSend) persistCard(action.botId, quizBeforeSend.id, { dismissed: true });
           const threadId =
             action.threadId ?? stateRef.current.bots.find((bot) => bot.id === action.botId)?.threadId;
-          const sendId = action.sendId ?? crypto.randomUUID();
+          const sendId = action.sendId;
+          if (!sendId) break;
           void api(`/api/bots/${action.botId}/messages`, {
             method: "POST",
             body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId }),
           })
             .then((body) => {
+              if (cancelledSendsRef.current.has(sendId)) {
+                cancelledSendsRef.current.delete(sendId);
+                if (body?.queued && typeof body.queueId === "string") {
+                  void api(`/api/bots/${action.botId}/queue/${body.queueId}`, { method: "DELETE" }).catch(
+                    () => {},
+                  );
+                  return;
+                }
+                if (body?.message && typeof body.threadId === "string") {
+                  rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
+                }
+                return;
+              }
+              const settledThread =
+                typeof body?.threadId === "string" ? body.threadId : threadId;
               if (body?.message && typeof body.threadId === "string") {
                 rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
               }
@@ -1618,8 +1785,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                   text: action.text,
                 });
               }
+              if (typeof settledThread === "string") {
+                rawDispatch({ type: "sendSettled", threadId: settledThread, sendId });
+              }
             })
             .catch((error) => {
+              cancelledSendsRef.current.delete(sendId);
+              if (typeof threadId === "string") {
+                rawDispatch({ type: "sendRejected", botId: action.botId, threadId, sendId });
+              }
               showError(error);
               action.onError?.();
             });
@@ -1781,17 +1955,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "sendGroup": {
           const threadId =
             action.threadId ?? stateRef.current.groups.find((group) => group.id === action.groupId)?.threadId;
-          const sendId = action.sendId ?? crypto.randomUUID();
+          const sendId = action.sendId;
+          if (!sendId) break;
+          // Rooms hold follow-ups in the composer; this POST never returns queued.
           api(`/api/groups/${action.groupId}/messages`, {
             method: "POST",
             body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId }),
           })
             .then((body) => {
+              if (cancelledSendsRef.current.has(sendId)) {
+                cancelledSendsRef.current.delete(sendId);
+                return;
+              }
+              const settledThread =
+                typeof body?.threadId === "string" ? body.threadId : threadId;
               if (body?.message && typeof body.threadId === "string") {
                 rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
               }
+              if (typeof settledThread === "string") {
+                rawDispatch({ type: "sendSettled", threadId: settledThread, sendId });
+              }
             })
             .catch((error) => {
+              cancelledSendsRef.current.delete(sendId);
+              if (typeof threadId === "string") {
+                rawDispatch({ type: "sendRejected", threadId, sendId });
+              }
               showError(error);
               action.onError?.();
             });

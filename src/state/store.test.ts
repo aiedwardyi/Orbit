@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { isTaskRecoveryVisible } from "@/lib/task-recovery";
+import { turnPresenceWaiting, visibleSteerEntries } from "@/lib/send-accept";
 import {
   configStatusFromFrame,
   initialState,
@@ -886,6 +887,188 @@ describe("pending queued chip", () => {
       queueId: "q-drop",
     });
     expect(cancelled.pendingQueued).toEqual({});
+  });
+});
+
+describe("accepted send chrome", () => {
+  const idleBot = {
+    id: "echo",
+    threadId: "t1",
+    name: "Echo",
+    title: "",
+    description: "",
+    notifications: true,
+    color: "green",
+    unread: false,
+    modelSelection: { instanceId: "x", model: "y" },
+    messages: [{ id: "a1", role: "bot", kind: "text", text: "done", at: 1 }],
+    activeLeafId: "a1",
+  } satisfies Bot;
+
+  it("paints Thinking even when the action omits sendId", () => {
+    const next = reducer({ ...initialState, bots: [idleBot] }, { type: "send", botId: idleBot.id, text: "Hi" });
+    expect(
+      turnPresenceWaiting({
+        busy: next.bots[0]?.busy,
+        lastMessage: next.bots[0]?.messages.at(-1),
+        accepted: next.acceptedSends[idleBot.threadId],
+      }),
+    ).toBe(true);
+  });
+
+  it("paints Thinking in the same reducer turn as an accepted idle send", () => {
+    const started = performance.now();
+    const next = reducer(
+      { ...initialState, bots: [idleBot] },
+      { type: "send", botId: idleBot.id, text: "Hi", sendId: "s1" },
+    );
+    const elapsed = performance.now() - started;
+    const bot = next.bots[0]!;
+    expect(
+      turnPresenceWaiting({
+        busy: bot.busy,
+        activity: bot.activity,
+        lastMessage: bot.messages.at(-1),
+        accepted: next.acceptedSends[bot.threadId],
+      }),
+    ).toBe(true);
+    expect(bot.busy).toBe(true);
+    expect(elapsed).toBeLessThan(20);
+  });
+
+  it("surfaces Sends-next for a busy follow-up before the POST queueId arrives", () => {
+    const busyBot = { ...idleBot, busy: true, activity: "working" as const };
+    const next = reducer(
+      { ...initialState, bots: [busyBot] },
+      { type: "send", botId: busyBot.id, text: "and then", sendId: "s2" },
+    );
+    expect(visibleSteerEntries(next.pendingQueued, busyBot.threadId, next.acceptedSends[busyBot.threadId])).toEqual([
+      { queueId: "s2", text: "and then" },
+    ]);
+    expect(
+      turnPresenceWaiting({
+        busy: next.bots[0]?.busy,
+        lastMessage: next.bots[0]?.messages.at(-1),
+        accepted: next.acceptedSends[busyBot.threadId],
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps Thinking through a stale idle bot patch until the send is rejected", () => {
+    const sent = reducer(
+      { ...initialState, bots: [idleBot] },
+      { type: "send", botId: idleBot.id, text: "Hi", sendId: "s1" },
+    );
+    const stale = reducer(sent, {
+      type: "botPatched",
+      bot: { ...idleBot, busy: false, activity: "idle" },
+    });
+    expect(
+      turnPresenceWaiting({
+        busy: stale.bots[0]?.busy,
+        activity: stale.bots[0]?.activity,
+        lastMessage: stale.bots[0]?.messages.at(-1),
+        accepted: stale.acceptedSends[idleBot.threadId],
+      }),
+    ).toBe(true);
+
+    const rejected = reducer(stale, {
+      type: "sendRejected",
+      botId: idleBot.id,
+      threadId: idleBot.threadId,
+      sendId: "s1",
+    });
+    expect(rejected.acceptedSends[idleBot.threadId]).toBeUndefined();
+    expect(rejected.bots[0]?.busy).toBeFalsy();
+    expect(
+      turnPresenceWaiting({
+        busy: rejected.bots[0]?.busy,
+        lastMessage: rejected.bots[0]?.messages.at(-1),
+        accepted: rejected.acceptedSends[idleBot.threadId],
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps Thinking after POST settle until the server flips busy", () => {
+    const sent = reducer(
+      { ...initialState, bots: [idleBot] },
+      { type: "send", botId: idleBot.id, text: "Hi", sendId: "s1" },
+    );
+    const settled = reducer(sent, { type: "sendSettled", threadId: idleBot.threadId, sendId: "s1" });
+    expect(
+      turnPresenceWaiting({
+        busy: settled.bots[0]?.busy,
+        lastMessage: settled.bots[0]?.messages.at(-1),
+        accepted: settled.acceptedSends[idleBot.threadId],
+      }),
+    ).toBe(true);
+
+    const confirmed = reducer(settled, {
+      type: "botPatched",
+      bot: { ...idleBot, busy: true, activity: "working" },
+    });
+    expect(confirmed.acceptedSends[idleBot.threadId]).toBeUndefined();
+    expect(confirmed.bots[0]?.busy).toBe(true);
+  });
+
+  it("clears optimistic Thinking and busy on Stop", () => {
+    const sent = reducer(
+      { ...initialState, bots: [idleBot] },
+      { type: "send", botId: idleBot.id, text: "Hi", sendId: "s1" },
+    );
+    const stopped = reducer(sent, { type: "interrupt", botId: idleBot.id });
+    expect(stopped.acceptedSends[idleBot.threadId]).toBeUndefined();
+    expect(stopped.bots[0]?.busy).toBeFalsy();
+    expect(
+      turnPresenceWaiting({
+        busy: stopped.bots[0]?.busy,
+        lastMessage: stopped.bots[0]?.messages.at(-1),
+        accepted: stopped.acceptedSends[idleBot.threadId],
+      }),
+    ).toBe(false);
+  });
+
+  it("paints room Thinking on sendGroup before busyBotId arrives", () => {
+    const room = {
+      id: "r1",
+      threadId: "gt1",
+      name: "Launch",
+      memberIds: ["echo"],
+      defaultResponder: { kind: "member" as const, botId: "echo" },
+      bulletin: "",
+      unread: false,
+      createdAt: 1,
+      messages: [{ id: "a1", role: "bot" as const, kind: "text" as const, text: "done", at: 1 }],
+    } satisfies Group;
+    const withoutId = reducer(
+      { ...initialState, bots: [idleBot], groups: [room] },
+      { type: "sendGroup", groupId: room.id, text: "go" },
+    );
+    expect(
+      turnPresenceWaiting({
+        lastMessage: withoutId.groups[0]?.messages.at(-1),
+        accepted: withoutId.acceptedSends[room.threadId],
+      }),
+    ).toBe(true);
+
+    const next = reducer(
+      { ...initialState, bots: [idleBot], groups: [room] },
+      { type: "sendGroup", groupId: room.id, text: "go", sendId: "g1" },
+    );
+    expect(
+      turnPresenceWaiting({
+        lastMessage: next.groups[0]?.messages.at(-1),
+        accepted: next.acceptedSends[room.threadId],
+      }),
+    ).toBe(true);
+
+    const settled = reducer(next, { type: "sendSettled", threadId: room.threadId, sendId: "g1" });
+    expect(
+      turnPresenceWaiting({
+        lastMessage: settled.groups[0]?.messages.at(-1),
+        accepted: settled.acceptedSends[room.threadId],
+      }),
+    ).toBe(true);
   });
 });
 

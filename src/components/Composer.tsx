@@ -46,9 +46,9 @@ import {
   composerBusySendAction,
   composerSendSourceText,
   peelNextBusyRoomSend,
-  pendingSteerEntries,
   rearmRoomFlushHold,
 } from "@/lib/composer-busy";
+import { composerIsBusy, visibleSteerEntries } from "@/lib/send-accept";
 import { composerEnterIntent, isComposerEnterKey } from "@/lib/composer-enter";
 import { useI18n } from "@/lib/i18n";
 import { ReplyQuote } from "./ReplyQuote";
@@ -246,13 +246,13 @@ export function Composer({
   // Unified target: a 1:1 bot thread or a room. In a room the @ picker
   // offers members plus @everyone; explicit mentions override the room's
   // configured default responder.
-  const busy = group ? Boolean(group.busyBotId) : Boolean(bot?.busy);
+  const threadId = group?.threadId ?? bot?.threadId ?? "";
+  const acceptedSends = state.acceptedSends[threadId];
+  const busy = composerIsBusy(group ? Boolean(group.busyBotId) : Boolean(bot?.busy), acceptedSends);
   // an engine with a live session takes a message INTO the running turn;
   // for those the composer never locks — the server steers instead of 409
   const canSteer =
     !group && Boolean(bot) && state.instances.find((i) => i.instanceId === bot!.modelSelection.instanceId)?.capabilities?.queueing === true;
-  // a pending approval blocks the prompt until it is answered
-  const threadId = group?.threadId ?? bot?.threadId ?? "";
   // the VISIBLE branch only — an approval left on a branch you edited away
   // from must not keep blocking the composer
   const threadMessages = group ? group.messages : bot ? visibleMessages(bot) : [];
@@ -445,7 +445,7 @@ export function Composer({
   const dropQueued = useCallback((sendId: string) => {
     commitQueued(queuedRef.current.filter((entry) => entry.draft.sendId !== sendId));
   }, [commitQueued]);
-  const pendingSteer = !group && bot ? pendingSteerEntries(state.pendingQueued, bot.threadId) : [];
+  const pendingSteer = !group && bot ? visibleSteerEntries(state.pendingQueued, bot.threadId, acceptedSends) : [];
   // a chip on its own is a message: the send control has to appear for it
   const fileInput = useRef<HTMLInputElement>(null);
   const [autoWarn, setAutoWarn] = useState(false);

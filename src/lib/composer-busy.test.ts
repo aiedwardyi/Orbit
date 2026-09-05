@@ -118,7 +118,7 @@ describe("Composer wiring", () => {
     expect(composer).not.toContain("composer.waitHint");
     expect(composer).toContain("disabled={Boolean(approval) || locked}");
     expect(composer).not.toMatch(/disabled=\{[^}]*busy/);
-    expect(composer).toContain("pendingSteerEntries");
+    expect(composer).toContain("visibleSteerEntries");
     expect(composer).toContain("composerBusySendAction");
     expect(composer).toContain("composerSendSourceText");
     expect(composer).toContain("peelNextBusyRoomSend");
