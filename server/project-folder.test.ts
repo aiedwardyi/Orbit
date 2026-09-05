@@ -187,6 +187,12 @@ describe("resolveProjectFolder", () => {
     ).toEqual({ cwd: orbit, source: "named" });
     expect(
       resolveProjectFolder({
+        userTexts: ["Orbit로 열어줘"],
+        recentPaths: [orbit],
+      }),
+    ).toEqual({ cwd: orbit, source: "named" });
+    expect(
+      resolveProjectFolder({
         userTexts: ["Orbit을 열어줘"],
         recentPaths: [orbit],
       }),

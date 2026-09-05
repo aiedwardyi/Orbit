@@ -210,6 +210,28 @@ describe("redactSecretsInText", () => {
     expect(flushed).toMatch(/hello «redacted \d+ chars» done/);
   });
 
+  it("keeps masking a key that keeps growing past the chunk that first matched it", () => {
+    const masker = new StreamSecretMasker();
+    const tail = "B".repeat(20);
+    const out =
+      masker.push("sk-ant-") + masker.push("A".repeat(16)) + masker.push(tail) + masker.flush();
+    expect(out).not.toContain(tail);
+    expect(out).not.toMatch(/sk-ant/);
+    expect(out).toMatch(/^«redacted \d+ chars»$/);
+  });
+
+  it("holds a key that starts beyond the bounded window until the stream ends", () => {
+    const masker = new StreamSecretMasker();
+    const tail = "B".repeat(20);
+    const emitted =
+      masker.push(`${"prose ".repeat(40)}sk-ant-${"A".repeat(100)}`) + masker.push(tail);
+    const out = emitted + masker.flush();
+    expect(emitted).not.toMatch(/sk-ant/);
+    expect(out).not.toContain(tail);
+    expect(out).not.toMatch(/sk-ant/);
+    expect(out).toMatch(/prose «redacted 127 chars»$/);
+  });
+
   it("is applied to string values inside redactSecrets too", () => {
     const out = redactSecrets({ command: "curl -H 'Authorization: Bearer abcdefghijklmnop'", note: "fine" }) as Record<string, string>;
     expect(out.command).toContain("«redacted");

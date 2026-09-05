@@ -226,6 +226,22 @@ describe("turn completion disposition after stop", () => {
     expect(indexSource).toContain("shouldStampRecoveryDismiss");
   });
 
+  it("refuses a version claim it cannot verify instead of ignoring the field", () => {
+    const current = { updatedAt: 200, flushReason: "shutdown" };
+    for (const updatedAt of ["200", null, true, [200]]) {
+      expect(shouldStampRecoveryDismiss(current, { updatedAt })).toBe(false);
+    }
+    for (const flushReason of [200, null, true, ["shutdown"]]) {
+      expect(shouldStampRecoveryDismiss(current, { flushReason })).toBe(false);
+    }
+  });
+
+  it("reads the recovery packet after the request body, not before the await", () => {
+    const route = indexSource.slice(indexSource.indexOf("recovery$/"));
+    const handler = route.slice(0, route.indexOf("shouldStampRecoveryDismiss"));
+    expect(handler.indexOf("await readBody(req)")).toBeLessThan(handler.indexOf("taskPacketForWrite"));
+  });
+
   it("falls back to interruption time when the event carries no turn id", () => {
     expect(turnCompletionDisposition({
       liveTurnId: "turn-stop",

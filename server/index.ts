@@ -935,25 +935,36 @@ function cursorSeq(raw: string | string[] | undefined): number | null {
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
-const sseDeltaMaskers = new Map<string, StreamSecretMasker>();
+// Reasoning and assistant text interleave on one thread, so a shared masker
+// would bleed one stream's held tail into the other.
+const sseDeltaMaskers = new Map<string, Map<string, StreamSecretMasker>>();
 
 function maskRuntimePayload(payload: Record<string, unknown>): Record<string, unknown> {
   if (payload.kind !== "runtime") return payload;
-  const event = payload.event as { type?: string; threadId?: string; delta?: unknown } | undefined;
+  const event = payload.event as { type?: string; threadId?: string; streamKind?: string; delta?: unknown } | undefined;
   if (event?.type !== "content.delta" || typeof event.delta !== "string" || !event.threadId) return payload;
-  let masker = sseDeltaMaskers.get(event.threadId);
+  let byKind = sseDeltaMaskers.get(event.threadId);
+  if (!byKind) {
+    byKind = new Map();
+    sseDeltaMaskers.set(event.threadId, byKind);
+  }
+  const streamKind = event.streamKind ?? "assistant_text";
+  let masker = byKind.get(streamKind);
   if (!masker) {
     masker = new StreamSecretMasker();
-    sseDeltaMaskers.set(event.threadId, masker);
+    byKind.set(streamKind, masker);
   }
   return { ...payload, event: { ...event, delta: masker.push(event.delta) } };
 }
 
-function flushSseDeltaMasker(threadId: string): string {
-  const masker = sseDeltaMaskers.get(threadId);
-  if (!masker) return "";
+function flushSseDeltaMaskers(threadId: string): Array<{ streamKind: string; tail: string }> {
+  const byKind = sseDeltaMaskers.get(threadId);
+  if (!byKind) return [];
   sseDeltaMaskers.delete(threadId);
-  return masker.flush();
+  return [...byKind].flatMap(([streamKind, masker]) => {
+    const tail = masker.flush();
+    return tail ? [{ streamKind, tail }] : [];
+  });
 }
 
 function broadcast(payload: Record<string, unknown>) {
@@ -961,11 +972,10 @@ function broadcast(payload: Record<string, unknown>) {
   if (kind === "runtime") {
     const event = payload.event as { type?: string; threadId?: string } | undefined;
     if (event?.threadId && event.type !== "content.delta") {
-      const tail = flushSseDeltaMasker(event.threadId);
-      if (tail) {
+      for (const { streamKind, tail } of flushSseDeltaMaskers(event.threadId)) {
         writeBroadcastFrame({
           kind: "runtime",
-          event: { ...event, type: "content.delta", streamKind: "assistant_text", delta: tail },
+          event: { ...event, type: "content.delta", streamKind, delta: tail },
         }, true);
       }
     }
@@ -7056,12 +7066,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!conversation) return json(res, 404, { error: "no such task" });
       const task = conversation.group ? undefined : store.taskByThread(bot.id, m[2]);
       if (!conversation.group && !task) return json(res, 404, { error: "no such task" });
-      const packet = taskPacketForWrite(m[2]);
-      if (!packet) return json(res, 404, { error: "this task has no saved record" });
       const body = await readBody(req);
       if (body !== null && (typeof body !== "object" || Array.isArray(body))) {
         return json(res, 400, { error: "body must be a JSON object" });
       }
+      // read after the await: an earlier snapshot is compared against a packet a
+      // concurrent Stop may already have replaced, and then overwrites it
+      const packet = taskPacketForWrite(m[2]);
+      if (!packet) return json(res, 404, { error: "this task has no saved record" });
       if (!shouldStampRecoveryDismiss(packet, body ?? {})) {
         return json(res, 200, { ok: true, skipped: true });
       }

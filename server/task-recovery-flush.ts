@@ -17,8 +17,8 @@ export function shouldStampRecoveryDismiss(
   current: { updatedAt: number; flushReason: string },
   requested: { updatedAt?: unknown; flushReason?: unknown },
 ): boolean {
-  if (typeof requested.updatedAt === "number" && requested.updatedAt !== current.updatedAt) return false;
-  if (typeof requested.flushReason === "string" && requested.flushReason !== current.flushReason) return false;
+  if (requested.updatedAt !== undefined && requested.updatedAt !== current.updatedAt) return false;
+  if (requested.flushReason !== undefined && requested.flushReason !== current.flushReason) return false;
   return true;
 }
 

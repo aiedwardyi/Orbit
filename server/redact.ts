@@ -54,23 +54,45 @@ const KEY_VALUE =
 /** Longest prefix we must hold so a key split across chunks can still match. */
 const STREAM_HOLD = 96;
 
-/** Hold a short suffix across SSE / NDJSON chunks so `sk-ant` + `-api03-…`
+const STREAM_MATCHERS: RegExp[] = [PEM_BLOCK, ...KEY_PREFIXES, BEARER, KEY_VALUE];
+
+/** How much of the buffer may be masked and emitted now. A match reaching the
+ * unsettled tail can still grow, and masking it strands the rest of the secret
+ * in a later chunk with no prefix left to match — so it stays whole in the hold
+ * until a non-matching character or flush() ends it. */
+function safeCut(text: string): number {
+  const tail = Math.max(0, text.length - STREAM_HOLD);
+  const spans = STREAM_MATCHERS.flatMap((re) =>
+    [...text.matchAll(re)].map((m) => [m.index ?? 0, (m.index ?? 0) + m[0].length] as const),
+  );
+  let cut = tail;
+  // Regexes from different families can overlap, so one shift can expose another.
+  for (let moved = true; moved; ) {
+    moved = false;
+    for (const [start, end] of spans) {
+      if (start < cut && end > cut) {
+        cut = start;
+        moved = true;
+      }
+    }
+  }
+  return cut;
+}
+
+/** Hold a raw suffix across SSE / NDJSON chunks so `sk-ant` + `-api03-…`
  * still redacts. Emits only the safe prefix; call flush() at stream end. */
 export class StreamSecretMasker {
   private hold = "";
 
   push(chunk: string): string {
-    const redacted = redactSecretsInText(this.hold + chunk);
-    if (redacted.length <= STREAM_HOLD) {
-      this.hold = redacted;
-      return "";
-    }
-    this.hold = redacted.slice(-STREAM_HOLD);
-    return redacted.slice(0, -STREAM_HOLD);
+    const buffered = this.hold + chunk;
+    const cut = safeCut(buffered);
+    this.hold = buffered.slice(cut);
+    return cut === 0 ? "" : redactSecretsInText(buffered.slice(0, cut));
   }
 
   flush(): string {
-    const out = this.hold;
+    const out = redactSecretsInText(this.hold);
     this.hold = "";
     return out;
   }

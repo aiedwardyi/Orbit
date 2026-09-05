@@ -197,7 +197,7 @@ export function projectSearchRoots(home = homedir()): string[] {
   return defaultSearchRoots(home);
 }
 
-const KO_NAME_PARTICLES = "에서|으로|을|를";
+const KO_NAME_PARTICLES = "에서|으로|로|을|를";
 
 function mentionPattern(name: string): RegExp {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

@@ -11,36 +11,43 @@ import { EVENTS_DIR } from "../config.ts";
 import { redactSecrets, StreamSecretMasker } from "../redact.ts";
 import { newId, type ProviderInstance, type RuntimeEvent, type RuntimeEventListener } from "../contracts.ts";
 
-const persistDeltaMaskers = new Map<string, StreamSecretMasker>();
+// Reasoning and assistant text interleave on one thread, so a shared masker
+// would bleed one stream's held tail into the other.
+const persistDeltaMaskers = new Map<string, Map<string, StreamSecretMasker>>();
 
 function persistCopies(event: RuntimeEvent): RuntimeEvent[] {
   if (event.type === "content.delta") {
-    let masker = persistDeltaMaskers.get(event.threadId);
+    let byKind = persistDeltaMaskers.get(event.threadId);
+    if (!byKind) {
+      byKind = new Map();
+      persistDeltaMaskers.set(event.threadId, byKind);
+    }
+    let masker = byKind.get(event.streamKind);
     if (!masker) {
       masker = new StreamSecretMasker();
-      persistDeltaMaskers.set(event.threadId, masker);
+      byKind.set(event.streamKind, masker);
     }
     return [redactSecrets({ ...event, delta: masker.push(event.delta) }) as RuntimeEvent];
   }
-  const masker = persistDeltaMaskers.get(event.threadId);
-  if (!masker) return [redactSecrets(event) as RuntimeEvent];
+  const byKind = persistDeltaMaskers.get(event.threadId);
+  if (!byKind) return [redactSecrets(event) as RuntimeEvent];
   persistDeltaMaskers.delete(event.threadId);
-  const tail = masker.flush();
-  const flushed: RuntimeEvent[] = tail
-    ? [
-        redactSecrets({
-          eventId: `${event.eventId}-delta-flush`,
-          provider: event.provider,
-          providerInstanceId: event.providerInstanceId,
-          threadId: event.threadId,
-          createdAt: event.createdAt,
-          turnId: event.turnId,
-          type: "content.delta",
-          streamKind: "assistant_text",
-          delta: tail,
-        }) as RuntimeEvent,
-      ]
-    : [];
+  const flushed: RuntimeEvent[] = [];
+  for (const [streamKind, masker] of byKind) {
+    const tail = masker.flush();
+    if (!tail) continue;
+    flushed.push(redactSecrets({
+      eventId: `${event.eventId}-delta-flush-${streamKind}`,
+      provider: event.provider,
+      providerInstanceId: event.providerInstanceId,
+      threadId: event.threadId,
+      createdAt: event.createdAt,
+      turnId: event.turnId,
+      type: "content.delta",
+      streamKind,
+      delta: tail,
+    }) as RuntimeEvent);
+  }
   return [...flushed, redactSecrets(event) as RuntimeEvent];
 }
 

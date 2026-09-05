@@ -108,6 +108,7 @@ function WorkingFolder({ bot }: { bot: Bot }) {
   const canPick = Boolean(window.ogb?.pickFolder);
   const task = bot.tasks?.find((t) => t.threadId === bot.threadId);
   const pinned = task?.cwd; // undefined = not yet, null = legacy home, string = folder
+  const liveCwd = pinned === undefined ? bot.cwd : pinned;
   const pinnedElsewhere = pinned !== undefined && (pinned ?? undefined) !== (bot.cwd ?? undefined);
 
   const save = async (cwd: string | null) => {
@@ -181,12 +182,12 @@ function WorkingFolder({ bot }: { bot: Bot }) {
             : t("bot.workingFolderPinnedHome")}
         </div>
       )}
-      {bot.rememberedProjectCwd && bot.rememberedProjectCwd !== (pinned ?? bot.cwd) && (
+      {bot.rememberedProjectCwd && bot.rememberedProjectCwd !== liveCwd && (
         <div className="mt-2 text-[12px] text-ink-secondary">
-          {pinned ?? bot.cwd
+          {liveCwd
             ? t("bot.rememberedFolderNextTask", {
                 folder: shortPath(bot.rememberedProjectCwd, home),
-                current: shortPath((pinned ?? bot.cwd)!, home),
+                current: shortPath(liveCwd, home),
               })
             : t("bot.rememberedFolderNextTaskHome", {
                 folder: shortPath(bot.rememberedProjectCwd, home),
