@@ -56,10 +56,10 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
       ref={anchorRef}
       data-reaction-bar
       className={cn(
-        "relative mt-0.5",
+        "relative mt-0.5 transition-[opacity,max-height] duration-150",
         pickerOpen
           ? "opacity-100"
-          : "pointer-events-none max-h-0 overflow-hidden opacity-0 group-hover:pointer-events-auto group-hover:max-h-12 group-hover:overflow-visible group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:max-h-12 group-focus-within:overflow-visible group-focus-within:opacity-100",
+          : "pointer-events-none max-h-0 overflow-hidden opacity-0 group-hover:pointer-events-auto group-hover:max-h-16 group-hover:overflow-visible group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:max-h-16 group-focus-within:overflow-visible group-focus-within:opacity-100",
       )}
     >
       <div className="flex w-fit items-center gap-0.5 rounded-full border border-hairline/35 bg-card/75 px-1 py-0.5 shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
