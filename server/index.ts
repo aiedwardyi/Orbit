@@ -2482,6 +2482,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // map is a no-op. Resume-cursor engines drop the stale/fat session here.
   // Stop / crash Continuity on an uncompacted thread keeps the cursor.
   if (recycled) {
+    // Drop the fat cursor, then pin the watermark and lastInput to this
+    // send so the next slim turn can resume the new session.
     store.clearResumeCursors(bot.id, threadId);
     store.markProviderSessionBound(bot.id, threadId, userMessage.id);
   }
