@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { isCompletedTaskRecord } from "../shared/task-resume.ts";
 import {
   idleReopenStampReason,
+  isRecoveringPacket,
   lastUserInstruction,
   packetAfterInterruption,
   shouldStampRecoveryDismiss,
@@ -124,6 +125,22 @@ describe("normal-reopen shutdown stamps", () => {
       ...finished,
       flushReason: "progress",
     })).toBeNull();
+  });
+
+  it("does not call an ordinary reopen of a finished conversation an interruption", () => {
+    const finished = stampTaskResumePacket(
+      recordTaskCompletion(seed(), { ok: true, reply: "Prepared the brief.", now: 200 }),
+      "shutdown",
+      { now: 300 },
+    );
+    const interrupted = stampTaskResumePacket(seed(), "shutdown", { now: 300 });
+
+    expect(isCompletedTaskRecord(finished)).toBe(true);
+    expect(isRecoveringPacket(finished)).toBe(false);
+    expect(isRecoveringPacket(interrupted)).toBe(true);
+    expect(isRecoveringPacket(stampTaskResumePacket(seed(), "stop", { now: 300 }))).toBe(true);
+    expect(isRecoveringPacket(seed())).toBe(false);
+    expect(isRecoveringPacket(null)).toBe(false);
   });
 
   it("does not invent a record for empty or new bots, or re-nag a dismissed thread", () => {

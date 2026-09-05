@@ -221,10 +221,16 @@ describe("buildTurnContext", () => {
       blockers: [],
       nextAction: "Verify citations",
     };
-    const prebuilt = taskRecordBlock(taskRecord);
-    expect(prebuilt).toContain("Goal: Prepare a weekly competitor brief");
-    expect(prebuilt).toContain("Next action: Verify citations");
-    expect(prebuilt).toMatch(/verify against/i);
+    const saved = taskRecordBlock(taskRecord);
+    expect(saved).toContain("Goal: Prepare a weekly competitor brief");
+    expect(saved).toContain("Next action: Verify citations");
+    expect(saved).toMatch(/verify against/i);
+    // the caller sizes and shapes the block; a Resume card answers the turn
+    // the interruption cut short, not the synthetic resume prompt
+    const prepared = taskRecordBlock(taskRecord, 6_000, {
+      recovering: true,
+      latestUserText: "Now add a pricing comparison",
+    });
 
     const out = buildTurnContext({
       text: TASK_RESUME_PROMPT,
@@ -239,7 +245,7 @@ describe("buildTurnContext", () => {
       replaysNatively: false,
       recovering: true,
       taskRecord,
-      taskRecordText: prebuilt,
+      taskRecordText: prepared,
     });
 
     expect(out.resume).toBe(true);
@@ -252,6 +258,62 @@ describe("buildTurnContext", () => {
     expect(out.turnText).not.toMatch(/verify against/i);
     expect(out.turnText).not.toContain("Continue the saved task from its recorded next action");
     expect(out.turnText.endsWith(TASK_RESUME_PROMPT)).toBe(true);
+  });
+
+  it("keeps the caller's prepared record instead of re-deriving it from the transcript", () => {
+    const taskRecord = {
+      goal: "Build A",
+      plan: [{ step: "Build A", status: "done" as const }],
+      completed: [{ note: "Built A." }],
+      blockers: [],
+      nextAction: "Build A",
+    };
+    const prepared = taskRecordBlock(taskRecord, 6_000, {
+      recovering: true,
+      latestUserText: "Build B",
+    });
+    const out = buildTurnContext({
+      text: "Build B",
+      transcript: [
+        { role: "user", text: "Build A" },
+        { role: "assistant", text: "Built A." },
+      ],
+      rewound: false,
+      fresh: false,
+      replaysNatively: false,
+      recovering: true,
+      taskRecord,
+      taskRecordText: prepared,
+    });
+
+    expect(out.turnText).toContain("Current request: Build B");
+    expect(out.turnText).not.toContain("Current request: Build A");
+    expect(out.turnText.endsWith("Build B")).toBe(true);
+  });
+
+  it("builds the recovery record around the supplied current request", () => {
+    const out = buildTurnContext({
+      text: "Build B",
+      transcript: [
+        { role: "user", text: "Build A" },
+        { role: "assistant", text: "Built A." },
+      ],
+      rewound: false,
+      fresh: false,
+      replaysNatively: false,
+      recovering: true,
+      currentRequestText: "Build B",
+      taskRecord: {
+        goal: "Build A",
+        plan: [{ step: "Build A", status: "done" as const }],
+        completed: [{ note: "Built A." }],
+        blockers: [],
+        nextAction: "Build A",
+      },
+    });
+
+    expect(out.turnText).toContain("Current request: Build B");
+    expect(out.turnText).not.toContain("Current request: Build A");
   });
 
   it("injects the task record when the replay tail is capped", () => {

@@ -149,6 +149,7 @@ import {
   stampTaskResumePacket,
 } from "./task-state-fold.ts";
 import {
+  isRecoveringPacket,
   isRecoveryFlushReason,
   lastUserInstruction,
   packetAfterInterruption,
@@ -2424,7 +2425,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   }
 
   const priorTaskPacket = taskPacketForWrite(threadId);
-  const recovering = priorTaskPacket !== null && isRecoveryFlushReason(priorTaskPacket.flushReason);
+  const recovering = isRecoveringPacket(priorTaskPacket);
   if (!opts?.cardContinuation && text.trim()) {
     const packet = priorTaskPacket
       ? recordTaskInstruction(priorTaskPacket, {
@@ -2465,7 +2466,9 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   const latestUser = lastUserInstruction(activeMessages.filter((message) => !skipTranscript.has(message.id)));
   // Recovery Current request must be this send's text. skipTranscript excludes
   // userMessage.id, so transcript lookup alone would show a prior user turn.
-  const recoveryLatestUserText = text.trim() || latestUser?.text || "";
+  // A Resume card carries no request of its own, so it falls back to the turn
+  // the interruption cut short.
+  const recoveryLatestUserText = (opts?.cardContinuation ? "" : text.trim()) || latestUser?.text || "";
   const durableTaskRecordText = taskRecord
     ? taskRecordBlock(
       taskRecord,
@@ -2596,6 +2599,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     taskRecordText: durableTaskRecordText || undefined,
     contextCapped: contextCompacted,
     recovering,
+    currentRequestText: recoveryLatestUserText,
   });
   const resumeFallback = buildResumeFallback({
     text: currentPrompt,
@@ -3568,7 +3572,7 @@ async function runClaimedGroupMemberTurn(
   const taskRecord = taskPacketForWrite(threadId);
   const taskRecordToFlush = taskRecord;
   const modelContextWindow = contextWindowFor(instance.models, selection.model);
-  const recovering = taskRecord !== null && isRecoveryFlushReason(taskRecord.flushReason);
+  const recovering = isRecoveringPacket(taskRecord);
   const latestUser = lastUserInstruction(store.activePath(threadId));
   const durableTaskRecordText = taskRecord
     ? taskRecordBlock(
