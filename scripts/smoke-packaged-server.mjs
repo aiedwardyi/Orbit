@@ -65,18 +65,27 @@ while (Date.now() < deadline) {
   if (child.exitCode !== null) break;
   try {
     const health = await fetch(`http://127.0.0.1:${port}/api/health`);
-    if (health.ok) listening = true;
-    if (listening) {
-      const bots = await fetch(`http://127.0.0.1:${port}/api/bots`, {
-        signal: AbortSignal.timeout(Math.max(250, deadline - Date.now())),
-      });
-      if (bots.ok) {
-        harnessReady = true;
-        break;
-      }
+    if (health.ok) {
+      listening = true;
+      break;
     }
   } catch {
-    /* not up yet, or /api/bots still queued behind the fat import */
+    /* not up yet */
+  }
+  await new Promise((resolve) => setTimeout(resolve, 300));
+}
+while (listening && Date.now() < deadline) {
+  if (child.exitCode !== null) break;
+  try {
+    const bots = await fetch(`http://127.0.0.1:${port}/api/bots`, {
+      signal: AbortSignal.timeout(Math.max(250, deadline - Date.now())),
+    });
+    if (bots.ok) {
+      harnessReady = true;
+      break;
+    }
+  } catch {
+    /* harness still attaching */
   }
   await new Promise((resolve) => setTimeout(resolve, 300));
 }

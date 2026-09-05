@@ -5,9 +5,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  MAX_QUEUED_EARLY_REQUESTS,
   currentEarlyListen,
   isEarlyPublicPath,
   resetEarlyListenForTests,
+  resolvedStaticPath,
   serveEarlyRequest,
   startEarlyListen,
 } from "./early-listen.ts";
@@ -80,10 +82,36 @@ describe("startEarlyListen", () => {
     expect(await pending).toEqual({ bots: [{ id: "ready" }] });
   });
 
+  it("rejects further API holds once the early queue is full", async () => {
+    const { base } = await listen();
+    const held = Array.from({ length: MAX_QUEUED_EARLY_REQUESTS }, () =>
+      fetch(`${base}/api/bots`).then((res) => res.status),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    const overflow = await fetch(`${base}/api/bots`);
+    expect(overflow.status).toBe(503);
+    const early = currentEarlyListen();
+    early?.setHandler((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end("{}");
+    });
+    expect(await Promise.all(held)).toEqual(Array.from({ length: MAX_QUEUED_EARLY_REQUESTS }, () => 200));
+  });
+
   it("registers one shared slot so a later harness bundle can attach", async () => {
     const first = await listen();
     expect(startEarlyListen({ port: 1 }).server).toBe(first.early.server);
     expect(currentEarlyListen()?.server).toBe(first.early.server);
+  });
+});
+
+describe("resolvedStaticPath", () => {
+  it("keeps served files under the packaged UI root", () => {
+    const root = "/tmp/orbit-ui";
+    expect(resolvedStaticPath(root, "/")).toBe(join(root, "index.html"));
+    expect(resolvedStaticPath(root, "/assets/app.js")).toBe(join(root, "assets/app.js"));
+    expect(resolvedStaticPath(root, "/../etc/passwd")).toBeNull();
+    expect(resolvedStaticPath(root, "/....//etc/passwd")).toBeNull();
   });
 });
 

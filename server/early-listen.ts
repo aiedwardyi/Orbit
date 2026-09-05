@@ -4,7 +4,7 @@
 
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
-import { extname, join } from "node:path";
+import { extname, isAbsolute, join, relative, resolve } from "node:path";
 
 export const EARLY_LISTEN_SLOT = Symbol.for("orbit.earlyListen");
 
@@ -40,6 +40,21 @@ export function healthBody(staticDir: string | null) {
   return { app: "openmausbot", pid: process.pid, static: Boolean(staticDir) };
 }
 
+/** Held `/api/*` requests waiting for the fat harness. Crash-safe: extras get 503. */
+export const MAX_QUEUED_EARLY_REQUESTS = 64;
+
+/** Resolve a URL path under `staticDir`. Null if it would escape the UI root. */
+export function resolvedStaticPath(staticDir: string, pathname: string): string | null {
+  if (pathname.includes("\0") || pathname.includes("..")) return null;
+  const suffix = pathname === "/" ? "/index.html" : pathname;
+  const root = resolve(staticDir);
+  const candidate = resolve(join(root, suffix));
+  const rel = relative(root, candidate);
+  if (!rel || rel.split(/[/\\]/).includes("..") || isAbsolute(rel)) return null;
+  if (resolve(root, rel) !== candidate) return null;
+  return candidate;
+}
+
 function pathnameOf(req: IncomingMessage): string {
   try {
     return new URL(req.url ?? "/", "http://127.0.0.1").pathname;
@@ -68,8 +83,12 @@ export function serveEarlyRequest(
     res.end("not found");
     return true;
   }
-  const safe = pathname === "/" ? "/index.html" : pathname.replace(/\.\./g, "");
-  const file = join(staticDir, safe);
+  const file = resolvedStaticPath(staticDir, pathname);
+  if (!file) {
+    res.writeHead(403, { "content-type": "text/plain" });
+    res.end("forbidden");
+    return true;
+  }
   try {
     const data = readFileSync(file);
     res.writeHead(200, { "content-type": EARLY_MIME[extname(file)] ?? "application/octet-stream" });
@@ -121,6 +140,11 @@ export function startEarlyListen(options: { port?: number; staticDir?: string | 
       return;
     }
     if (serveEarlyRequest(req, res, { staticDir: early.staticDir })) return;
+    if (queued.length >= MAX_QUEUED_EARLY_REQUESTS) {
+      res.writeHead(503, { "content-type": "text/plain" });
+      res.end("unavailable");
+      return;
+    }
     const onClose = () => {
       const index = queued.findIndex((item) => item.req === req);
       if (index >= 0) queued.splice(index, 1);
@@ -142,7 +166,8 @@ export async function resetEarlyListenForTests(): Promise<void> {
   const early = currentEarlyListen();
   delete (globalThis as EarlyListenSlot)[EARLY_LISTEN_SLOT];
   if (!early) return;
-  await new Promise<void>((resolve, reject) => {
-    early.server.close((error) => (error ? reject(error) : resolve()));
+  early.server.closeAllConnections();
+  await new Promise<void>((resolveClose, reject) => {
+    early.server.close((error) => (error ? reject(error) : resolveClose()));
   });
 }
