@@ -22,6 +22,8 @@ import { DEFAULT_MAUS_COLOR, normalizeState } from "@/lib/mascot";
 import { effectiveDefaultResponder, groupResponseHint } from "@/lib/group-routing";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { Composer } from "./Composer";
+import { TaskRecoveryCard } from "./TaskRecoveryCard";
+import { roomRecoveryBusy, roomRecoveryPacket } from "@/lib/task-recovery";
 import { ChatFindBar } from "./ChatFindBar";
 import { GroupTaskPicker } from "./TaskPicker";
 import { showChannelCallControl, showChannelNewTaskControl } from "@/lib/friends-chrome";
@@ -882,6 +884,8 @@ export function GroupView({ group }: { group: Group }) {
     [group.memberIds, state.bots],
   );
   const speaker = members.find((b) => b.id === group.busyBotId);
+  const recoveryPacket = roomRecoveryPacket(group);
+  const recoveryBot = members.find((b) => b.id === recoveryPacket?.botId) ?? speaker ?? members[0];
   const setupPending = roomNeedsSetup(group);
 
   // Mascot stays while a member works; the finished reply pops in above it.
@@ -1337,6 +1341,15 @@ export function GroupView({ group }: { group: Group }) {
       )}
 
       <div ref={composerDockRef} className={cn("absolute inset-x-0 bottom-0 z-[2]", CHAT_COLUMN_CLASS)}>
+      {recoveryBot && (
+        <TaskRecoveryCard
+          key={`${recoveryBot.id}:${group.threadId}`}
+          bot={recoveryBot}
+          packet={recoveryPacket}
+          turns={recoveryPacket?.turnsAtWrite ?? 0}
+          busy={roomRecoveryBusy(group, recoveryBot.busy)}
+        />
+      )}
       <Composer
         key={group.threadId}
         group={group}

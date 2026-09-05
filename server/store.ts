@@ -737,25 +737,25 @@ export class Store {
       if (existsSync(legacyFile)) mdb.readThread(threadId, legacyFile);
     }
     for (const [botId, threadId] of crashedTaskThreads) {
-      const task = threadId ? this.taskByThread(botId, threadId) : this.activeTask(botId);
-      if (!task) continue;
-      const existing = this.taskPacket(task.threadId);
+      const target = this.crashRecoveryTarget(botId, threadId);
+      if (!target) continue;
+      const existing = this.taskPacket(target.threadId);
       if (existing) {
         this.writeTaskPacket({ ...existing, flushReason: "crash" });
         continue;
       }
-      const instruction = lastUserInstruction(this.messagesFor(task.threadId));
+      const instruction = lastUserInstruction(this.messagesFor(target.threadId));
       const seeded = packetAfterInterruption(null, "crash", {
         now: Date.now(),
-        turnsAtWrite: task.usage?.turns ?? 0,
+        turnsAtWrite: target.turnsAtWrite,
       }, instruction
         ? {
           botId,
-          threadId: task.threadId,
+          threadId: target.threadId,
           text: instruction.text,
           messageId: instruction.messageId,
           now: instruction.at,
-          turnsAtWrite: task.usage?.turns ?? 0,
+          turnsAtWrite: target.turnsAtWrite,
         }
         : null);
       if (seeded) this.writeTaskPacket(seeded);
@@ -1409,6 +1409,21 @@ export class Store {
 
   taskByThread(botId: string, threadId: string): TaskRecord | undefined {
     return this.bot(botId)?.tasks?.find((t) => t.threadId === threadId);
+  }
+
+  /** Resolve the thread that was in flight when this process died. 1:1 tasks
+   * stay on the bot record; room turns live on the channel thread. */
+  private crashRecoveryTarget(botId: string, threadId: string | null): { threadId: string; turnsAtWrite: number } | null {
+    if (threadId) {
+      const task = this.taskByThread(botId, threadId);
+      if (task) return { threadId: task.threadId, turnsAtWrite: task.usage?.turns ?? 0 };
+      if (this.conversationForBot(botId, threadId)) {
+        return { threadId, turnsAtWrite: this.taskPacket(threadId)?.turnsAtWrite ?? 0 };
+      }
+      return null;
+    }
+    const task = this.activeTask(botId);
+    return task ? { threadId: task.threadId, turnsAtWrite: task.usage?.turns ?? 0 } : null;
   }
 
   private repairRoomTaskPacketOwner(group: GroupRecord, threadId: string): TaskResumePacket | null {

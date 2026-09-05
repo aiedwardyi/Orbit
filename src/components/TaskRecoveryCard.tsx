@@ -85,10 +85,13 @@ export function TaskRecoveryCard({
   bot,
   packet,
   turns,
+  busy,
 }: {
   bot: Bot;
   packet: TaskResumePacket | undefined;
   turns: number;
+  /** Override when the conversation busy flag is not the speaker's 1:1 busy. */
+  busy?: boolean;
 }) {
   const { dispatch } = useStore();
   const [resuming, setResuming] = useState(false);
@@ -99,7 +102,7 @@ export function TaskRecoveryCard({
     setResuming(false);
     setResumeError(null);
   }, [bot.id, packet?.threadId]);
-  if (!isTaskRecoveryVisible(packet, bot.busy)) return null;
+  if (!isTaskRecoveryVisible(packet, busy ?? bot.busy)) return null;
   return (
     <TaskRecoveryStrip
       packet={packet}

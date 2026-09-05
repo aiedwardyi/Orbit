@@ -586,6 +586,47 @@ describe("Store", () => {
     expect(recovered.taskPacket(routineTask.threadId)?.flushReason).toBe("crash");
   });
 
+  it("marks a room packet crash when the speaker died mid-turn there", () => {
+    const store = new Store(selection);
+    const member = store.createBot();
+    const room = store.createGroup("Two bots", [member.id]);
+    store.writeTaskPacket(taskPacket(member.id, member.threadId));
+    store.writeTaskPacket(taskPacket(member.id, room.threadId, { goal: "Ship the room brief" }));
+    store.setActivity(member.id, "working", room.threadId);
+
+    const recovered = new Store(selection);
+
+    expect(recovered.bot(member.id)?.activity).toBe("idle");
+    expect(recovered.taskPacket(room.threadId)).toMatchObject({
+      flushReason: "crash",
+      goal: "Ship the room brief",
+    });
+    expect(recovered.taskPacket(member.threadId)?.flushReason).toBe("progress");
+  });
+
+  it("seeds a room crash packet from the last room instruction when none was saved", () => {
+    const store = new Store(selection);
+    const member = store.createBot();
+    const room = store.createGroup("Two bots", [member.id]);
+    store.appendMessage(room.threadId, { role: "user", kind: "text", text: "Finish the room brief", at: 1 });
+    store.setActivity(member.id, "working", room.threadId);
+    const beforeRecover = Date.now();
+
+    const recovered = new Store(selection);
+    const packet = recovered.taskPacket(room.threadId);
+
+    expect(recovered.bot(member.id)?.activity).toBe("idle");
+    expect(packet).toMatchObject({
+      flushReason: "crash",
+      botId: member.id,
+      threadId: room.threadId,
+      goal: "Finish the room brief",
+      nextAction: "Finish the room brief",
+    });
+    expect(packet?.updatedAt).toBeGreaterThanOrEqual(beforeRecover);
+    expect(recovered.taskPacket(member.threadId)).toBeNull();
+  });
+
   it("seeds a crash packet from the last user instruction when none was saved", () => {
     const store = new Store(selection);
     const bot = store.createBot();

@@ -516,6 +516,53 @@ describe("task recovery state", () => {
     expect(isTaskRecoveryVisible(idleBot.tasks?.[0]?.taskState, idleBot.busy)).toBe(true);
     expect(idleBot.tasks?.[0]?.taskState?.flushReason).toBe("stop");
   });
+
+  it("folds a room stop packet onto the channel task and shows recovery once idle", () => {
+    const group = {
+      id: "two-bots",
+      threadId: "room-1",
+      name: "Two bots",
+      memberIds: ["echo"],
+      defaultResponder: { kind: "everyone" as const },
+      bulletin: "",
+      unread: false,
+      createdAt: 1,
+      busyBotId: "echo",
+      working: true,
+      messages: [],
+      tasks: [{ threadId: "room-1", title: "Current", createdAt: 1 }],
+    } satisfies Group;
+    const packet = {
+      v: 1,
+      threadId: "room-1",
+      botId: "echo",
+      goal: "Publish the brief",
+      plan: [{ step: "Verify citations", status: "active" }],
+      completed: [],
+      evidence: [],
+      artifacts: [],
+      blockers: [],
+      nextAction: "Verify citations",
+      updatedAt: 100,
+      updatedBy: "harness",
+      flushReason: "stop",
+      turnsAtWrite: 1,
+    } satisfies TaskResumePacket;
+
+    const flushed = reducer({ ...initialState, groups: [group] }, { type: "taskPacket", threadId: "room-1", packet });
+    const flushedRoom = flushed.groups[0]!;
+    expect(flushedRoom.tasks?.find((task) => task.threadId === "room-1")?.taskState).toEqual(packet);
+    expect(flushedRoom.taskState).toEqual(packet);
+    expect(isTaskRecoveryVisible(flushedRoom.taskState, Boolean(flushedRoom.busyBotId))).toBe(false);
+
+    const idle = reducer(flushed, {
+      type: "groupPatched",
+      group: { id: group.id, busyBotId: null, working: false },
+    });
+    const idleRoom = idle.groups[0]!;
+    expect(isTaskRecoveryVisible(idleRoom.taskState, Boolean(idleRoom.busyBotId))).toBe(true);
+    expect(idleRoom.taskState?.flushReason).toBe("stop");
+  });
 });
 
 describe("job-first bot creation", () => {

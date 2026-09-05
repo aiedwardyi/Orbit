@@ -124,6 +124,7 @@ import {
   type BotRecord,
   type GroupDefaultResponder,
   type GroupRecord,
+  type GroupTaskRecord,
   type Message,
   type TaskRecord,
 } from "./store.ts";
@@ -690,10 +691,6 @@ function groupIsWorking(group: GroupRecord): boolean {
   return Boolean(group.busyBotId) || Boolean(groupTurnOperations.get(group.id)?.size);
 }
 
-function publicGroupState(group: GroupRecord) {
-  return { ...group, working: groupIsWorking(group) };
-}
-
 function beginGroupTurnOperation(groupId: string, threadId: string): GroupTurnOperation {
   const operation = { id: randomUUID(), threadId, cancelled: false };
   const operations = groupTurnOperations.get(groupId) ?? new Set<GroupTurnOperation>();
@@ -718,11 +715,24 @@ function cancelGroupTurnOperations(groupId: string, threadId: string) {
   }
 }
 
+const wireGroupTask = (task: GroupTaskRecord) => ({
+  ...task,
+  taskState: store.taskPacket(task.threadId) ?? undefined,
+});
+
+function publicGroupState(group: GroupRecord) {
+  return {
+    ...group,
+    working: groupIsWorking(group),
+    taskState: store.taskPacket(group.threadId) ?? undefined,
+    ...(group.dm ? {} : { tasks: store.groupTasks(group.id).map(wireGroupTask) }),
+  };
+}
+
 const groupWithThread = (group: GroupRecord) => ({
   ...publicGroupState(group),
   messages: store.messagesFor(group.threadId),
   activeLeafId: store.activeLeaf(group.threadId),
-  ...(group.dm ? {} : { tasks: store.groupTasks(group.id) }),
 });
 
 // The store tells us what it wrote; this is the ONE place that turns those
@@ -3468,7 +3478,7 @@ async function runClaimedGroupMemberTurn(
   if (readyBot.busy) {
     return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError);
   }
-  store.setActivity(bot.id, "working");
+  store.setActivity(bot.id, "working", threadId);
   releaseTurnStart?.();
 
   store.patchGroup(group.id, { busyBotId: bot.id }); // the store's change stream carries the frame
@@ -3632,6 +3642,17 @@ async function runClaimedGroupMemberTurn(
     }
   }
   return true;
+}
+
+function startGroupCardContinuation(groupId: string, threadId: string, botId: string, prompt: string) {
+  const operation = beginGroupTurnOperation(groupId, threadId);
+  const previous = groupQueues.get(groupId) ?? Promise.resolve();
+  const next = previous.then(async () => {
+    if (operation.cancelled) return;
+    await runGroupMemberTurn(groupId, threadId, botId, 0, new Set(), prompt);
+  });
+  const tracked = next.finally(() => finishGroupTurnOperation(groupId, operation));
+  groupQueues.set(groupId, tracked.catch(() => {}));
 }
 
 function startGroupTurn(groupId: string, text: string, replyTo?: Message, sendId?: string) {
@@ -4156,7 +4177,7 @@ async function reloadProviders() {
   const interruptedTaskThreads = new Map<string, string>();
   for (const bot of store.bots) {
     const threadId = bot.busy ? bot.activeThreadId : undefined;
-    if (!threadId || !store.taskByThread(bot.id, threadId)) continue;
+    if (!threadId || !store.conversationForBot(bot.id, threadId)) continue;
     interruptedTaskThreads.set(bot.id, threadId);
     const packet = taskPacketForWrite(threadId);
     if (packet && isRecoveryFlushReason(packet.flushReason)) continue;
@@ -5660,7 +5681,7 @@ const server = createServer(async (req, res) => {
       const fresh = groupWithThread(switched);
       broadcast({ kind: "group", group: fresh });
       const responseGroup = url.searchParams.get("messages") === "0"
-        ? { ...publicGroupState(switched), tasks: store.groupTasks(switched.id) }
+        ? publicGroupState(switched)
         : fresh;
       return json(res, 200, { group: responseGroup });
     }
@@ -6783,17 +6804,30 @@ const server = createServer(async (req, res) => {
     if (m && method === "POST") {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
-      if (bot.threadId !== m[2]) return json(res, 409, { error: "switch to this task before continuing it" });
-      if (bot.busy) return json(res, 409, { error: "this bot is already working" });
+      const conversation = store.conversationForBot(bot.id, m[2]);
+      if (!conversation) return json(res, 404, { error: "no such task" });
+      if (conversation.group) {
+        if (conversation.group.threadId !== m[2]) {
+          return json(res, 409, { error: "switch to this channel task before continuing it" });
+        }
+        if (groupIsWorking(conversation.group) || bot.busy) {
+          return json(res, 409, { error: "this channel is already working" });
+        }
+      } else if (bot.threadId !== m[2]) {
+        return json(res, 409, { error: "switch to this task before continuing it" });
+      } else if (bot.busy) {
+        return json(res, 409, { error: "this bot is already working" });
+      }
       const packet = taskPacketForWrite(m[2]);
       if (!packet || !isRecoveryFlushReason(packet.flushReason)) {
         return json(res, 409, { error: "this task has no interrupted work to continue" });
       }
-      await startTurn(
-        bot.id,
-        "Continue the saved task from its recorded next action. Verify the record against the conversation before acting.",
-        { threadId: m[2], cardContinuation: true },
-      );
+      const resumePrompt = "Continue the saved task from its recorded next action. Verify the record against the conversation before acting.";
+      if (conversation.group) {
+        startGroupCardContinuation(conversation.group.id, m[2], bot.id, resumePrompt);
+        return json(res, 202, { ok: true });
+      }
+      await startTurn(bot.id, resumePrompt, { threadId: m[2], cardContinuation: true });
       return json(res, 202, { ok: true });
     }
 
@@ -6801,13 +6835,15 @@ const server = createServer(async (req, res) => {
     if (m && method === "POST") {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
-      const task = store.taskByThread(bot.id, m[2]);
-      if (!task) return json(res, 404, { error: "no such task" });
-      const packet = taskPacketForWrite(task.threadId);
+      const conversation = store.conversationForBot(bot.id, m[2]);
+      if (!conversation) return json(res, 404, { error: "no such task" });
+      const task = conversation.group ? undefined : store.taskByThread(bot.id, m[2]);
+      if (!conversation.group && !task) return json(res, 404, { error: "no such task" });
+      const packet = taskPacketForWrite(m[2]);
       if (!packet) return json(res, 404, { error: "this task has no saved record" });
       const saved = persistTaskPacket(stampTaskResumePacket(packet, "progress", {
         now: Date.now(),
-        turnsAtWrite: task.usage?.turns ?? packet.turnsAtWrite,
+        turnsAtWrite: task?.usage?.turns ?? packet.turnsAtWrite,
       }));
       return saved
         ? json(res, 200, { ok: true })
