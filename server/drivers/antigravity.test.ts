@@ -26,6 +26,27 @@ import {
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-agy-cli.ts");
 
 describe("readAntigravityModelCatalog", () => {
+  it("lists the three Gemini 3.8 Flash tiers ahead of older Flash entries", () => {
+    const ids = STATIC_ANTIGRAVITY_MODELS.options.map((option) => option.id);
+    expect(STATIC_ANTIGRAVITY_MODELS.options.filter((option) => option.id.startsWith("gemini-3.8-"))).toEqual([
+      { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
+      { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)" },
+      { id: "gemini-3.8-flash-low", label: "Gemini 3.8 Flash (Low)" },
+    ]);
+    // agy has no bare gemini-3.8-flash: a tier-less id is a bad request
+    expect(ids).not.toContain("gemini-3.8-flash");
+    expect(ids).toEqual(expect.arrayContaining([
+      "gemini-3.7-flash-high",
+      "gemini-3.7-flash-medium",
+      "gemini-3.7-flash-low",
+      "gemini-3.6-flash-high",
+      "gemini-3.6-flash-medium",
+      "gemini-3.6-flash-low",
+    ]));
+    expect(ids.some((id) => /^gemini-3\.8-pro/.test(id))).toBe(false);
+    expect(ids.indexOf("gemini-3.8-flash-high")).toBeLessThan(ids.indexOf("gemini-3.7-flash-high"));
+  });
+
   it("returns the official list when settings are missing", () => {
     expect(readAntigravityModelCatalog({ HOME: join(tmpdir(), "omb-agy-missing-home") })).toEqual(
       STATIC_ANTIGRAVITY_MODELS,
