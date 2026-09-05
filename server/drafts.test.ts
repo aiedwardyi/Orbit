@@ -13,6 +13,7 @@ import {
   recoverFailedComposerSend,
   rememberReplyDraft,
   restoredSendId,
+  takeRestoredSendId,
   selectReplyDraft,
   setDraft,
   setDraftAttachments,
@@ -79,6 +80,26 @@ describe("composer drafts", () => {
     expect(getDraftAttachments(store, draftId)).toEqual([attachment]);
     expect(restoredSendId(draftId)).toBe("send-restore");
     markDraftEdited(draftId);
+    expect(restoredSendId(draftId)).toBeUndefined();
+  });
+
+  it("hands a restored sendId to only the next send so a busy Enter burst cannot 409 later lines", () => {
+    const store = memoryStore();
+    vi.stubGlobal("localStorage", store);
+    const draftId = "bot:oneshot:thread-a";
+    expect(
+      recoverFailedComposerSend({
+        draftId,
+        revision: draftRevision(draftId),
+        sendId: "send-once",
+        text: "ADV-QUEUE-0",
+        requestText: "ADV-QUEUE-0",
+        attachments: [],
+        threadId: "thread-a",
+      }),
+    ).toBe("restored");
+    expect(takeRestoredSendId(draftId)).toBe("send-once");
+    expect(takeRestoredSendId(draftId)).toBeUndefined();
     expect(restoredSendId(draftId)).toBeUndefined();
   });
 

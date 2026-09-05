@@ -3,7 +3,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { composerBusyChrome, pendingSteerEntries } from "./composer-busy";
+import {
+  composerBusyChrome,
+  composerBusySendAction,
+  composerSendSourceText,
+  peelNextBusyRoomSend,
+  pendingSteerEntries,
+} from "./composer-busy";
 import { applyLocale, translate } from "./i18n";
 import { en, ko } from "./i18n-catalog";
 
@@ -61,7 +67,7 @@ describe("composerBusyChrome", () => {
     expect(chrome.placeholder).toBe("Scout is working — Enter queues your message");
   });
 
-  it("keeps room busy-queue chrome so a second Enter cannot drop the held line", () => {
+  it("keeps room busy-queue chrome so Enter is visibly a queue, not a stop", () => {
     const chrome = composerBusyChrome({
       busy: true,
       isRoom: true,
@@ -112,6 +118,12 @@ describe("Composer wiring", () => {
     expect(composer).toContain("disabled={Boolean(approval) || locked}");
     expect(composer).not.toMatch(/disabled=\{[^}]*busy/);
     expect(composer).toContain("pendingSteerEntries");
+    expect(composer).toContain("composerBusySendAction");
+    expect(composer).toContain("composerSendSourceText");
+    expect(composer).toContain("peelNextBusyRoomSend");
+    expect(composer).toContain("takeRestoredSendId");
+    expect(composer).not.toMatch(/group && queued\) return/);
+    expect(composer).not.toContain("disabled={Boolean(group && queued)}");
     expect(composer).not.toMatch(/entry\.text\)\.join\(/);
     expect(composer).toContain('t("composer.queuedUntil", { text: entry.text })');
     expect(composer).not.toMatch(/composer\.queuedUntil", \{ name:/);
@@ -139,6 +151,79 @@ describe("pendingSteerEntries", () => {
   it("returns no chips when the thread has nothing waiting", () => {
     expect(pendingSteerEntries(undefined, "t1")).toEqual([]);
     expect(pendingSteerEntries({ t2: [{ queueId: "x", text: "other" }] }, "t1")).toEqual([]);
+  });
+});
+
+/** Desktop QA fill+Enter burst: each line is already in the live textarea,
+ * while React's rendered draft may still be the previous send (or empty). */
+function busyEnterBurst(
+  lines: string[],
+  input: { locked?: boolean; isRoom: boolean; busy: boolean },
+  renderedDraft = "",
+): string[] {
+  const accepted: string[] = [];
+  let rendered = renderedDraft;
+  for (const live of lines) {
+    const action = composerBusySendAction({
+      locked: Boolean(input.locked),
+      isRoom: input.isRoom,
+      busy: input.busy,
+      heldCount: accepted.length,
+    });
+    if (action === "block") continue;
+    const text = composerSendSourceText(live, rendered);
+    if (!text.trim()) continue;
+    accepted.push(text);
+    rendered = "";
+  }
+  return accepted;
+}
+
+const spamLines = Array.from({ length: 8 }, (_, index) => `ADV-QUEUE-${index}`);
+
+describe("busy Enter-spam", () => {
+  it("sends every 1:1 line from a live fill+Enter burst even when React still shows the first", () => {
+    expect(busyEnterBurst(spamLines, { isRoom: false, busy: true }, "ADV-QUEUE-0")).toEqual(spamLines);
+  });
+
+  it("queues every room line while a member is speaking instead of dropping after the first", () => {
+    expect(busyEnterBurst(spamLines, { isRoom: true, busy: true })).toEqual(spamLines);
+  });
+
+  it("does not treat an already-held room send as a hard stop", () => {
+    expect(
+      composerBusySendAction({ locked: false, isRoom: true, busy: true, heldCount: 1 }),
+    ).toBe("enqueue");
+    expect(
+      composerBusySendAction({ locked: false, isRoom: true, busy: true, heldCount: 7 }),
+    ).toBe("enqueue");
+  });
+
+  it("still POSTs 1:1 while busy and blocks only a locked composer", () => {
+    expect(composerBusySendAction({ locked: false, isRoom: false, busy: true, heldCount: 3 })).toBe(
+      "dispatch",
+    );
+    expect(composerBusySendAction({ locked: true, isRoom: false, busy: true })).toBe("block");
+    expect(composerBusySendAction({ locked: false, isRoom: true, busy: false })).toBe("dispatch");
+  });
+
+  it("prefers the live textarea so a stale rendered draft cannot resend or drop later lines", () => {
+    expect(composerSendSourceText("ADV-QUEUE-1", "ADV-QUEUE-0")).toBe("ADV-QUEUE-1");
+    expect(composerSendSourceText("ADV-QUEUE-1", "")).toBe("ADV-QUEUE-1");
+    expect(composerSendSourceText("", "ADV-QUEUE-0")).toBe("");
+    expect(composerSendSourceText(undefined, "ADV-QUEUE-0")).toBe("ADV-QUEUE-0");
+  });
+
+  it("peels room holds FIFO so settle flushes ADV-QUEUE-0..n in order", () => {
+    const texts: string[] = [];
+    let queue = spamLines.map((text) => ({ text }));
+    while (queue.length) {
+      const peeled = peelNextBusyRoomSend(queue);
+      if (!peeled.next) break;
+      texts.push(peeled.next.text);
+      queue = peeled.rest;
+    }
+    expect(texts).toEqual(spamLines);
   });
 });
 

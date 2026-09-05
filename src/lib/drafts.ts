@@ -188,6 +188,16 @@ export function restoredSendId(draftId: string): string | undefined {
   return stored;
 }
 
+/** One-shot retry identity. A second Enter in the same tick must not reuse
+ * this sendId with different text (the server 409s that and drops the line). */
+export function takeRestoredSendId(draftId: string): string | undefined {
+  const sendId = restoredSendId(draftId);
+  if (!sendId) return undefined;
+  restoredSendIds.delete(draftId);
+  setStoredSendId(getStore(), draftId, undefined);
+  return sendId;
+}
+
 function setStoredSendId(store: Store, draftId: string, sendId: string | undefined): void {
   const ids = read(store, SEND_IDS_KEY);
   if (sendId) ids[draftId] = sendId;
