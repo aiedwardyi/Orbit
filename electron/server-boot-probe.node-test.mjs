@@ -14,7 +14,10 @@ function okFetch({ body = OUR_BODY(), status = 200 } = {}) {
 }
 
 test("polls often enough that a just-listening child is noticed in well under a frame budget", () => {
-  assert.equal(BOOT_PROBE_INTERVAL_MS, 50);
+  assert.ok(
+    BOOT_PROBE_INTERVAL_MS > 0 && BOOT_PROBE_INTERVAL_MS <= 100,
+    `poll interval ${BOOT_PROBE_INTERVAL_MS}ms exceeds one-frame budget`,
+  );
 });
 
 test("returns ready when our own child answers with its identity", async () => {

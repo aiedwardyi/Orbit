@@ -6,9 +6,9 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   build: {
-    // Electron 43 is Chromium 140-class; skip legacy transforms and the
+    // Electron 43 ships Chromium 140; skip legacy transforms and the
     // modulepreload polyfill the packaged window does not need.
-    target: "chrome130",
+    target: "chrome140",
     modulePreload: { polyfill: false },
   },
   test: {
