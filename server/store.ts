@@ -270,7 +270,16 @@ function redactBotAuthored<T extends Omit<Message, "id" | "at"> & { at?: number 
   if (compaction.status === "valid") {
     out.compaction = { ...compaction.value, summary: redactSecretsInText(compaction.value.summary) };
   }
-  if (out.tool?.name) out.tool = { ...out.tool, name: redactSecretsInText(out.tool.name) };
+  if (out.tool) {
+    out.tool = {
+      ...out.tool,
+      ...(typeof out.tool.name === "string" ? { name: redactSecretsInText(out.tool.name) } : {}),
+      // Spoken lines are derived from the raw tool title (item.started).
+      // Scrub them too — the bus no longer pre-redacts titles, and hydrate
+      // / voice read this field from disk, not from the live SSE frame.
+      ...(typeof out.tool.spoken === "string" ? { spoken: redactSecretsInText(out.tool.spoken) } : {}),
+    };
+  }
   if (out.routineRun) {
     const routineRun = { ...out.routineRun };
     routineRun.routineName = redactSecretsInText(routineRun.routineName);
