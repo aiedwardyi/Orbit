@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -107,9 +107,9 @@ describe("startEarlyListen", () => {
 
 describe("resolvedStaticPath", () => {
   it("keeps served files under the packaged UI root", () => {
-    const root = "/tmp/orbit-ui";
+    const root = resolve("/tmp/orbit-ui");
     expect(resolvedStaticPath(root, "/")).toBe(join(root, "index.html"));
-    expect(resolvedStaticPath(root, "/assets/app.js")).toBe(join(root, "assets/app.js"));
+    expect(resolvedStaticPath(root, "/assets/app.js")).toBe(join(root, "assets", "app.js"));
     expect(resolvedStaticPath(root, "/../etc/passwd")).toBeNull();
     expect(resolvedStaticPath(root, "/....//etc/passwd")).toBeNull();
   });
