@@ -86,7 +86,8 @@ describe("TaskRecoveryStrip", () => {
     expect(html).toContain("Task paused");
     expect(html).toContain("Resume");
     expect(html).toContain("Dismiss saved task reminder");
-    expect(source).toMatch(/isTaskRecoveryVisible\(packet, (?:busy \?\? )?bot\.busy\)/);
+    expect(source).toMatch(/isTaskRecoveryVisible\(\s*packet,/);
+    expect(source).toContain("dismissedTaskRecovery");
   });
 
   it("stays click-to-resume and lives in the composer column", () => {

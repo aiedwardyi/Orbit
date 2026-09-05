@@ -146,6 +146,7 @@ import {
   isRecoveryFlushReason,
   lastUserInstruction,
   packetAfterInterruption,
+  shutdownStampsForClose,
   turnCompletionDisposition,
   type RecoveryFlushReason,
 } from "./task-recovery-flush.ts";
@@ -237,6 +238,7 @@ type UtilityParentPort = {
 };
 const utilityParentPort = (process as NodeJS.Process & { parentPort?: UtilityParentPort }).parentPort;
 let hostShutdown = () => {};
+let hostShutdownStarted = false;
 utilityParentPort?.on("message", (event) => {
   const message = event?.data;
   if (isUtilityShutdownMessage(message)) {
@@ -770,7 +772,8 @@ store.onChange((change) => {
       break;
     case "task.packet": {
       const packet = store.taskPacket(change.threadId);
-      if (packet) broadcast({ kind: "task.packet", threadId: change.threadId, packet });
+      // Closing stamps must not paint the strip on the still-open window.
+      if (packet && !hostShutdownStarted) broadcast({ kind: "task.packet", threadId: change.threadId, packet });
       break;
     }
     case "bot": {
@@ -7627,14 +7630,21 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log(`openmausbot server on http://127.0.0.1:${PORT}`);
 });
 
-let hostShutdownStarted = false;
 hostShutdown = () => {
   if (hostShutdownStarted) return;
   hostShutdownStarted = true;
+  const routineThreadByBotId: Record<string, string> = {};
   for (const bot of store.bots) {
-    if (!bot.busy || store.groups.some((group) => group.busyBotId === bot.id)) continue;
-    const threadId = routines?.activeRunForBot(bot.id)?.threadId ?? bot.activeThreadId ?? bot.threadId;
-    flushInterruptedTask(threadId, bot.id, "shutdown");
+    const threadId = routines?.activeRunForBot(bot.id)?.threadId;
+    if (threadId) routineThreadByBotId[bot.id] = threadId;
+  }
+  for (const stamp of shutdownStampsForClose({
+    bots: store.bots,
+    groups: store.groups,
+    routineThreadByBotId,
+    packetFor: (threadId) => taskPacketForWrite(threadId),
+  })) {
+    flushInterruptedTask(stamp.threadId, stamp.botId, stamp.reason);
   }
   for (const threadId of [...pendingTaskPackets.keys()]) {
     const packet = pendingTaskPackets.get(threadId)?.packet;

@@ -93,7 +93,7 @@ export function TaskRecoveryCard({
   /** Override when the conversation busy flag is not the speaker's 1:1 busy. */
   busy?: boolean;
 }) {
-  const { dispatch } = useStore();
+  const { state, dispatch } = useStore();
   const [resuming, setResuming] = useState(false);
   const [resumeError, setResumeError] = useState<string | null>(null);
   const settleGen = useRef(0);
@@ -102,7 +102,11 @@ export function TaskRecoveryCard({
     setResuming(false);
     setResumeError(null);
   }, [bot.id, packet?.threadId]);
-  if (!isTaskRecoveryVisible(packet, busy ?? bot.busy)) return null;
+  if (!isTaskRecoveryVisible(
+    packet,
+    busy ?? bot.busy,
+    packet ? state.dismissedTaskRecovery[packet.threadId] : undefined,
+  )) return null;
   return (
     <TaskRecoveryStrip
       packet={packet}
@@ -124,7 +128,13 @@ export function TaskRecoveryCard({
           },
         });
       }}
-      onDismiss={() => dispatch({ type: "dismissTaskRecovery", botId: bot.id, threadId: packet.threadId })}
+      onDismiss={() => dispatch({
+        type: "dismissTaskRecovery",
+        botId: bot.id,
+        threadId: packet.threadId,
+        updatedAt: packet.updatedAt,
+        flushReason: packet.flushReason,
+      })}
     />
   );
 }

@@ -1,17 +1,31 @@
 /** Client banner eligibility for Continuity recovery. Must stay aligned with
  * the resume API: only crash / shutdown / stop packets are continuable.
- * Turn-end, progress, approval, engine-switch, and pre-compaction stay hidden. */
+ * Shutdown includes a normal idle reopen stamp. Turn-end, progress,
+ * approval, engine-switch, and pre-compaction stay hidden in-session. */
 export const TASK_RECOVERY_FLUSH_REASONS = ["crash", "shutdown", "stop"] as const;
 
 export type TaskRecoveryFlushReason = (typeof TASK_RECOVERY_FLUSH_REASONS)[number];
 
-export function isTaskRecoveryVisible<T extends { flushReason: string }>(
+export type TaskRecoveryDismissal = {
+  updatedAt: number;
+  flushReason: string;
+};
+
+export function isTaskRecoveryVisible<T extends { flushReason: string; updatedAt?: number }>(
   packet: T | undefined | null,
   botBusy: boolean | undefined,
+  dismissed?: TaskRecoveryDismissal | null,
 ): packet is T {
-  return Boolean(
-    packet && !botBusy && (TASK_RECOVERY_FLUSH_REASONS as readonly string[]).includes(packet.flushReason),
-  );
+  if (!packet || botBusy) return false;
+  if (!(TASK_RECOVERY_FLUSH_REASONS as readonly string[]).includes(packet.flushReason)) return false;
+  if (
+    dismissed &&
+    dismissed.flushReason === packet.flushReason &&
+    dismissed.updatedAt === packet.updatedAt
+  ) {
+    return false;
+  }
+  return true;
 }
 
 /** Active room conversation packet. DMs have no tasks collection, so they
