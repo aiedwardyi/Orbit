@@ -13,3 +13,20 @@ export function isTaskRecoveryVisible<T extends { flushReason: string }>(
     packet && !botBusy && (TASK_RECOVERY_FLUSH_REASONS as readonly string[]).includes(packet.flushReason),
   );
 }
+
+/** Active room conversation packet. DMs have no tasks collection, so they
+ * keep the live record on the group itself. */
+export function roomRecoveryPacket<P>(
+  group: { threadId: string; tasks?: Array<{ threadId: string; taskState?: P }>; taskState?: P },
+): P | undefined {
+  const task = group.tasks?.find((candidate) => candidate.threadId === group.threadId);
+  return task ? task.taskState : group.taskState;
+}
+
+/** Room strip busy is the live speaker, not a draining cancelled operation. */
+export function roomRecoveryBusy(
+  group: { busyBotId?: string | null },
+  speakerBusy?: boolean,
+): boolean {
+  return Boolean(group.busyBotId) || Boolean(speakerBusy);
+}

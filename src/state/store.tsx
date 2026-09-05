@@ -151,6 +151,10 @@ export interface Group {
   /** Separate conversations in this channel. DMs deliberately stay on one
    * thread and omit this collection. */
   tasks?: GroupTask[];
+  /** Live Continuity record for the active room thread (DMs have no tasks). */
+  taskState?: TaskResumePacket;
+  /** True while a member turn or queued room operation is in flight. */
+  working?: boolean;
   messages: Message[];
 }
 
@@ -162,6 +166,7 @@ export interface GroupTask {
   createdAt: number;
   pinnedCwd?: string | null;
   pinnedMessageId?: string;
+  taskState?: TaskResumePacket;
 }
 
 export interface ModelSelection {
@@ -1290,6 +1295,13 @@ export function reducer(state: AppState, action: Action): AppState {
         bots: state.bots.map((bot) => ({
           ...bot,
           tasks: bot.tasks?.map((task) =>
+            task.threadId === action.threadId ? { ...task, taskState: action.packet } : task,
+          ),
+        })),
+        groups: state.groups.map((group) => ({
+          ...group,
+          taskState: group.threadId === action.threadId ? action.packet : group.taskState,
+          tasks: group.tasks?.map((task) =>
             task.threadId === action.threadId ? { ...task, taskState: action.packet } : task,
           ),
         })),

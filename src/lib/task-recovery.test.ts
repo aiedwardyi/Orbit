@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isTaskRecoveryVisible } from "./task-recovery";
+import { isTaskRecoveryVisible, roomRecoveryBusy, roomRecoveryPacket } from "./task-recovery";
 
 const packet = (flushReason: string) => ({ flushReason });
 
@@ -24,5 +24,32 @@ describe("task recovery banner eligibility", () => {
     expect(isTaskRecoveryVisible(undefined, false)).toBe(false);
     expect(isTaskRecoveryVisible(packet("crash"), true)).toBe(false);
     expect(isTaskRecoveryVisible(packet("stop"), true)).toBe(false);
+  });
+
+  it("shows a room strip after Stop once the channel is idle, without widening eligibility", () => {
+    const stopped = { threadId: "room-1", taskState: packet("stop") };
+    const room = {
+      threadId: "room-1",
+      busyBotId: null as string | null,
+      working: false,
+      tasks: [stopped, { threadId: "older", taskState: packet("crash") }],
+    };
+    const visible = roomRecoveryPacket(room);
+    expect(visible).toEqual(packet("stop"));
+    expect(isTaskRecoveryVisible(visible, roomRecoveryBusy(room, false))).toBe(true);
+
+    expect(isTaskRecoveryVisible(visible, roomRecoveryBusy({ ...room, busyBotId: "speaker" }, false))).toBe(false);
+    expect(isTaskRecoveryVisible(visible, roomRecoveryBusy(room, true))).toBe(false);
+    expect(isTaskRecoveryVisible(roomRecoveryPacket({
+      threadId: "room-1",
+      taskState: packet("turn-end"),
+      tasks: [{ threadId: "room-1", taskState: packet("turn-end") }],
+    }), false)).toBe(false);
+    expect(roomRecoveryPacket({ threadId: "dm-1", taskState: packet("crash") })).toEqual(packet("crash"));
+    expect(roomRecoveryPacket({
+      threadId: "room-2",
+      taskState: packet("stop"),
+      tasks: [{ threadId: "room-2" }],
+    })).toBeUndefined();
   });
 });

@@ -2234,6 +2234,80 @@ describe("harness HTTP API", () => {
     }
   });
 
+  it("leaves an idle room stop recovery packet after interrupting a live channel turn", async () => {
+    const first = (await api("POST", "/api/bots")).body.bot;
+    const second = (await api("POST", "/api/bots")).body.bot;
+    const room = (await api("POST", "/api/groups", {
+      name: "Two bots",
+      memberIds: [first.id, second.id],
+      setup: { bulletin: "", defaultResponder: { kind: "member", botId: first.id } },
+    })).body.group;
+    try {
+      const hanging = z.array(z.object({
+        instanceId: z.string(),
+        models: z.object({ default: z.string() }),
+        snapshot: z.object({ state: z.string() }),
+      }).passthrough()).parse((await api("GET", "/api/instances")).body.instances)
+        .find((instance) => instance.instanceId === "claude");
+      expect(hanging?.snapshot.state).toBe("available");
+      if (!hanging) throw new Error("fixture instances unavailable");
+
+      expect((await api("PATCH", `/api/bots/${first.id}`, {
+        modelSelection: { instanceId: "claude", model: hanging.models.default },
+      })).status).toBe(200);
+      expect((await api("POST", `/api/groups/${room.id}/messages`, {
+        text: "Keep going until I stop you",
+        threadId: room.threadId,
+      })).status).toBe(202);
+      await expect.poll(async () => {
+        const state = (await api("GET", "/api/bots?messages=0")).body;
+        const current = state.groups.find((candidate: { id: string }) => candidate.id === room.id);
+        return current?.working === true && current?.busyBotId === first.id;
+      }).toBe(true);
+
+      expect((await api("POST", `/api/groups/${room.id}/interrupt`, { threadId: room.threadId })).status).toBe(200);
+      await expect.poll(async () => {
+        const state = (await api("GET", "/api/bots?messages=0")).body;
+        const current = state.groups.find((candidate: { id: string }) => candidate.id === room.id);
+        const packet = current?.tasks?.find((task: { threadId: string }) => task.threadId === room.threadId)?.taskState
+          ?? current?.taskState;
+        const speaker = state.bots.find((candidate: { id: string }) => candidate.id === first.id);
+        return current?.working === false
+          && current?.busyBotId == null
+          && speaker?.busy === false
+          && packet?.flushReason === "stop";
+      }).toBe(true);
+
+      const snapshot = (await api("GET", "/api/bots?messages=0")).body;
+      const wired = snapshot.groups.find((candidate: { id: string }) => candidate.id === room.id);
+      const packet = wired?.tasks?.find((task: { threadId: string }) => task.threadId === room.threadId)?.taskState
+        ?? wired?.taskState;
+      expect(packet).toMatchObject({
+        threadId: room.threadId,
+        botId: first.id,
+        flushReason: "stop",
+        goal: "Keep going until I stop you",
+      });
+
+      expect((await api("POST", `/api/bots/${first.id}/tasks/${room.threadId}/resume`, {})).status).toBe(202);
+      await expect.poll(async () => {
+        const state = (await api("GET", "/api/bots?messages=0")).body;
+        const current = state.groups.find((candidate: { id: string }) => candidate.id === room.id);
+        return current?.working === true || current?.busyBotId === first.id;
+      }).toBe(true);
+
+      expect((await api("POST", `/api/groups/${room.id}/interrupt`, { threadId: room.threadId })).status).toBe(200);
+      await expect.poll(() => storedTaskPacket(room.threadId).flushReason).toBe("stop");
+      expect((await api("POST", `/api/bots/${first.id}/tasks/${room.threadId}/recovery`, {})).status).toBe(200);
+      expect(storedTaskPacket(room.threadId).flushReason).toBe("progress");
+    } finally {
+      await api("POST", `/api/groups/${room.id}/interrupt`, {}).catch(() => undefined);
+      await api("DELETE", `/api/groups/${room.id}`).catch(() => undefined);
+      await api("DELETE", `/api/bots/${first.id}`).catch(() => undefined);
+      await api("DELETE", `/api/bots/${second.id}`).catch(() => undefined);
+    }
+  });
+
   it("settles a later resume after a stop flush as turn-end", async () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
     try {

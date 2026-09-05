@@ -13,6 +13,7 @@ import { ContextCompactionDivider, TaskRecoveryStrip } from "./TaskRecoveryCard"
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "TaskRecoveryCard.tsx"), "utf8");
 const chatView = readFileSync(join(here, "ChatView.tsx"), "utf8");
+const groupView = readFileSync(join(here, "GroupView.tsx"), "utf8");
 
 const packet: TaskResumePacket = {
   v: 1,
@@ -85,7 +86,7 @@ describe("TaskRecoveryStrip", () => {
     expect(html).toContain("Task paused");
     expect(html).toContain("Resume");
     expect(html).toContain("Dismiss saved task reminder");
-    expect(source).toContain("isTaskRecoveryVisible(packet, bot.busy)");
+    expect(source).toMatch(/isTaskRecoveryVisible\(packet, (?:busy \?\? )?bot\.busy\)/);
   });
 
   it("stays click-to-resume and lives in the composer column", () => {
@@ -97,6 +98,11 @@ describe("TaskRecoveryStrip", () => {
     expect(chatView).toContain("<TaskRecoveryCard");
     expect(chatView).toContain("CHAT_COLUMN_CLASS");
     expect(chatView.indexOf("<TaskRecoveryCard")).toBeGreaterThan(chatView.indexOf("composerDockRef"));
+    expect(groupView).toContain("<TaskRecoveryCard");
+    expect(groupView).toContain("CHAT_COLUMN_CLASS");
+    expect(groupView.indexOf("<TaskRecoveryCard")).toBeGreaterThan(groupView.indexOf("composerDockRef"));
+    expect(groupView).toContain("recoveryPacket.botId");
+    expect(groupView).toContain("recoveryPacket && recoveryBot");
   });
 
   it("resets pending and error chrome when the bot or task changes", () => {
