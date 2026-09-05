@@ -49,16 +49,20 @@ describe("reaction rail", () => {
   });
 
   it("quiets tray chrome without shrinking hit targets or dropping the rail", () => {
-    const rail = sources["Reactions.tsx"];
-    expect(rail).toContain("data-reaction-bar");
-    expect(rail).toContain("size-7");
-    expect(rail).toContain("rounded-full");
-    expect(rail).toContain("hover:scale-110");
-    expect(rail).toContain("toggleReaction");
-    expect(rail).not.toContain("shadow-[0_4px_14px_rgba(0,0,0,0.16)]");
-    expect(rail).not.toMatch(/data-reaction-bar[\s\S]{0,220}border-hairline\/50/);
-    expect(rail).not.toMatch(/data-reaction-bar[\s\S]{0,220}bg-card\/95/);
-    expect(rail).toMatch(/data-reaction-bar[\s\S]{0,220}border-hairline\/20/);
-    expect(rail).toMatch(/relative mt-0\.5/);
+    const start = sources["Reactions.tsx"].indexOf("export function ReactionBar");
+    const end = sources["Reactions.tsx"].indexOf("export function ReactionChips");
+    const bar = sources["Reactions.tsx"].slice(start, end);
+    expect(bar).toContain("data-reaction-bar");
+    expect(bar).toContain("size-7");
+    expect(bar).toContain("rounded-full");
+    expect(bar).toContain("hover:scale-110");
+    expect(bar).toContain("toggleReaction");
+    expect(bar).toContain("mt-0.5");
+    expect(bar).not.toContain("shadow-[0_4px_14px_rgba(0,0,0,0.16)]");
+    const tray = bar.slice(bar.indexOf("data-reaction-bar"), bar.indexOf("data-reaction-picker"));
+    expect(tray).toContain("border-hairline/30");
+    expect(tray).toContain("bg-card/70");
+    expect(tray).not.toContain("border-hairline/50");
+    expect(tray).not.toContain("bg-card/95");
   });
 });

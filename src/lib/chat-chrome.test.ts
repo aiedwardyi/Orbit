@@ -42,7 +42,7 @@ describe("chat column width", () => {
     expect(groupView).toMatch(/flex w-full flex-col gap-3 px-5[\s\S]{0,80}CHAT_COLUMN_CLASS/);
     expect(groupView).toMatch(/composerDockRef[\s\S]{0,160}CHAT_COLUMN_CLASS/);
     expect(groupView).not.toMatch(/setupPending \?[\s\S]{0,220}CHAT_COLUMN_CLASS/);
-    expect(groupView).toMatch(/setupPending \?[\s\S]{0,180}px-5/);
+    expect(groupView).toMatch(/setupPending \?[\s\S]*?px-5[\s\S]*?composerDock\.pad/);
   });
 
   it("keeps the column token at 960px centered without baking in gutters", () => {

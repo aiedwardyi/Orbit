@@ -1229,7 +1229,10 @@ export function GroupView({ group }: { group: Group }) {
         }}
       >
         {setupPending ? (
-          <div className="flex min-h-full w-full items-center px-5 py-8">
+          <div
+            className="flex min-h-full w-full items-center px-5 py-8"
+            style={{ paddingBottom: composerDock.pad }}
+          >
             <RoomSetup group={group} members={members} />
           </div>
         ) : (

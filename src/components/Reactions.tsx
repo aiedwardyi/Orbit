@@ -55,7 +55,7 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
       <div
         ref={anchorRef}
         data-reaction-bar
-        className="flex w-fit items-center gap-0.5 rounded-full border border-hairline/20 bg-card/50 px-1 py-0.5 shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+        className="flex w-fit items-center gap-0.5 rounded-full border border-hairline/30 bg-card/70 px-1 py-0.5 shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
       >
         {PRIMARY_REACTIONS.map((emoji) => {
           const pressed = mine.has(emoji);
