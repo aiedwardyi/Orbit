@@ -587,6 +587,24 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(done).toMatchObject({ ok: false, stopReason: "exit_before_result" });
   });
 
+  it("releases the thread on interrupt so the next sendTurn is not rejected", async () => {
+    await create("hang");
+    await instance.adapter.sendTurn({ threadId: "t-handoff", text: "one" });
+    await recorder.until((e) => e.type === "turn.started");
+
+    await instance.adapter.interruptTurn("t-handoff");
+    expect(instance.adapter.hasSession("t-handoff")).toBe(false);
+
+    const second = await instance.adapter.sendTurn({ threadId: "t-handoff", text: "two" });
+    expect(second.turnId).toEqual(expect.any(String));
+    expect(instance.adapter.hasSession("t-handoff")).toBe(true);
+
+    await instance.adapter.interruptTurn("t-handoff");
+    await expect(recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId)).resolves.toMatchObject({
+      ok: false,
+    });
+  });
+
   it("a message sent mid-turn is steered into the running turn", async () => {
     await create("slow");
     const { turnId } = await instance.adapter.sendTurn({ threadId: "t-steer", text: "first" });

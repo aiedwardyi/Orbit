@@ -117,19 +117,24 @@ export function recordTaskCompletion(
     ok: boolean;
     reply: string;
     messageId?: string;
+    /** User Stop (or an equivalent interrupt) — keep crash/stop/shutdown even
+     * when the adapter reports the torn-down turn as ok. A later Resume turn
+     * must omit this so a real completion can settle as turn-end. */
+    interrupted?: boolean;
   } & StampInput,
 ): TaskResumePacket {
-  const interrupted = !input.ok ? recoveryReason(packet) : null;
-  const next = stamped(packet, interrupted ?? "turn-end", input);
+  const recovery = recoveryReason(packet);
+  const keepRecovery = input.interrupted ? recovery ?? "stop" : !input.ok ? recovery : null;
+  const next = stamped(packet, keepRecovery ?? "turn-end", input);
   const reply = input.reply.trim();
-  if (input.ok && reply) next.completed.push({ note: reply, at: input.now });
+  if (input.ok && !input.interrupted && reply) next.completed.push({ note: reply, at: input.now });
   if (input.messageId && !next.evidence.some((item) => item.ref === input.messageId)) {
     next.evidence.push({ kind: "message", ref: input.messageId, note: "Settled reply" });
   }
   next.blockers = next.blockers.filter(
     (item) => item.kind !== "approval" && item.kind !== "input" && item.kind !== "engine",
   );
-  if (!input.ok && !interrupted) {
+  if (!input.ok && !keepRecovery) {
     next.blockers.push({ kind: "engine", note: "The last turn ended before completing." });
   }
   return next;

@@ -489,6 +489,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       idleTimer: ReturnType<typeof setTimeout> | null;
       closing: boolean;
       stderr: string;
+      /** settle the current turn; set once the spawn handlers exist */
+      settleTurn?: (ok: boolean, stopReason: string | null) => void;
     }
     const sessions = new Map<string, Session>();
     const configuredIdleMinimum = Number(process.env.OMB_CLAUDE_SESSION_IDLE_MIN_MS);
@@ -497,17 +499,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       : 10_000;
     const SESSION_IDLE_MS = Math.max(sessionIdleMinimum, Number(process.env.OMB_CLAUDE_SESSION_IDLE_MS) || 10 * 60_000);
 
-    const closeSession = (threadId: string, why: string) => {
+    /** Mark the session unusable for reuse and start process teardown.
+     * Does not close the permission broker — Windows named pipes drop
+     * existing clients on server.close()/unlink, and a late ask on a
+     * still-open connection must still get "the turn ended" (#211). */
+    const beginClose = (threadId: string, why: string): Session | undefined => {
       const s = sessions.get(threadId);
-      if (!s || s.closing) return;
+      if (!s) return undefined;
+      if (s.closing) return s;
       s.closing = true;
       if (s.idleTimer) clearTimeout(s.idleTimer);
-      // Broker ownership belongs to this session. Detach and close it now,
-      // before a replacement can bind the same per-thread socket; the old
-      // child's later close event must never unlink a new broker.
-      const broker = s.broker;
-      s.broker = undefined;
-      broker?.close();
       appendNative(threadId, { dir: "out", source: "claude.session", msg: { close: why } });
       // stdin EOF is the CLI's exit signal; give it a moment, then insist
       try {
@@ -517,6 +518,20 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (s.child.exitCode === null) killCliTree(s.child);
       }, 5_000);
       kill.unref?.();
+      return s;
+    };
+    const detachBroker = (s: Session) => {
+      const broker = s.broker;
+      s.broker = undefined;
+      broker?.close();
+    };
+    const closeSession = (threadId: string, why: string) => {
+      const s = beginClose(threadId, why);
+      if (!s) return;
+      // Broker ownership belongs to this session. Detach and close it now,
+      // before a replacement can bind the same per-thread socket; the old
+      // child's later close event must never unlink a new broker.
+      detachBroker(s);
     };
     const armIdle = (threadId: string) => {
       const s = sessions.get(threadId);
@@ -689,7 +704,17 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (live && !live.turn && !live.closing && live.child.exitCode === null && live.argsKey === argsKey && (!sessionId || sessionId === live.sessionId)) {
         if (live.idleTimer) clearTimeout(live.idleTimer);
         live.turn = { turnId, settled: false, sawStreamDelta: false };
-        active.set(threadId, { stop: () => killCliTree(live.child), turnId, broker: live.broker });
+        active.set(threadId, {
+          stop: () => {
+            retry.cancelled = true;
+            retryAbort.abort();
+            killCliTree(live.child);
+            beginClose(threadId, "interrupted");
+            live.settleTurn?.(false, "exit_before_result");
+          },
+          turnId,
+          broker: live.broker,
+        });
         emit({ ...base(threadId, turnId), type: "turn.started" });
         const written = await writeUser(live, threadId, turn.text);
         if (!written) {
@@ -793,7 +818,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           } catch {}
           session.mcpConfigPath = null;
         }
-        active.delete(threadId);
+        // Only drop *this* turn. A replacement sendTurn after interrupt may
+        // already own `active`; a late close must not steal it.
+        if (active.get(threadId)?.turnId === t.turnId) active.delete(threadId);
         session.turn = null;
         // A settled turn owns no retry budget. Retained CLI sessions may run
         // many later turns on this thread, and each must start fresh.
@@ -801,6 +828,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         emit({ ...base(threadId, t.turnId), type: "turn.completed", ok, stopReason, cost, ...(usage ? { usage } : {}) });
         if (session.child.exitCode === null && !session.closing) armIdle(threadId);
       };
+      session.settleTurn = settle;
       const currentTurnId = () => session.turn?.turnId ?? turnId;
 
       const handleLine = (line: string) => {
@@ -1070,6 +1098,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         retry.cancelled = true;
         retryAbort.abort();
         killCliTree(child);
+        // Release the thread now. On Windows killCliTree is async taskkill, so
+        // waiting for `close` before active.delete rejects Resume-after-Stop
+        // with "a turn is already running on this thread". Keep the broker
+        // listening until the child exits (or a replacement sendTurn binds).
+        beginClose(threadId, "interrupted");
+        settle(false, "exit_before_result");
+        if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
       };
       active.set(threadId, { stop, turnId, broker });
       emit({ ...base(threadId, turnId), type: "turn.started" });

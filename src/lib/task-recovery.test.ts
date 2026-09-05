@@ -11,6 +11,12 @@ describe("task recovery banner eligibility", () => {
     expect(isTaskRecoveryVisible(packet("stop"), false)).toBe(true);
   });
 
+  it("shows the quiet strip after a stop flush once the bot is idle", () => {
+    const stopped = packet("stop");
+    expect(isTaskRecoveryVisible(stopped, true)).toBe(false);
+    expect(isTaskRecoveryVisible(stopped, false)).toBe(true);
+  });
+
   it("does not widen to turn-end, progress, engine-switch, approval, or other reopen reasons", () => {
     for (const reason of ["turn-end", "progress", "approval", "engine-switch", "pre-compaction"]) {
       expect(isTaskRecoveryVisible(packet(reason), false)).toBe(false);

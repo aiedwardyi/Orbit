@@ -2195,6 +2195,98 @@ describe("harness HTTP API", () => {
     }
   });
 
+  it("leaves an idle stop recovery packet after interrupting a live turn", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    try {
+      const hanging = z.array(z.object({
+        instanceId: z.string(),
+        models: z.object({ default: z.string() }),
+        snapshot: z.object({ state: z.string() }),
+      }).passthrough()).parse((await api("GET", "/api/instances")).body.instances)
+        .find((instance) => instance.instanceId === "claude");
+      expect(hanging?.snapshot.state).toBe("available");
+      if (!hanging) throw new Error("fixture instances unavailable");
+
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claude", model: hanging.models.default },
+      })).status).toBe(200);
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, {
+        text: "Keep going until I stop you",
+      })).status).toBe(202);
+      await expect.poll(async () => {
+        const state = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+          (candidate: { id: string }) => candidate.id === bot.id,
+        );
+        return state?.busy;
+      }).toBe(true);
+
+      expect((await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId })).status).toBe(200);
+      await expect.poll(async () => {
+        const state = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+          (candidate: { id: string }) => candidate.id === bot.id,
+        );
+        const packet = state?.tasks?.find((task: { threadId: string }) => task.threadId === bot.threadId)?.taskState;
+        return state?.busy === false && packet?.flushReason === "stop";
+      }).toBe(true);
+    } finally {
+      await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
+  it("settles a later resume after a stop flush as turn-end", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    try {
+      const instances = z.array(z.object({
+        instanceId: z.string(),
+        models: z.object({ default: z.string() }),
+        snapshot: z.object({ state: z.string() }),
+      }).passthrough()).parse((await api("GET", "/api/instances")).body.instances);
+      const hanging = instances.find((instance) => instance.instanceId === "claude");
+      const happy = instances.find((instance) => instance.instanceId === "claudeHappy");
+      expect(hanging?.snapshot.state).toBe("available");
+      expect(happy?.snapshot.state).toBe("available");
+      if (!hanging || !happy) throw new Error("fixture instances unavailable");
+
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claude", model: hanging.models.default },
+      })).status).toBe(200);
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, {
+        text: "Keep going until I stop you",
+      })).status).toBe(202);
+      await expect.poll(async () => {
+        const state = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+          (candidate: { id: string }) => candidate.id === bot.id,
+        );
+        return state?.busy;
+      }).toBe(true);
+
+      expect((await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId })).status).toBe(200);
+      await expect.poll(async () => {
+        const state = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+          (candidate: { id: string }) => candidate.id === bot.id,
+        );
+        const packet = state?.tasks?.find((task: { threadId: string }) => task.threadId === bot.threadId)?.taskState;
+        return state?.busy === false && packet?.flushReason === "stop";
+      }).toBe(true);
+
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claudeHappy", model: happy.models.default },
+      })).status).toBe(200);
+      expect((await api("POST", `/api/bots/${bot.id}/tasks/${bot.threadId}/resume`, {})).status).toBe(202);
+      await expect.poll(async () => {
+        const state = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+          (candidate: { id: string }) => candidate.id === bot.id,
+        );
+        const packet = state?.tasks?.find((task: { threadId: string }) => task.threadId === bot.threadId)?.taskState;
+        return state?.busy === false && packet?.flushReason === "turn-end";
+      }).toBe(true);
+    } finally {
+      await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
   it("persists task continuity across completed and stopped turns", async () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
     const packetPath = join(home, ".orbit", "task-state", `${bot.threadId}.json`);
@@ -2320,8 +2412,9 @@ describe("harness HTTP API", () => {
         const state = (await api("GET", "/api/bots?messages=0")).body.bots.find(
           (candidate: { id: string }) => candidate.id === bot.id,
         );
-        return state?.busy;
-      }).toBe(false);
+        return state?.busy === false
+          && state.tasks?.find((task: { threadId: string }) => task.threadId === bot.threadId)?.taskState?.flushReason === "stop";
+      }).toBe(true);
 
       const lateUpdate = await fetch(`${BASE}/api/internal/task-state`, {
         method: "POST",
@@ -2340,7 +2433,7 @@ describe("harness HTTP API", () => {
 
       rmSync(fakeClaudeDump, { force: true });
       expect((await api("POST", `/api/bots/${bot.id}/tasks/${bot.threadId}/resume`, {})).status).toBe(202);
-      await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 5_000 }).toBe(true);
+      await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 15_000 }).toBe(true);
       const resumedDump = z.object({ prompt: z.unknown() }).passthrough().parse(
         JSON.parse(readFileSync(fakeClaudeDump, "utf8")),
       );

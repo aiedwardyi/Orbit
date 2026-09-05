@@ -80,6 +80,14 @@ describe("TaskRecoveryStrip", () => {
     expect(failed).toContain("Resume");
   });
 
+  it("keeps Resume and dismiss after a stop flush", () => {
+    const html = renderStrip({ packet: { ...packet, flushReason: "stop" } });
+    expect(html).toContain("Task paused");
+    expect(html).toContain("Resume");
+    expect(html).toContain("Dismiss saved task reminder");
+    expect(source).toContain("isTaskRecoveryVisible(packet, bot.busy)");
+  });
+
   it("stays click-to-resume and lives in the composer column", () => {
     const resetEffect = source.match(/useEffect\(\(\) => \{[\s\S]*?\}, \[bot\.id, packet\?\.threadId\]\)/)?.[0] ?? "";
     expect(resetEffect).toContain("setResuming(false)");

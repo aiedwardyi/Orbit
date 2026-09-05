@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { isTaskRecoveryVisible } from "@/lib/task-recovery";
 import {
   configStatusFromFrame,
   initialState,
@@ -468,6 +469,52 @@ describe("task recovery state", () => {
 
     expect(next.bots[0]?.tasks?.find((task) => task.threadId === "t1")?.taskState).toEqual(packet);
     expect(next.bots[0]?.tasks?.find((task) => task.threadId === "t2")?.taskState).toBeUndefined();
+  });
+
+  it("shows recovery after a stop flush once the bot goes idle", () => {
+    const bot = {
+      id: "echo",
+      threadId: "t1",
+      name: "Echo",
+      title: "",
+      description: "",
+      notifications: true,
+      color: "green",
+      unread: false,
+      busy: true,
+      activity: "working",
+      modelSelection: { instanceId: "x", model: "y" },
+      messages: [],
+      tasks: [{ threadId: "t1", title: "Current", createdAt: 1 }],
+    } satisfies Bot;
+    const packet = {
+      v: 1,
+      threadId: "t1",
+      botId: bot.id,
+      goal: "Publish the brief",
+      plan: [{ step: "Verify citations", status: "active" }],
+      completed: [],
+      evidence: [],
+      artifacts: [],
+      blockers: [],
+      nextAction: "Verify citations",
+      updatedAt: 100,
+      updatedBy: "harness",
+      flushReason: "stop",
+      turnsAtWrite: 2,
+    } satisfies TaskResumePacket;
+
+    const flushed = reducer({ ...initialState, bots: [bot] }, { type: "taskPacket", threadId: "t1", packet });
+    const flushedBot = flushed.bots[0]!;
+    expect(isTaskRecoveryVisible(flushedBot.tasks?.[0]?.taskState, flushedBot.busy)).toBe(false);
+
+    const idle = reducer(flushed, {
+      type: "botPatched",
+      bot: { ...flushedBot, busy: false, activity: "idle" },
+    });
+    const idleBot = idle.bots[0]!;
+    expect(isTaskRecoveryVisible(idleBot.tasks?.[0]?.taskState, idleBot.busy)).toBe(true);
+    expect(idleBot.tasks?.[0]?.taskState?.flushReason).toBe("stop");
   });
 });
 

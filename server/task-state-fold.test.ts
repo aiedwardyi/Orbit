@@ -132,4 +132,18 @@ describe("task state folding", () => {
     expect(cleared.flushReason).toBe("stop");
     expect(settled).toMatchObject({ flushReason: "stop", blockers: [] });
   });
+
+  it("keeps a user-stop recovery reason when the adapter settles the stopped turn as ok", () => {
+    const stopped = stampTaskResumePacket(seed(), "stop", { now: 300 });
+    const settled = recordTaskCompletion(stopped, {
+      ok: true,
+      reply: "partial draft before stop",
+      now: 400,
+      interrupted: true,
+    });
+
+    expect(settled.flushReason).toBe("stop");
+    expect(settled.completed).toEqual([]);
+    expect(settled.blockers).toEqual([]);
+  });
 });

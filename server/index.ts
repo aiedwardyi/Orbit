@@ -136,6 +136,13 @@ import {
   seedTaskResumePacket,
   stampTaskResumePacket,
 } from "./task-state-fold.ts";
+import {
+  isRecoveryFlushReason,
+  lastUserInstruction,
+  packetAfterInterruption,
+  turnCompletionDisposition,
+  type RecoveryFlushReason,
+} from "./task-recovery-flush.ts";
 import type { TaskResumePacket } from "./task-state.ts";
 import * as tts from "./tts/index.ts";
 import { narrateTool, toUtterances } from "./tts/speech-text.ts";
@@ -737,6 +744,7 @@ store.onChange((change) => {
       break;
     case "thread.deleted":
       routines?.forgetRoutineRequestReceiptsForThread(change.threadId);
+      forgetTurnThread(change.threadId);
       break;
     case "task.packet": {
       const packet = store.taskPacket(change.threadId);
@@ -749,6 +757,7 @@ store.onChange((change) => {
       break;
     }
     case "bot.deleted":
+      turnEpochByBot.delete(change.botId);
       broadcast({ kind: "bot.deleted", botId: change.botId });
       break;
     case "group": {
@@ -1027,6 +1036,113 @@ function queueTaskPacket(packet: TaskResumePacket): void {
   }, TASK_PACKET_FLUSH_MS);
   timer.unref?.();
   pendingTaskPackets.set(packet.threadId, { packet, timer });
+}
+
+let turnClock = 0;
+const turnDispatchedAt = new Map<string, number>();
+const turnInterruptedAt = new Map<string, number>();
+const turnEpochByBot = new Map<string, number>();
+const liveTurnIdByThread = new Map<string, string>();
+const interruptedTurnIds = new Set<string>();
+const pendingInterruptThreads = new Set<string>();
+const adapterTurnByThread = new Map<string, Promise<unknown>>();
+const ADAPTER_TURN_HANDOFF_MS = 8_000;
+
+function settleSoon(pending: Promise<unknown>, ms: number): Promise<void> {
+  return Promise.race([
+    pending.then(() => undefined, () => undefined),
+    new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      timer.unref?.();
+    }),
+  ]);
+}
+
+function dispatchAdapterTurn<T>(threadId: string, send: () => Promise<T>): Promise<T> {
+  const prior = adapterTurnByThread.get(threadId);
+  const run = (prior ? settleSoon(prior, ADAPTER_TURN_HANDOFF_MS) : Promise.resolve()).then(send);
+  adapterTurnByThread.set(threadId, run);
+  return run;
+}
+
+function tickTurnClock(): number {
+  turnClock += 1;
+  return turnClock;
+}
+
+function currentTurnEpoch(botId: string): number {
+  return turnEpochByBot.get(botId) ?? 0;
+}
+
+function bumpTurnEpoch(botId: string): number {
+  const next = currentTurnEpoch(botId) + 1;
+  turnEpochByBot.set(botId, next);
+  return next;
+}
+
+function markThreadInterrupted(threadId: string) {
+  turnInterruptedAt.set(threadId, tickTurnClock());
+  const live = liveTurnIdByThread.get(threadId);
+  if (live) interruptedTurnIds.add(live);
+  else pendingInterruptThreads.add(threadId);
+}
+
+function bindInterruptedTurn(threadId: string, turnId?: string) {
+  if (!pendingInterruptThreads.has(threadId)) return;
+  pendingInterruptThreads.delete(threadId);
+  if (turnId) interruptedTurnIds.add(turnId);
+}
+
+function forgetTurnThread(threadId: string) {
+  const live = liveTurnIdByThread.get(threadId);
+  if (live) interruptedTurnIds.delete(live);
+  liveTurnIdByThread.delete(threadId);
+  turnDispatchedAt.delete(threadId);
+  turnInterruptedAt.delete(threadId);
+  pendingInterruptThreads.delete(threadId);
+  adapterTurnByThread.delete(threadId);
+}
+
+function seedFromLastUser(botId: string, threadId: string, turnsAtWrite: number) {
+  const instruction = lastUserInstruction(store.messagesFor(threadId));
+  return instruction
+    ? {
+      botId,
+      threadId,
+      text: instruction.text,
+      messageId: instruction.messageId,
+      now: instruction.at,
+      turnsAtWrite,
+    }
+    : null;
+}
+
+function flushInterruptedTask(
+  threadId: string,
+  botId: string,
+  reason: RecoveryFlushReason,
+): TaskResumePacket | null {
+  const packet = taskPacketForWrite(threadId);
+  const turnsAtWrite = store.taskByThread(botId, threadId)?.usage?.turns ?? packet?.turnsAtWrite ?? 0;
+  const next = packetAfterInterruption(
+    packet,
+    reason,
+    { now: Date.now(), turnsAtWrite },
+    seedFromLastUser(botId, threadId, turnsAtWrite),
+  );
+  return next ? persistTaskPacket(next) : null;
+}
+
+function releaseInterruptedBot(botId: string, threadId: string) {
+  stopScreenPoller(botId);
+  if (activeVpsThreads.get(botId) === threadId) activeVpsThreads.delete(botId);
+  const group = store.groupByThread(threadId);
+  const speaker = groupSpeakers.get(threadId);
+  if (group && group.busyBotId === botId) {
+    if (speaker?.botId === botId) groupSpeakers.delete(threadId);
+    store.patchGroup(group.id, { busyBotId: null, unread: true });
+  }
+  if (store.bot(botId)?.busy) store.setActivity(botId, "idle");
 }
 
 /** Put a notification on the wire. Clients decide what to do with it — a
@@ -1687,19 +1803,35 @@ bus.subscribe((event: RuntimeEvent) => {
           cachedInput: tokens?.cachedInput,
           costUsd: event.cost ?? null,
         });
-        const packet = taskPacketForWrite(event.threadId);
-        if (packet) {
-          persistTaskPacket(recordTaskCompletion(packet, {
-            ok: event.ok,
-            reply,
-            messageId: settledReply?.messageId,
-            now: eventTime(event),
-            lastEventId: event.eventId,
-            turnsAtWrite: usage?.turns ?? packet.turnsAtWrite,
-          }));
+        const dispatched = turnDispatchedAt.get(event.threadId) ?? 0;
+        const interruptedAt = turnInterruptedAt.get(event.threadId) ?? 0;
+        const { superseded, interrupted } = turnCompletionDisposition({
+          eventTurnId: event.turnId,
+          liveTurnId: liveTurnIdByThread.get(event.threadId),
+          interruptedTurnIds,
+          interruptedAt,
+          dispatchedAt: dispatched,
+        });
+        if (event.turnId) interruptedTurnIds.delete(event.turnId);
+        if (!event.turnId || liveTurnIdByThread.get(event.threadId) === event.turnId) {
+          liveTurnIdByThread.delete(event.threadId);
         }
-        // settled → idle; a setup failure already marked it dead, keep that
-        if (store.bot(bot.id)?.activity !== "dead") store.setActivity(bot.id, "idle");
+        if (!superseded) {
+          const packet = taskPacketForWrite(event.threadId);
+          if (packet) {
+            persistTaskPacket(recordTaskCompletion(packet, {
+              ok: event.ok,
+              reply,
+              messageId: settledReply?.messageId,
+              now: eventTime(event),
+              lastEventId: event.eventId,
+              turnsAtWrite: usage?.turns ?? packet.turnsAtWrite,
+              interrupted,
+            }));
+          }
+          // settled → idle; a setup failure already marked it dead, keep that
+          if (store.bot(bot.id)?.activity !== "dead") store.setActivity(bot.id, "idle");
+        }
         const routineReportThread = routineRun ? routineSourceThread(routineRun) : null;
         const routineReportGroup = routineReportThread ? store.groupByThread(routineReportThread) : undefined;
         // Group-origin routines belong to that channel's unread state. Their
@@ -2097,6 +2229,7 @@ async function startTurn(botId: string, text: string, opts?: StartTurnOptions) {
 }
 
 async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOptions) {
+  const epoch = currentTurnEpoch(botId);
   const bot = store.bot(botId);
   if (!bot) throw Object.assign(new Error("no such bot"), { status: 404 });
   if (checkpointRestoreLeases.has(botId)) {
@@ -2159,7 +2292,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   }
 
   const priorTaskPacket = taskPacketForWrite(threadId);
-  const recovering = priorTaskPacket !== null && ["crash", "stop", "shutdown"].includes(priorTaskPacket.flushReason);
+  const recovering = priorTaskPacket !== null && isRecoveryFlushReason(priorTaskPacket.flushReason);
   if (!opts?.cardContinuation && text.trim()) {
     const packet = priorTaskPacket
       ? recordTaskInstruction(priorTaskPacket, {
@@ -2308,11 +2441,18 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // busy flips immediately so the composer locks; the dispatch itself runs
   // in the background — box provisioning can take ~90s and must never
   // hang the HTTP request
+  if (currentTurnEpoch(bot.id) !== epoch) return userMessage;
   store.setActivity(bot.id, "working", threadId);
+  if (currentTurnEpoch(bot.id) !== epoch) {
+    store.setActivity(bot.id, "idle");
+    return userMessage;
+  }
   store.patchBot(bot.id, { unread: false });
   turnUsage.delete(threadId);
+  turnDispatchedAt.set(threadId, tickTurnClock());
 
   void (async () => {
+    if (currentTurnEpoch(bot.id) !== epoch) return;
     try {
       const integrations: NonNullable<Parameters<typeof instance.adapter.sendTurn>[0]["integrations"]> = {};
       const selectedSkills = selectBundledSkills(
@@ -2588,8 +2728,17 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       // snapshot() absorbs failures, so checkpointing may delay but never fail
       // a turn.
       if (checkpointCwd) await checkpoints.snapshot(bot.id, checkpointCwd, `turn ${threadId.slice(0, 8)}`);
+      if (currentTurnEpoch(bot.id) !== epoch) {
+        releaseLocalVmThread(threadId);
+        if (activeVpsThreads.get(bot.id) === threadId) activeVpsThreads.delete(bot.id);
+        return;
+      }
       watchdog.watch(threadId, bot.id);
-      await instance.adapter.sendTurn({
+      const started = await dispatchAdapterTurn(threadId, () => {
+        if (currentTurnEpoch(bot.id) !== epoch) {
+          return Promise.reject(Object.assign(new Error("turn cancelled before dispatch"), { cancelled: true }));
+        }
+        return instance.adapter.sendTurn({
         threadId,
         text: turnText,
         model,
@@ -2645,6 +2794,10 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         integrations,
         cwd,
       });
+      });
+      bindInterruptedTurn(threadId, started.turnId);
+      if (currentTurnEpoch(bot.id) !== epoch) return;
+      if (started.turnId) liveTurnIdByThread.set(threadId, started.turnId);
       // dispatched: the rewind is spent, and the old cursors are dead
       if (rewound) store.patchBot(bot.id, { rewound: false, resumeCursors: {} });
       // and this engine now owns the thread's most recent turn
@@ -2665,6 +2818,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       if (activeVpsThreads.get(bot.id) === threadId) activeVpsThreads.delete(bot.id);
       watchdog.settle(threadId);
       turnUsage.delete(threadId);
+      if (currentTurnEpoch(bot.id) !== epoch) return;
       const message = e instanceof Error ? e.message : String(e);
       store.appendMessage(threadId, {
         role: "bot",
@@ -3419,14 +3573,17 @@ async function runClaimedGroupMemberTurn(
     deadline.start();
     unregisterStall = roomStallCompletions.register(threadId, () => finish("stalled"));
     watchdog.watch(threadId, bot.id);
-    instance.adapter
-      .sendTurn({
+    dispatchAdapterTurn(threadId, () => instance.adapter.sendTurn({
         threadId,
         text,
         system: roomSystem,
         cwd,
         integrations,
         ...memberTurnSelection(selection),
+      }))
+      .then((started) => {
+        bindInterruptedTurn(threadId, started.turnId);
+        if (started.turnId) liveTurnIdByThread.set(threadId, started.turnId);
       })
       .catch((err) => {
         const message = err instanceof Error ? err.message : "turn failed";
@@ -4002,11 +4159,8 @@ async function reloadProviders() {
     if (!threadId || !store.taskByThread(bot.id, threadId)) continue;
     interruptedTaskThreads.set(bot.id, threadId);
     const packet = taskPacketForWrite(threadId);
-    if (!packet || ["crash", "stop", "shutdown"].includes(packet.flushReason)) continue;
-    persistTaskPacket(stampTaskResumePacket(packet, "crash", {
-      now: Date.now(),
-      turnsAtWrite: store.taskByThread(bot.id, threadId)?.usage?.turns ?? packet.turnsAtWrite,
-    }));
+    if (packet && isRecoveryFlushReason(packet.flushReason)) continue;
+    flushInterruptedTask(threadId, bot.id, "crash");
   }
   bus.detachAll();
   await registry.disposeAll();
@@ -4198,7 +4352,7 @@ const server = createServer(async (req, res) => {
         }
         next.updatedAt = Date.now();
         next.updatedBy = "bot";
-        if (!["crash", "stop", "shutdown"].includes(current.flushReason)) next.flushReason = "progress";
+        if (!isRecoveryFlushReason(current.flushReason)) next.flushReason = "progress";
         next.turnsAtWrite = task?.usage?.turns ?? next.turnsAtWrite;
         const saved = persistTaskPacket(next);
         return saved
@@ -5715,8 +5869,14 @@ const server = createServer(async (req, res) => {
       cancelGroupTurnOperations(group.id, group.threadId);
       const busy = group.busyBotId ? store.bot(group.busyBotId) : undefined;
       const instance = busy ? registry.get(busy.modelSelection.instanceId) : undefined;
+      if (busy) {
+        bumpTurnEpoch(busy.id);
+        markThreadInterrupted(group.threadId);
+        flushInterruptedTask(group.threadId, busy.id, "stop");
+      }
       await instance?.adapter.interruptTurn(group.threadId).catch(() => {});
       closeOpenApprovals(group.threadId);
+      if (busy) releaseInterruptedBot(busy.id, group.threadId);
       return json(res, 200, { ok: true });
     }
 
@@ -6587,23 +6747,24 @@ const server = createServer(async (req, res) => {
         if (expectedThreadId !== undefined && busyGroup.threadId !== expectedThreadId) {
           return json(res, 409, { error: `this bot is working in channel ${busyGroup.id}` });
         }
-        await instance?.adapter.interruptTurn(busyGroup.threadId).catch(() => {});
-        closeOpenApprovals(busyGroup.threadId);
       }
       if (expectedThreadId !== undefined && !busyGroup && bot.threadId !== expectedThreadId) {
         return json(res, 409, { error: "the bot switched tasks before it could be interrupted" });
       }
-      if (!busyGroup && bot.busy) {
-        const packet = taskPacketForWrite(bot.threadId);
-        if (packet) {
-          persistTaskPacket(stampTaskResumePacket(packet, "stop", {
-            now: Date.now(),
-            turnsAtWrite: store.activeTask(bot.id)?.usage?.turns ?? packet.turnsAtWrite,
-          }));
-        }
+      const inFlight = Boolean(busyGroup || bot.busy || botHasActiveTurn(bot.id));
+      const stoppedThreadId = busyGroup?.threadId ?? bot.activeThreadId ?? bot.threadId;
+      if (inFlight) {
+        bumpTurnEpoch(bot.id);
+        markThreadInterrupted(stoppedThreadId);
+        flushInterruptedTask(stoppedThreadId, bot.id, "stop");
+      }
+      if (busyGroup) {
+        await instance?.adapter.interruptTurn(busyGroup.threadId).catch(() => {});
+        closeOpenApprovals(busyGroup.threadId);
       }
       await instance?.adapter.interruptTurn(bot.threadId).catch(() => {});
       closeOpenApprovals(bot.threadId);
+      if (inFlight) releaseInterruptedBot(bot.id, stoppedThreadId);
       return json(res, 200, { ok: true });
     }
 
@@ -6625,7 +6786,7 @@ const server = createServer(async (req, res) => {
       if (bot.threadId !== m[2]) return json(res, 409, { error: "switch to this task before continuing it" });
       if (bot.busy) return json(res, 409, { error: "this bot is already working" });
       const packet = taskPacketForWrite(m[2]);
-      if (!packet || !["crash", "stop", "shutdown"].includes(packet.flushReason)) {
+      if (!packet || !isRecoveryFlushReason(packet.flushReason)) {
         return json(res, 409, { error: "this task has no interrupted work to continue" });
       }
       await startTurn(
@@ -7391,13 +7552,8 @@ hostShutdown = () => {
   hostShutdownStarted = true;
   for (const bot of store.bots) {
     if (!bot.busy || store.groups.some((group) => group.busyBotId === bot.id)) continue;
-    const threadId = routines?.activeRunForBot(bot.id)?.threadId ?? bot.threadId;
-    const packet = taskPacketForWrite(threadId);
-    if (!packet) continue;
-    persistTaskPacket(stampTaskResumePacket(packet, "shutdown", {
-      now: Date.now(),
-      turnsAtWrite: store.taskByThread(bot.id, threadId)?.usage?.turns ?? packet.turnsAtWrite,
-    }));
+    const threadId = routines?.activeRunForBot(bot.id)?.threadId ?? bot.activeThreadId ?? bot.threadId;
+    flushInterruptedTask(threadId, bot.id, "shutdown");
   }
   for (const threadId of [...pendingTaskPackets.keys()]) {
     const packet = pendingTaskPackets.get(threadId)?.packet;
