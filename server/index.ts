@@ -141,6 +141,7 @@ import {
   isRecoveryFlushReason,
   lastUserInstruction,
   packetAfterInterruption,
+  shutdownStampsForClose,
   turnCompletionDisposition,
   type RecoveryFlushReason,
 } from "./task-recovery-flush.ts";
@@ -7606,10 +7607,18 @@ let hostShutdownStarted = false;
 hostShutdown = () => {
   if (hostShutdownStarted) return;
   hostShutdownStarted = true;
+  const routineThreadByBotId: Record<string, string> = {};
   for (const bot of store.bots) {
-    if (!bot.busy || store.groups.some((group) => group.busyBotId === bot.id)) continue;
-    const threadId = routines?.activeRunForBot(bot.id)?.threadId ?? bot.activeThreadId ?? bot.threadId;
-    flushInterruptedTask(threadId, bot.id, "shutdown");
+    const threadId = routines?.activeRunForBot(bot.id)?.threadId;
+    if (threadId) routineThreadByBotId[bot.id] = threadId;
+  }
+  for (const stamp of shutdownStampsForClose({
+    bots: store.bots,
+    groups: store.groups,
+    routineThreadByBotId,
+    packetFor: (threadId) => taskPacketForWrite(threadId),
+  })) {
+    flushInterruptedTask(stamp.threadId, stamp.botId, stamp.reason);
   }
   for (const threadId of [...pendingTaskPackets.keys()]) {
     const packet = pendingTaskPackets.get(threadId)?.packet;

@@ -564,6 +564,70 @@ describe("task recovery state", () => {
     expect(isTaskRecoveryVisible(idleRoom.taskState, Boolean(idleRoom.busyBotId))).toBe(true);
     expect(idleRoom.taskState?.flushReason).toBe("stop");
   });
+
+  it("keeps a dismissed recovery strip hidden for that packet across later paints", () => {
+    const bot = {
+      id: "echo",
+      threadId: "t1",
+      name: "Echo",
+      title: "",
+      description: "",
+      notifications: true,
+      color: "green",
+      unread: false,
+      modelSelection: { instanceId: "x", model: "y" },
+      messages: [],
+      tasks: [{
+        threadId: "t1",
+        title: "Current",
+        createdAt: 1,
+        taskState: {
+          v: 1 as const,
+          threadId: "t1",
+          botId: "echo",
+          goal: "Publish the brief",
+          plan: [{ step: "Verify citations", status: "active" as const }],
+          completed: [],
+          evidence: [],
+          artifacts: [],
+          blockers: [],
+          nextAction: "Verify citations",
+          updatedAt: 200,
+          updatedBy: "harness" as const,
+          flushReason: "shutdown" as const,
+          turnsAtWrite: 2,
+        },
+      }],
+    } satisfies Bot;
+
+    const dismissed = reducer({ ...initialState, bots: [bot] }, {
+      type: "dismissTaskRecovery",
+      botId: bot.id,
+      threadId: "t1",
+      updatedAt: 200,
+      flushReason: "shutdown",
+    });
+    const packet = dismissed.bots[0]?.tasks?.[0]?.taskState;
+    expect(isTaskRecoveryVisible(packet, false, dismissed.dismissedTaskRecovery["t1"])).toBe(false);
+
+    const painted = reducer(dismissed, { type: "taskPacket", threadId: "t1", packet: packet! });
+    expect(isTaskRecoveryVisible(
+      painted.bots[0]?.tasks?.[0]?.taskState,
+      false,
+      painted.dismissedTaskRecovery["t1"],
+    )).toBe(false);
+
+    const stopped = reducer(painted, {
+      type: "taskPacket",
+      threadId: "t1",
+      packet: { ...packet!, flushReason: "stop", updatedAt: 300 },
+    });
+    expect(isTaskRecoveryVisible(
+      stopped.bots[0]?.tasks?.[0]?.taskState,
+      false,
+      stopped.dismissedTaskRecovery["t1"],
+    )).toBe(true);
+  });
 });
 
 describe("job-first bot creation", () => {

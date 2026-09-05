@@ -491,6 +491,9 @@ export interface AppState {
   /** queueIds whose drain frame beat the POST continuation. One-shot and
    * bounded to a short event window so other clients cannot grow it forever. */
   consumedQueueIds: Record<string, true>;
+  /** Session dismissals for the Continuity strip, keyed by thread. A later
+   * crash/stop/shutdown packet with a new updatedAt may show again. */
+  dismissedTaskRecovery: Record<string, { updatedAt: number; flushReason: TaskResumePacket["flushReason"] }>;
   /** Sends the composer accepted this tick; Thinking / Sends-next paint
    * from this until POST or SSE confirms, so chrome does not wait on
    * startTurn's prepareModelContext waterfall. */
@@ -640,7 +643,13 @@ export type Action =
   | { type: "deleteTask"; botId: string; threadId: string }
   | { type: "taskPacket"; threadId: string; packet: TaskResumePacket }
   | { type: "resumeTask"; botId: string; threadId: string; onSettled?: (error: string | null) => void }
-  | { type: "dismissTaskRecovery"; botId: string; threadId: string }
+  | {
+      type: "dismissTaskRecovery";
+      botId: string;
+      threadId: string;
+      updatedAt: number;
+      flushReason: TaskResumePacket["flushReason"];
+    }
   | { type: "newBot" }
   | { type: "closeCreateBot" }
   | { type: "botAdded"; bot: Bot; focusComposer?: boolean }
@@ -1394,11 +1403,18 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "editMessage":
       return withMascotMotion(state, action.botId, "working");
+    case "dismissTaskRecovery":
+      return {
+        ...state,
+        dismissedTaskRecovery: {
+          ...state.dismissedTaskRecovery,
+          [action.threadId]: { updatedAt: action.updatedAt, flushReason: action.flushReason },
+        },
+      };
     case "newTask":
     case "switchTask":
     case "deleteTask":
     case "resumeTask":
-    case "dismissTaskRecovery":
     case "newGroupTask":
     case "switchGroupTask":
     case "deleteGroupTask":
@@ -1507,6 +1523,7 @@ export const initialState: AppState = {
   mascotMotion: null,
   pendingQueued: {},
   consumedQueueIds: {},
+  dismissedTaskRecovery: {},
   acceptedSends: {},
 };
 

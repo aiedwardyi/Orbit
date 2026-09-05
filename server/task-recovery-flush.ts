@@ -12,6 +12,75 @@ export function isRecoveryFlushReason(reason: string): reason is RecoveryFlushRe
   return (RECOVERY_FLUSH_REASONS as readonly string[]).includes(reason);
 }
 
+/** Idle close may offer Resume only when a real forever-chat record already
+ * exists and is not the live/dismissed `progress` write. Crash/stop/shutdown
+ * stay on their own paths. Empty or new bots have no packet. */
+export function idleReopenStampReason(
+  packet: { flushReason: string; goal?: string; botId?: string } | null | undefined,
+): RecoveryFlushReason | null {
+  if (!packet) return null;
+  if (isRecoveryFlushReason(packet.flushReason)) return null;
+  if (packet.flushReason === "progress") return null;
+  return "shutdown";
+}
+
+export interface ShutdownStamp {
+  threadId: string;
+  botId: string;
+  reason: RecoveryFlushReason;
+}
+
+/** Host close: interrupt busy 1:1 and room turns, then stamp idle forever
+ * threads so a normal reopen can show the quiet strip. */
+export function shutdownStampsForClose(input: {
+  bots: ReadonlyArray<{ id: string; busy?: boolean; threadId: string; activeThreadId?: string }>;
+  groups: ReadonlyArray<{ threadId: string; busyBotId?: string | null; memberIds: readonly string[] }>;
+  routineThreadByBotId?: Readonly<Record<string, string>>;
+  packetFor: (threadId: string) => { flushReason: string; goal?: string; botId?: string } | null;
+}): ShutdownStamp[] {
+  const stamps: ShutdownStamp[] = [];
+  const seen = new Set<string>();
+  const add = (threadId: string, botId: string, reason: RecoveryFlushReason) => {
+    if (!threadId || !botId || seen.has(threadId)) return;
+    seen.add(threadId);
+    stamps.push({ threadId, botId, reason });
+  };
+
+  const roomBusy = new Set(
+    input.groups.flatMap((group) => (group.busyBotId ? [group.busyBotId] : [])),
+  );
+
+  for (const bot of input.bots) {
+    if (!bot.busy || roomBusy.has(bot.id)) continue;
+    add(
+      input.routineThreadByBotId?.[bot.id] ?? bot.activeThreadId ?? bot.threadId,
+      bot.id,
+      "shutdown",
+    );
+  }
+
+  for (const group of input.groups) {
+    if (!group.busyBotId) continue;
+    add(group.threadId, group.busyBotId, "shutdown");
+  }
+
+  for (const bot of input.bots) {
+    if (bot.busy) continue;
+    const reason = idleReopenStampReason(input.packetFor(bot.threadId));
+    if (reason) add(bot.threadId, bot.id, reason);
+  }
+
+  for (const group of input.groups) {
+    if (group.busyBotId) continue;
+    const packet = input.packetFor(group.threadId);
+    const botId = packet?.botId ?? group.memberIds[0];
+    const reason = idleReopenStampReason(packet);
+    if (botId && reason) add(group.threadId, botId, reason);
+  }
+
+  return stamps;
+}
+
 export function lastUserInstruction(
   messages: ReadonlyArray<{ id: string; role: string; kind?: string; text?: string; at: number }>,
 ): { text: string; messageId: string; at: number } | null {

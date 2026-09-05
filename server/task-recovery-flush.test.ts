@@ -1,11 +1,18 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  idleReopenStampReason,
   lastUserInstruction,
   packetAfterInterruption,
+  shutdownStampsForClose,
   turnCompletionDisposition,
 } from "./task-recovery-flush.ts";
 import { seedTaskResumePacket } from "./task-state-fold.ts";
+
+const indexSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8");
 
 const seed = () => seedTaskResumePacket({
   botId: "bot-1",
@@ -58,6 +65,64 @@ describe("task recovery interruption flush", () => {
       flushReason: "stop",
     });
     expect(packetAfterInterruption(null, "crash", { now: 1, turnsAtWrite: 0 })).toBeNull();
+  });
+});
+
+describe("normal-reopen shutdown stamps", () => {
+  const turnEnd = { flushReason: "turn-end", goal: "Publish the brief", botId: "bot-1" };
+  const progress = { flushReason: "progress", goal: "Publish the brief", botId: "bot-1" };
+  const stopped = { flushReason: "stop", goal: "Publish the brief", botId: "bot-1" };
+
+  it("stamps shutdown for an idle forever thread with a settled record", () => {
+    expect(idleReopenStampReason(turnEnd)).toBe("shutdown");
+    expect(idleReopenStampReason({ flushReason: "approval", goal: "Wait for login" })).toBe("shutdown");
+    expect(idleReopenStampReason({ flushReason: "engine-switch", goal: "Keep going" })).toBe("shutdown");
+    expect(idleReopenStampReason({ flushReason: "pre-compaction", goal: "Keep going" })).toBe("shutdown");
+  });
+
+  it("does not invent a record for empty or new bots, or re-nag a dismissed thread", () => {
+    expect(idleReopenStampReason(null)).toBeNull();
+    expect(idleReopenStampReason(progress)).toBeNull();
+  });
+
+  it("leaves crash, stop, and shutdown packets for those paths", () => {
+    expect(idleReopenStampReason({ flushReason: "crash", goal: "Recover" })).toBeNull();
+    expect(idleReopenStampReason(stopped)).toBeNull();
+    expect(idleReopenStampReason({ flushReason: "shutdown", goal: "Recover" })).toBeNull();
+  });
+
+  it("collects busy interrupt stamps and idle forever-chat reopen without widening live turn-end", () => {
+    const packets: Record<string, { flushReason: string; goal: string; botId: string } | null> = {
+      "idle-thread": turnEnd,
+      "dismissed-thread": progress,
+      "empty-thread": null,
+      "stopped-thread": stopped,
+      "busy-thread": { flushReason: "progress", goal: "In flight", botId: "busy" },
+      "room-idle": { ...turnEnd, botId: "idle" },
+      "room-busy": { flushReason: "progress", goal: "Room turn", botId: "speaker" },
+    };
+
+    expect(shutdownStampsForClose({
+      bots: [
+        { id: "idle", busy: false, threadId: "idle-thread" },
+        { id: "new", busy: false, threadId: "empty-thread" },
+        { id: "dismissed", busy: false, threadId: "dismissed-thread" },
+        { id: "stopped", busy: false, threadId: "stopped-thread" },
+        { id: "busy", busy: true, threadId: "busy-thread", activeThreadId: "busy-thread" },
+        { id: "speaker", busy: true, threadId: "speaker-dm" },
+      ],
+      groups: [
+        { threadId: "room-idle", busyBotId: null, memberIds: ["idle"] },
+        { threadId: "room-busy", busyBotId: "speaker", memberIds: ["speaker", "idle"] },
+      ],
+      packetFor: (threadId) => packets[threadId] ?? null,
+    })).toEqual([
+      { threadId: "busy-thread", botId: "busy", reason: "shutdown" },
+      { threadId: "room-busy", botId: "speaker", reason: "shutdown" },
+      { threadId: "idle-thread", botId: "idle", reason: "shutdown" },
+      { threadId: "room-idle", botId: "idle", reason: "shutdown" },
+    ]);
+    expect(indexSource).toContain("shutdownStampsForClose");
   });
 });
 

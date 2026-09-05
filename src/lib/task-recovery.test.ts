@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { isTaskRecoveryVisible, roomRecoveryBusy, roomRecoveryPacket } from "./task-recovery";
 
-const packet = (flushReason: string) => ({ flushReason });
+const packet = (flushReason: string, updatedAt = 100) => ({ flushReason, threadId: "t1", updatedAt });
 
 describe("task recovery banner eligibility", () => {
   it("shows only when a packet exists, the bot is idle, and flushReason is crash, shutdown, or stop", () => {
@@ -17,13 +17,22 @@ describe("task recovery banner eligibility", () => {
     expect(isTaskRecoveryVisible(stopped, false)).toBe(true);
   });
 
-  it("does not widen to turn-end, progress, engine-switch, approval, or other reopen reasons", () => {
+  it("shows a shutdown packet after a normal reopen and hides it once dismissed for that packet", () => {
+    const reopened = packet("shutdown", 200);
+    expect(isTaskRecoveryVisible(reopened, false)).toBe(true);
+    expect(isTaskRecoveryVisible(reopened, false, { updatedAt: 200, flushReason: "shutdown" })).toBe(false);
+    expect(isTaskRecoveryVisible(reopened, false, { updatedAt: 199, flushReason: "shutdown" })).toBe(true);
+    expect(isTaskRecoveryVisible(packet("stop", 300), false, { updatedAt: 200, flushReason: "shutdown" })).toBe(true);
+  });
+
+  it("does not widen the live strip to turn-end, progress, engine-switch, or approval", () => {
     for (const reason of ["turn-end", "progress", "approval", "engine-switch", "pre-compaction"]) {
       expect(isTaskRecoveryVisible(packet(reason), false)).toBe(false);
     }
     expect(isTaskRecoveryVisible(undefined, false)).toBe(false);
     expect(isTaskRecoveryVisible(packet("crash"), true)).toBe(false);
     expect(isTaskRecoveryVisible(packet("stop"), true)).toBe(false);
+    expect(isTaskRecoveryVisible(packet("shutdown"), true)).toBe(false);
   });
 
   it("shows a room strip after Stop once the channel is idle, without widening eligibility", () => {
