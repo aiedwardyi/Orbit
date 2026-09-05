@@ -125,6 +125,22 @@ describe("WebhookManager", () => {
     expect(h.manager.list()[0]).toMatchObject({ lastRunId: "run-1", deliveryCount: 1 });
   });
 
+  it("keeps a key out of the body preview on disk and in the listing", () => {
+    const h = harness();
+    const { webhook, secret } = create(h.manager);
+    const key = `sk-ant-api03-${"abcdefghijklmnopqrstuvwxyz0123456789"}`;
+    h.manager.receive(webhook.endpointId, secret, {
+      payload: { lead: "Ada", callback_token: key },
+      eventName: "lead.created",
+      deliveryId: "evt-secret",
+    });
+
+    const attempt = h.manager.listAttempts()[0];
+    expect(attempt?.preview).not.toContain(key);
+    expect(attempt?.preview).toContain("Ada");
+    expect(readFileSync(h.file, "utf8")).not.toContain(key);
+  });
+
   it("uses an authenticated task from the payload when default instructions are empty", () => {
     const h = harness();
     const { webhook, secret } = h.manager.create({ name: "Direct tasks", prompt: "", botId: "maus-1" });

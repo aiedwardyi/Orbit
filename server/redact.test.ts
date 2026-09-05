@@ -58,19 +58,24 @@ describe("redactSecrets", () => {
   });
 
   it("masks a Composio key in an MCP header and an env object", () => {
+    // `x-api-key` is itself secret-shaped, so the header alone passes on the
+    // NAME and would hide a missing ak_ prefix. The same key also rides an
+    // ordinary field, where only its shape can save it.
+    const composioKey = "ak_live_supersecret";
     const config = {
       mcpServers: {
         composio: {
           type: "http",
           url: "https://app.composio.dev/tool_router/v3/trs_test/mcp",
-          headers: { "x-api-key": "ak_live_supersecret" },
+          headers: { "x-api-key": composioKey },
+          lastError: `tool_router rejected ${composioKey}`,
         },
         computer: { env: { ELECTRON_RUN_AS_NODE: "1", OGB_BOX_TOKEN: "box_live_zzz" } },
       },
     };
 
     const out = flat(redactSecrets(config));
-    expect(out).not.toContain("ak_live_supersecret");
+    expect(out).not.toContain(composioKey);
     expect(out).not.toContain("box_live_zzz");
     expect(out).toContain("app.composio.dev");
     expect(out).toContain("ELECTRON_RUN_AS_NODE");
@@ -104,6 +109,21 @@ describe("redactSecrets", () => {
     expect(out).toContain("FEATURE_FLAG");
     expect(out).toContain("enabled");
     expect(out).toMatch(/«redacted \d+ chars»/);
+  });
+
+  it("scrubs an ACP env entry's OTHER fields, not just its value", () => {
+    const alpha = "abcdefghijklmnopqrstuvwxyz0123456789";
+    const leaked = `sk-ant-api03-${alpha}`;
+    const out = flat(redactSecrets([{ name: "OMB_BOT_ID", value: "bot-1", note: `rotated from ${leaked}` }]));
+    expect(out).not.toContain(leaked);
+    expect(out).toContain("OMB_BOT_ID");
+    expect(out).toContain("bot-1");
+  });
+
+  it("does not hand back a subtree nested past the depth limit", () => {
+    let deep: Record<string, unknown> = { token: "deep-secret-value" };
+    for (let i = 0; i < 20; i++) deep = { nested: deep };
+    expect(flat(redactSecrets(deep))).not.toContain("deep-secret-value");
   });
 
   it("leaves ordinary protocol traffic alone", () => {
@@ -176,6 +196,45 @@ describe("redactSecretsInText", () => {
     expect(redactSecretsInText('{"api_key": "abcd1234efgh5678"}')).toBe('{"api_key": "«redacted 16 chars»"}');
     expect(redactSecretsInText("client_secret: 'zzzz-yyyy-xxxx-1'")).toBe("client_secret: '«redacted 16 chars»'");
     expect(redactSecretsInText("--token=abc123def456")).toBe("--token=«redacted 12 chars»");
+  });
+
+  it("leaves no live key in a ~/.orbit/config.json dump", () => {
+    // one credential per friends engine plus the two integrations, assembled
+    // at runtime so no token-shaped literal sits in the source
+    const alpha = "abcdefghijklmnopqrstuvwxyz0123456789";
+    const keys = {
+      grok: `${"xai" + "-"}${alpha}${alpha}`,
+      claude: `${"sk-" + "ant-"}api03-${alpha}`,
+      codex: `${"sk-" + "proj-"}${alpha}`,
+      antigravity: `${"AIza" + "Sy"}${alpha.slice(0, 33)}`,
+      composio: `${"ak" + "_"}${alpha.slice(0, 26)}`,
+      elevenlabs: `${"sk" + "_"}${"0123456789abcdef".repeat(3)}`,
+    };
+    const dump = JSON.stringify(
+      {
+        xai: { key: keys.grok },
+        gemini: { apiKey: keys.antigravity },
+        openaiCompat: { key: keys.codex },
+        composio: { apiKey: keys.composio, userId: "local" },
+        tts: { key: keys.elevenlabs, provider: "elevenlabs" },
+        instances: { claudeAgent: { driver: "claudeAgent", environment: { ANTHROPIC_API_KEY: keys.claude } } },
+        profile: { name: "Sam", email: "sam@example.test" },
+      },
+      null,
+      2,
+    );
+
+    const out = redactSecretsInText(dump);
+    for (const [engine, key] of Object.entries(keys)) {
+      expect(out, engine).not.toContain(key);
+      // and no usable head of one survives the mask either
+      expect(out, engine).not.toContain(key.slice(0, 20));
+    }
+    // the shape a reader debugs with is still there
+    expect(out).toContain("ANTHROPIC_API_KEY");
+    expect(out).toContain('"provider": "elevenlabs"');
+    expect(out).toContain('"userId": "local"');
+    expect(out).toContain("sam@example.test");
   });
 
   it("leaves ordinary text, code, hashes and URLs alone", () => {

@@ -151,6 +151,29 @@ describe("queueDelegation", () => {
     expect(JSON.stringify(ownSnapshot)).not.toContain("private customer task details");
   });
 
+  it("scrubs the queued prompt and the receipt the way the transcript is scrubbed", () => {
+    const key = `sk-ant-api03-${"abcdefghijklmnopqrstuvwxyz0123456789"}`;
+    const queued = queueDelegation(commsBus, from, {
+      toBotId: target.id,
+      message: `call the api with ${key}`,
+      reason: `rotate ${key}`,
+      depth: 0,
+    }, 1);
+    expect(queued.result).toBe("ok");
+    expect(readFileSync(join(DATA_DIR, "delegations.json"), "utf8")).not.toContain(key);
+
+    recordDelegationReceipt({
+      id: queued.id!,
+      sourceThreadId: from.threadId,
+      toBotId: target.id,
+      toBotName: "Helper",
+      status: "done",
+      result: `it answered with ${key}`,
+    });
+    expect(findDelegationReceipt(queued.id!)?.result).not.toContain(key);
+    expect(readFileSync(join(DATA_DIR, "delegation-receipts.json"), "utf8")).not.toContain(key);
+  });
+
   it("keys detached routine delegations to their real source thread", async () => {
     const routineTask = store.createTask(from.id, "Routine run", false)!;
     const result = queueDelegation(
