@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   lastUserInstruction,
   packetAfterInterruption,
+  turnCompletionDisposition,
 } from "./task-recovery-flush.ts";
 import { seedTaskResumePacket } from "./task-state-fold.ts";
 
@@ -57,5 +58,37 @@ describe("task recovery interruption flush", () => {
       flushReason: "stop",
     });
     expect(packetAfterInterruption(null, "crash", { now: 1, turnsAtWrite: 0 })).toBeNull();
+  });
+});
+
+describe("turn completion disposition after stop", () => {
+  it("keeps an interrupted completion when no newer turn is live", () => {
+    expect(turnCompletionDisposition({
+      eventTurnId: "turn-stop",
+      liveTurnId: "turn-stop",
+      interruptedTurnIds: new Set(["turn-stop"]),
+      interruptedAt: 2,
+      dispatchedAt: 1,
+    })).toEqual({ superseded: false, interrupted: true });
+  });
+
+  it("does not treat a later resume completion as stale", () => {
+    expect(turnCompletionDisposition({
+      eventTurnId: "turn-resume",
+      liveTurnId: "turn-resume",
+      interruptedTurnIds: new Set(["turn-stop"]),
+      interruptedAt: 2,
+      dispatchedAt: 3,
+    })).toEqual({ superseded: false, interrupted: false });
+  });
+
+  it("ignores a late stopped completion after a newer turn dispatched", () => {
+    expect(turnCompletionDisposition({
+      eventTurnId: "turn-stop",
+      liveTurnId: "turn-resume",
+      interruptedTurnIds: new Set(["turn-stop"]),
+      interruptedAt: 2,
+      dispatchedAt: 3,
+    })).toEqual({ superseded: true, interrupted: true });
   });
 });

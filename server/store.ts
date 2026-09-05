@@ -746,7 +746,7 @@ export class Store {
       }
       const instruction = lastUserInstruction(this.messagesFor(task.threadId));
       const seeded = packetAfterInterruption(null, "crash", {
-        now: instruction?.at ?? Date.now(),
+        now: Date.now(),
         turnsAtWrite: task.usage?.turns ?? 0,
       }, instruction
         ? {

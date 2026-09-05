@@ -25,6 +25,24 @@ export function lastUserInstruction(
   return null;
 }
 
+/** Decide whether a turn.completed belongs to the live turn or to a Stop/crash
+ * that already handed the thread to a newer dispatch. */
+export function turnCompletionDisposition(input: {
+  eventTurnId?: string;
+  liveTurnId?: string;
+  interruptedTurnIds: ReadonlySet<string>;
+  interruptedAt: number;
+  dispatchedAt: number;
+}): { superseded: boolean; interrupted: boolean } {
+  const interrupted = input.eventTurnId
+    ? input.interruptedTurnIds.has(input.eventTurnId)
+    : input.interruptedAt > input.dispatchedAt;
+  const superseded = Boolean(
+    input.eventTurnId && input.liveTurnId && input.liveTurnId !== input.eventTurnId,
+  );
+  return { superseded, interrupted };
+}
+
 export function packetAfterInterruption(
   packet: TaskResumePacket | null,
   reason: RecoveryFlushReason,

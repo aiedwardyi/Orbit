@@ -589,19 +589,22 @@ describe("Store", () => {
   it("seeds a crash packet from the last user instruction when none was saved", () => {
     const store = new Store(selection);
     const bot = store.createBot();
-    store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "Finish the weekly brief" });
+    store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "Finish the weekly brief", at: 1 });
     store.setActivity(bot.id, "working");
+    const beforeRecover = Date.now();
 
     const recovered = new Store(selection);
+    const packet = recovered.taskPacket(bot.threadId);
 
     expect(recovered.bot(bot.id)?.activity).toBe("idle");
-    expect(recovered.taskPacket(bot.threadId)).toMatchObject({
+    expect(packet).toMatchObject({
       flushReason: "crash",
       botId: bot.id,
       threadId: bot.threadId,
       goal: "Finish the weekly brief",
       nextAction: "Finish the weekly brief",
     });
+    expect(packet?.updatedAt).toBeGreaterThanOrEqual(beforeRecover);
   });
 
   it("markTaskDispatched persists the latest instance and model", () => {
