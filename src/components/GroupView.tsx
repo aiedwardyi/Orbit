@@ -248,8 +248,11 @@ const Transcript = memo(function Transcript({
               />
             </div>
           ) : m.kind === "text" && m.text ? (
-            <div className={cn("group flex w-full flex-col", user ? "items-end" : "items-start")}>
-              <div className="relative w-fit max-w-[min(42rem,calc(100%-14rem))]">
+            <div
+              className={cn("group flex w-full flex-col outline-none", user ? "items-end" : "items-start")}
+              tabIndex={-1}
+            >
+              <div className="relative w-fit max-w-[min(42rem,78%)]">
                 {user && (
                   <div
                     data-message-hover-actions
@@ -304,7 +307,7 @@ const Transcript = memo(function Transcript({
                 {!user && (
                   <div
                     data-message-hover-actions
-                    className="pointer-events-none absolute bottom-0 left-full z-20 ml-0.5 flex items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 has-[[data-reaction-picker]]:pointer-events-auto has-[[data-reaction-picker]]:opacity-100"
+                    className="pointer-events-none absolute bottom-0 left-full z-20 ml-0.5 flex items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
                   >
                     <ReactionBar threadId={group.threadId} message={m} />
                     <button
