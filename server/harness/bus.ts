@@ -8,8 +8,48 @@ import { appendFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { EVENTS_DIR } from "../config.ts";
-import { redactSecrets } from "../redact.ts";
+import { redactSecrets, StreamSecretMasker } from "../redact.ts";
 import { newId, type ProviderInstance, type RuntimeEvent, type RuntimeEventListener } from "../contracts.ts";
+
+// Reasoning and assistant text interleave on one thread, so a shared masker
+// would bleed one stream's held tail into the other.
+const persistDeltaMaskers = new Map<string, Map<string, StreamSecretMasker>>();
+
+function persistCopies(event: RuntimeEvent): RuntimeEvent[] {
+  if (event.type === "content.delta") {
+    let byKind = persistDeltaMaskers.get(event.threadId);
+    if (!byKind) {
+      byKind = new Map();
+      persistDeltaMaskers.set(event.threadId, byKind);
+    }
+    let masker = byKind.get(event.streamKind);
+    if (!masker) {
+      masker = new StreamSecretMasker();
+      byKind.set(event.streamKind, masker);
+    }
+    return [redactSecrets({ ...event, delta: masker.push(event.delta) }) as RuntimeEvent];
+  }
+  const byKind = persistDeltaMaskers.get(event.threadId);
+  if (!byKind) return [redactSecrets(event) as RuntimeEvent];
+  persistDeltaMaskers.delete(event.threadId);
+  const flushed: RuntimeEvent[] = [];
+  for (const [streamKind, masker] of byKind) {
+    const tail = masker.flush();
+    if (!tail) continue;
+    flushed.push(redactSecrets({
+      eventId: `${event.eventId}-delta-flush-${streamKind}`,
+      provider: event.provider,
+      providerInstanceId: event.providerInstanceId,
+      threadId: event.threadId,
+      createdAt: event.createdAt,
+      turnId: event.turnId,
+      type: "content.delta",
+      streamKind,
+      delta: tail,
+    }) as RuntimeEvent);
+  }
+  return [...flushed, redactSecrets(event) as RuntimeEvent];
+}
 
 const INCOMPLETE_LOG_MESSAGE =
   "Canonical event history is incomplete: OpenMausBot could not write one or more events to disk. Live updates will continue.";
@@ -46,8 +86,8 @@ export class EventBus {
     // `token=~/.aws/credentials` would hide the path from the guard while
     // the provider still ran it. Client-facing copies (SSE/broadcast) are
     // redacted at that sink; do not undo PR72 there.
-    const safe = redactSecrets(event) as RuntimeEvent;
-    const persistedEvents = pendingWarning ? [pendingWarning, safe] : [safe];
+    const safe = persistCopies(event);
+    const persistedEvents = pendingWarning ? [pendingWarning, ...safe] : safe;
     try {
       // the canonical log is a file people paste into bug reports; scrub
       // credential-shaped content (tool titles, request summaries, reply

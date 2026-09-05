@@ -51,6 +51,53 @@ const PEM_BLOCK = /(-----BEGIN [A-Z ]*PRIVATE KEY-----)([\s\S]*?)(-----END [A-Z 
 const KEY_VALUE =
   /\b((?:[A-Za-z0-9_-]*_)?(?:api[_-]?key|apikey|secret|token|password|passwd|authorization|auth[_-]?token|access[_-]?key|private[_-]?key)s?)(["']?\s*[=:]\s*)(["']?)([A-Za-z0-9._~+/=-]{8,})\3/gi;
 
+/** Longest prefix we must hold so a key split across chunks can still match. */
+const STREAM_HOLD = 96;
+
+const STREAM_MATCHERS: RegExp[] = [PEM_BLOCK, ...KEY_PREFIXES, BEARER, KEY_VALUE];
+
+/** How much of the buffer may be masked and emitted now. A match reaching the
+ * unsettled tail can still grow, and masking it strands the rest of the secret
+ * in a later chunk with no prefix left to match — so it stays whole in the hold
+ * until a non-matching character or flush() ends it. */
+function safeCut(text: string): number {
+  const tail = Math.max(0, text.length - STREAM_HOLD);
+  const spans = STREAM_MATCHERS.flatMap((re) =>
+    [...text.matchAll(re)].map((m) => [m.index ?? 0, (m.index ?? 0) + m[0].length] as const),
+  );
+  let cut = tail;
+  // Regexes from different families can overlap, so one shift can expose another.
+  for (let moved = true; moved; ) {
+    moved = false;
+    for (const [start, end] of spans) {
+      if (start < cut && end > cut) {
+        cut = start;
+        moved = true;
+      }
+    }
+  }
+  return cut;
+}
+
+/** Hold a raw suffix across SSE / NDJSON chunks so `sk-ant` + `-api03-…`
+ * still redacts. Emits only the safe prefix; call flush() at stream end. */
+export class StreamSecretMasker {
+  private hold = "";
+
+  push(chunk: string): string {
+    const buffered = this.hold + chunk;
+    const cut = safeCut(buffered);
+    this.hold = buffered.slice(cut);
+    return cut === 0 ? "" : redactSecretsInText(buffered.slice(0, cut));
+  }
+
+  flush(): string {
+    const out = redactSecretsInText(this.hold);
+    this.hold = "";
+    return out;
+  }
+}
+
 export function redactSecretsInText(text: string): string {
   if (!text || text.length < 8) return text;
   let out = text;

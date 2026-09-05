@@ -67,6 +67,7 @@ const storedTaskPacket = (threadId: string) => z.object({
   artifacts: z.array(z.object({ ref: z.string(), label: z.string() })),
   blockers: z.array(z.object({ kind: z.string(), note: z.string() })),
   nextAction: z.string(),
+  updatedAt: z.number(),
   updatedBy: z.enum(["harness", "bot"]),
   flushReason: z.string(),
   turnsAtWrite: z.number(),
@@ -2355,6 +2356,60 @@ describe("harness HTTP API", () => {
         const packet = state?.tasks?.find((task: { threadId: string }) => task.threadId === bot.threadId)?.taskState;
         return state?.busy === false && packet?.flushReason === "turn-end";
       }).toBe(true);
+    } finally {
+      await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
+  it("ignores a delayed recovery dismiss aimed at an older packet", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    const packetPath = join(home, ".orbit", "task-state", `${bot.threadId}.json`);
+    try {
+      const instances = z.array(z.object({
+        instanceId: z.string(),
+        models: z.object({ default: z.string() }),
+      }).passthrough()).parse((await api("GET", "/api/instances")).body.instances);
+      const happy = instances.find((instance) => instance.instanceId === "claudeHappy");
+      if (!happy) throw new Error("fixture instance unavailable");
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claudeHappy", model: happy.models.default },
+      })).status).toBe(200);
+
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "First pass" })).status).toBe(202);
+      await expect.poll(() => existsSync(packetPath) && storedTaskPacket(bot.threadId).flushReason).toBe("turn-end");
+      const older = storedTaskPacket(bot.threadId);
+
+      // another window continues the task while the first window's dismiss is still in flight
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "Second pass" })).status).toBe(202);
+      await expect.poll(async () => {
+        const state = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+          (candidate: { id: string }) => candidate.id === bot.id,
+        );
+        const packet = storedTaskPacket(bot.threadId);
+        return state?.busy === false && packet.flushReason === "turn-end" && packet.updatedAt > older.updatedAt;
+      }).toBe(true);
+      const newer = storedTaskPacket(bot.threadId);
+
+      const late = await api("POST", `/api/bots/${bot.id}/tasks/${bot.threadId}/recovery`, {
+        updatedAt: older.updatedAt,
+        flushReason: older.flushReason,
+      });
+      expect(late.status).toBe(200);
+      expect(late.body).toMatchObject({ skipped: true });
+      expect(storedTaskPacket(bot.threadId)).toMatchObject({
+        updatedAt: newer.updatedAt,
+        flushReason: newer.flushReason,
+      });
+
+      // the dismiss that names the live packet still lands
+      const current = await api("POST", `/api/bots/${bot.id}/tasks/${bot.threadId}/recovery`, {
+        updatedAt: newer.updatedAt,
+        flushReason: newer.flushReason,
+      });
+      expect(current.status).toBe(200);
+      expect(current.body).not.toHaveProperty("skipped");
+      expect(storedTaskPacket(bot.threadId).flushReason).toBe("progress");
     } finally {
       await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
       await api("DELETE", `/api/bots/${bot.id}`);

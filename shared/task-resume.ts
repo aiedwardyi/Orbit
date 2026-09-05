@@ -14,9 +14,22 @@ export interface TaskCompletionShape {
   flushReason?: string;
   goal?: string;
   nextAction?: string;
+  /** newest user instruction on this record */
+  instructionId?: string;
+  /** instruction the newest completion was recorded against */
+  settledInstructionId?: string;
   completed?: readonly unknown[];
   blockers?: readonly unknown[];
   plan?: ReadonlyArray<{ status: string }>;
+}
+
+/** A completion only proves the instruction it was recorded against: a repeat
+ *  of finished work, or a retained all-done plan, leaves the newer instruction
+ *  unsettled. Records written before instruction ids carry neither field and
+ *  keep the older "any completion" reading until their next instruction. */
+function settlesCurrentInstruction(packet: TaskCompletionShape): boolean {
+  if ((packet.completed?.length ?? 0) === 0) return false;
+  return !packet.instructionId || packet.settledInstructionId === packet.instructionId;
 }
 
 /** Saved work whose output is already recorded — not a pending Resume. */
@@ -24,7 +37,7 @@ export function isCompletedTaskRecord(packet: TaskCompletionShape | null | undef
   if (!packet) return false;
   if (packet.flushReason === "crash" || packet.flushReason === "stop") return false;
   if ((packet.blockers?.length ?? 0) > 0) return false;
-  if ((packet.completed?.length ?? 0) === 0) return false;
+  if (!settlesCurrentInstruction(packet)) return false;
   if (isPlanFinished(packet)) return true;
   const next = packet.nextAction?.trim() ?? "";
   if (!next) return true;

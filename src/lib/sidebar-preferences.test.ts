@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  CHAT_MIN_WIDTH,
   SIDEBAR_COLLAPSED_KEY,
   SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_DENSITY_KEY,
@@ -12,6 +13,7 @@ import {
   SIDEBAR_WIDTH_STEP,
   clampSidebarWidth,
   displaySidebarWidth,
+  fitSidebarWidth,
   loadSidebarCollapsed,
   loadSidebarDensity,
   loadSidebarWidth,
@@ -63,6 +65,16 @@ describe("sidebar width preferences", () => {
     expect(setItem).toHaveBeenCalledWith(SIDEBAR_WIDTH_KEY, "410");
     expect(loadSidebarWidth({ getItem: () => "240" })).toBe(240);
     expect(loadSidebarWidth({ getItem: () => { throw new Error("blocked"); } })).toBe(SIDEBAR_DEFAULT_WIDTH);
+  });
+
+  it("gives up width only as far as the chat column needs", () => {
+    expect(fitSidebarWidth(SIDEBAR_MAX_WIDTH, 1440)).toBe(SIDEBAR_MAX_WIDTH);
+    expect(fitSidebarWidth(SIDEBAR_MAX_WIDTH, 900)).toBe(900 - CHAT_MIN_WIDTH);
+    expect(fitSidebarWidth(320, 768)).toBe(320);
+    expect(fitSidebarWidth(SIDEBAR_MAX_WIDTH, 768)).toBe(768 - CHAT_MIN_WIDTH);
+    // below 768 the sidebar is a drawer over the chat, so it never squeezes the column
+    expect(fitSidebarWidth(SIDEBAR_MAX_WIDTH, 600)).toBe(SIDEBAR_MAX_WIDTH);
+    expect(fitSidebarWidth(SIDEBAR_MAX_WIDTH, Number.NaN)).toBe(SIDEBAR_MAX_WIDTH);
   });
 
   it("steps ten pixels on horizontal arrows and clamps at the named-list range", () => {

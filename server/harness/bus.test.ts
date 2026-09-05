@@ -149,6 +149,29 @@ describe("EventBus", () => {
     expect(JSON.stringify(client)).toContain("«redacted");
   });
 
+  it("holds each stream kind's tail separately and flushes it under its own kind", () => {
+    const key = `sk-ant-api03-${"abcdefghijklmnopqrstuvwxyz0123456789"}`;
+    const delta = (streamKind: "assistant_text" | "reasoning_text", text: string) =>
+      testEvent({ threadId: "two-streams", type: "content.delta", streamKind, delta: text });
+    const bus = new EventBus();
+    bus.publish(delta("reasoning_text", `thinking about ${key.slice(0, 8)}`));
+    bus.publish(delta("assistant_text", "here is the answer"));
+    bus.publish(delta("reasoning_text", `${key.slice(8)} done`));
+    bus.publish(testEvent({ threadId: "two-streams", type: "turn.completed" }));
+
+    const logged = readFileSync(join(EVENTS_DIR, "two-streams.ndjson"), "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l));
+    const joined = (kind: string) =>
+      logged.filter((e) => e.streamKind === kind).map((e) => e.delta).join("");
+
+    expect(joined("assistant_text")).toBe("here is the answer");
+    expect(joined("reasoning_text")).not.toContain(key);
+    expect(joined("reasoning_text")).toMatch(/^thinking about «redacted \d+ chars» done$/);
+    expect(logged.some((e) => e.eventId === "ev-1-delta-flush-reasoning_text")).toBe(true);
+  });
+
   it("reports an incomplete log once while continuing live delivery", () => {
     rmSync(EVENTS_DIR, { recursive: true, force: true });
     const bus = new EventBus();

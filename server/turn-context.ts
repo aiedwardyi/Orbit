@@ -40,6 +40,8 @@ export interface TurnContextInput {
   contextCapped?: boolean;
   /** the prior process or user stop ended the running turn */
   recovering?: boolean;
+  /** the request this turn must answer; the transcript excludes it on a plain send */
+  currentRequestText?: string;
 }
 
 export interface TaskRecordContext {
@@ -318,15 +320,22 @@ export function buildTurnContext(input: TurnContextInput): {
   /** false when the native session must not be resumed */
   resume: boolean;
 } {
-  const { text, transcript, rewound, fresh, recycled = false, replaysNatively, taskRecord, taskRecordText, contextCapped = false, recovering = false } = input;
+  const { text, transcript, rewound, fresh, recycled = false, replaysNatively, taskRecord, taskRecordText, contextCapped = false, recovering = false, currentRequestText } = input;
   const resume = !rewound && !fresh && !recycled;
   const replay = !resume && !replaysNatively && transcript.length > 0;
-  const durableRecord = recovering && taskRecord
-    ? taskRecordBlock(taskRecord, 6_000, {
-      recovering: true,
-      latestUserText: latestUserTextFromTranscript(transcript),
-    })
-    : taskRecordText ?? (taskRecord ? taskRecordBlock(taskRecord) : "");
+  // The caller already sized its block for the model window and knows this
+  // send's request; re-deriving from the transcript would drop both, and the
+  // transcript excludes the message this turn is answering.
+  const durableRecord = taskRecordText ?? (
+    taskRecord
+      ? taskRecordBlock(taskRecord, 6_000, recovering
+        ? {
+          recovering: true,
+          latestUserText: currentRequestText ?? latestUserTextFromTranscript(transcript),
+        }
+        : undefined)
+      : ""
+  );
   const record = durableRecord && (rewound || fresh || recycled || contextCapped || recovering)
     ? durableRecord
     : "";
