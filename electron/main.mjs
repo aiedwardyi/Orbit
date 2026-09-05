@@ -31,7 +31,14 @@ import {
   withToastCapability,
 } from "./desktop-notify.mjs";
 import { pollServerIdentity } from "./server-boot-probe.mjs";
-import { buildConnectingPage, isPackagedAppUrl } from "./boot-page.mjs";
+import {
+  buildConnectingPage,
+  isPackagedAppUrl,
+  markFailedBootPage,
+  shouldDeliverPackageInstall,
+  shouldReloadPackagedWindow,
+  shouldStartPackagedSmoke,
+} from "./boot-page.mjs";
 import { PACKAGE_INSTALL_SCHEME, packageUrlFromCommandLine, packageUrlFromDeepLink } from "./package-link.mjs";
 import { windowChromeOptions } from "./window-chrome.mjs";
 import { applyZoomShortcut } from "./window-zoom.mjs";
@@ -98,6 +105,7 @@ let desktopWorkspaceOwner = null;
 // live in this process; bots reach them through the loopback host whose
 // address and per-boot token the descriptor file hands to the harness.
 let browserSurface = null;
+let browserSurfaceOwner = null;
 let browserHost = null;
 const browserConnectionStore = createDescriptorStore({
   getUserData: () => app.getPath("userData"),
@@ -199,6 +207,9 @@ if (!app.requestSingleInstanceLock()) {
 }
 function deliverPackageInstall(win) {
   if (!pendingPackageInstallUrl || !win || win.isDestroyed()) return;
+  // The connecting data URL is a real document. Delivering here would clear
+  // the pending orbit://install before Sidebar's listener exists.
+  if (app.isPackaged && !shouldDeliverPackageInstall(win.webContents.getURL(), SERVER_PORT)) return;
   if (win.webContents.isLoadingMainFrame()) return;
   win.webContents.send("package:install", pendingPackageInstallUrl);
   pendingPackageInstallUrl = null;
@@ -235,6 +246,10 @@ app.on("second-instance", (_event, commandLine) => {
 // our API shape, not just a 200).
 let serverProc = null;
 let serverReady = !app.isPackaged;
+// Packaged window URL state. `serverReady` stays a boolean for the rest of
+// main (companion, activate-after-ready); this ternary is what createWindow
+// and reveal consult so a failed boot cannot look like "still connecting".
+let packagedBootPhase = "connecting";
 let secureCredentials = {};
 let secureCredentialState = null;
 
@@ -827,7 +842,9 @@ function buildErrorPage({ allPortsOccupied }) {
   return (
     "data:text/html;charset=utf-8," +
     encodeURIComponent(
-      `<html lang="${uiLocale()}"><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:#070707;color:#fcfcfc;font:15px ${uiFontStack()}"><div style="text-align:center;max-width:360px"><div style="font-size:40px">🐭</div><h2 style="font-weight:600;margin:12px 0 6px">${escapeHtml(nativeText("packaged.bootTitle"))}</h2><p style="color:#fcfcfc99;line-height:1.5">${escapeHtml(reason)} ${escapeHtml(nativeText("packaged.bootCheckLog"))} <code style="color:#fcfcfc">${escapeHtml(serverLogPath)}</code>.</p></div></body>`,
+      markFailedBootPage(
+        `<html lang="${uiLocale()}"><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:#070707;color:#fcfcfc;font:15px ${uiFontStack()}"><div style="text-align:center;max-width:360px"><div style="font-size:40px">🐭</div><h2 style="font-weight:600;margin:12px 0 6px">${escapeHtml(nativeText("packaged.bootTitle"))}</h2><p style="color:#fcfcfc99;line-height:1.5">${escapeHtml(reason)} ${escapeHtml(nativeText("packaged.bootCheckLog"))} <code style="color:#fcfcfc">${escapeHtml(serverLogPath)}</code>.</p></div></body>`,
+      ),
     )
   );
 }
@@ -1037,6 +1054,15 @@ function desktopWorkspaceForEvent(event, create = false) {
  * alive with none open, and `activate` makes a new one. Never blocks the
  * window: without it the Browser tab simply reports itself unavailable. */
 async function startBrowserSurface(owner) {
+  if (!owner || owner.isDestroyed()) return;
+  if (browserSurfaceOwner === owner) return;
+  if (browserSurface && browserSurfaceOwner && browserSurfaceOwner !== owner) {
+    try {
+      browserSurface.closeAll();
+    } catch {}
+    browserSurface = null;
+  }
+  browserSurfaceOwner = owner;
   try {
     browserSurface = createBrowserSurfaceManager({
       owner,
@@ -1061,11 +1087,13 @@ async function startBrowserSurface(owner) {
     owner.once("closed", () => {
       surface.closeAll();
       if (browserSurface === surface) browserSurface = null;
+      if (browserSurfaceOwner === owner) browserSurfaceOwner = null;
     });
     slog(`browser surface ready for window ${owner.id} (host ${browserHost.url})`);
   } catch (error) {
     slog(`browser surface unavailable: ${error?.message ?? error}`);
     browserSurface = null;
+    if (browserSurfaceOwner === owner) browserSurfaceOwner = null;
   }
 }
 
@@ -1259,42 +1287,61 @@ function createWindow() {
   // No debugging port or sandbox override is needed.
   if (process.env.OMB_SMOKE_TEST === "1") {
     const onSmokeLoad = async () => {
-      if (app.isPackaged && !isPackagedAppUrl(win.webContents.getURL(), SERVER_PORT)) return;
+      const url = win.webContents.getURL();
+      if (app.isPackaged && !shouldStartPackagedSmoke(url, SERVER_PORT)) return;
       win.webContents.removeListener("did-finish-load", onSmokeLoad);
+      if (app.isPackaged && !isPackagedAppUrl(url, SERVER_PORT)) {
+        slog("renderer-failed: packaged boot did not reach the harness");
+        try {
+          win.close();
+        } catch {}
+        return;
+      }
       await runPackagedSmoke(win);
     };
     win.webContents.on("did-finish-load", onSmokeLoad);
   }
 
   if (app.isPackaged) {
-    win.loadURL(
-      serverReady
-        ? `http://127.0.0.1:${SERVER_PORT}`
-        : buildConnectingPage({
-            locale: uiLocale(),
-            fontStack: uiFontStack(),
-            backgroundColor: chrome.color,
-            message: nativeText("packaged.connecting"),
-          }),
-    );
+    win.loadURL(packagedWindowHref(chrome.color));
   } else {
     win.loadURL(DEV_URL);
   }
   return win;
 }
 
+function connectingPageHref(backgroundColor) {
+  return buildConnectingPage({
+    locale: uiLocale(),
+    fontStack: uiFontStack(),
+    backgroundColor,
+    message: nativeText("packaged.connecting"),
+  });
+}
+
+function packagedWindowHref(backgroundColor) {
+  if (packagedBootPhase === "ready") return `http://127.0.0.1:${SERVER_PORT}`;
+  if (packagedBootPhase === "failed") return buildErrorPage({ allPortsOccupied: serverStartConflictOnly });
+  const persistedSkin = readPersistedSkin(app.getPath("userData"));
+  return connectingPageHref(backgroundColor ?? skinChrome(persistedSkin).color);
+}
+
+function livePackagedWindow(win) {
+  if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
+  if (win && !win.isDestroyed()) return win;
+  return null;
+}
+
 function revealPackagedApp(win = mainWindow) {
   // Closing the connecting window during harness boot replaces `win` with a
   // new BrowserWindow. Always prefer the live main window so reveal cannot
   // no-op against a destroyed boot handle and leave "Connecting…" forever.
-  const target =
-    mainWindow && !mainWindow.isDestroyed()
-      ? mainWindow
-      : win && !win.isDestroyed()
-        ? win
-        : null;
+  packagedBootPhase = serverReady ? "ready" : "failed";
+  const target = livePackagedWindow(win);
   if (!target) return;
-  target.loadURL(serverReady ? `http://127.0.0.1:${SERVER_PORT}` : buildErrorPage({ allPortsOccupied: serverStartConflictOnly }));
+  if (shouldReloadPackagedWindow(target.webContents.getURL(), SERVER_PORT, packagedBootPhase)) {
+    target.loadURL(packagedWindowHref());
+  }
   if (serverReady) void startBrowserSurface(target);
 }
 
@@ -1903,7 +1950,7 @@ app.whenReady().then(async () => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       const next = createWindow();
-      if (!app.isPackaged || serverReady) void startBrowserSurface(next);
+      if (!app.isPackaged || packagedBootPhase === "ready") void startBrowserSurface(next);
     }
   });
 });

@@ -294,21 +294,43 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
           }
         />
       )}
-      <Suspense fallback={null}>
-        {state.settingsOpen && bot && <SettingsPanel key={bot.id} bot={bot} />}
-        {showComputerPanelChrome() && state.computerOpen && bot && (
+      {state.settingsOpen && bot && (
+        <Suspense fallback={null}>
+          <SettingsPanel key={bot.id} bot={bot} />
+        </Suspense>
+      )}
+      {showComputerPanelChrome() && state.computerOpen && bot && (
+        <Suspense fallback={null}>
           <ComputerPanel bot={bot} onOpenVmWorkspace={openLocalVmWorkspace} onExpandBrowser={openBrowserWorkspace} />
-        )}
-        {state.inspectorOpen && bot && <InspectorPanel bot={bot} />}
-        {state.appSettingsOpen && <SettingsModal />}
-        {state.pluginsOpen && <PluginsPanel />}
-        {!onboardingOpen && !noEngines && state.connected && (state.createBotOpen || state.bots.length === 0) && (
+        </Suspense>
+      )}
+      {state.inspectorOpen && bot && (
+        <Suspense fallback={null}>
+          <InspectorPanel bot={bot} />
+        </Suspense>
+      )}
+      {state.appSettingsOpen && (
+        <Suspense fallback={null}>
+          <SettingsModal />
+        </Suspense>
+      )}
+      {state.pluginsOpen && (
+        <Suspense fallback={null}>
+          <PluginsPanel />
+        </Suspense>
+      )}
+      {!onboardingOpen && !noEngines && state.connected && (state.createBotOpen || state.bots.length === 0) && (
+        <Suspense fallback={<BootFallback />}>
           <CreateBotSheet required={state.bots.length === 0} />
-        )}
-        {/* mounted after the modals: same z-50 tier, so DOM order keeps the
-            palette on top when one of them is open underneath */}
-        {paletteReady && <CommandPalette onOpenChange={setPaletteOpen} />}
-      </Suspense>
+        </Suspense>
+      )}
+      {/* mounted after the modals: same z-50 tier, so DOM order keeps the
+          palette on top when one of them is open underneath */}
+      {paletteReady && (
+        <Suspense fallback={null}>
+          <CommandPalette onOpenChange={setPaletteOpen} />
+        </Suspense>
+      )}
       </div>
     </div>
   );
@@ -325,7 +347,7 @@ export default function App() {
       <StoreProvider>
         <Shell onboardingOpen={gated} />
         {gated && (
-          <Suspense fallback={null}>
+          <Suspense fallback={<div className="fixed inset-0 z-50 bg-app" />}>
             <Onboarding onDone={() => setGated(false)} />
           </Suspense>
         )}

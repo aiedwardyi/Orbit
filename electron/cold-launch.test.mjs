@@ -27,6 +27,7 @@ describe("packaged cold launch does not hide the window behind the harness", () 
 
   it("loads a local connecting page when the packaged child is not up yet", () => {
     const create = sourceBetween(main, "function createWindow() {", "function revealPackagedApp(");
+    expect(create).toContain("packagedWindowHref(");
     expect(create).toContain("buildConnectingPage(");
     expect(create).toContain("win.show()");
     expect(main).toContain("function revealPackagedApp(");
@@ -50,9 +51,20 @@ describe("packaged cold launch does not hide the window behind the harness", () 
 
   it("reveals the live main window so a closed connecting page cannot stick", () => {
     const reveal = sourceBetween(main, "function revealPackagedApp(", "async function runPackagedSmoke");
-    expect(reveal).toContain("mainWindow");
-    expect(reveal).toMatch(/isDestroyed\(\)/);
+    expect(reveal).toContain("livePackagedWindow(");
+    expect(reveal).toContain("shouldReloadPackagedWindow(");
+    expect(reveal).toMatch(/packagedBootPhase = serverReady \? "ready" : "failed"/);
     expect(reveal).toContain("startBrowserSurface(target)");
+  });
+
+  it("does not consume orbit://install on the connecting page", () => {
+    const deliver = sourceBetween(main, "function deliverPackageInstall(", "function queuePackageInstall(");
+    expect(deliver).toContain("shouldDeliverPackageInstall(");
+  });
+
+  it("starts the browser surface at most once per window", () => {
+    const start = sourceBetween(main, "async function startBrowserSurface(owner) {", "function browserSurfaceForEvent");
+    expect(start).toMatch(/browserSurfaceOwner === owner/);
   });
 
   it("does not start the built-in browser host until the real UI is revealed", () => {
@@ -62,6 +74,7 @@ describe("packaged cold launch does not hide the window behind the harness", () 
   });
 
   it("runs packaged smoke against the harness URL, not the connecting page", () => {
+    expect(main).toContain("shouldStartPackagedSmoke(");
     expect(main).toContain("isPackagedAppUrl(");
     expect(main).toContain("OMB_SMOKE_TEST");
   });

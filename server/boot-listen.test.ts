@@ -11,6 +11,7 @@ describe("harness listen is not blocked on engine describe", () => {
     const bootAssign = index.indexOf("bootSelection = await defaultSelection()");
     expect(bootAssign).toBe(-1);
     expect(index).toMatch(/void defaultSelection\(\)/);
+    expect(index).toMatch(/function describeInstances\(/);
     const listenAt = index.indexOf("server.listen(");
     const scheduleAt = index.indexOf("void defaultSelection()");
     expect(listenAt).toBeGreaterThan(-1);
