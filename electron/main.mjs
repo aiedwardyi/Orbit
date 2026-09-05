@@ -311,8 +311,9 @@ function absorbPackagedPlaintextSecrets(credentials) {
 
 /** Boot credential bring-up, in the order the packaged app needs it: the
  * child env takes the absorbed plaintext, the serialized document takes only
- * what credentials.bin actually holds. Exported so that order is testable
- * without an Electron runtime — getting it wrong deletes user secrets. */
+ * what credentials.bin actually holds. Exported — and returning the opened
+ * document — so that order is testable without an Electron runtime; getting
+ * it wrong deletes user secrets. */
 export function openSecureCredentialDocument(stored) {
   childEnvCredentials = app.isPackaged ? absorbPackagedPlaintextSecrets(stored) : stored;
   // An unreadable store must not become a WRITE of an empty document.
@@ -1963,7 +1964,7 @@ app.whenReady().then(async () => {
       if (!app.isPackaged || packagedBootPhase === BOOT_READY) void startBrowserSurface(next);
     }
   });
-  openSecureCredentialDocument(await credentialsReady);
+  void openSecureCredentialDocument(await credentialsReady);
   const hostedAccount = ensureCompanionAccountService();
   // CUA after the first window so daemon spawn does not contend with first
   // paint. Never blocks reveal on failure — computer use degrades.

@@ -24,25 +24,28 @@ vi.mock("electron", () => {
       apply: () => auto(),
       construct: () => auto(),
     });
-  const app = {
-    isPackaged: true,
-    // slog() swallows its own failures, and an ENOTDIR log path keeps it from
-    // holding a write stream open in a temp dir each test then deletes.
-    getPath: (name) => (name === "logs" ? path.join(configPath(), "logs") : path.join(h.home, name)),
-    getVersion: () => "1.0.2",
-    getName: () => "Orbit",
-    getAppPath: () => h.home,
-    getLocale: () => "en-US",
-    on: () => {},
-    once: () => {},
-    whenReady: () => new Promise(() => {}),
-    requestSingleInstanceLock: () => true,
-    setAsDefaultProtocolClient: () => true,
-    commandLine: { appendSwitch: () => {} },
-    setAppUserModelId: () => {},
-    setName: () => {},
-    quit: () => {},
-  };
+  // Only the members whose RETURN value main.mjs acts on are pinned here.
+  // Everything else falls through to a no-op, because the module-scope calls
+  // are platform-gated (linux takes disableHardwareAcceleration and
+  // setDesktopName, win32 takes setAppUserModelId) and an enumerated stub
+  // turns whichever branch this runner does not take into a red CI job.
+  const app = new Proxy(
+    {
+      isPackaged: true,
+      // slog() swallows its own failures, and an ENOTDIR log path keeps it
+      // from holding a write stream open in a temp dir each test deletes.
+      getPath: (name) => (name === "logs" ? path.join(configPath(), "logs") : path.join(h.home, name)),
+      getVersion: () => "1.0.2",
+      getName: () => "Orbit",
+      getAppPath: () => h.home,
+      getLocale: () => "en-US",
+      whenReady: () => new Promise(() => {}),
+      // false here exits the process instead of failing the test
+      requestSingleInstanceLock: () => true,
+      setAsDefaultProtocolClient: () => true,
+    },
+    { get: (target, key) => (key in target ? target[key] : auto()) },
+  );
   const safeStorage = {
     isAsyncEncryptionAvailable: async () => h.encryptionAvailable,
     // Reversible stand-in for the OS keychain. The snapshot is the point of
