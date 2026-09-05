@@ -514,7 +514,7 @@ async function resolvedBotSelection(bot: BotRecord, task?: TaskRecord): Promise<
   };
   let selection = resolveAutomaticSelection({ candidates: preferred, ...input });
   if (!selection) {
-    const described = await registry.describe();
+    const described = await describeInstances();
     rememberAutomaticAvailability(described);
     selection = resolveAutomaticSelection({ candidates: described.map(automaticCandidate), ...input });
   }
@@ -533,8 +533,23 @@ async function resolvedBotSelection(bot: BotRecord, task?: TaskRecord): Promise<
 
 // New bots start on the first working engine. Automatic keeps the choice
 // stable per task and resolves again only at a turn boundary.
+let describeInFlight: ReturnType<typeof registry.describe> | null = null;
+
+/** One PATH/catalog walk at a time. Boot, create-bot, and GET /api/instances
+ * share the in-flight promise so first chat does not start a second scan. */
+function describeInstances() {
+  if (!describeInFlight) {
+    const pending = registry.describe();
+    describeInFlight = pending;
+    void pending.finally(() => {
+      if (describeInFlight === pending) describeInFlight = null;
+    });
+  }
+  return describeInFlight;
+}
+
 async function defaultSelection() {
-  const described = await registry.describe();
+  const described = await describeInstances();
   rememberAutomaticAvailability(described);
   // Deliberately NO fallback to described[0]. Handing a bot an engine whose
   // CLI isn't installed makes it look ready and then fail on send with a raw
@@ -647,7 +662,16 @@ function checkedMemberIds(value: unknown): { ok: true; memberIds: string[] } | {
 let bootSelection = { instanceId: "", model: "" };
 const store = new Store(() => bootSelection);
 const sendSequencer = new SendSequencer();
-bootSelection = await defaultSelection();
+// Engine describe() walks PATH and refreshModels for every instance. First
+// chat paint only needs Store + /api/bots; existing bots already carry a
+// selection. New-bot routes still await defaultSelection() themselves.
+void defaultSelection()
+  .then((sel) => {
+    bootSelection = sel;
+  })
+  .catch((error) => {
+    console.error(`[boot] default engine scan failed: ${error instanceof Error ? error.message : String(error)}`);
+  });
 
 /** A bot as a client may see it: no provider session bookkeeping.
  *
@@ -7143,7 +7167,7 @@ const server = createServer(async (req, res) => {
       // Windows never pushes PATH changes into a live process, so without
       // this the answer is frozen at boot and "check again" is a no-op.
       resetPathCache();
-      const instances = withRateLimits(await registry.describe());
+      const instances = withRateLimits(await describeInstances());
       rememberAutomaticAvailability(instances);
       return json(res, 200, { instances });
     }

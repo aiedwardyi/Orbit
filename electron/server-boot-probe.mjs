@@ -20,7 +20,7 @@
 //   undefined and our own freshly-bound child would fail the identity match
 //   and be reaped as a "foreign owner" on its very first health answer.
 
-export const BOOT_PROBE_INTERVAL_MS = 500;
+export const BOOT_PROBE_INTERVAL_MS = 50;
 
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
