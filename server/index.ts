@@ -188,7 +188,7 @@ import { readCuaConnection } from "./local-computer.ts";
 import { LocalVmIdleTimer } from "./local-vm-idle.ts";
 import { LocalVmLease, LocalVmLeasePool } from "./local-vm-lease.ts";
 import { RepeatDetector, callKey } from "./repeat-detector.ts";
-import { redactSecretsInText } from "./redact.ts";
+import { redactSecrets, redactSecretsInText } from "./redact.ts";
 import * as vps from "./vps-computer.ts";
 import { RoutineManager, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
 import { browserScreenshot, readBrowserConnection } from "./browser-connection.ts";
@@ -894,7 +894,10 @@ function cursorSeq(raw: string | string[] | undefined): number | null {
 function broadcast(payload: Record<string, unknown>) {
   const seq = ++lastSeq;
   const kind = String(payload.kind ?? "");
-  const frame = `id: ${STREAM_ID}:${seq}\ndata: ${JSON.stringify({ ...payload, seq })}\n\n`;
+  // Screen frames are live pixels, not text — leave them alone. Everything
+  // else is JSON the renderer (and a pasted log) can read, so scrub first.
+  const safe = kind === "screen" ? payload : redactSecrets(payload) as Record<string, unknown>;
+  const frame = `id: ${STREAM_ID}:${seq}\ndata: ${JSON.stringify({ ...safe, seq })}\n\n`;
   // Live desktop captures can each be hundreds of kilobytes and become stale
   // as soon as the next one arrives. Keep their sequence slots so resume-gap
   // detection stays honest, but never retain their base64 payloads.
@@ -4182,6 +4185,7 @@ function configStatus() {
   return {
     xai: { configured: Boolean(cfg.xai?.key) },
     gemini: { configured: Boolean(cfg.gemini?.apiKey) },
+    openaiCompat: { configured: Boolean(cfg.openaiCompat?.key) },
     composio: {
       configured: composio.configured(cfg),
       mode: composio.connectionMode(cfg),
@@ -7276,6 +7280,7 @@ const server = createServer(async (req, res) => {
         const persisted = structuredClone(patch);
         if (persisted.xai?.key !== undefined) persisted.xai.key = "";
         if (persisted.gemini?.apiKey !== undefined) persisted.gemini.apiKey = "";
+        if (persisted.openaiCompat?.key !== undefined) persisted.openaiCompat.key = "";
         if (persisted.composio?.apiKey !== undefined) persisted.composio.apiKey = "";
         if (persisted.box?.token !== undefined) persisted.box.token = "";
         if (persisted.opencodeGo?.apiKey !== undefined) persisted.opencodeGo.apiKey = "";

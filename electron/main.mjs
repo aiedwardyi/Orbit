@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { startCua, stopCua, registerCuaIpc, setCuaStateListener } from "./cua.mjs";
 import { createAndroidDeviceController } from "./android-device.mjs";
 import { assemblyAICredential, mintAssemblyAIStreamingToken } from "./assemblyai.mjs";
@@ -20,7 +20,8 @@ import { applyPendingUpdateInstall, consumePendingUpdateInstall, registerUpdater
 import { completeQuitAfterCleanup } from "./app-quit.mjs";
 import { companionParkedOnDesktop } from "./companion-policy.mjs";
 import { stopUtilityChild } from "./utility-child.mjs";
-import { buildDiagnosticsReport, decodeLogTail, diagnosticsFileName } from "./diagnostics.mjs";
+import { buildDiagnosticsReport, decodeLogTail, diagnosticsFileName, redactSecretsInLine } from "./diagnostics.mjs";
+import { safeExternalUrl } from "./external-open.mjs";
 import { migrateWorkspaceCredentials, workspaceCredentialEnv } from "./workspace-credentials.mjs";
 import { activateExistingWindow } from "./single-instance.mjs";
 import {
@@ -390,7 +391,7 @@ function slog(line) {
       fs.mkdirSync(LOG_DIR, { recursive: true });
       logStream = fs.createWriteStream(path.join(LOG_DIR, "server.log"), { flags: "a" });
     }
-    logStream.write(`[${new Date().toISOString()}] ${line}\n`);
+    logStream.write(`[${new Date().toISOString()}] ${redactSecretsInLine(line)}\n`);
   } catch {
     /* logging must never break startup */
   }
@@ -803,9 +804,9 @@ function syncManagedComposioCredentials() {
 
 // The page is built at failure time (not import time): the message depends on
 // how the boot failed, and the log path comes from LOG_DIR so Windows and
-// Linux users see their real location instead of a macOS guess. The link
-// opens the log through the window's setWindowOpenHandler, which routes to
-// the platform handler.
+// Linux users see their real location instead of a macOS guess. The path is
+// shown as text — a file:// link would reach setWindowOpenHandler, which
+// only opens http(s).
 function escapeHtml(value) {
   return value.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 }
@@ -819,14 +820,13 @@ function nativeText(key) {
 
 function buildErrorPage({ allPortsOccupied }) {
   const serverLogPath = path.join(LOG_DIR, "server.log");
-  const serverLogHref = pathToFileURL(serverLogPath).href;
   const reason = allPortsOccupied
     ? nativeText("packaged.bootPorts")
     : nativeText("packaged.bootTimeout");
   return (
     "data:text/html;charset=utf-8," +
     encodeURIComponent(
-      `<html lang="${uiLocale()}"><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:#070707;color:#fcfcfc;font:15px ${uiFontStack()}"><div style="text-align:center;max-width:360px"><div style="font-size:40px">🐭</div><h2 style="font-weight:600;margin:12px 0 6px">${escapeHtml(nativeText("packaged.bootTitle"))}</h2><p style="color:#fcfcfc99;line-height:1.5">${escapeHtml(reason)} ${escapeHtml(nativeText("packaged.bootCheckLog"))} <a target="_blank" rel="noopener" href="${serverLogHref}" style="color:#fcfcfc">${escapeHtml(serverLogPath)}</a>.</p></div></body>`,
+      `<html lang="${uiLocale()}"><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:#070707;color:#fcfcfc;font:15px ${uiFontStack()}"><div style="text-align:center;max-width:360px"><div style="font-size:40px">🐭</div><h2 style="font-weight:600;margin:12px 0 6px">${escapeHtml(nativeText("packaged.bootTitle"))}</h2><p style="color:#fcfcfc99;line-height:1.5">${escapeHtml(reason)} ${escapeHtml(nativeText("packaged.bootCheckLog"))} <code style="color:#fcfcfc">${escapeHtml(serverLogPath)}</code>.</p></div></body>`,
     )
   );
 }
@@ -1208,7 +1208,8 @@ function createWindow() {
   });
 
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    const open = safeExternalUrl(url);
+    if (open) void shell.openExternal(open);
     return { action: "deny" };
   });
   win.webContents.on("did-finish-load", () => deliverPackageInstall(win));
@@ -1496,17 +1497,9 @@ ipcMain.handle("desktop:skin", (event, skin) => {
 });
 
 ipcMain.handle("desktop:open-external", async (_event, rawUrl) => {
-  if (typeof rawUrl !== "string") throw new Error("A web address is required");
-  let url;
-  try {
-    url = new URL(rawUrl);
-  } catch {
-    throw new Error("That web address is invalid");
-  }
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error("Only web links can be opened");
-  }
-  await shell.openExternal(url.toString());
+  const url = safeExternalUrl(rawUrl);
+  if (!url) throw new Error("Only web links can be opened");
+  await shell.openExternal(url);
   return true;
 });
 
@@ -1682,6 +1675,7 @@ const CREDENTIAL_PATCH = {
   composioApiKey: (value) => ({ composio: { apiKey: value } }),
   xaiApiKey: (value) => ({ xai: { key: value } }),
   geminiApiKey: (value) => ({ gemini: { apiKey: value } }),
+  openaiCompatKey: (value) => ({ openaiCompat: { key: value } }),
   boxToken: (value) => ({ box: { token: value } }),
   opencodeGoApiKey: (value) => ({ opencodeGo: { apiKey: value } }),
   ttsKey: (value) => ({ tts: { key: value } }),

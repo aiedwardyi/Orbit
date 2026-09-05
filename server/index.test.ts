@@ -3793,24 +3793,29 @@ describe("harness HTTP API", () => {
       composio: { apiKey: "ak_good" },
       opencodeGo: { apiKey: "opencode-external" },
       gemini: { apiKey: "gemini-external" },
+      openaiCompat: { key: "compat-external" },
       profile: { name: "External Store" },
     });
     expect(saved.status).toBe(200);
     expect(saved.body.composio).toEqual({ configured: true, mode: "self-hosted" });
     expect(saved.body.opencodeGo).toEqual({ configured: true });
     expect(saved.body.gemini).toEqual({ configured: true });
+    expect(saved.body.openaiCompat).toEqual({ configured: true });
     expect(saved.body.profile).toEqual({ name: "External Store", email: "" });
     expect(JSON.stringify(saved.body)).not.toContain("ak_good");
     expect(JSON.stringify(saved.body)).not.toContain("gemini-external");
+    expect(JSON.stringify(saved.body)).not.toContain("compat-external");
 
     const disk = JSON.parse(readFileSync(join(home, ".orbit", "config.json"), "utf8"));
     expect(disk.composio).toMatchObject({ apiKey: "", sessionId: "trs_config_test" });
     expect(disk.opencodeGo).toEqual({ apiKey: "" });
     expect(disk.gemini).toEqual({ apiKey: "" });
+    expect(disk.openaiCompat).toEqual({ key: "" });
     expect(disk.profile).toEqual({ name: "External Store" });
     expect(JSON.stringify(disk)).not.toContain("ak_good");
     expect(JSON.stringify(disk)).not.toContain("opencode-external");
     expect(JSON.stringify(disk)).not.toContain("gemini-external");
+    expect(JSON.stringify(disk)).not.toContain("compat-external");
 
     // A later ordinary setting save reloads config; the in-process secure-env
     // override must keep Composio configured until the next app launch.
@@ -3818,6 +3823,7 @@ describe("harness HTTP API", () => {
     const afterReload = await api("GET", "/api/config");
     expect(afterReload.body.composio).toEqual({ configured: true, mode: "self-hosted" });
     expect(afterReload.body.gemini).toEqual({ configured: true });
+    expect(afterReload.body.openaiCompat).toEqual({ configured: true });
   });
 
   it.skipIf(process.platform === "win32")("stores the credentials file with owner-only permissions", () => {
@@ -4344,9 +4350,18 @@ describe("resumable event stream", () => {
       // ...and an old cursor still replays them, in order, without a hydrate
       const back = await resumed.until((f) => f.kind === "hello");
       expect(back.resumed).toBe(true);
-      await resumed.until((f) => f.kind === "bot" && f.seq === seen.seq + 3);
-      const replayed = resumed.frames.filter((f) => f.kind === "bot").map((f) => f.seq);
-      expect(replayed).toEqual([seen.seq + 1, seen.seq + 2, seen.seq + 3]);
+      // This file shares one server. Leftover runtime traffic can occupy
+      // sequence numbers between nudges, so the missed bot frames are not
+      // always seen.seq+1..+3. Wait for the three nudges themselves.
+      await resumed.until(
+        () => resumed.frames.filter((f) => f.kind === "bot" && f.bot?.id === botId && f.seq > seen.seq).length >= 3,
+      );
+      const replayed = resumed.frames
+        .filter((f) => f.kind === "bot" && f.bot?.id === botId)
+        .map((f) => f.seq);
+      expect(replayed.length).toBeGreaterThanOrEqual(3);
+      expect(replayed.every((seq) => seq > seen.seq)).toBe(true);
+      expect(replayed).toEqual([...replayed].sort((a, b) => a - b));
     } finally {
       resumed.close();
     }
@@ -4392,7 +4407,12 @@ describe("resumable event stream", () => {
       expect((await resumed.until((frame) => frame.kind === "hello")).resumed).toBe(true);
       await resumed.until((frame) => frame.kind === "bot" && frame.bot?.id === botId);
       const replayed = resumed.frames.filter((frame) => frame.kind === "bot" && frame.bot?.id === botId);
-      expect(replayed.map((frame) => frame.seq)).toEqual([seen.seq + 1]);
+      // Last-Event-ID is the property: the stale ?since= cursor would have
+      // replayed `seen` as well. Other numbered frames (runtime leftovers
+      // from earlier tests in this file) can sit between the two nudges, so
+      // the missed bot frame is not always seen.seq+1.
+      expect(replayed.length).toBeGreaterThanOrEqual(1);
+      expect(replayed.every((frame) => frame.seq > seen.seq)).toBe(true);
     } finally {
       resumed.close();
     }

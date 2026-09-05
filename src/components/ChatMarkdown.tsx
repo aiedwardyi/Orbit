@@ -139,8 +139,8 @@ function CodeBlock({ code, lang, streaming }: { code: string; lang: string; stre
 // an absolute path in an href resolves against the page origin, so the link
 // pointed at http://127.0.0.1:8799<path> and opened the chat UI in a browser;
 // and an <a href="file://…"> would still reach setWindowOpenHandler on a
-// middle or modifier click, which calls shell.openExternal without the main
-// process' containment check.
+// middle or modifier click (that handler now denies non-http(s), but the
+// click should never become a navigation in the first place).
 function LocalFileLink({ filePath, children }: { filePath: string; children?: ReactNode }) {
   const [state, setState] = useState<"idle" | "saved" | "failed">("idle");
   const [reason, setReason] = useState("");

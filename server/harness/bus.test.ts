@@ -87,6 +87,22 @@ describe("EventBus", () => {
     expect(logged).toContain("«redacted");
   });
 
+  it("redacts the same secrets on live delivery so SSE cannot leak them", () => {
+    const key = `sk-ant-api03-${"abcdefghijklmnopqrstuvwxyz0123456789"}`;
+    const bus = new EventBus();
+    const seen: RuntimeEvent[] = [];
+    bus.subscribe((event) => seen.push(event));
+    bus.publish(testEvent({
+      threadId: "redacted-live",
+      type: "runtime.error",
+      message: `provider returned ${key}`,
+    }));
+
+    expect(seen).toHaveLength(1);
+    expect(JSON.stringify(seen[0])).not.toContain(key);
+    expect(JSON.stringify(seen[0])).toContain("«redacted");
+  });
+
   it("reports an incomplete log once while continuing live delivery", () => {
     rmSync(EVENTS_DIR, { recursive: true, force: true });
     const bus = new EventBus();

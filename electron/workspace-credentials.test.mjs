@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -11,6 +12,7 @@ describe("workspace credential migration", () => {
     const config = {
       xai: { key: "xai-secret", url: "https://api.example.test/v1" },
       gemini: { apiKey: "gemini-secret" },
+      openaiCompat: { key: "compat-secret", url: "https://models.example.test/v1" },
       box: { token: "box-secret" },
       tts: { key: "tts-secret", voice: "narrator" },
       imageGen: { key: "image-secret" },
@@ -23,6 +25,7 @@ describe("workspace credential migration", () => {
     expect(result.credentials).toEqual({
       xaiApiKey: "xai-secret",
       geminiApiKey: "gemini-secret",
+      openaiCompatKey: "compat-secret",
       boxToken: "box-secret",
       ttsKey: "tts-secret",
       opencodeGoApiKey: "ocg-secret",
@@ -33,6 +36,7 @@ describe("workspace credential migration", () => {
     expect(result.config).toEqual({
       xai: { url: "https://api.example.test/v1" },
       gemini: {},
+      openaiCompat: { url: "https://models.example.test/v1" },
       box: {},
       tts: { voice: "narrator" },
       imageGen: {},
@@ -118,6 +122,7 @@ describe("workspace credential env", () => {
       workspaceCredentialEnv({
         xaiApiKey: "xai-secret",
         geminiApiKey: "gemini-secret",
+        openaiCompatKey: "compat-secret",
         boxToken: "box-secret",
         ttsKey: "tts-secret",
         opencodeGoApiKey: "ocg-secret",
@@ -127,6 +132,7 @@ describe("workspace credential env", () => {
     ).toEqual({
       XAI_API_KEY: "xai-secret",
       GEMINI_API_KEY: "gemini-secret",
+      OPENAI_COMPAT_API_KEY: "compat-secret",
       BOX_TOKEN: "box-secret",
       OMB_TTS_KEY: "tts-secret",
       OPENCODE_API_KEY: "ocg-secret",
@@ -144,5 +150,13 @@ describe("workspace credential env", () => {
     const credentials = Object.fromEntries(WORKSPACE_CREDENTIALS.map((c) => [c.name, `v-${c.name}`]));
     const env = workspaceCredentialEnv(credentials);
     expect(Object.keys(env).sort()).toEqual(WORKSPACE_CREDENTIALS.map((c) => c.env).sort());
+  });
+
+  it("keeps packaged credential:set patches aligned with the migration table", () => {
+    const main = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
+    const patchBlock = main.slice(main.indexOf("const CREDENTIAL_PATCH = {"), main.indexOf("ipcMain.handle(\"credential:set\""));
+    for (const { name } of WORKSPACE_CREDENTIALS) {
+      expect(patchBlock, name).toContain(`${name}:`);
+    }
   });
 });

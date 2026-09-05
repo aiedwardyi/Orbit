@@ -19,3 +19,6 @@ response as soon as possible, normally within a few days.
   spoofing the broker socket) are vulnerabilities.
 - Spawning must never route user-influenced strings through a shell. Report any `shell: true` /
   `cmd.exe` string-building you find.
+- Windows and Linux installers are currently unsigned (SmartScreen / unknown publisher). That is a
+  known distribution limitation, not a vulnerability. Do not add `publisherName` to the update feed
+  without actually signing.

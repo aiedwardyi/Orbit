@@ -39,7 +39,7 @@ import { stateForBot } from "@/lib/mascot";
 import { useUpdaterState } from "@/lib/updater";
 import { cn } from "@/lib/cn";
 import { showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
-import { showSidebarDensityControls, showSidebarRoutines, showSidebarTeachSkill } from "@/lib/friends-chrome";
+import { showSidebarDensityControls, showSidebarPhone, showSidebarRoutines, showSidebarTeachSkill } from "@/lib/friends-chrome";
 import { nextRename } from "@/lib/rename";
 import { downloadAllBots } from "@/lib/team-files";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
@@ -1016,7 +1016,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
-  const showPhone = phoneSettingsAvailable(capabilities.host);
+  const showPhone = showSidebarPhone() && phoneSettingsAvailable(capabilities.host);
   const importReturnRef = useRef<HTMLButtonElement>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [sectionPicker, setSectionPicker] = useState<MenuState | null>(null);

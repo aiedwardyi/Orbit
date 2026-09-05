@@ -37,6 +37,11 @@ export function showSidebarRoutines(): boolean {
   return false;
 }
 
+/** Phone/companion stays parked on the friends idle surface. */
+export function showSidebarPhone(): boolean {
+  return false;
+}
+
 export function showCommunityRepoLink(): boolean {
   return false;
 }

@@ -41,7 +41,8 @@ export class EventBus {
 
   publish(event: RuntimeEvent) {
     const pendingWarning = this.pendingLogWarnings.get(event.threadId);
-    const persistedEvents = pendingWarning ? [pendingWarning, redactSecrets(event)] : [redactSecrets(event)];
+    const safe = redactSecrets(event) as RuntimeEvent;
+    const persistedEvents = pendingWarning ? [pendingWarning, safe] : [safe];
     try {
       // the canonical log is a file people paste into bug reports; scrub
       // credential-shaped content (tool titles, request summaries, reply
@@ -72,7 +73,7 @@ export class EventBus {
         this.deliver(warning);
       }
     }
-    this.deliver(event);
+    this.deliver(safe);
   }
 
   private deliver(event: RuntimeEvent) {
