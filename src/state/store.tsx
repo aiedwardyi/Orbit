@@ -217,6 +217,9 @@ export interface TaskResumePacket {
   artifacts: Array<{ ref: string; label: string }>;
   blockers: Array<{ kind: "approval" | "login" | "input" | "engine"; note: string }>;
   nextAction: string;
+  /** newest instruction, and the one the newest completion settled */
+  instructionId?: string;
+  settledInstructionId?: string;
   updatedAt: number;
   updatedBy: "harness" | "bot";
   flushReason: "turn-end" | "progress" | "approval" | "stop" | "engine-switch" | "crash" | "pre-compaction" | "shutdown";
