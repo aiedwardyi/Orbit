@@ -54,6 +54,14 @@ const SEARCH_ROOT_NAMES = [
 ];
 const MAX_SEARCH_CHILDREN = 400;
 const STOPWORDS = new Set([
+  ...SEARCH_ROOT_NAMES.map((name) => name.toLowerCase()),
+  "pictures",
+  "music",
+  "movies",
+  "library",
+  "applications",
+  "public",
+  "users",
   "a",
   "an",
   "the",

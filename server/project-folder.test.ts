@@ -197,6 +197,20 @@ describe("resolveProjectFolder", () => {
     ).toEqual({ cwd: null, source: null });
   });
 
+  it("does not treat Desktop or Documents as a project just because they sit under home", () => {
+    const home = folder();
+    folder("Desktop", {}, home);
+    folder("Documents", {}, home);
+    const remembered = folder("billing");
+    expect(
+      resolveProjectFolder({
+        userTexts: ["please look in Documents"],
+        remembered,
+        searchRoots: [home],
+      }),
+    ).toEqual({ cwd: remembered, source: "remembered" });
+  });
+
   it("does not treat a thanks-line as a project name just because a search root has folders", () => {
     const home = folder();
     folder("thanks", {}, home);
