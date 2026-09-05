@@ -140,6 +140,7 @@ import {
 } from "./store.ts";
 import {
   clearTaskBlockers,
+  foldCompletedNextAction,
   recordTaskBlocker,
   recordTaskCompletion,
   recordTaskEvidence,
@@ -155,6 +156,7 @@ import {
   turnCompletionDisposition,
   type RecoveryFlushReason,
 } from "./task-recovery-flush.ts";
+import { isCompletedTaskRecord } from "../shared/task-resume.ts";
 import type { TaskResumePacket } from "./task-state.ts";
 import * as tts from "./tts/index.ts";
 import { narrateTool, toUtterances } from "./tts/speech-text.ts";
@@ -166,6 +168,7 @@ import {
   engineIsFresh,
   nativeSessionTokenBudget,
   shouldRecycleProviderSession,
+  TASK_RESUME_PROMPT,
   taskRecordBlock,
 } from "./turn-context.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
@@ -704,7 +707,13 @@ const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
     tasks,
     ...rest
   } = bot;
-  return { ...rest, avatarUrl: rest.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map(wireTask) } : {}) };
+  return {
+    ...rest,
+    avatarUrl: rest.avatarUrl ?? null,
+    // null, not omitted: a cleared folder must overwrite a stale client cwd
+    cwd: rest.cwd ?? null,
+    ...(tasks ? { tasks: tasks.map(wireTask) } : {}),
+  };
 };
 
 /** Profile URLs are app-owned references, not merely strings with a trusted
@@ -2402,8 +2411,16 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   }
   const taskRecordToFlush = taskRecord;
   const modelContextWindow = contextWindowFor(instance.models, model);
+  const latestUser = lastUserInstruction(activeMessages.filter((message) => !skipTranscript.has(message.id)));
+  // Recovery Current request must be this send's text. skipTranscript excludes
+  // userMessage.id, so transcript lookup alone would show a prior user turn.
+  const recoveryLatestUserText = text.trim() || latestUser?.text || "";
   const durableTaskRecordText = taskRecord
-    ? taskRecordBlock(taskRecord, Math.max(512, Math.floor(modelContextWindow * 0.15) * 3))
+    ? taskRecordBlock(
+      taskRecord,
+      Math.max(512, Math.floor(modelContextWindow * 0.15) * 3),
+      recovering ? { recovering: true, latestUserText: recoveryLatestUserText } : undefined,
+    )
     : "";
   const prepared = await prepareModelContext({
     messages: activeMessages,
@@ -3500,8 +3517,14 @@ async function runClaimedGroupMemberTurn(
   const taskRecord = taskPacketForWrite(threadId);
   const taskRecordToFlush = taskRecord;
   const modelContextWindow = contextWindowFor(instance.models, selection.model);
+  const recovering = taskRecord !== null && isRecoveryFlushReason(taskRecord.flushReason);
+  const latestUser = lastUserInstruction(store.activePath(threadId));
   const durableTaskRecordText = taskRecord
-    ? taskRecordBlock(taskRecord, Math.max(512, Math.floor(modelContextWindow * 0.15) * 3))
+    ? taskRecordBlock(
+      taskRecord,
+      Math.max(512, Math.floor(modelContextWindow * 0.15) * 3),
+      recovering ? { recovering: true, latestUserText: latestUser?.text ?? "" } : undefined,
+    )
     : "";
   const prepared = await prepareModelContext({
     messages: store.activePath(threadId),
@@ -4504,6 +4527,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           next.completed.push({ note: body.completed_note, at: Date.now() });
         }
         if (body.next_action !== undefined) next.nextAction = body.next_action;
+        foldCompletedNextAction(next);
         if (body.blockers !== undefined) {
           next.blockers = [
             ...next.blockers.filter((blocker) => blocker.kind === "approval"),
@@ -6972,15 +6996,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 409, { error: "this bot is already working" });
       }
       const packet = taskPacketForWrite(m[2]);
-      if (!packet || !isRecoveryFlushReason(packet.flushReason)) {
+      if (!packet || !isRecoveryFlushReason(packet.flushReason) || isCompletedTaskRecord(packet)) {
         return json(res, 409, { error: "this task has no interrupted work to continue" });
       }
-      const resumePrompt = "Continue the saved task from its recorded next action. Verify the record against the conversation before acting.";
       if (conversation.group) {
-        startGroupCardContinuation(conversation.group.id, m[2], bot.id, resumePrompt);
+        startGroupCardContinuation(conversation.group.id, m[2], bot.id, TASK_RESUME_PROMPT);
         return json(res, 202, { ok: true });
       }
-      await startTurn(bot.id, resumePrompt, { threadId: m[2], cardContinuation: true });
+      await startTurn(bot.id, TASK_RESUME_PROMPT, { threadId: m[2], cardContinuation: true });
       return json(res, 202, { ok: true });
     }
 

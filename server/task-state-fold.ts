@@ -127,7 +127,12 @@ export function recordTaskCompletion(
   const keepRecovery = input.interrupted ? recovery ?? "stop" : !input.ok ? recovery : null;
   const next = stamped(packet, keepRecovery ?? "turn-end", input);
   const reply = input.reply.trim();
-  if (input.ok && !input.interrupted && reply) next.completed.push({ note: reply, at: input.now });
+  if (input.ok && !input.interrupted) {
+    // An empty reply still settles the task. With no completed entry the
+    // record never reads finished, so the strip keeps offering Resume.
+    next.completed.push({ note: reply || "Settled without a reply.", at: input.now });
+    next.nextAction = "";
+  }
   if (input.messageId && !next.evidence.some((item) => item.ref === input.messageId)) {
     next.evidence.push({ kind: "message", ref: input.messageId, note: "Settled reply" });
   }
@@ -137,7 +142,28 @@ export function recordTaskCompletion(
   if (!input.ok && !keepRecovery) {
     next.blockers.push({ kind: "engine", note: "The last turn ended before completing." });
   }
+  if (input.ok && !input.interrupted) foldCompletedNextAction(next);
   return next;
+}
+
+/** After verified completion, do not leave that same work as the next action. */
+export function foldCompletedNextAction(packet: TaskResumePacket): TaskResumePacket {
+  const action = firstLine(packet.nextAction);
+  const done = packet.plan.filter((item) => item.status === "done").map((item) => firstLine(item.step));
+  const completed = packet.completed.map((item) => firstLine(item.note));
+  if (!action || (!done.includes(action) && !completed.includes(action))) return packet;
+  const finished = new Set([...done, ...completed]);
+  const pending = packet.plan.find(
+    (item) => item.status === "pending" && !finished.has(firstLine(item.step)),
+  );
+  const active = packet.plan.find(
+    (item) =>
+      item.status === "active" &&
+      firstLine(item.step) !== action &&
+      !finished.has(firstLine(item.step)),
+  );
+  packet.nextAction = firstLine(pending?.step ?? active?.step ?? "Continue from the conversation");
+  return packet;
 }
 
 export function stampTaskResumePacket(

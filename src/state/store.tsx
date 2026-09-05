@@ -26,6 +26,7 @@ import { speaker } from "@/lib/tts";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import { firstChatPeripherals, scheduleDeferredInstancesLoad } from "./first-chat-snapshot";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
+import { completedReopenDismissals } from "@/lib/task-recovery";
 import { openLiveEvents } from "@/lib/live-events";
 import {
   acceptedSendPaint,
@@ -263,8 +264,8 @@ export interface Bot {
   cloudBackend?: CloudBackend;
   /** Allow Auto to prepare/start the managed VPS container. Off by default. */
   autoStartVps?: boolean;
-  /** where new tasks run their shell tools; absent = the private bot workspace */
-  cwd?: string;
+  /** where new tasks run their shell tools; absent/null = the private bot workspace */
+  cwd?: string | null;
   /** auto mode: the bot approves its own tool permissions */
   autoApprove?: boolean;
   /** optional model review for otherwise undecided, attended approvals */
@@ -811,7 +812,22 @@ export function reducer(state: AppState, action: Action): AppState {
         dropIdleAcceptedThinking(hydrated.acceptedSends, hydrated.bots),
         hydrated.groups,
       );
-      return { ...hydrated, acceptedSends, bots: applyOptimisticBusy(hydrated.bots, acceptedSends) };
+      const leftoverPackets = [
+        ...hydrated.bots.flatMap((bot) => (bot.tasks ?? []).map((task) => task.taskState)),
+        ...hydrated.groups.flatMap((group) => [
+          group.taskState,
+          ...(group.tasks ?? []).map((task) => task.taskState),
+        ]),
+      ];
+      return {
+        ...hydrated,
+        acceptedSends,
+        bots: applyOptimisticBusy(hydrated.bots, acceptedSends),
+        dismissedTaskRecovery: {
+          ...hydrated.dismissedTaskRecovery,
+          ...completedReopenDismissals(leftoverPackets),
+        },
+      };
     }
     case "showRoutines":
       return {
