@@ -260,8 +260,8 @@ export interface Bot {
   cloudBackend?: CloudBackend;
   /** Allow Auto to prepare/start the managed VPS container. Off by default. */
   autoStartVps?: boolean;
-  /** where new tasks run their shell tools; absent = the private bot workspace */
-  cwd?: string;
+  /** where new tasks run their shell tools; absent/null = the private bot workspace */
+  cwd?: string | null;
   /** auto mode: the bot approves its own tool permissions */
   autoApprove?: boolean;
   /** optional model review for otherwise undecided, attended approvals */

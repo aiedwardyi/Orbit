@@ -99,6 +99,7 @@ function phraseWithNode(phrase: string, name: string, node: ReactNode): ReactNod
 
 function WorkingFolder({ bot }: { bot: Bot }) {
   const { t } = useI18n();
+  const { dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
   const home = capabilities.host.homeDir;
   const [draft, setDraft] = useState<string | null>(null);
@@ -107,13 +108,17 @@ function WorkingFolder({ bot }: { bot: Bot }) {
   const canPick = Boolean(window.ogb?.pickFolder);
   const task = bot.tasks?.find((t) => t.threadId === bot.threadId);
   const pinned = task?.cwd; // undefined = not yet, null = legacy home, string = folder
-  const pinnedElsewhere = pinned !== undefined && (pinned ?? undefined) !== bot.cwd;
+  const pinnedElsewhere = pinned !== undefined && (pinned ?? undefined) !== (bot.cwd ?? undefined);
 
   const save = async (cwd: string | null) => {
     setSaving(true);
     setError(null);
     try {
-      await api(`/api/bots/${bot.id}`, { method: "PATCH", body: JSON.stringify({ cwd }) });
+      const result: { bot?: Bot } = await api(`/api/bots/${bot.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ cwd }),
+      });
+      if (result.bot) dispatch({ type: "botPatched", bot: result.bot });
       setDraft(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -122,7 +127,7 @@ function WorkingFolder({ bot }: { bot: Bot }) {
     }
   };
   const pick = async () => {
-    const chosen = await window.ogb?.pickFolder?.(bot.cwd);
+    const chosen = await window.ogb?.pickFolder?.(bot.cwd ?? undefined);
     if (chosen) void save(chosen);
   };
 

@@ -216,6 +216,7 @@ describe("complete phrases", () => {
     expect(settingsPanel).toContain('t("bot.workingFolder")');
     expect(settingsPanel).toContain('t("bot.workingFolderHelp")');
     expect(settingsPanel).toContain('t("bot.workingFolderEmpty")');
+    expect(settingsPanel).toContain('type: "botPatched"');
     expect(settingsPanel).not.toMatch(/>Working folder</);
     expect(settingsPanel).not.toMatch(/Where this bot runs its shell and file tools/);
   });
