@@ -378,7 +378,7 @@ const resources = path.join(unpacked, "resources");
 requireExecutable(appImage);
 requireExecutable(executable);
 requireDirectoryMode(unpacked, 0o755);
-for (const relative of ["app.asar", "ui/index.html", "server/index.js"]) {
+for (const relative of ["app.asar", "ui/index.html", "server/index.js", "server/packaged-boot.js"]) {
   requireFile(path.join(resources, relative));
 }
 for (const forbidden of ["speech-helper", "cua-driver", "cua-sdk"]) {

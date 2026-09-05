@@ -26,7 +26,7 @@ const port = 21000 + Math.floor(Math.random() * 9000);
 // Resources/server tree instead of the repo build.
 cpSync(process.env.OMB_SMOKE_DIST ?? join(root, "dist-server"), join(staging, "server"), { recursive: true });
 
-const child = spawn(process.execPath, [join(staging, "server", "index.js")], {
+const child = spawn(process.execPath, [join(staging, "server", "packaged-boot.js")], {
   cwd: staging,
   env: {
     ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
@@ -60,16 +60,32 @@ const cleanup = () => {
 
 const deadline = Date.now() + 45_000;
 let listening = false;
+let harnessReady = false;
 while (Date.now() < deadline) {
   if (child.exitCode !== null) break;
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/api/health`);
-    if (res.ok) {
+    const health = await fetch(`http://127.0.0.1:${port}/api/health`);
+    if (health.ok) {
       listening = true;
       break;
     }
   } catch {
     /* not up yet */
+  }
+  await new Promise((resolve) => setTimeout(resolve, 300));
+}
+while (listening && Date.now() < deadline) {
+  if (child.exitCode !== null) break;
+  try {
+    const bots = await fetch(`http://127.0.0.1:${port}/api/bots`, {
+      signal: AbortSignal.timeout(Math.max(250, deadline - Date.now())),
+    });
+    if (bots.ok) {
+      harnessReady = true;
+      break;
+    }
+  } catch {
+    /* harness still attaching */
   }
   await new Promise((resolve) => setTimeout(resolve, 300));
 }
@@ -164,8 +180,12 @@ if (listening) {
 
 cleanup();
 
-if (!listening) {
-  console.error(`the packaged server never served /api/health on port ${port}.`);
+if (!listening || !harnessReady) {
+  console.error(
+    !listening
+      ? `the packaged boot entry never served /api/health on port ${port}.`
+      : `the packaged boot answered /api/health but the fat harness never served /api/bots on port ${port}.`,
+  );
   console.error(`exit code: ${child.exitCode}`);
   console.error(output.trim() || "(no output)");
   process.exit(1);
@@ -194,6 +214,6 @@ if (
 }
 
 const count = Object.keys(proxyReport.resolved).length;
-console.log(`packaged server started with no node_modules in reach (port ${port}) ✓`);
+console.log(`packaged boot answered health then /api/bots with no node_modules in reach (port ${port}) ✓`);
 console.log(`all ${count} spawned proxy paths resolve inside the packaged server dir ✓`);
 console.log("packaged MCP stdio server reached the API and flushed its final frames ✓");
