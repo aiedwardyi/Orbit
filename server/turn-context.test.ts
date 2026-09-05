@@ -290,7 +290,7 @@ describe("shouldRecycleProviderSession", () => {
   });
 
   it("recycles when the last turn's reported native input exceeds the session budget", () => {
-    const nativeTokenBudget = nativeSessionTokenBudget(8_192);
+    const nativeTokenBudget = nativeSessionTokenBudget(200_000);
     expect(shouldRecycleProviderSession({
       compacted: false,
       lastTurnInputTokens: nativeTokenBudget + 1,
@@ -300,6 +300,14 @@ describe("shouldRecycleProviderSession", () => {
       compacted: false,
       lastTurnInputTokens: nativeTokenBudget,
       nativeTokenBudget,
+    })).toBe(false);
+  });
+
+  it("does not treat an unknown catalog window as an 8k native budget", () => {
+    expect(shouldRecycleProviderSession({
+      compacted: false,
+      lastTurnInputTokens: 20_000,
+      nativeTokenBudget: 0,
     })).toBe(false);
   });
 
@@ -366,6 +374,16 @@ describe("countSessionToolRounds", () => {
       { id: "skip", kind: "activity" as const, tool: { name: "Grep", ok: true } },
     ];
     expect(countSessionToolRounds(messages, new Set(["skip"]))).toBe(2);
+  });
+
+  it("restarts the session count after a recycle watermark", () => {
+    const messages = [
+      { id: "old", kind: "activity" as const, tool: { name: "Read", ok: true } },
+      { id: "bound", role: "user" as const, kind: "text" as const },
+      { id: "t1", kind: "activity" as const, tool: { name: "Read", ok: true } },
+      { id: "next", role: "user" as const, kind: "text" as const },
+    ];
+    expect(countSessionToolRounds(messages, new Set(["next"]), "bound")).toBe(1);
   });
 });
 

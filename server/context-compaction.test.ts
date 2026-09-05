@@ -5,6 +5,7 @@ import {
   MODEL_CONTEXT_FALLBACK,
   contextWindowFor,
   estimateContextTokens,
+  knownCatalogContextWindow,
   prepareModelContext,
 } from "./context-compaction.ts";
 import type { Message } from "./store.ts";
@@ -271,6 +272,9 @@ describe("provider-neutral context compaction", () => {
     };
     expect(contextWindowFor(catalog, "small")).toBe(4_096);
     expect(contextWindowFor(catalog, "missing")).toBe(MODEL_CONTEXT_FALLBACK);
+    expect(knownCatalogContextWindow(catalog, "small")).toBe(4_096);
+    expect(knownCatalogContextWindow(catalog, "missing")).toBeNull();
+    expect(knownCatalogContextWindow({ default: "x", options: [{ id: "x", label: "X" }] }, "x")).toBeNull();
   });
 
   it("keeps small-window context within its deterministic budget", async () => {

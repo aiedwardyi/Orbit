@@ -232,6 +232,10 @@ export interface TaskRecord {
    * a folder that moved under a live session would break resume. `null`
    * = pinned to the default (home); absent = not pinned yet. */
   cwd?: string | null;
+  /** User message that last recycled the provider session. Settled tools
+   * after this id belong to the current native session; older chips do
+   * not. Absent on tasks that have never soft-recycled. */
+  providerSessionBoundId?: string;
 }
 
 export interface TaskUsage {
@@ -1298,8 +1302,27 @@ export class Store {
     this.emit({ type: "bot", botId });
   }
 
+  /** Mark the user send that recycled the provider session so later
+   * turns count only tools that landed in the new native session. Also
+   * drops `lastInput` — that number described the session we just threw
+   * away. */
+  markProviderSessionBound(botId: string, threadId: string, messageId: string) {
+    const task = this.taskByThread(botId, threadId);
+    if (!task || !messageId) return;
+    const lastInput = task.usage?.lastInput;
+    if (task.providerSessionBoundId === messageId && lastInput === undefined) return;
+    task.providerSessionBoundId = messageId;
+    if (task.usage && lastInput !== undefined) {
+      const next = { ...task.usage };
+      delete next.lastInput;
+      task.usage = next;
+    }
+    this.saveBots();
+    this.emit({ type: "bot", botId });
+  }
+
   /** Drop provider-native session ids for this task so the next turn
-   * injects Orbit's compacted transcript instead of `--resume`ing a fat
+   * injects Orbit's prepared transcript instead of `--resume`ing a fat
    * CLI session. Other tasks on the same bot keep their cursors. */
   clearResumeCursors(botId: string, threadId?: string) {
     const bot = this.bot(botId);

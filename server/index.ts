@@ -84,7 +84,7 @@ import {
   NATIVE_DIR,
 } from "./config.ts";
 import { ComputerControl } from "./computer-control.ts";
-import { contextWindowFor, prepareModelContext } from "./context-compaction.ts";
+import { contextWindowFor, knownCatalogContextWindow, prepareModelContext } from "./context-compaction.ts";
 import { augmentedPath, findCliCandidates, resetPathCache } from "./env-path.ts";
 import { describeSpawnFailure, execCli } from "./procs.ts";
 import { buildNotification, type Notification } from "./notify.ts";
@@ -693,6 +693,7 @@ const wireTask = ({
   resumeCursors: _resumeCursors,
   lastInstanceId: _lastInstanceId,
   lastModel: _lastModel,
+  providerSessionBoundId: _providerSessionBoundId,
   ...task
 }: TaskRecord) => ({ ...task, taskState: store.taskPacket(task.threadId) ?? undefined });
 
@@ -2461,7 +2462,12 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       hasPriorUserTurn,
     });
   const lastTurnToolRounds = countLastTurnToolRounds(activeMessages, skipTranscript);
-  const sessionToolRounds = countSessionToolRounds(activeMessages, skipTranscript);
+  const sessionToolRounds = countSessionToolRounds(
+    activeMessages,
+    skipTranscript,
+    task.providerSessionBoundId,
+  );
+  const knownWindow = knownCatalogContextWindow(instance.models, model);
   const recycled = shouldRecycleProviderSession({
     compacted: contextCompacted,
     rewound,
@@ -2469,12 +2475,17 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     lastTurnToolRounds,
     sessionToolRounds,
     lastTurnInputTokens: task.usage?.lastInput,
-    nativeTokenBudget: nativeSessionTokenBudget(modelContextWindow),
+    // Claude/Codex catalogs often omit contextWindow; half of the 16k
+    // compaction fallback is the wrong unit for native prompt size.
+    nativeTokenBudget: knownWindow ? nativeSessionTokenBudget(knownWindow) : 0,
   });
   // Transcript-replay engines never `--resume`; clearing an already-empty
   // map is a no-op. Resume-cursor engines drop the stale/fat session here.
   // Stop / crash Continuity on an uncompacted thread keeps the cursor.
-  if (recycled) store.clearResumeCursors(bot.id, threadId);
+  if (recycled) {
+    store.clearResumeCursors(bot.id, threadId);
+    store.markProviderSessionBound(bot.id, threadId, userMessage.id);
+  }
   const recycleReason = recycled
     ? (contextCompacted ? "compaction" : "session-fat")
     : undefined;
@@ -2841,8 +2852,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         text: turnText,
         model,
         effort,
-        // a rewound or Orbit-compacted thread never resumes the abandoned
-        // (or now-stale/fat) provider session. the active task's own
+        // a rewound, Orbit-compacted, or pre-compact fat thread never
+        // resumes the abandoned provider session. the active task's own
         // session — another task's cursor would resume the wrong
         // conversation and defeat the context bubble
         resumeCursor: resume ? task.resumeCursors[instanceId] : undefined,

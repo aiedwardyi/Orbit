@@ -413,6 +413,19 @@ describe("Store", () => {
     expect(reloaded.taskByThread(bot.id, background.threadId)?.resumeCursors).toEqual({ codex: "bg-thread" });
   });
 
+  it("markProviderSessionBound records the recycle watermark and drops lastInput", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.addTaskUsage(bot.id, bot.threadId, { input: 88_000, output: 40, costUsd: null });
+    store.markProviderSessionBound(bot.id, bot.threadId, "user-recycle-1");
+    expect(store.taskByThread(bot.id, bot.threadId)?.providerSessionBoundId).toBe("user-recycle-1");
+    expect(store.taskByThread(bot.id, bot.threadId)?.usage?.lastInput).toBeUndefined();
+    expect(store.taskByThread(bot.id, bot.threadId)?.usage?.input).toBe(88_000);
+    const reloaded = new Store(selection);
+    expect(reloaded.taskByThread(bot.id, bot.threadId)?.providerSessionBoundId).toBe("user-recycle-1");
+    expect(reloaded.taskByThread(bot.id, bot.threadId)?.usage?.lastInput).toBeUndefined();
+  });
+
   it("clearResumeCursors is a no-op when the task and mirror are already empty", () => {
     const store = new Store(selection);
     const bot = store.createBot();

@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { DATA_DIR } from "./config.ts";
-import { prepareModelContext } from "./context-compaction.ts";
+import { knownCatalogContextWindow, prepareModelContext } from "./context-compaction.ts";
 import { closeMessageDb } from "./message-db.ts";
 import { Store } from "./store.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
@@ -254,5 +254,53 @@ describe("provider session recycle after Orbit compaction", () => {
     expect(out.turnText).toContain("Orbit task record");
     expect(out.turnText).not.toContain("fresh provider session");
     expect(store.taskByThread(bot.id, bot.threadId)?.resumeCursors.claude).toBe("fat-soak-session");
+  });
+
+  it("does not recycle a short Claude turn from lastInput against the 16k catalog fallback", () => {
+    const catalog = { default: "claude-sonnet-5", options: [{ id: "claude-sonnet-5", label: "Sonnet" }] };
+    const knownWindow = knownCatalogContextWindow(catalog, "claude-sonnet-5");
+    expect(knownWindow).toBeNull();
+    expect(shouldRecycleProviderSession({
+      compacted: false,
+      lastTurnToolRounds: 2,
+      sessionToolRounds: 2,
+      lastTurnInputTokens: 20_000,
+      nativeTokenBudget: knownWindow ? nativeSessionTokenBudget(knownWindow) : 0,
+    })).toBe(false);
+  });
+
+  it("resumes a slim follow-up after a session-fat recycle watermark", async () => {
+    const store = new Store(() => ({ instanceId: "claude", model: "claude-sonnet-5" }));
+    const bot = store.createBot({}, { seedMessages: false });
+    store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "inspect the tree" });
+    for (let i = 0; i < PRE_COMPACT_TOOL_ROUND_LIMIT; i++) {
+      store.appendMessage(bot.threadId, {
+        role: "bot",
+        kind: "activity",
+        tool: { name: `Read: file-${i}.ts`, ok: true },
+      });
+    }
+    const recycledSend = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "now commit" });
+    store.setResumeCursor(bot.id, "claude", "new-session", bot.threadId);
+    store.markTaskDispatched(bot.id, bot.threadId, "claude", "claude-sonnet-5");
+    store.addTaskUsage(bot.id, bot.threadId, { input: 12_000, output: 200, costUsd: null });
+    store.markProviderSessionBound(bot.id, bot.threadId, recycledSend.id);
+
+    const followUp = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "and push" });
+    const excludeIds = new Set([followUp.id]);
+    const sessionToolRounds = countSessionToolRounds(
+      store.activePath(bot.threadId),
+      excludeIds,
+      store.taskByThread(bot.id, bot.threadId)?.providerSessionBoundId,
+    );
+    expect(sessionToolRounds).toBe(0);
+    expect(store.taskByThread(bot.id, bot.threadId)?.usage?.lastInput).toBeUndefined();
+    expect(shouldRecycleProviderSession({
+      compacted: false,
+      lastTurnToolRounds: countLastTurnToolRounds(store.activePath(bot.threadId), excludeIds),
+      sessionToolRounds,
+      lastTurnInputTokens: store.taskByThread(bot.id, bot.threadId)?.usage?.lastInput,
+      nativeTokenBudget: 0,
+    })).toBe(false);
   });
 });

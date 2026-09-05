@@ -19,9 +19,9 @@ export interface TurnContextInput {
   /** this driver instance has no session cursor for this thread */
   fresh: boolean;
   /**
-   * Orbit compacted this thread (summary + tail is now the source of truth).
-   * CLI `--resume` / thread-resume would re-send the native session — full
-   * tool payloads and uncompacted history — and bypass that bound.
+   * The native provider session must not be resumed: Orbit compacted the
+   * thread, or a pre-compact soak fattened the CLI session with tool
+   * payloads. CLI `--resume` would re-send that fat history.
    */
   recycled?: boolean;
   /**
@@ -140,6 +140,7 @@ export function countLastTurnToolRounds(
 export function countSessionToolRounds(
   messages: readonly SessionFatMessage[],
   excludeIds?: ReadonlySet<string>,
+  boundMessageId?: string,
 ): number {
   let start = 0;
   for (let index = messages.length - 1; index >= 0; index--) {
@@ -147,6 +148,10 @@ export function countSessionToolRounds(
       start = index + 1;
       break;
     }
+  }
+  if (boundMessageId) {
+    const boundIndex = messages.findIndex((message) => message.id === boundMessageId);
+    if (boundIndex >= 0) start = Math.max(start, boundIndex + 1);
   }
   let count = 0;
   for (let index = start; index < messages.length; index++) {
