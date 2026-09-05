@@ -22,6 +22,9 @@ describe("harness listen is not blocked on engine describe", () => {
     expect(scheduleAt).toBeGreaterThan(-1);
     expect(scheduleAt).toBeGreaterThan(listenAt);
     expect(scheduleAt).toBeGreaterThan(attachAt);
+    const immediateAt = index.lastIndexOf("setImmediate(", scheduleAt);
+    expect(immediateAt).toBeGreaterThan(attachAt);
+    expect(immediateAt).toBeLessThan(scheduleAt);
   });
 
   it("still resolves a default engine when creating a bot", () => {

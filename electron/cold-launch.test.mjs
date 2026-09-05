@@ -104,10 +104,13 @@ describe("packaged cold launch does not hide the window behind the harness", () 
     const composioAt = ready.indexOf("secureComposioConfig()");
     const workspaceAt = ready.indexOf("secureWorkspaceConfig()");
     const serverAt = ready.indexOf("await startServerPackaged()");
+    const absorbAt = ready.indexOf("absorbPackagedPlaintextSecrets(");
     expect(revealAt).toBeGreaterThan(-1);
     expect(composioAt).toBeGreaterThan(-1);
     expect(workspaceAt).toBeGreaterThan(-1);
     expect(serverAt).toBeGreaterThan(-1);
+    expect(absorbAt).toBeGreaterThan(-1);
+    expect(absorbAt).toBeLessThan(serverAt);
     expect(serverAt).toBeLessThan(revealAt);
     expect(revealAt).toBeLessThan(composioAt);
     expect(revealAt).toBeLessThan(workspaceAt);

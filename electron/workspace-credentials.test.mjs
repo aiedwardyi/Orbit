@@ -100,6 +100,14 @@ describe("workspace credential migration", () => {
     expect(afterTombstone.credentialsChanged).toBe(false);
   });
 
+  it("can copy secrets into memory for the child env without rewriting config yet", () => {
+    const config = { xai: { key: "xai-secret" }, composio: { apiKey: "ak_leave-for-main" } };
+    const absorbed = migrateWorkspaceCredentials(config, {}).credentials;
+    expect(absorbed.xaiApiKey).toBe("xai-secret");
+    expect(config.xai.key).toBe("xai-secret");
+    expect(workspaceCredentialEnv(absorbed)).toEqual({ XAI_API_KEY: "xai-secret" });
+  });
+
   it("keeps stored secrets when the field is absent (already migrated)", () => {
     const stored = { xaiApiKey: "xai-keep", boxToken: "box-keep" };
     const result = migrateWorkspaceCredentials({ profile: { name: "Ada" } }, stored);

@@ -60,16 +60,23 @@ const cleanup = () => {
 
 const deadline = Date.now() + 45_000;
 let listening = false;
+let harnessReady = false;
 while (Date.now() < deadline) {
   if (child.exitCode !== null) break;
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/api/health`);
-    if (res.ok) {
-      listening = true;
-      break;
+    const health = await fetch(`http://127.0.0.1:${port}/api/health`);
+    if (health.ok) listening = true;
+    if (listening) {
+      const bots = await fetch(`http://127.0.0.1:${port}/api/bots`, {
+        signal: AbortSignal.timeout(Math.max(250, deadline - Date.now())),
+      });
+      if (bots.ok) {
+        harnessReady = true;
+        break;
+      }
     }
   } catch {
-    /* not up yet */
+    /* not up yet, or /api/bots still queued behind the fat import */
   }
   await new Promise((resolve) => setTimeout(resolve, 300));
 }
@@ -164,8 +171,12 @@ if (listening) {
 
 cleanup();
 
-if (!listening) {
-  console.error(`the packaged boot entry never served /api/health on port ${port}.`);
+if (!listening || !harnessReady) {
+  console.error(
+    !listening
+      ? `the packaged boot entry never served /api/health on port ${port}.`
+      : `the packaged boot answered /api/health but the fat harness never served /api/bots on port ${port}.`,
+  );
   console.error(`exit code: ${child.exitCode}`);
   console.error(output.trim() || "(no output)");
   process.exit(1);
@@ -194,6 +205,6 @@ if (
 }
 
 const count = Object.keys(proxyReport.resolved).length;
-console.log(`packaged server started with no node_modules in reach (port ${port}) ✓`);
+console.log(`packaged boot answered health then /api/bots with no node_modules in reach (port ${port}) ✓`);
 console.log(`all ${count} spawned proxy paths resolve inside the packaged server dir ✓`);
 console.log("packaged MCP stdio server reached the API and flushed its final frames ✓");

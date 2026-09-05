@@ -281,6 +281,27 @@ async function loadSecureCredentials() {
   return result.credentials;
 }
 
+/** Copy leftover plaintext secrets into memory for the child env. Do not
+ * rewrite config.json here — wiping the file before the forked harness
+ * loadConfig() would drop keys this session if they were not yet in the
+ * OS store. Persist + wipe runs after reveal. */
+function absorbPackagedPlaintextSecrets(credentials) {
+  const dataDir = process.env.OMB_DATA_DIR || path.join(app.getPath("home"), ".orbit");
+  const configPath = path.join(dataDir, "config.json");
+  try {
+    const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    let next = migrateWorkspaceCredentials(config, credentials).credentials;
+    const apiKey = config?.composio?.apiKey;
+    if (typeof apiKey === "string" && apiKey.trim().startsWith("ak_") && !next.composioApiKey) {
+      next = { ...next, composioApiKey: apiKey.trim() };
+    }
+    return next;
+  } catch (error) {
+    if (error?.code !== "ENOENT") slog(`credential absorb failed: ${error?.message ?? error}`);
+    return credentials;
+  }
+}
+
 async function persistMigratedCredentials(credentials) {
   if (secureCredentialState) {
     await updateSecureCredentialDocument(() => credentials);
@@ -1922,8 +1943,9 @@ app.whenReady().then(async () => {
     }
   });
   secureCredentials = await credentialsReady;
-  // OS-store keys are enough to fork. Plaintext config.json migrations wait
-  // until after reveal so they cannot sit in front of a typeable composer.
+  if (app.isPackaged) secureCredentials = absorbPackagedPlaintextSecrets(secureCredentials);
+  // OS-store + absorbed plaintext keys go in the child env. Rewriting
+  // config.json waits until after reveal so encrypt/wipe is not on composer.
   // An unreadable store must not become a WRITE of an empty document.
   secureCredentialState = createSecureCredentialState(secureCredentials, saveSecureCredentials, {
     writable: !credentialStoreUnavailable,

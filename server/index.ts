@@ -7672,15 +7672,17 @@ if (early) {
     console.log(`openmausbot server on http://127.0.0.1:${PORT}`);
   });
 }
-// PATH/CLI describe after the socket is accepting — first /api/bots must
-// not share the event loop with `--version` scans.
-void defaultSelection()
-  .then((sel) => {
-    bootSelection = sel;
-  })
-  .catch((error) => {
-    console.error(`[boot] default engine scan failed: ${error instanceof Error ? error.message : String(error)}`);
-  });
+// PATH/CLI describe after the socket is accepting, and after this turn so
+// a queued first /api/bots can drain before `--version` scans start.
+setImmediate(() => {
+  void defaultSelection()
+    .then((sel) => {
+      bootSelection = sel;
+    })
+    .catch((error) => {
+      console.error(`[boot] default engine scan failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+});
 
 hostShutdown = () => {
   if (hostShutdownStarted) return;
