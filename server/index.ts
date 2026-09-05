@@ -1576,6 +1576,10 @@ bus.subscribe((event: RuntimeEvent) => {
       // looks destructive stops even in auto mode.
       const asker = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
       const unattended = permission && asker && event.requestId ? isUnattended(asker.id) : false;
+      // Verdicts run on the original event. The bus redacts only the NDJSON
+      // tee; SSE/broadcast (PR72) redacts the client copy. Masking first
+      // hid `.aws/credentials` from sensitive-guard while the provider
+      // still ran the raw command.
       const verdict = permission && asker && event.requestId
         ? autoVerdict(asker, event.tool, event.summary, { unattended, scope: event.approvalScope })
         : null;

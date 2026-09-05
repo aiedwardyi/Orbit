@@ -41,6 +41,11 @@ export class EventBus {
 
   publish(event: RuntimeEvent) {
     const pendingWarning = this.pendingLogWarnings.get(event.threadId);
+    // Persist a scrubbed copy. Deliver the original to subscribers so
+    // auto-approval / sensitive-guard see the real command — masking
+    // `token=~/.aws/credentials` would hide the path from the guard while
+    // the provider still ran it. Client-facing copies (SSE/broadcast) are
+    // redacted at that sink; do not undo PR72 there.
     const safe = redactSecrets(event) as RuntimeEvent;
     const persistedEvents = pendingWarning ? [pendingWarning, safe] : [safe];
     try {
@@ -73,7 +78,7 @@ export class EventBus {
         this.deliver(warning);
       }
     }
-    this.deliver(safe);
+    this.deliver(event);
   }
 
   private deliver(event: RuntimeEvent) {
