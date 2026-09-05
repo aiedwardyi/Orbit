@@ -1,12 +1,13 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
   applyResolvedProjectFolder,
   projectPathsFromRecords,
+  projectSearchRoots,
   resolveProjectFolder,
   userProjectTexts,
 } from "./project-folder.ts";
@@ -136,17 +137,11 @@ describe("resolveProjectFolder", () => {
     ).toEqual({ cwd: null, source: null });
   });
 
-  it("walks home and common project parents when search roots are not injected", () => {
-    const projects = join(homedir(), "Projects");
-    mkdirSync(projects, { recursive: true });
-    dirs.push(projects);
-    const orbit = join(projects, "orbit");
-    mkdirSync(orbit);
-    writeFileSync(join(orbit, "README.md"), "# Orbit\n\nDesktop workspace.\n");
-    expect(resolveProjectFolder({ userTexts: ["Orbit needs a release note"] })).toEqual({
-      cwd: resolve(orbit),
-      source: "named",
-    });
+  it("defaults the search walk to home and common project parents", () => {
+    const home = homedir();
+    expect(projectSearchRoots()).toEqual(
+      expect.arrayContaining([home, join(home, "Projects"), join(home, "Desktop"), join(home, "Documents")]),
+    );
   });
 
   it("walks search roots when a named project is not among recent folders", () => {
@@ -163,15 +158,25 @@ describe("resolveProjectFolder", () => {
     expect(other).toBeTruthy();
   });
 
-  it("matches an unknown name to a scouted README title under a search root", () => {
+  it("matches an unknown scouted name when the folder basename is not in the sentence", () => {
     const home = folder();
-    const tracker = folder("tracker", { "README.md": "# Maus Tracker\n\nTracks every maus.\n" }, home);
+    const orbit = folder("desktop-workspace", { "README.md": "# Orbit\n\nDesktop workspace.\n" }, home);
     expect(
       resolveProjectFolder({
-        userTexts: ["Maus Tracker is the one I meant"],
+        userTexts: ["Orbit needs a release note"],
         searchRoots: [home],
       }),
-    ).toEqual({ cwd: tracker, source: "named" });
+    ).toEqual({ cwd: orbit, source: "named" });
+  });
+
+  it("still matches a recent folder named like a common home directory", () => {
+    const work = folder("work");
+    expect(
+      resolveProjectFolder({
+        userTexts: ["work needs a fix"],
+        recentPaths: [work],
+      }),
+    ).toEqual({ cwd: work, source: "named" });
   });
 
   it("does not pick a name that stays ambiguous after the search walk", () => {
@@ -246,6 +251,13 @@ describe("resolveProjectFolder", () => {
       resolveProjectFolder({
         remembered: orbit,
         userTexts: ["Orbit 말고"],
+        recentPaths: [orbit],
+      }),
+    ).toEqual({ cwd: null, source: null });
+    expect(
+      resolveProjectFolder({
+        remembered: orbit,
+        userTexts: ["I'm not using Orbit anymore"],
         recentPaths: [orbit],
       }),
     ).toEqual({ cwd: null, source: null });
@@ -356,7 +368,7 @@ describe("applyResolvedProjectFolder", () => {
     expect(forgotten).toEqual(["cleared"]);
   });
 
-  it("does not forget or remember when an explicit pin still wins", () => {
+  it("keeps the pin and still forgets a ruled-out remember so it cannot stick later", () => {
     const pinned = folder("pinned");
     const orbit = folder("orbit");
     const calls: string[] = [];
@@ -365,6 +377,23 @@ describe("applyResolvedProjectFolder", () => {
         pin: pinned,
         remembered: orbit,
         userTexts: ["not Orbit"],
+        recentPaths: [orbit],
+        remember: (cwd) => calls.push(`remember:${cwd}`),
+        forget: () => calls.push("forget"),
+      }),
+    ).toBe(pinned);
+    expect(calls).toEqual(["forget"]);
+  });
+
+  it("does not remember or forget when a pin wins and nothing was ruled out", () => {
+    const pinned = folder("pinned");
+    const orbit = folder("orbit");
+    const calls: string[] = [];
+    expect(
+      applyResolvedProjectFolder({
+        pin: pinned,
+        remembered: orbit,
+        userTexts: ["keep going"],
         recentPaths: [orbit],
         remember: (cwd) => calls.push(`remember:${cwd}`),
         forget: () => calls.push("forget"),

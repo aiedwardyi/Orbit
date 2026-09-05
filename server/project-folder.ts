@@ -33,7 +33,7 @@ const PATH_IN_TEXT =
   /(?:^|[\s"'`])((?:~(?:\/[^\s"'`]*)?|\/[^\s"'`]+|[a-zA-Z]:[\\/][^\s"'`]+|file:\/\/[^\s)"']+))/gi;
 const QUOTED = /"([^"\n]{1,200})"|'([^'\n]{1,200})'/g;
 const EN_NEGATION =
-  /\b(?:not|don['’]t\s+use|do\s+not\s+use|don['’]t\s+(?:look\s+at|open|pick|choose))\s+(?:the\s+)?(?:"([^"\n]{1,200})"|'([^'\n]{1,200})'|([^\s"'`,.;:!?]+(?:\s+[A-Z][^\s"'`,.;:!?]+)*))/gi;
+  /\b(?:[Nn]ot(?:\s+[Uu]sing)?|[Dd]on['’]t\s+(?:[Uu]se|[Uu]sing)|[Dd]o\s+[Nn]ot\s+(?:[Uu]se|[Uu]sing)|[Dd]on['’]t\s+(?:look\s+at|[Oo]pen|[Pp]ick|[Cc]hoose))\s+(?:(?:[Tt]he|[Aa])\s+)?(?:"([^"\n]{1,200})"|'([^'\n]{1,200})'|([^\s"'`,.;:!?]+(?:\s+[A-Z][^\s"'`,.;:!?]+)*))/g;
 const KO_NEGATION =
   /(?:"([^"\n]{1,200})"|'([^'\n]{1,200})'|([^\s"'`]+?))(?:은|는|을|를)?\s*(?:말고|아니(?:야|에요|예요)?|쓰지\s*마|사용하지\s*마)/gu;
 const TRAILING_KIND = /\s+(folder|project|directory|dir|workspace|폴더|프로젝트|워크스페이스)$/iu;
@@ -53,7 +53,7 @@ const SEARCH_ROOT_NAMES = [
   "workspace",
 ];
 const MAX_SEARCH_CHILDREN = 400;
-const STOPWORDS = new Set([
+const HOME_FOLDER_WORDS = new Set([
   ...SEARCH_ROOT_NAMES.map((name) => name.toLowerCase()),
   "pictures",
   "music",
@@ -62,6 +62,8 @@ const STOPWORDS = new Set([
   "applications",
   "public",
   "users",
+]);
+const CHAT_STOPWORDS = new Set([
   "a",
   "an",
   "the",
@@ -120,8 +122,6 @@ const STOPWORDS = new Set([
   "do",
   "will",
   "want",
-  "work",
-  "working",
   "keep",
   "going",
   "help",
@@ -175,6 +175,11 @@ function defaultSearchRoots(): string[] {
   return [home, ...SEARCH_ROOT_NAMES.map((name) => join(home, name))];
 }
 
+/** Home plus common project parents — the default light search walk. */
+export function projectSearchRoots(): string[] {
+  return defaultSearchRoots();
+}
+
 function mentionPattern(name: string): RegExp {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`(?<![\\p{L}\\p{N}._-])${escaped}(?![\\p{L}\\p{N}._-])`, "iu");
@@ -195,7 +200,11 @@ function nameExcluded(name: string, excluded: string[]): boolean {
 }
 
 function normalizeNegatedName(value: string): string {
-  return value.replace(/^["'`]+|["'`]+$/g, "").replace(TRAILING_KIND, "").trim();
+  return value
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/^(?:using|use|looking\s+at)\s+/iu, "")
+    .replace(TRAILING_KIND, "")
+    .trim();
 }
 
 function negatedProjectNames(text: string): string[] {
@@ -210,10 +219,11 @@ function negatedProjectNames(text: string): string[] {
   return found;
 }
 
-function isSignificantMention(name: string, quoted: string[]): boolean {
+function isSignificantMention(name: string, quoted: string[], homeWalk: boolean): boolean {
   if (quoted.some((item) => nameEquals(item, name))) return true;
   const trimmed = name.trim();
-  if (!trimmed || STOPWORDS.has(trimmed.toLowerCase())) return false;
+  if (!trimmed || CHAT_STOPWORDS.has(trimmed.toLowerCase())) return false;
+  if (homeWalk && HOME_FOLDER_WORDS.has(trimmed.toLowerCase())) return false;
   return !/^[A-Za-z]{1,2}$/.test(trimmed);
 }
 
@@ -284,6 +294,7 @@ function namedMatchesInText(
   candidates: string[],
   scoutName: (cwd: string) => string | null,
   excluded: string[],
+  homeWalk: boolean,
 ): string[] {
   const quoted = extractQuotedNames(text);
   for (let i = quoted.length - 1; i >= 0; i--) {
@@ -298,16 +309,22 @@ function namedMatchesInText(
   const mentioned = candidates.filter((cwd) => {
     if (folderExcluded(cwd, excluded, scoutName)) return false;
     const base = basename(cwd);
-    if (mentionsName(text, base) && isSignificantMention(base, quoted)) return true;
+    if (mentionsName(text, base) && isSignificantMention(base, quoted, homeWalk)) return true;
     const scouted = scoutName(cwd);
-    return Boolean(scouted && mentionsName(text, scouted) && isSignificantMention(scouted, quoted));
+    return Boolean(scouted && mentionsName(text, scouted) && isSignificantMention(scouted, quoted, homeWalk));
   });
   return [...new Set(mentioned)];
 }
 
 function shouldScoutWalk(text: string): boolean {
   if (extractQuotedNames(text).length > 0) return true;
-  return /(?<![\p{L}\p{N}])[\p{Lu}][\p{L}\p{N}._-]*\s+[\p{Lu}][\p{L}\p{N}._-]/u.test(text);
+  return /(?<![\p{L}\p{N}])[\p{Lu}][\p{L}\p{N}._-]{2,}/u.test(text);
+}
+
+function shouldWalk(text: string): boolean {
+  if (extractQuotedNames(text).length > 0) return true;
+  const tokens = text.match(/[\p{L}\p{N}._-]+/gu) ?? [];
+  return tokens.some((token) => isSignificantMention(token, [], true));
 }
 
 function namedFolderInText(
@@ -315,8 +332,9 @@ function namedFolderInText(
   candidates: string[],
   scoutName: (cwd: string) => string | null,
   excluded: string[],
+  homeWalk: boolean,
 ): string | null {
-  const matches = namedMatchesInText(text, candidates, scoutName, excluded);
+  const matches = namedMatchesInText(text, candidates, scoutName, excluded, homeWalk);
   return matches.length === 1 ? matches[0]! : null;
 }
 
@@ -452,17 +470,18 @@ export function resolveProjectFolder(input: ProjectFolderInput): ProjectFolderRe
       return { cwd: lastPath, source: "named" };
     }
 
-    const recentMatches = namedMatchesInText(text, candidates, scoutName, excluded);
+    const recentMatches = namedMatchesInText(text, candidates, scoutName, excluded, false);
     if (recentMatches.length === 1) return { cwd: recentMatches[0]!, source: "named" };
     if (recentMatches.length > 1) continue;
+    if (!shouldWalk(text)) continue;
 
-    const walked = searchDirs();
-    const byBasename = namedMatchesInText(text, walked, () => null, excluded);
+    const searchHits = searchDirs();
+    const byBasename = namedMatchesInText(text, searchHits, () => null, excluded, true);
     if (byBasename.length === 1) return { cwd: byBasename[0]!, source: "named" };
     if (byBasename.length > 1) continue;
     if (!shouldScoutWalk(text)) continue;
 
-    const named = namedFolderInText(text, walked, scoutName, excluded);
+    const named = namedFolderInText(text, searchHits, scoutName, excluded, true);
     if (named) return { cwd: named, source: "named" };
   }
 
@@ -482,7 +501,7 @@ export function applyResolvedProjectFolder(input: ProjectFolderInput & {
   const isPrivateWorkspace = input.isPrivateWorkspace ?? defaultPrivateWorkspace;
   const resolved = resolveProjectFolder(input);
   if (resolved.source === "named" && resolved.cwd) input.remember(resolved.cwd);
-  else if (resolved.source !== "pin" && !resolved.cwd && input.forget && rememberedRuledOut(input, scoutName, isPrivateWorkspace)) {
+  else if (input.forget && rememberedRuledOut(input, scoutName, isPrivateWorkspace)) {
     input.forget();
   }
   return resolved.cwd ?? undefined;
