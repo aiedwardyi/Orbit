@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { pollServerIdentity } from "./server-boot-probe.mjs";
+import { BOOT_PROBE_INTERVAL_MS, pollServerIdentity } from "./server-boot-probe.mjs";
 
 const OUR_BODY = () => ({ app: "openmausbot", pid: 4242, static: true });
 
@@ -12,6 +12,10 @@ function okFetch({ body = OUR_BODY(), status = 200 } = {}) {
     json: async () => body,
   });
 }
+
+test("polls often enough that a just-listening child is noticed in well under a frame budget", () => {
+  assert.equal(BOOT_PROBE_INTERVAL_MS, 50);
+});
 
 test("returns ready when our own child answers with its identity", async () => {
   const outcome = await pollServerIdentity({

@@ -31,6 +31,7 @@ import {
   withToastCapability,
 } from "./desktop-notify.mjs";
 import { pollServerIdentity } from "./server-boot-probe.mjs";
+import { buildConnectingPage, isPackagedAppUrl } from "./boot-page.mjs";
 import { PACKAGE_INSTALL_SCHEME, packageUrlFromCommandLine, packageUrlFromDeepLink } from "./package-link.mjs";
 import { windowChromeOptions } from "./window-chrome.mjs";
 import { applyZoomShortcut } from "./window-zoom.mjs";
@@ -233,7 +234,7 @@ app.on("second-instance", (_event, commandLine) => {
 // alternate ports until one binds AND identifies as ours (the probe checks
 // our API shape, not just a 200).
 let serverProc = null;
-let serverReady = true;
+let serverReady = !app.isPackaged;
 let secureCredentials = {};
 let secureCredentialState = null;
 
@@ -1195,7 +1196,6 @@ function createWindow() {
     },
   });
   mainWindow = win;
-  void startBrowserSurface(win);
   if (isKnownSkin(persistedSkin)) {
     win.setBackgroundColor(chrome.color);
   }
@@ -1258,8 +1258,39 @@ function createWindow() {
   // same-origin embedded server, then follows the normal window-close path.
   // No debugging port or sandbox override is needed.
   if (process.env.OMB_SMOKE_TEST === "1") {
-    win.webContents.once("did-finish-load", async () => {
-      try {
+    const onSmokeLoad = async () => {
+      if (app.isPackaged && !isPackagedAppUrl(win.webContents.getURL(), SERVER_PORT)) return;
+      win.webContents.removeListener("did-finish-load", onSmokeLoad);
+      await runPackagedSmoke(win);
+    };
+    win.webContents.on("did-finish-load", onSmokeLoad);
+  }
+
+  if (app.isPackaged) {
+    win.loadURL(
+      serverReady
+        ? `http://127.0.0.1:${SERVER_PORT}`
+        : buildConnectingPage({
+            locale: uiLocale(),
+            fontStack: uiFontStack(),
+            backgroundColor: chrome.color,
+            message: nativeText("packaged.connecting"),
+          }),
+    );
+  } else {
+    win.loadURL(DEV_URL);
+  }
+  return win;
+}
+
+function revealPackagedApp(win) {
+  if (!win || win.isDestroyed()) return;
+  win.loadURL(serverReady ? `http://127.0.0.1:${SERVER_PORT}` : buildErrorPage({ allPortsOccupied: serverStartConflictOnly }));
+  if (serverReady) void startBrowserSurface(win);
+}
+
+async function runPackagedSmoke(win) {
+    try {
         const result = await win.webContents.executeJavaScript(`
           (async () => {
             if (!window.ogb?.getCapabilities) throw new Error("desktop preload bridge is unavailable");
@@ -1349,20 +1380,11 @@ function createWindow() {
         result.hardwareAccelerationEnabled = app.isHardwareAccelerationEnabled();
         result.displayMediaRequests = displayMediaRequestCount;
         console.log(`[smoke] renderer-ready ${JSON.stringify(result)}`);
-      } catch (error) {
-        console.error(`[smoke] renderer-failed ${error?.stack ?? error}`);
-      } finally {
-        if (process.env.OMB_SMOKE_KEEP_OPEN !== "1") win.close();
-      }
-    });
-  }
-
-  if (app.isPackaged) {
-    win.loadURL(serverReady ? `http://127.0.0.1:${SERVER_PORT}` : buildErrorPage({ allPortsOccupied: serverStartConflictOnly }));
-  } else {
-    win.loadURL(DEV_URL);
-  }
-  return win;
+    } catch (error) {
+      console.error(`[smoke] renderer-failed ${error?.stack ?? error}`);
+    } finally {
+      if (process.env.OMB_SMOKE_KEEP_OPEN !== "1") win.close();
+    }
 }
 
 // Local-control screen preview — served from the main process so the Screen
@@ -1745,19 +1767,9 @@ setCuaStateListener((connection) => {
 app.whenReady().then(async () => {
   if (app.isPackaged) app.setAsDefaultProtocolClient(PACKAGE_INSTALL_SCHEME);
   if (process.platform === "darwin") app.dock.setIcon(APP_ICON);
-  secureCredentials = await loadSecureCredentials();
-  if (app.isPackaged) {
-    await secureComposioConfig();
-    await secureWorkspaceConfig();
-  }
-  // Boot migrations above are deliberately sequential. From this point on,
-  // every account/API-key writer must use the shared serialized state.
-  // An unreadable store must not become a WRITE of an empty document.
-  secureCredentialState = createSecureCredentialState(secureCredentials, saveSecureCredentials, {
-    writable: !credentialStoreUnavailable,
-  });
-  secureCredentials = secureCredentialState.read();
-  const hostedAccount = ensureCompanionAccountService();
+  registerCuaIpc();
+  androidDevice.registerIpc(ipcMain);
+  registerUpdaterIpc();
   // Display capture remains user-initiated. The renderer first sends a
   // short-lived one-shot intent, then calls getDisplayMedia in the same click.
   // The handler binds that request to the same frame/origin, rejects audio,
@@ -1809,12 +1821,27 @@ app.whenReady().then(async () => {
       { useSystemPicker: false },
     );
   }
-  registerCuaIpc();
-  androidDevice.registerIpc(ipcMain);
-  registerUpdaterIpc();
-  // Start the CUA daemon before the window so the harness can pick up the
-  // connection descriptor on first render. Never blocks window creation on
-  // failure — computer use degrades to "unavailable", the rest still works.
+  // First paint: show the window before credential I/O, CUA, or the harness
+  // child. Packaged loads a skin-colored connecting page until /api/health.
+  const win = createWindow();
+  slog(`window shown packaged=${app.isPackaged} serverReady=${serverReady} uptime=${process.uptime().toFixed(2)}s`);
+  startUpdater(win);
+  if (!app.isPackaged) void startBrowserSurface(win);
+  secureCredentials = await loadSecureCredentials();
+  if (app.isPackaged) {
+    await secureComposioConfig();
+    await secureWorkspaceConfig();
+  }
+  // Boot migrations above are deliberately sequential. From this point on,
+  // every account/API-key writer must use the shared serialized state.
+  // An unreadable store must not become a WRITE of an empty document.
+  secureCredentialState = createSecureCredentialState(secureCredentials, saveSecureCredentials, {
+    writable: !credentialStoreUnavailable,
+  });
+  secureCredentials = secureCredentialState.read();
+  const hostedAccount = ensureCompanionAccountService();
+  // CUA after the first window so daemon spawn does not contend with first
+  // paint. Never blocks reveal on failure — computer use degrades.
   cuaReady =
     process.platform === "darwin" || process.platform === "linux"
       ? startCua().catch((e) => {
@@ -1822,7 +1849,11 @@ app.whenReady().then(async () => {
           return { mode: "unavailable", reason: String(e) };
         })
       : Promise.resolve({ mode: "unavailable", reason: "unsupported-platform" });
-  if (app.isPackaged) serverReady = await startServerPackaged();
+  if (app.isPackaged) {
+    serverReady = await startServerPackaged();
+    slog(`harness ${serverReady ? "ready" : "failed"} port=${SERVER_PORT} uptime=${process.uptime().toFixed(2)}s`);
+    revealPackagedApp(win);
+  }
   // The companion the user left on comes back without anyone finding the
   // toggle again — one attempt, after the harness port is settled, with the
   // exact options the IPC handler uses. A failure surfaces in companionState
@@ -1831,8 +1862,6 @@ app.whenReady().then(async () => {
   if (serverReady && companionEnabledAtRest() && !companionParked()) {
     void startDesktopCompanion({ waitForHosted: false, remember: false });
   }
-  const win = createWindow();
-  startUpdater(win);
   // Reconcile incomplete setup and resume interrupted sign-out only after the
   // local app is usable. This background network work never gates LAN pairing
   // or the first window.
@@ -1860,7 +1889,10 @@ app.whenReady().then(async () => {
     }).finally(syncManagedComposioCredentials);
   }
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) {
+      const next = createWindow();
+      if (!app.isPackaged || serverReady) void startBrowserSurface(next);
+    }
   });
 });
 

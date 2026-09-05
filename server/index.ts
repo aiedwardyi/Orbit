@@ -647,7 +647,16 @@ function checkedMemberIds(value: unknown): { ok: true; memberIds: string[] } | {
 let bootSelection = { instanceId: "", model: "" };
 const store = new Store(() => bootSelection);
 const sendSequencer = new SendSequencer();
-bootSelection = await defaultSelection();
+// Engine describe() walks PATH and refreshModels for every instance. First
+// chat paint only needs Store + /api/bots; existing bots already carry a
+// selection. New-bot routes still await defaultSelection() themselves.
+void defaultSelection()
+  .then((sel) => {
+    bootSelection = sel;
+  })
+  .catch((error) => {
+    console.error(`[boot] default engine scan failed: ${error instanceof Error ? error.message : String(error)}`);
+  });
 
 /** A bot as a client may see it: no provider session bookkeeping.
  *
