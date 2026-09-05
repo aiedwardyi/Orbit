@@ -320,7 +320,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
         </Suspense>
       )}
       {!onboardingOpen && !noEngines && state.connected && (state.createBotOpen || state.bots.length === 0) && (
-        <Suspense fallback={<BootFallback />}>
+        <Suspense fallback={null}>
           <CreateBotSheet required={state.bots.length === 0} />
         </Suspense>
       )}

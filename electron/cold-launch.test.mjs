@@ -53,8 +53,19 @@ describe("packaged cold launch does not hide the window behind the harness", () 
     const reveal = sourceBetween(main, "function revealPackagedApp(", "async function runPackagedSmoke");
     expect(reveal).toContain("livePackagedWindow(");
     expect(reveal).toContain("shouldReloadPackagedWindow(");
-    expect(reveal).toMatch(/packagedBootPhase = serverReady \? "ready" : "failed"/);
+    expect(reveal).toMatch(/packagedBootPhase = serverReady \? BOOT_READY : BOOT_FAILED/);
+    expect(reveal).toContain("createWindow()");
     expect(reveal).toContain("startBrowserSurface(target)");
+  });
+
+  it("registers activate before the packaged harness wait", () => {
+    const ready = sourceBetween(main, "app.whenReady().then(async () => {", "app.on(\"window-all-closed\"");
+    const windowAt = ready.indexOf("createWindow()");
+    const activateAt = ready.indexOf("app.on(\"activate\"");
+    const serverAt = ready.indexOf("await startServerPackaged()");
+    expect(windowAt).toBeGreaterThan(-1);
+    expect(activateAt).toBeGreaterThan(windowAt);
+    expect(activateAt).toBeLessThan(serverAt);
   });
 
   it("does not consume orbit://install on the connecting page", () => {
@@ -65,6 +76,8 @@ describe("packaged cold launch does not hide the window behind the harness", () 
   it("starts the browser surface at most once per window", () => {
     const start = sourceBetween(main, "async function startBrowserSurface(owner) {", "function browserSurfaceForEvent");
     expect(start).toMatch(/browserSurfaceOwner === owner/);
+    expect(start).toMatch(/owner.isDestroyed\(\) \|\| browserSurfaceOwner !== owner/);
+    expect(start).toMatch(/if \(browserSurfaceOwner === owner\) \{\s*browserSurface = null/);
   });
 
   it("does not start the built-in browser host until the real UI is revealed", () => {

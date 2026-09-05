@@ -32,6 +32,9 @@ import {
 } from "./desktop-notify.mjs";
 import { pollServerIdentity } from "./server-boot-probe.mjs";
 import {
+  BOOT_CONNECTING,
+  BOOT_FAILED,
+  BOOT_READY,
   buildConnectingPage,
   isPackagedAppUrl,
   markFailedBootPage,
@@ -249,7 +252,7 @@ let serverReady = !app.isPackaged;
 // Packaged window URL state. `serverReady` stays a boolean for the rest of
 // main (companion, activate-after-ready); this ternary is what createWindow
 // and reveal consult so a failed boot cannot look like "still connecting".
-let packagedBootPhase = "connecting";
+let packagedBootPhase = BOOT_CONNECTING;
 let secureCredentials = {};
 let secureCredentialState = null;
 
@@ -1063,18 +1066,29 @@ async function startBrowserSurface(owner) {
     browserSurface = null;
   }
   browserSurfaceOwner = owner;
+  const surface = createBrowserSurfaceManager({
+    owner,
+    createView: (options) => new WebContentsView(options),
+    notify: (state) => {
+      if (!owner.isDestroyed() && !owner.webContents.isDestroyed()) owner.webContents.send("browser:state", state);
+    },
+  });
+  browserSurface = surface;
   try {
-    browserSurface = createBrowserSurfaceManager({
-      owner,
-      createView: (options) => new WebContentsView(options),
-      notify: (state) => {
-        if (!owner.isDestroyed() && !owner.webContents.isDestroyed()) owner.webContents.send("browser:state", state);
-      },
-    });
     if (!browserHost) {
       browserHost = createBrowserHost({ manager: () => browserSurface });
       await browserHost.start();
       browserConnectionStore.persist(browserHost.descriptor());
+    }
+    if (owner.isDestroyed() || browserSurfaceOwner !== owner) {
+      if (browserSurface === surface) {
+        try {
+          surface.closeAll();
+        } catch {}
+        browserSurface = null;
+      }
+      if (browserSurfaceOwner === owner) browserSurfaceOwner = null;
+      return;
     }
     // A renderer reload or crash loses the panel that positioned the views;
     // hide them until a mounted Browser tab lays them out again. The pages
@@ -1083,7 +1097,6 @@ async function startBrowserSurface(owner) {
       if (isMainFrame && !isInPlace) browserSurface?.hideAll();
     });
     owner.webContents.on("render-process-gone", () => browserSurface?.hideAll());
-    const surface = browserSurface;
     owner.once("closed", () => {
       surface.closeAll();
       if (browserSurface === surface) browserSurface = null;
@@ -1092,8 +1105,10 @@ async function startBrowserSurface(owner) {
     slog(`browser surface ready for window ${owner.id} (host ${browserHost.url})`);
   } catch (error) {
     slog(`browser surface unavailable: ${error?.message ?? error}`);
-    browserSurface = null;
-    if (browserSurfaceOwner === owner) browserSurfaceOwner = null;
+    if (browserSurfaceOwner === owner) {
+      browserSurface = null;
+      browserSurfaceOwner = null;
+    }
   }
 }
 
@@ -1320,8 +1335,8 @@ function connectingPageHref(backgroundColor) {
 }
 
 function packagedWindowHref(backgroundColor) {
-  if (packagedBootPhase === "ready") return `http://127.0.0.1:${SERVER_PORT}`;
-  if (packagedBootPhase === "failed") return buildErrorPage({ allPortsOccupied: serverStartConflictOnly });
+  if (packagedBootPhase === BOOT_READY) return `http://127.0.0.1:${SERVER_PORT}`;
+  if (packagedBootPhase === BOOT_FAILED) return buildErrorPage({ allPortsOccupied: serverStartConflictOnly });
   const persistedSkin = readPersistedSkin(app.getPath("userData"));
   return connectingPageHref(backgroundColor ?? skinChrome(persistedSkin).color);
 }
@@ -1336,9 +1351,9 @@ function revealPackagedApp(win = mainWindow) {
   // Closing the connecting window during harness boot replaces `win` with a
   // new BrowserWindow. Always prefer the live main window so reveal cannot
   // no-op against a destroyed boot handle and leave "Connecting…" forever.
-  packagedBootPhase = serverReady ? "ready" : "failed";
-  const target = livePackagedWindow(win);
-  if (!target) return;
+  packagedBootPhase = serverReady ? BOOT_READY : BOOT_FAILED;
+  let target = livePackagedWindow(win);
+  if (!target) target = createWindow();
   if (shouldReloadPackagedWindow(target.webContents.getURL(), SERVER_PORT, packagedBootPhase)) {
     target.loadURL(packagedWindowHref());
   }
@@ -1886,6 +1901,15 @@ app.whenReady().then(async () => {
   slog(`window shown packaged=${app.isPackaged} serverReady=${serverReady} uptime=${process.uptime().toFixed(2)}s`);
   startUpdater(win);
   if (!app.isPackaged) void startBrowserSurface(win);
+  // Register before the packaged harness wait: on Darwin, closing the
+  // connecting window does not quit, and a dock click in that interval
+  // must be able to open a new one.
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      const next = createWindow();
+      if (!app.isPackaged || packagedBootPhase === BOOT_READY) void startBrowserSurface(next);
+    }
+  });
   secureCredentials = await credentialsReady;
   if (app.isPackaged) {
     await secureComposioConfig();
@@ -1947,12 +1971,6 @@ app.whenReady().then(async () => {
       return credentials;
     }).finally(syncManagedComposioCredentials);
   }
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      const next = createWindow();
-      if (!app.isPackaged || packagedBootPhase === "ready") void startBrowserSurface(next);
-    }
-  });
 });
 
 app.on("window-all-closed", () => {
