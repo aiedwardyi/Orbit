@@ -110,19 +110,24 @@ describe("normal-reopen shutdown stamps", () => {
         { id: "stopped", busy: false, threadId: "stopped-thread" },
         { id: "busy", busy: true, threadId: "busy-thread", activeThreadId: "busy-thread" },
         { id: "speaker", busy: true, threadId: "speaker-dm" },
+        { id: "routine", busy: true, threadId: "viewed-thread", activeThreadId: "viewed-thread" },
       ],
       groups: [
         { threadId: "room-idle", busyBotId: null, memberIds: ["idle"] },
         { threadId: "room-busy", busyBotId: "speaker", memberIds: ["speaker", "idle"] },
       ],
+      routineThreadByBotId: { routine: "routine-thread" },
       packetFor: (threadId) => packets[threadId] ?? null,
     })).toEqual([
       { threadId: "busy-thread", botId: "busy", reason: "shutdown" },
+      { threadId: "routine-thread", botId: "routine", reason: "shutdown" },
       { threadId: "room-busy", botId: "speaker", reason: "shutdown" },
       { threadId: "idle-thread", botId: "idle", reason: "shutdown" },
       { threadId: "room-idle", botId: "idle", reason: "shutdown" },
     ]);
-    expect(indexSource).toContain("shutdownStampsForClose");
+    expect(idleReopenStampReason(progress)).toBeNull();
+    expect(indexSource).toMatch(/hostShutdown[\s\S]*shutdownStampsForClose[\s\S]*taskPacketForWrite/);
+    expect(indexSource).toContain("if (packet && !hostShutdownStarted)");
   });
 });
 

@@ -233,6 +233,7 @@ type UtilityParentPort = {
 };
 const utilityParentPort = (process as NodeJS.Process & { parentPort?: UtilityParentPort }).parentPort;
 let hostShutdown = () => {};
+let hostShutdownStarted = false;
 utilityParentPort?.on("message", (event) => {
   const message = event?.data;
   if (isUtilityShutdownMessage(message)) {
@@ -760,7 +761,8 @@ store.onChange((change) => {
       break;
     case "task.packet": {
       const packet = store.taskPacket(change.threadId);
-      if (packet) broadcast({ kind: "task.packet", threadId: change.threadId, packet });
+      // Closing stamps must not paint the strip on the still-open window.
+      if (packet && !hostShutdownStarted) broadcast({ kind: "task.packet", threadId: change.threadId, packet });
       break;
     }
     case "bot": {
@@ -7603,7 +7605,6 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log(`openmausbot server on http://127.0.0.1:${PORT}`);
 });
 
-let hostShutdownStarted = false;
 hostShutdown = () => {
   if (hostShutdownStarted) return;
   hostShutdownStarted = true;
