@@ -1284,7 +1284,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
       <div
         ref={scrollRef}
         data-orbit-transcript
-        className="h-full overflow-x-hidden overflow-y-auto px-5 [overflow-anchor:none]"
+        className="h-full overflow-x-hidden overflow-y-auto [overflow-anchor:none]"
         onWheel={(e) => {
           if (e.deltaY < 0) setBottomFollow(false);
           else if (atEnd()) setBottomFollow(true);
@@ -1310,7 +1310,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
         }}
       >
         <div
-          className={cn("flex w-full flex-col gap-3", CHAT_COLUMN_CLASS)}
+          className={cn("flex w-full flex-col gap-3 px-5", CHAT_COLUMN_CLASS)}
           style={{ paddingBottom: composerDock.pad }}
           role="log"
           aria-live="polite"

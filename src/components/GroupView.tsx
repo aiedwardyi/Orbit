@@ -1203,7 +1203,7 @@ export function GroupView({ group }: { group: Group }) {
       <div
         ref={scrollRef}
         data-orbit-transcript
-        className="h-full overflow-x-hidden overflow-y-auto px-5 [overflow-anchor:none]"
+        className="h-full overflow-x-hidden overflow-y-auto [overflow-anchor:none]"
         onWheel={(e) => {
           if (e.deltaY < 0) setBottomFollow(false);
           else if (atEnd()) setBottomFollow(true);
@@ -1229,12 +1229,12 @@ export function GroupView({ group }: { group: Group }) {
         }}
       >
         {setupPending ? (
-          <div className="flex min-h-full w-full items-center py-8">
+          <div className="flex min-h-full w-full items-center px-5 py-8">
             <RoomSetup group={group} members={members} />
           </div>
         ) : (
         <div
-          className={cn("flex w-full flex-col gap-3", CHAT_COLUMN_CLASS)}
+          className={cn("flex w-full flex-col gap-3 px-5", CHAT_COLUMN_CLASS)}
           style={{ paddingBottom: composerDock.pad }}
           role="log"
           aria-live="polite"
