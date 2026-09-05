@@ -38,6 +38,7 @@ describe("first-chat boot keeps off-screen panels out of the initial module grap
   it("does not prefetch connected-apps on the first chat paint", () => {
     expect(app).toMatch(/preloadConnectedApps/);
     expect(app).toMatch(/requestIdleCallback/);
+    expect(app).toMatch(/timeout:\s*800/);
     expect(app).toMatch(/import\("@\/components\/PluginsPanel"\)/);
   });
 });

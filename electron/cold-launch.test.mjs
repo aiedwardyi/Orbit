@@ -38,6 +38,23 @@ describe("packaged cold launch does not hide the window behind the harness", () 
     expect(ready.indexOf("createWindow()")).toBeLessThan(ready.indexOf("startCua()"));
   });
 
+  it("overlaps credential I/O with first paint instead of awaiting keys first", () => {
+    const ready = sourceBetween(main, "app.whenReady().then(async () => {", "app.on(\"window-all-closed\"");
+    const start = ready.indexOf("loadSecureCredentials()");
+    const windowAt = ready.indexOf("createWindow()");
+    const awaitCreds = ready.search(/await credentialsReady/);
+    expect(start).toBeGreaterThan(-1);
+    expect(start).toBeLessThan(windowAt);
+    expect(windowAt).toBeLessThan(awaitCreds);
+  });
+
+  it("reveals the live main window so a closed connecting page cannot stick", () => {
+    const reveal = sourceBetween(main, "function revealPackagedApp(", "async function runPackagedSmoke");
+    expect(reveal).toContain("mainWindow");
+    expect(reveal).toMatch(/isDestroyed\(\)/);
+    expect(reveal).toContain("startBrowserSurface(target)");
+  });
+
   it("does not start the built-in browser host until the real UI is revealed", () => {
     const create = sourceBetween(main, "function createWindow() {", "function revealPackagedApp(");
     expect(create).not.toContain("void startBrowserSurface(win)");

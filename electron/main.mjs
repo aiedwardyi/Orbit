@@ -1283,10 +1283,19 @@ function createWindow() {
   return win;
 }
 
-function revealPackagedApp(win) {
-  if (!win || win.isDestroyed()) return;
-  win.loadURL(serverReady ? `http://127.0.0.1:${SERVER_PORT}` : buildErrorPage({ allPortsOccupied: serverStartConflictOnly }));
-  if (serverReady) void startBrowserSurface(win);
+function revealPackagedApp(win = mainWindow) {
+  // Closing the connecting window during harness boot replaces `win` with a
+  // new BrowserWindow. Always prefer the live main window so reveal cannot
+  // no-op against a destroyed boot handle and leave "Connecting…" forever.
+  const target =
+    mainWindow && !mainWindow.isDestroyed()
+      ? mainWindow
+      : win && !win.isDestroyed()
+        ? win
+        : null;
+  if (!target) return;
+  target.loadURL(serverReady ? `http://127.0.0.1:${SERVER_PORT}` : buildErrorPage({ allPortsOccupied: serverStartConflictOnly }));
+  if (serverReady) void startBrowserSurface(target);
 }
 
 async function runPackagedSmoke(win) {
@@ -1823,11 +1832,14 @@ app.whenReady().then(async () => {
   }
   // First paint: show the window before credential I/O, CUA, or the harness
   // child. Packaged loads a skin-colored connecting page until /api/health.
+  // Kick credential I/O now so it overlaps window construction — the
+  // connecting page does not need keys; the child env does.
+  const credentialsReady = loadSecureCredentials();
   const win = createWindow();
   slog(`window shown packaged=${app.isPackaged} serverReady=${serverReady} uptime=${process.uptime().toFixed(2)}s`);
   startUpdater(win);
   if (!app.isPackaged) void startBrowserSurface(win);
-  secureCredentials = await loadSecureCredentials();
+  secureCredentials = await credentialsReady;
   if (app.isPackaged) {
     await secureComposioConfig();
     await secureWorkspaceConfig();

@@ -108,7 +108,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
 
   useEffect(() => {
     const wake = () => setPaletteReady(true);
-    const idle = window.requestIdleCallback?.(wake);
+    const idle = window.requestIdleCallback?.(wake, { timeout: 800 });
     const timer = idle == null ? window.setTimeout(wake, 1) : 0;
     return () => {
       if (idle != null) window.cancelIdleCallback?.(idle);
@@ -128,7 +128,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
         .then((m) => m.preloadConnectedApps())
         .catch(() => {});
     };
-    const idle = window.requestIdleCallback?.(wake);
+    const idle = window.requestIdleCallback?.(wake, { timeout: 800 });
     const timer = idle == null ? window.setTimeout(wake, 1) : 0;
     return () => {
       cancelled = true;
