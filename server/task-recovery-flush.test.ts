@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+import { isCompletedTaskRecord } from "../shared/task-resume.ts";
 import {
   idleReopenStampReason,
   lastUserInstruction,
@@ -10,7 +11,7 @@ import {
   shutdownStampsForClose,
   turnCompletionDisposition,
 } from "./task-recovery-flush.ts";
-import { seedTaskResumePacket } from "./task-state-fold.ts";
+import { recordTaskCompletion, seedTaskResumePacket, stampTaskResumePacket } from "./task-state-fold.ts";
 
 const indexSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8");
 
@@ -78,6 +79,50 @@ describe("normal-reopen shutdown stamps", () => {
     expect(idleReopenStampReason({ flushReason: "approval", goal: "Wait for login" })).toBe("shutdown");
     expect(idleReopenStampReason({ flushReason: "engine-switch", goal: "Keep going" })).toBe("shutdown");
     expect(idleReopenStampReason({ flushReason: "pre-compaction", goal: "Keep going" })).toBe("shutdown");
+  });
+
+  it("stamps a completed turn-end for a quiet reopen without restoring nextAction", () => {
+    const completed = recordTaskCompletion(seed(), {
+      ok: true,
+      reply: "Draft complete with five cited sources.",
+      now: 300,
+      turnsAtWrite: 1,
+    });
+    expect(completed.nextAction).toBe("");
+    expect(idleReopenStampReason(completed)).toBe("shutdown");
+
+    const stamped = stampTaskResumePacket(completed, "shutdown", { now: 400 });
+    expect(stamped.flushReason).toBe("shutdown");
+    expect(stamped.nextAction).toBe("");
+    expect(stamped.completed.at(-1)?.note).toContain("Draft complete");
+  });
+
+  it("does not treat a finished 4/4 record as unfinished work on idle reopen", () => {
+    const finished = {
+      flushReason: "turn-end",
+      goal: "Publish the brief",
+      botId: "bot-1",
+      nextAction: "Publish the brief",
+      completed: [
+        { note: "Research", at: 1 },
+        { note: "Draft", at: 2 },
+        { note: "Citations", at: 3 },
+        { note: "Published the brief", at: 4 },
+      ],
+      plan: [
+        { status: "done" },
+        { status: "done" },
+        { status: "done" },
+        { status: "done" },
+      ],
+      blockers: [],
+    };
+    expect(isCompletedTaskRecord(finished)).toBe(true);
+    expect(idleReopenStampReason(finished)).toBe("shutdown");
+    expect(idleReopenStampReason({
+      ...finished,
+      flushReason: "progress",
+    })).toBeNull();
   });
 
   it("does not invent a record for empty or new bots, or re-nag a dismissed thread", () => {

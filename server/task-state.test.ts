@@ -100,6 +100,8 @@ describe("task resume packets", () => {
     writeTaskResumePacket(packet({ nextAction: "Publish after approval" }), { dir });
 
     expect(readTaskResumePacket("thread-1", { dir })?.nextAction).toBe("Publish after approval");
+    writeTaskResumePacket(packet({ nextAction: "" }), { dir });
+    expect(readTaskResumePacket("thread-1", { dir })?.nextAction).toBe("");
     expect(existsSync(join(dir, "thread-1.json"))).toBe(true);
     expect(readFileSync(join(dir, "thread-1.json"), "utf8")).not.toContain("Finish the comparison table");
   });

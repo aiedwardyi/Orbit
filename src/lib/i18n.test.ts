@@ -729,6 +729,9 @@ describe("Continuity recovery and compaction chrome", () => {
   const recovery = readFileSync(join(here, "../components/TaskRecoveryCard.tsx"), "utf8");
 
   it("keeps Resume and compaction disclosure as complete EN+KO phrases", () => {
+    expect(en["chat.conversationSaved"]).toBe("Conversation saved");
+    expect(ko["chat.conversationSaved"]).toBe("대화가 저장됨");
+    expect(ko["chat.conversationSaved"]).not.toMatch(/Conversation saved/i);
     expect(en["chat.resume"]).toBe("Resume");
     expect(ko["chat.resume"]).toBe("재개");
     expect(en["chat.resuming"]).toBe("Resuming…");
@@ -743,6 +746,7 @@ describe("Continuity recovery and compaction chrome", () => {
   });
 
   it("wires those phrases instead of hardcoded English", () => {
+    expect(recovery).toContain('t("chat.conversationSaved")');
     expect(recovery).toContain('t("chat.resume")');
     expect(recovery).toContain('t("chat.resuming")');
     expect(recovery).toContain('t("chat.compactionSummarized")');
