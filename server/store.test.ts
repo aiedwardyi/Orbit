@@ -1224,6 +1224,31 @@ describe("Store task working folder", () => {
   });
 });
 
+describe("Store remembered project folder", () => {
+  beforeEach(() => {
+    rmSync(DATA_DIR, { recursive: true, force: true });
+  });
+
+  it("remembers a resolved project per bot without turning it into a pin", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.rememberProjectCwd(bot.id, "/tmp/orbit");
+    expect(store.bot(bot.id)?.lastProjectCwd).toBe("/tmp/orbit");
+    expect(store.bot(bot.id)?.cwd).toBeUndefined();
+    expect(new Store(selection).bot(bot.id)?.lastProjectCwd).toBe("/tmp/orbit");
+
+    store.patchBot(bot.id, { cwd: "/tmp/pinned" });
+    expect(store.pinTaskCwd(bot.id, bot.threadId, store.bot(bot.id)?.lastProjectCwd)).toBe("/tmp/pinned");
+  });
+
+  it("lets a new unpinned task start in the remembered folder", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.rememberProjectCwd(bot.id, "/tmp/orbit");
+    expect(store.pinTaskCwd(bot.id, bot.threadId, store.bot(bot.id)!.lastProjectCwd)).toBe("/tmp/orbit");
+  });
+});
+
 describe("Store room working folder", () => {
   beforeEach(() => {
     rmSync(DATA_DIR, { recursive: true, force: true });

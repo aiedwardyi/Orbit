@@ -393,8 +393,12 @@ export interface BotRecord {
    * default because starting remote infrastructure is an external action. */
   autoStartVps?: boolean;
   /** where NEW tasks run their shell tools; each task pins its own copy
-   * on its first turn (TaskRecord.cwd). Absent = the home folder. */
+   * on its first turn (TaskRecord.cwd). Absent = resolve from chat, then
+   * last remembered project, then the private bot workspace. */
   cwd?: string;
+  /** Soft last project resolved from chat when this bot had no pin.
+   * Not a pin and not Settings — an explicit `cwd` still wins. */
+  lastProjectCwd?: string;
   /** Auto mode: the bot approves its own tool permissions and keeps
    * working instead of stopping to ask. Questions it asks YOU still come
    * through, and a short list of destructive commands still stops it. */
@@ -1358,6 +1362,16 @@ export class Store {
       this.emit({ type: "bot", botId });
     }
     return task.cwd;
+  }
+
+  /** Remember the project this bot last resolved from chat. Does not set
+   * `cwd` (that remains the explicit pin) and does not broadcast — the
+   * field is harness bookkeeping, not chrome. */
+  rememberProjectCwd(botId: string, cwd: string): void {
+    const bot = this.bot(botId);
+    if (!bot || !cwd || bot.lastProjectCwd === cwd) return;
+    bot.lastProjectCwd = cwd;
+    this.saveBots();
   }
 
   /** The folder a room's member turns run in. Pins on the first turn that

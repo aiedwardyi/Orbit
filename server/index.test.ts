@@ -3943,6 +3943,7 @@ describe("harness HTTP API", () => {
     const listed = await api("GET", "/api/bots");
     for (const bot of listed.body.bots) {
       expect(bot).not.toHaveProperty("resumeCursors");
+      expect(bot).not.toHaveProperty("lastProjectCwd");
       for (const task of bot.tasks ?? []) expect(task).not.toHaveProperty("resumeCursors");
     }
 
@@ -3950,8 +3951,10 @@ describe("harness HTTP API", () => {
     const botId = created.body.bot.id;
     try {
       expect(created.body.bot).not.toHaveProperty("resumeCursors");
+      expect(created.body.bot).not.toHaveProperty("lastProjectCwd");
       const patched = await api("PATCH", `/api/bots/${botId}`, { name: "Cursorless" });
       expect(patched.body.bot).not.toHaveProperty("resumeCursors");
+      expect(patched.body.bot).not.toHaveProperty("lastProjectCwd");
 
       const task = await api("POST", `/api/bots/${botId}/tasks`, {});
       expect(task.body.bot).not.toHaveProperty("resumeCursors");
