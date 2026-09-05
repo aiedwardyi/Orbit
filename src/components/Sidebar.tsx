@@ -49,6 +49,7 @@ import { RenameTitle } from "./RenameTitle";
 import { BotPickerList } from "./BotPickerList";
 import {
   displaySidebarWidth,
+  fitSidebarWidth,
   loadSidebarCollapsed,
   loadSidebarDensity,
   loadSidebarWidth,
@@ -1052,9 +1053,15 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const focusSearchAfterExpand = useRef(false);
   const resizeFrom = useRef<{ x: number; width: number; collapsed: boolean; query: string } | null>(null);
   const [resizing, setResizing] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   const sidebarDisplayWidth = displaySidebarWidth({
     collapsed: sidebarCollapsed,
-    width: !sidebarCollapsed && density === "icons" ? SIDEBAR_ICONS_WIDTH : sidebarWidth,
+    width: !sidebarCollapsed && density === "icons" ? SIDEBAR_ICONS_WIDTH : fitSidebarWidth(sidebarWidth, viewportWidth),
   });
 
   const applySidebarLayout = (next: SidebarLayout) => {

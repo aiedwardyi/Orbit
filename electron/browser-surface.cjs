@@ -312,9 +312,11 @@ function createBrowserSurfaceManager({
     // needs a real viewport: a zero-size view lays the page out as nothing
     // visible, and Playwright's snapshot hands out refs only for visible
     // nodes. Hidden views keep the desktop size until the panel lays them
-    // out. Attach first — bounds set before a view has a parent are dropped.
+    // out, parked off-screen: a view left at the window origin overhangs the
+    // right and bottom edges of a small window. Attach first — bounds set
+    // before a view has a parent are dropped.
     owner.contentView.addChildView(view);
-    view.setBounds({ x: 0, y: 0, width: VIEWPORT.width, height: VIEWPORT.height });
+    view.setBounds(hiddenBrowserViewBounds());
     view.setVisible(false);
     void view.webContents.loadURL("about:blank").catch(() => {});
     return entry;
