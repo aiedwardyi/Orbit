@@ -52,17 +52,17 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
   };
 
   return (
-    <div className="relative">
-      <div
-        ref={anchorRef}
-        data-reaction-bar
-        className={cn(
-          "absolute left-0 top-0 z-20 mt-0.5 flex w-fit items-center gap-0.5 rounded-full border border-hairline/35 bg-card/75 px-1 py-0.5 shadow-[0_1px_3px_rgba(0,0,0,0.05)] transition-opacity",
-          pickerOpen
-            ? "opacity-100"
-            : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100",
-        )}
-      >
+    <div
+      ref={anchorRef}
+      data-reaction-bar
+      className={cn(
+        "relative mt-0.5",
+        pickerOpen
+          ? "opacity-100"
+          : "pointer-events-none max-h-0 overflow-hidden opacity-0 group-hover:pointer-events-auto group-hover:max-h-12 group-hover:overflow-visible group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:max-h-12 group-focus-within:overflow-visible group-focus-within:opacity-100",
+      )}
+    >
+      <div className="flex w-fit items-center gap-0.5 rounded-full border border-hairline/35 bg-card/75 px-1 py-0.5 shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
         {PRIMARY_REACTIONS.map((emoji) => {
           const pressed = mine.has(emoji);
           return (
