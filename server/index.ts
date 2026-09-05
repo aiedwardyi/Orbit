@@ -30,6 +30,11 @@ import {
 import * as checkpoints from "./checkpoints.ts";
 import { appendDecision, readDecisions } from "./decision-log.ts";
 import { validateBotCwd } from "./bot-cwd.ts";
+import {
+  applyResolvedProjectFolder,
+  projectPathsFromRecords,
+  userProjectTexts,
+} from "./project-folder.ts";
 import { attachmentExists, extensionForMime, IMAGE_MAX_BYTES, readAttachment, saveImage, type SavedAttachment } from "./attachments.ts";
 import {
   avatarGenerationRequestSchema,
@@ -657,7 +662,13 @@ const wireTask = ({
 }: TaskRecord) => ({ ...task, taskState: store.taskPacket(task.threadId) ?? undefined });
 
 const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
-  const { resumeCursors: _resumeCursors, activeThreadId: _activeThreadId, tasks, ...rest } = bot;
+  const {
+    resumeCursors: _resumeCursors,
+    activeThreadId: _activeThreadId,
+    lastProjectCwd: _lastProjectCwd,
+    tasks,
+    ...rest
+  } = bot;
   return { ...rest, avatarUrl: rest.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map(wireTask) } : {}) };
 };
 
@@ -2498,17 +2509,31 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         includeRoot: worksInWorkspace && opts?.runOn !== "cloud",
       });
       const packagePlaybooks = installedPlaybookInstructions(text, bot.playbooks);
-      // An explicit working folder wins for new tasks; otherwise they use
-      // the private bot workspace. A legacy task with an existing provider
+      // An explicit working folder wins for new tasks. With no pin, a
+      // folder the user named in chat (or the last one this bot resolved)
+      // is used instead of forcing Settings. Otherwise they use the
+      // private bot workspace. A legacy task with an existing provider
       // session deliberately pins to null (the old home-folder behavior),
       // because moving a live session would break resume.
       // A cloud run happens on the box, where a host folder means nothing:
       // pin the task to the default so the header chip never shows the
       // bot's folder for a task that runs elsewhere.
+      // Routines, card continuations, and bot-to-bot hops are not the user
+      // naming a folder — only ordinary chat lines count as cues.
+      const namedByUser = !opts?.cardContinuation && !opts?.automationSource && !opts?.commsDepth;
+      const resolvedProject = worksInWorkspace && opts?.runOn !== "cloud"
+        ? applyResolvedProjectFolder({
+            pin: bot.cwd,
+            remembered: bot.lastProjectCwd,
+            userTexts: userProjectTexts(store.messagesFor(threadId), namedByUser ? text : undefined),
+            recentPaths: projectPathsFromRecords({ bots: store.bots, groups: store.groups }),
+            remember: (cwd) => store.rememberProjectCwd(bot.id, cwd),
+          })
+        : undefined;
       if (opts?.runOn === "cloud") store.pinTaskCwd(bot.id, threadId, undefined, { none: true });
       const pinnedCwd =
         privateWorkspace && opts?.runOn !== "cloud"
-          ? store.pinTaskCwd(bot.id, threadId, privateWorkspace)
+          ? store.pinTaskCwd(bot.id, threadId, resolvedProject ?? privateWorkspace)
           : null;
       const cwd = pinnedCwd ?? undefined;
       // Checkpoint explicit project folders, where a bot can overwrite the
