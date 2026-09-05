@@ -12,6 +12,16 @@ export function isRecoveryFlushReason(reason: string): reason is RecoveryFlushRe
   return (RECOVERY_FLUSH_REASONS as readonly string[]).includes(reason);
 }
 
+/** A delayed dismiss must not overwrite a newer Stop / crash packet. */
+export function shouldStampRecoveryDismiss(
+  current: { updatedAt: number; flushReason: string },
+  requested: { updatedAt?: unknown; flushReason?: unknown },
+): boolean {
+  if (requested.updatedAt !== undefined && requested.updatedAt !== current.updatedAt) return false;
+  if (requested.flushReason !== undefined && requested.flushReason !== current.flushReason) return false;
+  return true;
+}
+
 /** Idle close may offer a reopen strip when a real forever-chat record already
  * exists and is not the live/dismissed `progress` write. Completed records
  * still stamp so the quiet saved copy can show; they are not unfinished work.

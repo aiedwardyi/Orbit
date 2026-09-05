@@ -130,6 +130,22 @@ describe("SettingsPanel friends effort", () => {
     expect(html).not.toContain("Choose a Claude or ACP engine");
   });
 
+  it("keeps a null task pin on the private workspace in the remembered-folder notice", async () => {
+    const { SettingsPanel } = await import("./SettingsPanel");
+    const { I18nProvider } = await import("@/lib/i18n");
+    const homePinned = {
+      ...bot,
+      cwd: "/work/orbit",
+      rememberedProjectCwd: "/work/orbit",
+      tasks: [{ threadId: "t1", cwd: null }],
+    } as Bot;
+    const html = renderToStaticMarkup(
+      createElement(I18nProvider, null, createElement(SettingsPanel, { bot: homePinned, defaultAdvancedOpen: true })),
+    );
+    expect(html).toContain("This task stays in the private workspace");
+    expect(html).not.toContain("This task stays in /work/orbit");
+  });
+
   it("keeps peer comms switchable on an engine that cannot coordinate", async () => {
     chrome.botDetailsAdvanced = true;
     const { SettingsPanel } = await import("./SettingsPanel");

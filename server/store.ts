@@ -1430,8 +1430,8 @@ export class Store {
   }
 
   /** Remember the project this bot last resolved from chat. Does not set
-   * `cwd` (that remains the explicit pin) and does not broadcast — the
-   * field is harness bookkeeping, not chrome. */
+   * `cwd` (that remains the explicit pin) and does not remount this task.
+   * Clients see it as `rememberedProjectCwd` — next-task only. */
   rememberProjectCwd(botId: string, cwd: string): void {
     const bot = this.bot(botId);
     if (!bot || !cwd || bot.lastProjectCwd === cwd) return;

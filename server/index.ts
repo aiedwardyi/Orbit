@@ -152,6 +152,7 @@ import {
   isRecoveryFlushReason,
   lastUserInstruction,
   packetAfterInterruption,
+  shouldStampRecoveryDismiss,
   shutdownStampsForClose,
   turnCompletionDisposition,
   type RecoveryFlushReason,
@@ -205,7 +206,7 @@ import { readCuaConnection } from "./local-computer.ts";
 import { LocalVmIdleTimer } from "./local-vm-idle.ts";
 import { LocalVmLease, LocalVmLeasePool } from "./local-vm-lease.ts";
 import { RepeatDetector, callKey } from "./repeat-detector.ts";
-import { redactSecrets, redactSecretsInText } from "./redact.ts";
+import { redactSecrets, redactSecretsInText, StreamSecretMasker } from "./redact.ts";
 import * as vps from "./vps-computer.ts";
 import { RoutineManager, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
 import { browserScreenshot, readBrowserConnection } from "./browser-connection.ts";
@@ -703,7 +704,7 @@ const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
   const {
     resumeCursors: _resumeCursors,
     activeThreadId: _activeThreadId,
-    lastProjectCwd: _lastProjectCwd,
+    lastProjectCwd,
     tasks,
     ...rest
   } = bot;
@@ -712,6 +713,7 @@ const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
     avatarUrl: rest.avatarUrl ?? null,
     // null, not omitted: a cleared folder must overwrite a stale client cwd
     cwd: rest.cwd ?? null,
+    ...(lastProjectCwd ? { rememberedProjectCwd: lastProjectCwd } : {}),
     ...(tasks ? { tasks: tasks.map(wireTask) } : {}),
   };
 };
@@ -933,12 +935,61 @@ function cursorSeq(raw: string | string[] | undefined): number | null {
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
+// Reasoning and assistant text interleave on one thread, so a shared masker
+// would bleed one stream's held tail into the other.
+const sseDeltaMaskers = new Map<string, Map<string, StreamSecretMasker>>();
+
+function maskRuntimePayload(payload: Record<string, unknown>): Record<string, unknown> {
+  if (payload.kind !== "runtime") return payload;
+  const event = payload.event as { type?: string; threadId?: string; streamKind?: string; delta?: unknown } | undefined;
+  if (event?.type !== "content.delta" || typeof event.delta !== "string" || !event.threadId) return payload;
+  let byKind = sseDeltaMaskers.get(event.threadId);
+  if (!byKind) {
+    byKind = new Map();
+    sseDeltaMaskers.set(event.threadId, byKind);
+  }
+  const streamKind = event.streamKind ?? "assistant_text";
+  let masker = byKind.get(streamKind);
+  if (!masker) {
+    masker = new StreamSecretMasker();
+    byKind.set(streamKind, masker);
+  }
+  return { ...payload, event: { ...event, delta: masker.push(event.delta) } };
+}
+
+function flushSseDeltaMaskers(threadId: string): Array<{ streamKind: string; tail: string }> {
+  const byKind = sseDeltaMaskers.get(threadId);
+  if (!byKind) return [];
+  sseDeltaMaskers.delete(threadId);
+  return [...byKind].flatMap(([streamKind, masker]) => {
+    const tail = masker.flush();
+    return tail ? [{ streamKind, tail }] : [];
+  });
+}
+
 function broadcast(payload: Record<string, unknown>) {
+  const kind = String(payload.kind ?? "");
+  if (kind === "runtime") {
+    const event = payload.event as { type?: string; threadId?: string } | undefined;
+    if (event?.threadId && event.type !== "content.delta") {
+      for (const { streamKind, tail } of flushSseDeltaMaskers(event.threadId)) {
+        writeBroadcastFrame({
+          kind: "runtime",
+          event: { ...event, type: "content.delta", streamKind, delta: tail },
+        }, true);
+      }
+    }
+  }
+  writeBroadcastFrame(payload);
+}
+
+function writeBroadcastFrame(payload: Record<string, unknown>, alreadyMasked = false) {
   const seq = ++lastSeq;
   const kind = String(payload.kind ?? "");
   // Screen frames are live pixels, not text — leave them alone. Everything
   // else is JSON the renderer (and a pasted log) can read, so scrub first.
-  const safe = kind === "screen" ? payload : redactSecrets(payload) as Record<string, unknown>;
+  const streamSafe = kind === "screen" || alreadyMasked ? payload : maskRuntimePayload(payload);
+  const safe = kind === "screen" ? streamSafe : redactSecrets(streamSafe) as Record<string, unknown>;
   const frame = `id: ${STREAM_ID}:${seq}\ndata: ${JSON.stringify({ ...safe, seq })}\n\n`;
   // Live desktop captures can each be hundreds of kilobytes and become stale
   // as soon as the next one arrives. Keep their sequence slots so resume-gap
@@ -7015,8 +7066,17 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!conversation) return json(res, 404, { error: "no such task" });
       const task = conversation.group ? undefined : store.taskByThread(bot.id, m[2]);
       if (!conversation.group && !task) return json(res, 404, { error: "no such task" });
+      const body = await readBody(req);
+      if (body !== null && (typeof body !== "object" || Array.isArray(body))) {
+        return json(res, 400, { error: "body must be a JSON object" });
+      }
+      // read after the await: an earlier snapshot is compared against a packet a
+      // concurrent Stop may already have replaced, and then overwrites it
       const packet = taskPacketForWrite(m[2]);
       if (!packet) return json(res, 404, { error: "this task has no saved record" });
+      if (!shouldStampRecoveryDismiss(packet, body ?? {})) {
+        return json(res, 200, { ok: true, skipped: true });
+      }
       const saved = persistTaskPacket(stampTaskResumePacket(packet, "progress", {
         now: Date.now(),
         turnsAtWrite: task?.usage?.turns ?? packet.turnsAtWrite,
