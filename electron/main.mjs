@@ -281,6 +281,15 @@ async function loadSecureCredentials() {
   return result.credentials;
 }
 
+async function persistMigratedCredentials(credentials) {
+  if (secureCredentialState) {
+    await updateSecureCredentialDocument(() => credentials);
+    return;
+  }
+  await saveSecureCredentials(credentials);
+  secureCredentials = credentials;
+}
+
 async function saveSecureCredentials(credentials) {
   // A failed read means we do not know what the existing encrypted document
   // contains. Never derive a replacement from that incomplete view: boot
@@ -309,7 +318,7 @@ async function secureComposioConfig() {
     if (typeof apiKey === "string" && apiKey.trim().startsWith("ak_")) {
       if (!secureCredentials.composioApiKey) {
         secureCredentials.composioApiKey = apiKey.trim();
-        await saveSecureCredentials(secureCredentials);
+        await persistMigratedCredentials(secureCredentials);
       }
       config.composio.apiKey = "";
       changed = true;
@@ -349,7 +358,7 @@ async function secureWorkspaceConfig() {
     // credentials.bin first: if the OS store cannot take the secrets, the
     // plaintext stays put and the next boot retries — losing the only copy
     // is the one unacceptable outcome
-    if (migrated.credentialsChanged) await saveSecureCredentials(migrated.credentials);
+    if (migrated.credentialsChanged) await persistMigratedCredentials(migrated.credentials);
     secureCredentials = migrated.credentials;
     if (!migrated.configChanged) return;
     const temporary = `${configPath}.${process.pid}.tmp`;
@@ -719,7 +728,7 @@ async function gatherDiagnostics() {
 let serverStartConflictOnly = false;
 
 async function startServerOn(port) {
-  const entry = path.join(process.resourcesPath, "server", "index.js");
+  const entry = path.join(process.resourcesPath, "server", "packaged-boot.js");
   const childEnv = managedComposioChildEnvironment(composioBrokerUrl(), secureCredentials, {
     ...process.env,
     OMB_STATIC_DIR: path.join(process.resourcesPath, "ui"),
@@ -1913,12 +1922,8 @@ app.whenReady().then(async () => {
     }
   });
   secureCredentials = await credentialsReady;
-  if (app.isPackaged) {
-    await secureComposioConfig();
-    await secureWorkspaceConfig();
-  }
-  // Boot migrations above are deliberately sequential. From this point on,
-  // every account/API-key writer must use the shared serialized state.
+  // OS-store keys are enough to fork. Plaintext config.json migrations wait
+  // until after reveal so they cannot sit in front of a typeable composer.
   // An unreadable store must not become a WRITE of an empty document.
   secureCredentialState = createSecureCredentialState(secureCredentials, saveSecureCredentials, {
     writable: !credentialStoreUnavailable,
@@ -1938,6 +1943,8 @@ app.whenReady().then(async () => {
     serverReady = await startServerPackaged();
     slog(`harness ${serverReady ? "ready" : "failed"} port=${SERVER_PORT} uptime=${process.uptime().toFixed(2)}s`);
     revealPackagedApp(win);
+    await secureComposioConfig();
+    await secureWorkspaceConfig();
   }
   // The companion the user left on comes back without anyone finding the
   // toggle again — one attempt, after the harness port is settled, with the

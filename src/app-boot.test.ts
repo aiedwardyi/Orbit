@@ -35,6 +35,13 @@ describe("first-chat boot keeps off-screen panels out of the initial module grap
     expect(app).toContain("<Suspense");
   });
 
+  it("does not start the engine describe on the first chat snapshot", () => {
+    const store = readFileSync(join(here, "state/store.tsx"), "utf8");
+    expect(store).toMatch(/firstChatPeripherals/);
+    expect(store).toMatch(/scheduleDeferredInstancesLoad/);
+    expect(store).toMatch(/partByKey\.get\("instances"\)/);
+  });
+
   it("does not prefetch connected-apps on the first chat paint", () => {
     expect(app).toMatch(/preloadConnectedApps/);
     expect(app).toMatch(/requestIdleCallback/);

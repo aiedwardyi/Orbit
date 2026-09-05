@@ -4,6 +4,7 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, realpathSync, statSync, unlinkSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { currentEarlyListen } from "./early-listen.ts";
 import { isIP } from "node:net";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 
@@ -664,14 +665,8 @@ const store = new Store(() => bootSelection);
 const sendSequencer = new SendSequencer();
 // Engine describe() walks PATH and refreshModels for every instance. First
 // chat paint only needs Store + /api/bots; existing bots already carry a
-// selection. New-bot routes still await defaultSelection() themselves.
-void defaultSelection()
-  .then((sel) => {
-    bootSelection = sel;
-  })
-  .catch((error) => {
-    console.error(`[boot] default engine scan failed: ${error instanceof Error ? error.message : String(error)}`);
-  });
+// selection. Do not start that scan until after listen / early attach.
+// New-bot routes still await defaultSelection() themselves.
 
 /** A bot as a client may see it: no provider session bookkeeping.
  *
@@ -4393,7 +4388,7 @@ function isAllowedOrigin(origin: string | undefined | null): boolean {
   }
 }
 
-const server = createServer(async (req, res) => {
+const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
   const path = url.pathname;
   const method = req.method ?? "GET";
@@ -7666,11 +7661,26 @@ const server = createServer(async (req, res) => {
     const status = (e as any)?.status ?? 500;
     return json(res, status, { error: e instanceof Error ? e.message : String(e) });
   }
-});
+};
 
-server.listen(PORT, "127.0.0.1", () => {
-  console.log(`openmausbot server on http://127.0.0.1:${PORT}`);
-});
+const early = currentEarlyListen();
+if (early) {
+  early.setHandler(handleRequest);
+} else {
+  const server = createServer(handleRequest);
+  server.listen(PORT, "127.0.0.1", () => {
+    console.log(`openmausbot server on http://127.0.0.1:${PORT}`);
+  });
+}
+// PATH/CLI describe after the socket is accepting — first /api/bots must
+// not share the event loop with `--version` scans.
+void defaultSelection()
+  .then((sel) => {
+    bootSelection = sel;
+  })
+  .catch((error) => {
+    console.error(`[boot] default engine scan failed: ${error instanceof Error ? error.message : String(error)}`);
+  });
 
 hostShutdown = () => {
   if (hostShutdownStarted) return;

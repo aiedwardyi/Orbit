@@ -92,4 +92,26 @@ describe("packaged cold launch does not hide the window behind the harness", () 
     expect(main).toContain("isPackagedAppUrl(");
     expect(main).toContain("OMB_SMOKE_TEST");
   });
+
+  it("forks the thin packaged-boot entry so health can answer before the fat harness parses", () => {
+    expect(main).toContain("packaged-boot.js");
+    expect(main).toMatch(/server", "packaged-boot\.js"/);
+  });
+
+  it("reveals the live UI before packaged credential migrations", () => {
+    const ready = sourceBetween(main, "app.whenReady().then(async () => {", "app.on(\"window-all-closed\"");
+    const revealAt = ready.indexOf("revealPackagedApp(win)");
+    const composioAt = ready.indexOf("secureComposioConfig()");
+    const workspaceAt = ready.indexOf("secureWorkspaceConfig()");
+    const serverAt = ready.indexOf("await startServerPackaged()");
+    expect(revealAt).toBeGreaterThan(-1);
+    expect(composioAt).toBeGreaterThan(-1);
+    expect(workspaceAt).toBeGreaterThan(-1);
+    expect(serverAt).toBeGreaterThan(-1);
+    expect(serverAt).toBeLessThan(revealAt);
+    expect(revealAt).toBeLessThan(composioAt);
+    expect(revealAt).toBeLessThan(workspaceAt);
+    expect(ready.indexOf("await secureComposioConfig()")).toBeGreaterThan(revealAt);
+    expect(ready.indexOf("await secureWorkspaceConfig()")).toBeGreaterThan(revealAt);
+  });
 });

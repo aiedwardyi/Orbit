@@ -26,7 +26,7 @@ const port = 21000 + Math.floor(Math.random() * 9000);
 // Resources/server tree instead of the repo build.
 cpSync(process.env.OMB_SMOKE_DIST ?? join(root, "dist-server"), join(staging, "server"), { recursive: true });
 
-const child = spawn(process.execPath, [join(staging, "server", "index.js")], {
+const child = spawn(process.execPath, [join(staging, "server", "packaged-boot.js")], {
   cwd: staging,
   env: {
     ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
@@ -165,7 +165,7 @@ if (listening) {
 cleanup();
 
 if (!listening) {
-  console.error(`the packaged server never served /api/health on port ${port}.`);
+  console.error(`the packaged boot entry never served /api/health on port ${port}.`);
   console.error(`exit code: ${child.exitCode}`);
   console.error(output.trim() || "(no output)");
   process.exit(1);
