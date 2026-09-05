@@ -103,6 +103,22 @@ describe("buildTurnContext", () => {
     expect(out.turnText).toContain("User: my dog is named Biscuit");
   });
 
+  it("keeps the recycle preamble on a later compacted turn after cursors were cleared", () => {
+    const out = buildTurnContext({
+      text: "next",
+      transcript,
+      rewound: false,
+      fresh: true,
+      recycled: true,
+      replaysNatively: false,
+    });
+    expect(out.resume).toBe(false);
+    expect(out.turnText).toContain("Orbit compacted this conversation");
+    expect(out.turnText).not.toContain("joining this conversation");
+    expect(out.turnText).not.toContain("rewound this conversation");
+    expect(out.turnText.endsWith("next")).toBe(true);
+  });
+
   it("lets a rewind preamble win over session recycle", () => {
     const out = buildTurnContext({
       text: "hi",

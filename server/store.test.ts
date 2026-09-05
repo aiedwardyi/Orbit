@@ -396,6 +396,18 @@ describe("Store", () => {
     expect(reloaded.taskByThread(bot.id, background.threadId)?.resumeCursors).toEqual({ codex: "bg-thread" });
   });
 
+  it("clearResumeCursors is a no-op when the task and mirror are already empty", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const changes: unknown[] = [];
+    store.onChange((change) => changes.push(change));
+
+    store.clearResumeCursors(bot.id, bot.threadId);
+
+    expect(changes).toEqual([]);
+    expect(store.taskByThread(bot.id, bot.threadId)?.resumeCursors).toEqual({});
+  });
+
   it("owns durable task packets and emits after each write", () => {
     const store = new Store(selection);
     const bot = store.createBot();

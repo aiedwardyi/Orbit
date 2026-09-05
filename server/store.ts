@@ -1297,8 +1297,12 @@ export class Store {
     const bot = this.bot(botId);
     if (!bot) return;
     const task = threadId ? this.taskByThread(botId, threadId) : this.activeTask(botId);
+    const mirrorsBot = !threadId || bot.threadId === threadId;
+    const taskEmpty = !task || Object.keys(task.resumeCursors).length === 0;
+    const botEmpty = !mirrorsBot || Object.keys(bot.resumeCursors).length === 0;
+    if (taskEmpty && botEmpty) return;
     if (task) task.resumeCursors = {};
-    if (!threadId || bot.threadId === threadId) bot.resumeCursors = {};
+    if (mirrorsBot) bot.resumeCursors = {};
     this.saveBots();
     this.emit({ type: "bot", botId });
   }

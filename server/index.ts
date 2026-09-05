@@ -2411,6 +2411,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       hasPriorUserTurn,
     });
   const recycled = shouldRecycleProviderSession({ compacted: contextCompacted, rewound });
+  // Transcript-replay engines never `--resume`; clearing an already-empty
+  // map is a no-op. Resume-cursor engines drop the stale/fat session here.
   if (recycled) store.clearResumeCursors(bot.id, threadId);
   const replaysNatively = instance.adapter.capabilities.transcriptReplay === true;
   const currentPrompt = composeUserTurnPrompt(text, {

@@ -178,7 +178,7 @@ export function buildTurnContext(input: TurnContextInput): {
     turnText: [
       record,
       record ? "" : null,
-      rewound ? REWOUND_PREAMBLE : fresh ? FRESH_PREAMBLE : RECYCLED_PREAMBLE,
+      rewound ? REWOUND_PREAMBLE : recycled ? RECYCLED_PREAMBLE : FRESH_PREAMBLE,
       "",
       ...transcript.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`),
       "",

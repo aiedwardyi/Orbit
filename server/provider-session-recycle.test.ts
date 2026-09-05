@@ -54,6 +54,7 @@ describe("provider session recycle after Orbit compaction", () => {
       sessionModelSwitch: "in-session",
       resumeCursors: task.resumeCursors,
       transcript: prepared.transcript,
+      hasPriorUserTurn: true,
     });
     expect(fresh).toBe(false);
     expect(task.resumeCursors.claude).toBe("fat-session-abc");
@@ -78,6 +79,32 @@ describe("provider session recycle after Orbit compaction", () => {
     store.clearResumeCursors(bot.id, bot.threadId);
     expect(store.taskByThread(bot.id, bot.threadId)?.resumeCursors.claude).toBeUndefined();
     expect(store.bot(bot.id)?.resumeCursors.claude).toBeUndefined();
+
+    const nextTask = store.taskByThread(bot.id, bot.threadId)!;
+    const nextFresh = engineIsFresh({
+      instanceId: "claude",
+      model: "claude-sonnet-5",
+      lastInstanceId: nextTask.lastInstanceId,
+      lastModel: nextTask.lastModel,
+      sessionModelSwitch: "in-session",
+      resumeCursors: nextTask.resumeCursors,
+      transcript: prepared.transcript,
+      hasPriorUserTurn: true,
+    });
+    const nextRecycled = shouldRecycleProviderSession({ compacted: prepared.compacted, rewound: false });
+    const next = buildTurnContext({
+      text: "and then ship it",
+      transcript: prepared.transcript,
+      rewound: false,
+      fresh: nextFresh,
+      recycled: nextRecycled,
+      replaysNatively: false,
+    });
+    expect(nextFresh).toBe(true);
+    expect(nextRecycled).toBe(true);
+    expect(next.resume).toBe(false);
+    expect(next.turnText).toContain("Orbit compacted this conversation");
+    expect(next.turnText).not.toContain("joining this conversation");
   });
 
   it("still resumes Stop recovery when Orbit has not compacted yet", () => {
