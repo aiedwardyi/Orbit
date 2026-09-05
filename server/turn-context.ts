@@ -4,10 +4,11 @@ import { redactSecretsInText } from "./redact.ts";
 // inline replay of the active branch: a rewind (the visible branch
 // changed), a fresh engine (this instance has no session here — the user
 // switched the bot's model mid-thread), and a recycled session (Orbit
-// compacted the thread, so a CLI `--resume` of the pre-compact session
-// would bypass the bound). They coincide today but are distinct markers
-// on purpose: rewound also invalidates OTHER instances' cursors; recycle
-// drops this task's cursors so the next turn injects summary+tail.
+// compacted the thread, or a pre-compact soak fattened the native CLI
+// session with tool payloads). They coincide today but are distinct
+// markers on purpose: rewound also invalidates OTHER instances' cursors;
+// recycle drops this task's cursors so the next turn injects summary+tail
+// (or the still-uncompacted Orbit transcript).
 export interface TurnContextInput {
   /** the user's new message */
   text: string;
@@ -18,11 +19,17 @@ export interface TurnContextInput {
   /** this driver instance has no session cursor for this thread */
   fresh: boolean;
   /**
-   * Orbit compacted this thread (summary + tail is now the source of truth).
-   * CLI `--resume` / thread-resume would re-send the native session — full
-   * tool payloads and uncompacted history — and bypass that bound.
+   * The native provider session must not be resumed: Orbit compacted the
+   * thread, or a pre-compact soak fattened the CLI session with tool
+   * payloads. CLI `--resume` would re-send that fat history.
    */
   recycled?: boolean;
+  /**
+   * Why the provider session is being recycled. Compaction keeps the PR 70
+   * preamble; a pre-first-compact fat soak uses a distinct session-bound
+   * marker so the model is not told a summary exists when it does not.
+   */
+  recycleReason?: "compaction" | "session-fat";
   /** transcript-replay drivers get history via SendTurnInput.transcript instead */
   replaysNatively: boolean;
   /** durable harness state, included only at a recovery boundary */
@@ -83,14 +90,96 @@ export function engineIsFresh(input: {
  * session/load) would otherwise keep growing a provider-side session that
  * ignores that projection.
  *
+ * Before the first compact, a long agentic soak can still fatten the
+ * native session with full tool payloads while Orbit's own transcript
+ * stays cheap (collapsed chips). Recycle on the next user send when the
+ * last turn was tool-heavy, settled tools since the last compact exceed
+ * the session budget, or the provider reported native input over half
+ * the model window — the same share compaction uses.
+ *
  * Stop / crash Continuity still `--resume`s when there is no compaction
- * yet. A rewind already drops resume on its own path.
+ * yet, even if the session is already fat. A rewind already drops resume
+ * on its own path.
  */
+export const PRE_COMPACT_TOOL_ROUND_LIMIT = 24;
+export const PRE_COMPACT_SESSION_TOOL_ROUND_LIMIT = 48;
+const NATIVE_SESSION_BUDGET_SHARE = 0.5;
+
+export function nativeSessionTokenBudget(contextWindow: number): number {
+  const window = Number.isSafeInteger(contextWindow) && contextWindow > 0 ? contextWindow : 16_384;
+  return Math.max(1, Math.floor(window * NATIVE_SESSION_BUDGET_SHARE));
+}
+
+export interface SessionFatMessage {
+  id?: string;
+  kind?: string;
+  role?: string;
+  tool?: { ok?: boolean };
+}
+
+function isSettledTool(message: SessionFatMessage): boolean {
+  return message.kind === "activity" && message.tool?.ok !== undefined;
+}
+
+/** Settled tool chips after the previous user line (the last completed soak). */
+export function countLastTurnToolRounds(
+  messages: readonly SessionFatMessage[],
+  excludeIds?: ReadonlySet<string>,
+): number {
+  let count = 0;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!;
+    if (message.id && excludeIds?.has(message.id)) continue;
+    if (message.kind === "text" && message.role === "user") break;
+    if (isSettledTool(message)) count++;
+  }
+  return count;
+}
+
+/** Settled tool chips after the latest compaction marker or recycle
+ *  watermark (`boundMessageId`). Without the watermark a front-loaded
+ *  soak would keep recycling every later send until Orbit compacted. */
+export function countSessionToolRounds(
+  messages: readonly SessionFatMessage[],
+  excludeIds?: ReadonlySet<string>,
+  boundMessageId?: string,
+): number {
+  let start = 0;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (messages[index]!.kind === "compaction") {
+      start = index + 1;
+      break;
+    }
+  }
+  if (boundMessageId) {
+    const boundIndex = messages.findIndex((message) => message.id === boundMessageId);
+    if (boundIndex >= 0) start = Math.max(start, boundIndex + 1);
+  }
+  let count = 0;
+  for (let index = start; index < messages.length; index++) {
+    const message = messages[index]!;
+    if (message.id && excludeIds?.has(message.id)) continue;
+    if (isSettledTool(message)) count++;
+  }
+  return count;
+}
+
 export function shouldRecycleProviderSession(input: {
   compacted: boolean;
   rewound?: boolean;
+  recovering?: boolean;
+  lastTurnToolRounds?: number;
+  sessionToolRounds?: number;
+  lastTurnInputTokens?: number;
+  nativeTokenBudget?: number;
 }): boolean {
-  return Boolean(input.compacted) && !input.rewound;
+  if (input.rewound) return false;
+  if (input.compacted) return true;
+  if (input.recovering) return false;
+  if ((input.lastTurnToolRounds ?? 0) >= PRE_COMPACT_TOOL_ROUND_LIMIT) return true;
+  if ((input.sessionToolRounds ?? 0) >= PRE_COMPACT_SESSION_TOOL_ROUND_LIMIT) return true;
+  const budget = input.nativeTokenBudget ?? 0;
+  return budget > 0 && (input.lastTurnInputTokens ?? 0) > budget;
 }
 
 const REWOUND_PREAMBLE =
@@ -99,6 +188,16 @@ const FRESH_PREAMBLE =
   "[You are joining this conversation mid-thread (the user switched this bot over to you). The conversation so far:]";
 const RECYCLED_PREAMBLE =
   "[Orbit compacted this conversation to keep the provider session bounded. The conversation so far:]";
+const SESSION_FAT_PREAMBLE =
+  "[Orbit started a fresh provider session to keep tool history bounded. The conversation so far:]";
+
+function replayPreamble(input: TurnContextInput): string {
+  if (input.rewound) return REWOUND_PREAMBLE;
+  if (input.recycled) {
+    return input.recycleReason === "compaction" ? RECYCLED_PREAMBLE : SESSION_FAT_PREAMBLE;
+  }
+  return FRESH_PREAMBLE;
+}
 
 function compactValue(value: string, maxCharacters: number): string {
   const characters = Array.from(value);
@@ -178,7 +277,7 @@ export function buildTurnContext(input: TurnContextInput): {
     turnText: [
       record,
       record ? "" : null,
-      rewound ? REWOUND_PREAMBLE : recycled ? RECYCLED_PREAMBLE : FRESH_PREAMBLE,
+      replayPreamble(input),
       "",
       ...transcript.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`),
       "",

@@ -149,6 +149,7 @@ describe("Store", () => {
       cachedInput: 1000,
       costUsd: null,
       turns: 1,
+      lastInput: 1200,
     });
     // a driver that never reports the cached share leaves it unchanged
     store.addTaskUsage(bot.id, bot.threadId, { input: 800, output: 100, costUsd: null });
@@ -166,7 +167,23 @@ describe("Store", () => {
       cachedInput: 1010,
       costUsd: null,
       turns: 4,
+      lastInput: 10,
     });
+  });
+
+  it("remembers the last settled turn's input as the native session size signal", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    expect(store.addTaskUsage(bot.id, bot.threadId, { input: 12_000, output: 80, costUsd: null })).toMatchObject({
+      lastInput: 12_000,
+    });
+    store.addTaskUsage(bot.id, bot.threadId, { input: 88_000, output: 40, costUsd: null });
+    expect(store.taskByThread(bot.id, bot.threadId)?.usage?.lastInput).toBe(88_000);
+    // A turn that reports no tokens keeps the last real session-size signal.
+    store.addTaskUsage(bot.id, bot.threadId, { costUsd: null });
+    expect(store.taskByThread(bot.id, bot.threadId)?.usage?.lastInput).toBe(88_000);
+    const reloaded = new Store(selection);
+    expect(reloaded.taskByThread(bot.id, bot.threadId)?.usage?.lastInput).toBe(88_000);
   });
 
   it("persists the per-bot composio gate", () => {
@@ -394,6 +411,19 @@ describe("Store", () => {
     const reloaded = new Store(selection);
     expect(reloaded.taskByThread(bot.id, bot.threadId)?.resumeCursors).toEqual({});
     expect(reloaded.taskByThread(bot.id, background.threadId)?.resumeCursors).toEqual({ codex: "bg-thread" });
+  });
+
+  it("markProviderSessionBound records the recycle watermark and drops lastInput", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.addTaskUsage(bot.id, bot.threadId, { input: 88_000, output: 40, costUsd: null });
+    store.markProviderSessionBound(bot.id, bot.threadId, "user-recycle-1");
+    expect(store.taskByThread(bot.id, bot.threadId)?.providerSessionBoundId).toBe("user-recycle-1");
+    expect(store.taskByThread(bot.id, bot.threadId)?.usage?.lastInput).toBeUndefined();
+    expect(store.taskByThread(bot.id, bot.threadId)?.usage?.input).toBe(88_000);
+    const reloaded = new Store(selection);
+    expect(reloaded.taskByThread(bot.id, bot.threadId)?.providerSessionBoundId).toBe("user-recycle-1");
+    expect(reloaded.taskByThread(bot.id, bot.threadId)?.usage?.lastInput).toBeUndefined();
   });
 
   it("clearResumeCursors is a no-op when the task and mirror are already empty", () => {
@@ -1174,14 +1204,22 @@ describe("Store task usage", () => {
       output: 20,
       costUsd: 0.01,
       turns: 1,
+      lastInput: 100,
     });
     expect(store.addTaskUsage(bot.id, bot.threadId, { input: 50, output: 5, costUsd: 0.005 })).toEqual({
       input: 150,
       output: 25,
       costUsd: 0.015,
       turns: 2,
+      lastInput: 50,
     });
-    expect(store.taskByThread(bot.id, bot.threadId)?.usage).toEqual({ input: 150, output: 25, costUsd: 0.015, turns: 2 });
+    expect(store.taskByThread(bot.id, bot.threadId)?.usage).toEqual({
+      input: 150,
+      output: 25,
+      costUsd: 0.015,
+      turns: 2,
+      lastInput: 50,
+    });
   });
 
   it("keeps cost null until some turn reports one, then sums only reported costs", () => {

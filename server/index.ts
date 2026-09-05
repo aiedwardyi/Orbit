@@ -84,7 +84,7 @@ import {
   NATIVE_DIR,
 } from "./config.ts";
 import { ComputerControl } from "./computer-control.ts";
-import { contextWindowFor, prepareModelContext } from "./context-compaction.ts";
+import { contextWindowFor, knownCatalogContextWindow, prepareModelContext } from "./context-compaction.ts";
 import { augmentedPath, findCliCandidates, resetPathCache } from "./env-path.ts";
 import { describeSpawnFailure, execCli } from "./procs.ts";
 import { buildNotification, type Notification } from "./notify.ts";
@@ -153,7 +153,16 @@ import {
 import type { TaskResumePacket } from "./task-state.ts";
 import * as tts from "./tts/index.ts";
 import { narrateTool, toUtterances } from "./tts/speech-text.ts";
-import { buildResumeFallback, buildTurnContext, engineIsFresh, shouldRecycleProviderSession, taskRecordBlock } from "./turn-context.ts";
+import {
+  buildResumeFallback,
+  buildTurnContext,
+  countLastTurnToolRounds,
+  countSessionToolRounds,
+  engineIsFresh,
+  nativeSessionTokenBudget,
+  shouldRecycleProviderSession,
+  taskRecordBlock,
+} from "./turn-context.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import {
   ensureWorkspace,
@@ -684,6 +693,7 @@ const wireTask = ({
   resumeCursors: _resumeCursors,
   lastInstanceId: _lastInstanceId,
   lastModel: _lastModel,
+  providerSessionBoundId: _providerSessionBoundId,
   ...task
 }: TaskRecord) => ({ ...task, taskState: store.taskPacket(task.threadId) ?? undefined });
 
@@ -2451,10 +2461,34 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       transcript,
       hasPriorUserTurn,
     });
-  const recycled = shouldRecycleProviderSession({ compacted: contextCompacted, rewound });
+  const lastTurnToolRounds = countLastTurnToolRounds(activeMessages, skipTranscript);
+  const sessionToolRounds = countSessionToolRounds(
+    activeMessages,
+    skipTranscript,
+    task.providerSessionBoundId,
+  );
+  const knownWindow = knownCatalogContextWindow(instance.models, model);
+  const recycled = shouldRecycleProviderSession({
+    compacted: contextCompacted,
+    rewound,
+    recovering,
+    lastTurnToolRounds,
+    sessionToolRounds,
+    lastTurnInputTokens: task.usage?.lastInput,
+    // Claude/Codex catalogs often omit contextWindow; half of the 16k
+    // compaction fallback is the wrong unit for native prompt size.
+    nativeTokenBudget: knownWindow ? nativeSessionTokenBudget(knownWindow) : 0,
+  });
   // Transcript-replay engines never `--resume`; clearing an already-empty
   // map is a no-op. Resume-cursor engines drop the stale/fat session here.
-  if (recycled) store.clearResumeCursors(bot.id, threadId);
+  // Stop / crash Continuity on an uncompacted thread keeps the cursor.
+  if (recycled) {
+    store.clearResumeCursors(bot.id, threadId);
+    store.markProviderSessionBound(bot.id, threadId, userMessage.id);
+  }
+  const recycleReason = recycled
+    ? (contextCompacted ? "compaction" : "session-fat")
+    : undefined;
   const replaysNatively = instance.adapter.capabilities.transcriptReplay === true;
   const currentPrompt = composeUserTurnPrompt(text, {
     replyTo: opts?.replyTo,
@@ -2476,6 +2510,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     rewound,
     fresh,
     recycled,
+    recycleReason,
     replaysNatively,
     taskRecord: taskRecord ?? undefined,
     taskRecordText: durableTaskRecordText || undefined,
@@ -2817,8 +2852,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         text: turnText,
         model,
         effort,
-        // a rewound or Orbit-compacted thread never resumes the abandoned
-        // (or now-stale/fat) provider session. the active task's own
+        // a rewound, Orbit-compacted, or pre-compact fat thread never
+        // resumes the abandoned provider session. the active task's own
         // session — another task's cursor would resume the wrong
         // conversation and defeat the context bubble
         resumeCursor: resume ? task.resumeCursors[instanceId] : undefined,
@@ -3650,8 +3685,8 @@ async function runClaimedGroupMemberTurn(
     watchdog.watch(threadId, bot.id);
     // Rooms already inject Orbit's prepared context each turn and never
     // pass resumeCursor — they are Grok-flat. 1:1 CLI forever-chats go
-    // through startClaimedTurn, which recycles the native session once
-    // prepareModelContext has compacted the thread.
+    // through startClaimedTurn, which recycles the native session after
+    // Orbit compaction or a pre-compact fat soak.
     dispatchAdapterTurn(threadId, () => instance.adapter.sendTurn({
         threadId,
         text,

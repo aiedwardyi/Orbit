@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
+import { PRE_COMPACT_TOOL_ROUND_LIMIT } from "./turn-context.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
@@ -23,6 +24,51 @@ const CLAUDE_RESUME = {
   threadId: "compaction-claude-resume-thread",
   fatSession: "fat-session-abc",
 };
+const CLAUDE_FAT = {
+  botId: "compaction-claude-fat-bot",
+  threadId: "compaction-claude-fat-thread",
+  fatSession: "fat-soak-session",
+};
+const CLAUDE_FAT_STOP = {
+  botId: "compaction-claude-fat-stop-bot",
+  threadId: "compaction-claude-fat-stop-thread",
+  fatSession: "fat-soak-stop-session",
+};
+const CLAUDE_SLIM = {
+  botId: "compaction-claude-slim-bot",
+  threadId: "compaction-claude-slim-thread",
+  session: "slim-session",
+};
+
+function claudeResumeBot(input: {
+  id: string;
+  threadId: string;
+  name: string;
+  color: string;
+  session: string;
+}) {
+  return {
+    id: input.id,
+    threadId: input.threadId,
+    name: input.name,
+    title: "Release owner",
+    description: "Keep the release moving.",
+    notifications: true,
+    color: input.color,
+    unread: false,
+    modelSelection: { instanceId: "claude", model: "claude-fake" },
+    resumeCursors: { claude: input.session },
+    createdAt: 1,
+    tasks: [{
+      threadId: input.threadId,
+      title: "Release",
+      createdAt: 1,
+      resumeCursors: { claude: input.session },
+      lastInstanceId: "claude",
+      lastModel: "claude-fake",
+    }],
+  };
+}
 const ROOM_FIRST = {
   botId: "room-first-bot",
   botThreadId: "room-first-direct-thread",
@@ -139,27 +185,34 @@ describe("context compaction e2e", () => {
         createdAt: 1,
         tasks: [{ threadId: CLAUDE_THREAD_ID, title: "Release", createdAt: 1, resumeCursors: {} }],
       },
-      {
+      claudeResumeBot({
         id: CLAUDE_RESUME.botId,
         threadId: CLAUDE_RESUME.threadId,
         name: "Resume recycle",
-        title: "Release owner",
-        description: "Keep the release moving.",
-        notifications: true,
         color: "teal",
-        unread: false,
-        modelSelection: { instanceId: "claude", model: "claude-fake" },
-        resumeCursors: { claude: CLAUDE_RESUME.fatSession },
-        createdAt: 1,
-        tasks: [{
-          threadId: CLAUDE_RESUME.threadId,
-          title: "Release",
-          createdAt: 1,
-          resumeCursors: { claude: CLAUDE_RESUME.fatSession },
-          lastInstanceId: "claude",
-          lastModel: "claude-fake",
-        }],
-      },
+        session: CLAUDE_RESUME.fatSession,
+      }),
+      claudeResumeBot({
+        id: CLAUDE_FAT.botId,
+        threadId: CLAUDE_FAT.threadId,
+        name: "Fat soak recycle",
+        color: "orange",
+        session: CLAUDE_FAT.fatSession,
+      }),
+      claudeResumeBot({
+        id: CLAUDE_FAT_STOP.botId,
+        threadId: CLAUDE_FAT_STOP.threadId,
+        name: "Fat soak stop",
+        color: "red",
+        session: CLAUDE_FAT_STOP.fatSession,
+      }),
+      claudeResumeBot({
+        id: CLAUDE_SLIM.botId,
+        threadId: CLAUDE_SLIM.threadId,
+        name: "Slim resume",
+        color: "gray",
+        session: CLAUDE_SLIM.session,
+      }),
       {
         id: ROOM_FIRST.botId,
         threadId: ROOM_FIRST.botThreadId,
@@ -346,6 +399,59 @@ describe("context compaction e2e", () => {
         messages,
       }));
     }
+    const fatMessages = [
+      { id: "f0", at: 1, parentId: null, role: "user", kind: "text", text: "inspect the tree" },
+      ...Array.from({ length: PRE_COMPACT_TOOL_ROUND_LIMIT }, (_, index) => ({
+        id: `ft${index}`,
+        at: index + 2,
+        parentId: index === 0 ? "f0" : `ft${index - 1}`,
+        role: "bot",
+        kind: "activity",
+        tool: { name: `Read: file-${index}.ts`, ok: true },
+      })),
+      {
+        id: "fa",
+        at: PRE_COMPACT_TOOL_ROUND_LIMIT + 2,
+        parentId: `ft${PRE_COMPACT_TOOL_ROUND_LIMIT - 1}`,
+        role: "bot",
+        kind: "text",
+        text: "tree inspected",
+      },
+    ];
+    const slimMessages = [
+      { id: "s0", at: 1, parentId: null, role: "user", kind: "text", text: "say hi" },
+      { id: "st0", at: 2, parentId: "s0", role: "bot", kind: "activity", tool: { name: "Read: readme.md", ok: true } },
+      { id: "st1", at: 3, parentId: "st0", role: "bot", kind: "activity", tool: { name: "Read: note.md", ok: true } },
+      { id: "sa", at: 4, parentId: "st1", role: "bot", kind: "text", text: "hello" },
+    ];
+    writeFileSync(join(dataDir, `messages-${CLAUDE_FAT.threadId}.json`), JSON.stringify({
+      activeLeafId: "fa",
+      messages: fatMessages,
+    }));
+    writeFileSync(join(dataDir, `messages-${CLAUDE_FAT_STOP.threadId}.json`), JSON.stringify({
+      activeLeafId: "fa",
+      messages: fatMessages,
+    }));
+    writeFileSync(join(dataDir, `messages-${CLAUDE_SLIM.threadId}.json`), JSON.stringify({
+      activeLeafId: "sa",
+      messages: slimMessages,
+    }));
+    writeFileSync(join(dataDir, "task-state", `${CLAUDE_FAT_STOP.threadId}.json`), JSON.stringify({
+      v: 1,
+      threadId: CLAUDE_FAT_STOP.threadId,
+      botId: CLAUDE_FAT_STOP.botId,
+      goal: "Inspect the tree",
+      plan: [{ step: "Keep reading files", status: "active" }],
+      completed: [],
+      evidence: [],
+      artifacts: [],
+      blockers: [],
+      nextAction: "Keep reading files",
+      updatedAt: 1,
+      updatedBy: "harness",
+      flushReason: "stop",
+      turnsAtWrite: 0,
+    }));
     for (const [threadId, botId] of [[THREAD_ID, BOT_ID], [CLAUDE_THREAD_ID, CLAUDE_BOT_ID]]) {
       writeFileSync(join(dataDir, "task-state", `${threadId}.json`), JSON.stringify({
         v: 1,
@@ -442,6 +548,71 @@ describe("context compaction e2e", () => {
     expect(bot.messages.filter((message: { kind: string }) => message.kind === "compaction")).toHaveLength(1);
     expect(bot.messages.some((message: { text?: string }) => message.text === "history 0")).toBe(true);
     expect(JSON.stringify(bot.messages)).not.toContain("cannot summarize it");
+  }, 30_000);
+
+  it("does not --resume a fat Claude soak before the first Orbit compact", async () => {
+    rmSync(claudeDumpPath, { force: true });
+    expect((await api("POST", `/api/bots/${CLAUDE_FAT.botId}/messages`, {
+      text: "now commit",
+    })).status).toBe(202);
+
+    await waitFor(async () => {
+      const bot = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+        (candidate: { id: string }) => candidate.id === CLAUDE_FAT.botId,
+      );
+      return bot?.busy === false;
+    });
+
+    const dump = JSON.parse(readFileSync(claudeDumpPath, "utf8"));
+    expect(dump.argv).not.toContain("--resume");
+    expect(dump.argv).not.toContain(CLAUDE_FAT.fatSession);
+    expect(dump.argv).toContain("--session-id");
+    const prompt = typeof dump.prompt === "string" ? dump.prompt : JSON.stringify(dump.prompt);
+    expect(prompt).toContain("fresh provider session");
+    expect(prompt).not.toContain("Orbit compacted this conversation");
+    expect(prompt).toContain("tree inspected");
+  }, 30_000);
+
+  it("still --resumes Stop recovery on an uncompacted fat Claude soak", async () => {
+    rmSync(claudeDumpPath, { force: true });
+    expect((await api("POST", `/api/bots/${CLAUDE_FAT_STOP.botId}/messages`, {
+      text: "continue",
+    })).status).toBe(202);
+
+    await waitFor(async () => {
+      const bot = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+        (candidate: { id: string }) => candidate.id === CLAUDE_FAT_STOP.botId,
+      );
+      return bot?.busy === false;
+    });
+
+    const dump = JSON.parse(readFileSync(claudeDumpPath, "utf8"));
+    expect(dump.argv).toContain("--resume");
+    expect(dump.argv).toContain(CLAUDE_FAT_STOP.fatSession);
+    const prompt = typeof dump.prompt === "string" ? dump.prompt : JSON.stringify(dump.prompt);
+    expect(prompt).not.toContain("fresh provider session");
+    expect(prompt).not.toContain("Orbit compacted this conversation");
+  }, 30_000);
+
+  it("still --resumes a short uncompacted Claude thread", async () => {
+    rmSync(claudeDumpPath, { force: true });
+    expect((await api("POST", `/api/bots/${CLAUDE_SLIM.botId}/messages`, {
+      text: "thanks",
+    })).status).toBe(202);
+
+    await waitFor(async () => {
+      const bot = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+        (candidate: { id: string }) => candidate.id === CLAUDE_SLIM.botId,
+      );
+      return bot?.busy === false;
+    });
+
+    const dump = JSON.parse(readFileSync(claudeDumpPath, "utf8"));
+    expect(dump.argv).toContain("--resume");
+    expect(dump.argv).toContain(CLAUDE_SLIM.session);
+    const prompt = typeof dump.prompt === "string" ? dump.prompt : JSON.stringify(dump.prompt);
+    expect(prompt).not.toContain("fresh provider session");
+    expect(prompt).not.toContain("Orbit compacted this conversation");
   }, 30_000);
 
   it("does not --resume a stale Claude session after Orbit compaction", async () => {
