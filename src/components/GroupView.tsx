@@ -304,7 +304,7 @@ const Transcript = memo(function Transcript({
                 {!user && (
                   <div
                     data-message-hover-actions
-                    className="pointer-events-none absolute top-1/2 left-full z-20 ml-0.5 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+                    className="pointer-events-none absolute top-1/2 left-full z-20 ml-0.5 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 has-[[data-reaction-picker]]:pointer-events-auto has-[[data-reaction-picker]]:opacity-100"
                   >
                     <ReactionBar threadId={group.threadId} message={m} />
                     <button

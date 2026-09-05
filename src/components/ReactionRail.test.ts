@@ -62,6 +62,10 @@ describe("reaction rail", () => {
         const slice = src.slice(idx, idx + 500);
         expect(slice).toContain("group-hover:opacity-100");
         expect(slice).toContain("group-focus-within:opacity-100");
+        if (slice.includes("left-full")) {
+          expect(slice).toContain("has-[[data-reaction-picker]]:pointer-events-auto");
+          expect(slice).toContain("has-[[data-reaction-picker]]:opacity-100");
+        }
         expect(slice).toContain("opacity-0");
       }
     }
