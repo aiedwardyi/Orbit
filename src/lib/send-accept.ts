@@ -107,6 +107,29 @@ export function applyOptimisticBusy<T extends { threadId: string; busy?: boolean
   });
 }
 
+/** POST confirmed the user line but the turn never started. */
+export type SendPostReceipt = {
+  ok?: boolean;
+  dispatchFailed?: boolean;
+  cancelled?: boolean;
+  queued?: boolean;
+  queueId?: string;
+  error?: string;
+};
+
+export function receiptRejectsAcceptedSend(
+  body: SendPostReceipt | null | undefined,
+): boolean {
+  return Boolean(body?.dispatchFailed || body?.cancelled);
+}
+
+/** Keep the chip unless the server confirmed the send will not run. */
+export function shouldDropQueueChip(
+  result: { cancelled?: boolean; running?: boolean } | null | undefined,
+): boolean {
+  return result?.cancelled === true && result.running !== true;
+}
+
 export function visibleSteerEntries(
   pending: Record<string, Array<{ queueId: string; text: string }>> | undefined,
   threadId: string | undefined,

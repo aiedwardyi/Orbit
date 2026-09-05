@@ -9,8 +9,10 @@ import {
   composerIsBusy,
   dropIdleAcceptedThinking,
   forgetAcceptedSend,
+  receiptRejectsAcceptedSend,
   rememberAcceptedSend,
   settleAcceptedSend,
+  shouldDropQueueChip,
   turnPresenceWaiting,
   visibleSteerEntries,
 } from "./send-accept";
@@ -84,6 +86,15 @@ describe("accepted send bookkeeping", () => {
     expect(dropIdleAcceptedThinking(accepted, [{ threadId: "t1", busy: true }])).toBe(accepted);
   });
 
+  it("rejects an accepted send when the POST receipt says dispatch failed", () => {
+    expect(receiptRejectsAcceptedSend({ dispatchFailed: true })).toBe(true);
+    expect(receiptRejectsAcceptedSend({ dispatchFailed: true, queued: true })).toBe(true);
+    expect(receiptRejectsAcceptedSend({ cancelled: true })).toBe(true);
+    expect(receiptRejectsAcceptedSend({ ok: true })).toBe(false);
+    expect(receiptRejectsAcceptedSend({ queued: true, queueId: "q1" })).toBe(false);
+    expect(receiptRejectsAcceptedSend(null)).toBe(false);
+  });
+
   it("lets POST settle only a Sends-next chip, not Thinking", () => {
     const accepted = rememberAcceptedSend(
       rememberAcceptedSend({}, "t1", { sendId: "think", kind: "thinking", text: "hi" }),
@@ -123,11 +134,25 @@ describe("visibleSteerEntries", () => {
   });
 });
 
+describe("queue cancel chrome", () => {
+  it("does not drop a chip while the server says that send is already running", () => {
+    expect(shouldDropQueueChip({ cancelled: false, running: true })).toBe(false);
+    expect(shouldDropQueueChip({ cancelled: true })).toBe(true);
+    expect(shouldDropQueueChip({ cancelled: false, running: false })).toBe(false);
+  });
+});
+
 describe("send-accept wiring", () => {
   it("paints Thinking and Sends-next from accepted-send helpers, not POST wait", () => {
     expect(chatView).toContain("turnPresenceWaiting");
     expect(groupView).toContain("turnPresenceWaiting");
     expect(composer).toContain("composerIsBusy");
     expect(composer).toContain("visibleSteerEntries");
+  });
+
+  it("clears optimistic Thinking from a dispatch-failed receipt, not hydrate", () => {
+    const store = readFileSync(join(here, "../state/store.tsx"), "utf8");
+    expect(store).toContain("receiptRejectsAcceptedSend");
+    expect(store).toContain("shouldDropQueueChip");
   });
 });
