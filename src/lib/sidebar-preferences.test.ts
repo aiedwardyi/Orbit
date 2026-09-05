@@ -72,6 +72,7 @@ describe("sidebar width preferences", () => {
     expect(fitSidebarWidth(SIDEBAR_MAX_WIDTH, 900)).toBe(900 - CHAT_MIN_WIDTH);
     expect(fitSidebarWidth(320, 768)).toBe(320);
     expect(fitSidebarWidth(SIDEBAR_MAX_WIDTH, 768)).toBe(768 - CHAT_MIN_WIDTH);
+    // below 768 the sidebar is a drawer over the chat, so it never squeezes the column
     expect(fitSidebarWidth(SIDEBAR_MAX_WIDTH, 600)).toBe(SIDEBAR_MAX_WIDTH);
     expect(fitSidebarWidth(SIDEBAR_MAX_WIDTH, Number.NaN)).toBe(SIDEBAR_MAX_WIDTH);
   });
