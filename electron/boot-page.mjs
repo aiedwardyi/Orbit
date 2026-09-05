@@ -30,15 +30,6 @@ export function isPackagedAppUrl(url, port) {
   }
 }
 
-export function isPackagedHarnessUrl(url, port) {
-  try {
-    const parsed = new URL(String(url ?? ""));
-    return parsed.protocol === "http:" && parsed.hostname === "127.0.0.1" && parsed.port === String(port);
-  } catch {
-    return false;
-  }
-}
-
 export function bootPagePhase(url) {
   const html = dataHtml(url);
   if (html.includes(BOOT_MARKER(BOOT_CONNECTING))) return BOOT_CONNECTING;
@@ -54,11 +45,8 @@ export function isFailedBootPageUrl(url) {
   return bootPagePhase(url) === BOOT_FAILED;
 }
 
-export function shouldDeliverPackageInstall(url, port) {
-  // Any path on the harness origin — History API routes must still receive
-  // orbit://install. Connecting/error are data: URLs, so they fail this check
-  // without a negative boot-page test that would also match about:blank.
-  return isPackagedHarnessUrl(url, port);
+export function shouldDeliverPackageInstall(url, _port) {
+  return !isConnectingPageUrl(url) && !isFailedBootPageUrl(url);
 }
 
 export function shouldStartPackagedSmoke(url, port) {

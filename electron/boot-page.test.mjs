@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BOOT_CONNECTING,
   BOOT_FAILED,
   BOOT_READY,
   buildConnectingPage,
@@ -46,9 +47,9 @@ describe("packaged boot-phase URL policy", () => {
   it("holds package-install until the real harness document loads", () => {
     expect(shouldDeliverPackageInstall(connecting, 8799)).toBe(false);
     expect(shouldDeliverPackageInstall(failed, 8799)).toBe(false);
-    expect(shouldDeliverPackageInstall("about:blank", 8799)).toBe(false);
     expect(shouldDeliverPackageInstall("http://127.0.0.1:8799/", 8799)).toBe(true);
     expect(shouldDeliverPackageInstall("http://127.0.0.1:8799/chat/abc", 8799)).toBe(true);
+    expect(shouldDeliverPackageInstall("about:blank", 8799)).toBe(true);
   });
 
   it("starts smoke on the harness or the failed page, never the connecting page", () => {
@@ -59,7 +60,7 @@ describe("packaged boot-phase URL policy", () => {
   });
 
   it("does not reload a window that already shows the destination phase", () => {
-    expect(shouldReloadPackagedWindow(connecting, 8799, "connecting")).toBe(false);
+    expect(shouldReloadPackagedWindow(connecting, 8799, BOOT_CONNECTING)).toBe(false);
     expect(shouldReloadPackagedWindow("http://127.0.0.1:8799/", 8799, BOOT_READY)).toBe(false);
     expect(shouldReloadPackagedWindow(failed, 8799, BOOT_FAILED)).toBe(false);
     expect(shouldReloadPackagedWindow(connecting, 8799, BOOT_READY)).toBe(true);
