@@ -44,13 +44,13 @@ describe("modelChipText", () => {
 describe("modelChipTitle", () => {
   it("names the live engine in the automatic tooltip", () => {
     expect(modelChipTitle({ mode: "automatic", instance: grok, model: "grok-4.6" }, t)).toBe(
-      "Orbit is choosing a working engine for this job. Currently Grok 4.6.",
+      "Stay on this engine while it works. Currently Grok 4.6.",
     );
   });
 
   it("says unresolved when automatic has no live instance yet", () => {
     expect(modelChipTitle({ mode: "automatic", model: "grok-4.6" }, t)).toBe(
-      "Orbit is choosing a working engine for this job. Currently unresolved.",
+      "Stay on this engine while it works. Currently unresolved.",
     );
   });
 
