@@ -26,6 +26,25 @@ import {
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-agy-cli.ts");
 
 describe("readAntigravityModelCatalog", () => {
+  it("lists official Gemini 3.8 Flash ahead of older Flash entries", () => {
+    const ids = STATIC_ANTIGRAVITY_MODELS.options.map((option) => option.id);
+    expect(STATIC_ANTIGRAVITY_MODELS.options.find((option) => option.id === "gemini-3.8-flash")).toEqual({
+      id: "gemini-3.8-flash",
+      label: "Gemini 3.8 Flash",
+    });
+    expect(ids).toEqual(expect.arrayContaining([
+      "gemini-3.7-flash-high",
+      "gemini-3.7-flash-medium",
+      "gemini-3.7-flash-low",
+      "gemini-3.6-flash-high",
+      "gemini-3.6-flash-medium",
+      "gemini-3.6-flash-low",
+    ]));
+    expect(ids.some((id) => /^gemini-3\.8-pro/.test(id))).toBe(false);
+    expect(ids.indexOf("gemini-3.8-flash")).toBeLessThan(ids.indexOf("gemini-3.7-flash-high"));
+    expect(STATIC_ANTIGRAVITY_MODELS.default).toBe("gemini-3.1-pro-high");
+  });
+
   it("returns the official list when settings are missing", () => {
     expect(readAntigravityModelCatalog({ HOME: join(tmpdir(), "omb-agy-missing-home") })).toEqual(
       STATIC_ANTIGRAVITY_MODELS,
