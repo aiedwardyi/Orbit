@@ -175,7 +175,8 @@ export function shouldRecycleProviderSession(input: {
   nativeTokenBudget?: number;
 }): boolean {
   if (input.rewound) return false;
-  // recovering must not block post-compaction recycle (PR 70)
+  // Compaction always forces a recycle regardless of recovery state: a
+  // recovered session that was then compacted must start fresh.
   if (input.compacted) return true;
   if (input.recovering) return false;
   if ((input.lastTurnToolRounds ?? 0) >= PRE_COMPACT_TOOL_ROUND_LIMIT) return true;
