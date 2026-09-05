@@ -12,65 +12,86 @@ const sources = {
   "reactions.ts": readFileSync(join(here, "../../shared/reactions.ts"), "utf8"),
 } as const;
 
+function reactionBarSource() {
+  const start = sources["Reactions.tsx"].indexOf("export function ReactionBar");
+  const end = sources["Reactions.tsx"].indexOf("export function ReactionChips");
+  return sources["Reactions.tsx"].slice(start, end);
+}
+
 describe("reaction rail", () => {
-  // The leading "{" is load-bearing: the bot-side "{!user && …" contains the user-side text.
-  it("drops the picker rail from user messages in ChatView", () => {
+  it("drops the picker from user messages in ChatView", () => {
     expect(sources["ChatView.tsx"]).not.toContain('{user && message.kind === "text" && <ReactionBar');
   });
 
-  it("keeps the picker rail on bot messages in ChatView", () => {
-    expect(sources["ChatView.tsx"]).toContain('{!user && message.kind === "text" && <ReactionBar');
+  it("keeps the picker on bot messages in ChatView", () => {
+    expect(sources["ChatView.tsx"]).toContain("<ReactionBar threadId={bot.threadId} message={message} />");
     expect(sources["ChatView.tsx"]).toContain("<ReactionChips threadId={bot.threadId}");
   });
 
-  it("drops the picker rail from user messages in GroupView", () => {
+  it("drops the picker from user messages in GroupView", () => {
     expect(sources["GroupView.tsx"]).not.toContain("{user && <ReactionBar threadId={group.threadId} message={m} />}");
   });
 
-  it("keeps the picker rail on bot messages in GroupView", () => {
+  it("keeps the picker on bot messages in GroupView", () => {
     expect(sources["GroupView.tsx"]).toContain("<ReactionBar threadId={group.threadId} message={m} />");
     expect(sources["GroupView.tsx"]).toContain("<ReactionChips threadId={group.threadId}");
   });
 
-  it("puts thumbs up, down, and heart on the visible Friends rail", () => {
-    expect(sources["Reactions.tsx"]).toContain('PRIMARY_REACTIONS');
-    expect(sources["reactions.ts"]).toMatch(/👍[\s\S]*👎[\s\S]*❤️/);
-    expect(sources["Reactions.tsx"]).toContain('data-reaction-bar');
+  it("folds copy, reply, pin, and regenerate into one horizontal hover row", () => {
+    expect(sources["ChatView.tsx"]).not.toContain("flex flex-col gap-0.5 self-end");
+    expect(sources["ChatView.tsx"]).toContain("data-message-hover-actions");
+    expect(sources["GroupView.tsx"]).toContain("data-message-hover-actions");
+    expect(sources["ChatView.tsx"]).toContain("left-full");
+    expect(sources["ChatView.tsx"]).toContain("right-full");
+    expect(sources["GroupView.tsx"]).toContain("left-full");
+    expect(sources["GroupView.tsx"]).toContain("right-full");
+    const chatRows = sources["ChatView.tsx"].split("data-message-hover-actions").slice(1);
+    expect(chatRows.length).toBeGreaterThanOrEqual(2);
+    expect(chatRows.some((row) => row.includes("flex items-center"))).toBe(true);
   });
 
-  it("hides the bubbly picker until message hover, focus, or the + control", () => {
-    const start = sources["Reactions.tsx"].indexOf("export function ReactionBar");
-    const end = sources["Reactions.tsx"].indexOf("export function ReactionChips");
-    const bar = sources["Reactions.tsx"].slice(start, end);
-    expect(bar).toMatch(/data-reaction-bar[\s\S]{0,400}opacity-0/);
-    expect(bar).toContain("group-hover:opacity-100");
-    expect(bar).toContain("group-focus-within:opacity-100");
-    expect(bar).toContain("pickerOpen");
-    expect(bar).toContain("setPickerOpen(false)");
-    expect(bar).toContain('aria-pressed');
+  it("reveals the hover row on group hover and keyboard focus, not as a permanent tray", () => {
+    for (const file of ["ChatView.tsx", "GroupView.tsx"] as const) {
+      const src = sources[file];
+      const idxs: number[] = [];
+      for (let i = src.indexOf("data-message-hover-actions"); i !== -1; i = src.indexOf("data-message-hover-actions", i + 1)) {
+        idxs.push(i);
+      }
+      expect(idxs.length).toBeGreaterThanOrEqual(2);
+      for (const idx of idxs) {
+        const slice = src.slice(idx, idx + 500);
+        expect(slice).toContain("group-hover:opacity-100");
+        expect(slice).toContain("group-focus-within:opacity-100");
+        expect(slice).toContain("opacity-0");
+      }
+    }
+  });
+
+  it("puts thumbs up, down, and heart in the picker, not an open tray", () => {
+    expect(sources["reactions.ts"]).toMatch(/👍[\s\S]*👎[\s\S]*❤️/);
+    const bar = reactionBarSource();
+    expect(bar).toContain("data-reaction-bar");
+    expect(bar).toContain("SmilePlus");
+    expect(bar).toContain("data-reaction-picker");
+    const trigger = bar.slice(0, bar.indexOf("data-reaction-picker"));
+    expect(trigger).not.toContain("PRIMARY_REACTIONS.map");
+    expect(trigger).not.toContain("EXTENDED_REACTIONS.map");
+    expect(bar).toContain("EXTENDED_REACTIONS.map");
+    expect(bar).toContain("toggleReaction");
+    expect(bar).toContain("aria-pressed");
     expect(bar).toContain('t("chat.moreReactions")');
     expect(sources["Reactions.tsx"]).toContain('t("chat.reactEmoji"');
     expect(bar).toMatch(/const mine = useMemo\(/);
     expect(bar).not.toContain("export const REACTION_SET");
   });
 
-  it("quiets tray chrome without shrinking hit targets or dropping the rail", () => {
-    const start = sources["Reactions.tsx"].indexOf("export function ReactionBar");
-    const end = sources["Reactions.tsx"].indexOf("export function ReactionChips");
-    const bar = sources["Reactions.tsx"].slice(start, end);
-    expect(bar).toContain("data-reaction-bar");
+  it("keeps bubbly picker icons and the existing dismiss contract", () => {
+    const bar = reactionBarSource();
     expect(bar).toContain("size-7");
     expect(bar).toContain("rounded-full");
     expect(bar).toContain("hover:scale-110");
-    expect(bar).toContain("toggleReaction");
-    expect(bar).toContain("mt-0.5");
-    expect(bar).not.toContain("shadow-[0_4px_14px_rgba(0,0,0,0.16)]");
-    const tray = bar.slice(bar.indexOf("data-reaction-bar"), bar.indexOf("data-reaction-picker"));
-    expect(tray).toContain("border-hairline/35");
-    expect(tray).toContain("bg-card/75");
-    expect(tray).not.toContain("border-hairline/50");
-    expect(tray).not.toContain("bg-card/95");
-    expect(tray).not.toContain("border-hairline/20");
-    expect(tray).not.toContain("bg-card/50");
+    expect(bar).toContain("setPickerOpen(false)");
+    expect(bar).toContain("Escape");
+    expect(bar).toContain("aria-expanded");
   });
 });
