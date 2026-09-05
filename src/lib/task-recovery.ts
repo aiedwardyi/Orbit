@@ -11,6 +11,14 @@ export type TaskRecoveryDismissal = {
   flushReason: string;
 };
 
+/** Normal idle reopen stamps shutdown. That is a saved conversation, not
+ * unfinished work — Resume and nextAction stay on crash / stop. */
+export function isQuietSavedConversation(
+  packet: { flushReason: string } | undefined | null,
+): boolean {
+  return packet?.flushReason === "shutdown";
+}
+
 export function isTaskRecoveryVisible<T extends { flushReason: string; updatedAt?: number }>(
   packet: T | undefined | null,
   botBusy: boolean | undefined,

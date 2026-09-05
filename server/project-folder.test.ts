@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { WORKSPACES_DIR } from "./workspace.ts";
 import {
   applyResolvedProjectFolder,
+  pathContainedBy,
   projectPathsFromRecords,
   projectSearchRoots,
   resolveProjectFolder,
@@ -168,6 +169,61 @@ describe("resolveProjectFolder", () => {
         recentPaths: [cafe],
       }),
     ).toEqual({ cwd: cafe, source: "named" });
+  });
+
+  it("matches a Korean particle after the project name", () => {
+    const orbit = folder("orbit");
+    expect(
+      resolveProjectFolder({
+        userTexts: ["Orbit에서 이어서 작업해줘"],
+        recentPaths: [orbit],
+      }),
+    ).toEqual({ cwd: orbit, source: "named" });
+    expect(
+      resolveProjectFolder({
+        userTexts: ["Orbit으로 옮겨"],
+        recentPaths: [orbit],
+      }),
+    ).toEqual({ cwd: orbit, source: "named" });
+    expect(
+      resolveProjectFolder({
+        userTexts: ["Orbit을 열어줘"],
+        recentPaths: [orbit],
+      }),
+    ).toEqual({ cwd: orbit, source: "named" });
+    expect(
+      resolveProjectFolder({
+        userTexts: ["Orbit를 써"],
+        recentPaths: [orbit],
+      }),
+    ).toEqual({ cwd: orbit, source: "named" });
+  });
+
+  it("still honors negation after a Korean particle mention", () => {
+    const orbit = folder("orbit");
+    const billing = folder("billing");
+    expect(
+      resolveProjectFolder({
+        remembered: orbit,
+        userTexts: ["Orbit을 말고"],
+        recentPaths: [orbit, billing],
+      }),
+    ).toEqual({ cwd: null, source: null });
+  });
+
+  it("treats mixed Windows slashes as the same containment tree", () => {
+    expect(pathContainedBy("C:\\Users\\me", "C:\\Users\\me\\proj")).toBe(true);
+    expect(pathContainedBy("C:/Users/me", "C:\\Users\\me\\proj")).toBe(true);
+    expect(pathContainedBy("C:\\Users\\me", "C:/Users/other")).toBe(false);
+  });
+
+  it("resolves a quoted absolute folder the same as an unquoted path", () => {
+    const orbit = folder("orbit");
+    expect(
+      resolveProjectFolder({
+        userTexts: [`please use "${orbit}"`],
+      }),
+    ).toEqual({ cwd: orbit, source: "named" });
   });
 
   it("does not treat a folder inside the bot workspaces root as a named project", () => {
@@ -509,7 +565,8 @@ describe("1:1 dispatch wiring", () => {
     expect(index).toContain("userProjectTexts");
     expect(index).toContain("projectPathsFromRecords");
     expect(index).toContain("namedByUser");
-    expect(index).toContain("lastProjectCwd: _lastProjectCwd");
+    expect(index).toContain("rememberedProjectCwd: lastProjectCwd");
+    expect(index).not.toContain("lastProjectCwd: _lastProjectCwd");
     const roomDispatch = index.slice(index.indexOf("const cwd = groupTurnCwd"));
     expect(roomDispatch).toContain("store.pinGroupCwd");
     expect(roomDispatch.slice(0, 400)).not.toContain("applyResolvedProjectFolder");

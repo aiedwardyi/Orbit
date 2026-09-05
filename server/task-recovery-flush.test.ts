@@ -7,6 +7,7 @@ import {
   idleReopenStampReason,
   lastUserInstruction,
   packetAfterInterruption,
+  shouldStampRecoveryDismiss,
   shutdownStampsForClose,
   turnCompletionDisposition,
 } from "./task-recovery-flush.ts";
@@ -160,6 +161,15 @@ describe("turn completion disposition after stop", () => {
       interruptedAt: 2,
       dispatchedAt: 3,
     })).toEqual({ superseded: true, interrupted: true });
+  });
+
+  it("stamps a recovery dismiss only when the posted version still matches", () => {
+    const current = { updatedAt: 200, flushReason: "shutdown" };
+    expect(shouldStampRecoveryDismiss(current, { updatedAt: 200, flushReason: "shutdown" })).toBe(true);
+    expect(shouldStampRecoveryDismiss(current, {})).toBe(true);
+    expect(shouldStampRecoveryDismiss(current, { updatedAt: 199, flushReason: "shutdown" })).toBe(false);
+    expect(shouldStampRecoveryDismiss(current, { updatedAt: 200, flushReason: "stop" })).toBe(false);
+    expect(indexSource).toContain("shouldStampRecoveryDismiss");
   });
 
   it("falls back to interruption time when the event carries no turn id", () => {

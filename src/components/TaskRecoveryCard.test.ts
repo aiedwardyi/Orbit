@@ -81,6 +81,15 @@ describe("TaskRecoveryStrip", () => {
     expect(failed).toContain("Resume");
   });
 
+  it("shows a quiet saved conversation on shutdown reopen without Resume or nextAction", () => {
+    const html = renderStrip({ packet: { ...packet, flushReason: "shutdown" } });
+    expect(html).toContain("Saved conversation");
+    expect(html).not.toContain("Resume");
+    expect(html).not.toContain("Next:");
+    expect(html).not.toContain("Verify the citations against the latest draft and then open a pull request");
+    expect(html).toContain("Dismiss saved task reminder");
+  });
+
   it("keeps Resume and dismiss after a stop flush", () => {
     const html = renderStrip({ packet: { ...packet, flushReason: "stop" } });
     expect(html).toContain("Task paused");

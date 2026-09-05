@@ -207,6 +207,7 @@ export const en = {
   "chat.savedDaysAgo": "saved {count}d ago",
   "chat.taskPaused": "Task paused",
   "chat.readyToContinue": "Ready to continue",
+  "chat.savedConversation": "Saved conversation",
   "chat.youStopped": "You stopped this task.",
   "chat.orbitRestarted": "Orbit restarted while this task was running.",
   "chat.next": "Next:",
@@ -308,6 +309,8 @@ export const en = {
   "bot.workingFolderSave": "Save",
   "bot.workingFolderPinned": "New tasks start here. This task is pinned to {folder} — start a new task to use the new folder.",
   "bot.workingFolderPinnedHome": "New tasks start here. This task is pinned to the home folder — start a new task to use the new folder.",
+  "bot.rememberedFolderNextTask": "“{folder}” is remembered for the next task. This task stays in {current}.",
+  "bot.rememberedFolderNextTaskHome": "“{folder}” is remembered for the next task. This task stays in the private workspace.",
 
   "room.setupTitle": "Set up {name}",
   "room.setupBody": "Pick a response style and add a little context before the first conversation. A shared folder is optional.",
@@ -877,6 +880,7 @@ export const ko = {
   "chat.savedDaysAgo": "{count}일 전에 저장됨",
   "chat.taskPaused": "작업이 일시 중지됨",
   "chat.readyToContinue": "이어서 진행할 수 있음",
+  "chat.savedConversation": "저장된 대화",
   "chat.youStopped": "이 작업을 중지했습니다.",
   "chat.orbitRestarted": "이 작업이 실행 중일 때 Orbit가 다시 시작되었습니다.",
   "chat.next": "다음:",
@@ -978,6 +982,8 @@ export const ko = {
   "bot.workingFolderSave": "저장",
   "bot.workingFolderPinned": "새 작업은 여기에서 시작합니다. 이 작업은 {folder}에 고정되어 있습니다 — 새 폴더를 쓰려면 새 작업을 시작하세요.",
   "bot.workingFolderPinnedHome": "새 작업은 여기에서 시작합니다. 이 작업은 홈 폴더에 고정되어 있습니다 — 새 폴더를 쓰려면 새 작업을 시작하세요.",
+  "bot.rememberedFolderNextTask": "“{folder}”는 다음 작업에 씁니다. 이 작업은 {current}에 그대로 둡니다.",
+  "bot.rememberedFolderNextTaskHome": "“{folder}”는 다음 작업에 씁니다. 이 작업은 비공개 작업 공간에 그대로 둡니다.",
 
   "room.setupTitle": "{name} 설정하기",
   "room.setupBody": "첫 대화 전에 응답 방식과 간단한 맥락을 정해 주세요. 공유 폴더는 선택 사항입니다.",

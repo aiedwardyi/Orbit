@@ -25,6 +25,17 @@ describe("validateBotCwd", () => {
     expect(validateBotCwd("~")).toEqual({ ok: true, cwd: resolve(homedir()) });
   });
 
+  it("expands ~\\ the same as ~/", () => {
+    const missing = validateBotCwd("~\\definitely-missing-orbit-folder");
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.error).toContain(resolve(homedir()));
+  });
+
+  it("accepts a quoted existing absolute folder", () => {
+    expect(validateBotCwd(`"${dir}"`)).toEqual({ ok: true, cwd: dir });
+    expect(validateBotCwd(`'${dir}'`)).toEqual({ ok: true, cwd: dir });
+  });
+
   it("rejects relative paths, files, and missing folders with a reason", () => {
     expect(validateBotCwd("relative/path")).toEqual({ ok: false, error: expect.stringMatching(/absolute/) });
     const file = join(dir, "a-file.txt");

@@ -208,6 +208,13 @@ describe("complete phrases", () => {
     expect(ko["bot.workingFolderHelp"]).not.toMatch(/Where this bot runs/i);
     expect(en["bot.workingFolderEmpty"]).toBe("Private bot workspace");
     expect(ko["bot.workingFolderEmpty"]).toBe("비공개 봇 작업 공간");
+    expect(en["bot.rememberedFolderNextTask"]).toMatch(/next task/i);
+    expect(en["bot.rememberedFolderNextTask"]).toMatch(/\{folder\}/);
+    expect(en["bot.rememberedFolderNextTask"]).toMatch(/\{current\}/);
+    expect(ko["bot.rememberedFolderNextTask"]).toMatch(/다음 작업/);
+    expect(ko["bot.rememberedFolderNextTask"]).not.toMatch(/next task/i);
+    expect(en["chat.savedConversation"]).toBe("Saved conversation");
+    expect(ko["chat.savedConversation"]).toBe("저장된 대화");
     expect(en["packaged.chooseFolder"]).toBe("Choose a folder");
     expect(ko["packaged.chooseFolder"]).toBe("폴더 선택");
   });
@@ -216,6 +223,7 @@ describe("complete phrases", () => {
     expect(settingsPanel).toContain('t("bot.workingFolder")');
     expect(settingsPanel).toContain('t("bot.workingFolderHelp")');
     expect(settingsPanel).toContain('t("bot.workingFolderEmpty")');
+    expect(settingsPanel).toContain('t("bot.rememberedFolderNextTask"');
     expect(settingsPanel).not.toMatch(/>Working folder</);
     expect(settingsPanel).not.toMatch(/Where this bot runs its shell and file tools/);
   });

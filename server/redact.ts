@@ -51,6 +51,31 @@ const PEM_BLOCK = /(-----BEGIN [A-Z ]*PRIVATE KEY-----)([\s\S]*?)(-----END [A-Z 
 const KEY_VALUE =
   /\b((?:[A-Za-z0-9_-]*_)?(?:api[_-]?key|apikey|secret|token|password|passwd|authorization|auth[_-]?token|access[_-]?key|private[_-]?key)s?)(["']?\s*[=:]\s*)(["']?)([A-Za-z0-9._~+/=-]{8,})\3/gi;
 
+/** Longest prefix we must hold so a key split across chunks can still match. */
+const STREAM_HOLD = 96;
+
+/** Hold a short suffix across SSE / NDJSON chunks so `sk-ant` + `-api03-…`
+ * still redacts. Emits only the safe prefix; call flush() at stream end. */
+export class StreamSecretMasker {
+  private hold = "";
+
+  push(chunk: string): string {
+    const redacted = redactSecretsInText(this.hold + chunk);
+    if (redacted.length <= STREAM_HOLD) {
+      this.hold = redacted;
+      return "";
+    }
+    this.hold = redacted.slice(-STREAM_HOLD);
+    return redacted.slice(0, -STREAM_HOLD);
+  }
+
+  flush(): string {
+    const out = this.hold;
+    this.hold = "";
+    return out;
+  }
+}
+
 export function redactSecretsInText(text: string): string {
   if (!text || text.length < 8) return text;
   let out = text;

@@ -176,6 +176,18 @@ function WorkingFolder({ bot }: { bot: Bot }) {
             : t("bot.workingFolderPinnedHome")}
         </div>
       )}
+      {bot.rememberedProjectCwd && bot.rememberedProjectCwd !== (pinned ?? bot.cwd) && (
+        <div className="mt-2 text-[12px] text-ink-secondary">
+          {pinned ?? bot.cwd
+            ? t("bot.rememberedFolderNextTask", {
+                folder: shortPath(bot.rememberedProjectCwd, home),
+                current: shortPath((pinned ?? bot.cwd)!, home),
+              })
+            : t("bot.rememberedFolderNextTaskHome", {
+                folder: shortPath(bot.rememberedProjectCwd, home),
+              })}
+        </div>
+      )}
     </div>
   );
 }

@@ -2,9 +2,12 @@
 // credential values. These tests use the exact shapes the drivers actually
 // write — the ACP `env: [{name,value}]` wire form and the claude mcpServers
 // object form — so a change to either shape breaks the test, not the secret.
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { redactSecrets } from "./redact.ts";
+import { redactSecrets, StreamSecretMasker } from "./redact.ts";
 
 const flat = (value: unknown) => JSON.stringify(value);
 
@@ -187,6 +190,24 @@ describe("redactSecretsInText", () => {
     ]) {
       expect(redactSecretsInText(s), s).toBe(s);
     }
+  });
+
+  it("wires stream-aware masking onto SSE frames and persisted NDJSON", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    expect(readFileSync(join(here, "index.ts"), "utf8")).toContain("StreamSecretMasker");
+    expect(readFileSync(join(here, "harness/bus.ts"), "utf8")).toContain("StreamSecretMasker");
+  });
+
+  it("masks a key split across stream chunks using a bounded hold", () => {
+    const alpha = "abcdefghijklmnopqrstuvwxyz0123456789";
+    const key = `sk-ant-api03-${alpha}`;
+    const masker = new StreamSecretMasker();
+    expect(masker.push(`hello ${key.slice(0, 6)}`)).not.toContain("sk-ant");
+    const rest = masker.push(`${key.slice(6)} done`);
+    const flushed = rest + masker.flush();
+    expect(flushed).not.toContain(key);
+    expect(flushed).not.toMatch(/sk-ant/);
+    expect(flushed).toMatch(/hello «redacted \d+ chars» done/);
   });
 
   it("is applied to string values inside redactSecrets too", () => {

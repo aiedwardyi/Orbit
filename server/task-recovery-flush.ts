@@ -15,6 +15,16 @@ export function isRecoveryFlushReason(reason: string): reason is RecoveryFlushRe
 /** Idle close may offer Resume only when a real forever-chat record already
  * exists and is not the live/dismissed `progress` write. Crash/stop/shutdown
  * stay on their own paths. Empty or new bots have no packet. */
+/** A delayed dismiss must not overwrite a newer Stop / crash packet. */
+export function shouldStampRecoveryDismiss(
+  current: { updatedAt: number; flushReason: string },
+  requested: { updatedAt?: unknown; flushReason?: unknown },
+): boolean {
+  if (typeof requested.updatedAt === "number" && requested.updatedAt !== current.updatedAt) return false;
+  if (typeof requested.flushReason === "string" && requested.flushReason !== current.flushReason) return false;
+  return true;
+}
+
 export function idleReopenStampReason(
   packet: { flushReason: string; goal?: string; botId?: string } | null | undefined,
 ): RecoveryFlushReason | null {
