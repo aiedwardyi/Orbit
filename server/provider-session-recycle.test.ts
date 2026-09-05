@@ -1,9 +1,11 @@
-import { mkdirSync, rmSync } from "node:fs";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdirSync } from "node:fs";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { DATA_DIR } from "./config.ts";
 import { prepareModelContext } from "./context-compaction.ts";
+import { closeMessageDb } from "./message-db.ts";
 import { Store } from "./store.ts";
+import { removeTempDir } from "./testing/cleanup.ts";
 import {
   buildTurnContext,
   engineIsFresh,
@@ -11,13 +13,12 @@ import {
 } from "./turn-context.ts";
 
 describe("provider session recycle after Orbit compaction", () => {
-  beforeEach(() => {
-    rmSync(DATA_DIR, { recursive: true, force: true });
+  // Close SQLite before wiping DATA_DIR — Windows EPERM-locks an open
+  // messages.db, and a naked afterEach rmSync races the global close hook.
+  beforeEach(async () => {
+    closeMessageDb();
+    await removeTempDir(DATA_DIR);
     mkdirSync(DATA_DIR, { recursive: true });
-  });
-
-  afterEach(() => {
-    rmSync(DATA_DIR, { recursive: true, force: true });
   });
 
   it("does not resume a stale Claude cursor once Orbit compacted the thread", async () => {
