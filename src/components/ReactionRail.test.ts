@@ -47,4 +47,24 @@ describe("reaction rail", () => {
     expect(rail).toMatch(/const mine = useMemo\(/);
     expect(rail).not.toContain("export const REACTION_SET");
   });
+
+  it("quiets tray chrome without shrinking hit targets or dropping the rail", () => {
+    const start = sources["Reactions.tsx"].indexOf("export function ReactionBar");
+    const end = sources["Reactions.tsx"].indexOf("export function ReactionChips");
+    const bar = sources["Reactions.tsx"].slice(start, end);
+    expect(bar).toContain("data-reaction-bar");
+    expect(bar).toContain("size-7");
+    expect(bar).toContain("rounded-full");
+    expect(bar).toContain("hover:scale-110");
+    expect(bar).toContain("toggleReaction");
+    expect(bar).toContain("mt-0.5");
+    expect(bar).not.toContain("shadow-[0_4px_14px_rgba(0,0,0,0.16)]");
+    const tray = bar.slice(bar.indexOf("data-reaction-bar"), bar.indexOf("data-reaction-picker"));
+    expect(tray).toContain("border-hairline/35");
+    expect(tray).toContain("bg-card/75");
+    expect(tray).not.toContain("border-hairline/50");
+    expect(tray).not.toContain("bg-card/95");
+    expect(tray).not.toContain("border-hairline/20");
+    expect(tray).not.toContain("bg-card/50");
+  });
 });

@@ -51,11 +51,11 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
   };
 
   return (
-    <div className="relative mt-1">
+    <div className="relative mt-0.5">
       <div
         ref={anchorRef}
         data-reaction-bar
-        className="flex w-fit items-center gap-0.5 rounded-full border border-hairline/50 bg-card/95 px-1 py-0.5 shadow-[0_4px_14px_rgba(0,0,0,0.16)]"
+        className="flex w-fit items-center gap-0.5 rounded-full border border-hairline/35 bg-card/75 px-1 py-0.5 shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
       >
         {PRIMARY_REACTIONS.map((emoji) => {
           const pressed = mine.has(emoji);
@@ -142,7 +142,7 @@ export function ReactionChips({
   const nameOf = (by: string) =>
     by === "user" ? t("chat.you") : (members?.find((b) => b.id === by)?.name ?? t("chrome.aBot"));
   return (
-    <div className={cn("mt-1 flex flex-wrap gap-1", align === "right" ? "justify-end" : "justify-start")}>
+    <div className={cn("mt-0.5 flex flex-wrap gap-1", align === "right" ? "justify-end" : "justify-start")}>
       {[...grouped].map(([emoji, bys]) => (
         <button
           key={emoji}
@@ -150,7 +150,7 @@ export function ReactionChips({
           onClick={() => dispatch({ type: "toggleReaction", threadId, messageId: message.id, emoji })}
           title={bys.map(nameOf).join(", ")}
           className={cn(
-            "flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[12px] leading-none shadow-[0_2px_8px_rgba(0,0,0,0.08)]",
+            "flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[12px] leading-none",
             bys.includes("user")
               ? "border-accent/50 bg-accent/15"
               : "border-hairline/40 bg-panel hover:bg-control",

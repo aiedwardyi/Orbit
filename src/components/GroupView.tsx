@@ -43,6 +43,7 @@ import { cn } from "@/lib/cn";
 import { useFocusMessage } from "@/lib/focus-message";
 import { shortPath } from "@/lib/short-path";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow } from "@/lib/bottom-follow";
+import { CHAT_COLUMN_CLASS } from "@/lib/chat-column";
 import { useComposerDockPad } from "@/lib/composer-dock";
 import { showWorkingDots } from "@/lib/turn-tail";
 import { activeLocale, localeTag, t, useI18n } from "@/lib/i18n";
@@ -1202,7 +1203,7 @@ export function GroupView({ group }: { group: Group }) {
       <div
         ref={scrollRef}
         data-orbit-transcript
-        className="h-full overflow-x-hidden overflow-y-auto px-5 [overflow-anchor:none]"
+        className="h-full overflow-x-hidden overflow-y-auto [overflow-anchor:none]"
         onWheel={(e) => {
           if (e.deltaY < 0) setBottomFollow(false);
           else if (atEnd()) setBottomFollow(true);
@@ -1228,12 +1229,15 @@ export function GroupView({ group }: { group: Group }) {
         }}
       >
         {setupPending ? (
-          <div className="flex min-h-full w-full items-center py-8">
+          <div
+            className="flex min-h-full w-full items-center px-5 py-8"
+            style={{ paddingBottom: composerDock.pad }}
+          >
             <RoomSetup group={group} members={members} />
           </div>
         ) : (
         <div
-          className="flex w-full flex-col gap-3"
+          className={cn("flex w-full flex-col gap-3 px-5", CHAT_COLUMN_CLASS)}
           style={{ paddingBottom: composerDock.pad }}
           role="log"
           aria-live="polite"
@@ -1332,7 +1336,7 @@ export function GroupView({ group }: { group: Group }) {
         </button>
       )}
 
-      <div ref={composerDockRef} className="absolute inset-x-0 bottom-0 z-[2]">
+      <div ref={composerDockRef} className={cn("absolute inset-x-0 bottom-0 z-[2]", CHAT_COLUMN_CLASS)}>
       <Composer
         key={group.threadId}
         group={group}
