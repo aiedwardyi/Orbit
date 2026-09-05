@@ -1168,7 +1168,7 @@ export function GroupView({ group }: { group: Group }) {
         )}
       </div>}
 
-      {/* Shared project folder — the chip in the header toggles it */}
+      {/* Optional shared folder — the chip in the header toggles it */}
       {!setupPending && folderOpen && !group.dm && (
         <div className="w-full px-5">
           <div className="mb-1">
