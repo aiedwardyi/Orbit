@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronLeft, Crown, FolderOpen, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, useStore, type Bot } from "@/state/store";
 import { stateForBot } from "@/lib/mascot";
 import { CloudBackendPicker } from "./CloudBackendPicker";
@@ -83,6 +83,20 @@ const inputCls =
  * per project folder, so a folder must not move under a live task). The
  * PATCH is made directly rather than through updateBot: the server
  * validates the path and a rejected folder must not stick in local state. */
+/** Keep a complete catalog phrase; wrap one `{name}` slot in JSX (paths stay mono). */
+function phraseWithNode(phrase: string, name: string, node: ReactNode): ReactNode {
+  const token = `{${name}}`;
+  const at = phrase.indexOf(token);
+  if (at < 0) return phrase;
+  return (
+    <>
+      {phrase.slice(0, at)}
+      {node}
+      {phrase.slice(at + token.length)}
+    </>
+  );
+}
+
 function WorkingFolder({ bot }: { bot: Bot }) {
   const { t } = useI18n();
   const { capabilities } = useDesktopCapabilities();
@@ -154,7 +168,11 @@ function WorkingFolder({ bot }: { bot: Bot }) {
       {pinnedElsewhere && (
         <div className="mt-2 text-[12px] text-ink-secondary">
           {pinned
-            ? t("bot.workingFolderPinned", { folder: shortPath(pinned, home) })
+            ? phraseWithNode(
+                t("bot.workingFolderPinned"),
+                "folder",
+                <span className="font-mono">{shortPath(pinned, home)}</span>,
+              )
             : t("bot.workingFolderPinnedHome")}
         </div>
       )}

@@ -175,6 +175,20 @@ describe("SettingsPanel still owns folder and usage", () => {
     expect(settingsPanel).toContain("{advancedOpen && <BotUsageCard bot={bot} />}");
   });
 
+  it("keeps a pinned-elsewhere folder path in monospace", async () => {
+    const { SettingsPanel } = await import("./SettingsPanel");
+    const { I18nProvider } = await import("@/lib/i18n");
+    const html = renderToStaticMarkup(
+      createElement(
+        I18nProvider,
+        null,
+        createElement(SettingsPanel, { bot: botWithUsage }),
+      ),
+    );
+    expect(html).toContain("New tasks start here");
+    expect(html).toMatch(/<span class="font-mono">\/tmp\/friend<\/span>/);
+  });
+
   it("presents an empty cwd as an optional private workspace", async () => {
     const { SettingsPanel } = await import("./SettingsPanel");
     const { I18nProvider } = await import("@/lib/i18n");
