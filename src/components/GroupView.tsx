@@ -140,7 +140,8 @@ function PinToggle({ group, message }: { group: Group; message: Message }) {
         })
       }
       aria-label={pinned ? t("chat.unpinMessage") : t("chat.pinMessage")}
-      className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+      aria-pressed={pinned}
+      className="rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink"
       title={pinned ? t("chat.unpinMessage") : t("chat.pinMessage")}
     >
       {pinned ? <PinOff size={14} /> : <Pin size={14} />}
@@ -247,25 +248,31 @@ const Transcript = memo(function Transcript({
               />
             </div>
           ) : m.kind === "text" && m.text ? (
-            <div className={cn("group flex w-full flex-col", user ? "items-end" : "items-start")}>
-              <div className={cn("flex w-full items-end gap-1.5", user ? "justify-end" : "justify-start")}>
+            <div
+              className={cn("group flex w-full flex-col outline-none", user ? "items-end" : "items-start")}
+              tabIndex={-1}
+            >
+              <div className="relative w-fit max-w-[min(42rem,78%)]">
                 {user && (
-                  <>
+                  <div
+                    data-message-hover-actions
+                    className="pointer-events-none absolute top-1/2 right-full z-20 mr-0.5 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+                  >
                     <button
                       type="button"
                       onClick={() => onReply(m)}
                       aria-label={t("chat.replyToMessage")}
                       title={t("chat.replyToMessage")}
-                      className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+                      className="rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink"
                     >
                       <MessageSquareReply size={14} />
                     </button>
                     <PinToggle group={group} message={m} />
-                  </>
+                  </div>
                 )}
                 <div
                   className={cn(
-                    "w-fit max-w-[min(42rem,78%)] rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed",
+                    "w-fit max-w-full rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed",
                     user ? "whitespace-pre-wrap bg-bubble-user text-ink" : "bg-card text-ink",
                   )}
                   title={new Date(m.at).toLocaleString(localeTag(locale))}
@@ -295,24 +302,27 @@ const Transcript = memo(function Transcript({
                   ) : <ChatMarkdown text={m.text} />}
                 </div>
                 {!user && (
-                  <>
+                  <div
+                    data-message-hover-actions
+                    className="pointer-events-none absolute top-1/2 left-full z-20 ml-0.5 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 has-[[data-reaction-picker]]:pointer-events-auto has-[[data-reaction-picker]]:opacity-100"
+                  >
+                    <ReactionBar threadId={group.threadId} message={m} />
                     <button
                       type="button"
                       onClick={() => onReply(m)}
                       aria-label={t("chat.replyToMessage")}
                       title={t("chat.replyToMessage")}
-                      className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+                      className="rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink"
                     >
                       <MessageSquareReply size={14} />
                     </button>
                     <PinToggle group={group} message={m} />
-                  </>
+                  </div>
                 )}
-                <span className="self-end pb-1 text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100">
-                  {formatTime(m.at, localeTag(locale))}
-                </span>
               </div>
-              {!user && <ReactionBar threadId={group.threadId} message={m} />}
+              <span className="mt-0.5 text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                {formatTime(m.at, localeTag(locale))}
+              </span>
               <ReactionChips threadId={group.threadId} message={m} members={members} align={user ? "right" : "left"} />
             </div>
           ) : null;

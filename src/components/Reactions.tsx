@@ -1,9 +1,9 @@
-// Emoji reactions — Grok/iMessage-style bubbly picker on hover or +, chips
-// under the message for applied marks. `by` is "user" or a member botId; in
-// rooms a bot's own reactions render with its name in the tooltip.
+// Emoji reactions - smile entry on the hover row opens a bubbly picker.
+// Applied marks stay as chips. `by` is "user" or a member botId; in rooms a
+// bot's own reactions render with its name in the tooltip.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, X } from "lucide-react";
-import { EXTENDED_REACTIONS, PRIMARY_REACTIONS } from "../../shared/reactions";
+import { SmilePlus, X } from "lucide-react";
+import { EXTENDED_REACTIONS } from "../../shared/reactions";
 import { useStore, type Bot, type Message } from "@/state/store";
 import { useI18n, type Translate } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
@@ -17,7 +17,6 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
   const { dispatch } = useStore();
   const [pickerOpen, setPickerOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
-  const pickerRef = useRef<HTMLDivElement>(null);
   const mine = useMemo(
     () => new Set(
       (message.reactions ?? []).filter((reaction) => reaction.by === "user").map((reaction) => reaction.emoji),
@@ -30,9 +29,7 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
     if (!pickerOpen) return;
     const onDown = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (!pickerRef.current?.contains(target) && !anchorRef.current?.contains(target)) {
-        setPickerOpen(false);
-      }
+      if (!anchorRef.current?.contains(target)) setPickerOpen(false);
     };
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPickerOpen(false);
     const onBlur = () => setPickerOpen(false);
@@ -52,74 +49,44 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
   };
 
   return (
-    <div
-      ref={anchorRef}
-      data-reaction-bar
-      className={cn(
-        "relative mt-0.5 transition-[opacity,max-height] duration-150",
-        pickerOpen
-          ? "opacity-100"
-          : "pointer-events-none max-h-0 overflow-hidden opacity-0 group-hover:pointer-events-auto group-hover:max-h-16 group-hover:overflow-visible group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:max-h-16 group-focus-within:overflow-visible group-focus-within:opacity-100",
-      )}
-    >
-      <div className="flex w-fit items-center gap-0.5 rounded-full border border-hairline/35 bg-card/75 px-1 py-0.5 shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
-        {PRIMARY_REACTIONS.map((emoji) => {
-          const pressed = mine.has(emoji);
-          return (
-            <button
-              key={emoji}
-              type="button"
-              onClick={() => toggle(emoji)}
-              aria-label={reactLabel(t, emoji, pressed)}
-              aria-pressed={pressed}
-              className={cn(
-                "flex size-7 items-center justify-center rounded-full text-[15px] leading-none transition-transform hover:scale-110 hover:bg-control",
-                pressed && "bg-accent/15 ring-1 ring-accent/40",
-              )}
-            >
-              {emoji}
-            </button>
-          );
-        })}
-        <button
-          type="button"
-          onClick={() => setPickerOpen((open) => !open)}
-          aria-label={pickerOpen ? t("chat.closeReactions") : t("chat.moreReactions")}
-          aria-expanded={pickerOpen}
-          title={pickerOpen ? t("chat.closeReactions") : t("chat.moreReactions")}
-          className="flex size-7 items-center justify-center rounded-full text-ink-secondary hover:bg-control hover:text-ink"
+    <div ref={anchorRef} data-reaction-bar className="relative">
+      <button
+        type="button"
+        onClick={() => setPickerOpen((open) => !open)}
+        aria-label={pickerOpen ? t("chat.closeReactions") : t("chat.moreReactions")}
+        aria-expanded={pickerOpen}
+        title={pickerOpen ? t("chat.closeReactions") : t("chat.moreReactions")}
+        className="rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink"
+      >
+        {pickerOpen ? <X size={14} /> : <SmilePlus size={14} />}
+      </button>
+      {pickerOpen && (
+        <div
+          data-reaction-picker
+          className="absolute top-full left-0 z-40 mt-1.5 w-[218px] rounded-xl border border-hairline/50 bg-card p-2 shadow-2xl shadow-black/60"
         >
-          {pickerOpen ? <X size={12} /> : <Plus size={12} />}
-        </button>
-        {pickerOpen && (
-          <div
-            ref={pickerRef}
-            data-reaction-picker
-            className="absolute top-full left-0 z-40 mt-1.5 w-[218px] rounded-xl border border-hairline/50 bg-card p-2 shadow-2xl shadow-black/60"
-          >
-            <div className="grid grid-cols-6 gap-0.5">
-              {EXTENDED_REACTIONS.map((emoji) => {
-                const pressed = mine.has(emoji);
-                return (
-                  <button
-                    key={emoji}
-                    type="button"
-                    onClick={() => toggle(emoji)}
-                    aria-label={reactLabel(t, emoji, pressed)}
-                    aria-pressed={pressed}
-                    className={cn(
-                      "rounded-lg px-1 py-1 text-[15px] leading-none hover:bg-control",
-                      pressed && "bg-accent/15 ring-1 ring-accent/40",
-                    )}
-                  >
-                    {emoji}
-                  </button>
-                );
-              })}
-            </div>
+          <div className="grid grid-cols-6 gap-0.5">
+            {EXTENDED_REACTIONS.map((emoji) => {
+              const pressed = mine.has(emoji);
+              return (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => toggle(emoji)}
+                  aria-label={reactLabel(t, emoji, pressed)}
+                  aria-pressed={pressed}
+                  className={cn(
+                    "flex size-7 items-center justify-center rounded-full text-[15px] leading-none transition-transform hover:scale-110 hover:bg-control",
+                    pressed && "bg-accent/15 ring-1 ring-accent/40",
+                  )}
+                >
+                  {emoji}
+                </button>
+              );
+            })}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
