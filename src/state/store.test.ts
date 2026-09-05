@@ -794,3 +794,12 @@ describe("pending queued chip", () => {
     expect(cancelled.pendingQueued).toEqual({});
   });
 });
+
+describe("resumeTask settle", () => {
+  it("uses independent then branches so onSettled cannot run twice", async () => {
+    const { readFileSync } = await import("node:fs");
+    const store = readFileSync(new URL("./store.tsx", import.meta.url), "utf8");
+    expect(store).toMatch(/done\.then\(\s*\(\) => action\.onSettled!\(null\),\s*\(error\) =>/);
+    expect(store).not.toMatch(/onSettled!\(null\)\)\.catch\(/);
+  });
+});

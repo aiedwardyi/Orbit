@@ -687,6 +687,8 @@ describe("Continuity recovery and compaction chrome", () => {
     expect(en["chat.compactionUnsupported"]).toMatch(/newer Orbit version/);
     expect(ko["chat.compactionUnsupported"]).not.toMatch(/Context summary|Orbit version/i);
     expect(ko["chat.resuming"]).not.toMatch(/Resuming/i);
+    expect(Object.hasOwn(en, "chat.continue")).toBe(false);
+    expect(Object.hasOwn(ko, "chat.continue")).toBe(false);
   });
 
   it("wires those phrases instead of hardcoded English", () => {

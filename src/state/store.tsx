@@ -1812,9 +1812,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "resumeTask": {
           const done = api(`/api/bots/${action.botId}/tasks/${action.threadId}/resume`, { method: "POST" });
           if (action.onSettled) {
-            done.then(() => action.onSettled!(null)).catch((error) => {
-              action.onSettled!(error instanceof Error ? error.message : String(error));
-            });
+            done.then(
+              () => action.onSettled!(null),
+              (error) => action.onSettled!(error instanceof Error ? error.message : String(error)),
+            );
           } else {
             done.catch(showError);
           }
