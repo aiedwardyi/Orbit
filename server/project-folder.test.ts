@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -13,12 +13,12 @@ import {
 
 let dirs: string[] = [];
 
-function folder(name?: string, files: Record<string, string> = {}): string {
+function folder(name?: string, files: Record<string, string> = {}, parent?: string): string {
   const dir = name
     ? (() => {
-        const parent = mkdtempSync(join(tmpdir(), "omb-proj-"));
-        dirs.push(parent);
-        const path = join(parent, name);
+        const root = parent ?? mkdtempSync(join(tmpdir(), "omb-proj-"));
+        if (!parent) dirs.push(root);
+        const path = join(root, name);
         mkdirSync(path);
         return path;
       })()
@@ -135,6 +135,142 @@ describe("resolveProjectFolder", () => {
       }),
     ).toEqual({ cwd: null, source: null });
   });
+
+  it("walks home and common project parents when search roots are not injected", () => {
+    const projects = join(homedir(), "Projects");
+    mkdirSync(projects, { recursive: true });
+    dirs.push(projects);
+    const orbit = join(projects, "orbit");
+    mkdirSync(orbit);
+    writeFileSync(join(orbit, "README.md"), "# Orbit\n\nDesktop workspace.\n");
+    expect(resolveProjectFolder({ userTexts: ["Orbit needs a release note"] })).toEqual({
+      cwd: resolve(orbit),
+      source: "named",
+    });
+  });
+
+  it("walks search roots when a named project is not among recent folders", () => {
+    const home = folder();
+    const orbit = folder("orbit", { "README.md": "# Orbit\n\nDesktop workspace.\n" }, home);
+    const other = folder("billing", {}, home);
+    expect(
+      resolveProjectFolder({
+        userTexts: ["Orbit needs a release note"],
+        recentPaths: [],
+        searchRoots: [home],
+      }),
+    ).toEqual({ cwd: orbit, source: "named" });
+    expect(other).toBeTruthy();
+  });
+
+  it("matches an unknown name to a scouted README title under a search root", () => {
+    const home = folder();
+    const tracker = folder("tracker", { "README.md": "# Maus Tracker\n\nTracks every maus.\n" }, home);
+    expect(
+      resolveProjectFolder({
+        userTexts: ["Maus Tracker is the one I meant"],
+        searchRoots: [home],
+      }),
+    ).toEqual({ cwd: tracker, source: "named" });
+  });
+
+  it("does not pick a name that stays ambiguous after the search walk", () => {
+    const firstRoot = folder();
+    const secondRoot = folder();
+    const first = folder("app", {}, firstRoot);
+    const second = folder("app", {}, secondRoot);
+    const remembered = folder("billing");
+    expect(
+      resolveProjectFolder({
+        userTexts: ["app needs a fix"],
+        recentPaths: [],
+        remembered,
+        searchRoots: [firstRoot, secondRoot],
+      }),
+    ).toEqual({ cwd: remembered, source: "remembered" });
+    expect(
+      resolveProjectFolder({
+        userTexts: ["app needs a fix"],
+        recentPaths: [first, second],
+        searchRoots: [firstRoot, secondRoot],
+      }),
+    ).toEqual({ cwd: null, source: null });
+  });
+
+  it("does not treat a thanks-line as a project name just because a search root has folders", () => {
+    const home = folder();
+    folder("thanks", {}, home);
+    folder("it", {}, home);
+    const remembered = folder("billing");
+    expect(
+      resolveProjectFolder({
+        userTexts: ["thanks — ship it"],
+        remembered,
+        searchRoots: [home],
+      }),
+    ).toEqual({ cwd: remembered, source: "remembered" });
+  });
+
+  it("does not use a remembered folder the user just ruled out", () => {
+    const orbit = folder("orbit", { "README.md": "# Orbit\n\nDesktop workspace.\n" });
+    const billing = folder("billing");
+    expect(
+      resolveProjectFolder({
+        remembered: orbit,
+        userTexts: ["not Orbit"],
+        recentPaths: [orbit, billing],
+      }),
+    ).toEqual({ cwd: null, source: null });
+    expect(
+      resolveProjectFolder({
+        remembered: orbit,
+        userTexts: ["don't use Orbit"],
+        recentPaths: [orbit],
+      }),
+    ).toEqual({ cwd: null, source: null });
+    expect(
+      resolveProjectFolder({
+        remembered: orbit,
+        userTexts: ["Orbit 말고"],
+        recentPaths: [orbit],
+      }),
+    ).toEqual({ cwd: null, source: null });
+  });
+
+  it("skips a negated name and can still take the other project they mentioned", () => {
+    const orbit = folder("orbit");
+    const billing = folder("billing");
+    expect(
+      resolveProjectFolder({
+        remembered: orbit,
+        userTexts: ["don't use Orbit — billing needs the fix"],
+        recentPaths: [orbit, billing],
+      }),
+    ).toEqual({ cwd: billing, source: "named" });
+  });
+
+  it("keeps an explicit pin over a search-walk name and over negation", () => {
+    const pinned = folder("pinned");
+    const home = folder();
+    const orbit = folder("orbit", { "README.md": "# Orbit\n\nDesktop workspace.\n" }, home);
+    expect(
+      resolveProjectFolder({
+        pin: pinned,
+        remembered: orbit,
+        userTexts: ["Orbit needs a release note"],
+        searchRoots: [home],
+      }),
+    ).toEqual({ cwd: pinned, source: "pin" });
+    expect(
+      resolveProjectFolder({
+        pin: pinned,
+        remembered: orbit,
+        userTexts: ["not Orbit"],
+        recentPaths: [orbit],
+        searchRoots: [home],
+      }),
+    ).toEqual({ cwd: pinned, source: "pin" });
+  });
 });
 
 describe("applyResolvedProjectFolder", () => {
@@ -173,6 +309,54 @@ describe("applyResolvedProjectFolder", () => {
       }),
     ).toBe(named);
     expect(namedCalls).toEqual([named]);
+  });
+
+  it("forgets a remembered folder the user ruled out, and remembers a walk match", () => {
+    const orbit = folder("orbit");
+    const home = folder();
+    const billing = folder("billing", {}, home);
+    const forgotten: string[] = [];
+    const remembered: string[] = [];
+    expect(
+      applyResolvedProjectFolder({
+        remembered: orbit,
+        userTexts: ["not Orbit"],
+        recentPaths: [orbit],
+        remember: (cwd) => remembered.push(cwd),
+        forget: () => forgotten.push("cleared"),
+      }),
+    ).toBeUndefined();
+    expect(remembered).toEqual([]);
+    expect(forgotten).toEqual(["cleared"]);
+
+    expect(
+      applyResolvedProjectFolder({
+        remembered: orbit,
+        userTexts: ["billing needs a look"],
+        searchRoots: [home],
+        remember: (cwd) => remembered.push(cwd),
+        forget: () => forgotten.push("cleared"),
+      }),
+    ).toBe(billing);
+    expect(remembered).toEqual([billing]);
+    expect(forgotten).toEqual(["cleared"]);
+  });
+
+  it("does not forget or remember when an explicit pin still wins", () => {
+    const pinned = folder("pinned");
+    const orbit = folder("orbit");
+    const calls: string[] = [];
+    expect(
+      applyResolvedProjectFolder({
+        pin: pinned,
+        remembered: orbit,
+        userTexts: ["not Orbit"],
+        recentPaths: [orbit],
+        remember: (cwd) => calls.push(`remember:${cwd}`),
+        forget: () => calls.push("forget"),
+      }),
+    ).toBe(pinned);
+    expect(calls).toEqual([]);
   });
 });
 
@@ -215,6 +399,7 @@ describe("1:1 dispatch wiring", () => {
     const index = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8");
     expect(index).toContain("applyResolvedProjectFolder");
     expect(index).toContain("rememberProjectCwd");
+    expect(index).toContain("forgetProjectCwd");
     expect(index).toContain("userProjectTexts");
     expect(index).toContain("projectPathsFromRecords");
     expect(index).toContain("namedByUser");
