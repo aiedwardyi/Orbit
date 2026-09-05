@@ -33,7 +33,7 @@ function PlanUsage() {
   // OpenCode) stay on the unsupported line so a missing observation is not
   // mistaken for downtime.
   const honestCaption = (instance: InstanceInfo) =>
-    t(instance.capabilities?.rateLimits ? "usage.limits.pending" : "usage.limits.unavailable", {
+    t(instance.capabilities?.rateLimits ? "usage.limits.pending" : "usage.limits.notReported", {
       name: instance.displayName,
     });
 

@@ -81,8 +81,8 @@ describe("UsageSection friends plan card", () => {
     expect(html).not.toContain("Kimi");
     expect(html).not.toContain("not available at the moment");
     expect(html).toContain("Grok does not report a usage limit.");
-    expect(html).toContain("Appears after your next Codex message");
-    expect(html).not.toContain("Appears after your next Grok message");
+    expect(html).toContain("Appears after your next Codex message.");
+    expect(html).not.toContain("Appears after your next Grok message.");
     expect(html).not.toContain("Codex reports its limit after the next message.");
     expect(html).not.toContain(">Turns<");
     expect(html).not.toContain(">Tokens<");

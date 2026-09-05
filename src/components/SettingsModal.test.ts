@@ -110,6 +110,9 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toMatch(/aria-label="Show tool calls in chat"[^>]*aria-checked="false"|aria-checked="false"[^>]*aria-label="Show tool calls in chat"/);
     expect(html.indexOf("Show tool calls")).toBeLessThan(html.indexOf("Applies instantly and is remembered"));
     expect(html).toContain("Match this computer");
+    expect(html).toContain("Uses English or Korean from the operating system.");
+    expect(html).toContain("aria-describedby");
+    expect(html).not.toMatch(/title="Uses English or Korean from the operating system/);
     expect(html).toContain("English");
     expect(html).toContain("한국어");
     expect(html).toContain("Your name");
@@ -202,6 +205,8 @@ describe("SettingsModal friends chrome", () => {
     expect(picker).toContain("language.name.en");
     expect(picker).toContain("language.name.ko");
     expect(picker).toContain("language.matchSystemHint");
+    expect(picker).toContain("aria-describedby");
+    expect(picker).not.toMatch(/title=\{id === "system"/);
     expect(source).toContain("settings.profile.title");
     expect(source).toMatch(/settings\.profile\.title[\s\S]*compact/);
     expect(profile).toContain("settings.profile.namePlaceholder");
