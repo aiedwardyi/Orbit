@@ -472,16 +472,16 @@ describe("first-run core path leftovers", () => {
     expect(en["model.pinnedTitle"]).toBe("{engine} · {model}");
     expect(ko["model.pinnedTitle"]).toBe("{engine} · {model}");
     expect(en["model.automaticTitle"]).toBe("Stay on this engine while it works. Currently {name}.");
-    expect(ko["model.automaticTitle"]).toBe("되는 동안 이 엔진을 유지합니다. 현재 {name}.");
+    expect(ko["model.automaticTitle"]).toBe("작동하는 동안 이 엔진을 유지합니다. 현재 {name}.");
     expect(en["model.automaticTitle"]).not.toMatch(/choosing|Automatic/i);
     expect(ko["model.automaticTitle"]).not.toMatch(/고르고|Automatic/i);
-    expect(en["model.automaticHelp"]).toBe("{name} · stay on this while it works");
+    expect(en["model.automaticHelp"]).toBe("{name} · stay on this while it works.");
     expect(en["model.automaticHelp"]).toContain("{name}");
-    expect(ko["model.automaticHelp"]).toBe("{name} · 되는 동안 그대로 둡니다.");
+    expect(ko["model.automaticHelp"]).toBe("{name} · 작동하는 동안 그대로 둡니다.");
     expect(ko["model.automaticHelp"]).toContain("{name}");
     expect(ko["model.automaticHelp"]).not.toMatch(/stay on this|when it works/i);
     expect(translate("en", "model.automaticHelp", { name: "Grok 4.6" })).toBe(
-      "Grok 4.6 · stay on this while it works",
+      "Grok 4.6 · stay on this while it works.",
     );
     expect(en["engine.openConnections"]).toBe("Enter API key");
     expect(ko["engine.openConnections"]).toBe("API 키 입력");
