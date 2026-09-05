@@ -905,6 +905,17 @@ describe("accepted send chrome", () => {
     activeLeafId: "a1",
   } satisfies Bot;
 
+  it("paints Thinking even when the action omits sendId", () => {
+    const next = reducer({ ...initialState, bots: [idleBot] }, { type: "send", botId: idleBot.id, text: "Hi" });
+    expect(
+      turnPresenceWaiting({
+        busy: next.bots[0]?.busy,
+        lastMessage: next.bots[0]?.messages.at(-1),
+        accepted: next.acceptedSends[idleBot.threadId],
+      }),
+    ).toBe(true);
+  });
+
   it("paints Thinking in the same reducer turn as an accepted idle send", () => {
     const started = performance.now();
     const next = reducer(
@@ -1029,6 +1040,17 @@ describe("accepted send chrome", () => {
       createdAt: 1,
       messages: [{ id: "a1", role: "bot" as const, kind: "text" as const, text: "done", at: 1 }],
     } satisfies Group;
+    const withoutId = reducer(
+      { ...initialState, bots: [idleBot], groups: [room] },
+      { type: "sendGroup", groupId: room.id, text: "go" },
+    );
+    expect(
+      turnPresenceWaiting({
+        lastMessage: withoutId.groups[0]?.messages.at(-1),
+        accepted: withoutId.acceptedSends[room.threadId],
+      }),
+    ).toBe(true);
+
     const next = reducer(
       { ...initialState, bots: [idleBot], groups: [room] },
       { type: "sendGroup", groupId: room.id, text: "go", sendId: "g1" },

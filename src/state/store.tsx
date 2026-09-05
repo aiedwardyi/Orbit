@@ -1306,15 +1306,14 @@ export function reducer(state: AppState, action: Action): AppState {
     case "send": {
       const dismissed = dismissOnboardingCard(state, action.botId);
       const bot = dismissed.bots.find((candidate) => candidate.id === action.botId);
-      if (!bot || !action.sendId) {
-        return withMascotMotion(dismissed, action.botId, "working");
-      }
+      if (!bot) return withMascotMotion(dismissed, action.botId, "working");
+      const sendId = action.sendId ?? crypto.randomUUID();
       const paint = acceptedSendPaint({ alreadyBusy: Boolean(bot.busy) });
       const threadId = action.threadId ?? bot.threadId;
       let next: AppState = {
         ...dismissed,
         acceptedSends: rememberAcceptedSend(dismissed.acceptedSends, threadId, {
-          sendId: action.sendId,
+          sendId,
           kind: paint.kind,
           text: action.text,
         }),
@@ -1330,12 +1329,13 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "sendGroup": {
       const group = state.groups.find((candidate) => candidate.id === action.groupId);
-      if (!group || !action.sendId) return state;
+      if (!group) return state;
+      const sendId = action.sendId ?? crypto.randomUUID();
       const paint = acceptedSendPaint({ alreadyBusy: Boolean(group.busyBotId) });
       return {
         ...state,
         acceptedSends: rememberAcceptedSend(state.acceptedSends, action.threadId ?? group.threadId, {
-          sendId: action.sendId,
+          sendId,
           kind: paint.kind,
           text: action.text,
         }),
@@ -1748,7 +1748,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (quizBeforeSend) persistCard(action.botId, quizBeforeSend.id, { dismissed: true });
           const threadId =
             action.threadId ?? stateRef.current.bots.find((bot) => bot.id === action.botId)?.threadId;
-          const sendId = action.sendId ?? crypto.randomUUID();
+          const sendId = action.sendId;
+          if (!sendId) break;
           void api(`/api/bots/${action.botId}/messages`, {
             method: "POST",
             body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId }),
@@ -1789,6 +1790,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               }
             })
             .catch((error) => {
+              cancelledSendsRef.current.delete(sendId);
               if (typeof threadId === "string") {
                 rawDispatch({ type: "sendRejected", botId: action.botId, threadId, sendId });
               }
@@ -1953,7 +1955,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "sendGroup": {
           const threadId =
             action.threadId ?? stateRef.current.groups.find((group) => group.id === action.groupId)?.threadId;
-          const sendId = action.sendId ?? crypto.randomUUID();
+          const sendId = action.sendId;
+          if (!sendId) break;
+          // Rooms hold follow-ups in the composer; this POST never returns queued.
           api(`/api/groups/${action.groupId}/messages`, {
             method: "POST",
             body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId }),
@@ -1973,6 +1977,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               }
             })
             .catch((error) => {
+              cancelledSendsRef.current.delete(sendId);
               if (typeof threadId === "string") {
                 rawDispatch({ type: "sendRejected", threadId, sendId });
               }
