@@ -7,14 +7,17 @@ import { cn } from "@/lib/cn";
 import {
   draftRevision,
   forgetFailedComposerSend,
+  getRoomHolds,
   markDraftEdited,
   recoverFailedComposerSend,
   rememberFailedComposerSend,
-  restoredSendId,
+  setRoomHolds,
+  takeRestoredSendId,
   useComposerDraft,
   useFailedComposerSends,
   type ComposerSendSnapshot,
   type FailedComposerSend,
+  type PersistedRoomHold,
 } from "@/lib/drafts";
 import { MausAvatar } from "./Avatar";
 import { ComposerAttachments, pathForFile } from "./ComposerAttachments";
@@ -38,7 +41,14 @@ import { normalizeState } from "@/lib/mascot";
 import { groupComposerHint, roomRespondersForComposer } from "@/lib/group-routing";
 import { PendingApprovalActions, PendingApprovalPanel, pendingApprovals } from "./PendingApproval";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
-import { composerBusyChrome, pendingSteerEntries } from "@/lib/composer-busy";
+import {
+  composerBusyChrome,
+  composerBusySendAction,
+  composerSendSourceText,
+  peelNextBusyRoomSend,
+  pendingSteerEntries,
+  rearmRoomFlushHold,
+} from "@/lib/composer-busy";
 import { composerEnterIntent, isComposerEnterKey } from "@/lib/composer-enter";
 import { useI18n } from "@/lib/i18n";
 import { ReplyQuote } from "./ReplyQuote";
@@ -65,6 +75,44 @@ interface QueuedGroupSend {
   text: string;
   replyToId?: string;
   draft: ComposerDraftSnapshot;
+}
+
+function composerDraftStore() {
+  try {
+    return typeof localStorage === "undefined" ? undefined : localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+function roomHoldFromQueued(entry: QueuedGroupSend): PersistedRoomHold {
+  return {
+    text: entry.draft.text,
+    requestText: entry.draft.requestText,
+    sendId: entry.draft.sendId,
+    threadId: entry.draft.threadId,
+    revision: entry.draft.revision,
+    replyToId: entry.replyToId,
+    attachments: entry.draft.attachments,
+  };
+}
+
+function queuedFromRoomHold(hold: PersistedRoomHold, draftId: string): QueuedGroupSend {
+  return {
+    text: hold.requestText,
+    replyToId: hold.replyToId,
+    draft: {
+      draftId,
+      revision: hold.revision,
+      sendId: hold.sendId,
+      text: hold.text,
+      requestText: hold.requestText,
+      attachments: hold.attachments,
+      reply: null,
+      replyToId: hold.replyToId,
+      threadId: hold.threadId,
+    },
+  };
 }
 
 /** Composer chip for Auto mode. Same `autoApprove` bit as the profile switch
@@ -371,25 +419,33 @@ export function Composer({
     });
   };
 
-  // Rooms hold one message client-side while a member speaks; it auto-sends
-  // the moment the room settles. 1:1 mid-turn sends still POST (the harness
-  // queue), but stay off the transcript until drain — the chip here is the
-  // pending row so they cannot become the active leaf mid-turn.
-  const [queued, setQueued] = useState<QueuedGroupSend | null>(null);
-  const queuedRef = useRef(queued);
-  const clearQueued = useCallback(() => {
-    queuedRef.current = null;
-    setQueued(null);
-  }, []);
-  useEffect(
-    () => () => {
-      const unsent = queuedRef.current;
-      if (unsent) restoreDraft(unsent.draft);
-    },
-    [draftId, restoreDraft],
+  // Rooms hold client-side lines while a member speaks and flush them FIFO
+  // once the room settles. 1:1 mid-turn sends still POST (the harness
+  // queue), but stay off the transcript until drain — the chips here are
+  // the pending rows so they cannot become the active leaf mid-turn.
+  // Persist the full FIFO (not one draft slot) so unmount cannot drop
+  // ADV-QUEUE-1..n after a mid-queue peel.
+  const [queued, setQueued] = useState<QueuedGroupSend[]>(() =>
+    getRoomHolds(composerDraftStore(), draftId).map((hold) => queuedFromRoomHold(hold, draftId)),
   );
+  const queuedRef = useRef<QueuedGroupSend[]>(queued);
+  const roomFlushLock = useRef(false);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  const commitQueued = useCallback((next: QueuedGroupSend[]) => {
+    queuedRef.current = next;
+    setQueued(next);
+    setRoomHolds(composerDraftStore(), draftId, next.map(roomHoldFromQueued));
+  }, [draftId]);
+  const dropQueued = useCallback((sendId: string) => {
+    commitQueued(queuedRef.current.filter((entry) => entry.draft.sendId !== sendId));
+  }, [commitQueued]);
   const pendingSteer = !group && bot ? pendingSteerEntries(state.pendingQueued, bot.threadId) : [];
-  const pendingChip = group ? queued?.text : undefined;
   // a chip on its own is a message: the send control has to appear for it
   const fileInput = useRef<HTMLInputElement>(null);
   const [autoWarn, setAutoWarn] = useState(false);
@@ -460,34 +516,41 @@ export function Composer({
     }
   };
   const send = () => {
-    // A busy channel already has one locally held send. Keep any newer text
-    // as an editable draft until that send is dispatched; replacing the slot
-    // here would silently lose the first message.
-    if (locked || (group && queued)) return;
+    const action = composerBusySendAction({
+      locked,
+      isRoom: Boolean(group),
+      busy,
+      heldCount: queuedRef.current.length,
+    });
+    if (action === "block") return;
+    const liveText = composerSendSourceText(inputRef.current?.value, text);
     if (attachments.some((attachment) => attachment.kind === "image")) {
-      const support = imageTargetsSupport(text);
+      const support = imageTargetsSupport(liveText);
       if (support !== "supported") {
         showImageSupportNotice(support);
         return;
       }
     }
-    const t = composeMessage(text, attachments);
+    const t = composeMessage(liveText, attachments);
     if (!t) return;
     const sentDraft: ComposerDraftSnapshot = {
       draftId,
       revision: draftRevision(draftId),
-      sendId: restoredSendId(draftId) ?? crypto.randomUUID(),
-      text,
+      sendId: takeRestoredSendId(draftId) ?? crypto.randomUUID(),
+      text: liveText,
       requestText: t,
       attachments: [...attachments],
       reply: replyTo ?? null,
       replyToId: replyTo?.id,
       threadId,
     };
-    if (busy && group) {
+    // Clear the live box before React re-renders so a second Enter in this
+    // tick cannot resend the same line, and the next fill+Enter reads the
+    // new DOM value instead of a stale QUEUE-0 draft.
+    if (inputRef.current) inputRef.current.value = "";
+    if (action === "enqueue" && group) {
       const pending = { text: t, replyToId: replyTo?.id, draft: sentDraft };
-      queuedRef.current = pending;
-      setQueued(pending);
+      commitQueued([...queuedRef.current, pending]);
       setText("");
       setAttachments([]);
       onConsumeReply?.();
@@ -521,30 +584,41 @@ export function Composer({
     onConsumeReply?.();
   };
   useEffect(() => {
-    if (busy || !queued) return;
-    if (group) {
-      if (queued.text.includes("<attached-image ")) {
-        const support = imageTargetsSupport(queued.text);
-        if (support !== "supported") {
-          showImageSupportNotice(support);
-          clearQueued();
-          restoreDraft(queued.draft);
-          return;
-        }
-      }
-      clearQueued();
-      dispatch({
-        type: "sendGroup",
-        groupId: group.id,
-        text: queued.text,
-        sendId: queued.draft.sendId,
-        replyToId: queued.replyToId,
-        threadId: queued.draft.threadId,
-        onError: () => restoreDraft(queued.draft),
-      });
-      track("message_sent", { room: true, queued: true });
+    if (!group) return;
+    if (busy) {
+      roomFlushLock.current = false;
+      return;
     }
-  }, [busy, queued, group, members, state.instances, dispatch, clearQueued, restoreDraft]);
+    if (roomFlushLock.current || queued.length === 0) return;
+    const { next, rest } = peelNextBusyRoomSend(queued);
+    if (!next) return;
+    if (next.text.includes("<attached-image ")) {
+      const support = imageTargetsSupport(next.text);
+      if (support !== "supported") {
+        showImageSupportNotice(support);
+        commitQueued(rest);
+        restoreDraft(next.draft);
+        return;
+      }
+    }
+    roomFlushLock.current = true;
+    commitQueued(rest);
+    dispatch({
+      type: "sendGroup",
+      groupId: group.id,
+      text: next.text,
+      sendId: next.draft.sendId,
+      replyToId: next.replyToId,
+      threadId: next.draft.threadId,
+      onError: () => {
+        restoreDraft(next.draft);
+        if (!mountedRef.current) return;
+        roomFlushLock.current = false;
+        commitQueued(rearmRoomFlushHold(queuedRef.current));
+      },
+    });
+    track("message_sent", { room: true, queued: true });
+  }, [busy, queued, group, members, state.instances, dispatch, restoreDraft, commitQueued]);
 
   // native dictation: partials stream into the input while the Swift
   // helper runs; the final transcript stays in the box, ready to edit/send
@@ -637,15 +711,18 @@ export function Composer({
             </button>
           </div>
         ))}
-        {pendingChip && (
-          <div className="mb-2 flex items-center gap-2 rounded-lg border border-hairline/40 bg-panel px-3 py-2 text-[12.5px] text-ink-secondary">
+        {queued.map((entry) => (
+          <div
+            key={entry.draft.sendId}
+            className="mb-2 flex items-center gap-2 rounded-lg border border-hairline/40 bg-panel px-3 py-2 text-[12.5px] text-ink-secondary"
+          >
             <Clock size={13} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">
-              {t("composer.queuedUntil", { text: pendingChip })}
+              {t("composer.queuedUntil", { text: entry.text })}
             </span>
             <button
               type="button"
-              onClick={clearQueued}
+              onClick={() => dropQueued(entry.draft.sendId)}
               aria-label={t("composer.cancelQueued")}
               title={t("composer.cancelQueued")}
               className="ml-auto flex size-5 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-raised hover:text-ink"
@@ -653,7 +730,7 @@ export function Composer({
               <X size={13} strokeWidth={2.5} />
             </button>
           </div>
-        )}
+        ))}
         {pendingSteer.map((entry) => (
           <div
             key={entry.queueId}
@@ -926,24 +1003,13 @@ export function Composer({
         {hasContent && !locked && (
           <button
             onClick={send}
-            disabled={Boolean(group && queued)}
-            aria-label={
-              group && queued
-                ? t("composer.waitingQueued")
-                : t(busyChrome.sendAriaKey)
-            }
-            title={
-              group && queued
-                ? t("composer.queuedSendsLater")
-                : t(busyChrome.sendTitleKey)
-            }
+            aria-label={t(busyChrome.sendAriaKey)}
+            title={t(busyChrome.sendTitleKey)}
             className={cn(
               "flex size-8 shrink-0 items-center justify-center rounded-full text-white",
-              group && queued
-                ? "cursor-not-allowed bg-raised text-ink-secondary"
-                : busyChrome.sendLooksQueued
-                  ? "bg-raised text-ink-secondary hover:bg-raised-hover"
-                  : "bg-accent hover:brightness-110",
+              busyChrome.sendLooksQueued
+                ? "bg-raised text-ink-secondary hover:bg-raised-hover"
+                : "bg-accent hover:brightness-110",
             )}
           >
             {busyChrome.sendLooksQueued ? <Clock size={15} /> : <ArrowUp size={17} />}
