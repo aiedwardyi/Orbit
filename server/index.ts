@@ -2349,8 +2349,9 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   }
 
   if (opts?.sendId && isSendCancelled(opts.sendId)) {
-    if (opts.userMessage) return startedTurn(opts.userMessage, { cancelled: true });
-    throw Object.assign(new Error("this send was cancelled"), { status: 409 });
+    // 202 cancelled, not 409: api() toasts non-2xx, and a cancel-before-append
+    // must not persist a user line or look like a failed send.
+    return startedTurn(opts.userMessage, { cancelled: true });
   }
 
   // an edit hands us its already-branched user message; a plain send appends

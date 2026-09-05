@@ -67,11 +67,14 @@ const queues = new Map<string, QueueEntry>(); // botId + threadId → waiting wo
 const cancelledSendIds = new Set<string>();
 const runningSendIds = new Map<string, string>(); // botId → sendId
 
+/** Same shape as parseSendId — client sendIds are UUIDs, not a `send_` prefix. */
 const SEND_ID_SHAPE = /^[A-Za-z0-9_-]{16,80}$/;
 
 function rememberCancelledSend(id: string): void {
   if (!id) return;
   cancelledSendIds.add(id);
+  // FIFO cap. A cancel older than 256 later ones can be forgotten and a
+  // still-in-flight POST could start — more than one session ever queues.
   if (cancelledSendIds.size > 256) {
     const first = cancelledSendIds.values().next().value;
     if (first) cancelledSendIds.delete(first);

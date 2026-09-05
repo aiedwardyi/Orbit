@@ -49,4 +49,15 @@ describe("send POST receipt", () => {
       cancelled: true,
     });
   });
+
+  it("cancels before append without a user line or a 409", () => {
+    expect(sendPostReceipt(startedTurn(undefined, { cancelled: true }), "thread-1")).toEqual({
+      ok: true,
+      threadId: "thread-1",
+      cancelled: true,
+    });
+    const index = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8");
+    expect(index).not.toContain('new Error("this send was cancelled")');
+    expect(index).toContain("return startedTurn(opts.userMessage, { cancelled: true })");
+  });
 });
