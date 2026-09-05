@@ -106,8 +106,9 @@ export const PRE_COMPACT_SESSION_TOOL_ROUND_LIMIT = 48;
 const NATIVE_SESSION_BUDGET_SHARE = 0.5;
 
 export function nativeSessionTokenBudget(contextWindow: number): number {
-  const window = Number.isSafeInteger(contextWindow) && contextWindow > 0 ? contextWindow : 16_384;
-  return Math.max(1, Math.floor(window * NATIVE_SESSION_BUDGET_SHARE));
+  return Number.isSafeInteger(contextWindow) && contextWindow > 0
+    ? Math.max(1, Math.floor(contextWindow * NATIVE_SESSION_BUDGET_SHARE))
+    : 0;
 }
 
 export interface SessionFatMessage {
@@ -174,6 +175,7 @@ export function shouldRecycleProviderSession(input: {
   nativeTokenBudget?: number;
 }): boolean {
   if (input.rewound) return false;
+  // recovering must not block post-compaction recycle (PR 70)
   if (input.compacted) return true;
   if (input.recovering) return false;
   if ((input.lastTurnToolRounds ?? 0) >= PRE_COMPACT_TOOL_ROUND_LIMIT) return true;
