@@ -21,7 +21,7 @@ import { createServer as createNetServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 
-import { DATA_DIR, stripWorkspaceCredentialEnv } from "../config.ts";
+import { applyCredentialAllowlist, DATA_DIR } from "../config.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, spawnCli } from "../procs.ts";
 
@@ -95,11 +95,12 @@ function claudeEnvironment(
   const env: NodeJS.ProcessEnv = { ...source, PATH: augmentedPath(), NPM_CONFIG_LOGLEVEL: "error" };
   delete env.CLAUDECODE;
   delete env.CLAUDE_CODE_ENTRYPOINT;
-  // The harness process may hold workspace credentials (xai/box/voice keys,
-  // env-injected at boot); none of them are this CLI's to see.
-  stripWorkspaceCredentialEnv(env);
+  // Inject first, allowlist after: the local host reads its key out of this
+  // env, and the tokens it writes are the only credentials the CLI is granted.
+  // Everything else the harness holds — every other provider's key, the
+  // workspace secrets, whatever key ships next — is someone else's.
   const applied = applyClaudeInject(env, model);
-  if (!applied.injected) delete env.ANTHROPIC_API_KEY;
+  applyCredentialAllowlist(env, applied.injected ? ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"] : []);
   return env;
 }
 

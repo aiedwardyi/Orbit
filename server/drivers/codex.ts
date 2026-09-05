@@ -12,7 +12,7 @@
 // harness omits resumeCursor and injects the bounded transcript instead.
 import { homedir } from "node:os";
 
-import { stripWorkspaceCredentialEnv } from "../config.ts";
+import { applyCredentialAllowlist } from "../config.ts";
 import { computerProxyEnv } from "../container-computer.ts";
 import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../procs.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
@@ -101,12 +101,11 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         PATH: augmentedPath(),
         NPM_CONFIG_LOGLEVEL: "error",
       };
-      // The CLI owns its own ChatGPT login; a leaked API key silently flips
-      // billing to pay-as-you-go (agentcal).
-      delete env.OPENAI_API_KEY;
-      // The harness process may hold workspace credentials (xai/box/voice
-      // keys, env-injected at boot); none of them are this CLI's to see.
-      stripWorkspaceCredentialEnv(env);
+      // The CLI owns its own ChatGPT login, so it is granted no provider key
+      // at all: a leaked one silently flips billing to pay-as-you-go
+      // (agentcal). The local-host token is the single exception —
+      // codexLocalProviderArgs reads it back out to serve an injected model.
+      applyCredentialAllowlist(env, ["UNSLOTH_STUDIO_AUTH_TOKEN"]);
       return env;
     };
     const catalogEnv = childEnv();

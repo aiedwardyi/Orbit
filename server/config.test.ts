@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  applyCredentialAllowlist,
+  cliProbeEnvironment,
   DATA_DIR,
   instanceConfigs,
   isValidSshAlias,
@@ -12,6 +14,7 @@ import {
   localVmMode,
   parseConfigPatch,
   parseStoredConfig,
+  PROVIDER_CREDENTIAL_ENV,
   roomTurnTimeoutMinutes,
   showToolCallsEnabled,
   skillRecorderEnabled,
@@ -464,6 +467,41 @@ describe("workspace credential env strip", () => {
     };
     stripWorkspaceCredentialEnv(env);
     expect(env).toEqual({ PATH: "/usr/bin", MY_FLAG: "1" });
+  });
+
+  it("keeps only the credentials a child was granted, whether or not they are listed", () => {
+    const env = {
+      PATH: "/usr/bin",
+      MY_FLAG: "1",
+      ACME_API_KEY: "a key nobody has added to the lists yet",
+      ...Object.fromEntries([...PROVIDER_CREDENTIAL_ENV, ...WORKSPACE_CREDENTIAL_ENV].map((n) => [n, "secret"])),
+    };
+    applyCredentialAllowlist(env, ["ANTHROPIC_API_KEY"]);
+    expect(env).toEqual({ PATH: "/usr/bin", MY_FLAG: "1", ANTHROPIC_API_KEY: "secret" });
+  });
+
+  it("excludes an invented key by every spelling a provider ships one under", () => {
+    const env = {
+      NEWPROVIDER_TOKEN: "secret",
+      NEWPROVIDER_API_KEY: "secret",
+      NEWPROVIDER_ACCESS_TOKEN: "secret",
+      NEWPROVIDER_API_SECRET: "secret",
+      NEWPROVIDER_SECRET_KEY: "secret",
+      // named for a credential without being one — a token BUDGET, not a token
+      NEWPROVIDER_TOKEN_LIMIT: "4096",
+    };
+    applyCredentialAllowlist(env);
+    expect(env).toEqual({ NEWPROVIDER_TOKEN_LIMIT: "4096" });
+  });
+
+  it("builds a CLI probe env from names only, never from what the process holds", () => {
+    const env = cliProbeEnvironment({
+      PATH: "/usr/bin",
+      HOME: "/home/e",
+      ACME_API_KEY: "a key nobody has added to the lists yet",
+      ...Object.fromEntries([...PROVIDER_CREDENTIAL_ENV, ...WORKSPACE_CREDENTIAL_ENV].map((n) => [n, "secret"])),
+    });
+    expect(Object.keys(env).sort()).toEqual(["HOME", "PATH"]);
   });
 
   it("covers the box token and voice key, which no engine CLI may inherit", () => {
