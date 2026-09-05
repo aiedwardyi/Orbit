@@ -136,6 +136,11 @@ import {
   seedTaskResumePacket,
   stampTaskResumePacket,
 } from "./task-state-fold.ts";
+import {
+  lastUserInstruction,
+  packetAfterInterruption,
+  type RecoveryFlushReason,
+} from "./task-recovery-flush.ts";
 import type { TaskResumePacket } from "./task-state.ts";
 import * as tts from "./tts/index.ts";
 import { narrateTool, toUtterances } from "./tts/speech-text.ts";
@@ -1029,6 +1034,72 @@ function queueTaskPacket(packet: TaskResumePacket): void {
   pendingTaskPackets.set(packet.threadId, { packet, timer });
 }
 
+const STOP_IDLE_FALLBACK_MS = 6_000;
+let turnClock = 0;
+const turnDispatchedAt = new Map<string, number>();
+const turnInterruptedAt = new Map<string, number>();
+const turnEpochByBot = new Map<string, number>();
+
+function tickTurnClock(): number {
+  turnClock += 1;
+  return turnClock;
+}
+
+function currentTurnEpoch(botId: string): number {
+  return turnEpochByBot.get(botId) ?? 0;
+}
+
+function bumpTurnEpoch(botId: string): number {
+  const next = currentTurnEpoch(botId) + 1;
+  turnEpochByBot.set(botId, next);
+  return next;
+}
+
+function seedFromLastUser(botId: string, threadId: string, turnsAtWrite: number) {
+  const instruction = lastUserInstruction(store.messagesFor(threadId));
+  return instruction
+    ? {
+      botId,
+      threadId,
+      text: instruction.text,
+      messageId: instruction.messageId,
+      now: instruction.at,
+      turnsAtWrite,
+    }
+    : null;
+}
+
+function flushInterruptedTask(
+  threadId: string,
+  botId: string,
+  reason: RecoveryFlushReason,
+): TaskResumePacket | null {
+  const packet = taskPacketForWrite(threadId);
+  const turnsAtWrite = store.taskByThread(botId, threadId)?.usage?.turns ?? packet?.turnsAtWrite ?? 0;
+  const next = packetAfterInterruption(
+    packet,
+    reason,
+    { now: Date.now(), turnsAtWrite },
+    seedFromLastUser(botId, threadId, turnsAtWrite),
+  );
+  return next ? persistTaskPacket(next) : null;
+}
+
+function releaseInterruptedBot(botId: string, threadId: string) {
+  stopScreenPoller(botId);
+  if (activeVpsThreads.get(botId) === threadId) activeVpsThreads.delete(botId);
+  const group = store.groupByThread(threadId);
+  const speaker = groupSpeakers.get(threadId);
+  if (group && group.busyBotId === botId && speaker?.botId === botId) {
+    groupSpeakers.delete(threadId);
+    store.patchGroup(group.id, { busyBotId: null, unread: true });
+  }
+  if (store.bot(botId)?.busy) store.setActivity(botId, "idle");
+  drainQueuedSends();
+  drainConnectorResumes();
+  drainSecretResumes();
+}
+
 /** Put a notification on the wire. Clients decide what to do with it — a
  * desktop notification now, a push to a paired phone later. */
 function notify(notification: Notification | null) {
@@ -1687,19 +1758,25 @@ bus.subscribe((event: RuntimeEvent) => {
           cachedInput: tokens?.cachedInput,
           costUsd: event.cost ?? null,
         });
-        const packet = taskPacketForWrite(event.threadId);
-        if (packet) {
-          persistTaskPacket(recordTaskCompletion(packet, {
-            ok: event.ok,
-            reply,
-            messageId: settledReply?.messageId,
-            now: eventTime(event),
-            lastEventId: event.eventId,
-            turnsAtWrite: usage?.turns ?? packet.turnsAtWrite,
-          }));
+        const dispatched = turnDispatchedAt.get(event.threadId) ?? 0;
+        const interruptedAt = turnInterruptedAt.get(event.threadId) ?? 0;
+        const staleAfterNewerTurn = interruptedAt > 0 && dispatched > interruptedAt;
+        if (!staleAfterNewerTurn) {
+          const packet = taskPacketForWrite(event.threadId);
+          if (packet) {
+            persistTaskPacket(recordTaskCompletion(packet, {
+              ok: event.ok,
+              reply,
+              messageId: settledReply?.messageId,
+              now: eventTime(event),
+              lastEventId: event.eventId,
+              turnsAtWrite: usage?.turns ?? packet.turnsAtWrite,
+              interrupted: interruptedAt > dispatched,
+            }));
+          }
+          // settled → idle; a setup failure already marked it dead, keep that
+          if (store.bot(bot.id)?.activity !== "dead") store.setActivity(bot.id, "idle");
         }
-        // settled → idle; a setup failure already marked it dead, keep that
-        if (store.bot(bot.id)?.activity !== "dead") store.setActivity(bot.id, "idle");
         const routineReportThread = routineRun ? routineSourceThread(routineRun) : null;
         const routineReportGroup = routineReportThread ? store.groupByThread(routineReportThread) : undefined;
         // Group-origin routines belong to that channel's unread state. Their
@@ -2097,6 +2174,7 @@ async function startTurn(botId: string, text: string, opts?: StartTurnOptions) {
 }
 
 async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOptions) {
+  const epoch = currentTurnEpoch(botId);
   const bot = store.bot(botId);
   if (!bot) throw Object.assign(new Error("no such bot"), { status: 404 });
   if (checkpointRestoreLeases.has(botId)) {
@@ -2308,11 +2386,21 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // busy flips immediately so the composer locks; the dispatch itself runs
   // in the background — box provisioning can take ~90s and must never
   // hang the HTTP request
+  if (currentTurnEpoch(bot.id) !== epoch) return userMessage;
   store.setActivity(bot.id, "working", threadId);
+  if (currentTurnEpoch(bot.id) !== epoch) {
+    store.setActivity(bot.id, "idle");
+    return userMessage;
+  }
   store.patchBot(bot.id, { unread: false });
   turnUsage.delete(threadId);
+  turnDispatchedAt.set(threadId, tickTurnClock());
 
   void (async () => {
+    if (currentTurnEpoch(bot.id) !== epoch) {
+      if (store.bot(bot.id)?.busy) store.setActivity(bot.id, "idle");
+      return;
+    }
     try {
       const integrations: NonNullable<Parameters<typeof instance.adapter.sendTurn>[0]["integrations"]> = {};
       const selectedSkills = selectBundledSkills(
@@ -2588,6 +2676,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       // snapshot() absorbs failures, so checkpointing may delay but never fail
       // a turn.
       if (checkpointCwd) await checkpoints.snapshot(bot.id, checkpointCwd, `turn ${threadId.slice(0, 8)}`);
+      if (currentTurnEpoch(bot.id) !== epoch) return;
       watchdog.watch(threadId, bot.id);
       await instance.adapter.sendTurn({
         threadId,
@@ -2661,6 +2750,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         startScreenPoller(bot.id, previewCapture, { screenIsTheWork: instance.driverKind === "boxAgent" });
       }
     } catch (e) {
+      if (currentTurnEpoch(bot.id) !== epoch) return;
       releaseLocalVmThread(threadId);
       if (activeVpsThreads.get(bot.id) === threadId) activeVpsThreads.delete(bot.id);
       watchdog.settle(threadId);
@@ -4002,11 +4092,8 @@ async function reloadProviders() {
     if (!threadId || !store.taskByThread(bot.id, threadId)) continue;
     interruptedTaskThreads.set(bot.id, threadId);
     const packet = taskPacketForWrite(threadId);
-    if (!packet || ["crash", "stop", "shutdown"].includes(packet.flushReason)) continue;
-    persistTaskPacket(stampTaskResumePacket(packet, "crash", {
-      now: Date.now(),
-      turnsAtWrite: store.taskByThread(bot.id, threadId)?.usage?.turns ?? packet.turnsAtWrite,
-    }));
+    if (packet && ["crash", "stop", "shutdown"].includes(packet.flushReason)) continue;
+    flushInterruptedTask(threadId, bot.id, "crash");
   }
   bus.detachAll();
   await registry.disposeAll();
@@ -5715,6 +5802,11 @@ const server = createServer(async (req, res) => {
       cancelGroupTurnOperations(group.id, group.threadId);
       const busy = group.busyBotId ? store.bot(group.busyBotId) : undefined;
       const instance = busy ? registry.get(busy.modelSelection.instanceId) : undefined;
+      if (busy) {
+        bumpTurnEpoch(busy.id);
+        turnInterruptedAt.set(group.threadId, tickTurnClock());
+        flushInterruptedTask(group.threadId, busy.id, "stop");
+      }
       await instance?.adapter.interruptTurn(group.threadId).catch(() => {});
       closeOpenApprovals(group.threadId);
       return json(res, 200, { ok: true });
@@ -6587,23 +6679,37 @@ const server = createServer(async (req, res) => {
         if (expectedThreadId !== undefined && busyGroup.threadId !== expectedThreadId) {
           return json(res, 409, { error: `this bot is working in channel ${busyGroup.id}` });
         }
-        await instance?.adapter.interruptTurn(busyGroup.threadId).catch(() => {});
-        closeOpenApprovals(busyGroup.threadId);
       }
       if (expectedThreadId !== undefined && !busyGroup && bot.threadId !== expectedThreadId) {
         return json(res, 409, { error: "the bot switched tasks before it could be interrupted" });
       }
-      if (!busyGroup && bot.busy) {
-        const packet = taskPacketForWrite(bot.threadId);
-        if (packet) {
-          persistTaskPacket(stampTaskResumePacket(packet, "stop", {
-            now: Date.now(),
-            turnsAtWrite: store.activeTask(bot.id)?.usage?.turns ?? packet.turnsAtWrite,
-          }));
-        }
+      const inFlight = Boolean(busyGroup || bot.busy || botHasActiveTurn(bot.id));
+      const stoppedThreadId = busyGroup?.threadId ?? bot.activeThreadId ?? bot.threadId;
+      if (inFlight) {
+        bumpTurnEpoch(bot.id);
+        turnInterruptedAt.set(stoppedThreadId, tickTurnClock());
+        flushInterruptedTask(stoppedThreadId, bot.id, "stop");
       }
+      if (busyGroup) {
+        await instance?.adapter.interruptTurn(busyGroup.threadId).catch(() => {});
+        closeOpenApprovals(busyGroup.threadId);
+      }
+      const hadSession = Boolean(
+        instance?.adapter.hasSession(busyGroup?.threadId ?? bot.threadId)
+        || (bot.activeThreadId ? instance?.adapter.hasSession(bot.activeThreadId) : false),
+      );
       await instance?.adapter.interruptTurn(bot.threadId).catch(() => {});
       closeOpenApprovals(bot.threadId);
+      if (inFlight && !busyGroup) {
+        releaseInterruptedBot(bot.id, stoppedThreadId);
+        if (hadSession) {
+          const release = setTimeout(() => {
+            if (!store.bot(bot.id)?.busy) return;
+            releaseInterruptedBot(bot.id, stoppedThreadId);
+          }, STOP_IDLE_FALLBACK_MS);
+          release.unref?.();
+        }
+      }
       return json(res, 200, { ok: true });
     }
 
@@ -7391,13 +7497,8 @@ hostShutdown = () => {
   hostShutdownStarted = true;
   for (const bot of store.bots) {
     if (!bot.busy || store.groups.some((group) => group.busyBotId === bot.id)) continue;
-    const threadId = routines?.activeRunForBot(bot.id)?.threadId ?? bot.threadId;
-    const packet = taskPacketForWrite(threadId);
-    if (!packet) continue;
-    persistTaskPacket(stampTaskResumePacket(packet, "shutdown", {
-      now: Date.now(),
-      turnsAtWrite: store.taskByThread(bot.id, threadId)?.usage?.turns ?? packet.turnsAtWrite,
-    }));
+    const threadId = routines?.activeRunForBot(bot.id)?.threadId ?? bot.activeThreadId ?? bot.threadId;
+    flushInterruptedTask(threadId, bot.id, "shutdown");
   }
   for (const threadId of [...pendingTaskPackets.keys()]) {
     const packet = pendingTaskPackets.get(threadId)?.packet;

@@ -20,6 +20,7 @@ import {
   writeTaskResumePacket,
   type TaskResumePacket,
 } from "./task-state.ts";
+import { lastUserInstruction, packetAfterInterruption } from "./task-recovery-flush.ts";
 import { botAvatarProfile, mascotStyleSchema, type BotAvatarCrop, type MascotStyle } from "../shared/bot-avatar.ts";
 import type { RoutineRequestCardData } from "../shared/routine-request.ts";
 import type { RoutineRunCardData } from "../shared/routine-run.ts";
@@ -724,11 +725,6 @@ export class Store {
         },
       ];
     }
-    for (const [botId, threadId] of crashedTaskThreads) {
-      const task = threadId ? this.taskByThread(botId, threadId) : this.activeTask(botId);
-      const packet = task ? this.taskPacket(task.threadId) : null;
-      if (packet) this.writeTaskPacket({ ...packet, flushReason: "crash" });
-    }
     // Search reads SQLite directly, so migrate every known legacy transcript
     // at startup rather than waiting until the user happens to open it. Only
     // pending JSON files are touched; already-migrated threads stay lazy.
@@ -739,6 +735,30 @@ export class Store {
     for (const threadId of knownThreads) {
       const legacyFile = messagesFile(threadId);
       if (existsSync(legacyFile)) mdb.readThread(threadId, legacyFile);
+    }
+    for (const [botId, threadId] of crashedTaskThreads) {
+      const task = threadId ? this.taskByThread(botId, threadId) : this.activeTask(botId);
+      if (!task) continue;
+      const existing = this.taskPacket(task.threadId);
+      if (existing) {
+        this.writeTaskPacket({ ...existing, flushReason: "crash" });
+        continue;
+      }
+      const instruction = lastUserInstruction(this.messagesFor(task.threadId));
+      const seeded = packetAfterInterruption(null, "crash", {
+        now: instruction?.at ?? Date.now(),
+        turnsAtWrite: task.usage?.turns ?? 0,
+      }, instruction
+        ? {
+          botId,
+          threadId: task.threadId,
+          text: instruction.text,
+          messageId: instruction.messageId,
+          now: instruction.at,
+          turnsAtWrite: task.usage?.turns ?? 0,
+        }
+        : null);
+      if (seeded) this.writeTaskPacket(seeded);
     }
   }
 
