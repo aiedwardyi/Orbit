@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, X } from "lucide-react";
 
-import { isTaskRecoveryVisible } from "@/lib/task-recovery";
+import { isCompletedTaskRecord, isTaskRecoveryVisible, shouldDismissCompletedReopen } from "@/lib/task-recovery";
 import { useI18n } from "@/lib/i18n";
 import { useStore, type Bot, type Message, type TaskResumePacket } from "@/state/store";
 import { readContextCompaction } from "../../shared/context-compaction";
@@ -35,36 +35,43 @@ export function TaskRecoveryStrip({
   onDismiss: () => void;
 }) {
   const { t } = useI18n();
+  const completed = isCompletedTaskRecord(packet);
   const stopped = packet.flushReason === "stop";
-  const mayLag = turns > packet.turnsAtWrite;
+  const mayLag = !completed && turns > packet.turnsAtWrite;
   return (
     <div className="pointer-events-auto px-5 pb-2">
       <div
         role="status"
-        aria-label={stopped ? t("chat.taskPaused") : t("chat.readyToContinue")}
+        aria-label={completed ? t("chat.conversationSaved") : stopped ? t("chat.taskPaused") : t("chat.readyToContinue")}
         className="flex items-start gap-3 rounded-xl border border-hairline/30 bg-panel/70 px-3 py-2"
       >
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[12px] text-ink-secondary">
-            <span className="min-w-0 truncate font-medium text-ink">{packet.goal}</span>
+            <span className="min-w-0 truncate font-medium text-ink">
+              {completed ? t("chat.conversationSaved") : packet.goal}
+            </span>
             <span className="shrink-0">{savedAge(packet.updatedAt, t, packet.updatedBy === "bot")}</span>
           </div>
-          <p className="mt-0.5 whitespace-normal break-words text-[13px] leading-snug text-ink">
-            <span className="text-ink-secondary">{t("chat.next")} </span>
-            {packet.nextAction}
-          </p>
+          {!completed && (
+            <p className="mt-0.5 whitespace-normal break-words text-[13px] leading-snug text-ink">
+              <span className="text-ink-secondary">{t("chat.next")} </span>
+              {packet.nextAction}
+            </p>
+          )}
           {mayLag && <p className="mt-1 text-[11px] text-warning">{t("chat.recordMayLag")}</p>}
           {resumeError && <p className="mt-1 text-[12px] text-danger">{resumeError}</p>}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            disabled={resuming}
-            onClick={onResume}
-            className="rounded-full border border-hairline/40 bg-raised px-2.5 py-1 text-[12px] font-medium text-ink hover:bg-raised-hover disabled:opacity-60"
-          >
-            {resuming ? t("chat.resuming") : t("chat.resume")}
-          </button>
+          {!completed && (
+            <button
+              type="button"
+              disabled={resuming}
+              onClick={onResume}
+              className="rounded-full border border-hairline/40 bg-raised px-2.5 py-1 text-[12px] font-medium text-ink hover:bg-raised-hover disabled:opacity-60"
+            >
+              {resuming ? t("chat.resuming") : t("chat.resume")}
+            </button>
+          )}
           <button
             type="button"
             onClick={onDismiss}
@@ -97,11 +104,26 @@ export function TaskRecoveryCard({
   const [resuming, setResuming] = useState(false);
   const [resumeError, setResumeError] = useState<string | null>(null);
   const settleGen = useRef(0);
+  const persistedDismiss = useRef("");
   useEffect(() => {
     settleGen.current += 1;
     setResuming(false);
     setResumeError(null);
   }, [bot.id, packet?.threadId]);
+  useEffect(() => {
+    if (!packet || (busy ?? bot.busy)) return;
+    if (!shouldDismissCompletedReopen(packet)) return;
+    const key = `${packet.threadId}:${packet.updatedAt}:${packet.flushReason}`;
+    if (persistedDismiss.current === key) return;
+    persistedDismiss.current = key;
+    dispatch({
+      type: "dismissTaskRecovery",
+      botId: bot.id,
+      threadId: packet.threadId,
+      updatedAt: packet.updatedAt,
+      flushReason: packet.flushReason,
+    });
+  }, [bot.busy, bot.id, busy, dispatch, packet]);
   if (!isTaskRecoveryVisible(
     packet,
     busy ?? bot.busy,

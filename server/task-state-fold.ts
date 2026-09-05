@@ -127,7 +127,10 @@ export function recordTaskCompletion(
   const keepRecovery = input.interrupted ? recovery ?? "stop" : !input.ok ? recovery : null;
   const next = stamped(packet, keepRecovery ?? "turn-end", input);
   const reply = input.reply.trim();
-  if (input.ok && !input.interrupted && reply) next.completed.push({ note: reply, at: input.now });
+  if (input.ok && !input.interrupted) {
+    if (reply) next.completed.push({ note: reply, at: input.now });
+    next.nextAction = "";
+  }
   if (input.messageId && !next.evidence.some((item) => item.ref === input.messageId)) {
     next.evidence.push({ kind: "message", ref: input.messageId, note: "Settled reply" });
   }

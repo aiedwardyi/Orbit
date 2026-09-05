@@ -25,6 +25,7 @@ import { showNotification, type NotificationTarget } from "@/lib/notify";
 import { speaker } from "@/lib/tts";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
+import { completedReopenDismissals } from "@/lib/task-recovery";
 import { openLiveEvents } from "@/lib/live-events";
 import {
   acceptedSendPaint,
@@ -808,7 +809,22 @@ export function reducer(state: AppState, action: Action): AppState {
         dropIdleAcceptedThinking(hydrated.acceptedSends, hydrated.bots),
         hydrated.groups,
       );
-      return { ...hydrated, acceptedSends, bots: applyOptimisticBusy(hydrated.bots, acceptedSends) };
+      const leftoverPackets = [
+        ...hydrated.bots.flatMap((bot) => (bot.tasks ?? []).map((task) => task.taskState)),
+        ...hydrated.groups.flatMap((group) => [
+          group.taskState,
+          ...(group.tasks ?? []).map((task) => task.taskState),
+        ]),
+      ];
+      return {
+        ...hydrated,
+        acceptedSends,
+        bots: applyOptimisticBusy(hydrated.bots, acceptedSends),
+        dismissedTaskRecovery: {
+          ...hydrated.dismissedTaskRecovery,
+          ...completedReopenDismissals(leftoverPackets),
+        },
+      };
     }
     case "showRoutines":
       return {

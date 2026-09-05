@@ -150,6 +150,7 @@ import {
   turnCompletionDisposition,
   type RecoveryFlushReason,
 } from "./task-recovery-flush.ts";
+import { isCompletedTaskRecord } from "../shared/task-resume.ts";
 import type { TaskResumePacket } from "./task-state.ts";
 import * as tts from "./tts/index.ts";
 import { narrateTool, toUtterances } from "./tts/speech-text.ts";
@@ -6907,7 +6908,7 @@ const server = createServer(async (req, res) => {
         return json(res, 409, { error: "this bot is already working" });
       }
       const packet = taskPacketForWrite(m[2]);
-      if (!packet || !isRecoveryFlushReason(packet.flushReason)) {
+      if (!packet || !isRecoveryFlushReason(packet.flushReason) || isCompletedTaskRecord(packet)) {
         return json(res, 409, { error: "this task has no interrupted work to continue" });
       }
       const resumePrompt = "Continue the saved task from its recorded next action. Verify the record against the conversation before acting.";

@@ -60,7 +60,7 @@ const taskResumePacketSchema = z.object({
   evidence: z.array(evidenceItemSchema).max(LIMITS.evidence),
   artifacts: z.array(artifactItemSchema).max(LIMITS.artifacts),
   blockers: z.array(blockerItemSchema).max(LIMITS.blockers),
-  nextAction: z.string().min(1).max(LIMITS.nextAction),
+  nextAction: z.string().max(LIMITS.nextAction),
   updatedAt: z.number().int().nonnegative(),
   updatedBy: z.enum(["harness", "bot"]),
   flushReason: z.enum([
