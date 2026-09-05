@@ -415,7 +415,8 @@ export interface BotRecord {
   cwd?: string;
   /** Soft last project resolved from chat when this bot had no pin.
    * Not a pin and not Settings — an explicit `cwd` still wins.
-   * Cleared when chat rules that folder out. */
+   * Cleared when chat rules that folder out, and when Settings Clear
+   * drops the pin so the next task is the private workspace. */
   lastProjectCwd?: string;
   /** Auto mode: the bot approves its own tool permissions and keeps
    * working instead of stopping to ask. Questions it asks YOU still come
@@ -1246,7 +1247,15 @@ export class Store {
   patchBot(id: string, patch: Partial<BotRecord>): BotRecord | null {
     const bot = this.bot(id);
     if (!bot) return null;
+    // Settings Clear is cwd: null. Drop the remembered auto-folder too or
+    // the next unpinned task still lands there. Negation uses
+    // forgetProjectCwd and leaves an explicit pin alone.
+    const clearingCwd = Object.prototype.hasOwnProperty.call(patch, "cwd") && patch.cwd == null;
     Object.assign(bot, patch);
+    if (clearingCwd) {
+      delete bot.cwd;
+      delete bot.lastProjectCwd;
+    }
     this.saveBots();
     this.emit({ type: "bot", botId: id });
     return bot;

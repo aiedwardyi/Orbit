@@ -4,6 +4,7 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, realpathSync, statSync, unlinkSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { currentEarlyListen } from "./early-listen.ts";
 import { isIP } from "node:net";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 
@@ -106,12 +107,16 @@ import { reactionSystemGuidance } from "../shared/reactions.ts";
 import { _loadPending, discardDelegations, discardDelegationsFrom, drainDelegations, findDelegationReceipt, pendingDelegationInfo, pendingDelegationSnapshot, pendingThreads, queueDelegation, recordDelegationReceipt, threadsWaitingOn, type QueueResult } from "./delegations.ts";
 import {
   cancelSteeredMessage,
+  clearSendRunning,
   continueQueuedDrainIfIdle,
   drainSteeredMessages,
+  isSendCancelled,
+  markSendRunning,
   queuedSteeredMessage,
   queueRoomParticipation,
   queueSteeredMessage,
 } from "./steer-queue.ts";
+import { sendPostReceipt, startedTurn } from "./send-receipt.ts";
 import {
   acceptedSendMatch,
   parseSendId,
@@ -135,6 +140,7 @@ import {
 } from "./store.ts";
 import {
   clearTaskBlockers,
+  foldCompletedNextAction,
   recordTaskBlocker,
   recordTaskCompletion,
   recordTaskEvidence,
@@ -151,6 +157,7 @@ import {
   turnCompletionDisposition,
   type RecoveryFlushReason,
 } from "./task-recovery-flush.ts";
+import { isCompletedTaskRecord } from "../shared/task-resume.ts";
 import type { TaskResumePacket } from "./task-state.ts";
 import * as tts from "./tts/index.ts";
 import { narrateTool, toUtterances } from "./tts/speech-text.ts";
@@ -162,6 +169,7 @@ import {
   engineIsFresh,
   nativeSessionTokenBudget,
   shouldRecycleProviderSession,
+  TASK_RESUME_PROMPT,
   taskRecordBlock,
 } from "./turn-context.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
@@ -674,14 +682,8 @@ const store = new Store(() => bootSelection);
 const sendSequencer = new SendSequencer();
 // Engine describe() walks PATH and refreshModels for every instance. First
 // chat paint only needs Store + /api/bots; existing bots already carry a
-// selection. New-bot routes still await defaultSelection() themselves.
-void defaultSelection()
-  .then((sel) => {
-    bootSelection = sel;
-  })
-  .catch((error) => {
-    console.error(`[boot] default engine scan failed: ${error instanceof Error ? error.message : String(error)}`);
-  });
+// selection. Do not start that scan until after listen / early attach.
+// New-bot routes still await defaultSelection() themselves.
 
 /** A bot as a client may see it: no provider session bookkeeping.
  *
@@ -709,6 +711,8 @@ const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
   return {
     ...rest,
     avatarUrl: rest.avatarUrl ?? null,
+    // null, not omitted: a cleared folder must overwrite a stale client cwd
+    cwd: rest.cwd ?? null,
     ...(lastProjectCwd ? { rememberedProjectCwd: lastProjectCwd } : {}),
     ...(tasks ? { tasks: tasks.map(wireTask) } : {}),
   };
@@ -1942,6 +1946,7 @@ bus.subscribe((event: RuntimeEvent) => {
           }
           // settled → idle; a setup failure already marked it dead, keep that
           if (store.bot(bot.id)?.activity !== "dead") store.setActivity(bot.id, "idle");
+          clearSendRunning(bot.id);
         }
         const routineReportThread = routineRun ? routineSourceThread(routineRun) : null;
         const routineReportGroup = routineReportThread ? store.groupByThread(routineReportThread) : undefined;
@@ -2388,6 +2393,12 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     );
   }
 
+  if (opts?.sendId && isSendCancelled(opts.sendId)) {
+    // 202 cancelled, not 409: api() toasts non-2xx, and a cancel-before-append
+    // must not persist a user line or look like a failed send.
+    return startedTurn(opts.userMessage, { cancelled: true });
+  }
+
   // an edit hands us its already-branched user message; a plain send appends
   let userMessage = opts?.userMessage;
   if (!userMessage) {
@@ -2441,8 +2452,16 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   }
   const taskRecordToFlush = taskRecord;
   const modelContextWindow = contextWindowFor(instance.models, model);
+  const latestUser = lastUserInstruction(activeMessages.filter((message) => !skipTranscript.has(message.id)));
+  // Recovery Current request must be this send's text. skipTranscript excludes
+  // userMessage.id, so transcript lookup alone would show a prior user turn.
+  const recoveryLatestUserText = text.trim() || latestUser?.text || "";
   const durableTaskRecordText = taskRecord
-    ? taskRecordBlock(taskRecord, Math.max(512, Math.floor(modelContextWindow * 0.15) * 3))
+    ? taskRecordBlock(
+      taskRecord,
+      Math.max(512, Math.floor(modelContextWindow * 0.15) * 3),
+      recovering ? { recovering: true, latestUserText: recoveryLatestUserText } : undefined,
+    )
     : "";
   const prepared = await prepareModelContext({
     messages: activeMessages,
@@ -2471,7 +2490,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       tool: { name: `error: ${detail}`, ok: false },
     });
     opts?.onDispatchError?.(detail);
-    return userMessage;
+    return startedTurn(userMessage, { dispatchFailed: true, error: detail });
   }
   if (prepared.compaction) {
     try {
@@ -2484,7 +2503,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         tool: { name: `error: ${detail}`, ok: false },
       });
       opts?.onDispatchError?.(detail);
-      return userMessage;
+      return startedTurn(userMessage, { dispatchFailed: true, error: detail });
     }
   }
   const transcript = prepared.transcript;
@@ -2532,6 +2551,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // map is a no-op. Resume-cursor engines drop the stale/fat session here.
   // Stop / crash Continuity on an uncompacted thread keeps the cursor.
   if (recycled) {
+    // Drop the fat cursor, then pin the watermark and lastInput to this
+    // send so the next slim turn can resume the new session.
     store.clearResumeCursors(bot.id, threadId);
     store.markProviderSessionBound(bot.id, threadId, userMessage.id);
   }
@@ -2585,11 +2606,16 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // busy flips immediately so the composer locks; the dispatch itself runs
   // in the background — box provisioning can take ~90s and must never
   // hang the HTTP request
-  if (currentTurnEpoch(bot.id) !== epoch) return userMessage;
+  if (currentTurnEpoch(bot.id) !== epoch) return startedTurn(userMessage);
+  if (opts?.sendId && isSendCancelled(opts.sendId)) {
+    return startedTurn(userMessage, { cancelled: true });
+  }
   store.setActivity(bot.id, "working", threadId);
+  markSendRunning(bot.id, opts?.sendId);
   if (currentTurnEpoch(bot.id) !== epoch) {
     store.setActivity(bot.id, "idle");
-    return userMessage;
+    clearSendRunning(bot.id);
+    return startedTurn(userMessage);
   }
   store.patchBot(bot.id, { unread: false });
   turnUsage.delete(threadId);
@@ -2997,6 +3023,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         }));
       }
       store.setActivity(bot.id, "idle");
+      clearSendRunning(bot.id);
       opts?.onDispatchError?.(message);
       // a dispatch failure never emits turn.completed, so the settle-driven
       // drain would strand anything queued behind this turn
@@ -3005,7 +3032,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       drainSecretResumes();
     }
   })();
-  return userMessage;
+  return startedTurn(userMessage);
 }
 
 // ── routines: persisted definitions → detached bot tasks ───────────────
@@ -3531,8 +3558,14 @@ async function runClaimedGroupMemberTurn(
   const taskRecord = taskPacketForWrite(threadId);
   const taskRecordToFlush = taskRecord;
   const modelContextWindow = contextWindowFor(instance.models, selection.model);
+  const recovering = taskRecord !== null && isRecoveryFlushReason(taskRecord.flushReason);
+  const latestUser = lastUserInstruction(store.activePath(threadId));
   const durableTaskRecordText = taskRecord
-    ? taskRecordBlock(taskRecord, Math.max(512, Math.floor(modelContextWindow * 0.15) * 3))
+    ? taskRecordBlock(
+      taskRecord,
+      Math.max(512, Math.floor(modelContextWindow * 0.15) * 3),
+      recovering ? { recovering: true, latestUserText: latestUser?.text ?? "" } : undefined,
+    )
     : "";
   const prepared = await prepareModelContext({
     messages: store.activePath(threadId),
@@ -4480,7 +4513,7 @@ function isAllowedOrigin(origin: string | undefined | null): boolean {
   }
 }
 
-const server = createServer(async (req, res) => {
+const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
   const path = url.pathname;
   const method = req.method ?? "GET";
@@ -4535,6 +4568,7 @@ const server = createServer(async (req, res) => {
           next.completed.push({ note: body.completed_note, at: Date.now() });
         }
         if (body.next_action !== undefined) next.nextAction = body.next_action;
+        foldCompletedNextAction(next);
         if (body.blockers !== undefined) {
           next.blockers = [
             ...next.blockers.filter((blocker) => blocker.kind === "approval"),
@@ -6706,6 +6740,10 @@ const server = createServer(async (req, res) => {
             }
           }
 
+          if (sendId && isSendCancelled(sendId)) {
+            return { ok: true as const, cancelled: true as const, threadId };
+          }
+
           const currentAtStart = store.bot(bot.id);
           if (!currentAtStart) throw Object.assign(new Error("no such bot"), { status: 404 });
           if (!store.taskByThread(currentAtStart.id, threadId)) {
@@ -6767,8 +6805,8 @@ const server = createServer(async (req, res) => {
               return { ok: true as const, steered: true as const, threadId, message };
             }
             if (!current.busy) {
-              const message = await startTurn(bot.id, text, { threadId, replyTo, sendId });
-              return { ok: true as const, threadId, message };
+              const started = await startTurn(bot.id, text, { threadId, replyTo, sendId });
+              return sendPostReceipt(started, threadId);
             }
             const queued = queueSteeredMessage(current.id, threadId, text, {
               replyToId: replyTo?.id,
@@ -6776,10 +6814,13 @@ const server = createServer(async (req, res) => {
               // Reply quote only — startTurn wraps reactions when this drains.
               prompt: promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"),
             });
+            if (queued.skipped) {
+              return { ok: true as const, cancelled: true as const, threadId };
+            }
             return { ok: true as const, queued: true as const, queueId: queued.id, threadId };
           }
-          const message = await startTurn(bot.id, text, { threadId, replyTo, sendId });
-          return { ok: true as const, threadId, message };
+          const started = await startTurn(bot.id, text, { threadId, replyTo, sendId });
+          return sendPostReceipt(started, threadId);
         },
       );
       return json(res, 202, receipt);
@@ -6790,10 +6831,12 @@ const server = createServer(async (req, res) => {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
       const queueId = m[2];
-      if (!cancelSteeredMessage(bot.id, queueId)) {
+      const result = cancelSteeredMessage(bot.id, queueId);
+      if (!result.cancelled) {
+        if (result.running) return json(res, 200, { cancelled: false, running: true });
         return json(res, 404, { error: "no such queued message" });
       }
-      return json(res, 200, { ok: true });
+      return json(res, 200, { ok: true, cancelled: true });
     }
 
     // edit a user message → fork the conversation there and rerun the turn.
@@ -6994,15 +7037,14 @@ const server = createServer(async (req, res) => {
         return json(res, 409, { error: "this bot is already working" });
       }
       const packet = taskPacketForWrite(m[2]);
-      if (!packet || !isRecoveryFlushReason(packet.flushReason)) {
+      if (!packet || !isRecoveryFlushReason(packet.flushReason) || isCompletedTaskRecord(packet)) {
         return json(res, 409, { error: "this task has no interrupted work to continue" });
       }
-      const resumePrompt = "Continue the saved task from its recorded next action. Verify the record against the conversation before acting.";
       if (conversation.group) {
-        startGroupCardContinuation(conversation.group.id, m[2], bot.id, resumePrompt);
+        startGroupCardContinuation(conversation.group.id, m[2], bot.id, TASK_RESUME_PROMPT);
         return json(res, 202, { ok: true });
       }
-      await startTurn(bot.id, resumePrompt, { threadId: m[2], cardContinuation: true });
+      await startTurn(bot.id, TASK_RESUME_PROMPT, { threadId: m[2], cardContinuation: true });
       return json(res, 202, { ok: true });
     }
 
@@ -7760,10 +7802,27 @@ const server = createServer(async (req, res) => {
     const status = (e as any)?.status ?? 500;
     return json(res, status, { error: e instanceof Error ? e.message : String(e) });
   }
-});
+};
 
-server.listen(PORT, "127.0.0.1", () => {
-  console.log(`openmausbot server on http://127.0.0.1:${PORT}`);
+const early = currentEarlyListen();
+if (early) {
+  early.setHandler(handleRequest);
+} else {
+  const server = createServer(handleRequest);
+  server.listen(PORT, "127.0.0.1", () => {
+    console.log(`openmausbot server on http://127.0.0.1:${PORT}`);
+  });
+}
+// PATH/CLI describe after the socket is accepting, and after this turn so
+// a queued first /api/bots can drain before `--version` scans start.
+setImmediate(() => {
+  void defaultSelection()
+    .then((sel) => {
+      bootSelection = sel;
+    })
+    .catch((error) => {
+      console.error(`[boot] default engine scan failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
 });
 
 hostShutdown = () => {

@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { isCompletedTaskRecord } from "../shared/task-resume.ts";
+
 import {
   clearTaskBlockers,
   recordTaskBlocker,
+  foldCompletedNextAction,
   recordTaskCompletion,
   recordTaskEvidence,
   recordTaskInstruction,
@@ -104,8 +107,91 @@ describe("task state folding", () => {
     expect(completed.completed.at(-1)?.note).toContain("Draft complete");
     expect(completed.evidence.at(-1)?.ref).toBe("message-3");
     expect(completed.blockers).toEqual([]);
+    expect(completed.nextAction).toBe("");
     expect(failed.completed).toHaveLength(1);
+    expect(failed.nextAction).toBe("");
     expect(failed.blockers).toContainEqual({ kind: "engine", note: expect.any(String) });
+
+    const failedAlone = recordTaskCompletion(seed(), {
+      ok: false,
+      reply: "",
+      now: 250,
+    });
+    expect(failedAlone.nextAction).toBe("Prepare a weekly competitor brief");
+    expect(failedAlone.completed).toEqual([]);
+  });
+
+  it("settles an ok turn that replied with nothing", () => {
+    const settled = recordTaskCompletion(seed(), { ok: true, reply: "   ", now: 300 });
+
+    expect(settled.nextAction).toBe("");
+    expect(settled.completed).toHaveLength(1);
+    expect(isCompletedTaskRecord(settled)).toBe(true);
+  });
+
+  it("clears nextAction when a turn completes so reopen cannot redo finished work", () => {
+    const donePlan = {
+      ...seed(),
+      plan: [
+        { step: "Research launches", status: "done" as const },
+        { step: "Write the report", status: "done" as const },
+        { step: "Verify citations", status: "done" as const },
+        { step: "Publish the brief", status: "done" as const },
+      ],
+      nextAction: "Prepare a weekly competitor brief",
+    };
+    const completed = recordTaskCompletion(donePlan, {
+      ok: true,
+      reply: "Published the brief with four cited sources.",
+      now: 400,
+      turnsAtWrite: 4,
+    });
+
+    expect(completed.flushReason).toBe("turn-end");
+    expect(completed.nextAction).toBe("");
+    expect(completed.completed).toHaveLength(1);
+  });
+
+  it("does not keep completed work as nextAction after a successful turn", () => {
+    const withDoneStep = {
+      ...seed(),
+      plan: [
+        { step: "Prepare a weekly competitor brief", status: "done" as const },
+        { step: "Add a pricing comparison", status: "pending" as const },
+      ],
+      nextAction: "Prepare a weekly competitor brief",
+    };
+    const advanced = recordTaskCompletion(withDoneStep, {
+      ok: true,
+      reply: "Draft complete with five cited sources.",
+      now: 300,
+    });
+    // Successful settle clears nextAction (quiet strip); fold runs after and is a no-op.
+    expect(advanced.nextAction).toBe("");
+    expect(advanced.completed.at(-1)?.note).toBe("Draft complete with five cited sources.");
+
+    const echoed = recordTaskCompletion(seed(), {
+      ok: true,
+      reply: "Prepare a weekly competitor brief",
+      now: 300,
+    });
+    expect(echoed.nextAction).toBe("");
+    expect(echoed.completed.at(-1)?.note).toBe("Prepare a weekly competitor brief");
+  });
+
+  it("foldCompletedNextAction skips plan steps already finished", () => {
+    const packet = {
+      ...seed(),
+      plan: [
+        { step: "A", status: "done" as const },
+        { step: "B", status: "pending" as const },
+        { step: "C", status: "pending" as const },
+      ],
+      completed: [{ note: "B", at: 100 }],
+      nextAction: "A",
+    };
+    const folded = foldCompletedNextAction(packet);
+    expect(folded.nextAction).toBe("C");
   });
 
   it("stamps engine switches and stops without changing task content", () => {
@@ -144,6 +230,7 @@ describe("task state folding", () => {
 
     expect(settled.flushReason).toBe("stop");
     expect(settled.completed).toEqual([]);
+    expect(settled.nextAction).toBe("Prepare a weekly competitor brief");
     expect(settled.blockers).toEqual([]);
   });
 });

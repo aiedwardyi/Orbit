@@ -6,9 +6,10 @@
 // only while Orbit has not compacted the thread and the native session
 // is not already tool-fat. After compaction or a pre-compact soak
 // recycle the harness drops the cursor and injects the bounded
-// transcript — a --resume of the old session would re-send uncompacted
-// tool history. Stop recovery still --resumes when there is no
-// compaction yet.
+// transcript — a --resume of the old session, or reuse of a still-idle
+// process that holds that session, would re-send uncompacted tool
+// history. Warm reuse therefore requires an explicit matching cursor.
+// Stop recovery still --resumes when there is no compaction yet.
 //
 // Integrations become MCP servers on the CLI:
 //   - Composio Sessions (connected apps → tools) over streamable HTTP
@@ -480,8 +481,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     // new turn, and folds a message that arrives MID-turn into the running
     // one before its next model call (verified against 2.1.221 — that fold
     // is what "steer" is). So a session is spawned once, reused while its
-    // spawn contract (args, MCP config, cwd, model) is unchanged, closed
-    // after SESSION_IDLE_MS of quiet, and resumed by --resume when needed.
+    // spawn contract (args, MCP config, cwd, model) is unchanged and the
+    // harness still names this session, closed after SESSION_IDLE_MS of
+    // quiet, and resumed by --resume when a matching cursor must attach
+    // to a new process. An omitted cursor never reuses.
     interface Session {
       child: ReturnType<typeof spawnCli>;
       broker?: ReturnType<typeof createPermissionBroker>;
@@ -703,11 +706,15 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const keyArgs = args.filter((a, i) => a !== "--mcp-config" && args[i - 1] !== "--mcp-config");
       const argsKey = JSON.stringify({ args: keyArgs, mcpServers, cwd, model: injected.model ?? null, base: env.ANTHROPIC_BASE_URL ?? null });
 
-      // Reuse the live process when it is idle, unchanged, and is the session
-      // the harness wants resumed. Anything else: close it and spawn fresh
-      // (with --resume, so the conversation continues in the new process).
+      // Reuse the live process only when it is idle, unchanged, and the
+      // harness named that same session. An omitted cursor (Orbit recycled
+      // after compaction or a pre-compact soak) must spawn a fresh
+      // --session-id — otherwise summary+tail appends onto the fat CLI
+      // history and defeats the bound.
+      // A matching cursor still reuses (Stop / Continuity on uncompacted
+      // threads) or --resumes after a contract change.
       const live = sessions.get(threadId);
-      if (live && !live.turn && !live.closing && live.child.exitCode === null && live.argsKey === argsKey && (!sessionId || sessionId === live.sessionId)) {
+      if (live && !live.turn && !live.closing && live.child.exitCode === null && live.argsKey === argsKey && sessionId !== null && sessionId === live.sessionId) {
         if (live.idleTimer) clearTimeout(live.idleTimer);
         live.turn = { turnId, settled: false, sawStreamDelta: false };
         active.set(threadId, {
@@ -737,7 +744,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         }
         return { turnId };
       }
-      if (live) closeSession(threadId, "spawn contract changed");
+      if (live) {
+        closeSession(
+          threadId,
+          sessionId === null
+            ? "fresh session required"
+            : sessionId === live.sessionId
+              ? "spawn contract changed"
+              : "session cursor mismatch",
+        );
+      }
 
       // Only create a broker for a new process. A compatible retained process
       // keeps its existing proxy connection and broker across turns.

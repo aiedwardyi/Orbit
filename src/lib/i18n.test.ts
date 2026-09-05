@@ -213,8 +213,6 @@ describe("complete phrases", () => {
     expect(en["bot.rememberedFolderNextTask"]).toMatch(/\{current\}/);
     expect(ko["bot.rememberedFolderNextTask"]).toMatch(/다음 작업/);
     expect(ko["bot.rememberedFolderNextTask"]).not.toMatch(/next task/i);
-    expect(en["chat.savedConversation"]).toBe("Saved conversation");
-    expect(ko["chat.savedConversation"]).toBe("저장된 대화");
     expect(en["packaged.chooseFolder"]).toBe("Choose a folder");
     expect(ko["packaged.chooseFolder"]).toBe("폴더 선택");
   });
@@ -223,6 +221,7 @@ describe("complete phrases", () => {
     expect(settingsPanel).toContain('t("bot.workingFolder")');
     expect(settingsPanel).toContain('t("bot.workingFolderHelp")');
     expect(settingsPanel).toContain('t("bot.workingFolderEmpty")');
+    expect(settingsPanel).toContain('type: "botPatched"');
     expect(settingsPanel).toContain('t("bot.rememberedFolderNextTask"');
     expect(settingsPanel).not.toMatch(/>Working folder</);
     expect(settingsPanel).not.toMatch(/Where this bot runs its shell and file tools/);
@@ -470,8 +469,8 @@ describe("first-run core path leftovers", () => {
     expect(ko["task.matching"]).toContain("{count}");
     expect(en["chat.startConversation"]).toContain("Send a message");
     expect(ko["chat.startConversation"]).not.toMatch(/Send a message/i);
-    expect(en["model.automatic"]).toBe("Automatic");
-    expect(ko["model.automatic"]).toBe("자동");
+    expect(en["model.automatic"]).toBe("Current model");
+    expect(ko["model.automatic"]).toBe("현재 모델");
     expect(en["model.switchEngine"]).toBe("Switch engine");
     expect(ko["model.switchEngine"]).toBe("엔진 바꾸기");
     expect(ko["model.switchEngine"]).not.toMatch(/Switch engine/i);
@@ -479,11 +478,18 @@ describe("first-run core path leftovers", () => {
     expect(ko["model.cliVersion"]).toBe("CLI 패키지 {version}");
     expect(en["model.pinnedTitle"]).toBe("{engine} · {model}");
     expect(ko["model.pinnedTitle"]).toBe("{engine} · {model}");
-    expect(en["model.automaticHelp"]).toContain("when it works");
+    expect(en["model.automaticTitle"]).toBe("Stay on this engine while it works. Currently {name}.");
+    expect(ko["model.automaticTitle"]).toBe("작동하는 동안 이 엔진을 유지합니다. 현재 {name}.");
+    expect(en["model.automaticTitle"]).not.toMatch(/choosing|Automatic/i);
+    expect(ko["model.automaticTitle"]).not.toMatch(/고르고|Automatic/i);
+    expect(en["model.automaticHelp"]).toBe("{name} · stay on this while it works.");
     expect(en["model.automaticHelp"]).toContain("{name}");
+    expect(ko["model.automaticHelp"]).toBe("{name} · 작동하는 동안 그대로 둡니다.");
     expect(ko["model.automaticHelp"]).toContain("{name}");
-    expect(ko["model.automaticHelp"]).not.toMatch(/when it works/i);
-    expect(translate("en", "model.automaticHelp", { name: "Grok 4.6" })).toContain("Grok 4.6");
+    expect(ko["model.automaticHelp"]).not.toMatch(/stay on this|when it works/i);
+    expect(translate("en", "model.automaticHelp", { name: "Grok 4.6" })).toBe(
+      "Grok 4.6 · stay on this while it works.",
+    );
     expect(en["engine.openConnections"]).toBe("Enter API key");
     expect(ko["engine.openConnections"]).toBe("API 키 입력");
     expect(en["engines.models"]).toBe("Models");
@@ -736,6 +742,9 @@ describe("Continuity recovery and compaction chrome", () => {
   const recovery = readFileSync(join(here, "../components/TaskRecoveryCard.tsx"), "utf8");
 
   it("keeps Resume and compaction disclosure as complete EN+KO phrases", () => {
+    expect(en["chat.conversationSaved"]).toBe("Conversation saved");
+    expect(ko["chat.conversationSaved"]).toBe("대화가 저장됨");
+    expect(ko["chat.conversationSaved"]).not.toMatch(/Conversation saved/i);
     expect(en["chat.resume"]).toBe("Resume");
     expect(ko["chat.resume"]).toBe("재개");
     expect(en["chat.resuming"]).toBe("Resuming…");
@@ -750,6 +759,7 @@ describe("Continuity recovery and compaction chrome", () => {
   });
 
   it("wires those phrases instead of hardcoded English", () => {
+    expect(recovery).toContain('t("chat.conversationSaved")');
     expect(recovery).toContain('t("chat.resume")');
     expect(recovery).toContain('t("chat.resuming")');
     expect(recovery).toContain('t("chat.compactionSummarized")');

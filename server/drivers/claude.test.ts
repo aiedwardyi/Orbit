@@ -636,6 +636,36 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(recorder.events.filter((e) => e.type === "turn.completed")).toHaveLength(2);
   });
 
+  it("starts a fresh session when a retained process has no matching resume cursor", async () => {
+    await create();
+    const dump = join(scratch, "recycle-dump.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    await instance.adapter.sendTurn({ threadId: "t-recycle", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const firstDump = JSON.parse(readFileSync(dump, "utf8")) as { pid: number; argv: string[] };
+    const firstSession = (recorder.events.find((e) => e.type === "session.started") as { sessionId: string }).sessionId;
+    expect(firstDump.argv).toContain("--session-id");
+    // The CLI must still be idle-retained — that is the Astra hole.
+    expect(() => process.kill(firstDump.pid, 0)).not.toThrow();
+
+    // After Orbit compaction the harness clears resumeCursor and injects
+    // summary+tail. Reusing the idle CLI would append that onto the fat
+    // native history and defeat the bound.
+    const second = await instance.adapter.sendTurn({
+      threadId: "t-recycle",
+      text: "[Orbit compacted this conversation to keep the provider session bounded.]\n\ntwo",
+    });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+
+    const secondDump = JSON.parse(readFileSync(dump, "utf8")) as { pid: number; argv: string[] };
+    expect(secondDump.pid).not.toBe(firstDump.pid);
+    expect(secondDump.argv).toContain("--session-id");
+    expect(secondDump.argv).not.toContain("--resume");
+    expect(secondDump.argv).not.toContain(firstSession);
+    const sessions = recorder.events.filter((e) => e.type === "session.started") as Array<{ sessionId: string }>;
+    expect(sessions.at(-1)?.sessionId).not.toBe(firstSession);
+  });
+
   it("denies late broker asks between retained turns without opening a zombie card", async () => {
     await create();
     await instance.adapter.sendTurn({ threadId: "t-retained-late", text: "one" });

@@ -7,7 +7,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, request, type Server } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -1968,7 +1968,7 @@ describe("harness HTTP API", () => {
     expect(impostor.composio).toBe(false);
     expect(impostor.computer).toEqual(defaultComputerForNewBot());
     expect(impostor.cloudBackend).toBeUndefined();
-    expect(impostor.cwd).toBeUndefined();
+    expect(impostor.cwd).toBeNull();
 
     // the existing bot is untouched, field for field — an import can only
     // ever CREATE records, never update one in place
@@ -2511,7 +2511,13 @@ describe("harness HTTP API", () => {
       const resumedDump = z.object({ prompt: z.unknown() }).passthrough().parse(
         JSON.parse(readFileSync(fakeClaudeDump, "utf8")),
       );
-      expect(JSON.stringify(resumedDump.prompt)).toContain("Orbit task record");
+      const resumedPrompt = JSON.stringify(resumedDump.prompt);
+      expect(resumedPrompt).toContain("Orbit task record");
+      expect(resumedPrompt).toContain("Current request: Continue until I stop you");
+      expect(resumedPrompt).toContain("The previous turn was interrupted. Continue from the conversation.");
+      expect(resumedPrompt).not.toContain("Goal: Prepare a durable weekly brief");
+      expect(resumedPrompt).not.toContain("Next action: Verify citations after stopping");
+      expect(resumedPrompt).not.toContain("Verify the record against the conversation");
       expect((await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId })).status).toBe(200);
       await expect.poll(() => storedTaskPacket(bot.threadId).flushReason).toBe("stop");
       expect((await api("POST", `/api/bots/${bot.id}/tasks/${bot.threadId}/recovery`, {})).status).toBe(200);
@@ -3940,6 +3946,38 @@ describe("harness HTTP API", () => {
     const array = await api("PUT", "/api/config", { opencodeGo: [] });
     expect(array.status).toBe(400);
     expect(array.body.error).toContain("opencodeGo");
+  });
+
+  it("Clear returns cwd null so Bot details can refresh to the private workspace", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "omb-clear-cwd-"));
+    const created = await api("POST", "/api/bots");
+    const botId = created.body.bot.id;
+    try {
+      const pinned = await api("PATCH", `/api/bots/${botId}`, { cwd: folder });
+      expect(pinned.status).toBe(200);
+      expect(pinned.body.bot.cwd).toBe(resolve(folder));
+      expect(pinned.body.bot).not.toHaveProperty("lastProjectCwd");
+
+      const stream = await openSse(`${BASE}/api/events`);
+      try {
+        const cleared = await api("PATCH", `/api/bots/${botId}`, { cwd: null });
+        expect(cleared.status).toBe(200);
+        expect(cleared.body.bot.cwd).toBeNull();
+        expect(cleared.body.bot).not.toHaveProperty("lastProjectCwd");
+
+        const frame = await stream.until((f) => f.kind === "bot" && f.bot?.id === botId && f.bot?.cwd === null);
+        expect(frame.bot.cwd).toBeNull();
+        expect(frame.bot).not.toHaveProperty("lastProjectCwd");
+      } finally {
+        stream.close();
+      }
+
+      const listed = await api("GET", `/api/bots?messages=0`);
+      expect(listed.body.bots.find((bot: { id: string }) => bot.id === botId)?.cwd).toBeNull();
+    } finally {
+      await api("DELETE", `/api/bots/${botId}`);
+      rmSync(folder, { recursive: true, force: true });
+    }
   });
 
   it("never hands a client the provider session cursors", async () => {

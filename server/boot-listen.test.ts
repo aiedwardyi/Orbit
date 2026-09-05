@@ -7,16 +7,24 @@ const here = dirname(fileURLToPath(import.meta.url));
 const index = readFileSync(join(here, "index.ts"), "utf8");
 
 describe("harness listen is not blocked on engine describe", () => {
-  it("does not await defaultSelection before server.listen", () => {
+  it("does not start defaultSelection until after listen or early attach", () => {
     const bootAssign = index.indexOf("bootSelection = await defaultSelection()");
     expect(bootAssign).toBe(-1);
     expect(index).toMatch(/void defaultSelection\(\)/);
     expect(index).toMatch(/function describeInstances\(/);
+    expect(index).toMatch(/currentEarlyListen\(/);
+    expect(index).toMatch(/early\.setHandler\(/);
     const listenAt = index.indexOf("server.listen(");
+    const attachAt = index.indexOf("early.setHandler(");
     const scheduleAt = index.indexOf("void defaultSelection()");
     expect(listenAt).toBeGreaterThan(-1);
+    expect(attachAt).toBeGreaterThan(-1);
     expect(scheduleAt).toBeGreaterThan(-1);
-    expect(scheduleAt).toBeLessThan(listenAt);
+    expect(scheduleAt).toBeGreaterThan(listenAt);
+    expect(scheduleAt).toBeGreaterThan(attachAt);
+    const immediateAt = index.lastIndexOf("setImmediate(", scheduleAt);
+    expect(immediateAt).toBeGreaterThan(attachAt);
+    expect(immediateAt).toBeLessThan(scheduleAt);
   });
 
   it("still resolves a default engine when creating a bot", () => {

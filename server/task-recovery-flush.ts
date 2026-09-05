@@ -22,9 +22,10 @@ export function shouldStampRecoveryDismiss(
   return true;
 }
 
-/** Idle close may offer Resume only when a real forever-chat record already
- * exists and is not the live/dismissed `progress` write. Crash/stop/shutdown
- * stay on their own paths. Empty or new bots have no packet. */
+/** Idle close may offer a reopen strip when a real forever-chat record already
+ * exists and is not the live/dismissed `progress` write. Completed records
+ * still stamp so the quiet saved copy can show; they are not unfinished work.
+ * Crash/stop/shutdown stay on their own paths. Empty or new bots have no packet. */
 export function idleReopenStampReason(
   packet: { flushReason: string; goal?: string; botId?: string } | null | undefined,
 ): RecoveryFlushReason | null {

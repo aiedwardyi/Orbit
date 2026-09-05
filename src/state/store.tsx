@@ -24,7 +24,9 @@ import { currentCall } from "@/lib/call";
 import { showNotification, type NotificationTarget } from "@/lib/notify";
 import { speaker } from "@/lib/tts";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
+import { firstChatPeripherals, scheduleDeferredInstancesLoad } from "./first-chat-snapshot";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
+import { completedReopenDismissals } from "@/lib/task-recovery";
 import { openLiveEvents } from "@/lib/live-events";
 import {
   acceptedSendPaint,
@@ -33,8 +35,10 @@ import {
   dropIdleAcceptedThinking,
   forgetAcceptedSend,
   hasAcceptedThinking,
+  receiptRejectsAcceptedSend,
   rememberAcceptedSend,
   settleAcceptedSend,
+  shouldDropQueueChip,
   type AcceptedSends,
 } from "@/lib/send-accept";
 
@@ -260,8 +264,8 @@ export interface Bot {
   cloudBackend?: CloudBackend;
   /** Allow Auto to prepare/start the managed VPS container. Off by default. */
   autoStartVps?: boolean;
-  /** where new tasks run their shell tools; absent = the private bot workspace */
-  cwd?: string;
+  /** where new tasks run their shell tools; absent/null = the private bot workspace */
+  cwd?: string | null;
   /** Chat-named folder remembered for the next task; this task's cwd stays. */
   rememberedProjectCwd?: string;
   /** auto mode: the bot approves its own tool permissions */
@@ -810,7 +814,22 @@ export function reducer(state: AppState, action: Action): AppState {
         dropIdleAcceptedThinking(hydrated.acceptedSends, hydrated.bots),
         hydrated.groups,
       );
-      return { ...hydrated, acceptedSends, bots: applyOptimisticBusy(hydrated.bots, acceptedSends) };
+      const leftoverPackets = [
+        ...hydrated.bots.flatMap((bot) => (bot.tasks ?? []).map((task) => task.taskState)),
+        ...hydrated.groups.flatMap((group) => [
+          group.taskState,
+          ...(group.tasks ?? []).map((task) => task.taskState),
+        ]),
+      ];
+      return {
+        ...hydrated,
+        acceptedSends,
+        bots: applyOptimisticBusy(hydrated.bots, acceptedSends),
+        dismissedTaskRecovery: {
+          ...hydrated.dismissedTaskRecovery,
+          ...completedReopenDismissals(leftoverPackets),
+        },
+      };
     }
     case "showRoutines":
       return {
@@ -1755,21 +1774,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           break;
         case "cancelQueued": {
           const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
-          const accepted = bot
-            ? (stateRef.current.acceptedSends[bot.threadId] ?? []).find((entry) => entry.sendId === action.queueId)
-            : undefined;
-          if (bot && accepted) {
-            cancelledSendsRef.current.add(action.queueId);
-            rawDispatch({
-              type: "sendRejected",
-              botId: action.botId,
-              threadId: bot.threadId,
-              sendId: action.queueId,
-            });
-            break;
-          }
           void api(`/api/bots/${action.botId}/queue/${action.queueId}`, { method: "DELETE" })
-            .then(() => rawDispatch(action))
+            .then((body) => {
+              if (!shouldDropQueueChip(body)) return;
+              if (bot) {
+                rawDispatch({
+                  type: "sendRejected",
+                  botId: action.botId,
+                  threadId: bot.threadId,
+                  sendId: action.queueId,
+                });
+              }
+              rawDispatch(action);
+            })
             .catch(showError);
           break;
         }
@@ -1786,6 +1803,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId }),
           })
             .then((body) => {
+              if (receiptRejectsAcceptedSend(body)) {
+                cancelledSendsRef.current.delete(sendId);
+                if (typeof threadId === "string") {
+                  rawDispatch({ type: "sendRejected", botId: action.botId, threadId, sendId });
+                }
+                if (body?.message && typeof body.threadId === "string") {
+                  rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
+                }
+                return;
+              }
               if (cancelledSendsRef.current.has(sendId)) {
                 cancelledSendsRef.current.delete(sendId);
                 if (typeof threadId === "string") {
@@ -1997,6 +2024,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId }),
           })
             .then((body) => {
+              if (receiptRejectsAcceptedSend(body)) {
+                cancelledSendsRef.current.delete(sendId);
+                if (typeof threadId === "string") {
+                  rawDispatch({ type: "sendRejected", threadId, sendId });
+                }
+                if (body?.message && typeof body.threadId === "string") {
+                  rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
+                }
+                return;
+              }
               if (cancelledSendsRef.current.has(sendId)) {
                 cancelledSendsRef.current.delete(sendId);
                 if (typeof threadId === "string") {
@@ -2237,7 +2274,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             computerControl: computerControl ?? {},
           });
         });
-      const peripherals = peripheralParts.map((part) => ({
+      const peripherals = firstChatPeripherals(peripheralParts).map((part) => ({
         key: part.key,
         load: () => loadPeripheral(part, false),
       }));
@@ -2492,8 +2529,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         else pendingFrames.push(frame);
       },
     });
+    const instancesPart = partByKey.get("instances");
+    const stopDeferredInstances = instancesPart
+      ? scheduleDeferredInstancesLoad(() => {
+          if (!alive) return;
+          void loadPeripheral(instancesPart, true).catch((error) =>
+            schedulePeripheralRetry(instancesPart, error),
+          );
+        })
+      : () => {};
     return () => {
       alive = false;
+      stopDeferredInstances();
       clearTimeout(hydrationFallback);
       for (const refresh of peripheralRefresh.values()) {
         if (refresh.timer) clearTimeout(refresh.timer);

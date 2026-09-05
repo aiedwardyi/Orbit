@@ -106,8 +106,9 @@ export const PRE_COMPACT_SESSION_TOOL_ROUND_LIMIT = 48;
 const NATIVE_SESSION_BUDGET_SHARE = 0.5;
 
 export function nativeSessionTokenBudget(contextWindow: number): number {
-  const window = Number.isSafeInteger(contextWindow) && contextWindow > 0 ? contextWindow : 16_384;
-  return Math.max(1, Math.floor(window * NATIVE_SESSION_BUDGET_SHARE));
+  return Number.isSafeInteger(contextWindow) && contextWindow > 0
+    ? Math.max(1, Math.floor(contextWindow * NATIVE_SESSION_BUDGET_SHARE))
+    : 0;
 }
 
 export interface SessionFatMessage {
@@ -174,6 +175,8 @@ export function shouldRecycleProviderSession(input: {
   nativeTokenBudget?: number;
 }): boolean {
   if (input.rewound) return false;
+  // Compaction always forces a recycle regardless of recovery state: a
+  // recovered session that was then compacted must start fresh.
   if (input.compacted) return true;
   if (input.recovering) return false;
   if ((input.lastTurnToolRounds ?? 0) >= PRE_COMPACT_TOOL_ROUND_LIMIT) return true;
@@ -199,6 +202,16 @@ function replayPreamble(input: TurnContextInput): string {
   return FRESH_PREAMBLE;
 }
 
+export const TASK_RESUME_PROMPT =
+  "The previous turn was interrupted. Continue from the conversation.";
+
+export interface TaskRecordBlockOptions {
+  /** Stop / crash Resume — do not present a drifted Goal/Plan/Next as current work. */
+  recovering?: boolean;
+  /** Latest real user turn; ignored unless `recovering` is set. */
+  latestUserText?: string;
+}
+
 function compactValue(value: string, maxCharacters: number): string {
   const characters = Array.from(value);
   if (characters.length <= maxCharacters) return value;
@@ -206,11 +219,30 @@ function compactValue(value: string, maxCharacters: number): string {
   return characters.slice(0, Math.max(1, maxCharacters - marker.length)).join("").trimEnd() + marker;
 }
 
-export function taskRecordBlock(record: TaskRecordContext, maxCharacters = 6_000): string {
-  const done = record.plan.filter((item) => item.status === "done").length;
-  const active = record.plan.find((item) => item.status === "active")?.step;
-  const pending = record.plan.find((item) => item.status === "pending")?.step;
-  const plan = record.plan.map((item, index) => `${index + 1}. ${item.status}: ${item.step}`).join(" | ") || "none";
+function latestUserTextFromTranscript(
+  transcript: Array<{ role: "user" | "assistant"; text: string }>,
+): string {
+  for (let i = transcript.length - 1; i >= 0; i--) {
+    const message = transcript[i]!;
+    if (message.role === "user" && message.text.trim()) return message.text;
+  }
+  return "";
+}
+
+function formatTaskRecordFields(
+  header: string,
+  fields: ReadonlyArray<readonly [string, string]>,
+  maxCharacters: number,
+): string {
+  const limit = Math.max(512, maxCharacters);
+  const valueBudget = Math.max(24, Math.floor((limit - header.length - fields.length) / Math.max(1, fields.length)) - 16);
+  return redactSecretsInText([
+    header,
+    ...fields.map(([label, value]) => `${label}: ${compactValue(value, valueBudget)}`),
+  ].join("\n"));
+}
+
+function taskRecordProgressFields(record: TaskRecordContext): Array<readonly [string, string]> {
   const recent = record.completed.slice(-3).map((item) => item.note).join(" | ") || "none recorded";
   const evidenceItems = record.evidence ?? [];
   const evidence = evidenceItems.slice(-3)
@@ -218,22 +250,44 @@ export function taskRecordBlock(record: TaskRecordContext, maxCharacters = 6_000
   const artifactItems = record.artifacts ?? [];
   const artifacts = artifactItems.slice(-3).map((item) => `${item.label}: ${item.ref}`).join(" | ") || "none";
   const blockers = record.blockers.slice(-3).map((item) => item.note).join(" | ") || "none";
-  const fields = [
-    ["Goal", record.goal],
-    ["Plan", `${done}/${record.plan.length} done${active ? `; active: ${active}` : ""}${pending ? `; next pending: ${pending}` : ""}; steps: ${plan}`],
-    ["Next action", record.nextAction],
+  return [
     ["Done recently", `${record.completed.length} total; ${recent}`],
     ["Evidence", `${evidenceItems.length} total; ${evidence}`],
     ["Artifacts", `${artifactItems.length} total; ${artifacts}`],
     ["Blockers", `${record.blockers.length} total; ${blockers}`],
-  ] as const;
-  const header = "[Orbit task record - saved locally. The conversation is authoritative; verify against it.]";
-  const limit = Math.max(512, maxCharacters);
-  const valueBudget = Math.max(24, Math.floor((limit - header.length - fields.length) / fields.length) - 16);
-  return redactSecretsInText([
-    header,
-    ...fields.map(([label, value]) => `${label}: ${compactValue(value, valueBudget)}`),
-  ].join("\n"));
+  ];
+}
+
+export function taskRecordBlock(
+  record: TaskRecordContext,
+  maxCharacters = 6_000,
+  options?: TaskRecordBlockOptions,
+): string {
+  if (options?.recovering) {
+    const current = (options.latestUserText ?? "").trim();
+    return formatTaskRecordFields(
+      "[Orbit task record - local notes. The previous turn was interrupted. Continue from the conversation.]",
+      [
+        ...(current ? [["Current request", current] as const] : []),
+        ...taskRecordProgressFields(record),
+      ],
+      maxCharacters,
+    );
+  }
+  const done = record.plan.filter((item) => item.status === "done").length;
+  const active = record.plan.find((item) => item.status === "active")?.step;
+  const pending = record.plan.find((item) => item.status === "pending")?.step;
+  const plan = record.plan.map((item, index) => `${index + 1}. ${item.status}: ${item.step}`).join(" | ") || "none";
+  return formatTaskRecordFields(
+    "[Orbit task record - saved locally. The conversation is authoritative; verify against it.]",
+    [
+      ["Goal", record.goal],
+      ["Plan", `${done}/${record.plan.length} done${active ? `; active: ${active}` : ""}${pending ? `; next pending: ${pending}` : ""}; steps: ${plan}`],
+      ["Next action", record.nextAction],
+      ...taskRecordProgressFields(record),
+    ],
+    maxCharacters,
+  );
 }
 
 const RESUME_FALLBACK_PREAMBLE =
@@ -267,7 +321,12 @@ export function buildTurnContext(input: TurnContextInput): {
   const { text, transcript, rewound, fresh, recycled = false, replaysNatively, taskRecord, taskRecordText, contextCapped = false, recovering = false } = input;
   const resume = !rewound && !fresh && !recycled;
   const replay = !resume && !replaysNatively && transcript.length > 0;
-  const durableRecord = taskRecordText ?? (taskRecord ? taskRecordBlock(taskRecord) : "");
+  const durableRecord = recovering && taskRecord
+    ? taskRecordBlock(taskRecord, 6_000, {
+      recovering: true,
+      latestUserText: latestUserTextFromTranscript(transcript),
+    })
+    : taskRecordText ?? (taskRecord ? taskRecordBlock(taskRecord) : "");
   const record = durableRecord && (rewound || fresh || recycled || contextCapped || recovering)
     ? durableRecord
     : "";
