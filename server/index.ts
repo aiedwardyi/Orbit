@@ -106,12 +106,16 @@ import { reactionSystemGuidance } from "../shared/reactions.ts";
 import { _loadPending, discardDelegations, discardDelegationsFrom, drainDelegations, findDelegationReceipt, pendingDelegationInfo, pendingDelegationSnapshot, pendingThreads, queueDelegation, recordDelegationReceipt, threadsWaitingOn, type QueueResult } from "./delegations.ts";
 import {
   cancelSteeredMessage,
+  clearSendRunning,
   continueQueuedDrainIfIdle,
   drainSteeredMessages,
+  isSendCancelled,
+  markSendRunning,
   queuedSteeredMessage,
   queueRoomParticipation,
   queueSteeredMessage,
 } from "./steer-queue.ts";
+import { sendPostReceipt, startedTurn } from "./send-receipt.ts";
 import {
   acceptedSendMatch,
   parseSendId,
@@ -1897,6 +1901,7 @@ bus.subscribe((event: RuntimeEvent) => {
           }
           // settled → idle; a setup failure already marked it dead, keep that
           if (store.bot(bot.id)?.activity !== "dead") store.setActivity(bot.id, "idle");
+          clearSendRunning(bot.id);
         }
         const routineReportThread = routineRun ? routineSourceThread(routineRun) : null;
         const routineReportGroup = routineReportThread ? store.groupByThread(routineReportThread) : undefined;
@@ -2343,6 +2348,11 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     );
   }
 
+  if (opts?.sendId && isSendCancelled(opts.sendId)) {
+    if (opts.userMessage) return startedTurn(opts.userMessage, { cancelled: true });
+    throw Object.assign(new Error("this send was cancelled"), { status: 409 });
+  }
+
   // an edit hands us its already-branched user message; a plain send appends
   let userMessage = opts?.userMessage;
   if (!userMessage) {
@@ -2426,7 +2436,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       tool: { name: `error: ${detail}`, ok: false },
     });
     opts?.onDispatchError?.(detail);
-    return userMessage;
+    return startedTurn(userMessage, { dispatchFailed: true, error: detail });
   }
   if (prepared.compaction) {
     try {
@@ -2439,7 +2449,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         tool: { name: `error: ${detail}`, ok: false },
       });
       opts?.onDispatchError?.(detail);
-      return userMessage;
+      return startedTurn(userMessage, { dispatchFailed: true, error: detail });
     }
   }
   const transcript = prepared.transcript;
@@ -2540,11 +2550,16 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // busy flips immediately so the composer locks; the dispatch itself runs
   // in the background — box provisioning can take ~90s and must never
   // hang the HTTP request
-  if (currentTurnEpoch(bot.id) !== epoch) return userMessage;
+  if (currentTurnEpoch(bot.id) !== epoch) return startedTurn(userMessage);
+  if (opts?.sendId && isSendCancelled(opts.sendId)) {
+    return startedTurn(userMessage, { cancelled: true });
+  }
   store.setActivity(bot.id, "working", threadId);
+  markSendRunning(bot.id, opts?.sendId);
   if (currentTurnEpoch(bot.id) !== epoch) {
     store.setActivity(bot.id, "idle");
-    return userMessage;
+    clearSendRunning(bot.id);
+    return startedTurn(userMessage);
   }
   store.patchBot(bot.id, { unread: false });
   turnUsage.delete(threadId);
@@ -2952,6 +2967,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         }));
       }
       store.setActivity(bot.id, "idle");
+      clearSendRunning(bot.id);
       opts?.onDispatchError?.(message);
       // a dispatch failure never emits turn.completed, so the settle-driven
       // drain would strand anything queued behind this turn
@@ -2960,7 +2976,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       drainSecretResumes();
     }
   })();
-  return userMessage;
+  return startedTurn(userMessage);
 }
 
 // ── routines: persisted definitions → detached bot tasks ───────────────
@@ -6661,6 +6677,10 @@ const server = createServer(async (req, res) => {
             }
           }
 
+          if (sendId && isSendCancelled(sendId)) {
+            return { ok: true as const, cancelled: true as const, threadId };
+          }
+
           const currentAtStart = store.bot(bot.id);
           if (!currentAtStart) throw Object.assign(new Error("no such bot"), { status: 404 });
           if (!store.taskByThread(currentAtStart.id, threadId)) {
@@ -6722,8 +6742,8 @@ const server = createServer(async (req, res) => {
               return { ok: true as const, steered: true as const, threadId, message };
             }
             if (!current.busy) {
-              const message = await startTurn(bot.id, text, { threadId, replyTo, sendId });
-              return { ok: true as const, threadId, message };
+              const started = await startTurn(bot.id, text, { threadId, replyTo, sendId });
+              return sendPostReceipt(started, threadId);
             }
             const queued = queueSteeredMessage(current.id, threadId, text, {
               replyToId: replyTo?.id,
@@ -6731,10 +6751,13 @@ const server = createServer(async (req, res) => {
               // Reply quote only — startTurn wraps reactions when this drains.
               prompt: promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"),
             });
+            if (queued.skipped) {
+              return { ok: true as const, cancelled: true as const, threadId };
+            }
             return { ok: true as const, queued: true as const, queueId: queued.id, threadId };
           }
-          const message = await startTurn(bot.id, text, { threadId, replyTo, sendId });
-          return { ok: true as const, threadId, message };
+          const started = await startTurn(bot.id, text, { threadId, replyTo, sendId });
+          return sendPostReceipt(started, threadId);
         },
       );
       return json(res, 202, receipt);
@@ -6745,10 +6768,10 @@ const server = createServer(async (req, res) => {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
       const queueId = m[2];
-      if (!cancelSteeredMessage(bot.id, queueId)) {
-        return json(res, 404, { error: "no such queued message" });
-      }
-      return json(res, 200, { ok: true });
+      const result = cancelSteeredMessage(bot.id, queueId);
+      if (result.running) return json(res, 200, { cancelled: false, running: true });
+      if (!result.cancelled) return json(res, 404, { error: "no such queued message" });
+      return json(res, 200, { ok: true, cancelled: true });
     }
 
     // edit a user message → fork the conversation there and rerun the turn.

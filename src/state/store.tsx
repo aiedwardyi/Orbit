@@ -33,8 +33,10 @@ import {
   dropIdleAcceptedThinking,
   forgetAcceptedSend,
   hasAcceptedThinking,
+  receiptRejectsAcceptedSend,
   rememberAcceptedSend,
   settleAcceptedSend,
+  shouldDropQueueChip,
   type AcceptedSends,
 } from "@/lib/send-accept";
 
@@ -1753,21 +1755,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           break;
         case "cancelQueued": {
           const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
-          const accepted = bot
-            ? (stateRef.current.acceptedSends[bot.threadId] ?? []).find((entry) => entry.sendId === action.queueId)
-            : undefined;
-          if (bot && accepted) {
-            cancelledSendsRef.current.add(action.queueId);
-            rawDispatch({
-              type: "sendRejected",
-              botId: action.botId,
-              threadId: bot.threadId,
-              sendId: action.queueId,
-            });
-            break;
-          }
           void api(`/api/bots/${action.botId}/queue/${action.queueId}`, { method: "DELETE" })
-            .then(() => rawDispatch(action))
+            .then((body) => {
+              if (!shouldDropQueueChip(body)) return;
+              if (bot) {
+                rawDispatch({
+                  type: "sendRejected",
+                  botId: action.botId,
+                  threadId: bot.threadId,
+                  sendId: action.queueId,
+                });
+              }
+              rawDispatch(action);
+            })
             .catch(showError);
           break;
         }
@@ -1784,6 +1784,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId }),
           })
             .then((body) => {
+              if (receiptRejectsAcceptedSend(body)) {
+                cancelledSendsRef.current.delete(sendId);
+                if (typeof threadId === "string") {
+                  rawDispatch({ type: "sendRejected", botId: action.botId, threadId, sendId });
+                }
+                if (body?.message && typeof body.threadId === "string") {
+                  rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
+                }
+                return;
+              }
               if (cancelledSendsRef.current.has(sendId)) {
                 cancelledSendsRef.current.delete(sendId);
                 if (typeof threadId === "string") {
@@ -1995,6 +2005,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId }),
           })
             .then((body) => {
+              if (receiptRejectsAcceptedSend(body)) {
+                cancelledSendsRef.current.delete(sendId);
+                if (typeof threadId === "string") {
+                  rawDispatch({ type: "sendRejected", threadId, sendId });
+                }
+                if (body?.message && typeof body.threadId === "string") {
+                  rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
+                }
+                return;
+              }
               if (cancelledSendsRef.current.has(sendId)) {
                 cancelledSendsRef.current.delete(sendId);
                 if (typeof threadId === "string") {

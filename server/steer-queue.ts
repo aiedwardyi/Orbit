@@ -64,6 +64,19 @@ interface QueueEntry {
 }
 
 const queues = new Map<string, QueueEntry>(); // botId + threadId → waiting work
+const cancelledSendIds = new Set<string>();
+const runningSendIds = new Map<string, string>(); // botId → sendId
+
+const SEND_ID_SHAPE = /^[A-Za-z0-9_-]{16,80}$/;
+
+function rememberCancelledSend(id: string): void {
+  if (!id) return;
+  cancelledSendIds.add(id);
+  if (cancelledSendIds.size > 256) {
+    const first = cancelledSendIds.values().next().value;
+    if (first) cancelledSendIds.delete(first);
+  }
+}
 
 function entryKey(botId: string, threadId: string): string {
   return `${botId}\n${threadId}`;
@@ -71,6 +84,33 @@ function entryKey(botId: string, threadId: string): string {
 
 export interface QueuedSteer {
   id: string;
+  skipped?: true;
+  cancelled?: true;
+}
+
+export type CancelSteerResult =
+  | { cancelled: true }
+  | { cancelled: false; running: true }
+  | { cancelled: false; running: false };
+
+export function markSendCancelled(sendId: string): void {
+  rememberCancelledSend(sendId);
+}
+
+export function isSendCancelled(sendId: string | undefined): boolean {
+  return Boolean(sendId && cancelledSendIds.has(sendId));
+}
+
+export function markSendRunning(botId: string, sendId: string | undefined): void {
+  if (sendId) runningSendIds.set(botId, sendId);
+}
+
+export function clearSendRunning(botId: string): void {
+  runningSendIds.delete(botId);
+}
+
+export function runningSendId(botId: string): string | undefined {
+  return runningSendIds.get(botId);
 }
 
 export interface RoomDrain {
@@ -109,6 +149,9 @@ export function queueSteeredMessage(
   text: string,
   options: { prompt?: string; replyToId?: string; sendId?: string } = {},
 ): QueuedSteer {
+  if (options.sendId && cancelledSendIds.has(options.sendId)) {
+    return { id: options.sendId, skipped: true, cancelled: true };
+  }
   const id = newId();
   const entry = entryFor(botId, threadId);
   entry.items.push({
@@ -193,7 +236,7 @@ export function drainSteeredMessages(
     queues.delete(key);
     draining.add(entry.botId);
 
-    const steerItems = entry.items.filter((item): item is SteerItem => !isRoomItem(item));
+    const steerItems = entry.items.filter((item): item is SteerItem => !isRoomItem(item) && !isSendCancelled(item.sendId));
     const roomItems = entry.items.filter(isRoomItem);
     if (steerItems.length) {
       const [item, ...rest] = steerItems;
@@ -238,20 +281,47 @@ export function queuedSteeredMessage(
   return item ? { id: item.messageId, text: item.text, replyToId: item.replyToId } : null;
 }
 
-/** Drop one waiting send owned by this bot so it never drains. The queue id
- * is stable even if the bot switches away from the task while the request is
- * in flight. Returns false when it was already drained, belongs to another
- * bot, or a restart lost the in-memory auto-run intent. */
-export function cancelSteeredMessage(botId: string, messageId: string): boolean {
+/** Drop one waiting send owned by this bot so it never drains. Matches the
+ * queue message id or the client sendId. A sendId that is not queued yet is
+ * remembered so a late POST cannot start it. Returns `running` when that
+ * send already left the queue and is in startTurn. */
+export function cancelSteeredMessage(botId: string, messageId: string): CancelSteerResult {
+  if (runningSendIds.get(botId) === messageId) {
+    return { cancelled: false, running: true };
+  }
   for (const [key, entry] of queues) {
     if (entry.botId !== botId) continue;
-    const items = entry.items.filter((item) => item.messageId !== messageId);
+    const items = entry.items.filter(
+      (item) => item.messageId !== messageId && (isRoomItem(item) || item.sendId !== messageId),
+    );
     if (items.length === entry.items.length) continue;
+    const removed = entry.items.find(
+      (item) => item.messageId === messageId || (!isRoomItem(item) && item.sendId === messageId),
+    );
+    if (removed && !isRoomItem(removed) && removed.sendId) rememberCancelledSend(removed.sendId);
+    rememberCancelledSend(messageId);
     if (items.length === 0) queues.delete(key);
     else queues.set(key, { botId: entry.botId, threadId: entry.threadId, items });
-    return true;
+    return { cancelled: true };
   }
-  return false;
+  for (const entry of queues.values()) {
+    if (entry.botId === botId) continue;
+    if (entry.items.some((item) => item.messageId === messageId || (!isRoomItem(item) && item.sendId === messageId))) {
+      return { cancelled: false, running: false };
+    }
+  }
+  if (SEND_ID_SHAPE.test(messageId)) {
+    rememberCancelledSend(messageId);
+    return { cancelled: true };
+  }
+  return { cancelled: false, running: false };
+}
+
+/** Test helper: drop in-memory queues and cancel/running bookkeeping. */
+export function _resetSteerQueue(): void {
+  queues.clear();
+  cancelledSendIds.clear();
+  runningSendIds.clear();
 }
 
 /** After a drained start fails, try the next queued send only if this
