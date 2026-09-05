@@ -7247,6 +7247,7 @@ const server = createServer(async (req, res) => {
         // never survive the merge in config.json.
         const persisted = structuredClone(patch);
         if (persisted.xai?.key !== undefined) persisted.xai.key = "";
+        if (persisted.gemini?.apiKey !== undefined) persisted.gemini.apiKey = "";
         if (persisted.composio?.apiKey !== undefined) persisted.composio.apiKey = "";
         if (persisted.box?.token !== undefined) persisted.box.token = "";
         if (persisted.opencodeGo?.apiKey !== undefined) persisted.opencodeGo.apiKey = "";
