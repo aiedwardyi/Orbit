@@ -1,15 +1,17 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { tmpdir } from "node:os";
+import { basename, dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { WORKSPACES_DIR } from "./workspace.ts";
 import {
   applyResolvedProjectFolder,
   projectPathsFromRecords,
   projectSearchRoots,
   resolveProjectFolder,
   userProjectTexts,
+  visibleSearchChildNames,
 } from "./project-folder.ts";
 
 let dirs: string[] = [];
@@ -34,7 +36,14 @@ function folder(name?: string, files: Record<string, string> = {}, parent?: stri
 }
 
 afterEach(() => {
-  for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+  const tmp = resolvePath(tmpdir());
+  for (const dir of dirs) {
+    const resolved = resolvePath(dir);
+    if (!resolved.startsWith(tmp)) {
+      throw new Error(`refusing to delete ${dir} — cleanup is isolated-temp only`);
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
   dirs = [];
 });
 
@@ -137,11 +146,39 @@ describe("resolveProjectFolder", () => {
     ).toEqual({ cwd: null, source: null });
   });
 
-  it("defaults the search walk to home and common project parents", () => {
-    const home = homedir();
-    expect(projectSearchRoots()).toEqual(
+  it("defaults the search walk to an injected home, never the real ~/Projects", () => {
+    const home = folder();
+    expect(projectSearchRoots(home)).toEqual(
       expect.arrayContaining([home, join(home, "Projects"), join(home, "Desktop"), join(home, "Documents")]),
     );
+    expect(dirs.every((dir) => dir.includes("omb-proj-"))).toBe(true);
+  });
+
+  it("keeps visible children when hidden names would exhaust the walk budget", () => {
+    const hidden = Array.from({ length: 400 }, (_, i) => `.dot-${i}`);
+    expect(visibleSearchChildNames([...hidden, "orbit"])).toEqual(["orbit"]);
+    expect(visibleSearchChildNames([...hidden, "orbit", "billing"])).toEqual(["orbit", "billing"]);
+  });
+
+  it("treats Cafe and Café as the same project name", () => {
+    const cafe = folder("Café");
+    expect(
+      resolveProjectFolder({
+        userTexts: ['please look at "Cafe"'],
+        recentPaths: [cafe],
+      }),
+    ).toEqual({ cwd: cafe, source: "named" });
+  });
+
+  it("does not treat a folder inside the bot workspaces root as a named project", () => {
+    const desk = join(WORKSPACES_DIR, `desk-${Date.now()}`);
+    mkdirSync(desk, { recursive: true });
+    expect(
+      resolveProjectFolder({
+        userTexts: [`${basename(desk)} please`],
+        recentPaths: [desk],
+      }),
+    ).toEqual({ cwd: null, source: null });
   });
 
   it("walks search roots when a named project is not among recent folders", () => {
@@ -383,6 +420,32 @@ describe("applyResolvedProjectFolder", () => {
       }),
     ).toBe(pinned);
     expect(calls).toEqual(["forget"]);
+  });
+
+  it("does not re-scout a folder apply already resolved when forgetting a remember", () => {
+    const orbit = folder("desktop-workspace", { "README.md": "# Orbit\n\nDesktop workspace.\n" });
+    let calls = 0;
+    const scoutName = (cwd: string) => {
+      calls++;
+      return cwd === orbit ? "Orbit" : null;
+    };
+    applyResolvedProjectFolder({
+      remembered: orbit,
+      userTexts: ["not Orbit"],
+      recentPaths: [orbit],
+      scoutName,
+      remember: () => undefined,
+      forget: () => undefined,
+    });
+    const applyCalls = calls;
+    calls = 0;
+    resolveProjectFolder({
+      remembered: orbit,
+      userTexts: ["not Orbit"],
+      recentPaths: [orbit],
+      scoutName,
+    });
+    expect(applyCalls).toBe(calls);
   });
 
   it("does not remember or forget when a pin wins and nothing was ruled out", () => {

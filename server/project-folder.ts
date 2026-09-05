@@ -5,7 +5,7 @@
 // keep their own shared-pin rules. A folder is optional — never required.
 import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join, relative } from "node:path";
 
 import { validateBotCwd } from "./bot-cwd.ts";
 import { scoutProject } from "./project-scout.ts";
@@ -163,21 +163,25 @@ function memoScout(scoutName: (cwd: string) => string | null): (cwd: string) => 
   };
 }
 
+function isContainedPath(root: string, folder: string): boolean {
+  const rel = relative(root, folder);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
 function defaultPrivateWorkspace(cwd: string): boolean {
   const folder = existingFolder(cwd);
   const root = existingFolder(WORKSPACES_DIR);
-  if (!folder || !root) return cwd === WORKSPACES_DIR || cwd.startsWith(`${WORKSPACES_DIR}/`);
-  return folder === root || folder.startsWith(`${root}/`);
+  if (!folder || !root) return isContainedPath(WORKSPACES_DIR, cwd);
+  return isContainedPath(root, folder);
 }
 
-function defaultSearchRoots(): string[] {
-  const home = homedir();
+function defaultSearchRoots(home = homedir()): string[] {
   return [home, ...SEARCH_ROOT_NAMES.map((name) => join(home, name))];
 }
 
 /** Home plus common project parents — the default light search walk. */
-export function projectSearchRoots(): string[] {
-  return defaultSearchRoots();
+export function projectSearchRoots(home = homedir()): string[] {
+  return defaultSearchRoots(home);
 }
 
 function mentionPattern(name: string): RegExp {
@@ -192,7 +196,7 @@ function mentionsName(text: string, name: string): boolean {
 }
 
 function nameEquals(left: string, right: string): boolean {
-  return left.trim().localeCompare(right.trim(), undefined, { sensitivity: "accent" }) === 0;
+  return left.trim().localeCompare(right.trim(), undefined, { sensitivity: "base" }) === 0;
 }
 
 function nameExcluded(name: string, excluded: string[]): boolean {
@@ -348,12 +352,15 @@ function usableFolder(
   return folder;
 }
 
+/** Hidden names are dropped before the walk budget so a root full of
+ *  dotfiles cannot crowd out real project folders. */
+export function visibleSearchChildNames(entries: string[]): string[] {
+  return entries.filter((name) => !name.startsWith(".")).slice(0, MAX_SEARCH_CHILDREN);
+}
+
 function listSearchChildren(root: string): string[] {
   try {
-    return readdirSync(root)
-      .slice(0, MAX_SEARCH_CHILDREN)
-      .filter((name) => !name.startsWith("."))
-      .map((name) => join(root, name));
+    return visibleSearchChildNames(readdirSync(root)).map((name) => join(root, name));
   } catch {
     return [];
   }
@@ -453,10 +460,10 @@ export function resolveProjectFolder(input: ProjectFolderInput): ProjectFolderRe
   ];
 
   const excluded: string[] = [];
-  let walked: string[] | null = null;
+  let searchCache: string[] | null = null;
   const searchDirs = () => {
-    walked ??= searchProjectDirs(input.searchRoots ?? defaultSearchRoots(), isPrivateWorkspace);
-    return walked;
+    searchCache ??= searchProjectDirs(input.searchRoots ?? defaultSearchRoots(), isPrivateWorkspace);
+    return searchCache;
   };
 
   for (const text of [...userTexts].reverse()) {
@@ -497,9 +504,9 @@ export function applyResolvedProjectFolder(input: ProjectFolderInput & {
   remember: (cwd: string) => void;
   forget?: () => void;
 }): string | undefined {
-  const scoutName = input.scoutName ?? defaultScoutName;
+  const scoutName = memoScout(input.scoutName ?? defaultScoutName);
   const isPrivateWorkspace = input.isPrivateWorkspace ?? defaultPrivateWorkspace;
-  const resolved = resolveProjectFolder(input);
+  const resolved = resolveProjectFolder({ ...input, scoutName });
   if (resolved.source === "named" && resolved.cwd) input.remember(resolved.cwd);
   else if (input.forget && rememberedRuledOut(input, scoutName, isPrivateWorkspace)) {
     input.forget();
