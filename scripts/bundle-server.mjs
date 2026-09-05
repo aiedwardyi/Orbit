@@ -73,6 +73,22 @@ await build({
   plugins: [yamlEsmPlugin],
 });
 
+// Thin packaged entry: listen first, then dynamically import the fat
+// harness. Must stay a sibling of index.js and must NOT bundle index, or
+// health waits on the 1.7mb parse again.
+await build({
+  entryPoints: [join(server, "packaged-boot.ts")],
+  bundle: true,
+  platform: "node",
+  target: "node20",
+  format: "esm",
+  outfile: join(root, "dist-server", "packaged-boot.js"),
+  external: ["./index.js"],
+  allowOverwrite: true,
+  logLevel: "info",
+  plugins: [yamlEsmPlugin],
+});
+
 // External MCP clients launch this as an independent stdio process. Keep its
 // source under scripts for a pleasant checkout command (`pnpm mcp`), but ship
 // the bundled output beside the packaged harness so release users do not need

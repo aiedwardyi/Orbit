@@ -5,8 +5,10 @@ import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { autoVerdict } from "../auto-approve.ts";
 import { EVENTS_DIR, ensureDirs } from "../config.ts";
 import type { RuntimeEvent } from "../contracts.ts";
+import { redactSecrets } from "../redact.ts";
 import { makeFakeDriver } from "../testing/fake-driver.ts";
 import { EventBus } from "./bus.ts";
 
@@ -87,7 +89,45 @@ describe("EventBus", () => {
     expect(logged).toContain("«redacted");
   });
 
-  it("redacts the same secrets on live delivery so SSE cannot leak them", () => {
+  it("lets policy see the raw sensitive path that persist and client copies mask", () => {
+    // token=… is credential-shaped, so redactSecrets hides ~/.aws/credentials
+    // before sensitive-guard can match it. The provider still runs the original
+    // command — policy must decide on that original, not the masked copy.
+    const summary = `token=~/.aws/credentials; cat "$token"`;
+    const bus = new EventBus();
+    const seen: RuntimeEvent[] = [];
+    bus.subscribe((event) => seen.push(event));
+    bus.publish(testEvent({
+      threadId: "policy-raw",
+      type: "request.opened",
+      requestType: "permission",
+      requestId: "ask-1",
+      tool: "Bash",
+      summary,
+    }));
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ type: "request.opened", tool: "Bash", summary });
+    const opened = seen[0] as RuntimeEvent & { type: "request.opened" };
+    const verdict = autoVerdict({ autoApprove: true }, opened.tool, opened.summary);
+    expect(verdict.source).toBe("sensitive-guard");
+    expect(verdict.approve).toBeNull();
+
+    const logged = readFileSync(join(EVENTS_DIR, "policy-raw.ndjson"), "utf8");
+    expect(logged).not.toContain("~/.aws/credentials");
+    expect(logged).toContain("«redacted");
+
+    // Same transform broadcast() applies to SSE frames (PR72). Do not undo that.
+    const client = redactSecrets({ kind: "runtime", event: seen[0] });
+    expect(JSON.stringify(client)).not.toContain("~/.aws/credentials");
+    expect(JSON.stringify(client)).toContain("«redacted");
+    const clientEvent = (client as { event: { tool: string; summary: string } }).event;
+    expect(autoVerdict({ autoApprove: true }, clientEvent.tool, clientEvent.summary).approve).toBe(
+      "auto-approved Bash",
+    );
+  });
+
+  it("keeps PR72 client redaction: persist and SSE-shaped copies hide secrets", () => {
     const key = `sk-ant-api03-${"abcdefghijklmnopqrstuvwxyz0123456789"}`;
     const bus = new EventBus();
     const seen: RuntimeEvent[] = [];
@@ -99,8 +139,14 @@ describe("EventBus", () => {
     }));
 
     expect(seen).toHaveLength(1);
-    expect(JSON.stringify(seen[0])).not.toContain(key);
-    expect(JSON.stringify(seen[0])).toContain("«redacted");
+    // Policy/subscribers see the original; only persist + client copies mask.
+    expect(JSON.stringify(seen[0])).toContain(key);
+    const logged = readFileSync(join(EVENTS_DIR, "redacted-live.ndjson"), "utf8");
+    expect(logged).not.toContain(key);
+    expect(logged).toContain("«redacted");
+    const client = redactSecrets({ kind: "runtime", event: seen[0] });
+    expect(JSON.stringify(client)).not.toContain(key);
+    expect(JSON.stringify(client)).toContain("«redacted");
   });
 
   it("reports an incomplete log once while continuing live delivery", () => {

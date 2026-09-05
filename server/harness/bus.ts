@@ -1,9 +1,9 @@
 // Fan-in event bus — port of upstream's ProviderService fan-in +
 // EventNdjsonLogger tee, minus Effect. Every adapter's event stream merges
-// into one bus; each event is stamped with its providerInstanceId, teed to
-// a per-thread canonical NDJSON log (the debugging trick both upstream and
-// agentcal lean on), and delivered to subscribers (the SSE endpoint and
-// the server-side message folder).
+// into one bus; each event is stamped with its providerInstanceId, teed
+// (secret-redacted) to a per-thread canonical NDJSON log, and delivered
+// original to subscribers so policy (auto-approval, guards) sees the real
+// command. Client-facing copies are redacted at SSE/broadcast, not here.
 import { appendFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -41,6 +41,11 @@ export class EventBus {
 
   publish(event: RuntimeEvent) {
     const pendingWarning = this.pendingLogWarnings.get(event.threadId);
+    // Persist a scrubbed copy. Deliver the original to subscribers so
+    // auto-approval / sensitive-guard see the real command — masking
+    // `token=~/.aws/credentials` would hide the path from the guard while
+    // the provider still ran it. Client-facing copies (SSE/broadcast) are
+    // redacted at that sink; do not undo PR72 there.
     const safe = redactSecrets(event) as RuntimeEvent;
     const persistedEvents = pendingWarning ? [pendingWarning, safe] : [safe];
     try {
@@ -73,7 +78,7 @@ export class EventBus {
         this.deliver(warning);
       }
     }
-    this.deliver(safe);
+    this.deliver(event);
   }
 
   private deliver(event: RuntimeEvent) {

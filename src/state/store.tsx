@@ -24,6 +24,7 @@ import { currentCall } from "@/lib/call";
 import { showNotification, type NotificationTarget } from "@/lib/notify";
 import { speaker } from "@/lib/tts";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
+import { firstChatPeripherals, scheduleDeferredInstancesLoad } from "./first-chat-snapshot";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
 import { openLiveEvents } from "@/lib/live-events";
 import {
@@ -2232,7 +2233,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             computerControl: computerControl ?? {},
           });
         });
-      const peripherals = peripheralParts.map((part) => ({
+      const peripherals = firstChatPeripherals(peripheralParts).map((part) => ({
         key: part.key,
         load: () => loadPeripheral(part, false),
       }));
@@ -2487,8 +2488,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         else pendingFrames.push(frame);
       },
     });
+    const instancesPart = partByKey.get("instances");
+    const stopDeferredInstances = instancesPart
+      ? scheduleDeferredInstancesLoad(() => {
+          if (!alive) return;
+          void loadPeripheral(instancesPart, true).catch((error) =>
+            schedulePeripheralRetry(instancesPart, error),
+          );
+        })
+      : () => {};
     return () => {
       alive = false;
+      stopDeferredInstances();
       clearTimeout(hydrationFallback);
       for (const refresh of peripheralRefresh.values()) {
         if (refresh.timer) clearTimeout(refresh.timer);

@@ -61,11 +61,13 @@ interface PreparedModelContextFailure {
   previousCompactionId?: string;
 }
 
-export function contextWindowFor(catalog: ModelCatalog, model: string): number {
+export function knownCatalogContextWindow(catalog: ModelCatalog, model: string): number | null {
   const value = catalog.options.find((option) => option.id === model)?.contextWindow;
-  return value !== undefined && Number.isSafeInteger(value) && value > 0
-    ? value
-    : MODEL_CONTEXT_FALLBACK;
+  return value !== undefined && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+export function contextWindowFor(catalog: ModelCatalog, model: string): number {
+  return knownCatalogContextWindow(catalog, model) ?? MODEL_CONTEXT_FALLBACK;
 }
 
 function textTokens(text: string): number {

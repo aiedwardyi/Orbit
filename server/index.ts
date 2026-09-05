@@ -4,6 +4,7 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, realpathSync, statSync, unlinkSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { currentEarlyListen } from "./early-listen.ts";
 import { isIP } from "node:net";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 
@@ -84,7 +85,7 @@ import {
   NATIVE_DIR,
 } from "./config.ts";
 import { ComputerControl } from "./computer-control.ts";
-import { contextWindowFor, prepareModelContext } from "./context-compaction.ts";
+import { contextWindowFor, knownCatalogContextWindow, prepareModelContext } from "./context-compaction.ts";
 import { augmentedPath, findCliCandidates, resetPathCache } from "./env-path.ts";
 import { describeSpawnFailure, execCli } from "./procs.ts";
 import { buildNotification, type Notification } from "./notify.ts";
@@ -154,7 +155,17 @@ import {
 import type { TaskResumePacket } from "./task-state.ts";
 import * as tts from "./tts/index.ts";
 import { narrateTool, toUtterances } from "./tts/speech-text.ts";
-import { buildResumeFallback, buildTurnContext, engineIsFresh, shouldRecycleProviderSession, TASK_RESUME_PROMPT, taskRecordBlock } from "./turn-context.ts";
+import {
+  buildResumeFallback,
+  buildTurnContext,
+  countLastTurnToolRounds,
+  countSessionToolRounds,
+  engineIsFresh,
+  nativeSessionTokenBudget,
+  shouldRecycleProviderSession,
+  TASK_RESUME_PROMPT,
+  taskRecordBlock,
+} from "./turn-context.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import {
   ensureWorkspace,
@@ -665,14 +676,8 @@ const store = new Store(() => bootSelection);
 const sendSequencer = new SendSequencer();
 // Engine describe() walks PATH and refreshModels for every instance. First
 // chat paint only needs Store + /api/bots; existing bots already carry a
-// selection. New-bot routes still await defaultSelection() themselves.
-void defaultSelection()
-  .then((sel) => {
-    bootSelection = sel;
-  })
-  .catch((error) => {
-    console.error(`[boot] default engine scan failed: ${error instanceof Error ? error.message : String(error)}`);
-  });
+// selection. Do not start that scan until after listen / early attach.
+// New-bot routes still await defaultSelection() themselves.
 
 /** A bot as a client may see it: no provider session bookkeeping.
  *
@@ -685,6 +690,7 @@ const wireTask = ({
   resumeCursors: _resumeCursors,
   lastInstanceId: _lastInstanceId,
   lastModel: _lastModel,
+  providerSessionBoundId: _providerSessionBoundId,
   ...task
 }: TaskRecord) => ({ ...task, taskState: store.taskPacket(task.threadId) ?? undefined });
 
@@ -1577,6 +1583,10 @@ bus.subscribe((event: RuntimeEvent) => {
       // looks destructive stops even in auto mode.
       const asker = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
       const unattended = permission && asker && event.requestId ? isUnattended(asker.id) : false;
+      // Verdicts run on the original event. The bus redacts only the NDJSON
+      // tee; SSE/broadcast (PR72) redacts the client copy. Masking first
+      // hid `.aws/credentials` from sensitive-guard while the provider
+      // still ran the raw command.
       const verdict = permission && asker && event.requestId
         ? autoVerdict(asker, event.tool, event.summary, { unattended, scope: event.approvalScope })
         : null;
@@ -2457,10 +2467,34 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       transcript,
       hasPriorUserTurn,
     });
-  const recycled = shouldRecycleProviderSession({ compacted: contextCompacted, rewound });
+  const lastTurnToolRounds = countLastTurnToolRounds(activeMessages, skipTranscript);
+  const sessionToolRounds = countSessionToolRounds(
+    activeMessages,
+    skipTranscript,
+    task.providerSessionBoundId,
+  );
+  const knownWindow = knownCatalogContextWindow(instance.models, model);
+  const recycled = shouldRecycleProviderSession({
+    compacted: contextCompacted,
+    rewound,
+    recovering,
+    lastTurnToolRounds,
+    sessionToolRounds,
+    lastTurnInputTokens: task.usage?.lastInput,
+    // Claude/Codex catalogs often omit contextWindow; half of the 16k
+    // compaction fallback is the wrong unit for native prompt size.
+    nativeTokenBudget: knownWindow ? nativeSessionTokenBudget(knownWindow) : 0,
+  });
   // Transcript-replay engines never `--resume`; clearing an already-empty
   // map is a no-op. Resume-cursor engines drop the stale/fat session here.
-  if (recycled) store.clearResumeCursors(bot.id, threadId);
+  // Stop / crash Continuity on an uncompacted thread keeps the cursor.
+  if (recycled) {
+    store.clearResumeCursors(bot.id, threadId);
+    store.markProviderSessionBound(bot.id, threadId, userMessage.id);
+  }
+  const recycleReason = recycled
+    ? (contextCompacted ? "compaction" : "session-fat")
+    : undefined;
   const replaysNatively = instance.adapter.capabilities.transcriptReplay === true;
   const currentPrompt = composeUserTurnPrompt(text, {
     replyTo: opts?.replyTo,
@@ -2482,6 +2516,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     rewound,
     fresh,
     recycled,
+    recycleReason,
     replaysNatively,
     taskRecord: taskRecord ?? undefined,
     taskRecordText: durableTaskRecordText || undefined,
@@ -2555,10 +2590,12 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       const packagePlaybooks = installedPlaybookInstructions(text, bot.playbooks);
       // An explicit working folder wins for new tasks. With no pin, a
       // folder the user named in chat (or the last one this bot resolved)
-      // is used instead of forcing Settings. Otherwise they use the
-      // private bot workspace. A legacy task with an existing provider
-      // session deliberately pins to null (the old home-folder behavior),
-      // because moving a live session would break resume.
+      // is used instead of forcing Settings — including a light home
+      // walk when the name is not among recent folders. "not X" forgets
+      // a sticky remember. Otherwise they use the private bot workspace.
+      // A legacy task with an existing provider session deliberately
+      // pins to null (the old home-folder behavior), because moving a
+      // live session would break resume.
       // A cloud run happens on the box, where a host folder means nothing:
       // pin the task to the default so the header chip never shows the
       // bot's folder for a task that runs elsewhere.
@@ -2572,6 +2609,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
             userTexts: userProjectTexts(store.messagesFor(threadId), namedByUser ? text : undefined),
             recentPaths: projectPathsFromRecords({ bots: store.bots, groups: store.groups }),
             remember: (cwd) => store.rememberProjectCwd(bot.id, cwd),
+            forget: () => store.forgetProjectCwd(bot.id),
           })
         : undefined;
       if (opts?.runOn === "cloud") store.pinTaskCwd(bot.id, threadId, undefined, { none: true });
@@ -2823,8 +2861,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         text: turnText,
         model,
         effort,
-        // a rewound or Orbit-compacted thread never resumes the abandoned
-        // (or now-stale/fat) provider session. the active task's own
+        // a rewound, Orbit-compacted, or pre-compact fat thread never
+        // resumes the abandoned provider session. the active task's own
         // session — another task's cursor would resume the wrong
         // conversation and defeat the context bubble
         resumeCursor: resume ? task.resumeCursors[instanceId] : undefined,
@@ -3662,8 +3700,8 @@ async function runClaimedGroupMemberTurn(
     watchdog.watch(threadId, bot.id);
     // Rooms already inject Orbit's prepared context each turn and never
     // pass resumeCursor — they are Grok-flat. 1:1 CLI forever-chats go
-    // through startClaimedTurn, which recycles the native session once
-    // prepareModelContext has compacted the thread.
+    // through startClaimedTurn, which recycles the native session after
+    // Orbit compaction or a pre-compact fat soak.
     dispatchAdapterTurn(threadId, () => instance.adapter.sendTurn({
         threadId,
         text,
@@ -4405,7 +4443,7 @@ function isAllowedOrigin(origin: string | undefined | null): boolean {
   }
 }
 
-const server = createServer(async (req, res) => {
+const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
   const path = url.pathname;
   const method = req.method ?? "GET";
@@ -7678,10 +7716,27 @@ const server = createServer(async (req, res) => {
     const status = (e as any)?.status ?? 500;
     return json(res, status, { error: e instanceof Error ? e.message : String(e) });
   }
-});
+};
 
-server.listen(PORT, "127.0.0.1", () => {
-  console.log(`openmausbot server on http://127.0.0.1:${PORT}`);
+const early = currentEarlyListen();
+if (early) {
+  early.setHandler(handleRequest);
+} else {
+  const server = createServer(handleRequest);
+  server.listen(PORT, "127.0.0.1", () => {
+    console.log(`openmausbot server on http://127.0.0.1:${PORT}`);
+  });
+}
+// PATH/CLI describe after the socket is accepting, and after this turn so
+// a queued first /api/bots can drain before `--version` scans start.
+setImmediate(() => {
+  void defaultSelection()
+    .then((sel) => {
+      bootSelection = sel;
+    })
+    .catch((error) => {
+      console.error(`[boot] default engine scan failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
 });
 
 hostShutdown = () => {

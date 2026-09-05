@@ -4,7 +4,8 @@
 // question is never answered by the machine.
 import { describe, expect, it } from "vitest";
 
-import { approvalKey, autoDecision, looksDestructive, looksSensitive } from "./auto-approve.ts";
+import { approvalKey, autoDecision, autoVerdict, looksDestructive, looksSensitive } from "./auto-approve.ts";
+import { redactSecretsInText } from "./redact.ts";
 
 describe("looksDestructive", () => {
   const dangerous = [
@@ -100,6 +101,17 @@ describe("autoDecision", () => {
 
   it("still stops for a destructive command in auto mode", () => {
     expect(autoDecision({ autoApprove: true }, "Bash", "rm -rf /")).toBeNull();
+  });
+
+  it("cards a token= assignment that hides a sensitive path, which redaction would miss", () => {
+    const raw = `token=~/.aws/credentials; cat "$token"`;
+    expect(autoVerdict({ autoApprove: true }, "Bash", raw)).toMatchObject({
+      approve: null,
+      source: "sensitive-guard",
+    });
+    const masked = redactSecretsInText(raw);
+    expect(masked).not.toContain(".aws/credentials");
+    expect(autoDecision({ autoApprove: true }, "Bash", masked)).toBe("auto-approved Bash");
   });
 
   it("honours always-allow for one tool without turning on auto mode", () => {

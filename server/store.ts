@@ -232,6 +232,10 @@ export interface TaskRecord {
    * a folder that moved under a live session would break resume. `null`
    * = pinned to the default (home); absent = not pinned yet. */
   cwd?: string | null;
+  /** User message that last recycled the provider session. Settled tools
+   * after this id belong to the current native session; older chips do
+   * not. Absent on tasks that have never soft-recycled. */
+  providerSessionBoundId?: string;
 }
 
 export interface TaskUsage {
@@ -242,6 +246,10 @@ export interface TaskUsage {
    * conversation plus the system prompt and tool schemas, so on a chatty
    * thread this is most of `input`. Absent on records from older builds. */
   cachedInput?: number;
+  /** Last settled turn's reported input tokens — the native session size
+   * signal used to recycle a fat CLI session before the first compact.
+   * Absent on older records and on turns that reported no tokens. */
+  lastInput?: number;
   /** null until any turn reports a cost — most engines never do. Records
    * written by builds before cost existed lack the field; read as null. */
   costUsd: number | null;
@@ -262,7 +270,16 @@ function redactBotAuthored<T extends Omit<Message, "id" | "at"> & { at?: number 
   if (compaction.status === "valid") {
     out.compaction = { ...compaction.value, summary: redactSecretsInText(compaction.value.summary) };
   }
-  if (out.tool?.name) out.tool = { ...out.tool, name: redactSecretsInText(out.tool.name) };
+  if (out.tool) {
+    out.tool = {
+      ...out.tool,
+      ...(typeof out.tool.name === "string" ? { name: redactSecretsInText(out.tool.name) } : {}),
+      // Spoken lines are derived from the raw tool title (item.started).
+      // Scrub them too — the bus no longer pre-redacts titles, and hydrate
+      // / voice read this field from disk, not from the live SSE frame.
+      ...(typeof out.tool.spoken === "string" ? { spoken: redactSecretsInText(out.tool.spoken) } : {}),
+    };
+  }
   if (out.routineRun) {
     const routineRun = { ...out.routineRun };
     routineRun.routineName = redactSecretsInText(routineRun.routineName);
@@ -397,7 +414,8 @@ export interface BotRecord {
    * last remembered project, then the private bot workspace. */
   cwd?: string;
   /** Soft last project resolved from chat when this bot had no pin.
-   * Not a pin and not Settings — an explicit `cwd` still wins. */
+   * Not a pin and not Settings — an explicit `cwd` still wins.
+   * Cleared when chat rules that folder out. */
   lastProjectCwd?: string;
   /** Auto mode: the bot approves its own tool permissions and keeps
    * working instead of stopping to ask. Questions it asks YOU still come
@@ -1294,8 +1312,27 @@ export class Store {
     this.emit({ type: "bot", botId });
   }
 
+  /** Mark the user send that recycled the provider session so later
+   * turns count only tools that landed in the new native session. Also
+   * drops `lastInput` — that number described the session we just threw
+   * away. */
+  markProviderSessionBound(botId: string, threadId: string, messageId: string) {
+    const task = this.taskByThread(botId, threadId);
+    if (!task || !messageId) return;
+    const lastInput = task.usage?.lastInput;
+    if (task.providerSessionBoundId === messageId && lastInput === undefined) return;
+    task.providerSessionBoundId = messageId;
+    if (task.usage && lastInput !== undefined) {
+      const next = { ...task.usage };
+      delete next.lastInput;
+      task.usage = next;
+    }
+    this.saveBots();
+    this.emit({ type: "bot", botId });
+  }
+
   /** Drop provider-native session ids for this task so the next turn
-   * injects Orbit's compacted transcript instead of `--resume`ing a fat
+   * injects Orbit's prepared transcript instead of `--resume`ing a fat
    * CLI session. Other tasks on the same bot keep their cursors. */
   clearResumeCursors(botId: string, threadId?: string) {
     const bot = this.bot(botId);
@@ -1345,10 +1382,12 @@ export class Store {
     const turnInput = clean(turn.input);
     const nextCachedInput = Math.min(clean(prev.cachedInput), prevInput)
       + Math.min(clean(turn.cachedInput), turnInput);
+    const lastInput = turnInput > 0 ? turnInput : prev.lastInput;
     task.usage = {
       input: prevInput + turnInput,
       output: prev.output + clean(turn.output),
       ...(cachedKnown ? { cachedInput: nextCachedInput } : {}),
+      ...(lastInput !== undefined ? { lastInput } : {}),
       costUsd: cost === null ? prevCost : (prevCost ?? 0) + cost,
       turns: prev.turns + 1,
     };
@@ -1388,6 +1427,14 @@ export class Store {
     const bot = this.bot(botId);
     if (!bot || !cwd || bot.lastProjectCwd === cwd) return;
     bot.lastProjectCwd = cwd;
+    this.saveBots();
+  }
+
+  /** Drop a remembered project so a ruled-out folder does not stick. */
+  forgetProjectCwd(botId: string): void {
+    const bot = this.bot(botId);
+    if (!bot?.lastProjectCwd) return;
+    delete bot.lastProjectCwd;
     this.saveBots();
   }
 
