@@ -46,5 +46,10 @@ describe("task recovery banner eligibility", () => {
       tasks: [{ threadId: "room-1", taskState: packet("turn-end") }],
     }), false)).toBe(false);
     expect(roomRecoveryPacket({ threadId: "dm-1", taskState: packet("crash") })).toEqual(packet("crash"));
+    expect(roomRecoveryPacket({
+      threadId: "room-2",
+      taskState: packet("stop"),
+      tasks: [{ threadId: "room-2" }],
+    })).toBeUndefined();
   });
 });

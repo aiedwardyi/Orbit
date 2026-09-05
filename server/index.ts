@@ -3650,7 +3650,16 @@ function startGroupCardContinuation(groupId: string, threadId: string, botId: st
   const previous = groupQueues.get(groupId) ?? Promise.resolve();
   const next = previous.then(async () => {
     if (operation.cancelled) return;
-    await runGroupMemberTurn(groupId, threadId, botId, 0, new Set(), prompt);
+    await runGroupMemberTurn(
+      groupId,
+      threadId,
+      botId,
+      0,
+      new Set(),
+      prompt,
+      undefined,
+      () => operation.cancelled,
+    );
   });
   const tracked = next.finally(() => finishGroupTurnOperation(groupId, operation));
   groupQueues.set(groupId, tracked.catch(() => {}));
@@ -4210,7 +4219,16 @@ async function reloadProviders() {
       kind: "activity",
       tool: { name: "error: turn interrupted — provider settings changed", ok: false },
     });
-    store.setActivity(b.id, "idle");
+    const group = store.groupByThread(threadId);
+    if (group) {
+      cancelGroupTurnOperations(group.id, threadId);
+      for (const operation of [...(groupTurnOperations.get(group.id) ?? [])]) {
+        if (operation.threadId === threadId) finishGroupTurnOperation(group.id, operation);
+      }
+      releaseInterruptedBot(b.id, threadId);
+    } else {
+      store.setActivity(b.id, "idle");
+    }
   }
   // killed turns settle here without a turn.completed event, so anything
   // queued behind them drains now — onto the freshly loaded fleet
