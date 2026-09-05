@@ -53,11 +53,12 @@ export function transcriptText(message: Message, messagesById: ReadonlyMap<strin
 export function turnReplaysTranscript(input: {
   rewound: boolean;
   fresh: boolean;
+  recycled?: boolean;
   replaysNatively: boolean;
   transcriptLength: number;
 }): boolean {
   if (input.transcriptLength === 0) return false;
-  return input.replaysNatively || input.rewound || input.fresh;
+  return input.replaysNatively || input.rewound || input.fresh || Boolean(input.recycled);
 }
 
 function reactionIdsAlreadyInTranscript(

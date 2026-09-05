@@ -2,7 +2,12 @@
 // drivers/claude.js runtime (stream-json both directions, prompt over
 // stdin, completion from a real `result` event — verified against
 // claude 2.1.211 by agentcal). Per-turn CLI process; the conversation
-// continues across turns via --resume <sessionId> (the resumeCursor).
+// continues across turns via --resume <sessionId> (the resumeCursor)
+// only while Orbit has not compacted the thread. After compaction the
+// harness drops the cursor and injects the bounded summary+tail — a
+// --resume of the old session would re-send uncompacted tool history
+// and make forever-chats terminal-session-fat. Stop recovery still
+// --resumes when there is no compaction yet.
 //
 // Integrations become MCP servers on the CLI:
 //   - Composio Sessions (connected apps → tools) over streamable HTTP

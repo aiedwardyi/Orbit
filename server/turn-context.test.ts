@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildResumeFallback, buildTurnContext, engineIsFresh, taskRecordBlock } from "./turn-context.ts";
+import { buildResumeFallback, buildTurnContext, engineIsFresh, shouldRecycleProviderSession, taskRecordBlock } from "./turn-context.ts";
 
 const transcript = [
   { role: "user" as const, text: "my dog is named Biscuit" },
@@ -40,6 +40,97 @@ describe("buildTurnContext", () => {
   it("does not wrap a fresh engine on an empty thread — nothing to replay", () => {
     const out = buildTurnContext({ text: "hi", transcript: [], rewound: false, fresh: true, replaysNatively: false });
     expect(out).toEqual({ turnText: "hi", resume: false });
+  });
+
+  it("recycles the provider session when Orbit compacted the transcript", () => {
+    const out = buildTurnContext({
+      text: "continue",
+      transcript,
+      rewound: false,
+      fresh: false,
+      recycled: true,
+      replaysNatively: false,
+    });
+    expect(out.resume).toBe(false);
+    expect(out.turnText).toContain("Orbit compacted this conversation");
+    expect(out.turnText).toContain("User: my dog is named Biscuit");
+    expect(out.turnText).not.toContain("joining this conversation");
+    expect(out.turnText).not.toContain("rewound this conversation");
+    expect(out.turnText.endsWith("continue")).toBe(true);
+  });
+
+  it("keeps Stop recovery on an uncompacted thread as a native resume", () => {
+    const out = buildTurnContext({
+      text: "continue",
+      transcript,
+      rewound: false,
+      fresh: false,
+      recycled: false,
+      replaysNatively: false,
+      recovering: true,
+      taskRecord: {
+        goal: "Publish the weekly brief",
+        plan: [{ step: "Verify citations", status: "active" as const }],
+        completed: [],
+        blockers: [],
+        nextAction: "Verify citations",
+      },
+    });
+    expect(out.resume).toBe(true);
+    expect(out.turnText).toContain("Orbit task record");
+  });
+
+  it("injects compacted history plus the task record after Stop on a compacted thread", () => {
+    const out = buildTurnContext({
+      text: "continue",
+      transcript,
+      rewound: false,
+      fresh: false,
+      recycled: true,
+      replaysNatively: false,
+      recovering: true,
+      taskRecord: {
+        goal: "Publish the weekly brief",
+        plan: [{ step: "Verify citations", status: "active" as const }],
+        completed: [],
+        blockers: [],
+        nextAction: "Verify citations",
+      },
+    });
+    expect(out.resume).toBe(false);
+    expect(out.turnText).toContain("Orbit compacted this conversation");
+    expect(out.turnText).toContain("Orbit task record");
+    expect(out.turnText).toContain("User: my dog is named Biscuit");
+  });
+
+  it("keeps the recycle preamble on a later compacted turn after cursors were cleared", () => {
+    const out = buildTurnContext({
+      text: "next",
+      transcript,
+      rewound: false,
+      fresh: true,
+      recycled: true,
+      replaysNatively: false,
+    });
+    expect(out.resume).toBe(false);
+    expect(out.turnText).toContain("Orbit compacted this conversation");
+    expect(out.turnText).not.toContain("joining this conversation");
+    expect(out.turnText).not.toContain("rewound this conversation");
+    expect(out.turnText.endsWith("next")).toBe(true);
+  });
+
+  it("lets a rewind preamble win over session recycle", () => {
+    const out = buildTurnContext({
+      text: "hi",
+      transcript,
+      rewound: true,
+      fresh: false,
+      recycled: true,
+      replaysNatively: false,
+    });
+    expect(out.resume).toBe(false);
+    expect(out.turnText).toContain("rewound this conversation");
+    expect(out.turnText).not.toContain("Orbit compacted this conversation");
   });
 
   it("injects the durable task record at recovery boundaries", () => {
@@ -132,6 +223,19 @@ describe("buildTurnContext", () => {
       expect(text).toContain(label);
     }
     expect(text).not.toContain(secret);
+  });
+});
+
+describe("shouldRecycleProviderSession", () => {
+  it("recycles once Orbit has a compacted projection and the branch is current", () => {
+    expect(shouldRecycleProviderSession({ compacted: true, rewound: false })).toBe(true);
+    expect(shouldRecycleProviderSession({ compacted: true })).toBe(true);
+  });
+
+  it("leaves native resume in place before compaction and after a rewind", () => {
+    expect(shouldRecycleProviderSession({ compacted: false, rewound: false })).toBe(false);
+    expect(shouldRecycleProviderSession({ compacted: true, rewound: true })).toBe(false);
+    expect(shouldRecycleProviderSession({ compacted: false, rewound: true })).toBe(false);
   });
 });
 

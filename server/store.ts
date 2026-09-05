@@ -1294,6 +1294,23 @@ export class Store {
     this.emit({ type: "bot", botId });
   }
 
+  /** Drop provider-native session ids for this task so the next turn
+   * injects Orbit's compacted transcript instead of `--resume`ing a fat
+   * CLI session. Other tasks on the same bot keep their cursors. */
+  clearResumeCursors(botId: string, threadId?: string) {
+    const bot = this.bot(botId);
+    if (!bot) return;
+    const task = threadId ? this.taskByThread(botId, threadId) : this.activeTask(botId);
+    const mirrorsBot = !threadId || bot.threadId === threadId;
+    const taskEmpty = !task || Object.keys(task.resumeCursors).length === 0;
+    const botEmpty = !mirrorsBot || Object.keys(bot.resumeCursors).length === 0;
+    if (taskEmpty && botEmpty) return;
+    if (task) task.resumeCursors = {};
+    if (mirrorsBot) bot.resumeCursors = {};
+    this.saveBots();
+    this.emit({ type: "bot", botId });
+  }
+
   /** Record which instance just took a turn on this task. Called at
    * dispatch, not at cursor time — transcript-replay engines never
    * produce a cursor, and they still count as having run last. */

@@ -587,6 +587,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               }
             }
 
+            // After Orbit compaction the harness omits resumeCursor so this
+            // path starts a new session and injects the bounded transcript.
             const cursor = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
             let sessionResult: any = null;
             let resumeFailed = false;

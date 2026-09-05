@@ -131,10 +131,11 @@ describe("turnReplaysTranscript", () => {
     expect(turnReplaysTranscript({ rewound: true, fresh: false, replaysNatively: false, transcriptLength: 2 })).toBe(true);
     expect(turnReplaysTranscript({ rewound: false, fresh: true, replaysNatively: false, transcriptLength: 2 })).toBe(true);
     expect(turnReplaysTranscript({ rewound: false, fresh: false, replaysNatively: true, transcriptLength: 2 })).toBe(true);
+    expect(turnReplaysTranscript({ rewound: false, fresh: false, recycled: true, replaysNatively: false, transcriptLength: 2 })).toBe(true);
   });
 
   it("is false on a plain resume with no native transcript replay", () => {
-    expect(turnReplaysTranscript({ rewound: false, fresh: false, replaysNatively: false, transcriptLength: 2 })).toBe(false);
+    expect(turnReplaysTranscript({ rewound: false, fresh: false, recycled: false, replaysNatively: false, transcriptLength: 2 })).toBe(false);
     expect(turnReplaysTranscript({ rewound: true, fresh: true, replaysNatively: true, transcriptLength: 0 })).toBe(false);
   });
 });
