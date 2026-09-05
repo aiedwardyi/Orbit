@@ -499,17 +499,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       : 10_000;
     const SESSION_IDLE_MS = Math.max(sessionIdleMinimum, Number(process.env.OMB_CLAUDE_SESSION_IDLE_MS) || 10 * 60_000);
 
-    const closeSession = (threadId: string, why: string) => {
+    /** Mark the session unusable for reuse and start process teardown.
+     * Does not close the permission broker — Windows named pipes drop
+     * existing clients on server.close()/unlink, and a late ask on a
+     * still-open connection must still get "the turn ended" (#211). */
+    const beginClose = (threadId: string, why: string): Session | undefined => {
       const s = sessions.get(threadId);
-      if (!s || s.closing) return;
+      if (!s) return undefined;
+      if (s.closing) return s;
       s.closing = true;
       if (s.idleTimer) clearTimeout(s.idleTimer);
-      // Broker ownership belongs to this session. Detach and close it now,
-      // before a replacement can bind the same per-thread socket; the old
-      // child's later close event must never unlink a new broker.
-      const broker = s.broker;
-      s.broker = undefined;
-      broker?.close();
       appendNative(threadId, { dir: "out", source: "claude.session", msg: { close: why } });
       // stdin EOF is the CLI's exit signal; give it a moment, then insist
       try {
@@ -519,6 +518,20 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (s.child.exitCode === null) killCliTree(s.child);
       }, 5_000);
       kill.unref?.();
+      return s;
+    };
+    const detachBroker = (s: Session) => {
+      const broker = s.broker;
+      s.broker = undefined;
+      broker?.close();
+    };
+    const closeSession = (threadId: string, why: string) => {
+      const s = beginClose(threadId, why);
+      if (!s) return;
+      // Broker ownership belongs to this session. Detach and close it now,
+      // before a replacement can bind the same per-thread socket; the old
+      // child's later close event must never unlink a new broker.
+      detachBroker(s);
     };
     const armIdle = (threadId: string) => {
       const s = sessions.get(threadId);
@@ -696,7 +709,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             retry.cancelled = true;
             retryAbort.abort();
             killCliTree(live.child);
-            closeSession(threadId, "interrupted");
+            beginClose(threadId, "interrupted");
             live.settleTurn?.(false, "exit_before_result");
           },
           turnId,
@@ -1085,10 +1098,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         retry.cancelled = true;
         retryAbort.abort();
         killCliTree(child);
-        closeSession(threadId, "interrupted");
         // Release the thread now. On Windows killCliTree is async taskkill, so
         // waiting for `close` before active.delete rejects Resume-after-Stop
-        // with "a turn is already running on this thread".
+        // with "a turn is already running on this thread". Keep the broker
+        // listening until the child exits (or a replacement sendTurn binds).
+        beginClose(threadId, "interrupted");
         settle(false, "exit_before_result");
         if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
       };
