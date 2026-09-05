@@ -744,7 +744,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         }
         return { turnId };
       }
-      if (live) closeSession(threadId, sessionId ? "spawn contract changed" : "fresh session required");
+      if (live) {
+        closeSession(
+          threadId,
+          sessionId === null
+            ? "fresh session required"
+            : sessionId === live.sessionId
+              ? "spawn contract changed"
+              : "session cursor mismatch",
+        );
+      }
 
       // Only create a broker for a new process. A compatible retained process
       // keeps its existing proxy connection and broker across turns.
