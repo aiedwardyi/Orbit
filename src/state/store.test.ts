@@ -762,6 +762,31 @@ describe("section Chiefs", () => {
   });
 });
 
+describe("bot details folder after Clear", () => {
+  it("applies a null cwd from a complete bot frame so the field is private", () => {
+    const bot = {
+      id: "folder-bot",
+      threadId: "t-folder",
+      name: "Folder",
+      title: "",
+      description: "",
+      notifications: false,
+      color: "green",
+      unread: false,
+      modelSelection: { instanceId: "grok", model: "grok-4.6" },
+      cwd: "/tmp/project",
+    } satisfies Omit<Bot, "messages">;
+    const withPin = reducer(initialState, { type: "botPatched", bot });
+    expect(withPin.bots[0]?.cwd).toBe("/tmp/project");
+
+    const cleared = reducer(withPin, {
+      type: "botPatched",
+      bot: { ...bot, cwd: null },
+    });
+    expect(cleared.bots[0]?.cwd).toBeNull();
+  });
+});
+
 describe("pending queued chip", () => {
   const bot = {
     id: "b1",

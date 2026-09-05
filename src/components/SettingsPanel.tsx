@@ -99,6 +99,7 @@ function phraseWithNode(phrase: string, name: string, node: ReactNode): ReactNod
 
 function WorkingFolder({ bot }: { bot: Bot }) {
   const { t } = useI18n();
+  const { dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
   const home = capabilities.host.homeDir;
   const [draft, setDraft] = useState<string | null>(null);
@@ -107,13 +108,17 @@ function WorkingFolder({ bot }: { bot: Bot }) {
   const canPick = Boolean(window.ogb?.pickFolder);
   const task = bot.tasks?.find((t) => t.threadId === bot.threadId);
   const pinned = task?.cwd; // undefined = not yet, null = legacy home, string = folder
-  const pinnedElsewhere = pinned !== undefined && (pinned ?? undefined) !== bot.cwd;
+  const pinnedElsewhere = pinned !== undefined && (pinned ?? undefined) !== (bot.cwd ?? undefined);
 
   const save = async (cwd: string | null) => {
     setSaving(true);
     setError(null);
     try {
-      await api(`/api/bots/${bot.id}`, { method: "PATCH", body: JSON.stringify({ cwd }) });
+      const result: { bot?: Bot } = await api(`/api/bots/${bot.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ cwd }),
+      });
+      if (result.bot) dispatch({ type: "botPatched", bot: result.bot });
       setDraft(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -122,7 +127,7 @@ function WorkingFolder({ bot }: { bot: Bot }) {
     }
   };
   const pick = async () => {
-    const chosen = await window.ogb?.pickFolder?.(bot.cwd);
+    const chosen = await window.ogb?.pickFolder?.(bot.cwd ?? undefined);
     if (chosen) void save(chosen);
   };
 
@@ -132,7 +137,7 @@ function WorkingFolder({ bot }: { bot: Bot }) {
       <div className="mt-0.5 text-[13px] text-ink-secondary">{t("bot.workingFolderHelp")}</div>
       {canPick ? (
         <div className="mt-3 flex items-center gap-2">
-          <div className="min-w-0 flex-1 truncate rounded-lg border border-hairline/40 bg-inset px-3 py-2 font-mono text-[12.5px] text-ink" title={bot.cwd}>
+          <div className="min-w-0 flex-1 truncate rounded-lg border border-hairline/40 bg-inset px-3 py-2 font-mono text-[12.5px] text-ink" title={bot.cwd ?? undefined}>
             {bot.cwd ? shortPath(bot.cwd, home) : <span className="text-ink-secondary">{t("bot.workingFolderEmpty")}</span>}
           </div>
           <button onClick={() => void pick()} disabled={saving} className="flex shrink-0 items-center gap-1.5 rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50">

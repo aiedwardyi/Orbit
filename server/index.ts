@@ -704,7 +704,13 @@ const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
     tasks,
     ...rest
   } = bot;
-  return { ...rest, avatarUrl: rest.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map(wireTask) } : {}) };
+  return {
+    ...rest,
+    avatarUrl: rest.avatarUrl ?? null,
+    // null, not omitted: a cleared folder must overwrite a stale client cwd
+    cwd: rest.cwd ?? null,
+    ...(tasks ? { tasks: tasks.map(wireTask) } : {}),
+  };
 };
 
 /** Profile URLs are app-owned references, not merely strings with a trusted
