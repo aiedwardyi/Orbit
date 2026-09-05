@@ -1793,6 +1793,9 @@ bus.subscribe((event: RuntimeEvent) => {
           dispatchedAt: dispatched,
         });
         if (event.turnId) interruptedTurnIds.delete(event.turnId);
+        if (!event.turnId || liveTurnIdByThread.get(event.threadId) === event.turnId) {
+          liveTurnIdByThread.delete(event.threadId);
+        }
         if (!superseded) {
           const packet = taskPacketForWrite(event.threadId);
           if (packet) {
@@ -2705,7 +2708,11 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       // snapshot() absorbs failures, so checkpointing may delay but never fail
       // a turn.
       if (checkpointCwd) await checkpoints.snapshot(bot.id, checkpointCwd, `turn ${threadId.slice(0, 8)}`);
-      if (currentTurnEpoch(bot.id) !== epoch) return;
+      if (currentTurnEpoch(bot.id) !== epoch) {
+        releaseLocalVmThread(threadId);
+        if (activeVpsThreads.get(bot.id) === threadId) activeVpsThreads.delete(bot.id);
+        return;
+      }
       watchdog.watch(threadId, bot.id);
       const started = await instance.adapter.sendTurn({
         threadId,

@@ -91,4 +91,19 @@ describe("turn completion disposition after stop", () => {
       dispatchedAt: 3,
     })).toEqual({ superseded: true, interrupted: true });
   });
+
+  it("falls back to interruption time when the event carries no turn id", () => {
+    expect(turnCompletionDisposition({
+      liveTurnId: "turn-stop",
+      interruptedTurnIds: new Set(["turn-stop"]),
+      interruptedAt: 2,
+      dispatchedAt: 1,
+    })).toEqual({ superseded: false, interrupted: true });
+    expect(turnCompletionDisposition({
+      liveTurnId: "turn-resume",
+      interruptedTurnIds: new Set(["turn-stop"]),
+      interruptedAt: 2,
+      dispatchedAt: 3,
+    })).toEqual({ superseded: false, interrupted: false });
+  });
 });
