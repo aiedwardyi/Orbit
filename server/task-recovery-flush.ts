@@ -14,7 +14,8 @@ export function isRecoveryFlushReason(reason: string): reason is RecoveryFlushRe
 
 /** Idle close may offer Resume only when a real forever-chat record already
  * exists and is not the live/dismissed `progress` write. Crash/stop/shutdown
- * stay on their own paths. Empty or new bots have no packet. */
+ * stay on their own paths. Empty or new bots have no packet.
+ * Accepts full packet objects; only `flushReason` is examined. */
 export function idleReopenStampReason(
   packet: { flushReason: string; goal?: string; botId?: string } | null | undefined,
 ): RecoveryFlushReason | null {
@@ -73,6 +74,7 @@ export function shutdownStampsForClose(input: {
   for (const group of input.groups) {
     if (group.busyBotId) continue;
     const packet = input.packetFor(group.threadId);
+    // Old packets may omit botId; an empty roster then has no owner to stamp.
     const botId = packet?.botId ?? group.memberIds[0];
     const reason = idleReopenStampReason(packet);
     if (botId && reason) add(group.threadId, botId, reason);

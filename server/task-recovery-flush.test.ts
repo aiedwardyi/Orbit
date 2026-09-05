@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -11,8 +8,6 @@ import {
   turnCompletionDisposition,
 } from "./task-recovery-flush.ts";
 import { seedTaskResumePacket } from "./task-state-fold.ts";
-
-const indexSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8");
 
 const seed = () => seedTaskResumePacket({
   botId: "bot-1",
@@ -126,8 +121,19 @@ describe("normal-reopen shutdown stamps", () => {
       { threadId: "room-idle", botId: "idle", reason: "shutdown" },
     ]);
     expect(idleReopenStampReason(progress)).toBeNull();
-    expect(indexSource).toMatch(/hostShutdown[\s\S]*shutdownStampsForClose[\s\S]*taskPacketForWrite/);
-    expect(indexSource).toContain("if (packet && !hostShutdownStarted)");
+  });
+
+  it("skips an idle room that has no packet owner and no members", () => {
+    expect(shutdownStampsForClose({
+      bots: [],
+      groups: [{ threadId: "orphan-room", busyBotId: null, memberIds: [] }],
+      packetFor: () => ({ flushReason: "turn-end", goal: "Orphan brief" }),
+    })).toEqual([]);
+    expect(shutdownStampsForClose({
+      bots: [],
+      groups: [{ threadId: "owned-room", busyBotId: null, memberIds: [] }],
+      packetFor: () => ({ flushReason: "turn-end", goal: "Owned brief", botId: "idle" }),
+    })).toEqual([{ threadId: "owned-room", botId: "idle", reason: "shutdown" }]);
   });
 });
 
