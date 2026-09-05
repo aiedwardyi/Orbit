@@ -7,6 +7,7 @@ import type { Message } from "@/state/store";
 import {
   acceptedSendPaint,
   composerIsBusy,
+  dropIdleAcceptedThinking,
   forgetAcceptedSend,
   rememberAcceptedSend,
   settleAcceptedSend,
@@ -69,6 +70,18 @@ describe("accepted send bookkeeping", () => {
     expect(forgetAcceptedSend(both, "t1", "s1")).toEqual({
       t2: [{ sendId: "s2", kind: "sends-next", text: "later" }],
     });
+  });
+
+  it("drops Thinking on an idle snapshot thread and keeps Sends-next", () => {
+    const accepted = rememberAcceptedSend(
+      rememberAcceptedSend({}, "t1", { sendId: "think", kind: "thinking", text: "hi" }),
+      "t1",
+      { sendId: "queue", kind: "sends-next", text: "later" },
+    );
+    expect(dropIdleAcceptedThinking(accepted, [{ threadId: "t1", busy: false }]).t1).toEqual([
+      { sendId: "queue", kind: "sends-next", text: "later" },
+    ]);
+    expect(dropIdleAcceptedThinking(accepted, [{ threadId: "t1", busy: true }])).toBe(accepted);
   });
 
   it("lets POST settle only a Sends-next chip, not Thinking", () => {
