@@ -469,6 +469,7 @@ describe("context compaction e2e", () => {
   }, 30_000);
 
   it("rejects another turn while generated compaction is preparing", async () => {
+    rmSync(claudeDumpPath, { force: true });
     const first = api("POST", `/api/bots/${CLAUDE_BOT_ID}/messages`, { text: "Start final QA" });
     await expect.poll(() => existsSync(claudeDumpPath), { timeout: 10_000 }).toBe(true);
 
