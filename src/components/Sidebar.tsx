@@ -31,14 +31,14 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { conversationPreview } from "@/lib/conversation-preview";
+import { conversationPreview, roomConversationPreview } from "@/lib/conversation-preview";
 import { api, useStore, formatTime, visibleMessages, type Bot, type Group } from "@/state/store";
 
 import { BotAvatar, InitialsAvatar } from "./Avatar";
 import { stateForBot } from "@/lib/mascot";
 import { useUpdaterState } from "@/lib/updater";
 import { cn } from "@/lib/cn";
-import { skillRecorderEnabled } from "@/lib/feature-flags";
+import { showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
 import { showSidebarDensityControls, showSidebarRoutines, showSidebarTeachSkill } from "@/lib/friends-chrome";
 import { nextRename } from "@/lib/rename";
 import { downloadAllBots } from "@/lib/team-files";
@@ -160,25 +160,14 @@ function UpdateButton() {
   );
 }
 
-function preview(bot: Bot): string {
-  return conversationPreview(bot);
+function preview(bot: Bot, showToolCalls = false): string {
+  return conversationPreview(bot, t, showToolCalls);
 }
 
 interface MenuState {
   botId: string;
   x: number;
   y: number;
-}
-
-function groupPreview(group: Group, bots: Bot[]): string {
-  if (group.busyBotId) {
-    return t("chrome.botWorking", { name: bots.find((b) => b.id === group.busyBotId)?.name ?? t("chrome.aBot") });
-  }
-  const last = group.messages.at(-1);
-  if (!last) return t("chrome.noMessages");
-  const text = last.kind === "activity" && last.tool ? last.tool.name : (last.text ?? "");
-  if (last.role === "user") return t("chrome.youPrefix", { text });
-  return last.from ? t("chrome.speakerPrefix", { name: last.from.name, text }) : text;
 }
 
 /** Room avatar: 2–3 overlapping mauses in the same 56px slot a bot gets. */
@@ -222,6 +211,7 @@ function GroupListItem({
   onMenu: (menu: { groupId: string; x: number; y: number }) => void;
 }) {
   const { state, dispatch } = useStore();
+  const showToolCalls = showToolCallsEnabled(state.config);
   const selected = state.activeView === "chat" && state.selectedId === group.id;
   const members = group.memberIds
     .map((id) => state.bots.find((b) => b.id === id))
@@ -258,7 +248,9 @@ function GroupListItem({
           {selected && last && <span className="shrink-0 text-xs text-ink-secondary">{formatTime(last.at)}</span>}
         </div>
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-[13px] text-ink-secondary">{groupPreview(group, state.bots)}</span>
+          <span className="truncate text-[13px] text-ink-secondary">
+            {roomConversationPreview(group, state.bots, showToolCalls)}
+          </span>
           {group.unread && <span className="size-2 shrink-0 rounded-full bg-accent" />}
         </div>
       </div>
@@ -758,6 +750,7 @@ function BotListItem({
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const [renaming, setRenaming] = useState(false);
+  const showToolCalls = showToolCallsEnabled(state.config);
   const selected = state.activeView === "chat" && state.selectedId === bot.id;
   const mascotMotion = selected && state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
   const iconOnly = density === "icons";
@@ -817,8 +810,8 @@ function BotListItem({
                 <Crown size={11} /> {t("chrome.chiefOfStaff")}
               </span>
             )}
-            {bot.chiefOfStaff && preview(bot) && <span className="shrink-0 text-ink-secondary/60">·</span>}
-            <span className="truncate">{preview(bot)}</span>
+            {bot.chiefOfStaff && preview(bot, showToolCalls) && <span className="shrink-0 text-ink-secondary/60">·</span>}
+            <span className="truncate">{preview(bot, showToolCalls)}</span>
           </span>
           {bot.unread && (
             <span className="size-2 shrink-0 rounded-full bg-accent" />
@@ -1335,6 +1328,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     : undefined;
 
   const q = query.trim().toLowerCase();
+  const showToolCalls = showToolCallsEnabled(state.config);
 
   // Message search rides the same box as the name filter: names match
   // instantly from local state; transcript hits are the SearchResults
@@ -1347,7 +1341,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         !q ||
         b.name.toLowerCase().includes(q) ||
         (b.title ?? "").toLowerCase().includes(q) ||
-        preview(b).toLowerCase().includes(q),
+        preview(b, showToolCalls).toLowerCase().includes(q),
     );
   const unsectionedChief = matchingBots.find((bot) => bot.chiefOfStaff && !bot.section);
   const sectionChiefs = matchingBots.filter((bot) => bot.chiefOfStaff && bot.section);

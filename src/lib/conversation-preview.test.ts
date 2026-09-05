@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { conversationPreview, showComposerPermissionChip, transcriptIdleAfterOnboarding } from "./conversation-preview";
-import type { Bot, Message } from "@/state/store";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { conversationPreview, roomConversationPreview, showComposerPermissionChip, transcriptIdleAfterOnboarding } from "./conversation-preview";
+import { t } from "@/lib/i18n";
+import type { Bot, Group, Message } from "@/state/store";
 
 const quizCard = {
   title: "What do you mostly want help with?",
@@ -86,5 +91,52 @@ describe("conversationPreview after first-turn ignore", () => {
     const choice: Message = { id: "u", role: "user", kind: "text", text: "Work & projects", at: 3, parentId: "q" };
     expect(conversationPreview(bot([answered, choice]))).toBe("Work & projects");
     expect(showComposerPermissionChip([answered, choice])).toBe(true);
+  });
+});
+
+describe("sidebar preview hides tool names when Show tool calls is off", () => {
+  const greeting: Message = { id: "g", role: "bot", kind: "text", text: "Hey — I'm Nova.", at: 1 };
+  const useTool: Message = {
+    id: "t",
+    role: "bot",
+    kind: "activity",
+    tool: { name: "use_tool", ok: true },
+    at: 2,
+    parentId: "g",
+    from: { botId: "skye", name: "Skye", color: "blue" },
+  };
+
+  it("walks back to the last spoken line on a 1:1 row (default off)", () => {
+    expect(conversationPreview(bot([greeting, useTool]))).toBe("Hey — I'm Nova.");
+    expect(conversationPreview(bot([useTool]))).toBe("");
+    expect(conversationPreview(bot([greeting, useTool]))).not.toContain("use_tool");
+  });
+
+  it("still names the tool on a 1:1 row when Show tool calls is on", () => {
+    expect(conversationPreview(bot([greeting, useTool]), t, true)).toBe("use_tool");
+  });
+
+  it("does not render Skye: use_tool on a room row (default off)", () => {
+    const room = {
+      messages: [greeting, useTool],
+    } as Pick<Group, "busyBotId" | "messages">;
+    expect(roomConversationPreview(room)).toBe("Hey — I'm Nova.");
+    expect(roomConversationPreview({ messages: [useTool] })).toBe("No messages yet");
+    expect(roomConversationPreview(room)).not.toMatch(/Skye:\s*use_tool/);
+  });
+
+  it("keeps Skye: use_tool on a room row when Show tool calls is on", () => {
+    const room = { messages: [useTool] } as Pick<Group, "busyBotId" | "messages">;
+    expect(roomConversationPreview(room, [], true)).toBe("Skye: use_tool");
+  });
+
+  it("passes Show tool calls into Sidebar 1:1 and room preview chrome", () => {
+    const sidebar = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "../components/Sidebar.tsx"),
+      "utf8",
+    );
+    expect(sidebar).toMatch(/conversationPreview\([^)]*showToolCalls/);
+    expect(sidebar).toMatch(/roomConversationPreview\([^)]*showToolCalls/);
+    expect(sidebar).not.toMatch(/last\.kind === "activity" && last\.tool \? last\.tool\.name/);
   });
 });
