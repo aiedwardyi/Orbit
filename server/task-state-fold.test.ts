@@ -5,6 +5,7 @@ import { isCompletedTaskRecord } from "../shared/task-resume.ts";
 import {
   clearTaskBlockers,
   recordTaskBlocker,
+  foldCompletedNextAction,
   recordTaskCompletion,
   recordTaskEvidence,
   recordTaskInstruction,
@@ -149,6 +150,48 @@ describe("task state folding", () => {
     expect(completed.flushReason).toBe("turn-end");
     expect(completed.nextAction).toBe("");
     expect(completed.completed).toHaveLength(1);
+  });
+
+  it("does not keep completed work as nextAction after a successful turn", () => {
+    const withDoneStep = {
+      ...seed(),
+      plan: [
+        { step: "Prepare a weekly competitor brief", status: "done" as const },
+        { step: "Add a pricing comparison", status: "pending" as const },
+      ],
+      nextAction: "Prepare a weekly competitor brief",
+    };
+    const advanced = recordTaskCompletion(withDoneStep, {
+      ok: true,
+      reply: "Draft complete with five cited sources.",
+      now: 300,
+    });
+    // Successful settle clears nextAction (quiet strip); fold runs after and is a no-op.
+    expect(advanced.nextAction).toBe("");
+    expect(advanced.completed.at(-1)?.note).toBe("Draft complete with five cited sources.");
+
+    const echoed = recordTaskCompletion(seed(), {
+      ok: true,
+      reply: "Prepare a weekly competitor brief",
+      now: 300,
+    });
+    expect(echoed.nextAction).toBe("");
+    expect(echoed.completed.at(-1)?.note).toBe("Prepare a weekly competitor brief");
+  });
+
+  it("foldCompletedNextAction skips plan steps already finished", () => {
+    const packet = {
+      ...seed(),
+      plan: [
+        { step: "A", status: "done" as const },
+        { step: "B", status: "pending" as const },
+        { step: "C", status: "pending" as const },
+      ],
+      completed: [{ note: "B", at: 100 }],
+      nextAction: "A",
+    };
+    const folded = foldCompletedNextAction(packet);
+    expect(folded.nextAction).toBe("C");
   });
 
   it("stamps engine switches and stops without changing task content", () => {
