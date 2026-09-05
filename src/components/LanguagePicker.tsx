@@ -33,6 +33,7 @@ export function LanguagePicker() {
           );
         })}
       </div>
+      <p className="mt-1.5 text-[12px] leading-snug text-ink-secondary">{t("language.matchSystemHint")}</p>
     </Card>
   );
 }

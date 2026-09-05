@@ -24,7 +24,7 @@ describe("sidebar conversation row tone", () => {
     expect(sidebarConversationRowTone(false)).toContain("border-transparent");
   });
 
-  it("wires that tone into BotRow and keeps the Chief badge", () => {
+  it("wires that tone into BotListItem and keeps the Chief badge", () => {
     expect(sidebar).toContain("sidebarConversationRowTone(selected)");
     expect(sidebar).not.toMatch(/chiefOfStaff\s*\n\s*\? selected/);
     expect(sidebar).toContain('t("chrome.chiefOfStaff")');
