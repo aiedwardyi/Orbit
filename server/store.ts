@@ -405,7 +405,8 @@ export interface BotRecord {
    * last remembered project, then the private bot workspace. */
   cwd?: string;
   /** Soft last project resolved from chat when this bot had no pin.
-   * Not a pin and not Settings — an explicit `cwd` still wins. */
+   * Not a pin and not Settings — an explicit `cwd` still wins.
+   * Cleared when chat rules that folder out. */
   lastProjectCwd?: string;
   /** Auto mode: the bot approves its own tool permissions and keeps
    * working instead of stopping to ask. Questions it asks YOU still come
@@ -1417,6 +1418,14 @@ export class Store {
     const bot = this.bot(botId);
     if (!bot || !cwd || bot.lastProjectCwd === cwd) return;
     bot.lastProjectCwd = cwd;
+    this.saveBots();
+  }
+
+  /** Drop a remembered project so a ruled-out folder does not stick. */
+  forgetProjectCwd(botId: string): void {
+    const bot = this.bot(botId);
+    if (!bot?.lastProjectCwd) return;
+    delete bot.lastProjectCwd;
     this.saveBots();
   }
 

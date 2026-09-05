@@ -1315,6 +1315,16 @@ describe("Store remembered project folder", () => {
     store.rememberProjectCwd(bot.id, "/tmp/orbit");
     expect(store.pinTaskCwd(bot.id, bot.threadId, store.bot(bot.id)!.lastProjectCwd)).toBe("/tmp/orbit");
   });
+
+  it("forgets a remembered project without creating a pin", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.rememberProjectCwd(bot.id, "/tmp/orbit");
+    store.forgetProjectCwd(bot.id);
+    expect(store.bot(bot.id)?.lastProjectCwd).toBeUndefined();
+    expect(store.bot(bot.id)?.cwd).toBeUndefined();
+    expect(new Store(selection).bot(bot.id)?.lastProjectCwd).toBeUndefined();
+  });
 });
 
 describe("Store room working folder", () => {

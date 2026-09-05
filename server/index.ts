@@ -2584,10 +2584,12 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       const packagePlaybooks = installedPlaybookInstructions(text, bot.playbooks);
       // An explicit working folder wins for new tasks. With no pin, a
       // folder the user named in chat (or the last one this bot resolved)
-      // is used instead of forcing Settings. Otherwise they use the
-      // private bot workspace. A legacy task with an existing provider
-      // session deliberately pins to null (the old home-folder behavior),
-      // because moving a live session would break resume.
+      // is used instead of forcing Settings — including a light home
+      // walk when the name is not among recent folders. "not X" forgets
+      // a sticky remember. Otherwise they use the private bot workspace.
+      // A legacy task with an existing provider session deliberately
+      // pins to null (the old home-folder behavior), because moving a
+      // live session would break resume.
       // A cloud run happens on the box, where a host folder means nothing:
       // pin the task to the default so the header chip never shows the
       // bot's folder for a task that runs elsewhere.
@@ -2601,6 +2603,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
             userTexts: userProjectTexts(store.messagesFor(threadId), namedByUser ? text : undefined),
             recentPaths: projectPathsFromRecords({ bots: store.bots, groups: store.groups }),
             remember: (cwd) => store.rememberProjectCwd(bot.id, cwd),
+            forget: () => store.forgetProjectCwd(bot.id),
           })
         : undefined;
       if (opts?.runOn === "cloud") store.pinTaskCwd(bot.id, threadId, undefined, { none: true });
