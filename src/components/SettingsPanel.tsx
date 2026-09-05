@@ -537,7 +537,7 @@ export function SettingsPanel({
                 <div>
                   <div className="text-[15px] font-medium text-ink">Model</div>
                   <div className="mt-0.5 text-[13px] text-ink-secondary">
-                    Automatic by default, or choose a specific engine
+                    Current model by default, or choose a specific engine
                   </div>
                 </div>
               }

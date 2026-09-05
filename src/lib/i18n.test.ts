@@ -462,8 +462,8 @@ describe("first-run core path leftovers", () => {
     expect(ko["task.matching"]).toContain("{count}");
     expect(en["chat.startConversation"]).toContain("Send a message");
     expect(ko["chat.startConversation"]).not.toMatch(/Send a message/i);
-    expect(en["model.automatic"]).toBe("Automatic");
-    expect(ko["model.automatic"]).toBe("자동");
+    expect(en["model.automatic"]).toBe("Current model");
+    expect(ko["model.automatic"]).toBe("현재 모델");
     expect(en["model.switchEngine"]).toBe("Switch engine");
     expect(ko["model.switchEngine"]).toBe("엔진 바꾸기");
     expect(ko["model.switchEngine"]).not.toMatch(/Switch engine/i);
@@ -471,11 +471,18 @@ describe("first-run core path leftovers", () => {
     expect(ko["model.cliVersion"]).toBe("CLI 패키지 {version}");
     expect(en["model.pinnedTitle"]).toBe("{engine} · {model}");
     expect(ko["model.pinnedTitle"]).toBe("{engine} · {model}");
-    expect(en["model.automaticHelp"]).toContain("when it works");
+    expect(en["model.automaticTitle"]).toBe("Stay on this engine while it works. Currently {name}.");
+    expect(ko["model.automaticTitle"]).toBe("되는 동안 이 엔진을 유지합니다. 현재 {name}.");
+    expect(en["model.automaticTitle"]).not.toMatch(/choosing|Automatic/i);
+    expect(ko["model.automaticTitle"]).not.toMatch(/고르고|Automatic/i);
+    expect(en["model.automaticHelp"]).toBe("{name} · stay on this while it works");
     expect(en["model.automaticHelp"]).toContain("{name}");
+    expect(ko["model.automaticHelp"]).toBe("{name} · 되는 동안 그대로 둡니다.");
     expect(ko["model.automaticHelp"]).toContain("{name}");
-    expect(ko["model.automaticHelp"]).not.toMatch(/when it works/i);
-    expect(translate("en", "model.automaticHelp", { name: "Grok 4.6" })).toContain("Grok 4.6");
+    expect(ko["model.automaticHelp"]).not.toMatch(/stay on this|when it works/i);
+    expect(translate("en", "model.automaticHelp", { name: "Grok 4.6" })).toBe(
+      "Grok 4.6 · stay on this while it works",
+    );
     expect(en["engine.openConnections"]).toBe("Enter API key");
     expect(ko["engine.openConnections"]).toBe("API 키 입력");
     expect(en["engines.models"]).toBe("Models");
