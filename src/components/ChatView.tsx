@@ -66,6 +66,7 @@ import { ActivityRun } from "./ActivityRun";
 import { webhookMessageView } from "@/lib/webhook-message";
 import { splitAttachedImages } from "@/lib/composer-attachments";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow } from "@/lib/bottom-follow";
+import { CHAT_COLUMN_CLASS } from "@/lib/chat-column";
 import { useComposerDockPad } from "@/lib/composer-dock";
 import {
   TRANSCRIPT_WINDOW_SIZE,
@@ -1309,7 +1310,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
         }}
       >
         <div
-          className="flex w-full flex-col gap-3"
+          className={cn("flex w-full flex-col gap-3", CHAT_COLUMN_CLASS)}
           style={{ paddingBottom: composerDock.pad }}
           role="log"
           aria-live="polite"
@@ -1400,7 +1401,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
           request can restore the old task without spilling into the newly
           selected one. ArrowUp-to-edit stays gated on busy because editing
           rewinds the thread, which a live turn forbids (the server 409s it). */}
-      <div ref={composerDockRef} className="absolute inset-x-0 bottom-0 z-[2]">
+      <div ref={composerDockRef} className={cn("absolute inset-x-0 bottom-0 z-[2]", CHAT_COLUMN_CLASS)}>
         <TaskRecoveryCard
           bot={bot}
           packet={activeTask?.taskState}

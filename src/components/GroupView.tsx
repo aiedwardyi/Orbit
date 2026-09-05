@@ -43,6 +43,7 @@ import { cn } from "@/lib/cn";
 import { useFocusMessage } from "@/lib/focus-message";
 import { shortPath } from "@/lib/short-path";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow } from "@/lib/bottom-follow";
+import { CHAT_COLUMN_CLASS } from "@/lib/chat-column";
 import { useComposerDockPad } from "@/lib/composer-dock";
 import { showWorkingDots } from "@/lib/turn-tail";
 import { activeLocale, localeTag, t, useI18n } from "@/lib/i18n";
@@ -1233,7 +1234,7 @@ export function GroupView({ group }: { group: Group }) {
           </div>
         ) : (
         <div
-          className="flex w-full flex-col gap-3"
+          className={cn("flex w-full flex-col gap-3", CHAT_COLUMN_CLASS)}
           style={{ paddingBottom: composerDock.pad }}
           role="log"
           aria-live="polite"
@@ -1332,7 +1333,7 @@ export function GroupView({ group }: { group: Group }) {
         </button>
       )}
 
-      <div ref={composerDockRef} className="absolute inset-x-0 bottom-0 z-[2]">
+      <div ref={composerDockRef} className={cn("absolute inset-x-0 bottom-0 z-[2]", CHAT_COLUMN_CLASS)}>
       <Composer
         key={group.threadId}
         group={group}
