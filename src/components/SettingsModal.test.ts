@@ -108,6 +108,12 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain("Show tool calls");
     expect(html).toContain("Failed tools, turn-level errors, and bot-to-bot messages still appear.");
     expect(html).toMatch(/aria-label="Show tool calls in chat"[^>]*aria-checked="false"|aria-checked="false"[^>]*aria-label="Show tool calls in chat"/);
+    expect(html.indexOf("Show tool calls")).toBeLessThan(html.indexOf("Applies instantly and is remembered"));
+    expect(html).toContain("Match this computer");
+    expect(html).toContain("English");
+    expect(html).toContain("한국어");
+    expect(html).toContain("Your name");
+    expect(html).toContain("you@example.com");
     expect(html).toContain("Usage analytics");
     expect(html).toContain("Save name and email");
     expect(html).not.toContain("Advanced");
@@ -182,6 +188,30 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain("OpenCode API key");
     expect(html).not.toContain("More services");
     expect(html).not.toMatch(/>Engines</);
+  });
+
+  it("compresses Language into a segmented row and Profile into compact chrome", () => {
+    const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
+    const picker = readFileSync(join(here, "LanguagePicker.tsx"), "utf8");
+    const profile = readFileSync(join(here, "ProfileFields.tsx"), "utf8");
+    const primitives = readFileSync(join(here, "SettingsPrimitives.tsx"), "utf8");
+    expect(picker).toContain("compact");
+    expect(picker).not.toContain("flex-col gap-2");
+    expect(picker).toMatch(/role="radiogroup"/);
+    expect(picker).toContain("language.matchSystem");
+    expect(picker).toContain("language.name.en");
+    expect(picker).toContain("language.name.ko");
+    expect(picker).toContain("language.matchSystemHint");
+    expect(source).toContain("settings.profile.title");
+    expect(source).toMatch(/settings\.profile\.title[\s\S]*compact/);
+    expect(profile).toContain("settings.profile.namePlaceholder");
+    expect(profile).toContain("settings.profile.emailPlaceholder");
+    expect(profile).toContain("settings.profile.save");
+    expect(primitives).toContain("compact");
+    const general = source.slice(source.indexOf('section === "general"'), source.indexOf('section === "connections"'));
+    expect(general.indexOf("<LanguagePicker")).toBeGreaterThan(-1);
+    expect(general.indexOf("<ToolCallsRow")).toBeGreaterThan(general.indexOf("<LanguagePicker"));
+    expect(general.indexOf("<ToolCallsRow")).toBeLessThan(general.indexOf("settings.skin.title"));
   });
 
   it("keeps Local VM, channel turns, experimental, and diagnostics inside the folded Advanced body", () => {

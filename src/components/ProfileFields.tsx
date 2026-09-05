@@ -33,9 +33,9 @@ export function ProfileFields() {
   };
 
   const inputClass =
-    "w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[14px] text-ink placeholder:text-ink-secondary focus:border-hairline focus:outline-none disabled:cursor-wait disabled:opacity-50";
+    "w-full rounded-lg border border-hairline/40 bg-inset px-3 py-1.5 text-[14px] text-ink placeholder:text-ink-secondary focus:border-hairline focus:outline-none disabled:cursor-wait disabled:opacity-50";
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-2">
       <label htmlFor="settings-profile-name" className="sr-only">{t("settings.profile.nameLabel")}</label>
       <input
         id="settings-profile-name"

@@ -1,20 +1,33 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
+import { cn } from "@/lib/cn";
 
 export function Card({
   title,
   subtitle,
   children,
+  compact = false,
 }: {
   title?: string;
   subtitle?: string;
   children?: React.ReactNode;
+  compact?: boolean;
 }) {
   return (
-    <div className="rounded-xl bg-card p-4">
-      {title && <div className="text-[15px] font-medium text-ink">{title}</div>}
-      {subtitle && <div className={title ? "mt-0.5 text-[13px] leading-relaxed text-ink-secondary" : "text-[13px] leading-relaxed text-ink-secondary"}>{subtitle}</div>}
-      {children && <div className={title || subtitle ? "mt-4" : undefined}>{children}</div>}
+    <div className={cn("rounded-xl bg-card", compact ? "px-4 py-3" : "p-4")}>
+      {title && <div className={cn("font-medium text-ink", compact ? "text-[14px]" : "text-[15px]")}>{title}</div>}
+      {subtitle && (
+        <div
+          className={cn(
+            "text-ink-secondary",
+            compact ? "text-[12px] leading-snug" : "text-[13px] leading-relaxed",
+            title && "mt-0.5",
+          )}
+        >
+          {subtitle}
+        </div>
+      )}
+      {children && <div className={title || subtitle ? (compact ? "mt-2" : "mt-4") : undefined}>{children}</div>}
     </div>
   );
 }

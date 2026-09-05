@@ -9,8 +9,8 @@ const OPTIONS: LocalePreference[] = ["system", "en", "ko"];
 export function LanguagePicker() {
   const { t, preference, setPreference } = useI18n();
   return (
-    <Card title={t("language.title")} subtitle={t("language.subtitle")}>
-      <div role="radiogroup" aria-label={t("language.title")} className="flex flex-col gap-2">
+    <Card title={t("language.title")} compact>
+      <div role="radiogroup" aria-label={t("language.title")} className="flex gap-1 rounded-lg bg-inset p-0.5">
         {OPTIONS.map((id) => {
           const selected = preference === id;
           const label =
@@ -21,18 +21,14 @@ export function LanguagePicker() {
               type="button"
               role="radio"
               aria-checked={selected}
+              title={id === "system" ? t("language.matchSystemHint") : undefined}
               onClick={() => setPreference(id)}
               className={cn(
-                "rounded-lg border px-3 py-2 text-left text-[14px] transition-colors",
-                selected ? "border-accent bg-accent/10 text-ink" : "border-hairline/40 text-ink hover:bg-control",
+                "min-w-0 flex-1 rounded-md px-2 py-1.5 text-center text-[13px] font-medium transition-colors",
+                selected ? "bg-raised text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
               )}
             >
-              <span className="font-medium">{label}</span>
-              {id === "system" ? (
-                <span className="mt-0.5 block text-[12px] leading-relaxed text-ink-secondary">
-                  {t("language.matchSystemHint")}
-                </span>
-              ) : null}
+              {label}
             </button>
           );
         })}
