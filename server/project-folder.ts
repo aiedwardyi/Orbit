@@ -25,6 +25,8 @@ export type ProjectFolderInput = {
   recentPaths?: string[];
   /** Immediate-child roots to walk when a name is not among recent paths. */
   searchRoots?: string[];
+  /** Resume / routine / bot-to-bot hop: nobody is naming a folder now. */
+  continuation?: boolean;
   scoutName?: (cwd: string) => string | null;
   isPrivateWorkspace?: (cwd: string) => boolean;
 };
@@ -420,7 +422,15 @@ function rememberedRuledOut(
 ): boolean {
   const remembered = usableFolder(input.remembered, isPrivateWorkspace);
   if (!remembered) return false;
-  return folderExcluded(remembered, excludedNamesFromTexts(input.userTexts ?? []), scoutName);
+  return folderExcluded(remembered, excludedNamesFromTexts(cueTexts(input)), scoutName);
+}
+
+// A continuation re-sends the same thread, so its history still holds the
+// folder the user named there. Reading it again would re-establish a
+// remember that Clear just deleted, so a continuation gets no cues at all:
+// the bot pin, the live remember, and this task's own pin still decide.
+function cueTexts(input: ProjectFolderInput): string[] {
+  return input.continuation ? [] : (input.userTexts ?? []);
 }
 
 /** Unique existing project folders the resolver may match a name against. */
@@ -468,7 +478,7 @@ export function resolveProjectFolder(input: ProjectFolderInput): ProjectFolderRe
   const isPrivateWorkspace = input.isPrivateWorkspace ?? defaultPrivateWorkspace;
   if (input.pin?.trim()) return { cwd: input.pin, source: "pin" };
 
-  const userTexts = input.userTexts ?? [];
+  const userTexts = cueTexts(input);
   const candidates = [
     ...new Set(
       [...(input.recentPaths ?? []), ...userTexts.flatMap(extractPaths)]

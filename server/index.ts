@@ -2679,12 +2679,15 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       // pin the task to the default so the header chip never shows the
       // bot's folder for a task that runs elsewhere.
       // Routines, card continuations, and bot-to-bot hops are not the user
-      // naming a folder — only ordinary chat lines count as cues.
+      // naming a folder — only ordinary chat lines count as cues. That
+      // covers this thread's history too: a Resume must not re-remember the
+      // folder its own chat named before the user cleared it.
       const namedByUser = !opts?.cardContinuation && !opts?.automationSource && !opts?.commsDepth;
       const resolvedProject = worksInWorkspace && opts?.runOn !== "cloud"
         ? applyResolvedProjectFolder({
             pin: bot.cwd,
             remembered: bot.lastProjectCwd,
+            continuation: !namedByUser,
             userTexts: userProjectTexts(store.messagesFor(threadId), namedByUser ? text : undefined),
             recentPaths: projectPathsFromRecords({ bots: store.bots, groups: store.groups }),
             remember: (cwd) => store.rememberProjectCwd(bot.id, cwd),

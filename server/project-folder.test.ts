@@ -526,6 +526,48 @@ describe("applyResolvedProjectFolder", () => {
     ).toBe(pinned);
     expect(calls).toEqual([]);
   });
+
+  it("does not re-name or re-remember a folder from chat history on a continuation", () => {
+    const orbit = folder("orbit");
+    const calls: string[] = [];
+    expect(
+      applyResolvedProjectFolder({
+        continuation: true,
+        userTexts: ["work in the orbit folder", "keep going"],
+        recentPaths: [orbit],
+        remember: (cwd) => calls.push(`remember:${cwd}`),
+        forget: () => calls.push("forget"),
+      }),
+    ).toBeUndefined();
+    expect(calls).toEqual([]);
+  });
+
+  it("keeps an explicit pin and a live remember on a continuation", () => {
+    const pinned = folder("pinned");
+    const orbit = folder("orbit");
+    const calls: string[] = [];
+    expect(
+      applyResolvedProjectFolder({
+        pin: pinned,
+        continuation: true,
+        userTexts: ["not orbit"],
+        recentPaths: [orbit],
+        remember: (cwd) => calls.push(`remember:${cwd}`),
+        forget: () => calls.push("forget"),
+      }),
+    ).toBe(pinned);
+    expect(
+      applyResolvedProjectFolder({
+        remembered: orbit,
+        continuation: true,
+        userTexts: ["keep going"],
+        recentPaths: [orbit],
+        remember: (cwd) => calls.push(`remember:${cwd}`),
+        forget: () => calls.push("forget"),
+      }),
+    ).toBe(orbit);
+    expect(calls).toEqual([]);
+  });
 });
 
 describe("projectPathsFromRecords", () => {
@@ -571,6 +613,7 @@ describe("1:1 dispatch wiring", () => {
     expect(index).toContain("userProjectTexts");
     expect(index).toContain("projectPathsFromRecords");
     expect(index).toContain("namedByUser");
+    expect(index).toContain("continuation: !namedByUser");
     expect(index).toContain("rememberedProjectCwd: lastProjectCwd");
     expect(index).not.toContain("lastProjectCwd: _lastProjectCwd");
     const roomDispatch = index.slice(index.indexOf("const cwd = groupTurnCwd"));

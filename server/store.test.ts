@@ -1362,6 +1362,46 @@ describe("Store remembered project folder", () => {
     }
   });
 
+  it("Resume after Clear does not rebuild the remembered folder from chat history", () => {
+    const project = mkdtempSync(join(tmpdir(), "omb-project-"));
+    try {
+      const store = new Store(selection);
+      const bot = store.createBot();
+      const history = [`work in ${project}`, "keep going"];
+
+      // the chat that named the folder, then Clear
+      applyResolvedProjectFolder({
+        pin: store.bot(bot.id)?.cwd,
+        remembered: store.bot(bot.id)?.lastProjectCwd,
+        userTexts: history,
+        remember: (cwd) => store.rememberProjectCwd(bot.id, cwd),
+        forget: () => store.forgetProjectCwd(bot.id),
+      });
+      expect(store.bot(bot.id)?.lastProjectCwd).toBe(project);
+      store.patchBot(bot.id, { cwd: undefined });
+      expect(store.bot(bot.id)?.lastProjectCwd).toBeUndefined();
+
+      // Resume: the synthetic prompt is excluded, but the history is not
+      const resumed = applyResolvedProjectFolder({
+        pin: store.bot(bot.id)?.cwd,
+        remembered: store.bot(bot.id)?.lastProjectCwd,
+        continuation: true,
+        userTexts: history,
+        remember: (cwd) => store.rememberProjectCwd(bot.id, cwd),
+        forget: () => store.forgetProjectCwd(bot.id),
+      });
+      expect(resumed).toBeUndefined();
+      expect(store.bot(bot.id)?.lastProjectCwd).toBeUndefined();
+
+      const next = store.createTask(bot.id, "after-resume")!;
+      expect(
+        store.pinTaskCwd(bot.id, next.threadId, store.bot(bot.id)?.lastProjectCwd ?? "/private/bot-workspace"),
+      ).toBe("/private/bot-workspace");
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
+  });
+
   it("keeps an explicit pin over a leftover remember after Clear is not used", () => {
     const remembered = mkdtempSync(join(tmpdir(), "omb-remember-"));
     const pinned = mkdtempSync(join(tmpdir(), "omb-pin-"));
