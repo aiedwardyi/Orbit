@@ -20,7 +20,7 @@ export function lastUserInstruction(
     if (message.role !== "user" || (message.kind !== undefined && message.kind !== "text")) continue;
     const text = message.text?.trim();
     if (!text) continue;
-    return { text: message.text!, messageId: message.id, at: message.at };
+    return { text, messageId: message.id, at: message.at };
   }
   return null;
 }

@@ -744,6 +744,7 @@ store.onChange((change) => {
       break;
     case "thread.deleted":
       routines?.forgetRoutineRequestReceiptsForThread(change.threadId);
+      forgetTurnThread(change.threadId);
       break;
     case "task.packet": {
       const packet = store.taskPacket(change.threadId);
@@ -756,6 +757,7 @@ store.onChange((change) => {
       break;
     }
     case "bot.deleted":
+      turnEpochByBot.delete(change.botId);
       broadcast({ kind: "bot.deleted", botId: change.botId });
       break;
     case "group": {
@@ -1072,6 +1074,15 @@ function bindInterruptedTurn(threadId: string, turnId?: string) {
   if (turnId) interruptedTurnIds.add(turnId);
 }
 
+function forgetTurnThread(threadId: string) {
+  const live = liveTurnIdByThread.get(threadId);
+  if (live) interruptedTurnIds.delete(live);
+  liveTurnIdByThread.delete(threadId);
+  turnDispatchedAt.delete(threadId);
+  turnInterruptedAt.delete(threadId);
+  pendingInterruptThreads.delete(threadId);
+}
+
 function seedFromLastUser(botId: string, threadId: string, turnsAtWrite: number) {
   const instruction = lastUserInstruction(store.messagesFor(threadId));
   return instruction
@@ -1112,9 +1123,6 @@ function releaseInterruptedBot(botId: string, threadId: string) {
     store.patchGroup(group.id, { busyBotId: null, unread: true });
   }
   if (store.bot(botId)?.busy) store.setActivity(botId, "idle");
-  drainQueuedSends();
-  drainConnectorResumes();
-  drainSecretResumes();
 }
 
 /** Put a notification on the wire. Clients decide what to do with it — a
@@ -2421,10 +2429,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   turnDispatchedAt.set(threadId, tickTurnClock());
 
   void (async () => {
-    if (currentTurnEpoch(bot.id) !== epoch) {
-      if (store.bot(bot.id)?.busy) store.setActivity(bot.id, "idle");
-      return;
-    }
+    if (currentTurnEpoch(bot.id) !== epoch) return;
     try {
       const integrations: NonNullable<Parameters<typeof instance.adapter.sendTurn>[0]["integrations"]> = {};
       const selectedSkills = selectBundledSkills(
