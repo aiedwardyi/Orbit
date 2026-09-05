@@ -33,6 +33,7 @@ import {
   forgetAcceptedSend,
   hasAcceptedThinking,
   rememberAcceptedSend,
+  settleAcceptedSend,
   type AcceptedSends,
 } from "@/lib/send-accept";
 
@@ -1343,7 +1344,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case "sendSettled":
       return {
         ...state,
-        acceptedSends: forgetAcceptedSend(state.acceptedSends, action.threadId, action.sendId),
+        acceptedSends: settleAcceptedSend(state.acceptedSends, action.threadId, action.sendId),
       };
     case "sendRejected": {
       const rejected = (state.acceptedSends[action.threadId] ?? []).find(
@@ -1370,9 +1371,20 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "interrupt": {
       const bot = state.bots.find((candidate) => candidate.id === action.botId);
-      return bot
-        ? { ...state, acceptedSends: clearAcceptedThinking(state.acceptedSends, bot.threadId) }
-        : state;
+      if (!bot) return state;
+      const hadThinking = hasAcceptedThinking(state.acceptedSends[bot.threadId]);
+      let next: AppState = {
+        ...state,
+        acceptedSends: clearAcceptedThinking(state.acceptedSends, bot.threadId),
+      };
+      if (hadThinking) {
+        next = updateBot(next, action.botId, (current) => ({
+          ...current,
+          busy: false,
+          activity: current.activity === "working" ? "idle" : current.activity,
+        }));
+      }
+      return next;
     }
     case "interruptGroup": {
       const group = state.groups.find((candidate) => candidate.id === action.groupId);
@@ -1673,6 +1685,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return bot ? openOnboardingCard(bot) : undefined;
       })();
       if (action.type === "deleteBot") botPatchQueue.cancel(action.botId);
+      if (action.type === "interrupt") {
+        const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
+        for (const entry of bot ? (stateRef.current.acceptedSends[bot.threadId] ?? []) : []) {
+          cancelledSendsRef.current.add(entry.sendId);
+        }
+      }
+      if (action.type === "interruptGroup") {
+        const group = stateRef.current.groups.find((candidate) => candidate.id === action.groupId);
+        for (const entry of group ? (stateRef.current.acceptedSends[group.threadId] ?? []) : []) {
+          cancelledSendsRef.current.add(entry.sendId);
+        }
+      }
       // A queued message is still real until the server confirms deletion.
       // All other actions keep their existing optimistic behavior.
       if (action.type !== "cancelQueued") rawDispatch(action);
@@ -1736,6 +1760,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                   void api(`/api/bots/${action.botId}/queue/${body.queueId}`, { method: "DELETE" }).catch(
                     () => {},
                   );
+                  return;
+                }
+                if (body?.message && typeof body.threadId === "string") {
+                  rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
                 }
                 return;
               }

@@ -9,6 +9,7 @@ import {
   composerIsBusy,
   forgetAcceptedSend,
   rememberAcceptedSend,
+  settleAcceptedSend,
   turnPresenceWaiting,
   visibleSteerEntries,
 } from "./send-accept";
@@ -68,6 +69,19 @@ describe("accepted send bookkeeping", () => {
     expect(forgetAcceptedSend(both, "t1", "s1")).toEqual({
       t2: [{ sendId: "s2", kind: "sends-next", text: "later" }],
     });
+  });
+
+  it("lets POST settle only a Sends-next chip, not Thinking", () => {
+    const accepted = rememberAcceptedSend(
+      rememberAcceptedSend({}, "t1", { sendId: "think", kind: "thinking", text: "hi" }),
+      "t1",
+      { sendId: "queue", kind: "sends-next", text: "later" },
+    );
+    const settled = settleAcceptedSend(accepted, "t1", "think");
+    expect(settled.t1?.map((entry) => entry.sendId)).toEqual(["think", "queue"]);
+    expect(settleAcceptedSend(settled, "t1", "queue").t1).toEqual([
+      { sendId: "think", kind: "thinking", text: "hi" },
+    ]);
   });
 });
 

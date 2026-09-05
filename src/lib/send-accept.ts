@@ -64,6 +64,17 @@ export function forgetAcceptedSend(
   return copy;
 }
 
+/** POST confirms a queue chip. Thinking stays until SSE busy or reject/Stop. */
+export function settleAcceptedSend(
+  accepted: AcceptedSends,
+  threadId: string,
+  sendId: string,
+): AcceptedSends {
+  const entry = (accepted[threadId] ?? []).find((item) => item.sendId === sendId);
+  if (entry?.kind !== "sends-next") return accepted;
+  return forgetAcceptedSend(accepted, threadId, sendId);
+}
+
 export function clearAcceptedThinking(accepted: AcceptedSends, threadId: string): AcceptedSends {
   const prev = accepted[threadId] ?? [];
   const next = prev.filter((entry) => entry.kind !== "thinking");

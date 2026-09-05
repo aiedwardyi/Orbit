@@ -978,6 +978,45 @@ describe("accepted send chrome", () => {
     ).toBe(false);
   });
 
+  it("keeps Thinking after POST settle until the server flips busy", () => {
+    const sent = reducer(
+      { ...initialState, bots: [idleBot] },
+      { type: "send", botId: idleBot.id, text: "Hi", sendId: "s1" },
+    );
+    const settled = reducer(sent, { type: "sendSettled", threadId: idleBot.threadId, sendId: "s1" });
+    expect(
+      turnPresenceWaiting({
+        busy: settled.bots[0]?.busy,
+        lastMessage: settled.bots[0]?.messages.at(-1),
+        accepted: settled.acceptedSends[idleBot.threadId],
+      }),
+    ).toBe(true);
+
+    const confirmed = reducer(settled, {
+      type: "botPatched",
+      bot: { ...idleBot, busy: true, activity: "working" },
+    });
+    expect(confirmed.acceptedSends[idleBot.threadId]).toBeUndefined();
+    expect(confirmed.bots[0]?.busy).toBe(true);
+  });
+
+  it("clears optimistic Thinking and busy on Stop", () => {
+    const sent = reducer(
+      { ...initialState, bots: [idleBot] },
+      { type: "send", botId: idleBot.id, text: "Hi", sendId: "s1" },
+    );
+    const stopped = reducer(sent, { type: "interrupt", botId: idleBot.id });
+    expect(stopped.acceptedSends[idleBot.threadId]).toBeUndefined();
+    expect(stopped.bots[0]?.busy).toBeFalsy();
+    expect(
+      turnPresenceWaiting({
+        busy: stopped.bots[0]?.busy,
+        lastMessage: stopped.bots[0]?.messages.at(-1),
+        accepted: stopped.acceptedSends[idleBot.threadId],
+      }),
+    ).toBe(false);
+  });
+
   it("paints room Thinking on sendGroup before busyBotId arrives", () => {
     const room = {
       id: "r1",
@@ -998,6 +1037,14 @@ describe("accepted send chrome", () => {
       turnPresenceWaiting({
         lastMessage: next.groups[0]?.messages.at(-1),
         accepted: next.acceptedSends[room.threadId],
+      }),
+    ).toBe(true);
+
+    const settled = reducer(next, { type: "sendSettled", threadId: room.threadId, sendId: "g1" });
+    expect(
+      turnPresenceWaiting({
+        lastMessage: settled.groups[0]?.messages.at(-1),
+        accepted: settled.acceptedSends[room.threadId],
       }),
     ).toBe(true);
   });
