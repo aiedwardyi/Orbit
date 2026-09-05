@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { isCompletedTaskRecord } from "../shared/task-resume.ts";
+
 import {
   clearTaskBlockers,
   recordTaskBlocker,
@@ -116,6 +118,14 @@ describe("task state folding", () => {
     });
     expect(failedAlone.nextAction).toBe("Prepare a weekly competitor brief");
     expect(failedAlone.completed).toEqual([]);
+  });
+
+  it("settles an ok turn that replied with nothing", () => {
+    const settled = recordTaskCompletion(seed(), { ok: true, reply: "   ", now: 300 });
+
+    expect(settled.nextAction).toBe("");
+    expect(settled.completed).toHaveLength(1);
+    expect(isCompletedTaskRecord(settled)).toBe(true);
   });
 
   it("clears nextAction when a turn completes so reopen cannot redo finished work", () => {

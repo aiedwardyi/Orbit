@@ -128,7 +128,9 @@ export function recordTaskCompletion(
   const next = stamped(packet, keepRecovery ?? "turn-end", input);
   const reply = input.reply.trim();
   if (input.ok && !input.interrupted) {
-    if (reply) next.completed.push({ note: reply, at: input.now });
+    // An empty reply still settles the task. With no completed entry the
+    // record never reads finished, so the strip keeps offering Resume.
+    next.completed.push({ note: reply || "Settled without a reply.", at: input.now });
     next.nextAction = "";
   }
   if (input.messageId && !next.evidence.some((item) => item.ref === input.messageId)) {
