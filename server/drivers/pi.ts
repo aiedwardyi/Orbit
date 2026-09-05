@@ -9,7 +9,8 @@
 // Conversation continuity: the first turn sends `new_session` and remembers
 // the returned `sessionFile`; later turns send `switch_session` with that
 // path (the way Claude Code resumes by session id). `sessionFile` is the
-// resumeCursor the harness persists per thread.
+// resumeCursor the harness persists per thread. After Orbit compaction the
+// harness omits that cursor and injects the bounded transcript instead.
 //
 // Model ids in the picker are `provider/modelId` composites (e.g.
 // `ollama-cloud/glm-5.2`); `set_model` splits that into pi's separate

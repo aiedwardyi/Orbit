@@ -1,11 +1,13 @@
 import { redactSecretsInText } from "./redact.ts";
 
-// Building the text a driver actually receives. Two situations force an
+// Building the text a driver actually receives. Three situations force an
 // inline replay of the active branch: a rewind (the visible branch
-// changed) and a fresh engine (this instance has no session here — the
-// user switched the bot's model mid-thread). They coincide today but are
-// distinct markers on purpose: rewound also invalidates OTHER instances'
-// cursors, fresh does not.
+// changed), a fresh engine (this instance has no session here — the user
+// switched the bot's model mid-thread), and a recycled session (Orbit
+// compacted the thread, so a CLI `--resume` of the pre-compact session
+// would bypass the bound). They coincide today but are distinct markers
+// on purpose: rewound also invalidates OTHER instances' cursors; recycle
+// drops this task's cursors so the next turn injects summary+tail.
 export interface TurnContextInput {
   /** the user's new message */
   text: string;
@@ -15,6 +17,12 @@ export interface TurnContextInput {
   rewound: boolean;
   /** this driver instance has no session cursor for this thread */
   fresh: boolean;
+  /**
+   * Orbit compacted this thread (summary + tail is now the source of truth).
+   * CLI `--resume` / thread-resume would re-send the native session — full
+   * tool payloads and uncompacted history — and bypass that bound.
+   */
+  recycled?: boolean;
   /** transcript-replay drivers get history via SendTurnInput.transcript instead */
   replaysNatively: boolean;
   /** durable harness state, included only at a recovery boundary */
@@ -68,10 +76,29 @@ export function engineIsFresh(input: {
   return !(cursorIds.length === 1 && cursorIds[0] === instanceId);
 }
 
+/**
+ * Forever-chat history belongs to Orbit's prepared context once a durable
+ * summary exists. Resume-cursor engines (Claude `--resume`, Codex
+ * thread/resume, pi `switch_session`, Antigravity `--conversation`, ACP
+ * session/load) would otherwise keep growing a provider-side session that
+ * ignores that projection.
+ *
+ * Stop / crash Continuity still `--resume`s when there is no compaction
+ * yet. A rewind already drops resume on its own path.
+ */
+export function shouldRecycleProviderSession(input: {
+  compacted: boolean;
+  rewound?: boolean;
+}): boolean {
+  return Boolean(input.compacted) && !input.rewound;
+}
+
 const REWOUND_PREAMBLE =
   "[The user rewound this conversation (edited a message or switched to another version). Everything before this point was replaced by the following history:]";
 const FRESH_PREAMBLE =
   "[You are joining this conversation mid-thread (the user switched this bot over to you). The conversation so far:]";
+const RECYCLED_PREAMBLE =
+  "[Orbit compacted this conversation to keep the provider session bounded. The conversation so far:]";
 
 function compactValue(value: string, maxCharacters: number): string {
   const characters = Array.from(value);
@@ -138,11 +165,11 @@ export function buildTurnContext(input: TurnContextInput): {
   /** false when the native session must not be resumed */
   resume: boolean;
 } {
-  const { text, transcript, rewound, fresh, replaysNatively, taskRecord, taskRecordText, contextCapped = false, recovering = false } = input;
-  const resume = !rewound && !fresh;
+  const { text, transcript, rewound, fresh, recycled = false, replaysNatively, taskRecord, taskRecordText, contextCapped = false, recovering = false } = input;
+  const resume = !rewound && !fresh && !recycled;
   const replay = !resume && !replaysNatively && transcript.length > 0;
   const durableRecord = taskRecordText ?? (taskRecord ? taskRecordBlock(taskRecord) : "");
-  const record = durableRecord && (rewound || fresh || contextCapped || recovering)
+  const record = durableRecord && (rewound || fresh || recycled || contextCapped || recovering)
     ? durableRecord
     : "";
   if (!replay && !record) return { turnText: text, resume };
@@ -151,7 +178,7 @@ export function buildTurnContext(input: TurnContextInput): {
     turnText: [
       record,
       record ? "" : null,
-      rewound ? REWOUND_PREAMBLE : FRESH_PREAMBLE,
+      rewound ? REWOUND_PREAMBLE : fresh ? FRESH_PREAMBLE : RECYCLED_PREAMBLE,
       "",
       ...transcript.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`),
       "",

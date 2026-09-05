@@ -147,7 +147,7 @@ import {
 import type { TaskResumePacket } from "./task-state.ts";
 import * as tts from "./tts/index.ts";
 import { narrateTool, toUtterances } from "./tts/speech-text.ts";
-import { buildResumeFallback, buildTurnContext, engineIsFresh, taskRecordBlock } from "./turn-context.ts";
+import { buildResumeFallback, buildTurnContext, engineIsFresh, shouldRecycleProviderSession, taskRecordBlock } from "./turn-context.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import {
   ensureWorkspace,
@@ -2392,6 +2392,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
 
   // A fresh engine has no current session here, even if it owns an older
   // cursor. It gets the same portable replay as a rewound branch.
+  // Decide freshness from the cursors that still exist — recycle (below)
+  // then drops them so sendTurn cannot `--resume` a pre-compact session.
   const hasPriorUserTurn = activeMessages.some(
     (message) => message.role === "user" && message.kind === "text" && Boolean(message.text?.trim()) && !skipTranscript.has(message.id),
   );
@@ -2408,6 +2410,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       transcript,
       hasPriorUserTurn,
     });
+  const recycled = shouldRecycleProviderSession({ compacted: contextCompacted, rewound });
+  if (recycled) store.clearResumeCursors(bot.id, threadId);
   const replaysNatively = instance.adapter.capabilities.transcriptReplay === true;
   const currentPrompt = composeUserTurnPrompt(text, {
     replyTo: opts?.replyTo,
@@ -2416,6 +2420,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     replayedTranscript: turnReplaysTranscript({
       rewound,
       fresh,
+      recycled,
       replaysNatively,
       transcriptLength: transcript.length,
     })
@@ -2427,6 +2432,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     transcript,
     rewound,
     fresh,
+    recycled,
     replaysNatively,
     taskRecord: taskRecord ?? undefined,
     taskRecordText: durableTaskRecordText || undefined,
@@ -2754,9 +2760,10 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         text: turnText,
         model,
         effort,
-        // a rewound thread never resumes the abandoned branch's session
-        // the active task's own session — another task's cursor would
-        // resume the wrong conversation and defeat the context bubble
+        // a rewound or Orbit-compacted thread never resumes the abandoned
+        // (or now-stale/fat) provider session. the active task's own
+        // session — another task's cursor would resume the wrong
+        // conversation and defeat the context bubble
         resumeCursor: resume ? task.resumeCursors[instanceId] : undefined,
         resumeFallback: resume && task.resumeCursors[instanceId] !== undefined
           ? { text: resumeFallback }
@@ -3584,6 +3591,10 @@ async function runClaimedGroupMemberTurn(
     deadline.start();
     unregisterStall = roomStallCompletions.register(threadId, () => finish("stalled"));
     watchdog.watch(threadId, bot.id);
+    // Rooms already inject Orbit's prepared context each turn and never
+    // pass resumeCursor — they are Grok-flat. 1:1 CLI forever-chats go
+    // through startClaimedTurn, which recycles the native session once
+    // prepareModelContext has compacted the thread.
     dispatchAdapterTurn(threadId, () => instance.adapter.sendTurn({
         threadId,
         text,

@@ -18,6 +18,11 @@ const BOT_ID = "compaction-bot";
 const THREAD_ID = "compaction-thread";
 const CLAUDE_BOT_ID = "compaction-claude-bot";
 const CLAUDE_THREAD_ID = "compaction-claude-thread";
+const CLAUDE_RESUME = {
+  botId: "compaction-claude-resume-bot",
+  threadId: "compaction-claude-resume-thread",
+  fatSession: "fat-session-abc",
+};
 const ROOM_FIRST = {
   botId: "room-first-bot",
   botThreadId: "room-first-direct-thread",
@@ -133,6 +138,27 @@ describe("context compaction e2e", () => {
         resumeCursors: {},
         createdAt: 1,
         tasks: [{ threadId: CLAUDE_THREAD_ID, title: "Release", createdAt: 1, resumeCursors: {} }],
+      },
+      {
+        id: CLAUDE_RESUME.botId,
+        threadId: CLAUDE_RESUME.threadId,
+        name: "Resume recycle",
+        title: "Release owner",
+        description: "Keep the release moving.",
+        notifications: true,
+        color: "teal",
+        unread: false,
+        modelSelection: { instanceId: "claude", model: "claude-fake" },
+        resumeCursors: { claude: CLAUDE_RESUME.fatSession },
+        createdAt: 1,
+        tasks: [{
+          threadId: CLAUDE_RESUME.threadId,
+          title: "Release",
+          createdAt: 1,
+          resumeCursors: { claude: CLAUDE_RESUME.fatSession },
+          lastInstanceId: "claude",
+          lastModel: "claude-fake",
+        }],
       },
       {
         id: ROOM_FIRST.botId,
@@ -304,6 +330,7 @@ describe("context compaction e2e", () => {
     for (const threadId of [
       THREAD_ID,
       CLAUDE_THREAD_ID,
+      CLAUDE_RESUME.threadId,
       ROOM_FIRST.botThreadId,
       ROOM_FIRST.roomThreadId,
       DIRECT_FIRST.botThreadId,
@@ -415,6 +442,30 @@ describe("context compaction e2e", () => {
     expect(bot.messages.filter((message: { kind: string }) => message.kind === "compaction")).toHaveLength(1);
     expect(bot.messages.some((message: { text?: string }) => message.text === "history 0")).toBe(true);
     expect(JSON.stringify(bot.messages)).not.toContain("cannot summarize it");
+  }, 30_000);
+
+  it("does not --resume a stale Claude session after Orbit compaction", async () => {
+    rmSync(claudeDumpPath, { force: true });
+    expect((await api("POST", `/api/bots/${CLAUDE_RESUME.botId}/messages`, {
+      text: "Continue with final QA",
+    })).status).toBe(202);
+
+    await waitFor(async () => {
+      const bot = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+        (candidate: { id: string }) => candidate.id === CLAUDE_RESUME.botId,
+      );
+      return bot?.busy === false;
+    });
+
+    const dump = JSON.parse(readFileSync(claudeDumpPath, "utf8"));
+    expect(dump.argv).not.toContain("--resume");
+    expect(dump.argv).not.toContain(CLAUDE_RESUME.fatSession);
+    expect(dump.argv).toContain("--session-id");
+    const prompt = typeof dump.prompt === "string"
+      ? dump.prompt
+      : JSON.stringify(dump.prompt);
+    expect(prompt).toContain("Orbit compacted this conversation");
+    expect(prompt).toMatch(/history 0|Orbit durable context summary/);
   }, 30_000);
 
   it("rejects another turn while generated compaction is preparing", async () => {

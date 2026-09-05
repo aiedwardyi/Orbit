@@ -378,6 +378,24 @@ describe("Store", () => {
     expect(reloaded.bot(bot.id)?.resumeCursors).toEqual({ claude: "sess-abc", codex: "thread-xyz" });
   });
 
+  it("clearResumeCursors drops the task session and the active-thread mirror", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const background = store.createTask(bot.id, "Detached", false)!;
+    store.setResumeCursor(bot.id, "claude", "fat-session", bot.threadId);
+    store.setResumeCursor(bot.id, "codex", "bg-thread", background.threadId);
+
+    store.clearResumeCursors(bot.id, bot.threadId);
+
+    expect(store.taskByThread(bot.id, bot.threadId)?.resumeCursors).toEqual({});
+    expect(store.bot(bot.id)?.resumeCursors).toEqual({});
+    expect(store.taskByThread(bot.id, background.threadId)?.resumeCursors).toEqual({ codex: "bg-thread" });
+
+    const reloaded = new Store(selection);
+    expect(reloaded.taskByThread(bot.id, bot.threadId)?.resumeCursors).toEqual({});
+    expect(reloaded.taskByThread(bot.id, background.threadId)?.resumeCursors).toEqual({ codex: "bg-thread" });
+  });
+
   it("owns durable task packets and emits after each write", () => {
     const store = new Store(selection);
     const bot = store.createBot();

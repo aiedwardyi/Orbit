@@ -1,8 +1,9 @@
 // Antigravity driver — Google's `agy` CLI in headless one-shot print mode
 // (`agy --print --output-format stream-json`), modeled on claude.ts but fully
 // self-contained. Per-turn CLI process; the conversation continues across
-// turns via `--conversation <id>` (the resumeCursor is agy's conversation_id).
-// Verified against agy 1.1.12.
+// turns via `--conversation <id>` (the resumeCursor is agy's conversation_id)
+// until Orbit compaction, when the harness starts a fresh conversation and
+// injects the bounded transcript. Verified against agy 1.1.12.
 //
 // Unlike claude, print mode has NO interactive permission hook: there is no
 // per-action broker here. `--mode accept-edits` allows file edits but

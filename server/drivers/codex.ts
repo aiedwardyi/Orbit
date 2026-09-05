@@ -8,7 +8,8 @@
 // codex-cli 0.144.4 by agentcal.
 //
 // resumeCursor is the codex thread id; a later turn tries thread/resume
-// and falls back to a fresh thread/start.
+// and falls back to a fresh thread/start. After Orbit compaction the
+// harness omits resumeCursor and injects the bounded transcript instead.
 import { homedir } from "node:os";
 
 import { stripWorkspaceCredentialEnv } from "../config.ts";
