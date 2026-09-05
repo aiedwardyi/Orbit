@@ -1,9 +1,9 @@
 // Fan-in event bus — port of upstream's ProviderService fan-in +
 // EventNdjsonLogger tee, minus Effect. Every adapter's event stream merges
-// into one bus; each event is stamped with its providerInstanceId, teed to
-// a per-thread canonical NDJSON log (the debugging trick both upstream and
-// agentcal lean on), and delivered to subscribers (the SSE endpoint and
-// the server-side message folder).
+// into one bus; each event is stamped with its providerInstanceId, teed
+// (secret-redacted) to a per-thread canonical NDJSON log, and delivered
+// original to subscribers so policy (auto-approval, guards) sees the real
+// command. Client-facing copies are redacted at SSE/broadcast, not here.
 import { appendFileSync } from "node:fs";
 import { join } from "node:path";
 
