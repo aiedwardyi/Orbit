@@ -501,7 +501,7 @@ function Bubble({
         )}
         <span
           className={cn(
-            "self-end pb-1 text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100",
+            "self-end whitespace-nowrap pb-1 text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100",
             user ? "order-first mr-1" : "ml-1",
           )}
         >
@@ -1091,8 +1091,11 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
             inputClassName="max-w-[220px] rounded bg-inset px-1.5 py-0.5 text-[15px] font-semibold"
           />
           {bot.chiefOfStaff && (
-            <span className="flex items-center gap-1 rounded-full bg-accent/12 px-2 py-0.5 text-[11px] font-medium text-accent">
-              <Crown size={11} /> {t("chrome.chiefOfStaff")}
+            <span
+              className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-accent/12 px-2 py-0.5 text-[11px] font-medium text-accent"
+              title={t("chrome.chiefOfStaff")}
+            >
+              <Crown size={11} /> <span className="@max-lg/chathead:hidden">{t("chrome.chiefOfStaff")}</span>
             </span>
           )}
           {bot.busy && <Loader2 size={14} className="animate-spin text-ink-secondary" />}

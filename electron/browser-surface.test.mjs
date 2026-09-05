@@ -166,9 +166,10 @@ describe("browser surface manager", () => {
     expect(manager.layout("bot-a", null)).toMatchObject({ botId: "bot-a", open: false });
     expect(views).toHaveLength(0);
 
-    // a view that exists but is not laid out still has a real viewport
+    // a view that exists but is not laid out still has a real viewport,
+    // parked off-screen like every other hidden view
     manager.ensure("bot-z", "");
-    expect(views[0].bounds).toEqual({ x: 0, y: 0, width: VIEWPORT.width, height: VIEWPORT.height });
+    expect(views[0].bounds).toEqual(hiddenBrowserViewBounds());
     expect(views[0].visible).toBe(false);
     manager.close("bot-z");
     views.length = 0;

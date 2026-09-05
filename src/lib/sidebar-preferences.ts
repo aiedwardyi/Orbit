@@ -15,6 +15,9 @@ export const SIDEBAR_ICONS_WIDTH = 80;
 export const SIDEBAR_COLLAPSED_WIDTH = 64;
 export const SIDEBAR_SNAP_DISTANCE = 24;
 export const SIDEBAR_WIDTH_STEP = 10;
+/** Below this the sidebar is a drawer over the chat, so its width never squeezes the column. */
+export const SIDEBAR_INLINE_BREAKPOINT = 768;
+export const CHAT_MIN_WIDTH = 420;
 
 export function parseSidebarDensity(value: string | null): SidebarDensity {
   switch (value) {
@@ -56,6 +59,12 @@ export function clampSidebarWidth(value: number): number {
 
 export function displaySidebarWidth(layout: SidebarLayout): number {
   return layout.collapsed ? SIDEBAR_COLLAPSED_WIDTH : layout.width;
+}
+
+/** The saved width, given up only as far as the chat column needs. */
+export function fitSidebarWidth(width: number, viewportWidth: number): number {
+  if (!Number.isFinite(viewportWidth) || viewportWidth < SIDEBAR_INLINE_BREAKPOINT) return width;
+  return Math.min(width, Math.max(SIDEBAR_MIN_WIDTH, viewportWidth - CHAT_MIN_WIDTH));
 }
 
 export function snapSidebarDrag(drag: SidebarLayout, deltaX: number): SidebarLayout {

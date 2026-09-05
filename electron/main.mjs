@@ -1253,8 +1253,8 @@ function createWindow() {
   const restored = resolveWindowState(readWindowState(), displays.map((display) => display.workArea));
   const win = new BrowserWindow({
     ...restored.bounds,
-    minWidth: 900,
-    minHeight: 600,
+    minWidth: 600,
+    minHeight: 480,
     // Recolor from the stored skin (omb-skin / last desktop:skin), then show.
     // Waiting for the renderer IPC races a 5s fallback and hides a ready
     // Ledger window until the page loads.
