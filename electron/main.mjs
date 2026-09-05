@@ -212,7 +212,7 @@ function deliverPackageInstall(win) {
   if (!pendingPackageInstallUrl || !win || win.isDestroyed()) return;
   // The connecting data URL is a real document. Delivering here would clear
   // the pending orbit://install before Sidebar's listener exists.
-  if (app.isPackaged && !shouldDeliverPackageInstall(win.webContents.getURL(), SERVER_PORT)) return;
+  if (app.isPackaged && !shouldDeliverPackageInstall(win.webContents.getURL())) return;
   if (win.webContents.isLoadingMainFrame()) return;
   win.webContents.send("package:install", pendingPackageInstallUrl);
   pendingPackageInstallUrl = null;
@@ -1354,10 +1354,12 @@ function revealPackagedApp(win = mainWindow) {
   packagedBootPhase = serverReady ? BOOT_READY : BOOT_FAILED;
   let target = livePackagedWindow(win);
   if (!target) target = createWindow();
+  if (!target || target.isDestroyed()) return;
   if (shouldReloadPackagedWindow(target.webContents.getURL(), SERVER_PORT, packagedBootPhase)) {
+    if (target.isDestroyed()) return;
     target.loadURL(packagedWindowHref());
   }
-  if (serverReady) void startBrowserSurface(target);
+  if (serverReady && !target.isDestroyed()) void startBrowserSurface(target);
 }
 
 async function runPackagedSmoke(win) {

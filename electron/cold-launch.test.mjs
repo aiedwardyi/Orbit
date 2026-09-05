@@ -55,6 +55,7 @@ describe("packaged cold launch does not hide the window behind the harness", () 
     expect(reveal).toContain("shouldReloadPackagedWindow(");
     expect(reveal).toMatch(/packagedBootPhase = serverReady \? BOOT_READY : BOOT_FAILED/);
     expect(reveal).toContain("createWindow()");
+    expect(reveal).toMatch(/target\.isDestroyed\(\)/);
     expect(reveal).toContain("startBrowserSurface(target)");
   });
 

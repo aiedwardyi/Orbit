@@ -54,7 +54,6 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   // Sidebar.tsx's className comment).
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [paletteReady, setPaletteReady] = useState(false);
   const [localVmWorkspaceBotId, setLocalVmWorkspaceBotId] = useState<string | null>(null);
   // the Browser tab, expanded into the main column (the small preview in
   // the panel hands off to this and back)
@@ -105,16 +104,6 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   useEffect(() => {
     window.ogb?.setTaskbarBusy?.(taskbarBusy);
   }, [taskbarBusy]);
-
-  useEffect(() => {
-    const wake = () => setPaletteReady(true);
-    const idle = window.requestIdleCallback?.(wake, { timeout: 800 });
-    const timer = idle == null ? window.setTimeout(wake, 1) : 0;
-    return () => {
-      if (idle != null) window.cancelIdleCallback?.(idle);
-      if (timer) window.clearTimeout(timer);
-    };
-  }, []);
 
   // Warm connected-account state after first paint. The catalog is not on
   // the chat path; pulling PluginsPanel into the initial module graph (or
@@ -326,11 +315,9 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       )}
       {/* mounted after the modals: same z-50 tier, so DOM order keeps the
           palette on top when one of them is open underneath */}
-      {paletteReady && (
-        <Suspense fallback={null}>
-          <CommandPalette onOpenChange={setPaletteOpen} />
-        </Suspense>
-      )}
+      <Suspense fallback={null}>
+        <CommandPalette onOpenChange={setPaletteOpen} />
+      </Suspense>
       </div>
     </div>
   );

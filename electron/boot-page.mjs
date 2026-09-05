@@ -45,7 +45,7 @@ export function isFailedBootPageUrl(url) {
   return bootPagePhase(url) === BOOT_FAILED;
 }
 
-export function shouldDeliverPackageInstall(url, _port) {
+export function shouldDeliverPackageInstall(url) {
   return !isConnectingPageUrl(url) && !isFailedBootPageUrl(url);
 }
 

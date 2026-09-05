@@ -43,7 +43,8 @@ describe("first-chat boot keeps off-screen panels out of the initial module grap
   });
 
   it("isolates lazy overlays so one chunk cannot unmount the others", () => {
-    expect(app).toMatch(/paletteReady && \([\s\S]*<Suspense fallback=\{null\}>/);
+    expect(app).toMatch(/<CommandPalette onOpenChange=\{setPaletteOpen\} \/>/);
+    expect(app).not.toMatch(/paletteReady/);
     expect(app).toMatch(/CreateBotSheet required=\{state\.bots\.length === 0\} \/>[\s\S]*?<\/Suspense>/);
     expect(app.match(/<Suspense fallback=\{null\}>/g)?.length).toBeGreaterThanOrEqual(7);
   });
