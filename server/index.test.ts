@@ -3793,24 +3793,29 @@ describe("harness HTTP API", () => {
       composio: { apiKey: "ak_good" },
       opencodeGo: { apiKey: "opencode-external" },
       gemini: { apiKey: "gemini-external" },
+      openaiCompat: { key: "compat-external" },
       profile: { name: "External Store" },
     });
     expect(saved.status).toBe(200);
     expect(saved.body.composio).toEqual({ configured: true, mode: "self-hosted" });
     expect(saved.body.opencodeGo).toEqual({ configured: true });
     expect(saved.body.gemini).toEqual({ configured: true });
+    expect(saved.body.openaiCompat).toEqual({ configured: true });
     expect(saved.body.profile).toEqual({ name: "External Store", email: "" });
     expect(JSON.stringify(saved.body)).not.toContain("ak_good");
     expect(JSON.stringify(saved.body)).not.toContain("gemini-external");
+    expect(JSON.stringify(saved.body)).not.toContain("compat-external");
 
     const disk = JSON.parse(readFileSync(join(home, ".orbit", "config.json"), "utf8"));
     expect(disk.composio).toMatchObject({ apiKey: "", sessionId: "trs_config_test" });
     expect(disk.opencodeGo).toEqual({ apiKey: "" });
     expect(disk.gemini).toEqual({ apiKey: "" });
+    expect(disk.openaiCompat).toEqual({ key: "" });
     expect(disk.profile).toEqual({ name: "External Store" });
     expect(JSON.stringify(disk)).not.toContain("ak_good");
     expect(JSON.stringify(disk)).not.toContain("opencode-external");
     expect(JSON.stringify(disk)).not.toContain("gemini-external");
+    expect(JSON.stringify(disk)).not.toContain("compat-external");
 
     // A later ordinary setting save reloads config; the in-process secure-env
     // override must keep Composio configured until the next app launch.
@@ -3818,6 +3823,7 @@ describe("harness HTTP API", () => {
     const afterReload = await api("GET", "/api/config");
     expect(afterReload.body.composio).toEqual({ configured: true, mode: "self-hosted" });
     expect(afterReload.body.gemini).toEqual({ configured: true });
+    expect(afterReload.body.openaiCompat).toEqual({ configured: true });
   });
 
   it.skipIf(process.platform === "win32")("stores the credentials file with owner-only permissions", () => {

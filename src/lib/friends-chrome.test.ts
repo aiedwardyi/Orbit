@@ -19,6 +19,7 @@ import {
   showUsagePerBotTable,
   showEngineRailZoo,
   showSidebarDensityControls,
+  showSidebarPhone,
   showSidebarRoutines,
   showSidebarTeachSkill,
 } from "./friends-chrome";
@@ -54,6 +55,7 @@ describe("friends chrome flags", () => {
     expect(showChannelCallControl()).toBe(false);
     expect(showSidebarTeachSkill()).toBe(false);
     expect(showSidebarRoutines()).toBe(false);
+    expect(showSidebarPhone()).toBe(false);
     expect(showCommunityRepoLink()).toBe(false);
     expect(showAvatarImageGenerate()).toBe(false);
     expect(showAvatarShapeOptions()).toBe(false);
@@ -113,6 +115,7 @@ describe("friends chrome call sites keep the feature code", () => {
   it("gates Teach a skill, Routines, community repo, GPT Image 2, and avatar shapes", () => {
     expect(sidebar).toContain("showSidebarTeachSkill()");
     expect(sidebar).toContain("showSidebarRoutines()");
+    expect(sidebar).toContain("showSidebarPhone()");
     expect(sidebar).toContain('t("chrome.teachSkill")');
     expect(sidebar).toContain('t("chrome.routines")');
     expect(teamLibrary).toContain("showCommunityRepoLink()");
