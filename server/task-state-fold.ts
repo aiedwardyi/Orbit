@@ -152,8 +152,16 @@ export function foldCompletedNextAction(packet: TaskResumePacket): TaskResumePac
   const done = packet.plan.filter((item) => item.status === "done").map((item) => firstLine(item.step));
   const completed = packet.completed.map((item) => firstLine(item.note));
   if (!action || (!done.includes(action) && !completed.includes(action))) return packet;
-  const pending = packet.plan.find((item) => item.status === "pending");
-  const active = packet.plan.find((item) => item.status === "active" && firstLine(item.step) !== action);
+  const finished = new Set([...done, ...completed]);
+  const pending = packet.plan.find(
+    (item) => item.status === "pending" && !finished.has(firstLine(item.step)),
+  );
+  const active = packet.plan.find(
+    (item) =>
+      item.status === "active" &&
+      firstLine(item.step) !== action &&
+      !finished.has(firstLine(item.step)),
+  );
   packet.nextAction = firstLine(pending?.step ?? active?.step ?? "Continue from the conversation");
   return packet;
 }

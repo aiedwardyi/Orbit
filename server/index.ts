@@ -2412,11 +2412,14 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   const taskRecordToFlush = taskRecord;
   const modelContextWindow = contextWindowFor(instance.models, model);
   const latestUser = lastUserInstruction(activeMessages.filter((message) => !skipTranscript.has(message.id)));
+  // Recovery Current request must be this send's text. skipTranscript excludes
+  // userMessage.id, so transcript lookup alone would show a prior user turn.
+  const recoveryLatestUserText = text.trim() || latestUser?.text || "";
   const durableTaskRecordText = taskRecord
     ? taskRecordBlock(
       taskRecord,
       Math.max(512, Math.floor(modelContextWindow * 0.15) * 3),
-      recovering ? { recovering: true, latestUserText: latestUser?.text ?? "" } : undefined,
+      recovering ? { recovering: true, latestUserText: recoveryLatestUserText } : undefined,
     )
     : "";
   const prepared = await prepareModelContext({
