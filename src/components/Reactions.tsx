@@ -1,6 +1,6 @@
-// Emoji reactions — Grok-style bubbly rail under a bot bubble, chips
-// under the message to show them. `by` is "user" or a member botId; in rooms
-// a bot's own reactions render with its name in the tooltip.
+// Emoji reactions — Grok/iMessage-style bubbly picker on hover or +, chips
+// under the message for applied marks. `by` is "user" or a member botId; in
+// rooms a bot's own reactions render with its name in the tooltip.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { EXTENDED_REACTIONS, PRIMARY_REACTIONS } from "../../shared/reactions";
@@ -48,14 +48,20 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
 
   const toggle = (emoji: string) => {
     dispatch({ type: "toggleReaction", threadId, messageId: message.id, emoji });
+    setPickerOpen(false);
   };
 
   return (
-    <div className="relative mt-0.5">
+    <div className="relative">
       <div
         ref={anchorRef}
         data-reaction-bar
-        className="flex w-fit items-center gap-0.5 rounded-full border border-hairline/35 bg-card/75 px-1 py-0.5 shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+        className={cn(
+          "absolute left-0 top-0 z-20 mt-0.5 flex w-fit items-center gap-0.5 rounded-full border border-hairline/35 bg-card/75 px-1 py-0.5 shadow-[0_1px_3px_rgba(0,0,0,0.05)] transition-opacity",
+          pickerOpen
+            ? "opacity-100"
+            : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100",
+        )}
       >
         {PRIMARY_REACTIONS.map((emoji) => {
           const pressed = mine.has(emoji);
@@ -85,38 +91,35 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
         >
           {pickerOpen ? <X size={12} /> : <Plus size={12} />}
         </button>
-      </div>
-      {pickerOpen && (
-        <div
-          ref={pickerRef}
-          data-reaction-picker
-          className="absolute top-full left-0 z-40 mt-1.5 w-[218px] rounded-xl border border-hairline/50 bg-card p-2 shadow-2xl shadow-black/60"
-        >
-          <div className="grid grid-cols-6 gap-0.5">
-            {EXTENDED_REACTIONS.map((emoji) => {
-              const pressed = mine.has(emoji);
-              return (
-                <button
-                  key={emoji}
-                  type="button"
-                  onClick={() => {
-                    toggle(emoji);
-                    setPickerOpen(false);
-                  }}
-                  aria-label={reactLabel(t, emoji, pressed)}
-                  aria-pressed={pressed}
-                  className={cn(
-                    "rounded-lg px-1 py-1 text-[15px] leading-none hover:bg-control",
-                    pressed && "bg-accent/15 ring-1 ring-accent/40",
-                  )}
-                >
-                  {emoji}
-                </button>
-              );
-            })}
+        {pickerOpen && (
+          <div
+            ref={pickerRef}
+            data-reaction-picker
+            className="absolute top-full left-0 z-40 mt-1.5 w-[218px] rounded-xl border border-hairline/50 bg-card p-2 shadow-2xl shadow-black/60"
+          >
+            <div className="grid grid-cols-6 gap-0.5">
+              {EXTENDED_REACTIONS.map((emoji) => {
+                const pressed = mine.has(emoji);
+                return (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => toggle(emoji)}
+                    aria-label={reactLabel(t, emoji, pressed)}
+                    aria-pressed={pressed}
+                    className={cn(
+                      "rounded-lg px-1 py-1 text-[15px] leading-none hover:bg-control",
+                      pressed && "bg-accent/15 ring-1 ring-accent/40",
+                    )}
+                  >
+                    {emoji}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
