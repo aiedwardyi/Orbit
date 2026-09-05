@@ -618,7 +618,7 @@ export type Action =
   | { type: "renameTask"; botId: string; threadId: string; title: string }
   | { type: "deleteTask"; botId: string; threadId: string }
   | { type: "taskPacket"; threadId: string; packet: TaskResumePacket }
-  | { type: "resumeTask"; botId: string; threadId: string }
+  | { type: "resumeTask"; botId: string; threadId: string; onSettled?: (error: string | null) => void }
   | { type: "dismissTaskRecovery"; botId: string; threadId: string }
   | { type: "newBot" }
   | { type: "closeCreateBot" }
@@ -1809,9 +1809,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "interrupt":
           api(`/api/bots/${action.botId}/interrupt`, { method: "POST" }).catch(showError);
           break;
-        case "resumeTask":
-          api(`/api/bots/${action.botId}/tasks/${action.threadId}/resume`, { method: "POST" }).catch(showError);
+        case "resumeTask": {
+          const done = api(`/api/bots/${action.botId}/tasks/${action.threadId}/resume`, { method: "POST" });
+          if (action.onSettled) {
+            done.then(() => action.onSettled!(null)).catch((error) => {
+              action.onSettled!(error instanceof Error ? error.message : String(error));
+            });
+          } else {
+            done.catch(showError);
+          }
           break;
+        }
         case "dismissTaskRecovery":
           api(`/api/bots/${action.botId}/tasks/${action.threadId}/recovery`, { method: "POST" }).catch(showError);
           break;

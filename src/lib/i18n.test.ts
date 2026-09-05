@@ -673,3 +673,28 @@ describe("chat reactions", () => {
     expect(reactions).not.toMatch(/title="More reactions"/);
   });
 });
+
+describe("Continuity recovery and compaction chrome", () => {
+  const recovery = readFileSync(join(here, "../components/TaskRecoveryCard.tsx"), "utf8");
+
+  it("keeps Resume and compaction disclosure as complete EN+KO phrases", () => {
+    expect(en["chat.resume"]).toBe("Resume");
+    expect(ko["chat.resume"]).toBe("재개");
+    expect(en["chat.resuming"]).toBe("Resuming…");
+    expect(ko["chat.resuming"]).toBe("재개 중…");
+    expect(en["chat.compactionSummarized"]).toBe("Earlier messages summarized · Full chat kept");
+    expect(ko["chat.compactionSummarized"]).toBe("이전 메시지는 요약됨 · 전체 대화는 유지됨");
+    expect(en["chat.compactionUnsupported"]).toMatch(/newer Orbit version/);
+    expect(ko["chat.compactionUnsupported"]).not.toMatch(/Context summary|Orbit version/i);
+    expect(ko["chat.resuming"]).not.toMatch(/Resuming/i);
+  });
+
+  it("wires those phrases instead of hardcoded English", () => {
+    expect(recovery).toContain('t("chat.resume")');
+    expect(recovery).toContain('t("chat.resuming")');
+    expect(recovery).toContain('t("chat.compactionSummarized")');
+    expect(recovery).toContain('t("chat.compactionUnsupported")');
+    expect(recovery).not.toMatch(/Older context was summarized/);
+    expect(recovery).not.toMatch(/Context summary requires a newer Orbit version/);
+  });
+});
