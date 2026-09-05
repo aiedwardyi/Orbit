@@ -71,6 +71,7 @@ describe("provider session recycle after Orbit compaction", () => {
       rewound: false,
       fresh,
       recycled,
+      recycleReason: recycled ? "compaction" : undefined,
       replaysNatively: false,
     });
 
@@ -103,6 +104,7 @@ describe("provider session recycle after Orbit compaction", () => {
       rewound: false,
       fresh: nextFresh,
       recycled: nextRecycled,
+      recycleReason: nextRecycled ? "compaction" : undefined,
       replaysNatively: false,
     });
     expect(nextFresh).toBe(true);

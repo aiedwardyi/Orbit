@@ -136,7 +136,9 @@ export function countLastTurnToolRounds(
   return count;
 }
 
-/** Settled tool chips after the latest compaction marker, else the whole thread. */
+/** Settled tool chips after the latest compaction marker or recycle
+ *  watermark (`boundMessageId`). Without the watermark a front-loaded
+ *  soak would keep recycling every later send until Orbit compacted. */
 export function countSessionToolRounds(
   messages: readonly SessionFatMessage[],
   excludeIds?: ReadonlySet<string>,
@@ -192,7 +194,7 @@ const SESSION_FAT_PREAMBLE =
 function replayPreamble(input: TurnContextInput): string {
   if (input.rewound) return REWOUND_PREAMBLE;
   if (input.recycled) {
-    return input.recycleReason === "session-fat" ? SESSION_FAT_PREAMBLE : RECYCLED_PREAMBLE;
+    return input.recycleReason === "compaction" ? RECYCLED_PREAMBLE : SESSION_FAT_PREAMBLE;
   }
   return FRESH_PREAMBLE;
 }

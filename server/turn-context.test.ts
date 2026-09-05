@@ -60,6 +60,7 @@ describe("buildTurnContext", () => {
       rewound: false,
       fresh: false,
       recycled: true,
+      recycleReason: "compaction",
       replaysNatively: false,
     });
     expect(out.resume).toBe(false);
@@ -98,6 +99,7 @@ describe("buildTurnContext", () => {
       rewound: false,
       fresh: false,
       recycled: true,
+      recycleReason: "compaction",
       replaysNatively: false,
       recovering: true,
       taskRecord: {
@@ -121,6 +123,7 @@ describe("buildTurnContext", () => {
       rewound: false,
       fresh: true,
       recycled: true,
+      recycleReason: "compaction",
       replaysNatively: false,
     });
     expect(out.resume).toBe(false);
@@ -160,6 +163,20 @@ describe("buildTurnContext", () => {
     expect(out.turnText).not.toContain("Orbit compacted this conversation");
     expect(out.turnText).not.toContain("joining this conversation");
     expect(out.turnText.endsWith("continue")).toBe(true);
+  });
+
+  it("does not claim compaction when recycled without a reason", () => {
+    const out = buildTurnContext({
+      text: "continue",
+      transcript,
+      rewound: false,
+      fresh: false,
+      recycled: true,
+      replaysNatively: false,
+    });
+    expect(out.resume).toBe(false);
+    expect(out.turnText).toContain("fresh provider session");
+    expect(out.turnText).not.toContain("Orbit compacted this conversation");
   });
 
   it("injects the durable task record at recovery boundaries", () => {
