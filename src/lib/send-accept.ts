@@ -85,6 +85,18 @@ export function clearAcceptedThinking(accepted: AcceptedSends, threadId: string)
   return copy;
 }
 
+/** Snapshot is authoritative: an idle thread must not keep Thinking locked. */
+export function dropIdleAcceptedThinking<T extends { threadId: string; busy?: boolean; busyBotId?: string | null }>(
+  accepted: AcceptedSends,
+  subjects: readonly T[],
+): AcceptedSends {
+  return subjects.reduce(
+    (next, subject) =>
+      subject.busy || subject.busyBotId ? next : clearAcceptedThinking(next, subject.threadId),
+    accepted,
+  );
+}
+
 export function applyOptimisticBusy<T extends { threadId: string; busy?: boolean; activity?: string }>(
   bots: T[],
   accepted: AcceptedSends,
