@@ -1968,7 +1968,7 @@ describe("harness HTTP API", () => {
     expect(impostor.composio).toBe(false);
     expect(impostor.computer).toEqual(defaultComputerForNewBot());
     expect(impostor.cloudBackend).toBeUndefined();
-    expect(impostor.cwd).toBeUndefined();
+    expect(impostor.cwd).toBeNull();
 
     // the existing bot is untouched, field for field — an import can only
     // ever CREATE records, never update one in place

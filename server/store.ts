@@ -1250,7 +1250,7 @@ export class Store {
     // Settings Clear is cwd: null. Drop the remembered auto-folder too or
     // the next unpinned task still lands there. Negation uses
     // forgetProjectCwd and leaves an explicit pin alone.
-    const clearingCwd = Object.prototype.hasOwnProperty.call(patch, "cwd") && !patch.cwd;
+    const clearingCwd = Object.prototype.hasOwnProperty.call(patch, "cwd") && patch.cwd == null;
     Object.assign(bot, patch);
     if (clearingCwd) {
       delete bot.cwd;
