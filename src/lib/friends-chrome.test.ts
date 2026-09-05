@@ -183,11 +183,12 @@ describe("friends chrome call sites keep the feature code", () => {
     expect(toggleCollapsed).toContain("persistSidebarLayout");
   });
 
-  it("calls the channel folder a shared project folder instead of a per-task pin", () => {
+  it("keeps the channel folder on i18n keys and does not lock it to a per-task pin", () => {
     expect(groupView).toContain('t("room.workingFolder")');
     expect(groupView).toContain('t("room.workingFolderHelp")');
     expect(groupView).toContain('t("room.chooseSharedFolder")');
     expect(groupView).toContain('t("room.projectFolderChip")');
+    expect(groupView).toContain('t("room.setupBody")');
     expect(groupView).toContain("<RoomWorkingFolderChip");
     expect(groupView).not.toMatch(/Start a new task/);
     expect(groupView).not.toMatch(/Fixed for this task/);

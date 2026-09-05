@@ -157,7 +157,7 @@ describe("SettingsPanel still owns folder and usage", () => {
     }
   });
 
-  it("renders Working folder in Bot details and keeps Usage behind Advanced", async () => {
+  it("renders an optional project folder in Bot details and keeps Usage behind Advanced", async () => {
     const { SettingsPanel } = await import("./SettingsPanel");
     const { I18nProvider } = await import("@/lib/i18n");
     const html = renderToStaticMarkup(
@@ -167,9 +167,29 @@ describe("SettingsPanel still owns folder and usage", () => {
         createElement(SettingsPanel, { bot: botWithUsage, defaultAdvancedOpen: true }),
       ),
     );
-    expect(html).toContain("Working folder");
-    expect(html).toContain("Where this bot runs its shell and file tools.");
+    expect(html).toContain("Project folder (optional)");
+    expect(html).toMatch(/private workspace/i);
+    expect(html).not.toContain("Working folder");
+    expect(html).not.toContain("Where this bot runs its shell and file tools.");
     expect(html).not.toContain("All bots");
     expect(settingsPanel).toContain("{advancedOpen && <BotUsageCard bot={bot} />}");
+  });
+
+  it("presents an empty cwd as an optional private workspace", async () => {
+    const { SettingsPanel } = await import("./SettingsPanel");
+    const { I18nProvider } = await import("@/lib/i18n");
+    const botWithoutCwd = { ...botWithUsage, cwd: undefined };
+    const html = renderToStaticMarkup(
+      createElement(
+        I18nProvider,
+        null,
+        createElement(SettingsPanel, { bot: botWithoutCwd }),
+      ),
+    );
+    expect(html).toContain("Project folder (optional)");
+    expect(html).toContain("Private bot workspace");
+    expect(html).toMatch(/Leave empty for a private workspace/i);
+    expect(html).not.toMatch(/you must configure where tools run/i);
+    expect(html).not.toContain("Where this bot runs its shell and file tools.");
   });
 });

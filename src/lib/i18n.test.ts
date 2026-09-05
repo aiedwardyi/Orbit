@@ -164,23 +164,60 @@ describe("complete phrases", () => {
     expect(ko["room.choose"]).not.toContain("…");
   });
 
-  it("calls the channel folder a shared project folder, not a per-task pin", () => {
-    expect(en["room.workingFolder"]).toBe("Shared project folder");
-    expect(ko["room.workingFolder"]).toBe("공유 프로젝트 폴더");
-    expect(en["room.workingFolderHelp"]).toMatch(/All bots in this channel/);
+  it("frames the channel folder as optional, not required homework", () => {
+    expect(en["room.workingFolder"]).toBe("Shared folder (optional)");
+    expect(ko["room.workingFolder"]).toBe("공유 폴더 (선택)");
+    expect(en["room.workingFolderHelp"]).toMatch(/Skip is fine/i);
+    expect(en["room.workingFolderHelp"]).toMatch(/pin this channel/i);
+    expect(ko["room.workingFolderHelp"]).toMatch(/건너뛰어도/);
     expect(ko["room.workingFolderHelp"]).not.toMatch(/Where room members/i);
+    expect(en["room.setupBody"]).toMatch(/response style/i);
+    expect(en["room.setupBody"]).toMatch(/optional/i);
+    expect(en["room.setupBody"]).not.toMatch(/^Give this room a shared workspace/);
+    expect(ko["room.setupBody"]).toMatch(/응답 방식/);
+    expect(ko["room.setupBody"]).toMatch(/선택/);
+    expect(ko["room.setupBody"]).not.toMatch(/공유 작업 공간, 응답 방식/);
     expect(en["room.fixedFolder"]).not.toMatch(/task/i);
     expect(ko["room.fixedFolder"]).not.toMatch(/새 작업/);
-    expect(en["room.chooseSharedFolder"]).toBe("Choose a shared folder");
-    expect(ko["room.chooseSharedFolder"]).toBe("공유 폴더를 선택하세요");
-    expect(en["room.projectFolderChip"]).toBe("Project folder");
-    expect(ko["room.projectFolderChip"]).toBe("프로젝트 폴더");
+    expect(en["room.chooseSharedFolder"]).toBe("Skip — each bot's own folder");
+    expect(ko["room.chooseSharedFolder"]).toBe("건너뛰기 — 봇마다 자신의 폴더");
+    expect(en["room.eachBotFolder"]).toBe("Each bot's own folder");
+    expect(ko["room.eachBotFolder"]).toBe("봇마다 자신의 폴더");
+    expect(en["room.eachBotFolderPath"]).toMatch(/Skip — each bot's own folder/);
+    expect(ko["room.eachBotFolderPath"]).toMatch(/건너뛰기 — 봇마다 자신의 폴더/);
+    expect(en["room.workingFolderChip"]).toMatch(/No shared folder/i);
+    expect(ko["room.workingFolderChip"]).toMatch(/공유 폴더 없음/);
+    expect(en["room.workingFolderNamed"]).toBe("Shared folder: {folder}");
+    expect(ko["room.workingFolderNamed"]).toBe("공유 폴더: {folder}");
+    expect(en["room.projectFolderChip"]).toBe("No shared folder");
+    expect(ko["room.projectFolderChip"]).toBe("공유 폴더 없음");
     expect(en["chrome.resizeSidebar"]).toBe("Resize sidebar");
     expect(ko["chrome.resizeSidebar"]).toBe("사이드바 너비 조절");
     expect(en["chrome.sidebarWidthPixels"]).toBe("{width} pixels");
     expect(ko["chrome.sidebarWidthPixels"]).toBe("{width}픽셀");
     expect(translate("en", "chrome.sidebarWidthPixels", { width: 320 })).toBe("320 pixels");
     expect(translate("ko", "chrome.sidebarWidthPixels", { width: 320 })).toBe("320픽셀");
+  });
+
+  it("frames a bot project folder as optional private workspace", () => {
+    expect(en["bot.workingFolder"]).toBe("Project folder (optional)");
+    expect(ko["bot.workingFolder"]).toBe("프로젝트 폴더 (선택)");
+    expect(en["bot.workingFolderHelp"]).toMatch(/Leave empty for a private workspace/i);
+    expect(en["bot.workingFolderHelp"]).not.toMatch(/you must configure where tools run/i);
+    expect(ko["bot.workingFolderHelp"]).toMatch(/비공개 작업 공간/);
+    expect(ko["bot.workingFolderHelp"]).not.toMatch(/Where this bot runs/i);
+    expect(en["bot.workingFolderEmpty"]).toBe("Private bot workspace");
+    expect(ko["bot.workingFolderEmpty"]).toBe("비공개 봇 작업 공간");
+    expect(en["packaged.chooseFolder"]).toBe("Choose a folder");
+    expect(ko["packaged.chooseFolder"]).toBe("폴더 선택");
+  });
+
+  it("wires Bot details folder copy through i18n instead of hardcoded English", () => {
+    expect(settingsPanel).toContain('t("bot.workingFolder")');
+    expect(settingsPanel).toContain('t("bot.workingFolderHelp")');
+    expect(settingsPanel).toContain('t("bot.workingFolderEmpty")');
+    expect(settingsPanel).not.toMatch(/>Working folder</);
+    expect(settingsPanel).not.toMatch(/Where this bot runs its shell and file tools/);
   });
 });
 

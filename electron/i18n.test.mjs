@@ -29,6 +29,8 @@ describe("packaged locale", () => {
   it("has matching English and Korean packaged phrases", () => {
     expect(Object.keys(ko).sort()).toEqual(Object.keys(en).sort());
     expect(translate("ko", "packaged.bootTitle")).not.toBe(translate("en", "packaged.bootTitle"));
+    expect(en["packaged.chooseFolder"]).toBe("Choose a folder");
+    expect(ko["packaged.chooseFolder"]).toBe("폴더 선택");
   });
 
   it("includes Malgun Gothic in the packaged fallback stack", () => {
