@@ -885,7 +885,9 @@ export function GroupView({ group }: { group: Group }) {
   );
   const speaker = members.find((b) => b.id === group.busyBotId);
   const recoveryPacket = roomRecoveryPacket(group);
-  const recoveryBot = members.find((b) => b.id === recoveryPacket?.botId) ?? speaker ?? members[0];
+  const recoveryBot = recoveryPacket
+    ? members.find((b) => b.id === recoveryPacket.botId) ?? members[0]
+    : undefined;
   const setupPending = roomNeedsSetup(group);
 
   // Mascot stays while a member works; the finished reply pops in above it.
@@ -1341,7 +1343,7 @@ export function GroupView({ group }: { group: Group }) {
       )}
 
       <div ref={composerDockRef} className={cn("absolute inset-x-0 bottom-0 z-[2]", CHAT_COLUMN_CLASS)}>
-      {recoveryBot && (
+      {recoveryPacket && recoveryBot && (
         <TaskRecoveryCard
           key={`${recoveryBot.id}:${group.threadId}`}
           bot={recoveryBot}

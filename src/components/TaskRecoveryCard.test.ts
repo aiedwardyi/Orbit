@@ -101,7 +101,8 @@ describe("TaskRecoveryStrip", () => {
     expect(groupView).toContain("<TaskRecoveryCard");
     expect(groupView).toContain("CHAT_COLUMN_CLASS");
     expect(groupView.indexOf("<TaskRecoveryCard")).toBeGreaterThan(groupView.indexOf("composerDockRef"));
-    expect(groupView).toContain("recoveryPacket?.botId");
+    expect(groupView).toContain("recoveryPacket.botId");
+    expect(groupView).toContain("recoveryPacket && recoveryBot");
   });
 
   it("resets pending and error chrome when the bot or task changes", () => {
