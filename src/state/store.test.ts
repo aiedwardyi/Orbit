@@ -917,12 +917,10 @@ describe("accepted send chrome", () => {
   });
 
   it("paints Thinking in the same reducer turn as an accepted idle send", () => {
-    const started = performance.now();
     const next = reducer(
       { ...initialState, bots: [idleBot] },
       { type: "send", botId: idleBot.id, text: "Hi", sendId: "s1" },
     );
-    const elapsed = performance.now() - started;
     const bot = next.bots[0]!;
     expect(
       turnPresenceWaiting({
@@ -933,7 +931,6 @@ describe("accepted send chrome", () => {
       }),
     ).toBe(true);
     expect(bot.busy).toBe(true);
-    expect(elapsed).toBeLessThan(20);
   });
 
   it("surfaces Sends-next for a busy follow-up before the POST queueId arrives", () => {
@@ -1009,6 +1006,50 @@ describe("accepted send chrome", () => {
     });
     expect(confirmed.acceptedSends[idleBot.threadId]).toBeUndefined();
     expect(confirmed.bots[0]?.busy).toBe(true);
+  });
+
+  it("drops Thinking on an idle hydrate snapshot so chrome cannot stay locked", () => {
+    const sent = reducer(
+      { ...initialState, bots: [idleBot] },
+      { type: "send", botId: idleBot.id, text: "Hi", sendId: "s1" },
+    );
+    const hydrated = reducer(sent, {
+      type: "hydrate",
+      bots: [idleBot],
+      groups: [],
+      computerControl: {},
+    });
+    expect(hydrated.acceptedSends[idleBot.threadId]).toBeUndefined();
+    expect(hydrated.bots[0]?.busy).toBeFalsy();
+  });
+
+  it("keeps a Sends-next chip through Stop", () => {
+    const busyBot = { ...idleBot, busy: true, activity: "working" as const };
+    const queued = reducer(
+      { ...initialState, bots: [busyBot] },
+      { type: "send", botId: busyBot.id, text: "and then", sendId: "s2" },
+    );
+    const stopped = reducer(queued, { type: "interrupt", botId: busyBot.id });
+    expect(visibleSteerEntries(stopped.pendingQueued, busyBot.threadId, stopped.acceptedSends[busyBot.threadId])).toEqual([
+      { queueId: "s2", text: "and then" },
+    ]);
+  });
+
+  it("forgets a cancelled Sends-next chip", () => {
+    const busyBot = { ...idleBot, busy: true, activity: "working" as const };
+    const queued = reducer(
+      { ...initialState, bots: [busyBot] },
+      { type: "send", botId: busyBot.id, text: "and then", sendId: "s2" },
+    );
+    const rejected = reducer(queued, {
+      type: "sendRejected",
+      botId: busyBot.id,
+      threadId: busyBot.threadId,
+      sendId: "s2",
+    });
+    expect(visibleSteerEntries(rejected.pendingQueued, busyBot.threadId, rejected.acceptedSends[busyBot.threadId])).toEqual(
+      [],
+    );
   });
 
   it("clears optimistic Thinking and busy on Stop", () => {

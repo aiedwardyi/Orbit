@@ -30,6 +30,7 @@ import {
   acceptedSendPaint,
   applyOptimisticBusy,
   clearAcceptedThinking,
+  dropIdleAcceptedThinking,
   forgetAcceptedSend,
   hasAcceptedThinking,
   rememberAcceptedSend,
@@ -792,7 +793,11 @@ export function reducer(state: AppState, action: Action): AppState {
         },
         [...action.bots, ...action.groups],
       );
-      return { ...hydrated, bots: applyOptimisticBusy(hydrated.bots, hydrated.acceptedSends) };
+      const acceptedSends = dropIdleAcceptedThinking(
+        dropIdleAcceptedThinking(hydrated.acceptedSends, hydrated.bots),
+        hydrated.groups,
+      );
+      return { ...hydrated, acceptedSends, bots: applyOptimisticBusy(hydrated.bots, acceptedSends) };
     }
     case "showRoutines":
       return {
@@ -1008,10 +1013,15 @@ export function reducer(state: AppState, action: Action): AppState {
         switchedThread && Array.isArray(action.bot.messages)
           ? reconcileSnapshotQueues(patched, [action.bot])
           : patched;
-      const acceptedSends =
-        action.bot.busy === true
-          ? clearAcceptedThinking(reconciled.acceptedSends, before.threadId)
-          : reconciled.acceptedSends;
+      const patchedThread =
+        typeof action.bot.threadId === "string" ? action.bot.threadId : before.threadId;
+      let acceptedSends = reconciled.acceptedSends;
+      if (action.bot.busy === true) {
+        acceptedSends = clearAcceptedThinking(acceptedSends, patchedThread);
+        if (patchedThread !== before.threadId) {
+          acceptedSends = clearAcceptedThinking(acceptedSends, before.threadId);
+        }
+      }
       return {
         ...reconciled,
         acceptedSends,
@@ -1688,13 +1698,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (action.type === "interrupt") {
         const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
         for (const entry of bot ? (stateRef.current.acceptedSends[bot.threadId] ?? []) : []) {
-          cancelledSendsRef.current.add(entry.sendId);
+          if (entry.kind === "thinking") cancelledSendsRef.current.add(entry.sendId);
         }
       }
       if (action.type === "interruptGroup") {
         const group = stateRef.current.groups.find((candidate) => candidate.id === action.groupId);
         for (const entry of group ? (stateRef.current.acceptedSends[group.threadId] ?? []) : []) {
-          cancelledSendsRef.current.add(entry.sendId);
+          if (entry.kind === "thinking") cancelledSendsRef.current.add(entry.sendId);
         }
       }
       // A queued message is still real until the server confirms deletion.
@@ -1757,6 +1767,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             .then((body) => {
               if (cancelledSendsRef.current.has(sendId)) {
                 cancelledSendsRef.current.delete(sendId);
+                if (typeof threadId === "string") {
+                  rawDispatch({ type: "sendRejected", botId: action.botId, threadId, sendId });
+                }
                 if (body?.queued && typeof body.queueId === "string") {
                   void api(`/api/bots/${action.botId}/queue/${body.queueId}`, { method: "DELETE" }).catch(
                     () => {},
@@ -1965,6 +1978,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             .then((body) => {
               if (cancelledSendsRef.current.has(sendId)) {
                 cancelledSendsRef.current.delete(sendId);
+                if (typeof threadId === "string") {
+                  rawDispatch({ type: "sendRejected", threadId, sendId });
+                }
                 return;
               }
               const settledThread =
