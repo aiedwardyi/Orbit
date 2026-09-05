@@ -89,7 +89,7 @@ export function ensureHermesInjectProvider(
     text = "";
   }
   const next = upsertHermesProvider(text, inject.host, host.baseUrl, hostApiKey(host, env));
-  if (next !== text) writeFileSync(path, next);
+  if (next !== text) writeFileSync(path, next, { mode: 0o600 });
   return hermesAcpModelId(modelId) ?? modelId;
 }
 

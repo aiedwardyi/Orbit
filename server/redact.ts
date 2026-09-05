@@ -26,6 +26,10 @@ function isSecretName(name: string): boolean {
 
 const mask = (value: string) => `«redacted ${value.length} chars»`;
 
+/** Walk limit, and what stands in for a subtree beyond it. */
+const MAX_DEPTH = 12;
+const TOO_DEEP = "«redacted: nested past the redaction depth limit»";
+
 // ── content-shaped secrets ────────────────────────────────────────────
 // What a bot's own reply, a tool title, or a permission card can carry —
 // and, since the rebuild replays activity into every handed-over context,
@@ -41,6 +45,9 @@ const KEY_PREFIXES: RegExp[] = [
   /\bAKIA[0-9A-Z]{16}\b/g, // aws access key id
   /\bAIza[0-9A-Za-z_-]{30,}/g, // google api key
   /\bnpm_[A-Za-z0-9]{20,}/g, // npm
+  /\bxai-[A-Za-z0-9]{16,}/g, // xai
+  /\bsk_[A-Za-z0-9]{24,}/g, // elevenlabs
+  /\bak_[A-Za-z0-9_-]{16,}/g, // composio
   /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, // jwt
 ];
 const BEARER = /(\bBearer\s+)([A-Za-z0-9._~+/=-]{12,})/g;
@@ -49,7 +56,7 @@ const PEM_BLOCK = /(-----BEGIN [A-Z ]*PRIVATE KEY-----)([\s\S]*?)(-----END [A-Z 
  * The value must be a single token of some length; prose after a colon
  * ("password: leave blank…") has spaces and does not match. */
 const KEY_VALUE =
-  /\b((?:[A-Za-z0-9_-]*_)?(?:api[_-]?key|apikey|secret|token|password|passwd|authorization|auth[_-]?token|access[_-]?key|private[_-]?key)s?)(["']?\s*[=:]\s*)(["']?)([A-Za-z0-9._~+/=-]{8,})\3/gi;
+  /\b((?:[A-Za-z0-9_-]*_)?(?:api[_-]?key|apikey|secret|token|password|passwd|authorization|auth[_-]?token|access[_-]?key|private[_-]?key|key)s?)(["']?\s*[=:]\s*)(["']?)([A-Za-z0-9._~+/=-]{8,})\3/gi;
 
 /** Longest prefix we must hold so a key split across chunks can still match. */
 const STREAM_HOLD = 96;
@@ -113,7 +120,10 @@ export function redactSecretsInText(text: string): string {
  * wire shape (env: [{name, value}]). Anything unrecognised is copied as-is. */
 export function redactSecrets(input: unknown, depth = 0): unknown {
   if (typeof input === "string") return redactSecretsInText(input);
-  if (depth > 12 || input === null || typeof input !== "object") return input;
+  if (input === null || typeof input !== "object") return input;
+  // Past the cap the subtree is not walked, so it must not be COPIED either —
+  // returning it whole hands back every credential nested below the limit.
+  if (depth > MAX_DEPTH) return TOO_DEEP;
 
   if (Array.isArray(input)) {
     return input.map((item) => {
@@ -126,13 +136,22 @@ export function redactSecrets(input: unknown, depth = 0): unknown {
         typeof (item as { value?: unknown }).value === "string"
       ) {
         const entry = item as { name: string; value: string };
+        // Every other field rides the ordinary object pass — spreading
+        // `item` here copied a sibling credential out untouched.
+        const scrubbed = redactSecrets(item, depth + 1);
+        if (scrubbed === null || typeof scrubbed !== "object") return scrubbed;
+        // SAFETY: `item` is a non-array object, so the object branch above
+        // returned the record it built — the depth marker is a string, and
+        // the guard on the line above already returned it.
+        const out = scrubbed as Record<string, unknown>;
+        // `name` goes back raw: the shape is what makes a redacted log debuggable.
+        out.name = entry.name;
         // A non-secret-shaped name (a custom env var, a feature flag) does
         // not clear the value of suspicion — the same content pass every
         // other string in this tree gets is what catches a credential
         // someone stashed under an ordinary-looking name.
-        return isSecretName(entry.name)
-          ? { ...entry, value: mask(entry.value) }
-          : { ...entry, value: redactSecretsInText(entry.value) };
+        out.value = isSecretName(entry.name) ? mask(entry.value) : redactSecretsInText(entry.value);
+        return out;
       }
       return redactSecrets(item, depth + 1);
     });
