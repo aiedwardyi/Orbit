@@ -3073,12 +3073,12 @@ function routineSourceThread(run: RoutineRun): string | null {
 
 function routineRunCard(run: RoutineRun): NonNullable<Message["routineRun"]> {
   const visibleSummary = run.status === "waiting" ? run.attention : run.output;
-  const summary = visibleSummary ? redactSecretsInText(visibleSummary).slice(0, 2_000) : undefined;
-  const error = run.error ? redactSecretsInText(run.error).slice(0, 500) : undefined;
+  const summary = visibleSummary ? visibleSummary.slice(0, 2_000) : undefined;
+  const error = run.error ? run.error.slice(0, 500) : undefined;
   const card: NonNullable<Message["routineRun"]> = {
     runId: run.id,
     routineId: run.routineId,
-    routineName: redactSecretsInText(run.routineName),
+    routineName: run.routineName,
     status: run.status,
   };
   if (run.threadId) card.executionThreadId = run.threadId;

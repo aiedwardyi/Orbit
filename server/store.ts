@@ -293,6 +293,10 @@ function redactBotAuthored<T extends Omit<Message, "id" | "at"> & { at?: number 
     if (typeof card.subtitle === "string") card.subtitle = redactSecretsInText(card.subtitle);
     if (typeof card.summary === "string") card.summary = redactSecretsInText(card.summary);
     if (typeof card.held === "string") card.held = redactSecretsInText(card.held);
+    // `options` carry the model's own ask_user choices; `tool` its name for
+    // them. The grant "always allow" matches on card.allowKey, not on these.
+    if (typeof card.tool === "string") card.tool = redactSecretsInText(card.tool);
+    if (Array.isArray(card.options)) card.options = card.options.map(redactSecretsInText);
     // Routine definitions are executable bot-authored text stored behind the
     // visible summary. Scrub the durable payload too so nesting it on a card
     // cannot bypass the transcript's secret-redaction boundary.
@@ -786,11 +790,11 @@ export class Store {
   }
 
   private saveBots() {
-    writeFileAtomic(BOTS_FILE, JSON.stringify(this.bots, null, 2));
+    writeFileAtomic(BOTS_FILE, JSON.stringify(this.bots, null, 2), { mode: 0o600 });
   }
 
   private saveGroups() {
-    writeFileAtomic(GROUPS_FILE, JSON.stringify(this.groups.map(({ busyBotId: _busyBotId, ...g }) => g), null, 2));
+    writeFileAtomic(GROUPS_FILE, JSON.stringify(this.groups.map(({ busyBotId: _busyBotId, ...g }) => g), null, 2), { mode: 0o600 });
   }
 
   // ── groups ────────────────────────────────────────────────────────────
@@ -1153,7 +1157,10 @@ export class Store {
     const t = this.thread(threadId);
     const idx = t.messages.findIndex((m) => m.id === messageId);
     if (idx === -1) return null;
-    t.messages[idx] = { ...t.messages[idx], ...patch, card: patch.card ?? t.messages[idx].card };
+    // Same scrub as appendMessage: a patch is a durable write too, and the
+    // hydrate that GET /api/bots serves reads the patched record, not the
+    // frame the UI already saw.
+    t.messages[idx] = redactBotAuthored({ ...t.messages[idx], ...patch, card: patch.card ?? t.messages[idx].card });
     mdb.updateMessage(threadId, t.messages[idx]);
     this.emit({ type: "message.patch", threadId, message: t.messages[idx] });
     return t.messages[idx];

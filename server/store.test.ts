@@ -1193,6 +1193,35 @@ describe("Store redacts bot-authored secrets on write", () => {
     const again = new Store(selection);
     expect(again.messagesFor(bot.threadId).find((m) => m.id === reply.id)?.text).not.toContain(key);
   });
+
+  it("masks a card's tool line and its options", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const key = `sk-ant-api03-${"abcdefghijklmnopqrstuvwxyz0123456789"}`;
+    const card = store.appendMessage(bot.threadId, {
+      role: "bot",
+      kind: "options",
+      card: { title: "Run this?", subtitle: "", options: [`Retry with ${key}`, "Cancel"], tool: `Bash: curl -H "Authorization: Bearer ${key}"` },
+    });
+    expect(card.card?.tool).not.toContain(key);
+    expect(card.card?.options.join(" ")).not.toContain(key);
+    expect(card.card?.options[1]).toBe("Cancel");
+  });
+
+  it("masks on patchMessage too, on disk and not just on the wire", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const key = `sk-ant-api03-${"abcdefghijklmnopqrstuvwxyz0123456789"}`;
+    const seed = store.appendMessage(bot.threadId, { role: "bot", kind: "text", text: "working" });
+    const patched = store.patchMessage(bot.threadId, seed.id, { text: `Done, used ${key}` });
+    expect(patched?.text).not.toContain(key);
+    expect(patched?.text).toContain("«redacted");
+    const again = new Store(selection);
+    expect(again.messagesFor(bot.threadId).find((m) => m.id === seed.id)?.text).not.toContain(key);
+    // a patch to what the USER said is still theirs
+    const mine = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "hi" });
+    expect(store.patchMessage(bot.threadId, mine.id, { text: `use ${key}` })?.text).toContain(key);
+  });
 });
 
 describe("Store task usage", () => {
