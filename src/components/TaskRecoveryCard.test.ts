@@ -32,8 +32,8 @@ const packet: TaskResumePacket = {
   turnsAtWrite: 2,
 };
 
-function renderStrip(overrides: Partial<Parameters<typeof TaskRecoveryStrip>[0]> = {}) {
-  applyLocale("en");
+function renderStrip(overrides: Partial<Parameters<typeof TaskRecoveryStrip>[0]> = {}, locale: "en" | "ko" = "en") {
+  applyLocale(locale);
   return renderToStaticMarkup(
     createElement(TaskRecoveryStrip, {
       packet,
@@ -81,6 +81,47 @@ describe("TaskRecoveryStrip", () => {
     expect(failed).toContain("Resume");
   });
 
+  it("uses quiet saved copy for a completed conversation without a next action or Resume", () => {
+    applyLocale("en");
+    const html = renderStrip({
+      packet: {
+        ...packet,
+        goal: "Publish the brief",
+        nextAction: "",
+        completed: [
+          { note: "Research", at: 1 },
+          { note: "Draft", at: 2 },
+          { note: "Citations", at: 3 },
+          { note: "Published the brief", at: 4 },
+        ],
+        plan: [
+          { step: "Research", status: "done" },
+          { step: "Draft", status: "done" },
+          { step: "Citations", status: "done" },
+          { step: "Publish", status: "done" },
+        ],
+        flushReason: "shutdown",
+      },
+    });
+    expect(html).toContain("Conversation saved");
+    expect(html).not.toContain("Next:");
+    expect(html).not.toContain("Publish the brief");
+    expect(html).not.toMatch(/>Resume</);
+    expect(html).toContain("Dismiss saved task reminder");
+
+    const koHtml = renderStrip({
+      packet: {
+        ...packet,
+        nextAction: "",
+        completed: [{ note: "완료", at: 1 }],
+        flushReason: "shutdown",
+      },
+    }, "ko");
+    expect(koHtml).toContain("대화가 저장됨");
+    expect(koHtml).not.toContain("다음:");
+    expect(koHtml).not.toContain("재개");
+  });
+
   it("keeps Resume and dismiss after a stop flush", () => {
     const html = renderStrip({ packet: { ...packet, flushReason: "stop" } });
     expect(html).toContain("Task paused");
@@ -88,6 +129,7 @@ describe("TaskRecoveryStrip", () => {
     expect(html).toContain("Dismiss saved task reminder");
     expect(source).toMatch(/isTaskRecoveryVisible\(\s*packet,/);
     expect(source).toContain("dismissedTaskRecovery");
+    expect(source).toContain("shouldDismissCompletedReopen");
   });
 
   it("stays click-to-resume and lives in the composer column", () => {

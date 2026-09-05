@@ -127,9 +127,10 @@ describe("ModelPicker friends chip", () => {
     const html = markup();
     expect(html).toContain("Grok 4.6");
     expect(html).not.toContain("Automatic");
+    expect(html).not.toContain("Current model");
     expect(html).not.toContain("Switch engine");
     expect(html).not.toContain("data-model-picker-content");
-    expect(html).toContain('title="Orbit is choosing a working engine for this job. Currently Grok 4.6."');
+    expect(html).toContain('title="Stay on this engine while it works. Currently Grok 4.6."');
   });
 
   it("folds the chip to the engine name in a narrow chat header", () => {
@@ -145,11 +146,12 @@ describe("ModelPicker friends chip", () => {
     expect(html).toContain("Currently unresolved.");
   });
 
-  it("names the current model on the Automatic row", () => {
+  it("names the current model on the Current model row", () => {
     const html = markup(bot.modelSelection, true);
-    expect(html).toContain("Currently Grok 4.6. Keep this engine when it works.");
-    expect(html).toMatch(/leading-snug[^"]*"[^>]*>Currently Grok 4\.6/);
-    expect(html).not.toMatch(/truncate[^"]*"[^>]*>Currently Grok 4\.6/);
+    expect(html).toContain("Current model");
+    expect(html).toContain("Grok 4.6 · stay on this while it works");
+    expect(html).toMatch(/leading-snug[^"]*"[^>]*>Grok 4\.6 · stay on this while it works/);
+    expect(html).not.toMatch(/truncate[^"]*"[^>]*>Grok 4\.6 · stay on this/);
   });
 
   it("shows Ready on the open engine pane, not the CLI --version dump", () => {
@@ -192,7 +194,8 @@ describe("ModelPicker friends chip", () => {
     expect(list).toContain(">Models<");
     expect(list).not.toContain(">Cloud<");
     expect(list).toContain("Grok 4.6");
-    expect(list).toContain("Automatic");
+    expect(list).toContain("Current model");
+    expect(list).not.toContain("Automatic");
     expect(list).toMatch(/bg-success\/10 text-success[^"]*"[^>]*>Ready</);
     expect(list).not.toMatch(/aria-label="Switch engine"[^>]*aria-expanded/);
     for (const label of FRIENDS_LABELS) expect(list).toContain(label);

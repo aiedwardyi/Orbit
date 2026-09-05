@@ -1,7 +1,8 @@
 // Store persistence contract: bots.json + messages-<threadId>.json are
 // the durable record — everything here must survive a process restart
 // except `busy`, which never does (no turn survives one either).
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,6 +10,7 @@ import { DATA_DIR } from "./config.ts";
 import { prepareModelContext } from "./context-compaction.ts";
 import type { ModelSelection } from "./contracts.ts";
 import { peerAllowKey } from "./peer-approval-key.ts";
+import { applyResolvedProjectFolder } from "./project-folder.ts";
 import { Store, titleFromMessage, type BotRecord } from "./store.ts";
 import * as taskState from "./task-state.ts";
 import { readTaskResumePacket, type TaskResumePacket } from "./task-state.ts";
@@ -1326,6 +1328,63 @@ describe("Store remembered project folder", () => {
     expect(store.bot(bot.id)?.lastProjectCwd).toBeUndefined();
     expect(store.bot(bot.id)?.cwd).toBeUndefined();
     expect(new Store(selection).bot(bot.id)?.lastProjectCwd).toBeUndefined();
+  });
+
+  it("Clear of the pin forgets the remembered folder so the next task is private", () => {
+    const remembered = mkdtempSync(join(tmpdir(), "omb-remember-"));
+    const pinned = mkdtempSync(join(tmpdir(), "omb-pin-"));
+    try {
+      const store = new Store(selection);
+      const bot = store.createBot();
+      store.rememberProjectCwd(bot.id, remembered);
+      store.patchBot(bot.id, { cwd: pinned });
+      store.patchBot(bot.id, { cwd: undefined });
+
+      expect(store.bot(bot.id)?.cwd).toBeUndefined();
+      expect(store.bot(bot.id)?.lastProjectCwd).toBeUndefined();
+
+      const resolved = applyResolvedProjectFolder({
+        pin: store.bot(bot.id)?.cwd,
+        remembered: store.bot(bot.id)?.lastProjectCwd,
+        userTexts: ["keep going"],
+        remember: (cwd) => store.rememberProjectCwd(bot.id, cwd),
+        forget: () => store.forgetProjectCwd(bot.id),
+      });
+      expect(resolved).toBeUndefined();
+
+      const next = store.createTask(bot.id, "after-clear")!;
+      expect(store.pinTaskCwd(bot.id, next.threadId, resolved ?? "/private/bot-workspace")).toBe(
+        "/private/bot-workspace",
+      );
+    } finally {
+      rmSync(remembered, { recursive: true, force: true });
+      rmSync(pinned, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps an explicit pin over a leftover remember after Clear is not used", () => {
+    const remembered = mkdtempSync(join(tmpdir(), "omb-remember-"));
+    const pinned = mkdtempSync(join(tmpdir(), "omb-pin-"));
+    try {
+      const store = new Store(selection);
+      const bot = store.createBot();
+      store.rememberProjectCwd(bot.id, remembered);
+      store.patchBot(bot.id, { cwd: pinned });
+
+      const resolved = applyResolvedProjectFolder({
+        pin: store.bot(bot.id)?.cwd,
+        remembered: store.bot(bot.id)?.lastProjectCwd,
+        userTexts: ["keep going"],
+        remember: (cwd) => store.rememberProjectCwd(bot.id, cwd),
+        forget: () => store.forgetProjectCwd(bot.id),
+      });
+      expect(resolved).toBe(pinned);
+      expect(store.bot(bot.id)?.lastProjectCwd).toBe(remembered);
+      expect(store.pinTaskCwd(bot.id, bot.threadId, resolved)).toBe(pinned);
+    } finally {
+      rmSync(remembered, { recursive: true, force: true });
+      rmSync(pinned, { recursive: true, force: true });
+    }
   });
 });
 

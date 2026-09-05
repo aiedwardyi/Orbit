@@ -628,6 +628,64 @@ describe("task recovery state", () => {
       stopped.dismissedTaskRecovery["t1"],
     )).toBe(true);
   });
+
+  it("auto-dismisses a v1 completed shutdown leftover that still carries a stale nextAction", () => {
+    const leftover = {
+      v: 1 as const,
+      threadId: "t1",
+      botId: "echo",
+      goal: "Publish the brief",
+      plan: [
+        { step: "Research", status: "done" as const },
+        { step: "Draft", status: "done" as const },
+        { step: "Citations", status: "done" as const },
+        { step: "Publish", status: "done" as const },
+      ],
+      completed: [
+        { note: "Research", at: 1 },
+        { note: "Draft", at: 2 },
+        { note: "Citations", at: 3 },
+        { note: "Published the brief", at: 4 },
+      ],
+      evidence: [],
+      artifacts: [],
+      blockers: [],
+      nextAction: "Publish the brief",
+      updatedAt: 200,
+      updatedBy: "harness" as const,
+      flushReason: "shutdown" as const,
+      turnsAtWrite: 4,
+    };
+    const bot = {
+      id: "echo",
+      threadId: "t1",
+      name: "Echo",
+      title: "",
+      description: "",
+      notifications: true,
+      color: "green",
+      unread: false,
+      modelSelection: { instanceId: "x", model: "y" },
+      messages: [],
+      tasks: [{ threadId: "t1", title: "Current", createdAt: 1, taskState: leftover }],
+    } satisfies Bot;
+
+    const hydrated = reducer(initialState, {
+      type: "hydrate",
+      bots: [bot],
+      groups: [],
+      computerControl: {},
+    });
+    expect(hydrated.dismissedTaskRecovery["t1"]).toEqual({
+      updatedAt: 200,
+      flushReason: "shutdown",
+    });
+    expect(isTaskRecoveryVisible(
+      leftover,
+      false,
+      hydrated.dismissedTaskRecovery["t1"],
+    )).toBe(false);
+  });
 });
 
 describe("job-first bot creation", () => {
@@ -759,6 +817,31 @@ describe("section Chiefs", () => {
     expect(next.bots.find((candidate) => candidate.id === workChief.id)?.chiefOfStaff).toBe(false);
     expect(next.bots.find((candidate) => candidate.id === workCandidate.id)?.chiefOfStaff).toBe(true);
     expect(next.bots.find((candidate) => candidate.id === personalChief.id)?.chiefOfStaff).toBe(true);
+  });
+});
+
+describe("bot details folder after Clear", () => {
+  it("applies a null cwd from a complete bot frame so the field is private", () => {
+    const bot = {
+      id: "folder-bot",
+      threadId: "t-folder",
+      name: "Folder",
+      title: "",
+      description: "",
+      notifications: false,
+      color: "green",
+      unread: false,
+      modelSelection: { instanceId: "grok", model: "grok-4.6" },
+      cwd: "/tmp/project",
+    } satisfies Omit<Bot, "messages">;
+    const withPin = reducer(initialState, { type: "botPatched", bot });
+    expect(withPin.bots[0]?.cwd).toBe("/tmp/project");
+
+    const cleared = reducer(withPin, {
+      type: "botPatched",
+      bot: { ...bot, cwd: null },
+    });
+    expect(cleared.bots[0]?.cwd).toBeNull();
   });
 });
 

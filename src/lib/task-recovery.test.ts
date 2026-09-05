@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { isTaskRecoveryVisible, roomRecoveryBusy, roomRecoveryPacket } from "./task-recovery";
+import {
+  isCompletedTaskRecord,
+  isTaskRecoveryVisible,
+  roomRecoveryBusy,
+  roomRecoveryPacket,
+  shouldDismissCompletedReopen,
+} from "./task-recovery";
 
 const packet = (flushReason: string, updatedAt = 100) => ({ flushReason, threadId: "t1", updatedAt });
 
@@ -60,5 +66,40 @@ describe("task recovery banner eligibility", () => {
       taskState: packet("stop"),
       tasks: [{ threadId: "room-2" }],
     })).toBeUndefined();
+  });
+
+  it("treats a finished conversation as completed, not pending Resume", () => {
+    const finished = {
+      v: 1 as const,
+      flushReason: "shutdown",
+      goal: "Publish the brief",
+      nextAction: "Publish the brief",
+      completed: [
+        { note: "Research", at: 1 },
+        { note: "Draft", at: 2 },
+        { note: "Citations", at: 3 },
+        { note: "Published the brief", at: 4 },
+      ],
+      plan: [
+        { status: "done" },
+        { status: "done" },
+        { status: "done" },
+        { status: "done" },
+      ],
+      blockers: [],
+      updatedAt: 200,
+    };
+    expect(isCompletedTaskRecord(finished)).toBe(true);
+    expect(shouldDismissCompletedReopen(finished)).toBe(true);
+    expect(isTaskRecoveryVisible(finished, false)).toBe(false);
+
+    const saved = { ...finished, nextAction: "" };
+    expect(isCompletedTaskRecord(saved)).toBe(true);
+    expect(shouldDismissCompletedReopen(saved)).toBe(false);
+    expect(isTaskRecoveryVisible(saved, false)).toBe(true);
+
+    expect(isCompletedTaskRecord(packet("stop"))).toBe(false);
+    expect(isCompletedTaskRecord(packet("crash"))).toBe(false);
+    expect(shouldDismissCompletedReopen({ ...finished, v: 2 })).toBe(false);
   });
 });

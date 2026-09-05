@@ -14,16 +14,21 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   cancelSteeredMessage,
+  clearSendRunning,
   continueQueuedDrainIfIdle,
   drainSteeredMessages,
+  isSendCancelled,
+  markSendCancelled,
+  markSendRunning,
   queuedSteeredMessage,
   queueRoomParticipation,
   queueSteeredMessage,
   _queuedCount,
+  _resetSteerQueue,
   type SteerStore,
 } from "./steer-queue.ts";
 import type { BotRecord, Message } from "./store.ts";
@@ -72,6 +77,10 @@ function fakeStore(bots: BotRecord[]): SteerStore & { messages: Message[] } {
 }
 
 describe("steer-queue module", () => {
+  afterEach(() => {
+    _resetSteerQueue();
+  });
+
   it("does not append a queued user message until drain", () => {
     const bot = fakeBot("bot-a", "thread-a", true);
     const store = fakeStore([bot]);
@@ -172,8 +181,8 @@ describe("steer-queue module", () => {
     const store = fakeStore([bot]);
     const first = queueSteeredMessage(bot.id, bot.threadId, "keep me");
     const second = queueSteeredMessage(bot.id, bot.threadId, "drop me");
-    expect(cancelSteeredMessage(bot.id, second.id)).toBe(true);
-    expect(cancelSteeredMessage(bot.id, "missing")).toBe(false);
+    expect(cancelSteeredMessage(bot.id, second.id)).toEqual({ cancelled: true });
+    expect(cancelSteeredMessage(bot.id, "missing")).toEqual({ cancelled: false, running: false });
     expect(_queuedCount("thread-cancel")).toBe(1);
 
     bot.busy = false;
@@ -204,9 +213,9 @@ describe("steer-queue module", () => {
     const queued = queueSteeredMessage(bot.id, bot.threadId, "cancel on the old task");
 
     bot.threadId = "thread-new-cancel";
-    expect(cancelSteeredMessage("some-other-bot", queued.id)).toBe(false);
+    expect(cancelSteeredMessage("some-other-bot", queued.id)).toEqual({ cancelled: false, running: false });
     expect(_queuedCount("thread-original-cancel")).toBe(1);
-    expect(cancelSteeredMessage(bot.id, queued.id)).toBe(true);
+    expect(cancelSteeredMessage(bot.id, queued.id)).toEqual({ cancelled: true });
     expect(_queuedCount("thread-original-cancel")).toBe(0);
   });
 
@@ -325,6 +334,54 @@ describe("steer-queue module", () => {
     expect(index).toContain("continueQueuedDrainIfIdle(store, botId, drainQueuedSends, botHasActiveTurn)");
     expect(index).toMatch(/drainSteeredMessages\(store,[\s\S]*?botHasActiveTurn\)/);
     expect(index).not.toMatch(/if \(!store\.bot\(botId\)\?\.busy\) drainQueuedSends\(\)/);
+  });
+
+  it("cancels a waiting send by client sendId as well as queue messageId", () => {
+    const bot = fakeBot("bot-sendid-cancel", "thread-sendid-cancel", true);
+    const queued = queueSteeredMessage(bot.id, bot.threadId, "hold", { sendId: "send_cancelbyid0001" });
+    expect(cancelSteeredMessage(bot.id, "send_cancelbyid0001")).toEqual({ cancelled: true });
+    expect(_queuedCount("thread-sendid-cancel")).toBe(0);
+    expect(queuedSteeredMessage(bot.id, bot.threadId, "send_cancelbyid0001")).toBeNull();
+    expect(queued.id).toEqual(expect.any(String));
+  });
+
+  it("records a cancel before enqueue so a late queue never drains", () => {
+    const bot = fakeBot("bot-precancel", "thread-precancel", true);
+    expect(cancelSteeredMessage(bot.id, "send_precancel000001")).toEqual({ cancelled: true });
+    expect(isSendCancelled("send_precancel000001")).toBe(true);
+    const queued = queueSteeredMessage(bot.id, bot.threadId, "too late", { sendId: "send_precancel000001" });
+    expect(queued).toMatchObject({ skipped: true, cancelled: true });
+    expect(_queuedCount("thread-precancel")).toBe(0);
+
+    bot.busy = false;
+    const run = vi.fn();
+    drainSteeredMessages(fakeStore([bot]), run);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("skips a cancelled sendId on drain and does not start that instruction", () => {
+    const bot = fakeBot("bot-drain-skip", "thread-drain-skip", true);
+    const store = fakeStore([bot]);
+    queueSteeredMessage(bot.id, bot.threadId, "keep", { sendId: "send_keep0000000001" });
+    queueSteeredMessage(bot.id, bot.threadId, "drop", { sendId: "send_drop0000000001" });
+    markSendCancelled("send_drop0000000001");
+    bot.busy = false;
+    const run = vi.fn();
+    drainSteeredMessages(store, run);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0][2]).toBe("keep");
+    expect(store.messages.map((message) => message.text)).toEqual(["keep"]);
+  });
+
+  it("reports running instead of cancelled when that sendId already started", () => {
+    const bot = fakeBot("bot-running-cancel", "thread-running-cancel", true);
+    markSendRunning(bot.id, "send_running00000001");
+    expect(cancelSteeredMessage(bot.id, "send_running00000001")).toEqual({
+      cancelled: false,
+      running: true,
+    });
+    clearSendRunning(bot.id);
+    expect(cancelSteeredMessage(bot.id, "send_running00000001")).toEqual({ cancelled: true });
   });
 
   it("does not peel the next send while a startTurn claim is held and the bot is not busy yet", () => {

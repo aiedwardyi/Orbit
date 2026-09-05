@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { isCompletedTaskRecord } from "../shared/task-resume.ts";
+
 import {
   clearTaskBlockers,
   recordTaskBlocker,
@@ -104,8 +106,49 @@ describe("task state folding", () => {
     expect(completed.completed.at(-1)?.note).toContain("Draft complete");
     expect(completed.evidence.at(-1)?.ref).toBe("message-3");
     expect(completed.blockers).toEqual([]);
+    expect(completed.nextAction).toBe("");
     expect(failed.completed).toHaveLength(1);
+    expect(failed.nextAction).toBe("");
     expect(failed.blockers).toContainEqual({ kind: "engine", note: expect.any(String) });
+
+    const failedAlone = recordTaskCompletion(seed(), {
+      ok: false,
+      reply: "",
+      now: 250,
+    });
+    expect(failedAlone.nextAction).toBe("Prepare a weekly competitor brief");
+    expect(failedAlone.completed).toEqual([]);
+  });
+
+  it("settles an ok turn that replied with nothing", () => {
+    const settled = recordTaskCompletion(seed(), { ok: true, reply: "   ", now: 300 });
+
+    expect(settled.nextAction).toBe("");
+    expect(settled.completed).toHaveLength(1);
+    expect(isCompletedTaskRecord(settled)).toBe(true);
+  });
+
+  it("clears nextAction when a turn completes so reopen cannot redo finished work", () => {
+    const donePlan = {
+      ...seed(),
+      plan: [
+        { step: "Research launches", status: "done" as const },
+        { step: "Write the report", status: "done" as const },
+        { step: "Verify citations", status: "done" as const },
+        { step: "Publish the brief", status: "done" as const },
+      ],
+      nextAction: "Prepare a weekly competitor brief",
+    };
+    const completed = recordTaskCompletion(donePlan, {
+      ok: true,
+      reply: "Published the brief with four cited sources.",
+      now: 400,
+      turnsAtWrite: 4,
+    });
+
+    expect(completed.flushReason).toBe("turn-end");
+    expect(completed.nextAction).toBe("");
+    expect(completed.completed).toHaveLength(1);
   });
 
   it("does not keep completed work as nextAction after a successful turn", () => {
@@ -169,6 +212,7 @@ describe("task state folding", () => {
 
     expect(settled.flushReason).toBe("stop");
     expect(settled.completed).toEqual([]);
+    expect(settled.nextAction).toBe("Prepare a weekly competitor brief");
     expect(settled.blockers).toEqual([]);
   });
 });

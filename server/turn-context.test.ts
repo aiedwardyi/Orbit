@@ -453,6 +453,25 @@ describe("countSessionToolRounds", () => {
     ];
     expect(countSessionToolRounds(messages, new Set(["next"]), "bound")).toBe(1);
   });
+
+  it("lets a later compaction marker win over an earlier recycle watermark", () => {
+    const messages = [
+      { id: "old", kind: "activity" as const, tool: { name: "Read", ok: true } },
+      { id: "bound", role: "user" as const, kind: "text" as const },
+      { id: "mid", kind: "activity" as const, tool: { name: "Bash", ok: true } },
+      { id: "c1", kind: "compaction" as const },
+      { id: "t1", kind: "activity" as const, tool: { name: "Grep", ok: true } },
+    ];
+    expect(countSessionToolRounds(messages, undefined, "bound")).toBe(1);
+  });
+});
+
+describe("nativeSessionTokenBudget", () => {
+  it("returns zero for an unknown or invalid window instead of the 16k fallback", () => {
+    expect(nativeSessionTokenBudget(0)).toBe(0);
+    expect(nativeSessionTokenBudget(-1)).toBe(0);
+    expect(nativeSessionTokenBudget(200_000)).toBe(100_000);
+  });
 });
 
 describe("engineIsFresh", () => {

@@ -38,14 +38,20 @@ describe("reaction rail", () => {
     expect(sources["Reactions.tsx"]).toContain('data-reaction-bar');
   });
 
-  it("keeps the bubbly rail tappable without hover-only opacity", () => {
-    const rail = sources["Reactions.tsx"];
-    expect(rail).not.toMatch(/data-reaction-bar[\s\S]{0,240}opacity-0/);
-    expect(rail).toContain('aria-pressed');
-    expect(rail).toContain('t("chat.moreReactions")');
-    expect(rail).toContain('t("chat.reactEmoji"');
-    expect(rail).toMatch(/const mine = useMemo\(/);
-    expect(rail).not.toContain("export const REACTION_SET");
+  it("hides the bubbly picker until message hover, focus, or the + control", () => {
+    const start = sources["Reactions.tsx"].indexOf("export function ReactionBar");
+    const end = sources["Reactions.tsx"].indexOf("export function ReactionChips");
+    const bar = sources["Reactions.tsx"].slice(start, end);
+    expect(bar).toMatch(/data-reaction-bar[\s\S]{0,400}opacity-0/);
+    expect(bar).toContain("group-hover:opacity-100");
+    expect(bar).toContain("group-focus-within:opacity-100");
+    expect(bar).toContain("pickerOpen");
+    expect(bar).toContain("setPickerOpen(false)");
+    expect(bar).toContain('aria-pressed');
+    expect(bar).toContain('t("chat.moreReactions")');
+    expect(sources["Reactions.tsx"]).toContain('t("chat.reactEmoji"');
+    expect(bar).toMatch(/const mine = useMemo\(/);
+    expect(bar).not.toContain("export const REACTION_SET");
   });
 
   it("quiets tray chrome without shrinking hit targets or dropping the rail", () => {
