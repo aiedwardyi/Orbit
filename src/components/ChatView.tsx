@@ -39,7 +39,7 @@ import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { showBotNewTaskControl, showComputerPanelChrome } from "@/lib/friends-chrome";
 import { stateForBot } from "@/lib/mascot";
 import { transcriptIdleAfterOnboarding } from "@/lib/conversation-preview";
-import { showWorkingDots } from "@/lib/turn-tail";
+import { turnPresenceWaiting } from "@/lib/send-accept";
 import { liveActivityLabel } from "@/lib/live-activity";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
@@ -923,11 +923,12 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
   const toolInFlight = lastMessage?.kind === "activity" && lastMessage.tool?.ok === undefined;
   const showToolCalls = showToolCallsEnabled(state.config);
   const activityLabel = liveActivityLabel(lastMessage, showToolCalls);
-  const waiting = Boolean(
-    bot.busy &&
-      bot.activity !== "waiting-on-you" &&
-      showWorkingDots(bot.busy, undefined, lastMessage),
-  );
+  const waiting = turnPresenceWaiting({
+    busy: bot.busy,
+    activity: bot.activity,
+    lastMessage,
+    accepted: state.acceptedSends[bot.threadId],
+  });
   const wasWaiting = useRef(false);
   const [popping, setPopping] = useState<{ id: string; text: string } | null>(null);
   useEffect(() => {

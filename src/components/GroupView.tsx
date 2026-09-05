@@ -47,7 +47,7 @@ import { shortPath } from "@/lib/short-path";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow } from "@/lib/bottom-follow";
 import { CHAT_COLUMN_CLASS } from "@/lib/chat-column";
 import { useComposerDockPad } from "@/lib/composer-dock";
-import { showWorkingDots } from "@/lib/turn-tail";
+import { turnPresenceWaiting } from "@/lib/send-accept";
 import { activeLocale, localeTag, t, useI18n } from "@/lib/i18n";
 import { liveActivityLabel } from "@/lib/live-activity";
 import { splitAttachedImages } from "@/lib/composer-attachments";
@@ -895,9 +895,12 @@ export function GroupView({ group }: { group: Group }) {
   const toolInFlight = lastGroupMessage?.kind === "activity" && lastGroupMessage.tool?.ok === undefined;
   const showToolCalls = showToolCallsEnabled(state.config);
   const activityLabel = liveActivityLabel(lastGroupMessage, showToolCalls);
-  const waiting = Boolean(
-    speaker && showWorkingDots(true, undefined, group.messages.at(-1), speaker.id),
-  );
+  const waiting = turnPresenceWaiting({
+    busy: Boolean(speaker),
+    lastMessage: group.messages.at(-1),
+    speakerBotId: speaker?.id,
+    accepted: state.acceptedSends[group.threadId],
+  });
   const wasWaiting = useRef(false);
   const [popping, setPopping] = useState<{ id: string; text: string; botId?: string } | null>(null);
   useEffect(() => {
