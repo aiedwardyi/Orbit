@@ -60,9 +60,11 @@ describe("reaction rail", () => {
     expect(bar).toContain("mt-0.5");
     expect(bar).not.toContain("shadow-[0_4px_14px_rgba(0,0,0,0.16)]");
     const tray = bar.slice(bar.indexOf("data-reaction-bar"), bar.indexOf("data-reaction-picker"));
-    expect(tray).toContain("border-hairline/30");
-    expect(tray).toContain("bg-card/70");
+    expect(tray).toContain("border-hairline/35");
+    expect(tray).toContain("bg-card/75");
     expect(tray).not.toContain("border-hairline/50");
     expect(tray).not.toContain("bg-card/95");
+    expect(tray).not.toContain("border-hairline/20");
+    expect(tray).not.toContain("bg-card/50");
   });
 });

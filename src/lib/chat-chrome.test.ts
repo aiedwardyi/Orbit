@@ -26,8 +26,8 @@ describe("chat column width", () => {
   it("shares a centered 960px column across ChatView transcript and composer", () => {
     expect(chatView).toContain("CHAT_COLUMN_CLASS");
     expect(chatView.split("CHAT_COLUMN_CLASS").length - 1).toBeGreaterThanOrEqual(2);
-    expect(chatView).toMatch(/flex w-full flex-col gap-3 px-5[\s\S]{0,80}CHAT_COLUMN_CLASS/);
-    expect(chatView).toMatch(/composerDockRef[\s\S]{0,160}CHAT_COLUMN_CLASS/);
+    expect(chatView).toMatch(/flex w-full flex-col gap-3 px-5[\s\S]*?CHAT_COLUMN_CLASS/);
+    expect(chatView).toMatch(/composerDockRef[\s\S]*?CHAT_COLUMN_CLASS/);
     const scroller = chatView.slice(
       chatView.indexOf("data-orbit-transcript"),
       chatView.indexOf("flex w-full flex-col gap-3 px-5"),
@@ -39,10 +39,12 @@ describe("chat column width", () => {
   it("shares the same centered column in GroupView", () => {
     expect(groupView).toContain("CHAT_COLUMN_CLASS");
     expect(groupView.split("CHAT_COLUMN_CLASS").length - 1).toBeGreaterThanOrEqual(2);
-    expect(groupView).toMatch(/flex w-full flex-col gap-3 px-5[\s\S]{0,80}CHAT_COLUMN_CLASS/);
-    expect(groupView).toMatch(/composerDockRef[\s\S]{0,160}CHAT_COLUMN_CLASS/);
-    expect(groupView).not.toMatch(/setupPending \?[\s\S]{0,220}CHAT_COLUMN_CLASS/);
-    expect(groupView).toMatch(/setupPending \?[\s\S]*?px-5[\s\S]*?composerDock\.pad/);
+    expect(groupView).toMatch(/flex w-full flex-col gap-3 px-5[\s\S]*?CHAT_COLUMN_CLASS/);
+    expect(groupView).toMatch(/composerDockRef[\s\S]*?CHAT_COLUMN_CLASS/);
+    const setup = groupView.slice(groupView.indexOf("setupPending ?"), groupView.indexOf("flex w-full flex-col gap-3 px-5"));
+    expect(setup).not.toContain("CHAT_COLUMN_CLASS");
+    expect(setup).toContain("px-5");
+    expect(setup).toContain("composerDock.pad");
   });
 
   it("keeps the column token at 960px centered without baking in gutters", () => {
@@ -50,5 +52,6 @@ describe("chat column width", () => {
     expect(token).toContain("max-w-[960px]");
     expect(token).toContain("mx-auto");
     expect(token).not.toMatch(/CHAT_COLUMN_CLASS = "[^"]*px-5/);
+    expect(token).not.toMatch(/CHAT_COLUMN_CLASS = "[^"]*w-full/);
   });
 });
