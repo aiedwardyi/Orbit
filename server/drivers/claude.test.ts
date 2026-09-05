@@ -645,6 +645,8 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     const firstDump = JSON.parse(readFileSync(dump, "utf8")) as { pid: number; argv: string[] };
     const firstSession = (recorder.events.find((e) => e.type === "session.started") as { sessionId: string }).sessionId;
     expect(firstDump.argv).toContain("--session-id");
+    // The CLI must still be idle-retained — that is the Astra hole.
+    expect(() => process.kill(firstDump.pid, 0)).not.toThrow();
 
     // After Orbit compaction the harness clears resumeCursor and injects
     // summary+tail. Reusing the idle CLI would append that onto the fat
