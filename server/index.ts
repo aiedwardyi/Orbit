@@ -6769,8 +6769,10 @@ const server = createServer(async (req, res) => {
       if (!bot) return json(res, 404, { error: "no such bot" });
       const queueId = m[2];
       const result = cancelSteeredMessage(bot.id, queueId);
-      if (result.running) return json(res, 200, { cancelled: false, running: true });
-      if (!result.cancelled) return json(res, 404, { error: "no such queued message" });
+      if (!result.cancelled) {
+        if (result.running) return json(res, 200, { cancelled: false, running: true });
+        return json(res, 404, { error: "no such queued message" });
+      }
       return json(res, 200, { ok: true, cancelled: true });
     }
 

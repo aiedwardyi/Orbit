@@ -108,8 +108,17 @@ export function applyOptimisticBusy<T extends { threadId: string; busy?: boolean
 }
 
 /** POST confirmed the user line but the turn never started. */
+export type SendPostReceipt = {
+  ok?: boolean;
+  dispatchFailed?: boolean;
+  cancelled?: boolean;
+  queued?: boolean;
+  queueId?: string;
+  error?: string;
+};
+
 export function receiptRejectsAcceptedSend(
-  body: { dispatchFailed?: boolean; cancelled?: boolean } | null | undefined,
+  body: SendPostReceipt | null | undefined,
 ): boolean {
   return Boolean(body?.dispatchFailed || body?.cancelled);
 }
