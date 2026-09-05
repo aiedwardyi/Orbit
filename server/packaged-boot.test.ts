@@ -9,9 +9,16 @@ const boot = readFileSync(join(here, "packaged-boot.ts"), "utf8");
 describe("packaged boot listens before importing the fat harness", () => {
   it("starts early listen, then dynamically imports index", () => {
     const listenAt = boot.indexOf("startEarlyListen(");
-    const importAt = boot.search(/await import\(\s*["'].*index\.(ts|js)["']\s*\)/);
+    const importAt = boot.indexOf("./index.js");
     expect(listenAt).toBeGreaterThan(-1);
     expect(importAt).toBeGreaterThan(-1);
     expect(listenAt).toBeLessThan(importAt);
+    expect(boot).toContain("import.meta.url");
+  });
+
+  it("is bundled as a sibling of index.js without inlining the fat harness", () => {
+    const bundle = readFileSync(join(here, "../scripts/bundle-server.mjs"), "utf8");
+    expect(bundle).toContain('"packaged-boot.js"');
+    expect(bundle).toMatch(/external:\s*\[\s*["']\.\/index\.js["']/);
   });
 });
