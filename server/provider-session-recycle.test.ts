@@ -8,7 +8,11 @@ import { Store } from "./store.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
 import {
   buildTurnContext,
+  countLastTurnToolRounds,
+  countSessionToolRounds,
   engineIsFresh,
+  nativeSessionTokenBudget,
+  PRE_COMPACT_TOOL_ROUND_LIMIT,
   shouldRecycleProviderSession,
 } from "./turn-context.ts";
 
@@ -129,5 +133,126 @@ describe("provider session recycle after Orbit compaction", () => {
     expect(out.resume).toBe(true);
     expect(out.turnText).toContain("Orbit task record");
     expect(out.turnText).not.toContain("Orbit compacted this conversation");
+  });
+
+  it("recycles a fat uncompacted Claude soak on the next user send", async () => {
+    const store = new Store(() => ({ instanceId: "claude", model: "claude-sonnet-5" }));
+    const bot = store.createBot({}, { seedMessages: false });
+    const ask = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "inspect the tree" });
+    for (let i = 0; i < PRE_COMPACT_TOOL_ROUND_LIMIT; i++) {
+      store.appendMessage(bot.threadId, {
+        role: "bot",
+        kind: "activity",
+        tool: { name: `Read: file-${i}.ts`, ok: true },
+      });
+    }
+    store.appendMessage(bot.threadId, { role: "bot", kind: "text", text: "tree inspected" });
+    const next = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "now commit" });
+    store.setResumeCursor(bot.id, "claude", "fat-soak-session", bot.threadId);
+    store.markTaskDispatched(bot.id, bot.threadId, "claude", "claude-sonnet-5");
+    store.addTaskUsage(bot.id, bot.threadId, { input: 90_000, output: 800, costUsd: null });
+
+    const prepared = await prepareModelContext({
+      messages: store.activePath(bot.threadId),
+      contextWindow: 200_000,
+      taskRecordText: "Goal: Inspect then commit",
+      excludeIds: new Set([next.id]),
+    });
+    expect(prepared.status).toBe("ready");
+    if (prepared.status !== "ready") return;
+    expect(prepared.compacted).toBe(false);
+
+    const lastTurnToolRounds = countLastTurnToolRounds(store.activePath(bot.threadId), new Set([next.id]));
+    const sessionToolRounds = countSessionToolRounds(store.activePath(bot.threadId), new Set([next.id]));
+    expect(lastTurnToolRounds).toBe(PRE_COMPACT_TOOL_ROUND_LIMIT);
+    expect(sessionToolRounds).toBe(PRE_COMPACT_TOOL_ROUND_LIMIT);
+
+    const recycled = shouldRecycleProviderSession({
+      compacted: prepared.compacted,
+      rewound: false,
+      recovering: false,
+      lastTurnToolRounds,
+      sessionToolRounds,
+      lastTurnInputTokens: store.taskByThread(bot.id, bot.threadId)?.usage?.lastInput,
+      nativeTokenBudget: nativeSessionTokenBudget(200_000),
+    });
+    const { resume, turnText } = buildTurnContext({
+      text: "now commit",
+      transcript: prepared.transcript,
+      rewound: false,
+      fresh: false,
+      recycled,
+      recycleReason: recycled && !prepared.compacted ? "session-fat" : undefined,
+      replaysNatively: false,
+    });
+
+    expect(recycled).toBe(true);
+    expect(resume).toBe(false);
+    expect(turnText).toContain("fresh provider session");
+    expect(turnText).not.toContain("Orbit compacted this conversation");
+    expect(turnText).toContain("tree inspected");
+    expect(ask.text).toBe("inspect the tree");
+
+    store.clearResumeCursors(bot.id, bot.threadId);
+    expect(store.taskByThread(bot.id, bot.threadId)?.resumeCursors.claude).toBeUndefined();
+  });
+
+  it("keeps native resume after Stop on the same uncompacted fat soak", async () => {
+    const store = new Store(() => ({ instanceId: "claude", model: "claude-sonnet-5" }));
+    const bot = store.createBot({}, { seedMessages: false });
+    store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "inspect the tree" });
+    for (let i = 0; i < PRE_COMPACT_TOOL_ROUND_LIMIT; i++) {
+      store.appendMessage(bot.threadId, {
+        role: "bot",
+        kind: "activity",
+        tool: { name: `Read: file-${i}.ts`, ok: true },
+      });
+    }
+    const next = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "continue" });
+    store.setResumeCursor(bot.id, "claude", "fat-soak-session", bot.threadId);
+    store.markTaskDispatched(bot.id, bot.threadId, "claude", "claude-sonnet-5");
+
+    const prepared = await prepareModelContext({
+      messages: store.activePath(bot.threadId),
+      contextWindow: 200_000,
+      taskRecordText: "Goal: Inspect then commit",
+      excludeIds: new Set([next.id]),
+    });
+    expect(prepared.status).toBe("ready");
+    if (prepared.status !== "ready") return;
+
+    const recycled = shouldRecycleProviderSession({
+      compacted: prepared.compacted,
+      rewound: false,
+      recovering: true,
+      lastTurnToolRounds: countLastTurnToolRounds(store.activePath(bot.threadId), new Set([next.id])),
+      sessionToolRounds: countSessionToolRounds(store.activePath(bot.threadId), new Set([next.id])),
+      lastTurnInputTokens: 90_000,
+      nativeTokenBudget: nativeSessionTokenBudget(200_000),
+    });
+    const out = buildTurnContext({
+      text: "continue",
+      transcript: prepared.transcript,
+      rewound: false,
+      fresh: false,
+      recycled,
+      recycleReason: recycled && !prepared.compacted ? "session-fat" : undefined,
+      replaysNatively: false,
+      recovering: true,
+      taskRecord: {
+        goal: "Inspect then commit",
+        plan: [],
+        completed: [],
+        blockers: [],
+        nextAction: "Continue the soak",
+      },
+    });
+
+    expect(prepared.compacted).toBe(false);
+    expect(recycled).toBe(false);
+    expect(out.resume).toBe(true);
+    expect(out.turnText).toContain("Orbit task record");
+    expect(out.turnText).not.toContain("fresh provider session");
+    expect(store.taskByThread(bot.id, bot.threadId)?.resumeCursors.claude).toBe("fat-soak-session");
   });
 });

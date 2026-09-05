@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { buildResumeFallback, buildTurnContext, engineIsFresh, shouldRecycleProviderSession, taskRecordBlock } from "./turn-context.ts";
+import {
+  buildResumeFallback,
+  buildTurnContext,
+  countLastTurnToolRounds,
+  countSessionToolRounds,
+  engineIsFresh,
+  nativeSessionTokenBudget,
+  PRE_COMPACT_SESSION_TOOL_ROUND_LIMIT,
+  PRE_COMPACT_TOOL_ROUND_LIMIT,
+  shouldRecycleProviderSession,
+  taskRecordBlock,
+} from "./turn-context.ts";
 
 const transcript = [
   { role: "user" as const, text: "my dog is named Biscuit" },
@@ -133,6 +144,24 @@ describe("buildTurnContext", () => {
     expect(out.turnText).not.toContain("Orbit compacted this conversation");
   });
 
+  it("uses a session-bound preamble when recycling before the first compact", () => {
+    const out = buildTurnContext({
+      text: "continue",
+      transcript,
+      rewound: false,
+      fresh: false,
+      recycled: true,
+      recycleReason: "session-fat",
+      replaysNatively: false,
+    });
+    expect(out.resume).toBe(false);
+    expect(out.turnText).toContain("fresh provider session");
+    expect(out.turnText).toContain("User: my dog is named Biscuit");
+    expect(out.turnText).not.toContain("Orbit compacted this conversation");
+    expect(out.turnText).not.toContain("joining this conversation");
+    expect(out.turnText.endsWith("continue")).toBe(true);
+  });
+
   it("injects the durable task record at recovery boundaries", () => {
     const taskRecord = {
       goal: "Publish the weekly brief",
@@ -236,6 +265,107 @@ describe("shouldRecycleProviderSession", () => {
     expect(shouldRecycleProviderSession({ compacted: false, rewound: false })).toBe(false);
     expect(shouldRecycleProviderSession({ compacted: true, rewound: true })).toBe(false);
     expect(shouldRecycleProviderSession({ compacted: false, rewound: true })).toBe(false);
+  });
+
+  it("recycles a new user turn after a heavy tool soak, before the first compact", () => {
+    expect(shouldRecycleProviderSession({
+      compacted: false,
+      lastTurnToolRounds: PRE_COMPACT_TOOL_ROUND_LIMIT,
+    })).toBe(true);
+    expect(shouldRecycleProviderSession({
+      compacted: false,
+      lastTurnToolRounds: PRE_COMPACT_TOOL_ROUND_LIMIT - 1,
+    })).toBe(false);
+  });
+
+  it("recycles when settled tools since the last compact exceed the session budget", () => {
+    expect(shouldRecycleProviderSession({
+      compacted: false,
+      sessionToolRounds: PRE_COMPACT_SESSION_TOOL_ROUND_LIMIT,
+    })).toBe(true);
+    expect(shouldRecycleProviderSession({
+      compacted: false,
+      sessionToolRounds: PRE_COMPACT_SESSION_TOOL_ROUND_LIMIT - 1,
+    })).toBe(false);
+  });
+
+  it("recycles when the last turn's reported native input exceeds the session budget", () => {
+    const nativeTokenBudget = nativeSessionTokenBudget(8_192);
+    expect(shouldRecycleProviderSession({
+      compacted: false,
+      lastTurnInputTokens: nativeTokenBudget + 1,
+      nativeTokenBudget,
+    })).toBe(true);
+    expect(shouldRecycleProviderSession({
+      compacted: false,
+      lastTurnInputTokens: nativeTokenBudget,
+      nativeTokenBudget,
+    })).toBe(false);
+  });
+
+  it("does not recycle Stop recovery on an uncompacted fat session", () => {
+    expect(shouldRecycleProviderSession({
+      compacted: false,
+      recovering: true,
+      lastTurnToolRounds: PRE_COMPACT_TOOL_ROUND_LIMIT + 8,
+      sessionToolRounds: PRE_COMPACT_SESSION_TOOL_ROUND_LIMIT + 8,
+      lastTurnInputTokens: 200_000,
+      nativeTokenBudget: 4_096,
+    })).toBe(false);
+  });
+
+  it("still recycles Stop recovery after Orbit compacted", () => {
+    expect(shouldRecycleProviderSession({
+      compacted: true,
+      recovering: true,
+      lastTurnToolRounds: PRE_COMPACT_TOOL_ROUND_LIMIT,
+    })).toBe(true);
+  });
+});
+
+describe("countLastTurnToolRounds", () => {
+  it("counts settled tools after the previous user line, skipping the new send", () => {
+    const messages = [
+      { id: "u1", role: "user" as const, kind: "text" as const },
+      { id: "t1", kind: "activity" as const, tool: { name: "Read", ok: true } },
+      { id: "t2", kind: "activity" as const, tool: { name: "Bash", ok: true } },
+      { id: "a1", role: "bot" as const, kind: "text" as const },
+      { id: "u2", role: "user" as const, kind: "text" as const },
+    ];
+    expect(countLastTurnToolRounds(messages, new Set(["u2"]))).toBe(2);
+  });
+
+  it("ignores in-flight chips and tools from earlier turns", () => {
+    const messages = [
+      { id: "u0", role: "user" as const, kind: "text" as const },
+      { id: "old", kind: "activity" as const, tool: { name: "Read", ok: true } },
+      { id: "u1", role: "user" as const, kind: "text" as const },
+      { id: "pending", kind: "activity" as const, tool: { name: "Read" } },
+      { id: "t1", kind: "activity" as const, tool: { name: "Grep", ok: false } },
+    ];
+    expect(countLastTurnToolRounds(messages)).toBe(1);
+  });
+});
+
+describe("countSessionToolRounds", () => {
+  it("counts settled tools after the latest compaction marker", () => {
+    const messages = [
+      { id: "old", kind: "activity" as const, tool: { name: "Read", ok: true } },
+      { id: "c1", kind: "compaction" as const },
+      { id: "t1", kind: "activity" as const, tool: { name: "Read", ok: true } },
+      { id: "t2", kind: "activity" as const, tool: { name: "Bash", ok: true } },
+      { id: "u2", role: "user" as const, kind: "text" as const },
+    ];
+    expect(countSessionToolRounds(messages, new Set(["u2"]))).toBe(2);
+  });
+
+  it("counts the whole uncompacted thread when there is no marker", () => {
+    const messages = [
+      { id: "t1", kind: "activity" as const, tool: { name: "Read", ok: true } },
+      { id: "t2", kind: "activity" as const, tool: { name: "Bash", ok: true } },
+      { id: "skip", kind: "activity" as const, tool: { name: "Grep", ok: true } },
+    ];
+    expect(countSessionToolRounds(messages, new Set(["skip"]))).toBe(2);
   });
 });
 

@@ -242,6 +242,10 @@ export interface TaskUsage {
    * conversation plus the system prompt and tool schemas, so on a chatty
    * thread this is most of `input`. Absent on records from older builds. */
   cachedInput?: number;
+  /** Last settled turn's reported input tokens — the native session size
+   * signal used to recycle a fat CLI session before the first compact.
+   * Absent on older records and on turns that reported no tokens. */
+  lastInput?: number;
   /** null until any turn reports a cost — most engines never do. Records
    * written by builds before cost existed lack the field; read as null. */
   costUsd: number | null;
@@ -1345,10 +1349,12 @@ export class Store {
     const turnInput = clean(turn.input);
     const nextCachedInput = Math.min(clean(prev.cachedInput), prevInput)
       + Math.min(clean(turn.cachedInput), turnInput);
+    const lastInput = turnInput > 0 ? turnInput : prev.lastInput;
     task.usage = {
       input: prevInput + turnInput,
       output: prev.output + clean(turn.output),
       ...(cachedKnown ? { cachedInput: nextCachedInput } : {}),
+      ...(lastInput !== undefined ? { lastInput } : {}),
       costUsd: cost === null ? prevCost : (prevCost ?? 0) + cost,
       turns: prev.turns + 1,
     };
