@@ -42,6 +42,12 @@ export function peelNextBusyRoomSend<T>(queue: readonly T[]): { next: T | undefi
   return { next, rest };
 }
 
+/** New array identity so a flush `onError` re-runs the peel effect.
+ * The failed head stays dequeued — putting it back would retry-loop. */
+export function rearmRoomFlushHold<T>(remaining: readonly T[]): T[] {
+  return remaining.slice();
+}
+
 export interface ComposerBusyInput {
   busy: boolean;
   isRoom: boolean;

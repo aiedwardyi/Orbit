@@ -9,6 +9,7 @@ import {
   composerSendSourceText,
   peelNextBusyRoomSend,
   pendingSteerEntries,
+  rearmRoomFlushHold,
 } from "./composer-busy";
 import { applyLocale, translate } from "./i18n";
 import { en, ko } from "./i18n-catalog";
@@ -122,6 +123,11 @@ describe("Composer wiring", () => {
     expect(composer).toContain("composerSendSourceText");
     expect(composer).toContain("peelNextBusyRoomSend");
     expect(composer).toContain("takeRestoredSendId");
+    expect(composer).toContain("rearmRoomFlushHold");
+    expect(composer).toContain("setRoomHolds");
+    expect(composer).toContain("getRoomHolds");
+    expect(composer).not.toMatch(/for \(const entry of unsent/);
+    expect(composer).not.toMatch(/restoreDraft\(last\.draft\)/);
     expect(composer).not.toMatch(/group && queued\) return/);
     expect(composer).not.toContain("disabled={Boolean(group && queued)}");
     expect(composer).not.toMatch(/entry\.text\)\.join\(/);
@@ -212,6 +218,14 @@ describe("busy Enter-spam", () => {
     expect(composerSendSourceText("ADV-QUEUE-1", "")).toBe("ADV-QUEUE-1");
     expect(composerSendSourceText("", "ADV-QUEUE-0")).toBe("");
     expect(composerSendSourceText(undefined, "ADV-QUEUE-0")).toBe("ADV-QUEUE-0");
+  });
+
+  it("rearms the remaining hold after a flush error so later lines are not stuck", () => {
+    const remaining = spamLines.slice(1).map((text) => ({ text }));
+    const rearmed = rearmRoomFlushHold(remaining);
+    expect(rearmed).toEqual(remaining);
+    expect(rearmed).not.toBe(remaining);
+    expect(rearmRoomFlushHold([])).toEqual([]);
   });
 
   it("peels room holds FIFO so settle flushes ADV-QUEUE-0..n in order", () => {

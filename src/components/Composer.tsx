@@ -7,14 +7,17 @@ import { cn } from "@/lib/cn";
 import {
   draftRevision,
   forgetFailedComposerSend,
+  getRoomHolds,
   markDraftEdited,
   recoverFailedComposerSend,
   rememberFailedComposerSend,
+  setRoomHolds,
   takeRestoredSendId,
   useComposerDraft,
   useFailedComposerSends,
   type ComposerSendSnapshot,
   type FailedComposerSend,
+  type PersistedRoomHold,
 } from "@/lib/drafts";
 import { MausAvatar } from "./Avatar";
 import { ComposerAttachments, pathForFile } from "./ComposerAttachments";
@@ -44,6 +47,7 @@ import {
   composerSendSourceText,
   peelNextBusyRoomSend,
   pendingSteerEntries,
+  rearmRoomFlushHold,
 } from "@/lib/composer-busy";
 import { composerEnterIntent, isComposerEnterKey } from "@/lib/composer-enter";
 import { useI18n } from "@/lib/i18n";
@@ -71,6 +75,44 @@ interface QueuedGroupSend {
   text: string;
   replyToId?: string;
   draft: ComposerDraftSnapshot;
+}
+
+function composerDraftStore() {
+  try {
+    return typeof localStorage === "undefined" ? undefined : localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+function roomHoldFromQueued(entry: QueuedGroupSend): PersistedRoomHold {
+  return {
+    text: entry.draft.text,
+    requestText: entry.draft.requestText,
+    sendId: entry.draft.sendId,
+    threadId: entry.draft.threadId,
+    revision: entry.draft.revision,
+    replyToId: entry.replyToId,
+    attachments: entry.draft.attachments,
+  };
+}
+
+function queuedFromRoomHold(hold: PersistedRoomHold, draftId: string): QueuedGroupSend {
+  return {
+    text: hold.requestText,
+    replyToId: hold.replyToId,
+    draft: {
+      draftId,
+      revision: hold.revision,
+      sendId: hold.sendId,
+      text: hold.text,
+      requestText: hold.requestText,
+      attachments: hold.attachments,
+      reply: null,
+      replyToId: hold.replyToId,
+      threadId: hold.threadId,
+    },
+  };
 }
 
 /** Composer chip for Auto mode. Same `autoApprove` bit as the profile switch
@@ -381,24 +423,28 @@ export function Composer({
   // once the room settles. 1:1 mid-turn sends still POST (the harness
   // queue), but stay off the transcript until drain — the chips here are
   // the pending rows so they cannot become the active leaf mid-turn.
-  const [queued, setQueued] = useState<QueuedGroupSend[]>([]);
-  const queuedRef = useRef<QueuedGroupSend[]>([]);
-  const roomFlushLock = useRef(false);
-  const dropQueued = useCallback((sendId: string) => {
-    const rest = queuedRef.current.filter((entry) => entry.draft.sendId !== sendId);
-    queuedRef.current = rest;
-    setQueued(rest);
-  }, []);
-  useEffect(
-    () => () => {
-      const unsent = queuedRef.current;
-      if (unsent.length === 0) return;
-      const last = unsent[unsent.length - 1]!;
-      for (const entry of unsent.slice(0, -1)) restoreDraft(entry.draft);
-      restoreDraft(last.draft);
-    },
-    [draftId, restoreDraft],
+  // Persist the full FIFO (not one draft slot) so unmount cannot drop
+  // ADV-QUEUE-1..n after a mid-queue peel.
+  const [queued, setQueued] = useState<QueuedGroupSend[]>(() =>
+    getRoomHolds(composerDraftStore(), draftId).map((hold) => queuedFromRoomHold(hold, draftId)),
   );
+  const queuedRef = useRef<QueuedGroupSend[]>(queued);
+  const roomFlushLock = useRef(false);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  const commitQueued = useCallback((next: QueuedGroupSend[]) => {
+    queuedRef.current = next;
+    setQueued(next);
+    setRoomHolds(composerDraftStore(), draftId, next.map(roomHoldFromQueued));
+  }, [draftId]);
+  const dropQueued = useCallback((sendId: string) => {
+    commitQueued(queuedRef.current.filter((entry) => entry.draft.sendId !== sendId));
+  }, [commitQueued]);
   const pendingSteer = !group && bot ? pendingSteerEntries(state.pendingQueued, bot.threadId) : [];
   // a chip on its own is a message: the send control has to appear for it
   const fileInput = useRef<HTMLInputElement>(null);
@@ -504,9 +550,7 @@ export function Composer({
     if (inputRef.current) inputRef.current.value = "";
     if (action === "enqueue" && group) {
       const pending = { text: t, replyToId: replyTo?.id, draft: sentDraft };
-      const next = [...queuedRef.current, pending];
-      queuedRef.current = next;
-      setQueued(next);
+      commitQueued([...queuedRef.current, pending]);
       setText("");
       setAttachments([]);
       onConsumeReply?.();
@@ -552,15 +596,13 @@ export function Composer({
       const support = imageTargetsSupport(next.text);
       if (support !== "supported") {
         showImageSupportNotice(support);
-        queuedRef.current = rest;
-        setQueued(rest);
+        commitQueued(rest);
         restoreDraft(next.draft);
         return;
       }
     }
     roomFlushLock.current = true;
-    queuedRef.current = rest;
-    setQueued(rest);
+    commitQueued(rest);
     dispatch({
       type: "sendGroup",
       groupId: group.id,
@@ -569,12 +611,14 @@ export function Composer({
       replyToId: next.replyToId,
       threadId: next.draft.threadId,
       onError: () => {
-        roomFlushLock.current = false;
         restoreDraft(next.draft);
+        if (!mountedRef.current) return;
+        roomFlushLock.current = false;
+        commitQueued(rearmRoomFlushHold(queuedRef.current));
       },
     });
     track("message_sent", { room: true, queued: true });
-  }, [busy, queued, group, members, state.instances, dispatch, restoreDraft]);
+  }, [busy, queued, group, members, state.instances, dispatch, restoreDraft, commitQueued]);
 
   // native dictation: partials stream into the input while the Swift
   // helper runs; the final transcript stays in the box, ready to edit/send

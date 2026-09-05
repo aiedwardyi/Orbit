@@ -7,6 +7,7 @@ import { isAttachment, type Attachment } from "./composer-attachments.js";
 const KEY = "omb-drafts";
 const ATTACHMENTS_KEY = "omb-draft-attachments";
 const SEND_IDS_KEY = "omb-draft-send-ids";
+const ROOM_HOLDS_KEY = "omb-room-holds";
 // A task can be unmounted and mounted again while its POST is still in
 // flight. Keep the edit generation outside React so a late failure from the
 // old component cannot overwrite a newer draft created by the new one.
@@ -82,6 +83,61 @@ export function setDraftAttachments(store: Store, id: string, attachments: Attac
     store?.setItem(ATTACHMENTS_KEY, JSON.stringify(drafts));
   } catch {
     /* quota / private mode — attachments remain in component state */
+  }
+}
+
+/** One room hold per busy Enter. A single draft slot cannot keep ADV-QUEUE-0..n. */
+export interface PersistedRoomHold {
+  text: string;
+  requestText: string;
+  sendId: string;
+  threadId: string;
+  revision: number;
+  replyToId?: string;
+  attachments: Attachment[];
+}
+
+function isPersistedRoomHold(value: unknown): value is PersistedRoomHold {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const hold = value as Record<string, unknown>;
+  return (
+    typeof hold.text === "string" &&
+    typeof hold.requestText === "string" &&
+    typeof hold.sendId === "string" &&
+    typeof hold.threadId === "string" &&
+    typeof hold.revision === "number" &&
+    (hold.replyToId === undefined || typeof hold.replyToId === "string") &&
+    Array.isArray(hold.attachments)
+  );
+}
+
+export function getRoomHolds(store: Store, id: string): PersistedRoomHold[] {
+  const raw = read(store, ROOM_HOLDS_KEY)[id];
+  if (!Array.isArray(raw)) return [];
+  const holds: PersistedRoomHold[] = [];
+  for (const item of raw) {
+    if (!isPersistedRoomHold(item)) continue;
+    holds.push({
+      text: item.text,
+      requestText: item.requestText,
+      sendId: item.sendId,
+      threadId: item.threadId,
+      revision: item.revision,
+      ...(item.replyToId !== undefined ? { replyToId: item.replyToId } : {}),
+      attachments: item.attachments.filter(isAttachment),
+    });
+  }
+  return holds;
+}
+
+export function setRoomHolds(store: Store, id: string, holds: readonly PersistedRoomHold[]): void {
+  const all = read(store, ROOM_HOLDS_KEY);
+  if (holds.length) all[id] = holds;
+  else delete all[id];
+  try {
+    store?.setItem(ROOM_HOLDS_KEY, JSON.stringify(all));
+  } catch {
+    /* quota / private mode — the hold stays in component state */
   }
 }
 

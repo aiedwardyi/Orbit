@@ -17,6 +17,8 @@ import {
   selectReplyDraft,
   setDraft,
   setDraftAttachments,
+  getRoomHolds,
+  setRoomHolds,
 } from "../src/lib/drafts.ts";
 import { fileAttachment, pasteAttachment } from "../src/lib/composer-attachments.ts";
 
@@ -191,5 +193,32 @@ describe("composer drafts", () => {
     for (const failed of failedComposerSends(draftId)) {
       forgetFailedComposerSend(draftId, failed.id);
     }
+  });
+
+  it("persists every room hold so unmount can restore ADV-QUEUE-0..n not only the last line", () => {
+    const store = memoryStore();
+    const draftId = "group:room:thread-hold";
+    const holds = Array.from({ length: 8 }, (_, index) => ({
+      text: `ADV-QUEUE-${index}`,
+      requestText: `ADV-QUEUE-${index}`,
+      sendId: `send-hold-${index}xxxxxxxxxxxx`.slice(0, 16),
+      threadId: "thread-hold",
+      revision: 0,
+      attachments: [],
+    }));
+    setRoomHolds(store, draftId, holds);
+    expect(getRoomHolds(store, draftId).map((hold) => hold.text)).toEqual(
+      Array.from({ length: 8 }, (_, index) => `ADV-QUEUE-${index}`),
+    );
+
+    const afterPeel = holds.slice(1);
+    setRoomHolds(store, draftId, afterPeel);
+    expect(getRoomHolds(store, draftId).map((hold) => hold.text)).toEqual(
+      Array.from({ length: 7 }, (_, index) => `ADV-QUEUE-${index + 1}`),
+    );
+
+    setRoomHolds(store, draftId, []);
+    expect(getRoomHolds(store, draftId)).toEqual([]);
+    expect(getRoomHolds(store, "group:other:thread")).toEqual([]);
   });
 });
