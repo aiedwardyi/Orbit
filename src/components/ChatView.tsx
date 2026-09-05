@@ -31,7 +31,6 @@ import {
   type Bot,
   type InstanceInfo,
   type Message,
-  type TaskResumePacket,
 } from "@/state/store";
 import { EngineSetup, OpenConnectionsCta, setupErrorAction } from "./EngineSetup";
 import { BotAvatar } from "./Avatar";
@@ -80,81 +79,12 @@ import { useReplyDraft } from "@/lib/drafts";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { localeTag, useI18n } from "@/lib/i18n";
 import { activeRunForBot, routineWorkingElsewhere } from "../../shared/working-thread";
-import { readContextCompaction } from "../../shared/context-compaction";
+import { ContextCompactionDivider, TaskRecoveryCard } from "./TaskRecoveryCard";
 
 /** Long user messages collapse behind a fade so pasted walls of text don't
  * bury the conversation; bots get full markdown. */
 const USER_COLLAPSE_CHARS = 600;
 const USER_COLLAPSE_LINES = 8;
-
-function savedAge(updatedAt: number, t: (key: import("@/lib/i18n").MessageKey, vars?: Record<string, string | number>) => string, botMaintained = false): string {
-  const minutes = Math.max(0, Math.floor((Date.now() - updatedAt) / 60_000));
-  if (minutes < 1) return t(botMaintained ? "chat.savedJustNowBot" : "chat.savedJustNow");
-  if (minutes < 60) return t(botMaintained ? "chat.savedMinutesAgoBot" : "chat.savedMinutesAgo", { count: minutes });
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return t(botMaintained ? "chat.savedHoursAgoBot" : "chat.savedHoursAgo", { count: hours });
-  return t(botMaintained ? "chat.savedDaysAgoBot" : "chat.savedDaysAgo", { count: Math.floor(hours / 24) });
-}
-
-function TaskRecoveryCard({
-  bot,
-  packet,
-  turns,
-}: {
-  bot: Bot;
-  packet: TaskResumePacket | undefined;
-  turns: number;
-}) {
-  const { t } = useI18n();
-  const { dispatch } = useStore();
-  if (!packet || bot.busy || !["crash", "shutdown", "stop"].includes(packet.flushReason)) return null;
-  const stopped = packet.flushReason === "stop";
-  const mayLag = turns > packet.turnsAtWrite;
-  return (
-    <div className="pointer-events-auto px-5 pb-2">
-      <div role="status" className="rounded-2xl border border-accent/25 bg-panel/95 px-3.5 py-3 shadow-sm backdrop-blur">
-        <div className="flex items-start gap-3">
-          <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-accent/12 text-accent">
-            <RefreshCw size={15} aria-hidden="true" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-              <p className="text-[13px] font-semibold text-ink">{stopped ? t("chat.taskPaused") : t("chat.readyToContinue")}</p>
-              <span className="text-[11px] text-ink-secondary">
-                {savedAge(packet.updatedAt, t, packet.updatedBy === "bot")}
-              </span>
-            </div>
-            <p className="mt-0.5 line-clamp-2 text-[12.5px] leading-snug text-ink-secondary">
-              {stopped ? t("chat.youStopped") : t("chat.orbitRestarted")} {packet.goal}
-            </p>
-            <p className="mt-1 truncate text-[12.5px] text-ink">
-              <span className="text-ink-secondary">{t("chat.next")} </span>{packet.nextAction}
-            </p>
-            {mayLag && <p className="mt-1 text-[11px] text-warning">{t("chat.recordMayLag")}</p>}
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => dispatch({ type: "resumeTask", botId: bot.id, threadId: packet.threadId })}
-              className="rounded-full bg-accent px-3 py-1.5 text-[12px] font-medium text-white hover:bg-accent/90"
-            >
-              {t("chat.continue")}
-            </button>
-            <button
-              type="button"
-              onClick={() => dispatch({ type: "dismissTaskRecovery", botId: bot.id, threadId: packet.threadId })}
-              aria-label={t("chat.dismissAria")}
-              title={t("chat.dismiss")}
-              className="flex size-7 items-center justify-center rounded-full text-ink-secondary hover:bg-raised hover:text-ink"
-            >
-              <X size={14} aria-hidden="true" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /** "Today" / "Yesterday" / "Mon, Aug 11" — real dates, not a hardcoded label. */
 function dayLabel(at: number, t: (key: import("@/lib/i18n").MessageKey) => string, locale: import("@/lib/i18n").LocaleId): string {
@@ -173,28 +103,6 @@ function DaySeparator({ at }: { at: number }) {
     <div className="py-3 text-center text-[13px] text-ink-secondary">
       {dayLabel(at, t, locale)} {formatTime(at, localeTag(locale))}
     </div>
-  );
-}
-
-function ContextCompactionDivider({ message }: { message: Message }) {
-  const parsed = readContextCompaction({ value: message.compaction });
-  if (parsed.status === "invalid") return null;
-  if (parsed.status === "unsupported") {
-    return (
-      <div className="py-2 text-center text-[12px] text-ink-secondary">
-        Context summary requires a newer Orbit version.
-      </div>
-    );
-  }
-  return (
-    <details className="w-full py-2 text-center text-[12px] text-ink-secondary">
-      <summary className="cursor-pointer list-none select-none hover:text-ink">
-        Older context was summarized. Earlier messages remain available.
-      </summary>
-      <div className="mx-auto mt-2 max-w-2xl whitespace-pre-wrap rounded-lg border border-hairline/30 bg-inset/25 px-3 py-2 text-left leading-relaxed">
-        {parsed.value.summary}
-      </div>
-    </details>
   );
 }
 
@@ -1403,6 +1311,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
           rewinds the thread, which a live turn forbids (the server 409s it). */}
       <div ref={composerDockRef} className={cn("absolute inset-x-0 bottom-0 z-[2]", CHAT_COLUMN_CLASS)}>
         <TaskRecoveryCard
+          key={`${bot.id}:${activeTask?.threadId ?? bot.threadId}`}
           bot={bot}
           packet={activeTask?.taskState}
           turns={activeTask?.usage?.turns ?? 0}
