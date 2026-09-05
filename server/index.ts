@@ -66,6 +66,7 @@ import {
   type Runtime,
 } from "./container-computer.ts";
 import {
+  cliProbeEnvironment,
   ensureDirs,
   instanceConfigs,
   loadConfig,
@@ -86,7 +87,7 @@ import {
 } from "./config.ts";
 import { ComputerControl } from "./computer-control.ts";
 import { contextWindowFor, knownCatalogContextWindow, prepareModelContext } from "./context-compaction.ts";
-import { augmentedPath, findCliCandidates, resetPathCache } from "./env-path.ts";
+import { augmentedPath, findCliCandidates, resetPathCache, splitCliString } from "./env-path.ts";
 import { describeSpawnFailure, execCli } from "./procs.ts";
 import { buildNotification, type Notification } from "./notify.ts";
 import {
@@ -4250,10 +4251,13 @@ bus.subscribe((event: RuntimeEvent) => {
  * version line, or a fail the UI can act on — ENOENT on a GUI-launched app
  * usually means "not on the app's PATH", the exact mistake this catches
  * before the override is saved. */
-async function testCliBinary(
-  cli: string,
-  driver: (typeof BUILT_IN_DRIVERS)[number] | undefined,
-): Promise<{ ok: boolean; version?: string; message?: string; install?: (typeof BUILT_IN_DRIVERS)[number]["install"] }> {
+async function testCliBinary(cli: string, driver: (typeof BUILT_IN_DRIVERS)[number] | undefined): Promise<CliProbe> {
+  const invalid = probeCommandError(cli);
+  if (invalid) {
+    const failure: CliProbe = { ok: false, message: invalid };
+    if (driver?.install) failure.install = driver.install;
+    return failure;
+  }
   return new Promise((resolve) => {
     execCli(
       cli,
@@ -4265,7 +4269,7 @@ async function testCliBinary(
         // HTTP socket forever. maxBuffer bounds a chatty --version too.
         killSignal: "SIGKILL",
         maxBuffer: 1024 * 64,
-        env: cliProbeEnvironment(),
+        env: { ...cliProbeEnvironment(), PATH: augmentedPath() },
       },
       (err, stdout) => {
         if (err) {
@@ -4286,30 +4290,50 @@ async function testCliBinary(
           resolve({ ok: false, message, ...(driver?.install && isSpawnError ? { install: driver.install } : {}) });
           return;
         }
-        resolve({ ok: true, version: stdout.trim().split("\n")[0] });
+        // one redacted, bounded line: whatever the caller pointed this at, the
+        // response is a version string, not a window into the child's output
+        resolve({ ok: true, version: redactSecretsInText(stdout.trim().split("\n")[0] ?? "").slice(0, PROBE_VERSION_MAX) });
       },
     );
   });
 }
 
-/** A pre-save probe only needs PATH. Never hand credentials inherited by the
- * desktop/server process to an arbitrary wrapper selected through Settings. */
-function cliProbeEnvironment(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, PATH: augmentedPath() };
-  for (const key of [
-    "XAI_API_KEY",
-    "BOX_TOKEN",
-    "OPENCODE_API_KEY",
-    "COMPOSIO_API_KEY",
-    "OMB_COMPOSIO_BROKER_TOKEN",
-    "OMB_TTS_KEY",
-    "OMB_OPENAI_IMAGE_KEY",
-    "ANTHROPIC_API_KEY",
-    "OPENAI_API_KEY",
-  ]) {
-    delete env[key];
+interface CliProbe {
+  ok: boolean;
+  version?: string;
+  message?: string;
+  install?: (typeof BUILT_IN_DRIVERS)[number]["install"];
+}
+
+/** A version line, not a transcript. */
+const PROBE_VERSION_MAX = 200;
+
+/** What a wrapper's fixed argument looks like: a subcommand, a flag, or a
+ * path. Script payloads need characters no engine subcommand has — spaces,
+ * quotes, parentheses, `;`, `|`, `$` — so the shape is the whole check. */
+const PROBE_ARG = /^[A-Za-z0-9._@:+=/\\-]+$/;
+
+/** Reject a `cli` this route must not run, wording the failure the way a
+ * failed spawn would. Two rules: the command has to be a real executable, and
+ * its fixed arguments have to be literal — subcommands, flags, or paths that
+ * exist. `sh -c "<anything>"` fails the second one, and that is the shape that
+ * turns a pre-save probe into a general-purpose command runner. */
+function probeCommandError(cli: string): string | null {
+  const notInstalled = (name: string) => {
+    const enoent: NodeJS.ErrnoException = new Error(`spawn ${name} ENOENT`);
+    enoent.code = "ENOENT";
+    return describeSpawnFailure(enoent, name).message;
+  };
+  const [command, ...fixed] = splitCliString(cli);
+  if (!command) return notInstalled(cli);
+  // findCliCandidates resolves a bare name on the augmented PATH and echoes a
+  // path-ish one back unchecked, so the existsSync covers both spellings
+  const [resolved] = findCliCandidates(command);
+  if (!resolved || !existsSync(resolved)) return notInstalled(command);
+  if (fixed.some((arg) => !PROBE_ARG.test(arg) && !existsSync(arg))) {
+    return `\`${cli}\` is not a CLI path — a fixed argument may be a flag, a subcommand, or a path, never a script`;
   }
-  return env;
+  return null;
 }
 
 /** execFile's error carries the child's stderr in .stderr. */
@@ -7349,9 +7373,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const cli = typeof body?.cli === "string" ? body.cli.trim() : "";
       if (!cli || /[\n\r]/.test(cli)) return json(res, 400, { error: "cli must be a non-empty path" });
       const driver = typeof body?.driver === "string" ? BUILT_IN_DRIVERS.find((d) => d.driverKind === body.driver) : undefined;
-      // Probe the exact configured wrapper plus --version. testCliBinary uses
-      // a credential-redacted environment, so fixed wrapper arguments cannot
-      // turn this endpoint into an inherited-secret reader.
+      // Probe the exact configured wrapper plus --version. The child env is
+      // built from an allowlist and the probe refuses a scripted argument, so
+      // this endpoint cannot be steered into reading an inherited secret back
+      // out through its own response.
       const probe = await testCliBinary(cli, driver);
       return json(res, 200, probe);
     }

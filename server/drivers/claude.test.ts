@@ -13,13 +13,18 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { ensureDirs } from "../config.ts";
+import { ensureDirs, PROVIDER_CREDENTIAL_ENV, WORKSPACE_CREDENTIAL_ENV } from "../config.ts";
 import type { ProviderInstance } from "../contracts.ts";
 import { recordEvents, type EventRecorder } from "../testing/events.ts";
 import { ClaudeDriver, permissionSocketPath, type ClaudeConfig } from "./claude.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-claude-cli.ts");
+
+/** Every credential this process could be holding, plus one nobody has heard
+ * of yet — the allowlist has to exclude that one for the same reason. */
+const FOREIGN_CREDENTIALS = [...PROVIDER_CREDENTIAL_ENV, ...WORKSPACE_CREDENTIAL_ENV, "ACME_API_KEY"];
+
 
 /** Thread ids for the four ask-id-collision tests. Each must truncate to a
  * unique 8-char tag so no two tests share a broker socket/pipe name. */
@@ -211,6 +216,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     delete process.env.OMB_TTS_KEY;
     delete process.env.OMB_CLAUDE_SESSION_IDLE_MS;
     delete process.env.OMB_CLAUDE_SESSION_IDLE_MIN_MS;
+    for (const name of FOREIGN_CREDENTIALS) delete process.env[name];
     recorder?.stop();
     await instance?.dispose();
     await removeTempDir(scratch);
@@ -305,6 +311,19 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.env.XAI_API_KEY).toBeUndefined();
     expect(seen.env.BOX_TOKEN).toBeUndefined();
     expect(seen.env.OMB_TTS_KEY).toBeUndefined();
+  });
+
+  it("hands the turn child no credential it was not granted, known or not", async () => {
+    await create();
+    const dump = join(scratch, "dump-allowlist.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    for (const name of FOREIGN_CREDENTIALS) process.env[name] = `${name}-must-not-leak`;
+
+    await instance.adapter.sendTurn({ threadId: "t-cred-allowlist", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(Object.keys(seen.env).filter((name) => FOREIGN_CREDENTIALS.includes(name))).toEqual([]);
   });
 
   it("uses instance credentials when launching an injected local model", async () => {

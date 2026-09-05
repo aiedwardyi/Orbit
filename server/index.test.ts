@@ -267,6 +267,11 @@ beforeAll(async () => {
       OMB_SSE_HEARTBEAT_MS: "50",
       FAKE_CLAUDE_MODE: "hang",
       FAKE_CLAUDE_DUMP: fakeClaudeDump,
+      // credentials the desktop shell could have injected at boot: one the
+      // known lists name, one nobody has added yet. Neither is any spawned
+      // child's to read (see the /api/cli-test probe test).
+      MINIMAX_API_KEY: "minimax-must-not-leak",
+      ACME_API_KEY: "acme-must-not-leak",
       // every settling fake turn also reports the account's subscription windows
       FAKE_CLAUDE_RATE_LIMITS: "1",
     },
@@ -4587,6 +4592,36 @@ describe("instance CLI override API", () => {
     const res = await api("POST", "/api/cli-test", { cli });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ ok: true, version: "wrapper-ok" });
+  });
+
+  it("gives the probe child no credential, known or not, and never echoes one back", async () => {
+    const script = join(home, "cli-credential-probe.mjs");
+    writeFileSync(
+      script,
+      `const names = Object.keys(process.env).filter((k) => /key|token|secret/i.test(k));
+` +
+        `console.log(names.length ? "leaked " + names.sort().join(",") : "no-credentials");
+`,
+    );
+    const cli = `${JSON.stringify(process.execPath)} ${JSON.stringify(script)}`;
+    const res = await api("POST", "/api/cli-test", { cli });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, version: "no-credentials" });
+  });
+
+  it("still probes a bare CLI name resolved on the augmented PATH", async () => {
+    // the probe validates the command before spawning it; a bare name is the
+    // shape every default engine config uses
+    const res = await api("POST", "/api/cli-test", { cli: "node" });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, version: process.version });
+  });
+
+  it("refuses a scripted argument instead of running it as a probe", async () => {
+    const res = await api("POST", "/api/cli-test", { cli: `${JSON.stringify(process.execPath)} -e "console.log(1)"` });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(false);
+    expect(res.body.message).toContain("never a script");
   });
 
   it("reports excessive probe output without presenting install guidance", async () => {
