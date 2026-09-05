@@ -1045,6 +1045,25 @@ const turnEpochByBot = new Map<string, number>();
 const liveTurnIdByThread = new Map<string, string>();
 const interruptedTurnIds = new Set<string>();
 const pendingInterruptThreads = new Set<string>();
+const adapterTurnByThread = new Map<string, Promise<unknown>>();
+const ADAPTER_TURN_HANDOFF_MS = 8_000;
+
+function settleSoon(pending: Promise<unknown>, ms: number): Promise<void> {
+  return Promise.race([
+    pending.then(() => undefined, () => undefined),
+    new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      timer.unref?.();
+    }),
+  ]);
+}
+
+function dispatchAdapterTurn<T>(threadId: string, send: () => Promise<T>): Promise<T> {
+  const prior = adapterTurnByThread.get(threadId);
+  const run = (prior ? settleSoon(prior, ADAPTER_TURN_HANDOFF_MS) : Promise.resolve()).then(send);
+  adapterTurnByThread.set(threadId, run);
+  return run;
+}
 
 function tickTurnClock(): number {
   turnClock += 1;
@@ -1081,6 +1100,7 @@ function forgetTurnThread(threadId: string) {
   turnDispatchedAt.delete(threadId);
   turnInterruptedAt.delete(threadId);
   pendingInterruptThreads.delete(threadId);
+  adapterTurnByThread.delete(threadId);
 }
 
 function seedFromLastUser(botId: string, threadId: string, turnsAtWrite: number) {
@@ -2714,7 +2734,11 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         return;
       }
       watchdog.watch(threadId, bot.id);
-      const started = await instance.adapter.sendTurn({
+      const started = await dispatchAdapterTurn(threadId, () => {
+        if (currentTurnEpoch(bot.id) !== epoch) {
+          return Promise.reject(Object.assign(new Error("turn cancelled before dispatch"), { cancelled: true }));
+        }
+        return instance.adapter.sendTurn({
         threadId,
         text: turnText,
         model,
@@ -2769,6 +2793,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
             : ""),
         integrations,
         cwd,
+      });
       });
       bindInterruptedTurn(threadId, started.turnId);
       if (currentTurnEpoch(bot.id) !== epoch) return;
@@ -3548,15 +3573,14 @@ async function runClaimedGroupMemberTurn(
     deadline.start();
     unregisterStall = roomStallCompletions.register(threadId, () => finish("stalled"));
     watchdog.watch(threadId, bot.id);
-    instance.adapter
-      .sendTurn({
+    dispatchAdapterTurn(threadId, () => instance.adapter.sendTurn({
         threadId,
         text,
         system: roomSystem,
         cwd,
         integrations,
         ...memberTurnSelection(selection),
-      })
+      }))
       .then((started) => {
         bindInterruptedTurn(threadId, started.turnId);
         if (started.turnId) liveTurnIdByThread.set(threadId, started.turnId);

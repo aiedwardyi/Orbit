@@ -2433,7 +2433,7 @@ describe("harness HTTP API", () => {
 
       rmSync(fakeClaudeDump, { force: true });
       expect((await api("POST", `/api/bots/${bot.id}/tasks/${bot.threadId}/resume`, {})).status).toBe(202);
-      await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 5_000 }).toBe(true);
+      await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 15_000 }).toBe(true);
       const resumedDump = z.object({ prompt: z.unknown() }).passthrough().parse(
         JSON.parse(readFileSync(fakeClaudeDump, "utf8")),
       );
