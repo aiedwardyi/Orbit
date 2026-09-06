@@ -313,9 +313,11 @@ export const PROVIDER_CREDENTIAL_ENV = [
 
 /** What a credential is *named* like, whatever provider ships it next. The two
  * lists above can only name keys someone remembered to add; this catches the
- * one they didn't, which is the whole point of an allowlist. TOKEN covers
- * every AUTH_/ACCESS_/BOX_ spelling, SECRET covers API_SECRET. */
-const CREDENTIAL_ENV_NAME = /(^|_)(API_KEY|SECRET_KEY|SECRET|TOKEN)$/;
+ * one they didn't, which is the whole point of an allowlist. Matching the
+ * trailing noun rather than a full name is what makes it general: KEY covers
+ * API_KEY and AWS's SECRET_ACCESS_KEY alike, KEY_ID covers ACCESS_KEY_ID, and
+ * TOKEN covers every AUTH_/ACCESS_/SESSION_ spelling. */
+const CREDENTIAL_ENV_NAME = /(^|_)(KEY|KEY_ID|SECRET|TOKEN|PASSWORD)$/;
 
 /** Drop every credential from a child env (in place) except the names
  * `allowed` grants. Allowlist, not denylist: a provider key nobody has added

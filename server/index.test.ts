@@ -4622,15 +4622,15 @@ describe("instance CLI override API", () => {
   });
 
   it("refuses a scripted argument instead of running it as a probe", async () => {
-    const inline = `${JSON.stringify(process.execPath)} -e "console.log(1)"`;
-    // the same capability spelled as a path, which reads as an ordinary
-    // argument — the extension is the only thing that rejects it
-    const onDisk = `${JSON.stringify(process.execPath)} ${JSON.stringify(writeProbeWrapper("cli-inert", ""))}`;
-    for (const cli of [inline, onDisk]) {
+    const exe = JSON.stringify(process.execPath);
+    // three spellings of one capability: an inline payload, a bare `sh -c id`
+    // whose tokens are both ordinary words, and a script sitting on disk
+    const cases = [`${exe} -e "console.log(1)"`, `${exe} -c id`, `${exe} ${JSON.stringify(writeProbeWrapper("cli-inert", ""))}`];
+    for (const cli of cases) {
       const res = await api("POST", "/api/cli-test", { cli });
       expect(res.status).toBe(200);
       expect(res.body.ok).toBe(false);
-      expect(res.body.message).toContain("non-script path");
+      expect(res.body.message).toContain("a subcommand, a long flag, or a non-script path");
     }
   });
 
