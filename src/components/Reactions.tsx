@@ -1,7 +1,7 @@
 // Emoji reactions - smile entry on the hover row opens a bubbly picker.
 // Applied marks stay as chips. `by` is "user" or a member botId; in rooms a
 // bot's own reactions render with its name in the tooltip.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { SmilePlus, X } from "lucide-react";
 import { EXTENDED_REACTIONS } from "../../shared/reactions";
 import { useStore, type Bot, type Message } from "@/state/store";
@@ -17,6 +17,8 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
   const { dispatch } = useStore();
   const [pickerOpen, setPickerOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const [shift, setShift] = useState(0);
   const mine = useMemo(
     () => new Set(
       (message.reactions ?? []).filter((reaction) => reaction.by === "user").map((reaction) => reaction.emoji),
@@ -43,6 +45,27 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
     };
   }, [pickerOpen]);
 
+  // left-0 opens the picker outward, clear of the bubble. In a narrow window
+  // the gutter is thinner than the grid, so pull it back on screen rather than
+  // leave the last columns unclickable. Measured off the anchor, never off the
+  // picker's own box, so the offset can't compound on itself as the window moves.
+  useLayoutEffect(() => {
+    if (!pickerOpen) {
+      setShift(0);
+      return;
+    }
+    const clamp = () => {
+      const anchor = anchorRef.current?.getBoundingClientRect();
+      const width = pickerRef.current?.offsetWidth;
+      if (!anchor || !width) return;
+      const overflow = anchor.left + width - (window.innerWidth - 8);
+      setShift(overflow > 0 ? -overflow : 0);
+    };
+    clamp();
+    window.addEventListener("resize", clamp);
+    return () => window.removeEventListener("resize", clamp);
+  }, [pickerOpen]);
+
   const toggle = (emoji: string) => {
     dispatch({ type: "toggleReaction", threadId, messageId: message.id, emoji });
     setPickerOpen(false);
@@ -62,7 +85,9 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
       </button>
       {pickerOpen && (
         <div
+          ref={pickerRef}
           data-reaction-picker
+          style={{ transform: `translateX(${shift}px)` }}
           className="absolute top-full left-0 z-40 mt-1.5 w-[218px] rounded-xl border border-hairline/50 bg-card p-2 shadow-2xl shadow-black/60"
         >
           <div className="grid grid-cols-6 gap-0.5">
