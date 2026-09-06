@@ -90,6 +90,17 @@ describe("reaction rail", () => {
     expect(bar).not.toContain("export const REACTION_SET");
   });
 
+  it("keeps the picker on screen when the gutter is thinner than the grid", () => {
+    const bar = reactionBarSource();
+    expect(bar).toContain("useLayoutEffect");
+    // measured off the anchor, so a resize cannot compound the offset
+    expect(bar).toContain("anchorRef.current?.getBoundingClientRect()");
+    expect(bar).not.toContain("pickerRef.current?.getBoundingClientRect()");
+    expect(bar).toContain('window.addEventListener("resize", clamp)');
+    expect(bar).toContain('window.removeEventListener("resize", clamp)');
+    expect(bar).toContain("translateX(${shift}px)");
+  });
+
   it("keeps bubbly picker icons and the existing dismiss contract", () => {
     const bar = reactionBarSource();
     expect(bar).toContain("size-7");
