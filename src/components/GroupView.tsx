@@ -46,7 +46,7 @@ import { useFocusMessage } from "@/lib/focus-message";
 import { shortPath } from "@/lib/short-path";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow } from "@/lib/bottom-follow";
 import { CHAT_COLUMN_CLASS } from "@/lib/chat-column";
-import { useComposerDockPad } from "@/lib/composer-dock";
+import { TRANSCRIPT_GAP, useComposerDockPad } from "@/lib/composer-dock";
 import { turnPresenceWaiting } from "@/lib/send-accept";
 import { activeLocale, localeTag, t, useI18n } from "@/lib/i18n";
 import { liveActivityLabel } from "@/lib/live-activity";
@@ -1219,11 +1219,11 @@ export function GroupView({ group }: { group: Group }) {
         );
       })()}
 
-      <div className="relative min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1 flex-col">
       <div
         ref={scrollRef}
         data-orbit-transcript
-        className="h-full overflow-x-hidden overflow-y-auto [overflow-anchor:none]"
+        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [overflow-anchor:none]"
         onWheel={(e) => {
           if (e.deltaY < 0) setBottomFollow(false);
           else if (atEnd()) setBottomFollow(true);
@@ -1251,14 +1251,14 @@ export function GroupView({ group }: { group: Group }) {
         {setupPending ? (
           <div
             className="flex min-h-full w-full items-center px-5 py-8"
-            style={{ paddingBottom: composerDock.pad }}
+            style={{ paddingBottom: TRANSCRIPT_GAP }}
           >
             <RoomSetup group={group} members={members} />
           </div>
         ) : (
         <div
           className={cn("flex w-full flex-col gap-3 px-5", CHAT_COLUMN_CLASS)}
-          style={{ paddingBottom: composerDock.pad }}
+          style={{ paddingBottom: TRANSCRIPT_GAP }}
           role="log"
           aria-live="polite"
           aria-label={t("chat.roomAria", { name: group.name })}
@@ -1356,7 +1356,7 @@ export function GroupView({ group }: { group: Group }) {
         </button>
       )}
 
-      <div ref={composerDockRef} className={cn("absolute inset-x-0 bottom-0 z-[2]", CHAT_COLUMN_CLASS)}>
+      <div ref={composerDockRef} className={cn("relative z-[2] w-full shrink-0", CHAT_COLUMN_CLASS)}>
       {recoveryPacket && recoveryBot && (
         <TaskRecoveryCard
           key={`${recoveryBot.id}:${group.threadId}`}

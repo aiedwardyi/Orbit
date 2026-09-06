@@ -66,7 +66,7 @@ import { webhookMessageView } from "@/lib/webhook-message";
 import { splitAttachedImages } from "@/lib/composer-attachments";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow } from "@/lib/bottom-follow";
 import { CHAT_COLUMN_CLASS } from "@/lib/chat-column";
-import { useComposerDockPad } from "@/lib/composer-dock";
+import { TRANSCRIPT_GAP, useComposerDockPad } from "@/lib/composer-dock";
 import {
   TRANSCRIPT_WINDOW_SIZE,
   expandWindowStart,
@@ -1195,13 +1195,12 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
 
       {showToolCallsEnabled(state.config) && <TaskTimeline messages={messages} busy={bot.busy ?? false} />}
 
-      {/* Messages + composer share one pane so bubbles scroll into the pill
-          instead of dying on a rectangular clip above a black dock. */}
-      <div className="relative min-h-0 flex-1">
+      {/* Overlay chrome + composer stack in-flow so 600x480 cannot cover chat. */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
       <div
         ref={scrollRef}
         data-orbit-transcript
-        className="h-full overflow-x-hidden overflow-y-auto [overflow-anchor:none]"
+        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [overflow-anchor:none]"
         onWheel={(e) => {
           if (e.deltaY < 0) setBottomFollow(false);
           else if (atEnd()) setBottomFollow(true);
@@ -1228,7 +1227,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
       >
         <div
           className={cn("flex w-full flex-col gap-3 px-5", CHAT_COLUMN_CLASS)}
-          style={{ paddingBottom: composerDock.pad }}
+          style={{ paddingBottom: TRANSCRIPT_GAP }}
           role="log"
           aria-live="polite"
           aria-label={t("chat.conversationAria", { name: bot.name })}
@@ -1318,7 +1317,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
           request can restore the old task without spilling into the newly
           selected one. ArrowUp-to-edit stays gated on busy because editing
           rewinds the thread, which a live turn forbids (the server 409s it). */}
-      <div ref={composerDockRef} className={cn("absolute inset-x-0 bottom-0 z-[2]", CHAT_COLUMN_CLASS)}>
+      <div ref={composerDockRef} className={cn("relative z-[2] w-full shrink-0", CHAT_COLUMN_CLASS)}>
         <TaskRecoveryCard
           key={`${bot.id}:${activeTask?.threadId ?? bot.threadId}`}
           bot={bot}
