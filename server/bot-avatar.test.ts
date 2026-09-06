@@ -70,6 +70,9 @@ describe("mascot style ids", () => {
     expect(mascotStyleFromColor("purple")).toBe("lavender");
     expect(mascotStyleFromColor("pink")).toBe("coral");
     expect(mascotStyleFromColor("coral")).toBe("coral");
+    expect(mascotStyleFromColor("white")).toBe("peach");
+    expect(mascotStyleFromColor("black")).toBe("peach");
+    expect(mascotStyleFromColor("gray")).toBe("peach");
     expect(mascotStyleFromColor("not-a-color")).toBe("peach");
     expect(mascotStyleFromColor(undefined)).toBe("peach");
   });

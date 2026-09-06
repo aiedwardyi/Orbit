@@ -210,10 +210,10 @@ describe("Store", () => {
 
   it("rotates colors across created bots and cycles back to red", () => {
     const store = new Store(selection);
-    const colors = Array.from({ length: 11 }, () => store.createBot().color);
+    const colors = Array.from({ length: 14 }, () => store.createBot().color);
     expect(colors[0]).toBe("red");
-    expect(colors[10]).toBe("red");
-    expect(new Set(colors.slice(0, 10)).size).toBe(10);
+    expect(colors[13]).toBe("red");
+    expect(new Set(colors.slice(0, 13)).size).toBe(13);
   });
 
   it("defaults a room to its first member and repairs the lead when membership changes", () => {

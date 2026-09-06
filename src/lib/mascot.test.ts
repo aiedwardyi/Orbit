@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_MAUS_COLOR, MAUS_COLORS, mausColorHex, stateForBot } from "./mascot";
+import { DEFAULT_MAUS_COLOR, MAUS_COLOR_NAMES, MAUS_COLORS, mausColorHex, stateForBot } from "./mascot";
 
 describe("mascot color fallback", () => {
   it("treats red as the default mascot color", () => {
@@ -11,9 +11,41 @@ describe("mascot color fallback", () => {
   it("maps known colors and unknown or missing names to the red hex", () => {
     expect(mausColorHex("green")).toBe("#009957");
     expect(mausColorHex("red")).toBe("#D94B52");
+    expect(mausColorHex("white")).toBe("#EFE6DA");
+    expect(mausColorHex("black")).toBe("#2C2826");
+    expect(mausColorHex("gray")).toBe("#5C5854");
     expect(mausColorHex("not-a-color")).toBe("#D94B52");
     expect(mausColorHex(undefined)).toBe("#D94B52");
     expect(mausColorHex(null)).toBe("#D94B52");
+  });
+
+  it("adds clamped neutrals without changing the original ten hexes", () => {
+    expect(MAUS_COLOR_NAMES.slice(0, 10)).toEqual([
+      "green",
+      "blue",
+      "red",
+      "orange",
+      "purple",
+      "cyan",
+      "pink",
+      "yellow",
+      "teal",
+      "coral",
+    ]);
+    expect(MAUS_COLORS).toMatchObject({
+      green: "#009957",
+      blue: "#377FE6",
+      red: "#D94B52",
+      orange: "#E78531",
+      purple: "#8057C8",
+      cyan: "#0EA5C6",
+      pink: "#D84F8B",
+      yellow: "#D8A729",
+      teal: "#01A492",
+      coral: "#E5634E",
+    });
+    expect(MAUS_COLORS.white).not.toBe("#FFFFFF");
+    expect(MAUS_COLORS.black).not.toBe("#000000");
   });
 
   it("does not treat inherited object keys as palette colors", () => {

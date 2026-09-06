@@ -31,6 +31,9 @@ export function mascotStyleFromColor(color: string | null | undefined): MascotSt
     case "red":
     case "orange":
     case "yellow":
+    case "white":
+    case "black":
+    case "gray":
       return "peach";
     case "green":
     case "teal":

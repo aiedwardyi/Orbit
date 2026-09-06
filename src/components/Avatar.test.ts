@@ -64,6 +64,7 @@ describe("cute mascot renderer", () => {
     expect(sources["BotProfileAvatarCard.tsx"]).toContain("mascotStyle");
     expect(sources["BotProfileAvatarCard.tsx"]).toContain("resolvedStyle");
     expect(sources["BotProfileAvatarCard.tsx"]).not.toContain("PICKABLE_STATES");
+    expect(sources["BotProfileAvatarCard.tsx"]).toContain("border-hairline/70");
   });
 
   it("types Bot.mascotStyle as the style union and does not animate style-only edits", () => {
