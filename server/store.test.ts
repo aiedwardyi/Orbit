@@ -1239,6 +1239,14 @@ describe("Store redacts bot-authored secrets on write", () => {
     expect(delivered.text).toContain("«redacted");
     const patched = store.patchMessage(bot.threadId, delivered.id, { text: `Retry with ${key}` });
     expect(patched?.text).not.toContain(key);
+    // a sender with a blank id is still a sender, not a licence to fail open
+    const blankId = store.appendMessage(bot.threadId, {
+      role: "user",
+      kind: "text",
+      text: `Deploy with ${key}`,
+      from: { botId: "", name: "", color: peer.color },
+    });
+    expect(blankId.text).not.toContain(key);
     // a real user's line has no sender and stays exactly as typed
     const mine = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: `use ${key} for the api` });
     expect(mine.text).toBe(`use ${key} for the api`);
