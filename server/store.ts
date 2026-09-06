@@ -36,7 +36,10 @@ export type MausColor =
   | "pink"
   | "yellow"
   | "teal"
-  | "coral";
+  | "coral"
+  | "white"
+  | "black"
+  | "gray";
 
 /**
  * The face a bot rests on, as one of the engine's state names. Kept as a plain
@@ -517,6 +520,9 @@ const COLORS: MausColor[] = [
   "yellow",
   "teal",
   "coral",
+  "white",
+  "black",
+  "gray",
 ];
 
 /** Sections are persisted as display labels, so exact trimmed labels are
