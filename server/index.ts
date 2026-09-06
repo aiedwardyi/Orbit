@@ -4317,6 +4317,15 @@ const PROBE_VERSION_MAX = 200;
  * spaces, quotes, parentheses, `;`, `|`, `$`. */
 const PROBE_ARG = /^[A-Za-z0-9._@:+=/\\-]+$/;
 
+/** A single-dash flag, which is how every interpreter spells "the next
+ * argument is the program": `sh -c`, `python -c`, `node -e`, `awk -f`,
+ * `powershell -Command`. `sh -c id` is two ordinary words to the rule above,
+ * so the flag is the only thing that marks it as command evaluation. */
+const PROBE_SHORT_FLAG = /^-[^-]/;
+
+/** The same instruction spelled long. */
+const PROBE_EVAL_FLAG = /^--(eval|command|exec|expression|print|script|require|import|load|preload)(=|$)/i;
+
 /** A file an interpreter would execute. `node x.mjs` reads as a plain path to
  * the rule above, so the extension is what separates a wrapper's subcommand
  * from a script handed to this route to run. Renaming a script defeats it —
@@ -4326,10 +4335,14 @@ const PROBE_SCRIPT_ARG = /\.(js|mjs|cjs|ts|mts|cts|jar|sh|bash|zsh|fish|py|rb|pl
 
 /** Reject a `cli` this route must not run, wording the failure the way a
  * failed spawn would. Two rules: the command has to be a real executable, and
- * its fixed arguments have to be a wrapper's own — literal subcommands, flags,
- * or non-script paths. `sh -c "<anything>"` and `node ./x.mjs` both fail the
- * second one, and those are the shapes that turn a pre-save probe into a
- * general-purpose command runner. */
+ * its fixed arguments have to be a wrapper's own — a subcommand, a long flag,
+ * or a non-script path. `sh -c id`, `node -e "…"` and `node ./x.mjs` all fail
+ * the second one.
+ *
+ * This narrows the endpoint; it does not seal it. A head that is itself a
+ * runner (`env id`, `timeout 5 id`) still reaches a command, so what keeps a
+ * steered probe uninteresting is the allowlisted child env and the redacted,
+ * bounded line it answers with — not this check. */
 function probeCommandError(cli: string): string | null {
   const notInstalled = (name: string) => {
     const enoent: NodeJS.ErrnoException = new Error(`spawn ${name} ENOENT`);
@@ -4342,8 +4355,12 @@ function probeCommandError(cli: string): string | null {
   // path-ish one back unchecked, so the existsSync covers both spellings
   const [resolved] = findCliCandidates(command);
   if (!resolved || !existsSync(resolved)) return notInstalled(command);
-  if (fixed.some((arg) => PROBE_SCRIPT_ARG.test(arg) || !(PROBE_ARG.test(arg) || existsSync(arg)))) {
-    return `\`${cli}\` is not a CLI path — a fixed argument may be a flag, a subcommand, or a non-script path`;
+  const runsACommand = (arg: string) =>
+    PROBE_SHORT_FLAG.test(arg) || PROBE_EVAL_FLAG.test(arg) || PROBE_SCRIPT_ARG.test(arg);
+  // the existsSync fallback lets a path with spaces through, so it is checked
+  // last and never rescues an argument already refused above
+  if (fixed.some((arg) => runsACommand(arg) || !(PROBE_ARG.test(arg) || existsSync(arg)))) {
+    return `\`${cli}\` is not a CLI path — a fixed argument may be a subcommand, a long flag, or a non-script path`;
   }
   return null;
 }

@@ -33,6 +33,8 @@ const FOREIGN_CREDENTIALS = [
   ...WORKSPACE_CREDENTIAL_ENV,
   "ACME_API_KEY",
   "NEWPROVIDER_TOKEN",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
 ];
 
 describe("readAntigravityModelCatalog", () => {

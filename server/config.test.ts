@@ -487,6 +487,10 @@ describe("workspace credential env strip", () => {
       NEWPROVIDER_ACCESS_TOKEN: "secret",
       NEWPROVIDER_API_SECRET: "secret",
       NEWPROVIDER_SECRET_KEY: "secret",
+      // the pair AWS ships, neither half of which ends in a name the
+      // provider lists spell out
+      AWS_ACCESS_KEY_ID: "secret",
+      AWS_SECRET_ACCESS_KEY: "secret",
       // named for a credential without being one — a token BUDGET, not a token
       NEWPROVIDER_TOKEN_LIMIT: "4096",
     };
