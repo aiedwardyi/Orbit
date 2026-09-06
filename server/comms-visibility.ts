@@ -120,6 +120,9 @@ export function mirrorOutcomeToRoom(
       ? { groupId: channel.id, withBotId: target.id, withName: target.name, withColor: target.color }
       : undefined,
   });
+  // appendMessage does not touch the flag the sidebar's room dot reads, so
+  // without this the outcome is invisible to anyone reading another thread.
+  bus.store.patchGroup(room.id, { unread: true });
 }
 
 /** Mirror a terminal activity note into the channel — for async handoffs

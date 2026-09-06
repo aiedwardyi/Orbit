@@ -69,6 +69,9 @@ describe("mirrorOutcomeToRoom", () => {
     expect(chip.tool).toMatchObject({ name: "@Helper finished the delegated task", ok: true });
     expect(chip.from?.botId).toBe(target.id);
     expect(chip.comm?.groupId).toBe(channel.id);
+    // the sidebar's room dot reads this flag, so an outcome that leaves it
+    // false is invisible to anyone sitting in another conversation
+    expect(store.group(room.id)!.unread).toBe(true);
   });
 
   it("reports a failed handoff in the room too", () => {

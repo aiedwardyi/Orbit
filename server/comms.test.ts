@@ -120,6 +120,13 @@ describe("comms e2e (fake ACP fleet)", () => {
             environment: { FAKE_ACP_MODE: "permission" },
             config: { cli: FAKE_CLI, fullAuto: false },
           },
+          // two sequential cards in ONE peer turn — the asking conversation
+          // only needs telling once that the peer is blocked on a human
+          helperPermissionTwice: {
+            driver: "grokAgent",
+            environment: { FAKE_ACP_MODE: "permission-twice" },
+            config: { cli: FAKE_CLI, fullAuto: false },
+          },
           // create_channel e2e: one bot opens a shared room with a peer
           channelCreator: {
             driver: "grokAgent",
@@ -832,6 +839,59 @@ describe("comms e2e (fake ACP fleet)", () => {
     60_000,
   );
 
+  // A handoff queued from a room is reported back into that room by
+  // finalizeDelegationWatch. The start-failure path used to append its own
+  // chip on top, so one dead delegation read as two failures in one thread.
+  it(
+    "reports a delegation that never started to its room exactly once",
+    async () => {
+      const ghost = (await api("POST", "/api/bots")).body.bot;
+      await api("PATCH", `/api/bots/${ghost.id}`, {
+        name: "RoomGhost",
+        section: "RoomFailScope",
+        // no such instance — startTurn rejects, so the delegated turn never starts
+        modelSelection: { instanceId: "missing-instance", model: "fake-model" },
+      });
+      const handoff = (await api("POST", "/api/bots")).body.bot;
+      await api("PATCH", `/api/bots/${handoff.id}`, {
+        name: "RoomHandoff",
+        section: "RoomFailScope",
+        modelSelection: { instanceId: "askerDelegate", model: "fake-model" },
+      });
+      const room = (await api("POST", "/api/groups", {
+        name: "Handoff room",
+        memberIds: [handoff.id, ghost.id],
+        section: "RoomFailScope",
+        setup: { bulletin: "", defaultResponder: { kind: "member", botId: handoff.id } },
+      })).body.group;
+
+      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "hand this to the peer" })).status).toBe(202);
+
+      // both writes land in the same tick, so the first chip seen is the
+      // whole report — counting it is the assertion, not that one exists
+      const deadline = Date.now() + 30_000;
+      let chips: any[] = [];
+      for (;;) {
+        const live = (await api("GET", "/api/bots")).body.groups.find((g: any) => g.id === room.id);
+        chips = live.messages.filter(
+          (m: any) => m.kind === "activity" && m.tool?.ok === false && m.tool?.name?.includes("could not start"),
+        );
+        if (chips.length) break;
+        if (Date.now() > deadline) {
+          throw new Error(
+            `room never heard the delegation failed
+` +
+              `room tail: ${JSON.stringify(live?.messages?.slice(-8))}
+stderr: ${stderr.slice(-2000)}`,
+          );
+        }
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      expect(chips).toHaveLength(1);
+    },
+    45_000,
+  );
+
   // ── approval gate (approvePeerComms) ─────────────────────────────────
   // When the SOURCE bot has approvePeerComms = true, an ask_bot call must
   // not run the peer turn until the user clicks Allow on a card pushed to
@@ -1133,5 +1193,71 @@ describe("comms e2e (fake ACP fleet)", () => {
       }
     },
     45_000,
+  );
+
+  // Every card in the peer turn used to send its own chip back to the asker,
+  // so a turn that stops twice reported "waiting on your approval" twice.
+  it(
+    "tells the asking conversation once, however many cards the peer raises",
+    async () => {
+      const doorman = (await api("POST", "/api/bots")).body.bot;
+      await api("PATCH", `/api/bots/${doorman.id}`, {
+        name: "Doorman",
+        section: "TwoCardScope",
+        modelSelection: { instanceId: "helperPermissionTwice", model: "fake-model" },
+      });
+      const knocker = (await api("POST", "/api/bots")).body.bot;
+      await api("PATCH", `/api/bots/${knocker.id}`, {
+        name: "Knocker",
+        section: "TwoCardScope",
+        modelSelection: { instanceId: "grok", model: "fake-model" },
+      });
+
+      expect((await api("POST", `/api/bots/${knocker.id}/messages`, { text: "hey @Doorman ping" })).status).toBe(202);
+
+      const waitingChips = (bot: any) =>
+        bot.messages.filter((m: any) => /waiting on your approval/i.test(m.tool?.name ?? ""));
+      const openCard = async (why: string) => {
+        const deadline = Date.now() + 25_000;
+        for (;;) {
+          const state = (await api("GET", "/api/bots")).body;
+          const doorBot = state.bots.find((b: any) => b.id === doorman.id);
+          const card = doorBot.messages.find((m: any) => m.kind === "options" && m.card?.requestId && !m.card?.answered);
+          if (card) return card;
+          if (Date.now() > deadline) {
+            throw new Error(`${why}
+doorman tail: ${JSON.stringify(doorBot.messages.slice(-6))}
+stderr: ${stderr.slice(-2000)}`);
+          }
+          await new Promise((r) => setTimeout(r, 200));
+        }
+      };
+
+      const first = await openCard("peer never raised its first card");
+      expect((await api("POST", `/api/bots/${doorman.id}/respond`, {
+        requestId: first.card.requestId,
+        behavior: "allow",
+      })).status).toBe(200);
+
+      const second = await openCard("peer never raised its second card");
+      expect(second.card.requestId).not.toBe(first.card.requestId);
+      const knockerBot = (await api("GET", "/api/bots")).body.bots.find((b: any) => b.id === knocker.id);
+      expect(waitingChips(knockerBot)).toHaveLength(1);
+
+      // answer it so the pair settles and leaves nothing hanging behind us
+      expect((await api("POST", `/api/bots/${doorman.id}/respond`, {
+        requestId: second.card.requestId,
+        behavior: "allow",
+      })).status).toBe(200);
+      const done = Date.now() + 25_000;
+      for (;;) {
+        const state = (await api("GET", "/api/bots")).body;
+        const pair = [knocker.id, doorman.id].map((id) => state.bots.find((b: any) => b.id === id));
+        if (pair.every((b: any) => !b.busy)) break;
+        if (Date.now() > done) throw new Error(`pair never settled. stderr: ${stderr.slice(-2000)}`);
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    },
+    60_000,
   );
 });

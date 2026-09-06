@@ -6,6 +6,7 @@
 // turn. Failure modes mirror how real ACP agents misbehave:
 //
 //   FAKE_ACP_MODE   happy (default) | empty-reply | exit-early | fail-after-text | hang | no-auth | auth-required | permission | channel-peer
+//                   | permission-twice (two sequential cards in one turn)
 //                   | interleave (message → tool → message → tool → message)
 //                   | no-session-config (reject session/set_mode + set_model
 //                     with -32601, i.e. an agent predating those methods)
@@ -516,22 +517,27 @@ function handle(msg: any) {
       }
       if (mode === "interleave") playInterleaveTurn();
       else if (mode !== "empty-reply") playTurn();
-      if (mode === "permission") {
+      if (mode === "permission" || mode === "permission-twice") {
         // ask the client to approve a tool, then complete once answered
-        pendingPermissionId = 9001;
-        onPermissionAnswered = complete;
-        out({
-          jsonrpc: "2.0",
-          id: pendingPermissionId,
-          method: "session/request_permission",
-          params: {
-            toolCall: { kind: "execute", rawInput: { command: "echo hi" }, title: "echo hi" },
-            options: [
-              { optionId: "allow-once", kind: "allow_once" },
-              { optionId: "reject", kind: "reject_once" },
-            ],
-          },
-        });
+        const commands = mode === "permission-twice" ? ["echo hi", "echo again"] : ["echo hi"];
+        const ask = () => {
+          const command = commands.shift()!;
+          pendingPermissionId = 9000 + commands.length;
+          onPermissionAnswered = commands.length ? ask : complete;
+          out({
+            jsonrpc: "2.0",
+            id: pendingPermissionId,
+            method: "session/request_permission",
+            params: {
+              toolCall: { kind: "execute", rawInput: { command }, title: command },
+              options: [
+                { optionId: "allow-once", kind: "allow_once" },
+                { optionId: "reject", kind: "reject_once" },
+              ],
+            },
+          });
+        };
+        ask();
         return;
       }
       complete();

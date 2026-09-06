@@ -1864,6 +1864,9 @@ bus.subscribe((event: RuntimeEvent) => {
         // ask came from, or that conversation just looks stalled.
         const askedFrom = peerTurnSource.get(event.threadId);
         if (askedFrom) {
+          // Told once. A turn that stops on a second card is still the same
+          // "your peer is waiting on you" the source already heard about.
+          peerTurnSource.delete(event.threadId);
           store.appendMessage(askedFrom, {
             role: "bot",
             kind: "activity",
@@ -2169,6 +2172,9 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text,
       }
       const source = store.conversationForBot(sourceBotId, sourceThreadId)?.bot;
       if (!source) return;
+      // finalizeDelegationWatch above mirrors this failure into a room
+      // source; a second chip here is the same dead handoff reported twice.
+      if (store.groupByThread(sourceThreadId)) return;
       const activity: Omit<Message, "id" | "at"> = {
         role: "bot",
         kind: "activity",
