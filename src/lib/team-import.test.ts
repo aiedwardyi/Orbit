@@ -1,6 +1,12 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { teamImportPreview } from "./team-import";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const panel = readFileSync(join(here, "../components/TeamLibraryPanel.tsx"), "utf8");
 
 describe("team import preview", () => {
   it.each([1, 2])("previews version %s team files", (version) => {
@@ -99,5 +105,27 @@ Create the team.`);
       chiefOfStaff: "Scout",
       apps: [{ label: "Reddit", optional: false }],
     });
+  });
+
+  it("keeps user-facing copy free of BotMRR and .mausteam.json", () => {
+    expect(() => teamImportPreview({ format: "nope" })).toThrow(
+      "This is not an Orbit playbook or a team file.",
+    );
+    expect(() => teamImportPreview("plain text")).toThrow(
+      "This Markdown is missing its playbook frontmatter.",
+    );
+    expect(() => teamImportPreview("---\n[]\n---\n")).toThrow(
+      "This Markdown is missing its playbook blueprint.",
+    );
+    expect(() => teamImportPreview("---\nbotmrr: 9\nname: x\n---\n")).toThrow(
+      "This playbook Markdown version is not supported.",
+    );
+    expect(() => teamImportPreview({ format: "openmaus.package", version: 2, package: {} })).toThrow(
+      "Playbook version 2 is not supported.",
+    );
+
+    expect(panel).toContain("or drop a playbook .md / legacy team JSON here");
+    expect(panel).not.toContain("BotMRR");
+    expect(panel).not.toContain(".mausteam.json");
   });
 });

@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   MAX_QUEUED_EARLY_REQUESTS,
@@ -102,6 +102,32 @@ describe("startEarlyListen", () => {
     const first = await listen();
     expect(startEarlyListen({ port: 1 }).server).toBe(first.early.server);
     expect(currentEarlyListen()?.server).toBe(first.early.server);
+  });
+
+  it("reports a taken port as already in use", async () => {
+    const holder = createServer();
+    await new Promise<void>((resolve) => holder.listen(0, "127.0.0.1", resolve));
+    const address = holder.address();
+    if (!address || typeof address === "string") throw new Error("no port");
+    const port = address.port;
+    const lines: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    };
+    const exit = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+    try {
+      const early = startEarlyListen({ port });
+      await new Promise<void>((resolve, reject) => {
+        early.server.once("error", () => resolve());
+        setTimeout(() => reject(new Error("listen error never fired")), 1000);
+      });
+      expect(lines.join("\n")).toMatch(new RegExp(`port ${port} is already in use`));
+    } finally {
+      console.error = originalError;
+      exit.mockRestore();
+      await new Promise<void>((resolve) => holder.close(() => resolve()));
+    }
   });
 });
 

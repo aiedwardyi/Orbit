@@ -38,4 +38,10 @@ describe("onboarding empty-engine path", () => {
     expect(source).not.toContain("snapshot.version?.split");
     expect(source).not.toMatch(/displayName\}.*version \? ` · \$\{version\}/);
   });
+
+  it("lets an empty-engine launch skip into the shell", () => {
+    const footer = source.slice(source.indexOf('t("onboarding.back")'));
+    expect(footer).toContain('emptyConnect ? t("noEngines.checkAgain")');
+    expect(footer).toContain("onClick={finish}");
+  });
 });

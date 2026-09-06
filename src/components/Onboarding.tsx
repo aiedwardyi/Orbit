@@ -275,6 +275,9 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             <div className="mt-5 flex shrink-0 items-center gap-2.5">
               <button type="button" onClick={() => setStep(0)} className="rounded-xl px-4 py-2.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink">{t("onboarding.back")}</button>
               <button type="button" onClick={instancesError || emptyConnect ? retryInstances : finish} disabled={!instancesError && !emptyConnect && !hasReadyEngine} className="flex-1 rounded-xl bg-accent py-2.5 text-[14px] font-semibold text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">{instancesError ? t("onboarding.tryAgain") : emptyConnect ? t("noEngines.checkAgain") : t("onboarding.openOrbit")}</button>
+              {emptyConnect && !instancesError && (
+                <button type="button" onClick={finish} className="rounded-xl px-4 py-2.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink">{t("onboarding.openOrbit")}</button>
+              )}
             </div>
           </div>
         )}

@@ -154,6 +154,13 @@ export function startEarlyListen(options: { port?: number; staticDir?: string | 
   });
 
   (globalThis as EarlyListenSlot)[EARLY_LISTEN_SLOT] = early;
+  early.server.on("error", (error: NodeJS.ErrnoException) => {
+    const message = error.code === "EADDRINUSE"
+      ? `port ${port} is already in use`
+      : error.message;
+    console.error(`openmausbot: ${message}`);
+    process.exit(1);
+  });
   early.server.listen(port, "127.0.0.1", () => {
     if (port !== 0) {
       console.log(`openmausbot server on http://127.0.0.1:${port}`);
@@ -166,6 +173,7 @@ export async function resetEarlyListenForTests(): Promise<void> {
   const early = currentEarlyListen();
   delete (globalThis as EarlyListenSlot)[EARLY_LISTEN_SLOT];
   if (!early) return;
+  if (!early.server.listening) return;
   early.server.closeAllConnections();
   await new Promise<void>((resolveClose, reject) => {
     early.server.close((error) => (error ? reject(error) : resolveClose()));
