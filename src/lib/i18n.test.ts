@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { catalogs, en, ko, type MessageKey } from "./i18n-catalog";
 import {
   activeLocale,
@@ -116,14 +116,36 @@ describe("translate", () => {
 });
 
 describe("preference persistence", () => {
-  it("defaults to following the OS when nothing is stored", () => {
-    expect(readPreference()).toBe("system");
+  const store = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, val: string) => store.set(key, val),
+    removeItem: (key: string) => store.delete(key),
+    clear: () => store.clear(),
+  };
+
+  beforeEach(() => {
+    store.clear();
+    vi.stubGlobal("localStorage", storage);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("defaults to English when nothing is stored, even on a Korean OS", () => {
+    expect(readPreference()).toBe("en");
+    expect(resolveLocale(readPreference(), "ko-KR")).toBe("en");
   });
 
   it("remembers an explicit English or Korean choice", () => {
     persistPreference("ko");
+    expect(readPreference()).toBe("ko");
+    expect(resolveLocale(readPreference(), "ko-KR")).toBe("ko");
     expect(activeLocale()).toBe("ko");
     persistPreference("en");
+    expect(readPreference()).toBe("en");
+    expect(resolveLocale(readPreference(), "ko-KR")).toBe("en");
     expect(activeLocale()).toBe("en");
   });
 });
