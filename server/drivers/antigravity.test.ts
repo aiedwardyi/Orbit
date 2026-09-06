@@ -91,6 +91,9 @@ describe("readAntigravityModelCatalog", () => {
     const otherIds = ids.filter((id) => !id.startsWith("gemini-"));
     expect(geminiIds.slice().sort()).toEqual(AGY_MODELS_OUTPUT_1_1_27.slice().sort());
     expect(otherIds.slice().sort()).toEqual(ANTIGRAVITY_UNVERIFIED_LEGACY_IDS.slice().sort());
+    // the sort above ignores position, so newest-tier-first ordering needs its own check
+    expect(ids.indexOf("gemini-3.6-flash-high")).toBeLessThan(ids.indexOf("gemini-3.5-flash-high"));
+    expect(ids.indexOf("gemini-3.5-flash-low")).toBeLessThan(ids.indexOf("claude-sonnet-4-6"));
   });
 
   it("returns the official list when settings are missing", () => {
