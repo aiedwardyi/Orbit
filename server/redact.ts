@@ -46,7 +46,7 @@ const KEY_PREFIXES: RegExp[] = [
   /\bAIza[0-9A-Za-z_-]{30,}/g, // google api key
   /\bnpm_[A-Za-z0-9]{20,}/g, // npm
   /\bxai-[A-Za-z0-9]{16,}/g, // xai
-  /\bsk_(?:live_|test_)?[A-Za-z0-9]{24,}/g, // elevenlabs / stripe
+  /\b[sr]k_(?:live_|test_)?[A-Za-z0-9]{24,}/g, // elevenlabs / stripe
   /\bak_[A-Za-z0-9_-]{16,}/g, // composio
   /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, // jwt
 ];
@@ -56,16 +56,17 @@ const PEM_BLOCK = /(-----BEGIN [A-Z ]*PRIVATE KEY-----)([\s\S]*?)(-----END [A-Z 
  * The value must be a single token of some length; prose after a colon
  * ("password: leave blank…") has spaces and does not match. */
 const KEY_VALUE =
-  /\b((?:[A-Za-z0-9_-]*_)?(?:api[_-]?key|apikey|secret|token|password|passwd|authorization|auth[_-]?token|access[_-]?key|private[_-]?key)s?)(["']?\s*[=:]\s*)(["']?)([A-Za-z0-9._~+/=-]{8,})\3/gi;
+  /\b((?:[A-Za-z0-9_-]*_)?(?:api[_-]?key|apikey|secret|token|password|passwd|authorization|auth[_-]?token|access[_-]?key|private[_-]?key)(?:[_-]?key)?s?)(["']?\s*[=:]\s*)(["']?)([A-Za-z0-9._~+/=-]{8,})\3/gi;
 
-/** A config file's own `key` field, both sides quoted — the shape a dump of
- * ~/.orbit/config.json takes. Bare `key` stays OUT of KEY_VALUE on purpose:
- * unquoted it is ordinary prose ("the primary key: customer_id"), and this
- * text pass rewrites a transcript permanently. A shaped value here is already
- * caught by its prefix; this is what still covers an opaque one — so the value
- * carries the whole burden of proof and the length floor is higher than
- * KEY_VALUE's, where a secret-shaped NAME shares it. */
+/** A config dump's own `key` field, both sides quoted. Bare `key` stays out of
+ * KEY_VALUE: unquoted it is prose ("the primary key: customer_id"). No
+ * secret-shaped name shares the burden here, hence the higher floor. */
 const CONFIG_KEY_FIELD = /(["']key["']\s*:\s*)(["'])([A-Za-z0-9._~+/=-]{16,})\2/gi;
+
+/** The same field with its closing quote still in flight. It matches nothing
+ * above, so safeCut holds from where it opened rather than letting the head of
+ * a value go out in pieces. */
+const CONFIG_KEY_OPEN = /["']key["']\s*:\s*["'][A-Za-z0-9._~+/=-]*$/i;
 
 /** Longest prefix we must hold so a key split across chunks can still match. */
 const STREAM_HOLD = 96;
@@ -81,6 +82,8 @@ function safeCut(text: string): number {
   const spans = STREAM_MATCHERS.flatMap((re) =>
     [...text.matchAll(re)].map((m) => [m.index ?? 0, (m.index ?? 0) + m[0].length] as const),
   );
+  const open = CONFIG_KEY_OPEN.exec(text);
+  if (open) spans.push([open.index, text.length] as const);
   let cut = tail;
   // Regexes from different families can overlap, so one shift can expose another.
   for (let moved = true; moved; ) {

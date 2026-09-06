@@ -176,6 +176,7 @@ describe("redactSecretsInText", () => {
       // sk_live_/sk_test_ break on the underscore, so a plain [A-Za-z0-9] run misses them
       [`stripe ${"sk" + "_"}live_51H${alpha.slice(0, 30)}`, /sk_live_/],
       [`stripe ${"sk" + "_"}test_4eC39HqLyjWDarjtT1zdp7dc`, /sk_test_/],
+      [`stripe restricted ${"rk" + "_"}live_51H${alpha.slice(0, 30)}`, /rk_live_/],
     ];
     for (const [input, leak] of cases) {
       const out = redactSecretsInText(input);
@@ -199,6 +200,10 @@ describe("redactSecretsInText", () => {
     expect(redactSecretsInText('{"api_key": "abcd1234efgh5678"}')).toBe('{"api_key": "«redacted 16 chars»"}');
     expect(redactSecretsInText("client_secret: 'zzzz-yyyy-xxxx-1'")).toBe("client_secret: '«redacted 16 chars»'");
     expect(redactSecretsInText("--token=abc123def456")).toBe("--token=«redacted 12 chars»");
+    // the stem is secret-shaped, so a `_key` suffix on it must not shake the match
+    expect(redactSecretsInText("secret_key=abcdef123456789")).toBe("secret_key=«redacted 15 chars»");
+    expect(redactSecretsInText("client_secret_key=abcdef123456789")).toBe("client_secret_key=«redacted 15 chars»");
+    expect(redactSecretsInText("SECRET_KEY = 'abcdef123456789'")).toBe("SECRET_KEY = '«redacted 15 chars»'");
   });
 
   it("leaves no live key in a ~/.orbit/config.json dump", () => {
@@ -304,6 +309,18 @@ describe("redactSecretsInText", () => {
     expect(out).not.toContain(tail);
     expect(out).not.toMatch(/sk-ant/);
     expect(out).toMatch(/prose «redacted 127 chars»$/);
+  });
+
+  it("holds a quoted config `key` whose closing quote is still in flight", () => {
+    // longer than STREAM_HOLD and with no known prefix, so only the open-field
+    // hold stops the head of it being emitted before the value completes
+    const opaque = `${"fw" + "_"}${"3a9c1e7b4d5a6f8e".repeat(8)}`;
+    const masker = new StreamSecretMasker();
+    const emitted = masker.push(`{"key": "${opaque}`);
+    const out = emitted + masker.push('"}') + masker.flush();
+    expect(emitted).not.toContain(opaque.slice(0, 40));
+    expect(out).not.toContain(opaque.slice(0, 40));
+    expect(out).toBe(`{"key": "«redacted ${opaque.length} chars»"}`);
   });
 
   it("is applied to string values inside redactSecrets too", () => {
