@@ -51,7 +51,7 @@ export interface AntigravityConfig {
   fullAuto: boolean;
 }
 
-// model catalog from `agy models` (agy 1.1.12)
+// model catalog from `agy models` (agy 1.1.27)
 export const STATIC_ANTIGRAVITY_MODELS: ModelCatalog = {
   default: "gemini-3.1-pro-high",
   options: [
@@ -69,6 +69,15 @@ export const STATIC_ANTIGRAVITY_MODELS: ModelCatalog = {
     { id: "gemini-3.6-flash-high", label: "Gemini 3.6 Flash (High)" },
     { id: "gemini-3.6-flash-medium", label: "Gemini 3.6 Flash (Medium)" },
     { id: "gemini-3.6-flash-low", label: "Gemini 3.6 Flash (Low)" },
+    // 3.5 ids confirmed against the agy 1.1.27 binary's own model table
+    { id: "gemini-3.5-flash-high", label: "Gemini 3.5 Flash (High)" },
+    { id: "gemini-3.5-flash-medium", label: "Gemini 3.5 Flash (Medium)" },
+    { id: "gemini-3.5-flash-low", label: "Gemini 3.5 Flash (Low)" },
+    // claude-sonnet-4-6, claude-opus-4-6-thinking, and gpt-oss-120b-medium
+    // below predate the ground-truth rule (driver PR #30) and do not appear
+    // in a current `agy models` run — see MODEL-AG-STALE. Left in place
+    // pending a follow-up to confirm or remove them; see
+    // ANTIGRAVITY_UNVERIFIED_LEGACY_IDS in antigravity.test.ts.
     { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Thinking)" },
     { id: "claude-opus-4-6-thinking", label: "Claude Opus 4.6 (Thinking)" },
     { id: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium)" },
