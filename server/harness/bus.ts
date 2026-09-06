@@ -8,7 +8,7 @@ import { appendFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { EVENTS_DIR } from "../config.ts";
-import { redactSecrets, StreamSecretMasker } from "../redact.ts";
+import { endsContentStream, redactSecrets, StreamSecretMasker } from "../redact.ts";
 import { newId, type ProviderInstance, type RuntimeEvent, type RuntimeEventListener } from "../contracts.ts";
 
 // Reasoning and assistant text interleave on one thread, so a shared masker
@@ -29,7 +29,7 @@ function persistCopies(event: RuntimeEvent): RuntimeEvent[] {
     }
     return [redactSecrets({ ...event, delta: masker.push(event.delta) }) as RuntimeEvent];
   }
-  const byKind = persistDeltaMaskers.get(event.threadId);
+  const byKind = endsContentStream(event.type) ? persistDeltaMaskers.get(event.threadId) : undefined;
   if (!byKind) return [redactSecrets(event) as RuntimeEvent];
   persistDeltaMaskers.delete(event.threadId);
   const flushed: RuntimeEvent[] = [];

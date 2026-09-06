@@ -11,6 +11,20 @@ import { redactSecrets, StreamSecretMasker } from "./redact.ts";
 
 const flat = (value: unknown) => JSON.stringify(value);
 
+const PEM_LINE = "AbCd0123+/".repeat(10);
+const PEM_BODY = Array(8).fill(PEM_LINE).join("\n");
+const PEM = `-----BEGIN PRIVATE KEY-----\n${PEM_BODY}\n-----END PRIVATE KEY-----`;
+
+const chunksOf = (text: string, size: number) =>
+  Array.from({ length: Math.ceil(text.length / size) }, (_, i) => text.slice(i * size, i * size + size));
+
+function streamed(text: string, size: number): string {
+  const masker = new StreamSecretMasker();
+  let out = "";
+  for (const chunk of chunksOf(text, size)) out += masker.push(chunk);
+  return out + masker.flush();
+}
+
 describe("redactSecrets", () => {
   it("masks the tokens in an ACP session/new, keeping the shape", () => {
     const sessionNew = {
@@ -154,7 +168,7 @@ describe("redactSecrets", () => {
   });
 });
 
-import { redactSecretsInText } from "./redact.ts";
+import { endsContentStream, redactSecretsInText } from "./redact.ts";
 
 // Content-shaped secrets: what a bot's own reply, a tool title, or a
 // permission card can carry. High precision on purpose — a false positive
@@ -321,6 +335,75 @@ describe("redactSecretsInText", () => {
     expect(emitted).not.toContain(opaque.slice(0, 40));
     expect(out).not.toContain(opaque.slice(0, 40));
     expect(out).toBe(`{"key": "«redacted ${opaque.length} chars»"}`);
+  });
+
+  it("masks a PEM block that only completes many chunks later", () => {
+    const out = streamed(PEM, 40);
+    expect(out).not.toContain(PEM_LINE);
+    expect(out).toBe(`-----BEGIN PRIVATE KEY-----\n«redacted ${PEM_BODY.length} chars»\n-----END PRIVATE KEY-----`);
+  });
+
+  it("masks a PEM block whose BEGIN delimiter is split across chunks", () => {
+    const masker = new StreamSecretMasker();
+    const emitted = masker.push("here it is:\n-----BEGIN PRI") + masker.push(`VATE KEY-----\n${PEM_BODY}`);
+    const out = emitted + masker.push("\n-----END PRIVATE KEY-----\ndone") + masker.flush();
+    expect(emitted).not.toContain(PEM_LINE);
+    expect(out).not.toContain(PEM_LINE);
+    expect(out).toBe(`here it is:\n-----BEGIN PRIVATE KEY-----\n«redacted ${PEM_BODY.length} chars»\n-----END PRIVATE KEY-----\ndone`);
+  });
+
+  it("masks the body of a block whose END never arrives", () => {
+    const masker = new StreamSecretMasker();
+    const emitted = masker.push(`-----BEGIN PRIVATE KEY-----\n${PEM_BODY}`);
+    const out = emitted + masker.flush();
+    expect(emitted).toBe("");
+    expect(out).toBe(`-----BEGIN PRIVATE KEY-----\n«redacted ${PEM_BODY.length} chars»`);
+  });
+
+  it("masks a PEM block streamed one character at a time", () => {
+    const out = streamed(PEM, 1);
+    expect(out).not.toContain(PEM_LINE);
+    expect(out).toBe(`-----BEGIN PRIVATE KEY-----\n«redacted ${PEM_BODY.length} chars»\n-----END PRIVATE KEY-----`);
+  });
+
+  it("masks an unterminated block in a completed full-text field", () => {
+    const out = redactSecretsInText(`-----BEGIN PRIVATE KEY-----\n${PEM_BODY}`);
+    expect(out).not.toContain(PEM_LINE);
+    expect(out).toBe(`-----BEGIN PRIVATE KEY-----\n«redacted ${PEM_BODY.length} chars»`);
+  });
+
+  it("masks every unterminated block, counting a second one into the first", () => {
+    const out = redactSecretsInText(`-----BEGIN PRIVATE KEY-----\n${PEM_BODY}\n-----BEGIN RSA PRIVATE KEY-----\n${PEM_BODY}`);
+    expect(out).not.toContain(PEM_LINE);
+    expect(out).toMatch(/^-----BEGIN PRIVATE KEY-----\n«redacted \d+ chars»$/);
+  });
+
+  it("counts an oversized unterminated body instead of holding it", () => {
+    // Big enough that buffering the body and rescanning it on every chunk
+    // takes longer than the test timeout.
+    const body = "AbCd0123+/".repeat(40_000);
+    const masker = new StreamSecretMasker();
+    masker.push("-----BEGIN PRIVATE KEY-----\n");
+    for (let i = 0; i < body.length; i += 40) masker.push(body.slice(i, i + 40));
+    expect(masker.flush()).toBe(`-----BEGIN PRIVATE KEY-----\n«redacted ${body.length} chars»`);
+  });
+
+  it("keeps masking a block that spans a mid-stream event boundary", () => {
+    // What the SSE sink and the NDJSON tee both do: only a real stream
+    // boundary tears the masker down, so item.updated cannot strand a body.
+    const masker = new StreamSecretMasker();
+    let out = "";
+    for (const [i, chunk] of chunksOf(PEM, 40).entries()) {
+      out += masker.push(chunk);
+      if (i === 3) {
+        expect(endsContentStream("item.updated")).toBe(false);
+        expect(endsContentStream("thread.token-usage.updated")).toBe(false);
+      }
+    }
+    expect(endsContentStream("turn.completed")).toBe(true);
+    out += masker.flush();
+    expect(out).not.toContain(PEM_LINE);
+    expect(out).toBe(`-----BEGIN PRIVATE KEY-----\n«redacted ${PEM_BODY.length} chars»\n-----END PRIVATE KEY-----`);
   });
 
   it("is applied to string values inside redactSecrets too", () => {

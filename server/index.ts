@@ -209,7 +209,7 @@ import { readCuaConnection } from "./local-computer.ts";
 import { LocalVmIdleTimer } from "./local-vm-idle.ts";
 import { LocalVmLease, LocalVmLeasePool } from "./local-vm-lease.ts";
 import { RepeatDetector, callKey } from "./repeat-detector.ts";
-import { redactSecrets, redactSecretsInText, StreamSecretMasker } from "./redact.ts";
+import { endsContentStream, redactSecrets, redactSecretsInText, StreamSecretMasker } from "./redact.ts";
 import * as vps from "./vps-computer.ts";
 import { RoutineManager, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
 import { browserScreenshot, readBrowserConnection } from "./browser-connection.ts";
@@ -987,7 +987,8 @@ function maskRuntimePayload(payload: Record<string, unknown>): Record<string, un
   return { ...payload, event: { ...event, delta: masker.push(event.delta) } };
 }
 
-function flushSseDeltaMaskers(threadId: string): Array<{ streamKind: string; tail: string }> {
+function flushSseDeltaMaskers(threadId: string, eventType: string | undefined): Array<{ streamKind: string; tail: string }> {
+  if (!endsContentStream(eventType)) return [];
   const byKind = sseDeltaMaskers.get(threadId);
   if (!byKind) return [];
   sseDeltaMaskers.delete(threadId);
@@ -1002,7 +1003,7 @@ function broadcast(payload: Record<string, unknown>) {
   if (kind === "runtime") {
     const event = payload.event as { type?: string; threadId?: string } | undefined;
     if (event?.threadId && event.type !== "content.delta") {
-      for (const { streamKind, tail } of flushSseDeltaMaskers(event.threadId)) {
+      for (const { streamKind, tail } of flushSseDeltaMaskers(event.threadId, event.type)) {
         writeBroadcastFrame({
           kind: "runtime",
           event: { ...event, type: "content.delta", streamKind, delta: tail },

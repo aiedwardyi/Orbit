@@ -172,6 +172,77 @@ describe("EventBus", () => {
     expect(logged.some((e) => e.eventId === "ev-1-delta-flush-reasoning_text")).toBe(true);
   });
 
+  it("keeps a streamed PEM private key out of the canonical log", () => {
+    const line = "AbCd0123+/".repeat(10);
+    const pem = `-----BEGIN PRIVATE KEY-----\n${Array(8).fill(line).join("\n")}\n-----END PRIVATE KEY-----`;
+    const bus = new EventBus();
+    for (let i = 0; i < pem.length; i += 40) {
+      bus.publish(
+        testEvent({ threadId: "pem-stream", type: "content.delta", streamKind: "assistant_text", delta: pem.slice(i, i + 40) }),
+      );
+    }
+    bus.publish(testEvent({ threadId: "pem-stream", type: "turn.completed" }));
+
+    const logged = readFileSync(join(EVENTS_DIR, "pem-stream.ndjson"), "utf8");
+    expect(logged).not.toContain(line);
+    const joined = logged
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l))
+      .filter((e) => e.type === "content.delta")
+      .map((e) => e.delta)
+      .join("");
+    expect(joined).toMatch(/^-----BEGIN PRIVATE KEY-----\n«redacted \d+ chars»\n-----END PRIVATE KEY-----$/);
+  });
+
+  it("keeps an open PEM block across a mid-stream event", () => {
+    const line = "AbCd0123+/".repeat(10);
+    const body = Array(8).fill(line).join("\n");
+    const bus = new EventBus();
+    const delta = (text: string) =>
+      testEvent({ threadId: "pem-split", type: "content.delta", streamKind: "assistant_text", delta: text });
+    bus.publish(delta(`-----BEGIN PRIVATE KEY-----\n${body.slice(0, 400)}`));
+    // Claude emits this mid-stream; it must not tear the masker down.
+    bus.publish(testEvent({ threadId: "pem-split", type: "item.updated", itemType: "reasoning", tokens: 12 }));
+    bus.publish(delta(`${body.slice(400)}\n-----END PRIVATE KEY-----`));
+    bus.publish(testEvent({ threadId: "pem-split", type: "turn.completed", ok: true }));
+
+    const logged = readFileSync(join(EVENTS_DIR, "pem-split.ndjson"), "utf8");
+    expect(logged).not.toContain(line);
+    expect(logged).toContain("«redacted");
+  });
+
+  it("masks an unterminated PEM block in a completed full-text event", () => {
+    const line = "AbCd0123+/".repeat(10);
+    const bus = new EventBus();
+    bus.publish(
+      testEvent({
+        threadId: "pem-text",
+        type: "item.completed",
+        itemType: "assistant_text",
+        text: `-----BEGIN PRIVATE KEY-----\n${Array(8).fill(line).join("\n")}`,
+      }),
+    );
+    expect(readFileSync(join(EVENTS_DIR, "pem-text.ndjson"), "utf8")).not.toContain(line);
+  });
+
+  it("hands a subscriber the original delta while every persisted copy is masked", () => {
+    const line = "AbCd0123+/".repeat(10);
+    const pem = `-----BEGIN PRIVATE KEY-----\n${Array(8).fill(line).join("\n")}\n-----END PRIVATE KEY-----`;
+    const bus = new EventBus();
+    const seen: RuntimeEvent[] = [];
+    bus.subscribe((e) => seen.push(e));
+    for (const chunk of pem.match(/[\s\S]{1,40}/g) ?? []) {
+      bus.publish(testEvent({ threadId: "pem-live", type: "content.delta", streamKind: "assistant_text", delta: chunk }));
+    }
+    bus.publish(testEvent({ threadId: "pem-live", type: "turn.completed", ok: true }));
+
+    // PR72: policy sees the real text, so the raw body reaches a subscriber by
+    // design. The client-facing copy is masked at the SSE sink, not here.
+    expect(seen.filter((e) => e.type === "content.delta").map((e) => e.delta).join("")).toBe(pem);
+    expect(readFileSync(join(EVENTS_DIR, "pem-live.ndjson"), "utf8")).not.toContain(line);
+  });
+
   it("reports an incomplete log once while continuing live delivery", () => {
     rmSync(EVENTS_DIR, { recursive: true, force: true });
     const bus = new EventBus();
