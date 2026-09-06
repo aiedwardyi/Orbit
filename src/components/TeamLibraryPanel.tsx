@@ -711,7 +711,7 @@ export function TeamLibraryPanel({
                     >
                       <UploadCloud size={27} className="text-accent" />
                       <span className="mt-3 text-[14px] font-medium text-ink">Choose a team file</span>
-                      <span className="mt-1 text-[12.5px] text-ink-secondary">or drop a BotMRR .md / legacy .mausteam.json here</span>
+                      <span className="mt-1 text-[12.5px] text-ink-secondary">or drop a playbook .md / legacy team JSON here</span>
                     </button>
 
                     <div className="flex min-h-56 flex-col justify-center rounded-2xl bg-raised/25 px-6">
