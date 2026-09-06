@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
-import { DEFAULT_MAUS_COLOR, MAUS_COLOR_NAMES, MAUS_COLORS, mausColorHex, stateForBot } from "./mascot";
+import { DEFAULT_MAUS_COLOR, MAUS_COLOR_NAMES, MAUS_COLORS, mausColorHex, stateForBot, type MausColor } from "./mascot";
+import type { MausColor as ServerMausColor } from "../../server/store";
 
 describe("mascot color fallback", () => {
   it("treats red as the default mascot color", () => {
@@ -51,6 +52,10 @@ describe("mascot color fallback", () => {
   it("does not treat inherited object keys as palette colors", () => {
     expect(mausColorHex("__proto__")).toBe("#D94B52");
     expect(mausColorHex("constructor")).toBe("#D94B52");
+  });
+
+  it("keeps client MAUS_COLOR_NAMES and server MausColor in exact agreement", () => {
+    expectTypeOf<MausColor>().toEqualTypeOf<ServerMausColor>();
   });
 });
 

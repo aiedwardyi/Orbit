@@ -1,4 +1,5 @@
 import { CURSOR_STATES, type CursorState } from "@/components/CursorAvatar";
+import type { MausColor as ServerMausColor } from "../../server/store";
 
 /** The mascot's behaviour vocabulary — CursorAvatar's 39 states, under the
  * app's historical names. */
@@ -62,6 +63,11 @@ export const MAUS_COLOR_NAMES = [
 ] as const;
 
 export type MausColor = (typeof MAUS_COLOR_NAMES)[number];
+
+// Compile-time guard: client MAUS_COLOR_NAMES and server MausColor must match exactly.
+type AssertSubset<T, U extends T> = [T, U];
+export type _ServerColorGuard = AssertSubset<ServerMausColor, MausColor>;
+export type _ClientColorGuard = AssertSubset<MausColor, ServerMausColor>;
 
 export const MAUS_COLORS = {
   green: "#009957",
