@@ -332,7 +332,6 @@ const TOOLS = [
           items: { type: "string" },
           description: "Bot ids to include (from list_bots or create_bot). You are added automatically if omitted.",
         },
-        section: { type: "string", description: "Optional sidebar section. Defaults to your section." },
         bulletin: { type: "string", description: "Optional shared instructions for everyone in the room." },
       },
       required: ["name", "member_ids"],
@@ -629,7 +628,6 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
       name: channelName,
       memberIds,
     };
-    if (typeof args.section === "string" && args.section.trim()) body.section = args.section.trim();
     if (typeof args.bulletin === "string") body.bulletin = args.bulletin;
     const r = await api("/api/internal/create-channel", { method: "POST", body: JSON.stringify(body) });
     const members = Array.isArray(r.memberIds) ? (r.memberIds as string[]).join(", ") : memberIds.join(", ");

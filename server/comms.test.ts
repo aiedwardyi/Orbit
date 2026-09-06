@@ -113,6 +113,19 @@ describe("comms e2e (fake ACP fleet)", () => {
           // on `grok` because its depth-1 turn runs without the agents
           // integration either way (the depth guard), so it just plays
           // plain happy text.
+          // a peer that stops on a permission card, so the asking bot's own
+          // 1:1 can be checked while the ask is blocked on a human
+          helperPermission: {
+            driver: "grokAgent",
+            environment: { FAKE_ACP_MODE: "permission" },
+            config: { cli: FAKE_CLI, fullAuto: false },
+          },
+          // create_channel e2e: one bot opens a shared room with a peer
+          channelCreator: {
+            driver: "grokAgent",
+            environment: { FAKE_ACP_MODE: "channel-peer" },
+            config: { cli: FAKE_CLI, fullAuto: true },
+          },
           askerDelegate: {
             driver: "grokAgent",
             environment: { FAKE_ACP_MODE: "delegate-peer" },
@@ -301,6 +314,47 @@ describe("comms e2e (fake ACP fleet)", () => {
       });
       expect(operator.chiefOfStaff).toBeFalsy();
       expect(operator.messages.some((message: any) => message.text?.includes("Review the new onboarding flow."))).toBe(true);
+    },
+    45_000,
+  );
+
+  it(
+    "files a bot-created channel in the bot's own section and leaves setup to the user",
+    async () => {
+      const helper = (await api("POST", "/api/bots")).body.bot;
+      await api("PATCH", `/api/bots/${helper.id}`, {
+        name: "Roomie",
+        section: "RoomScope",
+        modelSelection: { instanceId: "grok", model: "fake-model" },
+      });
+      const author = (await api("POST", "/api/bots")).body.bot;
+      await api("PATCH", `/api/bots/${author.id}`, {
+        name: "Opener",
+        section: "RoomScope",
+        modelSelection: { instanceId: "channelCreator", model: "fake-model" },
+      });
+
+      const send = await api("POST", `/api/bots/${author.id}/messages`, { text: "open a room with @Roomie" });
+      expect(send.status).toBe(202);
+
+      const deadline = Date.now() + 30_000;
+      let room: any;
+      for (;;) {
+        const state = (await api("GET", "/api/bots")).body;
+        room = state.groups.find((g: any) => g.name === "Launch room");
+        if (room) break;
+        if (Date.now() > deadline) {
+          throw new Error(`create_channel never landed. stderr: ${stderr.slice(-2000)}`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+
+      expect(room.memberIds).toContain(author.id);
+      expect(room.memberIds).toContain(helper.id);
+      // a bot may not file a room outside its own section
+      expect(room.section).toBe("RoomScope");
+      // and it may not answer the room-setup step on the user's behalf
+      expect(room.setupCompletedAt ?? null).toBeNull();
     },
     45_000,
   );
@@ -872,4 +926,71 @@ describe("comms e2e (fake ACP fleet)", () => {
     expect(reply.text).not.toContain("one hop");
     expect(reply.text).not.toContain("peer error");
   }, 45_000);
+  // A peer turn's approval card lands on the TARGET's thread, because that is
+  // where the turn runs. The asking bot's own 1:1 is where the human is
+  // actually sitting, and it used to show "Messaged @X" and nothing else for
+  // up to four minutes before reporting a timeout.
+  it(
+    "tells the asking conversation that the peer is blocked on a card",
+    async () => {
+      const gatekeeper = (await api("POST", "/api/bots")).body.bot;
+      await api("PATCH", `/api/bots/${gatekeeper.id}`, {
+        name: "Gatekeeper",
+        section: "ApprovalScope",
+        modelSelection: { instanceId: "helperPermission", model: "fake-model" },
+      });
+      const prober = (await api("POST", "/api/bots")).body.bot;
+      await api("PATCH", `/api/bots/${prober.id}`, {
+        name: "Prober",
+        section: "ApprovalScope",
+        modelSelection: { instanceId: "grok", model: "fake-model" },
+      });
+
+      const send = await api("POST", `/api/bots/${prober.id}/messages`, { text: "hey @Gatekeeper ping" });
+      expect(send.status).toBe(202);
+
+      let card: any;
+      const deadline = Date.now() + 25_000;
+      for (;;) {
+        const state = (await api("GET", "/api/bots")).body;
+        const proberBot = state.bots.find((b: any) => b.id === prober.id);
+        const gateBot = state.bots.find((b: any) => b.id === gatekeeper.id);
+        card = gateBot.messages.find((m: any) => m.kind === "options" && m.card?.requestId && !m.card?.answered);
+        const heardAboutIt = proberBot.messages.some(
+          (m: any) => m.kind === "activity" && /Gatekeeper[\s\S]*approval/i.test(m.tool?.name ?? ""),
+        );
+        if (card && heardAboutIt) break;
+        if (Date.now() > deadline) {
+          throw new Error(
+            `asking thread never heard about the peer's card
+` +
+              `prober tail: ${JSON.stringify(proberBot.messages.slice(-8))}
+` +
+              `gatekeeper tail: ${JSON.stringify(gateBot.messages.slice(-6))}
+` +
+              `stderr: ${stderr.slice(-2000)}`,
+          );
+        }
+        await new Promise((r) => setTimeout(r, 200));
+      }
+
+      // answer it so the pair settles and leaves nothing hanging behind us
+      const allow = await api("POST", `/api/bots/${gatekeeper.id}/respond`, {
+        requestId: card.card.requestId,
+        behavior: "allow",
+      });
+      expect(allow.status).toBe(200);
+
+      const settle = Date.now() + 25_000;
+      for (;;) {
+        const state = (await api("GET", "/api/bots")).body;
+        const proberBot = state.bots.find((b: any) => b.id === prober.id);
+        const gateBot = state.bots.find((b: any) => b.id === gatekeeper.id);
+        if (!proberBot.busy && !gateBot.busy) break;
+        if (Date.now() > settle) throw new Error(`pair never settled. stderr: ${stderr.slice(-2000)}`);
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    },
+    45_000,
+  );
 });

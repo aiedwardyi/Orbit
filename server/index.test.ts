@@ -958,9 +958,13 @@ describe("harness HTTP API", () => {
       const room = (await api("GET", "/api/bots?messages=0")).body.groups.find(
         (group: { id: string }) => group.id === created.body.id,
       );
-      expect(room.setupCompletedAt).toBeTruthy();
+      // room setup is the user's step — a bot opening the room may not answer
+      // it for them, so the room waits at setup like any other new room
+      expect(room.setupCompletedAt ?? null).toBeNull();
       expect(room.defaultResponder).toEqual({ kind: "member", botId: chief.id });
       expect(room.bulletin).toBe("Peer talk lives here.");
+      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "hello room" })).status).toBe(409);
+      expect((await api("PATCH", `/api/groups/${room.id}/setup`, { action: "skip" })).status).toBe(200);
       expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "hello room" })).status).toBe(202);
       expect((await api("POST", `/api/groups/${room.id}/interrupt`)).status).toBe(200);
 
@@ -989,18 +993,15 @@ describe("harness HTTP API", () => {
       expect(notAnObject.status).toBe(400);
       expect(await notAnObject.json()).toEqual({ error: "channel must be a JSON object" });
 
-      const sectionType = await createChannel({ name: "Typed", memberIds: [peer.id], section: 12 });
-      expect(sectionType).toEqual({ status: 400, body: { error: "section must be a string" } });
-
-      const sectionLength = await createChannel({
-        name: "Long section",
+      // a bot cannot file the user's rooms into a section of its own naming:
+      // whatever it sends, the room joins the sender's section
+      const invented = await createChannel({
+        name: "Invented section",
         memberIds: [peer.id],
-        section: "S".repeat(61),
+        section: "Somewhere Else",
       });
-      expect(sectionLength).toEqual({
-        status: 400,
-        body: { error: "section must be at most 60 characters" },
-      });
+      expect(invented.status).toBe(201);
+      expect(invented.body.section).toBe("Channel tool test");
 
       expect((await api("PATCH", `/api/bots/${otherSection.id}`, {
         section: "Channel tool test",
