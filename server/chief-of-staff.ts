@@ -95,8 +95,7 @@ export function chiefOfStaffSystemPrompt(
             "No other teammates are on this section yet. Answer the user directly. Do not inspect the team roster or create specialists unless the user asks you to involve or assemble teammates.",
             "If they ask you to involve a teammate or assemble a team, call create_bot for the specialist. If they ask for a two-bot channel or shared channel, call create_bot if needed, then create_channel with yourself and that bot. Use ask_bot for peer talk this turn; do not leave the user only in a new bot's 1:1.",
             AGENTS_TOOLS_DISCIPLINE,
-            coordinationAsked ? CALL_THE_AGENTS_TOOLS : "",
-          ].filter(Boolean).join(" ");
+          ].join(" ");
 
   // QA 13 / QA-ROOM-2: an in-room Chief used to hunt for its own tools in
   // public, dumping env vars and scanning ports before spawning. create_bot

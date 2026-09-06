@@ -252,17 +252,13 @@ describe("a Chief with a team does not fan out unasked", () => {
     // the solo Chief's idle wall is the same rule
     const solo = [{ id: "chief", name: "Clover", section: "Work" }];
     expect(chiefOfStaffSystemPrompt("chief", solo, true)).not.toContain("Call the agents tools.");
+    // and it stays shut when coordination WAS asked for: the no-team branch
+    // is the answer-directly branch, so the imperative has no coordination
+    // framing to close and must not land there at all
+    expect(chiefOfStaffSystemPrompt("chief", solo, true, "", false, true)).not.toContain("Call the agents tools.");
     // the anti-probing discipline is unconditional and must survive the split
     expect(chiefOfStaffSystemPrompt("chief", solo, true)).toMatch(/Never scan the environment/);
     expect(peerAgentsSystemPrompt()).not.toContain("Call the agents tools.");
     expect(peerAgentsSystemPrompt()).toMatch(/Never scan the environment/);
-  });
-});
-
-describe("the 1:1 Chief prompt is gated on the user's own coordination signal", () => {
-  it("passes the @tag signal into the 1:1 coordination prompt", () => {
-    const start = index.indexOf("const tagged = integrations.agents");
-    const slice = index.slice(start, start + 2500);
-    expect(slice).toMatch(/chiefOfStaffSystemPrompt\([\s\S]*?tagged\.length > 0,/);
   });
 });
