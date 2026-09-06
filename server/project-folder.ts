@@ -25,6 +25,8 @@ export type ProjectFolderInput = {
   recentPaths?: string[];
   /** Immediate-child roots to walk when a name is not among recent paths. */
   searchRoots?: string[];
+  /** Resume / routine / bot-to-bot hop: nobody is naming a folder now. */
+  continuation?: boolean;
   scoutName?: (cwd: string) => string | null;
   isPrivateWorkspace?: (cwd: string) => boolean;
 };
@@ -163,9 +165,22 @@ function memoScout(scoutName: (cwd: string) => string | null): (cwd: string) => 
   };
 }
 
-function isContainedPath(root: string, folder: string): boolean {
-  const rel = relative(root, folder);
+/** Slash-normalize so Windows `\\` and `/` compare as the same tree. */
+export function pathContainedBy(root: string, folder: string): boolean {
+  const norm = (value: string) => value.replace(/\\/g, "/").replace(/\/+$/, "") || "/";
+  const parent = norm(root);
+  const child = norm(folder);
+  if (/^[A-Za-z]:/.test(parent) && /^[A-Za-z]:/.test(child)) {
+    const left = parent.toLowerCase();
+    const right = child.toLowerCase();
+    return right === left || right.startsWith(`${left}/`);
+  }
+  const rel = relative(parent, child);
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+function isContainedPath(root: string, folder: string): boolean {
+  return pathContainedBy(root, folder);
 }
 
 function defaultPrivateWorkspace(cwd: string): boolean {
@@ -184,9 +199,14 @@ export function projectSearchRoots(home = homedir()): string[] {
   return defaultSearchRoots(home);
 }
 
+const KO_NAME_PARTICLES = "에서|으로|로|을|를";
+
 function mentionPattern(name: string): RegExp {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(?<![\\p{L}\\p{N}._-])${escaped}(?![\\p{L}\\p{N}._-])`, "iu");
+  return new RegExp(
+    `(?<![\\p{L}\\p{N}._-])${escaped}(?:${KO_NAME_PARTICLES})?(?![\\p{L}\\p{N}._-])`,
+    "iu",
+  );
 }
 
 function mentionsName(text: string, name: string): boolean {
@@ -402,7 +422,15 @@ function rememberedRuledOut(
 ): boolean {
   const remembered = usableFolder(input.remembered, isPrivateWorkspace);
   if (!remembered) return false;
-  return folderExcluded(remembered, excludedNamesFromTexts(input.userTexts ?? []), scoutName);
+  return folderExcluded(remembered, excludedNamesFromTexts(cueTexts(input)), scoutName);
+}
+
+// A continuation re-sends the same thread, so its history still holds the
+// folder the user named there. Reading it again would re-establish a
+// remember that Clear just deleted, so a continuation gets no cues at all:
+// the bot pin, the live remember, and this task's own pin still decide.
+function cueTexts(input: ProjectFolderInput): string[] {
+  return input.continuation ? [] : (input.userTexts ?? []);
 }
 
 /** Unique existing project folders the resolver may match a name against. */
@@ -450,7 +478,7 @@ export function resolveProjectFolder(input: ProjectFolderInput): ProjectFolderRe
   const isPrivateWorkspace = input.isPrivateWorkspace ?? defaultPrivateWorkspace;
   if (input.pin?.trim()) return { cwd: input.pin, source: "pin" };
 
-  const userTexts = input.userTexts ?? [];
+  const userTexts = cueTexts(input);
   const candidates = [
     ...new Set(
       [...(input.recentPaths ?? []), ...userTexts.flatMap(extractPaths)]

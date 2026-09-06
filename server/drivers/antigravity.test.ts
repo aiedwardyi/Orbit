@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { ensureDirs } from "../config.ts";
+import { ensureDirs, PROVIDER_CREDENTIAL_ENV, WORKSPACE_CREDENTIAL_ENV } from "../config.ts";
 import type { ProviderInstance } from "../contracts.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
 import { recordEvents, type EventRecorder } from "../testing/events.ts";
@@ -24,6 +24,16 @@ import {
 } from "./antigravity.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-agy-cli.ts");
+
+/** Every credential this process could be holding, plus two nobody has heard
+ * of yet — the allowlist has to exclude those for the same reason, under
+ * whichever name their provider ships them. */
+const FOREIGN_CREDENTIALS = [
+  ...PROVIDER_CREDENTIAL_ENV,
+  ...WORKSPACE_CREDENTIAL_ENV,
+  "ACME_API_KEY",
+  "NEWPROVIDER_TOKEN",
+];
 
 describe("readAntigravityModelCatalog", () => {
   it("lists the three Gemini 3.8 Flash tiers ahead of older Flash entries", () => {
@@ -225,6 +235,34 @@ describe("Antigravity snapshot", () => {
     const snap = await instance.snapshot();
     expect(snap.state).toBe("unavailable");
     await instance.dispose();
+  });
+
+  it("hands its children no credential it was not granted, known or not", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "omb-agy-allowlist-"));
+    const dump = join(scratch, "dump.json");
+    const previous = Object.fromEntries(FOREIGN_CREDENTIALS.map((name) => [name, process.env[name]]));
+    process.env.FAKE_AGY_DUMP = dump;
+    for (const name of FOREIGN_CREDENTIALS) process.env[name] = `${name}-must-not-leak`;
+    const instance = await AntigravityDriver.create({
+      instanceId: "agy-allowlist",
+      displayName: undefined,
+      environment: {},
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: false },
+    });
+    try {
+      await instance.snapshot();
+      const seen = JSON.parse(readFileSync(dump, "utf8"));
+      expect(Object.keys(seen.env).filter((name) => FOREIGN_CREDENTIALS.includes(name))).toEqual([]);
+    } finally {
+      await instance.dispose();
+      delete process.env.FAKE_AGY_DUMP;
+      for (const name of FOREIGN_CREDENTIALS) {
+        if (previous[name] === undefined) delete process.env[name];
+        else process.env[name] = previous[name];
+      }
+      rmSync(scratch, { recursive: true, force: true });
+    }
   });
 
   it("strips workspace credentials from snapshot and helper children", async () => {

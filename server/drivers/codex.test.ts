@@ -11,12 +11,23 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { PROVIDER_CREDENTIAL_ENV, WORKSPACE_CREDENTIAL_ENV } from "../config.ts";
 import type { ProviderInstance } from "../contracts.ts";
 import { recordEvents, type EventRecorder } from "../testing/events.ts";
 import { CodexDriver } from "./codex.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-codex-app-server.ts");
+
+/** Every credential this process could be holding, plus two nobody has heard
+ * of yet — the allowlist has to exclude those for the same reason, under
+ * whichever name their provider ships them. */
+const FOREIGN_CREDENTIALS = [
+  ...PROVIDER_CREDENTIAL_ENV,
+  ...WORKSPACE_CREDENTIAL_ENV,
+  "ACME_API_KEY",
+  "NEWPROVIDER_TOKEN",
+];
 
 describe("CodexDriver.decodeConfig", () => {
   it("defaults to the codex binary with fullAuto off", () => {
@@ -63,9 +74,23 @@ describe("CodexDriver turns (fake app-server)", () => {
     delete process.env.OPENAI_API_KEY;
     delete process.env.BOX_TOKEN;
     delete process.env.OMB_TTS_KEY;
+    for (const name of FOREIGN_CREDENTIALS) delete process.env[name];
     recorder?.stop();
     await instance?.dispose();
     await removeTempDir(scratch);
+  });
+
+  it("hands the app-server child no credential it was not granted, known or not", async () => {
+    await create();
+    const dump = join(scratch, "dump-allowlist.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    for (const name of FOREIGN_CREDENTIALS) process.env[name] = `${name}-must-not-leak`;
+
+    await instance.adapter.sendTurn({ threadId: "t-cred-allowlist", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(Object.keys(seen.env).filter((name) => FOREIGN_CREDENTIALS.includes(name))).toEqual([]);
   });
 
   it("forwards the app-server's account rate limits as account.rate-limits.updated", async () => {

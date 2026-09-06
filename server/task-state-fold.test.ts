@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { isCompletedTaskRecord } from "../shared/task-resume.ts";
+import {
+  hasUnfinishedTaskWork,
+  isCompletedTaskRecord,
+  isPlanFinished,
+  shouldDismissCompletedReopen,
+} from "../shared/task-resume.ts";
 
 import {
   clearTaskBlockers,
@@ -192,6 +197,55 @@ describe("task state folding", () => {
     };
     const folded = foldCompletedNextAction(packet);
     expect(folded.nextAction).toBe("C");
+  });
+
+  it("does not let an earlier completion settle a repeat of the same request", () => {
+    const first = recordTaskCompletion(seed(), {
+      ok: true,
+      reply: "Prepared the brief with five cited sources.",
+      messageId: "message-2",
+      now: 200,
+    });
+    expect(isCompletedTaskRecord(first)).toBe(true);
+
+    const again = recordTaskInstruction(first, {
+      text: "Prepare a weekly competitor brief",
+      messageId: "message-3",
+      now: 300,
+    });
+    const closed = stampTaskResumePacket(again, "shutdown", { now: 400 });
+
+    expect(isCompletedTaskRecord(closed)).toBe(false);
+    expect(hasUnfinishedTaskWork(closed)).toBe(true);
+    expect(shouldDismissCompletedReopen(closed)).toBe(false);
+  });
+
+  it("does not let a retained all-done plan settle work requested after it", () => {
+    const finished = recordTaskCompletion({
+      ...seed(),
+      plan: [{ step: "Prepare a weekly competitor brief", status: "done" as const }],
+    }, { ok: true, reply: "Published the brief.", now: 200 });
+    const again = recordTaskInstruction(finished, {
+      text: "Add a pricing comparison",
+      messageId: "message-3",
+      now: 300,
+    });
+    const closed = stampTaskResumePacket(again, "shutdown", { now: 400 });
+
+    expect(isPlanFinished(closed)).toBe(true);
+    expect(isCompletedTaskRecord(closed)).toBe(false);
+    expect(hasUnfinishedTaskWork(closed)).toBe(true);
+  });
+
+  it("settles again once the newest instruction completes", () => {
+    const again = recordTaskInstruction(
+      recordTaskCompletion(seed(), { ok: true, reply: "Prepared the brief.", now: 200 }),
+      { text: "Prepare a weekly competitor brief", messageId: "message-3", now: 300 },
+    );
+    const settled = recordTaskCompletion(again, { ok: true, reply: "Prepared it again.", now: 400 });
+
+    expect(isCompletedTaskRecord(settled)).toBe(true);
+    expect(hasUnfinishedTaskWork(settled)).toBe(false);
   });
 
   it("stamps engine switches and stops without changing task content", () => {

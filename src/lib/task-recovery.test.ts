@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -29,6 +32,13 @@ describe("task recovery banner eligibility", () => {
     expect(isTaskRecoveryVisible(reopened, false, { updatedAt: 200, flushReason: "shutdown" })).toBe(false);
     expect(isTaskRecoveryVisible(reopened, false, { updatedAt: 199, flushReason: "shutdown" })).toBe(true);
     expect(isTaskRecoveryVisible(packet("stop", 300), false, { updatedAt: 200, flushReason: "shutdown" })).toBe(true);
+  });
+
+  it("posts the packet version with dismiss so a late request cannot wipe a newer Stop", () => {
+    const store = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../state/store.tsx"), "utf8");
+    expect(store).toMatch(
+      /dismissTaskRecovery[\s\S]*JSON\.stringify\(\{\s*updatedAt:\s*action\.updatedAt,\s*flushReason:\s*action\.flushReason/,
+    );
   });
 
   it("does not widen the live strip to turn-end, progress, engine-switch, or approval", () => {

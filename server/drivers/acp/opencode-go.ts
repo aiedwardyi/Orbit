@@ -250,7 +250,7 @@ export function ensureOpenCodeInjectModel(
     models,
   };
   config.provider = providers;
-  writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
+  writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
   return native;
 }
 

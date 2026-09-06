@@ -101,7 +101,7 @@ export function ensureDroidInjectModel(
     if (!match.id) {
       match.id = id;
       settings.customModels = custom;
-      writeFileSync(path, `${JSON.stringify(settings, null, 2)}\n`);
+      writeFileSync(path, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
     }
     return match.id;
   }
@@ -114,7 +114,7 @@ export function ensureDroidInjectModel(
     provider: "generic-chat-completion-api",
   });
   settings.customModels = custom;
-  writeFileSync(path, `${JSON.stringify(settings, null, 2)}\n`);
+  writeFileSync(path, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
   return id;
 }
 

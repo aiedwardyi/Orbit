@@ -712,7 +712,7 @@ export class RoutineRequestService {
       }
       const detail = schemaIssue(parsedPayload.error, "This routine request is invalid");
       this.store.patchMessage(args.threadId, message.id, {
-        card: { ...card, held: redactSecretsInText(detail).slice(0, 500) },
+        card: { ...card, held: detail.slice(0, 500) },
       });
       return { claimed: true, state: "invalid", error: detail, status: 400 };
     }
@@ -774,7 +774,7 @@ export class RoutineRequestService {
       const status = error instanceof RoutineRequestError ? error.status : 400;
       const detail = error instanceof Error ? error.message : String(error);
       this.store.patchMessage(args.threadId, message.id, {
-        card: { ...card, held: redactSecretsInText(detail).slice(0, 500) },
+        card: { ...card, held: detail.slice(0, 500) },
       });
       return {
         claimed: true,

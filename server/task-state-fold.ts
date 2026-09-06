@@ -43,6 +43,7 @@ export function seedTaskResumePacket(input: {
     threadId: input.threadId,
     botId: input.botId,
     goal,
+    instructionId: input.messageId,
     plan: [{ step: nextAction, status: "active" }],
     completed: [],
     evidence: [{ kind: "message", ref: input.messageId, note: "Task instruction" }],
@@ -61,6 +62,7 @@ export function recordTaskInstruction(
   input: { text: string; messageId: string } & StampInput,
 ): TaskResumePacket {
   const next = stamped(packet, "progress", input);
+  next.instructionId = input.messageId;
   const action = firstLine(input.text);
   if (action) next.nextAction = action;
   if (!next.plan.length && action) next.plan = [{ step: action, status: "active" }];
@@ -131,6 +133,7 @@ export function recordTaskCompletion(
     // An empty reply still settles the task. With no completed entry the
     // record never reads finished, so the strip keeps offering Resume.
     next.completed.push({ note: reply || "Settled without a reply.", at: input.now });
+    next.settledInstructionId = next.instructionId;
     next.nextAction = "";
   }
   if (input.messageId && !next.evidence.some((item) => item.ref === input.messageId)) {

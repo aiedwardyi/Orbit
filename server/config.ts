@@ -311,6 +311,51 @@ export const PROVIDER_CREDENTIAL_ENV = [
   "CURSOR_AUTH_TOKEN",
 ] as const;
 
+/** What a credential is *named* like, whatever provider ships it next. The two
+ * lists above can only name keys someone remembered to add; this catches the
+ * one they didn't, which is the whole point of an allowlist. TOKEN covers
+ * every AUTH_/ACCESS_/BOX_ spelling, SECRET covers API_SECRET. */
+const CREDENTIAL_ENV_NAME = /(^|_)(API_KEY|SECRET_KEY|SECRET|TOKEN)$/;
+
+/** Drop every credential from a child env (in place) except the names
+ * `allowed` grants. Allowlist, not denylist: a provider key nobody has added
+ * to the lists above is excluded because it was never granted, rather than
+ * inherited because it was never listed. */
+export function applyCredentialAllowlist(
+  env: Record<string, string | undefined>,
+  allowed: Iterable<string> = [],
+): void {
+  const keep = new Set(allowed);
+  for (const key of [...PROVIDER_CREDENTIAL_ENV, ...WORKSPACE_CREDENTIAL_ENV]) {
+    if (!keep.has(key)) delete env[key];
+  }
+  for (const key of Object.keys(env)) {
+    if (!keep.has(key) && CREDENTIAL_ENV_NAME.test(key)) delete env[key];
+  }
+}
+
+/** The only names a `<cli> --version` probe needs. The probe runs a binary the
+ * caller names and reports what it printed, so its env is built from this list
+ * rather than filtered down from ours — anything not here is not a probe's to
+ * see, including whatever credential this process gains next. */
+const CLI_PROBE_ENV = [
+  "PATH", "PATHEXT", "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
+  "SystemRoot", "SystemDrive", "windir", "ComSpec", "TEMP", "TMP", "TMPDIR",
+  "LANG", "LC_ALL", "TZ", "APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMDATA",
+  "NODE_ENV", "SHELL", "USER", "USERNAME", "LOGNAME",
+] as const;
+
+/** Build a CLI probe env from CLI_PROBE_ENV alone. Windows env names are
+ * case-insensitive, so names are matched that way on every platform. */
+export function cliProbeEnvironment(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const wanted = new Map(CLI_PROBE_ENV.map((name) => [name.toUpperCase(), name]));
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (value !== undefined && wanted.has(key.toUpperCase())) env[key] = value;
+  }
+  return env;
+}
+
 /** Merge a partial config into ~/.orbit/config.json (secrets never
  * echoed back — callers report configured-or-not booleans only). */
 export function saveConfig(patch: Partial<AppConfig>): void {

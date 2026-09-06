@@ -409,9 +409,9 @@ export function ensureKimiInjectAlias(
   }
   if (blocks.length) {
     const prefix = text && !text.endsWith("\n") ? `${text}\n\n` : text ? `${text}\n` : "";
-    writeFileSync(path, `${prefix}${blocks.join("\n")}`);
+    writeFileSync(path, `${prefix}${blocks.join("\n")}`, { mode: 0o600 });
   } else if (text !== original) {
-    writeFileSync(path, text);
+    writeFileSync(path, text, { mode: 0o600 });
   }
   return alias;
 }

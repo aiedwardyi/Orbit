@@ -1,3 +1,5 @@
+import { isCompletedTaskRecord, type TaskCompletionShape } from "../shared/task-resume.ts";
+
 import {
   seedTaskResumePacket,
   stampTaskResumePacket,
@@ -10,6 +12,25 @@ export type RecoveryFlushReason = (typeof RECOVERY_FLUSH_REASONS)[number];
 
 export function isRecoveryFlushReason(reason: string): reason is RecoveryFlushReason {
   return (RECOVERY_FLUSH_REASONS as readonly string[]).includes(reason);
+}
+
+/** A reopen only recovers work that was actually left unfinished. An idle
+ *  close stamps a finished conversation too, and calling that an interruption
+ *  hands the model a record that contradicts the request in front of it. */
+export function isRecoveringPacket(
+  packet: (TaskCompletionShape & { flushReason: string }) | null | undefined,
+): boolean {
+  return Boolean(packet && isRecoveryFlushReason(packet.flushReason) && !isCompletedTaskRecord(packet));
+}
+
+/** A delayed dismiss must not overwrite a newer Stop / crash packet. */
+export function shouldStampRecoveryDismiss(
+  current: { updatedAt: number; flushReason: string },
+  requested: { updatedAt?: unknown; flushReason?: unknown },
+): boolean {
+  if (requested.updatedAt !== undefined && requested.updatedAt !== current.updatedAt) return false;
+  if (requested.flushReason !== undefined && requested.flushReason !== current.flushReason) return false;
+  return true;
 }
 
 /** Idle close may offer a reopen strip when a real forever-chat record already

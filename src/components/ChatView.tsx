@@ -348,28 +348,34 @@ function Bubble({
   };
 
   return (
-    <div className={cn("group flex w-full flex-col", user ? "animate-msg-in items-end" : "items-start")}>
-      <div className={cn("flex w-full items-center gap-1.5", user ? "justify-end" : "justify-start")}>
-        {/* editing rewinds the thread, so it waits for the turn to end —
-            same rule as the version switcher below */}
-        {user && message.kind === "text" && !webhookView && !bot.busy && (
-          <button
-            onClick={onStartEdit}
-            aria-label={t("chat.editMessage")}
-            className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-            title={t("chat.editMessage")}
-          >
-            <Pencil size={14} />
-          </button>
-        )}
-        {user && <CopyButton text={visibleText} />}
+    <div
+      className={cn("group flex w-full flex-col outline-none", user ? "animate-msg-in items-end" : "items-start")}
+      tabIndex={-1}
+    >
+      <div className="relative w-fit max-w-[min(42rem,78%)]">
         {user && (
-          <>
+          <div
+            data-message-hover-actions
+            className="pointer-events-none absolute top-1/2 right-full z-20 mr-0.5 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+          >
+            {/* editing rewinds the thread, so it waits for the turn to end —
+                same rule as the version switcher below */}
+            {message.kind === "text" && !webhookView && !bot.busy && (
+              <button
+                onClick={onStartEdit}
+                aria-label={t("chat.editMessage")}
+                className="rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink"
+                title={t("chat.editMessage")}
+              >
+                <Pencil size={14} />
+              </button>
+            )}
+            <CopyButton text={visibleText} className="opacity-100" />
             <button
               type="button"
               onClick={onReply}
               aria-label={t("chat.replyToMessage")}
-              className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+              className="rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink"
               title={t("chat.replyToMessage")}
             >
               <MessageSquareReply size={14} />
@@ -383,16 +389,17 @@ function Bubble({
                 })
               }
               aria-label={bot.pinnedMessageId === message.id ? t("chat.unpinMessage") : t("chat.pinMessage")}
-              className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+              aria-pressed={bot.pinnedMessageId === message.id}
+              className="rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink"
               title={bot.pinnedMessageId === message.id ? t("chat.unpinMessage") : t("chat.pinMessage")}
             >
               {bot.pinnedMessageId === message.id ? <PinOff size={14} /> : <Pin size={14} />}
             </button>
-          </>
+          </div>
         )}
         <div
           className={cn(
-            "w-fit max-w-[min(42rem,78%)] rounded-2xl text-[15px] leading-relaxed",
+            "w-fit max-w-full rounded-2xl text-[15px] leading-relaxed",
             user && webhookView
               ? "overflow-hidden border border-accent/25 bg-card text-ink shadow-[0_10px_30px_rgba(0,0,0,0.18)]"
               : user
@@ -460,25 +467,27 @@ function Bubble({
           )}
         </div>
         {!user && (
-          <>
-            <div className="flex flex-col gap-0.5 self-end pb-0.5">
-              <CopyButton text={text} />
-              {isLastBotText && !bot.busy && onRegenerate && (
-                <button
-                  onClick={onRegenerate}
-                  aria-label={t("chat.regenerate")}
-                  title={t("chat.regenerate")}
-                  className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-                >
-                  <RefreshCw size={14} />
-                </button>
-              )}
-            </div>
+          <div
+            data-message-hover-actions
+            className="pointer-events-none absolute top-1/2 left-full z-20 ml-0.5 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 has-[[data-reaction-picker]]:pointer-events-auto has-[[data-reaction-picker]]:opacity-100"
+          >
+            {message.kind === "text" && <ReactionBar threadId={bot.threadId} message={message} />}
+            <CopyButton text={text} className="opacity-100" />
+            {isLastBotText && !bot.busy && onRegenerate && (
+              <button
+                onClick={onRegenerate}
+                aria-label={t("chat.regenerate")}
+                title={t("chat.regenerate")}
+                className="rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink"
+              >
+                <RefreshCw size={14} />
+              </button>
+            )}
             <button
               type="button"
               onClick={onReply}
               aria-label={t("chat.replyToMessage")}
-              className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+              className="rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink"
               title={t("chat.replyToMessage")}
             >
               <MessageSquareReply size={14} />
@@ -492,23 +501,18 @@ function Bubble({
                 })
               }
               aria-label={bot.pinnedMessageId === message.id ? t("chat.unpinMessage") : t("chat.pinMessage")}
-              className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+              aria-pressed={bot.pinnedMessageId === message.id}
+              className="rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink"
               title={bot.pinnedMessageId === message.id ? t("chat.unpinMessage") : t("chat.pinMessage")}
             >
               {bot.pinnedMessageId === message.id ? <PinOff size={14} /> : <Pin size={14} />}
             </button>
-          </>
+          </div>
         )}
-        <span
-          className={cn(
-            "self-end whitespace-nowrap pb-1 text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100",
-            user ? "order-first mr-1" : "ml-1",
-          )}
-        >
-          {formatTime(message.at)}
-        </span>
       </div>
-      {!user && message.kind === "text" && <ReactionBar threadId={bot.threadId} message={message} />}
+      <span className="mt-0.5 text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+        {formatTime(message.at)}
+      </span>
       {/* busy-gated so a flag stranded by a server restart shows nothing */}
       {user && message.queued && bot.busy && (
         <div className="mt-1 flex items-center gap-1 pr-1 text-[11px] text-ink-secondary/70">

@@ -1,7 +1,7 @@
 {
   "name": "orbit-desktop",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A local-first desktop workspace for AI teammates.",
   "homepage": "https://github.com/aiedwardyi/Orbit",
   "repository": {

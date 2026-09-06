@@ -66,6 +66,7 @@ import {
   type Runtime,
 } from "./container-computer.ts";
 import {
+  cliProbeEnvironment,
   ensureDirs,
   instanceConfigs,
   loadConfig,
@@ -86,7 +87,7 @@ import {
 } from "./config.ts";
 import { ComputerControl } from "./computer-control.ts";
 import { contextWindowFor, knownCatalogContextWindow, prepareModelContext } from "./context-compaction.ts";
-import { augmentedPath, findCliCandidates, resetPathCache } from "./env-path.ts";
+import { augmentedPath, findCliCandidates, resetPathCache, splitCliString } from "./env-path.ts";
 import { describeSpawnFailure, execCli } from "./procs.ts";
 import { buildNotification, type Notification } from "./notify.ts";
 import {
@@ -149,9 +150,11 @@ import {
   stampTaskResumePacket,
 } from "./task-state-fold.ts";
 import {
+  isRecoveringPacket,
   isRecoveryFlushReason,
   lastUserInstruction,
   packetAfterInterruption,
+  shouldStampRecoveryDismiss,
   shutdownStampsForClose,
   turnCompletionDisposition,
   type RecoveryFlushReason,
@@ -205,7 +208,7 @@ import { readCuaConnection } from "./local-computer.ts";
 import { LocalVmIdleTimer } from "./local-vm-idle.ts";
 import { LocalVmLease, LocalVmLeasePool } from "./local-vm-lease.ts";
 import { RepeatDetector, callKey } from "./repeat-detector.ts";
-import { redactSecrets, redactSecretsInText } from "./redact.ts";
+import { redactSecrets, redactSecretsInText, StreamSecretMasker } from "./redact.ts";
 import * as vps from "./vps-computer.ts";
 import { RoutineManager, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
 import { browserScreenshot, readBrowserConnection } from "./browser-connection.ts";
@@ -703,7 +706,7 @@ const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
   const {
     resumeCursors: _resumeCursors,
     activeThreadId: _activeThreadId,
-    lastProjectCwd: _lastProjectCwd,
+    lastProjectCwd,
     tasks,
     ...rest
   } = bot;
@@ -712,6 +715,7 @@ const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
     avatarUrl: rest.avatarUrl ?? null,
     // null, not omitted: a cleared folder must overwrite a stale client cwd
     cwd: rest.cwd ?? null,
+    ...(lastProjectCwd ? { rememberedProjectCwd: lastProjectCwd } : {}),
     ...(tasks ? { tasks: tasks.map(wireTask) } : {}),
   };
 };
@@ -933,12 +937,61 @@ function cursorSeq(raw: string | string[] | undefined): number | null {
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
+// Reasoning and assistant text interleave on one thread, so a shared masker
+// would bleed one stream's held tail into the other.
+const sseDeltaMaskers = new Map<string, Map<string, StreamSecretMasker>>();
+
+function maskRuntimePayload(payload: Record<string, unknown>): Record<string, unknown> {
+  if (payload.kind !== "runtime") return payload;
+  const event = payload.event as { type?: string; threadId?: string; streamKind?: string; delta?: unknown } | undefined;
+  if (event?.type !== "content.delta" || typeof event.delta !== "string" || !event.threadId) return payload;
+  let byKind = sseDeltaMaskers.get(event.threadId);
+  if (!byKind) {
+    byKind = new Map();
+    sseDeltaMaskers.set(event.threadId, byKind);
+  }
+  const streamKind = event.streamKind ?? "assistant_text";
+  let masker = byKind.get(streamKind);
+  if (!masker) {
+    masker = new StreamSecretMasker();
+    byKind.set(streamKind, masker);
+  }
+  return { ...payload, event: { ...event, delta: masker.push(event.delta) } };
+}
+
+function flushSseDeltaMaskers(threadId: string): Array<{ streamKind: string; tail: string }> {
+  const byKind = sseDeltaMaskers.get(threadId);
+  if (!byKind) return [];
+  sseDeltaMaskers.delete(threadId);
+  return [...byKind].flatMap(([streamKind, masker]) => {
+    const tail = masker.flush();
+    return tail ? [{ streamKind, tail }] : [];
+  });
+}
+
 function broadcast(payload: Record<string, unknown>) {
+  const kind = String(payload.kind ?? "");
+  if (kind === "runtime") {
+    const event = payload.event as { type?: string; threadId?: string } | undefined;
+    if (event?.threadId && event.type !== "content.delta") {
+      for (const { streamKind, tail } of flushSseDeltaMaskers(event.threadId)) {
+        writeBroadcastFrame({
+          kind: "runtime",
+          event: { ...event, type: "content.delta", streamKind, delta: tail },
+        }, true);
+      }
+    }
+  }
+  writeBroadcastFrame(payload);
+}
+
+function writeBroadcastFrame(payload: Record<string, unknown>, alreadyMasked = false) {
   const seq = ++lastSeq;
   const kind = String(payload.kind ?? "");
   // Screen frames are live pixels, not text — leave them alone. Everything
   // else is JSON the renderer (and a pasted log) can read, so scrub first.
-  const safe = kind === "screen" ? payload : redactSecrets(payload) as Record<string, unknown>;
+  const streamSafe = kind === "screen" || alreadyMasked ? payload : maskRuntimePayload(payload);
+  const safe = kind === "screen" ? streamSafe : redactSecrets(streamSafe) as Record<string, unknown>;
   const frame = `id: ${STREAM_ID}:${seq}\ndata: ${JSON.stringify({ ...safe, seq })}\n\n`;
   // Live desktop captures can each be hundreds of kilobytes and become stale
   // as soon as the next one arrives. Keep their sequence slots so resume-gap
@@ -2373,7 +2426,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   }
 
   const priorTaskPacket = taskPacketForWrite(threadId);
-  const recovering = priorTaskPacket !== null && isRecoveryFlushReason(priorTaskPacket.flushReason);
+  const recovering = isRecoveringPacket(priorTaskPacket);
   if (!opts?.cardContinuation && text.trim()) {
     const packet = priorTaskPacket
       ? recordTaskInstruction(priorTaskPacket, {
@@ -2414,7 +2467,9 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   const latestUser = lastUserInstruction(activeMessages.filter((message) => !skipTranscript.has(message.id)));
   // Recovery Current request must be this send's text. skipTranscript excludes
   // userMessage.id, so transcript lookup alone would show a prior user turn.
-  const recoveryLatestUserText = text.trim() || latestUser?.text || "";
+  // A Resume card carries no request of its own, so it falls back to the turn
+  // the interruption cut short.
+  const recoveryLatestUserText = (opts?.cardContinuation ? "" : text.trim()) || latestUser?.text || "";
   const durableTaskRecordText = taskRecord
     ? taskRecordBlock(
       taskRecord,
@@ -2545,6 +2600,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     taskRecordText: durableTaskRecordText || undefined,
     contextCapped: contextCompacted,
     recovering,
+    currentRequestText: recoveryLatestUserText,
   });
   const resumeFallback = buildResumeFallback({
     text: currentPrompt,
@@ -2628,12 +2684,15 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       // pin the task to the default so the header chip never shows the
       // bot's folder for a task that runs elsewhere.
       // Routines, card continuations, and bot-to-bot hops are not the user
-      // naming a folder — only ordinary chat lines count as cues.
+      // naming a folder — only ordinary chat lines count as cues. That
+      // covers this thread's history too: a Resume must not re-remember the
+      // folder its own chat named before the user cleared it.
       const namedByUser = !opts?.cardContinuation && !opts?.automationSource && !opts?.commsDepth;
       const resolvedProject = worksInWorkspace && opts?.runOn !== "cloud"
         ? applyResolvedProjectFolder({
             pin: bot.cwd,
             remembered: bot.lastProjectCwd,
+            continuation: !namedByUser,
             userTexts: userProjectTexts(store.messagesFor(threadId), namedByUser ? text : undefined),
             recentPaths: projectPathsFromRecords({ bots: store.bots, groups: store.groups }),
             remember: (cwd) => store.rememberProjectCwd(bot.id, cwd),
@@ -3015,12 +3074,12 @@ function routineSourceThread(run: RoutineRun): string | null {
 
 function routineRunCard(run: RoutineRun): NonNullable<Message["routineRun"]> {
   const visibleSummary = run.status === "waiting" ? run.attention : run.output;
-  const summary = visibleSummary ? redactSecretsInText(visibleSummary).slice(0, 2_000) : undefined;
-  const error = run.error ? redactSecretsInText(run.error).slice(0, 500) : undefined;
+  const summary = visibleSummary ? visibleSummary.slice(0, 2_000) : undefined;
+  const error = run.error ? run.error.slice(0, 500) : undefined;
   const card: NonNullable<Message["routineRun"]> = {
     runId: run.id,
     routineId: run.routineId,
-    routineName: redactSecretsInText(run.routineName),
+    routineName: run.routineName,
     status: run.status,
   };
   if (run.threadId) card.executionThreadId = run.threadId;
@@ -3517,7 +3576,7 @@ async function runClaimedGroupMemberTurn(
   const taskRecord = taskPacketForWrite(threadId);
   const taskRecordToFlush = taskRecord;
   const modelContextWindow = contextWindowFor(instance.models, selection.model);
-  const recovering = taskRecord !== null && isRecoveryFlushReason(taskRecord.flushReason);
+  const recovering = isRecoveringPacket(taskRecord);
   const latestUser = lastUserInstruction(store.activePath(threadId));
   const durableTaskRecordText = taskRecord
     ? taskRecordBlock(
@@ -4196,10 +4255,13 @@ bus.subscribe((event: RuntimeEvent) => {
  * version line, or a fail the UI can act on — ENOENT on a GUI-launched app
  * usually means "not on the app's PATH", the exact mistake this catches
  * before the override is saved. */
-async function testCliBinary(
-  cli: string,
-  driver: (typeof BUILT_IN_DRIVERS)[number] | undefined,
-): Promise<{ ok: boolean; version?: string; message?: string; install?: (typeof BUILT_IN_DRIVERS)[number]["install"] }> {
+async function testCliBinary(cli: string, driver: (typeof BUILT_IN_DRIVERS)[number] | undefined): Promise<CliProbe> {
+  const invalid = probeCommandError(cli);
+  if (invalid) {
+    const failure: CliProbe = { ok: false, message: invalid };
+    if (driver?.install) failure.install = driver.install;
+    return failure;
+  }
   return new Promise((resolve) => {
     execCli(
       cli,
@@ -4211,7 +4273,7 @@ async function testCliBinary(
         // HTTP socket forever. maxBuffer bounds a chatty --version too.
         killSignal: "SIGKILL",
         maxBuffer: 1024 * 64,
-        env: cliProbeEnvironment(),
+        env: { ...cliProbeEnvironment(), PATH: augmentedPath() },
       },
       (err, stdout) => {
         if (err) {
@@ -4232,30 +4294,58 @@ async function testCliBinary(
           resolve({ ok: false, message, ...(driver?.install && isSpawnError ? { install: driver.install } : {}) });
           return;
         }
-        resolve({ ok: true, version: stdout.trim().split("\n")[0] });
+        // one redacted, bounded line: whatever the caller pointed this at, the
+        // response is a version string, not a window into the child's output
+        resolve({ ok: true, version: redactSecretsInText(stdout.trim().split("\n")[0] ?? "").slice(0, PROBE_VERSION_MAX) });
       },
     );
   });
 }
 
-/** A pre-save probe only needs PATH. Never hand credentials inherited by the
- * desktop/server process to an arbitrary wrapper selected through Settings. */
-function cliProbeEnvironment(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, PATH: augmentedPath() };
-  for (const key of [
-    "XAI_API_KEY",
-    "BOX_TOKEN",
-    "OPENCODE_API_KEY",
-    "COMPOSIO_API_KEY",
-    "OMB_COMPOSIO_BROKER_TOKEN",
-    "OMB_TTS_KEY",
-    "OMB_OPENAI_IMAGE_KEY",
-    "ANTHROPIC_API_KEY",
-    "OPENAI_API_KEY",
-  ]) {
-    delete env[key];
+interface CliProbe {
+  ok: boolean;
+  version?: string;
+  message?: string;
+  install?: (typeof BUILT_IN_DRIVERS)[number]["install"];
+}
+
+/** A version line, not a transcript. */
+const PROBE_VERSION_MAX = 200;
+
+/** What a wrapper's fixed argument looks like: a subcommand, a flag, or a
+ * path. An inline script payload needs characters no engine subcommand has —
+ * spaces, quotes, parentheses, `;`, `|`, `$`. */
+const PROBE_ARG = /^[A-Za-z0-9._@:+=/\\-]+$/;
+
+/** A file an interpreter would execute. `node x.mjs` reads as a plain path to
+ * the rule above, so the extension is what separates a wrapper's subcommand
+ * from a script handed to this route to run. Renaming a script defeats it —
+ * this narrows the endpoint, it does not seal it; the child env allowlist and
+ * the redacted, bounded output are what make the run uninteresting. */
+const PROBE_SCRIPT_ARG = /\.(js|mjs|cjs|ts|mts|cts|jar|sh|bash|zsh|fish|py|rb|pl|php|lua|ps1|psm1|bat|cmd|vbs)$/i;
+
+/** Reject a `cli` this route must not run, wording the failure the way a
+ * failed spawn would. Two rules: the command has to be a real executable, and
+ * its fixed arguments have to be a wrapper's own — literal subcommands, flags,
+ * or non-script paths. `sh -c "<anything>"` and `node ./x.mjs` both fail the
+ * second one, and those are the shapes that turn a pre-save probe into a
+ * general-purpose command runner. */
+function probeCommandError(cli: string): string | null {
+  const notInstalled = (name: string) => {
+    const enoent: NodeJS.ErrnoException = new Error(`spawn ${name} ENOENT`);
+    enoent.code = "ENOENT";
+    return describeSpawnFailure(enoent, name).message;
+  };
+  const [command, ...fixed] = splitCliString(cli);
+  if (!command) return notInstalled(cli);
+  // findCliCandidates resolves a bare name on the augmented PATH and echoes a
+  // path-ish one back unchecked, so the existsSync covers both spellings
+  const [resolved] = findCliCandidates(command);
+  if (!resolved || !existsSync(resolved)) return notInstalled(command);
+  if (fixed.some((arg) => PROBE_SCRIPT_ARG.test(arg) || !(PROBE_ARG.test(arg) || existsSync(arg)))) {
+    return `\`${cli}\` is not a CLI path — a fixed argument may be a flag, a subcommand, or a non-script path`;
   }
-  return env;
+  return null;
 }
 
 /** execFile's error carries the child's stderr in .stderr. */
@@ -7015,8 +7105,17 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!conversation) return json(res, 404, { error: "no such task" });
       const task = conversation.group ? undefined : store.taskByThread(bot.id, m[2]);
       if (!conversation.group && !task) return json(res, 404, { error: "no such task" });
+      const body = await readBody(req);
+      if (body !== null && (typeof body !== "object" || Array.isArray(body))) {
+        return json(res, 400, { error: "body must be a JSON object" });
+      }
+      // read after the await: an earlier snapshot is compared against a packet a
+      // concurrent Stop may already have replaced, and then overwrites it
       const packet = taskPacketForWrite(m[2]);
       if (!packet) return json(res, 404, { error: "this task has no saved record" });
+      if (!shouldStampRecoveryDismiss(packet, body ?? {})) {
+        return json(res, 200, { ok: true, skipped: true });
+      }
       const saved = persistTaskPacket(stampTaskResumePacket(packet, "progress", {
         now: Date.now(),
         turnsAtWrite: task?.usage?.turns ?? packet.turnsAtWrite,
@@ -7286,9 +7385,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const cli = typeof body?.cli === "string" ? body.cli.trim() : "";
       if (!cli || /[\n\r]/.test(cli)) return json(res, 400, { error: "cli must be a non-empty path" });
       const driver = typeof body?.driver === "string" ? BUILT_IN_DRIVERS.find((d) => d.driverKind === body.driver) : undefined;
-      // Probe the exact configured wrapper plus --version. testCliBinary uses
-      // a credential-redacted environment, so fixed wrapper arguments cannot
-      // turn this endpoint into an inherited-secret reader.
+      // Probe the exact configured wrapper plus --version. The child env is
+      // built from an allowlist and the probe refuses a scripted argument, so
+      // this endpoint cannot be steered into reading an inherited secret back
+      // out through its own response.
       const probe = await testCliBinary(cli, driver);
       return json(res, 200, probe);
     }

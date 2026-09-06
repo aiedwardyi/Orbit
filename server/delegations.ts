@@ -20,6 +20,7 @@ import { getOrCreateChannel, mirrorExchange, type CommsBus } from "./comms-visib
 import { DATA_DIR } from "./config.ts";
 import { newId } from "./contracts.ts";
 import { requestPeerApproval, type ApprovalBus } from "./peer-approval.ts";
+import { redactSecretsInText } from "./redact.ts";
 import type { BotRecord, GroupRecord, Message } from "./store.ts";
 
 export interface DelegationItem {
@@ -118,7 +119,7 @@ export function recordDelegationReceipt(receipt: Omit<DelegationReceipt, "finish
     status: receipt.status,
     finishedAt: receipt.finishedAt ?? now,
   };
-  if (receipt.result !== undefined) bounded.result = receipt.result.slice(0, RESULT_MAX_CHARS);
+  if (receipt.result !== undefined) bounded.result = redactSecretsInText(receipt.result).slice(0, RESULT_MAX_CHARS);
   receipts = [bounded, ...receipts.filter((existing) => existing.id !== bounded.id)]
     .filter((existing) => now - existing.finishedAt <= RECEIPT_MAX_AGE_MS)
     .slice(0, MAX_RECEIPTS);
@@ -270,7 +271,17 @@ export function queueDelegation(
   // and fan out into as many real turns on the next settle.
   if (list.length >= MAX_QUEUED_PER_THREAD) return { result: "too_many" };
   const id = newId();
-  list.push({ ...item, id, fromBotId: from.id, attempts: 0 });
+  // The handoff prompt and its label are bot-authored and outlive the turn on
+  // disk — scrub them the way the transcript copy of the same strings is.
+  const queued: PendingDelegationItem = {
+    ...item,
+    message: redactSecretsInText(item.message),
+    id,
+    fromBotId: from.id,
+    attempts: 0,
+  };
+  if (queued.reason !== undefined) queued.reason = redactSecretsInText(queued.reason);
+  list.push(queued);
   pendingDelegations.set(sourceThreadId, list);
   savePending();
   const label = `Delegated to @${target.name}${item.reason ? `: ${item.reason}` : ""}`;

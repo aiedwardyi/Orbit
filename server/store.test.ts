@@ -1193,6 +1193,35 @@ describe("Store redacts bot-authored secrets on write", () => {
     const again = new Store(selection);
     expect(again.messagesFor(bot.threadId).find((m) => m.id === reply.id)?.text).not.toContain(key);
   });
+
+  it("masks a card's tool line and its options", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const key = `sk-ant-api03-${"abcdefghijklmnopqrstuvwxyz0123456789"}`;
+    const card = store.appendMessage(bot.threadId, {
+      role: "bot",
+      kind: "options",
+      card: { title: "Run this?", subtitle: "", options: [`Retry with ${key}`, "Cancel"], tool: `Bash: curl -H "Authorization: Bearer ${key}"` },
+    });
+    expect(card.card?.tool).not.toContain(key);
+    expect(card.card?.options.join(" ")).not.toContain(key);
+    expect(card.card?.options[1]).toBe("Cancel");
+  });
+
+  it("masks on patchMessage too, on disk and not just on the wire", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const key = `sk-ant-api03-${"abcdefghijklmnopqrstuvwxyz0123456789"}`;
+    const seed = store.appendMessage(bot.threadId, { role: "bot", kind: "text", text: "working" });
+    const patched = store.patchMessage(bot.threadId, seed.id, { text: `Done, used ${key}` });
+    expect(patched?.text).not.toContain(key);
+    expect(patched?.text).toContain("«redacted");
+    const again = new Store(selection);
+    expect(again.messagesFor(bot.threadId).find((m) => m.id === seed.id)?.text).not.toContain(key);
+    // a patch to what the USER said is still theirs
+    const mine = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "hi" });
+    expect(store.patchMessage(bot.threadId, mine.id, { text: `use ${key}` })?.text).toContain(key);
+  });
 });
 
 describe("Store task usage", () => {
@@ -1359,6 +1388,46 @@ describe("Store remembered project folder", () => {
     } finally {
       rmSync(remembered, { recursive: true, force: true });
       rmSync(pinned, { recursive: true, force: true });
+    }
+  });
+
+  it("Resume after Clear does not rebuild the remembered folder from chat history", () => {
+    const project = mkdtempSync(join(tmpdir(), "omb-project-"));
+    try {
+      const store = new Store(selection);
+      const bot = store.createBot();
+      const history = [`work in ${project}`, "keep going"];
+
+      // the chat that named the folder, then Clear
+      applyResolvedProjectFolder({
+        pin: store.bot(bot.id)?.cwd,
+        remembered: store.bot(bot.id)?.lastProjectCwd,
+        userTexts: history,
+        remember: (cwd) => store.rememberProjectCwd(bot.id, cwd),
+        forget: () => store.forgetProjectCwd(bot.id),
+      });
+      expect(store.bot(bot.id)?.lastProjectCwd).toBe(project);
+      store.patchBot(bot.id, { cwd: undefined });
+      expect(store.bot(bot.id)?.lastProjectCwd).toBeUndefined();
+
+      // Resume: the synthetic prompt is excluded, but the history is not
+      const resumed = applyResolvedProjectFolder({
+        pin: store.bot(bot.id)?.cwd,
+        remembered: store.bot(bot.id)?.lastProjectCwd,
+        continuation: true,
+        userTexts: history,
+        remember: (cwd) => store.rememberProjectCwd(bot.id, cwd),
+        forget: () => store.forgetProjectCwd(bot.id),
+      });
+      expect(resumed).toBeUndefined();
+      expect(store.bot(bot.id)?.lastProjectCwd).toBeUndefined();
+
+      const next = store.createTask(bot.id, "after-resume")!;
+      expect(
+        store.pinTaskCwd(bot.id, next.threadId, store.bot(bot.id)?.lastProjectCwd ?? "/private/bot-workspace"),
+      ).toBe("/private/bot-workspace");
+    } finally {
+      rmSync(project, { recursive: true, force: true });
     }
   });
 

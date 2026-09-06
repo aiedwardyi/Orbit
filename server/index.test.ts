@@ -67,6 +67,7 @@ const storedTaskPacket = (threadId: string) => z.object({
   artifacts: z.array(z.object({ ref: z.string(), label: z.string() })),
   blockers: z.array(z.object({ kind: z.string(), note: z.string() })),
   nextAction: z.string(),
+  updatedAt: z.number(),
   updatedBy: z.enum(["harness", "bot"]),
   flushReason: z.string(),
   turnsAtWrite: z.number(),
@@ -266,6 +267,11 @@ beforeAll(async () => {
       OMB_SSE_HEARTBEAT_MS: "50",
       FAKE_CLAUDE_MODE: "hang",
       FAKE_CLAUDE_DUMP: fakeClaudeDump,
+      // credentials the desktop shell could have injected at boot: one the
+      // known lists name, one nobody has added yet. Neither is any spawned
+      // child's to read (see the /api/cli-test probe test).
+      MINIMAX_API_KEY: "minimax-must-not-leak",
+      ACME_API_KEY: "acme-must-not-leak",
       // every settling fake turn also reports the account's subscription windows
       FAKE_CLAUDE_RATE_LIMITS: "1",
     },
@@ -2355,6 +2361,60 @@ describe("harness HTTP API", () => {
         const packet = state?.tasks?.find((task: { threadId: string }) => task.threadId === bot.threadId)?.taskState;
         return state?.busy === false && packet?.flushReason === "turn-end";
       }).toBe(true);
+    } finally {
+      await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
+  it("ignores a delayed recovery dismiss aimed at an older packet", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    const packetPath = join(home, ".orbit", "task-state", `${bot.threadId}.json`);
+    try {
+      const instances = z.array(z.object({
+        instanceId: z.string(),
+        models: z.object({ default: z.string() }),
+      }).passthrough()).parse((await api("GET", "/api/instances")).body.instances);
+      const happy = instances.find((instance) => instance.instanceId === "claudeHappy");
+      if (!happy) throw new Error("fixture instance unavailable");
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claudeHappy", model: happy.models.default },
+      })).status).toBe(200);
+
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "First pass" })).status).toBe(202);
+      await expect.poll(() => existsSync(packetPath) && storedTaskPacket(bot.threadId).flushReason).toBe("turn-end");
+      const older = storedTaskPacket(bot.threadId);
+
+      // another window continues the task while the first window's dismiss is still in flight
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "Second pass" })).status).toBe(202);
+      await expect.poll(async () => {
+        const state = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+          (candidate: { id: string }) => candidate.id === bot.id,
+        );
+        const packet = storedTaskPacket(bot.threadId);
+        return state?.busy === false && packet.flushReason === "turn-end" && packet.updatedAt > older.updatedAt;
+      }).toBe(true);
+      const newer = storedTaskPacket(bot.threadId);
+
+      const late = await api("POST", `/api/bots/${bot.id}/tasks/${bot.threadId}/recovery`, {
+        updatedAt: older.updatedAt,
+        flushReason: older.flushReason,
+      });
+      expect(late.status).toBe(200);
+      expect(late.body).toMatchObject({ skipped: true });
+      expect(storedTaskPacket(bot.threadId)).toMatchObject({
+        updatedAt: newer.updatedAt,
+        flushReason: newer.flushReason,
+      });
+
+      // the dismiss that names the live packet still lands
+      const current = await api("POST", `/api/bots/${bot.id}/tasks/${bot.threadId}/recovery`, {
+        updatedAt: newer.updatedAt,
+        flushReason: newer.flushReason,
+      });
+      expect(current.status).toBe(200);
+      expect(current.body).not.toHaveProperty("skipped");
+      expect(storedTaskPacket(bot.threadId).flushReason).toBe("progress");
     } finally {
       await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
       await api("DELETE", `/api/bots/${bot.id}`);
@@ -4488,6 +4548,14 @@ describe("resumable event stream", () => {
   });
 });
 
+/** A probe target spawnable as itself: POSIX honours the shebang, and win32
+ * resolveCliSpawn parses it into `node <script>`. */
+const writeProbeWrapper = (name: string, body: string): string => {
+  const script = join(home, `${name}.mjs`);
+  writeFileSync(script, `#!/usr/bin/env node\n${body}`, { mode: 0o755 });
+  return script;
+};
+
 describe("instance CLI override API", () => {
   it("round-trips a set, clear, and rejects bad input", async () => {
     // ghost is the fixture's one shadow instance (unknown driver)
@@ -4523,21 +4591,52 @@ describe("instance CLI override API", () => {
   });
 
   it("probes the complete wrapper with fixed arguments and no inherited credentials", async () => {
-    const script = join(home, "cli-wrapper-probe.mjs");
-    writeFileSync(
-      script,
+    const script = writeProbeWrapper(
+      "cli-wrapper-probe",
       `if (process.argv.slice(2).join(" ") !== "fixed --version") process.exit(9);\nif (process.env.COMPOSIO_API_KEY) process.exit(8);\nconsole.log("wrapper-ok");\n`,
     );
-    const cli = `${JSON.stringify(process.execPath)} ${JSON.stringify(script)} fixed`;
+    const cli = `${JSON.stringify(script)} fixed`;
     const res = await api("POST", "/api/cli-test", { cli });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ ok: true, version: "wrapper-ok" });
   });
 
+  it("gives the probe child no credential, known or not, and never echoes one back", async () => {
+    const script = writeProbeWrapper(
+      "cli-credential-probe",
+      `const names = Object.keys(process.env).filter((k) => /key|token|secret/i.test(k));\n` +
+        `console.log(names.length ? "leaked " + names.sort().join(",") : "no-credentials");\n`,
+    );
+    const cli = JSON.stringify(script);
+    const res = await api("POST", "/api/cli-test", { cli });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, version: "no-credentials" });
+  });
+
+  it("still probes a bare CLI name resolved on the augmented PATH", async () => {
+    // the probe validates the command before spawning it; a bare name is the
+    // shape every default engine config uses
+    const res = await api("POST", "/api/cli-test", { cli: "node" });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, version: process.version });
+  });
+
+  it("refuses a scripted argument instead of running it as a probe", async () => {
+    const inline = `${JSON.stringify(process.execPath)} -e "console.log(1)"`;
+    // the same capability spelled as a path, which reads as an ordinary
+    // argument — the extension is the only thing that rejects it
+    const onDisk = `${JSON.stringify(process.execPath)} ${JSON.stringify(writeProbeWrapper("cli-inert", ""))}`;
+    for (const cli of [inline, onDisk]) {
+      const res = await api("POST", "/api/cli-test", { cli });
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(false);
+      expect(res.body.message).toContain("non-script path");
+    }
+  });
+
   it("reports excessive probe output without presenting install guidance", async () => {
-    const script = join(home, "cli-noisy-probe.mjs");
-    writeFileSync(script, `process.stdout.write("x".repeat(70 * 1024));\n`);
-    const cli = `${JSON.stringify(process.execPath)} ${JSON.stringify(script)}`;
+    const script = writeProbeWrapper("cli-noisy-probe", `process.stdout.write("x".repeat(70 * 1024));\n`);
+    const cli = JSON.stringify(script);
     const res = await api("POST", "/api/cli-test", { cli, driver: "claudeAgent" });
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(false);

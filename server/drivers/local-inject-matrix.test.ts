@@ -2,7 +2,7 @@
 // model-id dialects those CLIs actually speak. Catches day-one failures
 // like Hermes auto-routing to OpenRouter (HTTP 401 Missing Authentication
 // header) before a user hits them.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -567,6 +567,52 @@ describe("Pi writer × hosts", () => {
       provider: "ollama-cloud",
       modelId: "glm-5.2",
     });
+  });
+});
+
+// Every one of these files ends up holding a provider api key.
+describe("local-inject writers keep their config 0600", () => {
+  const env = { UNSLOTH_STUDIO_AUTH_TOKEN: "unsloth-secret" };
+  const id = encodeInjectId("omlx", "gemma-4-31b-it-bf16");
+  const writers: Array<[string, (home: string) => string]> = [
+    ["grok", (home) => {
+      mkdirSync(join(home, ".grok"), { recursive: true });
+      ensureGrokInjectSlug(id, { ...env, HOME: home });
+      return join(home, ".grok", "config.toml");
+    }],
+    ["kimi", (home) => {
+      mkdirSync(join(home, ".kimi-code"), { recursive: true });
+      ensureKimiInjectAlias(id, { ...env, HOME: home });
+      return join(home, ".kimi-code", "config.toml");
+    }],
+    ["droid", (home) => {
+      mkdirSync(join(home, ".factory"), { recursive: true });
+      ensureDroidInjectModel(id, { ...env, HOME: home });
+      return join(home, ".factory", "settings.json");
+    }],
+    ["hermes", (home) => {
+      mkdirSync(join(home, ".hermes"), { recursive: true });
+      ensureHermesInjectProvider(id, { ...env, HOME: home });
+      return join(home, ".hermes", "config.yaml");
+    }],
+    ["opencode", (home) => {
+      ensureOpenCodeInjectModel(id, { ...env, HOME: home });
+      return join(home, ".config", "opencode", "opencode.json");
+    }],
+    ["qwen", (home) => {
+      mkdirSync(join(home, ".qwen"), { recursive: true });
+      ensureQwenInjectModel(id, { ...env, HOME: home });
+      return join(home, ".qwen", "settings.json");
+    }],
+    ["pi", (home) => {
+      ensurePiInjectModel(id, { ...env, HOME: home });
+      return join(home, ".pi", "agent", "models.json");
+    }],
+  ];
+
+  it.skipIf(process.platform === "win32").each(writers)("%s", (name, write) => {
+    const written = write(scratchHome(`omb-mode-${name}-`));
+    expect(statSync(written).mode & 0o777).toBe(0o600);
   });
 });
 

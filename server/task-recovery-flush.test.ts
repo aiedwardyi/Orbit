@@ -6,8 +6,10 @@ import { describe, expect, it } from "vitest";
 import { isCompletedTaskRecord } from "../shared/task-resume.ts";
 import {
   idleReopenStampReason,
+  isRecoveringPacket,
   lastUserInstruction,
   packetAfterInterruption,
+  shouldStampRecoveryDismiss,
   shutdownStampsForClose,
   turnCompletionDisposition,
 } from "./task-recovery-flush.ts";
@@ -125,6 +127,22 @@ describe("normal-reopen shutdown stamps", () => {
     })).toBeNull();
   });
 
+  it("does not call an ordinary reopen of a finished conversation an interruption", () => {
+    const finished = stampTaskResumePacket(
+      recordTaskCompletion(seed(), { ok: true, reply: "Prepared the brief.", now: 200 }),
+      "shutdown",
+      { now: 300 },
+    );
+    const interrupted = stampTaskResumePacket(seed(), "shutdown", { now: 300 });
+
+    expect(isCompletedTaskRecord(finished)).toBe(true);
+    expect(isRecoveringPacket(finished)).toBe(false);
+    expect(isRecoveringPacket(interrupted)).toBe(true);
+    expect(isRecoveringPacket(stampTaskResumePacket(seed(), "stop", { now: 300 }))).toBe(true);
+    expect(isRecoveringPacket(seed())).toBe(false);
+    expect(isRecoveringPacket(null)).toBe(false);
+  });
+
   it("does not invent a record for empty or new bots, or re-nag a dismissed thread", () => {
     expect(idleReopenStampReason(null)).toBeNull();
     expect(idleReopenStampReason(progress)).toBeNull();
@@ -214,6 +232,31 @@ describe("turn completion disposition after stop", () => {
       interruptedAt: 2,
       dispatchedAt: 3,
     })).toEqual({ superseded: true, interrupted: true });
+  });
+
+  it("stamps a recovery dismiss only when the posted version still matches", () => {
+    const current = { updatedAt: 200, flushReason: "shutdown" };
+    expect(shouldStampRecoveryDismiss(current, { updatedAt: 200, flushReason: "shutdown" })).toBe(true);
+    expect(shouldStampRecoveryDismiss(current, {})).toBe(true);
+    expect(shouldStampRecoveryDismiss(current, { updatedAt: 199, flushReason: "shutdown" })).toBe(false);
+    expect(shouldStampRecoveryDismiss(current, { updatedAt: 200, flushReason: "stop" })).toBe(false);
+    expect(indexSource).toContain("shouldStampRecoveryDismiss");
+  });
+
+  it("refuses a version claim it cannot verify instead of ignoring the field", () => {
+    const current = { updatedAt: 200, flushReason: "shutdown" };
+    for (const updatedAt of ["200", null, true, [200]]) {
+      expect(shouldStampRecoveryDismiss(current, { updatedAt })).toBe(false);
+    }
+    for (const flushReason of [200, null, true, ["shutdown"]]) {
+      expect(shouldStampRecoveryDismiss(current, { flushReason })).toBe(false);
+    }
+  });
+
+  it("reads the recovery packet after the request body, not before the await", () => {
+    const route = indexSource.slice(indexSource.indexOf("recovery$/"));
+    const handler = route.slice(0, route.indexOf("shouldStampRecoveryDismiss"));
+    expect(handler.indexOf("await readBody(req)")).toBeLessThan(handler.indexOf("taskPacketForWrite"));
   });
 
   it("falls back to interruption time when the event carries no turn id", () => {

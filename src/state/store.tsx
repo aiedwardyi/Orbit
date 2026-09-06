@@ -217,6 +217,9 @@ export interface TaskResumePacket {
   artifacts: Array<{ ref: string; label: string }>;
   blockers: Array<{ kind: "approval" | "login" | "input" | "engine"; note: string }>;
   nextAction: string;
+  /** newest instruction, and the one the newest completion settled */
+  instructionId?: string;
+  settledInstructionId?: string;
   updatedAt: number;
   updatedBy: "harness" | "bot";
   flushReason: "turn-end" | "progress" | "approval" | "stop" | "engine-switch" | "crash" | "pre-compaction" | "shutdown";
@@ -266,6 +269,8 @@ export interface Bot {
   autoStartVps?: boolean;
   /** where new tasks run their shell tools; absent/null = the private bot workspace */
   cwd?: string | null;
+  /** Chat-named folder remembered for the next task; this task's cwd stays. */
+  rememberedProjectCwd?: string;
   /** auto mode: the bot approves its own tool permissions */
   autoApprove?: boolean;
   /** optional model review for otherwise undecided, attended approvals */
@@ -2095,7 +2100,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           break;
         }
         case "dismissTaskRecovery":
-          api(`/api/bots/${action.botId}/tasks/${action.threadId}/recovery`, { method: "POST" }).catch(showError);
+          api(`/api/bots/${action.botId}/tasks/${action.threadId}/recovery`, {
+            method: "POST",
+            body: JSON.stringify({ updatedAt: action.updatedAt, flushReason: action.flushReason }),
+          }).catch(showError);
           break;
         // tasks: the server answers with the bot AND the live transcript,
         // because switching changes which conversation is on screen

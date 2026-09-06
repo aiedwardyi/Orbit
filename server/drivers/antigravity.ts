@@ -23,7 +23,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 
-import { DATA_DIR, stripWorkspaceCredentialEnv } from "../config.ts";
+import { applyCredentialAllowlist, DATA_DIR } from "../config.ts";
 import { computerProxyEnv } from "../container-computer.ts";
 import { augmentedPath } from "../env-path.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
@@ -77,10 +77,10 @@ export const STATIC_ANTIGRAVITY_MODELS: ModelCatalog = {
 
 function antigravityEnvironment(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, PATH: augmentedPath(), ...overrides };
-  // The harness process may hold workspace credentials injected by the
-  // desktop shell. Antigravity uses its own login, so none belong in any of
-  // its turn, snapshot, or helper children.
-  stripWorkspaceCredentialEnv(env);
+  // Antigravity uses its own login, so it is granted no credential at all —
+  // not the workspace secrets the desktop shell injects, not another
+  // provider's key, in any of its turn, snapshot, or helper children.
+  applyCredentialAllowlist(env);
   return env;
 }
 

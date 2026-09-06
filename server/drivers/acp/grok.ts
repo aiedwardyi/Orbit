@@ -176,7 +176,7 @@ export function ensureGrokInjectSlug(
     "",
   ].join("\n");
   const next = text && !text.endsWith("\n") ? `${text}\n\n${block}` : `${text}${text ? "\n" : ""}${block}`;
-  writeFileSync(path, next);
+  writeFileSync(path, next, { mode: 0o600 });
   return slug;
 }
 

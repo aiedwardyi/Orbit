@@ -255,6 +255,13 @@ let serverReady = !app.isPackaged;
 let packagedBootPhase = BOOT_CONNECTING;
 let secureCredentials = {};
 let secureCredentialState = null;
+// The forked server's copy, taken once at boot: credentials.bin PLUS any
+// plaintext still sitting in config.json. It stays separate from
+// secureCredentials on purpose. The post-reveal migrations decide whether to
+// write credentials.bin by comparing config.json against secureCredentials,
+// so folding absorbed plaintext into that document makes them skip the
+// encrypted write while the config rewrite deletes the only copy.
+let childEnvCredentials = {};
 
 const CREDENTIALS_FILE = path.join(app.getPath("userData"), "credentials.bin");
 
@@ -302,6 +309,21 @@ function absorbPackagedPlaintextSecrets(credentials) {
   }
 }
 
+/** Boot credential bring-up, in the order the packaged app needs it: the
+ * child env takes the absorbed plaintext, the serialized document takes only
+ * what credentials.bin actually holds. Exported — and returning the opened
+ * document — so that order is testable without an Electron runtime; getting
+ * it wrong deletes user secrets. */
+export function openSecureCredentialDocument(stored) {
+  childEnvCredentials = app.isPackaged ? absorbPackagedPlaintextSecrets(stored) : stored;
+  // An unreadable store must not become a WRITE of an empty document.
+  secureCredentialState = createSecureCredentialState(stored, saveSecureCredentials, {
+    writable: !credentialStoreUnavailable,
+  });
+  secureCredentials = secureCredentialState.read();
+  return secureCredentials;
+}
+
 async function persistMigratedCredentials(credentials) {
   if (secureCredentialState) {
     await updateSecureCredentialDocument(() => credentials);
@@ -328,7 +350,7 @@ async function saveSecureCredentials(credentials) {
   fs.renameSync(temporary, CREDENTIALS_FILE);
 }
 
-async function secureComposioConfig() {
+export async function secureComposioConfig() {
   const dataDir = process.env.OMB_DATA_DIR || path.join(app.getPath("home"), ".orbit");
   const configPath = path.join(dataDir, "config.json");
   try {
@@ -370,7 +392,7 @@ async function secureComposioConfig() {
 // saves go straight through credential:set below; this boot-time sweep also
 // migrates plaintext left by older versions or direct development clients.
 // See workspace-credentials.mjs for the exact rules.
-async function secureWorkspaceConfig() {
+export async function secureWorkspaceConfig() {
   const dataDir = process.env.OMB_DATA_DIR || path.join(app.getPath("home"), ".orbit");
   const configPath = path.join(dataDir, "config.json");
   try {
@@ -750,7 +772,7 @@ let serverStartConflictOnly = false;
 
 async function startServerOn(port) {
   const entry = path.join(process.resourcesPath, "server", "packaged-boot.js");
-  const childEnv = managedComposioChildEnvironment(composioBrokerUrl(), secureCredentials, {
+  const childEnv = managedComposioChildEnvironment(composioBrokerUrl(), childEnvCredentials, {
     ...process.env,
     OMB_STATIC_DIR: path.join(process.resourcesPath, "ui"),
     OMB_RESOURCES_PATH: process.resourcesPath,
@@ -758,15 +780,15 @@ async function startServerOn(port) {
     OMB_PORT: String(port),
     OMB_USER_DATA: app.getPath("userData"),
     OMB_PACKAGED: "1",
-    ...(secureCredentials.composioApiKey
-      ? { COMPOSIO_API_KEY: secureCredentials.composioApiKey }
+    ...(childEnvCredentials.composioApiKey
+      ? { COMPOSIO_API_KEY: childEnvCredentials.composioApiKey }
       : {}),
     // "we could not read your keys" must not reach the UI as "you have none"
     OMB_CREDENTIAL_STORE: credentialStoreUnavailable ? "unavailable" : "ok",
     // one env var per stored workspace secret (xai/box/voice/OpenCode Go);
     // the server prefers these over config.json, whose plaintext fields
     // the boot migration has deleted
-    ...workspaceCredentialEnv(secureCredentials),
+    ...workspaceCredentialEnv(childEnvCredentials),
   });
   slog(`fork ${entry} port=${port}`);
   const proc = utilityProcess.fork(entry, [], {
@@ -1942,15 +1964,7 @@ app.whenReady().then(async () => {
       if (!app.isPackaged || packagedBootPhase === BOOT_READY) void startBrowserSurface(next);
     }
   });
-  secureCredentials = await credentialsReady;
-  if (app.isPackaged) secureCredentials = absorbPackagedPlaintextSecrets(secureCredentials);
-  // OS-store + absorbed plaintext keys go in the child env. Rewriting
-  // config.json waits until after reveal so encrypt/wipe is not on composer.
-  // An unreadable store must not become a WRITE of an empty document.
-  secureCredentialState = createSecureCredentialState(secureCredentials, saveSecureCredentials, {
-    writable: !credentialStoreUnavailable,
-  });
-  secureCredentials = secureCredentialState.read();
+  void openSecureCredentialDocument(await credentialsReady);
   const hostedAccount = ensureCompanionAccountService();
   // CUA after the first window so daemon spawn does not contend with first
   // paint. Never blocks reveal on failure — computer use degrades.

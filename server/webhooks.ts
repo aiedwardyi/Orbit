@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { writeFileAtomic } from "./atomic.ts";
 import { DATA_DIR } from "./config.ts";
+import { redactSecretsInText } from "./redact.ts";
 import type { RoutineRunOn } from "./routines.ts";
 import { parseJson, schemaIssue, type JsonValue } from "./schema.ts";
 
@@ -291,7 +292,10 @@ function serializePayload(payload: JsonValue): string {
 }
 
 function previewPayload(payload: JsonValue): string {
-  return serializePayload(payload).replace(/\s+/g, " ").trim().slice(0, 2_000);
+  // A delivery body routinely carries the sender's own signing secret or an
+  // access token, and this preview is written to disk and served by
+  // GET /api/webhooks — redact at the one place both copies come from.
+  return redactSecretsInText(serializePayload(payload).replace(/\s+/g, " ").trim()).slice(0, 2_000);
 }
 
 function taskFromPayload(payload: JsonValue): string {
