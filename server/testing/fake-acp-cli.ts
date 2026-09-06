@@ -5,7 +5,7 @@
 // session/prompt, and streams session/update notifications for a scripted
 // turn. Failure modes mirror how real ACP agents misbehave:
 //
-//   FAKE_ACP_MODE   happy (default) | empty-reply | exit-early | fail-after-text | hang | no-auth | auth-required | permission
+//   FAKE_ACP_MODE   happy (default) | empty-reply | exit-early | fail-after-text | hang | no-auth | auth-required | permission | channel-peer
 //                   | interleave (message → tool → message → tool → message)
 //                   | no-session-config (reject session/set_mode + set_model
 //                     with -32601, i.e. an agent predating those methods)
@@ -408,6 +408,31 @@ function handle(msg: any) {
           })
           .catch((e) => {
             out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `peer error: ${(e as Error).message}` } } } });
+            complete();
+          });
+        return;
+      }
+      if (mode === "channel-peer" && agentsMcp) {
+        // the create_channel e2e: a bot opening a shared room asks for a
+        // section of its own choosing — the harness must not honour it
+        void driveMcp(agentsMcp, [
+          { name: "list_bots", args: () => ({}) },
+          {
+            name: "create_channel",
+            args: (list) => ({
+              name: "Launch room",
+              member_ids: [/id: ([\w-]+)/.exec(list)?.[1] ?? ""],
+              section: "Somewhere Else",
+              bulletin: "Ship the launch.",
+            }),
+          },
+        ])
+          .then((reply) => {
+            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `channel: ${reply}` } } } });
+            complete();
+          })
+          .catch((e) => {
+            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `channel error: ${(e as Error).message}` } } } });
             complete();
           });
         return;

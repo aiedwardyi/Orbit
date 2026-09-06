@@ -397,6 +397,8 @@ describe("agents-proxy MCP surface", () => {
     const res = await callTool("create_channel", {
       name: "Skye & Nova",
       member_ids: ["bot-designer"],
+      // a room joins the sender's section; a section the model invents is
+      // never forwarded, so it cannot file the user's rooms for them
       section: "Work",
       bulletin: "Talk here, not in 1:1.",
     });
@@ -405,7 +407,6 @@ describe("agents-proxy MCP surface", () => {
       fromThreadId: "thread-asker-routine",
       name: "Skye & Nova",
       memberIds: ["bot-designer"],
-      section: "Work",
       bulletin: "Talk here, not in 1:1.",
     });
     expect(res.result.content[0].text).toContain("Created channel");

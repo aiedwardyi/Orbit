@@ -159,6 +159,27 @@ describe("chiefOfStaffSystemPrompt", () => {
     expect(prompt).not.toContain("create_bot");
   });
 
+  it("gives a non-Chief room member the same ask-vs-delegate steer", () => {
+    const roomPrompt = peerAgentsSystemPrompt(true);
+    const directPrompt = peerAgentsSystemPrompt();
+
+    expect(roomPrompt).toContain("shared room");
+    expect(roomPrompt).toContain("Use ask_bot rather than delegate_bot");
+    expect(roomPrompt).toContain("cannot produce the answer this room is waiting for");
+    expect(roomPrompt).toContain("Mentioning someone who is not a room member does nothing");
+    // a 1:1 peer has no room to report back to
+    expect(directPrompt).not.toContain("shared room");
+    // the room prompt adds to the 1:1 framing, it never replaces it
+    expect(roomPrompt).toContain(directPrompt);
+  });
+
+  it("mounts the room framing on a non-Chief room turn", () => {
+    const start = index.indexOf("async function runClaimedGroupMemberTurn");
+    const nextFn = index.slice(start + 1).search(/\n(?:async )?function [a-zA-Z]/);
+    const roomTurn = index.slice(start, nextFn === -1 ? undefined : start + 1 + nextFn);
+    expect(roomTurn).toContain("peerAgentsSystemPrompt(true)");
+  });
+
   it("includes trusted OpenMaus status only when the Chief caller supplies it", () => {
     const status = "TRUSTED OPENMAUSBOT STATUS\nfreshness=fresh; runtime_state=degraded";
 

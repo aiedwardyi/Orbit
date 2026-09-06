@@ -32,13 +32,22 @@ export const AGENTS_TOOLS_DISCIPLINE =
  * 1:1 Chief ends up messaging its whole roster over a direct question. */
 export const CALL_THE_AGENTS_TOOLS = "Call the agents tools.";
 
+/** Why a room turn must not answer with delegate_bot. Shared verbatim by the
+ * Chief's room discipline and the plain room member's — both are speaking in
+ * front of the room, and both used to reach for the async verb. */
+const ASK_NOT_DELEGATE_IN_ROOM =
+  "ask_bot waits and returns the reply for you to fold into your answer here, while delegations start only after this turn ends and so cannot produce the answer this room is waiting for. Mentioning someone who is not a room member does nothing.";
+
 /** 1:1 / room framing for a non-Chief that still has agents tools. */
-export function peerAgentsSystemPrompt(): string {
+export function peerAgentsSystemPrompt(inRoom = false): string {
   return [
     "You can work with the other bots in your section through the agents tools — list_bots shows who's available, ask_bot sends one of them a message and returns their reply.",
     "If the user asks for a shared channel or two-bot room, call create_channel with yourself and the other bot(s) in member_ids.",
     AGENTS_TOOLS_DISCIPLINE,
-  ].join(" ");
+    inRoom
+      ? `You are in a shared room where everyone sees your tool calls. Use ask_bot rather than delegate_bot whenever you must report back in this room: ${ASK_NOT_DELEGATE_IN_ROOM}`
+      : "",
+  ].filter(Boolean).join(" ");
 }
 
 /** Dynamic system context for a section's Chief of Staff.
@@ -106,7 +115,7 @@ export function chiefOfStaffSystemPrompt(
       ? [
           "You are in a shared room where everyone sees your tool calls.",
           hasTeam ? "When you are asked to add a teammate, call create_bot directly." : "",
-          "A teammate you add joins this section, not this room. Call create_channel with yourself and the new bot when the user wants a shared room. Use ask_bot rather than delegate_bot whenever you must report back in this room, including when the delegation guidance above or a tool result says otherwise: ask_bot waits and returns the reply for you to fold into your answer here, while delegations start only after this turn ends and so cannot produce the answer this room is waiting for. Mentioning someone who is not a room member does nothing.",
+          `A teammate you add joins this section, not this room. Call create_channel with yourself and the new bot when the user wants a shared room. Use ask_bot rather than delegate_bot whenever you must report back in this room, including when the delegation guidance above or a tool result says otherwise: ${ASK_NOT_DELEGATE_IN_ROOM}`,
         ]
           .filter(Boolean)
           .join(" ")

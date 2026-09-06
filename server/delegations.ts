@@ -431,6 +431,16 @@ export function discardDelegations(bus: CommsBus, threadId: string, sourceBotId?
   }
 }
 
+/** Drop what a previous process queued but never ran. Its source turn died
+ * with that process — the same condition that makes an interrupted turn drop
+ * its queue — so draining at boot starts real turns on the user's tokens for a
+ * request nobody is present to receive. Returns how many threads were cleared. */
+export function discardOrphanedDelegations(bus: CommsBus): number {
+  const threads = pendingThreads();
+  for (const threadId of threads) discardDelegations(bus, threadId);
+  return threads.length;
+}
+
 /** Drop every queue this bot owns, wherever it queued them. A room queue lives
  * on the room thread, so deleting the bot would strand it there without a
  * sender. Call this before the bot record disappears. */

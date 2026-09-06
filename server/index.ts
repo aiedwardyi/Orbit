@@ -102,11 +102,11 @@ import { RETRY_MAX_ATTEMPTS } from "./drivers/retry.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { claimAsk, clearAskBudget, MAX_ASKS_PER_TURN } from "./comms-budget.ts";
-import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorReply, type CommsBus } from "./comms-visibility.ts";
+import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorOutcomeToRoom, mirrorReply, type CommsBus } from "./comms-visibility.ts";
 import { searchMessages } from "./message-db.ts";
 import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript } from "./replies.ts";
 import { reactionSystemGuidance } from "../shared/reactions.ts";
-import { _loadPending, discardDelegations, discardDelegationsFrom, drainDelegations, findDelegationReceipt, pendingDelegationInfo, pendingDelegationSnapshot, pendingThreads, queueDelegation, recordDelegationReceipt, threadsWaitingOn, type QueueResult } from "./delegations.ts";
+import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, findDelegationReceipt, pendingDelegationInfo, pendingDelegationSnapshot, queueDelegation, recordDelegationReceipt, threadsWaitingOn, type QueueResult } from "./delegations.ts";
 import {
   cancelSteeredMessage,
   clearSendRunning,
@@ -438,6 +438,12 @@ function controlIntegration(botId: string) {
   };
 }
 
+/** target thread → the thread that asked for this peer turn. A card raised
+ * inside a peer turn reaches the human on the TARGET's thread, while the
+ * person is sitting in the conversation that asked — which shows "Messaged
+ * @X" and nothing else until it gives up four minutes later. */
+const peerTurnSource = new Map<string, string>();
+
 /** The markers a peer's inbound message carries into the target's 1:1, so
  * the transcript names the sender instead of leaving it in the user's voice. */
 function peerAttribution(sender?: BotRecord, channel?: GroupRecord): Pick<StartTurnOptions, "peerSender" | "peerComm"> {
@@ -458,7 +464,7 @@ function askBotAndWait(
   message: string,
   depth: number,
   fromBotId?: string,
-  peer?: { sender: BotRecord; channel?: GroupRecord },
+  peer?: { sender: BotRecord; channel?: GroupRecord; sourceThreadId: string },
 ): Promise<string> {
   const target = store.bot(targetBotId);
   if (!target) return Promise.resolve("(no such bot)");
@@ -471,6 +477,7 @@ function askBotAndWait(
       done = true;
       clearTimeout(timer);
       unsub();
+      peerTurnSource.delete(threadId);
       resolve(out);
     };
     const unsub = bus.subscribe((e: RuntimeEvent) => {
@@ -482,6 +489,7 @@ function askBotAndWait(
       }
     });
     const timer = setTimeout(() => finish(text || "(timed out waiting for the bot to reply)"), 4 * 60_000);
+    if (peer) peerTurnSource.set(threadId, peer.sourceThreadId);
     startTurn(targetBotId, message, {
       commsDepth: depth + 1,
       unattended: isUnattended(fromBotId),
@@ -1852,6 +1860,17 @@ bus.subscribe((event: RuntimeEvent) => {
           (routineRun && routineSourceThread(routineRun)) || event.threadId,
           event.summary,
         ));
+        // A peer turn's card sits on the peer's own thread. Say so where the
+        // ask came from, or that conversation just looks stalled.
+        const askedFrom = peerTurnSource.get(event.threadId);
+        if (askedFrom) {
+          store.appendMessage(askedFrom, {
+            role: "bot",
+            kind: "activity",
+            tool: { name: `@${asker.name} is waiting on your approval`, ok: true },
+            from: { botId: asker.id, name: asker.name, color: asker.color },
+          });
+        }
       };
       if (reviewTask && reviewMode === "enforce") {
         // Avoid buzzing the owner for a card the reviewer is about to answer.
@@ -2066,7 +2085,20 @@ function finalizeDelegationWatch(
   }
   const target = store.bot(watched.toBotId);
   const channel = watched.channelId ? store.group(watched.channelId) : undefined;
-  if (!target || !channel) return true;
+  if (!target) return true;
+  // The room that queued the handoff is where the human is waiting, and the
+  // target runs in its own 1:1 — so it never hears back without this.
+  if (watched.sourceThreadId) {
+    mirrorOutcomeToRoom(
+      commsBus,
+      target,
+      watched.sourceThreadId,
+      channel,
+      ok ? `@${target.name} finished the delegated task` : failureName,
+      ok,
+    );
+  }
+  if (!channel) return true;
   if (ok && reply.trim()) mirrorReply(commsBus, target, reply, channel);
   else if (ok) mirrorActivity(commsBus, target, channel, "Delegated turn completed", true);
   else mirrorActivity(commsBus, target, channel, failureName, false);
@@ -2113,11 +2145,18 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text,
     // harness (Node's default), which in the packaged app kills the server
     // child. Every delegation failure has to land as a chip instead.
     const targetThreadId = store.bot(toBotId)?.threadId;
-    if (targetThreadId) delegationWatch.set(targetThreadId, { channelId: channel?.id, toBotId, taskId, sourceThreadId, sourceBotId });
+    if (targetThreadId) {
+      delegationWatch.set(targetThreadId, { channelId: channel?.id, toBotId, taskId, sourceThreadId, sourceBotId });
+      peerTurnSource.set(targetThreadId, sourceThreadId);
+    }
     let failureReported = false;
     const reportStartFailure = (error: unknown) => {
       if (failureReported) return;
       failureReported = true;
+      // No turn started, so no turn.completed will clear this. Left behind,
+      // the next card on that bot's thread is reported to a conversation
+      // that has nothing to do with it.
+      if (targetThreadId) peerTurnSource.delete(targetThreadId);
       const bot = store.bot(toBotId);
       const why = error instanceof Error ? error.message : String(error);
       if (targetThreadId) {
@@ -2156,6 +2195,7 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text,
 bus.subscribe((event: RuntimeEvent) => {
   if (event.type !== "turn.completed") return;
   clearAskBudget(event.threadId);
+  peerTurnSource.delete(event.threadId);
   const sourceBotId = store.botByThread(event.threadId)?.id ?? settledGroupSpeakers.get(event.threadId);
   // A turn that failed or was interrupted drops its queue rather than
   // firing it later: the user who hit Stop does not expect the delegations
@@ -3505,15 +3545,14 @@ const approvalBus: ApprovalBus = { store, broadcast };
   if (stale) console.log(`peer approvals: dismissed ${stale} card(s) left by a previous run`);
 }
 
-// Handoffs a previous process queued but never ran: the source turn is
-// dead (no turn survives a restart) so they would otherwise wait forever.
-// Run them now, through the same drain — target and approvePeerComms are
-// re-checked there as always; a source bot that no longer exists is skipped.
+// Handoffs a previous process queued but never ran. The source turn died
+// with that process, and an interrupted turn already drops its queue rather
+// than firing it later — a crash is the same condition, so these are dropped
+// with the same visible chip instead of starting turns nobody is here for.
 _loadPending();
 {
-  const leftover = pendingThreads();
-  if (leftover.length) console.log(`delegations: ${leftover.length} thread(s) with queued handoffs from a previous run — draining`);
-  for (const threadId of leftover) drainDelegations(commsBus, approvalBus, threadId, runDelegatedTurn);
+  const dropped = discardOrphanedDelegations(commsBus);
+  if (dropped) console.log(`delegations: dropped queued handoffs on ${dropped} thread(s) whose turn died with a previous run`);
 }
 
 async function runGroupMemberTurn(
@@ -3744,7 +3783,7 @@ async function runClaimedGroupMemberTurn(
         true,
       )
     : integrations.agents
-      ? peerAgentsSystemPrompt()
+      ? peerAgentsSystemPrompt(true)
       : "";
   const system = [
     `You are ${bot.name}, a bot in the room "${group.name}" in Orbit.`,
@@ -4859,6 +4898,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const reply = await askBotAndWait(toBotId, prefixed, depth, fromBotId, {
           sender: currentFrom,
           channel,
+          sourceThreadId: fromThreadId,
         });
         mirrorReply(commsBus, currentTarget, reply, channel);
         return json(res, 200, { botName: currentTarget.name, text: reply });
@@ -5038,14 +5078,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           ? body.name.trim()
           : `${store.bot(memberIds[0])!.name} & co.`;
         if (name.length > 100) return json(res, 400, { error: "channel name must be at most 100 characters" });
-        let section: string | undefined = sender.section;
-        if (body.section !== undefined && body.section !== null) {
-          if (typeof body.section !== "string") return json(res, 400, { error: "section must be a string" });
-          section = body.section.trim() || undefined;
-          if (section && section.length > 60) {
-            return json(res, 400, { error: "section must be at most 60 characters" });
-          }
-        }
+        // The room joins the sender's section, always. Sections are the
+        // user's own filing, and every member was just checked to be in this
+        // one — a free-text section here lets a bot invent sidebar sections
+        // and file the user's rooms into them.
+        const section = sender.section;
         let bulletin = "";
         if (body.bulletin !== undefined) {
           if (typeof body.bulletin !== "string") return json(res, 400, { error: "bulletin must be a string" });
@@ -5054,9 +5091,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             return json(res, 400, { error: "setup.bulletin must be at most 12000 characters" });
           }
         }
+        // A room the user asked for is usable the moment it exists — the
+        // setup step would only stand between them and the bots they just
+        // asked to assemble. The lead is the one decision worth taking off
+        // the sender: memberIds[0] is always the sender, so picking it made
+        // every bot-opened room answer to the bot that opened it.
+        const lead = memberIds.find((id) => id !== sender.id) ?? sender.id;
         const group = store.createGroup(name, memberIds, false, section, {
           bulletin,
-          defaultResponder: { kind: "member", botId: memberIds[0] },
+          defaultResponder: { kind: "member", botId: lead },
           completed: true,
         });
         return json(res, 201, {
