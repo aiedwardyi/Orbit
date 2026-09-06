@@ -21,7 +21,7 @@ import SwiftUI
 /// Named apart from CompanionCore.MascotStyle so the app target does not
 /// see two types with the same name.
 enum CuteMascotStyle: String, CaseIterable {
-    case peach, teal, lavender, coral
+    case peach, teal, lavender, coral, squircle, circle, pill
 
     static func resolved(_ raw: String?, color: String) -> CuteMascotStyle {
         if let raw, let style = Self(rawValue: raw) { return style }
@@ -248,6 +248,9 @@ struct CuteMascotView: View {
         case .teal: drawTeal(&context)
         case .lavender: drawLavender(&context)
         case .coral: drawCoral(&context)
+        case .squircle: drawSquircle(&context)
+        case .circle: drawCircle(&context)
+        case .pill: drawPill(&context)
         }
     }
 
@@ -323,6 +326,34 @@ struct CuteMascotView: View {
         blob(&context, rect: CGRect(x: 174, y: 88, width: 64, height: 128))
         blob(&context, rect: CGRect(x: 38, y: 58, width: 180, height: 160))
         face(&context, origin: .zero)
+    }
+
+    private func roundedBody(_ context: inout GraphicsContext, rect: CGRect, cornerRadius: CGFloat) {
+        context.fill(Path(roundedRect: rect, cornerRadius: cornerRadius), with: .linearGradient(
+            Gradient(colors: [light, fill, shadow]),
+            startPoint: CGPoint(x: rect.minX + rect.width * 0.3, y: rect.minY),
+            endPoint: CGPoint(x: rect.maxX, y: rect.maxY)
+        ))
+    }
+
+    private func twoDots(_ context: inout GraphicsContext) {
+        context.fill(Path(ellipseIn: CGRect(x: 96, y: 116, width: 24, height: 24)), with: .color(Color(hex: "#1A1210")))
+        context.fill(Path(ellipseIn: CGRect(x: 136, y: 116, width: 24, height: 24)), with: .color(Color(hex: "#1A1210")))
+    }
+
+    private func drawSquircle(_ context: inout GraphicsContext) {
+        roundedBody(&context, rect: CGRect(x: 40, y: 40, width: 176, height: 176), cornerRadius: 56)
+        twoDots(&context)
+    }
+
+    private func drawCircle(_ context: inout GraphicsContext) {
+        blob(&context, rect: CGRect(x: 42, y: 42, width: 172, height: 172))
+        twoDots(&context)
+    }
+
+    private func drawPill(_ context: inout GraphicsContext) {
+        roundedBody(&context, rect: CGRect(x: 24, y: 78, width: 208, height: 100), cornerRadius: 50)
+        twoDots(&context)
     }
 }
 

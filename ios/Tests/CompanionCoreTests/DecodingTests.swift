@@ -75,6 +75,9 @@ final class DecodingTests: XCTestCase {
         XCTAssertEqual(MascotStyle.resolved(nil, color: "pink"), .coral)
         XCTAssertEqual(MascotStyle.resolved("lavender", color: "red"), .lavender)
         XCTAssertEqual(MascotStyle.resolved("triangle", color: "purple"), .lavender)
+        XCTAssertEqual(MascotStyle.resolved("squircle", color: "red"), .squircle)
+        XCTAssertEqual(MascotStyle.resolved("circle", color: "red"), .circle)
+        XCTAssertEqual(MascotStyle.resolved("pill", color: "red"), .pill)
     }
 
     func testFutureAvatarCropFallsBackWithoutDroppingTheBot() throws {

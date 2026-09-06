@@ -47,7 +47,7 @@ describe("cute mascot art pack", () => {
       coral: ['cx="100" cy="130" r="16"', 'cx="156" cy="130" r="16"'],
     } as const;
 
-    for (const style of MASCOT_STYLES) {
+    for (const style of Object.keys(eyeMarks) as Array<keyof typeof eyeMarks>) {
       const svg = mascotSvgMarkup(style, "red");
       const idle = svg.indexOf('class="mascot-idle"');
       const blink = svg.indexOf('class="mascot-blink"');
@@ -57,6 +57,28 @@ describe("cute mascot art pack", () => {
         expect(svg.indexOf(mark), `${style} lost ${mark}`).toBeGreaterThan(blink);
       }
     }
+  });
+
+  it("ships two-dot simple shapes without blush, mouth, or limbs", () => {
+    const simple = ["squircle", "circle", "pill"] as const;
+    for (const name of simple) {
+      const svg = readFileSync(join(assetsDir, `${name}.svg`), "utf8");
+      expect(svg).toContain("<svg");
+      expect(svg).toContain("{{BODY}}");
+      expect(svg).toContain('class="mascot-idle"');
+      expect(svg).toContain('class="mascot-blink"');
+      expect(svg).not.toContain("#F4A0B4");
+      expect(svg).not.toMatch(/stroke="#3A241C"/);
+      expect(svg).not.toContain('id="antenna"');
+      expect(svg).not.toContain('id="ear-left"');
+      expect(svg).not.toContain('id="flop-left"');
+      expect([...svg.matchAll(/fill="#1A1210"/g)]).toHaveLength(2);
+      expect(svg).not.toContain('fill="#fff"');
+      const painted = mascotSvgMarkup(name, "red");
+      expect(painted).toContain("#D94B52");
+      expect(painted).not.toContain("{{BODY}}");
+    }
+    expect(new Set(simple.map((name) => readFileSync(join(assetsDir, `${name}.svg`), "utf8"))).size).toBe(3);
   });
 
   it("scopes gradient ids so two inlined mascots cannot collide", () => {
@@ -87,6 +109,15 @@ describe("iOS color-map lockstep", () => {
     for (const line of cases) {
       expect(cute, `MausAvatar.swift missing ${line}`).toContain(line);
       expect(core, `Models.swift missing ${line}`).toContain(line);
+    }
+  });
+
+  it("keeps iOS style ids in lockstep with the desktop pack", () => {
+    const casesLine = "case peach, teal, lavender, coral, squircle, circle, pill";
+    expect(cute).toContain(casesLine);
+    expect(core).toContain(casesLine);
+    for (const style of MASCOT_STYLES) {
+      expect(cute).toContain(`case .${style}:`);
     }
   });
 });

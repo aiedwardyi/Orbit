@@ -49,8 +49,16 @@ describe("bot avatar profile schema", () => {
 });
 
 describe("mascot style ids", () => {
-  it("names the four approved static styles", () => {
-    expect(MASCOT_STYLES).toEqual(["peach", "teal", "lavender", "coral"]);
+  it("names the approved static styles", () => {
+    expect(MASCOT_STYLES).toEqual([
+      "peach",
+      "teal",
+      "lavender",
+      "coral",
+      "squircle",
+      "circle",
+      "pill",
+    ]);
     for (const style of MASCOT_STYLES) {
       expect(mascotStyleSchema.parse(style)).toBe(style);
       expect(MASCOT_STYLE_ASSETS[style]).toMatch(new RegExp(`${style}\\.svg$`));

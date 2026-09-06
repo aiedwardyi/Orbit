@@ -1511,13 +1511,17 @@ describe("harness HTTP API", () => {
     expect(cleared.body.bot.avatarCrop).toBe("mascot");
   });
 
-  it("persists the four cute mascot styles and rejects the old arrow-head id", async () => {
+  it("persists the cute mascot styles and rejects the old arrow-head id", async () => {
     const created = await api("POST", "/api/bots");
     const bot = created.body.bot;
 
     const saved = await api("PATCH", `/api/bots/${bot.id}`, { mascotStyle: "lavender", color: "purple" });
     expect(saved.status).toBe(200);
     expect(saved.body.bot).toMatchObject({ mascotStyle: "lavender", color: "purple" });
+
+    const simple = await api("PATCH", `/api/bots/${bot.id}`, { mascotStyle: "pill" });
+    expect(simple.status).toBe(200);
+    expect(simple.body.bot).toMatchObject({ mascotStyle: "pill" });
 
     expect((await api("PATCH", `/api/bots/${bot.id}`, { mascotStyle: "arrow-head" })).status).toBe(400);
     expect((await api("PATCH", `/api/bots/${bot.id}`, { mascotStyle: "cursor" })).status).toBe(400);
