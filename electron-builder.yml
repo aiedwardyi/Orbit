@@ -139,6 +139,7 @@ nsis:
   oneClick: true
   perMachine: false
   shortcutName: Orbit
+  installerLanguages: [en_US]
   # Versioned, like the .dmg. The README's /latest/download/ button needs a
   # STABLE filename, so release automation can add a second copy beside it.
   artifactName: Orbit-${version}-setup.${ext}
