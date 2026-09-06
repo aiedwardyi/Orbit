@@ -4324,7 +4324,7 @@ const PROBE_ARG = /^[A-Za-z0-9._@:+=/\\-]+$/;
 const PROBE_SHORT_FLAG = /^-[^-]/;
 
 /** The same instruction spelled long. */
-const PROBE_EVAL_FLAG = /^--(eval|command|exec|expression|print|script)(=|$)/i;
+const PROBE_EVAL_FLAG = /^--(eval|command|exec|expression|print|script|require|import|load|preload)(=|$)/i;
 
 /** A file an interpreter would execute. `node x.mjs` reads as a plain path to
  * the rule above, so the extension is what separates a wrapper's subcommand

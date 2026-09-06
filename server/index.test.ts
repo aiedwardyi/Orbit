@@ -4625,7 +4625,7 @@ describe("instance CLI override API", () => {
     const exe = JSON.stringify(process.execPath);
     // three spellings of one capability: an inline payload, a bare `sh -c id`
     // whose tokens are both ordinary words, and a script sitting on disk
-    const cases = [`${exe} -e "console.log(1)"`, `${exe} -c id`, `${exe} ${JSON.stringify(writeProbeWrapper("cli-inert", ""))}`];
+    const cases = [`${exe} -e "console.log(1)"`, `${exe} -c id`, `${exe} --import /tmp/payload`, `${exe} ${JSON.stringify(writeProbeWrapper("cli-inert", ""))}`];
     for (const cli of cases) {
       const res = await api("POST", "/api/cli-test", { cli });
       expect(res.status).toBe(200);
