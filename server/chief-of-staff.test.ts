@@ -64,11 +64,16 @@ describe("chiefOfStaffSystemPrompt", () => {
     expect(prompt).not.toContain("Secret");
     expect(prompt).not.toContain("Scout");
     expect(prompt).not.toContain("Atlas —");
+    expect(prompt).toMatch(/Never scan the environment, ports, or processes/);
+    expect(prompt).toMatch(/never invent localhost APIs/i);
+  });
+
+  it("names the coordination tools once the user asked for coordination", () => {
+    const prompt = chiefOfStaffSystemPrompt("chief", bots, true, "", false, true);
+
     expect(prompt).toContain("Use ask_bot");
     expect(prompt).toContain("use create_bot");
     expect(prompt).toContain("create_channel");
-    expect(prompt).toMatch(/Never scan the environment, ports, or processes/);
-    expect(prompt).toMatch(/never invent localhost APIs/i);
   });
 
   it("does not promise delegation when the engine cannot mount agent tools", () => {
@@ -212,5 +217,52 @@ describe("the Chief role does not gate engine selection", () => {
     // re-tying the Chief flag to agentsMcp strands an automatic-mode bot on a
     // workspace with no capable engine: every turn 409s instead of degrading
     expect(normalized).not.toContain("chiefOfStaff");
+  });
+});
+
+describe("a Chief with a team does not fan out unasked", () => {
+  const bots = [
+    { id: "chief", name: "Atlas", title: "Operations", section: "Work" },
+    { id: "writer", name: "Quill", title: "Writer", section: "Work" },
+  ];
+
+  it("tells the Chief to answer directly until the user asks for coordination", () => {
+    const prompt = chiefOfStaffSystemPrompt("chief", bots, true);
+
+    expect(prompt).toMatch(/Answer the user directly/i);
+    expect(prompt).not.toContain("You may consult more than one teammate");
+    expect(prompt).not.toMatch(/list_bots/);
+    // the asked path still has to be named or the Chief improvises one
+    expect(prompt).toMatch(/If they ask[\s\S]*create_bot/);
+    expect(prompt).toContain("create_channel");
+  });
+
+  it("restores the coordination framing once the user asked for it", () => {
+    const prompt = chiefOfStaffSystemPrompt("chief", bots, true, "", false, true);
+
+    expect(prompt).toContain("Use ask_bot");
+    expect(prompt).toContain("You may consult more than one teammate");
+    expect(prompt).toMatch(/list_bots/);
+    expect(prompt).not.toMatch(/Answer the user directly/i);
+  });
+
+  it("only closes with the tool imperative when coordination was asked for", () => {
+    expect(chiefOfStaffSystemPrompt("chief", bots, true)).not.toContain("Call the agents tools.");
+    expect(chiefOfStaffSystemPrompt("chief", bots, true, "", false, true)).toContain("Call the agents tools.");
+    // the solo Chief's idle wall is the same rule
+    const solo = [{ id: "chief", name: "Clover", section: "Work" }];
+    expect(chiefOfStaffSystemPrompt("chief", solo, true)).not.toContain("Call the agents tools.");
+    // the anti-probing discipline is unconditional and must survive the split
+    expect(chiefOfStaffSystemPrompt("chief", solo, true)).toMatch(/Never scan the environment/);
+    expect(peerAgentsSystemPrompt()).not.toContain("Call the agents tools.");
+    expect(peerAgentsSystemPrompt()).toMatch(/Never scan the environment/);
+  });
+});
+
+describe("the 1:1 Chief prompt is gated on the user's own coordination signal", () => {
+  it("passes the @tag signal into the 1:1 coordination prompt", () => {
+    const start = index.indexOf("const tagged = integrations.agents");
+    const slice = index.slice(start, start + 2500);
+    expect(slice).toMatch(/chiefOfStaffSystemPrompt\([\s\S]*?tagged\.length > 0,/);
   });
 });

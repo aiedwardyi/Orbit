@@ -246,6 +246,12 @@ describe("comms e2e (fake ACP fleet)", () => {
       const inbound = helperBot.messages.find((m: any) => m.role === "user" && m.kind === "text");
       expect(inbound.text).toContain("[Message from @Asker");
       expect(inbound.text).toContain("ping from fake");
+      // the record itself has to say who wrote it: a text prefix is not
+      // attribution, and without `from` this reads as the user's own line
+      expect(inbound.from?.botId).toBe(asker.id);
+      expect(inbound.comm?.groupId).toBe(note.comm.groupId);
+      // and a peer's opening line must not name the user's private task
+      expect(helperBot.tasks.some((t: any) => t.title.includes("Message from"))).toBe(false);
       const rnote = helperBot.messages.find((m: any) => m.kind === "activity" && m.tool?.name === "Message from @Asker");
       expect(rnote?.comm?.groupId).toBe(note.comm.groupId);
       expect(helperBot.busy).toBeFalsy();
