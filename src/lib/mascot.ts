@@ -1,5 +1,5 @@
 import { CURSOR_STATES, type CursorState } from "@/components/CursorAvatar";
-import type { MausColor as ServerMausColor } from "../../server/store.ts";
+import type { MausColor as ServerMausColor } from "../../server/store";
 
 /** The mascot's behaviour vocabulary — CursorAvatar's 39 states, under the
  * app's historical names. */
