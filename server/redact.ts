@@ -38,7 +38,7 @@ const TOO_DEEP = "«redacted: nested past the redaction depth limit»";
 // transcript, so only shapes that are unmistakably credentials match.
 
 const KEY_PREFIXES: RegExp[] = [
-  /\bsk-(?:ant-|proj-|live-|test-)?[A-Za-z0-9_-]{16,}/g, // anthropic / openai / stripe
+  /\bsk-(?:ant-|proj-|live-|test-)?[A-Za-z0-9_-]{16,}/g, // anthropic / openai
   /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}/g, // github classic
   /\bgithub_pat_[A-Za-z0-9_]{20,}/g, // github fine-grained
   /\bxox[abposr]-[A-Za-z0-9-]{20,}/g, // slack
@@ -46,7 +46,7 @@ const KEY_PREFIXES: RegExp[] = [
   /\bAIza[0-9A-Za-z_-]{30,}/g, // google api key
   /\bnpm_[A-Za-z0-9]{20,}/g, // npm
   /\bxai-[A-Za-z0-9]{16,}/g, // xai
-  /\bsk_[A-Za-z0-9]{24,}/g, // elevenlabs
+  /\bsk_(?:live_|test_)?[A-Za-z0-9]{24,}/g, // elevenlabs / stripe
   /\bak_[A-Za-z0-9_-]{16,}/g, // composio
   /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, // jwt
 ];
@@ -56,12 +56,21 @@ const PEM_BLOCK = /(-----BEGIN [A-Z ]*PRIVATE KEY-----)([\s\S]*?)(-----END [A-Z 
  * The value must be a single token of some length; prose after a colon
  * ("password: leave blank…") has spaces and does not match. */
 const KEY_VALUE =
-  /\b((?:[A-Za-z0-9_-]*_)?(?:api[_-]?key|apikey|secret|token|password|passwd|authorization|auth[_-]?token|access[_-]?key|private[_-]?key|key)s?)(["']?\s*[=:]\s*)(["']?)([A-Za-z0-9._~+/=-]{8,})\3/gi;
+  /\b((?:[A-Za-z0-9_-]*_)?(?:api[_-]?key|apikey|secret|token|password|passwd|authorization|auth[_-]?token|access[_-]?key|private[_-]?key)s?)(["']?\s*[=:]\s*)(["']?)([A-Za-z0-9._~+/=-]{8,})\3/gi;
+
+/** A config file's own `key` field, both sides quoted — the shape a dump of
+ * ~/.orbit/config.json takes. Bare `key` stays OUT of KEY_VALUE on purpose:
+ * unquoted it is ordinary prose ("the primary key: customer_id"), and this
+ * text pass rewrites a transcript permanently. A shaped value here is already
+ * caught by its prefix; this is what still covers an opaque one — so the value
+ * carries the whole burden of proof and the length floor is higher than
+ * KEY_VALUE's, where a secret-shaped NAME shares it. */
+const CONFIG_KEY_FIELD = /(["']key["']\s*:\s*)(["'])([A-Za-z0-9._~+/=-]{16,})\2/gi;
 
 /** Longest prefix we must hold so a key split across chunks can still match. */
 const STREAM_HOLD = 96;
 
-const STREAM_MATCHERS: RegExp[] = [PEM_BLOCK, ...KEY_PREFIXES, BEARER, KEY_VALUE];
+const STREAM_MATCHERS: RegExp[] = [PEM_BLOCK, ...KEY_PREFIXES, BEARER, KEY_VALUE, CONFIG_KEY_FIELD];
 
 /** How much of the buffer may be masked and emitted now. A match reaching the
  * unsettled tail can still grow, and masking it strands the rest of the secret
@@ -112,6 +121,7 @@ export function redactSecretsInText(text: string): string {
   for (const re of KEY_PREFIXES) out = out.replace(re, (m) => mask(m));
   out = out.replace(BEARER, (_m, lead: string, tok: string) => `${lead}${mask(tok)}`);
   out = out.replace(KEY_VALUE, (_m, key: string, sep: string, quote: string, value: string) => `${key}${sep}${quote}${mask(value)}${quote}`);
+  out = out.replace(CONFIG_KEY_FIELD, (_m, lead: string, quote: string, value: string) => `${lead}${quote}${mask(value)}${quote}`);
   return out;
 }
 

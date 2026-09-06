@@ -173,6 +173,9 @@ describe("redactSecretsInText", () => {
       [`aws ${"AKIA" + "IOSFODNN7EXAMPLE"} and more`, /IOSFODNN7EXAMPLE/],
       [`google ${"AIza" + "SyA-"}${alpha.slice(0, 32)}`, /AIza/],
       [`npm ${"npm" + "_"}${alpha}`, /npm_[a-z]/],
+      // sk_live_/sk_test_ break on the underscore, so a plain [A-Za-z0-9] run misses them
+      [`stripe ${"sk" + "_"}live_51H${alpha.slice(0, 30)}`, /sk_live_/],
+      [`stripe ${"sk" + "_"}test_4eC39HqLyjWDarjtT1zdp7dc`, /sk_test_/],
     ];
     for (const [input, leak] of cases) {
       const out = redactSecretsInText(input);
@@ -235,6 +238,18 @@ describe("redactSecretsInText", () => {
     expect(out).toContain('"provider": "elevenlabs"');
     expect(out).toContain('"userId": "local"');
     expect(out).toContain("sam@example.test");
+  });
+
+  it("masks an opaque value under a quoted config `key` field, and leaves `key` prose alone", () => {
+    // no known prefix saves this one — the quoted field shape is all there is
+    expect(redactSecretsInText(`"key": "${"fw" + "_"}3a9c1e7b4d5a6f8e9c0b1a2d"`)).toBe(`"key": "«redacted 27 chars»"`);
+    // …and bare `key` in prose is not a credential, whatever follows it
+    for (const s of [
+      "the primary key: customer_id",
+      "redis key: session_token_ttl",
+      "map key: someIdentifier",
+      'the JSON field "key": "documentation"',
+    ]) expect(redactSecretsInText(s), s).toBe(s);
   });
 
   it("leaves ordinary text, code, hashes and URLs alone", () => {
