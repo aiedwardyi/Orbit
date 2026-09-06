@@ -96,6 +96,35 @@ export function mirrorReply(
   bus.store.patchGroup(channel.id, { unread: true });
 }
 
+/** Close a handoff's loop where it was ASKED for. A delegation queued from a
+ * room runs in the target's own 1:1 and mirrors into the pair channel, so the
+ * room is left holding a "Delegated to @X" chip and never learns how it ended.
+ * A 1:1 source already carries that chip, and the pair channel gets the
+ * mirror itself — neither takes a second copy. */
+export function mirrorOutcomeToRoom(
+  bus: CommsBus,
+  target: BotRecord,
+  sourceThreadId: string,
+  channel: GroupRecord | undefined,
+  name: string,
+  ok: boolean,
+): void {
+  const room = bus.store.groupByThread(sourceThreadId);
+  if (!room || room.id === channel?.id) return;
+  bus.store.appendMessage(sourceThreadId, {
+    role: "bot",
+    kind: "activity",
+    tool: { name, ok },
+    from: { botId: target.id, name: target.name, color: target.color },
+    comm: channel
+      ? { groupId: channel.id, withBotId: target.id, withName: target.name, withColor: target.color }
+      : undefined,
+  });
+  // appendMessage does not touch the flag the sidebar's room dot reads, so
+  // without this the outcome is invisible to anyone reading another thread.
+  bus.store.patchGroup(room.id, { unread: true });
+}
+
 /** Mirror a terminal activity note into the channel — for async handoffs
  * whose terminal state is not a reply (turn failed, was stopped, or never
  * started). Prior art (A2A, MCP Tasks) is unanimous that every terminal

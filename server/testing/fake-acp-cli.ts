@@ -5,7 +5,8 @@
 // session/prompt, and streams session/update notifications for a scripted
 // turn. Failure modes mirror how real ACP agents misbehave:
 //
-//   FAKE_ACP_MODE   happy (default) | empty-reply | exit-early | fail-after-text | hang | no-auth | auth-required | permission
+//   FAKE_ACP_MODE   happy (default) | empty-reply | exit-early | fail-after-text | hang | no-auth | auth-required | permission | channel-peer
+//                   | permission-twice (two sequential cards in one turn)
 //                   | interleave (message → tool → message → tool → message)
 //                   | no-session-config (reject session/set_mode + set_model
 //                     with -32601, i.e. an agent predating those methods)
@@ -412,6 +413,31 @@ function handle(msg: any) {
           });
         return;
       }
+      if (mode === "channel-peer" && agentsMcp) {
+        // the create_channel e2e: a bot opening a shared room asks for a
+        // section of its own choosing — the harness must not honour it
+        void driveMcp(agentsMcp, [
+          { name: "list_bots", args: () => ({}) },
+          {
+            name: "create_channel",
+            args: (list) => ({
+              name: "Launch room",
+              member_ids: [/id: ([\w-]+)/.exec(list)?.[1] ?? ""],
+              section: "Somewhere Else",
+              bulletin: "Ship the launch.",
+            }),
+          },
+        ])
+          .then((reply) => {
+            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `channel: ${reply}` } } } });
+            complete();
+          })
+          .catch((e) => {
+            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `channel error: ${(e as Error).message}` } } } });
+            complete();
+          });
+        return;
+      }
       if (mode === "create-peer" && agentsMcp) {
         void driveMcp(agentsMcp, [
           {
@@ -491,22 +517,27 @@ function handle(msg: any) {
       }
       if (mode === "interleave") playInterleaveTurn();
       else if (mode !== "empty-reply") playTurn();
-      if (mode === "permission") {
+      if (mode === "permission" || mode === "permission-twice") {
         // ask the client to approve a tool, then complete once answered
-        pendingPermissionId = 9001;
-        onPermissionAnswered = complete;
-        out({
-          jsonrpc: "2.0",
-          id: pendingPermissionId,
-          method: "session/request_permission",
-          params: {
-            toolCall: { kind: "execute", rawInput: { command: "echo hi" }, title: "echo hi" },
-            options: [
-              { optionId: "allow-once", kind: "allow_once" },
-              { optionId: "reject", kind: "reject_once" },
-            ],
-          },
-        });
+        const commands = mode === "permission-twice" ? ["echo hi", "echo again"] : ["echo hi"];
+        const ask = () => {
+          const command = commands.shift()!;
+          pendingPermissionId = 9000 + commands.length;
+          onPermissionAnswered = commands.length ? ask : complete;
+          out({
+            jsonrpc: "2.0",
+            id: pendingPermissionId,
+            method: "session/request_permission",
+            params: {
+              toolCall: { kind: "execute", rawInput: { command }, title: command },
+              options: [
+                { optionId: "allow-once", kind: "allow_once" },
+                { optionId: "reject", kind: "reject_once" },
+              ],
+            },
+          });
+        };
+        ask();
         return;
       }
       complete();

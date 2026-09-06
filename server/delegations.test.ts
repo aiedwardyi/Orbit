@@ -447,8 +447,9 @@ describe("drainDelegations", () => {
 });
 
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { _loadPending, _resetPending, discardDelegations, discardDelegationsFrom, pendingThreads } from "./delegations.ts";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { _loadPending, _resetPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, pendingThreads } from "./delegations.ts";
 
 describe("delegations survive a restart", () => {
   let store: Store;
@@ -545,6 +546,22 @@ describe("delegations survive a restart", () => {
     await waitFor(() => ran.length === 1 && pendingThreads().length === 0);
     expect(ran[0]).toContain("left over");
     expect(pendingThreads()).toEqual([]);
+  });
+
+  it("drops what a dead process left queued instead of running it with nobody present", () => {
+    const queued = queueDelegation(buses.commsBus, from, { toBotId: target.id, message: "left over", depth: 0 }, 1);
+    _resetPending();
+    _loadPending();
+    expect(pendingThreads()).toEqual([from.threadId]);
+
+    expect(discardOrphanedDelegations(buses.commsBus)).toBe(1);
+
+    expect(pendingThreads()).toEqual([]);
+    expect(findDelegationReceipt(queued.id!)).toMatchObject({ status: "dropped" });
+    // and the user is told, rather than finding a turn they never asked for
+    const chip = store.messagesFor(from.threadId).at(-1)!;
+    expect(chip.tool?.name).toContain("dropped");
+    expect(chip.tool?.ok).toBe(false);
   });
 
   it("tolerates a missing or corrupt file", () => {
@@ -841,5 +858,20 @@ describe("busy retries and receipts", () => {
     discardDelegations(commsBus, from.threadId);
     expect(_pendingCount(from.threadId)).toBe(0);
     expect(findDelegationReceipt(queued.id!)).toMatchObject({ status: "dropped" });
+  });
+});
+
+// index.ts source assertion, same idiom as chief-of-staff.test.ts: the boot
+// block is top-level statements, not an exported function, so the property
+// worth pinning is which drain the boot path chose.
+describe("boot does not run a dead process's handoffs", () => {
+  it("discards the leftover queue instead of draining it", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const index = readFileSync(join(here, "index.ts"), "utf8");
+    const start = index.indexOf("_loadPending();");
+    expect(start).toBeGreaterThan(0);
+    const bootBlock = index.slice(start, start + 700);
+    expect(bootBlock).toContain("discardOrphanedDelegations(commsBus)");
+    expect(bootBlock).not.toContain("drainDelegations(");
   });
 });
