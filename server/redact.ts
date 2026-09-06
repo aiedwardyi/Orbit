@@ -24,7 +24,8 @@ function isSecretName(name: string): boolean {
   return /(^|[_.-])keys?$/.test(lower);
 }
 
-const mask = (value: string) => `«redacted ${value.length} chars»`;
+const maskLength = (chars: number) => `«redacted ${chars} chars»`;
+const mask = (value: string) => maskLength(value.length);
 
 /** Walk limit, and what stands in for a subtree beyond it. */
 const MAX_DEPTH = 12;
@@ -53,10 +54,13 @@ const KEY_PREFIXES: RegExp[] = [
 const BEARER = /(\bBearer\s+)([A-Za-z0-9._~+/=-]{12,})/g;
 const PEM_BLOCK = /(-----BEGIN [A-Z ]*PRIVATE KEY-----)([\s\S]*?)(-----END [A-Z ]*PRIVATE KEY-----)/g;
 /** The same block with its END still in flight. PEM_BLOCK cannot match it, so
- * safeCut holds from BEGIN rather than letting the delimiter go out and strand
- * a body no later chunk can match. Unlike a quoted value this holds across
- * newlines, so an unterminated block holds to the end of the stream. */
+ * both the stream masker and a completed full-text field hold from BEGIN
+ * rather than letting a body no later chunk can match go out raw. Single-match
+ * on purpose: a second unterminated BEGIN is swallowed into the first
+ * placeholder's count, which loses a little shape but never a byte of key. */
 const PEM_OPEN = /(-----BEGIN [A-Z ]*PRIVATE KEY-----)(?![\s\S]*-----END [A-Z ]*PRIVATE KEY-----)([\s\S]*)$/;
+/** The closing delimiter on its own, to end a block the masker is counting. */
+const PEM_END = /-----END [A-Z ]*PRIVATE KEY-----/;
 /** key=value / key: value / key="value" where the key is secret-shaped.
  * The value must be a single token of some length; prose after a colon
  * ("password: leave blank…") has spaces and does not match. */
@@ -75,6 +79,9 @@ const CONFIG_KEY_OPEN = /["']key["']\s*:\s*["'][A-Za-z0-9._~+/=-]*$/i;
 
 /** Longest prefix we must hold so a key split across chunks can still match. */
 const STREAM_HOLD = 96;
+
+/** Enough of an open block's tail to still match an END split across chunks. */
+const PEM_TAIL_HOLD = 96;
 
 const STREAM_MATCHERS: RegExp[] = [PEM_BLOCK, ...KEY_PREFIXES, BEARER, KEY_VALUE, CONFIG_KEY_FIELD];
 
@@ -105,38 +112,108 @@ function safeCut(text: string): number {
   return cut;
 }
 
-/** A stream cut mid-block never delivers its END, so PEM_BLOCK can never reach
- * the body that did arrive. Mask it on the way out instead of emitting it. */
-function maskOpenPem(text: string): string {
-  return text.replace(PEM_OPEN, (_m, open: string, body: string) => {
-    const trimmed = body.trim();
-    return trimmed ? `${open}\n${mask(trimmed)}` : open;
-  });
+/** A held tail belongs to the turn that opened it. Claude emits item.updated
+ * mid-stream, so tearing the maskers down on every non-delta event strands an
+ * open block: the prefix flushes, the state goes, and the rest of the body
+ * reaches a fresh masker with no BEGIN left to match. */
+const STREAM_BOUNDARIES = new Set(["turn.completed", "turn.retrying", "session.exited"]);
+export const endsContentStream = (type: string | undefined): boolean => !!type && STREAM_BOUNDARIES.has(type);
+
+/** Length of a body after trim(), accumulated over chunks nobody keeps. */
+class TrimmedLength {
+  private started = false;
+  private pending = 0;
+  value = 0;
+
+  add(text: string) {
+    const first = text.search(/\S/);
+    if (first < 0) {
+      if (this.started) this.pending += text.length;
+      return;
+    }
+    const trailing = text.search(/\s*$/);
+    this.value += this.pending + (this.started ? first : 0) + (trailing - first);
+    this.pending = text.length - trailing;
+    this.started = true;
+  }
 }
 
 /** Hold a raw suffix across SSE / NDJSON chunks so `sk-ant` + `-api03-…`
- * still redacts. Emits only the safe prefix; call flush() at stream end. */
+ * still redacts. Emits only the safe prefix; call flush() at stream end.
+ *
+ * A PEM body is the one secret longer than any hold, so once a block opens the
+ * masker stops buffering it and starts COUNTING: it is going to be masked
+ * whatever arrives, and holding it would buffer the rest of the response and
+ * rescan all of it on every chunk. */
 export class StreamSecretMasker {
   private hold = "";
+  private pem: { open: string; body: TrimmedLength; tail: string } | null = null;
 
   push(chunk: string): string {
+    if (this.pem) return this.pushOpenPem(chunk);
     const buffered = this.hold + chunk;
     const cut = safeCut(buffered);
     this.hold = buffered.slice(cut);
-    return cut === 0 ? "" : redactSecretsInText(buffered.slice(0, cut));
+    const out = cut === 0 ? "" : redactSecretsInText(buffered.slice(0, cut));
+    return out + this.startOpenPem();
   }
 
   flush(): string {
-    const out = redactSecretsInText(maskOpenPem(this.hold));
+    const out = this.pem ? this.closeOpenPem(this.pem.tail, "") : redactSecretsInText(this.hold);
     this.hold = "";
     return out;
   }
+
+  /** Stop holding an unterminated block once its body outgrows the tail we
+   * need to still match an END delimiter split across chunks. */
+  private startOpenPem(): string {
+    const open = PEM_OPEN.exec(this.hold);
+    if (!open || open[2].length <= PEM_TAIL_HOLD) return "";
+    const head = this.hold.slice(0, open.index);
+    this.hold = "";
+    this.pem = { open: open[1], body: new TrimmedLength(), tail: "" };
+    this.countBody(open[2]);
+    return head ? redactSecretsInText(head) : "";
+  }
+
+  private pushOpenPem(chunk: string): string {
+    const buffered = this.pem!.tail + chunk;
+    const end = PEM_END.exec(buffered);
+    if (!end) {
+      this.countBody(buffered);
+      return "";
+    }
+    // Whatever follows the closing delimiter is ordinary text again.
+    return (
+      this.closeOpenPem(buffered.slice(0, end.index), `\n${end[0]}`) +
+      this.push(buffered.slice(end.index + end[0].length))
+    );
+  }
+
+  private countBody(text: string) {
+    const pem = this.pem!;
+    const drop = Math.max(0, text.length - PEM_TAIL_HOLD);
+    pem.body.add(text.slice(0, drop));
+    pem.tail = text.slice(drop);
+  }
+
+  private closeOpenPem(body: string, close: string): string {
+    const pem = this.pem!;
+    pem.body.add(body);
+    this.pem = null;
+    return `${pem.open}\n${maskLength(pem.body.value)}${close}`;
+  }
 }
+
 
 export function redactSecretsInText(text: string): string {
   if (!text || text.length < 8) return text;
   let out = text;
   out = out.replace(PEM_BLOCK, (_m, open: string, body: string, close: string) => `${open}\n${mask(body.trim())}\n${close}`);
+  out = out.replace(PEM_OPEN, (_m, open: string, body: string) => {
+    const trimmed = body.trim();
+    return trimmed ? `${open}\n${mask(trimmed)}` : open;
+  });
   for (const re of KEY_PREFIXES) out = out.replace(re, (m) => mask(m));
   out = out.replace(BEARER, (_m, lead: string, tok: string) => `${lead}${mask(tok)}`);
   out = out.replace(KEY_VALUE, (_m, key: string, sep: string, quote: string, value: string) => `${key}${sep}${quote}${mask(value)}${quote}`);
