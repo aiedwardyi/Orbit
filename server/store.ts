@@ -266,7 +266,9 @@ export interface TaskUsage {
  * is replayed into every rebuild, and a leaked key would otherwise be
  * permanent. */
 function redactBotAuthored<T extends Omit<Message, "id" | "at"> & { at?: number }>(message: T): T {
-  if (message.role !== "bot") return message;
+  // A peer message lands in the recipient's transcript as role "user", so
+  // `from.botId`, not the role, is what decides who authored it.
+  if (message.role !== "bot" && !message.from?.botId) return message;
   const out = { ...message };
   if (typeof out.text === "string") out.text = redactSecretsInText(out.text);
   const compaction = readContextCompaction({ value: out.compaction });

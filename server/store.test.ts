@@ -1222,6 +1222,30 @@ describe("Store redacts bot-authored secrets on write", () => {
     const mine = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "hi" });
     expect(store.patchMessage(bot.threadId, mine.id, { text: `use ${key}` })?.text).toContain(key);
   });
+
+  it("masks a secret in a peer message, which arrives as role user with a bot sender", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const peer = store.createBot({ name: "Scout" });
+    const key = `sk-ant-api03-${"abcdefghijklmnopqrstuvwxyz0123456789"}`;
+    // ask_bot appends the incoming line as role "user" with `from` set
+    const delivered = store.appendMessage(bot.threadId, {
+      role: "user",
+      kind: "text",
+      text: `Deploy with ${key}`,
+      from: { botId: peer.id, name: peer.name, color: peer.color },
+    });
+    expect(delivered.text).not.toContain(key);
+    expect(delivered.text).toContain("«redacted");
+    const patched = store.patchMessage(bot.threadId, delivered.id, { text: `Retry with ${key}` });
+    expect(patched?.text).not.toContain(key);
+    // a real user's line has no sender and stays exactly as typed
+    const mine = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: `use ${key} for the api` });
+    expect(mine.text).toBe(`use ${key} for the api`);
+    const again = new Store(selection).messagesFor(bot.threadId);
+    expect(again.find((m) => m.id === delivered.id)?.text).not.toContain(key);
+    expect(again.find((m) => m.id === mine.id)?.text).toBe(`use ${key} for the api`);
+  });
 });
 
 describe("Store task usage", () => {
