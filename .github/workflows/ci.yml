@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, review-base]
   pull_request:
 
 # least privilege: CI only reads the checkout, it never writes back
