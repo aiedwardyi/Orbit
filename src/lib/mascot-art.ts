@@ -2,6 +2,9 @@ import peachSvg from "@/assets/mascots/peach.svg?raw";
 import tealSvg from "@/assets/mascots/teal.svg?raw";
 import lavenderSvg from "@/assets/mascots/lavender.svg?raw";
 import coralSvg from "@/assets/mascots/coral.svg?raw";
+import squircleSvg from "@/assets/mascots/squircle.svg?raw";
+import circleSvg from "@/assets/mascots/circle.svg?raw";
+import pillSvg from "@/assets/mascots/pill.svg?raw";
 import { type MascotStyle } from "../../shared/bot-avatar";
 import { mausColorHex } from "./mascot";
 
@@ -10,6 +13,9 @@ const ART = {
   teal: tealSvg,
   lavender: lavenderSvg,
   coral: coralSvg,
+  squircle: squircleSvg,
+  circle: circleSvg,
+  pill: pillSvg,
 } satisfies Record<MascotStyle, string>;
 
 function mix(hex: string, toward: string, t: number): string {

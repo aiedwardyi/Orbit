@@ -1,12 +1,14 @@
 import { z } from "zod";
 
-/** The mascot is a first-class avatar choice; the other values crop an image. */
+/** The mascot is a first-class avatar choice; the other values crop an image.
+ *  `circle` here is a photo crop, not MASCOT_STYLES.circle. Distinct namespaces. */
 export const BOT_AVATAR_CROPS = ["mascot", "circle", "rounded", "square"] as const;
 export const botAvatarCropSchema = z.enum(BOT_AVATAR_CROPS);
 export type BotAvatarCrop = z.infer<typeof botAvatarCropSchema>;
 
-/** Static cute faces that replaced the Cursor arrow-head silhouette. */
-export const MASCOT_STYLES = ["peach", "teal", "lavender", "coral"] as const;
+/** Static cute faces that replaced the Cursor arrow-head silhouette.
+ *  `circle` here is the round mascot, not BOT_AVATAR_CROPS.circle. Distinct namespaces. */
+export const MASCOT_STYLES = ["peach", "teal", "lavender", "coral", "squircle", "circle", "pill"] as const;
 export const mascotStyleSchema = z.enum(MASCOT_STYLES);
 export type MascotStyle = z.infer<typeof mascotStyleSchema>;
 export const DEFAULT_MASCOT_STYLE = "peach" as const satisfies MascotStyle;
@@ -16,6 +18,9 @@ export const MASCOT_STYLE_ASSETS = {
   teal: "teal.svg",
   lavender: "lavender.svg",
   coral: "coral.svg",
+  squircle: "squircle.svg",
+  circle: "circle.svg",
+  pill: "pill.svg",
 } satisfies Record<MascotStyle, string>;
 
 export const MASCOT_STYLE_LABELS = {
@@ -23,6 +28,9 @@ export const MASCOT_STYLE_LABELS = {
   teal: "Teal friend",
   lavender: "Lavender kitty",
   coral: "Coral bean",
+  squircle: "Soft squircle",
+  circle: "Soft circle",
+  pill: "Soft pill",
 } satisfies Record<MascotStyle, string>;
 
 /** Existing arrow-head bots keep their color and receive a matching cute face. */

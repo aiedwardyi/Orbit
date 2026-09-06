@@ -1,4 +1,4 @@
-// Bot avatar — four cute mascot styles, wrapped in the historical MausAvatar
+// Bot avatar — cute mascot styles, wrapped in the historical MausAvatar
 // API so call sites keep compiling. Motion is blink + soft idle eyes only;
 // expression / pointer props are still accepted and ignored.
 import {

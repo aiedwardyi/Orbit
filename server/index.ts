@@ -9,7 +9,7 @@ import { isIP } from "node:net";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 
 import { z } from "zod";
-import { botAvatarUrlFromStoredPath, mascotStyleSchema } from "../shared/bot-avatar.ts";
+import { botAvatarUrlFromStoredPath, MASCOT_STYLES, mascotStyleSchema } from "../shared/bot-avatar.ts";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
 import { canDeleteWhileWorking, canSwitchWhileWorking, workingThreadId } from "../shared/working-thread.ts";
 import {
@@ -6386,7 +6386,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         } else {
           const parsedStyle = mascotStyleSchema.safeParse(body.mascotStyle);
           if (!parsedStyle.success) {
-            return json(res, 400, { error: "mascotStyle must be peach, teal, lavender, or coral" });
+            return json(res, 400, {
+              error: `mascotStyle must be ${MASCOT_STYLES.slice(0, -1).join(", ")}, or ${MASCOT_STYLES[MASCOT_STYLES.length - 1]}`,
+            });
           }
           patch.mascotStyle = parsedStyle.data;
         }

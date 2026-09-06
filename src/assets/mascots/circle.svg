@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none" role="img" aria-label="Soft circle">
+  <defs>
+    <radialGradient id="circle-body" cx="40%" cy="32%" r="70%">
+      <stop offset="0%" stop-color="{{BODY_LIGHT}}"/>
+      <stop offset="55%" stop-color="{{BODY}}"/>
+      <stop offset="100%" stop-color="{{BODY_SHADOW}}"/>
+    </radialGradient>
+  </defs>
+  <circle cx="128" cy="128" r="86" fill="url(#circle-body)"/>
+  <g class="mascot-idle">
+    <g class="mascot-blink">
+      <circle cx="108" cy="128" r="12" fill="#1A1210"/>
+      <circle cx="148" cy="128" r="12" fill="#1A1210"/>
+    </g>
+  </g>
+</svg>
