@@ -59,6 +59,40 @@ describe("readAntigravityModelCatalog", () => {
     expect(ids.indexOf("gemini-3.8-flash-high")).toBeLessThan(ids.indexOf("gemini-3.7-flash-high"));
   });
 
+  // Ids taken verbatim from `agy models` on a real 1.1.27 install (MODEL-AG-STALE).
+  // Update this list only after re-running `agy models` and pasting the output —
+  // PR #86 shipped a bare gemini-3.8-flash because nobody did.
+  const AGY_MODELS_OUTPUT_1_1_27 = [
+    "gemini-3.8-flash-high",
+    "gemini-3.8-flash-medium",
+    "gemini-3.8-flash-low",
+    "gemini-3.7-flash-high",
+    "gemini-3.7-flash-medium",
+    "gemini-3.7-flash-low",
+    "gemini-3.6-flash-high",
+    "gemini-3.6-flash-medium",
+    "gemini-3.6-flash-low",
+    "gemini-3.5-flash-high",
+    "gemini-3.5-flash-medium",
+    "gemini-3.5-flash-low",
+    "gemini-3.1-pro-low",
+    "gemini-3.1-pro-high",
+  ];
+
+  // Predate the ground-truth rule (from the original driver PR #30) and are
+  // absent from a current `agy models` run. Not proven fake, not reverified —
+  // tracked explicitly so the catalog can't grow a new unverified id by
+  // silently joining this list. Needs its own ticket to confirm or remove.
+  const ANTIGRAVITY_UNVERIFIED_LEGACY_IDS = ["claude-sonnet-4-6", "claude-opus-4-6-thinking", "gpt-oss-120b-medium"];
+
+  it("has no gemini id outside a real `agy models` run, and tracks every non-gemini id explicitly", () => {
+    const ids = STATIC_ANTIGRAVITY_MODELS.options.map((option) => option.id);
+    const geminiIds = ids.filter((id) => id.startsWith("gemini-"));
+    const otherIds = ids.filter((id) => !id.startsWith("gemini-"));
+    expect(geminiIds.slice().sort()).toEqual(AGY_MODELS_OUTPUT_1_1_27.slice().sort());
+    expect(otherIds.slice().sort()).toEqual(ANTIGRAVITY_UNVERIFIED_LEGACY_IDS.slice().sort());
+  });
+
   it("returns the official list when settings are missing", () => {
     expect(readAntigravityModelCatalog({ HOME: join(tmpdir(), "omb-agy-missing-home") })).toEqual(
       STATIC_ANTIGRAVITY_MODELS,
