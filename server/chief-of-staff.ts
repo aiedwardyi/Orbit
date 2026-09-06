@@ -23,9 +23,14 @@ const clip = (value: string, max: number) => (value.length > max ? `${value.slic
 
 const sectionKey = (section?: string): string => section?.trim() || "";
 
-/** Shared with every agents-tool bot: call the tools, do not probe the machine. */
+/** Shared with every agents-tool bot: do not probe the machine. */
 export const AGENTS_TOOLS_DISCIPLINE =
-  "Never scan the environment, ports, or processes to check whether your tools are connected, never invent localhost APIs, and never announce that a tool is unavailable before you have tried it. Call the agents tools.";
+  "Never scan the environment, ports, or processes to check whether your tools are connected, never invent localhost APIs, and never announce that a tool is unavailable before you have tried it.";
+
+/** Closes a prompt only where the user actually asked for coordination. As
+ * an unconditional last line it reads as "always fan out", which is how a
+ * 1:1 Chief ends up messaging its whole roster over a direct question. */
+export const CALL_THE_AGENTS_TOOLS = "Call the agents tools.";
 
 /** 1:1 / room framing for a non-Chief that still has agents tools. */
 export function peerAgentsSystemPrompt(): string {
@@ -45,6 +50,7 @@ export function chiefOfStaffSystemPrompt(
   canDelegate: boolean,
   trustedOpenMausStatus = "",
   inRoom = false,
+  coordinationAsked = false,
 ): string {
   const chief = bots.find((bot) => bot.id === chiefId);
   const chiefSection = sectionKey(chief?.section);
@@ -69,7 +75,7 @@ export function chiefOfStaffSystemPrompt(
 
   const delegation = !canDelegate
     ? "Your current engine cannot contact teammates. Be honest about that limitation and ask the user to choose a delegation-compatible engine before promising coordinated work."
-    : hasTeam
+    : hasTeam && coordinationAsked
       ? [
           "Use list_bots to confirm the live roster and IDs. Use ask_bot when a teammate is better suited to part of the request.",
           "When the user asks you to assemble a team, use create_bot for each genuinely useful specialist. Give each one a clear role and instructions, then use delegate_bot to assign its work. Do not create duplicate or unnecessary bots.",
@@ -77,12 +83,19 @@ export function chiefOfStaffSystemPrompt(
           "Delegate with a clear, self-contained brief and wait for the teammate's actual reply before claiming its work is complete.",
           "You may consult more than one teammate when the request genuinely benefits, then combine their results into one coherent answer.",
           AGENTS_TOOLS_DISCIPLINE,
+          CALL_THE_AGENTS_TOOLS,
         ].join(" ")
-      : [
-          "No other teammates are on this section yet. Answer the user directly. Do not inspect the team roster or create specialists unless the user asks you to involve or assemble teammates.",
-          "If they ask you to involve a teammate or assemble a team, call create_bot for the specialist. If they ask for a two-bot channel or shared channel, call create_bot if needed, then create_channel with yourself and that bot. Use ask_bot for peer talk this turn; do not leave the user only in a new bot's 1:1.",
-          AGENTS_TOOLS_DISCIPLINE,
-        ].join(" ");
+      : hasTeam
+        ? [
+            "Answer the user directly. Do not inspect the team roster, consult a teammate, or create specialists unless the user asks you to involve or assemble teammates.",
+            "If they ask you to involve a teammate, use ask_bot for a reply you need this turn and delegate_bot for work that can land after it. If a specialist is missing, call create_bot first. If they ask for a two-bot channel or shared channel, call create_channel with yourself and that bot; do not leave the user only in a new bot's 1:1.",
+            AGENTS_TOOLS_DISCIPLINE,
+          ].join(" ")
+        : [
+            "No other teammates are on this section yet. Answer the user directly. Do not inspect the team roster or create specialists unless the user asks you to involve or assemble teammates.",
+            "If they ask you to involve a teammate or assemble a team, call create_bot for the specialist. If they ask for a two-bot channel or shared channel, call create_bot if needed, then create_channel with yourself and that bot. Use ask_bot for peer talk this turn; do not leave the user only in a new bot's 1:1.",
+            AGENTS_TOOLS_DISCIPLINE,
+          ].join(" ");
 
   // QA 13 / QA-ROOM-2: an in-room Chief used to hunt for its own tools in
   // public, dumping env vars and scanning ports before spawning. create_bot

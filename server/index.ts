@@ -101,6 +101,7 @@ import {
 import { RETRY_MAX_ATTEMPTS } from "./drivers/retry.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
+import { claimAsk, clearAskBudget, MAX_ASKS_PER_TURN } from "./comms-budget.ts";
 import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorReply, type CommsBus } from "./comms-visibility.ts";
 import { searchMessages } from "./message-db.ts";
 import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript } from "./replies.ts";
@@ -437,10 +438,28 @@ function controlIntegration(botId: string) {
   };
 }
 
+/** The markers a peer's inbound message carries into the target's 1:1, so
+ * the transcript names the sender instead of leaving it in the user's voice. */
+function peerAttribution(sender?: BotRecord, channel?: GroupRecord): Pick<StartTurnOptions, "peerSender" | "peerComm"> {
+  if (!sender) return {};
+  return {
+    peerSender: { botId: sender.id, name: sender.name, color: sender.color },
+    peerComm: channel
+      ? { groupId: channel.id, withBotId: sender.id, withName: sender.name, withColor: sender.color }
+      : undefined,
+  };
+}
+
 /** Run a turn on `targetBotId` and resolve with its assistant text — the
  * synchronous half of ask_bot. Subscribes to the bus, folds assistant_text
  * for that thread, resolves on turn.completed (or a 4-min ceiling). */
-function askBotAndWait(targetBotId: string, message: string, depth: number, fromBotId?: string): Promise<string> {
+function askBotAndWait(
+  targetBotId: string,
+  message: string,
+  depth: number,
+  fromBotId?: string,
+  peer?: { sender: BotRecord; channel?: GroupRecord },
+): Promise<string> {
   const target = store.bot(targetBotId);
   if (!target) return Promise.resolve("(no such bot)");
   const threadId = target.threadId;
@@ -466,6 +485,7 @@ function askBotAndWait(targetBotId: string, message: string, depth: number, from
     startTurn(targetBotId, message, {
       commsDepth: depth + 1,
       unattended: isUnattended(fromBotId),
+      ...peerAttribution(peer?.sender, peer?.channel),
     }).catch((err) =>
       finish(`(couldn't start that bot: ${err instanceof Error ? err.message : String(err)})`),
     );
@@ -2123,6 +2143,7 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text,
     return startTurn(toBotId, text, {
       commsDepth,
       unattended: isUnattended(sourceBotId),
+      ...peerAttribution(store.bot(sourceBotId) ?? undefined, channel),
       // startTurn schedules provider/integration setup after marking the bot
       // busy. Those asynchronous setup failures do not emit turn.completed,
       // so clear the watch and report them through this callback too.
@@ -2134,6 +2155,7 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text,
 
 bus.subscribe((event: RuntimeEvent) => {
   if (event.type !== "turn.completed") return;
+  clearAskBudget(event.threadId);
   const sourceBotId = store.botByThread(event.threadId)?.id ?? settledGroupSpeakers.get(event.threadId);
   // A turn that failed or was interrupted drops its queue rather than
   // firing it later: the user who hit Stop does not expect the delegations
@@ -2321,6 +2343,11 @@ type StartTurnOptions = {
   automationSource?: RoutineRunTrigger;
   /** the caller was already running unattended, so this turn is too */
   unattended?: boolean;
+  /** The peer that wrote this turn's prompt. It lands in the target's own
+   * 1:1, where an unattributed line reads as the user's: the record carries
+   * the sender and the channel, and never names the user's task. */
+  peerSender?: Message["from"];
+  peerComm?: Message["comm"];
   /** Resume an agent after the user completed an inline connection or credential card.
    * The prompt is control-plane context: it reaches the provider without
    * masquerading as another message authored by the user. */
@@ -2374,8 +2401,11 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   const task = store.taskByThread(bot.id, threadId);
   if (!task) throw Object.assign(new Error("no such task"), { status: 404 });
   const commsDepth = opts?.commsDepth ?? 0;
-  // a task takes its name from the first thing you asked it to do
-  if (text.trim() && !opts?.cardContinuation) store.titleTaskFromFirstMessage(bot.id, text, threadId);
+  // a task takes its name from the first thing the user asked it to do —
+  // never from a peer's opening line
+  if (text.trim() && !opts?.cardContinuation && !opts?.peerSender) {
+    store.titleTaskFromFirstMessage(bot.id, text, threadId);
+  }
 
   const selection = opts?.runOn === "cloud" ? bot.modelSelection : await resolvedBotSelection(bot, task);
   const instance = opts?.runOn === "cloud"
@@ -2422,6 +2452,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           text,
           replyToId: opts?.replyTo?.id,
           sendId: opts?.sendId,
+          from: opts?.peerSender,
+          comm: opts?.peerComm,
         });
   }
 
@@ -2906,12 +2938,17 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
             sectionPeers,
           )
         : [];
+      // The @tag is the user's own coordination signal. Without it a 1:1
+      // Chief gets the answer-directly framing: the fan-out paragraph on
+      // every turn is what has it messaging its roster over a direct question.
       const coordinationPrompt = bot.chiefOfStaff
         ? chiefOfStaffSystemPrompt(
             bot.id,
             store.bots,
             Boolean(integrations.agents),
             openMausStatusSystemPrompt(),
+            false,
+            tagged.length > 0,
           )
         : integrations.agents && sectionPeers.length > 0
           ? peerAgentsSystemPrompt()
@@ -3701,6 +3738,9 @@ async function runClaimedGroupMemberTurn(
         store.bots,
         Boolean(integrations.agents),
         openMausStatusSystemPrompt(),
+        true,
+        // a room turn is a coordination context by definition; the room
+        // discipline above governs how it coordinates
         true,
       )
     : integrations.agents
@@ -4767,6 +4807,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!connectorThread(from.id, fromThreadId)) {
           return json(res, 403, { error: "source thread does not belong to sender" });
         }
+        // Depth stops recursion, not breadth. The claim happens before the
+        // approval card so a turn cannot open unbounded cards either.
+        if (!claimAsk(fromThreadId)) {
+          return json(res, 200, {
+            limit: `This turn has already used its ${MAX_ASKS_PER_TURN} teammate messages. Work with the replies you have, or hand the rest off with delegate_bot.`,
+          });
+        }
         let currentFrom = from;
         let currentTarget = target;
 
@@ -4809,7 +4856,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const channel = getOrCreateChannel(store, currentFrom, currentTarget);
         mirrorExchange(commsBus, currentFrom, currentTarget, message, channel, fromThreadId);
         const prefixed = `[Message from @${currentFrom.name}, another bot in this Orbit workspace. Reply to them.]\n\n${message}`;
-        const reply = await askBotAndWait(toBotId, prefixed, depth, fromBotId);
+        const reply = await askBotAndWait(toBotId, prefixed, depth, fromBotId, {
+          sender: currentFrom,
+          channel,
+        });
         mirrorReply(commsBus, currentTarget, reply, channel);
         return json(res, 200, { botName: currentTarget.name, text: reply });
       }

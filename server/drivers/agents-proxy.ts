@@ -529,6 +529,9 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
       body: JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID, toBotId, message, depth: DEPTH }),
     });
     if (r.busy) return { text: `That bot is busy right now — try again after it finishes.` };
+    // a spent per-turn budget is not a reachability problem; saying so sends
+    // the model hunting for a broken peer instead of using what it has
+    if (typeof r.limit === "string") return { text: r.limit, isError: true };
     if (r.error) return { text: `Couldn't reach that bot: ${r.error}`, isError: true };
     return { text: `${r.botName ?? "Bot"} replied:\n${r.text ?? "(no reply)"}` };
   }

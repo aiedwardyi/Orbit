@@ -118,6 +118,14 @@ describe("comms e2e (fake ACP fleet)", () => {
             environment: { FAKE_ACP_MODE: "delegate-peer" },
             config: { cli: FAKE_CLI, fullAuto: true },
           },
+          // echoes the WHOLE prompt (system + turn text) back as its reply,
+          // so a test can read the system prompt a Chief's turn was actually
+          // built with instead of asserting on index.ts source text
+          chiefEcho: {
+            driver: "grokAgent",
+            environment: { FAKE_ACP_MODE: "echo-gated" },
+            config: { cli: FAKE_CLI, fullAuto: true },
+          },
           chiefCreator: {
             driver: "grokAgent",
             environment: { FAKE_ACP_MODE: "create-peer" },
@@ -246,6 +254,12 @@ describe("comms e2e (fake ACP fleet)", () => {
       const inbound = helperBot.messages.find((m: any) => m.role === "user" && m.kind === "text");
       expect(inbound.text).toContain("[Message from @Asker");
       expect(inbound.text).toContain("ping from fake");
+      // the record itself has to say who wrote it: a text prefix is not
+      // attribution, and without `from` this reads as the user's own line
+      expect(inbound.from?.botId).toBe(asker.id);
+      expect(inbound.comm?.groupId).toBe(note.comm.groupId);
+      // and a peer's opening line must not name the user's private task
+      expect(helperBot.tasks.some((t: any) => t.title.includes("Message from"))).toBe(false);
       const rnote = helperBot.messages.find((m: any) => m.kind === "activity" && m.tool?.name === "Message from @Asker");
       expect(rnote?.comm?.groupId).toBe(note.comm.groupId);
       expect(helperBot.busy).toBeFalsy();
@@ -297,6 +311,62 @@ describe("comms e2e (fake ACP fleet)", () => {
       expect(operator.messages.some((message: any) => message.text?.includes("Review the new onboarding flow."))).toBe(true);
     },
     45_000,
+  );
+
+  // The 1:1 Chief's coordination framing is gated on the user's own @tag.
+  // Read it off a real turn: the Chief runs on an engine that echoes the
+  // prompt it was given, so this asserts the built system prompt, not source.
+  it(
+    "gives a 1:1 Chief the fan-out framing only on a turn the user tagged",
+    async () => {
+      const mate = (await api("POST", "/api/bots")).body.bot;
+      await api("PATCH", `/api/bots/${mate.id}`, {
+        name: "Quill",
+        section: "TagScope",
+        modelSelection: { instanceId: "grok", model: "fake-model" },
+      });
+      const chief = (await api("POST", "/api/bots")).body.bot;
+      await api("PATCH", `/api/bots/${chief.id}`, {
+        name: "Atlas",
+        section: "TagScope",
+        chiefOfStaff: true,
+        modelSelection: { instanceId: "chiefEcho", model: "fake-model" },
+      });
+
+      const echoes = async (): Promise<string[]> => {
+        const state = (await api("GET", "/api/bots")).body;
+        const bot = state.bots.find((b: any) => b.id === chief.id);
+        return bot.messages
+          .filter((m: any) => m.role === "bot" && m.kind === "text" && m.text?.startsWith("echo: "))
+          .map((m: any) => m.text as string);
+      };
+      const settled = async (count: number, what: string) => {
+        const deadline = Date.now() + 30_000;
+        for (;;) {
+          const seen = await echoes();
+          const state = (await api("GET", "/api/bots")).body;
+          const bot = state.bots.find((b: any) => b.id === chief.id);
+          if (seen.length >= count && !bot.busy) return seen;
+          if (Date.now() > deadline) throw new Error(`${what} never landed. stderr: ${stderr.slice(-2000)}`);
+          await new Promise((r) => setTimeout(r, 200));
+        }
+      };
+
+      expect((await api("POST", `/api/bots/${chief.id}/messages`, { text: "what is the plan" })).status).toBe(202);
+      const untagged = (await settled(1, "the untagged turn"))[0];
+      // a teammate exists, but the user did not ask for one
+      expect(untagged).toContain("Current TagScope section team:");
+      expect(untagged).toContain("Answer the user directly");
+      expect(untagged).not.toContain("You may consult more than one teammate");
+      expect(untagged).not.toContain("Call the agents tools.");
+
+      expect((await api("POST", `/api/bots/${chief.id}/messages`, { text: "hey @Quill take a look" })).status).toBe(202);
+      const tagged = (await settled(2, "the tagged turn"))[1];
+      expect(tagged).toContain("You may consult more than one teammate");
+      expect(tagged).toContain("Call the agents tools.");
+      expect(tagged).not.toContain("Answer the user directly");
+    },
+    60_000,
   );
 
   // ── async peer handoff (delegate_bot) ───────────────────────────────
