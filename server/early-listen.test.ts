@@ -111,10 +111,9 @@ describe("startEarlyListen", () => {
     if (!address || typeof address === "string") throw new Error("no port");
     const port = address.port;
     const lines: string[] = [];
-    const originalError = console.error;
-    console.error = (...args: unknown[]) => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
       lines.push(args.map(String).join(" "));
-    };
+    });
     const exit = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
     try {
       const early = startEarlyListen({ port });
@@ -123,8 +122,9 @@ describe("startEarlyListen", () => {
         setTimeout(() => reject(new Error("listen error never fired")), 1000);
       });
       expect(lines.join("\n")).toMatch(new RegExp(`port ${port} is already in use`));
+      expect(exit).toHaveBeenCalledWith(1);
     } finally {
-      console.error = originalError;
+      consoleError.mockRestore();
       exit.mockRestore();
       await new Promise<void>((resolve) => holder.close(() => resolve()));
     }

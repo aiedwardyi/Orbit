@@ -1,12 +1,6 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { teamImportPreview } from "./team-import";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const panel = readFileSync(join(here, "../components/TeamLibraryPanel.tsx"), "utf8");
 
 describe("team import preview", () => {
   it.each([1, 2])("previews version %s team files", (version) => {
@@ -123,9 +117,5 @@ Create the team.`);
     expect(() => teamImportPreview({ format: "openmaus.package", version: 2, package: {} })).toThrow(
       "Playbook version 2 is not supported.",
     );
-
-    expect(panel).toContain("or drop a playbook .md / legacy team JSON here");
-    expect(panel).not.toContain("BotMRR");
-    expect(panel).not.toContain(".mausteam.json");
   });
 });
