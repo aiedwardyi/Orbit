@@ -56,6 +56,9 @@ export const MAUS_COLOR_NAMES = [
   "yellow",
   "teal",
   "coral",
+  "white",
+  "black",
+  "gray",
 ] as const;
 
 export type MausColor = (typeof MAUS_COLOR_NAMES)[number];
@@ -71,6 +74,10 @@ export const MAUS_COLORS = {
   yellow: "#D8A729",
   teal: "#01A492",
   coral: "#E5634E",
+  // Warm near-white, near-black, calm dark gray so BODY_LIGHT/SHADOW mixes still contrast.
+  white: "#EFE6DA",
+  black: "#2C2826",
+  gray: "#5C5854",
 } satisfies Record<MausColor, string>;
 
 /** First-cycled / missing-color default. Stored "green" is still a valid color. */

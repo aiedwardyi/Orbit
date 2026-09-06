@@ -29,6 +29,7 @@ enum CuteMascotStyle: String, CaseIterable {
         case "green", "teal", "cyan": return .teal
         case "blue", "purple": return .lavender
         case "pink", "coral": return .coral
+        case "white", "black", "gray": return .peach
         default: return .peach
         }
     }
@@ -47,6 +48,9 @@ enum MausPalette {
         "yellow": "#D8A729",
         "teal": "#01A492",
         "coral": "#E5634E",
+        "white": "#EFE6DA",
+        "black": "#2C2826",
+        "gray": "#5C5854",
     ]
 
     static func color(_ name: String) -> Color {

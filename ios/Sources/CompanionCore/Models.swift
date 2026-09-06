@@ -231,6 +231,7 @@ public enum MascotStyle: String, CaseIterable, Hashable, Sendable {
         case "green", "teal", "cyan": return .teal
         case "blue", "purple": return .lavender
         case "pink", "coral": return .coral
+        case "white", "black", "gray": return .peach
         default: return .peach
         }
     }

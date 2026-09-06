@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { MASCOT_STYLE_ASSETS, MASCOT_STYLES } from "../../shared/bot-avatar";
+import { MAUS_COLORS } from "./mascot";
 import { mascotSvgMarkup, scopeMascotSvgIds } from "./mascot-art";
 
 const assetsDir = join(dirname(fileURLToPath(import.meta.url)), "../assets/mascots");
@@ -81,6 +82,16 @@ describe("cute mascot art pack", () => {
     expect(new Set(simple.map((name) => readFileSync(join(assetsDir, `${name}.svg`), "utf8"))).size).toBe(3);
   });
 
+  it("keeps BODY_LIGHT/SHADOW distinct on clamped neutrals", () => {
+    for (const color of ["white", "black", "gray"] as const) {
+      const svg = mascotSvgMarkup("teal", color);
+      const stops = [...svg.matchAll(/stop-color="(#[0-9A-Fa-f]{6})"/g)].map((match) => match[1]);
+      expect(stops).toContain(MAUS_COLORS[color]);
+      // BODY_LIGHT and SHADOW must still differ from BODY after the mix.
+      expect(new Set(stops).size).toBeGreaterThanOrEqual(2);
+    }
+  });
+
   it("scopes gradient ids so two inlined mascots cannot collide", () => {
     const painted = mascotSvgMarkup("peach", "red");
     const a = scopeMascotSvgIds(painted, "a1");
@@ -102,6 +113,7 @@ describe("iOS color-map lockstep", () => {
     'case "green", "teal", "cyan": return .teal',
     'case "blue", "purple": return .lavender',
     'case "pink", "coral": return .coral',
+    'case "white", "black", "gray": return .peach',
     "default: return .peach",
   ];
 
