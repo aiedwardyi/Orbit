@@ -1,11 +1,13 @@
 import { z } from "zod";
 
-/** The mascot is a first-class avatar choice; the other values crop an image. */
+/** The mascot is a first-class avatar choice; the other values crop an image.
+ *  `circle` here is a photo crop, not MASCOT_STYLES.circle. Distinct namespaces. */
 export const BOT_AVATAR_CROPS = ["mascot", "circle", "rounded", "square"] as const;
 export const botAvatarCropSchema = z.enum(BOT_AVATAR_CROPS);
 export type BotAvatarCrop = z.infer<typeof botAvatarCropSchema>;
 
-/** Static cute faces that replaced the Cursor arrow-head silhouette. */
+/** Static cute faces that replaced the Cursor arrow-head silhouette.
+ *  `circle` here is the round mascot, not BOT_AVATAR_CROPS.circle. Distinct namespaces. */
 export const MASCOT_STYLES = ["peach", "teal", "lavender", "coral", "squircle", "circle", "pill"] as const;
 export const mascotStyleSchema = z.enum(MASCOT_STYLES);
 export type MascotStyle = z.infer<typeof mascotStyleSchema>;

@@ -66,6 +66,8 @@ describe("cute mascot art pack", () => {
       const svg = readFileSync(join(assetsDir, `${name}.svg`), "utf8");
       expect(svg).toContain("<svg");
       expect(svg).toContain("{{BODY}}");
+      expect(svg).toContain("{{BODY_LIGHT}}");
+      expect(svg).toContain("{{BODY_SHADOW}}");
       expect(svg).toContain('class="mascot-idle"');
       expect(svg).toContain('class="mascot-blink"');
       expect(svg).not.toContain("#F4A0B4");
@@ -78,6 +80,17 @@ describe("cute mascot art pack", () => {
       const painted = mascotSvgMarkup(name, "red");
       expect(painted).toContain("#D94B52");
       expect(painted).not.toContain("{{BODY}}");
+      expect(painted).not.toContain("{{BODY_LIGHT}}");
+      expect(painted).not.toContain("{{BODY_SHADOW}}");
+      for (const color of ["white", "black", "gray"] as const) {
+        const neutral = mascotSvgMarkup(name, color);
+        expect(neutral).not.toContain("{{BODY}}");
+        expect(neutral).not.toContain("{{BODY_LIGHT}}");
+        expect(neutral).not.toContain("{{BODY_SHADOW}}");
+        const stops = [...neutral.matchAll(/stop-color="(#[0-9A-Fa-f]{6})"/g)].map((match) => match[1]);
+        expect(stops).toContain(MAUS_COLORS[color]);
+        expect(new Set(stops).size).toBeGreaterThanOrEqual(2);
+      }
     }
     expect(new Set(simple.map((name) => readFileSync(join(assetsDir, `${name}.svg`), "utf8"))).size).toBe(3);
   });
