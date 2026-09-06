@@ -2153,6 +2153,10 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text,
     const reportStartFailure = (error: unknown) => {
       if (failureReported) return;
       failureReported = true;
+      // No turn started, so no turn.completed will clear this. Left behind,
+      // the next card on that bot's thread is reported to a conversation
+      // that has nothing to do with it.
+      if (targetThreadId) peerTurnSource.delete(targetThreadId);
       const bot = store.bot(toBotId);
       const why = error instanceof Error ? error.message : String(error);
       if (targetThreadId) {
@@ -5087,13 +5091,16 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             return json(res, 400, { error: "setup.bulletin must be at most 12000 characters" });
           }
         }
-        // Not `completed`: the room-setup step is where the user picks the
-        // lead and the folder, and a bot answering it for them is the one
-        // decision this tool is not allowed to make.
+        // A room the user asked for is usable the moment it exists — the
+        // setup step would only stand between them and the bots they just
+        // asked to assemble. The lead is the one decision worth taking off
+        // the sender: memberIds[0] is always the sender, so picking it made
+        // every bot-opened room answer to the bot that opened it.
+        const lead = memberIds.find((id) => id !== sender.id) ?? sender.id;
         const group = store.createGroup(name, memberIds, false, section, {
           bulletin,
-          defaultResponder: { kind: "member", botId: memberIds[0] },
-          completed: false,
+          defaultResponder: { kind: "member", botId: lead },
+          completed: true,
         });
         return json(res, 201, {
           id: group.id,

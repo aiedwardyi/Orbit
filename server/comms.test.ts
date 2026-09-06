@@ -353,8 +353,10 @@ describe("comms e2e (fake ACP fleet)", () => {
       expect(room.memberIds).toContain(helper.id);
       // a bot may not file a room outside its own section
       expect(room.section).toBe("RoomScope");
-      // and it may not answer the room-setup step on the user's behalf
-      expect(room.setupCompletedAt ?? null).toBeNull();
+      // the room is usable straight away, but the bot that opened it does
+      // not make itself the one who answers in it
+      expect(room.setupCompletedAt).toBeTruthy();
+      expect(room.defaultResponder).toEqual({ kind: "member", botId: helper.id });
     },
     45_000,
   );
@@ -689,6 +691,81 @@ describe("comms e2e (fake ACP fleet)", () => {
       }
     },
     45_000,
+  );
+
+  // A delegation that never starts emits no turn.completed, so the note of
+  // where it was asked from has to be cleared by the failure path itself.
+  // Left behind, the next unrelated card on that bot's thread is reported
+  // back to a conversation that has nothing to do with it.
+  it(
+    "does not blame an unrelated card on a delegation that never started",
+    async () => {
+      const ghost = (await api("POST", "/api/bots")).body.bot;
+      await api("PATCH", `/api/bots/${ghost.id}`, {
+        name: "Ghost",
+        section: "StaleScope",
+        // no such instance — startTurn rejects, so the delegated turn never starts
+        modelSelection: { instanceId: "missing-instance", model: "fake-model" },
+      });
+      const handoff = (await api("POST", "/api/bots")).body.bot;
+      await api("PATCH", `/api/bots/${handoff.id}`, {
+        name: "Handoff",
+        section: "StaleScope",
+        modelSelection: { instanceId: "askerDelegate", model: "fake-model" },
+      });
+
+      expect((await api("POST", `/api/bots/${handoff.id}/messages`, { text: "hey @Ghost take this" })).status).toBe(202);
+
+      const failed = Date.now() + 30_000;
+      for (;;) {
+        const state = (await api("GET", "/api/bots")).body;
+        const handoffBot = state.bots.find((b: any) => b.id === handoff.id);
+        const chip = handoffBot.messages.find(
+          (m: any) => m.kind === "activity" && m.tool?.ok === false && m.tool?.name?.includes("could not start"),
+        );
+        if (chip && !handoffBot.busy) break;
+        if (Date.now() > failed) throw new Error(`delegation never failed to start. stderr: ${stderr.slice(-2000)}`);
+        await new Promise((r) => setTimeout(r, 250));
+      }
+
+      // give the peer a working engine that stops on a card, then talk to it
+      // DIRECTLY — the failed handoff is long over and has no part in this
+      await api("PATCH", `/api/bots/${ghost.id}`, {
+        modelSelection: { instanceId: "helperPermission", model: "fake-model" },
+      });
+      expect((await api("POST", `/api/bots/${ghost.id}/messages`, { text: "run something" })).status).toBe(202);
+
+      let card: any;
+      const carded = Date.now() + 25_000;
+      for (;;) {
+        const state = (await api("GET", "/api/bots")).body;
+        const ghostBot = state.bots.find((b: any) => b.id === ghost.id);
+        card = ghostBot.messages.find((m: any) => m.kind === "options" && m.card?.requestId && !m.card?.answered);
+        if (card) break;
+        if (Date.now() > carded) throw new Error(`peer never raised a card. stderr: ${stderr.slice(-2000)}`);
+        await new Promise((r) => setTimeout(r, 200));
+      }
+
+      const state = (await api("GET", "/api/bots")).body;
+      const handoffBot = state.bots.find((b: any) => b.id === handoff.id);
+      expect(
+        handoffBot.messages.some((m: any) => /waiting on your approval/i.test(m.tool?.name ?? "")),
+      ).toBe(false);
+
+      // answer it so nothing is left hanging behind us
+      expect((await api("POST", `/api/bots/${ghost.id}/respond`, {
+        requestId: card.card.requestId,
+        behavior: "allow",
+      })).status).toBe(200);
+      const settle = Date.now() + 25_000;
+      for (;;) {
+        const fresh = (await api("GET", "/api/bots")).body.bots.find((b: any) => b.id === ghost.id);
+        if (!fresh.busy) break;
+        if (Date.now() > settle) throw new Error(`peer never settled. stderr: ${stderr.slice(-2000)}`);
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    },
+    60_000,
   );
 
   // ── approval gate (approvePeerComms) ─────────────────────────────────

@@ -958,13 +958,13 @@ describe("harness HTTP API", () => {
       const room = (await api("GET", "/api/bots?messages=0")).body.groups.find(
         (group: { id: string }) => group.id === created.body.id,
       );
-      // room setup is the user's step — a bot opening the room may not answer
-      // it for them, so the room waits at setup like any other new room
-      expect(room.setupCompletedAt ?? null).toBeNull();
-      expect(room.defaultResponder).toEqual({ kind: "member", botId: chief.id });
+      // a room the user asked for is usable the moment it exists — no setup
+      // wizard stands between them and the bots they just asked to assemble
+      expect(room.setupCompletedAt).toBeTruthy();
+      // but the bot does not crown itself the room's lead: the peer it was
+      // asked to open the room with answers by default
+      expect(room.defaultResponder).toEqual({ kind: "member", botId: peer.id });
       expect(room.bulletin).toBe("Peer talk lives here.");
-      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "hello room" })).status).toBe(409);
-      expect((await api("PATCH", `/api/groups/${room.id}/setup`, { action: "skip" })).status).toBe(200);
       expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "hello room" })).status).toBe(202);
       expect((await api("POST", `/api/groups/${room.id}/interrupt`)).status).toBe(200);
 
