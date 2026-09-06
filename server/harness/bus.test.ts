@@ -172,6 +172,29 @@ describe("EventBus", () => {
     expect(logged.some((e) => e.eventId === "ev-1-delta-flush-reasoning_text")).toBe(true);
   });
 
+  it("keeps a streamed PEM private key out of the canonical log", () => {
+    const line = "AbCd0123+/".repeat(10);
+    const pem = `-----BEGIN PRIVATE KEY-----\n${Array(8).fill(line).join("\n")}\n-----END PRIVATE KEY-----`;
+    const bus = new EventBus();
+    for (let i = 0; i < pem.length; i += 40) {
+      bus.publish(
+        testEvent({ threadId: "pem-stream", type: "content.delta", streamKind: "assistant_text", delta: pem.slice(i, i + 40) }),
+      );
+    }
+    bus.publish(testEvent({ threadId: "pem-stream", type: "turn.completed" }));
+
+    const logged = readFileSync(join(EVENTS_DIR, "pem-stream.ndjson"), "utf8");
+    expect(logged).not.toContain(line);
+    const joined = logged
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l))
+      .filter((e) => e.type === "content.delta")
+      .map((e) => e.delta)
+      .join("");
+    expect(joined).toMatch(/^-----BEGIN PRIVATE KEY-----\n«redacted \d+ chars»\n-----END PRIVATE KEY-----$/);
+  });
+
   it("reports an incomplete log once while continuing live delivery", () => {
     rmSync(EVENTS_DIR, { recursive: true, force: true });
     const bus = new EventBus();

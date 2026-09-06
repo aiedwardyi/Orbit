@@ -11,6 +11,17 @@ import { redactSecrets, StreamSecretMasker } from "./redact.ts";
 
 const flat = (value: unknown) => JSON.stringify(value);
 
+const PEM_LINE = "AbCd0123+/".repeat(10);
+const PEM_BODY = Array(8).fill(PEM_LINE).join("\n");
+const PEM = `-----BEGIN PRIVATE KEY-----\n${PEM_BODY}\n-----END PRIVATE KEY-----`;
+
+function streamed(text: string, size: number): string {
+  const masker = new StreamSecretMasker();
+  let out = "";
+  for (let i = 0; i < text.length; i += size) out += masker.push(text.slice(i, i + size));
+  return out + masker.flush();
+}
+
 describe("redactSecrets", () => {
   it("masks the tokens in an ACP session/new, keeping the shape", () => {
     const sessionNew = {
@@ -321,6 +332,35 @@ describe("redactSecretsInText", () => {
     expect(emitted).not.toContain(opaque.slice(0, 40));
     expect(out).not.toContain(opaque.slice(0, 40));
     expect(out).toBe(`{"key": "«redacted ${opaque.length} chars»"}`);
+  });
+
+  it("masks a PEM block that only completes many chunks later", () => {
+    const out = streamed(PEM, 40);
+    expect(out).not.toContain(PEM_LINE);
+    expect(out).toBe(`-----BEGIN PRIVATE KEY-----\n«redacted ${PEM_BODY.length} chars»\n-----END PRIVATE KEY-----`);
+  });
+
+  it("masks a PEM block whose BEGIN delimiter is split across chunks", () => {
+    const masker = new StreamSecretMasker();
+    const emitted = masker.push("here it is:\n-----BEGIN PRI") + masker.push(`VATE KEY-----\n${PEM_BODY}`);
+    const out = emitted + masker.push("\n-----END PRIVATE KEY-----\ndone") + masker.flush();
+    expect(emitted).not.toContain(PEM_LINE);
+    expect(out).not.toContain(PEM_LINE);
+    expect(out).toBe(`here it is:\n-----BEGIN PRIVATE KEY-----\n«redacted ${PEM_BODY.length} chars»\n-----END PRIVATE KEY-----\ndone`);
+  });
+
+  it("masks the body of a block whose END never arrives", () => {
+    const masker = new StreamSecretMasker();
+    const emitted = masker.push(`-----BEGIN PRIVATE KEY-----\n${PEM_BODY}`);
+    const out = emitted + masker.flush();
+    expect(emitted).toBe("");
+    expect(out).toBe(`-----BEGIN PRIVATE KEY-----\n«redacted ${PEM_BODY.length} chars»`);
+  });
+
+  it("masks a PEM block streamed one character at a time", () => {
+    const out = streamed(PEM, 1);
+    expect(out).not.toContain(PEM_LINE);
+    expect(out).toBe(`-----BEGIN PRIVATE KEY-----\n«redacted ${PEM_BODY.length} chars»\n-----END PRIVATE KEY-----`);
   });
 
   it("is applied to string values inside redactSecrets too", () => {

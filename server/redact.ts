@@ -52,6 +52,11 @@ const KEY_PREFIXES: RegExp[] = [
 ];
 const BEARER = /(\bBearer\s+)([A-Za-z0-9._~+/=-]{12,})/g;
 const PEM_BLOCK = /(-----BEGIN [A-Z ]*PRIVATE KEY-----)([\s\S]*?)(-----END [A-Z ]*PRIVATE KEY-----)/g;
+/** The same block with its END still in flight. PEM_BLOCK cannot match it, so
+ * safeCut holds from BEGIN rather than letting the delimiter go out and strand
+ * a body no later chunk can match. Unlike a quoted value this holds across
+ * newlines, so an unterminated block holds to the end of the stream. */
+const PEM_OPEN = /(-----BEGIN [A-Z ]*PRIVATE KEY-----)(?![\s\S]*-----END [A-Z ]*PRIVATE KEY-----)([\s\S]*)$/;
 /** key=value / key: value / key="value" where the key is secret-shaped.
  * The value must be a single token of some length; prose after a colon
  * ("password: leave blank…") has spaces and does not match. */
@@ -84,6 +89,8 @@ function safeCut(text: string): number {
   );
   const open = CONFIG_KEY_OPEN.exec(text);
   if (open) spans.push([open.index, text.length] as const);
+  const openPem = PEM_OPEN.exec(text);
+  if (openPem) spans.push([openPem.index, text.length] as const);
   let cut = tail;
   // Regexes from different families can overlap, so one shift can expose another.
   for (let moved = true; moved; ) {
@@ -96,6 +103,15 @@ function safeCut(text: string): number {
     }
   }
   return cut;
+}
+
+/** A stream cut mid-block never delivers its END, so PEM_BLOCK can never reach
+ * the body that did arrive. Mask it on the way out instead of emitting it. */
+function maskOpenPem(text: string): string {
+  return text.replace(PEM_OPEN, (_m, open: string, body: string) => {
+    const trimmed = body.trim();
+    return trimmed ? `${open}\n${mask(trimmed)}` : open;
+  });
 }
 
 /** Hold a raw suffix across SSE / NDJSON chunks so `sk-ant` + `-api03-…`
@@ -111,7 +127,7 @@ export class StreamSecretMasker {
   }
 
   flush(): string {
-    const out = redactSecretsInText(this.hold);
+    const out = redactSecretsInText(maskOpenPem(this.hold));
     this.hold = "";
     return out;
   }
