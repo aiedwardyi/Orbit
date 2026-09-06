@@ -23,7 +23,7 @@ describe("chat TTS speaker chrome", () => {
 });
 
 const TRANSCRIPT_COLUMN = 'className={cn("flex w-full flex-col gap-3 px-5", CHAT_COLUMN_CLASS)}';
-const COMPOSER_COLUMN = 'ref={composerDockRef} className={cn("absolute inset-x-0 bottom-0 z-[2]", CHAT_COLUMN_CLASS)}';
+const COMPOSER_COLUMN = 'ref={composerDockRef} className={cn("relative z-[2] w-full shrink-0", CHAT_COLUMN_CLASS)}';
 
 describe("chat column width", () => {
   it("shares a centered 960px column across ChatView transcript and composer", () => {
@@ -43,7 +43,7 @@ describe("chat column width", () => {
     const setup = groupView.slice(groupView.indexOf("setupPending ?"), groupView.indexOf(TRANSCRIPT_COLUMN));
     expect(setup).not.toContain("CHAT_COLUMN_CLASS");
     expect(setup).toContain("px-5");
-    expect(setup).toContain("composerDock.pad");
+    expect(setup).toContain("TRANSCRIPT_GAP");
   });
 
   it("keeps the column token at 960px centered without baking in gutters", () => {
