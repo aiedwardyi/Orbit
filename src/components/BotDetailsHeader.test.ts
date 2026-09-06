@@ -37,6 +37,12 @@ describe("QA 17 one Bot-details header entry", () => {
     expect(chatHeader).toMatch(/onClick=\{\(\) => dispatch\(\{ type: "toggleSettings", open: true \}\)\}/);
   });
 
+  it("keeps the Chief of Staff name when the badge folds to the crown", () => {
+    expect(chatHeader).toContain('aria-label={t("chrome.chiefOfStaff")}');
+    expect(chatHeader).toContain("@max-xs/chathead:sr-only");
+    expect(chatHeader).not.toContain("@max-xs/chathead:hidden");
+  });
+
   it("hides Computer and new-task chrome from the ChatView header", () => {
     expect(chatHeader).toContain("showComputerPanelChrome()");
     expect(chatHeader).toContain("showBotNewTaskControl()");

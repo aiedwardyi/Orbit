@@ -1091,7 +1091,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     if (!sidebarCollapsedRef.current && density === "icons") return;
     resizeFrom.current = {
       x: event.clientX,
-      width: sidebarWidthRef.current,
+      width: sidebarCollapsedRef.current ? sidebarWidthRef.current : fitSidebarWidth(sidebarWidthRef.current, viewportWidth),
       collapsed: sidebarCollapsedRef.current,
       query,
     };
