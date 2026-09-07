@@ -92,6 +92,8 @@ const ROOM_TASK_SURVIVOR = { botId: "room-task-survivor-bot", botThreadId: "room
 const EDIT_CLAIM = { botId: "edit-claim-bot", botThreadId: "edit-claim-thread" };
 const NEW_TASK_CLAIM = { botId: "new-task-claim-bot", botThreadId: "new-task-claim-thread" };
 const CLEAR_RACE = { botId: "clear-race-bot", botThreadId: "clear-race-thread" };
+const GOAL_STRIP = { botId: "goal-strip-bot", botThreadId: "goal-strip-thread" };
+const GOAL_LEGACY = { botId: "goal-legacy-bot", botThreadId: "goal-legacy-thread" };
 const SECRET_COLLISION = {
   botId: "secret-collision-bot",
   botThreadId: "secret-collision-direct-thread",
@@ -124,6 +126,8 @@ describe("context compaction e2e", () => {
   };
   const storedTaskPacket = (threadId: string) =>
     JSON.parse(readFileSync(join(home, ".orbit", "task-state", `${threadId}.json`), "utf8"));
+  const botById = async (botId: string) =>
+    (await api("GET", "/api/bots")).body.bots.find((candidate: { id: string }) => candidate.id === botId);
 
   const waitFor = async (predicate: () => Promise<boolean>, timeout = 20_000) => {
     const deadline = Date.now() + timeout;
@@ -317,6 +321,34 @@ describe("context compaction e2e", () => {
         tasks: [{ threadId: NEW_TASK_CLAIM.botThreadId, title: "Release", createdAt: 1, resumeCursors: {} }],
       },
       {
+        id: GOAL_STRIP.botId,
+        threadId: GOAL_STRIP.botThreadId,
+        name: "Goal strip",
+        title: "Release owner",
+        description: "Keep the release moving.",
+        notifications: true,
+        color: "green",
+        unread: false,
+        modelSelection: { instanceId: "claude", model: "claude-fake" },
+        resumeCursors: {},
+        createdAt: 1,
+        tasks: [{ threadId: GOAL_STRIP.botThreadId, title: "Release", createdAt: 1, resumeCursors: {} }],
+      },
+      {
+        id: GOAL_LEGACY.botId,
+        threadId: GOAL_LEGACY.botThreadId,
+        name: "Goal legacy",
+        title: "Release owner",
+        description: "Keep the release moving.",
+        notifications: true,
+        color: "orange",
+        unread: false,
+        modelSelection: { instanceId: "claude", model: "claude-fake" },
+        resumeCursors: {},
+        createdAt: 1,
+        tasks: [{ threadId: GOAL_LEGACY.botThreadId, title: "Release", createdAt: 1, resumeCursors: {} }],
+      },
+      {
         id: CLEAR_RACE.botId,
         threadId: CLEAR_RACE.botThreadId,
         name: "Clear race",
@@ -471,6 +503,23 @@ describe("context compaction e2e", () => {
       updatedAt: 1,
       updatedBy: "harness",
       flushReason: "stop",
+      turnsAtWrite: 0,
+    }));
+    // Neither anchor field: the record shape written before instructionAction and instructionGoal existed.
+    writeFileSync(join(dataDir, "task-state", `${GOAL_LEGACY.botThreadId}.json`), JSON.stringify({
+      v: 1,
+      threadId: GOAL_LEGACY.botThreadId,
+      botId: GOAL_LEGACY.botId,
+      goal: "Ship the legacy release",
+      plan: [{ step: "Run legacy smoke tests", status: "active" }],
+      completed: [],
+      evidence: [],
+      artifacts: [],
+      blockers: [],
+      nextAction: "Run legacy smoke tests",
+      updatedAt: 1,
+      updatedBy: "harness",
+      flushReason: "progress",
       turnsAtWrite: 0,
     }));
     for (const [threadId, botId] of [[THREAD_ID, BOT_ID], [CLAUDE_THREAD_ID, CLAUDE_BOT_ID]]) {
@@ -952,5 +1001,41 @@ describe("context compaction e2e", () => {
     expect(bot.cwd).toBeNull();
     expect(bot).not.toHaveProperty("rememberedProjectCwd");
     expect(bot.tasks[0].cwd).not.toContain("clear-race-project");
+  }, 30_000);
+
+  it("moves the continuity goal to the newest instruction", async () => {
+    const first = await api("POST", `/api/bots/${GOAL_STRIP.botId}/messages`, {
+      text: "Say hello in one short sentence.",
+    });
+    expect(first.status).toBe(202);
+    expect(storedTaskPacket(GOAL_STRIP.botThreadId).goal).toBe("Say hello in one short sentence.");
+    await waitFor(async () => (await botById(GOAL_STRIP.botId))?.busy === false);
+
+    const second = await api("POST", `/api/bots/${GOAL_STRIP.botId}/messages`, {
+      text: "Draft the outage timeline from the scanned exhibits.",
+    });
+    expect(second.status).toBe(202);
+    // The 202 lands after the instruction is folded and before the turn settles:
+    // the same in-flight window the strip renders the goal in.
+    expect(storedTaskPacket(GOAL_STRIP.botThreadId).goal).toBe("Draft the outage timeline from the scanned exhibits.");
+    await waitFor(async () => (await botById(GOAL_STRIP.botId))?.busy === false);
+
+    const packet = storedTaskPacket(GOAL_STRIP.botThreadId);
+    expect(packet.goal).toBe("Draft the outage timeline from the scanned exhibits.");
+    // The anchor must survive the re-seed, or completion takes #112's always-blank path.
+    expect(packet.instructionAction).toBe("Draft the outage timeline from the scanned exhibits.");
+  }, 30_000);
+
+  it("leaves a pre-anchor record's goal where it was", async () => {
+    const sent = await api("POST", `/api/bots/${GOAL_LEGACY.botId}/messages`, {
+      text: "Draft the outage timeline from the scanned exhibits.",
+    });
+    expect(sent.status).toBe(202);
+    await waitFor(async () => (await botById(GOAL_LEGACY.botId))?.busy === false);
+
+    const packet = storedTaskPacket(GOAL_LEGACY.botThreadId);
+    expect(packet.goal).toBe("Ship the legacy release");
+    expect(packet.instructionGoal).toBeUndefined();
+    expect(packet.instructionAction).toBe("Draft the outage timeline from the scanned exhibits.");
   }, 30_000);
 });

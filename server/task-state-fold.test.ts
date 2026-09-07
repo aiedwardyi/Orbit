@@ -38,16 +38,51 @@ describe("task state folding", () => {
     });
   });
 
-  it("records later instructions without replacing the durable goal", () => {
+  it("re-seeds a harness-seeded goal from the newest instruction", () => {
     const updated = recordTaskInstruction(seed(), {
       text: "Add a pricing comparison",
       messageId: "message-2",
       now: 200,
     });
 
-    expect(updated.goal).toContain("weekly competitor brief");
+    expect(updated.goal).toBe("Add a pricing comparison");
     expect(updated.nextAction).toBe("Add a pricing comparison");
+    expect(updated.instructionAction).toBe("Add a pricing comparison");
     expect(updated.evidence.at(-1)?.ref).toBe("message-2");
+  });
+
+  it("keeps a goal the bot set across a later instruction", () => {
+    const curated = { ...seed(), goal: "Ship the Q3 competitor programme", updatedBy: "bot" as const };
+    const updated = recordTaskInstruction(curated, {
+      text: "Add a pricing comparison",
+      messageId: "message-2",
+      now: 200,
+    });
+
+    expect(updated.goal).toBe("Ship the Q3 competitor programme");
+    expect(updated.nextAction).toBe("Add a pricing comparison");
+    expect(updated.instructionAction).toBe("Add a pricing comparison");
+  });
+
+  it("leaves a record written before the goal anchor existed alone", () => {
+    const legacy = seed();
+    delete legacy.instructionGoal;
+    const updated = recordTaskInstruction(legacy, {
+      text: "Add a pricing comparison",
+      messageId: "message-2",
+      now: 200,
+    });
+
+    expect(updated.goal).toContain("weekly competitor brief");
+    expect(updated.instructionGoal).toBeUndefined();
+    expect(updated.instructionAction).toBe("Add a pricing comparison");
+  });
+
+  it("keeps the instruction anchor set when a blank instruction cannot re-seed the goal", () => {
+    const updated = recordTaskInstruction(seed(), { text: "   ", messageId: "message-2", now: 200 });
+
+    expect(updated.goal).toBe(seed().goal);
+    expect(updated.instructionAction).toBe("Prepare a weekly competitor brief");
   });
 
   it("deduplicates evidence by kind and durable reference", () => {

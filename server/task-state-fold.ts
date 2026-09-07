@@ -51,6 +51,7 @@ export function seedTaskResumePacket(input: {
     blockers: [],
     nextAction,
     instructionAction: nextAction,
+    instructionGoal: goal,
     updatedAt: input.now,
     updatedBy: "harness",
     flushReason: "progress",
@@ -69,6 +70,14 @@ export function recordTaskInstruction(
   if (action) {
     next.nextAction = action;
     next.instructionAction = action;
+  }
+  // Only the harness's own seed follows the newest instruction. A goal that no
+  // longer matches its anchor was set on purpose and is the durable outcome; a
+  // record from before the anchor existed has no provenance to judge, so it stays.
+  const goal = input.text.trim();
+  if (goal && next.instructionGoal && next.goal === next.instructionGoal) {
+    next.goal = goal;
+    next.instructionGoal = goal;
   }
   if (!next.plan.length && action) next.plan = [{ step: action, status: "active" }];
   if (!next.evidence.some((item) => item.kind === "message" && item.ref === input.messageId)) {
