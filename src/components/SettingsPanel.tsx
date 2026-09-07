@@ -460,7 +460,10 @@ export function SettingsPanel({
 
   return (
     <>
-    <aside ref={panelRef} className="animate-panel-in relative z-20 flex h-full w-[400px] shrink-0 flex-col border-l border-hairline/40 bg-panel">
+    {/* Below md the sidebar is already a drawer, so docking here would leave a
+        ~200px chat column at the window floor. Take the content area instead —
+        z-30 to cover the drawer button, still under the drawer itself at z-40. */}
+    <aside ref={panelRef} className="animate-panel-in relative z-20 flex h-full w-[400px] shrink-0 flex-col border-l border-hairline/40 bg-panel max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-30 max-md:w-full">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3">
         <button

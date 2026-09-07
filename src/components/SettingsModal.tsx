@@ -517,7 +517,9 @@ export function SettingsModal({
         aria-modal="true"
         aria-labelledby="app-settings-title"
         tabIndex={-1}
-        className="flex h-[560px] w-full max-w-[860px] overflow-hidden rounded-2xl border border-hairline/50 bg-panel shadow-2xl outline-none"
+        // h-* alone overflows the 600x480 window floor above and below; max-h-full
+        // hands the excess to the content pane, which is the only thing that scrolls.
+        className="flex h-[560px] max-h-full w-full max-w-[860px] overflow-hidden rounded-2xl border border-hairline/50 bg-panel shadow-2xl outline-none"
       >
         {/* section nav */}
         <nav className="flex w-[190px] shrink-0 flex-col gap-0.5 border-r border-hairline/40 p-3">
@@ -564,7 +566,7 @@ export function SettingsModal({
         </nav>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex items-center justify-between px-5 py-3">
+          <div className="flex shrink-0 items-center justify-between px-5 py-3">
             <span className="text-[15px] font-semibold text-ink">
               {t(SECTION_KEY[section])}
             </span>
