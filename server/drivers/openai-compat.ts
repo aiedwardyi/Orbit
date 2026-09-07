@@ -18,7 +18,7 @@ import type {
   SendTurnInput,
 } from "../contracts.ts";
 import { newEventId, newId } from "../contracts.ts";
-import { appendNative } from "./native.ts";
+import { appendNative, finishNative } from "./native.ts";
 
 const DRIVER_KIND = "openai-compat";
 
@@ -127,6 +127,7 @@ export const OpenAICompatDriver: ProviderDriver<OpenAICompatConfig> = {
       : DEFAULT_MODELS;
 
     const emit = (event: RuntimeEvent) => {
+      finishNative(event);
       for (const l of [...listeners]) l(event);
     };
     const base = (threadId: string, turnId: string) => ({

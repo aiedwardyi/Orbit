@@ -51,7 +51,7 @@ import {
   probeLocalInjects,
   resolveInjectId,
 } from "./local-inject.ts";
-import { appendNative } from "./native.ts";
+import { appendNative, finishNative } from "./native.ts";
 import { claudeRateLimitWindows } from "./rate-limits.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
 
@@ -567,6 +567,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     };
 
     const emit = (event: RuntimeEvent) => {
+      finishNative(event);
       for (const l of [...listeners]) l(event);
     };
     const base = (threadId: string, turnId: string) => ({

@@ -48,7 +48,7 @@ import { augmentedPath } from "../../env-path.ts";
 // this module two directories up, so the `".."` pair here would climb past the
 // packaged server dir entirely. See server/proxy-paths.ts.
 const COMPUTER_PROXY_PATH = SPAWNED_PROXIES.computer;
-import { appendNative } from "../native.ts";
+import { appendNative, finishNative } from "../native.ts";
 import { SPAWNED_PROXIES } from "../../proxy-paths.ts";
 
 export interface AcpConfig {
@@ -228,6 +228,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
       const active = new Map<string, Turn>();
 
       const emit = (event: RuntimeEvent) => {
+        finishNative(event);
         for (const l of [...listeners]) l(event);
       };
       const base = (threadId: string, turnId: string) => ({

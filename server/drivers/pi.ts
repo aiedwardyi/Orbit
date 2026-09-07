@@ -50,7 +50,7 @@ import {
   localHost,
   mergeLocalInject,
 } from "./local-inject.ts";
-import { appendNative } from "./native.ts";
+import { appendNative, finishNative } from "./native.ts";
 
 const DRIVER_KIND = "piAgent";
 const PI_ARGS = ["--mode", "rpc", "--no-session"];
@@ -437,6 +437,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
     }>();
 
     const emit = (event: RuntimeEvent) => {
+      finishNative(event);
       for (const l of [...listeners]) l(event);
     };
     const base = (threadId: string, turnId: string) => ({

@@ -41,7 +41,7 @@ import type {
   SendTurnInput,
 } from "../contracts.ts";
 import { newEventId, newId } from "../contracts.ts";
-import { appendNative } from "./native.ts";
+import { appendNative, finishNative } from "./native.ts";
 import { isResumeCursorRejected } from "./retry.ts";
 
 const DRIVER_KIND = "antigravityAgent";
@@ -354,6 +354,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
     const children = new Set<ChildProcess>();
 
     const emit = (event: RuntimeEvent) => {
+      finishNative(event);
       for (const l of [...listeners]) l(event);
     };
 
