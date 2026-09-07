@@ -167,10 +167,13 @@ describe("friends chrome call sites keep the feature code", () => {
     const resizeStart = sourceBetween(sidebar, "const onSidebarResizeStart", "const onSidebarResizeMove");
     expect(resizeStart).toContain("if (!sidebarCollapsedRef.current && density === \"icons\") return");
     expect(resizeStart).toContain("setPointerCapture");
-    expect(resizeStart).toContain("fitSidebarWidth(sidebarWidthRef.current, viewportWidth)");
+    expect(resizeStart).toContain("fitSidebarWidth(sidebarWidthRef.current, viewportWidth, dockedAsideWidth)");
     expect(resizeStart).toContain("sidebarCollapsedRef.current ? sidebarWidthRef.current");
     const resizeKey = sourceBetween(sidebar, "const onSidebarResizeKeyDown", "useEffect(() => {");
     expect(resizeKey).toContain("if (!sidebarCollapsedRef.current && density === \"icons\") return");
+    // arrows must move the width the separator shows, not the saved one behind it
+    expect(resizeKey).toContain("fitSidebarWidth(sidebarWidthRef.current, viewportWidth, dockedAsideWidth)");
+    expect(sidebar).toContain("dockedDetailsWidth(");
     expect(sidebar).toContain("snapSidebarDrag");
     expect(sidebar).toContain("stepSidebarLayout");
     expect(sidebar).toContain("loadSidebarCollapsed");

@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { CHAT_MIN_WIDTH, SIDEBAR_INLINE_BREAKPOINT } from "@/lib/sidebar-preferences";
+import { CHAT_MIN_WIDTH, DETAILS_PANEL_WIDTH, SIDEBAR_INLINE_BREAKPOINT } from "@/lib/sidebar-preferences";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -130,5 +130,9 @@ describe("Bot details at the window floor", () => {
     const { chat, details } = detailsFloorLayout(asideClass, wide);
     expect(details.w).toBe(400);
     expect(chat.w).toBeGreaterThanOrEqual(CHAT_MIN_WIDTH);
+  });
+
+  it("keeps DETAILS_PANEL_WIDTH in step with the aside it stands for", () => {
+    expect(px(asideClass, "w")).toBe(DETAILS_PANEL_WIDTH);
   });
 });

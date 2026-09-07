@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   CHAT_MIN_WIDTH,
+  DETAILS_PANEL_WIDTH,
   SIDEBAR_COLLAPSED_KEY,
   SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_DENSITY_KEY,
@@ -13,6 +14,7 @@ import {
   SIDEBAR_WIDTH_STEP,
   clampSidebarWidth,
   displaySidebarWidth,
+  dockedDetailsWidth,
   fitSidebarWidth,
   loadSidebarCollapsed,
   loadSidebarDensity,
@@ -75,6 +77,26 @@ describe("sidebar width preferences", () => {
     // below 768 the sidebar is a drawer over the chat, so it never squeezes the column
     expect(fitSidebarWidth(SIDEBAR_MAX_WIDTH, 600)).toBe(SIDEBAR_MAX_WIDTH);
     expect(fitSidebarWidth(SIDEBAR_MAX_WIDTH, Number.NaN)).toBe(SIDEBAR_MAX_WIDTH);
+  });
+
+  it("counts a docked details panel in the width it budgets for the chat", () => {
+    const chat = (viewportWidth: number) =>
+      viewportWidth - fitSidebarWidth(SIDEBAR_DEFAULT_WIDTH, viewportWidth, DETAILS_PANEL_WIDTH) - DETAILS_PANEL_WIDTH;
+    // 786 and 886 are the viewports behind an 800px and 900px window
+    expect(chat(786)).toBe(166);
+    expect(chat(886)).toBe(266);
+    expect(chat(1140)).toBe(CHAT_MIN_WIDTH);
+    expect(fitSidebarWidth(SIDEBAR_MAX_WIDTH, 1440, DETAILS_PANEL_WIDTH)).toBe(SIDEBAR_MAX_WIDTH);
+    // a closed panel budgets exactly as it did before
+    expect(fitSidebarWidth(SIDEBAR_DEFAULT_WIDTH, 786, 0)).toBe(SIDEBAR_DEFAULT_WIDTH);
+  });
+
+  it("reserves the details width only when a bot is the selected conversation", () => {
+    expect(dockedDetailsWidth(true, false, 3)).toBe(DETAILS_PANEL_WIDTH);
+    // a room renders no details panel, so reserving its width strands the chat
+    expect(dockedDetailsWidth(true, true, 3)).toBe(0);
+    expect(dockedDetailsWidth(true, false, 0)).toBe(0);
+    expect(dockedDetailsWidth(false, false, 3)).toBe(0);
   });
 
   it("steps ten pixels on horizontal arrows and clamps at the named-list range", () => {
