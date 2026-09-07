@@ -77,7 +77,9 @@ describe("reaction rail", () => {
     expect(bar).toContain("data-reaction-bar");
     expect(bar).toContain("SmilePlus");
     expect(bar).toContain("data-reaction-picker");
-    expect(bar).toContain("top-full left-0");
+    expect(bar).toContain("left-0");
+    expect(bar).toContain("top-full mt-1.5");
+    expect(bar).toContain("bottom-full mb-1.5");
     const trigger = bar.slice(0, bar.indexOf("data-reaction-picker"));
     expect(trigger).not.toContain("PRIMARY_REACTIONS.map");
     expect(trigger).not.toContain("EXTENDED_REACTIONS.map");
