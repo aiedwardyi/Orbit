@@ -11,7 +11,7 @@ import { endsContentStream, redactSecrets, redactSecretsInText, StreamSecretMask
 type NativeEntry = { dir: "in" | "out"; source: string; msg: unknown };
 type NativeStream = { masker: StreamSecretMasker; dir: NativeEntry["dir"]; source: string; path: string[] };
 const nativeMaskers = new Map<string, Map<string, NativeStream>>();
-const TEXT_FIELDS = /^(text|delta|thinking|reasoning|reasoning_content|content|arguments|partial_json|output|input|message|prompt|completion)$/;
+const TEXT_FIELDS = /^(text|delta|thinking|reasoning|reasoning_content|content|arguments|partial_json|output|input|message|prompt|completion|value)$/;
 
 // Native payloads have no shared schema; the redactor bounds and copies this walk.
 /* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns, anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type */
@@ -37,9 +37,12 @@ function maskNative(threadId: string, entry: NativeEntry, value: unknown, safe: 
   }
   // SAFETY: both values are non-null objects, and arrays returned above.
   const record = value as Record<string, unknown>;
-  // Protocol discriminators separate thought and message chunks at the same path.
-  const kind = JSON.stringify(["type", "sessionUpdate", "method", "event", "streamKind"].map((key) =>
-    typeof record[key] === "string" ? record[key] : "",
+  // Per-message UUIDs must stay out of this key or each delta resets masking.
+  const kind = JSON.stringify([
+    "type", "sessionUpdate", "method", "event", "streamKind",
+    "parent_tool_use_id", "tool_use_id", "toolCallId", "stream_id", "streamId", "item_id", "itemId", "index",
+  ].map((key) =>
+    typeof record[key] === "string" || typeof record[key] === "number" ? record[key] : "",
   ));
   // SAFETY: the redacted object preserves this record's keys.
   const safeRecord = safe as Record<string, unknown>;
@@ -51,13 +54,17 @@ function maskNative(threadId: string, entry: NativeEntry, value: unknown, safe: 
 /* oxlint-enable anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns, anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type */
 
 export function finishNative(event: { threadId: string; type: string }) {
-  if (!endsContentStream(event.type)) return;
-  const streams = nativeMaskers.get(event.threadId);
-  nativeMaskers.delete(event.threadId);
-  if (!streams) return;
-  for (const { masker, dir, source, path } of streams.values()) {
-    const text = masker.flush();
-    if (text) writeNative(event.threadId, { dir, source, msg: { nativeTextTail: { path: redactSecrets(path), text } } });
+  try {
+    if (!endsContentStream(event.type)) return;
+    const streams = nativeMaskers.get(event.threadId);
+    nativeMaskers.delete(event.threadId);
+    if (!streams) return;
+    for (const { masker, dir, source, path } of streams.values()) {
+      const text = masker.flush();
+      if (text) writeNative(event.threadId, { dir, source, msg: { nativeTextTail: { path: redactSecrets(path), text } } });
+    }
+  } catch {
+    /* never let logging break a run */
   }
 }
 
