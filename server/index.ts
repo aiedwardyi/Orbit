@@ -4724,7 +4724,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const next = structuredClone(current);
         // Dropping the anchor is how the bot claims a field: a later instruction
         // re-seeds only what still matches its anchor, and matching text alone
-        // must not hand a bot-curated goal or plan back to the harness.
+        // must not hand a bot-curated goal or plan back to the harness. A plan
+        // claims the goal too, since the tool says to omit an unchanged goal:
+        // re-seeding it later would leave an incidental line over a real plan.
         if (body.goal !== undefined) {
           next.goal = body.goal;
           delete next.instructionGoal;
@@ -4732,6 +4734,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (body.plan !== undefined) {
           next.plan = body.plan;
           delete next.instructionStep;
+          delete next.instructionGoal;
         }
         if (body.completed_note !== undefined && next.completed.at(-1)?.note !== body.completed_note) {
           next.completed.push({ note: body.completed_note, at: Date.now() });

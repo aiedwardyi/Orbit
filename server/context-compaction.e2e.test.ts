@@ -96,6 +96,7 @@ const GOAL_STRIP = { botId: "goal-strip-bot", botThreadId: "goal-strip-thread" }
 const GOAL_LEGACY = { botId: "goal-legacy-bot", botThreadId: "goal-legacy-thread" };
 const GOAL_OWNED = { botId: "goal-owned-bot", botThreadId: "goal-owned-thread" };
 const PLAN_SEED = { botId: "plan-seed-bot", botThreadId: "plan-seed-thread" };
+const PLAN_ONLY = { botId: "plan-only-bot", botThreadId: "plan-only-thread" };
 const SECRET_COLLISION = {
   botId: "secret-collision-bot",
   botThreadId: "secret-collision-direct-thread",
@@ -350,6 +351,20 @@ describe("context compaction e2e", () => {
         resumeCursors: {},
         createdAt: 1,
         tasks: [{ threadId: GOAL_OWNED.botThreadId, title: "Release", createdAt: 1, resumeCursors: {} }],
+      },
+      {
+        id: PLAN_ONLY.botId,
+        threadId: PLAN_ONLY.botThreadId,
+        name: "Plan only",
+        title: "Release owner",
+        description: "Keep the release moving.",
+        notifications: true,
+        color: "green",
+        unread: false,
+        modelSelection: { instanceId: "claude", model: "claude-fake" },
+        resumeCursors: {},
+        createdAt: 1,
+        tasks: [{ threadId: PLAN_ONLY.botThreadId, title: "Release", createdAt: 1, resumeCursors: {} }],
       },
       {
         id: PLAN_SEED.botId,
@@ -1129,5 +1144,35 @@ describe("context compaction e2e", () => {
     ]);
     expect(packet.instructionAction).toBe("Draft the outage timeline from the scanned exhibits.");
     await waitFor(async () => (await botById(PLAN_SEED.botId))?.busy === false);
+  }, 30_000);
+
+  it("keeps the goal a bot planned under when it sends only a plan", async () => {
+    rmSync(claudeDumpPath, { force: true });
+    expect((await api("POST", `/api/bots/${PLAN_ONLY.botId}/messages`, {
+      text: "Ship the release.",
+    })).status).toBe(202);
+    await waitFor(async () => (await botById(PLAN_ONLY.botId))?.busy === false);
+
+    // update_task_state tells the bot to omit an unchanged goal, so plan-only is the normal call.
+    const saved = await botTaskState(PLAN_ONLY.botId, PLAN_ONLY.botThreadId, {
+      plan: [
+        { step: "Cut the release branch", status: "done" },
+        { step: "Sign the installers", status: "active" },
+      ],
+    });
+    expect(saved.status).toBe(200);
+
+    expect((await api("POST", `/api/bots/${PLAN_ONLY.botId}/messages`, {
+      text: "What's the status?",
+    })).status).toBe(202);
+    // Never Goal: What's the status? above a release plan.
+    const packet = storedTaskPacket(PLAN_ONLY.botThreadId);
+    expect(packet.goal).toBe("Ship the release.");
+    expect(packet.plan).toEqual([
+      { step: "Cut the release branch", status: "done" },
+      { step: "Sign the installers", status: "active" },
+    ]);
+    expect(packet.instructionAction).toBe("What's the status?");
+    await waitFor(async () => (await botById(PLAN_ONLY.botId))?.busy === false);
   }, 30_000);
 });
