@@ -50,8 +50,33 @@ let anchor: Box = { top: 0, bottom: 0, left: 0, right: 0 };
 const OVERRIDES = ["getBoundingClientRect", "offsetWidth", "offsetHeight"] as const;
 const saved = new Map<string, PropertyDescriptor | undefined>();
 
+// happy-dom has no layout, so its ResizeObserver never fires. This one is
+// driven by hand: `growAnchor` is the streaming bubble resizing the rail.
+const observing: Array<() => void> = [];
+let savedResizeObserver: unknown;
+
+class TestResizeObserver {
+  constructor(private readonly cb: () => void) {
+    observing.push(cb);
+  }
+  observe() {}
+  unobserve() {}
+  disconnect() {
+    const at = observing.indexOf(this.cb);
+    if (at >= 0) observing.splice(at, 1);
+  }
+}
+
+/** Move the anchor the way a growing bubble does - no scroll, no resize. */
+function growAnchor(bottom: number) {
+  anchorAt(bottom);
+  for (const cb of [...observing]) cb();
+}
+
 beforeAll(() => {
   const proto = HTMLElement.prototype;
+  savedResizeObserver = (globalThis as Record<string, unknown>).ResizeObserver;
+  (globalThis as Record<string, unknown>).ResizeObserver = TestResizeObserver;
   for (const key of OVERRIDES) saved.set(key, Object.getOwnPropertyDescriptor(proto, key));
   Object.defineProperty(proto, "getBoundingClientRect", {
     configurable: true,
@@ -82,6 +107,7 @@ afterAll(() => {
     if (descriptor) Object.defineProperty(proto, key, descriptor);
     else delete proto[key];
   }
+  (globalThis as Record<string, unknown>).ResizeObserver = savedResizeObserver;
 });
 
 function placementOf(picker: Element): Placement {
@@ -141,6 +167,7 @@ describe("reaction picker clip box", () => {
   afterEach(() => {
     document.body.replaceChildren();
     scroller = PANE;
+    observing.length = 0;
   });
 
   // The last message rests near the scroller's bottom edge, which is the only
@@ -169,6 +196,18 @@ describe("reaction picker clip box", () => {
     anchorAt(scroller.top + 8 + ANCHOR_H);
     await act(async () => {
       host.dispatchEvent(new Event("scroll"));
+    });
+    expect(placementOf(picker)).toBe("below");
+    expect(clipped(placementOf(picker))).toEqual([]);
+  });
+
+  it("recomputes placement when a streaming bubble moves the anchor without a scroll", async () => {
+    const { picker } = await openPicker(8);
+    expect(placementOf(picker)).toBe("above");
+    // The reply below keeps streaming: the rail rides up the pane while
+    // scrollTop holds, so neither scroll nor resize fires.
+    await act(async () => {
+      growAnchor(scroller.top + 8 + ANCHOR_H);
     });
     expect(placementOf(picker)).toBe("below");
     expect(clipped(placementOf(picker))).toEqual([]);

@@ -63,6 +63,12 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
   // its own scroll. Recomputed rather than dismissed on scroll: a streamed
   // reply scrolls the pane by itself, which would close the picker under the
   // user mid-choice.
+  //
+  // A streaming bubble is the case neither event covers: once the user has
+  // scrolled up, bottom-follow is off, so a growing message moves the hover
+  // rail with scrollTop and the window both unchanged. Watch the pane and the
+  // message stack for resizes instead, which also catches the composer growing
+  // and taking the pane's height with it.
   useLayoutEffect(() => {
     if (!pickerOpen) {
       setShift(0);
@@ -97,9 +103,16 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
     clamp();
     window.addEventListener("resize", clamp);
     transcript?.addEventListener("scroll", clamp);
+    const observer = new ResizeObserver(clamp);
+    if (transcript) {
+      observer.observe(transcript);
+      // the message stack: its height is what a streaming reply changes
+      if (transcript.firstElementChild) observer.observe(transcript.firstElementChild);
+    }
     return () => {
       window.removeEventListener("resize", clamp);
       transcript?.removeEventListener("scroll", clamp);
+      observer.disconnect();
     };
   }, [pickerOpen]);
 
