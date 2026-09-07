@@ -154,6 +154,9 @@ describe("chiefOfStaffSystemPrompt", () => {
     expect(prompt).toContain("list_bots");
     expect(prompt).toContain("ask_bot");
     expect(prompt).toContain("create_channel");
+    // the tools stay named, but only on the asked path. The prompt used to
+    // open on list_bots, which made roster inspection every turn's first move
+    expect(prompt).toMatch(/If they ask[\s\S]*list_bots/);
     expect(prompt).toMatch(/Never scan the environment, ports, or processes/);
     expect(prompt).toMatch(/never invent localhost APIs/i);
     expect(prompt).not.toContain("create_bot");
@@ -217,7 +220,7 @@ describe("1:1 turns mount the agents-tool channel path", () => {
     const start = index.indexOf("const tagged = integrations.agents");
     const slice = index.slice(start, start + 2500);
     expect(slice).toContain("peerAgentsSystemPrompt()");
-    expect(slice).not.toContain("You can work with the other bots in your section through the agents tools");
+    expect(slice).not.toContain("the agents tools reach the other bots in your section");
   });
 });
 
@@ -281,5 +284,9 @@ describe("a Chief with a team does not fan out unasked", () => {
     expect(chiefOfStaffSystemPrompt("chief", solo, true)).toMatch(/Never scan the environment/);
     expect(peerAgentsSystemPrompt()).not.toContain("Call the agents tools.");
     expect(peerAgentsSystemPrompt()).toMatch(/Never scan the environment/);
+    // a peer with agents tools gets the Chief's answer-directly guard too
+    expect(peerAgentsSystemPrompt()).toMatch(/Answer the user directly/i);
+    expect(peerAgentsSystemPrompt()).toContain("Do not inspect the team roster");
+    expect(peerAgentsSystemPrompt(true)).toContain("Do not inspect the team roster");
   });
 });

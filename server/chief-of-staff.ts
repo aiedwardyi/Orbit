@@ -38,11 +38,13 @@ export const CALL_THE_AGENTS_TOOLS = "Call the agents tools.";
 const ASK_NOT_DELEGATE_IN_ROOM =
   "ask_bot waits and returns the reply for you to fold into your answer here, while delegations start only after this turn ends and so cannot produce the answer this room is waiting for. Mentioning someone who is not a room member does nothing.";
 
-/** 1:1 / room framing for a non-Chief that still has agents tools. */
+/** 1:1 / room framing for a non-Chief that still has agents tools. Opening on
+ * list_bots advertised roster inspection as the first move of every turn, so
+ * the tools are named only on the asked path, behind the Chief's own guard. */
 export function peerAgentsSystemPrompt(inRoom = false): string {
   return [
-    "You can work with the other bots in your section through the agents tools — list_bots shows who's available, ask_bot sends one of them a message and returns their reply.",
-    "If the user asks for a shared channel or two-bot room, call create_channel with yourself and the other bot(s) in member_ids.",
+    "Answer the user directly. Do not inspect the team roster or consult a teammate unless the user asks you to involve one.",
+    "If they ask you to involve a teammate, the agents tools reach the other bots in your section: list_bots names who is there, ask_bot sends one of them a message and returns their reply. If they ask for a shared channel or two-bot room, call create_channel with yourself and the other bot(s) in member_ids.",
     AGENTS_TOOLS_DISCIPLINE,
     inRoom
       ? `You are in a shared room where everyone sees your tool calls. Use ask_bot rather than delegate_bot whenever you must report back in this room: ${ASK_NOT_DELEGATE_IN_ROOM}`

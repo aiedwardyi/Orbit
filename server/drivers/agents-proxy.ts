@@ -188,7 +188,7 @@ const TOOLS = [
   {
     name: "list_bots",
     description:
-      "List the other bots (agents) in your Orbit section you can message, with their model and whether they're busy. Call this before ask_bot to discover who's available.",
+      "List the other bots (agents) in your Orbit section you can message, with their model and whether they're busy. Call it when you need a teammate's id or availability, not to survey the team before answering.",
     inputSchema: { type: "object", properties: {} },
   },
   {
