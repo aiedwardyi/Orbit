@@ -4722,8 +4722,19 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
 
         const next = structuredClone(current);
-        if (body.goal !== undefined) next.goal = body.goal;
-        if (body.plan !== undefined) next.plan = body.plan;
+        // Dropping the anchor is how the bot claims a field: a later instruction
+        // re-seeds only what still matches its anchor, and matching text alone
+        // must not hand a bot-curated goal or plan back to the harness. Each
+        // write claims its own field only, or a plan-only call (the form the
+        // tool asks for when the goal is unchanged) would freeze the goal.
+        if (body.goal !== undefined) {
+          next.goal = body.goal;
+          delete next.instructionGoal;
+        }
+        if (body.plan !== undefined) {
+          next.plan = body.plan;
+          delete next.instructionStep;
+        }
         if (body.completed_note !== undefined && next.completed.at(-1)?.note !== body.completed_note) {
           next.completed.push({ note: body.completed_note, at: Date.now() });
         }
