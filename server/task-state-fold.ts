@@ -50,6 +50,7 @@ export function seedTaskResumePacket(input: {
     artifacts: [],
     blockers: [],
     nextAction,
+    instructionAction: nextAction,
     updatedAt: input.now,
     updatedBy: "harness",
     flushReason: "progress",
@@ -64,7 +65,11 @@ export function recordTaskInstruction(
   const next = stamped(packet, "progress", input);
   next.instructionId = input.messageId;
   const action = firstLine(input.text);
-  if (action) next.nextAction = action;
+  // An empty instruction keeps the prior anchor on purpose: clearing it falls through to the always-blank path.
+  if (action) {
+    next.nextAction = action;
+    next.instructionAction = action;
+  }
   if (!next.plan.length && action) next.plan = [{ step: action, status: "active" }];
   if (!next.evidence.some((item) => item.kind === "message" && item.ref === input.messageId)) {
     next.evidence.push({ kind: "message", ref: input.messageId, note: "Task instruction" });
@@ -134,7 +139,9 @@ export function recordTaskCompletion(
     // record never reads finished, so the strip keeps offering Resume.
     next.completed.push({ note: reply || "Settled without a reply.", at: input.now });
     next.settledInstructionId = next.instructionId;
-    next.nextAction = "";
+    // Blank only the instruction's own line (or a record from before the field
+    // existed); a next action the bot set during the turn outlives it.
+    if (!next.instructionAction || next.nextAction === next.instructionAction) next.nextAction = "";
   }
   if (input.messageId && !next.evidence.some((item) => item.ref === input.messageId)) {
     next.evidence.push({ kind: "message", ref: input.messageId, note: "Settled reply" });

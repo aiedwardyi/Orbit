@@ -56,7 +56,8 @@ describe("task resume packets", () => {
   });
 
   it("writes and reads one packet per task", () => {
-    const saved = writeTaskResumePacket(packet(), { dir });
+    const saved = writeTaskResumePacket(packet({ instructionAction: "Write the report" }), { dir });
+    expect(saved.instructionAction).toBe("Write the report");
 
     expect(readTaskResumePacket("thread-1", { dir })).toEqual(saved);
     expect(JSON.parse(readFileSync(join(dir, "thread-1.json"), "utf8"))).toEqual(saved);

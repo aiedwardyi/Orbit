@@ -248,6 +248,51 @@ describe("task state folding", () => {
     expect(hasUnfinishedTaskWork(settled)).toBe(false);
   });
 
+  it("keeps a next action the bot set during the turn when that turn completes", () => {
+    const pending = { ...seed(), nextAction: "Add a pricing comparison" };
+    const settled = recordTaskCompletion(pending, {
+      ok: true,
+      reply: "Drafted the brief; pricing is next.",
+      messageId: "message-2",
+      now: 300,
+    });
+
+    expect(settled.nextAction).toBe("Add a pricing comparison");
+    expect(isCompletedTaskRecord(settled)).toBe(false);
+    expect(hasUnfinishedTaskWork(settled)).toBe(true);
+  });
+
+  it("settles quiet when a turn completes with no next action set", () => {
+    const settled = recordTaskCompletion(seed(), {
+      ok: true,
+      reply: "Drafted the brief.",
+      messageId: "message-2",
+      now: 300,
+    });
+
+    expect(settled.nextAction).toBe("");
+    expect(isCompletedTaskRecord(settled)).toBe(true);
+    expect(hasUnfinishedTaskWork(settled)).toBe(false);
+  });
+
+  it("does not carry a kept next action across a later instruction", () => {
+    const kept = recordTaskCompletion({ ...seed(), nextAction: "Add a pricing comparison" }, {
+      ok: true,
+      reply: "Drafted the brief; pricing is next.",
+      now: 300,
+    });
+    const later = recordTaskInstruction(kept, {
+      text: "Draft the intro",
+      messageId: "message-3",
+      now: 400,
+    });
+    const settled = recordTaskCompletion(later, { ok: true, reply: "Drafted the intro.", now: 500 });
+
+    expect(settled.nextAction).toBe("");
+    expect(isCompletedTaskRecord(settled)).toBe(true);
+    expect(hasUnfinishedTaskWork(settled)).toBe(false);
+  });
+
   it("stamps engine switches and stops without changing task content", () => {
     const packet = seed();
     const switched = stampTaskResumePacket(packet, "engine-switch", { now: 200 });

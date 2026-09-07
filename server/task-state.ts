@@ -64,6 +64,8 @@ const taskResumePacketSchema = z.object({
   /** newest instruction, and the one the newest completion settled */
   instructionId: idSchema.optional(),
   settledInstructionId: idSchema.optional(),
+  /** next action the newest instruction implied; a nextAction that differs was set on purpose */
+  instructionAction: z.string().max(LIMITS.nextAction).optional(),
   updatedAt: z.number().int().nonnegative(),
   updatedBy: z.enum(["harness", "bot"]),
   flushReason: z.enum([
@@ -139,6 +141,8 @@ function normalize(packet: TaskResumePacket): TaskResumePacket {
   if (instructionId) normalized.instructionId = instructionId;
   const settledId = packet.settledInstructionId ? clean(packet.settledInstructionId, LIMITS.id) : undefined;
   if (settledId) normalized.settledInstructionId = settledId;
+  const instructionAction = packet.instructionAction ? clean(packet.instructionAction, LIMITS.nextAction) : undefined;
+  if (instructionAction) normalized.instructionAction = instructionAction;
   return taskResumePacketSchema.parse(normalized);
 }
 
