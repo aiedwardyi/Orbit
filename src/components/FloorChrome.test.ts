@@ -10,20 +10,31 @@ import { describe, expect, it } from "vitest";
 import { CHAT_MIN_WIDTH, SIDEBAR_INLINE_BREAKPOINT } from "@/lib/sidebar-preferences";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const settingsModal = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
-const settingsPanel = readFileSync(join(here, "SettingsPanel.tsx"), "utf8");
+
+type Source = { file: string; text: string };
+
+function componentSource(file: string): Source {
+  return { file, text: readFileSync(join(here, file), "utf8") };
+}
+
+const settingsModal = componentSource("SettingsModal.tsx");
+const settingsPanel = componentSource("SettingsPanel.tsx");
 
 const WINDOW_FLOOR = { width: 600, height: 480 };
 
 type Box = { x: number; y: number; w: number; h: number };
 
 /** The className literal carrying `needle`, so a test names a layout rule
- * rather than a line number. */
-function classAttr(source: string, needle: string): string {
-  for (const [, value] of source.matchAll(/className="([^"]*)"/g)) {
+ * rather than a line number. Only plain `className="..."` is read: a move
+ * into cn() or a template literal has to say so by name here. */
+function classAttr(source: Source, needle: string): string {
+  for (const [, value] of source.text.matchAll(/className="([^"]*)"/g)) {
     if (value.includes(needle)) return value;
   }
-  throw new Error(`no className containing ${needle}`);
+  throw new Error(
+    `${source.file}: no plain className="..." contains "${needle}". ` +
+    "If that class moved into cn() or a template literal, teach classAttr to read it.",
+  );
 }
 
 function px(cls: string, utility: string): number | null {
@@ -31,22 +42,37 @@ function px(cls: string, utility: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
-function spacing(cls: string, utility: string): number {
-  const match = cls.match(new RegExp(`(?:^|\\s)${utility}-(\\d+)(?:\\s|$)`));
-  return match ? Number(match[1]) * 4 : 0;
+/** Tailwind's own precedence, so a directional variant cannot silently read
+ * as an unpadded overlay: `p-N`, overridden by `py-N`, then by `pt-N`/`pb-N`. */
+function verticalPad(cls: string) {
+  const scale = (utility: string) => {
+    const match = cls.match(new RegExp(`(?:^|\\s)${utility}-(\\d+)(?:\\s|$)`));
+    return match ? Number(match[1]) * 4 : null;
+  };
+  const axis = scale("py") ?? scale("p") ?? 0;
+  return { top: scale("pt") ?? axis, bottom: scale("pb") ?? axis };
 }
 
 /** `items-center` inside a `fixed inset-0` overlay, clamped by whatever the
  * dialog accepts as a maximum. */
 function centredDialog(overlayClass: string, dialogClass: string, viewportHeight: number): Box {
-  const pad = spacing(overlayClass, "p");
-  const available = viewportHeight - pad * 2;
+  const pad = verticalPad(overlayClass);
+  const available = viewportHeight - pad.top - pad.bottom;
   const asked = px(dialogClass, "h") ?? available;
   const capped = /(?:^|\s)max-h-full(?:\s|$)/.test(dialogClass)
     ? Math.min(asked, available)
     : Math.min(asked, px(dialogClass, "max-h") ?? Infinity);
-  return { x: 0, y: pad + (available - capped) / 2, w: 0, h: capped };
+  return { x: 0, y: pad.top + (available - capped) / 2, w: 0, h: capped };
 }
+
+describe("floor model helpers", () => {
+  it("reads directional padding and names the file it could not match", () => {
+    expect(verticalPad("fixed inset-0 py-6")).toEqual({ top: 24, bottom: 24 });
+    expect(verticalPad("fixed inset-0 p-6 pt-2")).toEqual({ top: 8, bottom: 24 });
+    expect(() => classAttr(settingsModal, "no-such-utility")).toThrow(/SettingsModal\.tsx/);
+    expect(() => classAttr(settingsModal, "no-such-utility")).toThrow(/no-such-utility/);
+  });
+});
 
 describe("App settings at the window floor", () => {
   const overlayClass = classAttr(settingsModal, "fixed inset-0 z-50");
@@ -67,7 +93,7 @@ describe("App settings at the window floor", () => {
   });
 
   it("scrolls only the content pane, so the header cannot scroll away", () => {
-    const contentColumn = settingsModal.slice(settingsModal.indexOf('id="app-settings-title"'));
+    const contentColumn = settingsModal.text.slice(settingsModal.text.indexOf('id="app-settings-title"'));
     expect(contentColumn.indexOf("overflow-y-auto")).toBeGreaterThan(contentColumn.indexOf("settings.close"));
     expect(classAttr(settingsModal, "justify-between px-5 py-3")).toContain("shrink-0");
   });
