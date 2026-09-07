@@ -60,6 +60,7 @@ describe("task state folding", () => {
     });
 
     expect(updated.goal).toBe("Ship the Q3 competitor programme");
+    expect(updated.instructionGoal).toBe(seed().goal);
     expect(updated.nextAction).toBe("Add a pricing comparison");
     expect(updated.instructionAction).toBe("Add a pricing comparison");
   });
@@ -67,6 +68,7 @@ describe("task state folding", () => {
   it("leaves a record written before the goal anchor existed alone", () => {
     const legacy = seed();
     delete legacy.instructionGoal;
+    delete legacy.instructionStep;
     const updated = recordTaskInstruction(legacy, {
       text: "Add a pricing comparison",
       messageId: "message-2",
@@ -75,6 +77,8 @@ describe("task state folding", () => {
 
     expect(updated.goal).toContain("weekly competitor brief");
     expect(updated.instructionGoal).toBeUndefined();
+    expect(updated.plan).toEqual(seed().plan);
+    expect(updated.instructionStep).toBeUndefined();
     expect(updated.instructionAction).toBe("Add a pricing comparison");
   });
 
@@ -82,7 +86,49 @@ describe("task state folding", () => {
     const updated = recordTaskInstruction(seed(), { text: "   ", messageId: "message-2", now: 200 });
 
     expect(updated.goal).toBe(seed().goal);
+    expect(updated.instructionGoal).toBe(seed().goal);
+    expect(updated.plan).toEqual(seed().plan);
     expect(updated.instructionAction).toBe("Prepare a weekly competitor brief");
+  });
+
+  it("re-seeds the harness plan with the goal it was derived from", () => {
+    const updated = recordTaskInstruction(seed(), {
+      text: "Add a pricing comparison",
+      messageId: "message-2",
+      now: 200,
+    });
+
+    expect(updated.plan).toEqual([{ step: "Add a pricing comparison", status: "active" }]);
+    expect(updated.instructionStep).toBe("Add a pricing comparison");
+  });
+
+  it("keeps a plan the bot curated across a later instruction", () => {
+    const curated = seed();
+    curated.plan = [
+      { step: "Collect launch notes", status: "done" },
+      { step: "Draft the brief", status: "active" },
+    ];
+    // The route drops the anchor when the bot sends a plan of its own.
+    delete curated.instructionStep;
+    const updated = recordTaskInstruction(curated, {
+      text: "Add a pricing comparison",
+      messageId: "message-2",
+      now: 200,
+    });
+
+    expect(updated.plan).toEqual(curated.plan);
+    expect(updated.instructionStep).toBeUndefined();
+  });
+
+  it("keeps a seed step that has already been worked", () => {
+    const worked = { ...seed(), plan: [{ step: "Prepare a weekly competitor brief", status: "done" as const }] };
+    const updated = recordTaskInstruction(worked, {
+      text: "Add a pricing comparison",
+      messageId: "message-2",
+      now: 200,
+    });
+
+    expect(updated.plan).toEqual([{ step: "Prepare a weekly competitor brief", status: "done" }]);
   });
 
   it("deduplicates evidence by kind and durable reference", () => {
@@ -250,6 +296,8 @@ describe("task state folding", () => {
     });
     const closed = stampTaskResumePacket(again, "shutdown", { now: 400 });
 
+    expect(closed.goal).toBe("Prepare a weekly competitor brief");
+    expect(closed.instructionGoal).toBe("Prepare a weekly competitor brief");
     expect(isCompletedTaskRecord(closed)).toBe(false);
     expect(hasUnfinishedTaskWork(closed)).toBe(true);
     expect(shouldDismissCompletedReopen(closed)).toBe(false);

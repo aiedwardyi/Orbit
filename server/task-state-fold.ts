@@ -52,6 +52,7 @@ export function seedTaskResumePacket(input: {
     nextAction,
     instructionAction: nextAction,
     instructionGoal: goal,
+    instructionStep: nextAction,
     updatedAt: input.now,
     updatedBy: "harness",
     flushReason: "progress",
@@ -71,13 +72,23 @@ export function recordTaskInstruction(
     next.nextAction = action;
     next.instructionAction = action;
   }
-  // Only the harness's own seed follows the newest instruction. A goal that no
-  // longer matches its anchor was set on purpose and is the durable outcome; a
-  // record from before the anchor existed has no provenance to judge, so it stays.
+  // Only the harness's own seed follows the newest instruction. A missing anchor
+  // means the bot claimed the field (or the record predates the anchor), so it
+  // stays put: re-seeding is the direction that destroys work.
   const goal = input.text.trim();
   if (goal && next.instructionGoal && next.goal === next.instructionGoal) {
     next.goal = goal;
     next.instructionGoal = goal;
+  }
+  // The seeded step is framing, not progress, so it follows the goal it came
+  // from. Anything the bot added, rewrote or worked is progress and survives.
+  const seedStep = Boolean(next.instructionStep)
+    && next.plan.length === 1
+    && next.plan[0]!.status === "active"
+    && next.plan[0]!.step === next.instructionStep;
+  if (action && seedStep) {
+    next.plan = [{ step: action, status: "active" }];
+    next.instructionStep = action;
   }
   if (!next.plan.length && action) next.plan = [{ step: action, status: "active" }];
   if (!next.evidence.some((item) => item.kind === "message" && item.ref === input.messageId)) {

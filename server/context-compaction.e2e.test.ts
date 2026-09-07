@@ -94,12 +94,19 @@ const NEW_TASK_CLAIM = { botId: "new-task-claim-bot", botThreadId: "new-task-cla
 const CLEAR_RACE = { botId: "clear-race-bot", botThreadId: "clear-race-thread" };
 const GOAL_STRIP = { botId: "goal-strip-bot", botThreadId: "goal-strip-thread" };
 const GOAL_LEGACY = { botId: "goal-legacy-bot", botThreadId: "goal-legacy-thread" };
+const GOAL_OWNED = { botId: "goal-owned-bot", botThreadId: "goal-owned-thread" };
+const PLAN_SEED = { botId: "plan-seed-bot", botThreadId: "plan-seed-thread" };
 const SECRET_COLLISION = {
   botId: "secret-collision-bot",
   botThreadId: "secret-collision-direct-thread",
   groupId: "secret-collision-group",
   roomThreadId: "secret-collision-room-thread",
 };
+
+interface TaskStateFields {
+  goal?: string;
+  plan?: Array<{ step: string; status: "pending" | "active" | "done" | "skipped" }>;
+}
 
 type ApiBody =
   | { text: string }
@@ -128,6 +135,16 @@ describe("context compaction e2e", () => {
     JSON.parse(readFileSync(join(home, ".orbit", "task-state", `${threadId}.json`), "utf8"));
   const botById = async (botId: string) =>
     (await api("GET", "/api/bots")).body.bots.find((candidate: { id: string }) => candidate.id === botId);
+  /** Drive update_task_state the way the agents-proxy does, with the token the turn handed it. */
+  const botTaskState = (botId: string, threadId: string, fields: TaskStateFields) => {
+    const dump = JSON.parse(readFileSync(claudeDumpPath, "utf8"));
+    const token = dump.mcpConfig.mcpServers.agents.env.OMB_COMMS_TOKEN;
+    return fetch(`${BASE}/api/internal/task-state`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ fromBotId: botId, fromThreadId: threadId, ...fields }),
+    });
+  };
 
   const waitFor = async (predicate: () => Promise<boolean>, timeout = 20_000) => {
     const deadline = Date.now() + timeout;
@@ -319,6 +336,34 @@ describe("context compaction e2e", () => {
         resumeCursors: {},
         createdAt: 1,
         tasks: [{ threadId: NEW_TASK_CLAIM.botThreadId, title: "Release", createdAt: 1, resumeCursors: {} }],
+      },
+      {
+        id: GOAL_OWNED.botId,
+        threadId: GOAL_OWNED.botThreadId,
+        name: "Goal owned",
+        title: "Release owner",
+        description: "Keep the release moving.",
+        notifications: true,
+        color: "teal",
+        unread: false,
+        modelSelection: { instanceId: "claude", model: "claude-fake" },
+        resumeCursors: {},
+        createdAt: 1,
+        tasks: [{ threadId: GOAL_OWNED.botThreadId, title: "Release", createdAt: 1, resumeCursors: {} }],
+      },
+      {
+        id: PLAN_SEED.botId,
+        threadId: PLAN_SEED.botThreadId,
+        name: "Plan seed",
+        title: "Release owner",
+        description: "Keep the release moving.",
+        notifications: true,
+        color: "purple",
+        unread: false,
+        modelSelection: { instanceId: "claude", model: "claude-fake" },
+        resumeCursors: {},
+        createdAt: 1,
+        tasks: [{ threadId: PLAN_SEED.botThreadId, title: "Release", createdAt: 1, resumeCursors: {} }],
       },
       {
         id: GOAL_STRIP.botId,
@@ -1037,5 +1082,52 @@ describe("context compaction e2e", () => {
     expect(packet.goal).toBe("Ship the legacy release");
     expect(packet.instructionGoal).toBeUndefined();
     expect(packet.instructionAction).toBe("Draft the outage timeline from the scanned exhibits.");
+  }, 30_000);
+
+  it("keeps a goal the bot set through update_task_state when its text matched the seed", async () => {
+    rmSync(claudeDumpPath, { force: true });
+    expect((await api("POST", `/api/bots/${GOAL_OWNED.botId}/messages`, {
+      text: "Say hello in one short sentence.",
+    })).status).toBe(202);
+    await waitFor(async () => (await botById(GOAL_OWNED.botId))?.busy === false);
+
+    // Confirming the task by echoing the seeded goal verbatim still claims it.
+    const saved = await botTaskState(GOAL_OWNED.botId, GOAL_OWNED.botThreadId, {
+      goal: "Say hello in one short sentence.",
+      plan: [{ step: "Greet the user", status: "active" }],
+    });
+    expect(saved.status).toBe(200);
+
+    expect((await api("POST", `/api/bots/${GOAL_OWNED.botId}/messages`, {
+      text: "What's the status?",
+    })).status).toBe(202);
+    const packet = storedTaskPacket(GOAL_OWNED.botThreadId);
+    expect(packet.goal).toBe("Say hello in one short sentence.");
+    expect(packet.plan).toEqual([{ step: "Greet the user", status: "active" }]);
+    expect(packet.instructionAction).toBe("What's the status?");
+    await waitFor(async () => (await botById(GOAL_OWNED.botId))?.busy === false);
+  }, 30_000);
+
+  it("re-seeds the harness plan with the goal it was derived from", async () => {
+    rmSync(claudeDumpPath, { force: true });
+    expect((await api("POST", `/api/bots/${PLAN_SEED.botId}/messages`, {
+      text: "Say hello in one short sentence.",
+    })).status).toBe(202);
+    await waitFor(async () => (await botById(PLAN_SEED.botId))?.busy === false);
+    expect(storedTaskPacket(PLAN_SEED.botThreadId).plan).toEqual([
+      { step: "Say hello in one short sentence.", status: "active" },
+    ]);
+
+    expect((await api("POST", `/api/bots/${PLAN_SEED.botId}/messages`, {
+      text: "Draft the outage timeline from the scanned exhibits.",
+    })).status).toBe(202);
+    // The record the model is handed must not read Goal: <new> beside Plan: active: <first>.
+    const packet = storedTaskPacket(PLAN_SEED.botThreadId);
+    expect(packet.goal).toBe("Draft the outage timeline from the scanned exhibits.");
+    expect(packet.plan).toEqual([
+      { step: "Draft the outage timeline from the scanned exhibits.", status: "active" },
+    ]);
+    expect(packet.instructionAction).toBe("Draft the outage timeline from the scanned exhibits.");
+    await waitFor(async () => (await botById(PLAN_SEED.botId))?.busy === false);
   }, 30_000);
 });
