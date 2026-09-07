@@ -666,6 +666,7 @@ describe("Working folder Clear", () => {
     remembered = undefined;
     const clearedAt = 2_000;
     const followUp = { role: "user", kind: "text", text: "keep going", at: 3_000 };
+    // the old thread's follow-up turn, which used to re-remember the folder
     applyResolvedProjectFolder({
       remembered,
       userTexts: userProjectTexts([named, followUp], undefined, { since: clearedAt }),
@@ -703,11 +704,12 @@ describe("Working folder Clear", () => {
     expect(calls).toEqual([]);
   });
 
-  it("drops user lines from before the Clear boundary and keeps the current send", () => {
+  it("drops user lines at or before the Clear boundary and keeps the current send", () => {
     expect(
       userProjectTexts(
         [
           { role: "user", kind: "text", text: "Orbit first", at: 1_000 },
+          { role: "user", kind: "text", text: "Orbit again", at: 2_000 },
           { role: "user", kind: "text", text: "keep going", at: 3_000 },
         ],
         "and the billing folder",
