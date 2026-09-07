@@ -80,6 +80,7 @@ async function cleanup() {
   });
   document.body.replaceChildren();
   layout = DESK;
+  setViewport(DESK.viewport);
   observing.length = 0;
 }
 
@@ -387,6 +388,20 @@ describe("reaction picker focus", () => {
     if (!(button instanceof HTMLButtonElement)) throw new Error("picker did not open");
     await act(async () => {
       button.click();
+    });
+    expect(openPickers()).toHaveLength(0);
+    expect(document.activeElement).toBe(triggers[0]);
+  });
+
+  it("hands focus back to the trigger when the window blurs", async () => {
+    // Switching tabs closes the picker. Focus is inside it by then, so without
+    // a hand-back the document comes back with nothing focused at all.
+    const { triggers } = await mountPair(DESK.pane.bottom - 120);
+    await act(async () => {
+      triggers[0].click();
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("blur"));
     });
     expect(openPickers()).toHaveLength(0);
     expect(document.activeElement).toBe(triggers[0]);

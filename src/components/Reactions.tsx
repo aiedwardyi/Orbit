@@ -52,7 +52,11 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
       setPickerOpen(false);
     };
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && closeAndRefocus();
-    const onBlur = () => setPickerOpen(false);
+    // Focus is inside the portalled picker by now, so closing on a tab switch
+    // without handing it back leaves the document with nothing focused.
+    // .focus() on an inactive window is a no-op, so this lands on return
+    // rather than stealing activation.
+    const onBlur = () => closeAndRefocus();
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey);
     window.addEventListener("blur", onBlur);
