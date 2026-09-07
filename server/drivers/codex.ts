@@ -31,7 +31,7 @@ import { decodeCodexSelection, readCodexModelCatalog, STATIC_CODEX_MODELS } from
 import { codexLocalProviderArgs } from "./local-inject.ts";
 import { augmentedPath } from "../env-path.ts";
 import { classifyError, computeBackoff, RETRY_MAX_ATTEMPTS } from "./retry.ts";
-import { appendNative } from "./native.ts";
+import { appendNative, finishNative } from "./native.ts";
 import { codexRateLimitWindows } from "./rate-limits.ts";
 
 export { decodeCodexSelection, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
@@ -128,6 +128,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     const active = new Map<string, Turn>();
 
     const emit = (event: RuntimeEvent) => {
+      finishNative(event);
       for (const l of [...listeners]) l(event);
     };
     const base = (threadId: string, turnId: string) => ({

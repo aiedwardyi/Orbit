@@ -14,7 +14,7 @@ import type {
 } from "../contracts.ts";
 import { newEventId, newId } from "../contracts.ts";
 import { classifyError, computeBackoff, interruptibleDelay, RETRY_MAX_ATTEMPTS } from "./retry.ts";
-import { appendNative } from "./native.ts";
+import { appendNative, finishNative } from "./native.ts";
 
 const DRIVER_KIND = "grok";
 const DEFAULT_URL = "https://api.x.ai/v1";
@@ -57,6 +57,7 @@ export const GrokDriver: ProviderDriver<GrokConfig> = {
     const active = new Map<string, { abort: AbortController; turnId: string }>();
 
     const emit = (event: RuntimeEvent) => {
+      finishNative(event);
       for (const l of [...listeners]) l(event);
     };
     const base = (threadId: string, turnId: string) => ({

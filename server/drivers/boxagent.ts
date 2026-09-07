@@ -20,7 +20,7 @@ import type {
   SendTurnInput,
 } from "../contracts.ts";
 import { newEventId, newId } from "../contracts.ts";
-import { appendNative } from "./native.ts";
+import { appendNative, finishNative } from "./native.ts";
 
 const DRIVER_KIND = "boxAgent";
 const BOX_API = "https://ascii.dev/api/box/v1";
@@ -59,6 +59,7 @@ export const BoxAgentDriver: ProviderDriver<BoxAgentConfig> = {
     const active = new Map<string, { cancel: () => void; turnId: string; boxId: string }>();
 
     const emit = (event: RuntimeEvent) => {
+      finishNative(event);
       for (const l of [...listeners]) l(event);
     };
     const base = (threadId: string, turnId: string) => ({

@@ -21,7 +21,7 @@ import type {
   SendTurnInput,
 } from "../contracts.ts";
 import { newEventId, newId } from "../contracts.ts";
-import { appendNative } from "./native.ts";
+import { appendNative, finishNative } from "./native.ts";
 
 const DRIVER_KIND = "minimax";
 const API_KEY_ENV = "MINIMAX_API_KEY";
@@ -128,6 +128,7 @@ export const MinimaxDriver: ProviderDriver<MinimaxConfig> = {
     const active = new Map<string, { abort: AbortController; turnId: string }>();
 
     const emit = (event: RuntimeEvent) => {
+      finishNative(event);
       for (const l of listeners) l(event);
     };
 
