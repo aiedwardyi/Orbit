@@ -2408,6 +2408,12 @@ type StartTurnOptions = {
   onDispatchError?: (message: string) => void;
 };
 
+// Retrieval discipline for document workloads. Static on purpose: the
+// stream-json driver folds --append-system-prompt into its warm-process
+// argsKey, so anything interpolated here costs a cold start every send.
+const CORPUS_SEARCH_INSTRUCTIONS =
+  " When you search a corpus, a document set, or any body of files, match case-insensitively. Scanned and OCR'd records are routinely written in capitals, so a case-sensitive query misses text that is plainly there. Before concluding that something is absent, try at least one different search strategy or tool class: an empty result is evidence about your query first and about the corpus second. Never state an unqualified absence. If you still report not finding something, say what you searched and how you searched it, so the user can tell a true negative from an unlucky query.";
+
 const turnStartClaims = new Set<string>();
 
 function tryClaimTurnStart(botId: string): boolean {
@@ -3077,6 +3083,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           credentialPrompt +
           routinePrompt +
           taskStatePrompt +
+          CORPUS_SEARCH_INSTRUCTIONS +
           sectionContextSystemPrompt(bot.section) +
           (privateWorkspace ? memorySystemPrompt(bot.id) + skillsSystemPrompt(bot.id) : "") +
           skillInstructions +
