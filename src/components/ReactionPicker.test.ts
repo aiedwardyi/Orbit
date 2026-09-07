@@ -1,6 +1,6 @@
 // The picker lives inside the transcript scroller, so the scroller's overflow
 // clips it. No z-index escapes an ancestor's clip, so the check that matters is
-// whether each button's centre still lands inside the scroller's client box —
+// whether each button's centre still lands inside the scroller's client box -
 // a point outside it is painted over by the composer chrome and `elementFromPoint`
 // hands the click to that instead. `getBoundingClientRect()` on the picker
 // reports the UNCLIPPED layout rect and looks healthy either way, which is how
@@ -8,7 +8,7 @@
 import "./ProfileFields.test-dom.ts";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { EXTENDED_REACTIONS } from "../../shared/reactions";
 
@@ -24,6 +24,7 @@ import { ReactionBar } from "./Reactions";
 import type { Message } from "@/state/store";
 
 type Box = { top: number; bottom: number; left: number; right: number };
+type Placement = "above" | "below";
 
 // Picker chrome, straight off the classes in Reactions.tsx.
 const WIDTH = 218; // w-[218px]
@@ -38,34 +39,61 @@ const HEIGHT = 2 * BORDER + 2 * PAD + ROWS * CELL + (ROWS - 1) * GAP;
 
 const ANCHOR_H = 28;
 // 886x663 window: chat header above, composer dock below.
-const SCROLLER: Box = { top: 96, bottom: 520, left: 0, right: 886 };
+const PANE: Box = { top: 96, bottom: 520, left: 0, right: 886 };
 
+let scroller: Box = PANE;
 let anchor: Box = { top: 0, bottom: 0, left: 0, right: 0 };
 
-const proto = HTMLElement.prototype as unknown as Record<string, unknown>;
-proto.getBoundingClientRect = function (this: HTMLElement) {
-  const box = this.hasAttribute("data-orbit-transcript")
-    ? SCROLLER
-    : this.hasAttribute("data-reaction-bar")
-      ? anchor
-      : { top: 0, bottom: 0, left: 0, right: 0 };
-  return { ...box, x: box.left, y: box.top, width: box.right - box.left, height: box.bottom - box.top };
-};
-for (const [key, value] of [["offsetWidth", WIDTH], ["offsetHeight", HEIGHT]] as const) {
-  Object.defineProperty(proto, key, {
+// Installed on the prototype rather than per element: the picker only exists
+// after it opens, which is after the layout effect that measures it has run.
+// Restored afterwards so a later file in this worker gets its own geometry.
+const OVERRIDES = ["getBoundingClientRect", "offsetWidth", "offsetHeight"] as const;
+const saved = new Map<string, PropertyDescriptor | undefined>();
+
+beforeAll(() => {
+  const proto = HTMLElement.prototype;
+  for (const key of OVERRIDES) saved.set(key, Object.getOwnPropertyDescriptor(proto, key));
+  Object.defineProperty(proto, "getBoundingClientRect", {
     configurable: true,
-    get(this: HTMLElement) {
-      return this.hasAttribute("data-reaction-picker") ? value : 0;
+    writable: true,
+    value: function (this: HTMLElement) {
+      const box = this.hasAttribute("data-orbit-transcript")
+        ? scroller
+        : this.hasAttribute("data-reaction-bar")
+          ? anchor
+          : { top: 0, bottom: 0, left: 0, right: 0 };
+      return { ...box, x: box.left, y: box.top, width: box.right - box.left, height: box.bottom - box.top };
     },
   });
-}
+  for (const [key, value] of [["offsetWidth", WIDTH], ["offsetHeight", HEIGHT]] as const) {
+    Object.defineProperty(proto, key, {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.hasAttribute("data-reaction-picker") ? value : 0;
+      },
+    });
+  }
+});
 
-/** Where the picker's border box lands, read off the vertical anchor it rendered with. */
-function pickerBox(picker: HTMLElement): Box {
+afterAll(() => {
+  const proto = HTMLElement.prototype as unknown as Record<string, unknown>;
+  for (const key of OVERRIDES) {
+    const descriptor = saved.get(key);
+    if (descriptor) Object.defineProperty(proto, key, descriptor);
+    else delete proto[key];
+  }
+});
+
+function placementOf(picker: Element): Placement {
   const opensUp = picker.className.includes("bottom-full");
   const opensDown = picker.className.includes("top-full");
   if (opensUp === opensDown) throw new Error(`picker has no single vertical anchor: ${picker.className}`);
-  const top = opensUp ? anchor.top - OFFSET - HEIGHT : anchor.bottom + OFFSET;
+  return opensUp ? "above" : "below";
+}
+
+/** Where the picker's border box lands for a given vertical anchor. */
+function boxFor(placement: Placement): Box {
+  const top = placement === "above" ? anchor.top - OFFSET - HEIGHT : anchor.bottom + OFFSET;
   return { top, bottom: top + HEIGHT, left: anchor.left, right: anchor.left + WIDTH };
 }
 
@@ -78,18 +106,22 @@ function buttonCentres(box: Box) {
   }));
 }
 
-/** Buttons whose centre falls outside the scroller's clip box — the dead ones. */
-function clipped(box: Box) {
-  return buttonCentres(box).filter(
-    (c) => c.x < SCROLLER.left || c.x > SCROLLER.right || c.y < SCROLLER.top || c.y > SCROLLER.bottom,
+/** Buttons whose centre falls outside the scroller's clip box - the dead ones. */
+function clipped(placement: Placement) {
+  return buttonCentres(boxFor(placement)).filter(
+    (c) => c.x < scroller.left || c.x > scroller.right || c.y < scroller.top || c.y > scroller.bottom,
   );
 }
 
 const message: Message = { id: "m1", role: "bot", kind: "text", text: "hi", at: 0 };
 
-async function openPicker(gapBelow: number) {
-  const bottom = SCROLLER.bottom - gapBelow;
+function anchorAt(bottom: number) {
   anchor = { top: bottom - ANCHOR_H, bottom, left: 60, right: 60 + ANCHOR_H };
+}
+
+async function openPicker(gapBelow: number, pane: Box = PANE) {
+  scroller = pane;
+  anchorAt(pane.bottom - gapBelow);
   const host = document.createElement("div");
   host.setAttribute("data-orbit-transcript", "");
   document.body.append(host);
@@ -102,31 +134,62 @@ async function openPicker(gapBelow: number) {
   });
   const picker = host.querySelector("[data-reaction-picker]");
   if (!picker) throw new Error("picker did not open");
-  return pickerBox(picker as HTMLElement);
+  return { host, picker };
 }
 
 describe("reaction picker clip box", () => {
   afterEach(() => {
     document.body.replaceChildren();
+    scroller = PANE;
   });
 
   // The last message rests near the scroller's bottom edge, which is the only
   // place the picker is ever opened from in a settled thread.
   for (const gapBelow of [8, 24, 40, 80, 120]) {
     it(`keeps every reaction clickable with ${gapBelow}px below the message`, async () => {
-      const box = await openPicker(gapBelow);
-      const dead = clipped(box);
+      const { picker } = await openPicker(gapBelow);
+      const dead = clipped(placementOf(picker));
       expect(
         dead.map((c) => c.emoji).join(" "),
-        `${dead.length}/${EXTENDED_REACTIONS.length} buttons are outside the transcript clip box ` +
-          `(picker ${box.top}–${box.bottom}, scroller ${SCROLLER.top}–${SCROLLER.bottom})`,
+        `${dead.length}/${EXTENDED_REACTIONS.length} buttons are outside the transcript clip box`,
       ).toBe("");
     });
   }
 
   it("still opens downward when the message has room below it", async () => {
-    const box = await openPicker(300);
-    expect(box.top).toBeGreaterThanOrEqual(anchor.bottom);
-    expect(clipped(box)).toEqual([]);
+    const { picker } = await openPicker(300);
+    expect(placementOf(picker)).toBe("below");
+    expect(clipped("below")).toEqual([]);
+  });
+
+  it("recomputes placement when the transcript scrolls under an open picker", async () => {
+    const { host, picker } = await openPicker(8);
+    expect(placementOf(picker)).toBe("above");
+    // Scroll the message up to the top of the pane: the room above is gone.
+    anchorAt(scroller.top + 8 + ANCHOR_H);
+    await act(async () => {
+      host.dispatchEvent(new Event("scroll"));
+    });
+    expect(placementOf(picker)).toBe("below");
+    expect(clipped(placementOf(picker))).toEqual([]);
+  });
+
+  it("closes when the message it points at scrolls out of the clip box", async () => {
+    const { host } = await openPicker(8);
+    // Far enough that the reaction bar itself is past the scroller's edge:
+    // there is no anchor left on screen for the picker to hang off.
+    anchorAt(scroller.bottom + 40 + ANCHOR_H);
+    await act(async () => {
+      host.dispatchEvent(new Event("scroll"));
+    });
+    expect(host.querySelector("[data-reaction-picker]")).toBeNull();
+  });
+
+  it("takes the roomier side when the transcript is shorter than the picker", async () => {
+    // A small window with an expanded composer leaves a pane neither side fits in.
+    const short: Box = { top: 96, bottom: 96 + 170, left: 0, right: 886 };
+    const { picker } = await openPicker(8, short);
+    expect(placementOf(picker)).toBe("above");
+    expect(clipped("above").length).toBeLessThan(clipped("below").length);
   });
 });

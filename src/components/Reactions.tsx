@@ -58,13 +58,18 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
   // that clip is an ancestor's, so no z-index escapes it, and on the last
   // message a downward picker is painted past the scroller's bottom edge with
   // the composer chrome taking the clicks. Open upward when the room below runs
-  // out, which the settled bottom of a thread always does.
+  // out, which the settled bottom of a thread always does. Scrolling moves the
+  // anchor without resizing the window, so the transcript is measured again on
+  // its own scroll. Recomputed rather than dismissed on scroll: a streamed
+  // reply scrolls the pane by itself, which would close the picker under the
+  // user mid-choice.
   useLayoutEffect(() => {
     if (!pickerOpen) {
       setShift(0);
       setPlacement("below");
       return;
     }
+    const transcript = anchorRef.current?.closest("[data-orbit-transcript]");
     const clamp = () => {
       const anchor = anchorRef.current?.getBoundingClientRect();
       const width = pickerRef.current?.offsetWidth;
@@ -72,17 +77,30 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
       const overflow = anchor.left + width - (window.innerWidth - 8);
       setShift(overflow > 0 ? -overflow : 0);
 
-      const clip = anchorRef.current?.closest("[data-orbit-transcript]")?.getBoundingClientRect();
+      const clip = transcript?.getBoundingClientRect();
       const height = pickerRef.current?.offsetHeight;
       if (!clip || !height) return;
+      // Scrolled past the edge entirely: the smile entry it hangs off is gone,
+      // so no placement can save it. Same exit as an outside click.
+      if (anchor.top >= clip.bottom || anchor.bottom <= clip.top) {
+        setPickerOpen(false);
+        return;
+      }
       const needed = height + PICKER_GAP;
-      const fitsBelow = clip.bottom - anchor.bottom >= needed;
-      const fitsAbove = anchor.top - clip.top >= needed;
-      setPlacement(!fitsBelow && fitsAbove ? "above" : "below");
+      const roomBelow = clip.bottom - anchor.bottom;
+      const roomAbove = anchor.top - clip.top;
+      // Below is the resting look, so keep it whenever it fits. When neither
+      // side fits, a pane shorter than the grid, take the roomier one rather
+      // than the one that shows least of it.
+      setPlacement(roomBelow >= needed || roomBelow >= roomAbove ? "below" : "above");
     };
     clamp();
     window.addEventListener("resize", clamp);
-    return () => window.removeEventListener("resize", clamp);
+    transcript?.addEventListener("scroll", clamp);
+    return () => {
+      window.removeEventListener("resize", clamp);
+      transcript?.removeEventListener("scroll", clamp);
+    };
   }, [pickerOpen]);
 
   const toggle = (emoji: string) => {
