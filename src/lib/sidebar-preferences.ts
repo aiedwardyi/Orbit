@@ -18,6 +18,8 @@ export const SIDEBAR_WIDTH_STEP = 10;
 /** Below this the sidebar is a drawer over the chat, so its width never squeezes the column. */
 export const SIDEBAR_INLINE_BREAKPOINT = 768;
 export const CHAT_MIN_WIDTH = 420;
+/** Mirrors the `w-[400px]` on SettingsPanel's aside; a test keeps the two in step. */
+export const DETAILS_PANEL_WIDTH = 400;
 
 export function parseSidebarDensity(value: string | null): SidebarDensity {
   switch (value) {
@@ -61,10 +63,12 @@ export function displaySidebarWidth(layout: SidebarLayout): number {
   return layout.collapsed ? SIDEBAR_COLLAPSED_WIDTH : layout.width;
 }
 
-/** The saved width, given up only as far as the chat column needs. */
-export function fitSidebarWidth(width: number, viewportWidth: number): number {
+/** The saved width, given up only as far as the chat column needs.
+ * A docked aside spends the same viewport, so it has to be in the budget too. */
+export function fitSidebarWidth(width: number, viewportWidth: number, asideWidth = 0): number {
   if (!Number.isFinite(viewportWidth) || viewportWidth < SIDEBAR_INLINE_BREAKPOINT) return width;
-  return Math.min(width, Math.max(SIDEBAR_MIN_WIDTH, viewportWidth - CHAT_MIN_WIDTH));
+  const aside = Number.isFinite(asideWidth) ? Math.max(0, asideWidth) : 0;
+  return Math.min(width, Math.max(SIDEBAR_MIN_WIDTH, viewportWidth - CHAT_MIN_WIDTH - aside));
 }
 
 export function snapSidebarDrag(drag: SidebarLayout, deltaX: number): SidebarLayout {
