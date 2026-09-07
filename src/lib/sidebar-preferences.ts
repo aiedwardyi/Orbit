@@ -63,8 +63,14 @@ export function displaySidebarWidth(layout: SidebarLayout): number {
   return layout.collapsed ? SIDEBAR_COLLAPSED_WIDTH : layout.width;
 }
 
+/** Bot details renders for a bot only, so a selected room must reserve nothing.
+ * Selecting a room leaves settingsOpen set while the panel unmounts. */
+export function dockedDetailsWidth(settingsOpen: boolean, selectedIsGroup: boolean, botCount: number): number {
+  return settingsOpen && !selectedIsGroup && botCount > 0 ? DETAILS_PANEL_WIDTH : 0;
+}
+
 /** The saved width, given up only as far as the chat column needs.
- * A docked aside spends the same viewport, so it has to be in the budget too. */
+ * A docked aside takes it from the same viewport, so it belongs in the budget. */
 export function fitSidebarWidth(width: number, viewportWidth: number, asideWidth = 0): number {
   if (!Number.isFinite(viewportWidth) || viewportWidth < SIDEBAR_INLINE_BREAKPOINT) return width;
   const aside = Number.isFinite(asideWidth) ? Math.max(0, asideWidth) : 0;

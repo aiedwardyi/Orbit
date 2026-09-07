@@ -14,6 +14,7 @@ import {
   SIDEBAR_WIDTH_STEP,
   clampSidebarWidth,
   displaySidebarWidth,
+  dockedDetailsWidth,
   fitSidebarWidth,
   loadSidebarCollapsed,
   loadSidebarDensity,
@@ -88,6 +89,14 @@ describe("sidebar width preferences", () => {
     expect(fitSidebarWidth(SIDEBAR_MAX_WIDTH, 1440, DETAILS_PANEL_WIDTH)).toBe(SIDEBAR_MAX_WIDTH);
     // a closed panel budgets exactly as it did before
     expect(fitSidebarWidth(SIDEBAR_DEFAULT_WIDTH, 786, 0)).toBe(SIDEBAR_DEFAULT_WIDTH);
+  });
+
+  it("reserves the details width only when a bot is the selected conversation", () => {
+    expect(dockedDetailsWidth(true, false, 3)).toBe(DETAILS_PANEL_WIDTH);
+    // a room renders no details panel, so reserving its width strands the chat
+    expect(dockedDetailsWidth(true, true, 3)).toBe(0);
+    expect(dockedDetailsWidth(true, false, 0)).toBe(0);
+    expect(dockedDetailsWidth(false, false, 3)).toBe(0);
   });
 
   it("steps ten pixels on horizontal arrows and clamps at the named-list range", () => {

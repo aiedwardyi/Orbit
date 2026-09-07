@@ -48,8 +48,8 @@ import { TeamLibraryPanel, type TeamImportResult } from "./TeamLibraryPanel";
 import { RenameTitle } from "./RenameTitle";
 import { BotPickerList } from "./BotPickerList";
 import {
-  DETAILS_PANEL_WIDTH,
   displaySidebarWidth,
+  dockedDetailsWidth,
   fitSidebarWidth,
   loadSidebarCollapsed,
   loadSidebarDensity,
@@ -1060,8 +1060,12 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
-  // Bot details docks beside the chat above the breakpoint, spending the same viewport.
-  const dockedAsideWidth = state.settingsOpen ? DETAILS_PANEL_WIDTH : 0;
+  // Bot details docks beside the chat above the breakpoint and takes width from it.
+  const dockedAsideWidth = dockedDetailsWidth(
+    state.settingsOpen,
+    state.groups.some((g) => g.id === state.selectedId),
+    state.bots.length,
+  );
   const sidebarDisplayWidth = displaySidebarWidth({
     collapsed: sidebarCollapsed,
     width: !sidebarCollapsed && density === "icons" ? SIDEBAR_ICONS_WIDTH : fitSidebarWidth(sidebarWidth, viewportWidth, dockedAsideWidth),
@@ -1137,7 +1141,10 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const onSidebarResizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!sidebarCollapsedRef.current && density === "icons") return;
     const next = stepSidebarLayout(
-      { width: sidebarWidthRef.current, collapsed: sidebarCollapsedRef.current },
+      {
+        width: fitSidebarWidth(sidebarWidthRef.current, viewportWidth, dockedAsideWidth),
+        collapsed: sidebarCollapsedRef.current,
+      },
       event.key,
     );
     if (next == null) return;
