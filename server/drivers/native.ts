@@ -63,7 +63,10 @@ export function finishNative(event: { threadId: string; type: string }) {
 
 export function appendNative(threadId: string, entry: NativeEntry) {
   try {
-    writeNative(threadId, { ...entry, msg: maskNative(threadId, entry, entry.msg, redactSecrets(entry.msg)) });
+    const safe = redactSecrets(entry.msg);
+    // Outbound protocol requests are complete messages, not provider deltas.
+    const msg = entry.dir === "out" ? safe : maskNative(threadId, entry, entry.msg, safe);
+    writeNative(threadId, { ...entry, msg });
   } catch {
     /* never let logging break a run */
   }

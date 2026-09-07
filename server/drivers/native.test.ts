@@ -33,6 +33,13 @@ describe("appendNative", () => {
     expect(rows.map((row) => row.msg.nativeTextTail?.text ?? row.msg.text).join("")).toBe(redactSecrets(text));
   });
 
+  it("preserves complete outbound requests in their original record", () => {
+    const msg = { method: "session/prompt", params: { prompt: [{ type: "text", text: "ordinary prompt with password=syntheticpassword" }] } };
+    appendNative("t-outbound-request", { dir: "out", source: "acp", msg });
+    const row = JSON.parse(readFileSync(join(NATIVE_DIR, "t-outbound-request.ndjson"), "utf8"));
+    expect(row.msg).toEqual(redactSecrets(msg));
+  });
+
   it("separates thought and message chunks at the same ACP path", () => {
     const append = (sessionUpdate: string, text: string) => appendNative("t-acp-streams", {
       dir: "in", source: "acp", msg: { params: { update: { sessionUpdate, content: { type: "text", text } } } },
