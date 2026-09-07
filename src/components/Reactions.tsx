@@ -32,16 +32,26 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
     [message.reactions],
   );
 
+  // Only the paths a keyboard user closes on: an outside click should leave
+  // focus wherever it landed rather than yank it back here.
+  const closeAndRefocus = () => {
+    setPickerOpen(false);
+    anchorRef.current?.querySelector("button")?.focus();
+  };
+
   // same dismiss contract as the sidebar menus: outside click, Escape, blur
   useEffect(() => {
     if (!pickerOpen) return;
-    // Same closest() form as the sidebar menus: the picker is portalled out of
-    // the bar, so its own buttons are not inside the anchor any more.
+    // Both refs, not a selector: the picker is portalled out of the bar, so its
+    // buttons are no longer inside the anchor, and a document-wide selector
+    // would answer for every other rail on screen too - pressing another
+    // message's trigger has to close this one.
     const onDown = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target.closest?.("[data-reaction-bar],[data-reaction-picker]")) setPickerOpen(false);
+      const target = e.target as Node;
+      if (anchorRef.current?.contains(target) || pickerRef.current?.contains(target)) return;
+      setPickerOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPickerOpen(false);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && closeAndRefocus();
     const onBlur = () => setPickerOpen(false);
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey);
@@ -132,9 +142,19 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
     };
   }, [pickerOpen]);
 
+  // Portalled under document.body, the picker is no longer the trigger's tab
+  // neighbour, so opening it has to carry focus across and closing it has to
+  // hand focus back. Gated on `placed` because the grid is visibility:hidden
+  // until it has been measured, and a hidden element cannot take focus.
+  const placed = box !== null;
+  useEffect(() => {
+    if (!pickerOpen || !placed) return;
+    pickerRef.current?.querySelector("button")?.focus();
+  }, [pickerOpen, placed]);
+
   const toggle = (emoji: string) => {
     dispatch({ type: "toggleReaction", threadId, messageId: message.id, emoji });
-    setPickerOpen(false);
+    closeAndRefocus();
   };
 
   return (

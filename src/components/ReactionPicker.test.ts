@@ -69,6 +69,20 @@ const FLOOR: Layout = {
 let layout: Layout = DESK;
 let anchor: Box = { top: 0, bottom: 0, left: 0, right: 0 };
 
+// The picker portals to document.body, so clearing the host is not enough: an
+// un-unmounted root re-renders its portal and leaks an open picker into the
+// next test.
+const roots: Array<{ unmount: () => void }> = [];
+
+async function cleanup() {
+  await act(async () => {
+    for (const root of roots.splice(0)) root.unmount();
+  });
+  document.body.replaceChildren();
+  layout = DESK;
+  observing.length = 0;
+}
+
 // Installed on the prototype rather than per element: the picker only exists
 // after it opens, which is after the layout effect that measures it has run.
 // Restored afterwards so a later file in this worker gets its own geometry.
@@ -203,7 +217,21 @@ function deadButtons(host: HTMLElement, picker: HTMLElement) {
     .filter((c) => c.by !== null);
 }
 
+/**
+ * A picker that never got measured, or that is still hidden, has no reachable
+ * buttons at all - so every geometry check below would pass vacuously on one.
+ */
+function expectPlaced(picker: HTMLElement) {
+  expect(picker.isConnected, "picker is not in the document").toBe(true);
+  expect(picker.style.visibility, "picker is still hidden").toBe("visible");
+  for (const side of ["top", "left"] as const) {
+    expect(Number.parseFloat(picker.style[side]), `picker has no measured ${side}`).not.toBeNaN();
+  }
+  expect(picker.querySelectorAll("button")).toHaveLength(EXTENDED_REACTIONS.length);
+}
+
 function expectAllClickable(host: HTMLElement, picker: HTMLElement) {
+  expectPlaced(picker);
   const dead = deadButtons(host, picker);
   expect(
     dead.map((c) => `${c.emoji} -> ${c.by}`).join(", "),
@@ -225,6 +253,7 @@ async function mount(anchorBottom: number, next: Layout = DESK) {
   host.setAttribute("data-orbit-transcript", "");
   document.body.append(host);
   const root = createRoot(host);
+  roots.push(root);
   await act(async () => {
     root.render(createElement(ReactionBar, { threadId: "t1", message }));
   });
@@ -241,12 +270,146 @@ function openPicker(gapBelow: number, next: Layout = DESK) {
   return mount(next.pane.bottom - gapBelow, next);
 }
 
-describe("reaction picker reachability", () => {
-  afterEach(() => {
-    document.body.replaceChildren();
-    layout = DESK;
-    observing.length = 0;
+/** Two rails in one transcript - the picker is portalled, so they share a root. */
+async function mountPair(anchorBottom: number, next: Layout = DESK) {
+  layout = next;
+  setViewport(next.viewport);
+  anchorAt(anchorBottom);
+  const host = document.createElement("div");
+  host.setAttribute("data-orbit-transcript", "");
+  document.body.append(host);
+  const root = createRoot(host);
+  roots.push(root);
+  await act(async () => {
+    root.render(
+      createElement(
+        "div",
+        null,
+        createElement(ReactionBar, { key: "a", threadId: "t1", message }),
+        createElement(ReactionBar, { key: "b", threadId: "t1", message: { ...message, id: "m2" } }),
+      ),
+    );
   });
+  const triggers = [...host.querySelectorAll("[data-reaction-bar] button")].filter(
+    (b): b is HTMLButtonElement => b instanceof HTMLButtonElement,
+  );
+  if (triggers.length !== 2) throw new Error(`expected two rails, got ${triggers.length}`);
+  return { host, triggers };
+}
+
+function openPickers() {
+  return document.querySelectorAll("[data-reaction-picker]");
+}
+
+function mousedown(target: Element) {
+  return act(async () => {
+    target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  });
+}
+
+// The picker is portalled to the root, so an outside-click test that matches on
+// a document-wide selector answers for EVERY rail on screen, not this one.
+describe("reaction picker dismiss scoping", () => {
+  afterEach(cleanup);
+
+  it("closes when another message's trigger is pressed", async () => {
+    const { triggers } = await mountPair(DESK.pane.bottom - 120);
+    await act(async () => {
+      triggers[0].click();
+    });
+    expect(openPickers()).toHaveLength(1);
+    await mousedown(triggers[1]);
+    expect(openPickers()).toHaveLength(0);
+  });
+
+  it("closes on a click that is neither its bar nor its picker", async () => {
+    const { triggers } = await mountPair(DESK.pane.bottom - 120);
+    await act(async () => {
+      triggers[0].click();
+    });
+    await mousedown(document.body);
+    expect(openPickers()).toHaveLength(0);
+  });
+
+  it("stays open when its own picker is pressed", async () => {
+    const { triggers } = await mountPair(DESK.pane.bottom - 120);
+    await act(async () => {
+      triggers[0].click();
+    });
+    const button = document.querySelector("[data-reaction-picker] button");
+    if (!button) throw new Error("picker did not open");
+    await mousedown(button);
+    expect(openPickers()).toHaveLength(1);
+  });
+
+  it("stays open when its own trigger is pressed", async () => {
+    const { triggers } = await mountPair(DESK.pane.bottom - 120);
+    await act(async () => {
+      triggers[0].click();
+    });
+    await mousedown(triggers[0]);
+    expect(openPickers()).toHaveLength(1);
+  });
+});
+
+// Portalling under document.body took the picker out of the trigger's tab
+// order, so focus has to be carried across by hand and handed back.
+describe("reaction picker focus", () => {
+  afterEach(cleanup);
+
+  it("moves focus into the picker on open", async () => {
+    const { triggers } = await mountPair(DESK.pane.bottom - 120);
+    await act(async () => {
+      triggers[0].click();
+    });
+    const picker = document.querySelector("[data-reaction-picker]");
+    expect(picker?.contains(document.activeElement)).toBe(true);
+  });
+
+  it("hands focus back to the trigger on Escape", async () => {
+    const { triggers } = await mountPair(DESK.pane.bottom - 120);
+    await act(async () => {
+      triggers[0].click();
+    });
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(openPickers()).toHaveLength(0);
+    expect(document.activeElement).toBe(triggers[0]);
+  });
+
+  it("hands focus back to the trigger after a reaction is chosen", async () => {
+    const { triggers } = await mountPair(DESK.pane.bottom - 120);
+    await act(async () => {
+      triggers[0].click();
+    });
+    const button = document.querySelector("[data-reaction-picker] button");
+    if (!(button instanceof HTMLButtonElement)) throw new Error("picker did not open");
+    await act(async () => {
+      button.click();
+    });
+    expect(openPickers()).toHaveLength(0);
+    expect(document.activeElement).toBe(triggers[0]);
+  });
+
+  it("leaves focus where an outside click put it", async () => {
+    const { triggers } = await mountPair(DESK.pane.bottom - 120);
+    await act(async () => {
+      triggers[0].click();
+    });
+    const elsewhere = document.createElement("button");
+    document.body.append(elsewhere);
+    await act(async () => {
+      elsewhere.focus();
+    });
+    await mousedown(elsewhere);
+    expect(openPickers()).toHaveLength(0);
+    expect(document.activeElement).toBe(elsewhere);
+  });
+});
+
+describe("reaction picker reachability", () => {
+  afterEach(cleanup);
 
   // The last message rests near the scroller's bottom edge, which is the only
   // place the picker is ever opened from in a settled thread.
@@ -308,11 +471,7 @@ describe("reaction picker reachability", () => {
 // holds the picker, so it has to leave the pane entirely - and once it does,
 // it has to outrank the header and the usage strip rather than hide under them.
 describe("reaction picker at the 600x480 floor", () => {
-  afterEach(() => {
-    document.body.replaceChildren();
-    layout = DESK;
-    observing.length = 0;
-  });
+  afterEach(cleanup);
 
   for (let bottom = 204; bottom <= 218; bottom += 2) {
     it(`keeps every reaction clickable with the message at y=${bottom}`, async () => {
