@@ -91,6 +91,7 @@ const ROOM_TASK_NEXT = { botId: "room-task-next-bot", botThreadId: "room-task-ne
 const ROOM_TASK_SURVIVOR = { botId: "room-task-survivor-bot", botThreadId: "room-task-survivor-thread" };
 const EDIT_CLAIM = { botId: "edit-claim-bot", botThreadId: "edit-claim-thread" };
 const NEW_TASK_CLAIM = { botId: "new-task-claim-bot", botThreadId: "new-task-claim-thread" };
+const CLEAR_RACE = { botId: "clear-race-bot", botThreadId: "clear-race-thread" };
 const SECRET_COLLISION = {
   botId: "secret-collision-bot",
   botThreadId: "secret-collision-direct-thread",
@@ -102,13 +103,15 @@ type ApiBody =
   | { text: string }
   | { title: string }
   | { threadId: string }
-  | { memberIds: string[] };
+  | { memberIds: string[] }
+  | { cwd: string | null };
 
 describe("context compaction e2e", () => {
   let child: ChildProcess;
   let home: string;
   let dumpPath: string;
   let claudeDumpPath: string;
+  let clearRaceProject: string;
   let stderr = "";
 
   const api = async (method: string, path: string, body?: ApiBody): Promise<{ status: number; body: any }> => {
@@ -137,6 +140,8 @@ describe("context compaction e2e", () => {
     home = mkdtempSync(join(tmpdir(), "orbit-compaction-e2e-"));
     dumpPath = join(home, "codex-dump.json");
     claudeDumpPath = join(home, "claude-dump.json");
+    clearRaceProject = join(home, "clear-race-project");
+    mkdirSync(clearRaceProject);
     const dataDir = join(home, ".orbit");
     mkdirSync(join(dataDir, "task-state"), { recursive: true });
     writeFileSync(join(dataDir, "config.json"), JSON.stringify({
@@ -312,6 +317,21 @@ describe("context compaction e2e", () => {
         tasks: [{ threadId: NEW_TASK_CLAIM.botThreadId, title: "Release", createdAt: 1, resumeCursors: {} }],
       },
       {
+        id: CLEAR_RACE.botId,
+        threadId: CLEAR_RACE.botThreadId,
+        name: "Clear race",
+        title: "Release owner",
+        description: "Keep the release moving.",
+        notifications: true,
+        color: "teal",
+        unread: false,
+        modelSelection: { instanceId: "claude", model: "claude-fake" },
+        resumeCursors: {},
+        lastProjectCwd: clearRaceProject,
+        createdAt: 1,
+        tasks: [{ threadId: CLEAR_RACE.botThreadId, title: "Release", createdAt: 1, resumeCursors: {} }],
+      },
+      {
         id: SECRET_COLLISION.botId,
         threadId: SECRET_COLLISION.botThreadId,
         name: "Secret retry",
@@ -391,6 +411,7 @@ describe("context compaction e2e", () => {
       ROOM_TASK.roomThreadId,
       EDIT_CLAIM.botThreadId,
       NEW_TASK_CLAIM.botThreadId,
+      CLEAR_RACE.botThreadId,
       SECRET_COLLISION.botThreadId,
       SECRET_COLLISION.roomThreadId,
     ]) {
@@ -905,5 +926,31 @@ describe("context compaction e2e", () => {
       threadId: ROOM_TASK.roomThreadId,
       flushReason: "pre-compaction",
     });
+  }, 30_000);
+
+  it("keeps the folder cleared when Settings Clear lands while a turn is preparing", async () => {
+    rmSync(claudeDumpPath, { force: true });
+    const send = api("POST", `/api/bots/${CLEAR_RACE.botId}/messages`, {
+      text: `add tests in ${clearRaceProject}`,
+    });
+    // the summarizer is running: the send is persisted, the folder not yet resolved
+    await expect.poll(() => existsSync(claudeDumpPath), { timeout: 10_000 }).toBe(true);
+    const cleared = await api("PATCH", `/api/bots/${CLEAR_RACE.botId}`, { cwd: null });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.bot).not.toHaveProperty("rememberedProjectCwd");
+    await expect(send).resolves.toMatchObject({ status: 202 });
+
+    await waitFor(async () => {
+      const bot = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+        (candidate: { id: string }) => candidate.id === CLEAR_RACE.botId,
+      );
+      return bot?.busy === false;
+    });
+    const bot = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+      (candidate: { id: string }) => candidate.id === CLEAR_RACE.botId,
+    );
+    expect(bot.cwd).toBeNull();
+    expect(bot).not.toHaveProperty("rememberedProjectCwd");
+    expect(bot.tasks[0].cwd).not.toContain("clear-race-project");
   }, 30_000);
 });

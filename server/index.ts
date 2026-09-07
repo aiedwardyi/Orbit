@@ -2769,12 +2769,16 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       // folder its own chat named before the user cleared it. Lines from
       // before a Settings Clear are spent on every entry point.
       const namedByUser = !opts?.cardContinuation && !opts?.automationSource && !opts?.commsDepth;
+      // The send was persisted before the awaits above, so a Clear that
+      // landed meanwhile spends it like any other history line.
+      const clearedAt = bot.projectFolderClearedAt ?? -Infinity;
+      const currentFolderText = namedByUser && userMessage.at > clearedAt ? text : undefined;
       const resolvedProject = worksInWorkspace && opts?.runOn !== "cloud"
         ? applyResolvedProjectFolder({
             pin: bot.cwd,
             remembered: bot.lastProjectCwd,
             continuation: !namedByUser,
-            userTexts: userProjectTexts(store.messagesFor(threadId), namedByUser ? text : undefined, {
+            userTexts: userProjectTexts(store.messagesFor(threadId), currentFolderText, {
               since: bot.projectFolderClearedAt,
             }),
             recentPaths: projectPathsFromRecords({ bots: store.bots, groups: store.groups }),
