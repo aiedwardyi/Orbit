@@ -244,12 +244,22 @@ posixOnly("conversation branching e2e (fake ACP fleet)", () => {
         return b.messages.some((m: Msg) => m.role === "user" && m.text === "second try");
       }, "the forked message", 30_000);
 
+      // the edit starts a turn on the fork, and a turn writes its own record
+      // onto whatever leaf is active when it ends - so stop it and let it
+      // settle first, the same way the drained turn above was settled. Read
+      // the tail at a fixed point, never mid-turn.
+      expect((await api("POST", `/api/bots/${created.id}/interrupt`)).status).toBe(200);
+      await waitFor(async () => (await getBot(created.id)).busy === false, "the forked turn to settle", 20_000);
+
       const bot = await getBot(created.id);
       const second: Msg = bot.messages.find((m: Msg) => m.role === "user" && m.text === "second try");
       expect(second.parentId).toBe(first.parentId);
-      // exactly one visible tail: the fork is the leaf, the old branch is off-path
+      // exactly one visible tail: the fork is on the active path, so the tail
+      // is the fork or its own turn's output, and the old branch is off-path
       const path = activePath(bot.messages, bot.activeLeafId);
-      expect(path.at(-1)?.id).toBe(second.id);
+      const forkIndex = path.findIndex((m) => m.id === second.id);
+      expect(forkIndex).toBeGreaterThanOrEqual(0);
+      expect(path.slice(forkIndex + 1).filter((m) => m.role !== "bot")).toHaveLength(0);
       expect(path.map((m) => m.text)).not.toContain("first try");
       // and only one copy of each attempt ever exists — no duplicated turns
       expect(bot.messages.filter((m: Msg) => m.text === "first try")).toHaveLength(1);
