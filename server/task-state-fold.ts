@@ -65,6 +65,7 @@ export function recordTaskInstruction(
   const next = stamped(packet, "progress", input);
   next.instructionId = input.messageId;
   const action = firstLine(input.text);
+  // An empty instruction keeps the prior anchor on purpose: clearing it falls through to the always-blank path.
   if (action) {
     next.nextAction = action;
     next.instructionAction = action;
