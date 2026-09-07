@@ -63,8 +63,9 @@ describe("reaction rail", () => {
         expect(slice).toContain("group-hover:opacity-100");
         expect(slice).toContain("group-focus-within:opacity-100");
         if (slice.includes("left-full")) {
-          expect(slice).toContain("has-[[data-reaction-picker]]:pointer-events-auto");
-          expect(slice).toContain("has-[[data-reaction-picker]]:opacity-100");
+          // the picker is portalled away, so the open trigger is what holds the row
+          expect(slice).toContain("has-[[aria-expanded=true]]:pointer-events-auto");
+          expect(slice).toContain("has-[[aria-expanded=true]]:opacity-100");
         }
         expect(slice).toContain("opacity-0");
       }
@@ -77,9 +78,9 @@ describe("reaction rail", () => {
     expect(bar).toContain("data-reaction-bar");
     expect(bar).toContain("SmilePlus");
     expect(bar).toContain("data-reaction-picker");
-    expect(bar).toContain("left-0");
-    expect(bar).toContain("top-full mt-1.5");
-    expect(bar).toContain("bottom-full mb-1.5");
+    // portalled to the root so no ancestor clip or stacking context reaches it
+    expect(bar).toContain("createPortal");
+    expect(bar).toContain("fixed z-40");
     const trigger = bar.slice(0, bar.indexOf("data-reaction-picker"));
     expect(trigger).not.toContain("PRIMARY_REACTIONS.map");
     expect(trigger).not.toContain("EXTENDED_REACTIONS.map");
@@ -100,7 +101,7 @@ describe("reaction rail", () => {
     expect(bar).not.toContain("pickerRef.current?.getBoundingClientRect()");
     expect(bar).toContain('window.addEventListener("resize", clamp)');
     expect(bar).toContain('window.removeEventListener("resize", clamp)');
-    expect(bar).toContain("translateX(${shift}px)");
+    expect(bar).toContain("window.innerWidth");
   });
 
   it("keeps bubbly picker icons and the existing dismiss contract", () => {
