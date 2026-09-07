@@ -621,3 +621,100 @@ describe("1:1 dispatch wiring", () => {
     expect(roomDispatch.slice(0, 400)).not.toContain("applyResolvedProjectFolder");
   });
 });
+
+describe("Working folder Clear", () => {
+  it("does not re-remember a folder from chat history on an ordinary turn after Clear", () => {
+    const orbit = folder("orbit");
+    let remembered: string | undefined;
+    const remember = (cwd: string) => {
+      remembered = cwd;
+    };
+    const forget = () => {
+      remembered = undefined;
+    };
+    const named = { role: "user", kind: "text", text: `work in ${orbit}`, at: 1_000 };
+    applyResolvedProjectFolder({ remembered, userTexts: userProjectTexts([named]), remember, forget });
+    expect(remembered).toBe(orbit);
+
+    // Settings Clear: the remember is gone and the boundary is recorded
+    remembered = undefined;
+    const clearedAt = 2_000;
+
+    const followUp = { role: "user", kind: "text", text: "keep going", at: 3_000 };
+    expect(
+      applyResolvedProjectFolder({
+        remembered,
+        userTexts: userProjectTexts([named, followUp], undefined, { since: clearedAt }),
+        remember,
+        forget,
+      }),
+    ).toBeUndefined();
+    expect(remembered).toBeUndefined();
+  });
+
+  it("does not hand a task started after Clear the folder an earlier thread named", () => {
+    const orbit = folder("orbit");
+    let remembered: string | undefined;
+    const remember = (cwd: string) => {
+      remembered = cwd;
+    };
+    const forget = () => {
+      remembered = undefined;
+    };
+    const named = { role: "user", kind: "text", text: `work in ${orbit}`, at: 1_000 };
+    applyResolvedProjectFolder({ remembered, userTexts: userProjectTexts([named]), remember, forget });
+    remembered = undefined;
+    const clearedAt = 2_000;
+    const followUp = { role: "user", kind: "text", text: "keep going", at: 3_000 };
+    // the old thread's follow-up turn, which used to re-remember the folder
+    applyResolvedProjectFolder({
+      remembered,
+      userTexts: userProjectTexts([named, followUp], undefined, { since: clearedAt }),
+      remember,
+      forget,
+    });
+
+    // a new task: its own thread holds only its own first line
+    const fresh = { role: "user", kind: "text", text: "add tests", at: 4_000 };
+    expect(
+      applyResolvedProjectFolder({
+        remembered,
+        userTexts: userProjectTexts([fresh], undefined, { since: clearedAt }),
+        remember,
+        forget,
+      }),
+    ).toBeUndefined();
+    expect(remembered).toBeUndefined();
+  });
+
+  it("keeps an explicit pin set after Clear", () => {
+    const orbit = folder("orbit");
+    const pinned = folder("pinned");
+    const calls: string[] = [];
+    const named = { role: "user", kind: "text", text: `work in ${orbit}`, at: 1_000 };
+    const followUp = { role: "user", kind: "text", text: "keep going", at: 3_000 };
+    expect(
+      applyResolvedProjectFolder({
+        pin: pinned,
+        userTexts: userProjectTexts([named, followUp], undefined, { since: 2_000 }),
+        remember: (cwd) => calls.push(`remember:${cwd}`),
+        forget: () => calls.push("forget"),
+      }),
+    ).toBe(pinned);
+    expect(calls).toEqual([]);
+  });
+
+  it("drops user lines at or before the Clear boundary and keeps the current send", () => {
+    expect(
+      userProjectTexts(
+        [
+          { role: "user", kind: "text", text: "Orbit first", at: 1_000 },
+          { role: "user", kind: "text", text: "Orbit again", at: 2_000 },
+          { role: "user", kind: "text", text: "keep going", at: 3_000 },
+        ],
+        "and the billing folder",
+        { since: 2_000 },
+      ),
+    ).toEqual(["keep going", "and the billing folder"]);
+  });
+});

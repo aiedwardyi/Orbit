@@ -428,6 +428,9 @@ export interface BotRecord {
    * Cleared when chat rules that folder out, and when Settings Clear
    * drops the pin so the next task is the private workspace. */
   lastProjectCwd?: string;
+  /** When Settings Clear last dropped the folder. Chat lines from before it
+   * are spent: no later turn may re-derive the cleared folder from them. */
+  projectFolderClearedAt?: number;
   /** Auto mode: the bot approves its own tool permissions and keeps
    * working instead of stopping to ask. Questions it asks YOU still come
    * through, and a short list of destructive commands still stops it. */
@@ -1265,12 +1268,14 @@ export class Store {
     if (!bot) return null;
     // Settings Clear is cwd: null. Drop the remembered auto-folder too or
     // the next unpinned task still lands there. Negation uses
-    // forgetProjectCwd and leaves an explicit pin alone.
+    // forgetProjectCwd and leaves an explicit pin alone. The stamp keeps
+    // earlier chat lines from re-remembering the folder on a later turn.
     const clearingCwd = Object.prototype.hasOwnProperty.call(patch, "cwd") && patch.cwd == null;
     Object.assign(bot, patch);
     if (clearingCwd) {
       delete bot.cwd;
       delete bot.lastProjectCwd;
+      bot.projectFolderClearedAt = Date.now();
     }
     this.saveBots();
     this.emit({ type: "bot", botId: id });

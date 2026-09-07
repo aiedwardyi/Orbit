@@ -734,6 +734,7 @@ const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
   const {
     resumeCursors: _resumeCursors,
     activeThreadId: _activeThreadId,
+    projectFolderClearedAt: _projectFolderClearedAt,
     lastProjectCwd,
     tasks,
     ...rest
@@ -2765,14 +2766,21 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       // Routines, card continuations, and bot-to-bot hops are not the user
       // naming a folder — only ordinary chat lines count as cues. That
       // covers this thread's history too: a Resume must not re-remember the
-      // folder its own chat named before the user cleared it.
+      // folder its own chat named before the user cleared it. Lines from
+      // before a Settings Clear are spent on every entry point.
       const namedByUser = !opts?.cardContinuation && !opts?.automationSource && !opts?.commsDepth;
+      // The send was persisted before the awaits above, so a Clear that
+      // landed meanwhile spends it like any other history line.
+      const clearedAt = bot.projectFolderClearedAt ?? -Infinity;
+      const currentFolderText = namedByUser && userMessage.at > clearedAt ? text : undefined;
       const resolvedProject = worksInWorkspace && opts?.runOn !== "cloud"
         ? applyResolvedProjectFolder({
             pin: bot.cwd,
             remembered: bot.lastProjectCwd,
             continuation: !namedByUser,
-            userTexts: userProjectTexts(store.messagesFor(threadId), namedByUser ? text : undefined),
+            userTexts: userProjectTexts(store.messagesFor(threadId), currentFolderText, {
+              since: bot.projectFolderClearedAt,
+            }),
             recentPaths: projectPathsFromRecords({ bots: store.bots, groups: store.groups }),
             remember: (cwd) => store.rememberProjectCwd(bot.id, cwd),
             forget: () => store.forgetProjectCwd(bot.id),

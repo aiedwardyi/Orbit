@@ -458,13 +458,16 @@ export function projectPathsFromRecords(input: {
   return paths;
 }
 
-/** User chat lines that may name a folder, oldest first, plus the current send. */
+/** User chat lines that may name a folder, oldest first, plus the current send.
+ *  Lines at or before `since` (Settings Clear) are spent and never re-read. */
 export function userProjectTexts(
-  messages: Array<{ role?: string; kind?: string; text?: string }>,
+  messages: Array<{ role?: string; kind?: string; text?: string; at?: number }>,
   currentText?: string,
+  opts: { since?: number } = {},
 ): string[] {
+  const spent = (at?: number) => opts.since !== undefined && at !== undefined && at <= opts.since;
   const texts = messages.flatMap((message) =>
-    message.role === "user" && message.kind === "text" && message.text?.trim()
+    message.role === "user" && message.kind === "text" && message.text?.trim() && !spent(message.at)
       ? [message.text]
       : [],
   );
