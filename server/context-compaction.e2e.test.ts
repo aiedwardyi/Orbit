@@ -97,6 +97,8 @@ const GOAL_LEGACY = { botId: "goal-legacy-bot", botThreadId: "goal-legacy-thread
 const GOAL_OWNED = { botId: "goal-owned-bot", botThreadId: "goal-owned-thread" };
 const PLAN_SEED = { botId: "plan-seed-bot", botThreadId: "plan-seed-thread" };
 const PLAN_ONLY = { botId: "plan-only-bot", botThreadId: "plan-only-thread" };
+const GOAL_ONLY = { botId: "goal-only-bot", botThreadId: "goal-only-thread" };
+const PLAN_CLEARED = { botId: "plan-cleared-bot", botThreadId: "plan-cleared-thread" };
 const SECRET_COLLISION = {
   botId: "secret-collision-bot",
   botThreadId: "secret-collision-direct-thread",
@@ -351,6 +353,34 @@ describe("context compaction e2e", () => {
         resumeCursors: {},
         createdAt: 1,
         tasks: [{ threadId: GOAL_OWNED.botThreadId, title: "Release", createdAt: 1, resumeCursors: {} }],
+      },
+      {
+        id: GOAL_ONLY.botId,
+        threadId: GOAL_ONLY.botThreadId,
+        name: "Goal only",
+        title: "Release owner",
+        description: "Keep the release moving.",
+        notifications: true,
+        color: "teal",
+        unread: false,
+        modelSelection: { instanceId: "claude", model: "claude-fake" },
+        resumeCursors: {},
+        createdAt: 1,
+        tasks: [{ threadId: GOAL_ONLY.botThreadId, title: "Release", createdAt: 1, resumeCursors: {} }],
+      },
+      {
+        id: PLAN_CLEARED.botId,
+        threadId: PLAN_CLEARED.botThreadId,
+        name: "Plan cleared",
+        title: "Release owner",
+        description: "Keep the release moving.",
+        notifications: true,
+        color: "orange",
+        unread: false,
+        modelSelection: { instanceId: "claude", model: "claude-fake" },
+        resumeCursors: {},
+        createdAt: 1,
+        tasks: [{ threadId: PLAN_CLEARED.botThreadId, title: "Release", createdAt: 1, resumeCursors: {} }],
       },
       {
         id: PLAN_ONLY.botId,
@@ -1146,33 +1176,82 @@ describe("context compaction e2e", () => {
     await waitFor(async () => (await botById(PLAN_SEED.botId))?.busy === false);
   }, 30_000);
 
-  it("keeps the goal a bot planned under when it sends only a plan", async () => {
+  it("re-seeds the goal after a bot sends only a plan", async () => {
     rmSync(claudeDumpPath, { force: true });
     expect((await api("POST", `/api/bots/${PLAN_ONLY.botId}/messages`, {
-      text: "Ship the release.",
+      text: "Say hello.",
     })).status).toBe(202);
     await waitFor(async () => (await botById(PLAN_ONLY.botId))?.busy === false);
 
     // update_task_state tells the bot to omit an unchanged goal, so plan-only is the normal call.
-    const saved = await botTaskState(PLAN_ONLY.botId, PLAN_ONLY.botThreadId, {
+    expect((await botTaskState(PLAN_ONLY.botId, PLAN_ONLY.botThreadId, {
       plan: [
         { step: "Cut the release branch", status: "done" },
         { step: "Sign the installers", status: "active" },
       ],
-    });
-    expect(saved.status).toBe(200);
+    })).status).toBe(200);
 
     expect((await api("POST", `/api/bots/${PLAN_ONLY.botId}/messages`, {
-      text: "What's the status?",
+      text: "Now draft the outage timeline.",
     })).status).toBe(202);
-    // Never Goal: What's the status? above a release plan.
     const packet = storedTaskPacket(PLAN_ONLY.botThreadId);
-    expect(packet.goal).toBe("Ship the release.");
+    // A plan write claims the plan alone: the goal is still the harness's guess.
+    expect(packet.goal).toBe("Now draft the outage timeline.");
     expect(packet.plan).toEqual([
       { step: "Cut the release branch", status: "done" },
       { step: "Sign the installers", status: "active" },
     ]);
-    expect(packet.instructionAction).toBe("What's the status?");
+    expect(packet.instructionAction).toBe("Now draft the outage timeline.");
     await waitFor(async () => (await botById(PLAN_ONLY.botId))?.busy === false);
+  }, 30_000);
+
+  it("keeps the seeded plan step mirroring a goal the bot set", async () => {
+    rmSync(claudeDumpPath, { force: true });
+    expect((await api("POST", `/api/bots/${GOAL_ONLY.botId}/messages`, {
+      text: "Ship the release.",
+    })).status).toBe(202);
+    await waitFor(async () => (await botById(GOAL_ONLY.botId))?.busy === false);
+
+    expect((await botTaskState(GOAL_ONLY.botId, GOAL_ONLY.botThreadId, {
+      goal: "Ship the 2.1 release with signed installers",
+    })).status).toBe(200);
+
+    expect((await api("POST", `/api/bots/${GOAL_ONLY.botId}/messages`, {
+      text: "What's the status?",
+    })).status).toBe(202);
+    const packet = storedTaskPacket(GOAL_ONLY.botThreadId);
+    // Never Goal: Ship the 2.1 release beside Plan: active: What's the status?
+    expect(packet.goal).toBe("Ship the 2.1 release with signed installers");
+    expect(packet.plan).toEqual([
+      { step: "Ship the 2.1 release with signed installers", status: "active" },
+    ]);
+    expect(packet.instructionAction).toBe("What's the status?");
+    await waitFor(async () => (await botById(GOAL_ONLY.botId))?.busy === false);
+  }, 30_000);
+
+  it("anchors a plan the harness regenerates after the bot cleared it", async () => {
+    rmSync(claudeDumpPath, { force: true });
+    expect((await api("POST", `/api/bots/${PLAN_CLEARED.botId}/messages`, {
+      text: "Ship the release.",
+    })).status).toBe(202);
+    await waitFor(async () => (await botById(PLAN_CLEARED.botId))?.busy === false);
+
+    expect((await botTaskState(PLAN_CLEARED.botId, PLAN_CLEARED.botThreadId, { plan: [] })).status).toBe(200);
+    expect(storedTaskPacket(PLAN_CLEARED.botThreadId).plan).toEqual([]);
+
+    expect((await api("POST", `/api/bots/${PLAN_CLEARED.botId}/messages`, {
+      text: "Draft the outage timeline.",
+    })).status).toBe(202);
+    await waitFor(async () => (await botById(PLAN_CLEARED.botId))?.busy === false);
+
+    expect((await api("POST", `/api/bots/${PLAN_CLEARED.botId}/messages`, {
+      text: "Sign the installers.",
+    })).status).toBe(202);
+    // The regenerated step must carry its anchor, or it freezes while nextAction moves on.
+    const packet = storedTaskPacket(PLAN_CLEARED.botThreadId);
+    expect(packet.plan).toEqual([{ step: "Sign the installers.", status: "active" }]);
+    expect(packet.instructionStep).toBe("Sign the installers.");
+    expect(packet.instructionAction).toBe("Sign the installers.");
+    await waitFor(async () => (await botById(PLAN_CLEARED.botId))?.busy === false);
   }, 30_000);
 });

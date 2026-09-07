@@ -120,6 +120,33 @@ describe("task state folding", () => {
     expect(updated.instructionStep).toBeUndefined();
   });
 
+  it("mirrors the seeded step on a goal the harness cannot re-seed", () => {
+    const curated = { ...seed(), goal: "Ship the Q3 competitor programme" };
+    delete curated.instructionGoal;
+    const updated = recordTaskInstruction(curated, {
+      text: "What is the status?",
+      messageId: "message-2",
+      now: 200,
+    });
+
+    expect(updated.goal).toBe("Ship the Q3 competitor programme");
+    expect(updated.plan).toEqual([{ step: "Ship the Q3 competitor programme", status: "active" }]);
+    expect(updated.instructionStep).toBe("Ship the Q3 competitor programme");
+  });
+
+  it("anchors a plan it regenerates from empty", () => {
+    const cleared = { ...seed(), plan: [] };
+    delete cleared.instructionStep;
+    const updated = recordTaskInstruction(cleared, {
+      text: "Add a pricing comparison",
+      messageId: "message-2",
+      now: 200,
+    });
+
+    expect(updated.plan).toEqual([{ step: "Add a pricing comparison", status: "active" }]);
+    expect(updated.instructionStep).toBe("Add a pricing comparison");
+  });
+
   it("keeps a seed step that has already been worked", () => {
     const worked = { ...seed(), plan: [{ step: "Prepare a weekly competitor brief", status: "done" as const }] };
     const updated = recordTaskInstruction(worked, {
