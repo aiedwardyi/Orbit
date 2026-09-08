@@ -260,15 +260,19 @@ posixOnly("conversation branching e2e (fake ACP fleet)", () => {
       const path = activePath(bot.messages, bot.activeLeafId);
       const forkIndex = path.findIndex((m) => m.id === second.id);
       expect(forkIndex).toBeGreaterThanOrEqual(0);
-      // Only two things may follow the fork: nothing, or the stop record of
-      // the turn we just interrupted. Allow-list them and reject the rest.
-      // A dispatch failure is a bot/activity too, so anything looser passes
-      // when sendTurn throws and the edited prompt never reaches the engine -
-      // which is the stop-then-edit bug this test exists to catch.
+      // The fork's own turn must have run, and nothing else may follow it.
+      // Both halves are load-bearing: an interrupt that lands before the
+      // dispatch appends nothing at all, so requiring only "nothing outside
+      // the allow-list" passes on an empty tail while the edited prompt never
+      // reached the engine. A dispatch failure is a bot/activity too, so the
+      // allow-list has to key on the record itself, not on the role. Either
+      // gap hides the stop-then-edit bug this test exists to catch.
+      const afterFork = path.slice(forkIndex + 1);
       const stopRecord = (m: Msg) =>
         m.role === "bot" && m.kind === "activity" &&
         /^error: \S+ exited .+ before the prompt result/.test(m.tool?.name ?? "");
-      expect(path.slice(forkIndex + 1).filter((m) => !stopRecord(m))).toHaveLength(0);
+      expect(afterFork.filter(stopRecord)).toHaveLength(1);
+      expect(afterFork.filter((m) => !stopRecord(m))).toHaveLength(0);
       expect(path.map((m) => m.text)).not.toContain("first try");
       // and only one copy of each attempt ever exists — no duplicated turns
       expect(bot.messages.filter((m: Msg) => m.text === "first try")).toHaveLength(1);
