@@ -372,6 +372,10 @@ export const en = {
 
   "activity.thinking": "Thinking",
   "activity.working": "Working",
+  "activity.preparing": "Preparing",
+  "activity.waitingModel": "Waiting for the model",
+  "activity.reconnecting": "Reconnecting",
+  "activity.responding": "Responding",
   "activity.runningCommand": "Running a command",
   "activity.readingFile": "Reading a file",
   "activity.writingFile": "Writing a file",
@@ -1045,6 +1049,10 @@ export const ko = {
 
   "activity.thinking": "생각 중",
   "activity.working": "작업 중",
+  "activity.preparing": "준비 중",
+  "activity.waitingModel": "모델 응답 기다리는 중",
+  "activity.reconnecting": "다시 연결 중",
+  "activity.responding": "답변 쓰는 중",
   "activity.runningCommand": "명령 실행 중",
   "activity.readingFile": "파일 읽는 중",
   "activity.writingFile": "파일 쓰는 중",
