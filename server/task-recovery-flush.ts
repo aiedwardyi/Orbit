@@ -124,10 +124,16 @@ export function turnCompletionDisposition(input: {
   interruptedTurnIds: ReadonlySet<string>;
   interruptedAt: number;
   dispatchedAt: number;
+  stopReason?: string | null;
 }): { superseded: boolean; interrupted: boolean } {
-  const interrupted = input.eventTurnId
-    ? input.interruptedTurnIds.has(input.eventTurnId)
-    : input.interruptedAt > input.dispatchedAt;
+  // A room deadline and the stall watchdog interrupt the adapter directly
+  // without marking the thread, and ACP cancellation settles ok:true — so the
+  // terminal reason is the only thing separating those from a clean finish.
+  const interrupted = input.stopReason === "cancelled" || input.stopReason === "interrupted"
+    ? true
+    : input.eventTurnId
+      ? input.interruptedTurnIds.has(input.eventTurnId)
+      : input.interruptedAt > input.dispatchedAt;
   const superseded = Boolean(
     input.eventTurnId && input.liveTurnId && input.liveTurnId !== input.eventTurnId,
   );

@@ -778,6 +778,7 @@ type GroupTurnOperation = {
   id: string;
   threadId: string;
   cancelled: boolean;
+  instructionId?: string;
 };
 
 // busyBotId names only the speaker that currently owns the provider process.
@@ -790,8 +791,8 @@ function groupIsWorking(group: GroupRecord): boolean {
   return Boolean(group.busyBotId) || Boolean(groupTurnOperations.get(group.id)?.size);
 }
 
-function beginGroupTurnOperation(groupId: string, threadId: string): GroupTurnOperation {
-  const operation = { id: randomUUID(), threadId, cancelled: false };
+function beginGroupTurnOperation(groupId: string, threadId: string, instructionId?: string): GroupTurnOperation {
+  const operation = { id: randomUUID(), threadId, cancelled: false, instructionId };
   const operations = groupTurnOperations.get(groupId) ?? new Set<GroupTurnOperation>();
   operations.add(operation);
   groupTurnOperations.set(groupId, operations);
@@ -1207,7 +1208,14 @@ const turnDispatchedAt = new Map<string, number>();
 const turnInterruptedAt = new Map<string, number>();
 const turnEpochByBot = new Map<string, number>();
 const liveTurnIdByThread = new Map<string, string>();
+// Room thread → the instruction id its running turn was dispatched against.
+const roomTurnInstruction = new Map<string, string>();
 const interruptedTurnIds = new Set<string>();
+
+function turnOwnsTaskPacket(threadId: string, packet: { instructionId?: string } | null | undefined): boolean {
+  const bound = roomTurnInstruction.get(threadId);
+  return !bound || packet?.instructionId === bound;
+}
 const pendingInterruptThreads = new Set<string>();
 const adapterTurnByThread = new Map<string, Promise<unknown>>();
 const ADAPTER_TURN_HANDOFF_MS = 8_000;
@@ -1612,14 +1620,16 @@ bus.subscribe((event: RuntimeEvent) => {
   const group = bot ? undefined : store.groupByThread(event.threadId);
   if (!bot && !group) return;
   const speaker = group ? groupSpeakers.get(event.threadId) : undefined;
+  // Who this turn belongs to. Room evidence and blockers fold once the
+  // speaking member is named. Completion stays 1:1-only.
+  const turnOwnerId = bot?.id ?? speaker?.botId;
 
   // turn.completed is emitted after the driver's own active.delete, so the
   // stopped-thread record has done its job by here. Dropping it now is what
   // keeps a finished room turn from making this bot look busy once the NEXT
   // speaker takes the same thread.
   if (event.type === "turn.completed") {
-    const owner = bot?.id ?? speaker?.botId;
-    if (owner && dispatchedThreads.get(owner) === event.threadId) dispatchedThreads.delete(owner);
+    if (turnOwnerId && dispatchedThreads.get(turnOwnerId) === event.threadId) dispatchedThreads.delete(turnOwnerId);
   }
 
   const pushMessage = (m: Omit<Message, "id" | "at">) => {
@@ -1653,15 +1663,19 @@ bus.subscribe((event: RuntimeEvent) => {
           });
           toolMessageByItem.delete(itemKey);
         }
-        const packet = bot && event.ok && messageId ? taskPacketForWrite(event.threadId) : null;
-        if (packet && messageId) {
-          queueTaskPacket(recordTaskEvidence(packet, {
+        const packet = turnOwnerId && event.ok && messageId ? taskPacketForWrite(event.threadId) : null;
+        if (packet && messageId && turnOwnsTaskPacket(event.threadId, packet)) {
+          const next = recordTaskEvidence(packet, {
             kind: "tool",
             ref: messageId,
             note: toolName,
             now: eventTime(event),
             lastEventId: event.eventId,
-          }));
+          });
+          // 1:1 completion persist flushes the debounce queue. Rooms have no
+          // completion fold, so evidence has to land now or it never does.
+          if (bot) queueTaskPacket(next);
+          else persistTaskPacket(next);
         }
         // the bot just acted ON ITS SCREEN — refresh the preview now. Only
         // computer tools can change the screen, and each capture competes
@@ -1759,8 +1773,8 @@ bus.subscribe((event: RuntimeEvent) => {
               },
             });
             askMessageByRequest.set(`${event.threadId}:${requestId}`, card.id);
-            const packet = bot ? taskPacketForWrite(event.threadId) : null;
-            if (packet) {
+            const packet = turnOwnerId ? taskPacketForWrite(event.threadId) : null;
+            if (packet && turnOwnsTaskPacket(event.threadId, packet)) {
               persistTaskPacket(recordTaskBlocker(packet, {
                 kind: "approval",
                 note: summary,
@@ -1812,8 +1826,8 @@ bus.subscribe((event: RuntimeEvent) => {
         },
       });
       if (event.requestId) askMessageByRequest.set(`${event.threadId}:${event.requestId}`, message.id);
-      const packet = bot ? taskPacketForWrite(event.threadId) : null;
-      if (packet) {
+      const packet = turnOwnerId ? taskPacketForWrite(event.threadId) : null;
+      if (packet && turnOwnsTaskPacket(event.threadId, packet)) {
         persistTaskPacket(recordTaskBlocker(packet, {
           kind: permission ? "approval" : "input",
           note: event.summary,
@@ -1928,7 +1942,8 @@ bus.subscribe((event: RuntimeEvent) => {
         }
         if (event.requestId) askMessageByRequest.delete(`${event.threadId}:${event.requestId}`);
       }
-      const packet = bot ? taskPacketForWrite(event.threadId) : null;
+      const packet = turnOwnerId ? taskPacketForWrite(event.threadId) : null;
+      // Clearing is this turn finishing its own blocker, not writing onto the current instruction.
       if (packet) {
         const clearedApprovals = clearTaskBlockers(packet, {
           kind: "approval",
@@ -1975,7 +1990,8 @@ bus.subscribe((event: RuntimeEvent) => {
       lastReply.delete(event.threadId);
       const lastReported = turnUsage.get(event.threadId);
       turnUsage.delete(event.threadId);
-      // group turns run on the room's thread — the speaking bot's task
+      roomTurnInstruction.delete(event.threadId);
+      // group turns run on the room's thread - the speaking bot's task
       // tally is not the right home for a shared room's spend, so only
       // 1:1 task turns are tallied for now.
       if (bot) {
@@ -2002,6 +2018,7 @@ bus.subscribe((event: RuntimeEvent) => {
           interruptedTurnIds,
           interruptedAt,
           dispatchedAt: dispatched,
+          stopReason: event.stopReason,
         });
         if (event.turnId) interruptedTurnIds.delete(event.turnId);
         if (!event.turnId || liveTurnIdByThread.get(event.threadId) === event.turnId) {
@@ -3553,6 +3570,7 @@ function queueBusyRoomMember(
   spoken: Set<string>,
   cardContinuation?: string,
   onDispatchError?: (message: string) => void,
+  instructionId?: string,
 ): true {
   spoken.add(bot.id);
   queueRoomParticipation(bot.id, threadId, {
@@ -3560,6 +3578,7 @@ function queueBusyRoomMember(
     hop,
     cardContinuation,
     onDispatchError,
+    instructionId,
   });
   return true;
 }
@@ -3575,14 +3594,14 @@ function roomTurnStillAssigned(groupId: string, threadId: string, botId: string)
 function enqueueDrainedRoomTurn(
   botId: string,
   threadId: string,
-  room: { groupId: string; hop: number; cardContinuation?: string; onDispatchError?: (message: string) => void },
+  room: { groupId: string; hop: number; cardContinuation?: string; onDispatchError?: (message: string) => void; instructionId?: string },
 ) {
   const fail = (message: string) => room.onDispatchError?.(message);
   if (!roomTurnStillAssigned(room.groupId, threadId, botId)) {
     fail("the room is no longer available");
     return;
   }
-  const operation = beginGroupTurnOperation(room.groupId, threadId);
+  const operation = beginGroupTurnOperation(room.groupId, threadId, room.instructionId);
   const previous = groupQueues.get(room.groupId) ?? Promise.resolve();
   const next = previous.then(async () => {
     if (operation.cancelled) {
@@ -3607,6 +3626,7 @@ function enqueueDrainedRoomTurn(
       room.cardContinuation,
       room.onDispatchError,
       () => operation.cancelled,
+      operation.instructionId,
     );
   });
   const tracked = next.finally(() => finishGroupTurnOperation(room.groupId, operation));
@@ -3665,6 +3685,7 @@ async function runGroupMemberTurn(
   cardContinuation?: string,
   onDispatchError?: (message: string) => void,
   isCancelled?: () => boolean,
+  instructionId?: string,
 ): Promise<boolean> {
   if (isCancelled?.()) return false;
   const group = store.group(groupId);
@@ -3674,7 +3695,7 @@ async function runGroupMemberTurn(
     : Boolean(group && store.groupTaskByThread(group.id, threadId));
   if (!group || !bot || !ownsThread) return false;
   if (botHasActiveTurn(botId, threadId) || !tryClaimTurnStart(botId)) {
-    return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError);
+    return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError, instructionId);
   }
   let claimHeld = true;
   const releaseTurnStart = () => {
@@ -3693,6 +3714,7 @@ async function runGroupMemberTurn(
       onDispatchError,
       isCancelled,
       releaseTurnStart,
+      instructionId,
     );
   } finally {
     releaseTurnStart();
@@ -3711,6 +3733,7 @@ async function runClaimedGroupMemberTurn(
   onDispatchError?: (message: string) => void,
   isCancelled?: () => boolean,
   releaseTurnStart?: () => void,
+  instructionId?: string,
 ): Promise<boolean> {
   if (isCancelled?.()) return false;
   const group = store.group(groupId);
@@ -3722,8 +3745,17 @@ async function runClaimedGroupMemberTurn(
   spoken.add(botId);
   const userName = cfg.profile?.name?.trim() || "User";
   if (bot.busy) {
-    return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError);
+    return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError, instructionId);
   }
+  // Capture before any await. startGroupTurn persists the next instruction
+  // on arrival, so a re-read after setup binds this turn to a later message.
+  const dispatchedInstructionId = instructionId ?? taskPacketForWrite(threadId)?.instructionId;
+  if (dispatchedInstructionId) roomTurnInstruction.set(threadId, dispatchedInstructionId);
+  else roomTurnInstruction.delete(threadId);
+  // sendTurn emits turn.completed, which drops the binding. Every other
+  // exit from this function must drop it too, or a failed setup leaks it.
+  let keepRoomTurnInstruction = false;
+  try {
   let selection: ModelSelection;
   try {
     selection = await resolvedBotSelection(bot);
@@ -3857,7 +3889,7 @@ async function runClaimedGroupMemberTurn(
   if (!readyBot) return false;
   // the room's own dispatch site: startClaimedTurn's gate never sees it
   if (readyBot.busy || botHasLiveTurn(bot.id, threadId)) {
-    return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError);
+    return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError, dispatchedInstructionId);
   }
   store.setActivity(bot.id, "working", threadId);
   dispatchedThreads.set(bot.id, threadId);
@@ -3973,6 +4005,7 @@ async function runClaimedGroupMemberTurn(
     // pass resumeCursor — they are Grok-flat. 1:1 CLI forever-chats go
     // through startClaimedTurn, which recycles the native session after
     // Orbit compaction or a pre-compact fat soak.
+    keepRoomTurnInstruction = true;
     dispatchAdapterTurn(threadId, () => instance.adapter.sendTurn({
         threadId,
         text,
@@ -4013,6 +4046,7 @@ async function runClaimedGroupMemberTurn(
   if (outcome === "dispatch_failed") {
     // No turn.completed follows a rejected room dispatch. Anything that was
     // queued while this bot briefly owned the room must be retried now.
+    keepRoomTurnInstruction = false;
     drainQueuedSends();
     drainConnectorResumes();
     drainSecretResumes();
@@ -4026,12 +4060,15 @@ async function runClaimedGroupMemberTurn(
     for (const next of roomResponders(replyText, members, { kind: "mentions" })) {
       if (isCancelled?.()) return false;
       if (spoken.has(next.id)) continue;
-      if (!(await runGroupMemberTurn(groupId, threadId, next.id, hop + 1, spoken, undefined, undefined, isCancelled))) {
+      if (!(await runGroupMemberTurn(groupId, threadId, next.id, hop + 1, spoken, undefined, undefined, isCancelled, dispatchedInstructionId))) {
         return false;
       }
     }
   }
   return true;
+  } finally {
+    if (!keepRoomTurnInstruction) roomTurnInstruction.delete(threadId);
+  }
 }
 
 function startGroupCardContinuation(groupId: string, threadId: string, botId: string, prompt: string) {
@@ -4136,7 +4173,7 @@ function startGroupTurn(groupId: string, text: string, replyTo?: Message, sendId
       });
   persistTaskPacket(taskRecord);
 
-  const operation = beginGroupTurnOperation(groupId, threadId);
+  const operation = beginGroupTurnOperation(groupId, threadId, taskRecord.instructionId);
   const prev = groupQueues.get(groupId) ?? Promise.resolve();
   const next = prev.then(async () => {
     if (operation.cancelled) return;
@@ -4163,6 +4200,7 @@ function startGroupTurn(groupId: string, text: string, replyTo?: Message, sendId
         undefined,
         undefined,
         () => operation.cancelled,
+        operation.instructionId,
       ))) break;
     }
   });
