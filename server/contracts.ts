@@ -292,6 +292,13 @@ export interface ProviderAdapter {
    * false when there is no live turn to steer (the caller then sends it as
    * a normal turn). Only drivers with `capabilities.queueing` implement it. */
   steer?(threadId: ThreadId, text: string): Promise<boolean>;
+  /** True while this driver still owns the thread — the same `active` entry
+   * sendTurn throws "a turn is already running on this thread" on. It
+   * outlives the harness's own busy flag: a cancelled turn keeps the entry
+   * until it settles, so this is the only honest answer to "can a new turn
+   * start here". A driver must drop the entry BEFORE it emits
+   * turn.completed, or the queue drain that runs on that event sees a thread
+   * that is already free as still taken. */
   hasSession(threadId: ThreadId): boolean;
   stopAll(): Promise<void>;
   onEvent(listener: RuntimeEventListener): () => void;

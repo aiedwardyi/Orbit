@@ -554,6 +554,11 @@ export const PiDriver: ProviderDriver<PiConfig> = {
       const settle = (ok: boolean, stopReason?: string | null, usage?: { input?: number; output?: number }) => {
         if (settled) return;
         settled = true;
+        // released before the event, like every other driver: turn.completed
+        // is what drains the steer queue, and that drain asks hasSession. A
+        // listener that starts a turn on this thread synchronously inside the
+        // event therefore finds it free, which is the intended answer.
+        active.delete(threadId);
         flushAssistantText();
         emit({
           ...base(threadId, turnId),
@@ -579,7 +584,6 @@ export const PiDriver: ProviderDriver<PiConfig> = {
             /* best effort */
           }
         }
-        active.delete(threadId);
       };
 
       const stop = () => {

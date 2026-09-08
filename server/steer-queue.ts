@@ -132,7 +132,8 @@ export type DrainRun = (
   room?: RoomDrain,
 ) => void | Promise<void>;
 
-/** True while startTurn holds a claim or the bot is already working. */
+/** True while startTurn holds a claim, the bot is already working, or its
+ * driver has not yet released the thread of a turn that was stopped. */
 export type HasActiveTurn = (botId: string) => boolean;
 
 function entryFor(botId: string, threadId: string): QueueEntry {
