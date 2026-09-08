@@ -748,6 +748,10 @@ const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
     // bot, not just by thread — the bot is what owns one process, and Stop
     // has already cleared the thread it was working on.
     busy: Boolean(rest.busy) || botHasLiveTurn(bot.id, activeThreadId ?? rest.threadId),
+    // Presence is per-thread. startTurn sets activeThreadId; without it a
+    // busy snapshot must not invent a wait on bot.threadId (routines and
+    // channels run elsewhere).
+    workingThreadId: activeThreadId ?? null,
     avatarUrl: rest.avatarUrl ?? null,
     // null, not omitted: a cleared folder must overwrite a stale client cwd
     cwd: rest.cwd ?? null,
@@ -2542,6 +2546,9 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   else if (opts?.automationSource === undefined && !opts?.commsDepth && !opts?.cardContinuation) clearUnattended(bot.id);
   const task = store.taskByThread(bot.id, threadId);
   if (!task) throw Object.assign(new Error("no such task"), { status: 404 });
+  // Accepted: ownership and the task exist. Announce here so a busy peer
+  // (askBotAndWait) never clears a live wait that is not being replaced.
+  broadcast({ kind: "turn.dispatch", threadId });
   const commsDepth = opts?.commsDepth ?? 0;
   // a task takes its name from the first thing the user asked it to do —
   // never from a peer's opening line

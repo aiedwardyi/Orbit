@@ -41,6 +41,20 @@ import {
   shouldDropQueueChip,
   type AcceptedSends,
 } from "@/lib/send-accept";
+import {
+  applyStreamDelta,
+  currentTurnId,
+  hydrationTurnThread,
+  isCurrentTurnCompletion,
+  liveTurnIdAfter,
+  nextStreamState,
+  rememberStreamTail,
+  streamResetFor,
+  writeStreamDelta,
+  type StreamBuffers,
+  type TurnEvent,
+  type TurnStreamState,
+} from "@/lib/turn-stage";
 
 export type { MausColor } from "@/lib/mascot";
 export type { RoutineRunCardData } from "../../shared/routine-run";
@@ -258,6 +272,8 @@ export interface Bot {
   avatarCrop?: BotAvatarCrop;
   unread: boolean;
   busy?: boolean;
+  /** Thread startTurn is actually running, when busy. Null if idle or unknown. */
+  workingThreadId?: string | null;
   /** what the bot is doing, as the harness sees it; busy is derived from it */
   activity?: "working" | "waiting-on-you" | "idle" | "no-signal" | "dead";
   modelSelection: ModelSelection;
@@ -1607,14 +1623,8 @@ export async function loadSnapshotBoundary<Key extends string>(
  * the components that read this hook (the chat's streaming tail), while every
  * useStore consumer — sidebar, mascots, pickers, the settled transcript —
  * keeps its render tree untouched during a stream. */
-interface StreamState {
-  /** in-flight assistant text per threadId */
-  streaming: Record<string, string>;
-  /** in-flight extended thinking per threadId (ephemeral) */
-  reasoning: Record<string, string>;
-}
-const EMPTY_STREAM: StreamState = { streaming: {}, reasoning: {} };
-const StreamContext = createContext<StreamState>(EMPTY_STREAM);
+const EMPTY_STREAM: TurnStreamState = { streaming: {}, reasoning: {}, signal: {}, gen: {}, turn: {} };
+const StreamContext = createContext<TurnStreamState>(EMPTY_STREAM);
 
 export function useStreaming() {
   return useContext(StreamContext);
@@ -1637,10 +1647,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // per-frame stream-delta batching (see the "runtime" SSE case); stream
   // state is intentionally OUTSIDE the reducer so token frames re-render
   // only StreamContext consumers
-  const [stream, setStream] = useState<StreamState>(EMPTY_STREAM);
-  const deltaBuffer = useRef(new Map<string, { text: string; reasoning: string }>());
+  const [stream, setStream] = useState<TurnStreamState>(EMPTY_STREAM);
+  const deltaBuffer = useRef(new Map<string, StreamBuffers & { tail: string }>());
   const deltaFlush = useRef<number | null>(null);
-  const clearStream = (threadId: string) => {
+  // `reason` is what ended the stream, not just that it ended: only a turn
+  // boundary or a rewind may also drop the thread's staging signal.
+  const clearStream = (threadId: string, reason: TurnEvent = "settled-message") => {
     // Drop the thread's un-flushed deltas too: the settled message that
     // triggered this clear already contains them. Without this, the pending
     // rAF re-creates a "ghost" stream bubble holding the tail fragment —
@@ -1650,11 +1662,40 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // duplicated tail instead of starting a fresh bubble.
     deltaBuffer.current.delete(threadId);
     setStream((prev) => {
-      if (!(threadId in prev.streaming) && !(threadId in prev.reasoning)) return prev;
-      const { [threadId]: _s, ...streaming } = prev.streaming;
-      const { [threadId]: _r, ...reasoning } = prev.reasoning;
-      return { streaming, reasoning };
+      const next = nextStreamState(prev, threadId, reason);
+      return next === prev ? prev : next;
     });
+  };
+  // A tool call ends the model's reasoning block without ending the stream.
+  // The buffer is what tells the presence label reasoning is live, so it has
+  // to drop here or the label never leaves "Thinking" after a tool.
+  const clearReasoning = (threadId: string) => {
+    const pending = deltaBuffer.current.get(threadId);
+    if (pending) delete pending.reasoning; // "" still means that stream kind arrived
+    setStream((prev) => {
+      if (!(threadId in prev.reasoning)) return prev;
+      const { [threadId]: _done, ...reasoning } = prev.reasoning;
+      return { ...prev, reasoning };
+    });
+  };
+  const markTurnSignal = (threadId: string, event: TurnEvent) => {
+    setStream((prev) => {
+      const next = nextStreamState(prev, threadId, event);
+      return next === prev ? prev : next;
+    });
+  };
+  const streamTails = useRef<Record<string, string>>({});
+  const liveTurns = useRef<Record<string, string>>({});
+  const lastMessageIdFor = (threadId: string): string => {
+    if (streamTails.current[threadId]) return streamTails.current[threadId];
+    const bot = stateRef.current.bots.find((candidate) => candidate.threadId === threadId);
+    if (bot) return visibleMessages(bot).at(-1)?.id ?? "";
+    const group = stateRef.current.groups.find((candidate) => candidate.threadId === threadId);
+    return group?.messages.at(-1)?.id ?? "";
+  };
+  const noteStreamTail = (threadId: string, messageId?: string) => {
+    if (!threadId || !messageId) return;
+    streamTails.current = rememberStreamTail(streamTails.current, threadId, messageId);
   };
   const flushDeltas = () => {
     if (deltaFlush.current !== null) {
@@ -1666,13 +1707,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const entries = [...buf];
     buf.clear();
     setStream((prev) => {
-      const streaming = { ...prev.streaming };
-      const reasoning = { ...prev.reasoning };
+      let next = prev;
       for (const [threadId, d] of entries) {
-        if (d.text) streaming[threadId] = (streaming[threadId] ?? "") + d.text;
-        if (d.reasoning) reasoning[threadId] = (reasoning[threadId] ?? "") + d.reasoning;
+        const tail = lastMessageIdFor(threadId);
+        if (d.tail !== tail) continue;
+        next = writeStreamDelta(next, threadId, d, currentTurnId(next, threadId, tail));
       }
-      return { streaming, reasoning };
+      return next;
     });
   };
 
@@ -1737,6 +1778,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
         return bot ? openOnboardingCard(bot) : undefined;
       })();
+      // Read before rawDispatch paints optimistic busy. A send onto an idle
+      // bot starts a turn; a send onto a busy one steers the running turn and
+      // must leave its signal and leftover stream buffers alone.
+      const sendStartsTurnOn = (() => {
+        if (action.type !== "send") return undefined;
+        const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
+        return bot && !bot.busy ? (action.threadId ?? bot.threadId) : undefined;
+      })();
       if (action.type === "deleteBot") botPatchQueue.cancel(action.botId);
       if (action.type === "interrupt") {
         const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
@@ -1797,6 +1846,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           // persist through the existing card route so an older server that
           // does not auto-dismiss still hides the quiz on this client
           if (quizBeforeSend) persistCard(action.botId, quizBeforeSend.id, { dismissed: true });
+          if (sendStartsTurnOn) clearStream(sendStartsTurnOn, "sent");
           const threadId =
             action.threadId ?? stateRef.current.bots.find((bot) => bot.id === action.botId)?.threadId;
           const sendId = action.sendId;
@@ -1863,12 +1913,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             });
           break;
         }
-        case "editMessage":
+        case "editMessage": {
+          const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
+          if (bot) clearStream(bot.threadId, "edited");
           api(`/api/bots/${action.botId}/messages/${action.messageId}/edit`, {
             method: "POST",
             body: JSON.stringify({ text: action.text }),
           }).catch(showError);
           break;
+        }
         case "switchBranch":
           api(`/api/bots/${action.botId}/active-branch`, {
             method: "POST",
@@ -2276,6 +2329,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             groups: groups ?? [],
             computerControl: computerControl ?? {},
           });
+          // Snapshot has busy, not StreamState.signal. Without SSE replay a
+          // dispatched turn would otherwise read Preparing for the whole wait.
+          // workingThreadId is the thread startTurn actually claimed.
+          for (const bot of bots) {
+            const last = visibleMessages({
+              messages: bot.messages ?? [],
+              activeLeafId: bot.activeLeafId,
+            }).at(-1)?.id;
+            noteStreamTail(bot.threadId, last);
+            const threadId = hydrationTurnThread(bot, groups ?? []);
+            if (threadId) markTurnSignal(threadId, "hydrated");
+          }
+          for (const group of groups ?? []) {
+            noteStreamTail(group.threadId, group.messages?.at(-1)?.id);
+          }
         });
       const peripherals = firstChatPeripherals(peripheralParts).map((part) => ({
         key: part.key,
@@ -2341,8 +2409,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         bumpPeripheralVersion("webhooks");
       }
       switch (frame.kind) {
+        case "turn.dispatch":
+          if (frame.threadId) clearStream(frame.threadId, "dispatched");
+          break;
         case "message": {
           rawDispatch({ type: "messageAdded", threadId: frame.threadId, message: frame.message });
+          noteStreamTail(frame.threadId, frame.message?.id);
           if (frame.message?.role === "user" && typeof frame.message.queueId === "string") {
             rawDispatch({
               type: "consumePendingQueued",
@@ -2351,6 +2423,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             });
           }
           // a settled assistant bubble replaces the in-flight stream
+          if (frame.message && streamResetFor(frame.message) === "reasoning") {
+            clearReasoning(frame.threadId);
+          }
           if (frame.message?.role === "bot" && frame.message?.kind === "text") {
             clearStream(frame.threadId);
             // Auto-speak lives HERE rather than in the chat view so a bot
@@ -2375,7 +2450,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "thread":
           rawDispatch({ type: "threadActive", threadId: frame.threadId, activeLeafId: frame.activeLeafId });
           // a rewind also invalidates any half-streamed text from the old branch
-          clearStream(frame.threadId);
+          clearStream(frame.threadId, "rewound");
+          if (frame.activeLeafId) noteStreamTail(frame.threadId, frame.activeLeafId);
           break;
         case "task.packet":
           rawDispatch({ type: "taskPacket", threadId: frame.threadId, packet: frame.packet });
@@ -2454,20 +2530,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             // stream dispatches once per frame instead of once per token, so
             // the app tree re-renders at most ~60x/s while streaming.
             const buf = deltaBuffer.current;
-            const entry = buf.get(event.threadId) ?? { text: "", reasoning: "" };
-            if (event.streamKind === "assistant_text") entry.text += event.delta;
-            else if (event.streamKind === "reasoning_text") entry.reasoning += event.delta;
-            buf.set(event.threadId, entry);
-            if (deltaFlush.current === null) {
-              deltaFlush.current = requestAnimationFrame(() => {
-                deltaFlush.current = null;
-                flushDeltas();
-              });
+            if (event.streamKind === "assistant_text" || event.streamKind === "reasoning_text") {
+              const tail = lastMessageIdFor(event.threadId);
+              const pending = buf.get(event.threadId);
+              const base = pending?.tail === tail ? pending : { tail };
+              buf.set(event.threadId, { ...applyStreamDelta(base, event.streamKind, event.delta), tail });
+              if (deltaFlush.current === null) {
+                deltaFlush.current = requestAnimationFrame(() => {
+                  deltaFlush.current = null;
+                  flushDeltas();
+                });
+              }
             }
           } else if (event.type === "turn.completed") {
+            if (!isCurrentTurnCompletion(liveTurns.current, event.threadId, event.turnId)) break;
+            liveTurns.current = liveTurnIdAfter(liveTurns.current, event.threadId, event);
             // flush any buffered tail before clearing so no tokens are lost
             flushDeltas();
-            clearStream(event.threadId);
+            clearStream(event.threadId, "completed");
+          } else if (event.type === "turn.started" || event.type === "turn.retrying") {
+            liveTurns.current = liveTurnIdAfter(liveTurns.current, event.threadId, event);
+            markTurnSignal(event.threadId, event.type === "turn.started" ? "started" : "retrying");
           } else if (
             event.type === "account.rate-limits.updated" &&
             typeof event.providerInstanceId === "string" &&

@@ -269,6 +269,18 @@ describe("turn completion disposition after stop", () => {
     })).toEqual({ superseded: true, interrupted: true });
   });
 
+  it("announces turn.dispatch only after startClaimedTurn accepts the bot", () => {
+    const start = indexSource.indexOf("async function startTurn(");
+    const claimed = indexSource.indexOf("async function startClaimedTurn(");
+    expect(start).toBeGreaterThan(-1);
+    expect(claimed).toBeGreaterThan(start);
+    expect(indexSource.slice(start, claimed)).not.toContain('kind: "turn.dispatch"');
+    const busy = indexSource.indexOf("if (bot.busy) throw busyRejection", claimed);
+    const dispatch = indexSource.indexOf('kind: "turn.dispatch"', claimed);
+    expect(busy).toBeGreaterThan(claimed);
+    expect(dispatch).toBeGreaterThan(busy);
+  });
+
   it("stamps a recovery dismiss only when the posted version still matches", () => {
     const current = { updatedAt: 200, flushReason: "shutdown" };
     expect(shouldStampRecoveryDismiss(current, { updatedAt: 200, flushReason: "shutdown" })).toBe(true);
