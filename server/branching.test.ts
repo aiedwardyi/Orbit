@@ -51,6 +51,7 @@ posixOnly("conversation branching e2e (fake ACP fleet)", () => {
   let child: ChildProcess;
   let home: string;
   let fakeCodexDump: string;
+  let fakeHangDump: string;
   let stderr = "";
 
   const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
@@ -78,6 +79,7 @@ posixOnly("conversation branching e2e (fake ACP fleet)", () => {
     chmodSync(FAKE_CODEX_CLI, 0o755);
     home = mkdtempSync(join(tmpdir(), "omb-branch-test-"));
     fakeCodexDump = join(home, "fake-codex-dump.json");
+    fakeHangDump = join(home, "fake-hang-dump.json");
     mkdirSync(join(home, ".orbit"), { recursive: true });
     writeFileSync(
       join(home, ".orbit", "config.json"),
@@ -94,7 +96,9 @@ posixOnly("conversation branching e2e (fake ACP fleet)", () => {
           },
           hang: {
             driver: "grokAgent",
-            environment: { FAKE_ACP_MODE: "hang" },
+            // the dump lands when the fake receives session/prompt, which is
+            // how the edit test proves its turn actually reached the engine
+            environment: { FAKE_ACP_MODE: "hang", FAKE_ACP_DUMP: fakeHangDump },
             config: { cli: FAKE_CLI, fullAuto: true },
           },
         },
@@ -238,6 +242,7 @@ posixOnly("conversation branching e2e (fake ACP fleet)", () => {
       }, "the queued message to drain into its own turn", 20_000);
       expect((await api("POST", `/api/bots/${created.id}/interrupt`)).status).toBe(200);
       await waitFor(async () => (await getBot(created.id)).busy === false, "the drained turn to settle", 20_000);
+      rmSync(fakeHangDump, { force: true });
       expect((await api("POST", `/api/bots/${created.id}/messages/${first.id}/edit`, { text: "second try" })).status).toBe(202);
 
       await waitFor(async () => {
@@ -245,10 +250,21 @@ posixOnly("conversation branching e2e (fake ACP fleet)", () => {
         return b.messages.some((m: Msg) => m.role === "user" && m.text === "second try");
       }, "the forked message", 30_000);
 
-      // the edit starts a turn on the fork, and a turn writes its own record
-      // onto whatever leaf is active when it ends - so stop it and let it
-      // settle first, the same way the drained turn above was settled. Read
-      // the tail at a fixed point, never mid-turn.
+      // The edited prompt must actually reach the engine: the fake writes this
+      // dump when it receives session/prompt. Waiting for it is what stops the
+      // interrupt below from cancelling the dispatch it is supposed to be
+      // stopping - an edit that silently never dispatches is the production
+      // failure this test exists to catch, and it leaves no message behind.
+      await waitFor(async () => {
+        try {
+          return readFileSync(fakeHangDump, "utf8").includes("second try");
+        } catch {
+          return false; // not written yet
+        }
+      }, "the edited prompt to reach the engine", 30_000);
+
+      // Only now stop the turn and let it settle, the same way the drained
+      // turn above was settled, so the tail is read at a fixed point.
       expect((await api("POST", `/api/bots/${created.id}/interrupt`)).status).toBe(200);
       await waitFor(async () => (await getBot(created.id)).busy === false, "the forked turn to settle", 20_000);
 
@@ -260,19 +276,14 @@ posixOnly("conversation branching e2e (fake ACP fleet)", () => {
       const path = activePath(bot.messages, bot.activeLeafId);
       const forkIndex = path.findIndex((m) => m.id === second.id);
       expect(forkIndex).toBeGreaterThanOrEqual(0);
-      // The fork's own turn must have run, and nothing else may follow it.
-      // Both halves are load-bearing: an interrupt that lands before the
-      // dispatch appends nothing at all, so requiring only "nothing outside
-      // the allow-list" passes on an empty tail while the edited prompt never
-      // reached the engine. A dispatch failure is a bot/activity too, so the
-      // allow-list has to key on the record itself, not on the role. Either
-      // gap hides the stop-then-edit bug this test exists to catch.
-      const afterFork = path.slice(forkIndex + 1);
+      // Dispatch is already proved above, by the engine's own dump. All that
+      // is left is the shape of the tail: nothing may follow the fork except
+      // the stop record of the turn we just interrupted. A dispatch failure is
+      // a bot/activity too, so this has to key on the record, not the role.
       const stopRecord = (m: Msg) =>
         m.role === "bot" && m.kind === "activity" &&
         /^error: \S+ exited .+ before the prompt result/.test(m.tool?.name ?? "");
-      expect(afterFork.filter(stopRecord)).toHaveLength(1);
-      expect(afterFork.filter((m) => !stopRecord(m))).toHaveLength(0);
+      expect(path.slice(forkIndex + 1).filter((m) => !stopRecord(m))).toHaveLength(0);
       expect(path.map((m) => m.text)).not.toContain("first try");
       // and only one copy of each attempt ever exists — no duplicated turns
       expect(bot.messages.filter((m: Msg) => m.text === "first try")).toHaveLength(1);
