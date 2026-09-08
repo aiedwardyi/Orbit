@@ -47,9 +47,19 @@ if (process.env.FAKE_PI_DUMP) {
       process.env.FAKE_PI_DUMP,
       JSON.stringify({
         argv,
-        envConfigured: ["PATH", "HOME", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "XAI_API_KEY", "BOX_TOKEN"].filter(
-          (k) => process.env[k] !== undefined,
-        ),
+        envConfigured: [
+          "PATH",
+          "HOME",
+          "ANTHROPIC_API_KEY",
+          "OPENAI_API_KEY",
+          "XAI_API_KEY",
+          "BOX_TOKEN",
+          "ACME_API_KEY",
+          "NEWPROVIDER_TOKEN",
+          "AWS_ACCESS_KEY_ID",
+          "AWS_SECRET_ACCESS_KEY",
+          "AWS_SESSION_TOKEN",
+        ].filter((k) => process.env[k] !== undefined),
         mcpConfig,
       }) + "\n",
     );

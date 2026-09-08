@@ -15,7 +15,7 @@
 // before the prompt is sent, and `_meta.isReplay` updates are dropped.
 import { homedir } from "node:os";
 
-import { PROVIDER_CREDENTIAL_ENV, WORKSPACE_CREDENTIAL_ENV } from "../../config.ts";
+import { applyCredentialAllowlist } from "../../config.ts";
 import { decodeInjectId } from "../local-inject.ts";
 import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../../procs.ts";
 
@@ -195,15 +195,10 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           ...input.environment,
           PATH: augmentedPath(),
         };
-        const allowedCredentials = new Set(support.credentialEnv ?? []);
-        // two lists, one rule: foreign PROVIDER keys must not flip a CLI's
-        // billing off its own login, and WORKSPACE credentials (box token,
-        // voice key, …) are the harness's secrets — riding along in
-        // `...process.env` is not a grant. A driver keeps only what its
-        // credentialEnv allowlist names.
-        for (const key of [...PROVIDER_CREDENTIAL_ENV, ...WORKSPACE_CREDENTIAL_ENV]) {
-          if (!allowedCredentials.has(key)) delete env[key];
-        }
+        // A driver keeps only what its credentialEnv allowlist names. Foreign
+        // provider keys, workspace secrets, and credential-shaped names nobody
+        // listed ride `...process.env` but are not a grant.
+        applyCredentialAllowlist(env, support.credentialEnv ?? []);
         support.transformEnv?.(env, config);
         return env;
       };

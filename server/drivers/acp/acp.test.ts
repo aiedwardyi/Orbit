@@ -12,8 +12,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { ensureDirs } from "../../config.ts";
-import type { ProviderInstance } from "../../contracts.ts";
+import { ensureDirs, PROVIDER_CREDENTIAL_ENV, WORKSPACE_CREDENTIAL_ENV } from "../../config.ts";
+import type { ProviderDriver, ProviderInstance } from "../../contracts.ts";
 import { recordEvents, type EventRecorder } from "../../testing/events.ts";
 import { createAcpDriver, skipSubscriptionAuthForLocalInject, type AcpSupport } from "./core.ts";
 import { GrokAgentDriver } from "./grok.ts";
@@ -21,9 +21,22 @@ import { GeminiAgentDriver } from "./gemini.ts";
 import { KimiAgentDriver } from "./kimi.ts";
 import { DroidAgentDriver } from "./droid.ts";
 import { CursorAgentDriver } from "./cursor.ts";
+import { createOpenCodeDriver } from "./opencode-go.ts";
 import { removeTempDir } from "../../testing/cleanup.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "testing", "fake-acp-cli.ts");
+
+/** Every credential this process could be holding, plus two nobody has heard
+ * of yet - the allowlist has to exclude those for the same reason, under
+ * whichever name their provider ships them. */
+const FOREIGN_CREDENTIALS = [
+  ...PROVIDER_CREDENTIAL_ENV,
+  ...WORKSPACE_CREDENTIAL_ENV,
+  "ACME_API_KEY",
+  "NEWPROVIDER_TOKEN",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+];
 
 /** A harness that exists only in tests: it exercises the opt-in session-config
  *  model hook so PR 1 can prove the core capability without shipping a visible
@@ -228,6 +241,7 @@ describe("ACP turns (fake CLI)", () => {
     delete process.env.FAKE_ACP_MODELS;
     delete process.env.FAKE_ACP_MODEL_STICKS;
     delete process.env.FAKE_ACP_USAGE_ROOT;
+    for (const name of FOREIGN_CREDENTIALS) delete process.env[name];
     recorder?.stop();
     await instance?.dispose();
     await removeTempDir(scratch);
@@ -323,6 +337,61 @@ describe("ACP turns (fake CLI)", () => {
     expect(seen.env.CURSOR_AUTH_TOKEN).toBeUndefined();
     expect(seen.env.BOX_TOKEN).toBeUndefined();
     expect(seen.env.OMB_TTS_KEY).toBeUndefined();
+  });
+
+  it("hands its children no credential it was not granted, known or not", async () => {
+    await create();
+    const dump = join(scratch, "dump-allowlist.json");
+    process.env.FAKE_ACP_DUMP = dump;
+    for (const name of FOREIGN_CREDENTIALS) process.env[name] = `${name}-must-not-leak`;
+
+    await instance.adapter.sendTurn({ threadId: "t-cred-allowlist", text: "go" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(Object.keys(seen.env).filter((name) => FOREIGN_CREDENTIALS.includes(name))).toEqual([]);
+  });
+
+  it("keeps each ACP driver's granted credentials while stripping AWS", async () => {
+    const cases: Array<{ name: string; driver: ProviderDriver; keep: Record<string, string> }> = [
+      { name: "gemini", driver: GeminiAgentDriver, keep: { GEMINI_API_KEY: "gemini-grant", GOOGLE_API_KEY: "google-grant" } },
+      { name: "droid", driver: DroidAgentDriver, keep: { FACTORY_API_KEY: "factory-grant" } },
+      { name: "cursor", driver: CursorAgentDriver, keep: { CURSOR_API_KEY: "cursor-grant", CURSOR_AUTH_TOKEN: "cursor-token-grant" } },
+      {
+        name: "opencode",
+        driver: createOpenCodeDriver(async () => ({ default: "m", options: [{ id: "m", label: "M" }] })),
+        keep: { OPENCODE_API_KEY: "opencode-grant" },
+      },
+    ];
+    for (const { name, driver, keep } of cases) {
+      const dump = join(scratch, `dump-grant-${name}.json`);
+      const previous = Object.fromEntries(
+        [...FOREIGN_CREDENTIALS, ...Object.keys(keep)].map((key) => [key, process.env[key]]),
+      );
+      process.env.FAKE_ACP_DUMP = dump;
+      for (const key of FOREIGN_CREDENTIALS) process.env[key] = `${key}-must-not-leak`;
+      for (const [key, value] of Object.entries(keep)) process.env[key] = value;
+      const granted = await driver.create({
+        instanceId: `acp-grant-${name}`,
+        displayName: name,
+        environment: {},
+        enabled: true,
+        config: { cli: FAKE_CLI, fullAuto: false },
+      });
+      try {
+        await granted.snapshot();
+        const seen = JSON.parse(readFileSync(dump, "utf8")) as { env: Record<string, string> };
+        expect({ driver: name, env: seen.env }).toMatchObject({ driver: name, env: keep });
+        expect(seen.env.AWS_ACCESS_KEY_ID).toBeUndefined();
+        expect(seen.env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+      } finally {
+        await granted.dispose();
+        for (const key of Object.keys(previous)) {
+          if (previous[key] === undefined) delete process.env[key];
+          else process.env[key] = previous[key];
+        }
+      }
+    }
   });
 
   // ACP session/new accepts stdio MCP entries, so connected apps use the
