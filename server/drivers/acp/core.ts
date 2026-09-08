@@ -16,7 +16,11 @@
 import { homedir } from "node:os";
 
 import { applyCredentialAllowlist } from "../../config.ts";
-import { decodeInjectId } from "../local-inject.ts";
+import { decodeInjectId, LOCAL_HOSTS } from "../local-inject.ts";
+
+const LOCAL_HOST_KEY_ENVS = [
+  ...new Set(LOCAL_HOSTS.map((host) => host.apiKeyEnv).filter((key): key is string => Boolean(key))),
+];
 import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../../procs.ts";
 
 /**
@@ -189,7 +193,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
 
     async create(input: DriverCreateInput<AcpConfig>): Promise<ProviderInstance> {
       const { instanceId, config } = input;
-      const childEnv = () => {
+      const childEnv = (extraAllowed: readonly string[] = []) => {
         const env: Record<string, string | undefined> = {
           ...process.env,
           ...input.environment,
@@ -197,8 +201,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         };
         // A driver keeps only what its credentialEnv allowlist names. Foreign
         // provider keys, workspace secrets, and credential-shaped names nobody
-        // listed ride `...process.env` but are not a grant.
-        applyCredentialAllowlist(env, support.credentialEnv ?? []);
+        // listed ride `...process.env` but are not a grant. Local-host keys
+        // stay for in-process inject/discovery, then drop before spawn.
+        applyCredentialAllowlist(env, [...(support.credentialEnv ?? []), ...extraAllowed]);
         support.transformEnv?.(env, config);
         return env;
       };
@@ -206,7 +211,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
       const refreshModels = async () => {
         if (!support.resolveModels) return;
         try {
-          const resolved = await support.resolveModels(childEnv(), config);
+          const resolved = await support.resolveModels(childEnv(LOCAL_HOST_KEY_ENVS), config);
           if (resolved.options.length) models = resolved;
         } catch {
           // Keep the last usable catalog when an optional discovery source is down.
@@ -291,7 +296,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         }
         const turnId = newId();
         const cwd = turn.cwd ?? config.workspace ?? homedir();
-        const env = childEnv();
+        const env = childEnv(LOCAL_HOST_KEY_ENVS);
         if (
           support.requireAuthenticationBeforeSpawn
           && !skipSubscriptionAuthForLocalInject(turn.model)
@@ -304,6 +309,10 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         }
         const resolvedModel = support.resolveTurnModel?.(turn.model, env);
         support.applyTurnEnv?.(env, { model: resolvedModel, requestedModel: turn.model });
+        const allowed = new Set(support.credentialEnv ?? []);
+        for (const key of LOCAL_HOST_KEY_ENVS) {
+          if (!allowed.has(key)) delete env[key];
+        }
         const cliTurn =
           resolvedModel !== undefined && resolvedModel !== turn.model
             ? { ...turn, model: resolvedModel }

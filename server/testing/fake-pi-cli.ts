@@ -59,6 +59,7 @@ if (process.env.FAKE_PI_DUMP) {
           "AWS_ACCESS_KEY_ID",
           "AWS_SECRET_ACCESS_KEY",
           "AWS_SESSION_TOKEN",
+          "UNSLOTH_STUDIO_AUTH_TOKEN",
         ].filter((k) => process.env[k] !== undefined),
         mcpConfig,
       }) + "\n",

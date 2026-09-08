@@ -407,7 +407,8 @@ export const PiDriver: ProviderDriver<PiConfig> = {
 
   async create(input: DriverCreateInput<PiConfig>): Promise<ProviderInstance> {
     const { instanceId, config } = input;
-    const catalogEnv = piEnvironment({ ...process.env, ...input.environment });
+    const source = { ...process.env, ...input.environment };
+    const catalogEnv = piEnvironment(source);
     let models = EMPTY;
     const refreshModels = async () => {
       let base = models;
@@ -418,7 +419,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
         // Keep the last usable catalog when the probe fails.
       }
       try {
-        const next = await applyPiLocalCatalog(base, catalogEnv);
+        const next = await applyPiLocalCatalog(base, source);
         if (next.options.length) models = next;
       } catch {
         if (base.options.length) models = base;

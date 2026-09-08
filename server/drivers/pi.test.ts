@@ -416,6 +416,38 @@ describe("PiDriver turns (fake CLI)", () => {
     }
   });
 
+  it("probes Unsloth with the studio token while keeping it off the pi child", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "omb-pi-unsloth-probe-"));
+    const dump = join(dir, "dump.jsonl");
+    const auths: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).includes(":8888")) {
+        const headers = new Headers(init?.headers);
+        auths.push(headers.get("authorization") ?? "");
+      }
+      return new Response("nope", { status: 500 });
+    }) as typeof fetch;
+    try {
+      await create(undefined, {
+        FAKE_PI_DUMP: dump,
+        OPENMAUSBOT_PROBE_LOCAL_INJECT: "1",
+        UNSLOTH_STUDIO_AUTH_TOKEN: "unsloth-grant",
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    expect(auths.some((value) => value.includes("unsloth-grant"))).toBe(true);
+    const rows = readFileSync(dump, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { envConfigured: string[] });
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.envConfigured).not.toContain("UNSLOTH_STUDIO_AUTH_TOKEN");
+    }
+  });
+
   it("mounts integrations as stdio MCP servers and loads the pi-mcp-extension", async () => {
     const dir = mkdtempSync(join(tmpdir(), "omb-pi-mcp-dump-"));
     const dump = join(dir, "dump.jsonl");

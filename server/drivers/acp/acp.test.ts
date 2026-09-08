@@ -394,6 +394,35 @@ describe("ACP turns (fake CLI)", () => {
     }
   });
 
+  it("writes Unsloth's studio token into grok config and keeps it off the child", async () => {
+    const home = mkdtempSync(join(tmpdir(), "omb-acp-unsloth-"));
+    mkdirSync(join(home, ".grok"), { recursive: true });
+    const dump = join(scratch, "dump-unsloth.json");
+    instance = await GrokAgentDriver.create({
+      instanceId: "acp-unsloth",
+      displayName: "ACP Test",
+      environment: {
+        HOME: home,
+        USERPROFILE: home,
+        FAKE_ACP_DUMP: dump,
+        UNSLOTH_STUDIO_AUTH_TOKEN: "unsloth-grant",
+      },
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: false },
+    });
+    recorder = recordEvents(instance.adapter);
+    await instance.adapter.sendTurn({
+      threadId: "t-unsloth",
+      text: "go",
+      model: "unsloth::Qwen3.8-27B",
+    });
+    await recorder.until((e) => e.type === "turn.completed");
+    const toml = readFileSync(join(home, ".grok", "config.toml"), "utf8");
+    expect(toml).toContain("unsloth-grant");
+    const seen = JSON.parse(readFileSync(dump, "utf8")) as { env: Record<string, string> };
+    expect(seen.env.UNSLOTH_STUDIO_AUTH_TOKEN).toBeUndefined();
+  });
+
   // ACP session/new accepts stdio MCP entries, so connected apps use the
   // same harness-owned bridge as Claude and Codex.
   it("mounts connected apps as a stdio MCP server", async () => {
