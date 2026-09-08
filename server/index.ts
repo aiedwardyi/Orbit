@@ -774,6 +774,7 @@ type GroupTurnOperation = {
   id: string;
   threadId: string;
   cancelled: boolean;
+  instructionId?: string;
 };
 
 // busyBotId names only the speaker that currently owns the provider process.
@@ -786,8 +787,8 @@ function groupIsWorking(group: GroupRecord): boolean {
   return Boolean(group.busyBotId) || Boolean(groupTurnOperations.get(group.id)?.size);
 }
 
-function beginGroupTurnOperation(groupId: string, threadId: string): GroupTurnOperation {
-  const operation = { id: randomUUID(), threadId, cancelled: false };
+function beginGroupTurnOperation(groupId: string, threadId: string, instructionId?: string): GroupTurnOperation {
+  const operation = { id: randomUUID(), threadId, cancelled: false, instructionId };
   const operations = groupTurnOperations.get(groupId) ?? new Set<GroupTurnOperation>();
   operations.add(operation);
   groupTurnOperations.set(groupId, operations);
@@ -1205,6 +1206,9 @@ const turnEpochByBot = new Map<string, number>();
 const liveTurnIdByThread = new Map<string, string>();
 // Room thread → the instruction id its running turn was dispatched against.
 const roomTurnInstruction = new Map<string, string>();
+// Turns that emitted turn.completed before sendTurn resolved, so the
+// post-send `.then` must not restore them as live.
+const completedBeforeLive = new Set<string>();
 const interruptedTurnIds = new Set<string>();
 const pendingInterruptThreads = new Set<string>();
 const adapterTurnByThread = new Map<string, Promise<unknown>>();
@@ -2026,8 +2030,11 @@ bus.subscribe((event: RuntimeEvent) => {
       // the next Stop on this thread marks a dead turn id instead of arming
       // pendingInterruptThreads for the turn actually being stopped.
       if (event.turnId) interruptedTurnIds.delete(event.turnId);
-      if (!event.turnId || liveTurnIdByThread.get(event.threadId) === event.turnId) {
+      const liveTurnId = liveTurnIdByThread.get(event.threadId);
+      if (!event.turnId || liveTurnId === event.turnId) {
         liveTurnIdByThread.delete(event.threadId);
+      } else if (event.turnId && liveTurnId === undefined) {
+        completedBeforeLive.add(event.turnId);
       }
       if (bot) {
         const vpsTurn = activeVpsThreads.get(bot.id) === event.threadId;
@@ -3677,6 +3684,7 @@ async function runGroupMemberTurn(
   cardContinuation?: string,
   onDispatchError?: (message: string) => void,
   isCancelled?: () => boolean,
+  instructionId?: string,
 ): Promise<boolean> {
   if (isCancelled?.()) return false;
   const group = store.group(groupId);
@@ -3705,6 +3713,7 @@ async function runGroupMemberTurn(
       onDispatchError,
       isCancelled,
       releaseTurnStart,
+      instructionId,
     );
   } finally {
     releaseTurnStart();
@@ -3723,6 +3732,7 @@ async function runClaimedGroupMemberTurn(
   onDispatchError?: (message: string) => void,
   isCancelled?: () => boolean,
   releaseTurnStart?: () => void,
+  instructionId?: string,
 ): Promise<boolean> {
   if (isCancelled?.()) return false;
   const group = store.group(groupId);
@@ -3736,6 +3746,9 @@ async function runClaimedGroupMemberTurn(
   if (bot.busy) {
     return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError);
   }
+  // Capture before any await. startGroupTurn persists the next instruction
+  // on arrival, so a re-read after setup binds this turn to a later message.
+  const dispatchedInstructionId = instructionId ?? taskPacketForWrite(threadId)?.instructionId;
   let selection: ModelSelection;
   try {
     selection = await resolvedBotSelection(bot);
@@ -3981,11 +3994,6 @@ async function runClaimedGroupMemberTurn(
     deadline.start();
     unregisterStall = roomStallCompletions.register(threadId, () => finish("stalled"));
     watchdog.watch(threadId, bot.id);
-    // Bind the turn to the instruction it is answering. A room packet advances
-    // the moment the next message arrives (startGroupTurn writes before it
-    // queues), so by the time this turn settles the record may already describe
-    // an instruction nobody has run yet.
-    const dispatchedInstructionId = taskPacketForWrite(threadId)?.instructionId;
     if (dispatchedInstructionId) roomTurnInstruction.set(threadId, dispatchedInstructionId);
     else roomTurnInstruction.delete(threadId);
     // Rooms already inject Orbit's prepared context each turn and never
@@ -4002,7 +4010,10 @@ async function runClaimedGroupMemberTurn(
       }))
       .then((started) => {
         bindInterruptedTurn(threadId, started.turnId);
-        if (started.turnId) liveTurnIdByThread.set(threadId, started.turnId);
+        if (started.turnId && !completedBeforeLive.has(started.turnId)) {
+          liveTurnIdByThread.set(threadId, started.turnId);
+        }
+        if (started.turnId) completedBeforeLive.delete(started.turnId);
       })
       .catch((err) => {
         const message = err instanceof Error ? err.message : "turn failed";
@@ -4045,7 +4056,7 @@ async function runClaimedGroupMemberTurn(
     for (const next of roomResponders(replyText, members, { kind: "mentions" })) {
       if (isCancelled?.()) return false;
       if (spoken.has(next.id)) continue;
-      if (!(await runGroupMemberTurn(groupId, threadId, next.id, hop + 1, spoken, undefined, undefined, isCancelled))) {
+      if (!(await runGroupMemberTurn(groupId, threadId, next.id, hop + 1, spoken, undefined, undefined, isCancelled, dispatchedInstructionId))) {
         return false;
       }
     }
@@ -4155,7 +4166,7 @@ function startGroupTurn(groupId: string, text: string, replyTo?: Message, sendId
       });
   persistTaskPacket(taskRecord);
 
-  const operation = beginGroupTurnOperation(groupId, threadId);
+  const operation = beginGroupTurnOperation(groupId, threadId, taskRecord.instructionId);
   const prev = groupQueues.get(groupId) ?? Promise.resolve();
   const next = prev.then(async () => {
     if (operation.cancelled) return;
@@ -4182,6 +4193,7 @@ function startGroupTurn(groupId: string, text: string, replyTo?: Message, sendId
         undefined,
         undefined,
         () => operation.cancelled,
+        operation.instructionId,
       ))) break;
     }
   });

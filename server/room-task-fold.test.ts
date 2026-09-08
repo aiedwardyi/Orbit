@@ -6,7 +6,7 @@
 // The real claudeAgent driver is used deliberately: its hasSession reports
 // live thread ownership, unlike the in-memory fake driver's constant false.
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,6 +22,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 
 let child: ChildProcess;
 let home: string;
+let setupDump: string;
 let stderr = "";
 
 const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
@@ -46,7 +47,15 @@ const packet = (threadId: string) => z.object({
 
 beforeAll(async () => {
   home = mkdtempSync(join(tmpdir(), "omb-room-fold-"));
+  setupDump = join(home, "setup-dump.json");
   mkdirSync(join(home, ".orbit"), { recursive: true });
+  const unauthCli = join(home, "unauth-cli.mjs");
+  writeFileSync(
+    unauthCli,
+    "#!/usr/bin/env node\n"
+    + 'if (process.argv.includes("--version")) { process.stdout.write("1.0.0\\n"); process.exit(0); }\n'
+    + "process.exit(1);\n",
+  );
   writeFileSync(
     join(home, ".orbit", "config.json"),
     JSON.stringify({
@@ -57,10 +66,14 @@ beforeAll(async () => {
           environment: { FAKE_CLAUDE_MODE: "happy" },
           config: { cli: FAKE_CLAUDE_CLI },
         },
-        claudeSlow: {
+        claudeSetup: {
           driver: "claudeAgent",
-          displayName: "Fixture Claude Slow",
-          environment: { FAKE_CLAUDE_MODE: "slow" },
+          displayName: "Fixture Claude Setup",
+          environment: {
+            FAKE_CLAUDE_MODE: "happy",
+            FAKE_CLAUDE_DUMP: setupDump,
+            FAKE_CLAUDE_GENERATE_DELAY_MS: "2000",
+          },
           config: { cli: FAKE_CLAUDE_CLI },
         },
         claudeHang: {
@@ -68,6 +81,11 @@ beforeAll(async () => {
           displayName: "Fixture Claude Hang",
           environment: { FAKE_CLAUDE_MODE: "hang" },
           config: { cli: FAKE_CLAUDE_CLI },
+        },
+        opencodeUnauth: {
+          driver: "opencodeGo",
+          displayName: "Fixture OpenCode Unauth",
+          config: { cli: unauthCli, fullAuto: true },
         },
       },
     }),
@@ -177,8 +195,8 @@ describe("room task-state fold", () => {
     })).status).toBe(202);
     await expect.poll(async () => {
       const rooms = (await api("GET", "/api/bots?messages=0")).body.groups;
-      return rooms.find((candidate: { id: string }) => candidate.id === group.id)?.working;
-    }, { timeout: 20_000 }).toBe(true);
+      return rooms.find((candidate: { id: string }) => candidate.id === group.id)?.busyBotId;
+    }, { timeout: 20_000 }).toBe(bot.id);
 
     expect((await api("POST", `/api/groups/${group.id}/interrupt`, {})).status).toBe(200);
     await expect.poll(async () => {
@@ -204,27 +222,27 @@ describe("room task-state fold", () => {
       return made;
     };
 
-    const slow = await makeBot("claudeSlow");
+    const setup = await makeBot("claudeSetup");
     const hang = await makeBot("claudeHang");
     const group = (await api("POST", "/api/groups", {
       name: "Queue room",
-      memberIds: [slow.id, hang.id],
-      setup: { bulletin: "", defaultResponder: { kind: "member", botId: slow.id } },
+      memberIds: [setup.id, hang.id],
+      setup: { bulletin: "", defaultResponder: { kind: "member", botId: setup.id } },
     })).body.group;
 
-    // the second message lands while the first turn is still running, so the
-    // packet already describes an instruction that has not been dispatched
+    // oversized so prepareModelContext summarises; generateText is delayed,
+    // which is the window the second POST has to land inside
     expect((await api("POST", `/api/groups/${group.id}/messages`, {
-      text: "first instruction",
+      text: `first instruction\n${"x".repeat(40_000)}`,
     })).status).toBe(202);
+    await expect.poll(() => existsSync(setupDump), { timeout: 20_000 }).toBe(true);
+
     const queued = await api("POST", `/api/groups/${group.id}/messages`, {
       text: `@${hang.name} second instruction`,
     });
     expect(queued.status, JSON.stringify(queued.body)).toBe(202);
     const queuedId = queued.body.message.id as string;
 
-    // the queued turn is now the one running, and it never settles — so the
-    // packet below is the state the first turn's completion left behind
     await expect.poll(async () => {
       const rooms = (await api("GET", "/api/bots?messages=0")).body.groups;
       return rooms.find((candidate: { id: string }) => candidate.id === group.id)?.busyBotId;
@@ -233,5 +251,39 @@ describe("room task-state fold", () => {
     const held = packet(group.threadId);
     expect(held.settledInstructionId).not.toBe(queuedId);
     expect(held.nextAction).toContain("second instruction");
+  }, 60_000);
+
+  it("folds a second room turn when the adapter completes before sendTurn returns", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    const models = z.object({ default: z.string() }).parse(
+      (await api("GET", "/api/instances")).body.instances.find(
+        (instance: { instanceId: string }) => instance.instanceId === "opencodeUnauth",
+      ).models,
+    );
+    expect((await api("PATCH", `/api/bots/${bot.id}`, {
+      modelSelection: { instanceId: "opencodeUnauth", model: models.default },
+    })).status).toBe(200);
+    const group = (await api("POST", "/api/groups", {
+      name: "Sync complete room",
+      memberIds: [bot.id],
+      setup: { bulletin: "", defaultResponder: { kind: "member", botId: bot.id } },
+    })).body.group;
+
+    expect((await api("POST", `/api/groups/${group.id}/messages`, {
+      text: "first sync turn",
+    })).status).toBe(202);
+    await expect.poll(() => packet(group.threadId).flushReason, { timeout: 20_000 }).toBe("turn-end");
+
+    expect((await api("POST", `/api/groups/${group.id}/messages`, {
+      text: "second sync turn",
+    })).status).toBe(202);
+    await expect.poll(async () => {
+      const rooms = (await api("GET", "/api/bots?messages=0")).body.groups;
+      return rooms.find((candidate: { id: string }) => candidate.id === group.id)?.working;
+    }, { timeout: 20_000 }).toBe(false);
+
+    // startGroupTurn stamps progress on the second message; only a fold
+    // that is not classified superseded writes turn-end back
+    expect(packet(group.threadId).flushReason).toBe("turn-end");
   }, 60_000);
 });
