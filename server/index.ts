@@ -3843,6 +3843,7 @@ async function runClaimedGroupMemberTurn(
   const cwd = groupTurnCwd(workspace, () => store.pinGroupCwd(group.id, threadId));
   const roomSystem =
     system +
+    CORPUS_SEARCH_INSTRUCTIONS +
     sectionContextSystemPrompt(bot.section) +
     (workspace ? `\n${memorySystemPrompt(bot.id).trim()}${skillsSystemPrompt(bot.id)}` : "") +
     renderSkillInstructions(selectedSkills, { includeRoot: Boolean(workspace) }) +
