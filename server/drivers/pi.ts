@@ -555,7 +555,9 @@ export const PiDriver: ProviderDriver<PiConfig> = {
         if (settled) return;
         settled = true;
         // released before the event, like every other driver: turn.completed
-        // is what drains the steer queue, and that drain asks hasSession
+        // is what drains the steer queue, and that drain asks hasSession. A
+        // listener that starts a turn on this thread synchronously inside the
+        // event therefore finds it free, which is the intended answer.
         active.delete(threadId);
         flushAssistantText();
         emit({

@@ -743,9 +743,11 @@ const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
     ...rest,
     // A stopped bot is not ready until its driver lets the thread go: a
     // client that reads `busy: false` sends immediately, and a send inside
-    // that gap is refused by the driver. Clients queue on busy, so the
-    // honest answer holds the message and the settle drains it.
-    busy: Boolean(rest.busy) || threadHasLiveTurn(activeThreadId ?? rest.threadId),
+    // that gap is held rather than dispatched. Clients queue on busy, so the
+    // honest answer holds the message and the settle drains it. Asked by
+    // bot, not just by thread — the bot is what owns one process, and Stop
+    // has already cleared the thread it was working on.
+    busy: Boolean(rest.busy) || botHasLiveTurn(bot.id, activeThreadId ?? rest.threadId),
     avatarUrl: rest.avatarUrl ?? null,
     // null, not omitted: a cleared folder must overwrite a stale client cwd
     cwd: rest.cwd ?? null,
@@ -1607,6 +1609,15 @@ bus.subscribe((event: RuntimeEvent) => {
   if (!bot && !group) return;
   const speaker = group ? groupSpeakers.get(event.threadId) : undefined;
 
+  // turn.completed is emitted after the driver's own active.delete, so the
+  // stopped-thread record has done its job by here. Dropping it now is what
+  // keeps a finished room turn from making this bot look busy once the NEXT
+  // speaker takes the same thread.
+  if (event.type === "turn.completed") {
+    const owner = bot?.id ?? speaker?.botId;
+    if (owner && dispatchedThreads.get(owner) === event.threadId) dispatchedThreads.delete(owner);
+  }
+
   const pushMessage = (m: Omit<Message, "id" | "at">) => {
     const message = store.appendMessage(event.threadId, group && m.role === "bot" ? { ...m, from: speaker } : m);
     return message;
@@ -2428,7 +2439,31 @@ const turnStartClaims = new Set<string>();
  * has to come through here, or a turn started inside that gap is refused by
  * the driver after the harness has already committed a user message. */
 function threadHasLiveTurn(threadId: string): boolean {
+  // A reload disposes the whole fleet before rebuilding it, so an instance
+  // that drops out of this list has already killed the turn it owned — the
+  // thread it held really is free by then.
   return registry.instances().some((instance) => instance.adapter.hasSession(threadId));
+}
+
+/** The thread each bot last dispatched on, held until its driver lets go.
+ * `bot.activeThreadId` is deleted the moment Stop marks the bot idle, so it
+ * cannot answer "is this bot still working" during the cancel grace: a bot
+ * stopped on room A and then asked about room B would look free and start a
+ * SECOND provider process for one bot. Entries are dropped the first time
+ * the driver reports the thread free, so a stale one can only ever be
+ * corrected to "free" — never invented. */
+const dispatchedThreads = new Map<string, string>();
+
+/** Live ownership resolved BY BOT: this bot still holds the thread it was
+ * working on, or the thread being asked about is held by someone. Both
+ * matter — one provider process per bot, and one turn per thread. */
+function botHasLiveTurn(botId: string, threadId?: string): boolean {
+  if (threadId !== undefined && threadHasLiveTurn(threadId)) return true;
+  const owned = dispatchedThreads.get(botId);
+  if (owned === undefined || owned === threadId) return false;
+  if (threadHasLiveTurn(owned)) return true;
+  dispatchedThreads.delete(botId);
+  return false;
 }
 
 function tryClaimTurnStart(botId: string): boolean {
@@ -2441,16 +2476,20 @@ function botHasActiveTurn(botId: string, threadId?: string): boolean {
   if (turnStartClaims.has(botId)) return true;
   const bot = store.bot(botId);
   if (!bot) return false;
-  return Boolean(bot.busy) || threadHasLiveTurn(threadId ?? bot.activeThreadId ?? bot.threadId);
+  return Boolean(bot.busy) || botHasLiveTurn(botId, threadId);
 }
 
 /** A startTurn 409 that means "not yet", not "never": the caller holds its
- * card and dispatches again when the bot settles. */
-const isBusyRejection = (message: string) => /already working|still stopping/i.test(message);
+ * card and dispatches again when the bot settles. Carried as a code rather
+ * than matched on the prose — rewording a message must not silently turn a
+ * caller's retry into a dropped resume. */
+const BOT_BUSY = "BOT_BUSY";
+const busyRejection = (message: string) => Object.assign(new Error(message), { status: 409, code: BOT_BUSY });
+const isBusyRejection = (error: unknown) => (error as { code?: unknown } | null)?.code === BOT_BUSY;
 
 async function startTurn(botId: string, text: string, opts?: StartTurnOptions) {
   if (!tryClaimTurnStart(botId)) {
-    throw Object.assign(new Error("the bot is already working - interrupt it first"), { status: 409 });
+    throw busyRejection("the bot is already working - interrupt it first");
   }
   try {
     return await startClaimedTurn(botId, text, opts);
@@ -2468,15 +2507,17 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       status: 409,
     });
   }
-  if (bot.busy) throw Object.assign(new Error("the bot is already working — interrupt it first"), { status: 409 });
+  if (bot.busy) throw busyRejection("the bot is already working — interrupt it first");
   const threadId = opts?.threadId ?? bot.threadId;
   // Every dispatch funnels through here, so this is where the driver's own
-  // answer is checked — one gate no caller can miss. Refusing before the
-  // user message is appended is the whole point: past this line the turn is
+  // answer is checked — one gate no caller can miss. Asked by bot as well
+  // as by thread: a bot stopped on another thread still owns its process,
+  // and starting here would give it a second one. Refusing before the user
+  // message is appended is the whole point: past this line the turn is
   // committed to the transcript, and a sendTurn that throws leaves a
   // message the engine never saw.
-  if (threadHasLiveTurn(threadId)) {
-    throw Object.assign(new Error("the bot is still stopping its last turn — try again in a moment"), { status: 409 });
+  if (botHasLiveTurn(botId, threadId)) {
+    throw busyRejection("the bot is still stopping its last turn — try again in a moment");
   }
   // a webhook turn, or one inherited from a bot already running unattended
   if (opts?.automationSource === "webhook" || opts?.unattended) markUnattended(bot.id);
@@ -2742,6 +2783,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     return startedTurn(userMessage, { cancelled: true });
   }
   store.setActivity(bot.id, "working", threadId);
+  dispatchedThreads.set(bot.id, threadId);
   markSendRunning(bot.id, opts?.sendId);
   if (currentTurnEpoch(bot.id) !== epoch) {
     store.setActivity(bot.id, "idle");
@@ -3807,10 +3849,11 @@ async function runClaimedGroupMemberTurn(
   const readyBot = store.bot(bot.id);
   if (!readyBot) return false;
   // the room's own dispatch site: startClaimedTurn's gate never sees it
-  if (readyBot.busy || threadHasLiveTurn(threadId)) {
+  if (readyBot.busy || botHasLiveTurn(bot.id, threadId)) {
     return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError);
   }
   store.setActivity(bot.id, "working", threadId);
+  dispatchedThreads.set(bot.id, threadId);
   releaseTurnStart?.();
 
   store.patchGroup(group.id, { busyBotId: bot.id }); // the store's change stream carries the frame
@@ -4242,7 +4285,7 @@ function dispatchConnectorResume(entry: { botId: string; threadId: string; resum
     onDispatchError: (message) => markConnectorResumeFailed(entry.threadId, entry.resumeKey, message),
   }).catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
-    if (isBusyRejection(message)) pendingConnectorResumes.set(`${entry.threadId}:${entry.resumeKey}`, entry);
+    if (isBusyRejection(error)) pendingConnectorResumes.set(`${entry.threadId}:${entry.resumeKey}`, entry);
     else markConnectorResumeFailed(entry.threadId, entry.resumeKey, message);
   });
 }
@@ -4343,7 +4386,7 @@ function dispatchSecretResume(entry: SecretResumeEntry) {
     onDispatchError: (message) => markSecretResumeFailed(entry.threadId, entry.messageId, message),
   }).catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
-    if (isBusyRejection(message)) {
+    if (isBusyRejection(error)) {
       pendingSecretResumes.set(`${entry.threadId}:${entry.messageId}`, entry);
     } else {
       markSecretResumeFailed(entry.threadId, entry.messageId, message);
@@ -7044,6 +7087,22 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               return { ok: true as const, cancelled: true as const, threadId };
             }
             return { ok: true as const, queued: true as const, queueId: queued.id, threadId };
+          }
+          // Stop cleared `busy`, but the driver holds the thread for up to
+          // the cancel grace and would refuse the dispatch. Queue it — that
+          // is already what a send to a busy bot does, and wireBot reports
+          // this bot busy for exactly this window, so erroring here while
+          // telling the client "busy" is the inconsistency. Check and enqueue
+          // are synchronous, so a settle cannot land between them and strand
+          // the message; the drain on turn.completed takes it from there.
+          if (botHasLiveTurn(bot.id, threadId)) {
+            const held = queueSteeredMessage(bot.id, threadId, text, {
+              replyToId: replyTo?.id,
+              sendId,
+              prompt: promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"),
+            });
+            if (held.skipped) return { ok: true as const, cancelled: true as const, threadId };
+            return { ok: true as const, queued: true as const, queueId: held.id, threadId };
           }
           const started = await startTurn(bot.id, text, { threadId, replyTo, sendId });
           return sendPostReceipt(started, threadId);

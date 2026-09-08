@@ -125,6 +125,10 @@ posixOnly("dispatch after Stop (fake ACP hang)", () => {
       rmSync(dump, { force: true });
       const send = await api("POST", `/api/bots/${created.id}/messages`, { text: "second" });
       expect(send.status).toBe(202);
+      // Dispatched, not held: the bot reports busy for as long as its driver
+      // owns the thread, so reaching this line means the driver has released
+      // and the send has no reason to queue. A queue here would mean the
+      // harness is holding a message it was free to dispatch.
       expect(send.body.queued).toBeFalsy();
       await waitFor(async () => dumpHas("second"), "the next prompt to reach the engine");
 
@@ -136,6 +140,84 @@ posixOnly("dispatch after Stop (fake ACP hang)", () => {
       );
 
       await api("POST", `/api/bots/${created.id}/interrupt`);
+      await waitFor(async () => (await getBot(created.id)).busy === false, "the bot to be released");
+    },
+    60_000,
+  );
+
+  it(
+    "holds a send made inside the cancel grace and drains it, rather than erroring",
+    async () => {
+      const created = (await api("POST", "/api/bots")).body.bot;
+      await api("PATCH", `/api/bots/${created.id}`, {
+        modelSelection: { instanceId: "hang", model: "fake-model" },
+      });
+
+      expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "grace-first" })).status).toBe(202);
+      await waitFor(async () => dumpHas("grace-first"), "the first prompt to reach the engine");
+
+      expect((await api("POST", `/api/bots/${created.id}/interrupt`)).status).toBe(200);
+
+      // Inside the grace on purpose — no wait for idle. Stop has already
+      // cleared the store's `busy`, so this is the send that decides
+      // queue-vs-dispatch on a flag that no longer describes the driver.
+      rmSync(dump, { force: true });
+      const send = await api("POST", `/api/bots/${created.id}/messages`, { text: "grace-second" });
+      expect(send.status).toBe(202);
+      expect(send.body.queued).toBe(true);
+
+      // held, not dropped: the settle drains it the rest of the way
+      await waitFor(async () => dumpHas("grace-second"), "the held prompt to drain to the engine");
+      const bot = await getBot(created.id);
+      expect(bot.messages.filter((m: any) => m.text === "grace-second")).toHaveLength(1);
+      expect(bot.messages.map((m: any) => m.tool?.name ?? "")).not.toContain(
+        "error: a turn is already running on this thread",
+      );
+
+      await api("POST", `/api/bots/${created.id}/interrupt`);
+      await waitFor(async () => (await getBot(created.id)).busy === false, "the bot to be released");
+    },
+    60_000,
+  );
+
+  it(
+    "will not start a turn on another thread while the driver still owns the stopped one",
+    async () => {
+      const created = (await api("POST", "/api/bots")).body.bot;
+      await api("PATCH", `/api/bots/${created.id}`, {
+        modelSelection: { instanceId: "hang", model: "fake-model" },
+      });
+      const threadA = created.threadId;
+      const threadB = (await api("POST", `/api/bots/${created.id}/tasks`)).body.task.threadId;
+      expect(threadB).not.toBe(threadA);
+      // a new task is activated on creation; the turn under test runs on A
+      expect((await api("POST", `/api/bots/${created.id}/tasks/${threadA}`)).status).toBe(200);
+
+      expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "owner-first" })).status).toBe(202);
+      await waitFor(async () => dumpHas("owner-first"), "the first prompt to reach the engine");
+
+      expect((await api("POST", `/api/bots/${created.id}/interrupt`)).status).toBe(200);
+      // Stop deletes activeThreadId, so nothing on the bot record points at A
+      // any more. Switching away and sending is the user-reachable route into
+      // the gap — and the store's `busy` is false, so the switch is allowed.
+      rmSync(dump, { force: true });
+      expect((await api("POST", `/api/bots/${created.id}/tasks/${threadB}`)).status).toBe(200);
+
+      const send = await api("POST", `/api/bots/${created.id}/messages`, { text: "owner-second", threadId: threadB });
+      expect(send.status).toBe(202);
+      // One provider process per bot: A is still owned, so B waits. Dispatching
+      // here would put a second engine on the same bot.
+      expect(send.body.queued).toBe(true);
+      expect(dumpHas("owner-second")).toBe(false);
+
+      await waitFor(async () => dumpHas("owner-second"), "the held prompt to drain once A settles");
+      const bot = await getBot(created.id);
+      expect(bot.messages.map((m: any) => m.tool?.name ?? "")).not.toContain(
+        "error: a turn is already running on this thread",
+      );
+
+      await api("POST", `/api/bots/${created.id}/interrupt`);
+      await waitFor(async () => (await getBot(created.id)).busy === false, "the bot to be released");
     },
     60_000,
   );
