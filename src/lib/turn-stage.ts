@@ -67,7 +67,7 @@ export function hydrationTurnThread(
   if (!bot.busy) return undefined;
   if (bot.workingThreadId) return bot.workingThreadId;
   if (bot.id && groups.some((group) => group.busyBotId === bot.id)) return undefined;
-  return undefined;
+  return bot.threadId;
 }
 
 /** Last visible message id as frames fold, including before React commits. */
