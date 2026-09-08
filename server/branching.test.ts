@@ -32,6 +32,7 @@ interface Msg {
   parentId?: string | null;
   /** steer-queue: waiting to auto-send when the live turn settles */
   queued?: boolean;
+  tool?: { name?: string; ok?: boolean };
 }
 
 /** Client-side view of the active branch: walk parentId links from the leaf. */
@@ -259,7 +260,15 @@ posixOnly("conversation branching e2e (fake ACP fleet)", () => {
       const path = activePath(bot.messages, bot.activeLeafId);
       const forkIndex = path.findIndex((m) => m.id === second.id);
       expect(forkIndex).toBeGreaterThanOrEqual(0);
-      expect(path.slice(forkIndex + 1).filter((m) => m.role !== "bot")).toHaveLength(0);
+      // Only two things may follow the fork: nothing, or the stop record of
+      // the turn we just interrupted. Allow-list them and reject the rest.
+      // A dispatch failure is a bot/activity too, so anything looser passes
+      // when sendTurn throws and the edited prompt never reaches the engine -
+      // which is the stop-then-edit bug this test exists to catch.
+      const stopRecord = (m: Msg) =>
+        m.role === "bot" && m.kind === "activity" &&
+        /^error: \S+ exited .+ before the prompt result/.test(m.tool?.name ?? "");
+      expect(path.slice(forkIndex + 1).filter((m) => !stopRecord(m))).toHaveLength(0);
       expect(path.map((m) => m.text)).not.toContain("first try");
       // and only one copy of each attempt ever exists — no duplicated turns
       expect(bot.messages.filter((m: Msg) => m.text === "first try")).toHaveLength(1);
