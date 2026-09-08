@@ -1203,6 +1203,8 @@ const turnDispatchedAt = new Map<string, number>();
 const turnInterruptedAt = new Map<string, number>();
 const turnEpochByBot = new Map<string, number>();
 const liveTurnIdByThread = new Map<string, string>();
+// Room thread → the instruction id its running turn was dispatched against.
+const roomTurnInstruction = new Map<string, string>();
 const interruptedTurnIds = new Set<string>();
 const pendingInterruptThreads = new Set<string>();
 const adapterTurnByThread = new Map<string, Promise<unknown>>();
@@ -1981,7 +1983,10 @@ bus.subscribe((event: RuntimeEvent) => {
         interruptedTurnIds,
         interruptedAt,
         dispatchedAt: dispatched,
+        stopReason: event.stopReason,
       });
+      const boundInstruction = roomTurnInstruction.get(event.threadId);
+      roomTurnInstruction.delete(event.threadId);
       // bank what this turn spent before the bot broadcast carries the
       // task list to every window. The driver's own per-turn figure
       // (turn.completed.usage) is authoritative; a driver that only
@@ -1999,7 +2004,11 @@ bus.subscribe((event: RuntimeEvent) => {
         : null;
       if (!superseded) {
         const packet = turnOwnerId ? taskPacketForWrite(event.threadId) : null;
-        if (packet) {
+        // A record that has moved on describes an instruction this turn never
+        // ran; settling it would mark undispatched work finished, carrying
+        // this turn's reply. Leave the mismatch unfolded.
+        const ownsRecord = !boundInstruction || packet?.instructionId === boundInstruction;
+        if (packet && ownsRecord) {
           persistTaskPacket(recordTaskCompletion(packet, {
             ok: event.ok,
             reply,
@@ -3972,6 +3981,13 @@ async function runClaimedGroupMemberTurn(
     deadline.start();
     unregisterStall = roomStallCompletions.register(threadId, () => finish("stalled"));
     watchdog.watch(threadId, bot.id);
+    // Bind the turn to the instruction it is answering. A room packet advances
+    // the moment the next message arrives (startGroupTurn writes before it
+    // queues), so by the time this turn settles the record may already describe
+    // an instruction nobody has run yet.
+    const dispatchedInstructionId = taskPacketForWrite(threadId)?.instructionId;
+    if (dispatchedInstructionId) roomTurnInstruction.set(threadId, dispatchedInstructionId);
+    else roomTurnInstruction.delete(threadId);
     // Rooms already inject Orbit's prepared context each turn and never
     // pass resumeCursor — they are Grok-flat. 1:1 CLI forever-chats go
     // through startClaimedTurn, which recycles the native session after

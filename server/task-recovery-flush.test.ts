@@ -224,6 +224,41 @@ describe("turn completion disposition after stop", () => {
     })).toEqual({ superseded: false, interrupted: false });
   });
 
+  it("reads a cancelled terminal state as an interruption", () => {
+    // ACP cancellation settles ok:true — nothing marked the turn interrupted,
+    // so only the stop reason can tell a timeout from a clean finish
+    expect(turnCompletionDisposition({
+      eventTurnId: "turn-timeout",
+      liveTurnId: "turn-timeout",
+      interruptedTurnIds: new Set(),
+      interruptedAt: 0,
+      dispatchedAt: 1,
+      stopReason: "cancelled",
+    })).toEqual({ superseded: false, interrupted: true });
+  });
+
+  it("reads an interrupted terminal state as an interruption", () => {
+    expect(turnCompletionDisposition({
+      eventTurnId: "turn-stall",
+      liveTurnId: "turn-stall",
+      interruptedTurnIds: new Set(),
+      interruptedAt: 0,
+      dispatchedAt: 1,
+      stopReason: "interrupted",
+    })).toEqual({ superseded: false, interrupted: true });
+  });
+
+  it("leaves an ordinary end_turn uninterrupted", () => {
+    expect(turnCompletionDisposition({
+      eventTurnId: "turn-done",
+      liveTurnId: "turn-done",
+      interruptedTurnIds: new Set(),
+      interruptedAt: 0,
+      dispatchedAt: 1,
+      stopReason: "end_turn",
+    })).toEqual({ superseded: false, interrupted: false });
+  });
+
   it("ignores a late stopped completion after a newer turn dispatched", () => {
     expect(turnCompletionDisposition({
       eventTurnId: "turn-stop",

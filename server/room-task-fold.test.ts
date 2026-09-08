@@ -35,6 +35,8 @@ const api = async (method: string, path: string, body?: unknown): Promise<{ stat
 
 const packet = (threadId: string) => z.object({
   botId: z.string(),
+  nextAction: z.string(),
+  settledInstructionId: z.string().optional(),
   completed: z.array(z.object({ note: z.string(), at: z.number() })),
   evidence: z.array(z.object({ kind: z.string(), ref: z.string(), note: z.string().optional() })),
   flushReason: z.string(),
@@ -53,6 +55,12 @@ beforeAll(async () => {
           driver: "claudeAgent",
           displayName: "Fixture Claude Happy",
           environment: { FAKE_CLAUDE_MODE: "happy" },
+          config: { cli: FAKE_CLAUDE_CLI },
+        },
+        claudeSlow: {
+          driver: "claudeAgent",
+          displayName: "Fixture Claude Slow",
+          environment: { FAKE_CLAUDE_MODE: "slow" },
           config: { cli: FAKE_CLAUDE_CLI },
         },
         claudeHang: {
@@ -181,5 +189,49 @@ describe("room task-state fold", () => {
     const stopped = packet(group.threadId);
     expect(stopped.flushReason).toBe("stop");
     expect(stopped.completed.length).toBe(1);
+  }, 60_000);
+
+  it("does not settle a queued room instruction on the running turn's completion", async () => {
+    const instances = (await api("GET", "/api/instances")).body.instances;
+    const pick = (id: string) => z.object({ default: z.string() }).parse(
+      instances.find((instance: { instanceId: string }) => instance.instanceId === id).models,
+    ).default;
+    const makeBot = async (instanceId: string) => {
+      const made = (await api("POST", "/api/bots")).body.bot;
+      expect((await api("PATCH", `/api/bots/${made.id}`, {
+        modelSelection: { instanceId, model: pick(instanceId) },
+      })).status).toBe(200);
+      return made;
+    };
+
+    const slow = await makeBot("claudeSlow");
+    const hang = await makeBot("claudeHang");
+    const group = (await api("POST", "/api/groups", {
+      name: "Queue room",
+      memberIds: [slow.id, hang.id],
+      setup: { bulletin: "", defaultResponder: { kind: "member", botId: slow.id } },
+    })).body.group;
+
+    // the second message lands while the first turn is still running, so the
+    // packet already describes an instruction that has not been dispatched
+    expect((await api("POST", `/api/groups/${group.id}/messages`, {
+      text: "first instruction",
+    })).status).toBe(202);
+    const queued = await api("POST", `/api/groups/${group.id}/messages`, {
+      text: `@${hang.name} second instruction`,
+    });
+    expect(queued.status, JSON.stringify(queued.body)).toBe(202);
+    const queuedId = queued.body.message.id as string;
+
+    // the queued turn is now the one running, and it never settles — so the
+    // packet below is the state the first turn's completion left behind
+    await expect.poll(async () => {
+      const rooms = (await api("GET", "/api/bots?messages=0")).body.groups;
+      return rooms.find((candidate: { id: string }) => candidate.id === group.id)?.busyBotId;
+    }, { timeout: 30_000 }).toBe(hang.id);
+
+    const held = packet(group.threadId);
+    expect(held.settledInstructionId).not.toBe(queuedId);
+    expect(held.nextAction).toContain("second instruction");
   }, 60_000);
 });
