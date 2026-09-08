@@ -4,7 +4,15 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { liveActivityLabel } from "./live-activity";
-import { nextTurnSignals, streamResetFor, turnPhase, turnStageLabel, type TurnSignals } from "./turn-stage";
+import {
+  applyStreamDelta,
+  nextStreamState,
+  nextTurnSignals,
+  streamResetFor,
+  turnPhase,
+  turnStageLabel,
+  type TurnSignals,
+} from "./turn-stage";
 import type { Message } from "@/state/store";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -50,6 +58,14 @@ describe("turnPhase", () => {
     expect(turnPhase({ signal: "retrying", reasoning: "hmm" })).toBe("reasoning");
     expect(turnPhase({ signal: "retrying", streaming: "The" })).toBe("responding");
     expect(turnPhase({ signal: "retrying", lastMessage: runningTool })).toBe("tool");
+  });
+
+  it("treats a received stream as progress even when the redacted payload is empty", () => {
+    // StreamSecretMasker holds the last 96 chars and emits "" until the tail
+    // flushes at a turn boundary, which is after the settled bubble hid the label.
+    expect(turnPhase({ signal: "started", lastMessage: user, streaming: "" })).toBe("responding");
+    expect(turnPhase({ signal: "started", lastMessage: user, reasoning: "" })).toBe("reasoning");
+    expect(turnPhase({ signal: "started", lastMessage: user, reasoning: "", streaming: "" })).toBe("responding");
   });
 });
 
@@ -108,6 +124,52 @@ describe("nextTurnSignals", () => {
     expect(nextTurnSignals(signals, "t1", "settled-message")).toBe(signals);
     expect(nextTurnSignals(signals, "t2", "completed")).toBe(signals);
     expect(nextTurnSignals(signals, "t2", "sent")).toBe(signals);
+    expect(nextTurnSignals(signals, "t1", "hydrated")).toBe(signals);
+  });
+
+  it("backfills started from a busy snapshot without clobbering a live retry", () => {
+    // /api/events resumed:false hydrates busy bots from /api/bots; signal is
+    // not in that snapshot, so an already-dispatched turn would read Preparing.
+    expect(nextTurnSignals({}, "t1", "hydrated")["t1"]).toBe("started");
+    expect(turnPhase({ signal: nextTurnSignals({}, "t1", "hydrated")["t1"], lastMessage: user })).toBe("waiting");
+    expect(nextTurnSignals({ t1: "retrying" }, "t1", "hydrated")["t1"]).toBe("retrying");
+    expect(nextTurnSignals({ idle: "started" }, "t1", "hydrated")).toEqual({ idle: "started", t1: "started" });
+  });
+});
+
+describe("applyStreamDelta", () => {
+  it("records the stream kind even when the held delta is empty", () => {
+    expect(turnPhase({ signal: "started", lastMessage: user, ...applyStreamDelta({}, "assistant_text", "") })).toBe(
+      "responding",
+    );
+    expect(turnPhase({ signal: "started", lastMessage: user, ...applyStreamDelta({}, "reasoning_text", "") })).toBe(
+      "reasoning",
+    );
+    expect(applyStreamDelta({}, "assistant_text", "Hi").streaming).toBe("Hi");
+  });
+});
+
+describe("nextStreamState", () => {
+  it("drops leftover stream text when a send starts the next turn", () => {
+    // A provider reload or the stall-watchdog fallback can kill a turn after
+    // it emitted reasoning or partial text, with no turn.completed. Clearing
+    // only the signal leaves turnPhase reading Responding or Thinking.
+    const prev = { streaming: { t1: "partial" }, reasoning: { t1: "hmm" }, signal: { t1: "started" as const } };
+    const next = nextStreamState(prev, "t1", "sent");
+    expect(turnPhase({ signal: next.signal["t1"], lastMessage: user, streaming: next.streaming["t1"], reasoning: next.reasoning["t1"] })).toBe(
+      "preparing",
+    );
+    expect(next.streaming).not.toHaveProperty("t1");
+    expect(next.reasoning).not.toHaveProperty("t1");
+  });
+
+  it("keeps stream text while a retry is announced", () => {
+    const prev = { streaming: { t1: "The" }, reasoning: {}, signal: { t1: "started" as const } };
+    const next = nextStreamState(prev, "t1", "retrying");
+    expect(next.streaming["t1"]).toBe("The");
+    expect(turnPhase({ signal: next.signal["t1"], lastMessage: user, streaming: next.streaming["t1"] })).toBe(
+      "responding",
+    );
   });
 });
 
@@ -125,9 +187,9 @@ describe("streamResetFor", () => {
     const client = { signal: nextTurnSignals({}, "t1", "started")["t1"], reasoning: "hmm" };
     expect(turnPhase({ ...client, lastMessage: user })).toBe("reasoning");
 
-    if (streamResetFor(runningTool) === "reasoning") client.reasoning = "";
-    expect(turnPhase({ ...client, lastMessage: runningTool })).toBe("tool");
-    expect(turnPhase({ ...client, lastMessage: doneTool })).toBe("waiting");
+    const reset = streamResetFor(runningTool) === "reasoning" ? { signal: client.signal } : client;
+    expect(turnPhase({ ...reset, lastMessage: runningTool })).toBe("tool");
+    expect(turnPhase({ ...reset, lastMessage: doneTool })).toBe("waiting");
   });
 });
 

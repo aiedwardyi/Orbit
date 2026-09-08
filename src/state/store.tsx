@@ -41,7 +41,14 @@ import {
   shouldDropQueueChip,
   type AcceptedSends,
 } from "@/lib/send-accept";
-import { nextTurnSignals, streamResetFor, type TurnEvent, type TurnSignals } from "@/lib/turn-stage";
+import {
+  applyStreamDelta,
+  nextStreamState,
+  streamResetFor,
+  type StreamBuffers,
+  type TurnEvent,
+  type TurnSignals,
+} from "@/lib/turn-stage";
 
 export type { MausColor } from "@/lib/mascot";
 export type { RoutineRunCardData } from "../../shared/routine-run";
@@ -1641,7 +1648,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // state is intentionally OUTSIDE the reducer so token frames re-render
   // only StreamContext consumers
   const [stream, setStream] = useState<StreamState>(EMPTY_STREAM);
-  const deltaBuffer = useRef(new Map<string, { text: string; reasoning: string }>());
+  const deltaBuffer = useRef(new Map<string, StreamBuffers>());
   const deltaFlush = useRef<number | null>(null);
   // `reason` is what ended the stream, not just that it ended: only a turn
   // boundary or a rewind may also drop the thread's staging signal.
@@ -1655,11 +1662,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // duplicated tail instead of starting a fresh bubble.
     deltaBuffer.current.delete(threadId);
     setStream((prev) => {
-      const signal = nextTurnSignals(prev.signal, threadId, reason);
-      if (!(threadId in prev.streaming) && !(threadId in prev.reasoning) && signal === prev.signal) return prev;
-      const { [threadId]: _s, ...streaming } = prev.streaming;
-      const { [threadId]: _r, ...reasoning } = prev.reasoning;
-      return { streaming, reasoning, signal };
+      const next = nextStreamState(prev, threadId, reason);
+      return next === prev ? prev : next;
     });
   };
   // A tool call ends the model's reasoning block without ending the stream.
@@ -1667,7 +1671,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // to drop here or the label never leaves "Thinking" after a tool.
   const clearReasoning = (threadId: string) => {
     const pending = deltaBuffer.current.get(threadId);
-    if (pending) pending.reasoning = "";
+    if (pending) delete pending.reasoning; // "" still means that stream kind arrived
     setStream((prev) => {
       if (!(threadId in prev.reasoning)) return prev;
       const { [threadId]: _done, ...reasoning } = prev.reasoning;
@@ -1676,8 +1680,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
   const markTurnSignal = (threadId: string, event: TurnEvent) => {
     setStream((prev) => {
-      const signal = nextTurnSignals(prev.signal, threadId, event);
-      return signal === prev.signal ? prev : { ...prev, signal };
+      const next = nextStreamState(prev, threadId, event);
+      return next === prev ? prev : next;
     });
   };
   const flushDeltas = () => {
@@ -1693,8 +1697,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const streaming = { ...prev.streaming };
       const reasoning = { ...prev.reasoning };
       for (const [threadId, d] of entries) {
-        if (d.text) streaming[threadId] = (streaming[threadId] ?? "") + d.text;
-        if (d.reasoning) reasoning[threadId] = (reasoning[threadId] ?? "") + d.reasoning;
+        if (d.streaming !== undefined) streaming[threadId] = (streaming[threadId] ?? "") + d.streaming;
+        if (d.reasoning !== undefined) reasoning[threadId] = (reasoning[threadId] ?? "") + d.reasoning;
       }
       return { ...prev, streaming, reasoning };
     });
@@ -1763,7 +1767,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       })();
       // Read before rawDispatch paints optimistic busy. A send onto an idle
       // bot starts a turn; a send onto a busy one steers the running turn and
-      // must leave its signal alone.
+      // must leave its signal and leftover stream buffers alone.
       const sendStartsTurnOn = (() => {
         if (action.type !== "send") return undefined;
         const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
@@ -1829,7 +1833,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           // persist through the existing card route so an older server that
           // does not auto-dismiss still hides the quiz on this client
           if (quizBeforeSend) persistCard(action.botId, quizBeforeSend.id, { dismissed: true });
-          if (sendStartsTurnOn) markTurnSignal(sendStartsTurnOn, "sent");
+          if (sendStartsTurnOn) clearStream(sendStartsTurnOn, "sent");
           const threadId =
             action.threadId ?? stateRef.current.bots.find((bot) => bot.id === action.botId)?.threadId;
           const sendId = action.sendId;
@@ -2309,6 +2313,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             groups: groups ?? [],
             computerControl: computerControl ?? {},
           });
+          // Snapshot has busy, not StreamState.signal. Without SSE replay a
+          // dispatched turn would otherwise read Preparing for the whole wait.
+          for (const bot of bots) {
+            if (bot.busy) markTurnSignal(bot.threadId, "hydrated");
+          }
         });
       const peripherals = firstChatPeripherals(peripheralParts).map((part) => ({
         key: part.key,
@@ -2490,15 +2499,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             // stream dispatches once per frame instead of once per token, so
             // the app tree re-renders at most ~60x/s while streaming.
             const buf = deltaBuffer.current;
-            const entry = buf.get(event.threadId) ?? { text: "", reasoning: "" };
-            if (event.streamKind === "assistant_text") entry.text += event.delta;
-            else if (event.streamKind === "reasoning_text") entry.reasoning += event.delta;
-            buf.set(event.threadId, entry);
-            if (deltaFlush.current === null) {
-              deltaFlush.current = requestAnimationFrame(() => {
-                deltaFlush.current = null;
-                flushDeltas();
-              });
+            if (event.streamKind === "assistant_text" || event.streamKind === "reasoning_text") {
+              buf.set(
+                event.threadId,
+                applyStreamDelta(buf.get(event.threadId) ?? {}, event.streamKind, event.delta),
+              );
+              if (deltaFlush.current === null) {
+                deltaFlush.current = requestAnimationFrame(() => {
+                  deltaFlush.current = null;
+                  flushDeltas();
+                });
+              }
             }
           } else if (event.type === "turn.completed") {
             // flush any buffered tail before clearing so no tokens are lost

@@ -10,9 +10,27 @@ export type TurnSignal = "started" | "retrying";
 export type TurnSignals = Readonly<Record<string, TurnSignal>>;
 
 /** What just happened to a thread, in the vocabulary of the live event stream. */
-export type TurnEvent = "started" | "retrying" | "settled-message" | "rewound" | "completed" | "sent";
+export type TurnEvent = "started" | "retrying" | "settled-message" | "rewound" | "completed" | "sent" | "hydrated";
 
 export type TurnPhase = "preparing" | "waiting" | "retrying" | "reasoning" | "tool" | "responding";
+
+export type StreamKind = "assistant_text" | "reasoning_text";
+
+export type StreamBuffers = {
+  streaming?: string;
+  reasoning?: string;
+};
+
+export type TurnStreamState = {
+  streaming: Record<string, string>;
+  reasoning: Record<string, string>;
+  signal: TurnSignals;
+};
+
+/** Key present = that stream kind arrived; the payload may be "" while redaction holds it. */
+function receivedStream(value?: string): boolean {
+  return value !== undefined;
+}
 
 /**
  * Ordered so that evidence of progress outranks evidence of setup: a retry
@@ -26,9 +44,9 @@ export function turnPhase(input: {
   reasoning?: string;
 }): TurnPhase {
   const tool = input.lastMessage?.kind === "activity" ? input.lastMessage.tool : undefined;
-  if (input.streaming) return "responding";
+  if (receivedStream(input.streaming)) return "responding";
   if (tool && tool.ok === undefined) return "tool";
-  if (input.reasoning) return "reasoning";
+  if (receivedStream(input.reasoning)) return "reasoning";
   if (input.signal === "retrying") return "retrying";
   if (input.signal === "started") return "waiting";
   return "preparing";
@@ -51,6 +69,9 @@ export function nextTurnSignals(signals: TurnSignals, threadId: string, event: T
     case "started":
     case "retrying":
       return signals[threadId] === event ? signals : { ...signals, [threadId]: event };
+    case "hydrated":
+      // Snapshot has busy but not StreamState.signal. Don't clobber a live retry.
+      return threadId in signals ? signals : { ...signals, [threadId]: "started" };
     case "rewound":
     case "completed":
     case "sent": {
@@ -76,6 +97,41 @@ export function streamResetFor(message: { role?: string; kind?: string }): "stre
   if (message.role === "bot" && message.kind === "text") return "stream";
   if (message.kind === "activity") return "reasoning";
   return null;
+}
+
+/** Receipt of the stream kind, independent of whether redaction held the text. */
+export function applyStreamDelta(buffers: StreamBuffers, kind: StreamKind, delta: string): StreamBuffers {
+  if (kind === "assistant_text") return { ...buffers, streaming: (buffers.streaming ?? "") + delta };
+  return { ...buffers, reasoning: (buffers.reasoning ?? "") + delta };
+}
+
+/**
+ * `sent` / `completed` / `rewound` / a settled bubble drop leftover stream
+ * text. `started` / `retrying` / `hydrated` only touch the lifecycle signal,
+ * or a retry would wipe the tokens that should keep the label on Responding.
+ */
+export function nextStreamState(prev: TurnStreamState, threadId: string, event: TurnEvent): TurnStreamState {
+  const signal = nextTurnSignals(prev.signal, threadId, event);
+  switch (event) {
+    case "started":
+    case "retrying":
+    case "hydrated":
+      return signal === prev.signal ? prev : { ...prev, signal };
+    case "settled-message":
+    case "rewound":
+    case "completed":
+    case "sent": {
+      if (!(threadId in prev.streaming) && !(threadId in prev.reasoning) && signal === prev.signal) return prev;
+      const { [threadId]: _s, ...streaming } = prev.streaming;
+      const { [threadId]: _r, ...reasoning } = prev.reasoning;
+      return { ...prev, streaming, reasoning, signal };
+    }
+    default: {
+      const unhandled: never = event;
+      void unhandled;
+      return prev;
+    }
+  }
 }
 
 /** `toolLabel` stays authoritative for tools: it honours Show tool calls. */
