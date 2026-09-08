@@ -154,9 +154,21 @@ describe("chiefOfStaffSystemPrompt", () => {
     expect(prompt).toContain("list_bots");
     expect(prompt).toContain("ask_bot");
     expect(prompt).toContain("create_channel");
+    // list_bots is named only on the asked path
+    expect(prompt).toMatch(/If they ask[\s\S]*list_bots/);
     expect(prompt).toMatch(/Never scan the environment, ports, or processes/);
     expect(prompt).toMatch(/never invent localhost APIs/i);
     expect(prompt).not.toContain("create_bot");
+  });
+
+  it("leaves a peer free to answer an explicit roster question", () => {
+    for (const prompt of [peerAgentsSystemPrompt(), peerAgentsSystemPrompt(true)]) {
+      // the guard bars the unprompted survey, not "who is on my team?", which
+      // has no answer without list_bots
+      expect(prompt).toContain("asks who is on the team");
+      expect(prompt).toMatch(/asks who is on the team[\s\S]*list_bots/);
+      expect(prompt).not.toContain("unless the user asks you to involve one");
+    }
   });
 
   it("gives a non-Chief room member the same ask-vs-delegate steer", () => {
@@ -217,7 +229,7 @@ describe("1:1 turns mount the agents-tool channel path", () => {
     const start = index.indexOf("const tagged = integrations.agents");
     const slice = index.slice(start, start + 2500);
     expect(slice).toContain("peerAgentsSystemPrompt()");
-    expect(slice).not.toContain("You can work with the other bots in your section through the agents tools");
+    expect(slice).not.toContain("the agents tools reach the other bots in your section");
   });
 });
 
@@ -281,5 +293,9 @@ describe("a Chief with a team does not fan out unasked", () => {
     expect(chiefOfStaffSystemPrompt("chief", solo, true)).toMatch(/Never scan the environment/);
     expect(peerAgentsSystemPrompt()).not.toContain("Call the agents tools.");
     expect(peerAgentsSystemPrompt()).toMatch(/Never scan the environment/);
+    // a peer with agents tools gets the Chief's answer-directly guard too
+    expect(peerAgentsSystemPrompt()).toMatch(/Answer the user directly/i);
+    expect(peerAgentsSystemPrompt()).toContain("not to survey the team before answering");
+    expect(peerAgentsSystemPrompt(true)).toContain("not to survey the team before answering");
   });
 });
