@@ -4752,3 +4752,107 @@ describe("computer control API (who is driving)", () => {
     expect(res.status).toBe(401);
   });
 });
+// The retrieval-discipline block rides every turn, and the claude driver folds
+// --append-system-prompt into the warm-process argsKey. Two bots with
+// deliberately different turn state must therefore carry the same bytes here:
+// anything interpolated into the block costs a cold start on every send.
+describe("corpus search discipline instructions", () => {
+  const BLOCK_START = "When you search a corpus";
+  const BLOCK_END = "an unlucky query.";
+
+  const corpusBlock = (system: string): string => {
+    const start = system.indexOf(BLOCK_START);
+    expect(start).toBeGreaterThan(-1);
+    const end = system.indexOf(BLOCK_END, start);
+    expect(end).toBeGreaterThan(-1);
+    return system.slice(start, end + BLOCK_END.length);
+  };
+
+  const systemForTurn = async (botId: string, text: string): Promise<string> => {
+    rmSync(fakeClaudeDump, { force: true });
+    expect((await api("POST", `/api/bots/${botId}/messages`, { text })).status).toBe(202);
+    await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 10_000 }).toBe(true);
+    const dump = z.object({ argv: z.array(z.string()) }).parse(
+      JSON.parse(readFileSync(fakeClaudeDump, "utf8")),
+    );
+    await api("POST", `/api/bots/${botId}/interrupt`);
+    const at = dump.argv.indexOf("--append-system-prompt");
+    expect(at).toBeGreaterThan(-1);
+    return dump.argv[at + 1];
+  };
+
+  it("reaches the engine on every turn and stays byte-identical across turn states", async () => {
+    const plain = (await api("POST", "/api/bots")).body.bot;
+    const decorated = (await api("POST", "/api/bots")).body.bot;
+    try {
+      expect((await api("PATCH", `/api/bots/${plain.id}`, {
+        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      })).status).toBe(200);
+      expect((await api("PATCH", `/api/bots/${decorated.id}`, {
+        name: "Discovery",
+        title: "Paralegal",
+        description: "Reads OCR'd exhibits.",
+        section: "Work",
+        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      })).status).toBe(200);
+
+      const first = await systemForTurn(plain.id, "find the wire confirmation code");
+      const second = await systemForTurn(decorated.id, "who is BANQUE GENEVOISE SA");
+
+      expect(first).toContain("match case-insensitively");
+      expect(first).toContain("try at least one different search strategy or tool class");
+      expect(first).toContain("Never state an unqualified absence");
+      // the two prompts are genuinely different turns, so the comparison below
+      // is not two copies of one string
+      expect(second).not.toEqual(first);
+      expect(corpusBlock(second)).toBe(corpusBlock(first));
+    } finally {
+      await api("DELETE", `/api/bots/${plain.id}`);
+      await api("DELETE", `/api/bots/${decorated.id}`);
+    }
+  }, 30_000);
+  it("reaches a room turn as the same block, not a forked copy", async () => {
+    const lead = (await api("POST", "/api/bots")).body.bot;
+    const peer = (await api("POST", "/api/bots")).body.bot;
+    let room: { id: string } | undefined;
+    try {
+      for (const member of [lead, peer]) {
+        expect((await api("PATCH", `/api/bots/${member.id}`, {
+          modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        })).status).toBe(200);
+      }
+      const direct = await systemForTurn(lead.id, "find the wire confirmation code");
+
+      room = (await api("POST", "/api/groups", {
+        name: "Corpus discipline room",
+        memberIds: [lead.id, peer.id],
+        setup: { bulletin: "", defaultResponder: { kind: "member", botId: lead.id } },
+      })).body.group;
+      rmSync(fakeClaudeDump, { force: true });
+      expect((await api("POST", `/api/groups/${room!.id}/messages`, {
+        text: "who is BANQUE GENEVOISE SA",
+      })).status).toBe(202);
+      await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 10_000 }).toBe(true);
+      const dump = z.object({ argv: z.array(z.string()) }).parse(
+        JSON.parse(readFileSync(fakeClaudeDump, "utf8")),
+      );
+      const at = dump.argv.indexOf("--append-system-prompt");
+      expect(at).toBeGreaterThan(-1);
+      const roomPrompt = dump.argv[at + 1];
+
+      // the room assembles its own system, so this is the other path, not a
+      // second read of the 1:1 one
+      expect(roomPrompt).toContain('a bot in the room "Corpus discipline room"');
+      expect(roomPrompt).not.toEqual(direct);
+      expect(corpusBlock(roomPrompt)).toBe(corpusBlock(direct));
+    } finally {
+      if (room) {
+        await api("POST", `/api/groups/${room.id}/interrupt`, {}).catch(() => undefined);
+        await api("DELETE", `/api/groups/${room.id}`);
+      }
+      await api("POST", `/api/bots/${lead.id}/interrupt`).catch(() => undefined);
+      await api("DELETE", `/api/bots/${lead.id}`);
+      await api("DELETE", `/api/bots/${peer.id}`);
+    }
+  }, 30_000);
+});
