@@ -76,6 +76,35 @@ export function rememberStreamTail(tails: Record<string, string>, threadId: stri
   return { ...tails, [threadId]: messageId };
 }
 
+/** Live provider turn id per thread, from lifecycle events. */
+export function liveTurnIdAfter(
+  live: Record<string, string>,
+  threadId: string,
+  event: { type: string; turnId?: string },
+) {
+  if ((event.type === "turn.started" || event.type === "turn.retrying") && event.turnId) {
+    return live[threadId] === event.turnId ? live : { ...live, [threadId]: event.turnId };
+  }
+  if (event.type === "turn.completed") {
+    if (event.turnId && live[threadId] && live[threadId] !== event.turnId) return live;
+    if (!(threadId in live)) return live;
+    const { [threadId]: _ended, ...rest } = live;
+    return rest;
+  }
+  return live;
+}
+
+/** False when a stopped turn reports completion after a newer one is live. */
+export function isCurrentTurnCompletion(
+  live: Record<string, string>,
+  threadId: string,
+  eventTurnId?: string,
+): boolean {
+  const current = live[threadId];
+  if (!eventTurnId || !current) return true;
+  return current === eventTurnId;
+}
+
 /** Key present = that stream kind arrived; the payload may be "" while redaction holds it. */
 function receivedStream(value?: string): boolean {
   return value !== undefined;

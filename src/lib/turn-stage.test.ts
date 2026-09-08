@@ -8,6 +8,8 @@ import {
   applyStreamDelta,
   buffersForTurn,
   hydrationTurnThread,
+  isCurrentTurnCompletion,
+  liveTurnIdAfter,
   nextStreamState,
   nextTurnSignals,
   rememberStreamTail,
@@ -299,6 +301,24 @@ describe("turn-scoped buffers", () => {
     );
     expect(stamped.streaming.t1).toBe(" next");
     expect(stamped.turn?.t1).toBe("0:new");
+  });
+
+  it("keeps B's signal when A's completion arrives after B started", () => {
+    // Stop then resume on the same thread: the stopped provider can still
+    // report A's completion after B is live. Same ordering as
+    // turnCompletionDisposition's superseded case.
+    let live = liveTurnIdAfter({}, "t1", { type: "turn.started", turnId: "A" });
+    let state = nextStreamState(streamOf({}), "t1", "started");
+    state = nextStreamState(state, "t1", "dispatched");
+    state = nextStreamState(state, "t1", "started");
+    live = liveTurnIdAfter(live, "t1", { type: "turn.started", turnId: "B" });
+    expect(isCurrentTurnCompletion(live, "t1", "A")).toBe(false);
+    expect(isCurrentTurnCompletion(live, "t1", "B")).toBe(true);
+    const afterStale = isCurrentTurnCompletion(live, "t1", "A")
+      ? nextStreamState(state, "t1", "completed")
+      : state;
+    expect(afterStale.signal["t1"]).toBe("started");
+    expect(phaseOn(afterStale, user)).toBe("waiting");
   });
 });
 

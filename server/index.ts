@@ -2496,12 +2496,6 @@ async function startTurn(botId: string, text: string, opts?: StartTurnOptions) {
     throw busyRejection("the bot is already working - interrupt it first");
   }
   try {
-    const bot = store.bot(botId);
-    const threadId = opts?.threadId ?? bot?.threadId;
-    // Every 1:1 entry path funnels through here. Announce the new wait now
-    // so a resume, routine, delegation, or drain does not inherit the last
-    // turn's presence - the client never sees those HTTP call sites.
-    if (threadId) broadcast({ kind: "turn.dispatch", threadId });
     return await startClaimedTurn(botId, text, opts);
   } finally {
     turnStartClaims.delete(botId);
@@ -2535,6 +2529,9 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   else if (opts?.automationSource === undefined && !opts?.commsDepth && !opts?.cardContinuation) clearUnattended(bot.id);
   const task = store.taskByThread(bot.id, threadId);
   if (!task) throw Object.assign(new Error("no such task"), { status: 404 });
+  // Accepted: ownership and the task exist. Announce here so a busy peer
+  // (askBotAndWait) never clears a live wait that is not being replaced.
+  broadcast({ kind: "turn.dispatch", threadId });
   const commsDepth = opts?.commsDepth ?? 0;
   // a task takes its name from the first thing the user asked it to do —
   // never from a peer's opening line

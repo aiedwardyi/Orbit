@@ -45,6 +45,8 @@ import {
   applyStreamDelta,
   currentTurnId,
   hydrationTurnThread,
+  isCurrentTurnCompletion,
+  liveTurnIdAfter,
   nextStreamState,
   rememberStreamTail,
   streamResetFor,
@@ -1683,6 +1685,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
   };
   const streamTails = useRef<Record<string, string>>({});
+  const liveTurns = useRef<Record<string, string>>({});
   const lastMessageIdFor = (threadId: string): string => {
     if (streamTails.current[threadId]) return streamTails.current[threadId];
     const bot = stateRef.current.bots.find((candidate) => candidate.threadId === threadId);
@@ -2540,10 +2543,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               }
             }
           } else if (event.type === "turn.completed") {
+            if (!isCurrentTurnCompletion(liveTurns.current, event.threadId, event.turnId)) break;
+            liveTurns.current = liveTurnIdAfter(liveTurns.current, event.threadId, event);
             // flush any buffered tail before clearing so no tokens are lost
             flushDeltas();
             clearStream(event.threadId, "completed");
           } else if (event.type === "turn.started" || event.type === "turn.retrying") {
+            liveTurns.current = liveTurnIdAfter(liveTurns.current, event.threadId, event);
             markTurnSignal(event.threadId, event.type === "turn.started" ? "started" : "retrying");
           } else if (
             event.type === "account.rate-limits.updated" &&

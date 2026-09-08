@@ -4944,6 +4944,76 @@ describe("startTurn presence boundary", () => {
       await api("DELETE", `/api/bots/${bot.id}`).catch(() => undefined);
     }
   });
+
+  it("does not announce a wait when startTurn rejects a busy target", async () => {
+    const source = (await api("POST", "/api/bots", {})).body.bot;
+    const target = (await api("POST", "/api/bots", {})).body.bot;
+    const hanging = await hangingModel();
+    const stream = await openSse(`${BASE}/api/events`);
+    try {
+      expect((await api("PATCH", `/api/bots/${source.id}`, {
+        name: "Ask source",
+        modelSelection: { instanceId: "claude", model: hanging.models.default },
+      })).status).toBe(200);
+      expect((await api("PATCH", `/api/bots/${target.id}`, {
+        name: "Busy target",
+        modelSelection: { instanceId: "claude", model: hanging.models.default },
+      })).status).toBe(200);
+      rmSync(fakeClaudeDump, { force: true });
+      expect((await api("POST", `/api/bots/${source.id}/messages`, { text: "open the peer tools" })).status).toBe(202);
+      await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 5_000 }).toBe(true);
+      const dump = z.object({
+        mcpConfig: z.object({
+          mcpServers: z.object({
+            agents: z.object({ env: z.object({ OMB_COMMS_TOKEN: z.string() }) }),
+          }),
+        }),
+      }).parse(JSON.parse(readFileSync(fakeClaudeDump, "utf8")));
+      const token = dump.mcpConfig.mcpServers.agents.env.OMB_COMMS_TOKEN;
+      expect((await api("POST", `/api/bots/${source.id}/interrupt`, { threadId: source.threadId })).status).toBe(200);
+      await expect.poll(async () => {
+        const state = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+          (candidate: { id: string }) => candidate.id === source.id,
+        );
+        return state?.busy === false;
+      }).toBe(true);
+
+      expect((await api("POST", `/api/bots/${target.id}/messages`, { text: "keep working" })).status).toBe(202);
+      await stream.until((frame) => frame.kind === "turn.dispatch" && frame.threadId === target.threadId);
+      await expect.poll(async () => {
+        const state = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+          (candidate: { id: string }) => candidate.id === target.id,
+        );
+        return state?.busy;
+      }).toBe(true);
+      const before = stream.frames.filter(
+        (frame) => frame.kind === "turn.dispatch" && frame.threadId === target.threadId,
+      ).length;
+
+      const asked = await fetch(`${BASE}/api/internal/ask-bot`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          fromBotId: source.id,
+          fromThreadId: source.threadId,
+          toBotId: target.id,
+          message: "interrupt the live peer",
+        }),
+      });
+      expect(asked.status).toBe(200);
+      const body = z.object({ busy: z.boolean().optional(), text: z.string().optional() }).parse(await asked.json());
+      expect(body.busy === true || (body.text ?? "").includes("already working")).toBe(true);
+      expect(stream.frames.filter(
+        (frame) => frame.kind === "turn.dispatch" && frame.threadId === target.threadId,
+      ).length).toBe(before);
+    } finally {
+      stream.close();
+      await api("POST", `/api/bots/${source.id}/interrupt`, {}).catch(() => undefined);
+      await api("POST", `/api/bots/${target.id}/interrupt`, {}).catch(() => undefined);
+      await api("DELETE", `/api/bots/${source.id}`).catch(() => undefined);
+      await api("DELETE", `/api/bots/${target.id}`).catch(() => undefined);
+    }
+  });
 });
 // The retrieval-discipline block rides every turn, and the claude driver folds
 // --append-system-prompt into the warm-process argsKey. Two bots with
