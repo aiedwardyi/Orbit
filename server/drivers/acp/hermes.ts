@@ -4,13 +4,14 @@
 // without an OpenRouter key — that is the "HTTP 401: Missing Authentication
 // header" failure. Inject writes providers.<host> and session/set_model
 // `custom:<host>:<model>` instead.
-import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 
+import { applyCredentialAllowlist } from "../../config.ts";
 import type { ModelCatalog } from "../../contracts.ts";
+import { spawnCli } from "../../procs.ts";
 import { decodeInjectId, hostApiKey, INJECT_SEP, localHost, mergeLocalInject } from "../local-inject.ts";
 import { createAcpDriver, type AcpSupport } from "./core.ts";
 
@@ -265,12 +266,15 @@ async function fetchHermesAcpModels(
   env: Record<string, string | undefined>,
 ): Promise<{ id: string; label: string; custom: true }[]> {
   return await new Promise((resolve) => {
-    let child: ReturnType<typeof spawn>;
+    let child: ReturnType<typeof spawnCli>;
     try {
-      child = spawn(cli, ["acp"], { stdio: ["pipe", "pipe", "ignore"], env: env as NodeJS.ProcessEnv });
+      const childEnv = { ...env };
+      applyCredentialAllowlist(childEnv);
+      child = spawnCli(cli, ["acp"], { stdio: ["pipe", "pipe", "pipe"], env: childEnv as NodeJS.ProcessEnv });
     } catch {
       return resolve([]);
     }
+    child.stderr?.resume();
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let hardKillTimer: ReturnType<typeof setTimeout> | undefined;

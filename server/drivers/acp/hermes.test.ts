@@ -1,6 +1,7 @@
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { chmodSync, mkdtempSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { removeTempDir } from "../../testing/cleanup.ts";
@@ -8,10 +9,13 @@ import {
   HERMES_CONFIG_MODEL_ID,
   HERMES_OPENMAUS_SCREENSHOT_COMPAT,
   HERMES_OPENMAUS_SCREENSHOT_COMPAT_MODEL,
+  HermesAgentDriver,
   bindHermesScreenshotCompat,
   hermesAcpModelId,
   hermesConfiguredModel,
 } from "./hermes.ts";
+
+const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "testing", "fake-acp-cli.ts");
 
 describe("Hermes OpenMaus screenshot compatibility binding", () => {
   it("binds the exact leaf model for an injected local picker model", () => {
@@ -215,5 +219,45 @@ describe("hermesAcpModelId", () => {
 
   it("returns null for a bare word that names no provider", () => {
     expect(hermesAcpModelId("gpt-5")).toBeNull();
+  });
 });
+
+describe("HermesAgentDriver catalog child", () => {
+  const dirs: string[] = [];
+  afterEach(async () => {
+    for (const d of dirs.splice(0)) await removeTempDir(d);
+  });
+
+  it("drops ungranted tokens from the catalog session child", async () => {
+    chmodSync(FAKE_CLI, 0o755);
+    const root = mkdtempSync(join(tmpdir(), "omb-hermes-catalog-env-"));
+    dirs.push(root);
+    const hermesHome = join(root, ".hermes");
+    mkdirSync(hermesHome, { recursive: true });
+    writeFileSync(join(hermesHome, ".env"), "OPENROUTER_API_KEY=sk-or-synthetic\n");
+    writeFileSync(join(hermesHome, "config.yaml"), "model:\n  default: openrouter/test\n");
+    const dump = join(root, "catalog.json");
+    const instance = await HermesAgentDriver.create({
+      instanceId: "hermes-catalog-env",
+      displayName: "Hermes",
+      environment: {
+        HOME: root,
+        USERPROFILE: root,
+        HERMES_HOME: hermesHome,
+        FAKE_ACP_DUMP: dump,
+        UNSLOTH_STUDIO_AUTH_TOKEN: "unsloth-catalog-synthetic",
+        AWS_SECRET_ACCESS_KEY: "aws-catalog-synthetic",
+      },
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: false },
+    });
+    try {
+      const seen = JSON.parse(readFileSync(dump, "utf8")) as { argv: string[]; env: Record<string, string> };
+      expect(seen.argv).toEqual(["acp"]);
+      expect(seen.env.UNSLOTH_STUDIO_AUTH_TOKEN).toBeUndefined();
+      expect(seen.env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    } finally {
+      await instance.dispose();
+    }
+  });
 });

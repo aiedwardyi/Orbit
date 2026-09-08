@@ -288,4 +288,33 @@ describe("OpenCode catalog", () => {
       await removeTempDir(scratch);
     }
   });
+
+  it("keeps the OpenCode key on the models child and drops ungranted tokens", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "omb-opencode-catalog-env-"));
+    try {
+      const dump = join(scratch, "catalog.json");
+      const driver = createOpenCodeDriver();
+      const instance = await driver.create({
+        instanceId: "opencode-catalog-env",
+        displayName: "OpenCode",
+        environment: {
+          FAKE_ACP_DUMP: dump,
+          FAKE_ACP_MODELS: "opencode/x-preview-f-free",
+          OPENCODE_API_KEY: "opencode-key-synthetic",
+          UNSLOTH_STUDIO_AUTH_TOKEN: "unsloth-catalog-synthetic",
+          AWS_SECRET_ACCESS_KEY: "aws-catalog-synthetic",
+        },
+        enabled: true,
+        config: { cli: FAKE_CLI, fullAuto: false },
+      });
+      const seen = JSON.parse(readFileSync(dump, "utf8")) as { argv: string[]; env: Record<string, string> };
+      expect(seen.argv).toEqual(["models", "--verbose"]);
+      expect(seen.env.OPENCODE_API_KEY).toBe("opencode-key-synthetic");
+      expect(seen.env.UNSLOTH_STUDIO_AUTH_TOKEN).toBeUndefined();
+      expect(seen.env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+      await instance.dispose();
+    } finally {
+      await removeTempDir(scratch);
+    }
+  });
 });
