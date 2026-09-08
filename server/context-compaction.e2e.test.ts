@@ -1063,7 +1063,7 @@ describe("context compaction e2e", () => {
     expect(storedTaskPacket(ROOM_TASK.roomThreadId)).toMatchObject({
       botId: ROOM_TASK_SURVIVOR.botId,
       threadId: ROOM_TASK.roomThreadId,
-      flushReason: "pre-compaction",
+      flushReason: "progress",
     });
   }, 30_000);
 

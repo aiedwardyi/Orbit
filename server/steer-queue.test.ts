@@ -260,6 +260,16 @@ describe("steer-queue module", () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
+  it("carries a room instruction id through drain", () => {
+    const skye = fakeBot("skye-instr", "skye-instr-1to1", true);
+    const store = fakeStore([skye]);
+    queueRoomParticipation(skye.id, "room-instr", { groupId: "room-instr", instructionId: "msg-1" });
+    skye.busy = false;
+    const run = vi.fn();
+    drainSteeredMessages(store, run);
+    expect(run.mock.calls[0][5]).toEqual({ groupId: "room-instr", hop: 0, instructionId: "msg-1" });
+  });
+
   it("passes a room dispatch-error hook through drain without appending", () => {
     const skye = fakeBot("skye-card", "skye-card-1to1", true);
     const store = fakeStore([skye]);
