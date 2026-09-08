@@ -6,11 +6,14 @@ import { describe, expect, it } from "vitest";
 import { liveActivityLabel } from "./live-activity";
 import {
   applyStreamDelta,
+  buffersForTurn,
+  hydrationTurnThread,
   nextStreamState,
   nextTurnSignals,
   streamResetFor,
   turnPhase,
   turnStageLabel,
+  type TurnStreamState,
   type TurnSignals,
 } from "./turn-stage";
 import type { Message } from "@/state/store";
@@ -124,6 +127,7 @@ describe("nextTurnSignals", () => {
     expect(nextTurnSignals(signals, "t1", "settled-message")).toBe(signals);
     expect(nextTurnSignals(signals, "t2", "completed")).toBe(signals);
     expect(nextTurnSignals(signals, "t2", "sent")).toBe(signals);
+    expect(nextTurnSignals(signals, "t2", "edited")).toBe(signals);
     expect(nextTurnSignals(signals, "t1", "hydrated")).toBe(signals);
   });
 
@@ -170,6 +174,92 @@ describe("nextStreamState", () => {
     expect(turnPhase({ signal: next.signal["t1"], lastMessage: user, streaming: next.streaming["t1"] })).toBe(
       "responding",
     );
+  });
+});
+
+const requestCard: Message = {
+  id: "opt",
+  at: 3,
+  role: "bot",
+  kind: "options",
+  card: { title: "Allow?", subtitle: "", options: ["Allow", "Deny"], requestId: "r1" },
+};
+const resolvedCard: Message = {
+  ...requestCard,
+  card: { ...requestCard.card!, answered: "Allow" },
+};
+
+const streamOf = (partial: Partial<TurnStreamState>): TurnStreamState => ({
+  streaming: {},
+  reasoning: {},
+  signal: {},
+  gen: {},
+  turn: {},
+  ...partial,
+});
+
+const phaseOn = (state: TurnStreamState, last: Message) =>
+  turnPhase({
+    signal: state.signal["t1"],
+    lastMessage: last,
+    ...buffersForTurn(state, "t1", last.id),
+  });
+
+describe("turn-scoped buffers", () => {
+  it("drops leftover stream text when an edit starts the next turn", () => {
+    // A killed turn left partial tokens. editMessage never passes through
+    // the send-only boundary, so the next wait must not inherit them.
+    const killed = streamOf({
+      streaming: { t1: "partial" },
+      reasoning: { t1: "hmm" },
+      signal: { t1: "started" },
+      turn: { t1: `0:${user.id}` },
+    });
+    const next = nextStreamState(killed, "t1", "edited");
+    expect(phaseOn(next, user)).toBe("preparing");
+    expect(next.streaming).not.toHaveProperty("t1");
+    expect(next.reasoning).not.toHaveProperty("t1");
+  });
+
+  it("returns Waiting after a request card interrupts reasoning and is resolved", () => {
+    // request.opened appends an options message; request.resolved only
+    // patches the card. The pre-card reasoning is not this wait's.
+    const duringReasoning = streamOf({
+      reasoning: { t1: "hmm" },
+      signal: { t1: "started" },
+      turn: { t1: `0:${user.id}` },
+    });
+    expect(phaseOn(duringReasoning, user)).toBe("reasoning");
+    expect(phaseOn(duringReasoning, requestCard)).toBe("waiting");
+    expect(phaseOn(duringReasoning, resolvedCard)).toBe("waiting");
+  });
+
+  it("lets a running tool win after a non-resumable busy snapshot follows a delta", () => {
+    // Client saw assistant text, disconnected, snapshot ends in a running
+    // tool. Streaming outranks tools, so a kept buffer would read Responding.
+    const prev = streamOf({
+      streaming: { t1: "The" },
+      signal: { t1: "started" },
+      turn: { t1: `0:${user.id}` },
+    });
+    const next = nextStreamState(prev, "t1", "hydrated");
+    expect(phaseOn(next, runningTool)).toBe("tool");
+    expect(next.streaming).not.toHaveProperty("t1");
+  });
+
+  it("does not stamp started on a personal thread when the bot is busy in a channel", () => {
+    const thread = hydrationTurnThread({ id: "bot-1", busy: true, threadId: "personal" }, [
+      { busyBotId: "bot-1" },
+    ]);
+    expect(thread).toBeUndefined();
+    expect(turnPhase({ lastMessage: user, signal: thread ? "started" : undefined })).toBe("preparing");
+  });
+
+  it("still backfills started when the busy work is on this thread", () => {
+    expect(hydrationTurnThread({ id: "bot-1", busy: true, threadId: "personal" }, [])).toBe("personal");
+    expect(
+      turnPhase({ lastMessage: user, signal: nextTurnSignals({}, "personal", "hydrated")["personal"] }),
+    ).toBe("waiting");
   });
 });
 

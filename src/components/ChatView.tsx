@@ -41,7 +41,7 @@ import { stateForBot } from "@/lib/mascot";
 import { transcriptIdleAfterOnboarding } from "@/lib/conversation-preview";
 import { turnPresenceWaiting } from "@/lib/send-accept";
 import { liveActivityLabel } from "@/lib/live-activity";
-import { turnPhase, turnStageLabel } from "@/lib/turn-stage";
+import { buffersForTurn, turnPhase, turnStageLabel } from "@/lib/turn-stage";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
 import { ApprovalCard } from "./ApprovalCard";
@@ -837,8 +837,6 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
   const composerDock = useComposerDockPad(composerDockRef);
 
   const stream = useStreaming();
-  const streaming = stream.streaming[bot.threadId];
-  const reasoning = stream.reasoning[bot.threadId];
   const provisioning = state.provisioning[bot.id];
   const activeTask = bot.tasks?.find((task) => task.threadId === bot.threadId);
   const engine = state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId);
@@ -926,6 +924,9 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
   // is finished, the whole bubble pops in above the mascot. The label is what
   // differentiates the wait, so deltas stage it without ever painting text.
   const lastMessage = messages.at(-1);
+  const live = buffersForTurn(stream, bot.threadId, lastMessage?.id);
+  const streaming = live.streaming;
+  const reasoning = live.reasoning;
   const toolInFlight = lastMessage?.kind === "activity" && lastMessage.tool?.ok === undefined;
   const showToolCalls = showToolCallsEnabled(state.config);
   const activityLabel = turnStageLabel(

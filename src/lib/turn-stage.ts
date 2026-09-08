@@ -10,7 +10,15 @@ export type TurnSignal = "started" | "retrying";
 export type TurnSignals = Readonly<Record<string, TurnSignal>>;
 
 /** What just happened to a thread, in the vocabulary of the live event stream. */
-export type TurnEvent = "started" | "retrying" | "settled-message" | "rewound" | "completed" | "sent" | "hydrated";
+export type TurnEvent =
+  | "started"
+  | "retrying"
+  | "settled-message"
+  | "rewound"
+  | "completed"
+  | "sent"
+  | "hydrated"
+  | "edited";
 
 export type TurnPhase = "preparing" | "waiting" | "retrying" | "reasoning" | "tool" | "responding";
 
@@ -25,7 +33,40 @@ export type TurnStreamState = {
   streaming: Record<string, string>;
   reasoning: Record<string, string>;
   signal: TurnSignals;
+  /** Client wait generation. Bumped when a turn starts before the tail moves. */
+  gen?: Record<string, number>;
+  /** Identity the current buffers were written under, per thread. */
+  turn?: Record<string, string>;
 };
+
+/** Identity of the wait on screen: generation plus the transcript tail. */
+export function currentTurnId(
+  state: Pick<TurnStreamState, "gen">,
+  threadId: string,
+  lastMessageId?: string,
+): string {
+  return `${state.gen?.[threadId] ?? 0}:${lastMessageId ?? ""}`;
+}
+
+/** Discard buffers that do not belong to this thread's current wait. */
+export function buffersForTurn(
+  state: Pick<TurnStreamState, "streaming" | "reasoning" | "gen" | "turn">,
+  threadId: string,
+  lastMessageId?: string,
+): StreamBuffers {
+  if ((state.turn?.[threadId] ?? "") !== currentTurnId(state, threadId, lastMessageId)) return {};
+  return { streaming: state.streaming[threadId], reasoning: state.reasoning[threadId] };
+}
+
+/** Thread to backfill from a busy snapshot, or none if the work may be elsewhere. */
+export function hydrationTurnThread(
+  bot: { id: string; busy?: boolean; threadId: string },
+  groups: readonly { busyBotId?: string | null }[],
+): string | undefined {
+  if (!bot.busy) return undefined;
+  if (groups.some((group) => group.busyBotId === bot.id)) return undefined;
+  return bot.threadId;
+}
 
 /** Key present = that stream kind arrived; the payload may be "" while redaction holds it. */
 function receivedStream(value?: string): boolean {
@@ -57,10 +98,10 @@ export function turnPhase(input: {
  * boundary: a bot finishes a preamble and keeps working, so clearing there
  * would drop a running turn back to "Preparing".
  *
- * "sent" is what bounds the scope. A turn can die without ever emitting
- * turn.completed — the stall watchdog's grace fallback and a provider reload
- * both settle killed turns silently — so the next send that starts a turn
- * drops whatever the last one left behind, whichever way it ended.
+ * "sent" / "edited" bound the scope. A turn can die without ever emitting
+ * turn.completed - the stall watchdog's grace fallback and a provider reload
+ * both settle killed turns silently - so the next client action that starts
+ * a turn drops whatever the last one left behind, whichever way it ended.
  */
 export function nextTurnSignals(signals: TurnSignals, threadId: string, event: TurnEvent): TurnSignals {
   switch (event) {
@@ -74,7 +115,8 @@ export function nextTurnSignals(signals: TurnSignals, threadId: string, event: T
       return threadId in signals ? signals : { ...signals, [threadId]: "started" };
     case "rewound":
     case "completed":
-    case "sent": {
+    case "sent":
+    case "edited": {
       if (!(threadId in signals)) return signals;
       const { [threadId]: _ended, ...rest } = signals;
       return rest;
@@ -105,33 +147,82 @@ export function applyStreamDelta(buffers: StreamBuffers, kind: StreamKind, delta
   return { ...buffers, reasoning: (buffers.reasoning ?? "") + delta };
 }
 
+function bumpedGen(prev: TurnStreamState, threadId: string) {
+  return { ...prev.gen, [threadId]: (prev.gen?.[threadId] ?? 0) + 1 };
+}
+
+function withoutThreadBuffers(
+  prev: TurnStreamState,
+  threadId: string,
+  signal: TurnSignals,
+  gen: Record<string, number> | undefined = prev.gen,
+): TurnStreamState {
+  const hasTurn = Boolean(prev.turn && threadId in prev.turn);
+  if (
+    !(threadId in prev.streaming) &&
+    !(threadId in prev.reasoning) &&
+    !hasTurn &&
+    signal === prev.signal &&
+    gen === prev.gen
+  ) {
+    return prev;
+  }
+  const { [threadId]: _s, ...streaming } = prev.streaming;
+  const { [threadId]: _r, ...reasoning } = prev.reasoning;
+  const { [threadId]: _t, ...turn } = prev.turn ?? {};
+  return { ...prev, streaming, reasoning, turn, signal, gen };
+}
+
 /**
- * `sent` / `completed` / `rewound` / a settled bubble drop leftover stream
- * text. `started` / `retrying` / `hydrated` only touch the lifecycle signal,
- * or a retry would wipe the tokens that should keep the label on Responding.
+ * Buffers belong to one wait. `sent` / `edited` bump generation because those
+ * start a turn before the transcript tail moves. `hydrated` drops them because
+ * the snapshot is authoritative and does not include ephemeral stream text.
+ * `started` / `retrying` only touch the lifecycle signal, or a retry would
+ * wipe the tokens that should keep the label on Responding.
  */
 export function nextStreamState(prev: TurnStreamState, threadId: string, event: TurnEvent): TurnStreamState {
   const signal = nextTurnSignals(prev.signal, threadId, event);
   switch (event) {
     case "started":
     case "retrying":
-    case "hydrated":
       return signal === prev.signal ? prev : { ...prev, signal };
+    case "hydrated":
+    case "sent":
+    case "edited":
+      return withoutThreadBuffers(prev, threadId, signal, bumpedGen(prev, threadId));
     case "settled-message":
     case "rewound":
     case "completed":
-    case "sent": {
-      if (!(threadId in prev.streaming) && !(threadId in prev.reasoning) && signal === prev.signal) return prev;
-      const { [threadId]: _s, ...streaming } = prev.streaming;
-      const { [threadId]: _r, ...reasoning } = prev.reasoning;
-      return { ...prev, streaming, reasoning, signal };
-    }
+      return withoutThreadBuffers(prev, threadId, signal);
     default: {
       const unhandled: never = event;
       void unhandled;
       return prev;
     }
   }
+}
+
+/** Write a delta into the current wait; a different wait starts a fresh buffer. */
+export function writeStreamDelta(
+  prev: TurnStreamState,
+  threadId: string,
+  delta: StreamBuffers,
+  currentTurn: string,
+): TurnStreamState {
+  const same = prev.turn?.[threadId] === currentTurn;
+  const streaming = { ...prev.streaming };
+  const reasoning = { ...prev.reasoning };
+  if (delta.streaming !== undefined) {
+    streaming[threadId] = (same ? (streaming[threadId] ?? "") : "") + delta.streaming;
+  } else if (!same) {
+    delete streaming[threadId];
+  }
+  if (delta.reasoning !== undefined) {
+    reasoning[threadId] = (same ? (reasoning[threadId] ?? "") : "") + delta.reasoning;
+  } else if (!same) {
+    delete reasoning[threadId];
+  }
+  return { ...prev, streaming, reasoning, turn: { ...prev.turn, [threadId]: currentTurn } };
 }
 
 /** `toolLabel` stays authoritative for tools: it honours Show tool calls. */

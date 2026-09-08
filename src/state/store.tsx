@@ -43,11 +43,14 @@ import {
 } from "@/lib/send-accept";
 import {
   applyStreamDelta,
+  currentTurnId,
+  hydrationTurnThread,
   nextStreamState,
   streamResetFor,
+  writeStreamDelta,
   type StreamBuffers,
   type TurnEvent,
-  type TurnSignals,
+  type TurnStreamState,
 } from "@/lib/turn-stage";
 
 export type { MausColor } from "@/lib/mascot";
@@ -1615,16 +1618,8 @@ export async function loadSnapshotBoundary<Key extends string>(
  * the components that read this hook (the chat's streaming tail), while every
  * useStore consumer — sidebar, mascots, pickers, the settled transcript —
  * keeps its render tree untouched during a stream. */
-interface StreamState {
-  /** in-flight assistant text per threadId */
-  streaming: Record<string, string>;
-  /** in-flight extended thinking per threadId (ephemeral) */
-  reasoning: Record<string, string>;
-  /** last turn-lifecycle signal per threadId — stages the presence label */
-  signal: TurnSignals;
-}
-const EMPTY_STREAM: StreamState = { streaming: {}, reasoning: {}, signal: {} };
-const StreamContext = createContext<StreamState>(EMPTY_STREAM);
+const EMPTY_STREAM: TurnStreamState = { streaming: {}, reasoning: {}, signal: {}, gen: {}, turn: {} };
+const StreamContext = createContext<TurnStreamState>(EMPTY_STREAM);
 
 export function useStreaming() {
   return useContext(StreamContext);
@@ -1647,8 +1642,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // per-frame stream-delta batching (see the "runtime" SSE case); stream
   // state is intentionally OUTSIDE the reducer so token frames re-render
   // only StreamContext consumers
-  const [stream, setStream] = useState<StreamState>(EMPTY_STREAM);
-  const deltaBuffer = useRef(new Map<string, StreamBuffers>());
+  const [stream, setStream] = useState<TurnStreamState>(EMPTY_STREAM);
+  const deltaBuffer = useRef(new Map<string, StreamBuffers & { tail: string }>());
   const deltaFlush = useRef<number | null>(null);
   // `reason` is what ended the stream, not just that it ended: only a turn
   // boundary or a rewind may also drop the thread's staging signal.
@@ -1684,6 +1679,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return next === prev ? prev : next;
     });
   };
+  const lastMessageIdFor = (threadId: string): string => {
+    const bot = stateRef.current.bots.find((candidate) => candidate.threadId === threadId);
+    if (bot) return visibleMessages(bot).at(-1)?.id ?? "";
+    const group = stateRef.current.groups.find((candidate) => candidate.threadId === threadId);
+    return group?.messages.at(-1)?.id ?? "";
+  };
   const flushDeltas = () => {
     if (deltaFlush.current !== null) {
       cancelAnimationFrame(deltaFlush.current);
@@ -1694,13 +1695,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const entries = [...buf];
     buf.clear();
     setStream((prev) => {
-      const streaming = { ...prev.streaming };
-      const reasoning = { ...prev.reasoning };
+      let next = prev;
       for (const [threadId, d] of entries) {
-        if (d.streaming !== undefined) streaming[threadId] = (streaming[threadId] ?? "") + d.streaming;
-        if (d.reasoning !== undefined) reasoning[threadId] = (reasoning[threadId] ?? "") + d.reasoning;
+        const tail = lastMessageIdFor(threadId);
+        if (d.tail !== tail) continue;
+        next = writeStreamDelta(next, threadId, d, currentTurnId(next, threadId, tail));
       }
-      return { ...prev, streaming, reasoning };
+      return next;
     });
   };
 
@@ -1900,12 +1901,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             });
           break;
         }
-        case "editMessage":
+        case "editMessage": {
+          const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
+          if (bot) clearStream(bot.threadId, "edited");
           api(`/api/bots/${action.botId}/messages/${action.messageId}/edit`, {
             method: "POST",
             body: JSON.stringify({ text: action.text }),
           }).catch(showError);
           break;
+        }
         case "switchBranch":
           api(`/api/bots/${action.botId}/active-branch`, {
             method: "POST",
@@ -2315,8 +2319,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           });
           // Snapshot has busy, not StreamState.signal. Without SSE replay a
           // dispatched turn would otherwise read Preparing for the whole wait.
+          // The public bot payload strips activeThreadId, so bot.threadId is
+          // not proof the work is here - skip when a channel claims this bot.
           for (const bot of bots) {
-            if (bot.busy) markTurnSignal(bot.threadId, "hydrated");
+            const threadId = hydrationTurnThread(bot, groups ?? []);
+            if (threadId) markTurnSignal(threadId, "hydrated");
           }
         });
       const peripherals = firstChatPeripherals(peripheralParts).map((part) => ({
@@ -2500,10 +2507,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             // the app tree re-renders at most ~60x/s while streaming.
             const buf = deltaBuffer.current;
             if (event.streamKind === "assistant_text" || event.streamKind === "reasoning_text") {
-              buf.set(
-                event.threadId,
-                applyStreamDelta(buf.get(event.threadId) ?? {}, event.streamKind, event.delta),
-              );
+              const tail = lastMessageIdFor(event.threadId);
+              const pending = buf.get(event.threadId);
+              const base = pending?.tail === tail ? pending : { tail };
+              buf.set(event.threadId, { ...applyStreamDelta(base, event.streamKind, event.delta), tail });
               if (deltaFlush.current === null) {
                 deltaFlush.current = requestAnimationFrame(() => {
                   deltaFlush.current = null;
