@@ -18,7 +18,8 @@ export type TurnEvent =
   | "completed"
   | "sent"
   | "hydrated"
-  | "edited";
+  | "edited"
+  | "dispatched";
 
 export type TurnPhase = "preparing" | "waiting" | "retrying" | "reasoning" | "tool" | "responding";
 
@@ -60,12 +61,19 @@ export function buffersForTurn(
 
 /** Thread to backfill from a busy snapshot, or none if the work may be elsewhere. */
 export function hydrationTurnThread(
-  bot: { id: string; busy?: boolean; threadId: string },
-  groups: readonly { busyBotId?: string | null }[],
+  bot: { id?: string; busy?: boolean; threadId: string; workingThreadId?: string | null },
+  groups: readonly { busyBotId?: string | null }[] = [],
 ): string | undefined {
   if (!bot.busy) return undefined;
-  if (groups.some((group) => group.busyBotId === bot.id)) return undefined;
-  return bot.threadId;
+  if (bot.workingThreadId) return bot.workingThreadId;
+  if (bot.id && groups.some((group) => group.busyBotId === bot.id)) return undefined;
+  return undefined;
+}
+
+/** Last visible message id as frames fold, including before React commits. */
+export function rememberStreamTail(tails: Record<string, string>, threadId: string, messageId: string) {
+  if (tails[threadId] === messageId) return tails;
+  return { ...tails, [threadId]: messageId };
 }
 
 /** Key present = that stream kind arrived; the payload may be "" while redaction holds it. */
@@ -116,7 +124,8 @@ export function nextTurnSignals(signals: TurnSignals, threadId: string, event: T
     case "rewound":
     case "completed":
     case "sent":
-    case "edited": {
+    case "edited":
+    case "dispatched": {
       if (!(threadId in signals)) return signals;
       const { [threadId]: _ended, ...rest } = signals;
       return rest;
@@ -174,8 +183,10 @@ function withoutThreadBuffers(
 }
 
 /**
- * Buffers belong to one wait. `sent` / `edited` bump generation because those
- * start a turn before the transcript tail moves. `hydrated` drops them because
+ * Buffers belong to one wait. `sent` / `edited` / `dispatched` bump generation
+ * because those start a turn before the transcript tail moves. `dispatched`
+ * is what startTurn broadcasts, so resume/routine/delegation/drain are
+ * covered without enumerating HTTP call sites. `hydrated` drops them because
  * the snapshot is authoritative and does not include ephemeral stream text.
  * `started` / `retrying` only touch the lifecycle signal, or a retry would
  * wipe the tokens that should keep the label on Responding.
@@ -189,6 +200,7 @@ export function nextStreamState(prev: TurnStreamState, threadId: string, event: 
     case "hydrated":
     case "sent":
     case "edited":
+    case "dispatched":
       return withoutThreadBuffers(prev, threadId, signal, bumpedGen(prev, threadId));
     case "settled-message":
     case "rewound":

@@ -10,9 +10,11 @@ import {
   hydrationTurnThread,
   nextStreamState,
   nextTurnSignals,
+  rememberStreamTail,
   streamResetFor,
   turnPhase,
   turnStageLabel,
+  writeStreamDelta,
   type TurnStreamState,
   type TurnSignals,
 } from "./turn-stage";
@@ -128,6 +130,7 @@ describe("nextTurnSignals", () => {
     expect(nextTurnSignals(signals, "t2", "completed")).toBe(signals);
     expect(nextTurnSignals(signals, "t2", "sent")).toBe(signals);
     expect(nextTurnSignals(signals, "t2", "edited")).toBe(signals);
+    expect(nextTurnSignals(signals, "t2", "dispatched")).toBe(signals);
     expect(nextTurnSignals(signals, "t1", "hydrated")).toBe(signals);
   });
 
@@ -256,10 +259,46 @@ describe("turn-scoped buffers", () => {
   });
 
   it("still backfills started when the busy work is on this thread", () => {
-    expect(hydrationTurnThread({ id: "bot-1", busy: true, threadId: "personal" }, [])).toBe("personal");
+    expect(
+      hydrationTurnThread({ id: "bot-1", busy: true, threadId: "personal", workingThreadId: "personal" }),
+    ).toBe("personal");
     expect(
       turnPhase({ lastMessage: user, signal: nextTurnSignals({}, "personal", "hydrated")["personal"] }),
     ).toBe("waiting");
+  });
+
+  it("stamps the routine thread when a busy bot is viewed on another task", () => {
+    expect(
+      hydrationTurnThread({
+        id: "bot-1",
+        busy: true,
+        threadId: "personal",
+        workingThreadId: "routine",
+      }),
+    ).toBe("routine");
+  });
+
+  it("drops leftover stream text when startTurn dispatches a replacement wait", () => {
+    const killed = streamOf({
+      streaming: { t1: "partial" },
+      signal: { t1: "started" },
+      turn: { t1: `0:${user.id}` },
+    });
+    const next = nextStreamState(killed, "t1", "dispatched");
+    expect(phaseOn(next, user)).toBe("preparing");
+  });
+
+  it("assigns a delta to the message that preceded it in the same fold", () => {
+    const tails = rememberStreamTail({ t1: "old" }, "t1", "new");
+    expect(tails.t1).toBe("new");
+    const stamped = writeStreamDelta(
+      streamOf({ turn: { t1: "0:old" }, streaming: { t1: "The" }, signal: { t1: "started" } }),
+      "t1",
+      { streaming: " next" },
+      `0:${tails.t1}`,
+    );
+    expect(stamped.streaming.t1).toBe(" next");
+    expect(stamped.turn?.t1).toBe("0:new");
   });
 });
 

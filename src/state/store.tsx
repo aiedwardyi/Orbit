@@ -46,6 +46,7 @@ import {
   currentTurnId,
   hydrationTurnThread,
   nextStreamState,
+  rememberStreamTail,
   streamResetFor,
   writeStreamDelta,
   type StreamBuffers,
@@ -269,6 +270,8 @@ export interface Bot {
   avatarCrop?: BotAvatarCrop;
   unread: boolean;
   busy?: boolean;
+  /** Thread startTurn is actually running, when busy. Null if idle or unknown. */
+  workingThreadId?: string | null;
   /** what the bot is doing, as the harness sees it; busy is derived from it */
   activity?: "working" | "waiting-on-you" | "idle" | "no-signal" | "dead";
   modelSelection: ModelSelection;
@@ -1679,11 +1682,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return next === prev ? prev : next;
     });
   };
+  const streamTails = useRef<Record<string, string>>({});
   const lastMessageIdFor = (threadId: string): string => {
+    if (streamTails.current[threadId]) return streamTails.current[threadId];
     const bot = stateRef.current.bots.find((candidate) => candidate.threadId === threadId);
     if (bot) return visibleMessages(bot).at(-1)?.id ?? "";
     const group = stateRef.current.groups.find((candidate) => candidate.threadId === threadId);
     return group?.messages.at(-1)?.id ?? "";
+  };
+  const noteStreamTail = (threadId: string, messageId?: string) => {
+    if (!threadId || !messageId) return;
+    streamTails.current = rememberStreamTail(streamTails.current, threadId, messageId);
   };
   const flushDeltas = () => {
     if (deltaFlush.current !== null) {
@@ -2319,11 +2328,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           });
           // Snapshot has busy, not StreamState.signal. Without SSE replay a
           // dispatched turn would otherwise read Preparing for the whole wait.
-          // The public bot payload strips activeThreadId, so bot.threadId is
-          // not proof the work is here - skip when a channel claims this bot.
+          // workingThreadId is the thread startTurn actually claimed.
           for (const bot of bots) {
+            const last = visibleMessages({
+              messages: bot.messages ?? [],
+              activeLeafId: bot.activeLeafId,
+            }).at(-1)?.id;
+            noteStreamTail(bot.threadId, last);
             const threadId = hydrationTurnThread(bot, groups ?? []);
             if (threadId) markTurnSignal(threadId, "hydrated");
+          }
+          for (const group of groups ?? []) {
+            noteStreamTail(group.threadId, group.messages?.at(-1)?.id);
           }
         });
       const peripherals = firstChatPeripherals(peripheralParts).map((part) => ({
@@ -2390,8 +2406,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         bumpPeripheralVersion("webhooks");
       }
       switch (frame.kind) {
+        case "turn.dispatch":
+          if (frame.threadId) clearStream(frame.threadId, "dispatched");
+          break;
         case "message": {
           rawDispatch({ type: "messageAdded", threadId: frame.threadId, message: frame.message });
+          noteStreamTail(frame.threadId, frame.message?.id);
           if (frame.message?.role === "user" && typeof frame.message.queueId === "string") {
             rawDispatch({
               type: "consumePendingQueued",
@@ -2428,6 +2448,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           rawDispatch({ type: "threadActive", threadId: frame.threadId, activeLeafId: frame.activeLeafId });
           // a rewind also invalidates any half-streamed text from the old branch
           clearStream(frame.threadId, "rewound");
+          if (frame.activeLeafId) noteStreamTail(frame.threadId, frame.activeLeafId);
           break;
         case "task.packet":
           rawDispatch({ type: "taskPacket", threadId: frame.threadId, packet: frame.packet });

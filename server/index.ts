@@ -748,6 +748,10 @@ const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
     // bot, not just by thread — the bot is what owns one process, and Stop
     // has already cleared the thread it was working on.
     busy: Boolean(rest.busy) || botHasLiveTurn(bot.id, activeThreadId ?? rest.threadId),
+    // Presence is per-thread. startTurn sets activeThreadId; without it a
+    // busy snapshot must not invent a wait on bot.threadId (routines and
+    // channels run elsewhere).
+    workingThreadId: activeThreadId ?? null,
     avatarUrl: rest.avatarUrl ?? null,
     // null, not omitted: a cleared folder must overwrite a stale client cwd
     cwd: rest.cwd ?? null,
@@ -2492,6 +2496,12 @@ async function startTurn(botId: string, text: string, opts?: StartTurnOptions) {
     throw busyRejection("the bot is already working - interrupt it first");
   }
   try {
+    const bot = store.bot(botId);
+    const threadId = opts?.threadId ?? bot?.threadId;
+    // Every 1:1 entry path funnels through here. Announce the new wait now
+    // so a resume, routine, delegation, or drain does not inherit the last
+    // turn's presence - the client never sees those HTTP call sites.
+    if (threadId) broadcast({ kind: "turn.dispatch", threadId });
     return await startClaimedTurn(botId, text, opts);
   } finally {
     turnStartClaims.delete(botId);
