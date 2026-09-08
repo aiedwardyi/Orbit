@@ -2011,15 +2011,20 @@ bus.subscribe((event: RuntimeEvent) => {
           }));
         }
       }
+      // Room turns now read superseded/interrupted too, and both derive from
+      // this bookkeeping — so a room thread has to retire a settled turn the
+      // same way a 1:1 one does. Left behind, the entry outlives its turn and
+      // the next Stop on this thread marks a dead turn id instead of arming
+      // pendingInterruptThreads for the turn actually being stopped.
+      if (event.turnId) interruptedTurnIds.delete(event.turnId);
+      if (!event.turnId || liveTurnIdByThread.get(event.threadId) === event.turnId) {
+        liveTurnIdByThread.delete(event.threadId);
+      }
       if (bot) {
         const vpsTurn = activeVpsThreads.get(bot.id) === event.threadId;
         const clearVpsTurn = () => {
           if (activeVpsThreads.get(bot.id) === event.threadId) activeVpsThreads.delete(bot.id);
         };
-        if (event.turnId) interruptedTurnIds.delete(event.turnId);
-        if (!event.turnId || liveTurnIdByThread.get(event.threadId) === event.turnId) {
-          liveTurnIdByThread.delete(event.threadId);
-        }
         if (!superseded) {
           // settled → idle; a setup failure already marked it dead, keep that
           if (store.bot(bot.id)?.activity !== "dead") store.setActivity(bot.id, "idle");

@@ -55,6 +55,12 @@ beforeAll(async () => {
           environment: { FAKE_CLAUDE_MODE: "happy" },
           config: { cli: FAKE_CLAUDE_CLI },
         },
+        claudeHang: {
+          driver: "claudeAgent",
+          displayName: "Fixture Claude Hang",
+          environment: { FAKE_CLAUDE_MODE: "hang" },
+          config: { cli: FAKE_CLAUDE_CLI },
+        },
       },
     }),
   );
@@ -130,5 +136,50 @@ describe("room task-state fold", () => {
       () => packet(group.threadId).completed.length,
       { timeout: 20_000 },
     ).toBe(2);
+  }, 60_000);
+
+  it("keeps a stopped room turn recorded as a stop", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    const instances = (await api("GET", "/api/instances")).body.instances;
+    const pick = (id: string) => z.object({ default: z.string() }).parse(
+      instances.find((instance: { instanceId: string }) => instance.instanceId === id).models,
+    ).default;
+
+    expect((await api("PATCH", `/api/bots/${bot.id}`, {
+      modelSelection: { instanceId: "claudeHappy", model: pick("claudeHappy") },
+    })).status).toBe(200);
+    const group = (await api("POST", "/api/groups", {
+      name: "Stop room",
+      memberIds: [bot.id],
+      setup: { bulletin: "", defaultResponder: { kind: "member", botId: bot.id } },
+    })).body.group;
+
+    // one clean room turn first, so the thread carries the turn bookkeeping
+    // a following turn has to be told apart from
+    expect((await api("POST", `/api/groups/${group.id}/messages`, {
+      text: `@${bot.name} first pass`,
+    })).status).toBe(202);
+    await expect.poll(() => packet(group.threadId).flushReason, { timeout: 20_000 }).toBe("turn-end");
+
+    expect((await api("PATCH", `/api/bots/${bot.id}`, {
+      modelSelection: { instanceId: "claudeHang", model: pick("claudeHang") },
+    })).status).toBe(200);
+    expect((await api("POST", `/api/groups/${group.id}/messages`, {
+      text: `@${bot.name} second pass`,
+    })).status).toBe(202);
+    await expect.poll(async () => {
+      const rooms = (await api("GET", "/api/bots?messages=0")).body.groups;
+      return rooms.find((candidate: { id: string }) => candidate.id === group.id)?.working;
+    }, { timeout: 20_000 }).toBe(true);
+
+    expect((await api("POST", `/api/groups/${group.id}/interrupt`, {})).status).toBe(200);
+    await expect.poll(async () => {
+      const rooms = (await api("GET", "/api/bots?messages=0")).body.groups;
+      return rooms.find((candidate: { id: string }) => candidate.id === group.id)?.working;
+    }, { timeout: 20_000 }).toBe(false);
+
+    const stopped = packet(group.threadId);
+    expect(stopped.flushReason).toBe("stop");
+    expect(stopped.completed.length).toBe(1);
   }, 60_000);
 });
