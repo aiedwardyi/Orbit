@@ -733,7 +733,7 @@ const wireTask = ({
 const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
   const {
     resumeCursors: _resumeCursors,
-    activeThreadId: _activeThreadId,
+    activeThreadId,
     projectFolderClearedAt: _projectFolderClearedAt,
     lastProjectCwd,
     tasks,
@@ -741,6 +741,11 @@ const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
   } = bot;
   return {
     ...rest,
+    // A stopped bot is not ready until its driver lets the thread go: a
+    // client that reads `busy: false` sends immediately, and a send inside
+    // that gap is refused by the driver. Clients queue on busy, so the
+    // honest answer holds the message and the settle drains it.
+    busy: Boolean(rest.busy) || threadHasLiveTurn(activeThreadId ?? rest.threadId),
     avatarUrl: rest.avatarUrl ?? null,
     // null, not omitted: a cleared folder must overwrite a stale client cwd
     cwd: rest.cwd ?? null,
@@ -2416,15 +2421,32 @@ const CORPUS_SEARCH_INSTRUCTIONS =
 
 const turnStartClaims = new Set<string>();
 
+/** A driver still owns this thread's turn, so its sendTurn would throw.
+ * Stop clears `busy` and the turn-start claim synchronously, but the driver
+ * only releases the thread when the turn settles — up to the cancel grace it
+ * gives an engine that has been asked to wind down. Every readiness answer
+ * has to come through here, or a turn started inside that gap is refused by
+ * the driver after the harness has already committed a user message. */
+function threadHasLiveTurn(threadId: string): boolean {
+  return registry.instances().some((instance) => instance.adapter.hasSession(threadId));
+}
+
 function tryClaimTurnStart(botId: string): boolean {
   if (turnStartClaims.has(botId)) return false;
   turnStartClaims.add(botId);
   return true;
 }
 
-function botHasActiveTurn(botId: string): boolean {
-  return turnStartClaims.has(botId) || Boolean(store.bot(botId)?.busy);
+function botHasActiveTurn(botId: string, threadId?: string): boolean {
+  if (turnStartClaims.has(botId)) return true;
+  const bot = store.bot(botId);
+  if (!bot) return false;
+  return Boolean(bot.busy) || threadHasLiveTurn(threadId ?? bot.activeThreadId ?? bot.threadId);
 }
+
+/** A startTurn 409 that means "not yet", not "never": the caller holds its
+ * card and dispatches again when the bot settles. */
+const isBusyRejection = (message: string) => /already working|still stopping/i.test(message);
 
 async function startTurn(botId: string, text: string, opts?: StartTurnOptions) {
   if (!tryClaimTurnStart(botId)) {
@@ -2448,6 +2470,14 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   }
   if (bot.busy) throw Object.assign(new Error("the bot is already working — interrupt it first"), { status: 409 });
   const threadId = opts?.threadId ?? bot.threadId;
+  // Every dispatch funnels through here, so this is where the driver's own
+  // answer is checked — one gate no caller can miss. Refusing before the
+  // user message is appended is the whole point: past this line the turn is
+  // committed to the transcript, and a sendTurn that throws leaves a
+  // message the engine never saw.
+  if (threadHasLiveTurn(threadId)) {
+    throw Object.assign(new Error("the bot is still stopping its last turn — try again in a moment"), { status: 409 });
+  }
   // a webhook turn, or one inherited from a bot already running unattended
   if (opts?.automationSource === "webhook" || opts?.unattended) markUnattended(bot.id);
   // a person typing into this bot ends the unattended window immediately
@@ -3594,7 +3624,7 @@ async function runGroupMemberTurn(
     ? group.threadId === threadId
     : Boolean(group && store.groupTaskByThread(group.id, threadId));
   if (!group || !bot || !ownsThread) return false;
-  if (botHasActiveTurn(botId) || !tryClaimTurnStart(botId)) {
+  if (botHasActiveTurn(botId, threadId) || !tryClaimTurnStart(botId)) {
     return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError);
   }
   let claimHeld = true;
@@ -3776,7 +3806,8 @@ async function runClaimedGroupMemberTurn(
   // one bot can never own two provider processes.
   const readyBot = store.bot(bot.id);
   if (!readyBot) return false;
-  if (readyBot.busy) {
+  // the room's own dispatch site: startClaimedTurn's gate never sees it
+  if (readyBot.busy || threadHasLiveTurn(threadId)) {
     return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError);
   }
   store.setActivity(bot.id, "working", threadId);
@@ -4211,7 +4242,7 @@ function dispatchConnectorResume(entry: { botId: string; threadId: string; resum
     onDispatchError: (message) => markConnectorResumeFailed(entry.threadId, entry.resumeKey, message),
   }).catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
-    if (/already working/i.test(message)) pendingConnectorResumes.set(`${entry.threadId}:${entry.resumeKey}`, entry);
+    if (isBusyRejection(message)) pendingConnectorResumes.set(`${entry.threadId}:${entry.resumeKey}`, entry);
     else markConnectorResumeFailed(entry.threadId, entry.resumeKey, message);
   });
 }
@@ -4230,7 +4261,7 @@ function maybeResumeConnectors(botId: string, threadId: string, resumeKey: strin
 
 function drainConnectorResumes() {
   for (const [key, entry] of pendingConnectorResumes) {
-    if (store.bot(entry.botId)?.busy) continue;
+    if (botHasActiveTurn(entry.botId, entry.threadId)) continue;
     pendingConnectorResumes.delete(key);
     dispatchConnectorResume(entry);
   }
@@ -4312,7 +4343,7 @@ function dispatchSecretResume(entry: SecretResumeEntry) {
     onDispatchError: (message) => markSecretResumeFailed(entry.threadId, entry.messageId, message),
   }).catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
-    if (/already working/i.test(message)) {
+    if (isBusyRejection(message)) {
       pendingSecretResumes.set(`${entry.threadId}:${entry.messageId}`, entry);
     } else {
       markSecretResumeFailed(entry.threadId, entry.messageId, message);
@@ -4339,7 +4370,7 @@ function resumeSecretCard(botId: string, threadId: string, messageId: string, ou
 
 function drainSecretResumes() {
   for (const [key, entry] of pendingSecretResumes) {
-    if (store.bot(entry.botId)?.busy) continue;
+    if (botHasActiveTurn(entry.botId, entry.threadId)) continue;
     pendingSecretResumes.delete(key);
     dispatchSecretResume(entry);
   }
@@ -7049,7 +7080,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // everything from here down is synchronous, so two racing edits can
       // never both get past this check: startTurn acquires the turn-start
       // claim before the next request is handled
-      if (botHasActiveTurn(bot.id)) return json(res, 409, { error: "the bot is working — stop it before editing" });
+      if (botHasActiveTurn(bot.id, bot.threadId)) {
+        return json(res, 409, { error: "the bot is working — stop it before editing" });
+      }
       const source = store.messagesFor(bot.threadId).find((msg) => msg.id === messageId);
       if (!source || source.role !== "user" || source.kind !== "text") {
         return json(res, 404, { error: "only user messages can be edited" });

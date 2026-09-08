@@ -559,7 +559,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         const interrupt = () => {
           if (sessionId) send({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId } });
           else stop();
-          if (interruptTimer) clearTimeout(interruptTimer);
+          // armed once: the grace runs from the FIRST cancel, so pressing
+          // Stop again cannot push the settle further out
+          if (interruptTimer) return;
           interruptTimer = setTimeout(() => settle(true, "cancelled"), 5_000);
           interruptTimer.unref?.();
         };
