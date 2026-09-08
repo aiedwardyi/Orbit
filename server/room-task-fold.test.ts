@@ -6,7 +6,9 @@
 // The real claudeAgent driver is used deliberately: its hasSession reports
 // live thread ownership, unlike the in-memory fake driver's constant false.
 import { spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,6 +43,7 @@ const packet = (threadId: string) => z.object({
   settledInstructionId: z.string().optional(),
   completed: z.array(z.object({ note: z.string(), at: z.number() })),
   evidence: z.array(z.object({ kind: z.string(), ref: z.string(), note: z.string().optional() })),
+  blockers: z.array(z.object({ kind: z.string(), note: z.string() })),
   flushReason: z.string(),
 }).passthrough().parse(JSON.parse(
   readFileSync(join(home, ".orbit", "task-state", `${threadId}.json`), "utf8"),
@@ -54,6 +57,7 @@ beforeAll(async () => {
     join(home, ".orbit", "config.json"),
     JSON.stringify({
       instances: {
+        ghost: { driver: "not-a-real-driver", displayName: "Ghost" },
         claudeHappy: {
           driver: "claudeAgent",
           displayName: "Fixture Claude Happy",
@@ -195,4 +199,129 @@ describe("room task-state fold", () => {
     expect(held.nextAction).toContain("second instruction");
     expect(held.evidence.some((item) => item.kind === "tool")).toBe(false);
   }, 60_000);
+
+  it("clears a room turn's blocker after a later instruction is queued", async () => {
+    const instances = (await api("GET", "/api/instances")).body.instances;
+    const pick = (id: string) => z.object({ default: z.string() }).parse(
+      instances.find((instance: { instanceId: string }) => instance.instanceId === id).models,
+    ).default;
+    const makeBot = async (instanceId: string) => {
+      const made = (await api("POST", "/api/bots")).body.bot;
+      expect((await api("PATCH", `/api/bots/${made.id}`, {
+        modelSelection: { instanceId, model: pick(instanceId) },
+      })).status).toBe(200);
+      return made;
+    };
+
+    const waiting = await makeBot("claudeHang");
+    const queued = await makeBot("claudeHang");
+    const group = (await api("POST", "/api/groups", {
+      name: "Blocker room",
+      memberIds: [waiting.id, queued.id],
+      setup: { bulletin: "", defaultResponder: { kind: "member", botId: waiting.id } },
+    })).body.group;
+
+    expect((await api("POST", `/api/groups/${group.id}/messages`, {
+      text: "first instruction",
+    })).status).toBe(202);
+    await expect.poll(async () => {
+      const rooms = (await api("GET", "/api/bots?messages=0")).body.groups;
+      return rooms.find((candidate: { id: string }) => candidate.id === group.id)?.busyBotId;
+    }, { timeout: 20_000 }).toBe(waiting.id);
+
+    const conn = await connectPermissionBroker(group.threadId);
+    conn.write(JSON.stringify({ t: "ask", id: "ask-room-1", tool: "Bash", input: { command: "rm -rf scratch" } }) + "\n");
+    await expect.poll(
+      () => packet(group.threadId).blockers.some((item) => item.kind === "approval" && item.note === "rm -rf scratch"),
+      { timeout: 20_000 },
+    ).toBe(true);
+
+    const next = await api("POST", `/api/groups/${group.id}/messages`, {
+      text: `@${queued.name} second instruction`,
+    });
+    expect(next.status, JSON.stringify(next.body)).toBe(202);
+    const queuedId = next.body.message.id as string;
+    await expect.poll(() => packet(group.threadId).instructionId, { timeout: 10_000 }).toBe(queuedId);
+    expect(packet(group.threadId).blockers.some((item) => item.kind === "approval")).toBe(true);
+
+    expect((await api("POST", `/api/threads/${group.threadId}/respond`, {
+      requestId: "ask-room-1",
+      behavior: "allow",
+    })).status).toBe(200);
+    await expect.poll(
+      () => packet(group.threadId).blockers.some((item) => item.kind === "approval" || item.kind === "input"),
+      { timeout: 20_000 },
+    ).toBe(false);
+    conn.destroy();
+  }, 60_000);
+
+  it("drops a room binding when setup fails before sendTurn", async () => {
+    const instances = (await api("GET", "/api/instances")).body.instances;
+    const happy = z.object({ default: z.string() }).parse(
+      instances.find((instance: { instanceId: string }) => instance.instanceId === "claudeHappy").models,
+    ).default;
+    const ghostBot = (await api("POST", "/api/bots")).body.bot;
+    expect((await api("PATCH", `/api/bots/${ghostBot.id}`, {
+      modelSelection: { instanceId: "ghost", model: "ghost-1" },
+    })).status).toBe(200);
+    const liveBot = (await api("POST", "/api/bots")).body.bot;
+    expect((await api("PATCH", `/api/bots/${liveBot.id}`, {
+      modelSelection: { instanceId: "claudeHappy", model: happy },
+    })).status).toBe(200);
+
+    const group = (await api("POST", "/api/groups", {
+      name: "Setup fail room",
+      memberIds: [ghostBot.id, liveBot.id],
+      setup: { bulletin: "", defaultResponder: { kind: "member", botId: ghostBot.id } },
+    })).body.group;
+    expect((await api("POST", `/api/groups/${group.id}/messages`, {
+      text: `@${ghostBot.name} first instruction`,
+    })).status).toBe(202);
+    await expect.poll(async () => {
+      const messages = (await api("GET", `/api/threads/${group.threadId}/messages`)).body.messages as { tool?: { name?: string } }[];
+      return messages.some((message) => message.tool?.name === `error: ${ghostBot.name}'s model is unavailable`);
+    }, { timeout: 20_000 }).toBe(true);
+
+    const sent = await api("POST", `/api/groups/${group.id}/messages`, {
+      text: `@${liveBot.name} second instruction`,
+    });
+    expect(sent.status, JSON.stringify(sent.body)).toBe(202);
+    await expect.poll(async () => {
+      const messages = (await api("GET", `/api/threads/${group.threadId}/messages`)).body.messages as { text?: string }[];
+      return messages.some((message) => message.text?.includes("hello from fake claude"));
+    }, { timeout: 20_000 }).toBe(true);
+    expect(packet(group.threadId).evidence.some((item) => item.kind === "tool" && item.note === "Bash")).toBe(true);
+  }, 60_000);
 });
+
+function connectPermissionBroker(threadId: string): Promise<Socket> {
+  const prefix = threadId.replace(/[^\w-]/g, "").slice(0, 4);
+  const digest = createHash("sha256").update(threadId).digest("hex").slice(0, 4);
+  const pid = child.pid;
+  if (!pid) throw new Error("server pid missing");
+  const path = process.platform === "win32"
+    ? `\\\\.\\pipe\\openmausbot-perm-${pid}-${prefix}${digest}`
+    : join(home, ".orbit", `perm-${prefix}${digest}.sock`);
+  return new Promise((resolve, reject) => {
+    let retriesLeft = 40;
+    const tryConnect = () => {
+      const conn = connect(path);
+      const onConnect = () => {
+        conn.removeListener("error", onError);
+        resolve(conn);
+      };
+      const onError = (error: NodeJS.ErrnoException) => {
+        conn.removeListener("connect", onConnect);
+        conn.destroy();
+        if (retriesLeft-- > 0) {
+          setTimeout(tryConnect, 50);
+          return;
+        }
+        reject(error);
+      };
+      conn.once("connect", onConnect);
+      conn.once("error", onError);
+    };
+    tryConnect();
+  });
+}

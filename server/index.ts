@@ -1939,7 +1939,8 @@ bus.subscribe((event: RuntimeEvent) => {
         if (event.requestId) askMessageByRequest.delete(`${event.threadId}:${event.requestId}`);
       }
       const packet = turnOwnerId ? taskPacketForWrite(event.threadId) : null;
-      if (packet && turnOwnsTaskPacket(event.threadId, packet)) {
+      // Clearing is this turn finishing its own blocker, not writing onto the current instruction.
+      if (packet) {
         const clearedApprovals = clearTaskBlockers(packet, {
           kind: "approval",
           now: eventTime(event),
@@ -3744,6 +3745,10 @@ async function runClaimedGroupMemberTurn(
   const dispatchedInstructionId = instructionId ?? taskPacketForWrite(threadId)?.instructionId;
   if (dispatchedInstructionId) roomTurnInstruction.set(threadId, dispatchedInstructionId);
   else roomTurnInstruction.delete(threadId);
+  // sendTurn emits turn.completed, which drops the binding. Every other
+  // exit from this function must drop it too, or a failed setup leaks it.
+  let keepRoomTurnInstruction = false;
+  try {
   let selection: ModelSelection;
   try {
     selection = await resolvedBotSelection(bot);
@@ -3993,6 +3998,7 @@ async function runClaimedGroupMemberTurn(
     // pass resumeCursor — they are Grok-flat. 1:1 CLI forever-chats go
     // through startClaimedTurn, which recycles the native session after
     // Orbit compaction or a pre-compact fat soak.
+    keepRoomTurnInstruction = true;
     dispatchAdapterTurn(threadId, () => instance.adapter.sendTurn({
         threadId,
         text,
@@ -4033,6 +4039,7 @@ async function runClaimedGroupMemberTurn(
   if (outcome === "dispatch_failed") {
     // No turn.completed follows a rejected room dispatch. Anything that was
     // queued while this bot briefly owned the room must be retried now.
+    keepRoomTurnInstruction = false;
     drainQueuedSends();
     drainConnectorResumes();
     drainSecretResumes();
@@ -4052,6 +4059,9 @@ async function runClaimedGroupMemberTurn(
     }
   }
   return true;
+  } finally {
+    if (!keepRoomTurnInstruction) roomTurnInstruction.delete(threadId);
+  }
 }
 
 function startGroupCardContinuation(groupId: string, threadId: string, botId: string, prompt: string) {
