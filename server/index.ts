@@ -1206,10 +1206,12 @@ const turnEpochByBot = new Map<string, number>();
 const liveTurnIdByThread = new Map<string, string>();
 // Room thread → the instruction id its running turn was dispatched against.
 const roomTurnInstruction = new Map<string, string>();
-// Turns that emitted turn.completed before sendTurn resolved, so the
-// post-send `.then` must not restore them as live.
-const completedBeforeLive = new Set<string>();
 const interruptedTurnIds = new Set<string>();
+
+function turnOwnsTaskPacket(threadId: string, packet: { instructionId?: string } | null | undefined): boolean {
+  const bound = roomTurnInstruction.get(threadId);
+  return !bound || packet?.instructionId === bound;
+}
 const pendingInterruptThreads = new Set<string>();
 const adapterTurnByThread = new Map<string, Promise<unknown>>();
 const ADAPTER_TURN_HANDOFF_MS = 8_000;
@@ -1614,8 +1616,8 @@ bus.subscribe((event: RuntimeEvent) => {
   const group = bot ? undefined : store.groupByThread(event.threadId);
   if (!bot && !group) return;
   const speaker = group ? groupSpeakers.get(event.threadId) : undefined;
-  // Who this turn belongs to. The task packet is keyed on the thread, so a
-  // room turn folds exactly like a 1:1 one once the speaking member is named.
+  // Who this turn belongs to. Room evidence and blockers fold once the
+  // speaking member is named. Completion stays 1:1-only.
   const turnOwnerId = bot?.id ?? speaker?.botId;
 
   // turn.completed is emitted after the driver's own active.delete, so the
@@ -1658,14 +1660,18 @@ bus.subscribe((event: RuntimeEvent) => {
           toolMessageByItem.delete(itemKey);
         }
         const packet = turnOwnerId && event.ok && messageId ? taskPacketForWrite(event.threadId) : null;
-        if (packet && messageId) {
-          queueTaskPacket(recordTaskEvidence(packet, {
+        if (packet && messageId && turnOwnsTaskPacket(event.threadId, packet)) {
+          const next = recordTaskEvidence(packet, {
             kind: "tool",
             ref: messageId,
             note: toolName,
             now: eventTime(event),
             lastEventId: event.eventId,
-          }));
+          });
+          // 1:1 completion persist flushes the debounce queue. Rooms have no
+          // completion fold, so evidence has to land now or it never does.
+          if (bot) queueTaskPacket(next);
+          else persistTaskPacket(next);
         }
         // the bot just acted ON ITS SCREEN — refresh the preview now. Only
         // computer tools can change the screen, and each capture competes
@@ -1764,7 +1770,7 @@ bus.subscribe((event: RuntimeEvent) => {
             });
             askMessageByRequest.set(`${event.threadId}:${requestId}`, card.id);
             const packet = turnOwnerId ? taskPacketForWrite(event.threadId) : null;
-            if (packet) {
+            if (packet && turnOwnsTaskPacket(event.threadId, packet)) {
               persistTaskPacket(recordTaskBlocker(packet, {
                 kind: "approval",
                 note: summary,
@@ -1817,7 +1823,7 @@ bus.subscribe((event: RuntimeEvent) => {
       });
       if (event.requestId) askMessageByRequest.set(`${event.threadId}:${event.requestId}`, message.id);
       const packet = turnOwnerId ? taskPacketForWrite(event.threadId) : null;
-      if (packet) {
+      if (packet && turnOwnsTaskPacket(event.threadId, packet)) {
         persistTaskPacket(recordTaskBlocker(packet, {
           kind: permission ? "approval" : "input",
           note: event.summary,
@@ -1933,7 +1939,7 @@ bus.subscribe((event: RuntimeEvent) => {
         if (event.requestId) askMessageByRequest.delete(`${event.threadId}:${event.requestId}`);
       }
       const packet = turnOwnerId ? taskPacketForWrite(event.threadId) : null;
-      if (packet) {
+      if (packet && turnOwnsTaskPacket(event.threadId, packet)) {
         const clearedApprovals = clearTaskBlockers(packet, {
           kind: "approval",
           now: eventTime(event),
@@ -1979,69 +1985,53 @@ bus.subscribe((event: RuntimeEvent) => {
       lastReply.delete(event.threadId);
       const lastReported = turnUsage.get(event.threadId);
       turnUsage.delete(event.threadId);
-      const dispatched = turnDispatchedAt.get(event.threadId) ?? 0;
-      const interruptedAt = turnInterruptedAt.get(event.threadId) ?? 0;
-      const { superseded, interrupted } = turnCompletionDisposition({
-        eventTurnId: event.turnId,
-        liveTurnId: liveTurnIdByThread.get(event.threadId),
-        interruptedTurnIds,
-        interruptedAt,
-        dispatchedAt: dispatched,
-        stopReason: event.stopReason,
-      });
-      const boundInstruction = roomTurnInstruction.get(event.threadId);
       roomTurnInstruction.delete(event.threadId);
-      // bank what this turn spent before the bot broadcast carries the
-      // task list to every window. The driver's own per-turn figure
-      // (turn.completed.usage) is authoritative; a driver that only
-      // streams the running indicator falls back to its last value. Group
-      // turns run on the room's thread — a shared room's spend is not the
-      // speaking bot's, so only 1:1 task turns are tallied for now.
-      const tokens = event.usage ?? lastReported;
-      const usage = bot
-        ? store.addTaskUsage(bot.id, event.threadId, {
-            input: tokens?.input,
-            output: tokens?.output,
-            cachedInput: tokens?.cachedInput,
-            costUsd: event.cost ?? null,
-          })
-        : null;
-      if (!superseded) {
-        const packet = turnOwnerId ? taskPacketForWrite(event.threadId) : null;
-        // A record that has moved on describes an instruction this turn never
-        // ran; settling it would mark undispatched work finished, carrying
-        // this turn's reply. Leave the mismatch unfolded.
-        const ownsRecord = !boundInstruction || packet?.instructionId === boundInstruction;
-        if (packet && ownsRecord) {
-          persistTaskPacket(recordTaskCompletion(packet, {
-            ok: event.ok,
-            reply,
-            messageId: settledReply?.messageId,
-            now: eventTime(event),
-            lastEventId: event.eventId,
-            turnsAtWrite: usage?.turns ?? packet.turnsAtWrite,
-            interrupted,
-          }));
-        }
-      }
-      // Room turns now read superseded/interrupted too, and both derive from
-      // this bookkeeping — so a room thread has to retire a settled turn the
-      // same way a 1:1 one does. Left behind, the entry outlives its turn and
-      // the next Stop on this thread marks a dead turn id instead of arming
-      // pendingInterruptThreads for the turn actually being stopped.
-      if (event.turnId) interruptedTurnIds.delete(event.turnId);
-      const liveTurnId = liveTurnIdByThread.get(event.threadId);
-      if (!event.turnId || liveTurnId === event.turnId) {
-        liveTurnIdByThread.delete(event.threadId);
-      } else if (event.turnId && liveTurnId === undefined) {
-        completedBeforeLive.add(event.turnId);
-      }
+      // group turns run on the room's thread - the speaking bot's task
+      // tally is not the right home for a shared room's spend, so only
+      // 1:1 task turns are tallied for now.
       if (bot) {
         const vpsTurn = activeVpsThreads.get(bot.id) === event.threadId;
         const clearVpsTurn = () => {
           if (activeVpsThreads.get(bot.id) === event.threadId) activeVpsThreads.delete(bot.id);
         };
+        // bank what this turn spent before the bot broadcast carries the
+        // task list to every window. The driver's own per-turn figure
+        // (turn.completed.usage) is authoritative; a driver that only
+        // streams the running indicator falls back to its last value.
+        const tokens = event.usage ?? lastReported;
+        const usage = store.addTaskUsage(bot.id, event.threadId, {
+          input: tokens?.input,
+          output: tokens?.output,
+          cachedInput: tokens?.cachedInput,
+          costUsd: event.cost ?? null,
+        });
+        const dispatched = turnDispatchedAt.get(event.threadId) ?? 0;
+        const interruptedAt = turnInterruptedAt.get(event.threadId) ?? 0;
+        const { superseded, interrupted } = turnCompletionDisposition({
+          eventTurnId: event.turnId,
+          liveTurnId: liveTurnIdByThread.get(event.threadId),
+          interruptedTurnIds,
+          interruptedAt,
+          dispatchedAt: dispatched,
+          stopReason: event.stopReason,
+        });
+        if (event.turnId) interruptedTurnIds.delete(event.turnId);
+        if (!event.turnId || liveTurnIdByThread.get(event.threadId) === event.turnId) {
+          liveTurnIdByThread.delete(event.threadId);
+        }
         if (!superseded) {
+          const packet = taskPacketForWrite(event.threadId);
+          if (packet) {
+            persistTaskPacket(recordTaskCompletion(packet, {
+              ok: event.ok,
+              reply,
+              messageId: settledReply?.messageId,
+              now: eventTime(event),
+              lastEventId: event.eventId,
+              turnsAtWrite: usage?.turns ?? packet.turnsAtWrite,
+              interrupted,
+            }));
+          }
           // settled → idle; a setup failure already marked it dead, keep that
           if (store.bot(bot.id)?.activity !== "dead") store.setActivity(bot.id, "idle");
           clearSendRunning(bot.id);
@@ -3572,6 +3562,7 @@ function queueBusyRoomMember(
   spoken: Set<string>,
   cardContinuation?: string,
   onDispatchError?: (message: string) => void,
+  instructionId?: string,
 ): true {
   spoken.add(bot.id);
   queueRoomParticipation(bot.id, threadId, {
@@ -3579,6 +3570,7 @@ function queueBusyRoomMember(
     hop,
     cardContinuation,
     onDispatchError,
+    instructionId,
   });
   return true;
 }
@@ -3594,14 +3586,14 @@ function roomTurnStillAssigned(groupId: string, threadId: string, botId: string)
 function enqueueDrainedRoomTurn(
   botId: string,
   threadId: string,
-  room: { groupId: string; hop: number; cardContinuation?: string; onDispatchError?: (message: string) => void },
+  room: { groupId: string; hop: number; cardContinuation?: string; onDispatchError?: (message: string) => void; instructionId?: string },
 ) {
   const fail = (message: string) => room.onDispatchError?.(message);
   if (!roomTurnStillAssigned(room.groupId, threadId, botId)) {
     fail("the room is no longer available");
     return;
   }
-  const operation = beginGroupTurnOperation(room.groupId, threadId);
+  const operation = beginGroupTurnOperation(room.groupId, threadId, room.instructionId);
   const previous = groupQueues.get(room.groupId) ?? Promise.resolve();
   const next = previous.then(async () => {
     if (operation.cancelled) {
@@ -3626,6 +3618,7 @@ function enqueueDrainedRoomTurn(
       room.cardContinuation,
       room.onDispatchError,
       () => operation.cancelled,
+      operation.instructionId,
     );
   });
   const tracked = next.finally(() => finishGroupTurnOperation(room.groupId, operation));
@@ -3694,7 +3687,7 @@ async function runGroupMemberTurn(
     : Boolean(group && store.groupTaskByThread(group.id, threadId));
   if (!group || !bot || !ownsThread) return false;
   if (botHasActiveTurn(botId, threadId) || !tryClaimTurnStart(botId)) {
-    return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError);
+    return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError, instructionId);
   }
   let claimHeld = true;
   const releaseTurnStart = () => {
@@ -3744,11 +3737,13 @@ async function runClaimedGroupMemberTurn(
   spoken.add(botId);
   const userName = cfg.profile?.name?.trim() || "User";
   if (bot.busy) {
-    return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError);
+    return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError, instructionId);
   }
   // Capture before any await. startGroupTurn persists the next instruction
   // on arrival, so a re-read after setup binds this turn to a later message.
   const dispatchedInstructionId = instructionId ?? taskPacketForWrite(threadId)?.instructionId;
+  if (dispatchedInstructionId) roomTurnInstruction.set(threadId, dispatchedInstructionId);
+  else roomTurnInstruction.delete(threadId);
   let selection: ModelSelection;
   try {
     selection = await resolvedBotSelection(bot);
@@ -3882,7 +3877,7 @@ async function runClaimedGroupMemberTurn(
   if (!readyBot) return false;
   // the room's own dispatch site: startClaimedTurn's gate never sees it
   if (readyBot.busy || botHasLiveTurn(bot.id, threadId)) {
-    return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError);
+    return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError, dispatchedInstructionId);
   }
   store.setActivity(bot.id, "working", threadId);
   dispatchedThreads.set(bot.id, threadId);
@@ -3994,8 +3989,6 @@ async function runClaimedGroupMemberTurn(
     deadline.start();
     unregisterStall = roomStallCompletions.register(threadId, () => finish("stalled"));
     watchdog.watch(threadId, bot.id);
-    if (dispatchedInstructionId) roomTurnInstruction.set(threadId, dispatchedInstructionId);
-    else roomTurnInstruction.delete(threadId);
     // Rooms already inject Orbit's prepared context each turn and never
     // pass resumeCursor — they are Grok-flat. 1:1 CLI forever-chats go
     // through startClaimedTurn, which recycles the native session after
@@ -4010,10 +4003,7 @@ async function runClaimedGroupMemberTurn(
       }))
       .then((started) => {
         bindInterruptedTurn(threadId, started.turnId);
-        if (started.turnId && !completedBeforeLive.has(started.turnId)) {
-          liveTurnIdByThread.set(threadId, started.turnId);
-        }
-        if (started.turnId) completedBeforeLive.delete(started.turnId);
+        if (started.turnId) liveTurnIdByThread.set(threadId, started.turnId);
       })
       .catch((err) => {
         const message = err instanceof Error ? err.message : "turn failed";

@@ -50,6 +50,7 @@ interface RoomItem {
   hop: number;
   cardContinuation?: string;
   onDispatchError?: (message: string) => void;
+  instructionId?: string;
 }
 
 type QueueItem = SteerItem | RoomItem;
@@ -121,6 +122,7 @@ export interface RoomDrain {
   hop: number;
   cardContinuation?: string;
   onDispatchError?: (message: string) => void;
+  instructionId?: string;
 }
 
 export type DrainRun = (
@@ -180,6 +182,7 @@ export function queueRoomParticipation(
     hop?: number;
     cardContinuation?: string;
     onDispatchError?: (message: string) => void;
+    instructionId?: string;
   },
 ): QueuedSteer {
   const entry = entryFor(botId, threadId);
@@ -190,6 +193,7 @@ export function queueRoomParticipation(
       existing.cardContinuation = options.cardContinuation;
     }
     existing.onDispatchError ??= options.onDispatchError;
+    existing.instructionId ??= options.instructionId;
     return { id: existing.messageId };
   }
   const id = newId();
@@ -200,6 +204,7 @@ export function queueRoomParticipation(
     hop: options.hop ?? 0,
     cardContinuation: options.cardContinuation,
     onDispatchError: options.onDispatchError,
+    instructionId: options.instructionId,
   });
   queues.set(entryKey(botId, threadId), entry);
   return { id };
@@ -269,6 +274,7 @@ export function drainSteeredMessages(
     const roomDrain: RoomDrain = { groupId: room.groupId, hop: room.hop };
     if (room.cardContinuation) roomDrain.cardContinuation = room.cardContinuation;
     if (room.onDispatchError) roomDrain.onDispatchError = room.onDispatchError;
+    if (room.instructionId) roomDrain.instructionId = room.instructionId;
     void run(entry.botId, entry.threadId, "", null, [], roomDrain);
   }
 }

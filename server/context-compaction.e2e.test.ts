@@ -841,13 +841,11 @@ describe("context compaction e2e", () => {
     const state = (await api("GET", "/api/bots")).body;
     const bot = state.bots.find((candidate: { id: string }) => candidate.id === ROOM_FIRST.botId);
     expect(bot.messages.some((message: { text?: string }) => message.text === "Start direct QA too")).toBe(false);
-    // the room turn settled, so the seeded next action settled with it —
-    // same as a 1:1 turn, whose instruction line is blanked on turn-end
     expect(storedTaskPacket(ROOM_FIRST.roomThreadId)).toMatchObject({
       threadId: ROOM_FIRST.roomThreadId,
       botId: ROOM_FIRST.botId,
       goal: "Start room QA",
-      nextAction: "",
+      nextAction: "Start room QA",
     });
   }, 30_000);
 
@@ -1062,13 +1060,10 @@ describe("context compaction e2e", () => {
       "Blockers: 1 total; Awaiting release approval",
       "Next action: @Survivor continue after the packet owner was deleted",
     ]) expect(afterOwnerDeletionPrompt).toContain(preserved);
-    // the record survives compaction (every line above), and the room turn
-    // then settles onto it — "pre-compaction" was only ever the last stamp
-    // because no room fold ran after it. A 1:1 turn lands on turn-end here too.
     expect(storedTaskPacket(ROOM_TASK.roomThreadId)).toMatchObject({
       botId: ROOM_TASK_SURVIVOR.botId,
       threadId: ROOM_TASK.roomThreadId,
-      flushReason: "turn-end",
+      flushReason: "progress",
     });
   }, 30_000);
 
