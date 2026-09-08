@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { liveActivityLabel } from "./live-activity";
-import { nextTurnSignals, turnPhase, turnStageLabel, type TurnSignals } from "./turn-stage";
+import { nextTurnSignals, streamResetFor, turnPhase, turnStageLabel, type TurnSignals } from "./turn-stage";
 import type { Message } from "@/state/store";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -89,6 +89,14 @@ describe("nextTurnSignals", () => {
     expect(phaseAfter(["started", "retrying"])).toBe("retrying");
   });
 
+  it("drops a signal left by a turn that died without turn.completed", () => {
+    // The stall watchdog and a provider reload both settle killed turns
+    // silently; the next send is the only boundary that always arrives.
+    expect(phaseAfter(["started", "sent"])).toBe("preparing");
+    expect(phaseAfter(["retrying", "sent"])).toBe("preparing");
+    expect(phaseAfter(["started", "sent", "started"])).toBe("waiting");
+  });
+
   it("keeps one thread's turn out of another's", () => {
     const signals = nextTurnSignals({ other: "started" }, "t1", "started");
     expect(nextTurnSignals(signals, "t1", "completed")).toEqual({ other: "started" });
@@ -99,6 +107,27 @@ describe("nextTurnSignals", () => {
     expect(nextTurnSignals(signals, "t1", "started")).toBe(signals);
     expect(nextTurnSignals(signals, "t1", "settled-message")).toBe(signals);
     expect(nextTurnSignals(signals, "t2", "completed")).toBe(signals);
+    expect(nextTurnSignals(signals, "t2", "sent")).toBe(signals);
+  });
+});
+
+describe("streamResetFor", () => {
+  it("ends the reasoning block at a tool, and the whole stream only at settled text", () => {
+    expect(streamResetFor(runningTool)).toBe("reasoning");
+    expect(streamResetFor(doneTool)).toBe("reasoning");
+    expect(streamResetFor({ role: "bot", kind: "text" })).toBe("stream");
+    expect(streamResetFor(user)).toBe(null);
+  });
+
+  it("lets the model-wait phase come back after a tool finishes", () => {
+    // reasoning -> tool starts -> tool settles ok. Without the reset the
+    // pre-tool reasoning string pins the label to Thinking for the rest of it.
+    const client = { signal: nextTurnSignals({}, "t1", "started")["t1"], reasoning: "hmm" };
+    expect(turnPhase({ ...client, lastMessage: user })).toBe("reasoning");
+
+    if (streamResetFor(runningTool) === "reasoning") client.reasoning = "";
+    expect(turnPhase({ ...client, lastMessage: runningTool })).toBe("tool");
+    expect(turnPhase({ ...client, lastMessage: doneTool })).toBe("waiting");
   });
 });
 

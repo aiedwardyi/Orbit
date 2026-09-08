@@ -10,7 +10,7 @@ export type TurnSignal = "started" | "retrying";
 export type TurnSignals = Readonly<Record<string, TurnSignal>>;
 
 /** What just happened to a thread, in the vocabulary of the live event stream. */
-export type TurnEvent = "started" | "retrying" | "settled-message" | "rewound" | "completed";
+export type TurnEvent = "started" | "retrying" | "settled-message" | "rewound" | "completed" | "sent";
 
 export type TurnPhase = "preparing" | "waiting" | "retrying" | "reasoning" | "tool" | "responding";
 
@@ -38,6 +38,11 @@ export function turnPhase(input: {
  * The signal is turn-scoped, and a settled assistant message is not a turn
  * boundary: a bot finishes a preamble and keeps working, so clearing there
  * would drop a running turn back to "Preparing".
+ *
+ * "sent" is what bounds the scope. A turn can die without ever emitting
+ * turn.completed — the stall watchdog's grace fallback and a provider reload
+ * both settle killed turns silently — so the next send that starts a turn
+ * drops whatever the last one left behind, whichever way it ended.
  */
 export function nextTurnSignals(signals: TurnSignals, threadId: string, event: TurnEvent): TurnSignals {
   switch (event) {
@@ -47,14 +52,30 @@ export function nextTurnSignals(signals: TurnSignals, threadId: string, event: T
     case "retrying":
       return signals[threadId] === event ? signals : { ...signals, [threadId]: event };
     case "rewound":
-    case "completed": {
+    case "completed":
+    case "sent": {
       if (!(threadId in signals)) return signals;
       const { [threadId]: _ended, ...rest } = signals;
       return rest;
     }
-    default:
-      return event satisfies never;
+    default: {
+      // `satisfies` is erased at runtime; this branch must still return signals.
+      const unhandled: never = event;
+      void unhandled;
+      return signals;
+    }
   }
+}
+
+/**
+ * A tool call closes the model's reasoning block, but not the stream: only
+ * settled assistant text does that. Leaving the reasoning buffer set past a
+ * tool pins the label to "Thinking" for the whole post-tool model wait.
+ */
+export function streamResetFor(message: { role?: string; kind?: string }): "stream" | "reasoning" | null {
+  if (message.role === "bot" && message.kind === "text") return "stream";
+  if (message.kind === "activity") return "reasoning";
+  return null;
 }
 
 /** `toolLabel` stays authoritative for tools: it honours Show tool calls. */

@@ -41,7 +41,7 @@ import {
   shouldDropQueueChip,
   type AcceptedSends,
 } from "@/lib/send-accept";
-import { nextTurnSignals, type TurnEvent, type TurnSignals } from "@/lib/turn-stage";
+import { nextTurnSignals, streamResetFor, type TurnEvent, type TurnSignals } from "@/lib/turn-stage";
 
 export type { MausColor } from "@/lib/mascot";
 export type { RoutineRunCardData } from "../../shared/routine-run";
@@ -1662,6 +1662,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return { streaming, reasoning, signal };
     });
   };
+  // A tool call ends the model's reasoning block without ending the stream.
+  // The buffer is what tells the presence label reasoning is live, so it has
+  // to drop here or the label never leaves "Thinking" after a tool.
+  const clearReasoning = (threadId: string) => {
+    const pending = deltaBuffer.current.get(threadId);
+    if (pending) pending.reasoning = "";
+    setStream((prev) => {
+      if (!(threadId in prev.reasoning)) return prev;
+      const { [threadId]: _done, ...reasoning } = prev.reasoning;
+      return { ...prev, reasoning };
+    });
+  };
   const markTurnSignal = (threadId: string, event: TurnEvent) => {
     setStream((prev) => {
       const signal = nextTurnSignals(prev.signal, threadId, event);
@@ -1749,6 +1761,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
         return bot ? openOnboardingCard(bot) : undefined;
       })();
+      // Read before rawDispatch paints optimistic busy. A send onto an idle
+      // bot starts a turn; a send onto a busy one steers the running turn and
+      // must leave its signal alone.
+      const sendStartsTurnOn = (() => {
+        if (action.type !== "send") return undefined;
+        const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
+        return bot && !bot.busy ? (action.threadId ?? bot.threadId) : undefined;
+      })();
       if (action.type === "deleteBot") botPatchQueue.cancel(action.botId);
       if (action.type === "interrupt") {
         const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
@@ -1809,6 +1829,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           // persist through the existing card route so an older server that
           // does not auto-dismiss still hides the quiz on this client
           if (quizBeforeSend) persistCard(action.botId, quizBeforeSend.id, { dismissed: true });
+          if (sendStartsTurnOn) markTurnSignal(sendStartsTurnOn, "sent");
           const threadId =
             action.threadId ?? stateRef.current.bots.find((bot) => bot.id === action.botId)?.threadId;
           const sendId = action.sendId;
@@ -2363,6 +2384,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             });
           }
           // a settled assistant bubble replaces the in-flight stream
+          if (frame.message && streamResetFor(frame.message) === "reasoning") {
+            clearReasoning(frame.threadId);
+          }
           if (frame.message?.role === "bot" && frame.message?.kind === "text") {
             clearStream(frame.threadId);
             // Auto-speak lives HERE rather than in the chat view so a bot
