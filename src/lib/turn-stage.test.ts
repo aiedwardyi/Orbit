@@ -4,13 +4,17 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { liveActivityLabel } from "./live-activity";
-import { turnPhase, turnStageLabel } from "./turn-stage";
+import { nextTurnSignals, turnPhase, turnStageLabel, type TurnSignals } from "./turn-stage";
 import type { Message } from "@/state/store";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const chatView = readFileSync(join(here, "../components/ChatView.tsx"), "utf8");
 const groupView = readFileSync(join(here, "../components/GroupView.tsx"), "utf8");
-const store = readFileSync(join(here, "../state/store.tsx"), "utf8");
+
+const phaseAfter = (events: Parameters<typeof nextTurnSignals>[2][]) => {
+  const signals = events.reduce<TurnSignals>((acc, event) => nextTurnSignals(acc, "t1", event), {});
+  return turnPhase({ signal: signals["t1"], lastMessage: user });
+};
 
 const user: Message = { id: "u1", at: 1, role: "user", kind: "text", text: "hi" };
 const runningTool: Message = { id: "a1", at: 2, role: "bot", kind: "activity", tool: { name: "Bash: pnpm test" } };
@@ -69,6 +73,37 @@ describe("turnStageLabel", () => {
   });
 });
 
+describe("nextTurnSignals", () => {
+  it("holds the signal through a settled preamble mid-turn", () => {
+    expect(phaseAfter(["started", "settled-message"])).toBe("waiting");
+    expect(phaseAfter(["retrying", "settled-message"])).toBe("retrying");
+  });
+
+  it("drops the signal at the turn boundary and on a rewind", () => {
+    expect(phaseAfter(["started", "completed"])).toBe("preparing");
+    expect(phaseAfter(["started", "rewound"])).toBe("preparing");
+  });
+
+  it("carries the next turn's signal after the previous one ended", () => {
+    expect(phaseAfter(["started", "completed", "started"])).toBe("waiting");
+    expect(phaseAfter(["started", "retrying"])).toBe("retrying");
+  });
+
+  it("keeps one thread's turn out of another's", () => {
+    const signals = nextTurnSignals({ other: "started" }, "t1", "started");
+    expect(nextTurnSignals(signals, "t1", "completed")).toEqual({ other: "started" });
+  });
+
+  it("returns the same object when nothing changes, so the stream never re-renders", () => {
+    const signals: TurnSignals = { t1: "started" };
+    expect(nextTurnSignals(signals, "t1", "started")).toBe(signals);
+    expect(nextTurnSignals(signals, "t1", "settled-message")).toBe(signals);
+    expect(nextTurnSignals(signals, "t2", "completed")).toBe(signals);
+  });
+});
+
+// Both invariants below are about JSX that never renders under the node test
+// environment, so source text is the only handle on them.
 describe("wiring", () => {
   it("stages the 1:1 label and leaves rooms alone", () => {
     expect(chatView).toContain("turnStageLabel");
@@ -78,12 +113,5 @@ describe("wiring", () => {
 
   it("keeps the pop-in: no streamed text is rendered into the 1:1 answer", () => {
     expect(chatView).not.toMatch(/\{\s*streaming\s*\}/);
-  });
-
-  it("scopes the signal to the turn, not to a settled message", () => {
-    // clearStream also runs when a preamble settles mid-turn; only these two
-    // sites may drop the signal, or a working bot falls back to Preparing.
-    expect(store.match(/setTurnSignal\([^,]+, undefined\)/g)).toHaveLength(2);
-    expect(store).toMatch(/turn\.completed[\s\S]{0,200}setTurnSignal\([^,]+, undefined\)/);
   });
 });

@@ -7,6 +7,11 @@ import { t } from "./i18n";
 /** Last turn-lifecycle runtime event seen on a thread. Cleared each turn. */
 export type TurnSignal = "started" | "retrying";
 
+export type TurnSignals = Readonly<Record<string, TurnSignal>>;
+
+/** What just happened to a thread, in the vocabulary of the live event stream. */
+export type TurnEvent = "started" | "retrying" | "settled-message" | "rewound" | "completed";
+
 export type TurnPhase = "preparing" | "waiting" | "retrying" | "reasoning" | "tool" | "responding";
 
 /**
@@ -29,6 +34,29 @@ export function turnPhase(input: {
   return "preparing";
 }
 
+/**
+ * The signal is turn-scoped, and a settled assistant message is not a turn
+ * boundary: a bot finishes a preamble and keeps working, so clearing there
+ * would drop a running turn back to "Preparing".
+ */
+export function nextTurnSignals(signals: TurnSignals, threadId: string, event: TurnEvent): TurnSignals {
+  switch (event) {
+    case "settled-message":
+      return signals;
+    case "started":
+    case "retrying":
+      return signals[threadId] === event ? signals : { ...signals, [threadId]: event };
+    case "rewound":
+    case "completed": {
+      if (!(threadId in signals)) return signals;
+      const { [threadId]: _ended, ...rest } = signals;
+      return rest;
+    }
+    default:
+      return event satisfies never;
+  }
+}
+
 /** `toolLabel` stays authoritative for tools: it honours Show tool calls. */
 export function turnStageLabel(phase: TurnPhase, toolLabel: string): string {
   switch (phase) {
@@ -44,5 +72,7 @@ export function turnStageLabel(phase: TurnPhase, toolLabel: string): string {
       return t("activity.waitingModel");
     case "preparing":
       return t("activity.preparing");
+    default:
+      return phase satisfies never;
   }
 }

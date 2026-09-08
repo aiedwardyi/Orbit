@@ -41,7 +41,7 @@ import {
   shouldDropQueueChip,
   type AcceptedSends,
 } from "@/lib/send-accept";
-import type { TurnSignal } from "@/lib/turn-stage";
+import { nextTurnSignals, type TurnEvent, type TurnSignals } from "@/lib/turn-stage";
 
 export type { MausColor } from "@/lib/mascot";
 export type { RoutineRunCardData } from "../../shared/routine-run";
@@ -1614,7 +1614,7 @@ interface StreamState {
   /** in-flight extended thinking per threadId (ephemeral) */
   reasoning: Record<string, string>;
   /** last turn-lifecycle signal per threadId — stages the presence label */
-  signal: Record<string, TurnSignal>;
+  signal: TurnSignals;
 }
 const EMPTY_STREAM: StreamState = { streaming: {}, reasoning: {}, signal: {} };
 const StreamContext = createContext<StreamState>(EMPTY_STREAM);
@@ -1643,7 +1643,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [stream, setStream] = useState<StreamState>(EMPTY_STREAM);
   const deltaBuffer = useRef(new Map<string, { text: string; reasoning: string }>());
   const deltaFlush = useRef<number | null>(null);
-  const clearStream = (threadId: string) => {
+  // `reason` is what ended the stream, not just that it ended: only a turn
+  // boundary or a rewind may also drop the thread's staging signal.
+  const clearStream = (threadId: string, reason: TurnEvent = "settled-message") => {
     // Drop the thread's un-flushed deltas too: the settled message that
     // triggered this clear already contains them. Without this, the pending
     // rAF re-creates a "ghost" stream bubble holding the tail fragment —
@@ -1653,19 +1655,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // duplicated tail instead of starting a fresh bubble.
     deltaBuffer.current.delete(threadId);
     setStream((prev) => {
-      if (!(threadId in prev.streaming) && !(threadId in prev.reasoning)) return prev;
+      const signal = nextTurnSignals(prev.signal, threadId, reason);
+      if (!(threadId in prev.streaming) && !(threadId in prev.reasoning) && signal === prev.signal) return prev;
       const { [threadId]: _s, ...streaming } = prev.streaming;
       const { [threadId]: _r, ...reasoning } = prev.reasoning;
-      return { ...prev, streaming, reasoning };
+      return { streaming, reasoning, signal };
     });
   };
-  // Turn-scoped, so it survives the settled-message clearStream above: a bot
-  // can finish a preamble and keep working, and that turn has not restarted.
-  const setTurnSignal = (threadId: string, signal: TurnSignal | undefined) => {
+  const markTurnSignal = (threadId: string, event: TurnEvent) => {
     setStream((prev) => {
-      if (prev.signal[threadId] === signal) return prev;
-      const { [threadId]: _dropped, ...rest } = prev.signal;
-      return { ...prev, signal: signal ? { ...rest, [threadId]: signal } : rest };
+      const signal = nextTurnSignals(prev.signal, threadId, event);
+      return signal === prev.signal ? prev : { ...prev, signal };
     });
   };
   const flushDeltas = () => {
@@ -2387,8 +2387,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "thread":
           rawDispatch({ type: "threadActive", threadId: frame.threadId, activeLeafId: frame.activeLeafId });
           // a rewind also invalidates any half-streamed text from the old branch
-          clearStream(frame.threadId);
-          setTurnSignal(frame.threadId, undefined);
+          clearStream(frame.threadId, "rewound");
           break;
         case "task.packet":
           rawDispatch({ type: "taskPacket", threadId: frame.threadId, packet: frame.packet });
@@ -2480,10 +2479,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           } else if (event.type === "turn.completed") {
             // flush any buffered tail before clearing so no tokens are lost
             flushDeltas();
-            clearStream(event.threadId);
-            setTurnSignal(event.threadId, undefined);
+            clearStream(event.threadId, "completed");
           } else if (event.type === "turn.started" || event.type === "turn.retrying") {
-            setTurnSignal(event.threadId, event.type === "turn.started" ? "started" : "retrying");
+            markTurnSignal(event.threadId, event.type === "turn.started" ? "started" : "retrying");
           } else if (
             event.type === "account.rate-limits.updated" &&
             typeof event.providerInstanceId === "string" &&
