@@ -41,6 +41,7 @@ import {
   shouldDropQueueChip,
   type AcceptedSends,
 } from "@/lib/send-accept";
+import type { TurnSignal } from "@/lib/turn-stage";
 
 export type { MausColor } from "@/lib/mascot";
 export type { RoutineRunCardData } from "../../shared/routine-run";
@@ -1612,8 +1613,10 @@ interface StreamState {
   streaming: Record<string, string>;
   /** in-flight extended thinking per threadId (ephemeral) */
   reasoning: Record<string, string>;
+  /** last turn-lifecycle signal per threadId — stages the presence label */
+  signal: Record<string, TurnSignal>;
 }
-const EMPTY_STREAM: StreamState = { streaming: {}, reasoning: {} };
+const EMPTY_STREAM: StreamState = { streaming: {}, reasoning: {}, signal: {} };
 const StreamContext = createContext<StreamState>(EMPTY_STREAM);
 
 export function useStreaming() {
@@ -1653,7 +1656,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (!(threadId in prev.streaming) && !(threadId in prev.reasoning)) return prev;
       const { [threadId]: _s, ...streaming } = prev.streaming;
       const { [threadId]: _r, ...reasoning } = prev.reasoning;
-      return { streaming, reasoning };
+      return { ...prev, streaming, reasoning };
+    });
+  };
+  // Turn-scoped, so it survives the settled-message clearStream above: a bot
+  // can finish a preamble and keep working, and that turn has not restarted.
+  const setTurnSignal = (threadId: string, signal: TurnSignal | undefined) => {
+    setStream((prev) => {
+      if (prev.signal[threadId] === signal) return prev;
+      const { [threadId]: _dropped, ...rest } = prev.signal;
+      return { ...prev, signal: signal ? { ...rest, [threadId]: signal } : rest };
     });
   };
   const flushDeltas = () => {
@@ -1672,7 +1684,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (d.text) streaming[threadId] = (streaming[threadId] ?? "") + d.text;
         if (d.reasoning) reasoning[threadId] = (reasoning[threadId] ?? "") + d.reasoning;
       }
-      return { streaming, reasoning };
+      return { ...prev, streaming, reasoning };
     });
   };
 
@@ -2376,6 +2388,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           rawDispatch({ type: "threadActive", threadId: frame.threadId, activeLeafId: frame.activeLeafId });
           // a rewind also invalidates any half-streamed text from the old branch
           clearStream(frame.threadId);
+          setTurnSignal(frame.threadId, undefined);
           break;
         case "task.packet":
           rawDispatch({ type: "taskPacket", threadId: frame.threadId, packet: frame.packet });
@@ -2468,6 +2481,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             // flush any buffered tail before clearing so no tokens are lost
             flushDeltas();
             clearStream(event.threadId);
+            setTurnSignal(event.threadId, undefined);
+          } else if (event.type === "turn.started" || event.type === "turn.retrying") {
+            setTurnSignal(event.threadId, event.type === "turn.started" ? "started" : "retrying");
           } else if (
             event.type === "account.rate-limits.updated" &&
             typeof event.providerInstanceId === "string" &&
