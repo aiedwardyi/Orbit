@@ -397,7 +397,10 @@ describe("OpenCode outbound model", () => {
 
     expect(done).toMatchObject({ ok: true });
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({ params: { value: "opencode-go/x-preview-f-free" } });
+    expect(calls[0]).toMatchObject({
+      method: "session/set_config_option",
+      params: { configId: "model", value: "opencode-go/x-preview-f-free" },
+    });
   });
 
   // The gap behind "it answered as a model I did not pick": with no model the
