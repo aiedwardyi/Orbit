@@ -25,6 +25,42 @@ describe("chat TTS speaker chrome", () => {
 const TRANSCRIPT_COLUMN = 'className={cn("flex w-full flex-col gap-3 px-5", CHAT_COLUMN_CLASS)}';
 const COMPOSER_COLUMN = 'ref={composerDockRef} className={cn("relative z-[2] w-full shrink-0", CHAT_COLUMN_CLASS)}';
 
+describe("failed tool chip", () => {
+  const chip = chatView.slice(chatView.indexOf("function ActivityChip"), chatView.indexOf("function ScreenFrame"));
+
+  it("reads as a stalled step, not an alarm", () => {
+    expect(chip).toContain('failed ? "text-warning" : "text-ink-secondary"');
+    expect(chip).not.toMatch(/failed \? "text-danger"/);
+    expect(chip).toContain("<X size={13} strokeWidth={1.5} />");
+  });
+
+  it("explains itself in plain words on hover", () => {
+    expect(chip).toContain('title={failed ? t("chat.stepDidNotComplete") : undefined}');
+  });
+});
+
+describe("assistant message action bar", () => {
+  const bubbleFn = chatView.slice(chatView.indexOf("function Bubble("), chatView.indexOf("function ScreenFrame"));
+
+  it("docks at the bottom right of the message instead of floating mid-scroll", () => {
+    expect(bubbleFn).toContain("top-full right-0 z-20 mt-1");
+    expect(bubbleFn).not.toContain("top-1/2 left-full z-20 ml-0.5 flex -translate-y-1/2");
+  });
+});
+
+describe("message timestamp tooltip", () => {
+  const bubble = chatView.slice(chatView.indexOf("function Bubble("), chatView.indexOf("function ScreenFrame"));
+
+  it("stops relying on the native title tooltip for the full timestamp", () => {
+    expect(bubble).not.toContain("title={new Date(message.at).toLocaleString()}");
+  });
+
+  it("renders a soft-cornered custom tooltip with the full timestamp", () => {
+    expect(bubble).toMatch(/rounded-md border border-hairline\/40 bg-panel[^"]*shadow-sm/);
+    expect(bubble).toContain("{fullTimestamp}");
+  });
+});
+
 describe("chat column width", () => {
   it("shares a centered 960px column across ChatView transcript and composer", () => {
     expect(chatView).toContain(TRANSCRIPT_COLUMN);

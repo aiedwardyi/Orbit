@@ -41,13 +41,14 @@ describe("reaction rail", () => {
     expect(sources["ChatView.tsx"]).not.toContain("flex flex-col gap-0.5 self-end");
     expect(sources["ChatView.tsx"]).toContain("data-message-hover-actions");
     expect(sources["GroupView.tsx"]).toContain("data-message-hover-actions");
-    expect(sources["ChatView.tsx"]).toContain("left-full");
+    // the assistant row in ChatView docks bottom-right of the bubble instead
+    // of mirroring the user row's vertically-centered float
     expect(sources["ChatView.tsx"]).toContain("right-full");
     expect(sources["GroupView.tsx"]).toContain("left-full");
     expect(sources["GroupView.tsx"]).toContain("right-full");
     const chatRows = sources["ChatView.tsx"].split("data-message-hover-actions").slice(1);
     expect(chatRows.length).toBeGreaterThanOrEqual(2);
-    expect(chatRows.every((row) => row.includes("flex -translate-y-1/2 items-center"))).toBe(true);
+    expect(chatRows.every((row) => row.includes("items-center"))).toBe(true);
   });
 
   it("reveals the hover row on group hover and keyboard focus, not as a permanent tray", () => {
@@ -62,7 +63,7 @@ describe("reaction rail", () => {
         const slice = src.slice(idx, idx + 500);
         expect(slice).toContain("group-hover:opacity-100");
         expect(slice).toContain("group-focus-within:opacity-100");
-        if (slice.includes("left-full")) {
+        if (slice.includes("ReactionBar")) {
           // the picker is portalled away, so the open trigger is what holds the row
           expect(slice).toContain("has-[[aria-expanded=true]]:pointer-events-auto");
           expect(slice).toContain("has-[[aria-expanded=true]]:opacity-100");

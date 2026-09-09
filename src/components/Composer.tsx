@@ -348,6 +348,15 @@ export function Composer({
     dispatch({ type: "composerFocused", botId: bot.id });
   }, [bot, dispatch, focusBlocked, locked, approval, state.composerFocusBotId]);
 
+  // Reply chip alone leaves the cursor wherever it was, so a reply looks
+  // picked but the user still has to click the box before typing.
+  useEffect(() => {
+    if (!replyTo) return;
+    const input = inputRef.current;
+    if (!input || input.disabled) return;
+    input.focus();
+  }, [replyTo]);
+
   // Image paste is offered unless a known responder refuses it. A missing
   // instance is still hydrating, so keep the image and validate before send.
   const imageTargetsSupport = (message: string) => {

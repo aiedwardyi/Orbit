@@ -327,6 +327,7 @@ function Bubble({
   const user = message.role === "user";
   const [expanded, setExpanded] = useState(false);
   const text = message.text ?? "";
+  const fullTimestamp = new Date(message.at).toLocaleString();
   const webhookView = user ? webhookMessageView(text) : null;
   const attachedImages = user && !webhookView ? splitAttachedImages(text) : null;
   const visibleText = webhookView?.task ?? attachedImages?.display ?? text;
@@ -354,6 +355,12 @@ function Bubble({
       tabIndex={-1}
     >
       <div className="relative w-fit max-w-[min(42rem,78%)]">
+        <div
+          role="tooltip"
+          className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-1.5 -translate-x-1/2 rounded-md border border-hairline/40 bg-panel px-2 py-1 text-[11px] whitespace-nowrap text-ink-secondary opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
+        >
+          {fullTimestamp}
+        </div>
         {user && (
           <div
             data-message-hover-actions
@@ -407,7 +414,6 @@ function Bubble({
                 ? "bg-bubble-user px-4 py-2.5 whitespace-pre-wrap text-ink"
                 : "bg-card px-4 py-2.5 text-ink",
           )}
-          title={new Date(message.at).toLocaleString()}
         >
           {replyTarget && (
             <div className="mb-2">
@@ -470,7 +476,7 @@ function Bubble({
         {!user && (
           <div
             data-message-hover-actions
-            className="pointer-events-none absolute top-1/2 left-full z-20 ml-0.5 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 has-[[aria-expanded=true]]:pointer-events-auto has-[[aria-expanded=true]]:opacity-100"
+            className="pointer-events-none absolute top-full right-0 z-20 mt-1 flex items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 has-[[aria-expanded=true]]:pointer-events-auto has-[[aria-expanded=true]]:opacity-100"
           >
             {message.kind === "text" && <ReactionBar threadId={bot.threadId} message={message} />}
             <CopyButton text={text} className="opacity-100" />
@@ -561,6 +567,7 @@ function Bubble({
 /** A tool run: spinner while live, check/cross once settled. */
 function ActivityChip({ message }: { message: Message }) {
   const { dispatch, state } = useStore();
+  const { t } = useI18n();
   const tool = message.tool;
   if (!tool) return null;
   // bot⇄bot comm chip: opens the channel where the exchange lives
@@ -585,15 +592,16 @@ function ActivityChip({ message }: { message: Message }) {
   return (
     <div className="flex justify-start">
       <div
+        title={failed ? t("chat.stepDidNotComplete") : undefined}
         className={cn(
           "flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px]",
-          failed ? "text-danger" : "text-ink-secondary",
+          failed ? "text-warning" : "text-ink-secondary",
         )}
       >
         {tool.ok === undefined ? (
           <Loader2 size={13} className="animate-spin" />
         ) : failed ? (
-          <X size={13} />
+          <X size={13} strokeWidth={1.5} />
         ) : (
           <Check size={13} className="text-success" />
         )}
