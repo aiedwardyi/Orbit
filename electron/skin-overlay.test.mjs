@@ -96,6 +96,7 @@ describe("skin overlay chrome", () => {
   });
 
   it("falls back to the default skin for anything unknown, never throwing", () => {
+    expect(DEFAULT_SKIN).toBe("ledger");
     expect(isKnownSkin("midnight")).toBe(true);
     expect(isKnownSkin("onyx")).toBe(true);
     expect(isKnownSkin("dracula")).toBe(true);

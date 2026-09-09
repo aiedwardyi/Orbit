@@ -131,6 +131,29 @@ const PAIRS = [
   ["--color-panel", "--color-app", 1.03],
 ];
 
+// ChatMarkdown paints fenced blocks with `bg-inset` and strips Shiki's pre
+// background, so syntax colours sit on --color-inset. Code is 13px (body),
+// so AA is 4.5:1; a bold/large role would be 3:1. Dark skins skip this —
+// their github-dark-default tokens already read on a dark inset.
+const CODE_BLOCK_BG = "--color-inset";
+const SYNTAX_ROLES = [
+  ["--color-syntax-fg", 4.5],
+  ["--color-syntax-comment", 4.5],
+  ["--color-syntax-keyword", 4.5],
+  ["--color-syntax-string", 4.5],
+  ["--color-syntax-function", 4.5],
+  ["--color-syntax-constant", 4.5],
+  ["--color-syntax-variable", 4.5],
+  ["--color-syntax-tag", 4.5],
+  ["--color-syntax-invalid", 4.5],
+];
+
+function isLightSkin(tokens) {
+  const app = tokens["--color-app"];
+  if (!app || !/^#[0-9a-fA-F]{3,8}$/.test(app.trim())) return false;
+  return luminance(parseHex(app)) > 0.5;
+}
+
 const skins = parseSkins(css);
 // Midnight is shipped as a faithful copy of upstream, contrast gaps included;
 // it is reported but not allowed to fail the run.
@@ -141,7 +164,10 @@ for (const [id, tokens] of skins) {
   const problems = [];
   const missing = [];
   let measured = 0;
-  for (const [fg, bg, min] of PAIRS) {
+  const pairs = isLightSkin(tokens)
+    ? [...PAIRS, ...SYNTAX_ROLES.map(([fg, min]) => [fg, CODE_BLOCK_BG, min])]
+    : PAIRS;
+  for (const [fg, bg, min] of pairs) {
     // A pair we cannot measure is reported, never silently skipped: an
     // unmeasured pair used to be counted as a passing one.
     if (!tokens[fg] || !tokens[bg]) {

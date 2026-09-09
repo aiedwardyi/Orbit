@@ -136,6 +136,14 @@ describe("SettingsModal friends chrome", () => {
     expect(html).not.toMatch(/>Phone</);
     expect(html).not.toContain("OpenMausBot");
     expect(html).not.toContain("accounts.openmausbot.com");
+    expect(html).not.toContain("Browser profiles");
+    expect(html).not.toContain("Named sign-in sessions");
+  });
+
+  it("does not ship the Browser profiles setting", () => {
+    const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
+    expect(source).not.toContain("BrowserProfilesRow");
+    expect(source).not.toContain("settings.browserProfiles.title");
   });
 
   it("offers Onyx, Dracula, and Panda Syntax in Skin alongside the shipped palettes", () => {

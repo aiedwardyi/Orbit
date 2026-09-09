@@ -51,11 +51,41 @@ describe("skins", () => {
   });
 
   it("defines the same tokens in every skin", () => {
-    const reference = tokensOf(DEFAULT_SKIN);
+    // Midnight is the shared set. Light skins add --color-syntax-* on top;
+    // those must not become a requirement for dark skins.
+    const reference = tokensOf("midnight");
     expect(reference.size).toBeGreaterThan(15);
     for (const id of SKIN_IDS) {
       expect([...reference].filter((t) => !tokensOf(id).has(t))).toEqual([]);
     }
+  });
+
+  it("gives Atelier, Lagoon, and Ledger a syntax palette and leaves dark skins alone", () => {
+    const roles = [
+      "--color-syntax-fg",
+      "--color-syntax-comment",
+      "--color-syntax-keyword",
+      "--color-syntax-string",
+      "--color-syntax-function",
+      "--color-syntax-constant",
+      "--color-syntax-variable",
+      "--color-syntax-tag",
+      "--color-syntax-invalid",
+    ];
+    const light = ["atelier", "lagoon", "ledger"];
+    for (const id of light) {
+      expect([...tokensOf(id)]).toEqual(expect.arrayContaining(roles));
+    }
+    for (const id of SKIN_IDS) {
+      if (light.includes(id)) continue;
+      expect([...tokensOf(id)].filter((t) => t.startsWith("--color-syntax-"))).toEqual([]);
+    }
+  });
+
+  it("defaults a fresh install to Ledger and does not rename Atelier", () => {
+    expect(DEFAULT_SKIN).toBe("ledger");
+    expect(SKINS.some((s) => s.id === "atelier" && s.name === "Atelier")).toBe(true);
+    expect(SKIN_IDS).not.toContain("letelier");
   });
 
   it("gives every non-Midnight skin its own focus and control tokens", () => {
@@ -317,9 +347,16 @@ describe("skin persistence", () => {
     expect(readSkin()).toBe("ledger");
   });
 
-  it("falls back to Midnight for an unknown stored value", () => {
+  it("falls back to Ledger for an unknown stored value", () => {
     store.set("omb-skin", "graphite");
+    expect(readSkin()).toBe("ledger");
     expect(readSkin()).toBe(DEFAULT_SKIN);
+  });
+
+  it("keeps a stored Midnight skin on upgrade instead of migrating it to Ledger", () => {
+    store.set("omb-skin", "midnight");
+    expect(readSkin()).toBe("midnight");
+    expect(readSkin()).not.toBe(DEFAULT_SKIN);
   });
 
   it("stamps the skin before React mounts", () => {

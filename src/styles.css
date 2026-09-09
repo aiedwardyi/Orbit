@@ -147,6 +147,18 @@
   --color-scrollbar: #c9c0ae;
   --color-maus-line: #6b6559;
 
+  /* Syntax on --color-inset (code blocks). github-dark-default tokens are
+     remapped from these; code is 13px so each pair must clear 4.5:1. */
+  --color-syntax-fg: #1a1a18;
+  --color-syntax-comment: #4a453c;
+  --color-syntax-keyword: #8b1a24;
+  --color-syntax-string: #0a3069;
+  --color-syntax-function: #5b21b6;
+  --color-syntax-constant: #084298;
+  --color-syntax-variable: #7a3500;
+  --color-syntax-tag: #0b4d24;
+  --color-syntax-invalid: #8b1a24;
+
   /* System faces rather than Inter: paper reads as the platform's own. */
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", "Apple SD Gothic Neo", Roboto, sans-serif;
@@ -257,6 +269,18 @@
   --color-scrollbar: #a6b8b6;
   --color-maus-line: #4d5c5b;
 
+  /* Syntax on --color-inset (code blocks). github-dark-default tokens are
+     remapped from these; code is 13px so each pair must clear 4.5:1. */
+  --color-syntax-fg: #1a1a18;
+  --color-syntax-comment: #4a453c;
+  --color-syntax-keyword: #8b1a24;
+  --color-syntax-string: #0a3069;
+  --color-syntax-function: #5b21b6;
+  --color-syntax-constant: #084298;
+  --color-syntax-variable: #7a3500;
+  --color-syntax-tag: #0b4d24;
+  --color-syntax-invalid: #8b1a24;
+
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", "Apple SD Gothic Neo", Roboto, sans-serif;
   --radius-lg: 8px;
@@ -307,6 +331,18 @@
   --color-warning: #7a5a28;
   --color-scrollbar: #8f8f8f;
   --color-maus-line: #575757;
+
+  /* Syntax on --color-inset (code blocks). github-dark-default tokens are
+     remapped from these; code is 13px so each pair must clear 4.5:1. */
+  --color-syntax-fg: #1a1a18;
+  --color-syntax-comment: #4a453c;
+  --color-syntax-keyword: #8b1a24;
+  --color-syntax-string: #0a3069;
+  --color-syntax-function: #5b21b6;
+  --color-syntax-constant: #084298;
+  --color-syntax-variable: #7a3500;
+  --color-syntax-tag: #0b4d24;
+  --color-syntax-invalid: #8b1a24;
 
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
@@ -675,6 +711,11 @@ body {
 /* Cute mascot idle: Grok-style blink + soft eye drift. No body bounce. */
 .mascot-avatar {
   line-height: 0;
+  /* Clamped cream. Owner asked for the dumpling "on white" without picking
+     #FFFFFF vs this ground; leave it here until he answers. */
+  background: #efe6da;
+  border-radius: 50%;
+  overflow: hidden;
 }
 .mascot-avatar svg {
   display: block;
@@ -1249,3 +1290,20 @@ button:disabled.bg-danger {
   color: var(--color-ink-secondary);
   opacity: 1;
 }
+
+/* Light-skin Shiki remap. ChatMarkdown highlights with github-dark-default and
+   clears the pre background, so those colours sit on --color-inset. Dark skins
+   leave --color-syntax-* unset; the var() then fails and the inline colour stays. */
+.shiki {
+  color: var(--color-syntax-fg) !important;
+}
+.shiki span[style*="#8b949e" i] { color: var(--color-syntax-comment) !important; }
+.shiki span[style*="#ff7b72" i] { color: var(--color-syntax-keyword) !important; }
+.shiki span[style*="#a5d6ff" i] { color: var(--color-syntax-string) !important; }
+.shiki span[style*="#d2a8ff" i] { color: var(--color-syntax-function) !important; }
+.shiki span[style*="#79c0ff" i] { color: var(--color-syntax-constant) !important; }
+.shiki span[style*="#ffa657" i] { color: var(--color-syntax-variable) !important; }
+.shiki span[style*="#7ee787" i] { color: var(--color-syntax-tag) !important; }
+.shiki span[style*="#ffa198" i] { color: var(--color-syntax-invalid) !important; }
+.shiki span[style*="#e6edf3" i],
+.shiki span[style*="#f0f6fc" i] { color: var(--color-syntax-fg) !important; }
