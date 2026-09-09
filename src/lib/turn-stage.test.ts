@@ -284,6 +284,15 @@ describe("turn-scoped buffers", () => {
     expect(hydrationTurnThread({ id: "bot-1", busy: true, threadId: "personal" }, [])).toBe("personal");
   });
 
+  it("returns undefined when a group owns the bot", () => {
+    expect(
+      hydrationTurnThread(
+        { id: "bot-1", busy: true, threadId: "personal" },
+        [{ busyBotId: "bot-1" }],
+      ),
+    ).toBeUndefined();
+  });
+
   it("returns undefined when the bot is not busy", () => {
     expect(hydrationTurnThread({ id: "bot-1", busy: false, threadId: "personal" })).toBeUndefined();
   });
@@ -364,7 +373,8 @@ describe("wiring", () => {
       chatView.match(/turnPhase\(\{[^}]*\bstreaming(?:\s*:\s*([^,}\s]+))?/)?.[1] ??
       chatView.match(/(?:const|let)\s+(?:\{[^}]*streaming(?:\s*:\s*(\w+))?[^}]*\}|(\w+)\s*=\s*[^;\n]*\.streaming)/)
         ?.slice(1)
-        .find(Boolean) ?? "streaming";
+        .find(Boolean);
+    expect(streamBinding).toBeDefined();
     expect(chatView).not.toMatch(new RegExp(`\\{\\s*${streamBinding}\\s*\\}`));
     expect(chatView).not.toMatch(/\{\s*[\w.?]+\.streaming\s*\}/);
   });
