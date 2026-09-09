@@ -873,6 +873,7 @@ export function Composer({
             const imageFiles = Array.from(e.clipboardData.files).filter(isImageFile);
             if (imageFiles.length) {
               e.preventDefault();
+              if (!engineSupportsImages) showImageSupportNotice(imageSupport);
               void (async () => {
                 for (const file of imageFiles) {
                   try {

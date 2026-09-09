@@ -10,6 +10,8 @@ import {
   imageSupportForTargets,
   imageSupportNotice,
   isImageFile,
+  pasteAttachment,
+  pasteImageAttachment,
   splitAttachedImages,
   visibleComposerNotice,
   type ImageAttachment,
@@ -95,6 +97,38 @@ describe("splitAttachedImages", () => {
     const { display, images } = splitAttachedImages(stored);
     expect(display).toBe("take a look\n\n[attachment: image_123.png]");
     expect(images).toEqual([]);
+  });
+
+  it("keeps a literal attached-image tag inside pasted-text", () => {
+    const inner = '<attached-image path="a.png" />';
+    const { display, images } = splitAttachedImages(composeMessage("", [pasteAttachment(inner)]));
+    expect(display).toBe(inner);
+    expect(images).toEqual([]);
+  });
+
+  it("keeps a literal attached-file tag inside pasted-text", () => {
+    const inner = '<attached-file path="b.txt" />';
+    const { display, images } = splitAttachedImages(composeMessage("", [pasteAttachment(inner)]));
+    expect(display).toBe(inner);
+    expect(images).toEqual([]);
+  });
+});
+
+describe("pasteImageAttachment", () => {
+  it("uses an injected uploader instead of posting the file", async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], "shot.png", { type: "image/png" });
+    const attachment = await pasteImageAttachment(file, true, async () => ({
+      path: "/tmp/shot.png",
+      mime: "image/png",
+      bytes: 3,
+    }));
+    expect(attachment).toMatchObject({
+      kind: "image",
+      path: "/tmp/shot.png",
+      name: "shot.png",
+      size: 3,
+      mime: "image/png",
+    });
   });
 });
 

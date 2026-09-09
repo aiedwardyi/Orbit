@@ -142,11 +142,9 @@ async function uploadAttachmentFile(file: File): Promise<{ path: string; mime: s
     body: bytes,
   });
   if (!response.ok) {
-    // SAFETY: Response error payload optionally contains error string from server.
     const detail = (await response.json().catch(() => ({ error: response.statusText }))) as { error?: string };
     throw Object.assign(new Error(detail.error ?? "upload failed"), { status: response.status });
   }
-  // SAFETY: Server returns saved attachment path, mime, and byte count on success.
   return (await response.json()) as { path: string; mime: string; bytes: number };
 }
 
@@ -286,8 +284,16 @@ export function escapeAttribute(value: string): string {
 /** Split a stored user message into its display text and the images it
  * attached, for transcript rendering. The tag never shows in the bubble. */
 export function splitAttachedImages(text: string): { display: string; images: string[] } {
+  const pasted: string[] = [];
+  let display = text.replace(
+    /<pasted-text(?:\s+index="\d+")?>\n?([\s\S]*?)\n?<\/pasted-text>/g,
+    (_match, inner: string) => {
+      pasted.push(inner);
+      return `\0PASTE${pasted.length - 1}\0`;
+    },
+  );
   const images: string[] = [];
-  let display = text.replace(/<attached-image\s+path="([^"]*)"\s*\/?>(?:\s*\n)?/g, (_match, raw: string) => {
+  display = display.replace(/<attached-image\s+path="([^"]*)"\s*\/?>(?:\s*\n)?/g, (_match, raw: string) => {
     const path = raw
       .replaceAll("&quot;", '"')
       .replaceAll("&lt;", "<")
@@ -296,7 +302,6 @@ export function splitAttachedImages(text: string): { display: string; images: st
     if (path) images.push(path);
     return "";
   });
-  display = display.replace(/<pasted-text(?:\s+index="\d+")?>\n?([\s\S]*?)\n?<\/pasted-text>/g, "$1");
   display = display.replace(/<attached-file\s+path="([^"]*)"\s*\/?>(?:\s*\n)?/g, (_match, raw: string) => {
     const path = raw
       .replaceAll("&quot;", '"')
@@ -306,6 +311,7 @@ export function splitAttachedImages(text: string): { display: string; images: st
     const name = attachmentBasename(path);
     return `[attachment: ${name}]`;
   });
+  display = display.replace(/\0PASTE(\d+)\0/g, (_match, index: string) => pasted[Number(index)] ?? "");
   return { display: display.trim(), images };
 }
 
