@@ -5122,3 +5122,122 @@ describe("corpus search discipline instructions", () => {
     }
   }, 30_000);
 });
+// The pinned project folder is the bot's shell cwd, but nothing ever told the
+// model it existed: asked about "the origin repo" a bot pinned to that folder
+// searched GitHub instead. It rides every turn, and the claude driver folds
+// --append-system-prompt into the warm-process argsKey, so the line must be
+// the same bytes on every send or each one costs a cold start.
+describe("project folder in the system prompt", () => {
+  const FOLDER_START = "Your project folder is ";
+  const FOLDER_END = "before searching anywhere else.";
+
+  const folderBlock = (system: string): string => {
+    const start = system.indexOf(FOLDER_START);
+    expect(start).toBeGreaterThan(-1);
+    const end = system.indexOf(FOLDER_END, start);
+    expect(end).toBeGreaterThan(-1);
+    return system.slice(start, end + FOLDER_END.length);
+  };
+
+  const systemForTurn = async (botId: string, text: string): Promise<string> => {
+    rmSync(fakeClaudeDump, { force: true });
+    expect((await api("POST", `/api/bots/${botId}/messages`, { text })).status).toBe(202);
+    await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 10_000 }).toBe(true);
+    const dump = z.object({ argv: z.array(z.string()) }).parse(
+      JSON.parse(readFileSync(fakeClaudeDump, "utf8")),
+    );
+    await api("POST", `/api/bots/${botId}/interrupt`);
+    const at = dump.argv.indexOf("--append-system-prompt");
+    expect(at).toBeGreaterThan(-1);
+    return dump.argv[at + 1];
+  };
+
+  // Under the throwaway home so afterAll owns the teardown: the folder is the
+  // spawned CLI's cwd, and win32 refuses to remove it while that process lives.
+  const projectFolder = (name: string): string => {
+    const folder = join(home, name);
+    mkdirSync(folder, { recursive: true });
+    return folder;
+  };
+
+  type BotProfile = { name: string; title: string; description: string; section: string };
+
+  const pinnedBot = async (folder: string, profile?: BotProfile) => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    const patched = await api("PATCH", `/api/bots/${bot.id}`, {
+      cwd: folder,
+      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      ...profile,
+    });
+    expect(patched.status).toBe(200);
+    return z.object({ id: z.string(), cwd: z.string() }).parse(patched.body.bot);
+  };
+
+  it("names the pinned folder and stays byte-identical across consecutive turns", async () => {
+    const folder = projectFolder("Origin");
+    const bot = await pinnedBot(folder);
+    try {
+      const first = await systemForTurn(bot.id, "what is the origin repo about");
+      expect(first).toContain(bot.cwd);
+      expect(folderBlock(first)).toContain(bot.cwd);
+
+      const second = await systemForTurn(bot.id, "list its top-level files");
+      expect(folderBlock(second)).toBe(folderBlock(first));
+    } finally {
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  }, 30_000);
+
+  it("carries the same bytes for two bots pinned to one folder", async () => {
+    const folder = projectFolder("Exhibits");
+    const plain = await pinnedBot(folder);
+    const decorated = await pinnedBot(folder, {
+      name: "Discovery",
+      title: "Paralegal",
+      description: "Reads OCR'd exhibits.",
+      section: "Work",
+    });
+    try {
+      const first = await systemForTurn(plain.id, "what is the origin repo about");
+      const second = await systemForTurn(decorated.id, "who is BANQUE GENEVOISE SA");
+      // genuinely different turns, so the comparison below is not one string twice
+      expect(second).not.toEqual(first);
+      expect(folderBlock(second)).toBe(folderBlock(first));
+    } finally {
+      for (const id of [plain.id, decorated.id]) await api("DELETE", `/api/bots/${id}`);
+    }
+  }, 30_000);
+
+  it("says nothing when the bot is on its own private workspace", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    try {
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      })).status).toBe(200);
+      // names no folder, so the resolver has nothing to pin either
+      const system = await systemForTurn(bot.id, "summarize what we discussed yesterday");
+      expect(system).not.toContain(FOLDER_START);
+    } finally {
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  }, 30_000);
+
+  // The other way to reach the private workspace: pinned to it explicitly, so
+  // the resolver does return a folder and the guard is what rules it out.
+  it("says nothing when the pin is the bot's own private workspace", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    try {
+      const workspace = join(home, ".orbit", "workspaces", bot.id);
+      mkdirSync(join(workspace, "memory"), { recursive: true });
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        cwd: workspace,
+        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      })).status).toBe(200);
+
+      const system = await systemForTurn(bot.id, "what is the origin repo about");
+      expect(system).not.toContain(FOLDER_START);
+    } finally {
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  }, 30_000);
+});

@@ -2894,11 +2894,14 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           ? store.pinTaskCwd(bot.id, threadId, resolvedProject ?? privateWorkspace)
           : null;
       const cwd = pinnedCwd ?? undefined;
+      // The user's own folder rather than the app-owned private workspace:
+      // the only one worth naming to the model or snapshotting.
+      const projectFolder = cwd && cwd !== privateWorkspace ? cwd : undefined;
       // Checkpoint explicit project folders, where a bot can overwrite the
       // user's work. Its private OpenMaus workspace is app-owned and changes
       // on nearly every ordinary chat; snapshotting it would add hidden disk
       // and process overhead without a user project to restore.
-      const checkpointCwd = cwd && cwd !== privateWorkspace ? cwd : undefined;
+      const checkpointCwd = projectFolder;
       // dweb is opt-in: without an explicit daemon URL, do not advertise
       // tools that would fail on every call or spawn an unnecessary proxy.
       const dwebUrl = process.env.DWEB_URL?.trim();
@@ -3153,6 +3156,15 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         transcript,
         system:
           persona +
+          // The folder is already this turn's cwd, but nothing told the model
+          // it existed, so a question about a folder it was pinned to got
+          // answered from the network instead. Placed early and interpolating
+          // only the path, which is pinned per task: the claude driver folds
+          // this string into its warm-process argsKey, so anything that moved
+          // between turns would cost a cold start on every send.
+          (projectFolder
+            ? ` Your project folder is ${projectFolder}. Look there first for the files, folders, and repositories the user mentions, before searching anywhere else.`
+            : "") +
           (computerKind === "vm"
             ? localVmMode(cfg) === "per-bot"
               ? " You have your own isolated Cua sandbox: a Linux desktop in a container reserved for this bot. Only /home/cua/workspace is durable; save downloads, repositories, working files, and browser profiles there because everything else inside the VM is disposable. No other host folder is mounted. Use the computer tools for desktop, accessibility, window, and shell work. Inspect the desktop state before acting, prefer accessibility targets over raw coordinates, and work carefully."
