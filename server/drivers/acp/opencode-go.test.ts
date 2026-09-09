@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,7 +13,7 @@ import {
   normalizeLegacyOpenCodeModel,
   parseOpenCodeModelsOutput,
 } from "./opencode-go.ts";
-import type { ModelCatalog } from "../../contracts.ts";
+import type { ModelCatalog, SendTurnInput } from "../../contracts.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "testing", "fake-acp-cli.ts");
 
@@ -316,5 +316,102 @@ describe("OpenCode catalog", () => {
     } finally {
       await removeTempDir(scratch);
     }
+  });
+});
+
+// What the picker chose is not evidence; what left the driver is. These read
+// the session/set_config_option calls the CLI actually received, because
+// `session.started` falls back to the requested id and would report a model
+// that never reached the wire.
+describe("OpenCode outbound model", () => {
+  const ZEN = "opencode/x-preview-f-free";
+  const PICKED = "openrouter/rednote-hilab/dots3-note-preview:free";
+
+  interface ConfigCall {
+    method: string;
+    params: { sessionId?: string; configId?: string; value?: string };
+  }
+
+  async function turnWire(options: {
+    instanceId: string;
+    sessionModels: string[];
+    model?: string;
+  }) {
+    const scratch = mkdtempSync(join(tmpdir(), `omb-${options.instanceId}-`));
+    const dump = join(scratch, "wire.json");
+    const driver = createOpenCodeDriver(async () => catalog(...options.sessionModels));
+    const instance = await driver.create({
+      instanceId: options.instanceId,
+      displayName: "OpenCode",
+      environment: {
+        XDG_DATA_HOME: join(scratch, "data"),
+        FAKE_ACP_DUMP: dump,
+        // the fake's first id is the session's own current model, so a pick
+        // of any other id is a real switch the driver has to transmit
+        FAKE_ACP_MODELS: options.sessionModels.join(","),
+        OPENCODE_API_KEY: "opencode-wire-synthetic",
+      },
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: false },
+    });
+    const recorder = recordEvents(instance.adapter);
+    try {
+      const input: SendTurnInput = {
+        threadId: `t-${options.instanceId}`,
+        text: "which model are you?",
+      };
+      if (options.model) input.model = options.model;
+      await instance.adapter.sendTurn(input);
+      const done = await recorder.until((event) => event.type === "turn.completed");
+      const sidecar = `${dump}.config.json`;
+      const calls: ConfigCall[] = existsSync(sidecar) ? JSON.parse(readFileSync(sidecar, "utf8")) : [];
+      return { done, events: [...recorder.events], calls };
+    } finally {
+      recorder.stop();
+      await instance.dispose();
+      await removeTempDir(scratch);
+    }
+  }
+
+  it("puts the picked model id on the wire verbatim", async () => {
+    const { done, calls } = await turnWire({
+      instanceId: "opencode-wire-pick",
+      sessionModels: [ZEN, PICKED],
+      model: PICKED,
+    });
+
+    expect(done).toMatchObject({ ok: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      method: "session/set_config_option",
+      params: { sessionId: "fake-acp-session", configId: "model", value: PICKED },
+    });
+  });
+
+  it("puts the rewritten id on the wire, not the retired one the picker held", async () => {
+    const { done, calls } = await turnWire({
+      instanceId: "opencode-wire-legacy",
+      sessionModels: [ZEN, "opencode-go/x-preview-f-free"],
+      model: "opencode-go/ox-alpha-free",
+    });
+
+    expect(done).toMatchObject({ ok: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ params: { value: "opencode-go/x-preview-f-free" } });
+  });
+
+  // The gap behind "it answered as a model I did not pick": with no model the
+  // driver transmits none and the CLI keeps its own, while session.started
+  // still names a model. Reachable only through the driver API: both
+  // server/index.ts dispatch sites pass a model today.
+  it("transmits no model when the turn carries none, leaving the CLI's own", async () => {
+    const { done, events, calls } = await turnWire({
+      instanceId: "opencode-wire-nomodel",
+      sessionModels: [ZEN, PICKED],
+    });
+
+    expect(done).toMatchObject({ ok: true });
+    expect(calls).toEqual([]);
+    expect(events.find((event) => event.type === "session.started")).toMatchObject({ model: ZEN });
   });
 });
