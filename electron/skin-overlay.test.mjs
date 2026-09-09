@@ -98,7 +98,8 @@ describe("skin overlay chrome", () => {
     expect(main).not.toContain("waitsForSkinSync");
     expect(main).not.toContain("skinSyncFallback");
     const create = main.slice(main.indexOf("function createWindow()"), main.indexOf("ipcMain.handle(\"screen:frame\""));
-    expect(create).toContain("nativeTheme.themeSource");
+    expect(create).toContain("nativeTheme.themeSource = skinThemeSource(persistedSkin)");
+    expect(create).not.toMatch(/if \(isKnownSkin\(persistedSkin\)\) \{\s*nativeTheme\.themeSource/);
     expect(create).toContain("setBackgroundColor");
     expect(create).toContain("win.show()");
     expect(create).toContain("backgroundColor: chrome.color");
@@ -148,7 +149,13 @@ describe("skin overlay chrome", () => {
     expect(skinThemeSource("onyx")).toBe("dark");
     expect(skinThemeSource("dracula")).toBe("dark");
     expect(skinThemeSource("cobalt")).toBe("dark");
-    expect(skinThemeSource("not-a-skin")).toBe("dark");
+  });
+
+  it("maps a missing persisted skin to Ledger light nativeTheme", () => {
+    expect(skinThemeSource(null)).toBe("light");
+    expect(skinThemeSource(undefined)).toBe("light");
+    expect(skinThemeSource("not-a-skin")).toBe("light");
+    expect(skinThemeSource(DEFAULT_SKIN)).toBe("light");
   });
 
   it("round-trips a known skin through the userData preference file", () => {

@@ -7,8 +7,8 @@
 // It parses the CSS rather than taking a second copy of the values, so the
 // check can never pass against a palette that is no longer the shipped one.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { dirname, join, resolve } from "node:path";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const css = readFileSync(join(root, "src/styles.css"), "utf8");
@@ -154,7 +154,7 @@ function githubDarkDefaultPath() {
 
 function loadGithubDarkDefault() {
   const src = readFileSync(githubDarkDefaultPath(), "utf8");
-  const mark = "JSON.parse(\"";
+  const mark = "JSON.parse(" + String.fromCharCode(34);
   const i = src.indexOf(mark);
   if (i === -1) throw new Error("github-dark-default: missing JSON.parse payload");
   let k = i + mark.length;
@@ -185,15 +185,27 @@ function emittedForegrounds(theme) {
 }
 
 function parseCssRemaps(source) {
-  const map = new Map();
+  const bySkin = new Map();
   for (const [, selectors, token] of source.matchAll(
     /([^{}]+)\{[^{}]*color:\s*var\((--color-syntax-[\w-]+)\)/gi,
   )) {
-    for (const [, hex] of selectors.matchAll(/\[style\*="#([0-9a-fA-F]{6})"/gi)) {
-      map.set(`#${hex.toLowerCase()}`, token);
+    const skins = [...selectors.matchAll(/\[data-skin="([a-z0-9-]+)"\]/gi)].map((m) => m[1]);
+    const hexes = [
+      ...selectors.matchAll(new RegExp("\\[style\\*=\"#([0-9a-fA-F]{6})\"", "gi")),
+    ].map((m) => `#${m[1].toLowerCase()}`);
+    for (const id of skins) {
+      if (!bySkin.has(id)) bySkin.set(id, new Map());
+      const map = bySkin.get(id);
+      for (const hex of hexes) map.set(hex, token);
     }
   }
-  return map;
+  return bySkin;
+}
+
+function unmappedEmittedHexes(cssSource, skinId, hexes) {
+  const remaps = parseCssRemaps(cssSource);
+  const skinRemaps = remaps.get(skinId) ?? new Map();
+  return hexes.filter((hex) => !skinRemaps.has(hex));
 }
 
 function isLightSkin(tokens) {
@@ -202,54 +214,69 @@ function isLightSkin(tokens) {
   return luminance(parseHex(app)) > 0.5;
 }
 
-const skins = parseSkins(css);
-const emitted = emittedForegrounds(loadGithubDarkDefault());
-const remaps = parseCssRemaps(css);
-// Midnight is shipped as a faithful copy of upstream, contrast gaps included;
-// it is reported but not allowed to fail the run.
-const ADVISORY = new Set(["midnight"]);
+export { parseCssRemaps, unmappedEmittedHexes };
 
-let failed = false;
-for (const [id, tokens] of skins) {
-  const problems = [];
-  const missing = [];
-  let measured = 0;
-  const pairs = [...PAIRS];
-  if (isLightSkin(tokens)) {
-    for (const hex of emitted) {
-      const token = remaps.get(hex);
-      if (!token) {
-        missing.push(`unmapped github-dark-default ${hex}`);
-        continue;
-      }
-      pairs.push([token, CODE_BLOCK_BG, SYNTAX_MIN]);
-    }
+function isDirectRun() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return pathToFileURL(resolve(entry)).href === import.meta.url;
+  } catch {
+    return false;
   }
-  for (const [fg, bg, min] of pairs) {
-    // A pair we cannot measure is reported, never silently skipped: an
-    // unmeasured pair used to be counted as a passing one.
-    if (!tokens[fg] || !tokens[bg]) {
-      missing.push(!tokens[fg] ? fg : bg);
-      continue;
-    }
-    measured++;
-    const ratio = contrast(tokens[fg], tokens[bg]);
-    if (ratio < min) problems.push({ fg, bg, ratio, min });
-  }
-  const advisory = ADVISORY.has(id);
-  if (missing.length) {
-    console.log(`✗ ${id} — undefined token(s): ${[...new Set(missing)].join(", ")}`);
-    if (!advisory) failed = true;
-  }
-  if (problems.length === 0) {
-    if (!missing.length) console.log(`✓ ${id} — ${measured} pairs, none below target`);
-    continue;
-  }
-  console.log(`${advisory ? "~" : "✗"} ${id}${advisory ? " (advisory — upstream copy)" : ""}`);
-  for (const { fg, bg, ratio, min } of problems) {
-    console.log(`    ${fg} on ${bg}: ${ratio.toFixed(2)}:1 (needs ${min}:1)`);
-  }
-  if (!advisory) failed = true;
 }
 
-process.exit(failed ? 1 : 0);
+if (isDirectRun()) {
+  const skins = parseSkins(css);
+  const emitted = emittedForegrounds(loadGithubDarkDefault());
+  const remaps = parseCssRemaps(css);
+  // Midnight is shipped as a faithful copy of upstream, contrast gaps included;
+  // it is reported but not allowed to fail the run.
+  const ADVISORY = new Set(["midnight"]);
+
+  let failed = false;
+  for (const [id, tokens] of skins) {
+    const problems = [];
+    const missing = [];
+    let measured = 0;
+    const pairs = [...PAIRS];
+    if (isLightSkin(tokens)) {
+      const skinRemaps = remaps.get(id) ?? new Map();
+      for (const hex of emitted) {
+        const token = skinRemaps.get(hex);
+        if (!token) {
+          missing.push(`unmapped github-dark-default ${hex}`);
+          continue;
+        }
+        pairs.push([token, CODE_BLOCK_BG, SYNTAX_MIN]);
+      }
+    }
+    for (const [fg, bg, min] of pairs) {
+      // A pair we cannot measure is reported, never silently skipped: an
+      // unmeasured pair used to be counted as a passing one.
+      if (!tokens[fg] || !tokens[bg]) {
+        missing.push(!tokens[fg] ? fg : bg);
+        continue;
+      }
+      measured++;
+      const ratio = contrast(tokens[fg], tokens[bg]);
+      if (ratio < min) problems.push({ fg, bg, ratio, min });
+    }
+    const advisory = ADVISORY.has(id);
+    if (missing.length) {
+      console.log(`✗ ${id} — undefined token(s): ${[...new Set(missing)].join(", ")}`);
+      if (!advisory) failed = true;
+    }
+    if (problems.length === 0) {
+      if (!missing.length) console.log(`✓ ${id} — ${measured} pairs, none below target`);
+      continue;
+    }
+    console.log(`${advisory ? "~" : "✗"} ${id}${advisory ? " (advisory — upstream copy)" : ""}`);
+    for (const { fg, bg, ratio, min } of problems) {
+      console.log(`    ${fg} on ${bg}: ${ratio.toFixed(2)}:1 (needs ${min}:1)`);
+    }
+    if (!advisory) failed = true;
+  }
+
+  process.exit(failed ? 1 : 0);
+}

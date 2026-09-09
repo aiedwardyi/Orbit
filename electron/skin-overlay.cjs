@@ -49,9 +49,11 @@ function isKnownSkin(skin) {
 }
 
 /** Windows caption glyphs and DWM follow nativeTheme; light skins need
- * `light` or the symbols stay Midnight-on-Midnight. */
+ * `light` or the symbols stay Midnight-on-Midnight. Unknown or missing ids
+ * follow DEFAULT_SKIN, the same fallback skinChrome uses. */
 function skinThemeSource(skin) {
-  return LIGHT_SKINS.has(skin) ? "light" : "dark";
+  const id = Object.hasOwn(SKIN_CHROME, skin) ? skin : DEFAULT_SKIN;
+  return LIGHT_SKINS.has(id) ? "light" : "dark";
 }
 
 function preferencePath(userDataDir) {

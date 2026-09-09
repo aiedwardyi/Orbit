@@ -1266,9 +1266,7 @@ ipcMain.on("desktop:taskbar-busy", (event, value) => {
 
 function createWindow() {
   const persistedSkin = readPersistedSkin(app.getPath("userData"));
-  if (isKnownSkin(persistedSkin)) {
-    nativeTheme.themeSource = skinThemeSource(persistedSkin);
-  }
+  nativeTheme.themeSource = skinThemeSource(persistedSkin);
   const chrome = skinChrome(persistedSkin);
   const primary = screen.getPrimaryDisplay();
   const displays = [primary, ...screen.getAllDisplays().filter((display) => display.id !== primary.id)];
