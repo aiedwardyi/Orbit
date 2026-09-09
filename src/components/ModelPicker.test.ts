@@ -108,18 +108,18 @@ function markup(
 }
 
 const NON_FRIENDS_LABELS = [
-  'aria-label="Kimi"',
-  'aria-label="Qwen"',
-  'aria-label="Cursor"',
-  'aria-label="Hermes"',
-  'aria-label="Gemini API"',
+  'data-model-row="kimi"',
+  'data-model-row="qwen"',
+  'data-model-row="cursor"',
+  'data-model-row="hermes"',
+  'data-model-row="gemini"',
 ];
 const FRIENDS_LABELS = [
-  'aria-label="Grok"',
-  'aria-label="Claude"',
-  'aria-label="Codex"',
-  'aria-label="Gemini (Antigravity)"',
-  'aria-label="OpenCode"',
+  'data-model-row="grok"',
+  'data-model-row="claude"',
+  'data-model-row="codex"',
+  'data-model-row="antigravity"',
+  'data-model-row="opencode"',
 ];
 
 describe("ModelPicker friends chip", () => {
@@ -130,7 +130,7 @@ describe("ModelPicker friends chip", () => {
     expect(html).not.toContain("Current model");
     expect(html).not.toContain("Switch engine");
     expect(html).not.toContain("data-model-picker-content");
-    expect(html).toContain('title="Stay on this engine while it works. Currently Grok 4.6."');
+    expect(html).toContain('title="Stay on this engine while it works. Currently Grok 4.6. (Alt+P)"');
   });
 
   it("folds the chip to the engine name in a narrow chat header", () => {
@@ -151,13 +151,12 @@ describe("ModelPicker friends chip", () => {
     expect(html).toContain("Current model");
     expect(html).toContain("Grok 4.6");
     expect(html).not.toContain("stay on this while it works");
-    expect(html).toMatch(/leading-snug[^"]*"[^>]*>Grok 4\.6</);
+    expect(html).toContain('class="break-all text-ink">grok-4.6<');
   });
 
   it("shows Ready on the open engine pane, not the CLI --version dump", () => {
     const html = markup(bot.modelSelection, true);
     expect(html).toMatch(/bg-success\/10 text-success[^"]*"[^>]*>Ready</);
-    expect(html).toContain("Grok · Ready");
     expect(html).not.toContain("CLI 1.0.13");
     expect(html).not.toContain("CLI grok");
     expect(html).not.toContain("1.0.13");
@@ -165,33 +164,32 @@ describe("ModelPicker friends chip", () => {
     expect(html).not.toContain("[stable]");
   });
 
-  it("keeps catalog order with one default badge and one check", () => {
+  it("keeps the ragged row in catalog order with one selected cell", () => {
     const html = markup({ instanceId: "grok", model: "grok-4.5", mode: "pinned" }, true);
-    const list = html.slice(html.indexOf("Suggested"));
+    const list = html.slice(html.indexOf("data-model-picker-content"));
     const grok46 = list.indexOf("Grok 4.6");
     const grok45 = list.indexOf("Grok 4.5");
-    const defaultAt = list.indexOf("Default");
     expect(grok46).toBeGreaterThan(-1);
     expect(grok45).toBeGreaterThan(grok46);
-    expect(defaultAt).toBeGreaterThan(grok46);
-    expect(defaultAt).toBeLessThan(grok45);
+    expect(list.match(/aria-pressed="true"/g)).toHaveLength(1);
+    expect(list).toContain('data-model-cell="grok-4.5" data-engine-axis="true" aria-pressed="true"');
   });
 
-  it("opens the custom pane when defaultOpen and the selected model is custom", () => {
+  it("gives a pinned custom model its own selected cell", () => {
     const html = markup({ instanceId: "grok", model: "omlx::local", mode: "pinned" }, true);
     const list = html.slice(html.indexOf("data-model-picker-content"));
-    expect(list).toContain("Run this agent with a model already on your machine.");
+    expect(list).toContain('data-model-cell="omlx::local" data-engine-axis="true" aria-pressed="true"');
     expect(list).toContain("local (oMLX)");
     expect(list).not.toContain("Suggested");
   });
 
-  it("shows the Models icon rail when the picker opens, without a fake Grok dropdown", () => {
+  it("opens a modal with ordered engine rows and inline keyboard bindings", () => {
     const html = markup(bot.modelSelection, true);
     const list = html.slice(html.indexOf("data-model-picker-content"));
-    expect(list).toContain("data-engine-rail");
-    expect(list).toContain("w-14 shrink-0");
+    expect(list).toContain('role="dialog" aria-modal="true"');
+    expect(list).toContain("Engine up-down   Model left-right   Save Enter   Cancel Esc");
     expect(list).toContain('aria-label="Switch engine"');
-    expect(list).toContain(">Models<");
+    expect(list).toContain('aria-label="Models"');
     expect(list).not.toContain(">Cloud<");
     expect(list).toContain("Grok 4.6");
     expect(list).toContain("Current model");
@@ -203,23 +201,24 @@ describe("ModelPicker friends chip", () => {
     expect(list).not.toContain("Show all engines");
     expect(list).not.toContain(">Local<");
     expect(list).toContain("Use a local model");
-    const grok = list.indexOf('aria-label="Grok"');
-    const claude = list.indexOf('aria-label="Claude"');
-    const codex = list.indexOf('aria-label="Codex"');
-    const antigravity = list.indexOf('aria-label="Gemini (Antigravity)"');
-    const opencode = list.indexOf('aria-label="OpenCode"');
-    expect(grok).toBeGreaterThan(-1);
-    expect(claude).toBeGreaterThan(grok);
+    const grok = list.indexOf('data-model-row="grok"');
+    const claude = list.indexOf('data-model-row="claude"');
+    const codex = list.indexOf('data-model-row="codex"');
+    const antigravity = list.indexOf('data-model-row="antigravity"');
+    const opencode = list.indexOf('data-model-row="opencode"');
+    expect(claude).toBeGreaterThan(-1);
     expect(codex).toBeGreaterThan(claude);
-    expect(antigravity).toBeGreaterThan(codex);
+    expect(grok).toBeGreaterThan(codex);
+    expect(antigravity).toBeGreaterThan(grok);
     expect(opencode).toBeGreaterThan(antigravity);
   });
 
-  it("does not put a non-friends pin or Gemini API on the featured rail", () => {
+  it("preserves a non-featured pin in its own row without exposing other engines", () => {
     const html = markup({ instanceId: "kimi", model: "kimi-default", mode: "pinned" }, true);
     const list = html.slice(html.indexOf("data-model-picker-content"));
-    expect(list).not.toContain('aria-label="Kimi"');
-    expect(list).not.toContain('aria-label="Gemini API"');
+    expect(list).toContain('data-model-row="kimi"');
+    expect(list).toContain('data-model-cell="kimi-default" data-engine-axis="true" aria-pressed="true"');
+    expect(list).not.toContain('data-model-row="gemini"');
     expect(list).not.toContain("Show all engines");
   });
 });

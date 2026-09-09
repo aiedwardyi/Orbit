@@ -66,3 +66,5 @@ pnpm build
 ## License and attribution
 
 Orbit is based on [OpenMausBot](https://github.com/milind-soni/OpenMausBot) and is distributed under the Apache License 2.0. See `LICENSE` and `NOTICE`.
+
+The cross model picker uses [Ghostex](https://github.com/maddada/Ghostex) (MIT) as its design source.

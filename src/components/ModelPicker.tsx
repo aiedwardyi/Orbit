@@ -1,538 +1,263 @@
-// Compact model picker: featured engines as a Models icon rail (Grok, Claude,
-// Codex, Antigravity, OpenCode). Models nest under the selected engine. The
-// engine name is a heading, not a fake dropdown. Missing keys open Connections.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Search, Sparkles } from "lucide-react";
-import { useStore, type Bot, type InstanceInfo, type ModelSelection } from "@/state/store";
-import { filterCustomModels, partitionCustomModels, suggestedModels } from "@/lib/custom-models";
+import { createPortal } from "react-dom";
+import { ChevronDown, Sparkles, X } from "lucide-react";
+import { useStore, type Bot, type ModelSelection } from "@/state/store";
+import { filterCustomModels } from "@/lib/custom-models";
 import { engineBadgeText, modelChipText, modelChipTitle } from "@/lib/model-chip";
-import { isCustomOnly, isEngineRailOpen, showFriendsLocalZoo, splitEngineRail, visibleFriendsRail } from "@/lib/engine-rail";
-import { showEngineRailZoo } from "@/lib/friends-chrome";
+import { centeredItems, movePicker, pickerColumn, pickerRows, selectPickerModel } from "@/lib/cross-model-picker";
 import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
-import { EngineGroupLabel } from "./EngineGroupLabel";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
+import "./ModelPicker.css";
 
-type ModelOption = InstanceInfo["models"]["options"][number];
-const COMPACT_MODEL_COUNT = 5;
-
-function engineStatus(instance: InstanceInfo, tr: ReturnType<typeof useI18n>["t"]): string {
-  if (needsCli(instance)) return engineBadgeText(instance.snapshot, "not-installed", tr);
-  if (needsSignIn(instance)) return engineBadgeText(instance.snapshot, "sign-in", tr);
-  return engineBadgeText(instance.snapshot, "ready", tr);
-}
-
-function pickerPaneFor(instance: InstanceInfo | undefined, model: string): "main" | "custom" {
-  const official = instance?.models.options.filter((option) => !option.custom) ?? [];
-  const selectedIsCustom = instance?.models.options.some(
-    (option) => option.id === model && option.custom,
-  );
-  return selectedIsCustom || isCustomOnly(instance) || official.length === 0 ? "custom" : "main";
-}
-
-function ModelRow({
-  option,
-  current,
-  defaultId,
-  onPick,
-}: {
-  option: ModelOption;
-  current: boolean;
-  defaultId: string;
-  onPick: () => void;
-}) {
-  const { t } = useI18n();
-  return (
-    <button
-      type="button"
-      onClick={onPick}
-      className={cn(
-        "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] text-ink hover:bg-control/60",
-        current && "bg-control",
-      )}
-    >
-      <span className="flex min-w-0 items-center gap-2">
-        <span className="truncate">{option.label}</span>
-        {option.id === defaultId && (
-          <span className="shrink-0 rounded bg-inset px-1.5 py-px text-[10px] text-ink-secondary">{t("model.default")}</span>
-        )}
-        {option.loaded && (
-          <span className="shrink-0 rounded bg-accent/10 px-1.5 py-px text-[10px] text-accent">{t("model.loaded")}</span>
-        )}
-      </span>
-      {current && <Check size={14} className="shrink-0 text-accent" />}
-    </button>
-  );
-}
-
-function ModelSearch({
-  value,
-  onChange,
-  onEscape,
-  local,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  onEscape: () => void;
-  local: boolean;
-}) {
-  const { t } = useI18n();
-  return (
-    <div className="shrink-0 px-2 pb-2">
-      <div className="flex items-center gap-2 rounded-lg border border-hairline/40 bg-inset px-2.5 py-1.5 focus-within:border-accent/60">
-        <Search size={13} className="shrink-0 text-ink-secondary" />
-        <input
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== "Escape") return;
-            event.stopPropagation();
-            onEscape();
-          }}
-          placeholder={local ? t("model.searchLocal") : t("model.search")}
-          aria-label={local ? t("model.searchLocal") : t("model.search")}
-          className="w-full bg-transparent text-[12.5px] text-ink placeholder:text-ink-secondary focus:outline-none"
-        />
-      </div>
-    </div>
-  );
-}
-
-export function ModelPicker({
-  bot,
-  className,
-  contained = false,
-  label,
-  defaultOpen = false,
-  defaultShowAllEngines = false,
-}: {
+type ModelPickerProps = {
   bot: Bot;
   className?: string;
-  /** Expand the menu in-flow under the trigger so it cannot overflow a
-   * narrow parent (the Agent profile sidebar). */
   contained?: boolean;
   label?: ReactNode;
-  /** Start with the menu open (tests). */
   defaultOpen?: boolean;
-  /** Start with the overflow engines visible (tests; friends chrome hides this). */
-  defaultShowAllEngines?: boolean;
-}) {
+};
+
+type PickerStore = {
+  state: Pick<ReturnType<typeof useStore>["state"], "instances" | "selectedId">;
+  dispatch: ReturnType<typeof useStore>["dispatch"];
+  refreshInstances: () => Promise<void>;
+};
+
+export function ModelPicker(props: ModelPickerProps) {
+  const store = useStore();
+  return <ModelPickerControl {...props} store={store} />;
+}
+
+export function ModelPickerControl({
+  bot, className, contained = false, label, defaultOpen = false, store,
+}: ModelPickerProps & { store: PickerStore }) {
   const { t } = useI18n();
-  const { state, dispatch, refreshInstances } = useStore();
+  const { state, dispatch, refreshInstances } = store;
   const selection = bot.modelSelection;
-  const isAutomatic = selection.mode === "automatic";
   const active = state.instances.find((instance) => instance.instanceId === selection.instanceId);
   const [open, setOpen] = useState(defaultOpen);
-  const [showAllEngines, setShowAllEngines] = useState(defaultShowAllEngines && showEngineRailZoo());
-  const [railId, setRailId] = useState<string | null>(null);
-  const [pane, setPane] = useState<"main" | "custom">(() =>
-    defaultOpen ? pickerPaneFor(active, selection.model) : "main",
-  );
+  const [draft, setDraft] = useState(selection);
+  const [customOpen, setCustomOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [showAll, setShowAll] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const railInstance =
-    state.instances.find((instance) => instance.instanceId === (railId ?? selection.instanceId)) ?? state.instances[0];
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const cellRef = useRef<HTMLButtonElement>(null);
+  const rows = pickerRows(state.instances, selection, draft);
+  const row = rows.find((item) => item.instance.instanceId === draft.instanceId);
+  const column = row ? pickerColumn(row, draft.model) : 0;
+  const cell = row?.cells[column];
+  const instance = row?.instance;
+  const isCustom = instance?.models.options.some((option) => option.id === draft.model && option.custom);
+  const blocked = Boolean(instance && (needsCli(instance) || (!isCustom && needsSignIn(instance))));
+  const unchanged = draft.instanceId === selection.instanceId && draft.model === selection.model;
+  const canSave = unchanged || Boolean(instance && !blocked && instance.models.options.some((option) => option.id === draft.model));
+  const efforts = instance?.capabilities?.effortLevels ?? [];
+  const custom = instance?.models.options.filter((option) => option.custom) ?? [];
+
+  const show = () => {
+    setDraft(selection);
+    setCustomOpen(false);
+    setQuery("");
+    setOpen(true);
+  };
+  const close = () => setOpen(false);
+  const save = () => {
+    if (!canSave) return;
+    dispatch({ type: "setModel", botId: bot.id, selection: draft });
+    close();
+  };
+  const pick = (next: ModelSelection) => {
+    setDraft(next);
+    setCustomOpen(false);
+  };
 
   useEffect(() => {
-    if (open) void refreshInstances();
-  }, [open, refreshInstances]);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || event.isComposing || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.code !== "KeyP") return;
+      if (state.selectedId !== bot.id || contained || (!open && document.querySelector('[role="dialog"]'))) return;
+      event.preventDefault();
+      if (open) close();
+      else show();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   useEffect(() => {
     if (!open) return;
-    const closeOnOutsideClick = (event: MouseEvent) => {
-      const clickedNode = event.target instanceof Node ? event.target : null;
-      if (!rootRef.current?.contains(clickedNode)) setOpen(false);
+    void refreshInstances();
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : triggerRef.current;
+    dialogRef.current?.focus();
+    return () => previous?.focus();
+  }, [open, refreshInstances]);
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    const selected = cellRef.current;
+    if (!stage || !selected) return;
+    const center = () => {
+      stage.scrollLeft = selected.offsetLeft + selected.offsetWidth / 2 - stage.clientWidth / 2;
+      stage.scrollTop = selected.offsetTop + selected.offsetHeight / 2 - stage.clientHeight / 2;
     };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (query) setQuery("");
-      else if (pane === "custom" && railInstance?.models.options.some((option) => !option.custom)) setPane("main");
-      else setOpen(false);
-    };
-    window.addEventListener("mousedown", closeOnOutsideClick);
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      window.removeEventListener("mousedown", closeOnOutsideClick);
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [open, pane, query, railInstance]);
-
-  const resetList = () => {
-    setQuery("");
-    setShowAll(false);
-  };
-
-  const openFor = (instance: InstanceInfo | undefined) => {
-    setPane(pickerPaneFor(instance, selection.model));
-    resetList();
-  };
-
-  const selectRail = (instance: InstanceInfo) => {
-    setRailId(instance.instanceId);
-    const official = instance.models.options.filter((option) => !option.custom);
-    setPane(isCustomOnly(instance) || official.length === 0 ? "custom" : "main");
-    resetList();
-  };
-
-  const pick = (instance: InstanceInfo, model: string) => {
-    const sameInstance = instance.instanceId === selection.instanceId;
-    const nextSelection: ModelSelection = {
-      mode: "pinned",
-      instanceId: instance.instanceId,
-      model,
-    };
-    if (sameInstance && selection.effort) nextSelection.effort = selection.effort;
-    dispatch({
-      type: "setModel",
-      botId: bot.id,
-      selection: nextSelection,
-    });
-    setOpen(false);
-  };
-
-  const chooseAutomatic = () => {
-    dispatch({
-      type: "setModel",
-      botId: bot.id,
-      selection: { ...selection, mode: "automatic" },
-    });
-    setOpen(false);
-  };
-
-  const official = railInstance?.models.options.filter((option) => !option.custom) ?? [];
-  const custom = railInstance?.models.options.filter((option) => option.custom) ?? [];
-  const currentModel = selection.instanceId === railInstance?.instanceId ? selection.model : undefined;
-  const filteredOfficial = filterCustomModels(official, query);
-  const compactOfficial = railInstance
-    ? suggestedModels(official, railInstance.models.default, currentModel, COMPACT_MODEL_COUNT)
-    : [];
-  const shownOfficial = query ? filteredOfficial : showAll ? official : compactOfficial;
-  const filteredCustom = filterCustomModels(custom, query);
-  const { pinned, rest } = partitionCustomModels(filteredCustom);
-  const blocked = railInstance
-    ? pane === "custom"
-      ? needsCli(railInstance)
-      : needsCli(railInstance) || needsSignIn(railInstance)
-    : false;
-  const canOpenCustom = Boolean(railInstance && !needsCli(railInstance));
-  const canReturnToOfficial = official.length > 0 && !isCustomOnly(railInstance);
-  const { visible: railVisible, hiddenCount } = visibleFriendsRail(state.instances, {
-    showAll: showAllEngines,
-    activeId: railId ?? selection.instanceId,
-  });
-  const railShown = isEngineRailOpen({ featuredCount: railVisible.length });
-  const { subscription, custom: local } = splitEngineRail(railVisible);
-  const collapsibleEngines = showEngineRailZoo() && (hiddenCount > 0 || showAllEngines);
-  const showLocalZoo = showFriendsLocalZoo({ customCount: custom.length });
-  const automaticLive = modelChipText({ instance: active, model: selection.model }, t);
-
-  const renderRow = (option: ModelOption) => (
-    <ModelRow
-      key={option.id}
-      option={option}
-      current={!isAutomatic && selection.instanceId === railInstance?.instanceId && selection.model === option.id}
-      defaultId={railInstance?.models.default ?? ""}
-      onPick={() => railInstance && pick(railInstance, option.id)}
-    />
-  );
+    center();
+    const observer = new window.ResizeObserver(center);
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, [open, draft.instanceId, draft.model, state.instances]);
 
   const trigger = (
     <button
+      ref={triggerRef}
       type="button"
-      onClick={() => {
-        setRailId(selection.instanceId);
-        setOpen((wasOpen) => {
-          const next = !wasOpen;
-          if (next) {
-            setShowAllEngines(false);
-            openFor(state.instances.find((instance) => instance.instanceId === selection.instanceId));
-          }
-          return next;
-        });
-      }}
+      onClick={show}
       aria-expanded={open}
       aria-haspopup="dialog"
-      className={cn(
-        "flex items-center gap-1.5 rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover",
-      )}
-      title={modelChipTitle({ mode: selection.mode, instance: active, model: selection.model }, t)}
+      aria-keyshortcuts="Alt+P"
+      className="flex items-center gap-1.5 rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover"
+      title={modelChipTitle({ mode: selection.mode, instance: active, model: selection.model }, t) + " (Alt+P)"}
     >
       {active ? <ProviderMark driverKind={active.driverKind} size={14} /> : <Sparkles size={14} className="text-accent" />}
       <span className={cn("max-w-[160px] truncate", !contained && active && "@max-4xl/chathead:hidden")}>
         {modelChipText({ instance: active, model: selection.model }, t)}
       </span>
-      {!contained && active && (
-        <span className="hidden max-w-[96px] truncate @max-4xl/chathead:inline">{active.displayName}</span>
-      )}
-      <ChevronDown
-        size={14}
-        className={cn(
-          "text-ink-secondary transition-transform",
-          open && "rotate-180",
-          !contained && active && "@max-4xl/chathead:hidden",
-        )}
-      />
+      {!contained && active && <span className="hidden max-w-[96px] truncate @max-4xl/chathead:inline">{active.displayName}</span>}
+      <ChevronDown size={14} className={cn("text-ink-secondary", !contained && active && "@max-4xl/chathead:hidden")} />
     </button>
   );
 
-  return (
-    <div ref={rootRef} className={cn(contained ? "w-full" : "relative", className)}>
-      {contained ? (
-        <div className="flex items-center justify-between gap-4">
-          {label}
-          {trigger}
+  const dialog = (
+    <div className="model-cross-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
+      <div
+        ref={dialogRef}
+        data-model-picker-content
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("model.choose")}
+        aria-describedby="model-cross-bindings"
+        tabIndex={-1}
+        className="model-cross-dialog"
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.nativeEvent.isComposing) return;
+          if (event.key === "Escape" || (event.altKey && !event.ctrlKey && !event.shiftKey && event.code === "KeyP")) {
+            event.preventDefault();
+            close();
+          } else if (event.key === "Enter") {
+            if (event.target instanceof HTMLElement && event.target.closest("[data-picker-action]")) return;
+            event.preventDefault();
+            save();
+          } else if (event.key === "Tab") {
+            const buttons = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input, [tabindex="0"]') ?? []);
+            const first = buttons[0];
+            const last = buttons[buttons.length - 1];
+            if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) {
+              event.preventDefault();
+              last?.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first?.focus();
+            }
+          } else if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key) && !(event.target instanceof HTMLInputElement)) {
+            event.preventDefault();
+            pick(movePicker(rows, draft, event.key));
+          }
+        }}
+      >
+        <header className="model-cross-header">
+          <div>
+            <h2 className="text-[15px] font-semibold text-ink">{t("model.choose")}</h2>
+            <p className="mt-1 text-xs text-ink-secondary">{t("model.crossHelp")}</p>
+          </div>
+          <button data-picker-action type="button" onClick={close} aria-label={t("createBot.cancel")} className="rounded-lg p-2 text-ink-secondary hover:bg-control"><X size={18} /></button>
+        </header>
+        <div className="model-cross-legend">
+          <span className="model-cross-engine-label"><button data-picker-action type="button" aria-label={t("model.previousEngine")} onClick={() => pick(movePicker(rows, draft, "ArrowUp"))}>↑</button> {t("model.engineAxis")} <button data-picker-action type="button" aria-label={t("model.nextEngine")} onClick={() => pick(movePicker(rows, draft, "ArrowDown"))}>↓</button></span>
+          <span className="text-accent-text"><button data-picker-action type="button" aria-label={t("model.previousModel")} onClick={() => pick(movePicker(rows, draft, "ArrowLeft"))}>←</button> {t("model.modelAxis")} <button data-picker-action type="button" aria-label={t("model.nextModel")} onClick={() => pick(movePicker(rows, draft, "ArrowRight"))}>→</button></span>
         </div>
-      ) : (
-        trigger
-      )}
-
-      {open && (
-        <div
-          data-model-picker-content
-          role="dialog"
-          aria-label={t("model.choose")}
-          className={cn(
-            "flex overflow-hidden rounded-2xl border border-hairline/50 bg-card",
-            contained
-              ? "relative mt-3 w-full max-h-[min(420px,50dvh)]"
-              : "absolute right-0 top-full z-30 mt-2 w-[380px] max-h-[min(480px,calc(100dvh-7rem))] shadow-2xl shadow-black/50",
-          )}
-        >
-          {railShown && (
-            <div
-              data-engine-rail
-              aria-label={t("model.switchEngine")}
-              className="flex w-14 shrink-0 flex-col gap-1 overflow-y-auto border-r border-hairline/40 bg-panel p-2"
-            >
-              {(() => {
-                const railButton = (instance: InstanceInfo) => {
-                  const selected = instance.instanceId === railInstance?.instanceId;
-                  const attention = needsCli(instance) || needsSignIn(instance);
-                  return (
-                    <button
-                      type="button"
-                      key={instance.instanceId}
-                      onClick={() => selectRail(instance)}
-                      aria-label={instance.displayName}
-                      aria-pressed={selected}
-                      title={`${instance.displayName} · ${engineStatus(instance, t)}`}
-                      className={cn(
-                        "relative flex size-9 items-center justify-center rounded-lg",
-                        selected ? "bg-control ring-1 ring-hairline/50" : "hover:bg-control/60",
-                      )}
-                    >
-                      <ProviderMark driverKind={instance.driverKind} size={18} />
-                      {attention && (
-                        <span className="absolute bottom-0.5 right-0.5 size-1.5 rounded-full bg-warning ring-2 ring-panel" />
-                      )}
-                    </button>
-                  );
-                };
-                return (
-                  <>
-                    {subscription.length > 0 && (
-                      <EngineGroupLabel className="px-0 pb-0.5 pt-0.5 text-center text-[9px]">{t("engines.models")}</EngineGroupLabel>
-                    )}
-                    {subscription.map(railButton)}
-                    {showEngineRailZoo() && local.length > 0 && (
-                      <EngineGroupLabel className="px-0 pb-0.5 pt-2 text-center text-[9px]">{t("noEngines.local")}</EngineGroupLabel>
-                    )}
-                    {showEngineRailZoo() && local.map(railButton)}
-                  </>
-                );
-              })()}
-            </div>
-          )}
-
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <button
-              type="button"
-              onClick={chooseAutomatic}
-              className={cn(
-                "flex shrink-0 items-center gap-3 border-b border-hairline/40 px-4 py-3 text-left hover:bg-control/60",
-                isAutomatic && "bg-control/40",
-              )}
-            >
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
-                <Sparkles size={15} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-[13.5px] font-medium text-ink">{t("model.automatic")}</span>
-                <span className="block text-[11.5px] leading-snug text-ink-secondary">
-                  {t("model.automaticHelp", { name: automaticLive })}
-                </span>
-              </span>
-              {isAutomatic && <Check size={14} className="shrink-0 text-accent" />}
-            </button>
-            {railInstance ? (
-              <>
-                <div className="shrink-0 px-4 pb-2 pt-3.5">
-                  <div className="flex items-center justify-between gap-3">
-                    <div
-                      className="min-w-0 truncate text-[14px] font-semibold text-ink"
-                      title={`${railInstance.displayName} · ${engineStatus(railInstance, t)}`}
-                    >
-                      {railInstance.displayName}
-                    </div>
-                    <span
-                      className={cn(
-                        "shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-medium",
-                        blocked ? "bg-warning/10 text-warning" : "bg-success/10 text-success",
-                      )}
-                    >
-                      {pane === "custom" && !blocked ? t("model.localModels") : engineStatus(railInstance, t)}
-                    </span>
-                  </div>
-                  <div className="mt-0.5 text-[11.5px] text-ink-secondary">
-                    {pane === "custom"
-                      ? t("model.localHelp")
-                      : t("model.chooseForBot")}
-                  </div>
-                  {railShown && collapsibleEngines && (
-                    <button
-                      type="button"
-                      onClick={() => setShowAllEngines((open) => !open)}
-                      aria-expanded={showAllEngines}
-                      className="mt-1.5 text-[12px] text-ink-secondary hover:text-ink"
-                    >
-                      {showAllEngines ? t("engines.showFewer") : t("engines.showAll", { count: hiddenCount })}
-                    </button>
-                  )}
+        <div ref={stageRef} className="model-cross-stage" aria-label={t("model.switchEngine")}>
+          <div className="model-cross-grid" aria-label={t("engines.models")}>
+            {centeredItems(rows, Math.max(0, rows.findIndex((item) => item === row))).map((item) => {
+              const selectedRow = item === row;
+              const projectedColumn = Math.min(column, item.cells.length - 1);
+              const shown = selectedRow ? centeredItems(item.cells, column) : item.cells.slice(projectedColumn, projectedColumn + 1);
+              return (
+                <div key={item.instance.instanceId} className="model-cross-row" data-model-row={item.instance.instanceId} data-active={selectedRow || undefined} style={{ paddingLeft: selectedRow ? 0 : `calc(${Math.floor((row?.cells.length ?? 1) / 2)} * var(--model-cross-step))` }}>
+                  {item.cells.length === 0 && <div className="model-cross-empty">{item.label}<br />{t("model.noPickerModels")}</div>}
+                  {shown.map((option) => {
+                    const selected = selectedRow && option.options.some((model) => model.id === draft.model);
+                    return (
+                      <button
+                        key={option.options[0]!.id}
+                        ref={selected ? cellRef : undefined}
+                        type="button"
+                        data-model-cell={option.options[0]!.id}
+                        data-engine-axis={!selectedRow || selected || undefined}
+                        aria-pressed={selected}
+                        className="model-cross-cell"
+                        title={option.options.map((model) => model.id).join("\n")}
+                        onClick={() => pick(selectPickerModel(item.instance, selected ? draft.model : option.options[0]!.id, draft))}
+                      >
+                        <span className="model-cross-engine"><ProviderMark driverKind={item.instance.driverKind} size={15} />{item.label}</span>
+                        <span className="model-cross-name">{option.label}</span>
+                        {!selectedRow && <span className="model-cross-note">{t("model.modelCount", { count: item.cells.length })}</span>}
+                        {selectedRow && option.offList && <span className="model-cross-note">{t("model.offList")}</span>}
+                        {selectedRow && option.options.length > 1 && <span className="model-cross-note">{selected ? draft.model.split("-").at(-1) : t("model.tiers", { count: option.options.length })}</span>}
+                      </button>
+                    );
+                  })}
                 </div>
-
-                {pane === "custom" && canReturnToOfficial && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPane("main");
-                      resetList();
-                    }}
-                    className="mx-2 mb-1 flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[12px] text-ink-secondary hover:bg-control/60"
-                  >
-                    <ChevronLeft size={13} /> {t("model.backTo", { name: railInstance.displayName })}
-                  </button>
-                )}
-
-                {blocked ? (
-                  <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-1">
-                    <EngineSetup instance={railInstance} intent={pane === "custom" ? "inject" : "cloud"} />
-                    <p className="mt-2 text-center text-[11.5px] text-ink-secondary/70">
-                      {pane === "main" && official.length > 0
-                        ? t(official.length === 1 ? "model.willAppearOne" : "model.willAppearMany", { count: official.length })
-                        : t("model.localWillAppear")}
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    {((pane === "main" && official.length > COMPACT_MODEL_COUNT) ||
-                      (pane === "custom" && custom.length > COMPACT_MODEL_COUNT)) && (
-                      <ModelSearch
-                        value={query}
-                        local={pane === "custom"}
-                        onChange={(value) => {
-                          setQuery(value);
-                          if (value) setShowAll(true);
-                        }}
-                        onEscape={() => {
-                          if (query) setQuery("");
-                          else if (pane === "custom" && canReturnToOfficial) setPane("main");
-                        }}
-                      />
-                    )}
-
-                    <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-                      {pane === "main" ? (
-                        <>
-                          <EngineGroupLabel className="px-2 pb-1 pt-0.5">
-                            {query ? t("model.results", { count: filteredOfficial.length }) : showAll ? t("model.allModels", { count: official.length }) : t("model.suggested")}
-                          </EngineGroupLabel>
-                          {shownOfficial.map(renderRow)}
-                          {shownOfficial.length === 0 && (
-                            <div className="px-2 py-5 text-center text-[12.5px] text-ink-secondary">
-                              {t("palette.noMatch", { query: query.trim() })}
-                            </div>
-                          )}
-                          {!query && !showAll && official.length > compactOfficial.length && (
-                            <button
-                              type="button"
-                              onClick={() => setShowAll(true)}
-                              className="mt-1 flex w-full items-center justify-between rounded-lg border-t border-hairline/40 px-2.5 py-2 text-[12.5px] font-medium text-ink-secondary hover:bg-control/60 hover:text-ink"
-                            >
-                              {t("model.showAll", { count: official.length })} <ChevronDown size={13} />
-                            </button>
-                          )}
-                          {!query && showAll && official.length > COMPACT_MODEL_COUNT && (
-                            <button
-                              type="button"
-                              onClick={() => setShowAll(false)}
-                              className="mt-1 w-full rounded-lg px-2.5 py-2 text-[12px] text-ink-secondary hover:bg-control/60 hover:text-ink"
-                            >
-                              {t("model.showSuggested")}
-                            </button>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          {pinned.length > 0 && (
-                            <EngineGroupLabel className="px-2 pb-1 pt-0.5">{t("model.loadedNow")}</EngineGroupLabel>
-                          )}
-                          {pinned.map(renderRow)}
-                          {pinned.length > 0 && rest.length > 0 && (
-                            <div className="mx-2 my-2 border-t border-hairline/40" role="separator" />
-                          )}
-                          {rest.map(renderRow)}
-                          {custom.length === 0 && (
-                            <div className="mx-1 rounded-xl border border-dashed border-hairline/50 px-3 py-5 text-center">
-                              <div className="text-[12.5px] font-medium text-ink">{t("model.noLocal")}</div>
-                              <div className="mt-1 text-[11.5px] leading-relaxed text-ink-secondary">
-                                {t("model.noLocalHelp")}
-                              </div>
-                            </div>
-                          )}
-                          {custom.length > 0 && filteredCustom.length === 0 && (
-                            <div className="px-2 py-5 text-center text-[12.5px] text-ink-secondary">
-                              {t("palette.noMatch", { query: query.trim() })}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </>
-                )}
-
-                {pane === "main" && showLocalZoo && (
-                  <button
-                    type="button"
-                    aria-label={
-                      custom.length > 0 ? t("model.useLocalCount", { count: custom.length }) : t("model.useLocal")
-                    }
-                    disabled={!canOpenCustom}
-                    onClick={() => {
-                      setPane("custom");
-                      resetList();
-                    }}
-                    className="flex w-full shrink-0 items-center justify-between gap-2 border-t border-hairline/40 px-4 py-3 text-left text-[12.5px] font-medium text-ink hover:bg-control/60 disabled:cursor-not-allowed disabled:text-ink-secondary/40 disabled:hover:bg-transparent"
-                  >
-                    <span>{t("model.useLocal")}</span>
-                    <span className="flex items-center gap-2">
-                      {custom.length > 0 && (
-                        <span className="rounded-full bg-inset px-2 py-0.5 text-[10.5px] text-ink-secondary">
-                          {t("model.available", { count: custom.length })}
-                        </span>
-                      )}
-                      <ChevronRight size={14} className="text-ink-secondary" />
-                    </span>
-                  </button>
-                )}
-              </>
-            ) : (
-              <div className="px-4 py-5 text-[13px] text-ink-secondary">{t("model.noProviders")}</div>
-            )}
+              );
+            })}
           </div>
         </div>
-      )}
+        <div className="model-cross-options">
+          <div aria-live="polite" className="flex min-w-0 flex-wrap items-center justify-center gap-2 text-xs text-ink-secondary">
+            <span>{t("model.automatic")}</span>
+            <span className="break-all text-ink">{t("model.automaticHelp", { name: draft.model || t("model.unresolved") })}</span>
+            {!instance && <span>{t("model.offList")}</span>}
+            {instance && <span className={cn("rounded-full px-2 py-0.5", blocked ? "bg-warning/10 text-warning" : "bg-success/10 text-success")}>
+              {engineBadgeText(instance.snapshot, needsCli(instance) ? "not-installed" : needsSignIn(instance) ? "sign-in" : "ready", t)}
+            </span>}
+          </div>
+          {instance?.driverKind === "antigravityAgent" && cell && cell.options.length > 1 && (
+            <div className="model-cross-strip" aria-label={t("model.tier")}>
+              <span>{t("model.tier")}</span>
+              {cell.options.map((option) => <button key={option.id} type="button" data-model-tier={option.id} aria-pressed={draft.model === option.id} onClick={() => pick(selectPickerModel(instance, option.id, draft))}>{option.id.split("-").at(-1)}</button>)}
+            </div>
+          )}
+          {efforts.length > 0 && (
+            <div data-effort-strip className="model-cross-strip" aria-label={t("model.effort")}>
+              <span>{t("model.effort")}</span>
+              <button type="button" aria-pressed={!draft.effort} onClick={() => { const { effort: _, ...next } = draft; setDraft(next); }}>{t("model.default")}</button>
+              {efforts.map((effort) => <button key={effort} type="button" aria-pressed={draft.effort === effort} onClick={() => setDraft({ ...draft, effort })}>{effort}</button>)}
+            </div>
+          )}
+          {blocked && instance && <EngineSetup instance={instance} intent={isCustom ? "inject" : "cloud"} />}
+          {custom.length > 0 && <button type="button" className="text-xs text-ink-secondary hover:text-ink" aria-expanded={customOpen} onClick={() => setCustomOpen(!customOpen)}>{t("model.useLocalCount", { count: custom.length })}</button>}
+          {customOpen && instance && <div className="model-cross-custom">
+            <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label={t("model.searchLocal")} placeholder={t("model.searchLocal")} className="w-full rounded-lg bg-inset px-3 py-2 text-sm text-ink" />
+            {filterCustomModels(custom, query).map((option) => <button key={option.id} type="button" className="block w-full rounded-lg px-3 py-2 text-left text-sm text-ink hover:bg-control" onClick={() => pick(selectPickerModel(instance, option.id, draft))}>{option.label}</button>)}
+            {filterCustomModels(custom, query).length === 0 && <p className="text-xs text-ink-secondary">{t("palette.noMatch", { query })}</p>}
+          </div>}
+        </div>
+        <footer className="model-cross-footer">
+          <span id="model-cross-bindings">{t("model.bindings")}</span>
+          <div className="flex gap-2">
+            <button data-picker-action type="button" className="rounded-lg px-3 py-1.5 text-xs text-ink hover:bg-control" onClick={close}>{t("createBot.cancel")}</button>
+            <button type="button" disabled={!canSave} className="rounded-lg bg-accent px-4 py-1.5 text-xs disabled:opacity-40" onClick={save}>{t("settings.profile.save")}</button>
+          </div>
+        </footer>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className={cn(contained ? "w-full" : "relative", className)}>
+      {contained ? <div className="flex items-center justify-between gap-4">{label}{trigger}</div> : trigger}
+      {open && (globalThis.document ? createPortal(dialog, document.body) : dialog)}
     </div>
   );
 }
