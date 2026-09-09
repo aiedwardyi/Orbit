@@ -26,7 +26,7 @@ function engine(instanceId: string, driverKind: string, ids: string[], effortLev
   };
 }
 
-async function mount(selection: ModelSelection, defaultOpen = true) {
+async function mount(selection: ModelSelection, defaultOpen = true, contained = false, selectedId = "bot-1") {
   const host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -34,8 +34,9 @@ async function mount(selection: ModelSelection, defaultOpen = true) {
     const bot: Bot = { id: "bot-1", threadId: "thread-1", name: "Picker", title: "", description: "", color: "green", notifications: false, unread: false, messages: [], modelSelection: selection };
     root.render(createElement(I18nProvider, null, createElement(ModelPickerControl, {
       bot,
-      store: { state: { instances: mock.instances, selectedId: bot.id }, dispatch: mock.dispatch, refreshInstances: mock.refreshInstances },
+      store: { state: { instances: mock.instances, selectedId }, dispatch: mock.dispatch, refreshInstances: mock.refreshInstances },
       defaultOpen,
+      contained,
     })));
   });
 }
@@ -53,6 +54,30 @@ afterEach(async () => {
 });
 
 describe("ModelPicker cross navigation", () => {
+  it.each([
+    [false, "bot-1", true],
+    [true, "bot-1", false],
+    [false, "another-bot", false],
+  ] as const)("advertises Alt+P only when live (contained=%s, selected=%s)", async (contained, selectedId, enabled) => {
+    mock.instances = [engine("grok", "grokAgent", ["grok-4.6"])];
+    await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" }, false, contained, selectedId);
+    const trigger = document.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!;
+    expect(trigger.title.includes(" (Alt+P)")).toBe(enabled);
+    expect(trigger.getAttribute("aria-keyshortcuts")).toBe(enabled ? "Alt+P" : null);
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyP", altKey: true, bubbles: true })));
+    expect(document.querySelector('[role="dialog"]') !== null).toBe(enabled);
+  });
+
+  it("round-trips an effort-only change through Enter", async () => {
+    mock.instances = [engine("grok", "grokAgent", ["grok-4.6"], ["low", "medium", "high"])];
+    const selection: ModelSelection = { instanceId: "grok", model: "grok-4.6", mode: "pinned", effort: "high" };
+    await mount(selection);
+    await act(async () => Array.from(document.querySelectorAll<HTMLButtonElement>("[data-effort-strip] button")).find((button) => button.textContent === "low")!.click());
+    await key("Enter");
+    expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({ type: "setModel", botId: "bot-1", selection: { ...selection, effort: "low" } });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
   it.each(["tier", "effort", "custom"])("preserves native Enter activation for a focused %s button", async (control) => {
     const instance = control === "tier"
       ? engine("antigravity", "antigravityAgent", ["gemini-3.8-flash-high", "gemini-3.8-flash-low"])

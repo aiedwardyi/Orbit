@@ -35,6 +35,7 @@ export function ModelPickerControl({
 }: ModelPickerProps & { store: PickerStore }) {
   const { t } = useI18n();
   const { state, dispatch, refreshInstances } = store;
+  const shortcutEnabled = !contained && state.selectedId === bot.id;
   const selection = bot.modelSelection;
   const active = state.instances.find((instance) => instance.instanceId === selection.instanceId);
   const [open, setOpen] = useState(defaultOpen);
@@ -52,8 +53,8 @@ export function ModelPickerControl({
   const instance = row?.instance;
   const isCustom = instance?.models.options.some((option) => option.id === draft.model && option.custom);
   const blocked = Boolean(instance && (needsCli(instance) || (!isCustom && needsSignIn(instance))));
-  const unchanged = draft.instanceId === selection.instanceId && draft.model === selection.model;
-  const canSave = unchanged || Boolean(instance && !blocked && instance.models.options.some((option) => option.id === draft.model));
+  const sameModelPin = draft.instanceId === selection.instanceId && draft.model === selection.model;
+  const canSave = sameModelPin || Boolean(instance && !blocked && instance.models.options.some((option) => option.id === draft.model));
   const efforts = instance?.capabilities?.effortLevels ?? [];
   const custom = instance?.models.options.filter((option) => option.custom) ?? [];
   const filteredCustom = filterCustomModels(custom, query);
@@ -78,14 +79,14 @@ export function ModelPickerControl({
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat || event.isComposing || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.code !== "KeyP") return;
-      if (state.selectedId !== bot.id || contained || (!open && document.querySelector('[role="dialog"]'))) return;
+      if (!shortcutEnabled || (!open && document.querySelector('[role="dialog"]'))) return;
       event.preventDefault();
       if (open) close();
       else show();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, state.selectedId, bot.id, contained, selection]);
+  }, [open, shortcutEnabled, selection]);
 
   useEffect(() => {
     if (!open) return;
@@ -116,9 +117,9 @@ export function ModelPickerControl({
       onClick={show}
       aria-expanded={open}
       aria-haspopup="dialog"
-      aria-keyshortcuts="Alt+P"
+      aria-keyshortcuts={shortcutEnabled ? "Alt+P" : undefined}
       className="flex items-center gap-1.5 rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover"
-      title={modelChipTitle({ mode: selection.mode, instance: active, model: selection.model }, t) + " (Alt+P)"}
+      title={modelChipTitle({ mode: selection.mode, instance: active, model: selection.model }, t) + (shortcutEnabled ? " (Alt+P)" : "")}
     >
       {active ? <ProviderMark driverKind={active.driverKind} size={14} /> : <Sparkles size={14} className="text-accent" />}
       <span className={cn("max-w-[160px] truncate", !contained && active && "@max-4xl/chathead:hidden")}>
