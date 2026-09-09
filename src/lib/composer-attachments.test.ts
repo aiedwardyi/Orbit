@@ -83,10 +83,17 @@ describe("splitAttachedImages", () => {
     expect(images).toEqual(["/a/b/&x.png"]);
   });
 
-  it("leaves plain text and other tags untouched", () => {
-    const stored = '<pasted-text index="1">\nhi\n</pasted-text>';
+  it("unboxes pasted-text tags for display", () => {
+    const stored = 'intro\n\n<pasted-text index="1">\nhello world\n</pasted-text>\n\noutro';
     const { display, images } = splitAttachedImages(stored);
-    expect(display).toBe(stored);
+    expect(display).toBe("intro\n\nhello world\n\noutro");
+    expect(images).toEqual([]);
+  });
+
+  it("formats attached-file markup into readable text", () => {
+    const stored = 'take a look\n\n<attached-file path="C:\\Users\\mredw\\Downloads\\image_123.png" />';
+    const { display, images } = splitAttachedImages(stored);
+    expect(display).toBe("take a look\n\n[attachment: image_123.png]");
     expect(images).toEqual([]);
   });
 });
@@ -148,9 +155,13 @@ describe("imageSupportForTargets", () => {
 
 describe("image attachment notice", () => {
   const copy = {
-    unsupported: "The selected responder does not support image attachments.",
+    unsupported: "Direct image attachments are not supported by this engine.",
     loading: "Engine details are still loading.",
   };
+
+  it("does not blame the responder in the unsupported copy", () => {
+    expect(copy.unsupported).not.toMatch(/responder/i);
+  });
 
   it("returns the unsupported copy for a known refusal", () => {
     expect(imageSupportNotice("unsupported", copy)).toBe(copy.unsupported);

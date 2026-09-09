@@ -307,6 +307,7 @@ export function drainDelegations(
     channel: GroupRecord | undefined,
     taskId: string,
     sourceBotId: string,
+    transcriptText?: string,
   ) => void | Promise<void>,
   sourceBotId?: string,
 ): void {
@@ -467,6 +468,7 @@ async function processOne(
     channel: GroupRecord | undefined,
     taskId: string,
     sourceBotId: string,
+    transcriptText?: string,
   ) => void | Promise<void>,
 ): Promise<"settled" | "requeued"> {
   let sender = from;
@@ -587,7 +589,8 @@ async function processOne(
   mirrorExchange(bus, sender, target, item.message, channel, sourceThreadId);
   const reasonLine = item.reason ? `\n\n[Reason: ${item.reason}]` : "";
   const prefixed = `[Delegated by @${sender.name}, another bot in this Orbit workspace. Do the work and reply directly.]\n\n${item.message}${reasonLine}`;
-  await runTarget(item.toBotId, prefixed, item.depth + 1, sourceThreadId, channel, item.id, sender.id);
+  const transcriptText = `${item.message}${reasonLine}`;
+  await runTarget(item.toBotId, prefixed, item.depth + 1, sourceThreadId, channel, item.id, sender.id, transcriptText);
   return "settled";
 }
 

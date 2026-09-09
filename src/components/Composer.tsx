@@ -32,6 +32,7 @@ import {
   isImageFile,
   isLongPaste,
   pasteAttachment,
+  pasteImageAttachment,
   visibleComposerNotice,
   type Attachment,
   type ComposerThreadNotice,
@@ -869,19 +870,13 @@ export function Composer({
             setDismissedAt(null);
           }}
           onPaste={(e) => {
-            // Keep images while engine details hydrate. Known unsupported
-            // responders get the same visible refusal as the send path.
             const imageFiles = Array.from(e.clipboardData.files).filter(isImageFile);
             if (imageFiles.length) {
               e.preventDefault();
-              if (imageSupport === "unsupported") {
-                showImageSupportNotice(imageSupport);
-                return;
-              }
               void (async () => {
                 for (const file of imageFiles) {
                   try {
-                    const attachment = await imageAttachmentFromFile(file);
+                    const attachment = await pasteImageAttachment(file, engineSupportsImages);
                     if (attachment) editAttachments((prev) => [...prev, attachment]);
                   } catch (err) {
                     dispatch({

@@ -134,12 +134,7 @@ export function isImageFile(file: { type: string; size: number }): boolean {
   );
 }
 
-/** Persist a pasted image server-side and return the attachment chip data.
- * The server writes ~/.orbit/attachments/<uuid>.<ext> and answers
- * with the path; the prompt references that path so every CLI can open it. */
-export async function imageAttachmentFromFile(file: File): Promise<ImageAttachment | null> {
-  if (!isImageFile(file)) return null;
-  if (file.size > IMAGE_MAX_BYTES) throw Object.assign(new Error(`${file.name} exceeds 10 MB`), { status: 413 });
+async function uploadAttachmentFile(file: File): Promise<{ path: string; mime: string; bytes: number }> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const response = await fetch("/api/attachments", {
     method: "POST",
@@ -147,11 +142,37 @@ export async function imageAttachmentFromFile(file: File): Promise<ImageAttachme
     body: bytes,
   });
   if (!response.ok) {
+    // SAFETY: Response error payload optionally contains error string from server.
     const detail = (await response.json().catch(() => ({ error: response.statusText }))) as { error?: string };
     throw Object.assign(new Error(detail.error ?? "upload failed"), { status: response.status });
   }
-  const saved = (await response.json()) as { path: string; mime: string; bytes: number };
-  return { kind: "image", id: newId(), path: saved.path, name: file.name || "pasted image", size: saved.bytes, mime: saved.mime };
+  // SAFETY: Server returns saved attachment path, mime, and byte count on success.
+  return (await response.json()) as { path: string; mime: string; bytes: number };
+}
+
+/** Persist a pasted image server-side and return the attachment chip data.
+ * When the engine accepts images in the prompt, returns an ImageAttachment.
+ * When the engine does not support inline images, returns a FileAttachment
+ * so the bot can open the file from disk via its tools. */
+export async function pasteImageAttachment(
+  file: File,
+  allowImages = true,
+  uploader: (file: File) => Promise<{ path: string; mime: string; bytes: number }> = uploadAttachmentFile,
+): Promise<Attachment | null> {
+  if (!isImageFile(file)) return null;
+  if (file.size > IMAGE_MAX_BYTES) throw Object.assign(new Error(`${file.name} exceeds 10 MB`), { status: 413 });
+  const saved = await uploader(file);
+  const name = file.name || "pasted image";
+  if (allowImages) {
+    return { kind: "image", id: newId(), path: saved.path, name, size: saved.bytes, mime: saved.mime };
+  }
+  return { kind: "file", id: newId(), path: saved.path, name, size: saved.bytes };
+}
+
+/** Legacy wrapper for image-only intake. */
+export async function imageAttachmentFromFile(file: File): Promise<ImageAttachment | null> {
+  const result = await pasteImageAttachment(file, true);
+  return result?.kind === "image" ? result : null;
 }
 
 export function pasteAttachment(text: string): PasteAttachment {
@@ -266,7 +287,7 @@ export function escapeAttribute(value: string): string {
  * attached, for transcript rendering. The tag never shows in the bubble. */
 export function splitAttachedImages(text: string): { display: string; images: string[] } {
   const images: string[] = [];
-  const display = text.replace(/<attached-image\s+path="([^"]*)"\s*\/?>(?:\s*\n)?/g, (_match, raw: string) => {
+  let display = text.replace(/<attached-image\s+path="([^"]*)"\s*\/?>(?:\s*\n)?/g, (_match, raw: string) => {
     const path = raw
       .replaceAll("&quot;", '"')
       .replaceAll("&lt;", "<")
@@ -274,6 +295,16 @@ export function splitAttachedImages(text: string): { display: string; images: st
       .replaceAll("&amp;", "&");
     if (path) images.push(path);
     return "";
+  });
+  display = display.replace(/<pasted-text(?:\s+index="\d+")?>\n?([\s\S]*?)\n?<\/pasted-text>/g, "$1");
+  display = display.replace(/<attached-file\s+path="([^"]*)"\s*\/?>(?:\s*\n)?/g, (_match, raw: string) => {
+    const path = raw
+      .replaceAll("&quot;", '"')
+      .replaceAll("&lt;", "<")
+      .replaceAll("&gt;", ">")
+      .replaceAll("&amp;", "&");
+    const name = attachmentBasename(path);
+    return `[attachment: ${name}]`;
   });
   return { display: display.trim(), images };
 }
