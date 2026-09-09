@@ -78,6 +78,16 @@ describe("skin overlay chrome", () => {
     expect(handler).toContain("writePersistedSkin");
   });
 
+  it("paints connecting-page ink from the skin's symbolColor", () => {
+    const main = readFileSync(join(here, "main.mjs"), "utf8");
+    const href = main.slice(
+      main.indexOf("function connectingPageHref"),
+      main.indexOf("function packagedWindowHref"),
+    );
+    expect(href).toContain("chrome.symbolColor");
+    expect(href).toContain("color: chrome.symbolColor");
+  });
+
   it("shows from the persisted skin at create, not after renderer IPC", () => {
     // Visual QA: first visible frame was Ledger gray, but only after the
     // 5s desktop:skin fallback. createWindow must read the stored skin,
@@ -88,7 +98,8 @@ describe("skin overlay chrome", () => {
     expect(main).not.toContain("waitsForSkinSync");
     expect(main).not.toContain("skinSyncFallback");
     const create = main.slice(main.indexOf("function createWindow()"), main.indexOf("ipcMain.handle(\"screen:frame\""));
-    expect(create).toContain("nativeTheme.themeSource");
+    expect(create).toContain("nativeTheme.themeSource = skinThemeSource(persistedSkin)");
+    expect(create).not.toMatch(/if \(isKnownSkin\(persistedSkin\)\) \{\s*nativeTheme\.themeSource/);
     expect(create).toContain("setBackgroundColor");
     expect(create).toContain("win.show()");
     expect(create).toContain("backgroundColor: chrome.color");
@@ -96,6 +107,7 @@ describe("skin overlay chrome", () => {
   });
 
   it("falls back to the default skin for anything unknown, never throwing", () => {
+    expect(DEFAULT_SKIN).toBe("ledger");
     expect(isKnownSkin("midnight")).toBe(true);
     expect(isKnownSkin("onyx")).toBe(true);
     expect(isKnownSkin("dracula")).toBe(true);
@@ -137,7 +149,13 @@ describe("skin overlay chrome", () => {
     expect(skinThemeSource("onyx")).toBe("dark");
     expect(skinThemeSource("dracula")).toBe("dark");
     expect(skinThemeSource("cobalt")).toBe("dark");
-    expect(skinThemeSource("not-a-skin")).toBe("dark");
+  });
+
+  it("maps a missing persisted skin to Ledger light nativeTheme", () => {
+    expect(skinThemeSource(null)).toBe("light");
+    expect(skinThemeSource(undefined)).toBe("light");
+    expect(skinThemeSource("not-a-skin")).toBe("light");
+    expect(skinThemeSource(DEFAULT_SKIN)).toBe("light");
   });
 
   it("round-trips a known skin through the userData preference file", () => {

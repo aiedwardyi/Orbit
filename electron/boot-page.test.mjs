@@ -30,8 +30,23 @@ describe("packaged connecting page", () => {
     expect(html).toContain("system-ui,sans-serif");
     expect(html).not.toContain("Couldn't start");
     expect(html).toContain('data-orbit-boot="connecting"');
+    expect(html).toContain("#fcfcfc99");
     expect(isConnectingPageUrl(href)).toBe(true);
     expect(isFailedBootPageUrl(href)).toBe(false);
+  });
+
+  it("uses the supplied ink on a light ground instead of Midnight white", () => {
+    const href = buildConnectingPage({
+      locale: "en",
+      fontStack: "system-ui,sans-serif",
+      backgroundColor: "#e9e9e9",
+      color: "#575757",
+      message: "Connecting to the bot server…",
+    });
+    const html = decodeURIComponent(href.slice("data:text/html;charset=utf-8,".length));
+    expect(html).toContain("#e9e9e9");
+    expect(html).toContain("#575757");
+    expect(html).not.toContain("#fcfcfc99");
   });
 });
 

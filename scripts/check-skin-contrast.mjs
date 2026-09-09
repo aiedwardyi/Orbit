@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Reads the skin blocks out of src/styles.css and measures every text/surface
 // pair the components actually produce. Run it after touching a palette:
 //
@@ -6,9 +5,9 @@
 //
 // It parses the CSS rather than taking a second copy of the values, so the
 // check can never pass against a palette that is no longer the shipped one.
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { dirname, join, resolve } from "node:path";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const css = readFileSync(join(root, "src/styles.css"), "utf8");
@@ -131,41 +130,152 @@ const PAIRS = [
   ["--color-panel", "--color-app", 1.03],
 ];
 
-const skins = parseSkins(css);
-// Midnight is shipped as a faithful copy of upstream, contrast gaps included;
-// it is reported but not allowed to fail the run.
-const ADVISORY = new Set(["midnight"]);
+// ChatMarkdown paints fenced blocks with `bg-inset` and strips Shiki's pre
+// background, so syntax colours sit on --color-inset. Code is 13px (body),
+// so AA is 4.5:1. Dark skins skip this. The emitted set is github-dark-default's
+// tokenColors foregrounds plus editor.foreground — not the --color-syntax-*
+// names we happened to define — so a new token in that theme fails the run
+// until it is remapped.
+const CODE_BLOCK_BG = "--color-inset";
+const SYNTAX_MIN = 4.5;
 
-let failed = false;
-for (const [id, tokens] of skins) {
-  const problems = [];
-  const missing = [];
-  let measured = 0;
-  for (const [fg, bg, min] of PAIRS) {
-    // A pair we cannot measure is reported, never silently skipped: an
-    // unmeasured pair used to be counted as a passing one.
-    if (!tokens[fg] || !tokens[bg]) {
-      missing.push(!tokens[fg] ? fg : bg);
-      continue;
+function githubDarkDefaultPath() {
+  const pnpm = join(root, "node_modules", ".pnpm");
+  if (existsSync(pnpm)) {
+    for (const dir of readdirSync(pnpm)) {
+      if (!dir.startsWith("@shikijs+themes@")) continue;
+      const p = join(pnpm, dir, "node_modules", "@shikijs", "themes", "dist", "github-dark-default.mjs");
+      if (existsSync(p)) return p;
     }
-    measured++;
-    const ratio = contrast(tokens[fg], tokens[bg]);
-    if (ratio < min) problems.push({ fg, bg, ratio, min });
   }
-  const advisory = ADVISORY.has(id);
-  if (missing.length) {
-    console.log(`✗ ${id} — undefined token(s): ${[...new Set(missing)].join(", ")}`);
-    if (!advisory) failed = true;
-  }
-  if (problems.length === 0) {
-    if (!missing.length) console.log(`✓ ${id} — ${measured} pairs, none below target`);
-    continue;
-  }
-  console.log(`${advisory ? "~" : "✗"} ${id}${advisory ? " (advisory — upstream copy)" : ""}`);
-  for (const { fg, bg, ratio, min } of problems) {
-    console.log(`    ${fg} on ${bg}: ${ratio.toFixed(2)}:1 (needs ${min}:1)`);
-  }
-  if (!advisory) failed = true;
+  throw new Error("github-dark-default theme file not found");
 }
 
-process.exit(failed ? 1 : 0);
+function loadGithubDarkDefault() {
+  const src = readFileSync(githubDarkDefaultPath(), "utf8");
+  const mark = "JSON.parse(" + String.fromCharCode(34);
+  const i = src.indexOf(mark);
+  if (i === -1) throw new Error("github-dark-default: missing JSON.parse payload");
+  let k = i + mark.length;
+  let out = "";
+  while (k < src.length) {
+    const c = src[k];
+    if (c === "\\") {
+      out += src[k + 1];
+      k += 2;
+      continue;
+    }
+    if (c === "\"") break;
+    out += c;
+    k += 1;
+  }
+  return JSON.parse(out);
+}
+
+function emittedForegrounds(theme) {
+  const set = new Set();
+  for (const entry of theme.tokenColors ?? []) {
+    const fg = entry.settings?.foreground;
+    if (typeof fg === "string" && /^#[0-9a-fA-F]{6}$/.test(fg)) set.add(fg.toLowerCase());
+  }
+  const editor = theme.colors?.["editor.foreground"];
+  if (typeof editor === "string" && /^#[0-9a-fA-F]{6}$/.test(editor)) set.add(editor.toLowerCase());
+  return [...set].sort();
+}
+
+function parseCssRemaps(source) {
+  const bySkin = new Map();
+  for (const [, selectors, token] of source.matchAll(
+    /([^{}]+)\{[^{}]*color:\s*var\((--color-syntax-[\w-]+)\)/gi,
+  )) {
+    const skins = [...selectors.matchAll(/\[data-skin="([a-z0-9-]+)"\]/gi)].map((m) => m[1]);
+    const hexes = [
+      ...selectors.matchAll(new RegExp("\\[style\\*=\"#([0-9a-fA-F]{6})\"", "gi")),
+    ].map((m) => `#${m[1].toLowerCase()}`);
+    for (const id of skins) {
+      if (!bySkin.has(id)) bySkin.set(id, new Map());
+      const map = bySkin.get(id);
+      for (const hex of hexes) map.set(hex, token);
+    }
+  }
+  return bySkin;
+}
+
+function unmappedEmittedHexes(cssSource, skinId, hexes) {
+  const remaps = parseCssRemaps(cssSource);
+  const skinRemaps = remaps.get(skinId) ?? new Map();
+  return hexes.filter((hex) => !skinRemaps.has(hex));
+}
+
+function isLightSkin(tokens) {
+  const app = tokens["--color-app"];
+  if (!app || !/^#[0-9a-fA-F]{3,8}$/.test(app.trim())) return false;
+  return luminance(parseHex(app)) > 0.5;
+}
+
+export { parseCssRemaps, unmappedEmittedHexes };
+
+function isDirectRun() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return pathToFileURL(realpathSync(resolve(entry))).href === import.meta.url;
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectRun()) {
+  const skins = parseSkins(css);
+  const emitted = emittedForegrounds(loadGithubDarkDefault());
+  const remaps = parseCssRemaps(css);
+  // Midnight is shipped as a faithful copy of upstream, contrast gaps included;
+  // it is reported but not allowed to fail the run.
+  const ADVISORY = new Set(["midnight"]);
+
+  let failed = false;
+  for (const [id, tokens] of skins) {
+    const problems = [];
+    const missing = [];
+    let measured = 0;
+    const pairs = [...PAIRS];
+    if (isLightSkin(tokens)) {
+      const skinRemaps = remaps.get(id) ?? new Map();
+      for (const hex of emitted) {
+        const token = skinRemaps.get(hex);
+        if (!token) {
+          missing.push(`unmapped github-dark-default ${hex}`);
+          continue;
+        }
+        pairs.push([token, CODE_BLOCK_BG, SYNTAX_MIN]);
+      }
+    }
+    for (const [fg, bg, min] of pairs) {
+      // A pair we cannot measure is reported, never silently skipped: an
+      // unmeasured pair used to be counted as a passing one.
+      if (!tokens[fg] || !tokens[bg]) {
+        missing.push(!tokens[fg] ? fg : bg);
+        continue;
+      }
+      measured++;
+      const ratio = contrast(tokens[fg], tokens[bg]);
+      if (ratio < min) problems.push({ fg, bg, ratio, min });
+    }
+    const advisory = ADVISORY.has(id);
+    if (missing.length) {
+      console.log(`✗ ${id} — undefined token(s): ${[...new Set(missing)].join(", ")}`);
+      if (!advisory) failed = true;
+    }
+    if (problems.length === 0) {
+      if (!missing.length) console.log(`✓ ${id} — ${measured} pairs, none below target`);
+      continue;
+    }
+    console.log(`${advisory ? "~" : "✗"} ${id}${advisory ? " (advisory — upstream copy)" : ""}`);
+    for (const { fg, bg, ratio, min } of problems) {
+      console.log(`    ${fg} on ${bg}: ${ratio.toFixed(2)}:1 (needs ${min}:1)`);
+    }
+    if (!advisory) failed = true;
+  }
+
+  process.exit(failed ? 1 : 0);
+}

@@ -1,7 +1,7 @@
 // The registry and the stylesheet are two halves of one contract: a skin listed
 // here without a matching CSS block renders as whatever was active before, with
 // no error anywhere. That failure is silent, so it gets a test.
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -51,11 +51,73 @@ describe("skins", () => {
   });
 
   it("defines the same tokens in every skin", () => {
-    const reference = tokensOf(DEFAULT_SKIN);
+    // Midnight is the shared set. Light skins add --color-syntax-* on top;
+    // those must not become a requirement for dark skins.
+    const reference = tokensOf("midnight");
     expect(reference.size).toBeGreaterThan(15);
     for (const id of SKIN_IDS) {
       expect([...reference].filter((t) => !tokensOf(id).has(t))).toEqual([]);
     }
+  });
+
+  it("gives Atelier, Lagoon, and Ledger a syntax palette and leaves dark skins alone", () => {
+    const roles = [
+      "--color-syntax-fg",
+      "--color-syntax-comment",
+      "--color-syntax-keyword",
+      "--color-syntax-string",
+      "--color-syntax-function",
+      "--color-syntax-constant",
+      "--color-syntax-variable",
+      "--color-syntax-tag",
+      "--color-syntax-invalid",
+    ];
+    const light = ["atelier", "lagoon", "ledger"];
+    for (const id of light) {
+      expect([...tokensOf(id)]).toEqual(expect.arrayContaining(roles));
+    }
+    for (const id of SKIN_IDS) {
+      if (light.includes(id)) continue;
+      expect([...tokensOf(id)].filter((t) => t.startsWith("--color-syntax-"))).toEqual([]);
+    }
+  });
+
+  it("drives native input color-scheme from the skin, not a hardcoded dark utility", () => {
+    const rootBody = css.match(/:root\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(rootBody).toMatch(/color-scheme:\s*dark\s*;/);
+    const light = ["atelier", "lagoon", "ledger"];
+    for (const id of light) {
+      const body = css.match(new RegExp(`\\[data-skin="${id}"\\]\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+      expect(body).toMatch(/color-scheme:\s*light\s*;/);
+    }
+    const components = join(dirname(fileURLToPath(import.meta.url)), "../components");
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const ent of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, ent.name);
+        if (ent.isDirectory()) walk(p);
+        else if (readFileSync(p, "utf8").includes("[color-scheme:dark]")) hits.push(p);
+      }
+    };
+    walk(components);
+    expect(hits).toEqual([]);
+  });
+
+  it("drives light-syntax contrast from github-dark-default emitted foregrounds", () => {
+    const check = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "../../scripts/check-skin-contrast.mjs"),
+      "utf8",
+    );
+    expect(check).toContain("github-dark-default");
+    expect(check).toContain("tokenColors");
+    expect(check).toContain("emittedForegrounds");
+    expect(check).not.toContain("SYNTAX_ROLES");
+  });
+
+  it("defaults a fresh install to Ledger and does not rename Atelier", () => {
+    expect(DEFAULT_SKIN).toBe("ledger");
+    expect(SKINS.some((s) => s.id === "atelier" && s.name === "Atelier")).toBe(true);
+    expect(SKIN_IDS).not.toContain("letelier");
   });
 
   it("gives every non-Midnight skin its own focus and control tokens", () => {
@@ -317,9 +379,16 @@ describe("skin persistence", () => {
     expect(readSkin()).toBe("ledger");
   });
 
-  it("falls back to Midnight for an unknown stored value", () => {
+  it("falls back to Ledger for an unknown stored value", () => {
     store.set("omb-skin", "graphite");
+    expect(readSkin()).toBe("ledger");
     expect(readSkin()).toBe(DEFAULT_SKIN);
+  });
+
+  it("keeps a stored Midnight skin on upgrade instead of migrating it to Ledger", () => {
+    store.set("omb-skin", "midnight");
+    expect(readSkin()).toBe("midnight");
+    expect(readSkin()).not.toBe(DEFAULT_SKIN);
   });
 
   it("stamps the skin before React mounts", () => {

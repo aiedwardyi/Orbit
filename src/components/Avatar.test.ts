@@ -85,6 +85,7 @@ describe("cute mascot renderer", () => {
     expect(reduce).toContain(".mascot-avatar.mascot-avatar--nudge .mascot-blink");
     expect(reduce).toContain("animation: none");
     expect(stylesCss).not.toMatch(/\.mascot-avatar[^{]*\{[^}]*bounce/i);
+    expect(stylesCss).toMatch(/\.mascot-avatar\s*\{[^}]*background:\s*#efe6da/i);
     expect(sources["Avatar.tsx"]).toContain("setTimeout");
     expect(sources["Avatar.tsx"]).toContain("220");
   });

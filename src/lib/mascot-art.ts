@@ -6,7 +6,7 @@ import squircleSvg from "@/assets/mascots/squircle.svg?raw";
 import circleSvg from "@/assets/mascots/circle.svg?raw";
 import pillSvg from "@/assets/mascots/pill.svg?raw";
 import { type MascotStyle } from "../../shared/bot-avatar";
-import { mausColorHex } from "./mascot";
+import { MAUS_COLORS, mausColorHex } from "./mascot";
 
 const ART = {
   peach: peachSvg,
@@ -34,11 +34,14 @@ function mix(hex: string, toward: string, t: number): string {
 /** Fills a bundled cute-mascot SVG with the bot's palette color. */
 export function mascotSvgMarkup(style: MascotStyle, color: string): string {
   const fill = mausColorHex(color);
-  return ART[style]
+  const painted = ART[style]
     .replaceAll("{{BODY_LIGHT}}", mix(fill, "#ffffff", 0.55))
     .replaceAll("{{BODY}}", fill)
     .replaceAll("{{BODY_SHADOW}}", mix(fill, "#000000", 0.42))
     .replaceAll("{{BODY_DEEP}}", mix(fill, "#000000", 0.28));
+  // Clamped cream ground. Owner asked for the dumpling "on white" without
+  // picking #FFFFFF vs this; leave the clamp alone until he answers.
+  return painted.replace(/(<svg[^>]*>)/, `$1<rect width="256" height="256" fill="${MAUS_COLORS.white}"/>`);
 }
 
 /** Prefix ids so two inlined mascots on one page cannot share a gradient. */

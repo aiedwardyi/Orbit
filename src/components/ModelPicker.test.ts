@@ -149,9 +149,9 @@ describe("ModelPicker friends chip", () => {
   it("names the current model on the Current model row", () => {
     const html = markup(bot.modelSelection, true);
     expect(html).toContain("Current model");
-    expect(html).toContain("Grok 4.6 · stay on this while it works");
-    expect(html).toMatch(/leading-snug[^"]*"[^>]*>Grok 4\.6 · stay on this while it works/);
-    expect(html).not.toMatch(/truncate[^"]*"[^>]*>Grok 4\.6 · stay on this/);
+    expect(html).toContain("Grok 4.6");
+    expect(html).not.toContain("stay on this while it works");
+    expect(html).toMatch(/leading-snug[^"]*"[^>]*>Grok 4\.6</);
   });
 
   it("shows Ready on the open engine pane, not the CLI --version dump", () => {

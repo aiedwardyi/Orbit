@@ -40,7 +40,7 @@ export const SKINS: readonly Skin[] = [
   { id: "cobalt", name: "Panda Syntax", tagline: "Warm charcoal, mint lamp." },
 ];
 
-export const DEFAULT_SKIN: SkinId = "midnight";
+export const DEFAULT_SKIN: SkinId = "ledger";
 
 const KEY = "omb-skin";
 

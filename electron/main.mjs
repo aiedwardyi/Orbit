@@ -1266,9 +1266,7 @@ ipcMain.on("desktop:taskbar-busy", (event, value) => {
 
 function createWindow() {
   const persistedSkin = readPersistedSkin(app.getPath("userData"));
-  if (isKnownSkin(persistedSkin)) {
-    nativeTheme.themeSource = skinThemeSource(persistedSkin);
-  }
+  nativeTheme.themeSource = skinThemeSource(persistedSkin);
   const chrome = skinChrome(persistedSkin);
   const primary = screen.getPrimaryDisplay();
   const displays = [primary, ...screen.getAllDisplays().filter((display) => display.id !== primary.id)];
@@ -1378,10 +1376,13 @@ function createWindow() {
 }
 
 function connectingPageHref(backgroundColor) {
+  const persistedSkin = readPersistedSkin(app.getPath("userData"));
+  const chrome = skinChrome(persistedSkin);
   return buildConnectingPage({
     locale: uiLocale(),
     fontStack: uiFontStack(),
-    backgroundColor,
+    backgroundColor: backgroundColor ?? chrome.color,
+    color: chrome.symbolColor,
     message: nativeText("packaged.connecting"),
   });
 }

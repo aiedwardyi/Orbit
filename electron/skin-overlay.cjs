@@ -24,7 +24,7 @@ const SKIN_CHROME = Object.freeze({
   cobalt: Object.freeze({ color: "#292a2b", symbolColor: "#bcaafe" }),
 });
 
-const DEFAULT_SKIN = "midnight";
+const DEFAULT_SKIN = "ledger";
 const LIGHT_SKINS = new Set(["atelier", "lagoon", "ledger"]);
 const SKIN_PREFERENCE_FILE = "skin-preference.json";
 const LOCAL_STORAGE_DIR = path.join("Local Storage", "leveldb");
@@ -35,7 +35,7 @@ const MAX_SKIN_ID_LEN = Math.max(...Object.keys(SKIN_CHROME).map((id) => id.leng
 
 /** The chrome colours for a skin id sent by the renderer. Anything that is
  * not a known skin — a renamed skin, a stale value, a non-string — falls
- * back to Midnight rather than throwing, because the renderer has already
+ * back to Ledger rather than throwing, because the renderer has already
  * painted and a wrong overlay is recoverable while a broken IPC is not. */
 function skinChrome(skin) {
   return Object.hasOwn(SKIN_CHROME, skin) ? SKIN_CHROME[skin] : SKIN_CHROME[DEFAULT_SKIN];
@@ -49,9 +49,11 @@ function isKnownSkin(skin) {
 }
 
 /** Windows caption glyphs and DWM follow nativeTheme; light skins need
- * `light` or the symbols stay Midnight-on-Midnight. */
+ * `light` or the symbols stay Midnight-on-Midnight. Unknown or missing ids
+ * follow DEFAULT_SKIN, the same fallback skinChrome uses. */
 function skinThemeSource(skin) {
-  return LIGHT_SKINS.has(skin) ? "light" : "dark";
+  const id = Object.hasOwn(SKIN_CHROME, skin) ? skin : DEFAULT_SKIN;
+  return LIGHT_SKINS.has(id) ? "light" : "dark";
 }
 
 function preferencePath(userDataDir) {
