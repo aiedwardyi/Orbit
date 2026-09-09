@@ -23,7 +23,9 @@
 //                     steer-queue e2e, with the echo pinning exactly what a
 //                     drained turn was sent)
 //   FAKE_ACP_DUMP   path to write {argv, env} as JSON, so a test can assert
-//                   argv shape (agent/stdio flags) and env hygiene
+//                   argv shape (agent/stdio flags) and env hygiene. Per-session
+//                   settings land next to it in `<path>.config.json`, so a test
+//                   can assert the model the driver actually transmitted.
 //   FAKE_ACP_MODELS      comma-separated model ids. Enables the opencode-shaped
 //                        surface: session/new and session/load return
 //                        configOptions, and session/set_config_option switches
@@ -172,8 +174,22 @@ const recordMethod = (method: string) => {
   if (process.env.FAKE_ACP_RPC_DUMP) writeFileSync(process.env.FAKE_ACP_RPC_DUMP, JSON.stringify(rpcMethods));
 };
 
-// session/set_mode + session/set_model calls seen this run
+interface ConfigCallParams {
+  sessionId?: string;
+  modeId?: string;
+  modelId?: string;
+  configId?: string;
+  value?: string;
+}
+// session/set_mode + session/set_model + session/set_config_option calls seen
+// this run
 const configCalls: Array<{ method: string; params: unknown }> = [];
+const recordConfigCall = (method: string, params: ConfigCallParams) => {
+  configCalls.push({ method, params });
+  if (process.env.FAKE_ACP_DUMP) {
+    writeFileSync(`${process.env.FAKE_ACP_DUMP}.config.json`, JSON.stringify(configCalls, null, 2));
+  }
+};
 
 // pending server→client permission request id → resolver
 let pendingPermissionId: number | null = null;
@@ -329,7 +345,8 @@ function handle(msg: any) {
       break;
     }
     // per-session settings (droid sets model/autonomy here, not via argv).
-    // Recorded next to FAKE_ACP_DUMP so a test can assert what was applied.
+    // Recorded to `$FAKE_ACP_DUMP.config.json`, with session/set_config_option
+    // below, so a test can assert what the driver actually put on the wire.
     // NOTE: last writer wins — each turn spawns a fresh child, so a two-turn
     // test would only ever see the final turn's calls.
     case "session/set_mode":
@@ -352,15 +369,15 @@ function handle(msg: any) {
         });
         break;
       }
-      configCalls.push({ method: msg.method, params: msg.params });
-      if (process.env.FAKE_ACP_DUMP) {
-        writeFileSync(`${process.env.FAKE_ACP_DUMP}.config.json`, JSON.stringify(configCalls, null, 2));
-      }
+      recordConfigCall(msg.method, msg.params);
       result(msg.id, {});
       break;
     }
     case "session/set_config_option": {
       const { configId, value } = msg.params ?? {};
+      // Recorded before validation: a test asserting what the driver put on
+      // the wire must see a rejected switch too, not just an accepted one.
+      recordConfigCall(msg.method, msg.params);
       if (configId !== "model" || !models.includes(value)) {
         out({
           jsonrpc: "2.0",
