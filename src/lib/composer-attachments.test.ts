@@ -10,6 +10,8 @@ import {
   imageSupportForTargets,
   imageSupportNotice,
   isImageFile,
+  pasteAttachment,
+  pasteImageAttachment,
   splitAttachedImages,
   visibleComposerNotice,
   type ImageAttachment,
@@ -83,11 +85,50 @@ describe("splitAttachedImages", () => {
     expect(images).toEqual(["/a/b/&x.png"]);
   });
 
-  it("leaves plain text and other tags untouched", () => {
-    const stored = '<pasted-text index="1">\nhi\n</pasted-text>';
+  it("unboxes pasted-text tags for display", () => {
+    const stored = 'intro\n\n<pasted-text index="1">\nhello world\n</pasted-text>\n\noutro';
     const { display, images } = splitAttachedImages(stored);
-    expect(display).toBe(stored);
+    expect(display).toBe("intro\n\nhello world\n\noutro");
     expect(images).toEqual([]);
+  });
+
+  it("formats attached-file markup into readable text", () => {
+    const stored = 'take a look\n\n<attached-file path="C:\\Users\\mredw\\Downloads\\image_123.png" />';
+    const { display, images } = splitAttachedImages(stored);
+    expect(display).toBe("take a look\n\n[attachment: image_123.png]");
+    expect(images).toEqual([]);
+  });
+
+  it("keeps a literal attached-image tag inside pasted-text", () => {
+    const inner = '<attached-image path="a.png" />';
+    const { display, images } = splitAttachedImages(composeMessage("", [pasteAttachment(inner)]));
+    expect(display).toBe(inner);
+    expect(images).toEqual([]);
+  });
+
+  it("keeps a literal attached-file tag inside pasted-text", () => {
+    const inner = '<attached-file path="b.txt" />';
+    const { display, images } = splitAttachedImages(composeMessage("", [pasteAttachment(inner)]));
+    expect(display).toBe(inner);
+    expect(images).toEqual([]);
+  });
+});
+
+describe("pasteImageAttachment", () => {
+  it("uses an injected uploader instead of posting the file", async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], "shot.png", { type: "image/png" });
+    const attachment = await pasteImageAttachment(file, true, async () => ({
+      path: "/tmp/shot.png",
+      mime: "image/png",
+      bytes: 3,
+    }));
+    expect(attachment).toMatchObject({
+      kind: "image",
+      path: "/tmp/shot.png",
+      name: "shot.png",
+      size: 3,
+      mime: "image/png",
+    });
   });
 });
 
@@ -148,9 +189,13 @@ describe("imageSupportForTargets", () => {
 
 describe("image attachment notice", () => {
   const copy = {
-    unsupported: "The selected responder does not support image attachments.",
+    unsupported: "Direct image attachments are not supported by this engine.",
     loading: "Engine details are still loading.",
   };
+
+  it("does not blame the responder in the unsupported copy", () => {
+    expect(copy.unsupported).not.toMatch(/responder/i);
+  });
 
   it("returns the unsupported copy for a known refusal", () => {
     expect(imageSupportNotice("unsupported", copy)).toBe(copy.unsupported);

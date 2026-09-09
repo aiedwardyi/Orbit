@@ -134,6 +134,12 @@ describe("Composer wiring", () => {
     expect(composer).toContain('t("composer.queuedUntil", { text: entry.text })');
     expect(composer).not.toMatch(/composer\.queuedUntil", \{ name:/);
   });
+
+  it("shows the image-support notice when a pasted image is demoted", () => {
+    const paste = composer.slice(composer.indexOf("onPaste="), composer.indexOf("onKeyUp="));
+    expect(paste).toContain("pasteImageAttachment");
+    expect(paste).toContain("showImageSupportNotice");
+  });
 });
 
 describe("pendingSteerEntries", () => {

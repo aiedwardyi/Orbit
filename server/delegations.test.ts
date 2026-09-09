@@ -202,7 +202,7 @@ describe("drainDelegations", () => {
   let target: BotRecord;
   let commsBus: CommsBus;
   let approvalBus: { store: Store; broadcast: (payload: unknown) => void };
-  let runTargetCalls: Array<{ toBotId: string; message: string; commsDepth: number; sourceThreadId?: string }>;
+  let runTargetCalls: Array<{ toBotId: string; message: string; commsDepth: number; sourceThreadId?: string; transcriptText?: string }>;
 
   beforeEach(() => {
     rmSync(DATA_DIR, { recursive: true, force: true });
@@ -227,8 +227,8 @@ describe("drainDelegations", () => {
 
   it("runs the target's turn via runTarget and mirrors the exchange", async () => {
     queueDelegation(commsBus, from, { toBotId: target.id, message: "do this", depth: 0 }, 1);
-    drainDelegations(commsBus, approvalBus, from.threadId, (toBotId, message, commsDepth) => {
-      runTargetCalls.push({ toBotId, message, commsDepth });
+    drainDelegations(commsBus, approvalBus, from.threadId, (toBotId, message, commsDepth, _sourceThreadId, _channel, _taskId, _sourceBotId, transcriptText) => {
+      runTargetCalls.push({ toBotId, message, commsDepth, transcriptText });
     });
 
     await waitFor(() => runTargetCalls.length === 1);
@@ -237,6 +237,7 @@ describe("drainDelegations", () => {
     expect(call.commsDepth).toBe(1);
     expect(call.message).toContain("Delegated by @");
     expect(call.message).toContain("do this");
+    expect(call.transcriptText).toBe("do this");
 
     // Both 1:1 threads picked up their comm chips, attributed to the
     // source/target bot respectively, linking to the same channel.

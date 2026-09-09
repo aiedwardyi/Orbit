@@ -464,7 +464,7 @@ function askBotAndWait(
   message: string,
   depth: number,
   fromBotId?: string,
-  peer?: { sender: BotRecord; channel?: GroupRecord; sourceThreadId: string },
+  peer?: { sender: BotRecord; channel?: GroupRecord; sourceThreadId: string; transcriptText?: string },
 ): Promise<string> {
   const target = store.bot(targetBotId);
   if (!target) return Promise.resolve("(no such bot)");
@@ -493,6 +493,7 @@ function askBotAndWait(
     startTurn(targetBotId, message, {
       commsDepth: depth + 1,
       unattended: isUnattended(fromBotId),
+      transcriptText: peer?.transcriptText,
       ...peerAttribution(peer?.sender, peer?.channel),
     }).catch((err) =>
       finish(`(couldn't start that bot: ${err instanceof Error ? err.message : String(err)})`),
@@ -2181,7 +2182,7 @@ bus.subscribe((event: RuntimeEvent) => {
 /** How a drained delegation becomes a real turn on the target. Shared by
  * the settle-time drain and the boot-time drain of what a previous process
  * left queued. */
-const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text, commsDepth, sourceThreadId, channel, taskId, sourceBotId) => {
+const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text, commsDepth, sourceThreadId, channel, taskId, sourceBotId, transcriptText) => {
     // startTurn REJECTS on an ordinary condition — busy target, deleted bot,
     // unavailable provider. Unhandled, that rejection is fatal to the
     // harness (Node's default), which in the packaged app kills the server
@@ -2227,6 +2228,7 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text,
     return startTurn(toBotId, text, {
       commsDepth,
       unattended: isUnattended(sourceBotId),
+      transcriptText,
       ...peerAttribution(store.bot(sourceBotId) ?? undefined, channel),
       // startTurn schedules provider/integration setup after marking the bot
       // busy. Those asynchronous setup failures do not emit turn.completed,
@@ -2416,6 +2418,8 @@ async function finalScreenFrame(botId: string): Promise<Frame | null> {
 type StartTurnOptions = {
   commsDepth?: number;
   userMessage?: Message;
+  /** Clean copy for user transcript when the model prompt carries an internal harness envelope. */
+  transcriptText?: string;
   /** Extra transcript ids to omit (every drained queued line, not just the last). */
   excludeMessageIds?: string[];
   /** Routines run in detached tasks; pin the destination for the whole turn. */
@@ -2598,7 +2602,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       : store.appendMessage(threadId, {
           role: "user",
           kind: "text",
-          text,
+          text: opts?.transcriptText ?? text,
           replyToId: opts?.replyTo?.id,
           sendId: opts?.sendId,
           from: opts?.peerSender,
@@ -2611,7 +2615,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   if (!opts?.cardContinuation && text.trim()) {
     const packet = priorTaskPacket
       ? recordTaskInstruction(priorTaskPacket, {
-          text,
+          text: opts?.transcriptText ?? text,
           messageId: userMessage.id,
           now: userMessage.at,
           turnsAtWrite: task.usage?.turns ?? 0,
@@ -2619,7 +2623,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       : seedTaskResumePacket({
           botId: bot.id,
           threadId,
-          text,
+          text: opts?.transcriptText ?? text,
           messageId: userMessage.id,
           now: userMessage.at,
           turnsAtWrite: task.usage?.turns ?? 0,
@@ -5064,6 +5068,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           sender: currentFrom,
           channel,
           sourceThreadId: fromThreadId,
+          transcriptText: message,
         });
         mirrorReply(commsBus, currentTarget, reply, channel);
         return json(res, 200, { botName: currentTarget.name, text: reply });
