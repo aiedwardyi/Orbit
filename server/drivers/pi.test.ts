@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { ensureDirs } from "../config.ts";
+import { ensureDirs, PROVIDER_CREDENTIAL_ENV, WORKSPACE_CREDENTIAL_ENV } from "../config.ts";
 import type { ProviderInstance } from "../contracts.ts";
 import { recordEvents, type EventRecorder } from "../testing/events.ts";
 import { encodeInjectId, localHost } from "./local-inject.ts";
@@ -27,6 +27,19 @@ import {
 } from "./pi.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-pi-cli.ts");
+
+/** Every credential this process could be holding, plus two nobody has heard
+ * of yet - the allowlist has to exclude those for the same reason, under
+ * whichever name their provider ships them. */
+const FOREIGN_CREDENTIALS = [
+  ...PROVIDER_CREDENTIAL_ENV,
+  ...WORKSPACE_CREDENTIAL_ENV,
+  "ACME_API_KEY",
+  "NEWPROVIDER_TOKEN",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "AWS_SESSION_TOKEN",
+];
 const MODELS_LINE =
   '{"type":"response","command":"get_available_models","success":true,"data":{"models":[{"provider":"ollama-cloud","id":"glm-5.2","name":"glm-5.2"},{"provider":"openai","id":"gpt-4o","name":"GPT-4o"}]}}';
 
@@ -377,6 +390,63 @@ describe("PiDriver turns (fake CLI)", () => {
     }
     expect(JSON.stringify(rows)).not.toContain("anthropic-secret-value");
     expect(JSON.stringify(rows)).not.toContain("openai-secret-value");
+  });
+
+  it("hands its children no credential it was not granted, known or not", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "omb-pi-allowlist-"));
+    const dump = join(dir, "dump.jsonl");
+    const previous = Object.fromEntries(FOREIGN_CREDENTIALS.map((name) => [name, process.env[name]]));
+    for (const name of FOREIGN_CREDENTIALS) process.env[name] = `${name}-must-not-leak`;
+    try {
+      await create(undefined, { FAKE_PI_DUMP: dump });
+      await instance.dispose();
+    } finally {
+      for (const name of FOREIGN_CREDENTIALS) {
+        if (previous[name] === undefined) delete process.env[name];
+        else process.env[name] = previous[name];
+      }
+    }
+
+    const rows = readFileSync(dump, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { envConfigured: string[] });
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.envConfigured.filter((name) => FOREIGN_CREDENTIALS.includes(name))).toEqual([]);
+    }
+  });
+
+  it("probes Unsloth with the studio token while keeping it off the pi child", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "omb-pi-unsloth-probe-"));
+    const dump = join(dir, "dump.jsonl");
+    const auths: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).includes(":8888")) {
+        const headers = new Headers(init?.headers);
+        auths.push(headers.get("authorization") ?? "");
+      }
+      return new Response("nope", { status: 500 });
+    }) as typeof fetch;
+    try {
+      await create(undefined, {
+        FAKE_PI_DUMP: dump,
+        OPENMAUSBOT_PROBE_LOCAL_INJECT: "1",
+        UNSLOTH_STUDIO_AUTH_TOKEN: "unsloth-grant",
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    expect(auths.some((value) => value.includes("unsloth-grant"))).toBe(true);
+    const rows = readFileSync(dump, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { envConfigured: string[] });
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.envConfigured).not.toContain("UNSLOTH_STUDIO_AUTH_TOKEN");
+    }
   });
 
   it("mounts integrations as stdio MCP servers and loads the pi-mcp-extension", async () => {
