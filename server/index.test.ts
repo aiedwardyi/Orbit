@@ -4827,7 +4827,6 @@ describe("startTurn presence boundary", () => {
       routineId = created.body.routine.id;
       const run = await api("POST", `/api/routines/${routineId}/run`);
       expect(run.status).toBe(201);
-      const dispatched = await stream.until((frame) => frame.kind === "turn.dispatch" && frame.threadId !== viewed);
       await expect.poll(async () => {
         const runs = (await api("GET", "/api/routines")).body.runs as Array<{
           id: string;
@@ -4840,6 +4839,9 @@ describe("startTurn presence boundary", () => {
       const live = ((await api("GET", "/api/routines")).body.runs as Array<{ id: string; threadId?: string }>)
         .find((candidate) => candidate.id === run.body.run.id)!;
       expect(live.threadId).not.toBe(viewed);
+      const dispatched = await stream.until(
+        (frame) => frame.kind === "turn.dispatch" && frame.threadId === live.threadId,
+      );
       expect(dispatched.threadId).toBe(live.threadId);
       const snapshot = (await api("GET", "/api/bots?messages=0")).body.bots.find(
         (candidate: { id: string }) => candidate.id === bot.id,
@@ -4898,6 +4900,7 @@ describe("startTurn presence boundary", () => {
           message: "reply from the peer",
         }),
       });
+      void asked.catch(() => undefined);
       const dispatched = await stream.until(
         (frame) => frame.kind === "turn.dispatch" && frame.threadId === target.threadId,
       );

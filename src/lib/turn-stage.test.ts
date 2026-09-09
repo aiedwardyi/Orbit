@@ -280,6 +280,23 @@ describe("turn-scoped buffers", () => {
     ).toBe("routine");
   });
 
+  it("backfills personal thread when busy without workingThreadId and no group owns it", () => {
+    expect(hydrationTurnThread({ id: "bot-1", busy: true, threadId: "personal" }, [])).toBe("personal");
+  });
+
+  it("returns undefined when a group owns the bot", () => {
+    expect(
+      hydrationTurnThread(
+        { id: "bot-1", busy: true, threadId: "personal" },
+        [{ busyBotId: "bot-1" }],
+      ),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when the bot is not busy", () => {
+    expect(hydrationTurnThread({ id: "bot-1", busy: false, threadId: "personal" })).toBeUndefined();
+  });
+
   it("drops leftover stream text when startTurn dispatches a replacement wait", () => {
     const killed = streamOf({
       streaming: { t1: "partial" },
@@ -352,6 +369,13 @@ describe("wiring", () => {
   });
 
   it("keeps the pop-in: no streamed text is rendered into the 1:1 answer", () => {
-    expect(chatView).not.toMatch(/\{\s*streaming\s*\}/);
+    const streamBinding =
+      chatView.match(/turnPhase\(\{[^}]*\bstreaming(?:\s*:\s*([^,}\s]+))?/)?.[1] ??
+      chatView.match(/(?:const|let)\s+(?:\{[^}]*streaming(?:\s*:\s*(\w+))?[^}]*\}|(\w+)\s*=\s*[^;\n]*\.streaming)/)
+        ?.slice(1)
+        .find(Boolean);
+    expect(streamBinding).toBeDefined();
+    expect(chatView).not.toMatch(new RegExp(`\\{\\s*${streamBinding}\\s*\\}`));
+    expect(chatView).not.toMatch(/\{\s*[\w.?]+\.streaming\s*\}/);
   });
 });
