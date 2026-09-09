@@ -5221,4 +5221,23 @@ describe("project folder in the system prompt", () => {
       await api("DELETE", `/api/bots/${bot.id}`);
     }
   }, 30_000);
+
+  // The other way to reach the private workspace: pinned to it explicitly, so
+  // the resolver does return a folder and the guard is what rules it out.
+  it("says nothing when the pin is the bot's own private workspace", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    try {
+      const workspace = join(home, ".orbit", "workspaces", bot.id);
+      mkdirSync(join(workspace, "memory"), { recursive: true });
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        cwd: workspace,
+        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      })).status).toBe(200);
+
+      const system = await systemForTurn(bot.id, "what is the origin repo about");
+      expect(system).not.toContain(FOLDER_START);
+    } finally {
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  }, 30_000);
 });
