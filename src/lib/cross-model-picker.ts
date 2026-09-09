@@ -19,7 +19,9 @@ const MODELS = new Map<string, string[]>(Object.entries({
 }));
 
 export function freePickerModels(catalog: ModelOption[]): ModelOption[] {
-  const free = catalog.filter((option) => option.id.startsWith("openrouter/") && option.id.endsWith(":free"));
+  const openrouter = catalog.filter((option) => option.id.startsWith("openrouter/"));
+  const free = openrouter.filter((option) => option.id.endsWith(":free"));
+  if (free.length === 0) return openrouter.slice(0, 4);
   const families = [/nemotron.*3.*ultra/i, /laguna-s-2[.-]1/i, /nemotron.*3[.-]5.*lightning/i, /ling-3[.-]0-flash-fin/i];
   const preferred = families.flatMap((family) => free.filter((option) => family.test(option.id)).slice(0, 1));
   return [...preferred, ...free.filter((option) => !preferred.includes(option))].slice(0, 4);
@@ -62,6 +64,7 @@ export function pickerColumn(row: PickerRow, model: string): number {
 }
 
 export function centeredItems<T>(items: T[], index: number): T[] {
+  if (items.length === 0) return [];
   const start = (index - Math.floor(items.length / 2) + items.length) % items.length;
   return [...items.slice(start), ...items.slice(0, start)];
 }
@@ -85,9 +88,12 @@ export function movePicker(rows: PickerRow[], current: ModelSelection, key: stri
     return cell ? selectPickerModel(row.instance, cell.options[0]!.id, current) : current;
   }
   if (key === "ArrowUp" || key === "ArrowDown") {
-    const target = rows[(rowIndex + (key === "ArrowUp" ? -1 : 1) + rows.length) % rows.length];
-    const cell = target?.cells[Math.min(column, target.cells.length - 1)];
-    return target && cell ? selectPickerModel(target.instance, cell.options[0]!.id, current) : current;
+    const direction = key === "ArrowUp" ? -1 : 1;
+    for (let offset = 1; offset < rows.length; offset++) {
+      const target = rows[(rowIndex + direction * offset + rows.length) % rows.length]!;
+      const cell = target.cells[Math.min(column, target.cells.length - 1)];
+      if (cell) return selectPickerModel(target.instance, cell.options[0]!.id, current);
+    }
   }
   return current;
 }

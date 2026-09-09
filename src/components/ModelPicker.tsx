@@ -56,6 +56,7 @@ export function ModelPickerControl({
   const canSave = unchanged || Boolean(instance && !blocked && instance.models.options.some((option) => option.id === draft.model));
   const efforts = instance?.capabilities?.effortLevels ?? [];
   const custom = instance?.models.options.filter((option) => option.custom) ?? [];
+  const filteredCustom = filterCustomModels(custom, query);
 
   const show = () => {
     setDraft(selection);
@@ -84,7 +85,7 @@ export function ModelPickerControl({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  });
+  }, [open, state.selectedId, bot.id, contained, selection]);
 
   useEffect(() => {
     if (!open) return;
@@ -146,7 +147,7 @@ export function ModelPickerControl({
             event.preventDefault();
             close();
           } else if (event.key === "Enter") {
-            if (event.target instanceof HTMLElement && event.target.closest("[data-picker-action]")) return;
+            if (event.target !== event.currentTarget && !(event.target instanceof HTMLElement && event.target.closest("[data-model-cell]"))) return;
             event.preventDefault();
             save();
           } else if (event.key === "Tab") {
@@ -238,9 +239,9 @@ export function ModelPickerControl({
           {blocked && instance && <EngineSetup instance={instance} intent={isCustom ? "inject" : "cloud"} />}
           {custom.length > 0 && <button type="button" className="text-xs text-ink-secondary hover:text-ink" aria-expanded={customOpen} onClick={() => setCustomOpen(!customOpen)}>{t("model.useLocalCount", { count: custom.length })}</button>}
           {customOpen && instance && <div className="model-cross-custom">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label={t("model.searchLocal")} placeholder={t("model.searchLocal")} className="w-full rounded-lg bg-inset px-3 py-2 text-sm text-ink" />
-            {filterCustomModels(custom, query).map((option) => <button key={option.id} type="button" className="block w-full rounded-lg px-3 py-2 text-left text-sm text-ink hover:bg-control" onClick={() => pick(selectPickerModel(instance, option.id, draft))}>{option.label}</button>)}
-            {filterCustomModels(custom, query).length === 0 && <p className="text-xs text-ink-secondary">{t("palette.noMatch", { query })}</p>}
+            <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label={t("model.searchLocal")} placeholder={t("model.searchLocal")} className="w-full rounded-lg bg-inset px-3 py-2 text-base sm:text-sm text-ink" />
+            {filteredCustom.map((option) => <button key={option.id} type="button" className="block w-full rounded-lg px-3 py-2 text-left text-sm text-ink hover:bg-control" onClick={() => pick(selectPickerModel(instance, option.id, draft))}>{option.label}</button>)}
+            {filteredCustom.length === 0 && <p className="text-xs text-ink-secondary">{t("palette.noMatch", { query })}</p>}
           </div>}
         </div>
         <footer className="model-cross-footer">

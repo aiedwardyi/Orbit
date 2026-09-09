@@ -1,9 +1,25 @@
 import { describe, expect, it } from "vitest";
 
-import { freePickerModels, pickerRows } from "./cross-model-picker";
+import { centeredItems, freePickerModels, movePicker, pickerRows } from "./cross-model-picker";
 import type { InstanceInfo } from "@/state/store";
 
 describe("picker catalogs", () => {
+  it("handles empty rows without changing the selection or looping", () => {
+    const instance: InstanceInfo = { instanceId: "empty", driverKind: "codex", displayName: "Empty", snapshot: { state: "available" }, models: { default: "", options: [] } };
+    const current = { instanceId: "empty", model: "" };
+    const rows = [{ instance, label: "Empty", cells: [] }, { instance: { ...instance, instanceId: "also-empty" }, label: "Also empty", cells: [] }];
+    expect(centeredItems([], 0)).toEqual([]);
+    for (const key of ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]) {
+      expect(movePicker(rows, current, key)).toEqual(current);
+      expect(movePicker([], current, key)).toEqual(current);
+    }
+  });
+
+  it("uses live OpenRouter rows when the catalog has no free suffix", () => {
+    const options = ["other/model", "openrouter/vendor/one", "openrouter/vendor/two", "openrouter/vendor/three", "openrouter/vendor/four", "openrouter/vendor/five"].map((id) => ({ id, label: id }));
+    expect(freePickerModels(options)).toEqual(options.slice(1, 5));
+  });
+
   it("uses live free IDs and fills vacancies when the preferred families rotate out", () => {
     const options = [
       { id: "openrouter/new-vendor/new-model:free", label: "New free model" },

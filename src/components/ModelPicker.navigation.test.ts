@@ -53,10 +53,55 @@ afterEach(async () => {
 });
 
 describe("ModelPicker cross navigation", () => {
+  it.each(["tier", "effort", "custom"])("preserves native Enter activation for a focused %s button", async (control) => {
+    const instance = control === "tier"
+      ? engine("antigravity", "antigravityAgent", ["gemini-3.8-flash-high", "gemini-3.8-flash-low"])
+      : engine("codex", "codex", ["gpt-5.6-sol"], ["low", "high"]);
+    instance.models.options.push({ id: "provider::custom-model", label: "Custom model", custom: true });
+    mock.instances = [instance];
+    await mount({ instanceId: instance.instanceId, model: instance.models.default, mode: "pinned" });
+    if (control === "custom") {
+      await act(async () => Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("Use a local model"))!.click());
+    }
+    const button = Array.from(document.querySelectorAll("button")).find((button) => button.textContent === (control === "custom" ? "Custom model" : "low"))!;
+    const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    await act(async () => { button.focus(); button.dispatchEvent(event); });
+    expect(event.defaultPrevented).toBe(false);
+    expect(mock.dispatch).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    // Happy DOM does not synthesize the browser's click default action.
+    await act(async () => button.click());
+    await act(async () => document.querySelector<HTMLElement>('[role="dialog"]')!.focus());
+    await key("Enter");
+    const expected: ModelSelection = {
+      instanceId: instance.instanceId,
+      model: control === "tier" ? "gemini-3.8-flash-low" : control === "custom" ? "provider::custom-model" : "gpt-5.6-sol",
+      mode: "pinned",
+    };
+    if (control === "effort") expected.effort = "low";
+    expect(mock.dispatch.mock.calls[0]?.[0].selection).toEqual(expected);
+  });
+
+  it.each(["ArrowUp", "ArrowDown"])("skips an empty engine row with %s", async (direction) => {
+    mock.instances = [
+      engine("claude", "claudeAgent", ["claude-sonnet-5"]),
+      engine("codex", "codex", []),
+      engine("grok", "grokAgent", ["grok-4.6", "grok-4.5"]),
+    ];
+    const down = direction === "ArrowDown";
+    await mount({ instanceId: down ? "claude" : "grok", model: down ? "claude-sonnet-5" : "grok-4.6", mode: "pinned" });
+    await key(direction);
+    await key("Enter");
+    expect(mock.dispatch.mock.calls[0]?.[0].selection).toEqual({
+      instanceId: down ? "grok" : "claude", model: down ? "grok-4.6" : "claude-sonnet-5", mode: "pinned",
+    });
+  });
+
   it("sends an off-list pinned model unchanged after an Enter round trip", async () => {
     mock.instances = [engine("claude", "claudeAgent", ["claude-sonnet-5", "claude-haiku-4-5"], ["low", "high"])];
     const selection: ModelSelection = { instanceId: "claude", model: "claude-haiku-4-5", mode: "pinned", effort: "high" };
     await mount(selection);
+    expect(document.body.textContent).toContain("Current (not in list)");
     expect(document.body.textContent).toContain("claude-haiku-4-5");
     await key("Enter");
     expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({ type: "setModel", botId: "bot-1", selection });
