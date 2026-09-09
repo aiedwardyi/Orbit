@@ -36,6 +36,7 @@ const FOREIGN_CREDENTIALS = [
   "NEWPROVIDER_TOKEN",
   "AWS_ACCESS_KEY_ID",
   "AWS_SECRET_ACCESS_KEY",
+  "AWS_SESSION_TOKEN",
 ];
 
 /** A harness that exists only in tests: it exercises the opt-in session-config
@@ -381,9 +382,12 @@ describe("ACP turns (fake CLI)", () => {
       try {
         await granted.snapshot();
         const seen = JSON.parse(readFileSync(dump, "utf8")) as { env: Record<string, string> };
-        expect({ driver: name, env: seen.env }).toMatchObject({ driver: name, env: keep });
-        expect(seen.env.AWS_ACCESS_KEY_ID).toBeUndefined();
-        expect(seen.env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+        const observedCredentials = Object.fromEntries(
+          [...new Set(FOREIGN_CREDENTIALS)]
+            .filter((key) => seen.env[key] !== undefined)
+            .map((key) => [key, seen.env[key]]),
+        );
+        expect({ driver: name, env: observedCredentials }).toEqual({ driver: name, env: keep });
       } finally {
         await granted.dispose();
         for (const key of Object.keys(previous)) {
