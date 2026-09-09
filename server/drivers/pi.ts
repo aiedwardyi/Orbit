@@ -25,7 +25,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { PROVIDER_CREDENTIAL_ENV, stripWorkspaceCredentialEnv } from "../config.ts";
+import { applyCredentialAllowlist } from "../config.ts";
 import { computerProxyEnv } from "../container-computer.ts";
 import { augmentedPath } from "../env-path.ts";
 import { describeSpawnFailure, killCliTree, spawnCli } from "../procs.ts";
@@ -385,8 +385,7 @@ function piEnvironment(source: Record<string, string | undefined>): Record<strin
   // pi, and workspace credentials are the harness's secrets, not pi's. The
   // keys pi may use live in its own settings file, so the child inherits
   // neither list.
-  stripWorkspaceCredentialEnv(env);
-  for (const key of PROVIDER_CREDENTIAL_ENV) delete env[key];
+  applyCredentialAllowlist(env);
   return env;
 }
 
@@ -408,7 +407,8 @@ export const PiDriver: ProviderDriver<PiConfig> = {
 
   async create(input: DriverCreateInput<PiConfig>): Promise<ProviderInstance> {
     const { instanceId, config } = input;
-    const catalogEnv = piEnvironment({ ...process.env, ...input.environment });
+    const source = { ...process.env, ...input.environment };
+    const catalogEnv = piEnvironment(source);
     let models = EMPTY;
     const refreshModels = async () => {
       let base = models;
@@ -419,7 +419,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
         // Keep the last usable catalog when the probe fails.
       }
       try {
-        const next = await applyPiLocalCatalog(base, catalogEnv);
+        const next = await applyPiLocalCatalog(base, source);
         if (next.options.length) models = next;
       } catch {
         if (base.options.length) models = base;

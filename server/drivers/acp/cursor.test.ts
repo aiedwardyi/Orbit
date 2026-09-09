@@ -153,6 +153,36 @@ describe("CursorAgentDriver", () => {
     }
   });
 
+  it("keeps Cursor credentials on the models child and drops ungranted tokens", async () => {
+    chmodSync(FAKE_CLI, 0o755);
+    const scratch = mkdtempSync(join(tmpdir(), "omb-cursor-catalog-env-"));
+    scratchDirs.push(scratch);
+    const dump = join(scratch, "catalog.json");
+    const instance = await CursorAgentDriver.create({
+      instanceId: "cursor-catalog-env",
+      displayName: "Cursor",
+      environment: {
+        FAKE_ACP_DUMP: dump,
+        CURSOR_API_KEY: "cursor-key-synthetic",
+        CURSOR_AUTH_TOKEN: "cursor-token-synthetic",
+        UNSLOTH_STUDIO_AUTH_TOKEN: "unsloth-catalog-synthetic",
+        AWS_SECRET_ACCESS_KEY: "aws-catalog-synthetic",
+      },
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: false },
+    });
+    try {
+      const seen = JSON.parse(readFileSync(dump, "utf8")) as { argv: string[]; env: Record<string, string> };
+      expect(seen.argv[0]).toBe("models");
+      expect(seen.env.CURSOR_API_KEY).toBe("cursor-key-synthetic");
+      expect(seen.env.CURSOR_AUTH_TOKEN).toBe("cursor-token-synthetic");
+      expect(seen.env.UNSLOTH_STUDIO_AUTH_TOKEN).toBeUndefined();
+      expect(seen.env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    } finally {
+      await instance.dispose();
+    }
+  });
+
   it("treats CURSOR_API_KEY as signed in without asking the CLI", async () => {
     chmodSync(FAKE_CLI, 0o755);
     const instance = await CursorAgentDriver.create({

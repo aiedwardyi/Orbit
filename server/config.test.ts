@@ -19,7 +19,6 @@ import {
   showToolCallsEnabled,
   skillRecorderEnabled,
   builtInBrowserEnabled,
-  stripWorkspaceCredentialEnv,
   syncCredentialEnv,
   vpsSshAlias,
   withInstanceCli,
@@ -459,16 +458,6 @@ describe("credential env preference", () => {
 });
 
 describe("workspace credential env strip", () => {
-  it("removes every workspace credential from a child env in place", () => {
-    const env = {
-      PATH: "/usr/bin",
-      MY_FLAG: "1",
-      ...Object.fromEntries(WORKSPACE_CREDENTIAL_ENV.map((name) => [name, "secret"])),
-    };
-    stripWorkspaceCredentialEnv(env);
-    expect(env).toEqual({ PATH: "/usr/bin", MY_FLAG: "1" });
-  });
-
   it("keeps only the credentials a child was granted, whether or not they are listed", () => {
     const env = {
       PATH: "/usr/bin",

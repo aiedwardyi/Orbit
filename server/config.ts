@@ -287,11 +287,6 @@ export const WORKSPACE_CREDENTIAL_ENV = [
   "OMB_COMPOSIO_BROKER_TOKEN",
 ] as const;
 
-/** Drop every workspace credential from a child-process env (in place). */
-export function stripWorkspaceCredentialEnv(env: Record<string, string | undefined>): void {
-  for (const key of WORKSPACE_CREDENTIAL_ENV) delete env[key];
-}
-
 /** Env names a provider CLI might read as its own billing identity. A spawned
  * engine keeps only what its driver explicitly allows: a foreign key riding
  * along in `...process.env` must not flip a subscription CLI onto

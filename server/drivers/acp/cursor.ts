@@ -8,9 +8,12 @@
 // `cursor_login`, and takes `--force` / `--model` as global flags before the
 // `acp` subcommand. `session/set_model` is attempted when the CLI supports it;
 // a missing method falls back to the argv `--model` pin.
+import { applyCredentialAllowlist } from "../../config.ts";
 import type { ModelCatalog, ProviderErrorCode } from "../../contracts.ts";
 import { execCli } from "../../procs.ts";
 import { createAcpDriver, type AcpSupport } from "./core.ts";
+
+const CREDENTIAL_ENV = ["CURSOR_API_KEY", "CURSOR_AUTH_TOKEN"] as const;
 
 /** Translate an argv `--model` slug into the id this ACP session will accept.
  *
@@ -271,8 +274,10 @@ function execText(
   args: string[],
   env: Record<string, string | undefined>,
 ): Promise<string | null> {
+  const childEnv = { ...env };
+  applyCredentialAllowlist(childEnv, CREDENTIAL_ENV);
   return new Promise((resolve) => {
-    run(cli, args, { timeout: EXEC_TIMEOUT_MS, env: env as NodeJS.ProcessEnv }, (err, stdout) => {
+    run(cli, args, { timeout: EXEC_TIMEOUT_MS, env: childEnv as NodeJS.ProcessEnv }, (err, stdout) => {
       if (err) return resolve(null);
       resolve(String(stdout ?? ""));
     });
@@ -357,7 +362,7 @@ const support = (run: typeof execCli): AcpSupport => ({
     ...(turn.model ? ["--model", turn.model] : []),
     "acp",
   ],
-  credentialEnv: ["CURSOR_API_KEY", "CURSOR_AUTH_TOKEN"],
+  credentialEnv: CREDENTIAL_ENV,
 
   resolveModels: (environment, config) => fetchCursorModels(config.cli || "cursor-agent", environment, run),
 

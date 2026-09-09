@@ -5,10 +5,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { decodeInjectId, hostApiKey, localHost, mergeLocalInject } from "../local-inject.ts";
-import { createAcpDriver, type AcpSupport } from "./core.ts";
+import { applyCredentialAllowlist } from "../../config.ts";
 import type { ModelCatalog, ProviderErrorCode } from "../../contracts.ts";
 import { execCli } from "../../procs.ts";
+import { decodeInjectId, hostApiKey, localHost, mergeLocalInject } from "../local-inject.ts";
+import { createAcpDriver, type AcpSupport } from "./core.ts";
+
+const CREDENTIAL_ENV = ["OPENCODE_API_KEY"] as const;
 
 const STATIC_MODELS: ModelCatalog = {
   default: "opencode/x-preview-f-free",
@@ -134,11 +137,13 @@ function runOpenCodeModels(
   environment: Record<string, string | undefined>,
   verbose: boolean,
 ): Promise<string> {
+  const childEnv = { ...environment };
+  applyCredentialAllowlist(childEnv, CREDENTIAL_ENV);
   return new Promise((resolve, reject) => {
     execCli(
       cli,
       ["models", ...(verbose ? ["--verbose"] : [])],
-      { timeout: 20_000, maxBuffer: 8 * 1024 * 1024, env: environment },
+      { timeout: 20_000, maxBuffer: 8 * 1024 * 1024, env: childEnv },
       (error, stdout, stderr) => {
         if (error) {
           reject(new Error(stderr?.trim() || error.message, { cause: error }));
@@ -363,7 +368,7 @@ const support = (loadCatalog: OpenCodeCatalogLoader): AcpSupport => ({
     needsNode: true,
   },
   spawnArgs: () => ["acp"],
-  credentialEnv: ["OPENCODE_API_KEY"],
+  credentialEnv: CREDENTIAL_ENV,
   selectModel: { configId: "model" },
   resolveTurnModel: (model, env) => model
     ? ensureOpenCodeInjectModel(normalizeLegacyOpenCodeModel(model, env), env)
