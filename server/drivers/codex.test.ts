@@ -43,6 +43,11 @@ const GIT_IDENTITY_ENV = {
   SSH_AUTH_SOCK: "/tmp/omb-test-agent.sock",
 } as const;
 
+/** Every git env name the identity guard writes. Snapshotted per test and put back
+ * in cleanup: a leaked value would change git's behaviour for whatever runs
+ * next in this process. */
+const GIT_ENV_NAMES = [...Object.keys(GIT_IDENTITY_ENV), "GIT_CONFIG_GLOBAL"];
+
 describe("CodexDriver.decodeConfig", () => {
   it("defaults to the codex binary with fullAuto off", () => {
     expect(CodexDriver.decodeConfig({})).toEqual({ cli: "codex", fullAuto: false });
@@ -57,6 +62,7 @@ describe("CodexDriver turns (fake app-server)", () => {
   let instance: ProviderInstance;
   let recorder: EventRecorder;
   let scratch: string;
+  let gitEnvBefore: Map<string, string | undefined>;
 
   const create = async (
     opts: { mode?: string; fullAuto?: boolean; environment?: Record<string, string> } = {},
@@ -75,6 +81,7 @@ describe("CodexDriver turns (fake app-server)", () => {
   beforeEach(() => {
     chmodSync(FAKE_CLI, 0o755);
     scratch = mkdtempSync(join(tmpdir(), "omb-codex-test-"));
+    gitEnvBefore = new Map(GIT_ENV_NAMES.map((name) => [name, process.env[name]]));
   });
 
   afterEach(async () => {
@@ -89,8 +96,10 @@ describe("CodexDriver turns (fake app-server)", () => {
     delete process.env.BOX_TOKEN;
     delete process.env.OMB_TTS_KEY;
     for (const name of FOREIGN_CREDENTIALS) delete process.env[name];
-    for (const name of Object.keys(GIT_IDENTITY_ENV)) delete process.env[name];
-    delete process.env.GIT_CONFIG_GLOBAL;
+    for (const [name, value] of gitEnvBefore) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
     recorder?.stop();
     await instance?.dispose();
     await removeTempDir(scratch);
@@ -115,6 +124,8 @@ describe("CodexDriver turns (fake app-server)", () => {
     const parentGitNames = Object.keys(process.env).filter((name) => name.startsWith("GIT_")).sort();
     await create();
     const dump = join(scratch, "git-identity.json");
+    // After create() on purpose: childEnv() spreads process.env fresh at each
+    // sendTurn(), not at create() time, so the dump path still reaches the child.
     process.env.FAKE_CODEX_DUMP = dump;
 
     await instance.adapter.sendTurn({ threadId: "t-git-identity", text: "commit and push it" });
