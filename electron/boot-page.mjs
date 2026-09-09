@@ -8,15 +8,17 @@ export const BOOT_FAILED = "failed";
 
 const BOOT_MARKER = (phase) => `data-orbit-boot="${phase}"`;
 
-export function buildConnectingPage({ locale, fontStack, backgroundColor, message }) {
+export function buildConnectingPage({ locale, fontStack, backgroundColor, message, color }) {
   const lang = escapeHtml(String(locale ?? "en"));
   const font = escapeHtml(String(fontStack ?? "system-ui,sans-serif"));
   const background = escapeHtml(String(backgroundColor ?? "#070707"));
+  const ink = escapeHtml(String(color ?? "#fcfcfc"));
+  const muted = ink.toLowerCase() === "#fcfcfc" ? "#fcfcfc99" : ink;
   const copy = escapeHtml(String(message ?? ""));
   return (
     "data:text/html;charset=utf-8," +
     encodeURIComponent(
-      `<html lang="${lang}" ${BOOT_MARKER(BOOT_CONNECTING)}><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:${background};color:#fcfcfc;font:15px ${font}"><div style="text-align:center;max-width:360px"><p style="color:#fcfcfc99;line-height:1.5">${copy}</p></div></body></html>`,
+      `<html lang="${lang}" ${BOOT_MARKER(BOOT_CONNECTING)}><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:${background};color:${ink};font:15px ${font}"><div style="text-align:center;max-width:360px"><p style="color:${muted};line-height:1.5">${copy}</p></div></body></html>`,
     )
   );
 }

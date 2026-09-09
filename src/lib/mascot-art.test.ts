@@ -36,6 +36,8 @@ describe("cute mascot art pack", () => {
     expect(peach).not.toContain("{{BODY}}");
     expect(peach).toContain(`<rect width="256" height="256" fill="${MAUS_COLORS.white}"/>`);
     expect(peach.indexOf("<rect")).toBeLessThan(peach.indexOf("<ellipse"));
+    const squircle = mascotSvgMarkup("squircle", "red");
+    expect(squircle).toContain(`<rect width="256" height="256" fill="${MAUS_COLORS.white}"/>`);
     expect(new Set([peach, teal, lavender, coral]).size).toBe(4);
     expect(teal).toContain('id="antenna"');
     expect(lavender).toContain('id="ear-left"');

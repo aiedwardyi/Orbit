@@ -41,7 +41,7 @@ export function mascotSvgMarkup(style: MascotStyle, color: string): string {
     .replaceAll("{{BODY_DEEP}}", mix(fill, "#000000", 0.28));
   // Clamped cream ground. Owner asked for the dumpling "on white" without
   // picking #FFFFFF vs this; leave the clamp alone until he answers.
-  return painted.replace(/^(<svg[^>]*>)/, `$1<rect width="256" height="256" fill="${MAUS_COLORS.white}"/>`);
+  return painted.replace(/(<svg[^>]*>)/, `$1<rect width="256" height="256" fill="${MAUS_COLORS.white}"/>`);
 }
 
 /** Prefix ids so two inlined mascots on one page cannot share a gradient. */

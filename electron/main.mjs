@@ -1378,10 +1378,13 @@ function createWindow() {
 }
 
 function connectingPageHref(backgroundColor) {
+  const persistedSkin = readPersistedSkin(app.getPath("userData"));
+  const chrome = skinChrome(persistedSkin);
   return buildConnectingPage({
     locale: uiLocale(),
     fontStack: uiFontStack(),
-    backgroundColor,
+    backgroundColor: backgroundColor ?? chrome.color,
+    color: chrome.symbolColor,
     message: nativeText("packaged.connecting"),
   });
 }

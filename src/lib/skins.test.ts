@@ -82,6 +82,17 @@ describe("skins", () => {
     }
   });
 
+  it("drives light-syntax contrast from github-dark-default emitted foregrounds", () => {
+    const check = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "../../scripts/check-skin-contrast.mjs"),
+      "utf8",
+    );
+    expect(check).toContain("github-dark-default");
+    expect(check).toContain("tokenColors");
+    expect(check).toContain("emittedForegrounds");
+    expect(check).not.toContain("SYNTAX_ROLES");
+  });
+
   it("defaults a fresh install to Ledger and does not rename Atelier", () => {
     expect(DEFAULT_SKIN).toBe("ledger");
     expect(SKINS.some((s) => s.id === "atelier" && s.name === "Atelier")).toBe(true);

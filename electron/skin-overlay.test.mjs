@@ -78,6 +78,16 @@ describe("skin overlay chrome", () => {
     expect(handler).toContain("writePersistedSkin");
   });
 
+  it("paints connecting-page ink from the skin's symbolColor", () => {
+    const main = readFileSync(join(here, "main.mjs"), "utf8");
+    const href = main.slice(
+      main.indexOf("function connectingPageHref"),
+      main.indexOf("function packagedWindowHref"),
+    );
+    expect(href).toContain("chrome.symbolColor");
+    expect(href).toContain("color: chrome.symbolColor");
+  });
+
   it("shows from the persisted skin at create, not after renderer IPC", () => {
     // Visual QA: first visible frame was Ledger gray, but only after the
     // 5s desktop:skin fallback. createWindow must read the stored skin,

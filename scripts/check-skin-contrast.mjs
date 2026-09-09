@@ -6,7 +6,7 @@
 //
 // It parses the CSS rather than taking a second copy of the values, so the
 // check can never pass against a palette that is no longer the shipped one.
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -133,20 +133,68 @@ const PAIRS = [
 
 // ChatMarkdown paints fenced blocks with `bg-inset` and strips Shiki's pre
 // background, so syntax colours sit on --color-inset. Code is 13px (body),
-// so AA is 4.5:1; a bold/large role would be 3:1. Dark skins skip this —
-// their github-dark-default tokens already read on a dark inset.
+// so AA is 4.5:1. Dark skins skip this. The emitted set is github-dark-default's
+// tokenColors foregrounds plus editor.foreground — not the --color-syntax-*
+// names we happened to define — so a new token in that theme fails the run
+// until it is remapped.
 const CODE_BLOCK_BG = "--color-inset";
-const SYNTAX_ROLES = [
-  ["--color-syntax-fg", 4.5],
-  ["--color-syntax-comment", 4.5],
-  ["--color-syntax-keyword", 4.5],
-  ["--color-syntax-string", 4.5],
-  ["--color-syntax-function", 4.5],
-  ["--color-syntax-constant", 4.5],
-  ["--color-syntax-variable", 4.5],
-  ["--color-syntax-tag", 4.5],
-  ["--color-syntax-invalid", 4.5],
-];
+const SYNTAX_MIN = 4.5;
+
+function githubDarkDefaultPath() {
+  const pnpm = join(root, "node_modules", ".pnpm");
+  if (existsSync(pnpm)) {
+    for (const dir of readdirSync(pnpm)) {
+      if (!dir.startsWith("@shikijs+themes@")) continue;
+      const p = join(pnpm, dir, "node_modules", "@shikijs", "themes", "dist", "github-dark-default.mjs");
+      if (existsSync(p)) return p;
+    }
+  }
+  throw new Error("github-dark-default theme file not found");
+}
+
+function loadGithubDarkDefault() {
+  const src = readFileSync(githubDarkDefaultPath(), "utf8");
+  const mark = "JSON.parse(\"";
+  const i = src.indexOf(mark);
+  if (i === -1) throw new Error("github-dark-default: missing JSON.parse payload");
+  let k = i + mark.length;
+  let out = "";
+  while (k < src.length) {
+    const c = src[k];
+    if (c === "\\") {
+      out += src[k + 1];
+      k += 2;
+      continue;
+    }
+    if (c === "\"") break;
+    out += c;
+    k += 1;
+  }
+  return JSON.parse(out);
+}
+
+function emittedForegrounds(theme) {
+  const set = new Set();
+  for (const entry of theme.tokenColors ?? []) {
+    const fg = entry.settings?.foreground;
+    if (typeof fg === "string" && /^#[0-9a-fA-F]{6}$/.test(fg)) set.add(fg.toLowerCase());
+  }
+  const editor = theme.colors?.["editor.foreground"];
+  if (typeof editor === "string" && /^#[0-9a-fA-F]{6}$/.test(editor)) set.add(editor.toLowerCase());
+  return [...set].sort();
+}
+
+function parseCssRemaps(source) {
+  const map = new Map();
+  for (const [, selectors, token] of source.matchAll(
+    /([^{}]+)\{[^{}]*color:\s*var\((--color-syntax-[\w-]+)\)/gi,
+  )) {
+    for (const [, hex] of selectors.matchAll(/\[style\*="#([0-9a-fA-F]{6})"/gi)) {
+      map.set(`#${hex.toLowerCase()}`, token);
+    }
+  }
+  return map;
+}
 
 function isLightSkin(tokens) {
   const app = tokens["--color-app"];
@@ -155,6 +203,8 @@ function isLightSkin(tokens) {
 }
 
 const skins = parseSkins(css);
+const emitted = emittedForegrounds(loadGithubDarkDefault());
+const remaps = parseCssRemaps(css);
 // Midnight is shipped as a faithful copy of upstream, contrast gaps included;
 // it is reported but not allowed to fail the run.
 const ADVISORY = new Set(["midnight"]);
@@ -164,9 +214,17 @@ for (const [id, tokens] of skins) {
   const problems = [];
   const missing = [];
   let measured = 0;
-  const pairs = isLightSkin(tokens)
-    ? [...PAIRS, ...SYNTAX_ROLES.map(([fg, min]) => [fg, CODE_BLOCK_BG, min])]
-    : PAIRS;
+  const pairs = [...PAIRS];
+  if (isLightSkin(tokens)) {
+    for (const hex of emitted) {
+      const token = remaps.get(hex);
+      if (!token) {
+        missing.push(`unmapped github-dark-default ${hex}`);
+        continue;
+      }
+      pairs.push([token, CODE_BLOCK_BG, SYNTAX_MIN]);
+    }
+  }
   for (const [fg, bg, min] of pairs) {
     // A pair we cannot measure is reported, never silently skipped: an
     // unmeasured pair used to be counted as a passing one.
