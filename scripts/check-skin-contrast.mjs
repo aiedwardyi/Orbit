@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Reads the skin blocks out of src/styles.css and measures every text/surface
 // pair the components actually produce. Run it after touching a palette:
 //
@@ -6,7 +5,7 @@
 //
 // It parses the CSS rather than taking a second copy of the values, so the
 // check can never pass against a palette that is no longer the shipped one.
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
@@ -220,7 +219,7 @@ function isDirectRun() {
   const entry = process.argv[1];
   if (!entry) return false;
   try {
-    return pathToFileURL(resolve(entry)).href === import.meta.url;
+    return pathToFileURL(realpathSync(resolve(entry))).href === import.meta.url;
   } catch {
     return false;
   }

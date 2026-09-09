@@ -60,6 +60,7 @@
 /* Tokens that no utility generates — declared outside `@theme` so Tailwind
    can't tree-shake them away, and so a skin can redefine them freely. */
 :root {
+  color-scheme: dark;
   /* ink carried by a filled accent / danger surface (see the rule at the
      bottom of this file, which is what makes them take effect) */
   --color-accent-ink: #ffffff;
@@ -118,6 +119,7 @@
    value is named next to each, so the drift stays auditable.
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="atelier"] {
+  color-scheme: light;
   --color-app: #f5f1eb;           /* outermost ground */
   --color-panel: #fbf8f2;         /* sidebar */
   --color-raised: #ffffff;        /* content — raised means lighter here */
@@ -232,6 +234,7 @@
    round more than paper does, and far more than sheet metal.
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="lagoon"] {
+  color-scheme: light;
   /* The tint is the point, so it is carried by the surfaces, not by a button:
      the ground sits 13 points of green-blue above its red channel, roughly
      three times Atelier's cream cast, which is what makes the skin read as
@@ -305,6 +308,7 @@
    4px / 8px, and the face is Inter: a typeset daybook, not system-ui.
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="ledger"] {
+  color-scheme: light;
   --color-app: #e9e9e9;           /* achromatic stone near #e9e9e9 */
   --color-panel: #f4f4f4;         /* sidebar, one step up */
   --color-raised: #dcdcdc;        /* ruled fill — NOT white */

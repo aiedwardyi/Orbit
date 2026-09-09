@@ -1,7 +1,7 @@
 // The registry and the stylesheet are two halves of one contract: a skin listed
 // here without a matching CSS block renders as whatever was active before, with
 // no error anywhere. That failure is silent, so it gets a test.
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -80,6 +80,27 @@ describe("skins", () => {
       if (light.includes(id)) continue;
       expect([...tokensOf(id)].filter((t) => t.startsWith("--color-syntax-"))).toEqual([]);
     }
+  });
+
+  it("drives native input color-scheme from the skin, not a hardcoded dark utility", () => {
+    const rootBody = css.match(/:root\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(rootBody).toMatch(/color-scheme:\s*dark\s*;/);
+    const light = ["atelier", "lagoon", "ledger"];
+    for (const id of light) {
+      const body = css.match(new RegExp(`\\[data-skin="${id}"\\]\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+      expect(body).toMatch(/color-scheme:\s*light\s*;/);
+    }
+    const components = join(dirname(fileURLToPath(import.meta.url)), "../components");
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const ent of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, ent.name);
+        if (ent.isDirectory()) walk(p);
+        else if (readFileSync(p, "utf8").includes("[color-scheme:dark]")) hits.push(p);
+      }
+    };
+    walk(components);
+    expect(hits).toEqual([]);
   });
 
   it("drives light-syntax contrast from github-dark-default emitted foregrounds", () => {
