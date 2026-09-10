@@ -257,6 +257,7 @@ const availableSkills = () => mergeSkills(bundledSkills, loadUserSkills(join(DAT
 // restarting the embedded server. Plain Node/dev launches have no parentPort.
 type UtilityParentPort = {
   on(event: "message", listener: (event: { data?: unknown }) => void): void;
+  postMessage(message: { type: string; token: string }): void;
 };
 const utilityParentPort = (process as NodeJS.Process & { parentPort?: UtilityParentPort }).parentPort;
 let hostShutdown = () => {};
@@ -281,6 +282,9 @@ bus.attach(registry.instances());
 // A shared secret guards the localhost-only /api/internal endpoints the
 // agents-proxy calls; regenerated each boot (the proxy gets it via env).
 const COMMS_TOKEN = randomBytes(24).toString("hex");
+const appTokenMessage = { type: "orbit:api-token", token: COMMS_TOKEN };
+utilityParentPort?.postMessage(appTokenMessage);
+process.send?.(appTokenMessage);
 
 /** Constant-time bearer check for the internal comms endpoints. The token
  * is high-entropy and loopback-only, so a timing oracle is a long shot —
@@ -4842,13 +4846,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (origin && !isAllowedOrigin(origin)) {
       return json(res, 403, { error: "forbidden: cross-origin request" });
     }
+    if (path.startsWith("/api/") && !(method === "GET" && path === "/api/health") &&
+        !authorizedComms(req.headers.authorization)) {
+      return json(res, 401, { error: "unauthorized" });
+    }
     // ── internal peer-agent comms (localhost + shared token only) ──────
     // The agents-proxy (spawned inside a bot's agent process) calls these to
     // discover peers and hand a message to one. Not part of the public API.
     if (path.startsWith("/api/internal/")) {
-      if (!authorizedComms(req.headers.authorization)) {
-        return json(res, 401, { error: "unauthorized" });
-      }
       if (method === "POST" && path === "/api/internal/task-state") {
         const parsed = taskStateUpdateEnvelopeSchema.safeParse(await readBody(req));
         if (!parsed.success) return json(res, 400, { error: "invalid task state update" });

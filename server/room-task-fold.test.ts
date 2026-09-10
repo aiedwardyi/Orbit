@@ -5,7 +5,7 @@
 //
 // The real claudeAgent driver is used deliberately: its hasSession reports
 // live thread ownership, unlike the in-memory fake driver's constant false.
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { connect, type Socket } from "node:net";
@@ -16,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
+import { spawnHarness as spawn, harnessFetch as fetch } from "./testing/harness-auth.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE_CLI = join(SERVER_DIR, "testing", "fake-claude-cli.ts");

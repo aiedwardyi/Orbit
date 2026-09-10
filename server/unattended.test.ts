@@ -10,13 +10,14 @@
 //   2. and so must the turn that bot hands to a teammate — the gate has to
 //      survive the peer-comms hop, or it protects the bot that read the
 //      payload and releases the one that acts on it
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
+import { spawnHarness as spawn, harnessFetch as fetch } from "./testing/harness-auth.ts";
 
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));

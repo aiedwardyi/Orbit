@@ -9,7 +9,7 @@
 // (system + turn text), which pins both what a drained turn was sent (one
 // queued send, not a newline-joined burst) and what it was not (the
 // webhook untrusted-data paragraph an attended turn must never get).
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -32,6 +32,7 @@ import {
   type SteerStore,
 } from "./steer-queue.ts";
 import type { BotRecord, Message } from "./store.ts";
+import { spawnHarness as spawn, harnessFetch as fetch } from "./testing/harness-auth.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const FAKE_CLI = join(SERVER_DIR, "testing", "fake-acp-cli.ts");

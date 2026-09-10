@@ -26,6 +26,7 @@ import { createSseScrubber, isJson, scrub } from "./wire.ts";
 export interface ProxyOptions {
   /** Where the harness is listening on loopback. */
   harnessPort: number;
+  harnessToken?: () => string;
   /** Does this bearer token belong to a paired device? */
   authenticate: (token: string | undefined) => { id?: string; cloudDesktopAccess: boolean } | null;
   /** Redeem a pairing code. Handled here and never forwarded: the harness
@@ -301,7 +302,7 @@ export function createProxyHandler(options: ProxyOptions) {
         port: options.harnessPort,
         path: req.url,
         method,
-        headers: forwardHeaders(req),
+        headers: { ...forwardHeaders(req), authorization: `Bearer ${options.harnessToken?.() ?? ""}` },
       },
       (harness) => {
         clearTimeout(headersDeadline);

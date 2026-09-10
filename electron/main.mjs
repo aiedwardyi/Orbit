@@ -19,6 +19,7 @@ import { openBlankTerminal } from "./terminal-launch.mjs";
 import { applyPendingUpdateInstall, consumePendingUpdateInstall, registerUpdaterIpc, startUpdater } from "./updater.mjs";
 import { completeQuitAfterCleanup } from "./app-quit.mjs";
 import { companionParkedOnDesktop } from "./companion-policy.mjs";
+import { createAppAuthorization, waitForAppToken } from "./local-api-auth.mjs";
 import { stopUtilityChild } from "./utility-child.mjs";
 import { buildDiagnosticsReport, decodeLogTail, diagnosticsFileName, redactSecretsInLine } from "./diagnostics.mjs";
 import { safeExternalUrl } from "./external-open.mjs";
@@ -248,6 +249,8 @@ app.on("second-instance", (_event, commandLine) => {
 // alternate ports until one binds AND identifies as ours (the probe checks
 // our API shape, not just a 200).
 let serverProc = null;
+let serverToken = app.isPackaged ? null : (process.env.OMB_COMMS_TOKEN ?? null);
+const appAuthorization = createAppAuthorization();
 let serverReady = !app.isPackaged;
 // Packaged window URL state. `serverReady` stays a boolean for the rest of
 // main (companion, activate-after-ready); this ternary is what createWindow
@@ -432,6 +435,7 @@ import {
   companionRevoke,
   companionRunning,
   companionState,
+  updateCompanionHarness,
   rememberCompanionEnabled,
   rememberCompanionKeepAwake,
   setCompanionHostedUrl,
@@ -527,6 +531,7 @@ function companionLaunchOptions(hostedUrl = null) {
   return {
     resourcesPath: process.resourcesPath,
     harnessPort: SERVER_PORT,
+    harnessToken: serverToken,
     hostedUrl,
     log: slog,
   };
@@ -745,6 +750,8 @@ function readLogTail(logPath) {
 // carried a secret.
 async function gatherDiagnostics() {
   const serverStatus = await fetch(`http://127.0.0.1:${SERVER_PORT}/api/config`, {
+    ...(serverToken ? { headers: { Authorization: `Bearer ${serverToken}` } } : {}),
+    redirect: "error",
     signal: AbortSignal.timeout(3_000),
   })
     .then((res) => (res.ok ? res.json() : null))
@@ -795,12 +802,18 @@ async function startServerOn(port) {
     env: childEnv,
     stdio: ["ignore", "pipe", "pipe"],
   });
+  const tokenReady = waitForAppToken(proc, SERVER_BOOT_TIMEOUT_MS);
   proc.stdout?.on("data", (d) => slog(`[out] ${String(d).trimEnd()}`));
   proc.stderr?.on("data", (d) => slog(`[err] ${String(d).trimEnd()}`));
   proc.once("spawn", () => slog(`spawned pid=${proc.pid}`));
   let exited = false;
   proc.once("exit", (code) => {
     exited = true;
+    if (serverProc === proc) {
+      serverToken = null;
+      appAuthorization.bind(`http://127.0.0.1:${port}`, null);
+      updateCompanionHarness(port, null);
+    }
     slog(`exited code=${code}`);
   });
   // wait for the port to answer (fresh machine: first boot writes data dirs).
@@ -823,7 +836,10 @@ async function startServerOn(port) {
     bootTimeoutMs: SERVER_BOOT_TIMEOUT_MS,
     isExited: () => exited,
   });
-  if (identity.outcome === "ready") return { proc };
+  if (identity.outcome === "ready") {
+    const token = await tokenReady;
+    if (token && !exited) return { proc, token };
+  }
   if (identity.outcome === "exited") {
     slog(`child on port ${port} exited before answering /api/health`);
   } else {
@@ -849,6 +865,9 @@ async function startServerPackaged() {
       if (started.proc) {
         serverProc = started.proc;
         SERVER_PORT = port;
+        serverToken = started.token;
+        appAuthorization.bind(`http://127.0.0.1:${port}`, serverToken);
+        updateCompanionHarness(port, serverToken);
         return true;
       }
       // A child that exited or timed out is not evidence of a port conflict —
@@ -1289,6 +1308,13 @@ function createWindow() {
     },
   });
   mainWindow = win;
+  win.webContents.session.webRequest.onBeforeSendHeaders({ urls: ["*://*/*"] }, (details, callback) => {
+    callback({ requestHeaders: appAuthorization.headers(details, mainWindow?.webContents) });
+  });
+  win.webContents.on("will-navigate", (event, url) => {
+    const origin = app.isPackaged ? `http://127.0.0.1:${SERVER_PORT}` : new URL(DEV_URL).origin;
+    if (new URL(url).origin !== origin) event.preventDefault();
+  });
   if (isKnownSkin(persistedSkin)) {
     win.setBackgroundColor(chrome.color);
   }
@@ -1846,7 +1872,11 @@ ipcMain.handle("credential:set", async (_event, name, value) => {
     const secretStorage = app.isPackaged ? "?secretStorage=external" : "";
     const response = await fetch(`http://127.0.0.1:${SERVER_PORT}/api/config${secretStorage}`, {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...(serverToken ? { Authorization: `Bearer ${serverToken}` } : {}),
+      },
+      redirect: "error",
       body: JSON.stringify(patchFor(secret)),
     });
     const body = await response.json().catch(() => null);

@@ -47,6 +47,13 @@ export default defineConfig({
     proxy: {
       "/api": {
         target: `http://127.0.0.1:${process.env.OMB_PORT || process.env.OGB_PORT || 8799}`,
+        followRedirects: false,
+        configure(proxy) {
+          proxy.on("proxyReq", (request) => {
+            request.removeHeader("authorization");
+            if (process.env.OMB_COMMS_TOKEN) request.setHeader("authorization", `Bearer ${process.env.OMB_COMMS_TOKEN}`);
+          });
+        },
       },
     },
   },

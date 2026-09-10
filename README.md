@@ -34,16 +34,14 @@ Requirements: Node.js 24 or newer and pnpm 10.
 
 ```powershell
 pnpm install --frozen-lockfile
-pnpm dev:server
-```
-
-In a second terminal:
-
-```powershell
 pnpm dev
 ```
 
 Open `http://127.0.0.1:5199`.
+
+`pnpm dev` starts the harness and Vite together. The harness sends its fresh app token to the launcher over private IPC; the launcher passes it to Vite through `OMB_COMMS_TOKEN`. Vite adds the upstream header for `/api` requests, including streams and attachments. The token stays out of browser code, URLs, and files. Stop and restart the launcher to rotate it.
+
+Use `pnpm dev:desktop` to start the same pair with the desktop app. The desktop passes the token privately to Companion after its device authentication. Standalone helpers must inherit `OMB_COMMS_TOKEN` from their trusted launcher; `pnpm dev:server` alone provides no browser access to data routes.
 
 ## Build the Windows app
 

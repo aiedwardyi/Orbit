@@ -8,13 +8,14 @@
 // two visible tails) running at once.
 //
 // Same POSIX gating as comms.test.ts (the fake CLI is a shebang script).
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
+import { spawnHarness as spawn, harnessFetch as fetch } from "./testing/harness-auth.ts";
 
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));

@@ -17,6 +17,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+import { waitForAppToken } from "../electron/local-api-auth.mjs";
+
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const staging = mkdtempSync(join(tmpdir(), "omb-smoke-"));
 const home = mkdtempSync(join(tmpdir(), "omb-smoke-home-"));
@@ -35,8 +37,10 @@ const child = spawn(process.execPath, [join(staging, "server", "packaged-boot.js
     USERPROFILE: home,
     OMB_PORT: String(port),
   },
-  stdio: ["ignore", "pipe", "pipe"],
+  stdio: ["ignore", "pipe", "pipe", "ipc"],
 });
+
+const token = await waitForAppToken(child, 20_000);
 
 let output = "";
 child.stdout.on("data", (chunk) => (output += chunk));
@@ -78,6 +82,7 @@ while (listening && Date.now() < deadline) {
   if (child.exitCode !== null) break;
   try {
     const bots = await fetch(`http://127.0.0.1:${port}/api/bots`, {
+      headers: { Authorization: `Bearer ${token ?? ""}` },
       signal: AbortSignal.timeout(Math.max(250, deadline - Date.now())),
     });
     if (bots.ok) {
