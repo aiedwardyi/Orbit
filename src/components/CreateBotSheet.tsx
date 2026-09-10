@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
-import { DEFAULT_MASCOT_STYLE } from "../../shared/bot-avatar";
 import { BOT_PROFILE_LIMITS } from "../../shared/bot-profile";
-import { DEFAULT_MAUS_COLOR } from "@/lib/mascot";
 import { api, useStore, type Bot } from "@/state/store";
 import { OrbitMark } from "./OrbitMark";
 import { useI18n } from "@/lib/i18n";
@@ -58,11 +56,7 @@ export function CreateBotSheet({ required }: { required: boolean }) {
     try {
       const result: { bot: Bot } = await api("/api/bots", {
         method: "POST",
-        body: JSON.stringify({
-          job: normalized,
-          color: DEFAULT_MAUS_COLOR,
-          mascotStyle: DEFAULT_MASCOT_STYLE,
-        }),
+        body: JSON.stringify({ job: normalized }),
       });
       dispatch({ type: "botAdded", bot: result.bot, focusComposer: true });
     } catch (cause) {

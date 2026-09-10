@@ -5214,8 +5214,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             description: instructions,
             modelSelection: { ...chief.modelSelection },
             section: chief.section,
-            color: "white",
-            mascotStyle: "squircle",
           },
           { seedMessages: false },
         );
@@ -6048,11 +6046,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           // reach into the user's connected apps (absence would mean
           // allowed); the user can switch it on per bot after reading who
           // they got.
-          const imported = importedMemberProfile(member, takenNames);
           const created = store.createBot(
             {
-              ...imported,
-              mascotStyle: imported.mascotStyle ?? "squircle",
+              ...importedMemberProfile(member, takenNames),
               modelSelection: selection,
               ...(packageSection ? { section: packageSection } : {}),
             },
@@ -6524,10 +6520,33 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (store.bots.length >= MAX_WORKSPACE_BOTS) {
         return json(res, 409, { error: `this workspace is limited to ${MAX_WORKSPACE_BOTS} bots` });
       }
-      const bot = store.createBot(
-        { ...profile.patch, section, modelSelection: selection, color: "white", mascotStyle: "squircle" },
-        { job },
-      );
+      const palette = [
+        "green",
+        "blue",
+        "red",
+        "orange",
+        "purple",
+        "cyan",
+        "pink",
+        "yellow",
+        "teal",
+        "coral",
+        "white",
+        "black",
+        "gray",
+      ] as const satisfies readonly BotRecord["color"][];
+      const color = palette.find((name) => name === body.color);
+      let mascotStyle: z.infer<typeof mascotStyleSchema> | undefined;
+      if (body.mascotStyle !== undefined) {
+        const parsedStyle = mascotStyleSchema.safeParse(body.mascotStyle);
+        if (!parsedStyle.success) {
+          return json(res, 400, {
+            error: `mascotStyle must be ${MASCOT_STYLES.slice(0, -1).join(", ")}, or ${MASCOT_STYLES[MASCOT_STYLES.length - 1]}`,
+          });
+        }
+        mascotStyle = parsedStyle.data;
+      }
+      const bot = store.createBot({ ...profile.patch, section, modelSelection: selection, color, mascotStyle }, { job });
       return json(res, 201, {
         bot: {
           ...wireBot(bot),

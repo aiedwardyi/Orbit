@@ -35,8 +35,7 @@ import { conversationPreview, roomConversationPreview } from "@/lib/conversation
 import { api, useStore, formatTime, visibleMessages, type Bot, type Group } from "@/state/store";
 
 import { BotAvatar, InitialsAvatar } from "./Avatar";
-import { DEFAULT_MAUS_COLOR, stateForBot } from "@/lib/mascot";
-import { DEFAULT_MASCOT_STYLE } from "../../shared/bot-avatar";
+import { stateForBot } from "@/lib/mascot";
 import { useUpdaterState } from "@/lib/updater";
 import { cn } from "@/lib/cn";
 import { showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
@@ -1517,8 +1516,6 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                 density === "icons" ? "left-0" : "right-0",
               )}>
                 <button
-                  data-default-color={DEFAULT_MAUS_COLOR}
-                  data-default-style={DEFAULT_MASCOT_STYLE}
                   onClick={() => {
                     setPlusOpen(false);
                     track("bot_created");
