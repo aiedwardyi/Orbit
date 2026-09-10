@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, Check, Loader2, LockKeyhole, Sparkles, TerminalSquare } from "lucide-react";
-import { setEmailGateDone, track } from "@/lib/analytics";
 import type { InstanceInfo } from "@/state/store";
 import { EngineSetup } from "./EngineSetup";
 import { OrbitMark } from "./OrbitMark";
@@ -99,10 +98,6 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    track("onboarding_step", { step });
-  }, [step]);
-
-  useEffect(() => {
     let active = true;
     let latestRequest = 0;
     const refresh = () => {
@@ -164,10 +159,6 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   };
 
   const finish = () => {
-    track("onboarding_completed", {
-      engines_available: instances?.filter(engineReady).length ?? -1,
-    });
-    setEmailGateDone("skipped");
     onDone();
   };
 

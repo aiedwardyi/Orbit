@@ -2,18 +2,16 @@ import { useEffect, useState } from "react";
 import { api, useStore, type ConfigStatus } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
 
-/** Name + email. Persist only when Save is pressed. */
+/** Name. Persist only when Save is pressed. */
 export function ProfileFields() {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const [name, setName] = useState(state.config?.profile?.name ?? "");
-  const [email, setEmail] = useState(state.config?.profile?.email ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
     setName(state.config?.profile?.name ?? "");
-    setEmail(state.config?.profile?.email ?? "");
-  }, [state.config?.profile?.name, state.config?.profile?.email]);
+  }, [state.config?.profile?.name]);
 
   const save = async () => {
     if (saving) return;
@@ -22,7 +20,7 @@ export function ProfileFields() {
     try {
       const config: ConfigStatus = await api("/api/config", {
         method: "PUT",
-        body: JSON.stringify({ profile: { name: name.trim(), email: email.trim().toLowerCase() } }),
+        body: JSON.stringify({ profile: { name: name.trim() } }),
       });
       dispatch({ type: "configStatus", config });
     } catch (cause) {
@@ -42,16 +40,6 @@ export function ProfileFields() {
         value={name}
         onChange={(e) => setName(e.target.value)}
         placeholder={t("settings.profile.namePlaceholder")}
-        disabled={saving}
-        className={inputClass}
-      />
-      <label htmlFor="settings-profile-email" className="sr-only">{t("settings.profile.emailLabel")}</label>
-      <input
-        id="settings-profile-email"
-        type="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        placeholder={t("settings.profile.emailPlaceholder")}
         disabled={saving}
         className={inputClass}
       />

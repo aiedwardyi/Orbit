@@ -5,7 +5,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Coins, KeyRound, Monitor, Search, Smartphone, Terminal, User, X } from "lucide-react";
 import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
-import { analyticsEnabled, setAnalyticsEnabled } from "@/lib/analytics";
 import { builtInBrowserEnabled, showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
 import {
   showSettingsAdvancedSection,
@@ -64,6 +63,11 @@ function sectionNavVisible(
   return friendsSettingsNavVisible(section.id, query, { phoneAvailable });
 }
 
+function isMissingUpdateConfig(message?: string): boolean {
+  if (!message) return false;
+  return message.includes("app-update.yml") || message.includes("dev-app-update.yml");
+}
+
 function UpdatesRow() {
   const { t } = useI18n();
   const s = useUpdaterState();
@@ -79,7 +83,9 @@ function UpdatesRow() {
           : s?.status === "downloaded"
             ? t("settings.updates.ready", { version: s.version ?? "" })
             : s?.status === "error"
-              ? t("settings.updates.error", { message: s.message ?? t("settings.updates.unknownError") })
+              ? isMissingUpdateConfig(s.message)
+                ? t("settings.updates.unavailable")
+                : t("settings.updates.error", { message: s.message ?? t("settings.updates.unknownError") })
               : t("settings.updates.latest");
   return (
     <Card title={t("settings.updates.title")} subtitle={label}>
@@ -97,35 +103,6 @@ function UpdatesRow() {
           : s?.status === "downloaded"
             ? t("settings.updates.restart")
             : t("settings.updates.check")}
-      </button>
-    </Card>
-  );
-}
-
-/** Optional usage analytics. Naming what is sent
- * matters more than the switch: people who cannot see the scope assume the
- * worst, and the worst — conversation text — is exactly what this never
- * sends (autocapture is off; see lib/analytics.ts). */
-function AnalyticsRow() {
-  const { t } = useI18n();
-  const [on, setOn] = useState(analyticsEnabled);
-  return (
-    <Card
-      title={t("settings.analytics.title")}
-      subtitle={t("settings.analytics.subtitle")}
-    >
-      <button
-        role="switch"
-        aria-checked={on}
-        aria-label={t("settings.analytics.aria")}
-        onClick={() => {
-          const next = !on;
-          setAnalyticsEnabled(next);
-          setOn(next);
-        }}
-        className={cnSwitch(on)}
-      >
-        <span className={cnKnob(on)} />
       </button>
     </Card>
   );
@@ -469,7 +446,6 @@ export function SettingsModal({
                   <SkinPicker />
                 </Card>
                 <UpdatesRow />
-                <AnalyticsRow />
                 {showSettingsAdvancedSection() && (
                   <>
                 <button

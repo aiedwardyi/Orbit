@@ -9,6 +9,11 @@ import type { AppSettingsSection } from "@/state/store";
 
 const mock = vi.hoisted(() => ({
   section: "general" as AppSettingsSection,
+  updaterState: null as unknown,
+}));
+
+vi.mock("@/lib/updater", () => ({
+  useUpdaterState: () => mock.updaterState,
 }));
 
 vi.hoisted(() => {
@@ -44,11 +49,6 @@ vi.mock("@/state/store", async (importOriginal) => {
     }),
   };
 });
-
-vi.mock("@/lib/analytics", () => ({
-  analyticsEnabled: () => false,
-  setAnalyticsEnabled: () => undefined,
-}));
 
 vi.mock("./DesktopCapabilities", () => ({
   useDesktopCapabilities: () => ({
@@ -116,9 +116,10 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain("English");
     expect(html).toContain("한국어");
     expect(html).toContain("Your name");
-    expect(html).toContain("you@example.com");
-    expect(html).toContain("Usage analytics");
-    expect(html).toContain("Save name and email");
+    expect(html).not.toContain("you@example.com");
+    expect(html).not.toContain("Usage analytics");
+    expect(html).not.toContain("Save name and email");
+    expect(html).toContain("Save name");
     expect(html).not.toContain("Advanced");
     expect(html).not.toContain("data-settings-advanced");
     expect(html).not.toContain('aria-label="Search settings"');
@@ -218,7 +219,7 @@ describe("SettingsModal friends chrome", () => {
     expect(source).toContain("settings.profile.title");
     expect(source).toMatch(/settings\.profile\.title[\s\S]*compact/);
     expect(profile).toContain("settings.profile.namePlaceholder");
-    expect(profile).toContain("settings.profile.emailPlaceholder");
+    expect(profile).not.toContain("settings.profile.emailPlaceholder");
     expect(profile).toContain("settings.profile.save");
     expect(primitives).toContain("compact");
     const general = source.slice(source.indexOf('section === "general"'), source.indexOf('section === "connections"'));
@@ -273,5 +274,23 @@ describe("friends settings chrome has no OpenMausBot docs", () => {
       expect(source).not.toContain("openmausbot");
       expect(source).not.toContain("milind-soni");
     }
+  });
+});
+
+describe("updater missing app-update.yml fallback", () => {
+  it("shows friendly fallback message when app-update.yml is missing (ENOENT)", () => {
+    Object.defineProperty(window, "ogb", {
+      value: { updater: { check: vi.fn(), download: vi.fn(), install: vi.fn() } },
+      configurable: true,
+      writable: true,
+    });
+    mock.updaterState = {
+      status: "error",
+      message: "Error: ENOENT: no such file or directory, open 'C:\\resources\\app-update.yml'",
+    };
+    const html = markup("general");
+    expect(html.replace(/&#x27;/g, "'")).toContain("Updates aren't available in this build");
+    expect(html).not.toContain("ENOENT");
+    expect(html).not.toContain("app-update.yml");
   });
 });

@@ -11,7 +11,6 @@ const SECTION_PHRASE_KEYS = {
     "settings.profile.title",
     "settings.profile.subtitle",
     "settings.profile.namePlaceholder",
-    "settings.profile.emailPlaceholder",
     "settings.profile.save",
     "settings.skin.title",
     "settings.skin.subtitle",
@@ -26,7 +25,6 @@ const SECTION_PHRASE_KEYS = {
     "settings.experimental.browser",
     "settings.updates.title",
     "settings.diagnostics.title",
-    "settings.analytics.title",
     "settings.advanced.title",
     "settings.advanced.subtitle",
     "settings.section.computer",
@@ -83,7 +81,7 @@ function phraseKeysFor(id: AppSettingsSection): readonly MessageKey[] {
 }
 
 const EXTRA_KEYWORDS = {
-  general: ["profile", "name", "email", "skin", "theme", "appearance", "analytics", "updates", "tools", "tool calls", "language", "locale", "vm", "diagnostics", "experimental"],
+  general: ["profile", "name", "skin", "theme", "appearance", "updates", "tools", "tool calls", "language", "locale", "vm", "diagnostics", "experimental"],
   connections: ["keys", "api", "gemini", "opencode", "claude", "grok", "codex", "antigravity", "cli"],
   engines: ["models", "claude", "grok", "providers", "cli"],
   companion: ["companion", "phone", "pair", "mobile"],

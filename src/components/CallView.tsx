@@ -28,7 +28,6 @@ import { usePushToTalk } from "@/lib/push-to-talk";
 import { MausAvatar } from "./Avatar";
 import { isRoutineApproval, pendingApprovals, spokenApprovalPrompt } from "./PendingApproval";
 import { cn } from "@/lib/cn";
-import { track } from "@/lib/analytics";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 
 /** Spoken answers to a permission card. Anything else is read as a reply
@@ -48,7 +47,6 @@ export function CallButton({ bot }: { bot: Bot }) {
       voices={[bot.voice]}
       setupBotId={bot.id}
       requireExplicitVoices={false}
-      onStart={() => track("call_started", { driver: bot.modelSelection?.instanceId })}
     />
   );
 }
@@ -68,7 +66,7 @@ export function CallTargetButton({
   setupBotId?: string;
   /** Rooms cannot rely on one workspace fallback for multiple speakers. */
   requireExplicitVoices: boolean;
-  onStart: () => void;
+  onStart?: () => void;
 }) {
   const { state, dispatch } = useStore();
   const { capabilities, ready: capabilitiesReady } = useDesktopCapabilities();
@@ -138,7 +136,7 @@ export function CallTargetButton({
             setHelpOpen((open) => !open);
             return;
           }
-          onStart();
+          onStart?.();
           startCall(targetId);
         }}
         aria-expanded={unavailable ? helpOpen : undefined}
