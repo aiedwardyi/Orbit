@@ -243,6 +243,12 @@ describe("redactSecretsInText", () => {
     expect(redactSecretsInText(text)).toBe(text);
   });
 
+  it("does not remask a PEM body that is already a redaction marker", () => {
+    const once = redactSecretsInText(PEM);
+    expect(once).toBe(`-----BEGIN PRIVATE KEY-----\n«redacted ${PEM_BODY.length} chars»\n-----END PRIVATE KEY-----`);
+    expect(redactSecretsInText(once)).toBe(once);
+  });
+
   it("masks JWTs, PEM private key blocks, and bearer tokens", () => {
     const jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
     expect(redactSecretsInText(`token ${jwt} ok`)).toBe(`token «redacted ${jwt.length} chars» ok`);
