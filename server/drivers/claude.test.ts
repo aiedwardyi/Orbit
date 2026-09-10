@@ -7,7 +7,7 @@
 // cannot exec, and the broker is a unix socket. Both now go through
 // resolveCliSpawn / permissionSocketPath, so they run everywhere.
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { connect, type Socket } from "node:net";
+import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -713,6 +713,60 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       instance.adapter.respondToRequest("t-retained-late", "ask-between", { behavior: "allow" }),
     ).resolves.toBe("unavailable");
     conn.end();
+  });
+
+  it("rebinds the permission broker when a fresh session replaces a live one", async () => {
+    // Rooms omit resumeCursor, so the next spawn re-listens the same pipe.
+    // Occupying that name is the Windows EADDRINUSE leftover after teardown.
+    await create("hang");
+    await instance.adapter.sendTurn({ threadId: "t-pipe-rebind", text: "one" });
+    await recorder.until((e) => e.type === "session.started");
+    await instance.adapter.interruptTurn("t-pipe-rebind");
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const occupied = permissionSocketPath("t-pipe-rebind");
+    const pipeFree = Date.now() + 8_000;
+    while (Date.now() < pipeFree) {
+      const free = await new Promise<boolean>((resolve) => {
+        const probe = connect(occupied);
+        probe.once("connect", () => {
+          probe.destroy();
+          resolve(false);
+        });
+        probe.once("error", () => resolve(true));
+      });
+      if (free) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const blocker = createServer();
+    await new Promise<void>((resolve, reject) => {
+      blocker.once("error", reject);
+      blocker.listen(occupied, resolve);
+    });
+
+    const dump = join(scratch, "rebind.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    try {
+      const second = await instance.adapter.sendTurn({ threadId: "t-pipe-rebind", text: "two" });
+      await recorder.until((e) => e.type === "session.started" && e.turnId === second.turnId);
+      const seen = JSON.parse(readFileSync(dump, "utf8"));
+      const socketPath = seen.mcpConfig.mcpServers.ogb.args[1];
+      expect(socketPath).toEqual(expect.any(String));
+
+      const conn = await connectSocket(socketPath);
+      conn.write(JSON.stringify({ t: "ask", id: "ask-rebind", tool: "WebSearch", input: { query: "Seoul date" } }) + "\n");
+      await expect(recorder.until((e) => e.type === "request.opened" && e.requestId === "ask-rebind")).resolves.toMatchObject({
+        tool: "WebSearch",
+      });
+      await expect(instance.adapter.respondToRequest("t-pipe-rebind", "ask-rebind", { behavior: "allow" })).resolves.toBe(
+        "allowed-once",
+      );
+      conn.end();
+      await instance.adapter.interruptTurn("t-pipe-rebind");
+      await recorder.until((e) => e.type === "turn.completed");
+    } finally {
+      await new Promise<void>((resolve) => blocker.close(() => resolve()));
+    }
   });
 
   it("replaces and resumes a live process when its spawn contract changes", async () => {
