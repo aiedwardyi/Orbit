@@ -11,6 +11,7 @@ import { ProviderMark } from "./ProviderIcons";
 import { useI18n } from "@/lib/i18n";
 import { showUsagePerBotTable } from "@/lib/friends-chrome";
 import { splitFriendsEngines } from "@/lib/engine-rail";
+import { setUsageMode, useUsageMode } from "@/lib/usage-preferences";
 import {
   botUsage,
   cachedInput,
@@ -27,6 +28,7 @@ function PlanUsage() {
   const { t } = useI18n();
   const { state } = useStore();
   const now = useNow();
+  const mode = useUsageMode();
   const engines = splitFriendsEngines(state.instances).friends;
   // Claude/Codex declare rateLimits but only emit a window after a turn —
   // pending, not an outage. Engines that never report (Grok, Antigravity,
@@ -39,6 +41,14 @@ function PlanUsage() {
 
   return (
     <Card title={t("usage.limits.title")} subtitle={t("usage.limits.subtitle")}>
+      <div className="mb-4 flex flex-wrap gap-1" role="group" aria-label={t("usage.limits.direction")}>
+        {(["used", "remaining"] as const).map((value) => (
+          <button key={value} type="button" aria-pressed={mode === value} onClick={() => setUsageMode(value)}
+            className="rounded-md px-2 py-1 text-[12px] text-ink-secondary hover:bg-ink/5 aria-pressed:bg-ink/10 aria-pressed:text-ink focus-visible:outline-2 focus-visible:outline-accent">
+            {t(value === "used" ? "usage.limits.countUp" : "usage.limits.countDown")}
+          </button>
+        ))}
+      </div>
       {engines.length === 0 ? (
         <div className="text-[13px] text-ink-secondary">{t("usage.limits.empty")}</div>
       ) : (

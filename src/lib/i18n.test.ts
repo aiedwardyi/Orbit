@@ -654,8 +654,8 @@ describe("plan usage", () => {
     expect(ko["usage.limits.weekly"]).toBe("주간 한도");
     expect(en["usage.limits.sessionShort"]).toBe("5h");
     expect(ko["usage.limits.sessionShort"]).toBe("5시간");
-    expect(en["usage.limits.weeklyShort"]).toBe("Weekly");
-    expect(ko["usage.limits.weeklyShort"]).toBe("주간");
+    expect(en["usage.limits.weeklyShort"]).toBe("7d");
+    expect(ko["usage.limits.weeklyShort"]).toBe("7d");
     expect(en["usage.limits.compactHm"]).toBe("{hours}h{minutes}m");
     expect(ko["usage.limits.compactHm"]).toBe("{hours}h{minutes}m");
     expect(en["usage.limits.compactDh"]).toBe("{days}d{hours}h");

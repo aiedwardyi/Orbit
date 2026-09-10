@@ -1,8 +1,11 @@
-import { createElement } from "react";
+// @vitest-environment happy-dom
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import { I18nProvider } from "@/lib/i18n";
+import { setUsageMode } from "@/lib/usage-preferences";
 import type { InstanceInfo } from "@/state/store";
 
 const { mockState } = vi.hoisted(() => {
@@ -67,8 +70,37 @@ vi.mock("@/state/store", async (importOriginal) => {
 });
 
 import { UsageSection } from "./UsageSection";
+import { ChatPlanMeters } from "./ChatPlanMeters";
 
 describe("UsageSection friends plan card", () => {
+  it("changes both surfaces, persists the mode, and keeps warnings tied to used percent", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    let root = createRoot(host);
+    const windows = [{ id: "five_hour", usedPercent: 90, resetsAt: Date.now() + 3_600_000 }];
+    try {
+      await act(async () => root.render(createElement(I18nProvider, null,
+        createElement(UsageSection), createElement(ChatPlanMeters, { windows }))));
+      const down = [...host.querySelectorAll("button")].find((button) => button.textContent === "Count down (remaining)");
+      expect(down).toBeDefined();
+      expect(down?.getAttribute("aria-pressed")).toBe("false");
+      await act(async () => down?.click());
+      expect(down?.getAttribute("aria-pressed")).toBe("true");
+      expect(localStorage.getItem("omb-usage-mode")).toBe("remaining");
+      expect(host.querySelector('[aria-label="5h: 10% remaining"]')?.textContent).toContain("▰▱▱▱▱▱▱▱▱▱");
+      expect(host.querySelector('[aria-label="5h: 10% remaining"] .text-danger')).not.toBeNull();
+      expect(host.querySelector('[aria-label="5-hour window: 90% remaining"] [style="width: 90%;"]')).not.toBeNull();
+      await act(async () => root.unmount());
+      root = createRoot(host);
+      await act(async () => root.render(createElement(UsageSection)));
+      expect(host.querySelector('[aria-pressed="true"]')?.textContent).toBe("Count down (remaining)");
+    } finally {
+      await act(async () => root.unmount());
+      await act(async () => setUsageMode("used"));
+      host.remove();
+    }
+  });
+
   it("shows the featured engines in picker order and hides the per-bot table", () => {
     const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
     expect(html).toContain("Plan usage");
@@ -108,7 +140,7 @@ describe("UsageSection friends plan card", () => {
     expect(html).toContain(">49%<");
     expect(html).toContain(">75%<");
     expect(html).toContain(">90%<");
-    expect(html).not.toContain("% used");
+    expect(html).not.toContain("% used<");
     expect(html).not.toContain(">40%<");
     expect(html).toMatch(/\bh-1\b/);
     expect(html).not.toContain("h-1.5");
