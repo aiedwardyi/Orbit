@@ -26,6 +26,11 @@ function isSecretName(name: string): boolean {
 
 const maskLength = (chars: number) => `«redacted ${chars} chars»`;
 const mask = (value: string) => maskLength(value.length);
+const REDACTION_MARKER = /^«redacted \d+ chars»$/;
+const pemMask = (body: string) => {
+  const trimmed = body.trim();
+  return REDACTION_MARKER.test(trimmed) ? trimmed : mask(trimmed);
+};
 
 /** Walk limit, and what stands in for a subtree beyond it. */
 const MAX_DEPTH = 12;
@@ -210,10 +215,10 @@ export class StreamSecretMasker {
 export function redactSecretsInText(text: string): string {
   if (!text || text.length < 8) return text;
   let out = text;
-  out = out.replace(PEM_BLOCK, (_m, open: string, body: string, close: string) => `${open}\n${mask(body.trim())}\n${close}`);
+  out = out.replace(PEM_BLOCK, (_m, open: string, body: string, close: string) => `${open}\n${pemMask(body)}\n${close}`);
   out = out.replace(PEM_OPEN, (_m, open: string, body: string) => {
     const trimmed = body.trim();
-    return trimmed ? `${open}\n${mask(trimmed)}` : open;
+    return trimmed ? `${open}\n${pemMask(body)}` : open;
   });
   for (const re of KEY_PREFIXES) out = out.replace(re, (m) => mask(m));
   out = out.replace(BEARER, (_m, lead: string, tok: string) => `${lead}${mask(tok)}`);

@@ -182,6 +182,23 @@ export interface SearchHit {
   from?: string;
 }
 
+/** Window around the first case-insensitive hit, with offsets after whitespace folding. */
+export function searchSnippet(haystack: string, needle: string): Pick<SearchHit, "snippet" | "matchStart" | "matchLength"> {
+  const hitAt = Math.max(0, haystack.toLowerCase().indexOf(needle));
+  const start = Math.max(0, hitAt - 60);
+  const end = Math.min(haystack.length, hitAt + needle.length + 90);
+  const head = start > 0 ? "…" : "";
+  const body = haystack.slice(start, end).replace(/\s+/g, " ").trim();
+  const snippet = head + body + (end < haystack.length ? "…" : "");
+  const folded = needle.replace(/\s+/g, " ");
+  const matchStart = snippet.toLowerCase().indexOf(folded);
+  return {
+    snippet,
+    matchStart: matchStart < 0 ? head.length : matchStart,
+    matchLength: matchStart < 0 ? 0 : folded.length,
+  };
+}
+
 /** Case-insensitive substring search over text messages, newest first.
  * A LIKE scan, deliberately: local transcripts are megabytes at most, a
  * scan is milliseconds, and it needs no FTS extension to exist. */
@@ -214,25 +231,13 @@ export function searchMessages(query: string, limit = 40, threadId?: string): Se
   }>;
   return rows.map((row) => {
     const haystack = row.kind === "activity" ? (row.tool_name ?? "") : (row.text ?? "");
-    const hitAt = Math.max(0, haystack.toLowerCase().indexOf(needle));
-    const start = Math.max(0, hitAt - 60);
-    const end = Math.min(haystack.length, hitAt + needle.length + 90);
-    const head = start > 0 ? "…" : "";
-    const body = haystack.slice(start, end).replace(/\s+/g, " ").trim();
-    const snippet = head + body + (end < haystack.length ? "…" : "");
-    // whitespace folding can shift the offset; find the match again inside
-    const folded = needle.replace(/\s+/g, " ");
-    const matchStart = snippet.toLowerCase().indexOf(folded);
     return {
       threadId: row.thread_id,
       messageId: row.id,
       at: row.at,
       role: row.role,
       kind: row.kind,
-      snippet,
-      matchStart: matchStart < 0 ? head.length : matchStart,
-      // A defensive fallback must not mark arbitrary snippet text as the hit.
-      matchLength: matchStart < 0 ? 0 : folded.length,
+      ...searchSnippet(haystack, needle),
       ...(row.from_name ? { from: row.from_name } : {}),
     };
   });

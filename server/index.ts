@@ -103,7 +103,7 @@ import { RETRY_MAX_ATTEMPTS } from "./drivers/retry.ts";
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { claimAsk, clearAskBudget, MAX_ASKS_PER_TURN } from "./comms-budget.ts";
 import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorOutcomeToRoom, mirrorReply, type CommsBus } from "./comms-visibility.ts";
-import { searchMessages } from "./message-db.ts";
+import { searchMessages, searchSnippet } from "./message-db.ts";
 import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript } from "./replies.ts";
 import { reactionSystemGuidance } from "../shared/reactions.ts";
 import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, findDelegationReceipt, pendingDelegationInfo, pendingDelegationSnapshot, queueDelegation, recordDelegationReceipt, threadsWaitingOn, type QueueResult } from "./delegations.ts";
@@ -769,11 +769,15 @@ const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
 const storedAvatarExists = (avatarUrl: string): boolean =>
   attachmentExists(avatarUrl.slice("/api/attachments/".length));
 
-const publicBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => ({
+const publicBotRecord = (bot: NonNullable<ReturnType<typeof store.bot>>) => ({
   ...wireBot(bot),
-  messages: store.messagesFor(bot.threadId).map(clientMessage),
   activeLeafId: store.activeLeaf(bot.threadId),
   tasks: store.tasks(bot.id).map(wireTask),
+});
+
+const publicBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => ({
+  ...publicBotRecord(bot),
+  messages: store.messagesFor(bot.threadId).map(clientMessage),
 });
 
 type GroupTurnOperation = {
@@ -905,7 +909,7 @@ function pageSize(raw: string | null): number | null | undefined {
   return Math.min(size, MESSAGE_PAGE_MAX);
 }
 
-/** HTTP copy of a transcript row. Bot-authored secrets stay in storage. */
+/** HTTP copy of a transcript row - bot-authored secrets are redacted; the stored row is unchanged. */
 function clientMessage(message: Message): Message {
   return redactBotAuthored(message);
 }
@@ -5598,7 +5602,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const limit = pageSize(url.searchParams.get("messages"));
       if (limit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
       return json(res, 200, {
-        bots: store.bots.map((bot) => ({ ...publicBot(bot), ...messagePage(bot.threadId, limit) })),
+        bots: store.bots.map((bot) => ({ ...publicBotRecord(bot), ...messagePage(bot.threadId, limit) })),
         groups: store.groups.map((g) => ({ ...publicGroupState(g), ...messagePage(g.threadId, limit) })),
         computerControl: Object.fromEntries(
           store.bots.map((bot) => {
@@ -5733,19 +5737,27 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!ids) activePaths.set(threadId, (ids = new Set(store.activePath(threadId).map((m) => m.id))));
         return ids.has(messageId);
       };
+      const needle = q.trim().toLowerCase();
       const hits = searchMessages(q, limit, threadId)
         .map((hit) => {
           const bot = store.botByThread(hit.threadId);
           const group = bot ? undefined : store.groupByThread(hit.threadId);
           if (!bot && !group) return null;
           const active = onActivePath(hit.threadId, hit.messageId);
+          const message = store.messagesFor(hit.threadId).find((row) => row.id === hit.messageId);
+          let haystack = hit.snippet;
+          if (message) {
+            const safe = clientMessage(message);
+            haystack = hit.kind === "activity" ? (safe.tool?.name ?? "") : (safe.text ?? "");
+          }
+          const snippet = searchSnippet(haystack, needle);
           if (bot) {
             const task = store.taskByThread(bot.id, hit.threadId);
-            return { ...hit, botId: bot.id, name: bot.name, task: task?.title, onActivePath: active };
+            return { ...hit, ...snippet, botId: bot.id, name: bot.name, task: task?.title, onActivePath: active };
           }
           if (group) {
             const task = store.groupTaskByThread(group.id, hit.threadId);
-            return { ...hit, groupId: group.id, name: group.name, task: task?.title, onActivePath: active };
+            return { ...hit, ...snippet, groupId: group.id, name: group.name, task: task?.title, onActivePath: active };
           }
           return null;
         })

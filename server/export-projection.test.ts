@@ -17,8 +17,13 @@ import { freePortBlock } from "./testing/ports.ts";
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const BOT_ID = "hist-bot";
 const THREAD_ID = "hist-thread";
+const GROUP_ID = "hist-room";
+const GROUP_THREAD_ID = "hist-room-thread";
 const SECRET = `sk-ant-api03-${"abcdefghijklmnopqrstuvwxyz0123456789"}`;
 const HUMAN_SECRET = `sk-ant-api03-${"HUMANPASTEDKEY0123456789abcdef"}`;
+const PEM_LINE = "AbCd0123+/".repeat(10);
+const PEM_BODY = Array(8).fill(PEM_LINE).join("\n");
+const PEM_MARKER = `«redacted ${PEM_BODY.length} chars»`;
 
 let child: ChildProcess;
 let home: string;
@@ -60,9 +65,24 @@ beforeAll(async () => {
     ]),
   );
   writeFileSync(
+    join(home, ".orbit", "groups.json"),
+    JSON.stringify([
+      {
+        id: GROUP_ID,
+        threadId: GROUP_THREAD_ID,
+        name: "Secret room",
+        memberIds: [BOT_ID],
+        defaultResponder: { kind: "mentions" },
+        bulletin: "",
+        unread: false,
+        createdAt: 1,
+      },
+    ]),
+  );
+  writeFileSync(
     join(home, ".orbit", `messages-${THREAD_ID}.json`),
     JSON.stringify({
-      activeLeafId: "human-paste",
+      activeLeafId: "bot-pem",
       messages: [
         {
           id: "bot-secret",
@@ -79,6 +99,32 @@ beforeAll(async () => {
           role: "user",
           kind: "text",
           text: `i typed ${HUMAN_SECRET} on purpose`,
+        },
+        {
+          id: "bot-pem",
+          at: 3,
+          parentId: "human-paste",
+          role: "bot",
+          kind: "text",
+          // Write-time redaction already stored the original body length.
+          text: `pem follows\n-----BEGIN PRIVATE KEY-----\n${PEM_MARKER}\n-----END PRIVATE KEY-----`,
+        },
+      ],
+    }),
+  );
+  writeFileSync(
+    join(home, ".orbit", `messages-${GROUP_THREAD_ID}.json`),
+    JSON.stringify({
+      activeLeafId: "room-secret",
+      messages: [
+        {
+          id: "room-secret",
+          at: 1,
+          parentId: null,
+          role: "bot",
+          kind: "text",
+          text: `room nearby ${SECRET}`,
+          from: { botId: BOT_ID, name: "Historian", color: "blue" },
         },
       ],
     }),
@@ -138,12 +184,14 @@ describe("historical transcript export projection", () => {
     expect(hydrate.status).toBe(200);
     const hydrateText = JSON.stringify(hydrate.body);
     expect(hydrateText).not.toContain(SECRET);
+    expect(hydrateText).toContain("«redacted");
     expect(hydrateText).toContain(HUMAN_SECRET);
 
     const page = await api("GET", `/api/threads/${THREAD_ID}/messages?limit=10`);
     expect(page.status).toBe(200);
     const pageText = JSON.stringify(page.body);
     expect(pageText).not.toContain(SECRET);
+    expect(pageText).toContain("«redacted");
     expect(pageText).toContain(HUMAN_SECRET);
 
     const db = new DatabaseSync(join(home, ".orbit", "messages.db"), { readOnly: true });
@@ -155,5 +203,52 @@ describe("historical transcript export projection", () => {
     } finally {
       db.close();
     }
+  });
+
+  it("redacts a stored bot secret from search snippets and keeps match offsets", async () => {
+    const result = await api("GET", `/api/search?q=${encodeURIComponent("here is the key")}`);
+    expect(result.status).toBe(200);
+    const hit = result.body.hits.find((candidate: { messageId: string }) => candidate.messageId === "bot-secret");
+    expect(hit).toBeTruthy();
+    expect(hit.snippet).not.toContain(SECRET);
+    expect(hit.snippet).toContain("«redacted");
+    expect(hit.snippet.slice(hit.matchStart, hit.matchStart + hit.matchLength).toLowerCase()).toBe("here is the key");
+  });
+
+  it("keeps the original PEM body length through hydration, pagination, and both exports", async () => {
+    const hydrate = await api("GET", "/api/bots");
+    expect(hydrate.status).toBe(200);
+    const hydrateText = JSON.stringify(hydrate.body);
+    expect(hydrateText).toContain(PEM_MARKER);
+    expect(hydrateText).not.toContain(PEM_LINE);
+
+    const page = await api("GET", `/api/threads/${THREAD_ID}/messages?limit=10`);
+    expect(page.status).toBe(200);
+    const pageText = JSON.stringify(page.body);
+    expect(pageText).toContain(PEM_MARKER);
+    expect(pageText).not.toContain(PEM_LINE);
+
+    const json = await api("GET", `/api/threads/${THREAD_ID}/export?format=json`);
+    expect(json.status).toBe(200);
+    const jsonText = JSON.stringify(json.body);
+    expect(jsonText).toContain(PEM_MARKER);
+    expect(jsonText).not.toContain(PEM_LINE);
+
+    const markdown = await fetch(`http://127.0.0.1:${port}/api/threads/${THREAD_ID}/export`);
+    expect(markdown.status).toBe(200);
+    const md = await markdown.text();
+    expect(md).toContain(PEM_MARKER);
+    expect(md).not.toContain(PEM_LINE);
+  });
+
+  it("redacts a stored bot secret from group hydration", async () => {
+    const hydrate = await api("GET", "/api/bots");
+    expect(hydrate.status).toBe(200);
+    const group = hydrate.body.groups.find((candidate: { id: string }) => candidate.id === GROUP_ID);
+    expect(group).toBeTruthy();
+    const groupText = JSON.stringify(group.messages);
+    expect(groupText).not.toContain(SECRET);
+    expect(groupText).toContain("«redacted");
+    expect(groupText).toContain("room nearby");
   });
 });
