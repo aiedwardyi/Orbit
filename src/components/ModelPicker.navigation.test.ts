@@ -1,7 +1,7 @@
 import "./ProfileFields.test-dom.ts";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { I18nProvider } from "@/lib/i18n";
 import type { Bot, InstanceInfo, ModelSelection } from "@/state/store";
@@ -51,6 +51,86 @@ afterEach(async () => {
   await act(async () => root?.unmount());
   document.body.replaceChildren();
   mock.dispatch.mockReset();
+  vi.restoreAllMocks();
+});
+
+describe("ModelPicker scrolling", () => {
+  let reducedMotion = false;
+
+  beforeEach(() => {
+    reducedMotion = false;
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    vi.spyOn(media, "matches", "get").mockImplementation(() => reducedMotion);
+    vi.spyOn(window, "matchMedia").mockReturnValue(media);
+    vi.spyOn(HTMLElement.prototype, "offsetLeft", "get").mockReturnValue(440);
+    vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockReturnValue(230);
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(148);
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(80);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(400);
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(220);
+    vi.spyOn(HTMLElement.prototype, "scrollTo").mockImplementation(() => undefined);
+    mock.instances = [engine("grok", "grokAgent", ["grok-4.6", "grok-4.5"])];
+  });
+
+  it.each([false, true])("places instantly on every open, then slides (contained=%s)", async (contained) => {
+    await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" }, false, contained);
+    const trigger = document.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!;
+    await act(async () => trigger.click());
+    expect(HTMLElement.prototype.scrollTo).toHaveBeenLastCalledWith({ left: 314, top: 160, behavior: "instant" });
+    vi.spyOn(HTMLElement.prototype, "offsetLeft", "get").mockReturnValue(600);
+    await key("ArrowRight");
+    expect(HTMLElement.prototype.scrollTo).toHaveBeenLastCalledWith({ left: 474, top: 160, behavior: "smooth" });
+    await key("Escape");
+    await act(async () => trigger.click());
+    expect(HTMLElement.prototype.scrollTo).toHaveBeenLastCalledWith({ left: 474, top: 160, behavior: "instant" });
+    expect(HTMLElement.prototype.scrollTo).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([false, true])("keeps reduced-motion navigation instant (contained=%s)", async (contained) => {
+    reducedMotion = true;
+    await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" }, true, contained);
+    await key("ArrowRight");
+    expect(window.matchMedia).toHaveBeenCalledWith("(prefers-reduced-motion: reduce)");
+    expect(HTMLElement.prototype.scrollTo).toHaveBeenNthCalledWith(1, { left: 314, top: 160, behavior: "instant" });
+    expect(HTMLElement.prototype.scrollTo).toHaveBeenNthCalledWith(2, { left: 314, top: 160, behavior: "instant" });
+  });
+
+  it("reads a changed motion preference on the next move", async () => {
+    await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" });
+    await key("ArrowRight");
+    expect(HTMLElement.prototype.scrollTo).toHaveBeenLastCalledWith({ left: 314, top: 160, behavior: "smooth" });
+    reducedMotion = true;
+    await key("ArrowLeft");
+    expect(HTMLElement.prototype.scrollTo).toHaveBeenLastCalledWith({ left: 314, top: 160, behavior: "instant" });
+  });
+
+  it("slides without matchMedia", async () => {
+    Reflect.set(window, "matchMedia", undefined);
+    await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" });
+    await key("ArrowRight");
+    expect(HTMLElement.prototype.scrollTo).toHaveBeenLastCalledWith({ left: 314, top: 160, behavior: "smooth" });
+  });
+
+  it("lands on the same target without scrollTo", async () => {
+    Reflect.set(HTMLElement.prototype, "scrollTo", undefined);
+    await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" });
+    const stage = document.querySelector<HTMLElement>(".model-cross-stage")!;
+    expect([stage.scrollLeft, stage.scrollTop]).toEqual([314, 160]);
+    vi.spyOn(HTMLElement.prototype, "offsetLeft", "get").mockReturnValue(600);
+    vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockReturnValue(322);
+    await key("ArrowRight");
+    expect([stage.scrollLeft, stage.scrollTop]).toEqual([474, 252]);
+  });
+
+  it("retargets native scrolling immediately on repeated arrows", async () => {
+    await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" });
+    for (const left of [480, 520, 560]) {
+      vi.spyOn(HTMLElement.prototype, "offsetLeft", "get").mockReturnValue(left);
+      await act(async () => document.querySelector<HTMLElement>('[role="dialog"]')!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", repeat: true, bubbles: true })));
+      expect(HTMLElement.prototype.scrollTo).toHaveBeenLastCalledWith({ left: left - 126, top: 160, behavior: "smooth" });
+    }
+    expect(HTMLElement.prototype.scrollTo).toHaveBeenCalledTimes(4);
+  });
 });
 
 describe("ModelPicker cross navigation", () => {

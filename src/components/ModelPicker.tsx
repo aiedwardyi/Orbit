@@ -45,6 +45,7 @@ export function ModelPickerControl({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  const centeredStageRef = useRef<HTMLDivElement>(null);
   const cellRef = useRef<HTMLButtonElement>(null);
   const rows = pickerRows(state.instances, selection, draft);
   const row = rows.find((item) => item.instance.instanceId === draft.instanceId);
@@ -100,11 +101,18 @@ export function ModelPickerControl({
     const stage = stageRef.current;
     const selected = cellRef.current;
     if (!stage || !selected) return;
+    const behavior = centeredStageRef.current === stage && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "smooth" : "instant";
     const center = () => {
-      stage.scrollLeft = selected.offsetLeft + selected.offsetWidth / 2 - stage.clientWidth / 2;
-      stage.scrollTop = selected.offsetTop + selected.offsetHeight / 2 - stage.clientHeight / 2;
+      const left = selected.offsetLeft + selected.offsetWidth / 2 - stage.clientWidth / 2;
+      const top = selected.offsetTop + selected.offsetHeight / 2 - stage.clientHeight / 2;
+      if (stage.scrollTo) stage.scrollTo({ left, top, behavior });
+      else {
+        stage.scrollLeft = left;
+        stage.scrollTop = top;
+      }
     };
     center();
+    centeredStageRef.current = stage;
     const observer = new window.ResizeObserver(center);
     observer.observe(stage);
     return () => observer.disconnect();
