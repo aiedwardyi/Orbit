@@ -7708,6 +7708,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!config || !instance) return json(res, 404, { error: "unknown provider instance" });
       const previous = rateLimitsByInstance.get(instanceId);
       const result = await refreshUsage(instance.driverKind, {
+        instanceId,
         cli: z.object({ cli: z.string().optional() }).catch({}).parse(config.config).cli,
         environment: config.environment,
       }, previous);

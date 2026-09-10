@@ -12,7 +12,7 @@ import { parseJson, type JsonValue } from "./schema.ts";
 
 type Report = { windows: RateLimitWindow[]; observedAt: string };
 type Result = { report?: Report; error?: string; retryAt: number };
-type Options = { cli?: string; environment?: NodeJS.ProcessEnv };
+type Options = { instanceId: string; cli?: string; environment?: NodeJS.ProcessEnv };
 const text = z.string().min(1);
 const percent = z.number().finite().nonnegative();
 const timestamp = z.string().refine((value) => !Number.isNaN(Date.parse(value)));
@@ -71,10 +71,10 @@ export function createUsageRefresh(deps: {
   const read = deps.read ?? ((path: string) => readFile(path, "utf8"));
   const clock = deps.now ?? Date.now;
   const cache = new Map<string, { retryAt: number; pending: Promise<Result> }>();
-  return async (driver: string, options: Options = {}, previous?: Report): Promise<Result> => {
+  return async (driver: string, options: Options, previous?: Report): Promise<Result> => {
     const name = driver === "claudeAgent" ? "Claude" : driver === "codex" ? "Codex" : driver === "grokAgent" ? "Grok" : undefined;
     if (!name) return { report: previous, error: "Usage refresh is not supported", retryAt: 0 };
-    const cached = cache.get(driver);
+    const cached = cache.get(options.instanceId);
     if (cached && clock() < cached.retryAt) return cached.pending;
     const retryAt = clock() + 30_000;
     const pending = (async (): Promise<Result> => {
@@ -121,7 +121,7 @@ export function createUsageRefresh(deps: {
         return { report: previous, error: error instanceof Error && error.message === "signin" ? `Sign in again in ${name}` : `Could not refresh ${name} limits`, retryAt };
       }
     })();
-    cache.set(driver, { retryAt, pending });
+    cache.set(options.instanceId, { retryAt, pending });
     return pending;
   };
 }
