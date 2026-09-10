@@ -115,6 +115,31 @@ describe("picker catalogs", () => {
     ]);
   });
 
+  it("excludes Ling from OpenCode fallbacks when preferred families are absent", () => {
+    const free = [
+      { id: "meta/muse-spark-1.3", label: "Muse Spark 1.3" },
+      { id: "meta/muse-spark-1.3-contributor", label: "Muse Spark 1.3 Contributor" },
+      { id: "openrouter/vendor/ling-3.0-flash-fin:free", label: "Ling" },
+      { id: "openrouter/vendor/other:free", label: "Other" },
+    ];
+    expect(freePickerModels(free).map((option) => option.id)).toEqual([
+      "meta/muse-spark-1.3",
+      "meta/muse-spark-1.3-contributor",
+      "openrouter/vendor/other:free",
+    ]);
+    const paid = [
+      { id: "meta/muse-spark-1.3", label: "Muse Spark 1.3" },
+      { id: "meta/muse-spark-1.3-contributor", label: "Muse Spark 1.3 Contributor" },
+      { id: "openrouter/vendor/ling-3.0-flash-fin", label: "Ling" },
+      { id: "openrouter/vendor/other", label: "Other" },
+    ];
+    expect(freePickerModels(paid).map((option) => option.id)).toEqual([
+      "meta/muse-spark-1.3",
+      "meta/muse-spark-1.3-contributor",
+      "openrouter/vendor/other",
+    ]);
+  });
+
   it("keeps a bot on Ling as an off-list cell with that exact id after Ling leaves the keep-list", () => {
     const ling = "openrouter/vendor/ling-3.0-flash-fin:free";
     const instance: InstanceInfo = {

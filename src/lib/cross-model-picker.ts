@@ -22,10 +22,11 @@ export function freePickerModels(catalog: ModelOption[]): ModelOption[] {
   const pinned = ["meta/muse-spark-1.3", "meta/muse-spark-1.3-contributor"].flatMap((id) => catalog.filter((option) => option.id === id));
   const openrouter = catalog.filter((option) => option.id.startsWith("openrouter/"));
   const free = openrouter.filter((option) => option.id.endsWith(":free"));
-  if (free.length === 0) return [...pinned, ...openrouter].slice(0, 4);
   const families = [/nemotron.*3.*ultra/i, /laguna-s-2[.-]1/i, /nemotron.*3[.-]5.*lightning/i];
+  const ling = /ling-3[.-]0-flash-fin/i;
+  if (free.length === 0) return [...pinned, ...openrouter.filter((option) => !ling.test(option.id))].slice(0, 4);
   const preferred = families.flatMap((family) => free.filter((option) => family.test(option.id)).slice(0, 1));
-  return [...pinned, ...preferred, ...free.filter((option) => !preferred.includes(option))].slice(0, 4);
+  return [...pinned, ...preferred, ...free.filter((option) => !preferred.includes(option) && !ling.test(option.id))].slice(0, 4);
 }
 
 export function pickerRows(instances: InstanceInfo[], current: ModelSelection, preview = current): PickerRow[] {
