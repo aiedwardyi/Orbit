@@ -2697,3 +2697,7 @@ export function formatTime(at: number, locale?: string) {
     minute: "2-digit",
   });
 }
+
+export function formatDateTime(at: number, locale?: string) {
+  return new Date(at).toLocaleString(locale || []);
+}

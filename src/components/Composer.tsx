@@ -348,6 +348,19 @@ export function Composer({
     dispatch({ type: "composerFocused", botId: bot.id });
   }, [bot, dispatch, focusBlocked, locked, approval, state.composerFocusBotId]);
 
+  // Reply chip alone leaves the cursor wherever it was, so a reply looks
+  // picked but the user still has to click the box before typing. A failed
+  // send restores replyTo, so this can also fire long after the click, with the
+  // palette or a modal open, and has to yield the same way autofocus does.
+  useEffect(() => {
+    if (!replyTo || focusBlocked) return;
+    const active = document.activeElement;
+    if (active instanceof Element && active.closest('[role="dialog"][aria-modal="true"]')) return;
+    const input = inputRef.current;
+    if (!input || input.disabled) return;
+    input.focus();
+  }, [approval, focusBlocked, locked, replyTo]);
+
   // Image paste is offered unless a known responder refuses it. A missing
   // instance is still hydrating, so keep the image and validate before send.
   const imageTargetsSupport = (message: string) => {

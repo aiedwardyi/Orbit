@@ -1,4 +1,5 @@
-import { Component, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Component, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   ArrowDown,
@@ -24,6 +25,7 @@ import {
 import {
   useStore,
   useStreaming,
+  formatDateTime,
   formatTime,
   messageVersions,
   openNotificationTarget,
@@ -67,6 +69,7 @@ import { webhookMessageView } from "@/lib/webhook-message";
 import { splitAttachedImages } from "@/lib/composer-attachments";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow } from "@/lib/bottom-follow";
 import { CHAT_COLUMN_CLASS } from "@/lib/chat-column";
+import { placeTooltip } from "@/lib/tooltip-position";
 import { TRANSCRIPT_GAP, useComposerDockPad } from "@/lib/composer-dock";
 import {
   TRANSCRIPT_WINDOW_SIZE,
@@ -299,6 +302,87 @@ function BubbleEditor({
   );
 }
 
+/** Short time under a bubble; hover or focus it for the full date. Portalled
+ *  under the body so the transcript's overflow-x-hidden cannot clip it, and so
+ *  the date stays out of the transcript's live region: otherwise every
+ *  arriving message would be read out with its own datestamp. */
+function TimestampLabel({ at }: { at: number }) {
+  const { locale } = useI18n();
+  const tag = localeTag(locale);
+  const full = useMemo(() => formatDateTime(at, tag), [at, tag]);
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLButtonElement>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState<{ top: number; left: number } | null>(null);
+  const tipId = useId();
+
+  // Measured, then clamped to the window: centred on the label would run off
+  // the screen for a short bubble at either edge.
+  useLayoutEffect(() => {
+    if (!open) {
+      setBox(null);
+      return;
+    }
+    const place = () => {
+      const anchor = anchorRef.current?.getBoundingClientRect();
+      const width = tipRef.current?.offsetWidth;
+      const height = tipRef.current?.offsetHeight;
+      if (!anchor || !width || !height) return;
+      setBox(
+        placeTooltip({
+          anchor,
+          size: { width, height },
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+        }),
+      );
+    };
+    place();
+    const transcript = anchorRef.current?.closest("[data-orbit-transcript]");
+    window.addEventListener("resize", place);
+    transcript?.addEventListener("scroll", place);
+    return () => {
+      window.removeEventListener("resize", place);
+      transcript?.removeEventListener("scroll", place);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <button
+        ref={anchorRef}
+        type="button"
+        // Pointed at the tip only once it is placed and visible: whether a
+        // hidden referenced node still contributes its text is not something
+        // to bet on, so the reference never rests on one.
+        aria-describedby={box ? tipId : undefined}
+        onPointerEnter={() => setOpen(true)}
+        onPointerLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        className="mt-0.5 cursor-default rounded text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+      >
+        {formatTime(at, tag)}
+      </button>
+      {open &&
+        createPortal(
+          <div
+            ref={tipRef}
+            id={tipId}
+            role="tooltip"
+            // hidden for the one commit it takes to measure, so it never
+            // paints in the corner on the way to its place
+            style={{ top: box?.top ?? 0, left: box?.left ?? 0, visibility: box ? "visible" : "hidden" }}
+            className="pointer-events-none fixed z-40 max-w-[min(20rem,calc(100vw-1rem))] rounded-md border border-hairline/40 bg-panel px-2 py-1 text-[11px] text-ink-secondary shadow-sm"
+          >
+            {full}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
 function Bubble({
   bot,
   message,
@@ -353,7 +437,9 @@ function Bubble({
       className={cn("group flex w-full flex-col outline-none", user ? "animate-msg-in items-end" : "items-start")}
       tabIndex={-1}
     >
-      <div className="relative w-fit max-w-[min(42rem,78%)]">
+      {/* padded for bot messages so the docked action row below the bubble
+          keeps out of the timestamp and reaction chips that follow it */}
+      <div className={cn("relative w-fit max-w-[min(42rem,78%)]", !user && "pb-8")}>
         {user && (
           <div
             data-message-hover-actions
@@ -407,7 +493,6 @@ function Bubble({
                 ? "bg-bubble-user px-4 py-2.5 whitespace-pre-wrap text-ink"
                 : "bg-card px-4 py-2.5 text-ink",
           )}
-          title={new Date(message.at).toLocaleString()}
         >
           {replyTarget && (
             <div className="mb-2">
@@ -470,7 +555,9 @@ function Bubble({
         {!user && (
           <div
             data-message-hover-actions
-            className="pointer-events-none absolute top-1/2 left-full z-20 ml-0.5 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 has-[[aria-expanded=true]]:pointer-events-auto has-[[aria-expanded=true]]:opacity-100"
+            // left, not right: the row is wider than a short bot bubble, and
+            // the wrapper is w-fit, so right-0 would grow it off the left edge
+            className="pointer-events-none absolute bottom-0 left-0 z-20 flex items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 has-[[aria-expanded=true]]:pointer-events-auto has-[[aria-expanded=true]]:opacity-100"
           >
             {message.kind === "text" && <ReactionBar threadId={bot.threadId} message={message} />}
             <CopyButton text={text} className="opacity-100" />
@@ -511,9 +598,7 @@ function Bubble({
           </div>
         )}
       </div>
-      <span className="mt-0.5 text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-        {formatTime(message.at)}
-      </span>
+      <TimestampLabel at={message.at} />
       {/* busy-gated so a flag stranded by a server restart shows nothing */}
       {user && message.queued && bot.busy && (
         <div className="mt-1 flex items-center gap-1 pr-1 text-[11px] text-ink-secondary/70">
@@ -561,6 +646,7 @@ function Bubble({
 /** A tool run: spinner while live, check/cross once settled. */
 function ActivityChip({ message }: { message: Message }) {
   const { dispatch, state } = useStore();
+  const { t } = useI18n();
   const tool = message.tool;
   if (!tool) return null;
   // bot⇄bot comm chip: opens the channel where the exchange lives
@@ -585,15 +671,16 @@ function ActivityChip({ message }: { message: Message }) {
   return (
     <div className="flex justify-start">
       <div
+        title={failed ? t("chat.stepDidNotComplete") : undefined}
         className={cn(
           "flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px]",
-          failed ? "text-danger" : "text-ink-secondary",
+          failed ? "text-warning" : "text-ink-secondary",
         )}
       >
         {tool.ok === undefined ? (
           <Loader2 size={13} className="animate-spin" />
         ) : failed ? (
-          <X size={13} />
+          <X size={13} strokeWidth={1.5} />
         ) : (
           <Check size={13} className="text-success" />
         )}
