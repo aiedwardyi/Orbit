@@ -588,7 +588,8 @@ describe("first-run core path leftovers", () => {
     expect(chatView).not.toMatch(/Send a message to start the conversation/);
     expect(modelPicker).toContain('t("palette.noMatch"');
     expect(modelPicker).toContain('t("model.automatic")');
-    expect(modelPicker).toContain('t("model.switchEngine")');
+    expect(modelPicker).toContain('t("model.engineAxis")');
+    expect(modelPicker).toContain('t("model.modelAxis")');
     expect(modelPicker).toContain('t("model.automaticHelp"');
     expect(modelPicker).toContain('t("engines.models")');
     expect(modelPicker).not.toMatch(/Nothing matches/);
