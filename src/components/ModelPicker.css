@@ -125,6 +125,9 @@
 .model-cross-cell[aria-pressed="true"] {
   outline: 2px solid var(--color-accent-border);
   outline-offset: 3px;
+  box-shadow:
+    0 0 4px 0 color-mix(in oklab, var(--color-accent) 70%, transparent),
+    0 0 10px 2px color-mix(in oklab, var(--color-accent) 40%, transparent);
 }
 
 .model-cross-engine {
