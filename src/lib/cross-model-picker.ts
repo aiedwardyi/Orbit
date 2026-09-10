@@ -13,7 +13,7 @@ const ENGINES = [
 ] as const;
 
 const MODELS = new Map<string, string[]>(Object.entries({
-  claudeAgent: ["claude-sonnet-5", "claude-opus-5", "claude-fable-5", "claude-fable-5-1"],
+  claudeAgent: ["claude-fable-5-1", "claude-fable-5", "claude-opus-5", "claude-sonnet-5"],
   codex: ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
   grokAgent: ["grok-4.6", "grok-4.5"],
 }));
