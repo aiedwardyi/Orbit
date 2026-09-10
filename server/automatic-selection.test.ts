@@ -14,10 +14,28 @@ const candidate = (
 });
 
 describe("resolveAutomaticSelection", () => {
+  it.each([
+    ["claudeAgent", "claude-sonnet-5", "high"],
+    ["codex", "gpt-6-astra", "low"],
+    ["codex", "gpt-5.6-terra", "medium"],
+    ["grokAgent", "grok-4.6", "high"],
+  ])("gives a new bot the %s default effort", (driverKind, defaultModel, effort) => {
+    expect(resolveAutomaticSelection({ candidates: [candidate("engine", {
+      driverKind, defaultModel, effortLevels: ["low", "medium", "high", "xhigh", "max"],
+    })] })).toEqual({ instanceId: "engine", model: defaultModel, mode: "automatic", effort });
+  });
+
   it("uses configured order without provider-name preferences", () => {
     expect(
       resolveAutomaticSelection({ candidates: [candidate("second"), candidate("claude")] }),
     ).toMatchObject({ mode: "automatic", instanceId: "second", model: "second-default" });
+  });
+
+  it("preserves a supported saved effort", () => {
+    expect(resolveAutomaticSelection({
+      candidates: [candidate("grok", { driverKind: "grokAgent", defaultModel: "grok-4.6", effortLevels: ["low", "medium", "high"] })],
+      current: { instanceId: "grok", model: "grok-4.6", mode: "automatic", effort: "medium" },
+    })?.effort).toBe("medium");
   });
 
   it("keeps the engine and model that last ran this task", () => {

@@ -54,6 +54,56 @@ afterEach(async () => {
 });
 
 describe("ModelPicker cross navigation", () => {
+  it.each([120, -120])("moves one model per wheel notch %s and keeps effort", async (deltaY) => {
+    mock.instances = [engine("claude", "claudeAgent", ["claude-fable-5-1", "claude-fable-5", "claude-opus-5"], ["low", "medium", "high", "xhigh", "max"])];
+    await mount({ instanceId: "claude", model: "claude-fable-5", mode: "pinned", effort: "medium" });
+    const event = new window.WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true });
+    await act(async () => document.querySelector(".model-cross-stage")!.dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(true);
+    await key("Enter");
+    expect(mock.dispatch.mock.calls[0]?.[0].selection).toEqual({
+      instanceId: "claude", model: deltaY > 0 ? "claude-opus-5" : "claude-fable-5-1", mode: "pinned", effort: "medium",
+    });
+  });
+
+  it("labels Alt+P Close and cancels the draft", async () => {
+    mock.instances = [engine("grok", "grokAgent", ["grok-4.6", "grok-4.5"])];
+    await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" });
+    expect(document.querySelector(".model-cross-binding")?.textContent).toBe("AltPClose");
+    await key("ArrowDown");
+    await act(async () => document.querySelector('[role="dialog"]')!.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyP", altKey: true, bubbles: true })));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(mock.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("counts wheel notches delivered before the next render", async () => {
+    mock.instances = [engine("claude", "claudeAgent", ["claude-fable-5-1", "claude-fable-5", "claude-opus-5"], ["low", "medium", "high"])];
+    await mount({ instanceId: "claude", model: "claude-fable-5-1", mode: "pinned", effort: "medium" });
+    await act(async () => {
+      for (let notch = 0; notch < 2; notch++) {
+        document.querySelector(".model-cross-stage")!.dispatchEvent(new window.WheelEvent("wheel", { deltaY: 120, bubbles: true, cancelable: true }));
+      }
+    });
+    await key("Enter");
+    expect(mock.dispatch.mock.calls[0]?.[0].selection).toEqual({ instanceId: "claude", model: "claude-opus-5", mode: "pinned", effort: "medium" });
+  });
+
+  it.each([
+    ["claudeAgent", "claude-fable-5-1", "high"],
+    ["codex", "gpt-6-astra", "low"],
+    ["codex", "gpt-5.6-sol", "low"],
+    ["codex", "gpt-5.6-terra", "medium"],
+    ["codex", "gpt-5.6-luna", "medium"],
+    ["grokAgent", "grok-4.6", "high"],
+  ])("opens and saves %s %s with its real default %s", async (driverKind, model, effort) => {
+    mock.instances = [engine("engine", driverKind, [model], ["low", "medium", "high", "xhigh", "max"])];
+    await mount({ instanceId: "engine", model, mode: "pinned" });
+    expect(document.querySelector('[data-picker-effort="default"]')).toBeNull();
+    expect(document.querySelector('[data-picker-effort][aria-pressed="true"]')?.getAttribute("data-picker-effort")).toBe(effort);
+    await key("Enter");
+    expect(mock.dispatch.mock.calls[0]?.[0].selection).toEqual({ instanceId: "engine", model, mode: "pinned", effort });
+  });
+
   it.each([
     ["grokAgent", "console-sol-2", "grok"],
     ["grokAgent", "nebula-opus", "grok"],
@@ -181,7 +231,7 @@ describe("ModelPicker cross navigation", () => {
       model: control === "tier" ? "gemini-3.8-flash-low" : control === "custom" ? "provider::custom-model" : "gpt-5.6-sol",
       mode: "pinned",
     };
-    if (control === "effort") expected.effort = "low";
+    if (control !== "tier") expected.effort = "low";
     expect(mock.dispatch.mock.calls[0]?.[0].selection).toEqual(expected);
   });
 
@@ -244,7 +294,7 @@ describe("ModelPicker cross navigation", () => {
     await key("Enter");
     expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({
       type: "setModel", botId: "bot-1",
-      selection: { instanceId: "grok", model: "grok-4.6", mode: "pinned" },
+      selection: { instanceId: "grok", model: "grok-4.6", mode: "pinned", effort: "high" },
     });
   });
 

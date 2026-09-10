@@ -1,9 +1,39 @@
 import { describe, expect, it } from "vitest";
 
-import { pickerModels, freePickerModels, movePicker, pickerRows } from "./cross-model-picker";
+import { pickerModels, freePickerModels, movePicker, pickerRows, pickerEfforts, withPickerEffort } from "./cross-model-picker";
 import type { InstanceInfo } from "@/state/store";
 
 describe("picker catalogs", () => {
+  it("offers only the declared effort levels", () => {
+    const instance: InstanceInfo = {
+      instanceId: "grok", driverKind: "grokAgent", displayName: "Grok", snapshot: { state: "available" },
+      models: { default: "grok-4.6", options: [{ id: "grok-4.6", label: "Grok 4.6" }] },
+      capabilities: { effortLevels: ["low", "medium", "high"] },
+    };
+    const row = pickerRows([instance], { instanceId: "grok", model: "grok-4.6" })[0]!;
+    expect(pickerEfforts(row, row.cells[0]!).map((option) => option.id)).toEqual(["low", "medium", "high"]);
+  });
+
+  it.each(["claude-haiku-4-5", "retired/exact-model:pin"])("never defaults an off-list pin %s", (model) => {
+    const instance: InstanceInfo = {
+      instanceId: "claude", driverKind: "claudeAgent", displayName: "Claude", snapshot: { state: "available" },
+      models: { default: "claude-sonnet-5", options: [{ id: model, label: model }] },
+      capabilities: { effortLevels: ["low", "medium", "high", "xhigh", "max"] },
+    };
+    const selection = { instanceId: "claude", model, mode: "pinned" as const };
+    expect(withPickerEffort(instance, selection)).toBe(selection);
+  });
+
+  it.each(["antigravityAgent", "opencodeGo"])("never adds an effort field for %s", (driverKind) => {
+    const model = driverKind === "antigravityAgent" ? "gemini-3.8-flash-low" : "meta/muse-spark-1.3";
+    const instance: InstanceInfo = {
+      instanceId: "engine", driverKind, displayName: "Engine", snapshot: { state: "available" },
+      models: { default: model, options: [{ id: model, label: model }] },
+    };
+    const selection = { instanceId: "engine", model };
+    expect(withPickerEffort(instance, selection)).toBe(selection);
+  });
+
   it("orders the model column frontier-first without changing the catalog default", () => {
     const instance: InstanceInfo = {
       instanceId: "claude", driverKind: "claudeAgent", displayName: "Claude", snapshot: { state: "available" },
