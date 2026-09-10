@@ -91,7 +91,8 @@ describe("message timestamp tooltip", () => {
     expect(label).toContain("createPortal(");
     expect(label).toContain("document.body,");
     expect(label).toContain("fixed z-40");
-    expect(label).toContain("placeTooltip({ anchor, size: { width, height }, viewportWidth: window.innerWidth })");
+    expect(label).toContain("viewportWidth: window.innerWidth,");
+    expect(label).toContain("viewportHeight: window.innerHeight,");
   });
 
   it("is reachable by keyboard and describes the label only once placed", () => {

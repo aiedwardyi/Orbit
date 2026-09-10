@@ -328,7 +328,14 @@ function TimestampLabel({ at }: { at: number }) {
       const width = tipRef.current?.offsetWidth;
       const height = tipRef.current?.offsetHeight;
       if (!anchor || !width || !height) return;
-      setBox(placeTooltip({ anchor, size: { width, height }, viewportWidth: window.innerWidth }));
+      setBox(
+        placeTooltip({
+          anchor,
+          size: { width, height },
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+        }),
+      );
     };
     place();
     const transcript = anchorRef.current?.closest("[data-orbit-transcript]");

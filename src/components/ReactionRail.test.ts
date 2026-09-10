@@ -41,7 +41,7 @@ describe("reaction rail", () => {
     expect(sources["ChatView.tsx"]).not.toContain("flex flex-col gap-0.5 self-end");
     expect(sources["ChatView.tsx"]).toContain("data-message-hover-actions");
     expect(sources["GroupView.tsx"]).toContain("data-message-hover-actions");
-    // the assistant row in ChatView docks bottom-right of the bubble instead
+    // the assistant row in ChatView docks bottom-left of the bubble instead
     // of mirroring the user row's vertically-centered float
     expect(sources["ChatView.tsx"]).toContain("right-full");
     expect(sources["GroupView.tsx"]).toContain("left-full");
