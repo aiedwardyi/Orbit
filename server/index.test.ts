@@ -1629,8 +1629,8 @@ describe("harness HTTP API", () => {
     expect(exported.body).toMatchObject({ format: "openmaus.team", version: 2, team: { name: "Field Team" } });
     expect(exported.body.team.members.map((member: { name: string }) => member.name)).toEqual(visibleNames);
     expect(exported.body.team.members).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: "mira", name: "Mira", title: "Project Lead", appearance: { color: "purple", mascotExpression: "focused" } }),
-      expect.objectContaining({ key: "scout", name: "Scout", title: "Researcher", appearance: { color: "cyan" } }),
+      expect.objectContaining({ key: "mira", name: "Mira", title: "Project Lead", appearance: expect.objectContaining({ color: "purple", mascotExpression: "focused" }) }),
+      expect.objectContaining({ key: "scout", name: "Scout", title: "Researcher", appearance: expect.objectContaining({ color: "cyan" }) }),
     ]));
     expect(exported.body.team).not.toHaveProperty("room");
     expect(JSON.stringify(exported.body)).not.toMatch(/Archived|autoApprove|alwaysAllow|modelSelection|threadId/);

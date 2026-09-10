@@ -196,24 +196,31 @@ describe("Store", () => {
     expect(reloaded.bot(bot.id)?.composio).toBe(false);
   });
 
-  it("defaults a new bot without an explicit color to red", () => {
+  it("defaults a new bot without an explicit color to white squircle", () => {
     const store = new Store(selection);
-    expect(store.createBot().color).toBe("red");
+    const bot = store.createBot();
+    expect(bot.color).toBe("white");
+    expect(bot.mascotStyle).toBe("squircle");
+    expect(new Store(selection).bot(bot.id)).toMatchObject({ color: "white", mascotStyle: "squircle" });
   });
 
-  it("keeps an explicit stored green color instead of reminting red", () => {
+  it("keeps an explicit stored green color instead of reminting white", () => {
     const store = new Store(selection);
     const bot = store.createBot({ color: "green" });
     expect(bot.color).toBe("green");
     expect(new Store(selection).bot(bot.id)?.color).toBe("green");
   });
 
-  it("rotates colors across created bots and cycles back to red", () => {
+  it("keeps an explicit mascot style instead of reminting squircle", () => {
+    const store = new Store(selection);
+    const bot = store.createBot({ color: "purple", mascotStyle: "lavender" });
+    expect(bot).toMatchObject({ color: "purple", mascotStyle: "lavender" });
+  });
+
+  it("does not rotate colors across created bots", () => {
     const store = new Store(selection);
     const colors = Array.from({ length: 14 }, () => store.createBot().color);
-    expect(colors[0]).toBe("red");
-    expect(colors[13]).toBe("red");
-    expect(new Set(colors.slice(0, 13)).size).toBe(13);
+    expect(colors.every((color) => color === "white")).toBe(true);
   });
 
   it("defaults a room to its first member and repairs the lead when membership changes", () => {

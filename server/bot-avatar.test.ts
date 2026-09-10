@@ -44,7 +44,11 @@ describe("bot avatar profile schema", () => {
 
   it("falls back safely for malformed persisted data", () => {
     expect(botAvatarProfile({ avatarUrl: "https://example.test/pixel.png", avatarCrop: "round" }))
-      .toEqual({ avatarCrop: "mascot", mascotStyle: DEFAULT_MASCOT_STYLE });
+      .toEqual({ avatarCrop: "mascot", mascotStyle: "peach" });
+  });
+
+  it("names squircle as the stored default for new bots", () => {
+    expect(DEFAULT_MASCOT_STYLE).toBe("squircle");
   });
 });
 

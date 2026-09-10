@@ -4,20 +4,20 @@ import { DEFAULT_MAUS_COLOR, MAUS_COLOR_NAMES, MAUS_COLORS, mausColorHex, stateF
 import type { MausColor as ServerMausColor } from "../../server/store";
 
 describe("mascot color fallback", () => {
-  it("treats red as the default mascot color", () => {
-    expect(DEFAULT_MAUS_COLOR).toBe("red");
-    expect(MAUS_COLORS[DEFAULT_MAUS_COLOR]).toBe("#D94B52");
+  it("treats white as the default mascot color", () => {
+    expect(DEFAULT_MAUS_COLOR).toBe("white");
+    expect(MAUS_COLORS[DEFAULT_MAUS_COLOR]).toBe("#EFE6DA");
   });
 
-  it("maps known colors and unknown or missing names to the red hex", () => {
+  it("maps known colors and unknown or missing names to the white hex", () => {
     expect(mausColorHex("green")).toBe("#009957");
     expect(mausColorHex("red")).toBe("#D94B52");
     expect(mausColorHex("white")).toBe("#EFE6DA");
     expect(mausColorHex("black")).toBe("#2C2826");
     expect(mausColorHex("gray")).toBe("#5C5854");
-    expect(mausColorHex("not-a-color")).toBe("#D94B52");
-    expect(mausColorHex(undefined)).toBe("#D94B52");
-    expect(mausColorHex(null)).toBe("#D94B52");
+    expect(mausColorHex("not-a-color")).toBe("#EFE6DA");
+    expect(mausColorHex(undefined)).toBe("#EFE6DA");
+    expect(mausColorHex(null)).toBe("#EFE6DA");
   });
 
   it("adds clamped neutrals without changing the original ten hexes", () => {
@@ -50,8 +50,8 @@ describe("mascot color fallback", () => {
   });
 
   it("does not treat inherited object keys as palette colors", () => {
-    expect(mausColorHex("__proto__")).toBe("#D94B52");
-    expect(mausColorHex("constructor")).toBe("#D94B52");
+    expect(mausColorHex("__proto__")).toBe("#EFE6DA");
+    expect(mausColorHex("constructor")).toBe("#EFE6DA");
   });
 
   it("keeps client MAUS_COLOR_NAMES and server MausColor in exact agreement", () => {

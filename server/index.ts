@@ -5214,6 +5214,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             description: instructions,
             modelSelection: { ...chief.modelSelection },
             section: chief.section,
+            color: "white",
+            mascotStyle: "squircle",
           },
           { seedMessages: false },
         );
@@ -6046,9 +6048,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           // reach into the user's connected apps (absence would mean
           // allowed); the user can switch it on per bot after reading who
           // they got.
+          const imported = importedMemberProfile(member, takenNames);
           const created = store.createBot(
             {
-              ...importedMemberProfile(member, takenNames),
+              ...imported,
+              mascotStyle: imported.mascotStyle ?? "squircle",
               modelSelection: selection,
               ...(packageSection ? { section: packageSection } : {}),
             },
@@ -6520,7 +6524,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (store.bots.length >= MAX_WORKSPACE_BOTS) {
         return json(res, 409, { error: `this workspace is limited to ${MAX_WORKSPACE_BOTS} bots` });
       }
-      const bot = store.createBot({ ...profile.patch, section, modelSelection: selection }, { job });
+      const bot = store.createBot(
+        { ...profile.patch, section, modelSelection: selection, color: "white", mascotStyle: "squircle" },
+        { job },
+      );
       return json(res, 201, {
         bot: {
           ...wireBot(bot),
