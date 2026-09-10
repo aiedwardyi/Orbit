@@ -39,12 +39,12 @@ afterEach(async () => {
   host = null;
 });
 
-async function mount(replyTo: Message | null) {
+async function mount(replyTo: Message | null, focusBlocked = false) {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
   await act(async () => {
-    root!.render(createElement(Composer, { replyTo }));
+    root!.render(createElement(Composer, { replyTo, focusBlocked }));
   });
   const textarea = host.querySelector("[data-orbit-composer]");
   if (!(textarea instanceof HTMLElement) || textarea.tagName !== "TEXTAREA") {
@@ -59,9 +59,39 @@ describe("composer reply focus", () => {
     expect(document.activeElement).not.toBe(textarea);
 
     await act(async () => {
-      root!.render(createElement(Composer, { replyTo: replyMessage }));
+      root!.render(createElement(Composer, { replyTo: replyMessage, focusBlocked: false }));
     });
 
     expect(document.activeElement).toBe(textarea);
+  });
+
+  // a failed send restores replyTo, which re-fires this long after the click
+  it("leaves focus alone while a modal or the palette holds it", async () => {
+    const textarea = await mount(null);
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    const inside = document.createElement("button");
+    dialog.append(inside);
+    document.body.append(dialog);
+    inside.focus();
+
+    await act(async () => {
+      root!.render(createElement(Composer, { replyTo: replyMessage, focusBlocked: false }));
+    });
+
+    expect(document.activeElement).toBe(inside);
+    expect(document.activeElement).not.toBe(textarea);
+    dialog.remove();
+  });
+
+  it("leaves focus alone when the composer is focus-blocked", async () => {
+    const textarea = await mount(null, true);
+
+    await act(async () => {
+      root!.render(createElement(Composer, { replyTo: replyMessage, focusBlocked: true }));
+    });
+
+    expect(document.activeElement).not.toBe(textarea);
   });
 });

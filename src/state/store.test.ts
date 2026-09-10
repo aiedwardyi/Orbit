@@ -4,6 +4,7 @@ import { isTaskRecoveryVisible } from "@/lib/task-recovery";
 import { turnPresenceWaiting, visibleSteerEntries } from "@/lib/send-accept";
 import {
   configStatusFromFrame,
+  formatDateTime,
   initialState,
   loadSnapshotBoundary,
   openNotificationTarget,
@@ -1266,5 +1267,19 @@ describe("resumeTask settle", () => {
     const store = readFileSync(new URL("./store.tsx", import.meta.url), "utf8");
     expect(store).toMatch(/done\.then\(\s*\(\) => action\.onSettled!\(null\),\s*\(error\) =>/);
     expect(store).not.toMatch(/onSettled!\(null\)\)\.catch\(/);
+  });
+});
+
+describe("formatDateTime", () => {
+  const at = Date.UTC(2026, 2, 4, 7, 5);
+
+  it("follows the locale it is given, not the host's", () => {
+    expect(formatDateTime(at, "en")).toMatch(/^\d{1,2}\/\d{1,2}\/2026, /);
+    expect(formatDateTime(at, "ko")).toMatch(/^2026\. \d{1,2}\. \d{1,2}\. /);
+    expect(formatDateTime(at, "ko")).not.toBe(formatDateTime(at, "en"));
+  });
+
+  it("falls back to the host locale when none is given", () => {
+    expect(formatDateTime(at)).toBe(new Date(at).toLocaleString());
   });
 });

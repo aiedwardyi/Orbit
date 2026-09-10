@@ -43,21 +43,45 @@ describe("assistant message action bar", () => {
   const bubbleFn = chatView.slice(chatView.indexOf("function Bubble("), chatView.indexOf("function ScreenFrame"));
 
   it("docks at the bottom right of the message instead of floating mid-scroll", () => {
-    expect(bubbleFn).toContain("top-full right-0 z-20 mt-1");
+    expect(bubbleFn).toContain("absolute right-0 bottom-0 z-20");
     expect(bubbleFn).not.toContain("top-1/2 left-full z-20 ml-0.5 flex -translate-y-1/2");
+  });
+
+  it("reserves its band so it cannot cover the timestamp or the reaction chips", () => {
+    expect(bubbleFn).toContain('cn("relative w-fit max-w-[min(42rem,78%)]", !user && "pb-8")');
+    expect(bubbleFn).not.toContain("top-full");
   });
 });
 
 describe("message timestamp tooltip", () => {
-  const bubble = chatView.slice(chatView.indexOf("function Bubble("), chatView.indexOf("function ScreenFrame"));
+  const label = chatView.slice(chatView.indexOf("function TimestampLabel"), chatView.indexOf("function Bubble("));
 
   it("stops relying on the native title tooltip for the full timestamp", () => {
-    expect(bubble).not.toContain("title={new Date(message.at).toLocaleString()}");
+    expect(chatView).not.toContain("new Date(message.at).toLocaleString()");
   });
 
   it("renders a soft-cornered custom tooltip with the full timestamp", () => {
-    expect(bubble).toMatch(/rounded-md border border-hairline\/40 bg-panel[^"]*shadow-sm/);
-    expect(bubble).toContain("{fullTimestamp}");
+    expect(label).toMatch(/rounded-md border border-hairline\/40 bg-panel[^"]*shadow-sm/);
+    expect(label).toContain("{full}");
+  });
+
+  it("formats in the app locale and only when the message time changes", () => {
+    expect(label).toContain("const tag = localeTag(locale);");
+    expect(label).toContain("useMemo(() => formatDateTime(at, tag), [at, tag])");
+  });
+
+  it("portals to the body so neither the scroller nor the live region holds it", () => {
+    expect(label).toContain("createPortal(");
+    expect(label).toContain("document.body,");
+    expect(label).toContain("fixed z-40");
+    expect(label).toContain("placeTooltip({ anchor, size: { width, height }, viewportWidth: window.innerWidth })");
+  });
+
+  it("is reachable by keyboard and describes the label only once placed", () => {
+    expect(label).toContain("aria-describedby={box ? tipId : undefined}");
+    expect(label).toContain("onFocus={() => setOpen(true)}");
+    expect(label).toContain("onBlur={() => setOpen(false)}");
+    expect(label).toContain("group-focus-within:opacity-100");
   });
 });
 
@@ -65,10 +89,9 @@ describe("chat column width", () => {
   it("shares a centered 960px column across ChatView transcript and composer", () => {
     expect(chatView).toContain(TRANSCRIPT_COLUMN);
     expect(chatView).toContain(COMPOSER_COLUMN);
-    const scroller = chatView.slice(
-      chatView.indexOf("data-orbit-transcript"),
-      chatView.indexOf(TRANSCRIPT_COLUMN),
-    );
+    // the scroller's own marker, not the selector the tooltip looks it up with
+    const column = chatView.indexOf(TRANSCRIPT_COLUMN);
+    const scroller = chatView.slice(chatView.lastIndexOf("data-orbit-transcript", column), column);
     expect(scroller).toContain("[overflow-anchor:none]");
     expect(scroller).not.toContain("px-5");
   });
