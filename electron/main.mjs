@@ -249,7 +249,7 @@ app.on("second-instance", (_event, commandLine) => {
 // alternate ports until one binds AND identifies as ours (the probe checks
 // our API shape, not just a 200).
 let serverProc = null;
-let serverToken = app.isPackaged ? null : process.env.OMB_COMMS_TOKEN;
+let serverToken = app.isPackaged ? null : (process.env.OMB_COMMS_TOKEN ?? null);
 const appAuthorization = createAppAuthorization();
 let serverReady = !app.isPackaged;
 // Packaged window URL state. `serverReady` stays a boolean for the rest of
@@ -750,7 +750,7 @@ function readLogTail(logPath) {
 // carried a secret.
 async function gatherDiagnostics() {
   const serverStatus = await fetch(`http://127.0.0.1:${SERVER_PORT}/api/config`, {
-    headers: { Authorization: `Bearer ${serverToken}` },
+    ...(serverToken ? { headers: { Authorization: `Bearer ${serverToken}` } } : {}),
     redirect: "error",
     signal: AbortSignal.timeout(3_000),
   })
@@ -1872,7 +1872,10 @@ ipcMain.handle("credential:set", async (_event, name, value) => {
     const secretStorage = app.isPackaged ? "?secretStorage=external" : "";
     const response = await fetch(`http://127.0.0.1:${SERVER_PORT}/api/config${secretStorage}`, {
       method: "PUT",
-      headers: { "content-type": "application/json", Authorization: `Bearer ${serverToken}` },
+      headers: {
+        "content-type": "application/json",
+        ...(serverToken ? { Authorization: `Bearer ${serverToken}` } : {}),
+      },
       redirect: "error",
       body: JSON.stringify(patchFor(secret)),
     });

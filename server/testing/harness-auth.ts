@@ -27,6 +27,7 @@ export function spawnHarness(command: string, args: string[], options: SpawnOpti
 export const harnessFetch: typeof fetch = async (input, init) => {
   const url = new URL(input instanceof Request ? input.url : input);
   const token = tokens.get(url.origin);
+  // comms.test.ts intentionally checks unauthenticated internal requests.
   if (!token || !url.pathname.startsWith("/api/") || url.pathname.startsWith("/api/internal/") || url.pathname === "/api/health") {
     return fetch(input, init);
   }

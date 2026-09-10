@@ -52,12 +52,16 @@ try {
   }));
   if (process.argv.includes("--desktop")) {
     const ui = process.env.ELECTRON_START_URL || `http://127.0.0.1:${process.env.OMB_UI_PORT || 5199}`;
-    while (!stopping) {
+    const uiDeadline = Date.now() + 20_000;
+    while (!stopping && vite.exitCode === null && Date.now() <= uiDeadline) {
       try {
         if ((await fetch(ui, { signal: AbortSignal.timeout(500) })).ok) break;
       } catch {}
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
+    if (stopping) throw new Error("The development UI stopped before becoming ready");
+    if (vite.exitCode !== null) throw new Error("The development UI exited before becoming ready");
+    if (Date.now() > uiDeadline) throw new Error("The development UI did not become ready");
     if (!stopping && vite.exitCode === null) own(spawn(require("electron"), ["."], { cwd: root, env, stdio: "inherit" }));
   }
 } catch (error) {
