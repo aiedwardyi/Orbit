@@ -199,6 +199,28 @@ describe("redactSecretsInText", () => {
     }
   });
 
+  it("masks a bare Google OAuth token in prose", () => {
+    const token = `${"ya29" + "."}abcdefghijklmnop_0123456789-ABCD`;
+    expect(redactSecretsInText(`received ${token} from upstream`)).toBe(`received «redacted ${token.length} chars» from upstream`);
+  });
+
+  it("masks lowercase bearer tokens in prose", () => {
+    const token = "abcdefghijklmnop_0123456789";
+    expect(redactSecretsInText(`sent bearer ${token} upstream`)).toBe(`sent bearer «redacted ${token.length} chars» upstream`);
+  });
+
+  it("masks an entire unquoted password containing punctuation", () => {
+    const password = "abcdefgh!@suffix";
+    const out = redactSecretsInText(`password=${password} next`);
+    expect(out).not.toContain("!@suffix");
+    expect(out).toBe(`password=«redacted ${password.length} chars» next`);
+  });
+
+  it("leaves password instructions containing spaces unchanged", () => {
+    const text = "password: leave blank for now";
+    expect(redactSecretsInText(text)).toBe(text);
+  });
+
   it("masks JWTs, PEM private key blocks, and bearer tokens", () => {
     const jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
     expect(redactSecretsInText(`token ${jwt} ok`)).toBe(`token «redacted ${jwt.length} chars» ok`);
