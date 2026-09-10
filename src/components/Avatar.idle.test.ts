@@ -48,6 +48,37 @@ describe("mascot idle motion mount", () => {
     expect(ids.some((id) => id.includes("teal-body"))).toBe(true);
   });
 
+  it("parks idle eye CSS when animated is false or motion is none", async () => {
+    const { host } = await renderInto(
+      createElement(
+        "div",
+        null,
+        createElement(MausAvatar, { color: "red", mascotStyle: "peach", size: 44, label: "Live" }),
+        createElement(MausAvatar, {
+          color: "red",
+          mascotStyle: "peach",
+          size: 44,
+          label: "Still",
+          animated: false,
+        }),
+        createElement(MausAvatar, {
+          color: "teal",
+          mascotStyle: "teal",
+          size: 32,
+          label: "None",
+          motion: "none",
+        }),
+      ),
+    );
+
+    const avatars = [...host.querySelectorAll(".mascot-avatar")];
+    expect(avatars).toHaveLength(3);
+    expect(avatars[0]!.className).not.toContain("mascot-avatar--still");
+    expect(avatars[1]!.classList.contains("mascot-avatar--still")).toBe(true);
+    expect(avatars[2]!.classList.contains("mascot-avatar--still")).toBe(true);
+    expect(host.querySelectorAll(".mascot-idle .mascot-blink").length).toBe(3);
+  });
+
   it("clears a forced blink class if animationend never fires", async () => {
     const handle = createRef<MausAvatarHandle>();
     const { host } = await renderInto(

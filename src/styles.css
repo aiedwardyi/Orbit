@@ -736,6 +736,10 @@ body {
   animation: mascot-blink 5.4s ease-in-out infinite;
   animation-delay: var(--mascot-blink-delay, 0s);
 }
+.mascot-avatar.mascot-avatar--still .mascot-idle,
+.mascot-avatar.mascot-avatar--still .mascot-blink {
+  animation: none;
+}
 .mascot-avatar.mascot-avatar--nudge .mascot-blink {
   animation: mascot-blink-once 0.18s ease-in-out;
 }
