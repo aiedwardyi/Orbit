@@ -265,7 +265,7 @@ export interface TaskUsage {
  * is theirs and stays as typed. Stored, not just displayed: the transcript
  * is replayed into every rebuild, and a leaked key would otherwise be
  * permanent. */
-function redactBotAuthored<T extends Omit<Message, "id" | "at"> & { at?: number }>(message: T): T {
+export function redactBotAuthored<T extends Omit<Message, "id" | "at"> & { at?: number }>(message: T): T {
   // A peer message lands in the recipient's transcript as role "user", so the
   // presence of `from`, not the role, decides who authored it. Test presence
   // rather than a truthy botId: this predicate must never fail open.

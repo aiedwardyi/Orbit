@@ -130,6 +130,7 @@ import { ProviderRegistry } from "./harness/registry.ts";
 import { cancelPeerApprovalsFor, cancelPeerApprovalsForThread, dismissStalePeerCards, requestPeerApproval, resolvePeerComms, type ApprovalBus } from "./peer-approval.ts";
 import {
   mentionedBots,
+  redactBotAuthored,
   roomResponders,
   sectionKey,
   Store,
@@ -770,7 +771,7 @@ const storedAvatarExists = (avatarUrl: string): boolean =>
 
 const publicBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => ({
   ...wireBot(bot),
-  messages: store.messagesFor(bot.threadId),
+  messages: store.messagesFor(bot.threadId).map(clientMessage),
   activeLeafId: store.activeLeaf(bot.threadId),
   tasks: store.tasks(bot.id).map(wireTask),
 });
@@ -833,7 +834,7 @@ function publicGroupState(group: GroupRecord) {
 
 const groupWithThread = (group: GroupRecord) => ({
   ...publicGroupState(group),
-  messages: store.messagesFor(group.threadId),
+  messages: store.messagesFor(group.threadId).map(clientMessage),
   activeLeafId: store.activeLeaf(group.threadId),
 });
 
@@ -904,18 +905,24 @@ function pageSize(raw: string | null): number | null | undefined {
   return Math.min(size, MESSAGE_PAGE_MAX);
 }
 
+/** HTTP copy of a transcript row. Bot-authored secrets stay in storage. */
+function clientMessage(message: Message): Message {
+  return redactBotAuthored(message);
+}
+
 /** A screen message without its pixels. The client fetches those from
  * `/api/threads/:threadId/messages/:id/image` when it actually shows one. */
 function slimMessage(message: Message): Message | Record<string, unknown> {
-  if (message.kind !== "screen" || !message.png) return message;
-  const { png: _png, mime: _mime, ...rest } = message;
+  const projected = clientMessage(message);
+  if (projected.kind !== "screen" || !projected.png) return projected;
+  const { png: _png, mime: _mime, ...rest } = projected;
   return { ...rest, hasImage: true };
 }
 
 /** `limit === undefined` is the original, unpaginated shape. */
 function messagePage(threadId: string, limit: number | undefined, before?: string | null) {
   const all = store.messagesFor(threadId);
-  if (limit === undefined) return { messages: all };
+  if (limit === undefined) return { messages: all.map(clientMessage) };
   const end = before ? all.findIndex((msg) => msg.id === before) : -1;
   const stop = end === -1 ? all.length : end;
   const start = Math.max(0, stop - limit);
@@ -5761,7 +5768,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         ? (store.taskByThread(bot.id, threadId)?.title || bot.name)
         : (store.groupTaskByThread(group!.id, threadId)?.title || group!.name);
       const filename = (title.replace(/[^\w\- ]+/g, "").trim() || "conversation").slice(0, 60);
-      const messages = store.activePath(threadId);
+      const messages = store.activePath(threadId).map(clientMessage);
       if (format === "json") {
         // pixels stripped — an export is for reading and archiving, and a
         // base64 desktop frame is neither
@@ -6500,7 +6507,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, 201, {
         bot: {
           ...wireBot(bot),
-          messages: store.messagesFor(bot.threadId),
+          messages: store.messagesFor(bot.threadId).map(clientMessage),
           activeLeafId: store.activeLeaf(bot.threadId),
         },
       });
@@ -7362,7 +7369,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // the client showing the previous task's conversation.
     const botWithThread = (bot: NonNullable<ReturnType<typeof store.bot>>) => ({
       ...wireBot(bot),
-      messages: store.messagesFor(bot.threadId),
+      messages: store.messagesFor(bot.threadId).map(clientMessage),
       activeLeafId: store.activeLeaf(bot.threadId),
       tasks: store.tasks(bot.id).map(wireTask),
     });
