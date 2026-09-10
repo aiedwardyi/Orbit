@@ -45,13 +45,14 @@ const KEY_PREFIXES: RegExp[] = [
   /\bxox[abposr]-[A-Za-z0-9-]{20,}/g, // slack
   /\bAKIA[0-9A-Z]{16}\b/g, // aws access key id
   /\bAIza[0-9A-Za-z_-]{30,}/g, // google api key
+  /\bya29\.[A-Za-z0-9._-]{16,}/g, // google oauth
   /\bnpm_[A-Za-z0-9]{20,}/g, // npm
   /\bxai-[A-Za-z0-9]{16,}/g, // xai
   /\b[sr]k_(?:live_|test_)?[A-Za-z0-9]{24,}/g, // elevenlabs / stripe
   /\bak_[A-Za-z0-9_-]{16,}/g, // composio
   /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, // jwt
 ];
-const BEARER = /(\bBearer\s+)([A-Za-z0-9._~+/=-]{12,})/g;
+const BEARER = /(\bBearer\s+)([A-Za-z0-9._~+/=-]{12,})/gi;
 const PEM_BLOCK = /(-----BEGIN [A-Z ]*PRIVATE KEY-----)([\s\S]*?)(-----END [A-Z ]*PRIVATE KEY-----)/g;
 /** The same block with its END still in flight. PEM_BLOCK cannot match it, so
  * both the stream masker and a completed full-text field hold from BEGIN
@@ -65,7 +66,7 @@ const PEM_END = /-----END [A-Z ]*PRIVATE KEY-----/;
  * The value must be a single token of some length; prose after a colon
  * ("password: leave blank…") has spaces and does not match. */
 const KEY_VALUE =
-  /\b((?:[A-Za-z0-9_-]*_)?(?:api[_-]?key|apikey|secret|token|password|passwd|authorization|auth[_-]?token|access[_-]?key|private[_-]?key)(?:[_-]?key)?s?)(["']?\s*[=:]\s*)(["']?)([A-Za-z0-9._~+/=-]{8,})\3/gi;
+  /\b((?:[A-Za-z0-9_-]*_)?(?:api[_-]?key|apikey|secret|token|password|passwd|authorization|auth[_-]?token|access[_-]?key|private[_-]?key)(?:[_-]?key)?s?)(["']?\s*[=:]\s*)(["']?)([A-Za-z0-9._~+/=!@#$%^*?-]{8,})\3/gi;
 
 /** A config dump's own `key` field, both sides quoted. Bare `key` stays out of
  * KEY_VALUE: unquoted it is prose ("the primary key: customer_id"). No
