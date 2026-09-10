@@ -1,13 +1,15 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { applyLocale } from "@/lib/i18n";
+import { setUsageMode } from "@/lib/usage-preferences";
 import type { RateLimitWindow } from "../../server/contracts.ts";
 
 import { ChatPlanMeters } from "./ChatPlanMeters";
 
 const now = Date.UTC(2026, 8, 4, 12, 0, 0);
+afterEach(() => setUsageMode("used"));
 
 function render(windows: RateLimitWindow[] | undefined) {
   applyLocale("en");
@@ -31,7 +33,7 @@ describe("ChatPlanMeters", () => {
       { id: "stale", usedPercent: 40, resetsAt: now - 60_000 },
     ]);
     expect(html).toContain("5h");
-    expect(html).toContain("Weekly");
+    expect(html).toContain("7d");
     expect(html).toContain(">10%<");
     expect(html).toContain(">49%<");
     expect(html).toContain("1h55m");
@@ -41,14 +43,34 @@ describe("ChatPlanMeters", () => {
     expect(html).not.toContain(">90%<");
     expect(html).not.toMatch(/>Resets in/);
     expect(html).toContain('title="Resets in');
-    expect(html).not.toContain("% used");
+    expect(html).not.toContain("% used<");
     expect(html).not.toContain("$");
     expect(html).not.toContain("Fixed");
     expect(html).not.toContain("on-demand");
-    expect(html).toMatch(/\bh-1\b/);
-    expect(html).toContain("bg-ink/10");
-    expect(html).toContain("bg-accent");
+    expect(html).toContain("▰▱▱▱▱▱▱▱▱▱");
+    expect(html).toContain("▰▰▰▰▰▱▱▱▱▱");
+    expect(html).toContain("(1h55m)");
+    expect(html).toContain("(2d5h)");
+    expect(html).toContain('aria-label="5h: 10% used"');
+    expect(html).toContain('aria-label="7d: 49% used"');
+    expect(html).toContain("text-accent");
     expect(html).not.toContain("bg-app");
     expect(html).not.toContain("h-1.5");
+  });
+
+  it("counts down both wire windows without inventing an unknown fill", () => {
+    setUsageMode("remaining");
+    const html = render([
+      { id: "primary", usedPercent: 80, windowMinutes: 300, resetsAt: now + 106 * 60_000 },
+      { id: "secondary", usedPercent: 125, windowMinutes: 10080, resetsAt: now + 86_400_000 },
+    ]);
+    expect(html).toContain('aria-label="5h: 20% remaining"');
+    expect(html).toContain('aria-label="7d: 0% remaining"');
+    expect(html).toContain("▰▰▱▱▱▱▱▱▱▱");
+    expect(html).toContain("(1h46m)");
+    const unknown = render([{ id: "five_hour", usedPercent: NaN, resetsAt: now + 60_000 }]);
+    expect(unknown).not.toContain("100%");
+    expect(unknown).not.toContain("▰");
+    expect(render([{ id: "five_hour", usedPercent: 80, resetsAt: now - 1 }])).toBe("");
   });
 });
