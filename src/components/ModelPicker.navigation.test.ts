@@ -54,6 +54,30 @@ afterEach(async () => {
 });
 
 describe("ModelPicker cross navigation", () => {
+  it.each([".model-cross-options", ".model-cross-custom"])("preserves native wheel scrolling over %s", async (selector) => {
+    const instance = engine("grok", "grokAgent", ["grok-4.6", "grok-4.5"]);
+    instance.models.options.push({ id: "provider::custom-model", label: "Custom model", custom: true });
+    mock.instances = [instance];
+    await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" });
+    await act(async () => Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("Use a local model"))!.click());
+    const event = new window.WheelEvent("wheel", { deltaY: 120, bubbles: true, cancelable: true });
+    await act(async () => document.querySelector(selector)!.firstElementChild!.dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(false);
+    expect(document.querySelector('[data-model-cell="grok-4.6"][aria-pressed="true"]')).not.toBeNull();
+    expect(document.querySelector(".model-cross-custom")).not.toBeNull();
+    expect(mock.dispatch).not.toHaveBeenCalled();
+  });
+
+  it.each(["retired/exact-model:pin", "unmapped-model"])("selects the first effort with Right from an unset effort for %s", async (model) => {
+    mock.instances = [engine("grok", "grokAgent", ["grok-4.6", "unmapped-model"], ["low", "medium", "high"])];
+    await mount({ instanceId: "grok", model, mode: "pinned" });
+    expect(document.querySelector('[data-picker-effort][aria-pressed="true"]')).toBeNull();
+    await key("ArrowRight");
+    expect(document.querySelector('[data-picker-effort="low"][aria-pressed="true"]')).not.toBeNull();
+    await key("Enter");
+    expect(mock.dispatch.mock.calls[0]?.[0].selection).toEqual({ instanceId: "grok", model, mode: "pinned", effort: "low" });
+  });
+
   it.each([120, -120])("moves one model per wheel notch %s and keeps effort", async (deltaY) => {
     mock.instances = [engine("claude", "claudeAgent", ["claude-fable-5-1", "claude-fable-5", "claude-opus-5"], ["low", "medium", "high", "xhigh", "max"])];
     await mount({ instanceId: "claude", model: "claude-fable-5", mode: "pinned", effort: "medium" });

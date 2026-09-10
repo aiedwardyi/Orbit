@@ -112,7 +112,8 @@ export function movePicker(rows: PickerRow[], current: ModelSelection, key: stri
   if (key === "ArrowLeft" || key === "ArrowRight") {
     const options = pickerEfforts(row, row.cell);
     const selected = options.findIndex((option) => option.model ? option.model === current.model : option.effort === current.effort);
-    const target = options[(Math.max(0, selected) + (key === "ArrowLeft" ? -1 : 1) + options.length) % options.length];
+    const start = selected < 0 ? (key === "ArrowRight" ? -1 : 0) : selected;
+    const target = options[(start + (key === "ArrowLeft" ? -1 : 1) + options.length) % options.length];
     return target ? selectPickerEffort(current, target) : current;
   }
   if (key === "ArrowUp" || key === "ArrowDown") {

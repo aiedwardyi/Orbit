@@ -11,6 +11,8 @@ import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
 import "./ModelPicker.css";
 
+const EFFORT_EDGE_CLEARANCE = 130 / 2 + 38; // Half the horizontal step plus chevron clearance.
+
 type ModelPickerProps = {
   bot: Bot;
   className?: string;
@@ -64,7 +66,7 @@ export function ModelPickerControl({
   const split = Math.ceil(efforts.length / 2);
   const effortPosition = (index: number) => index < split ? index - split : index - split + 1;
   const effortX = effortIndex >= 0 ? effortPosition(effortIndex) * 130 : 0;
-  const offset = stageWidth ? Math.max(103 - stageWidth / 2 - effortX, Math.min(0, stageWidth / 2 - 103 - effortX)) : 0;
+  const offset = stageWidth ? Math.max(EFFORT_EDGE_CLEARANCE - stageWidth / 2 - effortX, Math.min(0, stageWidth / 2 - EFFORT_EDGE_CLEARANCE - effortX)) : 0;
   const planeStyle: CSSProperties & { "--picker-columns": number; "--picker-offset": string } = {
     "--picker-columns": Math.max(split, efforts.length - split) * 2 + 1,
     "--picker-offset": `${offset}px`,
@@ -114,7 +116,7 @@ export function ModelPickerControl({
 
   useEffect(() => {
     if (!open) return;
-    const backdrop = dialogRef.current!.parentElement!;
+    const stage = stageRef.current!;
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
       event.stopPropagation();
@@ -123,8 +125,8 @@ export function ModelPickerControl({
       setDraft((current) => movePicker(rows, withPickerEffort(state.instances.find((item) => item.instanceId === current.instanceId), current), direction));
       setCustomOpen(false);
     };
-    backdrop.addEventListener("wheel", onWheel, { passive: false });
-    return () => backdrop.removeEventListener("wheel", onWheel);
+    stage.addEventListener("wheel", onWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", onWheel);
   }, [open, rows, state.instances]);
 
   useEffect(() => {
