@@ -85,6 +85,7 @@ import {
   EVENTS_DIR,
   NATIVE_DIR,
 } from "./config.ts";
+import { createUsageRefresh, usageRefreshResponse } from "./usage-refresh.ts";
 import { ComputerControl } from "./computer-control.ts";
 import { contextWindowFor, knownCatalogContextWindow, prepareModelContext } from "./context-compaction.ts";
 import { augmentedPath, findCliCandidates, resetPathCache, splitCliString } from "./env-path.ts";
@@ -1355,6 +1356,7 @@ const turnUsage = new Map<string, { input: number; output: number; cachedInput?:
 // not per turn, so it lives here and rides /api/instances rather than being
 // banked on a task. A restart forgets it until the next turn reports again.
 const rateLimitsByInstance = new Map<string, { windows: RateLimitWindow[]; observedAt: string }>();
+const refreshUsage = createUsageRefresh();
 
 function withRateLimits<T extends { instanceId: string }>(instances: T[]) {
   return instances.map((instance) => {
@@ -7698,6 +7700,21 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
 
     // ── provider instances (model picker) ──
+    m = path.match(/^\/api\/usage\/refresh\/([\w-]+)$/);
+    if (m && method === "POST") {
+      const instanceId = m[1];
+      const config = instanceConfigs(cfg)[instanceId];
+      const instance = registry.get(instanceId);
+      if (!config || !instance) return json(res, 404, { error: "unknown provider instance" });
+      const previous = rateLimitsByInstance.get(instanceId);
+      const result = await refreshUsage(instance.driverKind, {
+        cli: z.object({ cli: z.string().optional() }).catch({}).parse(config.config).cli,
+        environment: config.environment,
+      }, previous);
+      if (result.report) rateLimitsByInstance.set(instanceId, result.report);
+      return json(res, 200, usageRefreshResponse(instanceId, result));
+    }
+
     if (method === "GET" && path === "/api/instances") {
       // Rescan PATH first: this endpoint is how the app answers "what can I
       // run?", and the interesting case is a CLI installed since launch.

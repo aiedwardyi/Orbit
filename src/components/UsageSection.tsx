@@ -4,7 +4,8 @@
 // summed here; nothing is fetched. Plan usage sits above the table: how full
 // each engine's subscription window is, straight from the engine's own
 // report on its last turn, so nobody has to guess from a token count.
-import { useStore, type InstanceInfo } from "@/state/store";
+import { useState } from "react";
+import { api, useStore, type InstanceInfo } from "@/state/store";
 import { MausAvatar } from "./Avatar";
 import { Card } from "./SettingsPrimitives";
 import { ProviderMark } from "./ProviderIcons";
@@ -26,9 +27,11 @@ import { PlanWindowMeter, useNow } from "./PlanUsageBar";
 
 function PlanUsage() {
   const { t } = useI18n();
-  const { state } = useStore();
+  const { state, dispatch } = useStore();
   const now = useNow();
   const mode = useUsageMode();
+  const [refreshing, setRefreshing] = useState<string | null>(null);
+  const [refreshErrors, setRefreshErrors] = useState<Record<string, string>>({});
   const engines = splitFriendsEngines(state.instances).friends;
   // Claude/Codex declare rateLimits but only emit a window after a turn —
   // pending, not an outage. Engines that never report (Grok, Antigravity,
@@ -38,6 +41,24 @@ function PlanUsage() {
     t(instance.capabilities?.rateLimits ? "usage.limits.pending" : "usage.limits.notReported", {
       name: instance.displayName,
     });
+  const canRefresh = (instance: InstanceInfo) =>
+    instance.driverKind === "claudeAgent" || instance.driverKind === "codex" || instance.driverKind === "grokAgent";
+  const age = (observedAt: string) => {
+    const minutes = Math.max(0, Math.floor((now - Date.parse(observedAt)) / 60_000));
+    return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h`;
+  };
+  const refresh = async (instance: InstanceInfo) => {
+    setRefreshing(instance.instanceId);
+    try {
+      const result = await api(`/api/usage/refresh/${instance.instanceId}`, { method: "POST" });
+      if (result.report) dispatch({ type: "rateLimits", instanceId: instance.instanceId, report: result.report });
+      setRefreshErrors((current) => result.error ? { ...current, [instance.instanceId]: result.error } : Object.fromEntries(Object.entries(current).filter(([id]) => id !== instance.instanceId)));
+    } catch (error) {
+      setRefreshErrors((current) => ({ ...current, [instance.instanceId]: error instanceof Error ? error.message : "Refresh failed" }));
+    } finally {
+      setRefreshing(null);
+    }
+  };
 
   return (
     <Card title={t("usage.limits.title")} subtitle={t("usage.limits.subtitle")}>
@@ -67,6 +88,20 @@ function PlanUsage() {
                 </div>
               ) : (
                 <div className="mt-1 text-[12px] text-ink-secondary">{honestCaption(instance)}</div>
+              )}
+              {canRefresh(instance) && (
+                <div className="mt-2 flex items-center gap-2">
+                  <button type="button" onClick={() => void refresh(instance)} disabled={refreshing === instance.instanceId}
+                    className="rounded-md px-2 py-1 text-[12px] text-ink-secondary hover:bg-ink/5 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent">
+                    {t(refreshing === instance.instanceId ? "usage.limits.refreshing" : "usage.limits.refresh")}
+                  </button>
+                  {instance.rateLimits && <span className="text-[11px] text-ink-secondary">{t("usage.limits.refreshAge", { age: age(instance.rateLimits.observedAt) })}</span>}
+                </div>
+              )}
+              {refreshErrors[instance.instanceId] && (
+                <div className="mt-1 text-[12px] text-danger">
+                  {t("usage.limits.refreshFailed", { message: refreshErrors[instance.instanceId], age: instance.rateLimits ? age(instance.rateLimits.observedAt) : "—" })}
+                </div>
               )}
             </div>
           ))}
