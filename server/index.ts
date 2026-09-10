@@ -2094,7 +2094,7 @@ bus.subscribe((event: RuntimeEvent) => {
         const speakingBot = store.bot(speaker.botId);
         if (speakingBot?.busy) {
           store.setActivity(speakingBot.id, "idle");
-          store.patchBot(speakingBot.id, { unread: true });
+          // Channel replies only affect the channel unread state.
         }
       }
       // A delegated turn's terminal state belongs in the A⇄B channel:
