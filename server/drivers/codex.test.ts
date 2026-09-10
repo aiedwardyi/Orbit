@@ -31,6 +31,23 @@ const FOREIGN_CREDENTIALS = [
   "AWS_SECRET_ACCESS_KEY",
 ];
 
+/** A user's git identity and the transport their credential helper and SSH
+ * commit signing depend on. A bot's `git` is the user's `git`: the driver
+ * composes no GIT_ name of its own, so none of this is rewritten or dropped. */
+const GIT_IDENTITY_ENV = {
+  GIT_AUTHOR_NAME: "Ada Lovelace",
+  GIT_AUTHOR_EMAIL: "ada@example.com",
+  GIT_COMMITTER_NAME: "Ada Lovelace",
+  GIT_COMMITTER_EMAIL: "ada@example.com",
+  GIT_SSH_COMMAND: "ssh -o IdentitiesOnly=yes",
+  SSH_AUTH_SOCK: "/tmp/omb-test-agent.sock",
+} as const;
+
+/** Every git env name the identity guard writes. Snapshotted per test and put back
+ * in cleanup: a leaked value would change git's behaviour for whatever runs
+ * next in this process. */
+const GIT_ENV_NAMES = [...Object.keys(GIT_IDENTITY_ENV), "GIT_CONFIG_GLOBAL"];
+
 describe("CodexDriver.decodeConfig", () => {
   it("defaults to the codex binary with fullAuto off", () => {
     expect(CodexDriver.decodeConfig({})).toEqual({ cli: "codex", fullAuto: false });
@@ -45,6 +62,7 @@ describe("CodexDriver turns (fake app-server)", () => {
   let instance: ProviderInstance;
   let recorder: EventRecorder;
   let scratch: string;
+  let gitEnvBefore: Map<string, string | undefined>;
 
   const create = async (
     opts: { mode?: string; fullAuto?: boolean; environment?: Record<string, string> } = {},
@@ -63,6 +81,7 @@ describe("CodexDriver turns (fake app-server)", () => {
   beforeEach(() => {
     chmodSync(FAKE_CLI, 0o755);
     scratch = mkdtempSync(join(tmpdir(), "omb-codex-test-"));
+    gitEnvBefore = new Map(GIT_ENV_NAMES.map((name) => [name, process.env[name]]));
   });
 
   afterEach(async () => {
@@ -77,6 +96,10 @@ describe("CodexDriver turns (fake app-server)", () => {
     delete process.env.BOX_TOKEN;
     delete process.env.OMB_TTS_KEY;
     for (const name of FOREIGN_CREDENTIALS) delete process.env[name];
+    for (const [name, value] of gitEnvBefore) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
     recorder?.stop();
     await instance?.dispose();
     await removeTempDir(scratch);
@@ -93,6 +116,28 @@ describe("CodexDriver turns (fake app-server)", () => {
 
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     expect(Object.keys(seen.env).filter((name) => FOREIGN_CREDENTIALS.includes(name))).toEqual([]);
+  });
+
+  it("hands the child the user's own git identity, not one of its own", async () => {
+    Object.assign(process.env, GIT_IDENTITY_ENV);
+    process.env.GIT_CONFIG_GLOBAL = join(scratch, "gitconfig");
+    const parentGitNames = Object.keys(process.env).filter((name) => name.startsWith("GIT_")).sort();
+    await create();
+    const dump = join(scratch, "git-identity.json");
+    // After create() on purpose: childEnv() spreads process.env fresh at each
+    // sendTurn(), not at create() time, so the dump path still reaches the child.
+    process.env.FAKE_CODEX_DUMP = dump;
+
+    await instance.adapter.sendTurn({ threadId: "t-git-identity", text: "commit and push it" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    for (const [name, value] of Object.entries(GIT_IDENTITY_ENV)) expect(seen.env[name]).toBe(value);
+    expect(seen.env.GIT_CONFIG_GLOBAL).toBe(process.env.GIT_CONFIG_GLOBAL);
+    // Adding a GIT_ name would override the user's identity; dropping one
+    // would strip the credential helper or the agent SSH signing needs.
+    expect(Object.keys(seen.env).filter((name) => name.startsWith("GIT_")).sort()).toEqual(parentGitNames);
+    expect(seen.argv.join(" ")).not.toMatch(/\bgit\b|credential|authorization|basic /i);
   });
 
   it("forwards the app-server's account rate limits as account.rate-limits.updated", async () => {
