@@ -89,4 +89,14 @@ describe("cute mascot renderer", () => {
     expect(sources["Avatar.tsx"]).toContain("setTimeout");
     expect(sources["Avatar.tsx"]).toContain("220");
   });
+
+  it("parks idle and blink CSS on mascot-avatar--still", () => {
+    expect(sources["Avatar.tsx"]).toContain("mascot-avatar--still");
+    expect(sources["Avatar.tsx"]).toContain("animated");
+    expect(sources["Avatar.tsx"]).toContain('motion === "none"');
+    expect(stylesCss).toMatch(/\.mascot-avatar\.mascot-avatar--still \.mascot-idle/);
+    expect(stylesCss).toMatch(/\.mascot-avatar\.mascot-avatar--still \.mascot-blink/);
+    const still = stylesCss.slice(stylesCss.indexOf("mascot-avatar--still"));
+    expect(still).toContain("animation: none");
+  });
 });

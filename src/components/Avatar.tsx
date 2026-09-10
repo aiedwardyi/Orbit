@@ -67,7 +67,7 @@ function motionDelay(style: string, color: string): { idle: string; blink: strin
 }
 
 function MausAvatarComponent(
-  { color, mascotStyle, size = 44, label }: MausAvatarProps,
+  { color, mascotStyle, size = 44, label, animated, motion }: MausAvatarProps,
   ref: React.Ref<MausAvatarHandle>,
 ) {
   const reactId = useId();
@@ -111,10 +111,11 @@ function MausAvatarComponent(
     [style, color, reactId],
   );
   const delay = motionDelay(style, color);
+  const still = animated === false || motion === "none";
   return (
     <span
       ref={rootRef}
-      className="mascot-avatar inline-flex shrink-0"
+      className={`mascot-avatar inline-flex shrink-0${still ? " mascot-avatar--still" : ""}`}
       role="img"
       aria-label={label ?? `${style} mascot`}
       style={
