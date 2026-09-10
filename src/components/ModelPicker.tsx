@@ -61,10 +61,8 @@ export function ModelPickerControl({
   const split = Math.ceil(efforts.length / 2);
   const planeStyle: CSSProperties & { "--picker-columns": number } = { "--picker-columns": Math.max(split, efforts.length - split) * 2 + 1 };
   const effortPosition = (index: number) => index < split ? index - split : index - split + 1;
-  const family = instance?.driverKind === "opencodeGo" ? "opencode"
-    : instance?.driverKind === "antigravityAgent" || instance?.driverKind === "geminiAgent" ? "gemini"
-    : /gpt-|astra|sol|terra|luna/i.test(draft.model) || instance?.driverKind === "codex" ? "gpt"
-    : /claude|fable|opus|sonnet|haiku/i.test(draft.model) || instance?.driverKind === "claudeAgent" ? "claude" : "grok";
+  const families = new Map([["codex", "gpt"], ["grokAgent", "grok"], ["antigravityAgent", "gemini"], ["geminiAgent", "gemini"], ["claudeAgent", "claude"], ["opencodeGo", "opencode"]]);
+  const family = families.get(instance?.driverKind ?? "") ?? "grok";
   const shortcut = /Mac/i.test(globalThis.navigator?.platform ?? "") ? "Option" : "Alt";
   const custom = instance?.models.options.filter((option) => option.custom) ?? [];
   const filteredCustom = filterCustomModels(custom, query);
@@ -234,6 +232,7 @@ export function ModelPickerControl({
           <div aria-live="polite" className="flex min-w-0 flex-wrap items-center justify-center gap-2 text-xs text-ink-secondary">
             <span>{t("model.automatic")}</span>
             <span className="break-all text-ink">{t("model.automaticHelp", { name: draft.model || t("model.unresolved") })}</span>
+            {effortIndex >= 0 && <span>{t("model.effort")}: {efforts[effortIndex]!.id === "default" ? t("model.default") : efforts[effortIndex]!.label === "xhigh" ? t("model.extraHigh") : efforts[effortIndex]!.label}</span>}
             {!instance && <span>{t("model.offList")}</span>}
             {instance && <span className={cn("rounded-full px-2 py-0.5", blocked ? "bg-warning/10 text-warning" : "bg-success/10 text-success")}>
               {engineBadgeText(instance.snapshot, needsCli(instance) ? "not-installed" : needsSignIn(instance) ? "sign-in" : "ready", t)}

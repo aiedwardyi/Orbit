@@ -54,6 +54,23 @@ afterEach(async () => {
 });
 
 describe("ModelPicker cross navigation", () => {
+  it.each([
+    ["grokAgent", "console-sol-2", "grok"],
+    ["grokAgent", "nebula-opus", "grok"],
+    ["grokAgent", "gpt-5.6-sol", "grok"],
+    ["opencodeGo", "claude-opus-5", "opencode"],
+    ["opencodeGo", "gpt-5.6-sol", "opencode"],
+    ["geminiAgent", "gemini-3.8-pro", "gemini"],
+    ["antigravityAgent", "gemini-3.8-flash-low", "gemini"],
+    ["codex", "nebula-opus", "gpt"],
+    ["claudeAgent", "console-sol-2", "claude"],
+    ["unknown", "claude-opus-5", "grok"],
+  ])("uses the %s engine family for %s", async (driverKind, model, family) => {
+    mock.instances = [engine("engine", driverKind, [model])];
+    await mount({ instanceId: "engine", model, mode: "pinned" });
+    expect(document.querySelector("[data-picker-family]")?.getAttribute("data-picker-family")).toBe(family);
+  });
+
   it("cancels when clicking the empty backdrop around the cross", async () => {
     mock.instances = [engine("grok", "grokAgent", ["grok-4.6"])];
     await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" });
@@ -93,6 +110,15 @@ describe("ModelPicker cross navigation", () => {
     await key("ArrowRight");
     await key("Enter");
     expect(mock.dispatch.mock.calls[0]?.[0].selection).toEqual({ instanceId: "grok", model: "retired/exact-model:pin", mode: "pinned", effort: "medium" });
+  });
+
+  it("announces horizontal effort changes while focus stays on the dialog", async () => {
+    mock.instances = [engine("grok", "grokAgent", ["grok-4.6"], ["low", "medium", "high"])];
+    await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned", effort: "low" });
+    expect(document.querySelector('[aria-live="polite"]')?.textContent).toContain("Effort: low");
+    await key("ArrowRight");
+    expect(document.activeElement).toBe(document.querySelector('[role="dialog"]'));
+    expect(document.querySelector('[aria-live="polite"]')?.textContent).toContain("Effort: medium");
   });
 
   it("moves vertically through every model before crossing engine boundaries", async () => {

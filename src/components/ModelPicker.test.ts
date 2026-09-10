@@ -122,15 +122,24 @@ const FRIENDS_LABELS = [
   'data-model-row="opencode"',
 ];
 
+function platformMarkup(platform: string, defaultOpen = false) {
+  vi.stubGlobal("navigator", { platform });
+  try {
+    return markup(bot.modelSelection, defaultOpen);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+}
+
 describe("ModelPicker friends chip", () => {
-  it("paints Grok 4.6 on the chip while automatic is the mode", () => {
-    const html = markup();
+  it.each([["MacIntel", "Option"], ["Win32", "Alt"]])("paints Grok 4.6 with the %s shortcut while automatic is the mode", (platform, shortcut) => {
+    const html = platformMarkup(platform);
     expect(html).toContain("Grok 4.6");
     expect(html).not.toContain("Automatic");
     expect(html).not.toContain("Current model");
     expect(html).not.toContain("Switch engine");
     expect(html).not.toContain("data-model-picker-content");
-    expect(html).toContain('title="Stay on this engine while it works. Currently Grok 4.6. (Alt+P)"');
+    expect(html).toContain(`title="Stay on this engine while it works. Currently Grok 4.6. (${shortcut}+P)"`);
   });
 
   it("folds the chip to the engine name in a narrow chat header", () => {
@@ -183,17 +192,16 @@ describe("ModelPicker friends chip", () => {
     expect(list).not.toContain("Suggested");
   });
 
-  it("opens a modal with ordered model groups and keycap bindings", () => {
+  it.each([["MacIntel", "Option"], ["Win32", "Alt"]])("opens a modal with ordered model groups and %s keycap bindings", (platform, shortcut) => {
     for (const [id, model] of [["antigravity", "gemini-3.8-flash-high"], ["codex", "gpt-6-astra"], ["opencode", "meta/muse-spark-1.3"]]) {
       mockInstances.find((instance) => instance.instanceId === id)!.models = { default: model!, options: [{ id: model!, label: model! }] };
     }
-    const html = markup(bot.modelSelection, true);
+    const html = platformMarkup(platform, true);
     const list = html.slice(html.indexOf("data-model-picker-content"));
     expect(list).toContain('role="dialog" aria-modal="true"');
-    for (const key of ["Alt", "P", "↑", "↓", "←", "→", "Enter", "Esc"]) expect(list).toContain(`<kbd>${key}</kbd>`);
+    for (const key of [shortcut, "P", "↑", "↓", "←", "→", "Enter", "Esc"]) expect(list).toContain(`<kbd>${key}</kbd>`);
     expect(list).toContain("</kbd>Model");
     expect(list).toContain("</kbd>Effort");
-    expect(list).toContain('aria-label="Models"');
     expect(list).toContain('aria-label="Models"');
     expect(list).not.toContain(">Cloud<");
     expect(list).toContain("Grok 4.6");

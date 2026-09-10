@@ -93,6 +93,7 @@
 }
 
 .model-cross-cell > svg { flex-shrink: 0; color: #c9ccd3; margin-bottom: 3px; }
+.model-cross-cell:has(.model-cross-note) { opacity: 0.72; }
 .model-cross-cell:hover { opacity: 0.85; }
 .model-cross-cell[aria-pressed="true"] { opacity: 1; background: linear-gradient(145deg, #20212b, #0b0e16); }
 .model-cross-column .model-cross-cell[aria-pressed="true"] { border-color: transparent; transform: scale(1.12, 1.14); }
