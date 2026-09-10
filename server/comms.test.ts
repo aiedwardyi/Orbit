@@ -110,6 +110,11 @@ describe("comms e2e (fake ACP fleet)", () => {
             environment: { FAKE_ACP_MODE: "ask-peer" },
             config: { cli: FAKE_CLI, fullAuto: true },
           },
+          roomHappy: {
+            driver: "grokAgent",
+            environment: { FAKE_ACP_MODE: "happy" },
+            config: { cli: FAKE_CLI, fullAuto: true },
+          },
           // a separate asker instance for the async-handoff e2e. B can stay
           // on `grok` because its depth-1 turn runs without the agents
           // integration either way (the depth guard), so it just plays
@@ -1257,6 +1262,54 @@ stderr: ${stderr.slice(-2000)}`);
         if (pair.every((b: any) => !b.busy)) break;
         if (Date.now() > done) throw new Error(`pair never settled. stderr: ${stderr.slice(-2000)}`);
         await new Promise((r) => setTimeout(r, 250));
+      }
+    },
+    60_000,
+  );
+
+  it(
+    "keeps channel replies off the solo chat unread dot",
+    async () => {
+      const selection = { instanceId: "roomHappy", model: "fake-model" };
+      const first = (await api("POST", "/api/bots")).body.bot;
+      const second = (await api("POST", "/api/bots")).body.bot;
+      await api("PATCH", `/api/bots/${first.id}`, { name: "Room One", modelSelection: selection });
+      await api("PATCH", `/api/bots/${second.id}`, { name: "Room Two", modelSelection: selection });
+      const room = (await api("POST", "/api/groups", {
+        name: "Unread routing room",
+        memberIds: [first.id, second.id],
+        setup: { bulletin: "", defaultResponder: { kind: "everyone" } },
+      })).body.group;
+
+      try {
+        expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "everyone introduce yourselves in one line" })).status).toBe(202);
+
+        const deadline = Date.now() + 30_000;
+        let state: any;
+        let currentRoom: any;
+        for (;;) {
+          state = (await api("GET", "/api/bots")).body;
+          currentRoom = state.groups.find((group: any) => group.id === room.id);
+          const replies = currentRoom.messages.filter((message: any) => message.role === "bot");
+          if (replies.length >= 2 && !currentRoom.working) break;
+          if (Date.now() > deadline) throw new Error(`channel never settled: ${JSON.stringify(currentRoom.messages.slice(-6))}`);
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+
+        expect(currentRoom.unread).toBe(true);
+        expect(state.bots.find((bot: any) => bot.id === first.id).unread).toBe(false);
+        expect(state.bots.find((bot: any) => bot.id === second.id).unread).toBe(false);
+
+        expect((await api("POST", `/api/bots/${first.id}/messages`, { text: "direct reply" })).status).toBe(202);
+        await expect.poll(async () => {
+          const bot = (await api("GET", "/api/bots")).body.bots.find((candidate: any) => candidate.id === first.id);
+          return { busy: bot.busy, unread: bot.unread };
+        }, { timeout: 30_000 }).toEqual({ busy: false, unread: true });
+      } finally {
+        await api("POST", `/api/groups/${room.id}/interrupt`, {}).catch(() => undefined);
+        await api("DELETE", `/api/groups/${room.id}`);
+        await api("DELETE", `/api/bots/${first.id}`);
+        await api("DELETE", `/api/bots/${second.id}`);
       }
     },
     60_000,
