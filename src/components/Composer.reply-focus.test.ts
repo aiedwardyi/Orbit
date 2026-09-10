@@ -39,12 +39,12 @@ afterEach(async () => {
   host = null;
 });
 
-async function mount(replyTo: Message | null, focusBlocked = false) {
+async function mount(replyTo: Message | null, focusBlocked = false, locked = false) {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
   await act(async () => {
-    root!.render(createElement(Composer, { replyTo, focusBlocked }));
+    root!.render(createElement(Composer, { replyTo, focusBlocked, locked }));
   });
   const textarea = host.querySelector("[data-orbit-composer]");
   if (!(textarea instanceof HTMLElement) || textarea.tagName !== "TEXTAREA") {
@@ -83,6 +83,19 @@ describe("composer reply focus", () => {
     expect(document.activeElement).toBe(inside);
     expect(document.activeElement).not.toBe(textarea);
     dialog.remove();
+  });
+
+  // room setup and a pending approval both disable the textarea, and a
+  // disabled input cannot take focus
+  it("focuses once the composer unlocks with the reply still selected", async () => {
+    const textarea = await mount(replyMessage, false, true);
+    expect(document.activeElement).not.toBe(textarea);
+
+    await act(async () => {
+      root!.render(createElement(Composer, { replyTo: replyMessage, focusBlocked: false, locked: false }));
+    });
+
+    expect(document.activeElement).toBe(textarea);
   });
 
   it("leaves focus alone when the composer is focus-blocked", async () => {

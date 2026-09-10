@@ -5,6 +5,7 @@ import { turnPresenceWaiting, visibleSteerEntries } from "@/lib/send-accept";
 import {
   configStatusFromFrame,
   formatDateTime,
+  formatTime,
   initialState,
   loadSnapshotBoundary,
   openNotificationTarget,
@@ -1281,5 +1282,15 @@ describe("formatDateTime", () => {
 
   it("falls back to the host locale when none is given", () => {
     expect(formatDateTime(at)).toBe(new Date(at).toLocaleString());
+  });
+});
+
+describe("formatTime", () => {
+  const at = Date.UTC(2026, 2, 4, 7, 5);
+
+  it("follows the locale it is given, not the host's", () => {
+    expect(formatTime(at, "en")).toMatch(/^\d{1,2}:\d{2} /);
+    expect(formatTime(at, "ko")).toMatch(/ \d{1,2}:\d{2}$/);
+    expect(formatTime(at, "ko")).not.toBe(formatTime(at, "en"));
   });
 });

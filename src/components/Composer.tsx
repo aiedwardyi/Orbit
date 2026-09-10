@@ -359,7 +359,7 @@ export function Composer({
     const input = inputRef.current;
     if (!input || input.disabled) return;
     input.focus();
-  }, [focusBlocked, replyTo]);
+  }, [approval, focusBlocked, locked, replyTo]);
 
   // Image paste is offered unless a known responder refuses it. A missing
   // instance is still hydrating, so keep the image and validate before send.

@@ -355,7 +355,7 @@ function TimestampLabel({ at }: { at: number }) {
         onBlur={() => setOpen(false)}
         className="mt-0.5 cursor-default rounded text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
       >
-        {formatTime(at)}
+        {formatTime(at, tag)}
       </button>
       {open &&
         createPortal(
@@ -548,7 +548,9 @@ function Bubble({
         {!user && (
           <div
             data-message-hover-actions
-            className="pointer-events-none absolute right-0 bottom-0 z-20 flex items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 has-[[aria-expanded=true]]:pointer-events-auto has-[[aria-expanded=true]]:opacity-100"
+            // left, not right: the row is wider than a short bot bubble, and
+            // the wrapper is w-fit, so right-0 would grow it off the left edge
+            className="pointer-events-none absolute bottom-0 left-0 z-20 flex items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 has-[[aria-expanded=true]]:pointer-events-auto has-[[aria-expanded=true]]:opacity-100"
           >
             {message.kind === "text" && <ReactionBar threadId={bot.threadId} message={message} />}
             <CopyButton text={text} className="opacity-100" />

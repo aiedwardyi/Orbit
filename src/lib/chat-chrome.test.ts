@@ -39,12 +39,27 @@ describe("failed tool chip", () => {
   });
 });
 
+/** The class list a JSX block resolves to, as tokens: substring matching reads
+ *  `right-full` as `right-0`'s cousin and misses the difference that matters. */
+function classTokens(markup: string): Set<string> {
+  return new Set(markup.match(/className="([^"]+)"/)?.[1].split(/\s+/) ?? []);
+}
+
 describe("assistant message action bar", () => {
   const bubbleFn = chatView.slice(chatView.indexOf("function Bubble("), chatView.indexOf("function ScreenFrame"));
+  const botRow = classTokens(bubbleFn.split("data-message-hover-actions").at(-1) ?? "");
 
-  it("docks at the bottom right of the message instead of floating mid-scroll", () => {
-    expect(bubbleFn).toContain("absolute right-0 bottom-0 z-20");
+  it("docks under the message instead of floating mid-scroll", () => {
+    expect(botRow.has("absolute")).toBe(true);
+    expect(botRow.has("bottom-0")).toBe(true);
     expect(bubbleFn).not.toContain("top-1/2 left-full z-20 ml-0.5 flex -translate-y-1/2");
+  });
+
+  // right-0 against a w-fit bubble grows the row leftwards, so a short bot
+  // message pushes its leading controls out under the scroller's overflow-x-hidden
+  it("anchors to the bubble's left edge, the side a bot message has room on", () => {
+    expect(botRow.has("left-0")).toBe(true);
+    expect(botRow.has("right-0")).toBe(false);
   });
 
   it("reserves its band so it cannot cover the timestamp or the reaction chips", () => {
@@ -68,6 +83,8 @@ describe("message timestamp tooltip", () => {
   it("formats in the app locale and only when the message time changes", () => {
     expect(label).toContain("const tag = localeTag(locale);");
     expect(label).toContain("useMemo(() => formatDateTime(at, tag), [at, tag])");
+    // the short time sits directly under the full date; one locale between them
+    expect(label).toContain("{formatTime(at, tag)}");
   });
 
   it("portals to the body so neither the scroller nor the live region holds it", () => {
