@@ -58,4 +58,113 @@ describe("picker catalogs", () => {
     expect(rows[0]!.cells.map((cell) => cell.options[0]!.id)).toEqual(["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]);
     expect(JSON.stringify(instance.models)).toBe(before);
   });
+
+  it("pins Muse Spark 1.3 and Contributor first on the OpenCode row, drops Ling, and keeps two free cells", () => {
+    const options = [
+      { id: "openrouter/vendor/ling-3.0-flash-fin:free", label: "Ling" },
+      { id: "openrouter/meta/muse-spark-1.3:free", label: "Paid Muse" },
+      { id: "meta/muse-spark-1.3-contributor", label: "Muse Spark 1.3 Contributor" },
+      { id: "meta/muse-spark-1.3", label: "Muse Spark 1.3" },
+      { id: "openrouter/another-vendor/nemotron-3-ultra-new:free", label: "Ultra" },
+      { id: "openrouter/vendor/laguna-s-2.1:free", label: "Laguna" },
+      { id: "openrouter/vendor/nemotron-3.5-lightning:free", label: "Lightning" },
+    ];
+    expect(freePickerModels(options).map((option) => option.id)).toEqual([
+      "meta/muse-spark-1.3",
+      "meta/muse-spark-1.3-contributor",
+      "openrouter/another-vendor/nemotron-3-ultra-new:free",
+      "openrouter/vendor/laguna-s-2.1:free",
+    ]);
+  });
+
+  it("omits a missing Muse id and does not substitute another version or pin the openrouter duplicate", () => {
+    const options = [
+      { id: "meta/muse-spark-1.3", label: "Muse Spark 1.3" },
+      { id: "meta/muse-spark-1.4", label: "Muse Spark 1.4" },
+      { id: "openrouter/meta/muse-spark-1.3-contributor:free", label: "Paid Contributor" },
+      { id: "openrouter/another-vendor/nemotron-3-ultra-new:free", label: "Ultra" },
+      { id: "openrouter/vendor/second:free", label: "Second" },
+      { id: "openrouter/vendor/third:free", label: "Third" },
+    ];
+    const ids = freePickerModels(options).map((option) => option.id);
+    expect(ids).toEqual([
+      "meta/muse-spark-1.3",
+      "openrouter/another-vendor/nemotron-3-ultra-new:free",
+      "openrouter/meta/muse-spark-1.3-contributor:free",
+      "openrouter/vendor/second:free",
+    ]);
+    expect(ids).not.toContain("meta/muse-spark-1.4");
+    expect(ids).not.toContain("meta/muse-spark-1.3-contributor");
+    expect(ids[1]).not.toBe("openrouter/meta/muse-spark-1.3-contributor:free");
+  });
+
+  it("still fills remaining OpenCode slots from openrouter when the catalog has no free suffix", () => {
+    const options = [
+      { id: "meta/muse-spark-1.3", label: "Muse Spark 1.3" },
+      { id: "meta/muse-spark-1.3-contributor", label: "Muse Spark 1.3 Contributor" },
+      { id: "other/model", label: "other/model" },
+      { id: "openrouter/vendor/one", label: "openrouter/vendor/one" },
+      { id: "openrouter/vendor/two", label: "openrouter/vendor/two" },
+      { id: "openrouter/vendor/three", label: "openrouter/vendor/three" },
+    ];
+    expect(freePickerModels(options).map((option) => option.id)).toEqual([
+      "meta/muse-spark-1.3",
+      "meta/muse-spark-1.3-contributor",
+      "openrouter/vendor/one",
+      "openrouter/vendor/two",
+    ]);
+  });
+
+  it("excludes Ling from OpenCode fallbacks when preferred families are absent", () => {
+    const free = [
+      { id: "meta/muse-spark-1.3", label: "Muse Spark 1.3" },
+      { id: "meta/muse-spark-1.3-contributor", label: "Muse Spark 1.3 Contributor" },
+      { id: "openrouter/vendor/ling-3.0-flash-fin:free", label: "Ling" },
+      { id: "openrouter/vendor/other:free", label: "Other" },
+    ];
+    expect(freePickerModels(free).map((option) => option.id)).toEqual([
+      "meta/muse-spark-1.3",
+      "meta/muse-spark-1.3-contributor",
+      "openrouter/vendor/other:free",
+    ]);
+    const paid = [
+      { id: "meta/muse-spark-1.3", label: "Muse Spark 1.3" },
+      { id: "meta/muse-spark-1.3-contributor", label: "Muse Spark 1.3 Contributor" },
+      { id: "openrouter/vendor/ling-3.0-flash-fin", label: "Ling" },
+      { id: "openrouter/vendor/other", label: "Other" },
+    ];
+    expect(freePickerModels(paid).map((option) => option.id)).toEqual([
+      "meta/muse-spark-1.3",
+      "meta/muse-spark-1.3-contributor",
+      "openrouter/vendor/other",
+    ]);
+  });
+
+  it("keeps a bot on Ling as an off-list cell with that exact id after Ling leaves the keep-list", () => {
+    const ling = "openrouter/vendor/ling-3.0-flash-fin:free";
+    const instance: InstanceInfo = {
+      instanceId: "opencode", driverKind: "opencodeGo", displayName: "OpenCode", snapshot: { state: "available" },
+      models: {
+        default: ling,
+        options: [
+          { id: "meta/muse-spark-1.3", label: "Muse Spark 1.3" },
+          { id: "meta/muse-spark-1.3-contributor", label: "Muse Spark 1.3 Contributor" },
+          { id: ling, label: "Ling" },
+          { id: "openrouter/another-vendor/nemotron-3-ultra-new:free", label: "Ultra" },
+          { id: "openrouter/vendor/laguna-s-2.1:free", label: "Laguna" },
+        ],
+      },
+    };
+    const rows = pickerRows([instance], { instanceId: "opencode", model: ling });
+    const cells = rows[0]!.cells;
+    expect(cells.map((cell) => cell.options[0]!.id)).toEqual([
+      "meta/muse-spark-1.3",
+      "meta/muse-spark-1.3-contributor",
+      "openrouter/another-vendor/nemotron-3-ultra-new:free",
+      "openrouter/vendor/laguna-s-2.1:free",
+      ling,
+    ]);
+    expect(cells.at(-1)).toMatchObject({ offList: true, options: [{ id: ling }] });
+    expect(cells.filter((cell) => cell.options.some((option) => option.id === ling))).toHaveLength(1);
+  });
 });
