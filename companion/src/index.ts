@@ -46,6 +46,7 @@ const num = (value: string | undefined, fallback: number): number => {
 };
 
 const HARNESS_PORT = num(process.env.OMB_PORT, 8799);
+let harnessToken = process.env.OMB_COMMS_TOKEN ?? "";
 const WEBHOOK_PORT = num(process.env.OMB_WEBHOOK_PORT, HARNESS_PORT + 1);
 const COMPANION_PORT = num(process.env.OMB_COMPANION_PORT, 8810);
 const CONTROL_PORT = num(process.env.OMB_CONTROL_PORT, 8811);
@@ -133,8 +134,9 @@ const service = (): ServiceInfo => ({
 });
 
 const connectedDevices = createConnectedDeviceTracker();
-const proxy = createProxyHandler({
+const proxyOptions = {
     harnessPort: HARNESS_PORT,
+    harnessToken: () => harnessToken,
     // `authenticate` also stamps lastSeenAt, which is what makes the control
     // page able to say when a phone was last heard from.
     authenticate: (token) => devices.authenticate(token),
@@ -146,7 +148,19 @@ const proxy = createProxyHandler({
     hosts: () => hostCandidates(),
     endpoints: () => companionEndpointCandidates(COMPANION_PORT, undefined, undefined, hostedUrl),
     connected: connectedDevices.open,
-  });
+  } satisfies Parameters<typeof createProxyHandler>[0];
+type HarnessBinding = { type: "orbit:api-token"; token: string; port: number };
+// SAFETY: Only the Electron parent owns this channel; validate its binding before use.
+const utilityParent = (process as NodeJS.Process & {
+  parentPort?: { on(event: "message", listener: (event: { data?: HarnessBinding }) => void): void };
+}).parentPort;
+utilityParent?.on("message", ({ data }) => {
+  if (data?.type !== "orbit:api-token" || !/^(?:[a-f0-9]{48})?$/.test(data.token) ||
+      !Number.isInteger(data.port) || data.port < 1 || data.port > 65535) return;
+  harnessToken = data.token;
+  proxyOptions.harnessPort = data.port;
+});
+const proxy = createProxyHandler(proxyOptions);
 const companion = createServer(proxy);
 const managedOrigin = PRIVATE_ORIGIN ? createServer(proxy) : null;
 

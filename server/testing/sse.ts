@@ -1,6 +1,8 @@
 // SSE reader for API tests: connect to /api/events, collect frames, and
 // await predicates instead of sleeping — same rule as recordEvents, one
 // layer up (HTTP frames rather than adapter events).
+import { harnessFetch as fetch } from "./harness-auth.ts";
+
 export interface SseRecorder {
   frames: any[];
   /** Resolves with the first frame matching `pred`, already-seen ones

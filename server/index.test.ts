@@ -3,7 +3,7 @@
 // app depends on. The config pins one deliberately-unknown driver so the
 // suite is deterministic with or without agent CLIs installed — and pins
 // the shadow-instance behavior end to end while it's at it.
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { createServer, request, type Server } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,6 +17,7 @@ import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { openSse } from "./testing/sse.ts";
 import { IMAGE_MAX_BYTES } from "./attachments.ts";
 import { defaultComputerForNewBot } from "./local-routing.ts";
+import { spawnHarness as spawn, harnessFetch as fetch, harnessToken } from "./testing/harness-auth.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
@@ -4154,9 +4155,10 @@ describe("section context API", () => {
 describe("bot memory API", () => {
   /** raw-path GET: fetch() normalizes "../" segments away client-side, and
    * the traversal tests need the wire to carry exactly the bytes shown */
-  const rawGet = (rawPath: string): Promise<{ status: number; text: string }> =>
-    new Promise((resolve, reject) => {
-      const req = request({ hostname: "127.0.0.1", port: PORT, path: rawPath }, (res) => {
+  const rawGet = async (rawPath: string): Promise<{ status: number; text: string }> => {
+    const headers = { authorization: `Bearer ${await harnessToken(BASE)}` };
+    return new Promise((resolve, reject) => {
+      const req = request({ hostname: "127.0.0.1", port: PORT, path: rawPath, headers }, (res) => {
         let text = "";
         res.on("data", (c) => (text += c));
         res.on("end", () => resolve({ status: res.statusCode ?? 0, text }));
@@ -4164,6 +4166,7 @@ describe("bot memory API", () => {
       req.on("error", reject);
       req.end();
     });
+  };
 
   const workspaceOf = (botId: string) => join(home, ".orbit", "workspaces", botId);
 

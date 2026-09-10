@@ -29,6 +29,9 @@ const CONTROL_PORT = 8811;
 const COMPANION_PORT = 8810;
 
 let proc = null;
+export function updateCompanionHarness(port, token) {
+  proc?.postMessage({ type: "orbit:api-token", port, token: token ?? "" });
+}
 let lastError = null;
 let advertisedHostedUrl = null;
 let originTarget = null;
@@ -187,7 +190,7 @@ export function stopCompanion() {
 }
 
 /** startCompanion's body, run inside the transition queue. */
-async function start({ resourcesPath, harnessPort, hostedUrl = null, log }) {
+async function start({ resourcesPath, harnessPort, harnessToken, hostedUrl = null, log }) {
   if (proc) return companionState();
   lastError = null;
   const resolved = entryPoint(resourcesPath);
@@ -232,6 +235,7 @@ async function start({ resourcesPath, harnessPort, hostedUrl = null, log }) {
       env: {
         ...childEnvironment,
         OMB_PORT: String(harnessPort),
+        OMB_COMMS_TOKEN: harnessToken ?? "",
         OMB_COMPANION_PORT: String(COMPANION_PORT),
         OMB_CONTROL_PORT: String(CONTROL_PORT),
       },

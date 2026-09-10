@@ -5,7 +5,7 @@
 // none of them are visible to a unit test. In particular: SSE arriving but
 // never terminating an event, a resume cursor being dropped on the way
 // through, and the harness's loopback gate rejecting a proxied request.
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess } from "node:child_process";
 import { createServer, request, type IncomingMessage, type Server } from "node:http";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createProxyHandler } from "../src/proxy.ts";
+import { spawnHarness as spawn, harnessFetch as fetch, harnessToken } from "../../server/testing/harness-auth.ts";
 import { createConnectedDeviceTracker } from "../src/connected-devices.ts";
 import type { CompanionEndpoint } from "../src/endpoints.ts";
 
@@ -71,6 +72,7 @@ let SIDECAR = "";
 
 const TOKEN = "omb_test_token";
 let harness: ChildProcess;
+let upstreamToken: string;
 let sidecar: Server;
 let home: string;
 let stderr = "";
@@ -174,9 +176,11 @@ beforeAll(async () => {
   });
   if (!fixtureBot.ok) throw new Error(`could not create companion test bot: ${fixtureBot.status}`);
 
+  upstreamToken = await harnessToken(HARNESS);
   sidecar = createServer(
     createProxyHandler({
       harnessPort: HARNESS_PORT,
+      harnessToken: () => upstreamToken,
       authenticate: (t) => (t === TOKEN ? { id: "d1", cloudDesktopAccess: true } : null),
       redeem: (code, deviceName) =>
         code === "424242"
@@ -707,6 +711,7 @@ describe("pairing, end to end", () => {
     const paired = createServer(
       createProxyHandler({
         harnessPort: HARNESS_PORT,
+        harnessToken: () => upstreamToken,
         authenticate: (t) => registry.authenticate(t ?? undefined),
         redeem: (code, deviceName, pairRequestId) => registry.redeem(code, deviceName, pairRequestId),
         serverName: () => "Ada's computer",
