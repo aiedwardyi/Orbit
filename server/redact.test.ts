@@ -216,6 +216,28 @@ describe("redactSecretsInText", () => {
     expect(out).toBe(`password=«redacted ${password.length} chars» next`);
   });
 
+  it.each([",", ";", "&"])("preserves the field after a %s password separator", (separator) => {
+    const password = "abc!@#123";
+    const out = redactSecretsInText(`password=${password}${separator}username=admin`);
+    expect(out).not.toContain(password);
+    expect(out).toContain("username=admin");
+    expect(out).toBe(`password=«redacted ${password.length} chars»${separator}username=admin`);
+  });
+
+  it("redacts a password value that runs up to a comma separator", () => {
+    const password = "abcdefgh!@suffix";
+    const out = redactSecretsInText(`password=${password},other=val`);
+    expect(out).not.toContain("!@suffix");
+    expect(out).toBe(`password=«redacted ${password.length} chars»,other=val`);
+  });
+
+  it("masks each supported password punctuation character without leaving a suffix", () => {
+    for (const punctuation of "!@#$%^*?") {
+      const password = `abcdefgh${punctuation}suffix`;
+      expect(redactSecretsInText(`password=${password}`)).toBe(`password=«redacted ${password.length} chars»`);
+    }
+  });
+
   it("leaves password instructions containing spaces unchanged", () => {
     const text = "password: leave blank for now";
     expect(redactSecretsInText(text)).toBe(text);

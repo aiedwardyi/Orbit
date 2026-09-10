@@ -66,7 +66,7 @@ const PEM_END = /-----END [A-Z ]*PRIVATE KEY-----/;
  * The value must be a single token of some length; prose after a colon
  * ("password: leave blank…") has spaces and does not match. */
 const KEY_VALUE =
-  /\b((?:[A-Za-z0-9_-]*_)?(?:api[_-]?key|apikey|secret|token|password|passwd|authorization|auth[_-]?token|access[_-]?key|private[_-]?key)(?:[_-]?key)?s?)(["']?\s*[=:]\s*)(["']?)([^\s"'`«»]{8,})\3/gi;
+  /\b((?:[A-Za-z0-9_-]*_)?(?:api[_-]?key|apikey|secret|token|password|passwd|authorization|auth[_-]?token|access[_-]?key|private[_-]?key)(?:[_-]?key)?s?)(["']?\s*[=:]\s*)(["']?)([A-Za-z0-9._~+/=!@#$%^*?-]{8,})\3/gi;
 
 /** A config dump's own `key` field, both sides quoted. Bare `key` stays out of
  * KEY_VALUE: unquoted it is prose ("the primary key: customer_id"). No
