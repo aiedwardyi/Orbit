@@ -38,8 +38,14 @@ export function planUsageFill(percent: number | null): number {
   return percent === null ? 0 : Math.min(100, percent);
 }
 
+export function planUsageTone(usedPercent: number) {
+  if (usedPercent >= 90) return { textClass: "text-danger", fillClass: "bg-danger" };
+  if (usedPercent >= 75) return { textClass: "text-warning", fillClass: "bg-warning" };
+  return { textClass: "text-accent", fillClass: "bg-accent" };
+}
+
 export function planUsageFillClass(fill: number): string {
-  return fill >= 90 ? "bg-danger" : fill >= 75 ? "bg-warning" : "bg-accent";
+  return planUsageTone(fill).fillClass;
 }
 
 export function PlanUsageBar({ fill, usedFill = fill, className }: { fill: number; usedFill?: number; className?: string }) {
@@ -76,7 +82,7 @@ export function PlanWindowMeter({
       <div role="group" aria-label={label}>
         <div className="flex flex-wrap items-center gap-x-2 text-[11.5px] text-ink">
           <span>{t(labelKey)}</span>
-          <span aria-hidden="true" className={cn("font-mono tracking-tight", usedFill >= 90 ? "text-danger" : usedFill >= 75 ? "text-warning" : "text-accent")}>
+          <span aria-hidden="true" className={cn("font-mono tracking-tight", planUsageTone(usedFill).textClass)}>
             {percent === null ? "▱".repeat(10) : "▰".repeat(segments) + "▱".repeat(10 - segments)}
           </span>
           <span className="flex min-w-0 items-center gap-1.5 tabular-nums">
