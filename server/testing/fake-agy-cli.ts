@@ -41,6 +41,8 @@ if (process.env.FAKE_AGY_MCP_DUMP) {
 
 const out = (obj: unknown) => process.stdout.write(JSON.stringify(obj) + "\n");
 const CONV = "conv-fake-123";
+const systemNotice = "The following is a <SYSTEM_MESSAGE> not actually sent by the user.\n<SYSTEM_MESSAGE>internal notice</SYSTEM_MESSAGE>";
+const cancelledTool = process.env.FAKE_AGY_CANCELLED_TOOL === "1";
 
 // The prompt is the value that follows --print on argv (mirrors the driver,
 // which no longer pipes stdin). A bare --print with no value yields no turn.
@@ -58,9 +60,42 @@ if (process.env.FAKE_AGY_RESUME_FAIL && argv.includes("--conversation")) {
 
 out({ event: "init", conversation_id: CONV, init: { cwd: process.cwd(), tools: ["run_command", "write_to_file"], permission_mode: "accept-edits" } });
 out({ event: "step_update", conversation_id: CONV, step_update: { conversation_id: CONV, step_index: 0, state: "ACTIVE", step_type: "tool", tool_name: "write_to_file", tool_info: { name: "write_to_file", parameters: {} } } });
-out({ event: "step_update", conversation_id: CONV, step_update: { conversation_id: CONV, step_index: 0, state: "DONE", step_type: "tool", tool_name: "write_to_file", tool_info: { name: "write_to_file", parameters: {} } } });
+out({
+  event: "step_update",
+  conversation_id: CONV,
+  step_update: {
+    conversation_id: CONV,
+    step_index: 0,
+    state: cancelledTool ? "ERROR" : "DONE",
+    step_type: "tool",
+    tool_name: "write_to_file",
+    tool_info: cancelledTool
+      ? { name: "write_to_file", parameters: {}, output: "context canceled" }
+      : { name: "write_to_file", parameters: {} },
+  },
+});
+if (process.env.FAKE_AGY_SYSTEM_NOTICE === "1") {
+  out({ event: "step_update", conversation_id: CONV, step_update: { conversation_id: CONV, step_index: 2, state: "DONE", step_type: "agent_response", text_delta: systemNotice } });
+}
 out({ event: "step_update", conversation_id: CONV, step_update: { conversation_id: CONV, step_index: 1, state: "DONE", step_type: "agent_response", usage: { input_tokens: 100, output_tokens: 20, thinking_tokens: 0, cache_read_tokens: 5, total_tokens: 125 } } });
-out({ event: "result", conversation_id: CONV, result: { conversation_id: CONV, status: "SUCCESS", response: "done from fake agy", duration_seconds: 1, num_turns: 1, usage: { input_tokens: 100, output_tokens: 20, thinking_tokens: 0, cache_read_tokens: 5, total_tokens: 125 } } });
+out({
+  event: "result",
+  conversation_id: CONV,
+  result: {
+    conversation_id: CONV,
+    status: "SUCCESS",
+    response: process.env.FAKE_AGY_SYSTEM_NOTICE === "1"
+      ? systemNotice
+      : process.env.FAKE_AGY_NO_FINAL === "1"
+        ? ""
+        : cancelledTool
+          ? "final text after cancellation"
+          : "done from fake agy",
+    duration_seconds: 1,
+    num_turns: 1,
+    usage: { input_tokens: 100, output_tokens: 20, thinking_tokens: 0, cache_read_tokens: 5, total_tokens: 125 },
+  },
+});
 const postResultDelayMs = Number(process.env.FAKE_AGY_POST_RESULT_DELAY_MS ?? 0);
 if (Number.isFinite(postResultDelayMs) && postResultDelayMs > 0) {
   await new Promise((resolve) => setTimeout(resolve, postResultDelayMs));
