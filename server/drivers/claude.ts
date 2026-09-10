@@ -245,7 +245,7 @@ function askSummary(ask: Ask): string {
   return text === "{}" ? (ask.tool ?? "tool") : text.slice(0, 200);
 }
 
-export function permissionSocketPath(threadId: string) {
+export function permissionSocketPath(threadId: string, generation = 1) {
   // A readable prefix alone is not unique: ids that agree on their first
   // characters ("t-perm-dup-1", "t-perm-dup-2") would share a socket. POSIX
   // hides that — a new broker's listen replaces the socket FILE, so the name
@@ -254,10 +254,13 @@ export function permissionSocketPath(threadId: string) {
   // previous broker's async teardown. Half the tag is a digest of the FULL
   // id so distinct threads get distinct sockets; the tag stays at 8 chars
   // total because the POSIX path already brushes the 104-byte sun_path
-  // limit under deep tmp home dirs.
+  // limit under deep tmp home dirs. Later Windows generations append a
+  // suffix so a leftover listener cannot EADDRINUSE the replacement.
   const prefix = threadId.replace(/[^\w-]/g, "").slice(0, 4);
   const digest = createHash("sha256").update(threadId).digest("hex").slice(0, 4);
-  return brokerSocketPath(DATA_DIR, `${prefix}${digest}`);
+  const path = brokerSocketPath(DATA_DIR, `${prefix}${digest}`);
+  if (generation > 1 && process.platform === "win32") return `${path}-g${generation}`;
+  return path;
 }
 
 function createPermissionBroker(opts: {
@@ -503,6 +506,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       settleTurn?: (ok: boolean, stopReason: string | null) => void;
     }
     const sessions = new Map<string, Session>();
+    const brokerGeneration = new Map<string, number>();
     const configuredIdleMinimum = Number(process.env.OMB_CLAUDE_SESSION_IDLE_MIN_MS);
     const sessionIdleMinimum = Number.isFinite(configuredIdleMinimum) && configuredIdleMinimum > 0
       ? configuredIdleMinimum
@@ -680,10 +684,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       // bypassPermissions (fullAuto) — nothing would ever ask.
       let broker: ReturnType<typeof createPermissionBroker> | undefined;
       let socketPath: string | null = null;
+      const ogbArgs = [PERM_PROXY_PATH, ""];
       if (config.permissionMode !== "bypassPermissions") {
         socketPath = permissionSocketPath(threadId);
+        ogbArgs[1] = socketPath;
         args.push("--permission-prompt-tool", "mcp__ogb__approve");
-        mcpServers.ogb = { command: process.execPath, args: [PERM_PROXY_PATH, socketPath], env: { ...NODE_ENV_FLAG } };
+        mcpServers.ogb = { command: process.execPath, args: ogbArgs, env: { ...NODE_ENV_FLAG } };
         allowed.push("mcp__ogb");
       }
       // The MCP config carries credentials — a Composio consumer key in a
@@ -760,6 +766,14 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       // Only create a broker for a new process. A compatible retained process
       // keeps its existing proxy connection and broker across turns.
       if (socketPath) {
+        const generation = (brokerGeneration.get(threadId) ?? 0) + 1;
+        brokerGeneration.set(threadId, generation);
+        const nextPath = permissionSocketPath(threadId, generation);
+        if (nextPath !== socketPath) {
+          socketPath = nextPath;
+          ogbArgs[1] = nextPath;
+          if (mcpConfigPath) writeFileSync(mcpConfigPath, JSON.stringify({ mcpServers }), { mode: 0o600 });
+        }
         // remembers which tool each pending ask came from, so the resolved
         // event can scope approvals to real desktop-control tools only
         const askTools = new Map<string, string | undefined>();
