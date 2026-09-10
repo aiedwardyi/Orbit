@@ -715,9 +715,6 @@ body {
 /* Cute mascot idle: Grok-style blink + soft eye drift. No body bounce. */
 .mascot-avatar {
   line-height: 0;
-  /* Clamped cream. Owner asked for the dumpling "on white" without picking
-     #FFFFFF vs this ground; leave it here until he answers. */
-  background: #efe6da;
   border-radius: 50%;
   overflow: hidden;
 }
