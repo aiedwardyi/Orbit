@@ -172,23 +172,28 @@ describe("ModelPicker friends chip", () => {
     expect(grok46).toBeGreaterThan(-1);
     expect(grok45).toBeGreaterThan(grok46);
     expect(list.match(/aria-pressed="true"/g)).toHaveLength(1);
-    expect(list).toContain('data-model-cell="grok-4.5" data-engine-axis="true" aria-pressed="true"');
+    expect(list).toContain('data-model-cell="grok-4.5" aria-pressed="true"');
   });
 
   it("gives a pinned custom model its own selected cell", () => {
     const html = markup({ instanceId: "grok", model: "omlx::local", mode: "pinned" }, true);
     const list = html.slice(html.indexOf("data-model-picker-content"));
-    expect(list).toContain('data-model-cell="omlx::local" data-engine-axis="true" aria-pressed="true"');
+    expect(list).toContain('data-model-cell="omlx::local" aria-pressed="true"');
     expect(list).toContain("local (oMLX)");
     expect(list).not.toContain("Suggested");
   });
 
-  it("opens a modal with ordered engine rows and inline keyboard bindings", () => {
+  it("opens a modal with ordered model groups and keycap bindings", () => {
+    for (const [id, model] of [["antigravity", "gemini-3.8-flash-high"], ["codex", "gpt-6-astra"], ["opencode", "meta/muse-spark-1.3"]]) {
+      mockInstances.find((instance) => instance.instanceId === id)!.models = { default: model!, options: [{ id: model!, label: model! }] };
+    }
     const html = markup(bot.modelSelection, true);
     const list = html.slice(html.indexOf("data-model-picker-content"));
     expect(list).toContain('role="dialog" aria-modal="true"');
-    expect(list).toContain("Engine up-down   Model left-right   Save Enter   Cancel Esc");
-    expect(list).toContain('aria-label="Switch engine"');
+    for (const key of ["Alt", "P", "↑", "↓", "←", "→", "Enter", "Esc"]) expect(list).toContain(`<kbd>${key}</kbd>`);
+    expect(list).toContain("</kbd>Model");
+    expect(list).toContain("</kbd>Effort");
+    expect(list).toContain('aria-label="Models"');
     expect(list).toContain('aria-label="Models"');
     expect(list).not.toContain(">Cloud<");
     expect(list).toContain("Grok 4.6");
@@ -217,7 +222,7 @@ describe("ModelPicker friends chip", () => {
     const html = markup({ instanceId: "kimi", model: "kimi-default", mode: "pinned" }, true);
     const list = html.slice(html.indexOf("data-model-picker-content"));
     expect(list).toContain('data-model-row="kimi"');
-    expect(list).toContain('data-model-cell="kimi-default" data-engine-axis="true" aria-pressed="true"');
+    expect(list).toContain('data-model-cell="kimi-default" aria-pressed="true"');
     expect(list).not.toContain('data-model-row="gemini"');
     expect(list).not.toContain("Show all engines");
   });

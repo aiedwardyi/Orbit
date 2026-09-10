@@ -54,6 +54,58 @@ afterEach(async () => {
 });
 
 describe("ModelPicker cross navigation", () => {
+  it("cancels when clicking the empty backdrop around the cross", async () => {
+    mock.instances = [engine("grok", "grokAgent", ["grok-4.6"])];
+    await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" });
+    await act(async () => document.querySelector(".model-cross-plane")!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+    expect(document.querySelector('[data-model-picker-content]')).toBeNull();
+    expect(mock.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("moves horizontally through Antigravity model ids without sending effort", async () => {
+    mock.instances = [engine("antigravity", "antigravityAgent", ["gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low"])];
+    await mount({ instanceId: "antigravity", model: "gemini-3.8-flash-low", mode: "pinned" });
+    await key("ArrowRight");
+    await key("Enter");
+    expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({
+      type: "setModel", botId: "bot-1",
+      selection: { instanceId: "antigravity", model: "gemini-3.8-flash-medium", mode: "pinned" },
+    });
+    expect(mock.dispatch.mock.calls[0]?.[0].selection).not.toHaveProperty("effort");
+  });
+
+  it.each([
+    ["grok", "grokAgent", "grok-4.5"],
+    ["claude", "claudeAgent", "claude-sonnet-5"],
+  ])("moves horizontally through %s effort without changing the model id", async (instanceId, driverKind, model) => {
+    mock.instances = [engine(instanceId, driverKind, [model], ["low", "medium", "high"])];
+    await mount({ instanceId, model, mode: "pinned", effort: "low" });
+    await key("ArrowRight");
+    await key("Enter");
+    expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({
+      type: "setModel", botId: "bot-1", selection: { instanceId, model, mode: "pinned", effort: "medium" },
+    });
+  });
+
+  it("keeps an off-list id verbatim when changing effort on the horizontal axis", async () => {
+    mock.instances = [engine("grok", "grokAgent", ["grok-4.6"], ["low", "medium", "high"])];
+    await mount({ instanceId: "grok", model: "retired/exact-model:pin", mode: "pinned", effort: "low" });
+    await key("ArrowRight");
+    await key("Enter");
+    expect(mock.dispatch.mock.calls[0]?.[0].selection).toEqual({ instanceId: "grok", model: "retired/exact-model:pin", mode: "pinned", effort: "medium" });
+  });
+
+  it("moves vertically through every model before crossing engine boundaries", async () => {
+    mock.instances = [
+      engine("codex", "codex", ["gpt-6-astra", "gpt-5.6-sol"]),
+      engine("grok", "grokAgent", ["grok-4.6"]),
+    ];
+    await mount({ instanceId: "codex", model: "gpt-6-astra", mode: "pinned" });
+    await key("ArrowDown");
+    await key("Enter");
+    expect(mock.dispatch.mock.calls[0]?.[0].selection).toEqual({ instanceId: "codex", model: "gpt-5.6-sol", mode: "pinned" });
+  });
+
   it.each([
     [false, "bot-1", true],
     [true, "bot-1", false],
@@ -72,7 +124,7 @@ describe("ModelPicker cross navigation", () => {
     mock.instances = [engine("grok", "grokAgent", ["grok-4.6"], ["low", "medium", "high"])];
     const selection: ModelSelection = { instanceId: "grok", model: "grok-4.6", mode: "pinned", effort: "high" };
     await mount(selection);
-    await act(async () => Array.from(document.querySelectorAll<HTMLButtonElement>("[data-effort-strip] button")).find((button) => button.textContent === "low")!.click());
+    await act(async () => Array.from(document.querySelectorAll<HTMLButtonElement>("[data-effort-axis] button")).find((button) => button.textContent === "low")!.click());
     await key("Enter");
     expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({ type: "setModel", botId: "bot-1", selection: { ...selection, effort: "low" } });
     expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -155,18 +207,18 @@ describe("ModelPicker cross navigation", () => {
     expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({ type: "setModel", botId: "bot-1", selection });
   });
 
-  it("clamps the model column when moving from a four-model row to Grok's two", async () => {
+  it("crosses from the final model into the next engine and clears unsupported effort", async () => {
     mock.instances = [
       engine("codex", "codex", ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]),
       engine("grok", "grokAgent", ["grok-4.6", "grok-4.5"], ["low", "medium", "high"]),
     ];
     await mount({ instanceId: "codex", model: "gpt-5.6-terra", mode: "pinned", effort: "xhigh" });
-    await key("ArrowRight");
+    await key("ArrowDown");
     await key("ArrowDown");
     await key("Enter");
     expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({
       type: "setModel", botId: "bot-1",
-      selection: { instanceId: "grok", model: "grok-4.5", mode: "pinned" },
+      selection: { instanceId: "grok", model: "grok-4.6", mode: "pinned" },
     });
   });
 
@@ -208,7 +260,7 @@ describe("ModelPicker cross navigation", () => {
     await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" }, false);
     const trigger = document.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!;
     await act(async () => { trigger.focus(); trigger.click(); });
-    await key("ArrowRight");
+    await key("ArrowDown");
     expect(document.querySelector('[data-model-cell="grok-4.5"][aria-pressed="true"]')).not.toBeNull();
     await key("Escape");
     expect(mock.dispatch).not.toHaveBeenCalled();

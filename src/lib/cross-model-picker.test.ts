@@ -1,19 +1,19 @@
 import { describe, expect, it } from "vitest";
 
-import { centeredItems, freePickerModels, movePicker, pickerRows } from "./cross-model-picker";
+import { pickerModels, freePickerModels, movePicker, pickerRows } from "./cross-model-picker";
 import type { InstanceInfo } from "@/state/store";
 
 describe("picker catalogs", () => {
-  it.each(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"])("wraps past the boundary with %s and skips empty rows", (key) => {
+  it.each(["ArrowUp", "ArrowDown"])("wraps past the boundary with %s and skips empty rows", (key) => {
     const instances: InstanceInfo[] = ["empty-first", "first", "empty-middle", "last", "empty-last"].map((instanceId) => ({
       instanceId, driverKind: "grokAgent", displayName: instanceId, snapshot: { state: "available" },
       models: { default: "grok-4.6", options: (instanceId.startsWith("empty") ? [] : ["grok-4.6", "grok-4.5"]).map((id) => ({ id, label: id })) },
     }));
-    const current = { instanceId: key === "ArrowDown" ? "last" : "first", model: key === "ArrowRight" ? "grok-4.5" : "grok-4.6", mode: "pinned" as const };
+    const current = { instanceId: key === "ArrowDown" ? "last" : "first", model: key === "ArrowDown" ? "grok-4.5" : "grok-4.6", mode: "pinned" as const };
     const rows = pickerRows(instances, current);
     expect(movePicker(rows, current, key)).toEqual({
       instanceId: key === "ArrowUp" ? "last" : "first",
-      model: key === "ArrowLeft" ? "grok-4.5" : "grok-4.6", mode: "pinned",
+      model: key === "ArrowUp" ? "grok-4.5" : "grok-4.6", mode: "pinned",
     });
   });
 
@@ -21,7 +21,7 @@ describe("picker catalogs", () => {
     const instance: InstanceInfo = { instanceId: "empty", driverKind: "codex", displayName: "Empty", snapshot: { state: "available" }, models: { default: "", options: [] } };
     const current = { instanceId: "empty", model: "" };
     const rows = [{ instance, label: "Empty", cells: [] }, { instance: { ...instance, instanceId: "also-empty" }, label: "Also empty", cells: [] }];
-    expect(centeredItems([], 0)).toEqual([]);
+    expect(pickerModels(rows)).toEqual([]);
     for (const key of ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]) {
       expect(movePicker(rows, current, key)).toEqual(current);
       expect(movePicker([], current, key)).toEqual(current);

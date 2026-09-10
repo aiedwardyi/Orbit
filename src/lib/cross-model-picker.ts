@@ -65,10 +65,27 @@ export function pickerColumn(row: PickerRow, model: string): number {
   return Math.max(0, row.cells.findIndex((cell) => cell.options.some((option) => option.id === model)));
 }
 
-export function centeredItems<T>(items: T[], index: number): T[] {
-  if (items.length === 0) return [];
-  const start = (index - Math.floor(items.length / 2) + items.length) % items.length;
-  return [...items.slice(start), ...items.slice(0, start)];
+export function pickerModels(rows: PickerRow[]) {
+  return rows.flatMap((row) => row.cells.map((cell) => ({ ...row, cell })));
+}
+
+export type PickerEffort = { id: string; label: string; model?: string; effort?: ModelSelection["effort"] };
+
+export function pickerEfforts(row: PickerRow, cell: PickerCell): PickerEffort[] {
+  if (row.instance.driverKind === "antigravityAgent") {
+    if (cell.options.length < 2) return [];
+    return ["low", "medium", "high"].flatMap((tier) => cell.options
+      .filter((option) => option.id.endsWith(`-${tier}`))
+      .map((option) => ({ id: option.id, label: tier, model: option.id })));
+  }
+  const levels = row.instance.capabilities?.effortLevels ?? [];
+  return levels.length ? [{ id: "default", label: "Default" }, ...levels.map((effort) => ({ id: effort, label: effort, effort }))] : [];
+}
+
+export function selectPickerEffort(current: ModelSelection, option: PickerEffort): ModelSelection {
+  const { effort: _, ...next } = current;
+  if (option.model) return { ...next, model: option.model, mode: "pinned" };
+  return option.effort ? { ...next, effort: option.effort } : next;
 }
 
 export function selectPickerModel(instance: InstanceInfo, model: string, previous: ModelSelection): ModelSelection {
@@ -81,21 +98,22 @@ export function selectPickerModel(instance: InstanceInfo, model: string, previou
 }
 
 export function movePicker(rows: PickerRow[], current: ModelSelection, key: string): ModelSelection {
-  const rowIndex = rows.findIndex((row) => row.instance.instanceId === current.instanceId);
-  const row = rows[rowIndex];
+  const models = pickerModels(rows);
+  const index = models.findIndex((item) => item.instance.instanceId === current.instanceId && item.cell.options.some((option) => option.id === current.model));
+  const row = models[index];
   if (!row) return current;
-  const column = pickerColumn(row, current.model);
   if (key === "ArrowLeft" || key === "ArrowRight") {
-    const cell = row.cells[(column + (key === "ArrowLeft" ? -1 : 1) + row.cells.length) % row.cells.length];
-    return cell ? selectPickerModel(row.instance, cell.options[0]!.id, current) : current;
+    const options = pickerEfforts(row, row.cell);
+    const selected = options.findIndex((option) => option.model ? option.model === current.model : option.effort === current.effort);
+    const target = options[(Math.max(0, selected) + (key === "ArrowLeft" ? -1 : 1) + options.length) % options.length];
+    return target ? selectPickerEffort(current, target) : current;
   }
   if (key === "ArrowUp" || key === "ArrowDown") {
     const direction = key === "ArrowUp" ? -1 : 1;
-    for (let offset = 1; offset < rows.length; offset++) {
-      const target = rows[(rowIndex + direction * offset + rows.length) % rows.length]!;
-      const cell = target.cells[Math.min(column, target.cells.length - 1)];
-      if (cell) return selectPickerModel(target.instance, cell.options[0]!.id, current);
-    }
+    const target = models[(index + direction + models.length) % models.length]!;
+    const tier = row.instance.driverKind === "antigravityAgent" ? current.model.match(/-(low|medium|high)$/)?.[0] : undefined;
+    const option = (tier && target.cell.options.find((option) => option.id.endsWith(tier))) || target.cell.options[0]!;
+    return selectPickerModel(target.instance, option.id, current);
   }
   return current;
 }
