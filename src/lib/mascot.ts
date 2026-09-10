@@ -86,10 +86,10 @@ export const MAUS_COLORS = {
   gray: "#5C5854",
 } satisfies Record<MausColor, string>;
 
-/** First-cycled / missing-color default. Stored "green" is still a valid color. */
-export const DEFAULT_MAUS_COLOR = "red" as const satisfies MausColor;
+/** Missing-color default for new bots. Stored "green" is still a valid color. */
+export const DEFAULT_MAUS_COLOR = "white" as const satisfies MausColor;
 
-/** Resolves a stored or unknown name to a palette hex. Junk falls back to red. */
+/** Resolves a stored or unknown name to a palette hex. Junk falls back to white. */
 export function mausColorHex(color: string | null | undefined): string {
   if (typeof color === "string" && Object.hasOwn(MAUS_COLORS, color)) {
     return MAUS_COLORS[color as MausColor];

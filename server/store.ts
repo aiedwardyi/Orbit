@@ -21,7 +21,7 @@ import {
   type TaskResumePacket,
 } from "./task-state.ts";
 import { lastUserInstruction, packetAfterInterruption } from "./task-recovery-flush.ts";
-import { botAvatarProfile, mascotStyleSchema, type BotAvatarCrop, type MascotStyle } from "../shared/bot-avatar.ts";
+import { botAvatarProfile, DEFAULT_MASCOT_STYLE, mascotStyleSchema, type BotAvatarCrop, type MascotStyle } from "../shared/bot-avatar.ts";
 import type { RoutineRequestCardData } from "../shared/routine-request.ts";
 import type { RoutineRunCardData } from "../shared/routine-run.ts";
 import { readContextCompaction, type ContextCompactionV1 } from "../shared/context-compaction.ts";
@@ -514,22 +514,6 @@ export interface InstalledPackageMetadata {
 const BOTS_FILE = join(DATA_DIR, "bots.json");
 const GROUPS_FILE = join(DATA_DIR, "groups.json");
 const messagesFile = (threadId: string) => join(DATA_DIR, `messages-${threadId}.json`);
-
-const COLORS: MausColor[] = [
-  "red",
-  "green",
-  "blue",
-  "orange",
-  "purple",
-  "cyan",
-  "pink",
-  "yellow",
-  "teal",
-  "coral",
-  "white",
-  "black",
-  "gray",
-];
 
 /** Sections are persisted as display labels, so exact trimmed labels are
  * their identity. Missing/blank means the unsectioned (General) team. */
@@ -1218,9 +1202,9 @@ export class Store {
       title: profile.title ?? (job ? titleFromMessage(job) : ""),
       description: profile.description ?? job ?? "",
       notifications: true,
-      color: profile.color ?? COLORS[this.bots.length % COLORS.length],
+      color: profile.color ?? "white",
+      mascotStyle: profile.mascotStyle ?? DEFAULT_MASCOT_STYLE,
       ...(profile.mascotExpression ? { mascotExpression: profile.mascotExpression } : {}),
-      ...(profile.mascotStyle ? { mascotStyle: profile.mascotStyle } : {}),
       unread: false,
       modelSelection: profile.modelSelection ?? this.defaultSelection(),
       resumeCursors: {},

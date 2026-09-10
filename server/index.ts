@@ -6520,7 +6520,33 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (store.bots.length >= MAX_WORKSPACE_BOTS) {
         return json(res, 409, { error: `this workspace is limited to ${MAX_WORKSPACE_BOTS} bots` });
       }
-      const bot = store.createBot({ ...profile.patch, section, modelSelection: selection }, { job });
+      const palette = [
+        "green",
+        "blue",
+        "red",
+        "orange",
+        "purple",
+        "cyan",
+        "pink",
+        "yellow",
+        "teal",
+        "coral",
+        "white",
+        "black",
+        "gray",
+      ] as const satisfies readonly BotRecord["color"][];
+      const color = palette.find((name) => name === body.color);
+      let mascotStyle: z.infer<typeof mascotStyleSchema> | undefined;
+      if (body.mascotStyle !== undefined) {
+        const parsedStyle = mascotStyleSchema.safeParse(body.mascotStyle);
+        if (!parsedStyle.success) {
+          return json(res, 400, {
+            error: `mascotStyle must be ${MASCOT_STYLES.slice(0, -1).join(", ")}, or ${MASCOT_STYLES[MASCOT_STYLES.length - 1]}`,
+          });
+        }
+        mascotStyle = parsedStyle.data;
+      }
+      const bot = store.createBot({ ...profile.patch, section, modelSelection: selection, color, mascotStyle }, { job });
       return json(res, 201, {
         bot: {
           ...wireBot(bot),

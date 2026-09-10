@@ -11,7 +11,7 @@ export type BotAvatarCrop = z.infer<typeof botAvatarCropSchema>;
 export const MASCOT_STYLES = ["peach", "teal", "lavender", "coral", "squircle", "circle", "pill"] as const;
 export const mascotStyleSchema = z.enum(MASCOT_STYLES);
 export type MascotStyle = z.infer<typeof mascotStyleSchema>;
-export const DEFAULT_MASCOT_STYLE = "peach" as const satisfies MascotStyle;
+export const DEFAULT_MASCOT_STYLE = "squircle" as const satisfies MascotStyle;
 
 export const MASCOT_STYLE_ASSETS = {
   peach: "peach.svg",
@@ -54,7 +54,7 @@ export function mascotStyleFromColor(color: string | null | undefined): MascotSt
     case "coral":
       return "coral";
     default:
-      return DEFAULT_MASCOT_STYLE;
+      return "peach";
   }
 }
 
