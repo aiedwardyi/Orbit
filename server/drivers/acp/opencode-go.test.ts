@@ -544,19 +544,22 @@ describe("OpenCode Ask for approval", () => {
     expect((await permissionFor(undefined, files, true, "repo", env)).bash).toBe("deny");
   });
 
-  it("walks project config from the real cwd behind a junction", async () => {
+  it("walks project config and inline {file:} from the real cwd behind a junction", async () => {
     const files = {
       "opencode/opencode.json": inline({ edit: "deny" }),
       "repo/.git/HEAD": "ref: refs/heads/main\n",
       "repo/opencode.json": inline({ bash: "deny" }),
+      "repo/rule.txt": "deny",
       "repo/sub/opencode.json": "",
       "outer/opencode.json": inline({ edit: "allow" }),
+      "outer/rule.txt": "allow",
     };
     const link = (scratch: string) => {
       symlinkSync(join(scratch, "repo", "sub"), join(scratch, "outer", "link"), "junction");
       return {};
     };
     expect(await permissionFor(undefined, files, true, "outer/link", link)).toMatchObject({ bash: "deny", edit: "deny" });
+    expect((await permissionFor(inline({ edit: "{file:../rule.txt}" }), files, true, "outer/link", link)).edit).toBe("deny");
   });
 
   it("substitutes {env:} in names, values and unquoted text", async () => {

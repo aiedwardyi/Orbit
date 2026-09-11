@@ -206,12 +206,14 @@ const JSONC_COMMENT = /("(?:[^"\\]|\\.)*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//gu;
 const JSONC_TRAILING_COMMA = /("(?:[^"\\]|\\.)*")|,(?=\s*[}\]])/gu;
 const WILDCARD_SPECIAL = /[.+^${}()|[\]\\]/gu;
 
+const realCwd = (cwd: string) => existsSync(cwd) ? realpathSync.native(cwd) : resolve(cwd);
+
 /** Config files OpenCode 1.18.30 merges below the inline content, lowest first. */
 function permissionFiles(env: Record<string, string | undefined>, cwd: string | undefined): string[] {
   const dirs: string[] = [];
   if (cwd && !/^(1|true)$/iu.test(env.OPENCODE_DISABLE_PROJECT_CONFIG ?? "")) {
     // Project config walks up from the real cwd and stops at the git root, or at the filesystem root outside a repo.
-    for (let dir = existsSync(cwd) ? realpathSync.native(cwd) : resolve(cwd); ; dir = dirname(dir)) {
+    for (let dir = realCwd(cwd); ; dir = dirname(dir)) {
       dirs.push(dir);
       if (existsSync(join(dir, ".git")) || dirname(dir) === dir) break;
     }
@@ -347,7 +349,7 @@ export function withOpenCodeWebSearch(
       const lower = permissionFiles(env, cwd)
         .map((path) => readPermissionFile(path, env))
         .reduce(mergePermissions, new Map<string, PermissionRule>());
-      const user = mergePermissions(lower, readPermissions(raw ?? "", resolve(cwd ?? ""), env));
+      const user = mergePermissions(lower, readPermissions(raw ?? "", realCwd(cwd ?? ""), env));
       for (const key of ["edit", "bash"]) {
         const rule = tightenRules(rulesFor(key, user), lower.get(key));
         permission[key] = rule instanceof Map ? Object.fromEntries(rule) : rule;
