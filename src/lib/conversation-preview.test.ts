@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { conversationPreview, roomConversationPreview, showComposerPermissionChip, transcriptIdleAfterOnboarding } from "./conversation-preview";
-import { t } from "@/lib/i18n";
+import { t, translate, type Translate } from "@/lib/i18n";
 import type { Bot, Group, Message } from "@/state/store";
 
 const quizCard = {
@@ -31,6 +31,15 @@ const bot = (messages: Message[], extra: Partial<Bot> = {}): Pick<Bot, "activity
 describe("conversationPreview after first-turn ignore", () => {
   it("shows the open first-turn quiz title", () => {
     expect(conversationPreview(bot([quiz]))).toBe("What do you mostly want help with?");
+  });
+
+  it("follows the UI language for the open quiz and still detects it once answered or ignored", () => {
+    const ko: Translate = (key, vars) => translate("ko", key, vars);
+    expect(conversationPreview(bot([quiz]), ko)).toBe("주로 어떤 일에 도움이 필요하세요?");
+    const answered: Message = { ...quiz, card: { ...quizCard, answered: "업무와 프로젝트", dismissed: true } };
+    expect(conversationPreview(bot([answered]), ko)).toBe("업무와 프로젝트");
+    expect(transcriptIdleAfterOnboarding([answered])).toBe(false);
+    expect(transcriptIdleAfterOnboarding([{ ...quiz, card: { ...quizCard, dismissed: true } }])).toBe(true);
   });
 
   it("does not keep the unanswered question after the quiz is ignored", () => {
