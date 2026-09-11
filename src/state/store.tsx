@@ -687,6 +687,7 @@ export type Action =
   | { type: "botAdded"; bot: Bot; focusComposer?: boolean }
   | { type: "composerFocused"; botId: string }
   | { type: "deleteBot"; botId: string }
+  | { type: "reorderBots"; botIds: string[] }
   | { type: "duplicateBot"; botId: string }
   | { type: "markUnread"; botId: string }
   | { type: "botPatched"; bot: BotAnnouncement }
@@ -1026,6 +1027,12 @@ export function reducer(state: AppState, action: Action): AppState {
       const selectedId =
         state.selectedId === action.botId ? (bots.find((b) => !b.hidden)?.id ?? bots[0]?.id ?? "") : state.selectedId;
       return { ...state, bots, selectedId };
+    }
+    case "reorderBots": {
+      const rank = new Map(action.botIds.map((id, index) => [id, index]));
+      // A bot the list does not name is newer than it: creates land on top.
+      const bots = [...state.bots].sort((a, b) => (rank.get(a.id) ?? -1) - (rank.get(b.id) ?? -1));
+      return { ...state, bots };
     }
     case "markUnread":
       return updateBot(withMascotMotion(state, action.botId, "surprise"), action.botId, (b) => ({ ...b, unread: true }));
@@ -1665,6 +1672,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   stateRef.current = state;
   useMascotMotionExpiry(state.mascotMotion?.nonce, rawDispatch);
   const cancelledSendsRef = useRef(new Set<string>());
+  const reorderGeneration = useRef(0);
   // per-frame stream-delta batching (see the "runtime" SSE case); stream
   // state is intentionally OUTSIDE the reducer so token frames re-render
   // only StreamContext consumers
@@ -2055,6 +2063,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "deleteBot":
           api(`/api/bots/${action.botId}`, { method: "DELETE" }).catch(showError);
           break;
+        case "reorderBots": {
+          // Only the newest reorder reacts to a failure, and it takes the server's order: the PUT may have saved.
+          const generation = ++reorderGeneration.current;
+          api("/api/bots/order", { method: "PUT", body: JSON.stringify({ botIds: action.botIds }) }).catch((error) => {
+            if (generation !== reorderGeneration.current) return;
+            showError(error);
+            api("/api/bots?messages=0")
+              .then(({ bots }: { bots: Bot[] }) => {
+                if (generation !== reorderGeneration.current) return;
+                rawDispatch({ type: "reorderBots", botIds: bots.map((bot) => bot.id) });
+              })
+              .catch(() => {});
+          });
+          break;
+        }
         case "markUnread":
           api(`/api/bots/${action.botId}`, { method: "PATCH", body: JSON.stringify({ unread: true }) }).catch(
             () => {},
@@ -2606,6 +2629,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "bot.deleted":
           botPatchQueue.cancel(frame.botId);
           rawDispatch({ type: "deleteBot", botId: frame.botId });
+          break;
+        case "bots.order":
+          // A saved order is the truth: a failure handler or refetch still in flight is now stale.
+          reorderGeneration.current += 1;
+          rawDispatch({ type: "reorderBots", botIds: frame.botIds });
           break;
         // a key changed and the fleet hot-reloaded — refresh the picker so
         // newly available providers un-dim immediately
