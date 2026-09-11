@@ -61,13 +61,13 @@ async function renderProfile() {
   });
   const name = host.querySelector<HTMLInputElement>("#settings-profile-name");
   const email = host.querySelector<HTMLInputElement>("#settings-profile-email");
-  const save = host.querySelector<HTMLButtonElement>('button[aria-label="Save name and email"]');
+  const save = host.querySelector<HTMLButtonElement>('button[aria-label="Save name"]');
   expect(name).toBeTruthy();
-  expect(email).toBeTruthy();
+  expect(email).toBeNull();
   expect(save).toBeTruthy();
   expect(host.querySelector('label[for="settings-profile-name"]')?.textContent).toBe("Name");
-  expect(host.querySelector('label[for="settings-profile-email"]')?.textContent).toBe("Email");
-  return { host, root, name: name!, email: email!, save: save! };
+  expect(host.querySelector('label[for="settings-profile-email"]')).toBeNull();
+  return { host, root, name: name!, save: save! };
 }
 
 describe("ProfileFields Save", () => {
@@ -78,7 +78,7 @@ describe("ProfileFields Save", () => {
   });
 
   it("does not PUT on blur and sends a normalized profile on Save", async () => {
-    const saved = { profile: { name: "Ada Lovelace", email: "ada@example.com" } };
+    const saved = { profile: { name: "Ada Lovelace" } };
     let finish: ((value: FetchResult) => void) | undefined;
     const request = vi.fn<(input: string, init?: RequestInit) => Promise<FetchResult>>(
       () => new Promise((resolve) => {
@@ -87,18 +87,14 @@ describe("ProfileFields Save", () => {
     );
     vi.stubGlobal("fetch", request);
 
-    const { root, name, email, save } = await renderProfile();
+    const { root, name, save } = await renderProfile();
     await act(async () => {
       fillInput(name, "  Ada Lovelace  ");
-      fillInput(email, " Ada@Example.com ");
     });
     expect(name.value).toBe("  Ada Lovelace  ");
-    // type="email" strips surrounding spaces in the DOM; casing stays unnormalized until Save.
-    expect(email.value).toBe("Ada@Example.com");
 
     await act(async () => {
       name.blur();
-      email.blur();
     });
     expect(request).not.toHaveBeenCalled();
 
@@ -106,13 +102,12 @@ describe("ProfileFields Save", () => {
       save.click();
     });
     expect(name.disabled).toBe(true);
-    expect(email.disabled).toBe(true);
     expect(request).toHaveBeenCalledTimes(1);
     const [url, init] = request.mock.calls[0];
     expect(url).toBe("/api/config");
     expect(init?.method).toBe("PUT");
     expect(JSON.parse(String(init?.body))).toEqual({
-      profile: { name: "Ada Lovelace", email: "ada@example.com" },
+      profile: { name: "Ada Lovelace" },
     });
 
     await act(async () => {
@@ -136,10 +131,9 @@ describe("ProfileFields Save", () => {
     }));
     vi.stubGlobal("fetch", request);
 
-    const { host, root, name, email, save } = await renderProfile();
+    const { host, root, name, save } = await renderProfile();
     await act(async () => {
       fillInput(name, "Ada");
-      fillInput(email, "ada@example.com");
       save.click();
     });
     await flush();

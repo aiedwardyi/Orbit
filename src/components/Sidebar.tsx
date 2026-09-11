@@ -1,4 +1,3 @@
-import { track } from "@/lib/analytics";
 import { Fragment, useEffect, useRef, useState, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -417,7 +416,6 @@ function NewRoomPanel({ onClose }: { onClose: () => void }) {
       name: name.trim() || undefined,
       section: section.trim() || undefined,
     });
-    track("room_created", { members: picked.size, context: Boolean(section.trim()) });
     onClose();
   };
   return (
@@ -1226,7 +1224,6 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     setTeamFeedback(null);
     try {
       const exported = await downloadAllBots();
-      track("team_exported", { members: exported.members, scope: "all_visible" });
       setTeamFeedback({ error: false, text: `${exported.members} bots exported` });
     } catch (cause) {
       setTeamFeedback({
@@ -1518,7 +1515,6 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                 <button
                   onClick={() => {
                     setPlusOpen(false);
-                    track("bot_created");
                     dispatch({ type: "newBot" });
                   }}
                   className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"

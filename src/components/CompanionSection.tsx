@@ -63,8 +63,8 @@ const endpointHost = (url: string): string => {
   }
 };
 
-export function CompanionSection({ profileEmail = "" }: { profileEmail?: string }) {
-  const c = usePhoneSetupController(profileEmail);
+export function CompanionSection() {
+  const c = usePhoneSetupController();
   const state = c.state;
 
   if (!companionBridge()) {

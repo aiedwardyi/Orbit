@@ -1,4 +1,3 @@
-import { track } from "@/lib/analytics";
 import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { ArrowUp, Check, Clock, Hand, Mic, Paperclip, ShieldCheck, Square, Users, X } from "lucide-react";
 import { showComposerPermissionChip } from "@/lib/conversation-preview";
@@ -580,7 +579,6 @@ export function Composer({
         threadId,
         onError: () => restoreDraft(sentDraft),
       });
-      track("message_sent", { room: true });
     } else if (bot) {
       dispatch({
         type: "send",
@@ -591,7 +589,6 @@ export function Composer({
         threadId,
         onError: () => restoreDraft(sentDraft),
       });
-      track("message_sent", { driver: bot.modelSelection?.instanceId, queued: busy && !canSteer });
     }
     setText("");
     setAttachments([]);
@@ -631,7 +628,6 @@ export function Composer({
         commitQueued(rearmRoomFlushHold(queuedRef.current));
       },
     });
-    track("message_sent", { room: true, queued: true });
   }, [busy, queued, group, members, state.instances, dispatch, restoreDraft, commitQueued]);
 
   // native dictation: partials stream into the input while the Swift

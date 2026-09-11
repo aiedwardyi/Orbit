@@ -213,10 +213,10 @@ export interface PhoneSetupController {
   accountAct: (call: (remote: AccountBridge) => Promise<CompanionAccountState>) => Promise<void>;
 }
 
-export function usePhoneSetupController(profileEmail = ""): PhoneSetupController {
+export function usePhoneSetupController(): PhoneSetupController {
   const [state, setState] = useState<CompanionState | null>(null);
   const [account, setAccount] = useState<CompanionAccountState | null>(null);
-  const [email, setEmailState] = useState(profileEmail);
+  const [email, setEmailState] = useState("");
   const [code, setCodeState] = useState("");
   const [codeSent, setCodeSent] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
@@ -286,10 +286,6 @@ export function usePhoneSetupController(profileEmail = ""): PhoneSetupController
   useEffect(() => {
     void load();
   }, [load]);
-
-  useEffect(() => {
-    if (!emailEdited.current && profileEmail) setEmailState(profileEmail);
-  }, [profileEmail]);
 
   const act = useCallback(async (call: (companion: CompanionBridge) => Promise<CompanionState>) => {
     const companion = companionBridge();
@@ -1181,17 +1177,15 @@ export function PhoneSetupFlowView({
 }
 
 export function PhoneSetupFlow({
-  profileEmail,
   variant,
   onSkip,
   onComplete,
 }: {
-  profileEmail?: string;
   variant: "settings" | "onboarding";
   onSkip?: () => void;
   onComplete?: () => void;
 }) {
-  const controller = usePhoneSetupController(profileEmail);
+  const controller = usePhoneSetupController();
   return (
     <PhoneSetupFlowView
       controller={controller}

@@ -1,7 +1,6 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Loader2, Menu } from "lucide-react";
 import { StoreProvider, useStore } from "@/state/store";
-import { emailGateDone, initAnalytics } from "@/lib/analytics";
 import { unreadConversationCount } from "@/lib/unread";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatView } from "@/components/ChatView";
@@ -323,19 +322,39 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   );
 }
 
+const ONBOARDING_DONE_KEY = "omb-onboarding-done";
+
+function onboardingDone(): boolean {
+  try {
+    return Boolean(localStorage.getItem(ONBOARDING_DONE_KEY) || localStorage.getItem("omb-email-gate"));
+  } catch {
+    return false;
+  }
+}
+
+function setOnboardingDone() {
+  try {
+    localStorage.setItem(ONBOARDING_DONE_KEY, "true");
+  } catch {
+    /* ignore */
+  }
+}
+
 export default function App() {
-  const [gated, setGated] = useState(() => !emailGateDone());
-  useEffect(() => {
-    initAnalytics();
-  }, []);
+  const [onboardingOpen, setOnboardingOpen] = useState(() => !onboardingDone());
   return (
     <I18nProvider>
       <DesktopCapabilitiesProvider>
       <StoreProvider>
-        <Shell onboardingOpen={gated} />
-        {gated && (
+        <Shell onboardingOpen={onboardingOpen} />
+        {onboardingOpen && (
           <Suspense fallback={<div className="fixed inset-0 z-50 bg-app" />}>
-            <Onboarding onDone={() => setGated(false)} />
+            <Onboarding
+              onDone={() => {
+                setOnboardingDone();
+                setOnboardingOpen(false);
+              }}
+            />
           </Suspense>
         )}
       </StoreProvider>

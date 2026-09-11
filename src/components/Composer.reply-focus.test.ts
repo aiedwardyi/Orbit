@@ -3,10 +3,6 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/analytics", () => ({
-  track: () => undefined,
-}));
-
 vi.mock("@/state/store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/state/store")>();
   return {

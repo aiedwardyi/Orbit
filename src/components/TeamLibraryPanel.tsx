@@ -1,4 +1,3 @@
-import { track } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
 import { showCommunityRepoLink } from "@/lib/friends-chrome";
 import { teamImportPreview, type PendingTeamImport } from "@/lib/team-import";
@@ -63,7 +62,6 @@ export interface TeamImportResult {
   archived: ArchivedTeamBot[];
 }
 
-type ImportSource = "library" | "file" | "github";
 type TeamTab = "explore" | "import" | "scout";
 type ImportMode = "replace" | "add";
 
@@ -137,7 +135,6 @@ export function TeamLibraryPanel({
   const [catalogError, setCatalogError] = useState("");
   const [busySlug, setBusySlug] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingTeamImport | null>(null);
-  const [source, setSource] = useState<ImportSource>("file");
   const [githubUrl, setGithubUrl] = useState("");
   const [githubLoading, setGithubLoading] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -216,9 +213,8 @@ export function TeamLibraryPanel({
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [importing, onClose, pending]);
 
-  const previewManifest = (preview: PendingTeamImport, nextSource: ImportSource) => {
+  const previewManifest = (preview: PendingTeamImport) => {
     setPending(preview);
-    setSource(nextSource);
     setImportMode(currentBotCount > 0 ? "replace" : "add");
     setError("");
   };
@@ -235,14 +231,14 @@ export function TeamLibraryPanel({
         throw cause;
       }
     }
-    previewManifest(teamImportPreview(manifest), "file");
+    previewManifest(teamImportPreview(manifest));
   };
 
   const loadLibraryTeam = async (entry: TeamCatalogEntry) => {
     setBusySlug(entry.slug);
     setError("");
     try {
-      previewManifest(teamImportPreview(await api(`/api/team-library/teams/${entry.slug}`)), "library");
+      previewManifest(teamImportPreview(await api(`/api/team-library/teams/${entry.slug}`)));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -263,7 +259,7 @@ export function TeamLibraryPanel({
         method: "POST",
         body: JSON.stringify({ url: requestedUrl.trim() }),
       });
-      previewManifest(teamImportPreview(manifest), "github");
+      previewManifest(teamImportPreview(manifest));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -303,7 +299,6 @@ export function TeamLibraryPanel({
       for (const routine of response.routines ?? []) dispatch({ type: "routinePatched", routine });
       const first = response.bots[0];
       if (first) dispatch({ type: "select", id: first.id });
-      track("team_imported", { members: response.bots.length, source, mode: importMode });
       onImported({
         name: pending.name,
         members: response.bots.length,
@@ -335,7 +330,6 @@ export function TeamLibraryPanel({
       setScouted(result);
       setScoutedFolder(folder);
       setRoomName(result.suggestion.roomName);
-      track("team_scouted", { signals: result.suggestion.manifest.team.members.length - 1 });
       // community candidates arrive lazily; an unreachable directory just
       // leaves this section empty
       void api(`/api/teams/scout/directory?cwd=${encodeURIComponent(folder)}`)
@@ -397,7 +391,6 @@ export function TeamLibraryPanel({
         dispatch({ type: "groupPatched", group: { ...response.group, messages: [] } });
         dispatch({ type: "select", id: response.group.id });
       }
-      track("team_imported", { members: response.bots.length, source: "scout", mode: "project" });
       onImported({
         name: room,
         members: response.bots.length,
