@@ -5275,7 +5275,7 @@ describe("approval chip on the claude CLI", () => {
       expect((await api("PATCH", `/api/bots/${bot.id}`, { autoApprove: true })).status).toBe(200);
       const auto = await argvForTurn(bot.id, "create todo.txt");
       expect(auto[auto.indexOf("--permission-mode") + 1]).toBe("acceptEdits");
-      expect(auto).not.toContain("--settings");
+      expect(JSON.parse(auto[auto.indexOf("--settings") + 1]).permissions.ask).toEqual(["Bash", "PowerShell"]);
     } finally {
       await api("DELETE", `/api/bots/${bot.id}`);
     }

@@ -307,6 +307,20 @@ describe("PiDriver turns (fake CLI)", () => {
     expect(instance.adapter.hasSession("t-turn-error")).toBe(false);
   });
 
+  it("offers the approval chip unless fullAuto means nothing ever asks", async () => {
+    await create();
+    expect(instance.adapter.capabilities.askApproval).toBe(true);
+    const fullAuto = await PiDriver.create({
+      instanceId: "pi-full-auto",
+      displayName: "pi",
+      environment: {},
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: true },
+    });
+    expect(fullAuto.adapter.capabilities.askApproval).toBe(false);
+    await fullAuto.dispose();
+  });
+
   it("advertises images and every harness effort level", async () => {
     await create();
     expect(instance.adapter.capabilities.images).toBe(true);

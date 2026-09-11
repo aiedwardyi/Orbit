@@ -19,6 +19,8 @@ export interface FakeDriverOptions {
   failSnapshot?: string;
   /** effort levels this fake driver declares, forwarded onto capabilities. */
   effortLevels?: readonly EffortLevel[];
+  /** forwarded onto capabilities; omitted, the driver never declares it. */
+  askApproval?: boolean;
 }
 
 export interface FakeDriverHandle {
@@ -65,7 +67,7 @@ export function makeFakeDriver(opts: FakeDriverOptions = {}): FakeDriverHandle {
           },
           adapter: {
             provider: kind,
-            capabilities: { sessionModelSwitch: "unsupported", effortLevels: opts.effortLevels },
+            capabilities: { sessionModelSwitch: "unsupported", effortLevels: opts.effortLevels, askApproval: opts.askApproval },
             sendTurn: async () => ({ turnId: "fake-turn" }),
             interruptTurn: async () => {},
             respondToRequest: async () => "unavailable" as const, // this engine has no asks to answer

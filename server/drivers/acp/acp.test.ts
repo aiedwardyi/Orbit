@@ -902,6 +902,20 @@ describe("ACP turns (fake CLI)", () => {
     expect(argv.indexOf("--reasoning-effort")).toBeGreaterThan(agent);
     expect(argv.indexOf("--permission-mode")).toBeLessThan(agent);
   });
+
+  it("offers the approval chip unless fullAuto means nothing ever asks", async () => {
+    await create(GrokAgentDriver);
+    expect(instance.adapter.capabilities.askApproval).toBe(true);
+    const fullAuto = await GrokAgentDriver.create({
+      instanceId: "grok-full-auto-chip",
+      displayName: "Grok",
+      environment: {},
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: true },
+    });
+    expect(fullAuto.adapter.capabilities.askApproval).toBe(false);
+    await fullAuto.dispose();
+  });
 });
 
 describe("ACP snapshot", () => {

@@ -198,7 +198,7 @@ function opencodeConfigDir(env: Record<string, string | undefined>): string {
   return join(env.XDG_CONFIG_HOME || join(home, ".config"), "opencode");
 }
 
-export function withOpenCodeWebSearch(raw: string | undefined): string {
+export function withOpenCodeWebSearch(raw: string | undefined, ask = false): string {
   let config: Record<string, unknown> = {};
   try {
     const parsed = JSON.parse(raw ?? "");
@@ -214,6 +214,10 @@ export function withOpenCodeWebSearch(raw: string | undefined): string {
       ? { ...current }
       : {};
   permission.websearch = "allow";
+  if (ask) {
+    permission.edit = "ask";
+    permission.bash = "ask";
+  }
   return JSON.stringify({ ...config, permission });
 }
 
@@ -393,9 +397,10 @@ const support = (loadCatalog: OpenCodeCatalogLoader): AcpSupport => ({
     ? ensureOpenCodeInjectModel(normalizeLegacyOpenCodeModel(model, env), env)
     : model,
   transformEnv: stripForeignProviderKeys,
-  // Without this, ACP has webfetch but not websearch.
-  applyTurnEnv: (env) => {
-    env.OPENCODE_CONFIG_CONTENT = withOpenCodeWebSearch(env.OPENCODE_CONFIG_CONTENT);
+  // Without this, ACP has webfetch but not websearch. OpenCode allows every
+  // edit and command by default, so Ask for approval turns those to ask.
+  applyTurnEnv: (env, { approval }) => {
+    env.OPENCODE_CONFIG_CONTENT = withOpenCodeWebSearch(env.OPENCODE_CONFIG_CONTENT, approval === "ask");
   },
   pickAuthMethod: () => null,
   authFailure: "continue",

@@ -112,6 +112,28 @@ describe("approvalKey", () => {
     expect(approvalKey("Bash", "bash -c 'git status'")).toBeNull();
   });
 
+  it("spots a launcher whatever its case or .exe suffix", () => {
+    expect(approvalKey("Bash", "PowerShell -Command Get-ChildItem")).toBeNull();
+    expect(approvalKey("Bash", "powershell.exe -NoProfile -File run.ps1")).toBeNull();
+    expect(approvalKey("Bash", "cmd.exe /c dir")).toBeNull();
+    expect(approvalKey("Bash", "C:/Git/bin/bash.exe -c ls")).toBeNull();
+    expect(approvalKey("Bash", "C:\\Windows\\System32\\cmd.exe /c dir")).toBeNull();
+    expect(approvalKey("PowerShell", "pwsh.EXE -c ls")).toBeNull();
+  });
+
+  it("offers no grant for a quoted program path, like Codex's pwsh wrapper on Windows", () => {
+    const codex = `"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -NoProfile -Command 'node -e "console.log(40+2)"'`;
+    expect(approvalKey("shell", codex)).toBeNull();
+    expect(approvalKey("Bash", "'/opt/my tools/git' status")).toBeNull();
+  });
+
+  it("looks past doas and run0 the way it looks past sudo", () => {
+    expect(approvalKey("Bash", "doas apt-get install ripgrep")).toBe("Bash:apt-get");
+    expect(approvalKey("Bash", "run0 systemctl status sshd")).toBe("Bash:systemctl");
+    expect(approvalKey("Bash", "doas -u alice git status")).toBeNull();
+    expect(approvalKey("Bash", "run0 --user=alice git status")).toBeNull();
+  });
+
   it("never lets a remembered grant cover another path or program", () => {
     const bot = { alwaysAllow: ["Write", "edit", "Bash:git", "PowerShell"] };
     expect(autoDecision(bot, "Write", '{"file_path":"/home/me/.bashrc","content":"x"}')).toBeNull();

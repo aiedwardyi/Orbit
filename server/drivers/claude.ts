@@ -228,6 +228,12 @@ const ASK_SETTINGS = JSON.stringify({
   permissions: { ask: ["Bash", "PowerShell", "Edit", "Write", "MultiEdit", "NotebookEdit"] },
   sandbox: { autoAllowBashIfSandboxed: false },
 });
+// Auto sends every command too, so the destructive guard sees it before the
+// broker auto-approves; edits still run unasked under acceptEdits.
+const AUTO_SETTINGS = JSON.stringify({
+  permissions: { ask: ["Bash", "PowerShell"] },
+  sandbox: { autoAllowBashIfSandboxed: false },
+});
 
 const DENY_TIMEOUT_NOTE =
   "OpenMausBot: nobody answered this permission request in time. Skip this action and finish what you can without it.";
@@ -623,6 +629,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         "--permission-mode", asks ? "default" : config.permissionMode === "auto" ? "acceptEdits" : config.permissionMode,
       ];
       if (asks) args.push("--settings", ASK_SETTINGS);
+      else if (turn.approval === "auto" && config.permissionMode !== "bypassPermissions") {
+        args.push("--settings", AUTO_SETTINGS);
+      }
       if (config.tools !== undefined) args.push("--tools", config.tools.join(","));
       if (config.disallowedTools?.length) {
         args.push("--disallowedTools", config.disallowedTools.join(","));
@@ -1272,6 +1281,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           effortLevels: ["low", "medium", "high", "xhigh", "max"],
           queueing: true,
           localComputerMcp: config.permissionMode !== "bypassPermissions",
+          askApproval: config.permissionMode !== "bypassPermissions",
           rateLimits: true,
         },
         sendTurn,

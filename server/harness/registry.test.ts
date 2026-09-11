@@ -123,6 +123,17 @@ describe("ProviderRegistry", () => {
     expect(described.capabilities.effortLevels).toBeUndefined();
   });
 
+  it("says which instances can ask before an edit, keeping the chip for drivers that never say", async () => {
+    const never = makeFakeDriver({ kind: "never-asks", askApproval: false });
+    const silent = makeFakeDriver({ kind: "silent" });
+    const registry = new ProviderRegistry([never.driver, silent.driver]);
+    await registry.load({ a: { driver: "never-asks" }, b: { driver: "silent" } });
+
+    const described = await registry.describe();
+    expect(described.find((d) => d.instanceId === "a")?.capabilities.askApproval).toBe(false);
+    expect(described.find((d) => d.instanceId === "b")?.capabilities.askApproval).toBe(true);
+  });
+
   it("reports whether an instance supports isolated approval review", async () => {
     const fake = makeFakeDriver();
     const registry = new ProviderRegistry([fake.driver]);

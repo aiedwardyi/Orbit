@@ -551,9 +551,12 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         let codexThreadId: string | null = null;
         let startedModel: string | null = null;
         let resumeFailed = false;
+        // on-request never asks inside the workspace; untrusted asks before
+        // any edit or command that is not read-only
+        const approvalPolicy = config.fullAuto ? "never" : turn.approval === "ask" ? "untrusted" : "on-request";
         if (cursor) {
           try {
-            const resumed = await request("thread/resume", { threadId: cursor });
+            const resumed = await request("thread/resume", { threadId: cursor, approvalPolicy });
             codexThreadId = resumed?.thread?.id ?? cursor;
           } catch {
             resumeFailed = true;
@@ -566,7 +569,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             model: selection.model,
             ...(selection.modelProvider ? { modelProvider: selection.modelProvider } : {}),
             sandbox: config.fullAuto ? "danger-full-access" : "workspace-write",
-            approvalPolicy: config.fullAuto ? "never" : "on-request",
+            approvalPolicy,
             ephemeral: false,
             config: { web_search: "live" },
           });
@@ -679,6 +682,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         images: true,
         effortLevels: ["low", "medium", "high", "xhigh", "max"],
         rateLimits: true,
+        askApproval: !config.fullAuto,
       },
       sendTurn,
       steer: async (threadId, text) => active.get(threadId)?.steer(text) ?? false,

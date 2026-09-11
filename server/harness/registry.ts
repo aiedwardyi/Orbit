@@ -176,6 +176,7 @@ export class ProviderRegistry {
             effortLevels: inst.adapter.capabilities.effortLevels,
             queueing: inst.adapter.capabilities.queueing === true,
             localComputerMcp: inst.adapter.capabilities.localComputerMcp === true,
+            askApproval: inst.adapter.capabilities.askApproval !== false,
             approvalReview: inst.reviewPermission !== undefined,
             rateLimits: inst.adapter.capabilities.rateLimits === true,
           },

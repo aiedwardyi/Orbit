@@ -259,6 +259,40 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(threadStart.params.config).toMatchObject({ web_search: "live" });
   });
 
+  it("asks before workspace edits and commands in Ask mode, and keeps on-request in Auto", async () => {
+    await create();
+    const policyFor = async (approval: "ask" | "auto") => {
+      const dump = join(scratch, `policy-${approval}.json`);
+      process.env.FAKE_CODEX_DUMP = dump;
+      const { turnId } = await instance.adapter.sendTurn({ threadId: `t-policy-${approval}`, text: "hi", approval });
+      await recorder.until((e) => e.type === "turn.completed" && e.turnId === turnId);
+      const seen = JSON.parse(readFileSync(dump, "utf8"));
+      return seen.calls.find((c: { method: string }) => c.method === "thread/start").params;
+    };
+    expect(await policyFor("ask")).toMatchObject({ approvalPolicy: "untrusted", sandbox: "workspace-write" });
+    expect(await policyFor("auto")).toMatchObject({ approvalPolicy: "on-request", sandbox: "workspace-write" });
+  });
+
+  it("carries the chip's policy onto a resumed thread", async () => {
+    await create({ mode: "resume" });
+    const dump = join(scratch, "resume-policy.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    await instance.adapter.sendTurn({ threadId: "t-resume-ask", text: "again", resumeCursor: "codex-thread-9", approval: "ask" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    const resume = seen.calls.find((c: { method: string }) => c.method === "thread/resume");
+    expect(resume.params).toEqual({ threadId: "codex-thread-9", approvalPolicy: "untrusted" });
+  });
+
+  it("offers the approval chip unless fullAuto means nothing ever asks", async () => {
+    await create();
+    expect(instance.adapter.capabilities.askApproval).toBe(true);
+    await instance.dispose();
+    await create({ fullAuto: true });
+    expect(instance.adapter.capabilities.askApproval).toBe(false);
+  });
+
   it("keeps the full command when a Windows interpreter prefix is long", async () => {
     await create({ mode: "windows-command" });
     await instance.adapter.sendTurn({ threadId: "t-windows-command", text: "read notes" });

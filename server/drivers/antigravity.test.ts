@@ -576,6 +576,9 @@ describe("Antigravity computer MCP config", () => {
       // approval channel in any mode.
       expect(fullAuto.adapter.capabilities.localComputerMcp).toBeUndefined();
       expect(acceptEdits.adapter.capabilities.localComputerMcp).toBeUndefined();
+      // so the composer offers no Ask for approval chip either
+      expect(fullAuto.adapter.capabilities.askApproval).toBe(false);
+      expect(acceptEdits.adapter.capabilities.askApproval).toBe(false);
     } finally {
       await fullAuto.dispose();
       await acceptEdits.dispose();
