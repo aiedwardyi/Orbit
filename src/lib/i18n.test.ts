@@ -13,6 +13,7 @@ import {
   resolveLocale,
   translate,
 } from "./i18n";
+import { teamImportPreview } from "./team-import";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const css = readFileSync(join(here, "../styles.css"), "utf8");
@@ -435,8 +436,10 @@ describe("team map badges and export feedback", () => {
   });
 });
 
-describe("team map page and team toasts", () => {
+describe("team map, team library, and team toasts", () => {
   const teamMapPage = readFileSync(join(here, "../components/TeamMapPage.tsx"), "utf8");
+  const teamLibrary = readFileSync(join(here, "../components/TeamLibraryPanel.tsx"), "utf8");
+  const teamImport = readFileSync(join(here, "team-import.ts"), "utf8");
   // JSX text, prose attributes, and prose string branches that bypass t().
   const hardcoded = (source: string) => [
     ...source.matchAll(/(?<!=)>\s*[^<>{}();=]*[A-Za-z]{2,}[^<>{}();=]*[<{]/g),
@@ -469,6 +472,27 @@ describe("team map page and team toasts", () => {
     expect(translate("en", "chrome.teamLoadedOne", { name: "Studio", count: 1 })).toBe("Studio loaded · 1 bot");
     expect(translate("ko", "chrome.teamLoadedMany", { name: "Studio", count: 3 })).toBe("Studio 불러옴 · 봇 3개");
     expect(ko["chrome.undo"]).toBe("실행 취소");
+  });
+
+  it("keeps every team library string in the catalog", () => {
+    expect(hardcoded(teamLibrary).filter((hit) => !/github\.com\/owner\/repo|"Community bot"/.test(hit))).toEqual([]);
+    expect(teamLibrary).not.toMatch(/"room" : "rooms"|"bot" : "bots"| min`|bots · |ready-to-load|That team file is too large/);
+    expect(translate("en", "teamLibrary.replacesOne", { count: 1 })).toBe(
+      "Replaces your 1 current bot. They'll be archived with conversations intact.",
+    );
+    expect(ko["teamLibrary.loadTeam"]).toBe("팀 불러오기");
+    expect(ko["teamLibrary.searchTeams"]).toBe("팀 검색");
+  });
+
+  it("translates team import errors at throw time", () => {
+    expect(teamImport).not.toMatch(/new Error\(["`]/);
+    applyLocale("ko");
+    expect(() => teamImportPreview({ format: "nope" })).toThrow(ko["teamImport.notTeamFile"]);
+    expect(() => teamImportPreview({ format: "openmaus.team", version: 1, team: { name: "x", members: [null] } })).toThrow(
+      "팀원 1이(가) 올바르지 않습니다.",
+    );
+    applyLocale("en");
+    expect(() => teamImportPreview({ format: "nope" })).toThrow("This is not an Orbit playbook or a team file.");
   });
 });
 

@@ -119,7 +119,7 @@ describe("friends chrome call sites keep the feature code", () => {
     expect(sidebar).toContain('t("chrome.teachSkill")');
     expect(sidebar).toContain('t("chrome.routines")');
     expect(teamLibrary).toContain("showCommunityRepoLink()");
-    expect(teamLibrary).toContain("Community repo");
+    expect(teamLibrary).toContain('t("teamLibrary.communityRepo")');
     expect(avatarCard).toContain("showAvatarImageGenerate()");
     expect(avatarCard).toContain("showAvatarShapeOptions()");
     expect(avatarCard).toContain("Generate with GPT Image 2");
