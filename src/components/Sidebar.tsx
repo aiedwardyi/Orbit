@@ -958,7 +958,7 @@ function ArchivedBotsPanel({
       });
       dispatch({ type: "botPatched", bot: response.bot });
       dispatch({ type: "select", id: bot.id });
-      onRestored(`${bot.name} restored`);
+      onRestored(t("chrome.botRestored", { name: bot.name }));
       if (bots.length === 1) onClose();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -982,7 +982,7 @@ function ArchivedBotsPanel({
       for (const response of responses) dispatch({ type: "botPatched", bot: response.bot });
       const first = bots[0];
       if (first) dispatch({ type: "select", id: first.id });
-      onRestored(`${bots.length} ${bots.length === 1 ? "bot" : "bots"} restored`);
+      onRestored(t(bots.length === 1 ? "chrome.botsRestoredOne" : "chrome.botsRestoredMany", { count: bots.length }));
       onClose();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -1272,7 +1272,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     setTeamFeedback(null);
     try {
       const exported = await downloadAllBots();
-      setTeamFeedback({ error: false, text: t("chrome.botsExported", { count: exported.members }) });
+      setTeamFeedback({ error: false, text: t(exported.members === 1 ? "chrome.botsExportedOne" : "chrome.botsExported", { count: exported.members }) });
     } catch (cause) {
       setTeamFeedback({
         error: true,
@@ -1331,7 +1331,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       for (const response of restoredChiefs) dispatch({ type: "botPatched", bot: response.bot });
       const first = result.archived[0];
       if (first) dispatch({ type: "select", id: first.id });
-      setTeamFeedback({ error: false, text: "Previous team restored" });
+      setTeamFeedback({ error: false, text: t("chrome.teamRestored") });
     } catch (cause) {
       setTeamFeedback({ error: true, text: cause instanceof Error ? cause.message : String(cause) });
     }
@@ -1353,7 +1353,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       }
       setTeamFeedback({
         error: false,
-        text: `${bot.name} archived`,
+        text: t("chrome.botArchived", { name: bot.name }),
         restoreBot: { id: bot.id, name: bot.name },
       });
     } catch (cause) {
@@ -1370,7 +1370,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       });
       dispatch({ type: "botPatched", bot: response.bot });
       dispatch({ type: "select", id: bot.id });
-      setTeamFeedback({ error: false, text: `${bot.name} restored` });
+      setTeamFeedback({ error: false, text: t("chrome.botRestored", { name: bot.name }) });
     } catch (cause) {
       setTeamFeedback({ error: true, text: cause instanceof Error ? cause.message : String(cause) });
     }
@@ -1898,12 +1898,12 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               result.archived.length > 0
                 ? {
                     error: false,
-                    text: `${result.name} loaded · ${result.members} ${result.members === 1 ? "bot" : "bots"}`,
+                    text: t(result.members === 1 ? "chrome.teamLoadedOne" : "chrome.teamLoadedMany", { name: result.name, count: result.members }),
                     undo: result,
                   }
                 : {
                     error: false,
-                    text: `${result.name} loaded · ${result.members} ${result.members === 1 ? "bot" : "bots"}`,
+                    text: t(result.members === 1 ? "chrome.teamLoadedOne" : "chrome.teamLoadedMany", { name: result.name, count: result.members }),
                   },
             );
           }}
@@ -1927,7 +1927,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                   onClick={() => void undoTeamLoad(pendingTeamUndo)}
                   className="rounded-md px-1.5 py-0.5 font-medium text-accent hover:bg-raised"
                 >
-                  Undo
+                  {t("chrome.undo")}
                 </button>
               )}
               {pendingBotUndo && (
@@ -1935,7 +1935,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                   onClick={() => void undoBotArchive(pendingBotUndo)}
                   className="rounded-md px-1.5 py-0.5 font-medium text-accent hover:bg-raised"
                 >
-                  Undo
+                  {t("chrome.undo")}
                 </button>
               )}
             </div>

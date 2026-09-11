@@ -1,3 +1,5 @@
+import type { MessageKey } from "./i18n-catalog";
+
 export interface TeamMapBot {
   id: string;
   name: string;
@@ -32,7 +34,7 @@ export type TeamMapEdge = {
 };
 
 export interface TeamMapStatus {
-  label: string;
+  key: MessageKey;
   tone: "success" | "warning" | "danger" | "idle";
 }
 
@@ -99,8 +101,8 @@ export function buildTeamMapEdges(bots: TeamMapBot[], snapshot: TeamMapSnapshot)
 }
 
 export function teamMapStatus(bot: TeamMapBot): TeamMapStatus {
-  if (bot.activity === "waiting-on-you") return { label: "Waiting for you", tone: "warning" };
-  if (bot.activity === "dead" || bot.activity === "no-signal") return { label: "No signal", tone: "danger" };
-  if (bot.busy || bot.activity === "working") return { label: "Working", tone: "success" };
-  return { label: "Ready", tone: "idle" };
+  if (bot.activity === "waiting-on-you") return { key: "teamMap.status.waiting", tone: "warning" };
+  if (bot.activity === "dead" || bot.activity === "no-signal") return { key: "teamMap.status.noSignal", tone: "danger" };
+  if (bot.busy || bot.activity === "working") return { key: "teamMap.status.working", tone: "success" };
+  return { key: "teamMap.status.ready", tone: "idle" };
 }

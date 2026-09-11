@@ -424,8 +424,51 @@ describe("team map badges and export feedback", () => {
     expect(teamMapPage).toContain('t("teamMap.queued")');
     expect(teamMapPage).toContain('t("teamMap.connected")');
     expect(teamMapPage).not.toMatch(/"Running"|"Queued"|"Connected"/);
-    expect(sidebar).toContain('t("chrome.botsExported", { count: exported.members })');
+    expect(sidebar).toContain('t(exported.members === 1 ? "chrome.botsExportedOne" : "chrome.botsExported", {');
     expect(sidebar).not.toMatch(/bots exported`/);
+  });
+
+  it("says 1 bot exported, not 1 bots exported", () => {
+    expect(translate("en", "chrome.botsExportedOne", { count: 1 })).toBe("1 bot exported");
+    expect(translate("ko", "chrome.botsExportedOne", { count: 1 })).toBe("봇 1개 내보냄");
+    expect(translate("en", "chrome.botsExported", { count: 3 })).toBe("3 bots exported");
+  });
+});
+
+describe("team map page and team toasts", () => {
+  const teamMapPage = readFileSync(join(here, "../components/TeamMapPage.tsx"), "utf8");
+  // JSX text, prose attributes, and prose string branches that bypass t().
+  const hardcoded = (source: string) => [
+    ...source.matchAll(/(?<!=)>\s*[^<>{}();=]*[A-Za-z]{2,}[^<>{}();=]*[<{]/g),
+    ...source.matchAll(/\}(?!\s*(?:else|finally|catch)\b)[^<>{}();=]*[A-Za-z]{2,}[^<>{}();=]*</g),
+    ...source.matchAll(/\b(?:aria-label|title|placeholder)=(?:"[^"]*[A-Za-z]|\{["`][^"`]*[A-Za-z])/g),
+    ...source.matchAll(/(?:[?:(,[]|\|\||&&|return)\s*["`][A-Z][a-z][^"`]*["`]/g),
+  ].map((match) => match[0].trim());
+
+  it("keeps every Team map string in the catalog", () => {
+    expect(hardcoded(teamMapPage)).toEqual([]);
+    expect(teamMapPage).not.toMatch(/Discard unsaved changes|shared context|Last saved|Running and queued first/);
+    expect(teamMapPage).toContain('t("chrome.teamMap")');
+    expect(teamMapPage).toContain("t(status.key)");
+    expect(en["teamMap.waitingOnYou"]).toBe("Waiting on you");
+    expect(ko["teamMap.waitingOnYou"]).toBe("응답 대기");
+    expect(en["teamMap.status.waiting"]).toBe("Waiting for you");
+    expect(ko["teamMap.status.noSignal"]).toBe("신호 없음");
+    expect(ko["teamMap.general"]).toBe("일반");
+  });
+
+  it("translates the team and bot toasts in Sidebar", () => {
+    expect(sidebar).toContain('t("chrome.teamRestored")');
+    expect(sidebar).toContain('t("chrome.botArchived", { name: bot.name })');
+    expect(sidebar).toContain('t("chrome.botRestored", { name: bot.name })');
+    expect(sidebar).toContain('result.members === 1 ? "chrome.teamLoadedOne" : "chrome.teamLoadedMany"');
+    expect(sidebar).toContain('t("chrome.undo")');
+    expect(sidebar).toContain('bots.length === 1 ? "chrome.botsRestoredOne" : "chrome.botsRestoredMany"');
+    expect(sidebar).not.toMatch(/"Previous team restored"|\} archived`|\} restored`|\} loaded ·|>\s*Undo\s*</);
+    expect(ko["chrome.teamRestored"]).toBe("이전 팀 복원됨");
+    expect(translate("en", "chrome.teamLoadedOne", { name: "Studio", count: 1 })).toBe("Studio loaded · 1 bot");
+    expect(translate("ko", "chrome.teamLoadedMany", { name: "Studio", count: 3 })).toBe("Studio 불러옴 · 봇 3개");
+    expect(ko["chrome.undo"]).toBe("실행 취소");
   });
 });
 
