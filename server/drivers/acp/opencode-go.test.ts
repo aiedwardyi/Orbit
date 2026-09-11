@@ -534,6 +534,20 @@ describe("OpenCode Ask for approval", () => {
     expect((await permissionFor(undefined, files, true, "repo", env)).bash).toBe("deny");
   });
 
+  it.skipIf(process.platform === "win32")("reads a relative OPENCODE_CONFIG from the real cwd behind a symlink", async () => {
+    const files = {
+      "repo/.git/HEAD": "ref: refs/heads/main\n",
+      "repo/custom.json": inline({ bash: "deny" }),
+      "repo/sub/opencode.json": "",
+      "outer/custom.json": inline({ bash: "allow" }),
+    };
+    const link = (scratch: string) => {
+      symlinkSync(join(scratch, "repo", "sub"), join(scratch, "outer", "link"));
+      return { OPENCODE_CONFIG: "../custom.json" };
+    };
+    expect((await permissionFor(undefined, files, true, "outer/link", link)).bash).toBe("deny");
+  });
+
   it("keeps a deny from OPENCODE_CONFIG_DIR over the project files", async () => {
     const files = {
       "repo/.git/HEAD": "ref: refs/heads/main\n",
