@@ -154,6 +154,13 @@ describe("narrateTool", () => {
     expect(narrateTool("browser_navigate")).toBe("opening a page");
   });
 
+  it("names only the browser server's real tool ids", () => {
+    expect(narrateTool("browser_request_takeover")).toBe("using the browser");
+    expect(narrateTool("browser_browser_select_option")).toBe("using the browser");
+    expect(narrateTool("browser_test")).toBe("running browser_test");
+    expect(narrateTool("browser_navigate.sh")).toBe("running browser_navigate.sh");
+  });
+
   it("keeps Claude and Codex labels for everything else", () => {
     expect(narrateTool("Bash")).toBe("running a command");
     expect(narrateTool("mcp__computer__computer_exec")).toBe("running a command");
