@@ -220,6 +220,22 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(threadStart.params).toMatchObject({ model: "gpt-5.6-sol", modelProvider: "openai" });
   });
 
+  it("turns on live web search for the app-server spawn and thread/start", async () => {
+    await create();
+    const dump = join(scratch, "search-on.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+
+    await instance.adapter.sendTurn({ threadId: "t-search-on", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.argv).toContain("app-server");
+    expect(seen.argv).toContain("-c");
+    expect(seen.argv).toContain('web_search="live"');
+    const threadStart = seen.calls.find((c: { method: string }) => c.method === "thread/start");
+    expect(threadStart.params.config).toMatchObject({ web_search: "live" });
+  });
+
   it("keeps the full command when a Windows interpreter prefix is long", async () => {
     await create({ mode: "windows-command" });
     await instance.adapter.sendTurn({ threadId: "t-windows-command", text: "read notes" });
@@ -414,9 +430,11 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(started).toMatchObject({ sessionId: "codex-thread-9" });
     await recorder.until((e) => e.type === "turn.completed");
 
-    const methods = JSON.parse(readFileSync(dump, "utf8")).calls.map((c: { method: string }) => c.method);
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    const methods = seen.calls.map((c: { method: string }) => c.method);
     expect(methods).toContain("thread/resume");
     expect(methods).not.toContain("thread/start");
+    expect(seen.argv).toContain('web_search="live"');
   });
 
   it("falls back to a fresh thread when resume fails", async () => {

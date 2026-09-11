@@ -257,6 +257,76 @@ describe("OpenCode catalog", () => {
     }
   });
 
+  it("allows websearch in OpenCode config before an ACP turn", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "omb-opencode-websearch-"));
+    const dump = join(scratch, "acp.json");
+    const driver = createOpenCodeDriver(async () => catalog("opencode/x-preview-f-free"));
+    const instance = await driver.create({
+      instanceId: "opencode-websearch",
+      displayName: "OpenCode",
+      environment: {
+        HOME: scratch,
+        USERPROFILE: scratch,
+        FAKE_ACP_DUMP: dump,
+        FAKE_ACP_MODELS: "opencode/x-preview-f-free",
+      },
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: false },
+    });
+    const recorder = recordEvents(instance.adapter);
+    try {
+      await instance.adapter.sendTurn({
+        threadId: "t-opencode-websearch",
+        text: "hello",
+        model: "opencode/x-preview-f-free",
+      });
+      await recorder.until((event) => event.type === "turn.completed");
+      const seen = JSON.parse(readFileSync(dump, "utf8"));
+      expect(seen.env.OPENCODE_CONFIG_CONTENT).toContain('"websearch":"allow"');
+    } finally {
+      recorder.stop();
+      await instance.dispose();
+      await removeTempDir(scratch);
+    }
+  });
+
+  it("keeps other OPENCODE_CONFIG_CONTENT keys when allowing websearch", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "omb-opencode-websearch-merge-"));
+    const dump = join(scratch, "acp.json");
+    const prior = { model: "opencode/kept-model", permission: { bash: "ask" } };
+    const driver = createOpenCodeDriver(async () => catalog("opencode/x-preview-f-free"));
+    const instance = await driver.create({
+      instanceId: "opencode-websearch-merge",
+      displayName: "OpenCode",
+      environment: {
+        HOME: scratch,
+        USERPROFILE: scratch,
+        FAKE_ACP_DUMP: dump,
+        FAKE_ACP_MODELS: "opencode/x-preview-f-free",
+        OPENCODE_CONFIG_CONTENT: JSON.stringify(prior),
+      },
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: false },
+    });
+    const recorder = recordEvents(instance.adapter);
+    try {
+      await instance.adapter.sendTurn({
+        threadId: "t-opencode-websearch-merge",
+        text: "hello",
+        model: "opencode/x-preview-f-free",
+      });
+      await recorder.until((event) => event.type === "turn.completed");
+      const seen = JSON.parse(readFileSync(dump, "utf8"));
+      const sent = JSON.parse(seen.env.OPENCODE_CONFIG_CONTENT);
+      expect(sent.model).toBe("opencode/kept-model");
+      expect(sent.permission).toEqual({ bash: "ask", websearch: "allow" });
+    } finally {
+      recorder.stop();
+      await instance.dispose();
+      await removeTempDir(scratch);
+    }
+  });
+
   it("classifies ACP's standard authentication error", () => {
     expect(classifyOpenCodeError({ code: -32000 })).toBe("invalid_credentials");
   });
