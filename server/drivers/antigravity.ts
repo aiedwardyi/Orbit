@@ -45,6 +45,17 @@ import { appendNative, finishNative } from "./native.ts";
 import { isResumeCursorRejected } from "./retry.ts";
 
 const DRIVER_KIND = "antigravityAgent";
+const AGY_STOPPED_NOTE = "The bot stopped before finishing.";
+const AGY_SYSTEM_NOTICE = /<SYSTEM_MESSAGE\b/i;
+const AGY_CONTEXT_CANCELLATION = /\bcontext\s+cancel(?:ed|led)\b/i;
+
+function isAntigravitySystemNotice(text: string): boolean {
+  return AGY_SYSTEM_NOTICE.test(text);
+}
+
+function isCancelledTool(payload: { state?: string; tool_info?: { output?: string } | string }): boolean {
+  return payload.state === "ERROR" && AGY_CONTEXT_CANCELLATION.test(JSON.stringify(payload.tool_info ?? payload));
+}
 
 export interface AntigravityConfig {
   cli: string;
@@ -571,6 +582,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
       // conversation_id from the init event → the resumeCursor (session.started
       // is what the harness persists as the cursor). Also seeds tool item ids.
       let conversationId: string | null = null;
+      let cancelledTool = false;
 
       const handleLine = (line: string) => {
         let o: any;
@@ -594,6 +606,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
           }
           case "step_update": {
             if (payload.step_type === "tool") {
+              cancelledTool ||= isCancelledTool(payload);
               const itemId = `${conversationId ?? o.conversation_id ?? "conv"}:${payload.step_index}`;
               if (payload.state === "ACTIVE") {
                 emit({ ...base(threadId, turnId), type: "item.started", itemType: "tool", itemId, title: payload.tool_name });
@@ -615,9 +628,12 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
           case "result": {
             // agy delivers the assistant text in result.response (not streamed)
             const response = typeof payload.response === "string" ? payload.response : "";
-            if (response) {
+            const realResponse = Boolean(response.trim()) && !isAntigravitySystemNotice(response) && !cancelledTool;
+            if (realResponse) {
               emit({ ...base(threadId, turnId), type: "content.delta", streamKind: "assistant_text", delta: response });
               emit({ ...base(threadId, turnId), type: "item.completed", itemType: "assistant_text", text: response });
+            } else {
+              emit({ ...base(threadId, turnId), type: "item.completed", itemType: "assistant_text", text: AGY_STOPPED_NOTE });
             }
             if (payload.usage) {
               emit({
@@ -630,8 +646,8 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
             // result.usage is the turn total (the per-step agent_response
             // figures above are its parts, not additions to it)
             settle(
-              payload.status === "SUCCESS",
-              payload.status ?? null,
+              payload.status === "SUCCESS" && Boolean(realResponse),
+              cancelledTool ? "cancelled_tool" : realResponse ? payload.status ?? null : "no_final_text",
               null,
               payload.usage
                 ? {

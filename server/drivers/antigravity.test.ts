@@ -207,6 +207,64 @@ describe("Antigravity turns (fake CLI)", () => {
     expect(instance.adapter.hasSession("t-happy")).toBe(false);
   });
 
+  it("does not render internal system notices from streamed or final text", async () => {
+    const previous = process.env.FAKE_AGY_SYSTEM_NOTICE;
+    process.env.FAKE_AGY_SYSTEM_NOTICE = "1";
+    try {
+      await create();
+      await instance.adapter.sendTurn({ threadId: "t-system-notice", text: "hi" });
+      await recorder.until((event) => event.type === "turn.completed");
+
+      expect(recorder.events.some((event) => event.type === "content.delta")).toBe(false);
+      expect(recorder.events.find((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toMatchObject({
+        text: "The bot stopped before finishing.",
+      });
+      expect(recorder.events.some((event) => JSON.stringify(event).includes("<SYSTEM_MESSAGE>"))).toBe(false);
+      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: false, stopReason: "no_final_text" });
+    } finally {
+      if (previous === undefined) delete process.env.FAKE_AGY_SYSTEM_NOTICE;
+      else process.env.FAKE_AGY_SYSTEM_NOTICE = previous;
+    }
+  });
+
+  it("reports a plain stopped note when agy returns no final text", async () => {
+    const previous = process.env.FAKE_AGY_NO_FINAL;
+    process.env.FAKE_AGY_NO_FINAL = "1";
+    try {
+      await create();
+      await instance.adapter.sendTurn({ threadId: "t-no-final", text: "hi" });
+      await recorder.until((event) => event.type === "turn.completed");
+
+      expect(recorder.events.find((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toMatchObject({
+        text: "The bot stopped before finishing.",
+      });
+      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: false, stopReason: "no_final_text" });
+    } finally {
+      if (previous === undefined) delete process.env.FAKE_AGY_NO_FINAL;
+      else process.env.FAKE_AGY_NO_FINAL = previous;
+    }
+  });
+
+  it("reports a cancelled tool as a cut-off turn even when agy says SUCCESS", async () => {
+    const previous = process.env.FAKE_AGY_CANCELLED_TOOL;
+    process.env.FAKE_AGY_CANCELLED_TOOL = "1";
+    try {
+      await create();
+      await instance.adapter.sendTurn({ threadId: "t-cancelled-tool", text: "hi" });
+      await recorder.until((event) => event.type === "turn.completed");
+
+      expect(recorder.events.find((event) => event.type === "item.completed" && event.itemType === "tool")).toMatchObject({ ok: false });
+      expect(recorder.events.find((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toMatchObject({
+        text: "The bot stopped before finishing.",
+      });
+      expect(recorder.events.some((event) => event.type === "content.delta")).toBe(false);
+      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: false, stopReason: "cancelled_tool" });
+    } finally {
+      if (previous === undefined) delete process.env.FAKE_AGY_CANCELLED_TOOL;
+      else process.env.FAKE_AGY_CANCELLED_TOOL = previous;
+    }
+  });
+
   it.each([
     ["single-line", "1"],
     ["multiline", "multiline"],
