@@ -122,6 +122,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     const listeners = new Set<RuntimeEventListener>();
     interface Turn {
       stop: () => void;
+      steer: (text: string) => Promise<boolean>;
       turnId: string;
       asks: Map<string, (behavior: "allow" | "deny" | "answer", message?: string, source?: "user" | "timeout" | "system") => void>;
     }
@@ -217,6 +218,8 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
 
       const asks = new Map<string, (behavior: "allow" | "deny" | "answer", message?: string, source?: "user" | "timeout" | "system") => void>();
       let nextId = 1;
+      let nativeThreadId: string | null = null;
+      let nativeTurnId: string | null = null;
       const rpcPending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
 
       const send = (obj: unknown) => {
@@ -250,6 +253,20 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       const stop = () => {
         stopRequested = true;
         killCliTree(child);
+      };
+
+      const steer = async (text: string): Promise<boolean> => {
+        if (state.settled || abandoned || stopRequested || asks.size || !nativeThreadId || !nativeTurnId) return false;
+        try {
+          const result = await request("turn/steer", {
+            threadId: nativeThreadId,
+            expectedTurnId: nativeTurnId,
+            input: [{ type: "text", text }],
+          });
+          return result?.turnId === nativeTurnId;
+        } catch {
+          return false;
+        }
       };
 
       const settle = (ok: boolean, stopReason: string | null) => {
@@ -353,6 +370,9 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       const handleNotification = (msg: any) => {
         const p = msg.params ?? {};
         switch (msg.method) {
+          case "turn/started":
+            nativeTurnId = p.turn?.id ?? null;
+            break;
           // token-level chat text; the item/completed frame follows with the
           // whole message, so its delta is only a fallback when none streamed
           case "item/agentMessage/delta": {
@@ -516,7 +536,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         }
       });
 
-      active.set(threadId, { stop, turnId, asks });
+      active.set(threadId, { stop, steer, turnId, asks });
       // Relaunching the app-server is still the same logical turn. Keep the
       // active process current on every attempt, but announce the turn once.
       if (attempt === 0) emit({ ...base(threadId, turnId), type: "turn.started" });
@@ -555,7 +575,9 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         }
         emit({ ...base(threadId, turnId), type: "session.started", sessionId: codexThreadId, model: startedModel ?? turn.model ?? null });
         const prompt = resumeFailed ? (turn.resumeFallback?.text ?? turn.text) : turn.text;
-        await request("turn/start", {
+        nativeThreadId = codexThreadId;
+        nativeTurnId = null;
+        const startedTurn = await request("turn/start", {
           threadId: codexThreadId,
           input: [{ type: "text", text: turn.system ? `${turn.system}\n\n${prompt}` : prompt }],
           // Spread, not `effort: turn.effort ?? null`. Probed against
@@ -569,6 +591,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           // thread rather than the current one.
           ...(turn.effort ? { effort: turn.effort } : {}),
         });
+        nativeTurnId = startedTurn?.turn?.id ?? nativeTurnId;
       } catch (e) {
         const failure = e instanceof Error ? e : { text: String(e) };
         const message = e instanceof Error ? e.message : String(e);
@@ -645,6 +668,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     adapter: {
       provider: DRIVER_KIND,
       capabilities: {
+        queueing: true,
         sessionModelSwitch: "unsupported",
         computerMcp: true,
         localComputerMcp: true,
@@ -657,6 +681,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         rateLimits: true,
       },
       sendTurn,
+      steer: async (threadId, text) => active.get(threadId)?.steer(text) ?? false,
       interruptTurn: async (threadId) => active.get(threadId)?.stop(),
       respondToRequest: async (threadId, requestId, decision) => {
         const turn = active.get(threadId);

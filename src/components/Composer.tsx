@@ -48,7 +48,7 @@ import {
   peelNextBusyRoomSend,
   rearmRoomFlushHold,
 } from "@/lib/composer-busy";
-import { composerIsBusy, visibleSteerEntries } from "@/lib/send-accept";
+import { composerIsBusy } from "@/lib/send-accept";
 import { composerEnterIntent, isComposerEnterKey } from "@/lib/composer-enter";
 import { useI18n } from "@/lib/i18n";
 import { ReplyQuote } from "./ReplyQuote";
@@ -249,8 +249,6 @@ export function Composer({
   const threadId = group?.threadId ?? bot?.threadId ?? "";
   const acceptedSends = state.acceptedSends[threadId];
   const busy = composerIsBusy(group ? Boolean(group.busyBotId) : Boolean(bot?.busy), acceptedSends);
-  // an engine with a live session takes a message INTO the running turn;
-  // for those the composer never locks — the server steers instead of 409
   const canSteer =
     !group && Boolean(bot) && state.instances.find((i) => i.instanceId === bot!.modelSelection.instanceId)?.capabilities?.queueing === true;
   // the VISIBLE branch only — an approval left on a branch you edited away
@@ -458,7 +456,6 @@ export function Composer({
   const dropQueued = useCallback((sendId: string) => {
     commitQueued(queuedRef.current.filter((entry) => entry.draft.sendId !== sendId));
   }, [commitQueued]);
-  const pendingSteer = !group && bot ? visibleSteerEntries(state.pendingQueued, bot.threadId, acceptedSends) : [];
   // a chip on its own is a message: the send control has to appear for it
   const fileInput = useRef<HTMLInputElement>(null);
   const [autoWarn, setAutoWarn] = useState(false);
@@ -733,29 +730,6 @@ export function Composer({
             <button
               type="button"
               onClick={() => dropQueued(entry.draft.sendId)}
-              aria-label={t("composer.cancelQueued")}
-              title={t("composer.cancelQueued")}
-              className="ml-auto flex size-5 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-raised hover:text-ink"
-            >
-              <X size={13} strokeWidth={2.5} />
-            </button>
-          </div>
-        ))}
-        {pendingSteer.map((entry) => (
-          <div
-            key={entry.queueId}
-            className="mb-2 flex items-center gap-2 rounded-lg border border-hairline/40 bg-panel px-3 py-2 text-[12.5px] text-ink-secondary"
-          >
-            <Clock size={13} className="shrink-0" />
-            <span className="min-w-0 flex-1 truncate">
-              {t("composer.queuedUntil", { text: entry.text })}
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                if (!bot) return;
-                dispatch({ type: "cancelQueued", botId: bot.id, queueId: entry.queueId });
-              }}
               aria-label={t("composer.cancelQueued")}
               title={t("composer.cancelQueued")}
               className="ml-auto flex size-5 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-raised hover:text-ink"

@@ -64,6 +64,7 @@ export interface AcpConfig {
 
 /** Per-harness specifics — everything that differs between Grok, Gemini, … */
 export interface AcpSupport {
+  grokInterjections?: boolean;
   driverKind: string;
   displayName: string;
   /** Omit for subscription CLIs (the default). Custom-only CLIs sit below
@@ -221,6 +222,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
       const listeners = new Set<RuntimeEventListener>();
       interface Turn {
         stop: () => void;
+        steer: (text: string) => Promise<boolean>;
         interrupt: () => void;
         turnId: string;
         asks: Map<string, (behavior: string, source?: "user" | "timeout" | "system") => void>;
@@ -326,6 +328,11 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         });
 
         const state = { settled: false, promptSent: false, text: "" };
+        const interjections = new Set<string>();
+        const interjectionWaiters = new Map<string, (delivered: boolean) => void>();
+        // Steer prompts Grok has not answered. If the running prompt ends
+        // first, Grok runs each one as its own prompt inside this turn.
+        const queuedSteers = new Map<Promise<any>, () => void>();
         const asks = new Map<string, (behavior: string, source?: "user" | "timeout" | "system") => void>();
         let nextId = 1;
         let sessionId: string | null = null;
@@ -358,6 +365,38 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
 
         const stop = () => killCliTree(child);
 
+        const steer = (text: string): Promise<boolean> => {
+          if (!support.grokInterjections || !state.promptSent || state.settled || interruptTimer || asks.size || !sessionId) {
+            return Promise.resolve(false);
+          }
+          return new Promise<boolean>((resolve) => {
+            const reply = request("session/prompt", { sessionId, prompt: [{ type: "text", text }] });
+            queuedSteers.set(reply, () => resolve(true));
+            reply.then(
+              (result) => {
+                queuedSteers.delete(reply);
+                const promptId = result?._meta?.promptId;
+                if (result?.stopReason === "end_turn" || interjections.delete(promptId)) return resolve(true);
+                if (!promptId) return resolve(false);
+                // The result can beat its interjection notification.
+                let timer: ReturnType<typeof setTimeout> | undefined;
+                const finish = (delivered: boolean) => {
+                  clearTimeout(timer);
+                  interjectionWaiters.delete(promptId);
+                  resolve(delivered);
+                };
+                interjectionWaiters.set(promptId, finish);
+                timer = setTimeout(() => finish(false), 1_000);
+                timer.unref?.();
+              },
+              () => {
+                queuedSteers.delete(reply);
+                resolve(false);
+              },
+            );
+          });
+        };
+
         /** Emit buffered assistant text as its own item, then clear it. */
         const flushAssistantText = () => {
           const text = state.text;
@@ -371,6 +410,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           state.settled = true;
           if (interruptTimer) clearTimeout(interruptTimer);
           for (const finish of [...asks.values()]) finish("cancel", "system");
+          for (const finish of interjectionWaiters.values()) finish(false);
           for (const p of rpcPending.values()) {
             if (p.timer) clearTimeout(p.timer);
             p.reject(new Error("turn settled"));
@@ -453,8 +493,12 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         };
 
         const handleNotification = (msg: any) => {
-          // Vendor side-channels (e.g. grok's `_x.ai/*`) are teed to the
-          // native log but never normalized: the prompt result is the settle.
+          if (support.grokInterjections && msg.method === "_x.ai/session/interjection" && msg.params?.sessionId === sessionId) {
+            flushAssistantText();
+            const waiter = interjectionWaiters.get(msg.params.interjectionId);
+            if (waiter) waiter(true);
+            else interjections.add(msg.params.interjectionId);
+          }
           if (msg.method !== "session/update") return;
           const p = msg.params ?? {};
           if (!state.promptSent || p._meta?.isReplay === true) return;
@@ -569,7 +613,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           interruptTimer = setTimeout(() => settle(true, "cancelled"), 5_000);
           interruptTimer.unref?.();
         };
-        active.set(threadId, { stop, interrupt, turnId, asks });
+        active.set(threadId, { stop, steer, interrupt, turnId, asks });
         emit({ ...base(threadId, turnId), type: "turn.started" });
 
         (async () => {
@@ -686,7 +730,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               : promptTurn.system
                 ? `${promptTurn.system}\n\n${promptTurn.text}`
                 : promptTurn.text;
-            const result = await request("session/prompt", {
+            let result = await request("session/prompt", {
               sessionId,
               prompt: [{ type: "text", text }],
             });
@@ -700,6 +744,14 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                 input: usage.inputTokens ?? 0,
                 output: usage.outputTokens ?? 0,
               });
+            }
+            while (result?.stopReason === "end_turn" && queuedSteers.size) {
+              flushAssistantText();
+              const replies = [...queuedSteers.keys()];
+              for (const accept of queuedSteers.values()) accept();
+              queuedSteers.clear();
+              // an interjected reply only acknowledges; the prompt it joined decides the outcome
+              result = (await Promise.all(replies)).findLast((r) => r?._meta?.completionKind !== "removedFromQueue") ?? result;
             }
             const reason = result?.stopReason;
             if (reason === "end_turn") settle(true, null);
@@ -752,6 +804,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         adapter: {
           provider: DRIVER_KIND,
           capabilities: {
+            queueing: support.grokInterjections === true,
             sessionModelSwitch: "unsupported",
             agentsMcp: true,
             computerMcp: true,
@@ -762,6 +815,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             localComputerMcp: !config.fullAuto,
           },
           sendTurn,
+          steer: support.grokInterjections
+            ? async (threadId, text) => active.get(threadId)?.steer(text) ?? false
+            : undefined,
           interruptTurn: async (threadId) => active.get(threadId)?.interrupt(),
           respondToRequest: async (threadId, requestId, decision) => {
             const turn = active.get(threadId);
