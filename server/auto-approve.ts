@@ -63,7 +63,8 @@ const FILE_TOOLS = new Set(["write", "edit", "multiedit", "notebookedit", "delet
 // Chaining, substitution or redirection runs a second program, or writes a
 // second path, under the first program's grant.
 const CHAINED = /[;&|`<>\n\r]|\$\(/;
-// Drivers cut summaries at 200 chars, and a cut command can hide its tail.
+// claude.ts askSummary and acp/core.ts cut command summaries at 200 chars, and
+// a cut command can hide its tail. Lower either cut and this must follow.
 const SUMMARY_CUT = 200;
 
 export function approvalKey(tool: string, summary: string, scope?: "local-computer"): string | null {
