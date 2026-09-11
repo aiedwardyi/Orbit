@@ -55,18 +55,33 @@ export function looksDestructive(text: string): boolean {
  * intends. Command tools are therefore keyed by their program —
  * `Bash:git`, `Bash:npm` — so the grant is as narrow as the thing you
  * actually looked at. Computed once, server-side, and echoed back by the
- * client so the two sides can never disagree about what was granted. */
-const COMMAND_TOOLS = new Set(["bash", "shell", "execute", "run_command", "computer_exec", "terminal"]);
+ * client so the two sides can never disagree about what was granted. Null
+ * when no key can be that narrow, and the card then offers no grant. */
+const COMMAND_TOOLS = new Set(["bash", "shell", "execute", "run_command", "computer_exec", "terminal", "powershell"]);
+// A file tool's key carries no path, so one grant would cover every file.
+// delete and move are ACP kinds; Claude deletes and moves through Bash.
+const FILE_TOOLS = new Set(["write", "edit", "multiedit", "notebookedit", "delete", "move"]);
+// Chaining, substitution or redirection runs a second program, or writes a
+// second path, under the first program's grant.
+const CHAINED = /[;&|`<>\n\r]|\$\(/;
+// claude.ts askSummary and acp/core.ts cut command summaries at 200 chars, and
+// a cut command can hide its tail. Lower either cut and this must follow.
+const SUMMARY_CUT = 200;
+// A launcher runs whatever program follows it, so its name grants nothing.
+const LAUNCHERS = new Set(["env", "nohup", "nice", "timeout", "xargs", "exec", "command", "time", "watch", "bash", "sh", "zsh", "cmd", "pwsh", "powershell"]);
 
-export function approvalKey(tool: string, summary: string, scope?: "local-computer"): string {
+export function approvalKey(tool: string, summary: string, scope?: "local-computer"): string | null {
   const bare = tool.replace(/^mcp__[^_]+__/, "").toLowerCase();
+  if (FILE_TOOLS.has(bare)) return null;
   if (!COMMAND_TOOLS.has(bare)) return scope ? `${scope}:${tool}` : tool;
+  if (CHAINED.test(summary) || summary.length >= SUMMARY_CUT) return null;
   // first bare word of the command, skipping env assignments and sudo
   const words = summary.trim().split(/\s+/);
   let i = 0;
   while (i < words.length && (/^[A-Z_][A-Z0-9_]*=/.test(words[i]) || words[i] === "sudo")) i += 1;
   const program = (words[i] ?? "").split("/").pop()?.replace(/[^\w.-]/g, "") ?? "";
-  const key = program ? `${tool}:${program}` : tool;
+  if (!program || program.startsWith("-") || LAUNCHERS.has(program)) return null;
+  const key = `${tool}:${program}`;
   return scope ? `${scope}:${key}` : key;
 }
 
@@ -126,7 +141,7 @@ export function autoVerdict(
   const grant =
     destructive || sensitive
       ? null
-      : bot.alwaysAllow?.includes(key)
+      : key && bot.alwaysAllow?.includes(key)
         ? { approve: `auto-approved ${key} (always allowed)`, source: "always-allow" as const, rule: key }
         : bot.autoApprove
           ? { approve: `auto-approved ${tool}`, source: "auto-mode" as const, rule: undefined }

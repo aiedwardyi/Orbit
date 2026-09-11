@@ -5244,3 +5244,40 @@ describe("project folder in the system prompt", () => {
     }
   }, 30_000);
 });
+
+describe("approval chip on the claude CLI", () => {
+  const argvForTurn = async (botId: string, text: string): Promise<string[]> => {
+    rmSync(fakeClaudeDump, { force: true });
+    expect((await api("POST", `/api/bots/${botId}/messages`, { text })).status).toBe(202);
+    await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 10_000 }).toBe(true);
+    const dump = z.object({ argv: z.array(z.string()) }).parse(
+      JSON.parse(readFileSync(fakeClaudeDump, "utf8")),
+    );
+    await api("POST", `/api/bots/${botId}/interrupt`);
+    await expect.poll(async () =>
+      (await api("GET", "/api/bots?messages=0")).body.bots.find((bot: { id: string }) => bot.id === botId)?.busy,
+    ).toBe(false);
+    return dump.argv;
+  };
+
+  it("asks before edits under Ask for approval and keeps acceptEdits under Auto", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    try {
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      })).status).toBe(200);
+      const ask = await argvForTurn(bot.id, "create notes.txt");
+      expect(ask[ask.indexOf("--permission-mode") + 1]).toBe("default");
+      expect(JSON.parse(ask[ask.indexOf("--settings") + 1]).permissions.ask).toEqual(
+        expect.arrayContaining(["Write", "Edit", "Bash"]),
+      );
+
+      expect((await api("PATCH", `/api/bots/${bot.id}`, { autoApprove: true })).status).toBe(200);
+      const auto = await argvForTurn(bot.id, "create todo.txt");
+      expect(auto[auto.indexOf("--permission-mode") + 1]).toBe("acceptEdits");
+      expect(auto).not.toContain("--settings");
+    } finally {
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  }, 30_000);
+});

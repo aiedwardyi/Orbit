@@ -221,6 +221,14 @@ interface Ask {
 type AskBehavior = "allow" | "deny" | "answer";
 type AskResolutionSource = "user" | "timeout" | "system";
 
+// Ask rules outrank every allow list, the user's own settings.json included,
+// so Ask for approval reaches the broker even where Write or Bash is allowed.
+// Sandbox auto-allow is switched off too, or sandboxed Bash would skip them.
+const ASK_SETTINGS = JSON.stringify({
+  permissions: { ask: ["Bash", "PowerShell", "Edit", "Write", "MultiEdit", "NotebookEdit"] },
+  sandbox: { autoAllowBashIfSandboxed: false },
+});
+
 const DENY_TIMEOUT_NOTE =
   "OpenMausBot: nobody answered this permission request in time. Skip this action and finish what you can without it.";
 const QUESTION_TIMEOUT_NOTE = "OpenMausBot: nobody answered in time. Use your best judgment and continue.";
@@ -602,6 +610,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const retryScale = Number(process.env.FAKE_CLAUDE_RETRY_SCALE ?? "1");
       const sessionId = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
       const newSessionId = sessionId ? null : newId();
+      const asks = turn.approval === "ask" && config.permissionMode !== "bypassPermissions";
 
       const args = [
         "-p",
@@ -611,8 +620,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         // token-level streaming: content_block_delta events between the
         // whole-message frames, so the bubble grows as the model writes
         "--include-partial-messages",
-        "--permission-mode", config.permissionMode === "auto" ? "acceptEdits" : config.permissionMode,
+        "--permission-mode", asks ? "default" : config.permissionMode === "auto" ? "acceptEdits" : config.permissionMode,
       ];
+      if (asks) args.push("--settings", ASK_SETTINGS);
       if (config.tools !== undefined) args.push("--tools", config.tools.join(","));
       if (config.disallowedTools?.length) {
         args.push("--disallowedTools", config.disallowedTools.join(","));

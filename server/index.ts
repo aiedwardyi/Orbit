@@ -1792,7 +1792,7 @@ bus.subscribe((event: RuntimeEvent) => {
                 tool,
                 allowKey: event.approvalScope
                   ? undefined
-                  : approvalKey(tool, summary, event.approvalScope),
+                  : (approvalKey(tool, summary, event.approvalScope) ?? undefined),
                 held: "Auto mode couldn't answer this one.",
                 approvalScope: event.approvalScope,
               },
@@ -1840,7 +1840,7 @@ bus.subscribe((event: RuntimeEvent) => {
           // client and server can never derive it differently
           allowKey:
             permission && !event.approvalScope
-              ? approvalKey(event.tool, event.summary, event.approvalScope)
+              ? (approvalKey(event.tool, event.summary, event.approvalScope) ?? undefined)
               : undefined,
           // in auto mode a card can only mean the guard stopped it — say so
           held:
@@ -3232,6 +3232,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
                 .map((t) => `@${t.name} (ask_bot bot_id ${t.id})`)
                 .join(" and ")} in their message — bring them in with ask_bot and fold their reply into your answer.`
             : ""),
+        approval: bot.autoApprove ? "auto" : "ask",
         integrations,
         cwd,
       });
@@ -4050,6 +4051,7 @@ async function runClaimedGroupMemberTurn(
         threadId,
         text,
         system: roomSystem,
+        approval: bot.autoApprove ? "auto" : "ask",
         cwd,
         integrations,
         ...memberTurnSelection(selection),
