@@ -655,7 +655,7 @@ describe("plan usage", () => {
     expect(en["usage.limits.sessionShort"]).toBe("5h");
     expect(ko["usage.limits.sessionShort"]).toBe("5시간");
     expect(en["usage.limits.weeklyShort"]).toBe("7d");
-    expect(ko["usage.limits.weeklyShort"]).toBe("7d");
+    expect(ko["usage.limits.weeklyShort"]).toBe("7일");
     expect(en["usage.limits.compactHm"]).toBe("{hours}h{minutes}m");
     expect(ko["usage.limits.compactHm"]).toBe("{hours}h{minutes}m");
     expect(en["usage.limits.compactDh"]).toBe("{days}d{hours}h");

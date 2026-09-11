@@ -71,8 +71,14 @@ vi.mock("@/state/store", async (importOriginal) => {
 
 import { UsageSection } from "./UsageSection";
 import { ChatPlanMeters } from "./ChatPlanMeters";
+import { planUsageTone } from "./PlanUsageBar";
 
 describe("UsageSection friends plan card", () => {
+  it("shares the 75/90 thresholds between text and fill colors", () => {
+    expect(planUsageTone(74)).toEqual({ textClass: "text-accent", fillClass: "bg-accent" });
+    expect(planUsageTone(75)).toEqual({ textClass: "text-warning", fillClass: "bg-warning" });
+    expect(planUsageTone(90)).toEqual({ textClass: "text-danger", fillClass: "bg-danger" });
+  });
   it("changes both surfaces, persists the mode, and keeps warnings tied to used percent", async () => {
     const host = document.createElement("div");
     document.body.append(host);
@@ -130,6 +136,11 @@ describe("UsageSection friends plan card", () => {
     expect(codex).toBeGreaterThan(claude);
     expect(antigravity).toBeGreaterThan(codex);
     expect(opencode).toBeGreaterThan(antigravity);
+  });
+
+  it("shows refresh controls for the three supported engines", () => {
+    const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+    expect((html.match(/>Refresh</g) ?? []).length).toBe(3);
   });
 
   it("renders a tight Grok-style header and a thin warn/danger progress bar", () => {
