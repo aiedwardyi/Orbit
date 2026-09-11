@@ -36,7 +36,7 @@ const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve
 async function mountStore() {
   const orderRequests: RequestInit[] = [];
   const answers: Array<(response: Response) => void> = [];
-  const refetches: Array<() => void> = [];
+  const refetches: Array<(response?: Response) => void> = [];
   let serverOrder = ["a", "b", "c"];
   vi.stubGlobal("EventSource", FakeEventSource);
   vi.stubGlobal("fetch", vi.fn(async (path: string, init: RequestInit = {}) => {
@@ -44,7 +44,7 @@ async function mountStore() {
     if (path === "/api/bots?messages=0") {
       const saved = serverOrder;
       return new Promise<Response>((resolve) => {
-        refetches.push(() => resolve(respond(200, { bots: saved.map(bot), groups: [] })));
+        refetches.push((response = respond(200, { bots: saved.map(bot), groups: [] })) => resolve(response));
       });
     }
     if (path !== "/api/bots/order") return respond(404, { error: "not in this test" });
@@ -70,7 +70,7 @@ async function mountStore() {
     orderRequests,
     answerOrder: (index: number, response: Response) => answers[index]!(response),
     refetchCount: () => refetches.length,
-    answerRefetch: (index: number) => refetches[index]!(),
+    answerRefetch: (index: number, response?: Response) => refetches[index]!(response),
     saveOnServer: (ids: string[]) => {
       serverOrder = ids;
     },
@@ -130,6 +130,37 @@ describe("reorderBots", () => {
       expect(store.order()).toEqual(["c", "a", "b"]);
       expect(store.error()).toBeNull();
       expect(store.refetchCount()).toBe(0);
+    } finally {
+      await store.unmount();
+    }
+  });
+
+  it("asks for the server's order once more when the first refetch fails", async () => {
+    const store = await mountStore();
+    try {
+      await store.dispatch({ type: "reorderBots", botIds: ["c", "a", "b"] });
+      store.answerOrder(0, respond(400, { error: "botIds must list every bot exactly once" }));
+      await vi.waitFor(() => expect(store.refetchCount()).toBe(1));
+      store.answerRefetch(0, respond(502, { error: "connection reset" }));
+      await vi.waitFor(() => expect(store.refetchCount()).toBe(2));
+      store.answerRefetch(1);
+      await vi.waitFor(() => expect(store.order()).toEqual(["a", "b", "c"]));
+    } finally {
+      await store.unmount();
+    }
+  });
+
+  it("gives up after one retry", async () => {
+    const store = await mountStore();
+    try {
+      await store.dispatch({ type: "reorderBots", botIds: ["c", "a", "b"] });
+      store.answerOrder(0, respond(400, { error: "botIds must list every bot exactly once" }));
+      await vi.waitFor(() => expect(store.refetchCount()).toBe(1));
+      store.answerRefetch(0, respond(502, { error: "connection reset" }));
+      await vi.waitFor(() => expect(store.refetchCount()).toBe(2));
+      store.answerRefetch(1, respond(502, { error: "connection reset" }));
+      await settle();
+      expect(store.refetchCount()).toBe(2);
     } finally {
       await store.unmount();
     }

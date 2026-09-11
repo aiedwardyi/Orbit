@@ -1438,7 +1438,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       onOver: () => {
         if (!drag) return false;
         const over = dropOrder(bot.id) ? bot.id : null;
-        if (drag.over !== over) setDrag({ ...drag, over });
+        if (drag.over !== over) setDrag((current) => (current ? { ...current, over } : null));
         return over !== null;
       },
       onLeave: () => setDrag((current) => (current?.over === bot.id ? { ...current, over: null } : current)),

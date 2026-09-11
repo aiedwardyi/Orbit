@@ -34,6 +34,13 @@ describe("botOrderAfterDrop", () => {
     expect(botOrderAfterDrop(bots, "a", "chief")).toBeNull();
   });
 
+  it("keeps an archived bot in its slot and never drops onto or from one", () => {
+    const withArchived = [{ id: "a" }, { id: "b", hidden: true }, { id: "c" }];
+    expect(botOrderAfterDrop(withArchived, "a", "c")).toEqual(["c", "b", "a"]);
+    expect(botOrderAfterDrop(withArchived, "a", "b")).toBeNull();
+    expect(botOrderAfterDrop(withArchived, "b", "c")).toBeNull();
+  });
+
   it("ignores a drop onto itself or an unknown bot", () => {
     expect(botOrderAfterDrop(bots, "a", "a")).toBeNull();
     expect(botOrderAfterDrop(bots, "a", "gone")).toBeNull();

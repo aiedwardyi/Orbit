@@ -4,11 +4,13 @@
 // appearance, so a drop only reshuffles its own group's slots.
 import type { Bot } from "@/state/store";
 
-type OrderedBot = Pick<Bot, "id"> & Partial<Pick<Bot, "section" | "pinned" | "chiefOfStaff">>;
+type OrderedBot = Pick<Bot, "id"> & Partial<Pick<Bot, "section" | "pinned" | "chiefOfStaff" | "hidden">>;
 
 const sameGroup = (a: OrderedBot, b: OrderedBot) =>
   !a.chiefOfStaff &&
   !b.chiefOfStaff &&
+  !a.hidden &&
+  !b.hidden &&
   (a.section ?? "") === (b.section ?? "") &&
   Boolean(a.pinned) === Boolean(b.pinned);
 

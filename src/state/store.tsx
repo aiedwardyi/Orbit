@@ -2066,14 +2066,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "reorderBots": {
           // Only the newest reorder reacts to a failure, and it takes the server's order: the PUT may have saved.
           const generation = ++reorderGeneration.current;
+          const takeServerOrder = () =>
+            api("/api/bots?messages=0").then(({ bots }: { bots: Bot[] }) => {
+              if (generation !== reorderGeneration.current) return;
+              rawDispatch({ type: "reorderBots", botIds: bots.map((bot) => bot.id) });
+            });
           api("/api/bots/order", { method: "PUT", body: JSON.stringify({ botIds: action.botIds }) }).catch((error) => {
             if (generation !== reorderGeneration.current) return;
             showError(error);
-            api("/api/bots?messages=0")
-              .then(({ bots }: { bots: Bot[] }) => {
-                if (generation !== reorderGeneration.current) return;
-                rawDispatch({ type: "reorderBots", botIds: bots.map((bot) => bot.id) });
-              })
+            takeServerOrder()
+              .catch(() => (generation === reorderGeneration.current ? takeServerOrder() : undefined))
               .catch(() => {});
           });
           break;
