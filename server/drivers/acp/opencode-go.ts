@@ -198,6 +198,25 @@ function opencodeConfigDir(env: Record<string, string | undefined>): string {
   return join(env.XDG_CONFIG_HOME || join(home, ".config"), "opencode");
 }
 
+export function withOpenCodeWebSearch(raw: string | undefined): string {
+  let config: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(raw ?? "");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      config = { ...parsed };
+    }
+  } catch {
+    // Invalid JSON is ignored; websearch still lands.
+  }
+  const current = config.permission;
+  const permission =
+    current && typeof current === "object" && !Array.isArray(current)
+      ? { ...current }
+      : {};
+  permission.websearch = "allow";
+  return JSON.stringify({ ...config, permission });
+}
+
 /** Upsert an openai-compatible provider so OpenCode can select host/model. */
 export function ensureOpenCodeInjectModel(
   modelId: string,
@@ -376,7 +395,7 @@ const support = (loadCatalog: OpenCodeCatalogLoader): AcpSupport => ({
   transformEnv: stripForeignProviderKeys,
   // Without this, ACP has webfetch but not websearch.
   applyTurnEnv: (env) => {
-    env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ permission: { websearch: "allow" } });
+    env.OPENCODE_CONFIG_CONTENT = withOpenCodeWebSearch(env.OPENCODE_CONFIG_CONTENT);
   },
   pickAuthMethod: () => null,
   authFailure: "continue",

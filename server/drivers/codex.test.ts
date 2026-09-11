@@ -430,9 +430,11 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(started).toMatchObject({ sessionId: "codex-thread-9" });
     await recorder.until((e) => e.type === "turn.completed");
 
-    const methods = JSON.parse(readFileSync(dump, "utf8")).calls.map((c: { method: string }) => c.method);
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    const methods = seen.calls.map((c: { method: string }) => c.method);
     expect(methods).toContain("thread/resume");
     expect(methods).not.toContain("thread/start");
+    expect(seen.argv).toContain('web_search="live"');
   });
 
   it("falls back to a fresh thread when resume fails", async () => {
