@@ -13,9 +13,14 @@ const bots = [
 
 describe("botOrderAfterDrop", () => {
   it("moves a bot into the dropped row's slot, in either direction", () => {
-    expect(botOrderAfterDrop(bots, "a", "c")).toEqual(["chief", "pinned", "b", "work", "c", "a"]);
-    expect(botOrderAfterDrop(bots, "c", "a")).toEqual(["chief", "c", "a", "pinned", "b", "work"]);
-    expect(botOrderAfterDrop(bots, "a", "b")).toEqual(["chief", "pinned", "b", "a", "work", "c"]);
+    expect(botOrderAfterDrop(bots, "a", "c")).toEqual(["chief", "b", "pinned", "c", "work", "a"]);
+    expect(botOrderAfterDrop(bots, "c", "a")).toEqual(["chief", "c", "pinned", "a", "work", "b"]);
+    expect(botOrderAfterDrop(bots, "a", "b")).toEqual(["chief", "b", "pinned", "a", "work", "c"]);
+  });
+
+  it("keeps every other bot in its slot, so a section never jumps past another", () => {
+    const interleaved = [{ id: "a1", section: "A" }, { id: "b1", section: "B" }, { id: "a2", section: "A" }];
+    expect(botOrderAfterDrop(interleaved, "a1", "a2")).toEqual(["a2", "b1", "a1"]);
   });
 
   it("refuses drops the pinned-first sort or sections would snap back", () => {

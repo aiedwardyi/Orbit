@@ -1672,6 +1672,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   stateRef.current = state;
   useMascotMotionExpiry(state.mascotMotion?.nonce, rawDispatch);
   const cancelledSendsRef = useRef(new Set<string>());
+  const reorderGeneration = useRef(0);
   // per-frame stream-delta batching (see the "runtime" SSE case); stream
   // state is intentionally OUTSIDE the reducer so token frames re-render
   // only StreamContext consumers
@@ -1801,8 +1802,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         action.type === "updateBot"
           ? stateRef.current.bots.find((candidate) => candidate.id === action.botId)
           : undefined;
-      const orderBeforeReorder =
-        action.type === "reorderBots" ? stateRef.current.bots.map((bot) => bot.id) : undefined;
       const quizBeforeSend = (() => {
         if (action.type !== "send") return undefined;
         const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
@@ -2064,12 +2063,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "deleteBot":
           api(`/api/bots/${action.botId}`, { method: "DELETE" }).catch(showError);
           break;
-        case "reorderBots":
+        case "reorderBots": {
+          // Only the newest reorder reacts to a failure, and it takes the server's order: the PUT may have saved.
+          const generation = ++reorderGeneration.current;
           api("/api/bots/order", { method: "PUT", body: JSON.stringify({ botIds: action.botIds }) }).catch((error) => {
-            if (orderBeforeReorder) rawDispatch({ type: "reorderBots", botIds: orderBeforeReorder });
+            if (generation !== reorderGeneration.current) return;
             showError(error);
+            api("/api/bots?messages=0")
+              .then(({ bots }: { bots: Bot[] }) => {
+                if (generation !== reorderGeneration.current) return;
+                rawDispatch({ type: "reorderBots", botIds: bots.map((bot) => bot.id) });
+              })
+              .catch(() => {});
           });
           break;
+        }
         case "markUnread":
           api(`/api/bots/${action.botId}`, { method: "PATCH", body: JSON.stringify({ unread: true }) }).catch(
             () => {},
