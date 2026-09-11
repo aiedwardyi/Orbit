@@ -687,6 +687,7 @@ export type Action =
   | { type: "botAdded"; bot: Bot; focusComposer?: boolean }
   | { type: "composerFocused"; botId: string }
   | { type: "deleteBot"; botId: string }
+  | { type: "reorderBots"; botIds: string[] }
   | { type: "duplicateBot"; botId: string }
   | { type: "markUnread"; botId: string }
   | { type: "botPatched"; bot: BotAnnouncement }
@@ -1026,6 +1027,12 @@ export function reducer(state: AppState, action: Action): AppState {
       const selectedId =
         state.selectedId === action.botId ? (bots.find((b) => !b.hidden)?.id ?? bots[0]?.id ?? "") : state.selectedId;
       return { ...state, bots, selectedId };
+    }
+    case "reorderBots": {
+      const rank = new Map(action.botIds.map((id, index) => [id, index]));
+      // A bot the list does not name is newer than it: creates land on top.
+      const bots = [...state.bots].sort((a, b) => (rank.get(a.id) ?? -1) - (rank.get(b.id) ?? -1));
+      return { ...state, bots };
     }
     case "markUnread":
       return updateBot(withMascotMotion(state, action.botId, "surprise"), action.botId, (b) => ({ ...b, unread: true }));
@@ -1794,6 +1801,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         action.type === "updateBot"
           ? stateRef.current.bots.find((candidate) => candidate.id === action.botId)
           : undefined;
+      const orderBeforeReorder =
+        action.type === "reorderBots" ? stateRef.current.bots.map((bot) => bot.id) : undefined;
       const quizBeforeSend = (() => {
         if (action.type !== "send") return undefined;
         const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
@@ -2054,6 +2063,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         case "deleteBot":
           api(`/api/bots/${action.botId}`, { method: "DELETE" }).catch(showError);
+          break;
+        case "reorderBots":
+          api("/api/bots/order", { method: "PUT", body: JSON.stringify({ botIds: action.botIds }) }).catch((error) => {
+            if (orderBeforeReorder) rawDispatch({ type: "reorderBots", botIds: orderBeforeReorder });
+            showError(error);
+          });
           break;
         case "markUnread":
           api(`/api/bots/${action.botId}`, { method: "PATCH", body: JSON.stringify({ unread: true }) }).catch(
@@ -2606,6 +2621,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "bot.deleted":
           botPatchQueue.cancel(frame.botId);
           rawDispatch({ type: "deleteBot", botId: frame.botId });
+          break;
+        case "bots.order":
+          rawDispatch({ type: "reorderBots", botIds: frame.botIds });
           break;
         // a key changed and the fleet hot-reloaded — refresh the picker so
         // newly available providers un-dim immediately

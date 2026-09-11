@@ -375,6 +375,7 @@ export type StoreChange =
   | { type: "task.packet"; threadId: string }
   | { type: "bot"; botId: string }
   | { type: "bot.deleted"; botId: string }
+  | { type: "bots.order"; botIds: string[] }
   | { type: "group"; groupId: string }
   | { type: "group.deleted"; groupId: string };
 
@@ -1244,6 +1245,18 @@ export class Store {
     } catch {}
     this.saveBots();
     this.emit({ type: "bot.deleted", botId: id });
+    return true;
+  }
+
+  /** False unless `ids` names every bot exactly once. */
+  reorderBots(ids: string[]): boolean {
+    const byId = new Map(this.bots.map((bot) => [bot.id, bot]));
+    if (ids.length !== byId.size || new Set(ids).size !== ids.length || !ids.every((id) => byId.has(id))) {
+      return false;
+    }
+    this.bots = ids.map((id) => byId.get(id)!);
+    this.saveBots();
+    this.emit({ type: "bots.order", botIds: ids });
     return true;
   }
 

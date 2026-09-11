@@ -30,6 +30,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { botOrderAfterDrop } from "@/lib/bot-order";
 import { conversationPreview, roomConversationPreview } from "@/lib/conversation-preview";
 import { api, useStore, formatTime, visibleMessages, type Bot, type Group } from "@/state/store";
 
@@ -734,18 +735,29 @@ function BotContextMenu({
   );
 }
 
+type BotRowDrag = {
+  edge: "top" | "bottom" | null;
+  onStart: () => void;
+  onOver: () => boolean;
+  onLeave: () => void;
+  onDrop: () => void;
+  onEnd: () => void;
+};
+
 function BotListItem({
   bot,
   density,
   onMenu,
   onArchive,
   archiveDisabled,
+  drag,
 }: {
   bot: Bot;
   density: SidebarDensity;
   onMenu: (menu: MenuState) => void;
   onArchive: (bot: Bot) => void;
   archiveDisabled: boolean;
+  drag?: BotRowDrag;
 }) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
@@ -835,8 +847,42 @@ function BotListItem({
     );
   }
 
+  const dragProps = drag
+    ? {
+        draggable: true,
+        onDragStart: (event: React.DragEvent) => {
+          event.dataTransfer.effectAllowed = "move";
+          // a custom type: text fields ignore it, so the row never drops in as text
+          event.dataTransfer.setData("application/x-orbit-bot", bot.id);
+          drag.onStart();
+        },
+        onDragOver: (event: React.DragEvent) => {
+          if (!drag.onOver()) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+        },
+        onDragLeave: (event: React.DragEvent) => {
+          const next = event.relatedTarget;
+          if (!(next instanceof Node) || !event.currentTarget.contains(next)) drag.onLeave();
+        },
+        onDrop: (event: React.DragEvent) => {
+          event.preventDefault();
+          drag.onDrop();
+        },
+        onDragEnd: drag.onEnd,
+      }
+    : {};
+
   return (
-    <div className="group relative" title={iconOnly ? bot.name : undefined}>
+    <div className="group relative" title={iconOnly ? bot.name : undefined} {...dragProps}>
+      {drag?.edge && (
+        <span
+          className={cn(
+            "pointer-events-none absolute inset-x-2 z-10 h-0.5 rounded-full bg-accent",
+            drag.edge === "top" ? "-top-0.5" : "-bottom-0.5",
+          )}
+        />
+      )}
       <div
         role="button"
         tabIndex={0}
@@ -1019,6 +1065,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const showPhone = showSidebarPhone() && phoneSettingsAvailable(capabilities.host);
   const importReturnRef = useRef<HTMLButtonElement>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [drag, setDrag] = useState<{ from: string; over: string | null } | null>(null);
   const [sectionPicker, setSectionPicker] = useState<MenuState | null>(null);
   const [roomMenu, setRoomMenu] = useState<{ groupId: string; x: number; y: number } | null>(null);
   const [roomSectionPicker, setRoomSectionPicker] = useState<{ groupId: string; x: number; y: number } | null>(null);
@@ -1382,6 +1429,27 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   }
   const activeBotCount = state.bots.filter((bot) => !bot.hidden).length;
   const archivedBots = state.bots.filter((bot) => bot.hidden);
+  const dropOrder = (toId: string) => (drag ? botOrderAfterDrop(state.bots, drag.from, toId) : null);
+  const rowDrag = (bot: Bot): BotRowDrag => {
+    const order = drag?.over === bot.id ? dropOrder(bot.id) : null;
+    return {
+      edge: order ? (order.indexOf(bot.id) < order.indexOf(drag!.from) ? "bottom" : "top") : null,
+      onStart: () => setDrag({ from: bot.id, over: null }),
+      onOver: () => {
+        if (!drag) return false;
+        const over = dropOrder(bot.id) ? bot.id : null;
+        if (drag.over !== over) setDrag({ ...drag, over });
+        return over !== null;
+      },
+      onLeave: () => setDrag((current) => (current?.over === bot.id ? { ...current, over: null } : current)),
+      onDrop: () => {
+        const botIds = dropOrder(bot.id);
+        setDrag(null);
+        if (botIds) dispatch({ type: "reorderBots", botIds });
+      },
+      onEnd: () => setDrag(null),
+    };
+  };
   const pendingTeamUndo = teamFeedback?.undo;
   const pendingBotUndo = teamFeedback?.restoreBot;
 
@@ -1637,6 +1705,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               onMenu={setMenu}
               onArchive={(bot) => void archiveBot(bot)}
               archiveDisabled={activeBotCount <= 1}
+              drag={rowDrag(b)}
             />
           ))}
           {sectionNames.map((name) => (
@@ -1669,6 +1738,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                     onMenu={setMenu}
                     onArchive={(bot) => void archiveBot(bot)}
                     archiveDisabled={activeBotCount <= 1}
+                    drag={rowDrag(b)}
                   />
                 ))}
             </Fragment>

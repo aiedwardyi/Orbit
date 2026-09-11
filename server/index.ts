@@ -890,6 +890,9 @@ store.onChange((change) => {
       turnEpochByBot.delete(change.botId);
       broadcast({ kind: "bot.deleted", botId: change.botId });
       break;
+    case "bots.order":
+      broadcast({ kind: "bots.order", botIds: change.botIds });
+      break;
     case "group": {
       const group = store.group(change.groupId);
       if (group) broadcast({ kind: "group", group: publicGroupState(group) });
@@ -5627,6 +5630,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           }),
         ),
       });
+    }
+    if (method === "PUT" && path === "/api/bots/order") {
+      const parsed = z.object({ botIds: z.array(z.string()) }).safeParse(await readBody(req));
+      if (!parsed.success || !store.reorderBots(parsed.data.botIds)) {
+        return json(res, 400, { error: "botIds must list every bot exactly once" });
+      }
+      return json(res, 200, { botIds: parsed.data.botIds });
     }
 
     // scrollback: the page before a message the client already holds
