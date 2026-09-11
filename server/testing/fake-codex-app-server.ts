@@ -132,6 +132,16 @@ process.stdin.on("data", (chunk) => {
       case "thread/start":
         out({ jsonrpc: "2.0", id: msg.id, result: { thread: { id: "codex-thread-1" }, model: "fake-codex-model" } });
         break;
+      case "turn/steer": {
+        if (mode === "steer-reject" || msg.params.expectedTurnId !== "native-turn-1") {
+          out({ jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: "turn mismatch" } });
+          break;
+        }
+        out({ jsonrpc: "2.0", id: msg.id, result: { turnId: "native-turn-1" } });
+        notify("item/agentMessage/delta", { delta: msg.params.input[0].text });
+        setTimeout(finishTurn, 30);
+        break;
+      }
       case "turn/start": {
         if (mode === "unauthorized") {
           out({
@@ -171,7 +181,11 @@ process.stdin.on("data", (chunk) => {
             break;
           }
         }
-        out({ jsonrpc: "2.0", id: msg.id, result: { ok: true } });
+        out({ jsonrpc: "2.0", id: msg.id, result: { turn: { id: "native-turn-1" } } });
+        if (mode.startsWith("steer")) {
+          notify("item/agentMessage/delta", { delta: "working" });
+          break;
+        }
         const command = mode === "windows-command"
           ? [
               "\"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\"",

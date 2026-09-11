@@ -15,6 +15,22 @@ export type AcceptedSend = {
 
 export type AcceptedSends = Record<string, AcceptedSend[]>;
 
+export function withAcceptedMessages(
+  messages: Message[],
+  accepted: readonly AcceptedSend[] = [],
+  pending: readonly { queueId: string; text: string }[] = [],
+): Message[] {
+  const seen = new Set(messages.flatMap((message) => [message.id, message.sendId, message.queueId]));
+  const waiting = [...pending.map((entry) => ({ sendId: entry.queueId, text: entry.text })), ...accepted];
+  const added: Message[] = [];
+  for (const entry of waiting) {
+    if (seen.has(entry.sendId)) continue;
+    seen.add(entry.sendId);
+    added.push({ id: entry.sendId, sendId: entry.sendId, role: "user", kind: "text", text: entry.text, at: Date.now() });
+  }
+  return added.length ? [...messages, ...added] : messages;
+}
+
 export function acceptedSendPaint(input: { alreadyBusy: boolean }): { kind: AcceptedSendKind } {
   return { kind: input.alreadyBusy ? "sends-next" : "thinking" };
 }

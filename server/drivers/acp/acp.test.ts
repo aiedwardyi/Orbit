@@ -230,6 +230,36 @@ describe("ACP turns (fake CLI)", () => {
     scratch = mkdtempSync(join(tmpdir(), "omb-acp-test-"));
   });
 
+  it("steers Grok through an acknowledged interjection in the running prompt", async () => {
+    await create(GrokAgentDriver, "steer");
+    expect(instance.adapter.capabilities.queueing).toBe(true);
+    expect(await instance.adapter.steer!("missing", "extra")).toBe(false);
+    await instance.adapter.sendTurn({ threadId: "t-steer", text: "first" });
+    await recorder.until((e) => e.type === "content.delta");
+    expect(await instance.adapter.steer!("t-steer", "extra")).toBe(true);
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(recorder.events.filter((e) => e.type === "turn.started")).toHaveLength(1);
+    expect(recorder.events).toContainEqual(expect.objectContaining({ type: "content.delta", delta: "extra" }));
+    expect(recorder.events).toContainEqual(expect.objectContaining({ type: "item.completed", text: "working" }));
+    expect(recorder.events).toContainEqual(expect.objectContaining({ type: "item.completed", text: "extra" }));
+    expect(await instance.adapter.steer!("t-steer", "late")).toBe(false);
+  });
+
+  it("does not mistake a removed Grok prompt for a delivered interjection", async () => {
+    await create(GrokAgentDriver, "steer-removed");
+    await instance.adapter.sendTurn({ threadId: "t-removed", text: "first" });
+    await recorder.until((e) => e.type === "content.delta");
+    expect(await instance.adapter.steer!("t-removed", "extra")).toBe(false);
+    await instance.adapter.interruptTurn("t-removed");
+    await recorder.until((e) => e.type === "turn.completed");
+  });
+
+  it("does not advertise steering on unproven ACP engines", async () => {
+    await create(GeminiAgentDriver);
+    expect(instance.adapter.capabilities.queueing).not.toBe(true);
+    expect(instance.adapter.steer).toBeUndefined();
+  });
+
   afterEach(async () => {
     delete process.env.FAKE_ACP_MODE;
     delete process.env.FAKE_ACP_DUMP;

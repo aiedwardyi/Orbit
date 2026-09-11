@@ -105,6 +105,29 @@ describe("CodexDriver turns (fake app-server)", () => {
     await removeTempDir(scratch);
   });
 
+  it("steers the native running turn without starting another turn", async () => {
+    await create({ mode: "steer" });
+    expect(instance.adapter.capabilities.queueing).toBe(true);
+    expect(await instance.adapter.steer!("missing", "extra")).toBe(false);
+    await instance.adapter.sendTurn({ threadId: "t-steer", text: "first" });
+    await recorder.until((e) => e.type === "content.delta");
+    expect(await instance.adapter.steer!("t-steer", "extra")).toBe(true);
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(recorder.events.filter((e) => e.type === "turn.started")).toHaveLength(1);
+    expect(recorder.events).toContainEqual(expect.objectContaining({ type: "content.delta", delta: "extra" }));
+    expect(await instance.adapter.steer!("t-steer", "late")).toBe(false);
+  });
+
+  it("falls back when native steering rejects the turn", async () => {
+    await create({ mode: "steer-reject" });
+    await instance.adapter.sendTurn({ threadId: "t-reject", text: "first" });
+    await recorder.until((e) => e.type === "content.delta");
+    expect(await instance.adapter.steer!("t-reject", "extra")).toBe(false);
+    await instance.adapter.interruptTurn("t-reject");
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(await instance.adapter.steer!("t-reject", "late")).toBe(false);
+  });
+
   it("hands the app-server child no credential it was not granted, known or not", async () => {
     await create();
     const dump = join(scratch, "dump-allowlist.json");

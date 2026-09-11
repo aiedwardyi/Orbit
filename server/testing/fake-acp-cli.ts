@@ -41,6 +41,7 @@ import { spawn } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
 
 const mode = process.env.FAKE_ACP_MODE ?? "happy";
+let runningPromptId: number | undefined;
 // opencode-shaped surface: the session carries its own model catalog and the
 // model is chosen with session/set_config_option, because `opencode acp` takes
 // no -m. Off unless FAKE_ACP_MODELS is set, so every existing mode is byte-
@@ -394,6 +395,22 @@ function handle(msg: any) {
       break;
     }
     case "session/prompt": {
+      if (mode.startsWith("steer")) {
+        if (runningPromptId === undefined) {
+          runningPromptId = msg.id;
+          out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: "working" } } } });
+        } else {
+          if (mode !== "steer-removed") {
+            out({ jsonrpc: "2.0", method: "_x.ai/session/interjection", params: { sessionId: msg.params.sessionId, interjectionId: "injected-1", text: msg.params.prompt[0].text } });
+          }
+          result(msg.id, { stopReason: "cancelled", _meta: { promptId: "injected-1", completionKind: "removedFromQueue" } });
+          if (mode !== "steer-removed") {
+            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: msg.params.prompt[0].text } } } });
+            setTimeout(() => result(runningPromptId, { stopReason: "end_turn" }), 30);
+          }
+        }
+        break;
+      }
       if (process.env.FAKE_ACP_DUMP) {
         dumpState.prompt = msg.params?.prompt;
         writeFileSync(process.env.FAKE_ACP_DUMP, JSON.stringify(dumpState, null, 2));

@@ -524,7 +524,7 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
       JSON.stringify({
         instances: {
           steer: {
-            driver: "grokAgent",
+            driver: "geminiAgent",
             environment: { FAKE_ACP_MODE: "echo-gated", FAKE_ACP_GATE_FILE: drainGate },
             config: { cli: FAKE_CLI, fullAuto: true },
           },
@@ -532,7 +532,7 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
           // be in flight — interrupting earlier would be a no-op on a turn
           // the driver has not registered yet
           steerStop: {
-            driver: "grokAgent",
+            driver: "geminiAgent",
             environment: {
               FAKE_ACP_MODE: "echo-gated",
               FAKE_ACP_GATE_FILE: stopGate,

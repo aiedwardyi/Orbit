@@ -64,6 +64,7 @@ export interface AcpConfig {
 
 /** Per-harness specifics — everything that differs between Grok, Gemini, … */
 export interface AcpSupport {
+  grokInterjections?: boolean;
   driverKind: string;
   displayName: string;
   /** Omit for subscription CLIs (the default). Custom-only CLIs sit below
@@ -221,6 +222,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
       const listeners = new Set<RuntimeEventListener>();
       interface Turn {
         stop: () => void;
+        steer: (text: string) => Promise<boolean>;
         interrupt: () => void;
         turnId: string;
         asks: Map<string, (behavior: string, source?: "user" | "timeout" | "system") => void>;
@@ -326,6 +328,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         });
 
         const state = { settled: false, promptSent: false, text: "" };
+        const interjections = new Set<string>();
         const asks = new Map<string, (behavior: string, source?: "user" | "timeout" | "system") => void>();
         let nextId = 1;
         let sessionId: string | null = null;
@@ -357,6 +360,16 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           });
 
         const stop = () => killCliTree(child);
+
+        const steer = async (text: string): Promise<boolean> => {
+          if (!support.grokInterjections || !state.promptSent || state.settled || interruptTimer || asks.size || !sessionId) return false;
+          try {
+            const result = await request("session/prompt", { sessionId, prompt: [{ type: "text", text }] });
+            return interjections.delete(result?._meta?.promptId);
+          } catch {
+            return false;
+          }
+        };
 
         /** Emit buffered assistant text as its own item, then clear it. */
         const flushAssistantText = () => {
@@ -453,8 +466,10 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         };
 
         const handleNotification = (msg: any) => {
-          // Vendor side-channels (e.g. grok's `_x.ai/*`) are teed to the
-          // native log but never normalized: the prompt result is the settle.
+          if (support.grokInterjections && msg.method === "_x.ai/session/interjection" && msg.params?.sessionId === sessionId) {
+            flushAssistantText();
+            interjections.add(msg.params.interjectionId);
+          }
           if (msg.method !== "session/update") return;
           const p = msg.params ?? {};
           if (!state.promptSent || p._meta?.isReplay === true) return;
@@ -569,7 +584,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           interruptTimer = setTimeout(() => settle(true, "cancelled"), 5_000);
           interruptTimer.unref?.();
         };
-        active.set(threadId, { stop, interrupt, turnId, asks });
+        active.set(threadId, { stop, steer, interrupt, turnId, asks });
         emit({ ...base(threadId, turnId), type: "turn.started" });
 
         (async () => {
@@ -752,6 +767,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         adapter: {
           provider: DRIVER_KIND,
           capabilities: {
+            queueing: support.grokInterjections === true,
             sessionModelSwitch: "unsupported",
             agentsMcp: true,
             computerMcp: true,
@@ -762,6 +778,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             localComputerMcp: !config.fullAuto,
           },
           sendTurn,
+          steer: support.grokInterjections
+            ? async (threadId, text) => active.get(threadId)?.steer(text) ?? false
+            : undefined,
           interruptTurn: async (threadId) => active.get(threadId)?.interrupt(),
           respondToRequest: async (threadId, requestId, decision) => {
             const turn = active.get(threadId);

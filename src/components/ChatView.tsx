@@ -7,7 +7,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Clock,
   Copy,
   Crown,
   ListTree,
@@ -41,7 +40,7 @@ import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { showBotNewTaskControl, showComputerPanelChrome } from "@/lib/friends-chrome";
 import { stateForBot } from "@/lib/mascot";
 import { transcriptIdleAfterOnboarding } from "@/lib/conversation-preview";
-import { turnPresenceWaiting } from "@/lib/send-accept";
+import { turnPresenceWaiting, withAcceptedMessages } from "@/lib/send-accept";
 import { liveActivityLabel } from "@/lib/live-activity";
 import { buffersForTurn, turnPhase, turnStageLabel } from "@/lib/turn-stage";
 import { ChatMarkdown } from "./ChatMarkdown";
@@ -599,22 +598,6 @@ function Bubble({
         )}
       </div>
       <TimestampLabel at={message.at} />
-      {/* busy-gated so a flag stranded by a server restart shows nothing */}
-      {user && message.queued && bot.busy && (
-        <div className="mt-1 flex items-center gap-1 pr-1 text-[11px] text-ink-secondary/70">
-          <Clock size={11} aria-hidden="true" />
-          <span>{t("chat.queuedSendsNext")}</span>
-          <button
-            type="button"
-            onClick={() => dispatch({ type: "cancelQueued", botId: bot.id, queueId: message.queueId ?? message.id })}
-            aria-label={t("chat.cancelQueued")}
-            title={t("chat.cancelQueued")}
-            className="ml-0.5 flex size-4 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-raised hover:text-ink"
-          >
-            <X size={11} strokeWidth={2.5} />
-          </button>
-        </div>
-      )}
       <ReactionChips threadId={bot.threadId} message={message} align={user ? "right" : "left"} />
       {versions.length > 1 && (
         <div className="mt-1 flex items-center gap-0.5 pr-1 text-[12px] text-ink-secondary">
@@ -953,7 +936,9 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
   }, []);
 
   // only the active branch is rendered; forks stay reachable via ‹ › nav
-  const messages = useMemo(() => visibleMessages(bot), [bot]);
+  const accepted = state.acceptedSends[bot.threadId];
+  const pending = state.pendingQueued[bot.threadId];
+  const messages = useMemo(() => withAcceptedMessages(visibleMessages(bot), accepted, pending), [bot, accepted, pending]);
 
   // Windowed transcript: only a tail of the thread mounts (screenshots make
   // full threads DOM-heavy). The boundary is anchored per bot+task; a
