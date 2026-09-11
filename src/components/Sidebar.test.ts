@@ -3,7 +3,8 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { StoreProvider } from "@/state/store";
+import { persistPreference } from "@/lib/i18n";
+import { formatTime, StoreProvider } from "@/state/store";
 
 import { Sidebar } from "./Sidebar";
 
@@ -63,6 +64,28 @@ describe("Sidebar drag to reorder", () => {
       });
       expect(dropLine()).toBeNull();
     } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});
+
+describe("Sidebar row time", () => {
+  it.each(["en", "ko"] as const)("follows the %s UI language like the chat", async (locale) => {
+    const at = Date.UTC(2026, 8, 12, 16, 36);
+    const a = { ...bot("a"), messages: [{ id: "m", role: "bot", kind: "text", text: "hi", at }], activeLeafId: "m" };
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async (path: string) =>
+      new Response(JSON.stringify(path === "/api/bots" ? { bots: [a], groups: [] } : {}), { status: path === "/api/bots" ? 200 : 404 })));
+    persistPreference(locale);
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))));
+      await act(async () => FakeEventSource.current!.onmessage?.({ data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }), lastEventId: "" }));
+      await vi.waitFor(() => expect(host.textContent).toContain(formatTime(at, locale)));
+    } finally {
+      persistPreference("en");
       await act(async () => root.unmount());
       host.remove();
     }

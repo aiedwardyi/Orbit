@@ -110,6 +110,7 @@ function DaySeparator({ at }: { at: number }) {
 }
 
 function TaskTimeline({ messages, busy }: { messages: Message[]; busy: boolean }) {
+  const { locale } = useI18n();
   const [open, setOpen] = useState(false);
   const events = useMemo(() => timelineEvents(messages), [messages]);
   if (events.length === 0) return null;
@@ -144,7 +145,7 @@ function TaskTimeline({ messages, busy }: { messages: Message[]; busy: boolean }
               />
               <span className="sr-only">{event.state}: </span>
               <span className="truncate">{event.label}</span>
-              <time className="ml-auto shrink-0 text-[11px] text-ink-secondary/70">{formatTime(event.at)}</time>
+              <time className="ml-auto shrink-0 text-[11px] text-ink-secondary/70">{formatTime(event.at, localeTag(locale))}</time>
             </li>
           ))}
         </ol>

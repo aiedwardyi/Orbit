@@ -69,7 +69,7 @@ import {
 import { sidebarConversationRowTone } from "@/lib/sidebar-row";
 import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
 import { phoneSettingsAvailable } from "@/lib/phone-availability";
-import { t, useI18n } from "@/lib/i18n";
+import { localeTag, t, useI18n } from "@/lib/i18n";
 
 /** "Milind Soni" → "MS", "milind" → "M", "you@x.dev" → "Y", unset → "?" */
 function profileInitials(profile?: { name?: string; email?: string }): string {
@@ -212,6 +212,7 @@ function GroupListItem({
   density: SidebarDensity;
   onMenu: (menu: { groupId: string; x: number; y: number }) => void;
 }) {
+  const { locale } = useI18n();
   const { state, dispatch } = useStore();
   const showToolCalls = showToolCallsEnabled(state.config);
   const selected = state.activeView === "chat" && state.selectedId === group.id;
@@ -247,7 +248,7 @@ function GroupListItem({
       <div className={cn("min-w-0 flex-1", density === "icons" && "hidden")}>
         <div className="flex items-baseline justify-between gap-2">
           <span className="truncate text-[15px] font-semibold text-ink">{group.name}</span>
-          {selected && last && <span className="shrink-0 text-xs text-ink-secondary">{formatTime(last.at)}</span>}
+          {selected && last && <span className="shrink-0 text-xs text-ink-secondary">{formatTime(last.at, localeTag(locale))}</span>}
         </div>
         <div className="flex items-center justify-between gap-2">
           <span className="truncate text-[13px] text-ink-secondary">
@@ -759,7 +760,7 @@ function BotListItem({
   archiveDisabled: boolean;
   drag?: BotRowDrag;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { state, dispatch } = useStore();
   const [renaming, setRenaming] = useState(false);
   const showToolCalls = showToolCallsEnabled(state.config);
@@ -811,7 +812,7 @@ function BotListItem({
           </span>
           {selected && last && !renaming && (
             <span className="shrink-0 text-xs text-ink-secondary transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
-              {formatTime(last.at)}
+              {formatTime(last.at, localeTag(locale))}
             </span>
           )}
         </div>
