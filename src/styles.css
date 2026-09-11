@@ -758,23 +758,32 @@ body {
 }
 /* "Thinking…" label sheen while the model reasons */
 @keyframes shimmer {
-  from { background-position: 200% 50%; }
-  to { background-position: -200% 50%; }
+  from { transform: translate3d(-30%, 0, 0); }
+  to { transform: translate3d(30%, 0, 0); }
 }
 @keyframes reduced-loader-pulse {
   0%, 100% { opacity: 0.45; }
   50% { opacity: 1; }
 }
 .thinking-shimmer {
-  background: linear-gradient(90deg, var(--color-ink-secondary) 40%, var(--color-ink) 50%, var(--color-ink-secondary) 60%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  position: relative;
+  color: var(--color-ink-secondary);
+  overflow: clip;
+}
+.thinking-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: -20% -30%;
+  background: linear-gradient(100deg, transparent 35%, var(--color-ink-inverse) 50%, transparent 65%);
+  opacity: 0.45;
+  animation: shimmer 2s linear infinite;
+  will-change: transform;
+  pointer-events: none;
 }
 @media (prefers-reduced-motion: reduce) {
   .animate-caret, .animate-msg-in, .animate-shimmer { animation: none; }
   .thinking-shimmer { background: none; color: var(--color-ink-secondary); }
+  .thinking-shimmer::after { animation: none; opacity: 0; }
   .turn-mascot-in, .turn-mascot-out, .turn-answer { animation: none; }
   .mascot-avatar .mascot-idle,
   .mascot-avatar .mascot-blink,
