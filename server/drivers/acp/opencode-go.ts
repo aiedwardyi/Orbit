@@ -374,6 +374,10 @@ const support = (loadCatalog: OpenCodeCatalogLoader): AcpSupport => ({
     ? ensureOpenCodeInjectModel(normalizeLegacyOpenCodeModel(model, env), env)
     : model,
   transformEnv: stripForeignProviderKeys,
+  // Without this, ACP has webfetch but not websearch.
+  applyTurnEnv: (env) => {
+    env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ permission: { websearch: "allow" } });
+  },
   pickAuthMethod: () => null,
   authFailure: "continue",
   isAuthenticated: async (env, config) => (

@@ -152,7 +152,12 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
 
       const launchAttempt = async (attempt: number): Promise<void> => {
         const env = childEnv();
-        const appServerArgs = ["app-server", ...codexLocalProviderArgs(env, turn.model)];
+        const appServerArgs = [
+          "app-server",
+          ...codexLocalProviderArgs(env, turn.model),
+          "-c",
+          `web_search=${JSON.stringify("live")}`,
+        ];
         if (turn.integrations?.composio) {
           mountMcpServer(appServerArgs, env, "openmausbot_connectors", turn.integrations.composio);
         }
@@ -543,6 +548,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             sandbox: config.fullAuto ? "danger-full-access" : "workspace-write",
             approvalPolicy: config.fullAuto ? "never" : "on-request",
             ephemeral: false,
+            config: { web_search: "live" },
           });
           codexThreadId = started?.thread?.id ?? null;
           startedModel = started?.model ?? null;
