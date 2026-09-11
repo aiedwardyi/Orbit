@@ -1,7 +1,7 @@
 // The maintained OpenCode CLI through its ACP stdio interface. OpenCode is
 // the harness; Zen, Go, OpenRouter, and user-configured/local providers are
 // models discovered from that harness rather than separate OpenMaus drivers.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -210,8 +210,8 @@ const WILDCARD_SPECIAL = /[.+^${}()|[\]\\]/gu;
 function permissionFiles(env: Record<string, string | undefined>, cwd: string | undefined): string[] {
   const dirs: string[] = [];
   if (cwd && !/^(1|true)$/iu.test(env.OPENCODE_DISABLE_PROJECT_CONFIG ?? "")) {
-    // Project config stops at the git root, or at the filesystem root outside a repo.
-    for (let dir = resolve(cwd); ; dir = dirname(dir)) {
+    // Project config walks up from the real cwd and stops at the git root, or at the filesystem root outside a repo.
+    for (let dir = existsSync(cwd) ? realpathSync.native(cwd) : resolve(cwd); ; dir = dirname(dir)) {
       dirs.push(dir);
       if (existsSync(join(dir, ".git")) || dirname(dir) === dir) break;
     }
@@ -219,6 +219,7 @@ function permissionFiles(env: Record<string, string | undefined>, cwd: string | 
   const home = env.HOME || env.USERPROFILE || homedir();
   const global = opencodeConfigDir(env);
   const configDirs = new Set([
+    // .opencode dirs load nearest-first after the project files, so the farther dir wins.
     ...dirs.map((dir) => join(dir, ".opencode")),
     join(home, ".opencode"),
     env.OPENCODE_CONFIG_DIR ?? "",
@@ -238,15 +239,23 @@ function wildcardMatches(name: string, pattern: string, flags: string): boolean 
   return new RegExp(`^${source}$`, flags).test(name);
 }
 
-function readPermissions(text: string): Map<string, PermissionRule> {
-  let parsed;
-  try {
-    parsed = JSON.parse(text
-      .replace(JSONC_COMMENT, (_match, literal) => literal ?? "")
-      .replace(JSONC_TRAILING_COMMA, (_match, literal) => literal ?? ""));
-  } catch {
-    return new Map();
-  }
+function substitute(text: string, dir: string, env: Record<string, string | undefined>): string {
+  const home = env.HOME || env.USERPROFILE || homedir();
+  return text
+    .replace(/\{env:([^}]+)\}/gu, (_match, name: string) => env[name] || "")
+    .replace(/\{file:([^}]+)\}/gu, (match, path: string, offset: number, source: string) => {
+      if (source.slice(source.lastIndexOf("\n", offset - 1) + 1, offset).trimStart().startsWith("//")) return match;
+      const file = path.startsWith("~/") ? join(home, path.slice(2)) : resolve(dir, path);
+      return JSON.stringify(readFileSync(file, "utf8").trim()).slice(1, -1);
+    });
+}
+
+/** Substitutes `{env:}` and `{file:}` like OpenCode; throws where it refuses to start (unreadable file, invalid JSON). */
+function readPermissions(text: string, dir: string, env: Record<string, string | undefined>): Map<string, PermissionRule> {
+  if (!text) return new Map();
+  const parsed = JSON.parse(substitute(text, dir, env)
+    .replace(JSONC_COMMENT, (_match, literal) => literal ?? "")
+    .replace(JSONC_TRAILING_COMMA, (_match, literal) => literal ?? ""));
   const permission = parsed?.permission;
   if (PERMISSION_ACTIONS.has(permission)) return new Map([["*", permission]]);
   const rules = new Map<string, PermissionRule>();
@@ -265,12 +274,8 @@ function readPermissions(text: string): Map<string, PermissionRule> {
   return rules;
 }
 
-function readPermissionFile(path: string): Map<string, PermissionRule> {
-  try {
-    return readPermissions(readFileSync(path, "utf8"));
-  } catch {
-    return new Map();
-  }
+function readPermissionFile(path: string, env: Record<string, string | undefined>): Map<string, PermissionRule> {
+  return existsSync(path) ? readPermissions(readFileSync(path, "utf8"), dirname(path), env) : new Map();
 }
 
 function mergePermissions(lower: Map<string, PermissionRule>, upper: Map<string, PermissionRule>) {
@@ -335,14 +340,18 @@ export function withOpenCodeWebSearch(
       : {};
   permission.websearch = "allow";
   if (ask) {
-    // The inline content overrides these files, so a plain "ask" would loosen their deny.
-    const lower = permissionFiles(env, cwd)
-      .map(readPermissionFile)
-      .reduce(mergePermissions, new Map<string, PermissionRule>());
-    const user = mergePermissions(lower, readPermissions(raw ?? ""));
-    for (const key of ["edit", "bash"]) {
-      const rule = tightenRules(rulesFor(key, user), lower.get(key));
-      permission[key] = rule instanceof Map ? Object.fromEntries(rule) : rule;
+    try {
+      // The inline content overrides these files, so a plain "ask" would loosen their deny.
+      const lower = permissionFiles(env, cwd)
+        .map((path) => readPermissionFile(path, env))
+        .reduce(mergePermissions, new Map<string, PermissionRule>());
+      const user = mergePermissions(lower, readPermissions(raw ?? "", resolve(cwd ?? ""), env));
+      for (const key of ["edit", "bash"]) {
+        const rule = tightenRules(rulesFor(key, user), lower.get(key));
+        permission[key] = rule instanceof Map ? Object.fromEntries(rule) : rule;
+      }
+    } catch {
+      permission.edit = permission.bash = "deny";
     }
   }
   return JSON.stringify({ ...config, permission });

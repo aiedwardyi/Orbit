@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -434,7 +434,7 @@ describe("OpenCode Ask for approval", () => {
     files: Record<string, string> = {},
     ask = true,
     cwd?: string,
-    extraEnv: Record<string, string> = {},
+    extraEnv: Record<string, string> | ((scratch: string) => Record<string, string>) = {},
   ) => {
     const scratch = mkdtempSync(join(tmpdir(), "omb-opencode-deny-"));
     try {
@@ -448,7 +448,7 @@ describe("OpenCode Ask for approval", () => {
         HOME: scratch,
         USERPROFILE: scratch,
         OPENCODE_CONFIG: files.custom && join(scratch, "custom"),
-        ...extraEnv,
+        ...(extraEnv instanceof Function ? extraEnv(scratch) : extraEnv),
       };
       return JSON.parse(withOpenCodeWebSearch(raw, ask, env, cwd && join(scratch, cwd))).permission;
     } finally {
@@ -532,6 +532,62 @@ describe("OpenCode Ask for approval", () => {
     const files = { "repo/.git/HEAD": "ref: refs/heads/main\n", "repo/rel/custom.json": inline({ bash: "deny" }) };
     const env = { OPENCODE_CONFIG: "rel/custom.json" };
     expect((await permissionFor(undefined, files, true, "repo", env)).bash).toBe("deny");
+  });
+
+  it("keeps a deny from OPENCODE_CONFIG_DIR over the project files", async () => {
+    const files = {
+      "repo/.git/HEAD": "ref: refs/heads/main\n",
+      "repo/opencode.json": inline({ bash: "allow" }),
+      "cfg/opencode.jsonc": inline({ bash: "deny" }),
+    };
+    const env = (scratch: string) => ({ OPENCODE_CONFIG_DIR: join(scratch, "cfg") });
+    expect((await permissionFor(undefined, files, true, "repo", env)).bash).toBe("deny");
+  });
+
+  it("walks project config from the real cwd behind a junction", async () => {
+    const files = {
+      "opencode/opencode.json": inline({ edit: "deny" }),
+      "repo/.git/HEAD": "ref: refs/heads/main\n",
+      "repo/opencode.json": inline({ bash: "deny" }),
+      "repo/sub/opencode.json": "",
+      "outer/opencode.json": inline({ edit: "allow" }),
+    };
+    const link = (scratch: string) => {
+      symlinkSync(join(scratch, "repo", "sub"), join(scratch, "outer", "link"), "junction");
+      return {};
+    };
+    expect(await permissionFor(undefined, files, true, "outer/link", link)).toMatchObject({ bash: "deny", edit: "deny" });
+  });
+
+  it("substitutes {env:} in names, values and unquoted text", async () => {
+    const env = { QA_V: "deny", QA_N: "bash", QA_S: '"ask"' };
+    const named = { "opencode/opencode.json": '{"permission":{"{env:QA_N}":"{env:QA_V}"}}' };
+    expect((await permissionFor(undefined, named, true, undefined, env)).bash).toBe("deny");
+    const unquoted = { "opencode/opencode.json": '{"permission":{"bash":{env:QA_S},"edit":"deny"}}' };
+    expect(await permissionFor(undefined, unquoted, true, undefined, env)).toMatchObject({ bash: "ask", edit: "deny" });
+    expect((await permissionFor(inline({ edit: "{env:QA_V}" }), {}, true, undefined, env)).edit).toBe("deny");
+  });
+
+  it("reads {file:} next to its config, from home, and inline from cwd", async () => {
+    const files = {
+      "edit.txt": "deny",
+      "opencode/opencode.json": inline({ edit: "{file:~/edit.txt}" }),
+      "repo/.git/HEAD": "ref: refs/heads/main\n",
+      "repo/.opencode/opencode.json": inline({ bash: "{file:rule.txt}" }),
+      "repo/.opencode/rule.txt": " deny \n",
+      "repo/rule.txt": "allow",
+    };
+    expect(await permissionFor(undefined, files, true, "repo")).toMatchObject({ bash: "deny", edit: "deny" });
+    const cwdFile = { "repo/.git/HEAD": "ref: refs/heads/main\n", "repo/rule.txt": "deny" };
+    expect((await permissionFor(inline({ bash: "{file:rule.txt}" }), cwdFile, true, "repo")).bash).toBe("deny");
+  });
+
+  it("denies bash and edit when a {file:} is missing or a source will not parse", async () => {
+    const comment = { "opencode/opencode.jsonc": `// "x": "{file:missing.txt}"\n${inline({ bash: "deny" })}` };
+    expect(await permissionFor(undefined, comment)).toMatchObject({ bash: "deny", edit: "ask" });
+    const missing = { "opencode/opencode.json": inline({ bash: "{file:missing.txt}" }) };
+    expect(await permissionFor(undefined, missing)).toMatchObject({ bash: "deny", edit: "deny" });
+    expect(await permissionFor('{"permission":{"bash":{env:QA_UNSET}}}')).toMatchObject({ bash: "deny", edit: "deny" });
   });
 
   it("carries a map-valued top-level deny into the key's rule", async () => {
