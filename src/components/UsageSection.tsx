@@ -30,7 +30,7 @@ function PlanUsage() {
   const { state, dispatch } = useStore();
   const now = useNow();
   const mode = useUsageMode();
-  const [refreshing, setRefreshing] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState<Set<string>>(() => new Set());
   const [refreshErrors, setRefreshErrors] = useState<Record<string, string>>({});
   const engines = splitFriendsEngines(state.instances).friends;
   // Claude/Codex declare rateLimits but only emit a window after a turn —
@@ -45,10 +45,12 @@ function PlanUsage() {
     instance.driverKind === "claudeAgent" || instance.driverKind === "codex" || instance.driverKind === "grokAgent";
   const age = (observedAt: string) => {
     const minutes = Math.max(0, Math.floor((now - Date.parse(observedAt)) / 60_000));
-    return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h`;
+    return minutes < 60
+      ? t("usage.limits.refreshAgeMinutes", { minutes })
+      : t("usage.limits.refreshAgeHours", { hours: Math.floor(minutes / 60) });
   };
   const refresh = async (instance: InstanceInfo) => {
-    setRefreshing(instance.instanceId);
+    setRefreshing((current) => new Set(current).add(instance.instanceId));
     try {
       const result = await api(`/api/usage/refresh/${instance.instanceId}`, { method: "POST" });
       if (result.report) dispatch({ type: "rateLimits", instanceId: instance.instanceId, report: result.report });
@@ -56,7 +58,11 @@ function PlanUsage() {
     } catch (error) {
       setRefreshErrors((current) => ({ ...current, [instance.instanceId]: error instanceof Error ? error.message : "Refresh failed" }));
     } finally {
-      setRefreshing(null);
+      setRefreshing((current) => {
+        const next = new Set(current);
+        next.delete(instance.instanceId);
+        return next;
+      });
     }
   };
 
@@ -91,9 +97,9 @@ function PlanUsage() {
               )}
               {canRefresh(instance) && (
                 <div className="mt-2 flex items-center gap-2">
-                  <button type="button" onClick={() => void refresh(instance)} disabled={refreshing === instance.instanceId}
+                  <button type="button" onClick={() => void refresh(instance)} disabled={refreshing.has(instance.instanceId)}
                     className="rounded-md px-2 py-1 text-[12px] text-ink-secondary hover:bg-ink/5 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent">
-                    {t(refreshing === instance.instanceId ? "usage.limits.refreshing" : "usage.limits.refresh")}
+                    {t(refreshing.has(instance.instanceId) ? "usage.limits.refreshing" : "usage.limits.refresh")}
                   </button>
                   {instance.rateLimits && <span className="text-[11px] text-ink-secondary">{t("usage.limits.refreshAge", { age: age(instance.rateLimits.observedAt) })}</span>}
                 </div>

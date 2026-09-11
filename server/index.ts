@@ -7719,8 +7719,18 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         cli: z.object({ cli: z.string().optional() }).catch({}).parse(config.config).cli,
         environment: config.environment,
       }, previous);
-      if (result.report) rateLimitsByInstance.set(instanceId, result.report);
-      return json(res, 200, usageRefreshResponse(instanceId, result));
+      if (result.report) {
+        const current = rateLimitsByInstance.get(instanceId);
+        if (!current || Date.parse(result.report.observedAt) >= Date.parse(current.observedAt)) {
+          rateLimitsByInstance.set(instanceId, result.report);
+        }
+      }
+      const newest = rateLimitsByInstance.get(instanceId);
+      return json(res, 200, usageRefreshResponse(instanceId, {
+        report: newest,
+        error: result.error,
+        retryAt: result.retryAt,
+      }));
     }
 
     if (method === "GET" && path === "/api/instances") {
