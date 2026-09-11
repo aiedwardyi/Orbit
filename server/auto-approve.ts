@@ -70,6 +70,8 @@ const SUMMARY_CUT = 200;
 // A launcher runs whatever program follows it, so its name grants nothing.
 const LAUNCHERS = new Set(["env", "nohup", "nice", "timeout", "xargs", "exec", "command", "time", "watch", "bash", "sh", "zsh", "cmd", "pwsh", "powershell"]);
 const ELEVATORS = new Set(["sudo", "doas", "run0"]);
+// Windows matches a program by basename in any case, with or without .exe.
+const programName = (word: string) => (word.split(/[\\/]/).pop() ?? "").toLowerCase().replace(/\.exe$/, "");
 
 export function approvalKey(tool: string, summary: string, scope?: "local-computer"): string | null {
   const bare = tool.replace(/^mcp__[^_]+__/, "").toLowerCase();
@@ -79,12 +81,11 @@ export function approvalKey(tool: string, summary: string, scope?: "local-comput
   // first bare word of the command, skipping env assignments and sudo-likes
   const words = summary.trim().split(/\s+/);
   let i = 0;
-  while (i < words.length && (/^[A-Z_][A-Z0-9_]*=/.test(words[i]) || ELEVATORS.has(words[i]))) i += 1;
+  while (i < words.length && (/^[A-Z_][A-Z0-9_]*=/.test(words[i]) || ELEVATORS.has(programName(words[i])))) i += 1;
   // a quoted path splits on its spaces, so its first word names no program
   if (/["']/.test(words[i] ?? "")) return null;
   const program = (words[i] ?? "").split(/[\\/]/).pop()?.replace(/[^\w.-]/g, "") ?? "";
-  const launcher = program.toLowerCase().replace(/\.exe$/, "");
-  if (!program || program.startsWith("-") || LAUNCHERS.has(launcher)) return null;
+  if (!program || program.startsWith("-") || LAUNCHERS.has(programName(program))) return null;
   const key = `${tool}:${program}`;
   return scope ? `${scope}:${key}` : key;
 }

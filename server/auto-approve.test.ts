@@ -134,6 +134,12 @@ describe("approvalKey", () => {
     expect(approvalKey("Bash", "run0 --user=alice git status")).toBeNull();
   });
 
+  it("looks past Windows sudo whatever its case, path or .exe suffix", () => {
+    expect(approvalKey("PowerShell", "SUDO git status")).toBe("PowerShell:git");
+    expect(approvalKey("Bash", "sudo.exe git status")).toBe("Bash:git");
+    expect(approvalKey("Bash", "C:\\Windows\\System32\\sudo.exe -E git status")).toBeNull();
+  });
+
   it("never lets a remembered grant cover another path or program", () => {
     const bot = { alwaysAllow: ["Write", "edit", "Bash:git", "PowerShell"] };
     expect(autoDecision(bot, "Write", '{"file_path":"/home/me/.bashrc","content":"x"}')).toBeNull();
