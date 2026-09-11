@@ -249,16 +249,22 @@ function mergePermissions(lower: Map<string, PermissionRule>, upper: Map<string,
   return merged;
 }
 
-function tightenRule(rule: PermissionRule | undefined, inherited: boolean): PermissionRule {
+function tightenRule(
+  rule: PermissionRule | undefined,
+  fallback: PermissionRule | undefined,
+  inherited: boolean,
+): PermissionRule {
   if (rule === "deny") return "deny";
   if (!(rule instanceof Map)) return "ask";
   const tightened = new Map([...rule].map(([pattern, action]): [string, PermissionAction] => (
     [pattern, action === "deny" ? "deny" : "ask"]
   )));
-  if (![...tightened.values()].includes("deny")) return "ask";
-  if (tightened.has("*")) return tightened;
+  if (tightened.has("*")) return [...tightened.values()].includes("deny") ? tightened : "ask";
+  // Whatever this map leaves unmatched falls through to a top-level "*".
+  const unmatched = fallback === "deny" ? "deny" : "ask";
+  if (unmatched === "ask" && ![...tightened.values()].includes("deny")) return "ask";
   // OpenCode appends new keys to an inherited map, so an added "*" would land last and override every deny.
-  return inherited ? "deny" : new Map<string, PermissionAction>([["*", "ask"], ...tightened]);
+  return inherited ? "deny" : new Map<string, PermissionAction>([["*", unmatched], ...tightened]);
 }
 
 export function withOpenCodeWebSearch(
@@ -290,7 +296,7 @@ export function withOpenCodeWebSearch(
       .reduce(mergePermissions, new Map<string, PermissionRule>());
     const user = mergePermissions(lower, readPermissions(raw ?? ""));
     for (const key of ["edit", "bash"]) {
-      const rule = tightenRule(user.get(key) ?? user.get("*"), lower.get(key) instanceof Map);
+      const rule = tightenRule(user.get(key) ?? user.get("*"), user.get("*"), lower.get(key) instanceof Map);
       permission[key] = rule instanceof Map ? Object.fromEntries(rule) : rule;
     }
   }

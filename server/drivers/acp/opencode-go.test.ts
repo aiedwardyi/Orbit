@@ -481,6 +481,17 @@ describe("OpenCode Ask for approval", () => {
     expect(await permissionFor(undefined, { "opencode/config.json": inline("deny") })).toMatchObject({ bash: "deny", edit: "deny" });
   });
 
+  it("keeps a top-level deny under an inline pattern map without a catch-all", async () => {
+    const files = { "opencode/opencode.json": inline("deny") };
+    const permission = await permissionFor(inline({ bash: { "git *": "allow" } }), files);
+    expect(Object.entries(permission.bash)).toEqual([["*", "deny"], ["git *", "ask"]]);
+  });
+
+  it("denies an inherited pattern map without a catch-all under a top-level deny", async () => {
+    const files = { "opencode/opencode.json": JSON.stringify({ permission: { "*": "deny", bash: { "git *": "allow" } } }) };
+    expect((await permissionFor(undefined, files)).bash).toBe("deny");
+  });
+
   it("denies an inherited deny map that has no catch-all", async () => {
     const files = { "opencode/opencode.json": inline({ bash: { "rm *": "deny" } }) };
     expect((await permissionFor(inline({ bash: { "git *": "allow" } }), files)).bash).toBe("deny");
