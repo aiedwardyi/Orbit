@@ -724,6 +724,13 @@ describe("projectFolderPrompt", () => {
   // A room member on Grok or a cloud box has no private workspace and cannot
   // reach a host folder, whatever the room pinned.
   it("names nothing for an off-host member", () => {
-    expect(projectFolderPrompt("/tmp/room", undefined)).toBe("");
+    expect(projectFolderPrompt("/tmp/room", undefined, "claudeAgent")).toBe("");
+  });
+
+  it("names nothing for a chat-only engine", () => {
+    for (const driverKind of ["openai-compat", "minimax"]) {
+      expect(projectFolderPrompt("/tmp/desk", "/tmp/workspace", driverKind)).toBe("");
+    }
+    expect(projectFolderPrompt("/tmp/desk", "/tmp/workspace", "claudeAgent")).toContain("/tmp/desk");
   });
 });

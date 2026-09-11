@@ -476,9 +476,12 @@ export function userProjectTexts(
   return texts;
 }
 
-/** Off-host engines have no private workspace, so they get no folder line. */
-export function projectFolderPrompt(cwd: string | undefined, privateWorkspace: string | undefined): string {
-  return privateWorkspace && cwd && cwd !== privateWorkspace
+// Chat-completions drivers forward only the system text and never open turn.cwd.
+const CHAT_ONLY_DRIVERS: ReadonlySet<string> = new Set(["openai-compat", "minimax"]);
+
+/** Off-host engines have no private workspace and chat-only ones cannot open a folder, so neither gets the line. */
+export function projectFolderPrompt(cwd: string | undefined, privateWorkspace: string | undefined, driverKind: string): string {
+  return privateWorkspace && cwd && cwd !== privateWorkspace && !CHAT_ONLY_DRIVERS.has(driverKind)
     ? ` Your project folder is ${cwd}. Look there first for the files, folders, and repositories the user mentions, before searching anywhere else.`
     : "";
 }
