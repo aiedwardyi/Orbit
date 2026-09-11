@@ -209,7 +209,7 @@ export function withOpenCodeWebSearch(raw: string | undefined): string {
     // Invalid JSON is ignored; websearch still lands.
   }
   const current = config.permission;
-  const permission =
+  const permission: Record<string, unknown> =
     current && typeof current === "object" && !Array.isArray(current)
       ? { ...current }
       : {};
