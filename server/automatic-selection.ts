@@ -1,4 +1,5 @@
 import type { EffortLevel, ModelSelection } from "./contracts.ts";
+import { defaultModelEffort } from "../shared/model-effort.ts";
 
 export type AutomaticCapability =
   | "agentsMcp"
@@ -10,6 +11,7 @@ export type AutomaticCapability =
 
 export interface AutomaticCandidate {
   instanceId: string;
+  driverKind?: string;
   defaultModel: string;
   available: boolean;
   capabilities: Partial<Record<AutomaticCapability, boolean>>;
@@ -50,5 +52,7 @@ export function resolveAutomaticSelection(input: {
   ) {
     selection.effort = input.current.effort;
   }
+  const effort = defaultModelEffort(candidate.driverKind ?? "", selection.model, candidate.effortLevels);
+  if (!selection.effort && effort) selection.effort = effort;
   return selection;
 }

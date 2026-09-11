@@ -11,6 +11,7 @@ import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { z } from "zod";
 import { botAvatarUrlFromStoredPath, MASCOT_STYLES, mascotStyleSchema } from "../shared/bot-avatar.ts";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
+import { defaultModelEffort } from "../shared/model-effort.ts";
 import { canDeleteWhileWorking, canSwitchWhileWorking, workingThreadId } from "../shared/working-thread.ts";
 import {
   CREDENTIAL_TARGETS,
@@ -509,6 +510,7 @@ function askBotAndWait(
 
 const automaticCandidate = (entry: Awaited<ReturnType<typeof registry.describe>>[number]): AutomaticCandidate => ({
   instanceId: entry.instanceId,
+  driverKind: entry.driverKind,
   defaultModel: entry.models.default,
   available: entry.snapshot.state === "available",
   capabilities: entry.capabilities,
@@ -526,6 +528,7 @@ function rememberAutomaticAvailability(entries: Awaited<ReturnType<typeof regist
 function liveAutomaticCandidate(instance: ProviderInstance): AutomaticCandidate {
   return {
     instanceId: instance.instanceId,
+    driverKind: instance.driverKind,
     defaultModel: instance.models.default,
     available: automaticAvailability.get(instance.instanceId) !== false,
     capabilities: {
@@ -683,6 +686,10 @@ function checkedModelSelection(
   const allowed: readonly string[] = target?.adapter.capabilities.effortLevels ?? [];
   if (target && selection.effort !== undefined && !allowed.includes(selection.effort)) {
     return { ok: false, status: 400, error: `effort "${selection.effort}" is not offered by this bot's engine` };
+  }
+  if (!current && target && selection.effort === undefined) {
+    const effort = defaultModelEffort(target.driverKind, selection.model, allowed);
+    if (effort) selection.effort = effort;
   }
   return { ok: true, selection };
 }

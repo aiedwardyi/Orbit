@@ -132,6 +132,10 @@ function platformMarkup(platform: string, defaultOpen = false) {
 }
 
 describe("ModelPicker friends chip", () => {
+  it.each([["MacIntel", "Option"], ["Win32", "Alt"]])("labels the %s close shortcut", (platform, shortcut) => {
+    expect(platformMarkup(platform, true)).toContain(`<kbd>${shortcut}</kbd><kbd>P</kbd>Close`);
+  });
+
   it.each([["MacIntel", "Option"], ["Win32", "Alt"]])("paints Grok 4.6 with the %s shortcut while automatic is the mode", (platform, shortcut) => {
     const html = platformMarkup(platform);
     expect(html).toContain("Grok 4.6");

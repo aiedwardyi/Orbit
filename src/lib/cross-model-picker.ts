@@ -1,4 +1,5 @@
 import type { InstanceInfo, ModelSelection } from "@/state/store";
+import { defaultModelEffort } from "../../shared/model-effort.ts";
 
 type ModelOption = InstanceInfo["models"]["options"][number];
 export type PickerCell = { label: string; options: ModelOption[]; offList?: boolean };
@@ -79,7 +80,13 @@ export function pickerEfforts(row: PickerRow, cell: PickerCell): PickerEffort[] 
       .map((option) => ({ id: option.id, label: tier, model: option.id })));
   }
   const levels = row.instance.capabilities?.effortLevels ?? [];
-  return levels.length ? [{ id: "default", label: "Default" }, ...levels.map((effort) => ({ id: effort, label: effort, effort }))] : [];
+  return levels.map((effort) => ({ id: effort, label: effort, effort }));
+}
+
+export function withPickerEffort(instance: InstanceInfo | undefined, selection: ModelSelection): ModelSelection {
+  if (!instance || selection.effort !== undefined) return selection;
+  const effort = defaultModelEffort(instance.driverKind, selection.model, instance.capabilities?.effortLevels);
+  return effort ? { ...selection, effort } : selection;
 }
 
 export function selectPickerEffort(current: ModelSelection, option: PickerEffort): ModelSelection {
@@ -89,12 +96,12 @@ export function selectPickerEffort(current: ModelSelection, option: PickerEffort
 }
 
 export function selectPickerModel(instance: InstanceInfo, model: string, previous: ModelSelection): ModelSelection {
-  if (previous.instanceId === instance.instanceId && previous.model === model) return previous;
+  if (previous.instanceId === instance.instanceId && previous.model === model) return withPickerEffort(instance, previous);
   const next: ModelSelection = { instanceId: instance.instanceId, model, mode: "pinned" };
   if (instance.instanceId === previous.instanceId && previous.effort && instance.capabilities?.effortLevels?.includes(previous.effort)) {
     next.effort = previous.effort;
   }
-  return next;
+  return withPickerEffort(instance, next);
 }
 
 export function movePicker(rows: PickerRow[], current: ModelSelection, key: string): ModelSelection {
@@ -105,7 +112,8 @@ export function movePicker(rows: PickerRow[], current: ModelSelection, key: stri
   if (key === "ArrowLeft" || key === "ArrowRight") {
     const options = pickerEfforts(row, row.cell);
     const selected = options.findIndex((option) => option.model ? option.model === current.model : option.effort === current.effort);
-    const target = options[(Math.max(0, selected) + (key === "ArrowLeft" ? -1 : 1) + options.length) % options.length];
+    const start = selected < 0 ? (key === "ArrowRight" ? -1 : 0) : selected;
+    const target = options[(start + (key === "ArrowLeft" ? -1 : 1) + options.length) % options.length];
     return target ? selectPickerEffort(current, target) : current;
   }
   if (key === "ArrowUp" || key === "ArrowDown") {

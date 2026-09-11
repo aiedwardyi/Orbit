@@ -1,15 +1,17 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Atom, BookOpen, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Circle, Hexagon, Leaf, MoonStar, Mountain, Orbit, Sparkle, Sparkles, Sun, X } from "lucide-react";
+import { Atom, BookOpen, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Hexagon, Leaf, MoonStar, Mountain, Orbit, Sparkle, Sparkles, Sun, X } from "lucide-react";
 import { useStore, type Bot, type ModelSelection } from "@/state/store";
 import { filterCustomModels } from "@/lib/custom-models";
 import { engineBadgeText, modelChipText, modelChipTitle } from "@/lib/model-chip";
-import { movePicker, pickerColumn, pickerEfforts, pickerModels, pickerRows, selectPickerEffort, selectPickerModel } from "@/lib/cross-model-picker";
+import { movePicker, pickerColumn, pickerEfforts, pickerModels, pickerRows, selectPickerEffort, selectPickerModel, withPickerEffort } from "@/lib/cross-model-picker";
 import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
 import "./ModelPicker.css";
+
+const EFFORT_EDGE_CLEARANCE = 130 / 2 + 38; // Half the horizontal step plus chevron clearance.
 
 type ModelPickerProps = {
   bot: Bot;
@@ -39,11 +41,14 @@ export function ModelPickerControl({
   const selection = bot.modelSelection;
   const active = state.instances.find((instance) => instance.instanceId === selection.instanceId);
   const [open, setOpen] = useState(defaultOpen);
-  const [draft, setDraft] = useState(selection);
+  const [draftSelection, setDraft] = useState(selection);
+  const draft = withPickerEffort(state.instances.find((instance) => instance.instanceId === draftSelection.instanceId), draftSelection);
   const [customOpen, setCustomOpen] = useState(false);
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [stageWidth, setStageWidth] = useState(0);
   const bindingsId = useId();
   const rows = pickerRows(state.instances, selection, draft);
   const row = rows.find((item) => item.instance.instanceId === draft.instanceId);
@@ -59,8 +64,13 @@ export function ModelPickerControl({
   const efforts = row && cell ? pickerEfforts(row, cell) : [];
   const effortIndex = efforts.findIndex((option) => option.model ? option.model === draft.model : option.effort === draft.effort);
   const split = Math.ceil(efforts.length / 2);
-  const planeStyle: CSSProperties & { "--picker-columns": number } = { "--picker-columns": Math.max(split, efforts.length - split) * 2 + 1 };
   const effortPosition = (index: number) => index < split ? index - split : index - split + 1;
+  const effortX = effortIndex >= 0 ? effortPosition(effortIndex) * 130 : 0;
+  const offset = stageWidth ? Math.max(EFFORT_EDGE_CLEARANCE - stageWidth / 2 - effortX, Math.min(0, stageWidth / 2 - EFFORT_EDGE_CLEARANCE - effortX)) : 0;
+  const planeStyle: CSSProperties & { "--picker-columns": number; "--picker-offset": string } = {
+    "--picker-columns": Math.max(split, efforts.length - split) * 2 + 1,
+    "--picker-offset": `${offset}px`,
+  };
   const families = new Map([["codex", "gpt"], ["grokAgent", "grok"], ["antigravityAgent", "gemini"], ["geminiAgent", "gemini"], ["claudeAgent", "claude"], ["opencodeGo", "opencode"]]);
   const family = families.get(instance?.driverKind ?? "") ?? "grok";
   const shortcut = /Mac/i.test(globalThis.navigator?.platform ?? "") ? "Option" : "Alt";
@@ -103,6 +113,36 @@ export function ModelPickerControl({
     dialogRef.current?.focus();
     return () => previous?.focus();
   }, [open, refreshInstances]);
+
+  useEffect(() => {
+    if (!open) return;
+    const stage = stageRef.current!;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!event.deltaY) return;
+      const direction = event.deltaY > 0 ? "ArrowDown" : "ArrowUp";
+      setDraft((current) => movePicker(rows, withPickerEffort(state.instances.find((item) => item.instanceId === current.instanceId), current), direction));
+      setCustomOpen(false);
+    };
+    stage.addEventListener("wheel", onWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", onWheel);
+  }, [open, rows, state.instances]);
+
+  useEffect(() => {
+    if (!open) return;
+    const stage = stageRef.current!;
+    const resize = () => setStageWidth(stage.getBoundingClientRect().width);
+    resize();
+    const observer = new window.ResizeObserver(resize);
+    observer.observe(stage);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      observer.disconnect();
+      document.body.style.overflow = overflow;
+    };
+  }, [open]);
 
   const trigger = (
     <button
@@ -168,7 +208,7 @@ export function ModelPickerControl({
           <h2 className="sr-only">{t("model.choose")}</h2>
           <button data-picker-action type="button" onClick={close} aria-label={t("createBot.cancel")}><X size={18} /></button>
         </header>
-        <div className="model-cross-stage" aria-label={t("engines.models")}>
+        <div ref={stageRef} className="model-cross-stage" aria-label={t("engines.models")}>
           <div className="model-cross-plane" style={planeStyle}>
             <div className="model-cross-column" style={{ transform: `translateY(calc(${modelIndex} * -1 * var(--picker-y-step)))` }}>
               {models.map((item) => {
@@ -202,7 +242,7 @@ export function ModelPickerControl({
             {cell && <div data-model-chrome className="model-cross-chrome model-cross-model-chrome" aria-hidden />}
             {efforts.length > 0 && <div data-effort-axis className="model-cross-efforts" aria-label={t("model.effort")}>
               {efforts.map((option, index) => {
-                const EffortIcon = option.id === "default" ? Circle : option.label === "low" ? Sparkle
+                const EffortIcon = option.label === "low" ? Sparkle
                   : option.label === "medium" ? Orbit : option.label === "high" ? Sparkles : option.label === "xhigh" ? Sun : Hexagon;
                 return <button
                   key={option.id}
@@ -215,24 +255,26 @@ export function ModelPickerControl({
                   onClick={() => pick(selectPickerEffort(draft, option))}
                 >
                   <EffortIcon size={26} strokeWidth={1.1} aria-hidden />
-                  <span className="model-cross-name">{option.id === "default" ? t("model.default") : option.label === "xhigh" ? t("model.extraHigh") : option.label}</span>
+                  <span className="model-cross-name">{option.label === "xhigh" ? t("model.extraHigh") : option.label}</span>
                 </button>;
               })}
               {effortIndex >= 0 && <div data-effort-chrome className="model-cross-chrome model-cross-effort-chrome" aria-hidden style={{ transform: `translateX(calc(${effortPosition(effortIndex)} * var(--picker-x-step)))` }} />}
-              <button data-picker-action type="button" className="model-cross-chevron model-cross-left" aria-label={t("model.previousEffort")} style={{ left: `calc(50% - ${split + 0.65} * var(--picker-x-step))` }} onClick={() => pick(movePicker(rows, draft, "ArrowLeft"))}><ChevronLeft size={14} /></button>
-              <button data-picker-action type="button" className="model-cross-chevron model-cross-right" aria-label={t("model.nextEffort")} style={{ left: `calc(50% + ${efforts.length - split + 0.65} * var(--picker-x-step))` }} onClick={() => pick(movePicker(rows, draft, "ArrowRight"))}><ChevronRight size={14} /></button>
             </div>}
             <button data-picker-action type="button" className="model-cross-chevron model-cross-up" aria-label={t("model.previousModel")} onClick={() => pick(movePicker(rows, draft, "ArrowUp"))}><ChevronUp size={14} /></button>
             <button data-picker-action type="button" className="model-cross-chevron model-cross-down" aria-label={t("model.nextModel")} onClick={() => pick(movePicker(rows, draft, "ArrowDown"))}><ChevronDown size={14} /></button>
           </div>
-          <button data-picker-action type="button" className="model-cross-edge model-cross-top" aria-label={t("model.previousModel")} onClick={() => pick(movePicker(rows, draft, "ArrowUp"))}><ChevronUp size={12} /></button>
-          <button data-picker-action type="button" className="model-cross-edge model-cross-bottom" aria-label={t("model.nextModel")} onClick={() => pick(movePicker(rows, draft, "ArrowDown"))}><ChevronDown size={12} /></button>
+          {efforts.length > 0 && <>
+            <button data-picker-action type="button" className="model-cross-chevron model-cross-left" aria-label={t("model.previousEffort")} style={{ left: `max(24px, calc(50% - ${(split + 0.65) * 130}px))` }} onClick={() => pick(movePicker(rows, draft, "ArrowLeft"))}><ChevronLeft size={14} /></button>
+            <button data-picker-action type="button" className="model-cross-chevron model-cross-right" aria-label={t("model.nextEffort")} style={{ left: `min(calc(100% - 24px), calc(50% + ${(efforts.length - split + 0.65) * 130}px))` }} onClick={() => pick(movePicker(rows, draft, "ArrowRight"))}><ChevronRight size={14} /></button>
+          </>}
+          <button data-picker-action type="button" className="model-cross-edge model-cross-top" style={{ left: `calc(50% + ${offset}px)` }} aria-label={t("model.previousModel")} onClick={() => pick(movePicker(rows, draft, "ArrowUp"))}><ChevronUp size={12} /></button>
+          <button data-picker-action type="button" className="model-cross-edge model-cross-bottom" style={{ left: `calc(50% + ${offset}px)` }} aria-label={t("model.nextModel")} onClick={() => pick(movePicker(rows, draft, "ArrowDown"))}><ChevronDown size={12} /></button>
         </div>
         <div className="model-cross-options">
           <div aria-live="polite" className="flex min-w-0 flex-wrap items-center justify-center gap-2 text-xs text-ink-secondary">
             <span>{t("model.automatic")}</span>
             <span className="break-all text-ink">{t("model.automaticHelp", { name: draft.model || t("model.unresolved") })}</span>
-            {effortIndex >= 0 && <span>{t("model.effort")}: {efforts[effortIndex]!.id === "default" ? t("model.default") : efforts[effortIndex]!.label === "xhigh" ? t("model.extraHigh") : efforts[effortIndex]!.label}</span>}
+            {effortIndex >= 0 && <span>{t("model.effort")}: {efforts[effortIndex]!.label === "xhigh" ? t("model.extraHigh") : efforts[effortIndex]!.label}</span>}
             {!instance && <span>{t("model.offList")}</span>}
             {instance && <span className={cn("rounded-full px-2 py-0.5", blocked ? "bg-warning/10 text-warning" : "bg-success/10 text-success")}>
               {engineBadgeText(instance.snapshot, needsCli(instance) ? "not-installed" : needsSignIn(instance) ? "sign-in" : "ready", t)}
@@ -247,7 +289,7 @@ export function ModelPickerControl({
           </div>}
         </div>
         <footer className="model-cross-footer" id={bindingsId}>
-          <span className="model-cross-binding"><kbd>{shortcut}</kbd><kbd>P</kbd></span>
+          <span className="model-cross-binding"><kbd>{shortcut}</kbd><kbd>P</kbd>{t("model.close")}</span>
           <span className="model-cross-binding"><kbd>↑</kbd><kbd>↓</kbd>{t("model.engineAxis")}</span>
           <span className="model-cross-binding"><kbd>←</kbd><kbd>→</kbd>{t("model.modelAxis")}</span>
           <button type="button" disabled={!canSave} className="model-cross-binding" onClick={save}><kbd>Enter</kbd>{t("settings.profile.save")}</button>
