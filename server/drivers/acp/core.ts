@@ -22,6 +22,7 @@ const LOCAL_HOST_KEY_ENVS = [
   ...new Set(LOCAL_HOSTS.map((host) => host.apiKeyEnv).filter((key): key is string => Boolean(key))),
 ];
 import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../../procs.ts";
+import { grokRateLimitWindows } from "../rate-limits.ts";
 
 /**
  * A `host::model` pick talks to a loopback server with its own key.
@@ -65,6 +66,10 @@ export interface AcpConfig {
 /** Per-harness specifics — everything that differs between Grok, Gemini, … */
 export interface AcpSupport {
   grokInterjections?: boolean;
+  /** When true the harness can report subscription windows. */
+  rateLimits?: boolean;
+  /** ACP extension method that returns a billing payload the Grok mapper understands. */
+  billingMethod?: string;
   driverKind: string;
   displayName: string;
   /** Omit for subscription CLIs (the default). Custom-only CLIs sit below
@@ -169,6 +174,13 @@ function decodeAcpConfig(defaultCli: string) {
   };
 }
 
+export function acpChildEnv(support: AcpSupport, config: AcpConfig, environment: NodeJS.ProcessEnv, extraAllowed: readonly string[] = []) {
+  const env: Record<string, string | undefined> = { ...environment };
+  applyCredentialAllowlist(env, [...(support.credentialEnv ?? []), ...extraAllowed]);
+  support.transformEnv?.(env, config);
+  return env;
+}
+
 /**
  * ACP JSON-RPC-over-stdio driver. Harness differences (argv, auth, catalog)
  * live in `support`; this is the shared handshake and turn runtime.
@@ -194,20 +206,11 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
 
     async create(input: DriverCreateInput<AcpConfig>): Promise<ProviderInstance> {
       const { instanceId, config } = input;
-      const childEnv = (extraAllowed: readonly string[] = []) => {
-        const env: Record<string, string | undefined> = {
-          ...process.env,
-          ...input.environment,
-          PATH: augmentedPath(),
-        };
-        // A driver keeps only what its credentialEnv allowlist names. Foreign
-        // provider keys, workspace secrets, and credential-shaped names nobody
-        // listed ride `...process.env` but are not a grant. Local-host keys
-        // stay for in-process inject/discovery, then drop before spawn.
-        applyCredentialAllowlist(env, [...(support.credentialEnv ?? []), ...extraAllowed]);
-        support.transformEnv?.(env, config);
-        return env;
-      };
+      const childEnv = (extraAllowed: readonly string[] = []) => acpChildEnv(support, config, {
+        ...process.env,
+        ...input.environment,
+        PATH: augmentedPath(),
+      }, extraAllowed);
       let models = support.models;
       const refreshModels = async () => {
         if (!support.resolveModels) return;
@@ -228,6 +231,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         asks: Map<string, (behavior: string, source?: "user" | "timeout" | "system") => void>;
       }
       const active = new Map<string, Turn>();
+      const billingStops = new Set<() => void>();
 
       const emit = (event: RuntimeEvent) => {
         finishNative(event);
@@ -405,7 +409,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           emit({ ...base(threadId, turnId), type: "item.completed", itemType: "assistant_text", text });
         };
 
-        const settle = (ok: boolean, stopReason: string | null) => {
+        const settle = (ok: boolean, stopReason: string | null, readBilling = false) => {
           if (state.settled) return;
           state.settled = true;
           if (interruptTimer) clearTimeout(interruptTimer);
@@ -419,7 +423,18 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           active.delete(threadId);
           flushAssistantText();
           emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason, cost: null });
-          stop(); // the agent process does not exit on its own
+          if (readBilling && support.billingMethod) {
+            billingStops.add(stop);
+            void request(support.billingMethod, {}, INIT_TIMEOUT).then((result) => {
+              const windows = grokRateLimitWindows(result);
+              if (windows.length > 0) {
+                emit({ ...base(threadId, turnId), type: "account.rate-limits.updated", windows });
+              }
+            }).catch(() => {}).finally(() => {
+              billingStops.delete(stop);
+              stop();
+            });
+          } else stop();
         };
 
         // server→client permission request → canonical request.opened
@@ -590,10 +605,16 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           if (stderr.length > 8192) stderr = stderr.slice(-8192);
         });
         child.on("error", (e) => {
+          if (state.settled) return;
           emit({ ...base(threadId, turnId), type: "runtime.error", ...describeSpawnFailure(e, config.cli) });
           settle(false, "spawn_error");
         });
         child.on("close", (code) => {
+          for (const pending of rpcPending.values()) {
+            if (pending.timer) clearTimeout(pending.timer);
+            pending.reject(new Error("process closed"));
+          }
+          rpcPending.clear();
           if (!state.settled) {
             emit({
               ...base(threadId, turnId),
@@ -754,9 +775,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               result = (await Promise.all(replies)).findLast((r) => r?._meta?.completionKind !== "removedFromQueue") ?? result;
             }
             const reason = result?.stopReason;
-            if (reason === "end_turn") settle(true, null);
-            else if (reason === "cancelled") settle(true, "cancelled");
-            else settle(false, reason ?? "failed");
+            if (reason === "end_turn") settle(true, null, true);
+            else if (reason === "cancelled") settle(true, "cancelled", true);
+            else settle(false, reason ?? "failed", true);
           } catch (e) {
             if (!state.settled) {
               const message = e instanceof Error ? e.message : String(e);
@@ -805,6 +826,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           provider: DRIVER_KIND,
           capabilities: {
             queueing: support.grokInterjections === true,
+            rateLimits: support.rateLimits === true,
             sessionModelSwitch: "unsupported",
             agentsMcp: true,
             computerMcp: true,
@@ -830,6 +852,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           hasSession: (threadId) => active.has(threadId),
           stopAll: async () => {
             for (const { stop } of active.values()) stop();
+            for (const stop of billingStops) stop();
           },
           onEvent: (listener) => {
             listeners.add(listener);
@@ -838,6 +861,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         },
         dispose: async () => {
           for (const { stop } of active.values()) stop();
+          for (const stop of billingStops) stop();
           listeners.clear();
         },
       };

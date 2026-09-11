@@ -608,10 +608,27 @@ function handle(msg: any) {
       complete();
       break;
     }
+    case "_x.ai/billing":
+      if (mode === "billing-hang") return;
+      if (mode === "billing-fail") {
+        return out({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: "billing failed" } });
+      }
+      result(msg.id, {
+        config: {
+          creditUsagePercent: 42,
+          currentPeriod: {
+            type: "USAGE_PERIOD_TYPE_WEEKLY",
+            start: "2026-09-08T00:00:00Z",
+            end: "2026-09-15T12:00:00Z",
+          },
+        },
+      });
+      break;
     case "session/cancel":
       // the interrupted prompt resolves as cancelled
       break;
     default:
+      recordMethod(`${msg.method}.error`);
       if (msg.id !== undefined) out({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "method not found" } });
   }
 }
