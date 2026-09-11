@@ -198,7 +198,74 @@ function opencodeConfigDir(env: Record<string, string | undefined>): string {
   return join(env.XDG_CONFIG_HOME || join(home, ".config"), "opencode");
 }
 
-export function withOpenCodeWebSearch(raw: string | undefined, ask = false): string {
+type PermissionAction = "allow" | "ask" | "deny";
+type PermissionRule = PermissionAction | Map<string, PermissionAction>;
+
+const PERMISSION_ACTIONS = new Set(["allow", "ask", "deny"]);
+const JSONC_COMMENT = /("(?:[^"\\]|\\.)*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//gu;
+const JSONC_TRAILING_COMMA = /("(?:[^"\\]|\\.)*")|,(?=\s*[}\]])/gu;
+
+function readPermissions(text: string): Map<string, PermissionRule> {
+  let parsed;
+  try {
+    parsed = JSON.parse(text
+      .replace(JSONC_COMMENT, (_match, literal) => literal ?? "")
+      .replace(JSONC_TRAILING_COMMA, (_match, literal) => literal ?? ""));
+  } catch {
+    return new Map();
+  }
+  const permission = parsed?.permission;
+  if (PERMISSION_ACTIONS.has(permission)) return new Map([["*", permission]]);
+  const rules = new Map<string, PermissionRule>();
+  for (const key of Object.keys(permission ?? {})) {
+    const value = permission[key];
+    if (PERMISSION_ACTIONS.has(value)) {
+      rules.set(key, value);
+      continue;
+    }
+    const patterns = new Map<string, PermissionAction>();
+    for (const pattern of Object.keys(value ?? {})) {
+      if (PERMISSION_ACTIONS.has(value[pattern])) patterns.set(pattern, value[pattern]);
+    }
+    if (patterns.size) rules.set(key, patterns);
+  }
+  return rules;
+}
+
+function readPermissionFile(path: string): Map<string, PermissionRule> {
+  try {
+    return readPermissions(readFileSync(path, "utf8"));
+  } catch {
+    return new Map();
+  }
+}
+
+function mergePermissions(lower: Map<string, PermissionRule>, upper: Map<string, PermissionRule>) {
+  const merged = new Map(lower);
+  for (const [key, rule] of upper) {
+    const base = merged.get(key);
+    merged.set(key, base instanceof Map && rule instanceof Map ? new Map([...base, ...rule]) : rule);
+  }
+  return merged;
+}
+
+function tightenRule(rule: PermissionRule | undefined, inherited: boolean): PermissionRule {
+  if (rule === "deny") return "deny";
+  if (!(rule instanceof Map)) return "ask";
+  const tightened = new Map([...rule].map(([pattern, action]): [string, PermissionAction] => (
+    [pattern, action === "deny" ? "deny" : "ask"]
+  )));
+  if (![...tightened.values()].includes("deny")) return "ask";
+  if (tightened.has("*")) return tightened;
+  // OpenCode appends new keys to an inherited map, so an added "*" would land last and override every deny.
+  return inherited ? "deny" : new Map<string, PermissionAction>([["*", "ask"], ...tightened]);
+}
+
+export function withOpenCodeWebSearch(
+  raw: string | undefined,
+  ask = false,
+  env: Record<string, string | undefined> = process.env,
+): string {
   let config: Record<string, unknown> = {};
   try {
     const parsed = JSON.parse(raw ?? "");
@@ -215,8 +282,17 @@ export function withOpenCodeWebSearch(raw: string | undefined, ask = false): str
       : {};
   permission.websearch = "allow";
   if (ask) {
-    permission.edit = "ask";
-    permission.bash = "ask";
+    // The inline content overrides these files, so a plain "ask" would loosen their deny.
+    const dir = opencodeConfigDir(env);
+    const files = ["config.json", "opencode.json", "opencode.jsonc"].map((name) => join(dir, name));
+    const lower = [...files, env.OPENCODE_CONFIG ?? ""]
+      .map(readPermissionFile)
+      .reduce(mergePermissions, new Map<string, PermissionRule>());
+    const user = mergePermissions(lower, readPermissions(raw ?? ""));
+    for (const key of ["edit", "bash"]) {
+      const rule = tightenRule(user.get(key) ?? user.get("*"), lower.get(key) instanceof Map);
+      permission[key] = rule instanceof Map ? Object.fromEntries(rule) : rule;
+    }
   }
   return JSON.stringify({ ...config, permission });
 }
@@ -400,7 +476,7 @@ const support = (loadCatalog: OpenCodeCatalogLoader): AcpSupport => ({
   // Without this, ACP has webfetch but not websearch. OpenCode allows every
   // edit and command by default, so Ask for approval turns those to ask.
   applyTurnEnv: (env, { approval }) => {
-    env.OPENCODE_CONFIG_CONTENT = withOpenCodeWebSearch(env.OPENCODE_CONFIG_CONTENT, approval === "ask");
+    env.OPENCODE_CONFIG_CONTENT = withOpenCodeWebSearch(env.OPENCODE_CONFIG_CONTENT, approval === "ask", env);
   },
   pickAuthMethod: () => null,
   authFailure: "continue",
