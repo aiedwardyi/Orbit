@@ -434,6 +434,7 @@ describe("OpenCode Ask for approval", () => {
     files: Record<string, string> = {},
     ask = true,
     cwd?: string,
+    extraEnv: Record<string, string> = {},
   ) => {
     const scratch = mkdtempSync(join(tmpdir(), "omb-opencode-deny-"));
     try {
@@ -447,6 +448,7 @@ describe("OpenCode Ask for approval", () => {
         HOME: scratch,
         USERPROFILE: scratch,
         OPENCODE_CONFIG: files.custom && join(scratch, "custom"),
+        ...extraEnv,
       };
       return JSON.parse(withOpenCodeWebSearch(raw, ask, env, cwd && join(scratch, cwd))).permission;
     } finally {
@@ -515,6 +517,21 @@ describe("OpenCode Ask for approval", () => {
     expect(await permissionFor(undefined, files, true, "repo/sub")).toMatchObject({ bash: "deny", edit: "ask" });
     const dotted = { ...files, "repo/sub/.opencode/opencode.jsonc": `// user\n${inline({ edit: "deny" })}` };
     expect(await permissionFor(undefined, dotted, true, "repo/sub")).toMatchObject({ bash: "deny", edit: "deny" });
+  });
+
+  it("skips project config only when OPENCODE_DISABLE_PROJECT_CONFIG is 1 or true", async () => {
+    const files = { "repo/.git/HEAD": "ref: refs/heads/main\n", "repo/opencode.json": inline({ bash: "deny" }) };
+    const bashFor = async (flag: string) =>
+      (await permissionFor(undefined, files, true, "repo", { OPENCODE_DISABLE_PROJECT_CONFIG: flag })).bash;
+    expect(await bashFor("false")).toBe("deny");
+    expect(await bashFor("0")).toBe("deny");
+    expect(await bashFor("TRUE")).toBe("ask");
+  });
+
+  it("reads a relative OPENCODE_CONFIG against the turn cwd", async () => {
+    const files = { "repo/.git/HEAD": "ref: refs/heads/main\n", "repo/rel/custom.json": inline({ bash: "deny" }) };
+    const env = { OPENCODE_CONFIG: "rel/custom.json" };
+    expect((await permissionFor(undefined, files, true, "repo", env)).bash).toBe("deny");
   });
 
   it("carries a map-valued top-level deny into the key's rule", async () => {

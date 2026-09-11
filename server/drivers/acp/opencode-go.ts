@@ -209,7 +209,7 @@ const WILDCARD_SPECIAL = /[.+^${}()|[\]\\]/gu;
 /** Config files OpenCode 1.18.30 merges below the inline content, lowest first. */
 function permissionFiles(env: Record<string, string | undefined>, cwd: string | undefined): string[] {
   const dirs: string[] = [];
-  if (cwd && !env.OPENCODE_DISABLE_PROJECT_CONFIG) {
+  if (cwd && !/^(1|true)$/iu.test(env.OPENCODE_DISABLE_PROJECT_CONFIG ?? "")) {
     // Project config stops at the git root, or at the filesystem root outside a repo.
     for (let dir = resolve(cwd); ; dir = dirname(dir)) {
       dirs.push(dir);
@@ -227,7 +227,7 @@ function permissionFiles(env: Record<string, string | undefined>, cwd: string | 
   return [
     join(global, "config.json"),
     ...inDir(global),
-    env.OPENCODE_CONFIG ?? "",
+    env.OPENCODE_CONFIG ? resolve(cwd ?? "", env.OPENCODE_CONFIG) : "",
     ...dirs.toReversed().flatMap(inDir),
     ...[...configDirs].filter(Boolean).flatMap(inDir),
   ];
