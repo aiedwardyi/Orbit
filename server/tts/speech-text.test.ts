@@ -139,4 +139,24 @@ describe("narrateTool", () => {
     expect(narrateTool("deploy_thing")).toBe("running deploy_thing");
     expect(narrateTool('curl -X POST "https://x/y" --data @{}')).toBeNull();
   });
+
+  it("sees through OpenCode's <server>_<tool> MCP names", () => {
+    expect(narrateTool("browser_browser_navigate")).toBe("opening a page");
+    expect(narrateTool("browser_browser_snapshot")).toBe("reading a page");
+    expect(narrateTool("browser_browser_click")).toBe("using the browser");
+    expect(narrateTool("computer_click")).toBe("using the computer");
+    expect(narrateTool("agents_ask_bot")).toBe("asking a teammate");
+  });
+
+  it("gives the built-in browser tools the same label on Claude and Codex", () => {
+    expect(narrateTool("mcp__browser__browser_navigate")).toBe("opening a page");
+    expect(narrateTool("browser_navigate")).toBe("opening a page");
+  });
+
+  it("keeps Claude and Codex labels for everything else", () => {
+    expect(narrateTool("Bash")).toBe("running a command");
+    expect(narrateTool("mcp__computer__computer_exec")).toBe("running a command");
+    expect(narrateTool("git status")).toBe("running git status");
+    expect(narrateTool("web_search")).toBe("searching the web");
+  });
 });

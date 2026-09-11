@@ -196,6 +196,8 @@ export function narrateTool(toolName: string): string | null {
   if (/^(auto-approved|error):/i.test(name)) return null;
 
   const bare = name.toLowerCase();
+  // OpenCode names MCP tools <server>_<tool>, e.g. "browser_browser_navigate"
+  const unprefixed = name.replace(/^(?:agents|composio|computer)_|^browser_(?=browser_)/i, "");
   const verbs: Array<[RegExp, string]> = [
     [/^(bash|shell|terminal|run_command|execute|computer_exec)$/, "running a command"],
     [/^(read|read_file|view)$/, "reading a file"],
@@ -206,14 +208,18 @@ export function narrateTool(toolName: string): string | null {
     [/^(web_?fetch|fetch)$/, "reading a page"],
     [/^screenshot$/, "looking at the screen"],
     [/^(click|type_text|press_key|scroll|computer_batch)$/, "using the computer"],
-    [/^open_url$/, "opening a page"],
+    [/^(open_url|browser_navigate)$/, "opening a page"],
+    [/^browser_(read|snapshot|screenshot)$/, "reading a page"],
+    [/^browser_(?!browser_)/, "using the browser"],
     [/^list_bots$/, "checking who's around"],
     [/^ask_bot$/, "asking a teammate"],
   ];
-  for (const [pattern, phrase] of verbs) {
-    if (pattern.test(bare)) return phrase;
+  for (const candidate of [bare, unprefixed.toLowerCase()]) {
+    for (const [pattern, phrase] of verbs) {
+      if (pattern.test(candidate)) return phrase;
+    }
   }
   // an unrecognized tool still deserves a beat, but not its raw argv
-  const short = shortenPaths(name).slice(0, 40);
+  const short = shortenPaths(unprefixed).slice(0, 40);
   return /^[\w .:/-]+$/.test(short) ? `running ${short}` : null;
 }
