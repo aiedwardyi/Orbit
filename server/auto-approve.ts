@@ -55,12 +55,22 @@ export function looksDestructive(text: string): boolean {
  * intends. Command tools are therefore keyed by their program —
  * `Bash:git`, `Bash:npm` — so the grant is as narrow as the thing you
  * actually looked at. Computed once, server-side, and echoed back by the
- * client so the two sides can never disagree about what was granted. */
-const COMMAND_TOOLS = new Set(["bash", "shell", "execute", "run_command", "computer_exec", "terminal"]);
+ * client so the two sides can never disagree about what was granted. Null
+ * when no key can be that narrow, and the card then offers no grant. */
+const COMMAND_TOOLS = new Set(["bash", "shell", "execute", "run_command", "computer_exec", "terminal", "powershell"]);
+// A file tool's key carries no path, so one grant would cover every file.
+const FILE_TOOLS = new Set(["write", "edit", "multiedit", "notebookedit", "delete", "move"]);
+// Chaining, substitution or redirection runs a second program, or writes a
+// second path, under the first program's grant.
+const CHAINED = /[;&|`<>\n\r]|\$\(/;
+// Drivers cut summaries at 200 chars, and a cut command can hide its tail.
+const SUMMARY_CUT = 200;
 
-export function approvalKey(tool: string, summary: string, scope?: "local-computer"): string {
+export function approvalKey(tool: string, summary: string, scope?: "local-computer"): string | null {
   const bare = tool.replace(/^mcp__[^_]+__/, "").toLowerCase();
+  if (FILE_TOOLS.has(bare)) return null;
   if (!COMMAND_TOOLS.has(bare)) return scope ? `${scope}:${tool}` : tool;
+  if (CHAINED.test(summary) || summary.length >= SUMMARY_CUT) return null;
   // first bare word of the command, skipping env assignments and sudo
   const words = summary.trim().split(/\s+/);
   let i = 0;
@@ -126,7 +136,7 @@ export function autoVerdict(
   const grant =
     destructive || sensitive
       ? null
-      : bot.alwaysAllow?.includes(key)
+      : key && bot.alwaysAllow?.includes(key)
         ? { approve: `auto-approved ${key} (always allowed)`, source: "always-allow" as const, rule: key }
         : bot.autoApprove
           ? { approve: `auto-approved ${tool}`, source: "auto-mode" as const, rule: undefined }

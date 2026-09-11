@@ -178,6 +178,8 @@ export interface SendTurnInput {
   transcript?: Array<{ role: "user" | "assistant"; text: string }>;
   /** Bot persona (name/title/description) as a system prompt. */
   system?: string;
+  /** The bot's Ask for approval / Auto chip. Omitted keeps the driver's own mode. */
+  approval?: "ask" | "auto";
   /** Per-bot integrations the driver may hand to the agent as tools. */
   integrations?: {
     /** A local stdio bridge owns the remote Composio transport. Keeping the

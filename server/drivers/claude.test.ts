@@ -215,6 +215,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     delete process.env.FAKE_CLAUDE_STATE;
     delete process.env.FAKE_CLAUDE_RETRY_SCALE;
     delete process.env.FAKE_CLAUDE_RATE_LIMITS;
+    delete process.env.FAKE_CLAUDE_USER_ALLOW;
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.XAI_API_KEY;
     delete process.env.COMPOSIO_API_KEY;
@@ -993,6 +994,62 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     conn.end();
     await instance.adapter.interruptTurn("t-perm-abc");
     await recorder.until((e) => e.type === "turn.completed");
+  });
+
+  it("holds edits and commands for Allow/Deny in Ask mode, over the user's own allow list", async () => {
+    process.env.FAKE_CLAUDE_USER_ALLOW = "Write,Edit,Bash";
+    await create("edit");
+    const dump = join(scratch, "ask-dump.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    await instance.adapter.sendTurn({ threadId: "t-ask-edits", text: "go", cwd: scratch, approval: "ask" });
+
+    const write = await recorder.until((e) => e.type === "request.opened" && e.tool === "Write");
+    expect(existsSync(join(scratch, "made.txt"))).toBe(false);
+    await expect(instance.adapter.respondToRequest("t-ask-edits", write.requestId!, { behavior: "allow" })).resolves.toBe(
+      "allowed-once",
+    );
+    const bash = await recorder.until((e) => e.type === "request.opened" && e.tool === "Bash");
+    expect(existsSync(join(scratch, "made.txt"))).toBe(true);
+    await instance.adapter.respondToRequest("t-ask-edits", bash.requestId!, { behavior: "deny" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(existsSync(join(scratch, "ran.txt"))).toBe(false);
+
+    const { argv } = JSON.parse(readFileSync(dump, "utf8"));
+    expect(argv[argv.indexOf("--permission-mode") + 1]).toBe("default");
+  });
+
+  it("keeps Auto mode on acceptEdits: edits run unasked, commands still reach the broker", async () => {
+    await create("edit");
+    const dump = join(scratch, "auto-dump.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    await instance.adapter.sendTurn({ threadId: "t-auto-edits", text: "go", cwd: scratch, approval: "auto" });
+
+    const bash = await recorder.until((e) => e.type === "request.opened" && e.tool === "Bash");
+    expect(existsSync(join(scratch, "made.txt"))).toBe(true);
+    await instance.adapter.respondToRequest("t-auto-edits", bash.requestId!, { behavior: "allow" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(existsSync(join(scratch, "ran.txt"))).toBe(true);
+    expect(recorder.events.some((e) => e.type === "request.opened" && e.tool === "Write")).toBe(false);
+
+    const { argv } = JSON.parse(readFileSync(dump, "utf8"));
+    expect(argv[argv.indexOf("--permission-mode") + 1]).toBe("acceptEdits");
+    expect(argv).not.toContain("--settings");
+  });
+
+  it("respawns a warm session under the new mode when the chip flips", async () => {
+    await create();
+    const dump = join(scratch, "flip-dump.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    await instance.adapter.sendTurn({ threadId: "t-flip", text: "one", approval: "auto" });
+    await recorder.until((e) => e.type === "turn.completed");
+    rmSync(dump);
+    const started = recorder.events.find((e) => e.type === "session.started");
+    const announced = started?.type === "session.started" ? started.sessionId : null;
+    const second = await instance.adapter.sendTurn({ threadId: "t-flip", text: "two", resumeCursor: announced, approval: "ask" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+    const { argv } = JSON.parse(readFileSync(dump, "utf8"));
+    expect(argv).toContain("--resume");
+    expect(argv[argv.indexOf("--permission-mode") + 1]).toBe("default");
   });
 
   it("answers to unknown or already-resolved asks resolve `unavailable` — typed, never a throw", async () => {

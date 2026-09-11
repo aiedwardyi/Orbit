@@ -8,6 +8,9 @@
 //                      | resume-fails-unknown | hang | malformed
 //                      | stream (partial-message text deltas before the
 //                        whole-message frame, plus subagent noise to drop)
+//                      | edit (a Write then a Bash, gated like the real CLI)
+//   FAKE_CLAUDE_USER_ALLOW  tools the user's own settings.json allows, e.g.
+//                      "Write,Bash" — only `edit` reads it
 //   FAKE_CLAUDE_DUMP   path to write {argv, env, prompt, mcpConfig} as JSON,
 //                      so the test can assert on argv shape and env hygiene.
 //                      mcpConfig is read back from the --mcp-config file the
@@ -18,7 +21,9 @@
 //                      inherited-api-key — what `auth status` reports
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { connect } from "node:net";
 
 const mode = process.env.FAKE_CLAUDE_MODE ?? "happy";
 
@@ -117,6 +122,52 @@ const finishIfDone = () => {
   if (stdinEnded && !turnRunning) process.exit(0);
 };
 
+// The real CLI's order, checked against 2.1.x: a --settings ask rule beats
+// the user's allow list, which beats the permission mode; anything left
+// goes to the --permission-prompt-tool, which forwards to Orbit's broker.
+const needsPrompt = (tool: string): boolean => {
+  const settings = argAfter("--settings");
+  const askRules: unknown = settings ? JSON.parse(settings)?.permissions?.ask : undefined;
+  if (Array.isArray(askRules) && askRules.includes(tool)) return true;
+  if ((process.env.FAKE_CLAUDE_USER_ALLOW ?? "").split(",").includes(tool)) return false;
+  const permissionMode = argAfter("--permission-mode");
+  if (permissionMode === "bypassPermissions") return false;
+  return !(permissionMode === "acceptEdits" && tool === "Write");
+};
+
+const askBroker = (socketPath: string, tool: string, input: { [key: string]: JsonValue }): Promise<string> =>
+  new Promise((resolve) => {
+    const conn = connect(socketPath);
+    let buf = "";
+    conn.on("data", (chunk) => {
+      buf += chunk;
+      const nl = buf.indexOf("\n");
+      if (nl === -1) return;
+      conn.end();
+      resolve(String(JSON.parse(buf.slice(0, nl)).behavior));
+    });
+    conn.on("error", () => resolve("deny"));
+    conn.write(JSON.stringify({ t: "ask", id: randomUUID(), tool, input }) + "\n");
+  });
+
+const playEdits = async () => {
+  const mcpConfig = JSON.parse(readFileSync(argAfter("--mcp-config") ?? "", "utf8"));
+  const socketPath = String(mcpConfig.mcpServers.ogb.args[1]);
+  const useTool = async (id: string, name: string, input: { [key: string]: JsonValue }, run: () => void) => {
+    out({ type: "assistant", message: { content: [{ type: "tool_use", id, name, input }] } });
+    const behavior = needsPrompt(name) ? await askBroker(socketPath, name, input) : "allow";
+    if (behavior === "allow") run();
+    out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, is_error: behavior !== "allow" }] } });
+  };
+  await useTool("tu-write", "Write", { file_path: "made.txt", content: "hi" }, () => writeFileSync("made.txt", "hi"));
+  await useTool("tu-bash", "Bash", { command: "node -e \"require('fs').writeFileSync('ran.txt','ok')\"" }, () =>
+    writeFileSync("ran.txt", "ok"),
+  );
+  out({ type: "result", is_error: false, stop_reason: "end_turn", total_cost_usd: 0.01, usage: { input_tokens: 10, output_tokens: 5 } });
+  turnRunning = false;
+  finishIfDone();
+};
+
 const playTurn = (prompt: JsonValue) => {
   turnRunning = true;
   steered = [];
@@ -180,6 +231,11 @@ const playTurn = (prompt: JsonValue) => {
     // stay alive until killed — lets tests exercise interrupt + the
     // permission broker while a turn is officially in flight
     setInterval(() => {}, 1_000);
+    return;
+  }
+
+  if (mode === "edit") {
+    void playEdits();
     return;
   }
 
