@@ -82,9 +82,9 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
           e.preventDefault();
           dispatch({ type: "select", id: target.id });
         }
-      } else if (e.shiftKey && (e.key === "[" || e.key === "]")) {
+      } else if (e.shiftKey && (e.code === "BracketLeft" || e.code === "BracketRight")) {
         const idx = bots.findIndex((b) => b.id === state.selectedId);
-        const next = bots[(idx + (e.key === "]" ? 1 : -1) + bots.length) % bots.length];
+        const next = bots[(idx + (e.code === "BracketRight" ? 1 : -1) + bots.length) % bots.length];
         if (next) {
           e.preventDefault();
           dispatch({ type: "select", id: next.id });
