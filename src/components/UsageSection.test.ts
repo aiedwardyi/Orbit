@@ -172,6 +172,41 @@ describe("UsageSection friends plan card", () => {
     expect(html).toContain("Reset since the last check");
   });
 
+  it("names the Opus meter's group in English and Korean", () => {
+    const opusGroup = (html: string, meter: string) =>
+      new DOMParser()
+        .parseFromString(html, "text/html")
+        .querySelector(`[aria-label="${meter}"]`)
+        ?.parentElement?.closest('[role="group"]')
+        ?.getAttribute("aria-label");
+    try {
+      persistPreference("en");
+      const english = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+      expect(opusGroup(english, "7d: 75% used")).toBe("Opus 7d");
+      persistPreference("ko");
+      const korean = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+      expect(opusGroup(korean, "7일: 75% 사용")).toBe("Opus 7일");
+    } finally {
+      persistPreference("en");
+    }
+  });
+
+  it("keeps an unreported reset in English and Korean", () => {
+    const report = mockState.instances[0].rateLimits;
+    if (!report) throw new Error("claude fixture missing rateLimits");
+    const original = report.windows;
+    try {
+      report.windows = [...original, { id: "secondary", usedPercent: 46, windowMinutes: 10080, resetsAt: null }];
+      persistPreference("en");
+      expect(renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)))).toContain(">Reset time not reported<");
+      persistPreference("ko");
+      expect(renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)))).toContain(">초기화 시각이 보고되지 않았습니다<");
+    } finally {
+      report.windows = original;
+      persistPreference("en");
+    }
+  });
+
   it("localizes refresh age units in English and Korean", () => {
     const claude = mockState.instances[0];
     const report = claude.rateLimits;
