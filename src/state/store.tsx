@@ -702,6 +702,7 @@ export type Action =
   | { type: "setWorkspaceOpen"; open: boolean }
   | { type: "focusMessage"; threadId: string; messageId: string }
   | { type: "focusMessageConsumed"; nonce: number }
+  | { type: "mascotMotionDone"; nonce: number }
   | { type: "toggleAppSettings"; open?: boolean; section?: AppSettingsSection }
   | {
       type: "updateBot";
@@ -774,6 +775,18 @@ export function openNotificationTarget(
 
 function updateBot(state: AppState, botId: string, fn: (b: Bot) => Bot): AppState {
   return { ...state, bots: state.bots.map((b) => (b.id === botId ? fn(b) : b)) };
+}
+
+/** A motion is a one-shot beat. Left set, the selected bot's mascot never
+ * rests, and its SVG animation repaints the window at display rate. */
+export const MASCOT_MOTION_MS = 8000;
+
+export function useMascotMotionExpiry(nonce: number | undefined, dispatch: (action: Action) => void) {
+  useEffect(() => {
+    if (nonce === undefined) return;
+    const timer = setTimeout(() => dispatch({ type: "mascotMotionDone", nonce }), MASCOT_MOTION_MS);
+    return () => clearTimeout(timer);
+  }, [nonce, dispatch]);
 }
 
 function withMascotMotion(
@@ -1212,6 +1225,8 @@ export function reducer(state: AppState, action: Action): AppState {
     case "focusMessageConsumed":
       if (!state.focusMessage || state.focusMessage.nonce !== action.nonce) return state;
       return { ...state, focusMessage: { ...state.focusMessage, consumed: true } };
+    case "mascotMotionDone":
+      return state.mascotMotion?.nonce === action.nonce ? { ...state, mascotMotion: null } : state;
     case "setWorkspaceOpen": {
       if (state.workspaceOpen === action.open) return state;
       const next = { ...state, workspaceOpen: action.open };
@@ -1643,6 +1658,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, rawDispatch] = useReducer(reducer, initialState);
   const stateRef = useRef(state);
   stateRef.current = state;
+  useMascotMotionExpiry(state.mascotMotion?.nonce, rawDispatch);
   const cancelledSendsRef = useRef(new Set<string>());
   // per-frame stream-delta batching (see the "runtime" SSE case); stream
   // state is intentionally OUTSIDE the reducer so token frames re-render
