@@ -139,4 +139,34 @@ describe("narrateTool", () => {
     expect(narrateTool("deploy_thing")).toBe("running deploy_thing");
     expect(narrateTool('curl -X POST "https://x/y" --data @{}')).toBeNull();
   });
+
+  it("sees through OpenCode's <server>_<tool> MCP names", () => {
+    expect(narrateTool("browser_browser_navigate")).toBe("opening a page");
+    expect(narrateTool("browser_browser_snapshot")).toBe("reading a page");
+    expect(narrateTool("browser_browser_click")).toBe("using the browser");
+    expect(narrateTool("computer_click")).toBe("using the computer");
+    expect(narrateTool("agents_ask_bot")).toBe("asking a teammate");
+    expect(narrateTool("composio_COMPOSIO_SEARCH_TOOLS")).toBe("running COMPOSIO_SEARCH_TOOLS");
+  });
+
+  it("gives the built-in browser tools the same label on Claude and Codex", () => {
+    expect(narrateTool("mcp__browser__browser_navigate")).toBe("opening a page");
+    expect(narrateTool("browser_navigate")).toBe("opening a page");
+  });
+
+  it("names only the browser server's real tool ids", () => {
+    expect(narrateTool("browser_request_takeover")).toBe("using the browser");
+    expect(narrateTool("browser_browser_select_option")).toBe("using the browser");
+    expect(narrateTool("browser_test")).toBe("running browser_test");
+    expect(narrateTool("browser_navigate.sh")).toBe("running browser_navigate.sh");
+  });
+
+  it("keeps Claude and Codex labels for everything else", () => {
+    expect(narrateTool("Bash")).toBe("running a command");
+    expect(narrateTool("mcp__computer__computer_exec")).toBe("running a command");
+    expect(narrateTool("git status")).toBe("running git status");
+    expect(narrateTool("web_search")).toBe("searching the web");
+    expect(narrateTool("mcp__composio__COMPOSIO_SEARCH_TOOLS")).toBe("running COMPOSIO_SEARCH_TOOLS");
+    expect(narrateTool("COMPOSIO_SEARCH_TOOLS")).toBe("running COMPOSIO_SEARCH_TOOLS");
+  });
 });
