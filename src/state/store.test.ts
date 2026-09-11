@@ -722,6 +722,29 @@ describe("job-first bot creation", () => {
   });
 });
 
+describe("mascot motion", () => {
+  it("rests the mascot once its own motion beat ends", () => {
+    const bot = {
+      id: "bot-1",
+      threadId: "thread-1",
+      name: "Kite",
+      title: "Kite",
+      description: "",
+      notifications: true,
+      color: "green",
+      unread: false,
+      modelSelection: { mode: "automatic", instanceId: "first", model: "default" },
+      messages: [],
+    } satisfies Bot;
+    const selected = reducer({ ...initialState, bots: [bot] }, { type: "select", id: bot.id });
+    const motion = selected.mascotMotion!;
+    expect(motion.kind).toBe("switch");
+
+    expect(reducer(selected, { type: "mascotMotionDone", nonce: motion.nonce + 1 })).toBe(selected);
+    expect(reducer(selected, { type: "mascotMotionDone", nonce: motion.nonce }).mascotMotion).toBeNull();
+  });
+});
+
 describe("canonical message races", () => {
   it("does not rewind the active branch when POST repeats a user message after the reply", () => {
     const sent = {
