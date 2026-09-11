@@ -6,6 +6,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { Bot } from "@/state/store";
+import type { AcceptedSends } from "@/lib/send-accept";
+import { currentTurnId } from "@/lib/turn-stage";
+
+const acceptedSends: AcceptedSends = {};
 
 const here = dirname(fileURLToPath(import.meta.url));
 const chatView = readFileSync(join(here, "ChatView.tsx"), "utf8");
@@ -84,6 +88,8 @@ vi.mock("@/state/store", async (importOriginal) => {
     ...actual,
     useStore: () => ({
       state: {
+        ...actual.initialState,
+        acceptedSends,
         instances: [
           {
             instanceId: "grok",
@@ -101,6 +107,10 @@ vi.mock("@/state/store", async (importOriginal) => {
       dispatch: () => undefined,
       refreshInstances: async () => undefined,
     }),
+    useStreaming: () => ({
+      streaming: { t1: "A reply still streaming" }, reasoning: {}, signal: {},
+      turn: { t1: currentTurnId({}, "t1", "u1") },
+    }),
   };
 });
 
@@ -109,6 +119,7 @@ vi.mock("./DesktopCapabilities", () => ({
     capabilities: {
       host: { platform: "other", homeDir: undefined },
       toasts: { available: false },
+      dictation: { available: false },
       localComputer: { available: false, support: "unsupported" },
     },
     ready: true,
@@ -152,6 +163,36 @@ const botWithUsage = {
     },
   ],
 } as Bot;
+
+describe("ChatView mid-turn sends", () => {
+  it("keeps the live reply staged and gives placeholders no transcript controls", async () => {
+    const { ChatView } = await import("./ChatView");
+    // u0 is an edited-away version of u1, so u1 carries the branch switcher
+    const bot: Bot = {
+      ...botWithUsage, busy: true, activeLeafId: "u1",
+      messages: [
+        { id: "u0", role: "user", kind: "text", text: "Earlier prompt", at: 0 },
+        { id: "u1", role: "user", kind: "text", text: "First prompt", at: 1 },
+      ],
+    };
+    expect(renderToStaticMarkup(createElement(ChatView, { bot }))).toContain("Responding");
+    acceptedSends.t1 = [{ sendId: "s1", kind: "sends-next", text: "Follow-up", at: 42 }];
+    try {
+      const pending = renderToStaticMarkup(createElement(ChatView, { bot }));
+      expect(pending).toContain("Follow-up");
+      expect(pending).toContain("Responding");
+      expect(pending).not.toContain("A reply still streaming");
+      expect(pending.match(/data-message-hover-actions/g)).toHaveLength(1);
+      expect(pending.match(/class="tabular-nums"/g)).toHaveLength(1);
+      const confirmed = renderToStaticMarkup(createElement(ChatView, {
+        bot: { ...bot, activeLeafId: "u2", messages: [...bot.messages, { id: "u2", sendId: "s1", parentId: "u1", role: "user", kind: "text", text: "Follow-up", at: 42 }] },
+      }));
+      expect(confirmed.match(/data-message-hover-actions/g)).toHaveLength(2);
+    } finally {
+      delete acceptedSends.t1;
+    }
+  });
+});
 
 describe("SettingsPanel still owns folder and usage", () => {
   beforeAll(() => {

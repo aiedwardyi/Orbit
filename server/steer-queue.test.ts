@@ -10,7 +10,7 @@
 // queued send, not a newline-joined burst) and what it was not (the
 // webhook untrusted-data paragraph an attended turn must never get).
 import type { ChildProcess } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -528,6 +528,16 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
             environment: { FAKE_ACP_MODE: "echo-gated", FAKE_ACP_GATE_FILE: drainGate },
             config: { cli: FAKE_CLI, fullAuto: true },
           },
+          grokResultFirst: {
+            driver: "grokAgent",
+            environment: { FAKE_ACP_MODE: "steer-result-first", FAKE_ACP_RPC_DUMP: join(home, "grokResultFirst.rpc") },
+            config: { cli: FAKE_CLI, fullAuto: true },
+          },
+          grokOriginalFirst: {
+            driver: "grokAgent",
+            environment: { FAKE_ACP_MODE: "steer-original-first", FAKE_ACP_RPC_DUMP: join(home, "grokOriginalFirst.rpc") },
+            config: { cli: FAKE_CLI, fullAuto: true },
+          },
           // the RPC dump lets the interrupt test wait for session/prompt to
           // be in flight — interrupting earlier would be a no-op on a turn
           // the driver has not registered yet
@@ -592,6 +602,23 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
       setTimeout(() => (child.kill("SIGKILL"), resolve()), 5_000).unref?.();
     });
     rmSync(home, { recursive: true, force: true });
+  });
+
+  it.each(["grokResultFirst", "grokOriginalFirst"])("records a %s steer once, in order, without queue fallback", async (instanceId) => {
+    const created = await newBot(instanceId, instanceId);
+    const dump = join(home, `${instanceId}.rpc`);
+    expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "first" })).status).toBe(202);
+    await until(async () => existsSync(dump) && readFileSync(dump, "utf8").includes("session/prompt"), "the original prompt");
+    const receipt = await api("POST", `/api/bots/${created.id}/messages`, { text: "extra", sendId: `${instanceId}-extra` });
+    expect(receipt.status).toBe(202);
+    expect(receipt.body.steered).toBe(true);
+    expect(receipt.body.queued).toBeUndefined();
+    await until(async () => !(await botById(created.id)).busy, "the follow-up to finish");
+    const bot = await botById(created.id);
+    const lines = bot.messages
+      .filter((m: Message) => m.kind === "text" && /working|extra/.test(m.text ?? ""))
+      .map((m: Message) => `${m.role}:${m.text?.includes("extra") ? "extra" : "working"}`);
+    expect(lines).toEqual(["bot:working", "user:extra", "bot:extra"]);
   });
 
   it(

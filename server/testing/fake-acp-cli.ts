@@ -399,6 +399,21 @@ function handle(msg: any) {
         if (runningPromptId === undefined) {
           runningPromptId = msg.id;
           out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: "working" } } } });
+        } else if (mode === "steer-result-first") {
+          // the queued prompt's result lands before its interjection notice
+          result(msg.id, { stopReason: "cancelled", _meta: { promptId: "injected-1", completionKind: "removedFromQueue" } });
+          setTimeout(() => {
+            out({ jsonrpc: "2.0", method: "_x.ai/session/interjection", params: { sessionId: msg.params.sessionId, interjectionId: "injected-1", text: msg.params.prompt[0].text } });
+            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: msg.params.prompt[0].text } } } });
+            setTimeout(() => result(runningPromptId, { stopReason: "end_turn" }), 30);
+          }, 10);
+        } else if (mode === "steer-original-first") {
+          // the running prompt ends before Grok interjects, so the queued one runs as its own prompt
+          result(runningPromptId, { stopReason: "end_turn" });
+          setTimeout(() => {
+            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: msg.params.prompt[0].text } } } });
+            result(msg.id, { stopReason: "end_turn", _meta: { promptId: "injected-1" } });
+          }, 30);
         } else {
           if (mode !== "steer-removed") {
             out({ jsonrpc: "2.0", method: "_x.ai/session/interjection", params: { sessionId: msg.params.sessionId, interjectionId: "injected-1", text: msg.params.prompt[0].text } });

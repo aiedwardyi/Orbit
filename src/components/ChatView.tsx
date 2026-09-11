@@ -439,7 +439,7 @@ function Bubble({
       {/* padded for bot messages so the docked action row below the bubble
           keeps out of the timestamp and reaction chips that follow it */}
       <div className={cn("relative w-fit max-w-[min(42rem,78%)]", !user && "pb-8")}>
-        {user && (
+        {user && !message.placeholder && (
           <div
             data-message-hover-actions
             className="pointer-events-none absolute top-1/2 right-full z-20 mr-0.5 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
@@ -598,8 +598,8 @@ function Bubble({
         )}
       </div>
       <TimestampLabel at={message.at} />
-      <ReactionChips threadId={bot.threadId} message={message} align={user ? "right" : "left"} />
-      {versions.length > 1 && (
+      {!message.placeholder && <ReactionChips threadId={bot.threadId} message={message} align={user ? "right" : "left"} />}
+      {!message.placeholder && versions.length > 1 && (
         <div className="mt-1 flex items-center gap-0.5 pr-1 text-[12px] text-ink-secondary">
           <button
             onClick={() => switchTo(versions[versionIndex - 1])}
@@ -697,6 +697,7 @@ const MessagesList = memo(function MessagesList({
   transcript,
   editingId,
   lastBotTextId,
+  canonicalLastMessageId,
   emergingId,
   canRetryLast,
   engine,
@@ -712,6 +713,7 @@ const MessagesList = memo(function MessagesList({
   transcript: Message[];
   editingId: string | null;
   lastBotTextId: string | undefined;
+  canonicalLastMessageId: string | undefined;
   emergingId?: string | null;
   canRetryLast: boolean;
   /** This bot's engine, for rendering setup help on a `setup` error. */
@@ -811,7 +813,7 @@ const MessagesList = memo(function MessagesList({
                 return (
                   <ErrorRow
                     message={m.tool.name.slice(6).trim()}
-                    onRetry={m.id === messages.at(-1)?.id && canRetryLast ? onRegenerate : undefined}
+                    onRetry={m.id === canonicalLastMessageId && canRetryLast ? onRegenerate : undefined}
                     setupInstance={m.tool.setup ? engine : undefined}
                   />
                 );
@@ -938,7 +940,8 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
   // only the active branch is rendered; forks stay reachable via ‹ › nav
   const accepted = state.acceptedSends[bot.threadId];
   const pending = state.pendingQueued[bot.threadId];
-  const messages = useMemo(() => withAcceptedMessages(visibleMessages(bot), accepted, pending), [bot, accepted, pending]);
+  const canonicalMessages = useMemo(() => visibleMessages(bot), [bot]);
+  const messages = useMemo(() => withAcceptedMessages(canonicalMessages, accepted, pending), [canonicalMessages, accepted, pending]);
 
   // Windowed transcript: only a tail of the thread mounts (screenshots make
   // full threads DOM-heavy). The boundary is anchored per bot+task; a
@@ -988,14 +991,15 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
     [bot.id, dispatch],
   );
   const lastUserMessage = useMemo(
-    () => [...messages].reverse().find((m) => m.role === "user" && m.kind === "text"),
-    [messages],
+    () => [...canonicalMessages].reverse().find((m) => m.role === "user" && m.kind === "text"),
+    [canonicalMessages],
   );
 
   // Mascot while the turn works. Streaming stays invisible — when the reply
   // is finished, the whole bubble pops in above the mascot. The label is what
   // differentiates the wait, so deltas stage it without ever painting text.
-  const lastMessage = messages.at(-1);
+  // Placeholders never become the tail: stream buffers key off the last canonical message.
+  const lastMessage = canonicalMessages.at(-1);
   const live = buffersForTurn(stream, bot.threadId, lastMessage?.id);
   const streaming = live.streaming;
   const reasoning = live.reasoning;
@@ -1326,6 +1330,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
             transcript={messages}
             editingId={editingId}
             lastBotTextId={lastBotTextId}
+            canonicalLastMessageId={lastMessage?.id}
             emergingId={popping?.id}
             canRetryLast={!bot.busy && Boolean(lastUserMessage)}
             engine={engine}

@@ -570,6 +570,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         emit({ ...base(threadId, turnId), type: "session.started", sessionId: codexThreadId, model: startedModel ?? turn.model ?? null });
         const prompt = resumeFailed ? (turn.resumeFallback?.text ?? turn.text) : turn.text;
         nativeThreadId = codexThreadId;
+        nativeTurnId = null;
         const startedTurn = await request("turn/start", {
           threadId: codexThreadId,
           input: [{ type: "text", text: turn.system ? `${turn.system}\n\n${prompt}` : prompt }],

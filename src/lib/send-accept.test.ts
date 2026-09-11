@@ -30,7 +30,7 @@ describe("withAcceptedMessages", () => {
     const accepted = [{ sendId: "s1", kind: "sends-next" as const, text: "extra" }];
     const pending = withAcceptedMessages([settledReply], accepted);
     expect(pending).toHaveLength(2);
-    expect(pending[1]).toMatchObject({ id: "s1", role: "user", text: "extra" });
+    expect(pending[1]).toMatchObject({ id: "s1", role: "user", text: "extra", placeholder: true });
     expect(pending[1].queued).toBeUndefined();
     const confirmed: Message = { id: "canonical", sendId: "s1", role: "user", kind: "text", text: "extra", at: 2 };
     expect(withAcceptedMessages([settledReply, confirmed], accepted)).toEqual([settledReply, confirmed]);
@@ -39,6 +39,13 @@ describe("withAcceptedMessages", () => {
     expect(withAcceptedMessages([settledReply], [], queued)[1]).toMatchObject({ role: "user", text: "extra" });
     expect(withAcceptedMessages([settledReply, confirmed], [], queued)).toEqual([settledReply, confirmed]);
     expect(withAcceptedMessages([settledReply], [])).toEqual([settledReply]);
+  });
+
+  it("keeps the accepted time on every repaint", () => {
+    const accepted = [{ sendId: "s1", kind: "sends-next" as const, text: "extra", at: 42 }];
+    expect(withAcceptedMessages([settledReply], accepted).at(-1)?.at).toBe(42);
+    expect(withAcceptedMessages([{ ...settledReply, at: 99 }], accepted).at(-1)?.at).toBe(42);
+    expect(withAcceptedMessages([settledReply], [], [{ queueId: "q1", text: "extra", at: 42 }]).at(-1)?.at).toBe(42);
   });
 });
 

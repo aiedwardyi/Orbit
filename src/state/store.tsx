@@ -120,6 +120,8 @@ export interface Message {
   tool?: { name: string; ok?: boolean; spoken?: string; setup?: boolean };
   /** user messages sent into a running turn — the model saw it mid-turn */
   steered?: boolean;
+  /** Client-only accepted send; replaced by the canonical transcript row. */
+  placeholder?: true;
   /** screen messages: a frame of the bot's computer (base64) */
   png?: string;
   mime?: string;
@@ -515,7 +517,7 @@ export interface AppState {
   } | null;
   /** 1:1 queue-fallback lines waiting for drain; keyed by threadId.
    * Each entry is identified by the server queueId, not by text. */
-  pendingQueued: Record<string, Array<{ queueId: string; text: string }>>;
+  pendingQueued: Record<string, Array<{ queueId: string; text: string; at?: number }>>;
   /** queueIds whose drain frame beat the POST continuation. One-shot and
    * bounded to a short event window so other clients cannot grow it forever. */
   consumedQueueIds: Record<string, true>;
@@ -641,7 +643,7 @@ export type Action =
       threadId?: string;
       onError?: () => void;
     }
-  | { type: "pendingQueued"; threadId: string; queueId: string; text: string }
+  | { type: "pendingQueued"; threadId: string; queueId: string; text: string; at?: number }
   | { type: "consumePendingQueued"; threadId: string; queueId: string }
   | { type: "cancelQueued"; botId: string; queueId: string }
   | { type: "sendSettled"; threadId: string; sendId: string }
@@ -1334,7 +1336,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         pendingQueued: {
           ...state.pendingQueued,
-          [action.threadId]: [...prev, { queueId: action.queueId, text: action.text }],
+          [action.threadId]: [...prev, { queueId: action.queueId, text: action.text, at: action.at }],
         },
       };
     }
@@ -1377,6 +1379,7 @@ export function reducer(state: AppState, action: Action): AppState {
           sendId,
           kind: paint.kind,
           text: action.text,
+          at: Date.now(),
         }),
       };
       if (paint.kind === "thinking") {
@@ -1892,11 +1895,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 typeof body.threadId === "string" &&
                 typeof body.queueId === "string"
               ) {
+                const accepted = stateRef.current.acceptedSends[threadId ?? body.threadId]?.find(
+                  (entry) => entry.sendId === sendId,
+                );
                 rawDispatch({
                   type: "pendingQueued",
                   threadId: body.threadId,
                   queueId: body.queueId,
                   text: action.text,
+                  at: accepted?.at ?? Date.now(),
                 });
               }
               if (typeof settledThread === "string") {
