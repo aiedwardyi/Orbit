@@ -277,6 +277,10 @@ export interface ProviderAdapter {
     /** True only when local MCP calls can reach the human approval channel.
      * Full-auto/bypass provider instances must leave this false. */
     localComputerMcp?: boolean;
+    /** False when this instance can never ask before an edit or command
+     * (print mode, fullAuto, bypassPermissions), so the composer drops its
+     * Ask for approval / Auto chip. Absent keeps the chip. */
+    askApproval?: boolean;
   };
   sendTurn(input: SendTurnInput): Promise<TurnStartResult>;
   interruptTurn(threadId: ThreadId, turnId?: TurnId): Promise<void>;

@@ -26,9 +26,11 @@ export function transcriptIdleAfterOnboarding(messages: PreviewBot["messages"]):
   return messages.every((message) => isIgnoredOnboardingCard(message, messages));
 }
 
-/** Hide the Ask-for-approval chip only when Ignore left a first-turn quiz
- * as the sole leftover. Empty job-first threads and live chats keep it. */
-export function showComposerPermissionChip(messages: PreviewBot["messages"]): boolean {
+/** Hide the Ask-for-approval chip on an engine that can never ask, or when
+ * Ignore left a first-turn quiz as the sole leftover. Empty job-first
+ * threads and live chats keep it. */
+export function showComposerPermissionChip(messages: PreviewBot["messages"], engineCanAsk = true): boolean {
+  if (!engineCanAsk) return false;
   if (messages.length === 0) return true;
   return !transcriptIdleAfterOnboarding(messages);
 }

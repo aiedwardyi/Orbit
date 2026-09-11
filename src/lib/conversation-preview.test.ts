@@ -72,6 +72,13 @@ describe("conversationPreview after first-turn ignore", () => {
     expect(showComposerPermissionChip([{ ...quiz, card: { ...quizCard, dismissed: true } }])).toBe(false);
   });
 
+  it("hides the Ask-for-approval chip on an engine that can never ask", () => {
+    const chat: Message = { id: "u", role: "user", kind: "text", text: "hi", at: 1 };
+    expect(showComposerPermissionChip([], false)).toBe(false);
+    expect(showComposerPermissionChip([chat], false)).toBe(false);
+    expect(showComposerPermissionChip([chat], true)).toBe(true);
+  });
+
   it("does not treat a chosen option as an ignored leftover", () => {
     const answered: Message = { ...quiz, card: { ...quizCard, answered: "Work & projects", dismissed: true } };
     expect(transcriptIdleAfterOnboarding([answered])).toBe(false);

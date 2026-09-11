@@ -251,6 +251,9 @@ export function Composer({
   const busy = composerIsBusy(group ? Boolean(group.busyBotId) : Boolean(bot?.busy), acceptedSends);
   const canSteer =
     !group && Boolean(bot) && state.instances.find((i) => i.instanceId === bot!.modelSelection.instanceId)?.capabilities?.queueing === true;
+  // print-mode and full-auto engines never ask, so the chip would be a no-op
+  const engineCanAsk =
+    state.instances.find((i) => i.instanceId === bot?.modelSelection.instanceId)?.capabilities?.askApproval !== false;
   // the VISIBLE branch only — an approval left on a branch you edited away
   // from must not keep blocking the composer
   const threadMessages = group ? group.messages : bot ? visibleMessages(bot) : [];
@@ -837,7 +840,7 @@ export function Composer({
               >
                 <Paperclip size={17} />
               </button>
-              {autoBot && showComposerPermissionChip(threadMessages) && (
+              {autoBot && showComposerPermissionChip(threadMessages, engineCanAsk) && (
                 <PermissionModeSelector bot={autoBot} onSetAuto={setAuto} />
               )}
             </div>

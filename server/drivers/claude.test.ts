@@ -170,6 +170,21 @@ describe("ClaudeDriver.decodeConfig", () => {
     await bypass.dispose();
   });
 
+  it("offers the approval chip unless bypassPermissions means nothing ever asks", async () => {
+    const make = (permissionMode: "acceptEdits" | "bypassPermissions") =>
+      ClaudeDriver.create({
+        instanceId: `claude-chip-${permissionMode}`,
+        displayName: "Claude",
+        environment: {},
+        enabled: true,
+        config: { cli: FAKE_CLI, permissionMode },
+      });
+    const [edits, bypass] = await Promise.all([make("acceptEdits"), make("bypassPermissions")]);
+    expect(edits.adapter.capabilities.askApproval).toBe(true);
+    expect(bypass.adapter.capabilities.askApproval).toBe(false);
+    await Promise.all([edits.dispose(), bypass.dispose()]);
+  });
+
   it("gives each collision test a distinct broker pipe path", () => {
     const paths = COLLISION_THREAD_IDS.map(permissionSocketPath);
     expect(new Set(paths).size).toBe(COLLISION_THREAD_IDS.length);
@@ -1021,7 +1036,8 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     });
   });
 
-  it("keeps Auto mode on acceptEdits: edits run unasked, commands still reach the broker", async () => {
+  it("keeps Auto mode on acceptEdits: edits run unasked, commands reach the broker over the user's allow list", async () => {
+    process.env.FAKE_CLAUDE_USER_ALLOW = "Write,Edit,Bash";
     await create("edit");
     const dump = join(scratch, "auto-dump.json");
     process.env.FAKE_CLAUDE_DUMP = dump;
@@ -1036,7 +1052,10 @@ describe("ClaudeDriver turns (fake CLI)", () => {
 
     const { argv } = JSON.parse(readFileSync(dump, "utf8"));
     expect(argv[argv.indexOf("--permission-mode") + 1]).toBe("acceptEdits");
-    expect(argv).not.toContain("--settings");
+    expect(JSON.parse(argv[argv.indexOf("--settings") + 1])).toEqual({
+      permissions: { ask: ["Bash", "PowerShell"] },
+      sandbox: { autoAllowBashIfSandboxed: false },
+    });
   });
 
   it("respawns a warm session under the new mode when the chip flips", async () => {

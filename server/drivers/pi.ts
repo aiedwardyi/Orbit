@@ -861,6 +861,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
           // extension, so it is offered exactly when the other engines offer
           // it: enabled unless the bot is in full-auto.
           localComputerMcp: !config.fullAuto,
+          askApproval: !config.fullAuto,
           // Images ride the ordinary prompt as <attached-image path> refs the
           // agent opens with its read tool — no native image blocks needed,
           // same as every other CLI engine.

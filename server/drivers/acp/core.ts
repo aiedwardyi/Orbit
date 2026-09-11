@@ -110,7 +110,7 @@ export interface AcpSupport {
    *  snapshot share `transformEnv` and must not see a per-turn overlay. */
   applyTurnEnv?(
     env: Record<string, string | undefined>,
-    ctx: { model?: string; requestedModel?: string },
+    ctx: { model?: string; requestedModel?: string; approval?: SendTurnInput["approval"] },
   ): void;
   /** Pick the ACP authenticate methodId from initialize's advertised
    * authMethods; return null to skip the authenticate step. */
@@ -310,7 +310,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           return { turnId };
         }
         const resolvedModel = support.resolveTurnModel?.(turn.model, env);
-        support.applyTurnEnv?.(env, { model: resolvedModel, requestedModel: turn.model });
+        support.applyTurnEnv?.(env, { model: resolvedModel, requestedModel: turn.model, approval: turn.approval });
         const allowed = new Set(support.credentialEnv ?? []);
         for (const key of LOCAL_HOST_KEY_ENVS) {
           if (!allowed.has(key)) delete env[key];
@@ -813,6 +813,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             images: support.images !== false,
             effortLevels: support.effortLevels,
             localComputerMcp: !config.fullAuto,
+            askApproval: !config.fullAuto,
           },
           sendTurn,
           steer: support.grokInterjections

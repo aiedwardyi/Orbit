@@ -789,6 +789,8 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
           // approval (see contracts.ts), which print mode cannot deliver in
           // any mode; that returns with the native ACP path (agy issue #31).
           computerMcp: config.fullAuto,
+          // nothing in print mode can ask, so Ask for approval would be a no-op
+          askApproval: false,
         },
         sendTurn,
         interruptTurn: async (threadId) => active.get(threadId)?.stop(),

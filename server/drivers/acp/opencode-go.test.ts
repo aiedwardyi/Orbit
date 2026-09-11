@@ -327,6 +327,44 @@ describe("OpenCode catalog", () => {
     }
   });
 
+  it("asks before OpenCode edits and commands in Ask mode, keeping websearch", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "omb-opencode-ask-"));
+    const dump = join(scratch, "acp.json");
+    const driver = createOpenCodeDriver(async () => catalog("opencode/x-preview-f-free"));
+    const instance = await driver.create({
+      instanceId: "opencode-ask",
+      displayName: "OpenCode",
+      environment: {
+        HOME: scratch,
+        USERPROFILE: scratch,
+        FAKE_ACP_DUMP: dump,
+        FAKE_ACP_MODELS: "opencode/x-preview-f-free",
+        OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: { bash: "allow" } }),
+      },
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: false },
+    });
+    const recorder = recordEvents(instance.adapter);
+    const permissionFor = async (approval: "ask" | "auto") => {
+      const { turnId } = await instance.adapter.sendTurn({
+        threadId: `t-opencode-${approval}`,
+        text: "hello",
+        model: "opencode/x-preview-f-free",
+        approval,
+      });
+      await recorder.until((event) => event.type === "turn.completed" && event.turnId === turnId);
+      return JSON.parse(JSON.parse(readFileSync(dump, "utf8")).env.OPENCODE_CONFIG_CONTENT).permission;
+    };
+    try {
+      expect(await permissionFor("ask")).toEqual({ bash: "ask", edit: "ask", websearch: "allow" });
+      expect(await permissionFor("auto")).toEqual({ bash: "allow", websearch: "allow" });
+    } finally {
+      recorder.stop();
+      await instance.dispose();
+      await removeTempDir(scratch);
+    }
+  });
+
   it("classifies ACP's standard authentication error", () => {
     expect(classifyOpenCodeError({ code: -32000 })).toBe("invalid_credentials");
   });
