@@ -8,10 +8,14 @@ import { movePicker, pickerColumn, pickerEfforts, pickerModels, pickerRows, sele
 import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
 import { cn } from "@/lib/cn";
-import { useI18n } from "@/lib/i18n";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 import "./ModelPicker.css";
 
 const EFFORT_EDGE_CLEARANCE = 130 / 2 + 38; // Half the horizontal step plus chevron clearance.
+const EFFORT_LABELS = new Map<string, MessageKey>([
+  ["none", "model.effortNone"], ["low", "model.effortLow"], ["medium", "model.effortMedium"],
+  ["high", "model.effortHigh"], ["xhigh", "model.extraHigh"], ["max", "model.effortMax"],
+]);
 
 type ModelPickerProps = {
   bot: Bot;
@@ -65,6 +69,10 @@ export function ModelPickerControl({
   const effortIndex = efforts.findIndex((option) => option.model ? option.model === draft.model : option.effort === draft.effort);
   const split = Math.ceil(efforts.length / 2);
   const effortPosition = (index: number) => index < split ? index - split : index - split + 1;
+  const effortLabel = (label: string) => {
+    const key = EFFORT_LABELS.get(label);
+    return key ? t(key) : label;
+  };
   const effortX = effortIndex >= 0 ? effortPosition(effortIndex) * 130 : 0;
   const offset = stageWidth ? Math.max(EFFORT_EDGE_CLEARANCE - stageWidth / 2 - effortX, Math.min(0, stageWidth / 2 - EFFORT_EDGE_CLEARANCE - effortX)) : 0;
   const planeStyle: CSSProperties & { "--picker-columns": number; "--picker-offset": string } = {
@@ -255,7 +263,7 @@ export function ModelPickerControl({
                   onClick={() => pick(selectPickerEffort(draft, option))}
                 >
                   <EffortIcon size={26} strokeWidth={1.1} aria-hidden />
-                  <span className="model-cross-name">{option.label === "xhigh" ? t("model.extraHigh") : option.label}</span>
+                  <span className="model-cross-name">{effortLabel(option.label)}</span>
                 </button>;
               })}
               {effortIndex >= 0 && <div data-effort-chrome className="model-cross-chrome model-cross-effort-chrome" aria-hidden style={{ transform: `translateX(calc(${effortPosition(effortIndex)} * var(--picker-x-step)))` }} />}
@@ -274,7 +282,7 @@ export function ModelPickerControl({
           <div aria-live="polite" className="flex min-w-0 flex-wrap items-center justify-center gap-2 text-xs text-ink-secondary">
             <span>{t("model.automatic")}</span>
             <span className="break-all text-ink">{t("model.automaticHelp", { name: draft.model || t("model.unresolved") })}</span>
-            {effortIndex >= 0 && <span>{t("model.effort")}: {efforts[effortIndex]!.label === "xhigh" ? t("model.extraHigh") : efforts[effortIndex]!.label}</span>}
+            {effortIndex >= 0 && <span>{t("model.effort")}: {effortLabel(efforts[effortIndex]!.label)}</span>}
             {!instance && <span>{t("model.offList")}</span>}
             {instance && <span className={cn("rounded-full px-2 py-0.5", blocked ? "bg-warning/10 text-warning" : "bg-success/10 text-success")}>
               {engineBadgeText(instance.snapshot, needsCli(instance) ? "not-installed" : needsSignIn(instance) ? "sign-in" : "ready", t)}

@@ -3,7 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { I18nProvider } from "@/lib/i18n";
+import { I18nProvider, persistPreference } from "@/lib/i18n";
 import type { Bot, InstanceInfo, ModelSelection } from "@/state/store";
 
 const instances: InstanceInfo[] = [];
@@ -193,6 +193,23 @@ describe("ModelPicker cross navigation", () => {
     await key("ArrowRight");
     expect(document.activeElement).toBe(document.querySelector('[role="dialog"]'));
     expect(document.querySelector('[aria-live="polite"]')?.textContent).toContain("Effort: medium");
+  });
+
+  it.each([
+    ["en", ["none", "low", "medium", "high", "Extra high", "max"], "Effort: high"],
+    ["ko", ["없음", "낮음", "보통", "높음", "매우 높음", "최대"], "추론 강도: 높음"],
+  ] as const)("labels every effort level in %s", async (locale, labels, status) => {
+    vi.stubGlobal("localStorage", window.localStorage);
+    try {
+      persistPreference(locale);
+      mock.instances = [engine("claude", "claudeAgent", ["claude-opus-5"], ["none", "low", "medium", "high", "xhigh", "max"])];
+      await mount({ instanceId: "claude", model: "claude-opus-5", mode: "pinned", effort: "high" });
+      expect(Array.from(document.querySelectorAll("[data-effort-axis] button"), (button) => button.textContent)).toEqual(labels);
+      expect(document.querySelector('[aria-live="polite"]')?.textContent).toContain(status);
+    } finally {
+      persistPreference("en");
+      vi.unstubAllGlobals();
+    }
   });
 
   it("moves vertically through every model before crossing engine boundaries", async () => {
