@@ -5330,6 +5330,95 @@ describe("room project folder in the system prompt", () => {
   }, 30_000);
 });
 
+// A chat-completions engine only forwards the system text and never opens the
+// turn's folder, so naming one sends it looking for files it cannot read.
+describe("project folder for a chat-only engine", () => {
+  const FOLDER_START = "Your project folder is ";
+  const MODEL = "meta-llama/llama-3.3-70b-instruct";
+  const systems: string[] = [];
+  let compat: Server;
+
+  beforeAll(async () => {
+    compat = createServer(async (req, res) => {
+      let raw = "";
+      for await (const chunk of req) raw += chunk;
+      if (req.method === "POST") {
+        const { messages } = z.object({ messages: z.array(z.object({ role: z.string(), content: z.string() })) }).parse(JSON.parse(raw));
+        systems.push(messages.find((message) => message.role === "system")?.content ?? "");
+      }
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.end('data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n');
+    });
+    await new Promise<void>((r) => compat.listen(0, "127.0.0.1", r));
+    const { port } = z.object({ port: z.number() }).parse(compat.address());
+    expect((await api("PUT", "/api/config", {
+      openaiCompat: { key: "compat-folder", url: `http://127.0.0.1:${port}` },
+    })).status).toBe(200);
+  });
+
+  afterAll(() => {
+    compat?.close();
+  });
+
+  const nextSystem = async (send: () => Promise<{ status: number }>): Promise<string> => {
+    const seen = systems.length;
+    expect((await send()).status).toBe(202);
+    await expect.poll(() => systems.length, { timeout: 10_000 }).toBeGreaterThan(seen);
+    return systems[seen];
+  };
+
+  const settled = async (botId: string, roomId?: string) => {
+    await expect.poll(async () => {
+      const state = (await api("GET", "/api/bots?messages=0")).body;
+      return {
+        botBusy: state.bots.find((bot: { id: string }) => bot.id === botId)?.busy,
+        roomBusyBotId: roomId ? state.groups.find((group: { id: string }) => group.id === roomId)?.busyBotId : null,
+      };
+    }, { timeout: 5_000 }).toEqual({ botBusy: false, roomBusyBotId: null });
+  };
+
+  const compatBot = async (cwd?: string) => {
+    const bot = z.object({ id: z.string() }).parse((await api("POST", "/api/bots")).body.bot);
+    expect((await api("PATCH", `/api/bots/${bot.id}`, { cwd, modelSelection: { instanceId: "openaiCompat", model: MODEL } })).status).toBe(200);
+    return bot.id;
+  };
+
+  it("names no folder in a 1:1 chat", async () => {
+    const folder = join(home, "CompatDesk");
+    mkdirSync(folder, { recursive: true });
+    const botId = await compatBot(folder);
+    try {
+      const system = await nextSystem(() => api("POST", `/api/bots/${botId}/messages`, { text: "what is in the desk folder" }));
+      expect(system).toContain("a personal bot in Orbit.");
+      expect(system).not.toContain(FOLDER_START);
+    } finally {
+      await settled(botId);
+      await api("DELETE", `/api/bots/${botId}`);
+    }
+  }, 30_000);
+
+  it("names no folder in a room", async () => {
+    const folder = join(home, "CompatRoomDesk");
+    mkdirSync(folder, { recursive: true });
+    const botId = await compatBot();
+    const room = z.object({ id: z.string() }).parse((await api("POST", "/api/groups", {
+      name: "Compat desk room",
+      memberIds: [botId],
+      setup: { bulletin: "", defaultResponder: { kind: "member", botId } },
+    })).body.group);
+    try {
+      expect((await api("PATCH", `/api/groups/${room.id}`, { cwd: folder })).status).toBe(200);
+      const system = await nextSystem(() => api("POST", `/api/groups/${room.id}/messages`, { text: "what is in the desk folder" }));
+      expect(system).toContain('a bot in the room "Compat desk room"');
+      expect(system).not.toContain(FOLDER_START);
+    } finally {
+      await settled(botId, room.id);
+      await api("DELETE", `/api/groups/${room.id}`);
+      await api("DELETE", `/api/bots/${botId}`);
+    }
+  }, 30_000);
+});
+
 describe("approval chip on the claude CLI", () => {
   const argvForTurn = async (botId: string, text: string): Promise<string[]> => {
     rmSync(fakeClaudeDump, { force: true });
