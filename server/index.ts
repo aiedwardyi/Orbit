@@ -34,6 +34,7 @@ import { appendDecision, readDecisions } from "./decision-log.ts";
 import { validateBotCwd } from "./bot-cwd.ts";
 import {
   applyResolvedProjectFolder,
+  projectFolderPrompt,
   projectPathsFromRecords,
   userProjectTexts,
 } from "./project-folder.ts";
@@ -3193,9 +3194,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           // only the path, which is pinned per task: the claude driver folds
           // this string into its warm-process argsKey, so anything that moved
           // between turns would cost a cold start on every send.
-          (projectFolder
-            ? ` Your project folder is ${projectFolder}. Look there first for the files, folders, and repositories the user mentions, before searching anywhere else.`
-            : "") +
+          projectFolderPrompt(cwd, privateWorkspace) +
           (computerKind === "vm"
             ? localVmMode(cfg) === "per-bot"
               ? " You have your own isolated Cua sandbox: a Linux desktop in a container reserved for this bot. Only /home/cua/workspace is durable; save downloads, repositories, working files, and browser profiles there because everything else inside the VM is disposable. No other host folder is mounted. Use the computer tools for desktop, accessibility, window, and shell work. Inspect the desktop state before acting, prefer accessibility targets over raw coordinates, and work carefully."
@@ -4000,6 +3999,7 @@ async function runClaimedGroupMemberTurn(
   const cwd = groupTurnCwd(workspace, () => store.pinGroupCwd(group.id, threadId));
   const roomSystem =
     system +
+    projectFolderPrompt(cwd, workspace) +
     CORPUS_SEARCH_INSTRUCTIONS +
     sectionContextSystemPrompt(bot.section) +
     (workspace ? `\n${memorySystemPrompt(bot.id).trim()}${skillsSystemPrompt(bot.id)}` : "") +

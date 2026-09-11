@@ -476,6 +476,13 @@ export function userProjectTexts(
   return texts;
 }
 
+/** Off-host engines have no private workspace, so they get no folder line. */
+export function projectFolderPrompt(cwd: string | undefined, privateWorkspace: string | undefined): string {
+  return privateWorkspace && cwd && cwd !== privateWorkspace
+    ? ` Your project folder is ${cwd}. Look there first for the files, folders, and repositories the user mentions, before searching anywhere else.`
+    : "";
+}
+
 export function resolveProjectFolder(input: ProjectFolderInput): ProjectFolderResolution {
   const scoutName = memoScout(input.scoutName ?? defaultScoutName);
   const isPrivateWorkspace = input.isPrivateWorkspace ?? defaultPrivateWorkspace;
