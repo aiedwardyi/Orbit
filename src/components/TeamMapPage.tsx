@@ -4,6 +4,7 @@ import { ArrowRight, BookOpen, Crown, Loader2, Network, Radio, RefreshCw, Save, 
 
 import { BotAvatar } from "./Avatar";
 import { api, formatTime, useStore, type Bot } from "@/state/store";
+import { localeTag, useI18n } from "@/lib/i18n";
 import { normalizeState } from "@/lib/mascot";
 import {
   EMPTY_TEAM_MAP_SNAPSHOT,
@@ -54,6 +55,7 @@ function BotNode({ bot, chief = false }: { bot: Bot; chief?: boolean }) {
 }
 
 function EdgeRow({ edge, bots }: { edge: TeamMapEdge; bots: Bot[] }) {
+  const { locale } = useI18n();
   const { dispatch } = useStore();
   const source = bots.find((bot) => bot.id === edge.sourceBotId);
   const target = bots.find((bot) => bot.id === edge.targetBotId);
@@ -80,7 +82,7 @@ function EdgeRow({ edge, bots }: { edge: TeamMapEdge; bots: Bot[] }) {
               : "bg-control text-ink-secondary",
         )}
       >
-        {edge.state === "running" ? "Running" : edge.state === "queued" ? "Queued" : edge.lastAt ? formatTime(edge.lastAt) : "Connected"}
+        {edge.state === "running" ? "Running" : edge.state === "queued" ? "Queued" : edge.lastAt ? formatTime(edge.lastAt, localeTag(locale)) : "Connected"}
       </span>
     </button>
   );

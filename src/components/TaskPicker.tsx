@@ -11,7 +11,7 @@ import { cn } from "@/lib/cn";
 import { COMPACT_BUBBLE } from "@/lib/compact-chip";
 import { formatTokens } from "@/lib/format-tokens";
 import { nextRename } from "@/lib/rename";
-import { useI18n } from "@/lib/i18n";
+import { localeTag, useI18n } from "@/lib/i18n";
 import { canDeleteWhileWorking, liveRunForBot, workingThreadId } from "../../shared/working-thread";
 
 /** Click-to-switch used to close this menu immediately, which unmounted the
@@ -85,7 +85,7 @@ function ConversationTaskPicker({
   onRename: (threadId: string, title: string) => void;
   onDelete: (threadId: string) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -332,7 +332,7 @@ function ConversationTaskPicker({
                         )}
                       </div>
                       <div className="text-[11px] text-ink-secondary">
-                        {formatTime(task.createdAt)}
+                        {formatTime(task.createdAt, localeTag(locale))}
                         <TaskUsage usage={task.usage} />
                       </div>
                     </button>
