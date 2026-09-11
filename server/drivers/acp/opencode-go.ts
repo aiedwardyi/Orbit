@@ -275,7 +275,9 @@ function readPermissions(text: string, dir: string, env: Record<string, string |
 }
 
 function readPermissionFile(path: string, env: Record<string, string | undefined>): Map<string, PermissionRule> {
-  return existsSync(path) ? readPermissions(readFileSync(path, "utf8"), dirname(path), env) : new Map();
+  if (!existsSync(path)) return new Map();
+  // OpenCode reads a file saved with a BOM; JSON.parse throws on it.
+  return readPermissions(readFileSync(path, "utf8").replace(/^\uFEFF/u, ""), dirname(path), env);
 }
 
 function mergePermissions(lower: Map<string, PermissionRule>, upper: Map<string, PermissionRule>) {

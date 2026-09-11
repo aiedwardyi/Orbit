@@ -590,6 +590,11 @@ describe("OpenCode Ask for approval", () => {
     expect(await permissionFor('{"permission":{"bash":{env:QA_UNSET}}}')).toMatchObject({ bash: "deny", edit: "deny" });
   });
 
+  it("reads a config file saved with a BOM", async () => {
+    const files = { "repo/.git/HEAD": "ref: refs/heads/main\n", "repo/opencode.json": `\uFEFF${inline({ bash: "deny" })}` };
+    expect(await permissionFor(undefined, files, true, "repo")).toMatchObject({ bash: "deny", edit: "ask" });
+  });
+
   it("carries a map-valued top-level deny into the key's rule", async () => {
     const permission = { "*": { "*": "allow", "*.env": "deny" }, edit: { "*.txt": "allow" } };
     const edit = (await permissionFor(inline(permission))).edit;
