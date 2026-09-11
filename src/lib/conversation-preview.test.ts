@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { conversationPreview, roomConversationPreview, showComposerPermissionChip, transcriptIdleAfterOnboarding } from "./conversation-preview";
 import { t, translate, type Translate } from "@/lib/i18n";
-import type { Bot, Group, Message } from "@/state/store";
+import { initialState, reducer, type Bot, type Group, type Message, type OptionCardData } from "@/state/store";
 
 const quizCard = {
   title: "What do you mostly want help with?",
@@ -69,6 +69,57 @@ describe("conversationPreview after first-turn ignore", () => {
       },
     };
     expect(conversationPreview(bot([ask]))).toBe("Approval needed");
+  });
+
+  const decided = (behavior: "allow" | "deny", card: Partial<OptionCardData> = {}): Bot => {
+    const prompt: Message = { id: "u", role: "user", kind: "text", text: "clean the build", at: 1 };
+    const ask: Message = {
+      id: "ask",
+      role: "bot",
+      kind: "options",
+      at: 2,
+      parentId: "u",
+      card: { title: "Approval needed", subtitle: "rm -rf ./build", options: ["Allow", "Deny"], requestId: "r1", tool: "Bash", ...card },
+    };
+    const asking = { id: "b1", threadId: "t1", name: "B", messages: [prompt, ask], activeLeafId: "ask", busy: false };
+    // SAFETY: answerCard and messagePatched read only id, threadId, messages and activeLeafId.
+    let state = { ...initialState, bots: [asking as Bot] };
+    state = reducer(state, { type: "answerCard", botId: "b1", messageId: "ask", answer: behavior === "allow" ? "Allow" : "Deny" });
+    // server/index.ts request.resolved: answered = behavior, dismissed only for a non-user source
+    state = reducer(state, {
+      type: "messagePatched",
+      threadId: "t1",
+      message: { ...ask, card: { ...ask.card!, answered: behavior, dismissed: false } },
+    });
+    return state.bots[0]!;
+  };
+  const ko: Translate = (key, vars) => translate("ko", key, vars);
+
+  it("previews Denied once the approval is denied", () => {
+    const denied = decided("deny");
+    expect(denied.busy).toBe(false);
+    expect(conversationPreview(denied)).toBe("Denied");
+    expect(conversationPreview(denied, ko)).toBe("거부됨");
+  });
+
+  it("previews Allowed once the approval is allowed and nothing follows", () => {
+    const allowed = decided("allow");
+    expect(allowed.busy).toBe(false);
+    expect(conversationPreview(allowed)).toBe("Allowed");
+    expect(conversationPreview(allowed, ko)).toBe("허용됨");
+  });
+
+  it("previews the routine outcome the chat records", () => {
+    const routineRequest = {
+      version: 1 as const,
+      requestId: "r1",
+      botId: "b1",
+      threadId: "t1",
+      createdAt: 1,
+      operation: { action: "delete" as const, routineId: "routine-1", expectedUpdatedAt: 1 },
+    };
+    expect(conversationPreview(decided("allow", { tool: "manage_routine", routineRequest }))).toBe("Routine deleted");
+    expect(conversationPreview(decided("deny", { tool: "manage_routine", routineRequest }))).toBe("Cancelled");
   });
 
   it("keeps waiting-on-you above any leftover quiz text", () => {
