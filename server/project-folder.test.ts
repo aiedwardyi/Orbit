@@ -8,6 +8,7 @@ import { WORKSPACES_DIR } from "./workspace.ts";
 import {
   applyResolvedProjectFolder,
   pathContainedBy,
+  projectFolderPrompt,
   projectPathsFromRecords,
   projectSearchRoots,
   resolveProjectFolder,
@@ -716,5 +717,13 @@ describe("Working folder Clear", () => {
         { since: 2_000 },
       ),
     ).toEqual(["keep going", "and the billing folder"]);
+  });
+});
+
+describe("projectFolderPrompt", () => {
+  // A room member on Grok or a cloud box has no private workspace and cannot
+  // reach a host folder, whatever the room pinned.
+  it("names nothing for an off-host member", () => {
+    expect(projectFolderPrompt("/tmp/room", undefined)).toBe("");
   });
 });

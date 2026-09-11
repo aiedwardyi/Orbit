@@ -5245,6 +5245,91 @@ describe("project folder in the system prompt", () => {
   }, 30_000);
 });
 
+// F10 for rooms: the room's pinned folder is every on-host member's cwd, so
+// the room prompt names it the way the 1:1 prompt does.
+describe("room project folder in the system prompt", () => {
+  const FOLDER_START = "Your project folder is ";
+
+  const roomSystemForTurn = async (room: { roomId: string; botId: string }, text: string): Promise<string> => {
+    rmSync(fakeClaudeDump, { force: true });
+    expect((await api("POST", `/api/groups/${room.roomId}/messages`, { text })).status).toBe(202);
+    await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 10_000 }).toBe(true);
+    const dump = z.object({ argv: z.array(z.string()) }).parse(
+      JSON.parse(readFileSync(fakeClaudeDump, "utf8")),
+    );
+    await api("POST", `/api/groups/${room.roomId}/interrupt`);
+    await expect.poll(async () => {
+      const state = (await api("GET", "/api/bots?messages=0")).body;
+      return {
+        botBusy: state.bots.find((bot: { id: string }) => bot.id === room.botId)?.busy,
+        roomBusyBotId: state.groups.find((group: { id: string }) => group.id === room.roomId)?.busyBotId,
+      };
+    }, { timeout: 5_000 }).toEqual({ botBusy: false, roomBusyBotId: null });
+    const at = dump.argv.indexOf("--append-system-prompt");
+    expect(at).toBeGreaterThan(-1);
+    return dump.argv[at + 1];
+  };
+
+  const roomWithOneMember = async (name: string, folder?: string) => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    expect((await api("PATCH", `/api/bots/${bot.id}`, {
+      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+    })).status).toBe(200);
+    const room = (await api("POST", "/api/groups", {
+      name,
+      memberIds: [bot.id],
+      setup: { bulletin: "", defaultResponder: { kind: "member", botId: bot.id } },
+    })).body.group;
+    let cwd: string | undefined;
+    if (folder) {
+      // under the throwaway home so afterAll owns the teardown
+      mkdirSync(folder, { recursive: true });
+      const patched = await api("PATCH", `/api/groups/${room.id}`, { cwd: folder });
+      expect(patched.status).toBe(200);
+      cwd = z.string().parse(patched.body.group.cwd);
+    }
+    return { roomId: z.string().parse(room.id), botId: z.string().parse(bot.id), cwd };
+  };
+
+  const remove = async (room: { roomId: string; botId: string }) => {
+    await api("DELETE", `/api/groups/${room.roomId}`);
+    await api("DELETE", `/api/bots/${room.botId}`);
+  };
+
+  it("names the room's pinned folder to a member", async () => {
+    const room = await roomWithOneMember("Pinned desk room", join(home, "RoomDesk"));
+    try {
+      const system = await roomSystemForTurn(room, "what is in the desk folder");
+      expect(system).toContain(`${FOLDER_START}${room.cwd}. Look there first`);
+    } finally {
+      await remove(room);
+    }
+  }, 30_000);
+
+  it("says nothing in a room with no folder", async () => {
+    const room = await roomWithOneMember("Folderless room");
+    try {
+      const system = await roomSystemForTurn(room, "what is in the desk folder");
+      expect(system).toContain('a bot in the room "Folderless room"');
+      expect(system).not.toContain(FOLDER_START);
+    } finally {
+      await remove(room);
+    }
+  }, 30_000);
+
+  it("keeps the room prompt byte-identical across consecutive turns", async () => {
+    const room = await roomWithOneMember("Steady desk room", join(home, "SteadyDesk"));
+    try {
+      const first = await roomSystemForTurn(room, "what is in the desk folder");
+      const second = await roomSystemForTurn(room, "list its top-level files");
+      expect(first).toContain(`${FOLDER_START}${room.cwd}.`);
+      expect(second).toBe(first);
+    } finally {
+      await remove(room);
+    }
+  }, 30_000);
+});
+
 describe("approval chip on the claude CLI", () => {
   const argvForTurn = async (botId: string, text: string): Promise<string[]> => {
     rmSync(fakeClaudeDump, { force: true });
