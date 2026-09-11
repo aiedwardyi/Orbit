@@ -146,6 +146,7 @@ describe("narrateTool", () => {
     expect(narrateTool("browser_browser_click")).toBe("using the browser");
     expect(narrateTool("computer_click")).toBe("using the computer");
     expect(narrateTool("agents_ask_bot")).toBe("asking a teammate");
+    expect(narrateTool("composio_COMPOSIO_SEARCH_TOOLS")).toBe("running COMPOSIO_SEARCH_TOOLS");
   });
 
   it("gives the built-in browser tools the same label on Claude and Codex", () => {
@@ -158,5 +159,7 @@ describe("narrateTool", () => {
     expect(narrateTool("mcp__computer__computer_exec")).toBe("running a command");
     expect(narrateTool("git status")).toBe("running git status");
     expect(narrateTool("web_search")).toBe("searching the web");
+    expect(narrateTool("mcp__composio__COMPOSIO_SEARCH_TOOLS")).toBe("running COMPOSIO_SEARCH_TOOLS");
+    expect(narrateTool("COMPOSIO_SEARCH_TOOLS")).toBe("running COMPOSIO_SEARCH_TOOLS");
   });
 });

@@ -196,8 +196,11 @@ export function narrateTool(toolName: string): string | null {
   if (/^(auto-approved|error):/i.test(name)) return null;
 
   const bare = name.toLowerCase();
-  // OpenCode names MCP tools <server>_<tool>, e.g. "browser_browser_navigate"
-  const unprefixed = name.replace(/^(?:agents|composio|computer)_|^browser_(?=browser_)/i, "");
+  // OpenCode names MCP tools <server>_<tool>, e.g. "browser_browser_navigate";
+  // case-sensitive so Composio's own COMPOSIO_ tool prefix survives
+  const unprefixed = toolName.startsWith("mcp__")
+    ? name
+    : name.replace(/^(?:agents|composio|computer)_|^browser_(?=browser_)/, "");
   const verbs: Array<[RegExp, string]> = [
     [/^(bash|shell|terminal|run_command|execute|computer_exec)$/, "running a command"],
     [/^(read|read_file|view)$/, "reading a file"],
@@ -210,6 +213,7 @@ export function narrateTool(toolName: string): string | null {
     [/^(click|type_text|press_key|scroll|computer_batch)$/, "using the computer"],
     [/^(open_url|browser_navigate)$/, "opening a page"],
     [/^browser_(read|snapshot|screenshot)$/, "reading a page"],
+    // catch-all: keep after the specific browser_* entries
     [/^browser_(?!browser_)/, "using the browser"],
     [/^list_bots$/, "checking who's around"],
     [/^ask_bot$/, "asking a teammate"],
