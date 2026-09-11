@@ -4,11 +4,11 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { I18nProvider } from "@/lib/i18n";
+import { I18nProvider, persistPreference } from "@/lib/i18n";
 import { setUsageMode } from "@/lib/usage-preferences";
 import type { InstanceInfo } from "@/state/store";
 
-const { mockState } = vi.hoisted(() => {
+const { mockState, mockApi } = vi.hoisted(() => {
   const engine = (
     instanceId: string,
     driverKind: string,
@@ -55,6 +55,9 @@ const { mockState } = vi.hoisted(() => {
         engine("opencode", "opencodeGo", "OpenCode"),
       ],
     },
+    mockApi: vi.fn(async (_path: string): Promise<{ report: { windows: { id: string; usedPercent: number }[]; observedAt: string } }> => ({
+      report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" },
+    })),
   };
 });
 
@@ -62,6 +65,7 @@ vi.mock("@/state/store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/state/store")>();
   return {
     ...actual,
+    api: mockApi,
     useStore: () => ({
       state: mockState,
       dispatch: () => undefined,
@@ -170,5 +174,63 @@ describe("UsageSection friends plan card", () => {
     expect(html).toContain("Resets in 1 hour");
     expect(html).toContain("Resets in 6 days");
     expect(html).toContain("Reset since the last check");
+  });
+
+  it("localizes refresh age units in English and Korean", () => {
+    const claude = mockState.instances[0];
+    const report = claude.rateLimits;
+    if (!report) throw new Error("claude fixture missing rateLimits");
+    const original = report.observedAt;
+    try {
+      report.observedAt = new Date(Date.now() - 5.5 * 60_000).toISOString();
+      persistPreference("en");
+      const englishMinutes = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+      expect(englishMinutes).toContain(">5m old<");
+      persistPreference("ko");
+      const koreanMinutes = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+      expect(koreanMinutes).toContain(">5분 전<");
+      report.observedAt = new Date(Date.now() - 2.5 * 3_600_000).toISOString();
+      persistPreference("en");
+      const englishHours = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+      expect(englishHours).toContain(">2h old<");
+      persistPreference("ko");
+      const koreanHours = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+      expect(koreanHours).toContain(">2시간 전<");
+    } finally {
+      report.observedAt = original;
+      persistPreference("en");
+    }
+  });
+
+  it("keeps each engine's refresh busy until that request finishes", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const deferred = new Map<string, (value: { report: { windows: { id: string; usedPercent: number }[]; observedAt: string } }) => void>();
+    mockApi.mockImplementation((path: string) => new Promise((resolve) => {
+      deferred.set(path.slice(path.lastIndexOf("/") + 1), resolve);
+    }));
+    try {
+      persistPreference("en");
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      const buttons = [...host.querySelectorAll("button")].filter((button) => button.textContent === "Refresh");
+      expect(buttons).toHaveLength(3);
+      await act(async () => {
+        buttons[0]?.click();
+        buttons[1]?.click();
+      });
+      expect([...host.querySelectorAll("button")].filter((button) => button.textContent === "Refreshing…")).toHaveLength(2);
+      await act(async () => {
+        deferred.get("grok")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
+      });
+      const labels = [...host.querySelectorAll("button")].map((button) => button.textContent);
+      expect(labels.filter((label) => label === "Refreshing…")).toHaveLength(1);
+      expect(labels.filter((label) => label === "Refresh")).toHaveLength(2);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      mockApi.mockReset();
+      mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
+    }
   });
 });
