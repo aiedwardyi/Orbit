@@ -129,6 +129,13 @@ describe("skins", () => {
     }
   });
 
+  it("declares every color token the stylesheet reads without a fallback", () => {
+    // An undeclared var() voids its whole declaration at computed-value time.
+    const declared = new Set([...css.matchAll(/(--color-[\w-]+)\s*:/g)].map(([, name]) => name));
+    const read = new Set([...css.matchAll(/var\((--color-[\w-]+)\s*\)/g)].map(([, name]) => name));
+    expect([...read].filter((t) => !declared.has(t))).toEqual([]);
+  });
+
   it("describes each skin exactly once", () => {
     expect(SKINS.map((s) => s.id).sort()).toEqual([...SKIN_IDS].sort());
     for (const skin of SKINS) {

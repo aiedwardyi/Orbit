@@ -26,7 +26,6 @@
   --animate-pop-in: pop-in 0.2s cubic-bezier(0.22, 1, 0.36, 1);
   --animate-caret: caret-blink 1s step-end infinite;
   --animate-msg-in: msg-in 0.18s cubic-bezier(0.22, 1, 0.36, 1);
-  --animate-shimmer: shimmer 2s linear infinite;
 
   /* Defaults = Midnight. Kept here so the app is never unstyled. */
   --color-app: #070707;
@@ -756,25 +755,34 @@ body {
   0%, 100% { transform: scaleY(1); }
   45% { transform: scaleY(0.08); }
 }
-/* "Thinking…" label sheen while the model reasons */
+/* "Thinking…" label sheen while the model reasons. The window slides and its
+   copy slides back, so the ink stays on the text without a repaint. */
 @keyframes shimmer {
-  from { background-position: 200% 50%; }
-  to { background-position: -200% 50%; }
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
 }
 @keyframes reduced-loader-pulse {
   0%, 100% { opacity: 0.45; }
   50% { opacity: 1; }
 }
 .thinking-shimmer {
-  background: linear-gradient(90deg, var(--color-ink-secondary) 40%, var(--color-ink) 50%, var(--color-ink-secondary) 60%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  position: relative;
+  color: var(--color-ink-secondary);
+  overflow-x: clip;
 }
+.thinking-sheen {
+  position: absolute;
+  inset: -0.25em 0;
+  padding-top: 0.25em;
+  color: var(--color-ink);
+  mask-image: linear-gradient(90deg, transparent 30%, #000 50%, transparent 70%);
+  user-select: none;
+}
+.thinking-sheen, .thinking-sheen > span { animation: shimmer 1s linear infinite; }
+.thinking-sheen > span { display: block; animation-direction: reverse; }
 @media (prefers-reduced-motion: reduce) {
-  .animate-caret, .animate-msg-in, .animate-shimmer { animation: none; }
-  .thinking-shimmer { background: none; color: var(--color-ink-secondary); }
+  .animate-caret, .animate-msg-in { animation: none; }
+  .thinking-sheen { display: none; }
   .turn-mascot-in, .turn-mascot-out, .turn-answer { animation: none; }
   .mascot-avatar .mascot-idle,
   .mascot-avatar .mascot-blink,

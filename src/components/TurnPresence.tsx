@@ -56,8 +56,11 @@ export function TurnPresence({
       >
         {avatar}
         {showWorking ? (
-          <span className="thinking-shimmer animate-shimmer text-[13px] leading-none" aria-live="polite">
+          <span className="thinking-shimmer text-[13px] leading-none" aria-live="polite">
             {label}
+            <span className="thinking-sheen" aria-hidden="true">
+              <span>{label}</span>
+            </span>
           </span>
         ) : null}
       </div>
