@@ -133,7 +133,7 @@ function platformMarkup(platform: string, defaultOpen = false) {
 
 describe("ModelPicker friends chip", () => {
   it.each([["MacIntel", "Option"], ["Win32", "Alt"]])("labels the %s close shortcut", (platform, shortcut) => {
-    expect(platformMarkup(platform, true)).toContain(`<kbd>${shortcut}</kbd><kbd>P</kbd>Close`);
+    expect(platformMarkup(platform, true)).toContain(`<kbd>${shortcut}</kbd><kbd>M</kbd>Close`);
   });
 
   it.each([["MacIntel", "Option"], ["Win32", "Alt"]])("paints Grok 4.6 with the %s shortcut while automatic is the mode", (platform, shortcut) => {
@@ -143,7 +143,7 @@ describe("ModelPicker friends chip", () => {
     expect(html).not.toContain("Current model");
     expect(html).not.toContain("Switch engine");
     expect(html).not.toContain("data-model-picker-content");
-    expect(html).toContain(`title="Stay on this engine while it works. Currently Grok 4.6. (${shortcut}+P)"`);
+    expect(html).toContain(`title="Stay on this engine while it works. Currently Grok 4.6. (${shortcut}+M)"`);
   });
 
   it("folds the chip to the engine name in a narrow chat header", () => {
@@ -203,7 +203,7 @@ describe("ModelPicker friends chip", () => {
     const html = platformMarkup(platform, true);
     const list = html.slice(html.indexOf("data-model-picker-content"));
     expect(list).toContain('role="dialog" aria-modal="true"');
-    for (const key of [shortcut, "P", "↑", "↓", "←", "→", "Enter", "Esc"]) expect(list).toContain(`<kbd>${key}</kbd>`);
+    for (const key of [shortcut, "M", "↑", "↓", "←", "→", "Enter", "Esc"]) expect(list).toContain(`<kbd>${key}</kbd>`);
     expect(list).toContain("</kbd>Model");
     expect(list).toContain("</kbd>Effort");
     expect(list).toContain('aria-label="Models"');

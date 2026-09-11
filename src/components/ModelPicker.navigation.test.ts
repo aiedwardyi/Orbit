@@ -90,12 +90,12 @@ describe("ModelPicker cross navigation", () => {
     });
   });
 
-  it("labels Alt+P Close and cancels the draft", async () => {
+  it("labels Alt+M Close and cancels the draft", async () => {
     mock.instances = [engine("grok", "grokAgent", ["grok-4.6", "grok-4.5"])];
     await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" });
-    expect(document.querySelector(".model-cross-binding")?.textContent).toBe("AltPClose");
+    expect(document.querySelector(".model-cross-binding")?.textContent).toBe("AltMClose");
     await key("ArrowDown");
-    await act(async () => document.querySelector('[role="dialog"]')!.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyP", altKey: true, bubbles: true })));
+    await act(async () => document.querySelector('[role="dialog"]')!.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", altKey: true, bubbles: true })));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(mock.dispatch).not.toHaveBeenCalled();
   });
@@ -210,13 +210,13 @@ describe("ModelPicker cross navigation", () => {
     [false, "bot-1", true],
     [true, "bot-1", false],
     [false, "another-bot", false],
-  ] as const)("advertises Alt+P only when live (contained=%s, selected=%s)", async (contained, selectedId, enabled) => {
+  ] as const)("advertises Alt+M only when live (contained=%s, selected=%s)", async (contained, selectedId, enabled) => {
     mock.instances = [engine("grok", "grokAgent", ["grok-4.6"])];
     await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" }, false, contained, selectedId);
     const trigger = document.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!;
-    expect(trigger.title.includes(" (Alt+P)")).toBe(enabled);
-    expect(trigger.getAttribute("aria-keyshortcuts")).toBe(enabled ? "Alt+P" : null);
-    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyP", altKey: true, bubbles: true })));
+    expect(trigger.title.includes(" (Alt+M)")).toBe(enabled);
+    expect(trigger.getAttribute("aria-keyshortcuts")).toBe(enabled ? "Alt+M" : null);
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", altKey: true, bubbles: true })));
     expect(document.querySelector('[role="dialog"]') !== null).toBe(enabled);
   });
 
@@ -370,12 +370,12 @@ describe("ModelPicker cross navigation", () => {
     expect(document.querySelector('[data-model-cell="grok-4.6"][aria-pressed="true"]')).not.toBeNull();
   });
 
-  it("opens with Alt+P and ignores Ctrl+Alt+P", async () => {
+  it("opens with Alt+M and ignores Ctrl+Alt+M", async () => {
     mock.instances = [engine("grok", "grokAgent", ["grok-4.6", "grok-4.5"])];
     await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" }, false);
-    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyP", altKey: true, ctrlKey: true, bubbles: true })));
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", altKey: true, ctrlKey: true, bubbles: true })));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
-    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyP", altKey: true, bubbles: true })));
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", altKey: true, bubbles: true })));
     expect(document.querySelector('[role="dialog"]')).not.toBeNull();
     await key("Escape");
     expect(mock.dispatch).not.toHaveBeenCalled();

@@ -96,7 +96,7 @@ export function ModelPickerControl({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.repeat || event.isComposing || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.code !== "KeyP") return;
+      if (event.defaultPrevented || event.repeat || event.isComposing || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.code !== "KeyM") return;
       if (!shortcutEnabled || (!open && document.querySelector('[role="dialog"]'))) return;
       event.preventDefault();
       if (open) close();
@@ -151,9 +151,9 @@ export function ModelPickerControl({
       onClick={show}
       aria-expanded={open}
       aria-haspopup="dialog"
-      aria-keyshortcuts={shortcutEnabled ? "Alt+P" : undefined}
+      aria-keyshortcuts={shortcutEnabled ? "Alt+M" : undefined}
       className="flex items-center gap-1.5 rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover"
-      title={modelChipTitle({ mode: selection.mode, instance: active, model: selection.model }, t) + (shortcutEnabled ? ` (${shortcut}+P)` : "")}
+      title={modelChipTitle({ mode: selection.mode, instance: active, model: selection.model }, t) + (shortcutEnabled ? ` (${shortcut}+M)` : "")}
     >
       {active ? <ProviderMark driverKind={active.driverKind} size={14} /> : <Sparkles size={14} className="text-accent" />}
       <span className={cn("max-w-[160px] truncate", !contained && active && "@max-4xl/chathead:hidden")}>
@@ -180,7 +180,7 @@ export function ModelPickerControl({
         onKeyDown={(event) => {
           event.stopPropagation();
           if (event.nativeEvent.isComposing) return;
-          if (event.key === "Escape" || (event.altKey && !event.ctrlKey && !event.shiftKey && event.code === "KeyP")) {
+          if (event.key === "Escape" || (event.altKey && !event.ctrlKey && !event.shiftKey && event.code === "KeyM")) {
             event.preventDefault();
             close();
           } else if (event.key === "Enter") {
@@ -289,7 +289,7 @@ export function ModelPickerControl({
           </div>}
         </div>
         <footer className="model-cross-footer" id={bindingsId}>
-          <span className="model-cross-binding"><kbd>{shortcut}</kbd><kbd>P</kbd>{t("model.close")}</span>
+          <span className="model-cross-binding"><kbd>{shortcut}</kbd><kbd>M</kbd>{t("model.close")}</span>
           <span className="model-cross-binding"><kbd>↑</kbd><kbd>↓</kbd>{t("model.engineAxis")}</span>
           <span className="model-cross-binding"><kbd>←</kbd><kbd>→</kbd>{t("model.modelAxis")}</span>
           <button type="button" disabled={!canSave} className="model-cross-binding" onClick={save}><kbd>Enter</kbd>{t("settings.profile.save")}</button>
