@@ -2,8 +2,10 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import { useStore, visibleMessages, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
+const ONBOARDING_OPTIONS: MessageKey[] = ["onboarding.card.work", "onboarding.card.writing", "onboarding.card.life", "onboarding.card.everything"];
 
 /** First-run quiz, not a live provider ask (those carry requestId). */
 export function isOnboardingCard(message: Message): boolean {
@@ -28,6 +30,7 @@ export function OptionCard({
   message: Message;
 }) {
   const { state, dispatch } = useStore();
+  const { t } = useI18n();
   const [custom, setCustom] = useState("");
   const card = message.card;
   const bot = state.bots.find((candidate) => candidate.id === botId);
@@ -35,6 +38,11 @@ export function OptionCard({
   // Full thread, not the mounted window: a search-focus slice can omit the
   // later user message that means they already talked past this quiz.
   if (!card || shouldHideOnboardingCard(message, transcript)) return null;
+  // The server stores the quiz in English; it follows the UI language here.
+  const onboarding = isOnboardingCard(message);
+  const title = onboarding ? t("onboarding.card.title") : card.title;
+  const subtitle = onboarding ? t("onboarding.card.subtitle") : card.subtitle;
+  const options = onboarding ? ONBOARDING_OPTIONS.map((key) => t(key)) : card.options;
 
   const answer = (text: string) => {
     if (!text.trim()) return;
@@ -45,16 +53,16 @@ export function OptionCard({
     <div className="w-full max-w-[840px] rounded-2xl border border-hairline/50 bg-card p-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-[16px] font-semibold text-ink">{card.title}</div>
+          <div className="text-[16px] font-semibold text-ink">{title}</div>
           <div className="mt-0.5 text-[14px] text-ink-secondary">
-            {card.subtitle}
+            {subtitle}
           </div>
         </div>
         <button
           onClick={() =>
             dispatch({ type: "dismissCard", botId, messageId: message.id })
           }
-          aria-label="Dismiss question"
+          aria-label={t("chat.dismissQuestion")}
           className="rounded-md p-1 text-ink-secondary hover:bg-control hover:text-ink"
         >
           <X size={16} aria-hidden="true" />
@@ -62,7 +70,7 @@ export function OptionCard({
       </div>
 
       <div className="mt-3 overflow-hidden rounded-lg border border-hairline/40">
-        {card.options.map((opt, i) => (
+        {options.map((opt, i) => (
           <button
             key={opt}
             disabled={!!card.answered}
@@ -96,7 +104,7 @@ export function OptionCard({
           value={custom}
           onChange={(e) => setCustom(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && answer(custom)}
-          placeholder="Type your own answer"
+          placeholder={t("chat.ownAnswer")}
           className="mt-3 w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2.5 text-[15px] text-ink placeholder:text-ink-secondary focus:outline-none focus:border-hairline"
         />
       )}

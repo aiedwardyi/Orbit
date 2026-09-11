@@ -3,7 +3,7 @@
 // answered or ignored — the preview must skip them too or the unanswered
 // question keeps staring from the roster after Ignore. Named tool chips
 // stay out unless Settings → Show tool calls is on (default off).
-import { shouldHideOnboardingCard } from "@/components/OptionCard";
+import { isOnboardingCard, shouldHideOnboardingCard } from "@/components/OptionCard";
 import { activityVisibleInChat } from "@/lib/activity-runs";
 import { t, type Translate } from "@/lib/i18n";
 import { visibleMessages, type Bot, type Group } from "@/state/store";
@@ -50,7 +50,7 @@ export function conversationPreview(
         if (last.card.answered) return last.card.answered;
         continue;
       }
-      return last.card.title;
+      return isOnboardingCard(last) ? translate("onboarding.card.title") : last.card.title;
     }
     if (last.kind === "activity" && last.tool) {
       if (!activityVisibleInChat(last, showToolCalls)) continue;

@@ -1,7 +1,11 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Window } from "happy-dom";
 import { describe, expect, it } from "vitest";
 
-import { shouldHideOnboardingCard } from "./OptionCard";
-import type { Message } from "@/state/store";
+import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
+import { applyLocale } from "@/lib/i18n";
+import { StoreProvider, type Message } from "@/state/store";
 
 const msg = (partial: Partial<Message> & Pick<Message, "id" | "kind">): Message => ({
   role: "bot",
@@ -63,5 +67,51 @@ describe("shouldHideOnboardingCard", () => {
       },
     });
     expect(shouldHideOnboardingCard(question, [user, question])).toBe(false);
+  });
+});
+
+describe("OptionCard language", () => {
+  const firstQuestion = msg({
+    id: "first",
+    kind: "options",
+    card: {
+      title: "What do you mostly want help with?",
+      subtitle: "Pick whatever's closest; we can always expand from there.",
+      options: ["Work & projects", "Writing & research", "Life admin", "A bit of everything"],
+    },
+  });
+  const render = (message: Message, locale: "en" | "ko") => {
+    const { document } = new Window();
+    applyLocale(locale);
+    try {
+      document.body.innerHTML = renderToStaticMarkup(createElement(StoreProvider, null, createElement(OptionCard, { botId: "bot", message })));
+    } finally {
+      applyLocale("en");
+    }
+    return {
+      text: document.body.textContent,
+      dismiss: document.querySelector("button[aria-label]")?.getAttribute("aria-label"),
+      placeholder: document.querySelector("input")?.getAttribute("placeholder"),
+    };
+  };
+
+  it.each([
+    ["en", "What do you mostly want help with?", "Pick whatever's closest; we can always expand from there.", ["Work & projects", "Writing & research", "Life admin", "A bit of everything"], "Dismiss question", "Type your own answer"],
+    ["ko", "주로 어떤 일에 도움이 필요하세요?", "가장 가까운 것을 고르세요. 나중에 언제든 넓힐 수 있습니다.", ["업무와 프로젝트", "글쓰기와 리서치", "생활 관리", "이것저것 조금씩"], "질문 닫기", "답을 직접 입력하세요"],
+  ] as const)("renders the first question card in %s", (locale, title, subtitle, options, dismiss, placeholder) => {
+    expect(render(firstQuestion, locale)).toEqual({
+      text: `${title}${subtitle}${options.map((option, i) => "ABCD"[i] + option).join("")}`,
+      dismiss,
+      placeholder,
+    });
+  });
+
+  it("keeps a live question's own text in Korean", () => {
+    const question = msg({
+      id: "q",
+      kind: "options",
+      card: { title: "Your bot has a question", subtitle: "which file?", options: ["a.ts", "b.ts"], requestId: "req-2" },
+    });
+    expect(render(question, "ko").text).toBe("Your bot has a questionwhich file?Aa.tsBb.ts");
   });
 });
