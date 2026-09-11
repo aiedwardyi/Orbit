@@ -230,7 +230,10 @@ function permissionFiles(env: Record<string, string | undefined>, cwd: string | 
   return [
     join(global, "config.json"),
     ...inDir(global),
-    env.OPENCODE_CONFIG ? resolve(cwd ?? "", env.OPENCODE_CONFIG) : "",
+    // The child resolves a relative OPENCODE_CONFIG from its cwd: lexical behind a Windows junction, real on Linux.
+    env.OPENCODE_CONFIG
+      ? resolve(process.platform === "win32" ? cwd ?? "" : realCwd(cwd ?? ""), env.OPENCODE_CONFIG)
+      : "",
     ...dirs.toReversed().flatMap(inDir),
     ...[...configDirs].filter(Boolean).flatMap(inDir),
   ];
