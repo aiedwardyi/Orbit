@@ -127,6 +127,11 @@ describe("approvalKey", () => {
     expect(approvalKey("Bash", "'/opt/my tools/git' status")).toBeNull();
   });
 
+  it("offers no grant for a command word with a backslash, which the shell may unescape", () => {
+    expect(approvalKey("Bash", String.raw`g\it status`)).toBeNull();
+    expect(approvalKey("Bash", String.raw`doas g\it status`)).toBeNull();
+  });
+
   it("looks past doas and run0 the way it looks past sudo", () => {
     expect(approvalKey("Bash", "doas apt-get install ripgrep")).toBe("Bash:apt-get");
     expect(approvalKey("Bash", "run0 systemctl status sshd")).toBe("Bash:systemctl");

@@ -82,8 +82,9 @@ export function approvalKey(tool: string, summary: string, scope?: "local-comput
   const words = summary.trim().split(/\s+/);
   let i = 0;
   while (i < words.length && (/^[A-Z_][A-Z0-9_]*=/.test(words[i]) || ELEVATORS.has(programName(words[i])))) i += 1;
-  // a quoted path splits on its spaces, so its first word names no program
-  if (/["']/.test(words[i] ?? "")) return null;
+  // a quoted path splits on its spaces and a shell unescapes a backslash, so
+  // neither word names the program that runs
+  if (/["'\\]/.test(words[i] ?? "")) return null;
   const program = (words[i] ?? "").split(/[\\/]/).pop()?.replace(/[^\w.-]/g, "") ?? "";
   if (!program || program.startsWith("-") || LAUNCHERS.has(programName(program))) return null;
   const key = `${tool}:${program}`;
