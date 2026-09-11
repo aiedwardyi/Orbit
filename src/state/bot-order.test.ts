@@ -36,11 +36,16 @@ const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve
 async function mountStore() {
   const orderRequests: RequestInit[] = [];
   const answers: Array<(response: Response) => void> = [];
+  const refetches: Array<() => void> = [];
   let serverOrder = ["a", "b", "c"];
   vi.stubGlobal("EventSource", FakeEventSource);
   vi.stubGlobal("fetch", vi.fn(async (path: string, init: RequestInit = {}) => {
-    if (path === "/api/bots" || path === "/api/bots?messages=0") {
-      return respond(200, { bots: serverOrder.map(bot), groups: [] });
+    if (path === "/api/bots") return respond(200, { bots: serverOrder.map(bot), groups: [] });
+    if (path === "/api/bots?messages=0") {
+      const saved = serverOrder;
+      return new Promise<Response>((resolve) => {
+        refetches.push(() => resolve(respond(200, { bots: saved.map(bot), groups: [] })));
+      });
     }
     if (path !== "/api/bots/order") return respond(404, { error: "not in this test" });
     orderRequests.push(init);
@@ -64,6 +69,8 @@ async function mountStore() {
     error: () => current().state.error,
     orderRequests,
     answerOrder: (index: number, response: Response) => answers[index]!(response),
+    refetchCount: () => refetches.length,
+    answerRefetch: (index: number) => refetches[index]!(),
     saveOnServer: (ids: string[]) => {
       serverOrder = ids;
     },
@@ -86,8 +93,10 @@ describe("reorderBots", () => {
       expect(store.orderRequests[0]).toMatchObject({ method: "PUT", body: JSON.stringify({ botIds: ["c", "a", "b"] }) });
 
       store.answerOrder(0, respond(400, { error: "botIds must list every bot exactly once" }));
-      await vi.waitFor(() => expect(store.order()).toEqual(["a", "b", "c"]));
+      await vi.waitFor(() => expect(store.refetchCount()).toBe(1));
       expect(store.error()).toBe("botIds must list every bot exactly once");
+      store.answerRefetch(0);
+      await vi.waitFor(() => expect(store.order()).toEqual(["a", "b", "c"]));
     } finally {
       await store.unmount();
     }
@@ -110,16 +119,33 @@ describe("reorderBots", () => {
     }
   });
 
-  it("keeps the server's order when a saved reorder's response is lost", async () => {
+  it("trusts the saved order's frame when that reorder's response is lost", async () => {
     const store = await mountStore();
     try {
       await store.dispatch({ type: "reorderBots", botIds: ["c", "a", "b"] });
       store.saveOnServer(["c", "a", "b"]);
       await act(async () => FakeEventSource.current!.send({ kind: "bots.order", botIds: ["c", "a", "b"] }, "c1"));
       store.answerOrder(0, respond(502, { error: "connection reset" }));
-      await vi.waitFor(() => expect(store.error()).toBe("connection reset"));
       await settle();
       expect(store.order()).toEqual(["c", "a", "b"]);
+      expect(store.error()).toBeNull();
+      expect(store.refetchCount()).toBe(0);
+    } finally {
+      await store.unmount();
+    }
+  });
+
+  it("keeps another window's order when a failed reorder's refetch lands after it", async () => {
+    const store = await mountStore();
+    try {
+      await store.dispatch({ type: "reorderBots", botIds: ["c", "a", "b"] });
+      store.answerOrder(0, respond(400, { error: "botIds must list every bot exactly once" }));
+      await vi.waitFor(() => expect(store.refetchCount()).toBe(1));
+      store.saveOnServer(["b", "a", "c"]);
+      await act(async () => FakeEventSource.current!.send({ kind: "bots.order", botIds: ["b", "a", "c"] }, "c1"));
+      store.answerRefetch(0);
+      await settle();
+      expect(store.order()).toEqual(["b", "a", "c"]);
     } finally {
       await store.unmount();
     }

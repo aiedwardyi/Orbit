@@ -2631,6 +2631,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           rawDispatch({ type: "deleteBot", botId: frame.botId });
           break;
         case "bots.order":
+          // A saved order is the truth: a failure handler or refetch still in flight is now stale.
+          reorderGeneration.current += 1;
           rawDispatch({ type: "reorderBots", botIds: frame.botIds });
           break;
         // a key changed and the fleet hot-reloaded — refresh the picker so
