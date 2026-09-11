@@ -308,10 +308,14 @@ export function Composer({
     (id: string) => editAttachments((prev) => prev.filter((a) => a.id !== id)),
     [editAttachments],
   );
+  // A value set from code never reaches the textarea's native undo stack, so
+  // Ctrl+Z right after "Display in chat box" restores this snapshot instead.
+  const pasteUndo = useRef<{ text: string; shown: string; attachment: PasteAttachment; index: number } | null>(null);
   const displayPasteInChatBox = useCallback(
     /** Moves one pasted attachment into the editable draft and restores focus. */
     function displayPasteInChatBox(attachment: PasteAttachment) {
       const nextText = appendPastedText(text, attachment.text);
+      pasteUndo.current = { text, shown: nextText, attachment, index: attachments.findIndex((a) => a.id === attachment.id) };
       editText(nextText);
       editAttachments((prev) => prev.filter((a) => a.id !== attachment.id));
       setCaret(nextText.length);
@@ -323,8 +327,17 @@ export function Composer({
         input.setSelectionRange(nextText.length, nextText.length);
       });
     },
-    [text, editText, editAttachments],
+    [text, attachments, editText, editAttachments],
   );
+  const undoPasteDisplay = () => {
+    const undo = pasteUndo.current;
+    pasteUndo.current = null;
+    if (!undo || text !== undo.shown) return false;
+    editText(undo.text);
+    editAttachments((prev) => [...prev.slice(0, undo.index), undo.attachment, ...prev.slice(undo.index)]);
+    setCaret(undo.text.length);
+    return true;
+  };
   const [recording, setRecording] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [caret, setCaret] = useState(0);
@@ -851,6 +864,7 @@ export function Composer({
           rows={1}
           value={text}
           onChange={(e) => {
+            pasteUndo.current = null;
             editText(e.target.value);
             setCaret(e.target.selectionStart ?? e.target.value.length);
             setDismissedAt(null);
@@ -904,6 +918,10 @@ export function Composer({
             compositionEndedAtRef.current = 0;
           }}
           onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && !e.shiftKey && !e.altKey && undoPasteDisplay()) {
+              e.preventDefault();
+              return;
+            }
             if (pickerOpen) {
               if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                 e.preventDefault();
