@@ -405,6 +405,30 @@ describe("sidebar create channel and bot/room chrome", () => {
   });
 });
 
+describe("team map badges and export feedback", () => {
+  const teamMapPage = readFileSync(join(here, "../components/TeamMapPage.tsx"), "utf8");
+
+  it("keeps handoff badges and the export toast as complete EN+KO phrases", () => {
+    expect(en["teamMap.running"]).toBe("Running");
+    expect(ko["teamMap.running"]).toBe("실행 중");
+    expect(en["teamMap.queued"]).toBe("Queued");
+    expect(ko["teamMap.queued"]).toBe("대기 중");
+    expect(en["teamMap.connected"]).toBe("Connected");
+    expect(ko["teamMap.connected"]).toBe("연결됨");
+    expect(en["chrome.botsExported"]).toBe("{count} bots exported");
+    expect(ko["chrome.botsExported"]).toBe("봇 {count}개 내보냄");
+  });
+
+  it("wires those phrases instead of hardcoded English", () => {
+    expect(teamMapPage).toContain('t("teamMap.running")');
+    expect(teamMapPage).toContain('t("teamMap.queued")');
+    expect(teamMapPage).toContain('t("teamMap.connected")');
+    expect(teamMapPage).not.toMatch(/"Running"|"Queued"|"Connected"/);
+    expect(sidebar).toContain('t("chrome.botsExported", { count: exported.members })');
+    expect(sidebar).not.toMatch(/bots exported`/);
+  });
+});
+
 describe("empty-engine first launch copy", () => {
   it("keeps the Grok-or-Claude connect path as complete EN+KO phrases", () => {
     expect(en["noEngines.title"]).toBe("Connect Grok or Claude");

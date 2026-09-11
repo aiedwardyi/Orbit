@@ -1272,7 +1272,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     setTeamFeedback(null);
     try {
       const exported = await downloadAllBots();
-      setTeamFeedback({ error: false, text: `${exported.members} bots exported` });
+      setTeamFeedback({ error: false, text: t("chrome.botsExported", { count: exported.members }) });
     } catch (cause) {
       setTeamFeedback({
         error: true,
