@@ -609,7 +609,10 @@ function handle(msg: any) {
       break;
     }
     case "_x.ai/billing":
-    case "x.ai/billing":
+      if (mode === "billing-hang") return;
+      if (mode === "billing-fail") {
+        return out({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: "billing failed" } });
+      }
       result(msg.id, {
         config: {
           creditUsagePercent: 42,
@@ -625,6 +628,7 @@ function handle(msg: any) {
       // the interrupted prompt resolves as cancelled
       break;
     default:
+      recordMethod(`${msg.method}.error`);
       if (msg.id !== undefined) out({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "method not found" } });
   }
 }

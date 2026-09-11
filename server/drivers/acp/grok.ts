@@ -180,7 +180,7 @@ export function ensureGrokInjectSlug(
   return slug;
 }
 
-const support: AcpSupport = {
+export const grokSupport: AcpSupport = {
   driverKind: "grokAgent",
   grokInterjections: true,
   rateLimits: true,
@@ -262,4 +262,4 @@ const support: AcpSupport = {
   buildPromptText: (turn) => (turn.system ? `${turn.system}\n\n${turn.text}` : turn.text),
 };
 
-export const GrokAgentDriver = createAcpDriver(support);
+export const GrokAgentDriver = createAcpDriver(grokSupport);

@@ -22,6 +22,7 @@ import { KimiAgentDriver } from "./kimi.ts";
 import { DroidAgentDriver } from "./droid.ts";
 import { CursorAgentDriver } from "./cursor.ts";
 import { createOpenCodeDriver } from "./opencode-go.ts";
+import { readGrokBillingRpc } from "../../usage-refresh.ts";
 import { removeTempDir } from "../../testing/cleanup.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "testing", "fake-acp-cli.ts");
@@ -286,6 +287,7 @@ describe("ACP turns (fake CLI)", () => {
   afterEach(async () => {
     delete process.env.FAKE_ACP_MODE;
     delete process.env.FAKE_ACP_DUMP;
+    delete process.env.FAKE_ACP_RPC_DUMP;
     delete process.env.XAI_API_KEY;
     delete process.env.OPENCODE_API_KEY;
     delete process.env.CURSOR_API_KEY;
@@ -310,7 +312,6 @@ describe("ACP turns (fake CLI)", () => {
     expect(types).toEqual([
       "turn.started",
       "session.started",
-      "account.rate-limits.updated",
       "content.delta",
       "item.completed", // assistant_text before the tool, not summed on settle
       "item.started", // tool tc-1
@@ -337,7 +338,6 @@ describe("ACP turns (fake CLI)", () => {
     expect(types).toEqual([
       "turn.started",
       "session.started",
-      "account.rate-limits.updated",
       "content.delta",
       "item.completed", // before one
       "item.started", // tc-1
@@ -860,11 +860,77 @@ describe("ACP turns (fake CLI)", () => {
     expect(instance.adapter.capabilities.rateLimits).toBe(true);
     await instance.adapter.sendTurn({ threadId: "t-billing", text: "hi" });
     await recorder.until((e) => e.type === "turn.completed");
+    await recorder.until((e) => e.type === "account.rate-limits.updated");
     expect(recorder.events.filter((e) => e.type === "account.rate-limits.updated")).toMatchObject([
       {
         windows: [{ id: "seven_day", usedPercent: 42, resetsAt: Date.parse("2026-09-15T12:00:00Z"), windowMinutes: 10_080 }],
       },
     ]);
+  });
+
+  it("filters foreign credentials from the billing child", async () => {
+    const dump = join(scratch, "billing-env.json");
+    await readGrokBillingRpc(FAKE_CLI, {
+      ...process.env,
+      FAKE_ACP_DUMP: dump,
+      OPENAI_API_KEY: "foreign-secret",
+      XAI_API_KEY: "api-secret",
+      AWS_SECRET_ACCESS_KEY: "workspace-secret",
+    });
+    const { env } = JSON.parse(readFileSync(dump, "utf8"));
+    expect(env.OPENAI_API_KEY).toBeUndefined();
+    expect(env.XAI_API_KEY).toBeUndefined();
+    expect(env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+  });
+
+  it("requires cached-token auth before billing", async () => {
+    const dump = join(scratch, "signed-out.json");
+    await expect(readGrokBillingRpc(FAKE_CLI, {
+      ...process.env,
+      FAKE_ACP_MODE: "no-auth",
+      FAKE_ACP_RPC_DUMP: dump,
+    })).rejects.toThrow("signin");
+    expect(JSON.parse(readFileSync(dump, "utf8"))).toEqual(["initialize"]);
+  });
+
+  it("keeps early billing CLI exits as refresh failures", async () => {
+    await expect(readGrokBillingRpc(FAKE_CLI, {
+      ...process.env,
+      FAKE_ACP_MODE: "exit-early",
+    })).rejects.toThrow("refresh");
+  });
+
+  it.each(["happy", "billing-fail", "billing-hang"])("reads %s billing after completing the turn", async (mode) => {
+    const dump = join(scratch, "billing-order.json");
+    instance = await GrokAgentDriver.create({
+      instanceId: "billing-order",
+      displayName: "Billing",
+      environment: { FAKE_ACP_MODE: mode, FAKE_ACP_RPC_DUMP: dump },
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: false },
+    });
+    recorder = recordEvents(instance.adapter);
+    await instance.adapter.sendTurn({ threadId: "t-billing-order", text: "hi" });
+    expect(await recorder.until((e) => e.type === "turn.completed", 2_000)).toMatchObject({ ok: true });
+    await expect.poll(() => JSON.parse(readFileSync(dump, "utf8"))).toContain("_x.ai/billing");
+    const methods: string[] = JSON.parse(readFileSync(dump, "utf8"));
+    expect(methods.indexOf("_x.ai/billing")).toBeGreaterThan(methods.indexOf("session/prompt.result"));
+    expect(recorder.events.some((e) => e.type === "runtime.error")).toBe(false);
+    if (mode === "happy") {
+      await recorder.until((e) => e.type === "account.rate-limits.updated");
+      const types = recorder.events.map((e) => e.type);
+      expect(types.indexOf("account.rate-limits.updated")).toBeGreaterThan(types.indexOf("turn.completed"));
+    }
+  });
+
+  it("rejects the unsupported billing method spelling", async () => {
+    const dump = join(scratch, "unsupported-billing.json");
+    process.env.FAKE_ACP_RPC_DUMP = dump;
+    await create(createAcpDriver({ ...SELECT_MODEL_SUPPORT, billingMethod: "x.ai/billing" }));
+    await instance.adapter.sendTurn({ threadId: "t-unsupported-billing", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+    await expect.poll(() => JSON.parse(readFileSync(dump, "utf8"))).toContain("x.ai/billing.error");
+    expect(recorder.events.some((e) => e.type === "account.rate-limits.updated")).toBe(false);
   });
 
   it("does not advertise rate limits on other ACP engines", async () => {

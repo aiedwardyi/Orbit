@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { z } from "zod";
 
+import { acpChildEnv } from "./drivers/acp/core.ts";
+import { grokSupport } from "./drivers/acp/grok.ts";
 import type { RateLimitWindow } from "./contracts.ts";
 import { codexRateLimitWindows, grokRateLimitWindows } from "./drivers/rate-limits.ts";
 import { augmentedPath } from "./env-path.ts";
@@ -61,8 +63,7 @@ export function readUsageRpc(cli: string, env: NodeJS.ProcessEnv): Promise<JsonV
 
 export function readGrokBillingRpc(cli: string, env: NodeJS.ProcessEnv): Promise<JsonValue> {
   return new Promise((resolve, reject) => {
-    const childEnv = { ...env };
-    delete childEnv.XAI_API_KEY;
+    const childEnv = acpChildEnv(grokSupport, { cli, fullAuto: false }, env);
     const child = spawnCli(cli, ["agent", "stdio"], { cwd: homedir(), env: childEnv, stdio: ["pipe", "pipe", "pipe"] });
     const lines = createInterface({ input: child.stdout });
     let settled = false;
@@ -96,7 +97,7 @@ export function readGrokBillingRpc(cli: string, env: NodeJS.ProcessEnv): Promise
         if (message.id === 1) {
           const methods = z.object({ authMethods: z.array(z.object({ id: z.string().optional() })).optional() }).catch({}).parse(message.result);
           if (methods.authMethods?.some((method) => method.id === "cached_token")) send("authenticate", 2, { methodId: "cached_token" });
-          else send("_x.ai/billing", 3);
+          else finish(undefined, 401);
         } else if (message.id === 2) send("_x.ai/billing", 3);
         else finish(message.result);
       } catch { finish(); }
