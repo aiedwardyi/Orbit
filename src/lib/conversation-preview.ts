@@ -6,9 +6,28 @@
 import { isOnboardingCard, shouldHideOnboardingCard } from "@/components/OptionCard";
 import { activityVisibleInChat } from "@/lib/activity-runs";
 import { t, type Translate } from "@/lib/i18n";
-import { visibleMessages, type Bot, type Group } from "@/state/store";
+import { visibleMessages, type Bot, type Group, type OptionCardData } from "@/state/store";
 
 export type PreviewBot = Pick<Bot, "activity" | "busy" | "messages" | "activeLeafId">;
+
+const ROUTINE_SETTLED_KEY = {
+  create: "approval.routineScheduled",
+  update: "approval.routineUpdated",
+  pause: "approval.routinePaused",
+  resume: "approval.routineResumed",
+  run_now: "approval.routineRunQueued",
+  delete: "approval.routineDeleted",
+} as const;
+
+/** Same settled line ApprovalCard shows, so an answered ask stops reading as open. */
+function settledApproval(card: OptionCardData, translate: Translate): string {
+  const routineAction = card.routineRequest?.operation.action;
+  if (card.answered === "allow") {
+    if (routineAction) return translate(ROUTINE_SETTLED_KEY[routineAction]);
+    return translate(card.routineRequest ? "approval.routineConfirmed" : "approval.allowed");
+  }
+  return translate(card.routineRequest ? "approval.cancelled" : "approval.denied");
+}
 
 /** Ignored (X / Ignore), not a chosen option. Choosing sets answered. */
 export function isIgnoredOnboardingCard(message: PreviewBot["messages"][number], transcript: PreviewBot["messages"]): boolean {
@@ -50,6 +69,7 @@ export function conversationPreview(
         if (last.card.answered) return last.card.answered;
         continue;
       }
+      if (last.card.requestId && last.card.tool && last.card.answered) return settledApproval(last.card, translate);
       return isOnboardingCard(last) ? translate("onboarding.card.title") : last.card.title;
     }
     if (last.kind === "activity" && last.tool) {
