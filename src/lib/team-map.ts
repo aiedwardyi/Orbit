@@ -19,7 +19,6 @@ export interface TeamMapSnapshot {
 export interface TeamMapSection<T extends TeamMapBot = TeamMapBot> {
   /** Exact persisted section identity; empty string is the unsectioned team. */
   key: string;
-  name: string;
   chiefs: T[];
   members: T[];
 }
@@ -53,7 +52,6 @@ export function buildTeamMapSections<T extends TeamMapBot>(bots: T[]): TeamMapSe
   }
   return [...sections].map(([key, sectionBots]) => ({
     key,
-    name: key || "General",
     chiefs: sectionBots.filter((bot) => bot.chiefOfStaff),
     members: sectionBots.filter((bot) => !bot.chiefOfStaff),
   }));
