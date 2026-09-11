@@ -5337,8 +5337,20 @@ describe("project folder for a chat-only engine", () => {
   const MODEL = "meta-llama/llama-3.3-70b-instruct";
   const systems: string[] = [];
   let compat: Server;
+  let configBefore: unknown;
+  type CompatPatch = { url: string; key?: string };
+  // Borrow the URL, and the key only when none is set, so afterAll hands back exactly what was there.
+  const restore: CompatPatch = { url: "" };
+  const savedUrl = () =>
+    z.object({ openaiCompat: z.object({ url: z.string().optional() }).optional() })
+      .parse(JSON.parse(readFileSync(join(home, ".orbit", "config.json"), "utf8"))).openaiCompat?.url ?? "";
 
   beforeAll(async () => {
+    const before = await api("GET", "/api/config");
+    configBefore = before.body;
+    restore.url = savedUrl();
+    const status = z.object({ openaiCompat: z.object({ configured: z.boolean() }) }).parse(before.body);
+    if (!status.openaiCompat.configured) restore.key = "";
     compat = createServer(async (req, res) => {
       let raw = "";
       for await (const chunk of req) raw += chunk;
@@ -5351,12 +5363,15 @@ describe("project folder for a chat-only engine", () => {
     });
     await new Promise<void>((r) => compat.listen(0, "127.0.0.1", r));
     const { port } = z.object({ port: z.number() }).parse(compat.address());
-    expect((await api("PUT", "/api/config", {
-      openaiCompat: { key: "compat-folder", url: `http://127.0.0.1:${port}` },
-    })).status).toBe(200);
+    const borrowed: CompatPatch = { url: `http://127.0.0.1:${port}` };
+    if (restore.key !== undefined) borrowed.key = "compat-folder";
+    expect((await api("PUT", "/api/config", { openaiCompat: borrowed })).status).toBe(200);
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    expect((await api("PUT", "/api/config", { openaiCompat: restore })).status).toBe(200);
+    expect((await api("GET", "/api/config")).body).toEqual(configBefore);
+    expect(savedUrl()).toBe(restore.url);
     compat?.close();
   });
 
