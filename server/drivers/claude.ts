@@ -223,7 +223,11 @@ type AskResolutionSource = "user" | "timeout" | "system";
 
 // Ask rules outrank every allow list, the user's own settings.json included,
 // so Ask for approval reaches the broker even where Write or Bash is allowed.
-const ASK_BEFORE = ["Bash", "PowerShell", "Edit", "Write", "MultiEdit", "NotebookEdit"];
+// Sandbox auto-allow is switched off too, or sandboxed Bash would skip them.
+const ASK_SETTINGS = JSON.stringify({
+  permissions: { ask: ["Bash", "PowerShell", "Edit", "Write", "MultiEdit", "NotebookEdit"] },
+  sandbox: { autoAllowBashIfSandboxed: false },
+});
 
 const DENY_TIMEOUT_NOTE =
   "OpenMausBot: nobody answered this permission request in time. Skip this action and finish what you can without it.";
@@ -618,7 +622,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         "--include-partial-messages",
         "--permission-mode", asks ? "default" : config.permissionMode === "auto" ? "acceptEdits" : config.permissionMode,
       ];
-      if (asks) args.push("--settings", JSON.stringify({ permissions: { ask: ASK_BEFORE } }));
+      if (asks) args.push("--settings", ASK_SETTINGS);
       if (config.tools !== undefined) args.push("--tools", config.tools.join(","));
       if (config.disallowedTools?.length) {
         args.push("--disallowedTools", config.disallowedTools.join(","));

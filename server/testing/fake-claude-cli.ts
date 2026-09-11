@@ -138,15 +138,26 @@ const needsPrompt = (tool: string): boolean => {
 const askBroker = (socketPath: string, tool: string, input: { [key: string]: JsonValue }): Promise<string> =>
   new Promise((resolve) => {
     const conn = connect(socketPath);
+    let settled = false;
+    const settle = (behavior: string) => {
+      if (settled) return;
+      settled = true;
+      conn.end();
+      resolve(behavior);
+    };
     let buf = "";
     conn.on("data", (chunk) => {
       buf += chunk;
       const nl = buf.indexOf("\n");
       if (nl === -1) return;
-      conn.end();
-      resolve(String(JSON.parse(buf.slice(0, nl)).behavior));
+      try {
+        settle(String(JSON.parse(buf.slice(0, nl)).behavior));
+      } catch {
+        settle("deny");
+      }
     });
-    conn.on("error", () => resolve("deny"));
+    conn.on("error", () => settle("deny"));
+    conn.on("close", () => settle("deny"));
     conn.write(JSON.stringify({ t: "ask", id: randomUUID(), tool, input }) + "\n");
   });
 

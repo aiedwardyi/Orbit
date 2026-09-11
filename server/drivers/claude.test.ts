@@ -1016,6 +1016,9 @@ describe("ClaudeDriver turns (fake CLI)", () => {
 
     const { argv } = JSON.parse(readFileSync(dump, "utf8"));
     expect(argv[argv.indexOf("--permission-mode") + 1]).toBe("default");
+    expect(JSON.parse(argv[argv.indexOf("--settings") + 1])).toMatchObject({
+      sandbox: { autoAllowBashIfSandboxed: false },
+    });
   });
 
   it("keeps Auto mode on acceptEdits: edits run unasked, commands still reach the broker", async () => {

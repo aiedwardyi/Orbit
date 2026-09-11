@@ -106,6 +106,12 @@ describe("approvalKey", () => {
     expect(approvalKey("Bash", `git status ${"-v ".repeat(70)}`)).toBeNull();
   });
 
+  it("offers no grant for a launcher, which runs whatever program follows it", () => {
+    expect(approvalKey("Bash", "env NODE_ENV=test git status")).toBeNull();
+    expect(approvalKey("Bash", "sudo -u alice git status")).toBeNull();
+    expect(approvalKey("Bash", "bash -c 'git status'")).toBeNull();
+  });
+
   it("never lets a remembered grant cover another path or program", () => {
     const bot = { alwaysAllow: ["Write", "edit", "Bash:git", "PowerShell"] };
     expect(autoDecision(bot, "Write", '{"file_path":"/home/me/.bashrc","content":"x"}')).toBeNull();
