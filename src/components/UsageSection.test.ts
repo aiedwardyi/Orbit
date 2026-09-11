@@ -99,7 +99,8 @@ describe("UsageSection friends plan card", () => {
       expect(localStorage.getItem("omb-usage-mode")).toBe("remaining");
       expect(host.querySelector('[aria-label="5h: 10% remaining"]')?.textContent).toContain("▰▱▱▱▱▱▱▱▱▱");
       expect(host.querySelector('[aria-label="5h: 10% remaining"] .text-danger')).not.toBeNull();
-      expect(host.querySelector('[aria-label="5-hour window: 90% remaining"] [style="width: 90%;"]')).not.toBeNull();
+      expect(host.querySelector('[aria-label="5h: 90% remaining"]')?.textContent).toContain("▰▰▰▰▰▰▰▰▰▱");
+      expect(host.querySelector('[aria-label="5h: 90% remaining"] .text-accent')).not.toBeNull();
       await act(async () => root.unmount());
       root = createRoot(host);
       await act(async () => root.render(createElement(UsageSection)));
@@ -147,32 +148,27 @@ describe("UsageSection friends plan card", () => {
     expect((html.match(/>Refresh</g) ?? []).length).toBe(3);
   });
 
-  it("renders a tight Grok-style header and a thin warn/danger progress bar", () => {
+  it("renders every window as the chat's compact meter, with the Opus row labeled and stale windows as text", () => {
     const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-    expect(html).toContain("5-hour window");
-    expect(html).toContain("Weekly");
-    expect(html).toContain(">10%<");
-    expect(html).toContain(">49%<");
-    expect(html).toContain(">75%<");
-    expect(html).toContain(">90%<");
+    expect(html).toContain("grid grid-cols-2 gap-4");
+    expect(html).toContain('aria-label="5h: 10% used"');
+    expect(html).toContain('aria-label="7d: 49% used"');
+    expect(html).toContain(">Opus<");
+    expect(html).toContain('aria-label="7d: 75% used"');
+    expect(html).toContain('aria-label="5h: 90% used"');
+    expect(html).toContain("▰▱▱▱▱▱▱▱▱▱");
+    expect(html).toContain("▰▰▰▰▰▱▱▱▱▱");
+    expect(html).toContain("▰▰▰▰▰▰▰▰▱▱");
+    expect(html).toContain("▰▰▰▰▰▰▰▰▰▱");
+    expect(html).toContain("text-accent");
+    expect(html).toContain("text-warning");
+    expect(html).toContain("text-danger");
     expect(html).not.toContain("% used<");
     expect(html).not.toContain(">40%<");
-    expect(html).toMatch(/\bh-1\b/);
-    expect(html).not.toContain("h-1.5");
-    expect(html).toContain("bg-ink/10");
-    const fillAt = (pct: number) => {
-      const needle = `style="width:${pct}%"`;
-      const at = html.indexOf(needle);
-      expect(at).toBeGreaterThan(-1);
-      return html.slice(Math.max(0, at - 80), at);
-    };
-    expect(fillAt(10)).toContain("bg-accent");
-    expect(fillAt(49)).toContain("bg-accent");
-    expect(fillAt(75)).toContain("bg-warning");
-    expect(fillAt(90)).toContain("bg-danger");
-    expect(fillAt(0)).toContain("bg-accent");
-    expect(html).toContain("Resets in 1 hour");
-    expect(html).toContain("Resets in 6 days");
+    expect(html).not.toContain("rounded-full bg-ink/10");
+    expect(html).not.toContain('style="width:');
+    expect(html).toContain('title="Resets in 1 hour"');
+    expect(html).toContain('title="Resets in 6 days"');
     expect(html).toContain("Reset since the last check");
   });
 

@@ -10,6 +10,7 @@ import { MausAvatar } from "./Avatar";
 import { Card } from "./SettingsPrimitives";
 import { ProviderMark } from "./ProviderIcons";
 import { useI18n } from "@/lib/i18n";
+import { cn } from "@/lib/cn";
 import { showUsagePerBotTable } from "@/lib/friends-chrome";
 import { splitFriendsEngines } from "@/lib/engine-rail";
 import { setUsageMode, useUsageMode } from "@/lib/usage-preferences";
@@ -22,8 +23,10 @@ import {
   hasFiniteCost,
   sumUsage,
   usageDetail,
+  windowExpired,
+  windowKind,
 } from "@/lib/usage";
-import { PlanWindowMeter, useNow } from "./PlanUsageBar";
+import { PLAN_WINDOW_SHORT_LABEL_KEY, PlanWindowMeter, useNow } from "./PlanUsageBar";
 
 function PlanUsage() {
   const { t } = useI18n();
@@ -87,9 +90,19 @@ function PlanUsage() {
                 <span className="truncate">{instance.displayName}</span>
               </div>
               {instance.rateLimits ? (
-                <div className="mt-2 flex flex-col gap-3">
+                <div className={cn("mt-2", instance.rateLimits.windows.length > 1 ? "grid grid-cols-2 gap-4" : "grid grid-cols-1")}>
                   {instance.rateLimits.windows.map((window) => (
-                    <PlanWindowMeter key={window.id} window={window} now={now} />
+                    <div key={window.id} className="flex min-w-0 items-center gap-2 text-[11.5px] text-ink">
+                      {window.id === "seven_day_opus" && <span>{t("usage.limits.opusShort")}</span>}
+                      {windowExpired(window.resetsAt, now) ? (
+                        <span>
+                          {t(PLAN_WINDOW_SHORT_LABEL_KEY[windowKind(window.id, window.windowMinutes)])}{" "}
+                          <span className="text-ink-secondary">{t("usage.limits.resetPassed")}</span>
+                        </span>
+                      ) : (
+                        <PlanWindowMeter window={window} now={now} compact />
+                      )}
+                    </div>
                   ))}
                 </div>
               ) : (
