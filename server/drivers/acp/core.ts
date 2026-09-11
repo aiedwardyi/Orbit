@@ -22,6 +22,7 @@ const LOCAL_HOST_KEY_ENVS = [
   ...new Set(LOCAL_HOSTS.map((host) => host.apiKeyEnv).filter((key): key is string => Boolean(key))),
 ];
 import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../../procs.ts";
+import { grokRateLimitWindows } from "../rate-limits.ts";
 
 /**
  * A `host::model` pick talks to a loopback server with its own key.
@@ -65,6 +66,10 @@ export interface AcpConfig {
 /** Per-harness specifics — everything that differs between Grok, Gemini, … */
 export interface AcpSupport {
   grokInterjections?: boolean;
+  /** When true the harness can report subscription windows. */
+  rateLimits?: boolean;
+  /** ACP extension method that returns a billing payload the Grok mapper understands. */
+  billingMethod?: string;
   driverKind: string;
   displayName: string;
   /** Omit for subscription CLIs (the default). Custom-only CLIs sit below
@@ -721,6 +726,16 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               throw error;
             }
             emitSessionStarted();
+            if (support.billingMethod) {
+              try {
+                const windows = grokRateLimitWindows(await request(support.billingMethod, {}, INIT_TIMEOUT));
+                if (windows.length > 0) {
+                  emit({ ...base(threadId, turnId), type: "account.rate-limits.updated", windows });
+                }
+              } catch {
+                /* billing is optional; a failed read must not fail the turn */
+              }
+            }
             state.promptSent = true;
             const promptTurn = resumeFailed && turn.resumeFallback
               ? { ...cliTurn, text: turn.resumeFallback.text }
@@ -805,6 +820,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           provider: DRIVER_KIND,
           capabilities: {
             queueing: support.grokInterjections === true,
+            rateLimits: support.rateLimits === true,
             sessionModelSwitch: "unsupported",
             agentsMcp: true,
             computerMcp: true,

@@ -62,3 +62,22 @@ export function codexRateLimitWindows(snapshot: unknown): RateLimitWindow[] {
   }
   return out;
 }
+
+/** Grok Build ACP `x.ai/billing` / CLI `/usage`: one weekly included pool.
+ * `creditUsagePercent` is already used 0-100. There is no 5-hour window. */
+export function grokRateLimitWindows(payload: unknown): RateLimitWindow[] {
+  if (!isRecord(payload) || !isRecord(payload.config)) return [];
+  const config = payload.config;
+  if (!finite(config.creditUsagePercent)) return [];
+  const period = isRecord(config.currentPeriod) ? config.currentPeriod : null;
+  if (!period || !String(period.type ?? "").includes("WEEKLY")) return [];
+  const end = Date.parse(String(period.end ?? ""));
+  return [
+    {
+      id: "seven_day",
+      usedPercent: round1(config.creditUsagePercent),
+      resetsAt: Number.isNaN(end) ? null : end,
+      windowMinutes: SEVEN_DAYS,
+    },
+  ];
+}

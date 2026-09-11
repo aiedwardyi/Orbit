@@ -310,6 +310,7 @@ describe("ACP turns (fake CLI)", () => {
     expect(types).toEqual([
       "turn.started",
       "session.started",
+      "account.rate-limits.updated",
       "content.delta",
       "item.completed", // assistant_text before the tool, not summed on settle
       "item.started", // tool tc-1
@@ -336,6 +337,7 @@ describe("ACP turns (fake CLI)", () => {
     expect(types).toEqual([
       "turn.started",
       "session.started",
+      "account.rate-limits.updated",
       "content.delta",
       "item.completed", // before one
       "item.started", // tc-1
@@ -851,6 +853,23 @@ describe("ACP turns (fake CLI)", () => {
     await recorder.until((e) => e.type === "turn.completed");
 
     expect(JSON.parse(readFileSync(dump, "utf8")).env.TEST_POLICY).toBe("auto");
+  });
+
+  it("forwards Grok's weekly billing as account.rate-limits.updated", async () => {
+    await create(GrokAgentDriver);
+    expect(instance.adapter.capabilities.rateLimits).toBe(true);
+    await instance.adapter.sendTurn({ threadId: "t-billing", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(recorder.events.filter((e) => e.type === "account.rate-limits.updated")).toMatchObject([
+      {
+        windows: [{ id: "seven_day", usedPercent: 42, resetsAt: Date.parse("2026-09-15T12:00:00Z"), windowMinutes: 10_080 }],
+      },
+    ]);
+  });
+
+  it("does not advertise rate limits on other ACP engines", async () => {
+    await create(GeminiAgentDriver);
+    expect(instance.adapter.capabilities.rateLimits).not.toBe(true);
   });
 
   it("declares effort levels for Grok only", async () => {

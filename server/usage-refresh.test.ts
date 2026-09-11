@@ -11,7 +11,7 @@ const fixtures = {
 const credentials = JSON.stringify({ claudeAiOauth: { accessToken: "access-secret" }, "auth.x.ai::test": { key: "access-secret", user_id: "user" }, tokens: { access_token: "access-secret", refresh_token: "refresh-secret" } });
 
 describe("usage refresh route result", () => {
-  it.each(["claudeAgent", "codex", "grokAgent"] as const)("normalizes %s without leaking credentials", async (driver) => {
+  it.each(["claudeAgent", "codex"] as const)("normalizes %s without leaking credentials", async (driver) => {
     const refresh = createUsageRefresh({
       platform: "linux",
       read: async () => credentials,
@@ -24,10 +24,35 @@ describe("usage refresh route result", () => {
     });
     const result = await refresh(driver, { instanceId: driver });
     expect(result.error).toBeUndefined();
-    expect(result.report?.windows.map((window) => window.usedPercent)).toEqual(driver === "grokAgent" ? [42] : [42, 19]);
-    expect(result.report?.windows.map((window) => window.id)).toEqual(driver === "grokAgent" ? ["seven_day"] : ["five_hour", "seven_day"]);
+    expect(result.report?.windows.map((window) => window.usedPercent)).toEqual([42, 19]);
+    expect(result.report?.windows.map((window) => window.id)).toEqual(["five_hour", "seven_day"]);
     for (const secret of ["access-secret", "refresh-secret", "Bearer", "access_token", "refresh_token", "authorization"]) expect(JSON.stringify(result)).not.toContain(secret);
     expect(JSON.stringify(usageRefreshResponse(driver, result))).not.toContain("access-secret");
+  });
+
+  it("normalizes grokAgent from ACP billing without reading auth.json", async () => {
+    let reads = 0;
+    let http = 0;
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      read: async () => {
+        reads++;
+        return credentials;
+      },
+      request: async () => {
+        http++;
+        return Response.json({ access_token: "access-secret" });
+      },
+      billing: async () => fixtures.grokAgent,
+    });
+    const result = await refresh("grokAgent", { instanceId: "grok" });
+    expect(result.error).toBeUndefined();
+    expect(result.report?.windows).toEqual([
+      { id: "seven_day", usedPercent: 42, resetsAt: Date.parse(reset), windowMinutes: 10_080 },
+    ]);
+    expect(reads).toBe(0);
+    expect(http).toBe(0);
+    expect(JSON.stringify(result)).not.toContain("access-secret");
   });
 
   it("keeps two credential stores isolated within the throttle window", async () => {
@@ -76,17 +101,27 @@ describe("usage refresh route result", () => {
     expect(calls).toBe(2);
   });
 
-  it.each([403, 500])("keeps the last report after HTTP %s", async (status) => {
-    const refresh = createUsageRefresh({ platform: "linux", read: async () => credentials, request: async () => Response.json({ error: "access-secret" }, { status }) });
+  it.each(["signin", "refresh"] as const)("keeps the last report after Grok billing %s", async (kind) => {
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      billing: async () => {
+        throw new Error(kind);
+      },
+    });
     const report = { windows: [{ id: "seven_day", usedPercent: 12, resetsAt: null }], observedAt: reset };
     const result = await refresh("grokAgent", { instanceId: "grok" }, report);
     expect(result.report).toEqual(report);
-    expect(result.error).toBe(status === 403 ? "Sign in again in Grok" : "Could not refresh Grok limits");
+    expect(result.error).toBe(kind === "signin" ? "Sign in again in Grok" : "Could not refresh Grok limits");
   });
 
   it("rejects malformed usage and skips unsupported engines and macOS Keychain access", async () => {
     let calls = 0;
-    const refresh = createUsageRefresh({ platform: "darwin", read: async () => credentials, request: async () => { calls++; return Response.json({}); } });
+    const refresh = createUsageRefresh({
+      platform: "darwin",
+      read: async () => credentials,
+      request: async () => { calls++; return Response.json({}); },
+      billing: async () => ({}),
+    });
     expect((await refresh("claudeAgent", { instanceId: "claude" })).error).toContain("Keychain");
     expect((await refresh("antigravityAgent", { instanceId: "antigravity" })).error).toBe("Usage refresh is not supported");
     expect(calls).toBe(0);

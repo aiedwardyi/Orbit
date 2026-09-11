@@ -608,6 +608,19 @@ function handle(msg: any) {
       complete();
       break;
     }
+    case "_x.ai/billing":
+    case "x.ai/billing":
+      result(msg.id, {
+        config: {
+          creditUsagePercent: 42,
+          currentPeriod: {
+            type: "USAGE_PERIOD_TYPE_WEEKLY",
+            start: "2026-09-08T00:00:00Z",
+            end: "2026-09-15T12:00:00Z",
+          },
+        },
+      });
+      break;
     case "session/cancel":
       // the interrupted prompt resolves as cancelled
       break;

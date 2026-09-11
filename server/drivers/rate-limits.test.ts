@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { claudeRateLimitWindows, codexRateLimitWindows, epochMs } from "./rate-limits.ts";
+import { claudeRateLimitWindows, codexRateLimitWindows, epochMs, grokRateLimitWindows } from "./rate-limits.ts";
 
 describe("epochMs", () => {
   it("turns provider seconds into milliseconds and leaves milliseconds alone", () => {
@@ -78,5 +78,48 @@ describe("codexRateLimitWindows", () => {
     expect(codexRateLimitWindows({ secondary: { usedPercent: 40 } })).toEqual([{ id: "secondary", usedPercent: 40, resetsAt: null }]);
     expect(codexRateLimitWindows(undefined)).toEqual([]);
     expect(codexRateLimitWindows([])).toEqual([]);
+  });
+});
+
+describe("grokRateLimitWindows", () => {
+  it("reads the weekly pool as used percent and never invents a 5-hour window", () => {
+    expect(
+      grokRateLimitWindows({
+        config: {
+          creditUsagePercent: 42.34,
+          currentPeriod: {
+            type: "USAGE_PERIOD_TYPE_WEEKLY",
+            start: "2026-09-08T00:00:00Z",
+            end: "2026-09-15T12:00:00Z",
+          },
+        },
+      }),
+    ).toEqual([
+      { id: "seven_day", usedPercent: 42.3, resetsAt: Date.parse("2026-09-15T12:00:00Z"), windowMinutes: 10_080 },
+    ]);
+    expect(
+      grokRateLimitWindows({
+        config: { creditUsagePercent: 12, currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY" } },
+      }),
+    ).toEqual([{ id: "seven_day", usedPercent: 12, resetsAt: null, windowMinutes: 10_080 }]);
+  });
+
+  it("drops a payload without a weekly fill", () => {
+    expect(
+      grokRateLimitWindows({
+        config: { currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", end: "2026-09-15T12:00:00Z" } },
+      }),
+    ).toEqual([]);
+    expect(
+      grokRateLimitWindows({
+        config: {
+          creditUsagePercent: 12,
+          currentPeriod: { type: "USAGE_PERIOD_TYPE_MONTHLY", end: "2026-10-01T00:00:00Z" },
+        },
+      }),
+    ).toEqual([]);
+    expect(grokRateLimitWindows({ config: { creditUsagePercent: "42" } })).toEqual([]);
+    expect(grokRateLimitWindows(null)).toEqual([]);
+    expect(grokRateLimitWindows("42%")).toEqual([]);
   });
 });

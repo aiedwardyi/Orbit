@@ -33,10 +33,10 @@ function PlanUsage() {
   const [refreshing, setRefreshing] = useState<Set<string>>(() => new Set());
   const [refreshErrors, setRefreshErrors] = useState<Record<string, string>>({});
   const engines = splitFriendsEngines(state.instances).friends;
-  // Claude/Codex declare rateLimits but only emit a window after a turn —
-  // pending, not an outage. Engines that never report (Grok, Antigravity,
-  // OpenCode) stay on the unsupported line so a missing observation is not
-  // mistaken for downtime.
+  // Claude/Codex/Grok declare rateLimits but only emit a window after a
+  // turn or refresh — pending, not an outage. Engines that never report
+  // (Antigravity, OpenCode) stay on the unsupported line so a missing
+  // observation is not mistaken for downtime.
   const honestCaption = (instance: InstanceInfo) =>
     t(instance.capabilities?.rateLimits ? "usage.limits.pending" : "usage.limits.notReported", {
       name: instance.displayName,

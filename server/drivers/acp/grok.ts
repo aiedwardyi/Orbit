@@ -183,6 +183,8 @@ export function ensureGrokInjectSlug(
 const support: AcpSupport = {
   driverKind: "grokAgent",
   grokInterjections: true,
+  rateLimits: true,
+  billingMethod: "_x.ai/billing",
   displayName: "Grok",
   images: false,
   models: STATIC_GROK_MODELS,

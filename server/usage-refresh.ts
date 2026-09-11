@@ -5,7 +5,7 @@ import { createInterface } from "node:readline";
 import { z } from "zod";
 
 import type { RateLimitWindow } from "./contracts.ts";
-import { codexRateLimitWindows } from "./drivers/rate-limits.ts";
+import { codexRateLimitWindows, grokRateLimitWindows } from "./drivers/rate-limits.ts";
 import { augmentedPath } from "./env-path.ts";
 import { killCliTree, spawnCli } from "./procs.ts";
 import { parseJson, type JsonValue } from "./schema.ts";
@@ -18,8 +18,7 @@ const percent = z.number().finite().nonnegative();
 const timestamp = z.string().refine((value) => !Number.isNaN(Date.parse(value)));
 const oauthWindow = z.object({ utilization: percent, resets_at: timestamp.nullable() });
 const oauthUsage = z.object({ five_hour: oauthWindow.nullable(), seven_day: oauthWindow.nullable() });
-const billing = z.object({ config: z.object({ creditUsagePercent: percent, currentPeriod: z.object({ type: z.literal("USAGE_PERIOD_TYPE_WEEKLY"), end: timestamp }) }) });
-const rpcMessage = z.object({ id: z.number().optional(), result: z.json().optional(), error: z.object({ code: z.number() }).optional() });
+const rpcMessage = z.object({ id: z.number().optional(), method: z.string().optional(), result: z.json().optional(), error: z.object({ code: z.number() }).optional() });
 
 export function usageRefreshResponse(instanceId: string, result: Result) {
   return { instanceId, report: result.report, error: result.error, retryAt: result.retryAt };
@@ -60,10 +59,57 @@ export function readUsageRpc(cli: string, env: NodeJS.ProcessEnv): Promise<JsonV
   });
 }
 
+export function readGrokBillingRpc(cli: string, env: NodeJS.ProcessEnv): Promise<JsonValue> {
+  return new Promise((resolve, reject) => {
+    const childEnv = { ...env };
+    delete childEnv.XAI_API_KEY;
+    const child = spawnCli(cli, ["agent", "stdio"], { cwd: homedir(), env: childEnv, stdio: ["pipe", "pipe", "pipe"] });
+    const lines = createInterface({ input: child.stdout });
+    let settled = false;
+    const finish = (value?: JsonValue, code?: number) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      lines.close();
+      killCliTree(child);
+      if (value !== undefined) resolve(value);
+      else reject(new Error(code === 401 || code === 403 ? "signin" : "refresh"));
+    };
+    const send = (method: string, id?: number, params = {}) => {
+      try { child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`); }
+      catch { finish(); }
+    };
+    const timer = setTimeout(() => finish(), 15_000);
+    child.stderr.resume();
+    child.once("error", () => finish());
+    child.once("exit", () => finish());
+    lines.on("line", (line) => {
+      try {
+        const message = rpcMessage.parse(parseJson(line));
+        if (message.method && message.id !== undefined) {
+          try { child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "method not found" } })}\n`); }
+          catch { finish(); }
+          return;
+        }
+        if (message.id !== 1 && message.id !== 2 && message.id !== 3) return;
+        if (message.error) return finish(undefined, message.error.code);
+        if (message.id === 1) {
+          const methods = z.object({ authMethods: z.array(z.object({ id: z.string().optional() })).optional() }).catch({}).parse(message.result);
+          if (methods.authMethods?.some((method) => method.id === "cached_token")) send("authenticate", 2, { methodId: "cached_token" });
+          else send("_x.ai/billing", 3);
+        } else if (message.id === 2) send("_x.ai/billing", 3);
+        else finish(message.result);
+      } catch { finish(); }
+    });
+    send("initialize", 1, { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } } });
+  });
+}
+
 export function createUsageRefresh(deps: {
   request?: typeof fetch;
   read?: (path: string) => Promise<string>;
   rpc?: typeof readUsageRpc;
+  billing?: typeof readGrokBillingRpc;
   now?: () => number;
   platform?: NodeJS.Platform;
 } = {}) {
@@ -85,35 +131,19 @@ export function createUsageRefresh(deps: {
         if (driver === "codex") {
           const result = z.object({ rateLimits: z.json() }).parse(await (deps.rpc ?? readUsageRpc)(options.cli || "codex", env));
           windows = codexRateLimitWindows(result.rateLimits);
+        } else if (driver === "grokAgent") {
+          windows = grokRateLimitWindows(await (deps.billing ?? readGrokBillingRpc)(options.cli || "grok", env));
         } else {
-          let url: string;
-          let headers: Array<[string, string]>;
-          if (driver === "claudeAgent") {
-            if ((deps.platform ?? process.platform) === "darwin" && !env.CLAUDE_CODE_OAUTH_TOKEN) return { report: previous, error: "Claude refresh skipped to avoid Keychain prompts on macOS", retryAt };
-            const token = env.CLAUDE_CODE_OAUTH_TOKEN || z.object({ claudeAiOauth: z.object({ accessToken: text }) }).parse(parseJson(await read(join(env.CLAUDE_CONFIG_DIR || join(home, ".claude"), ".credentials.json")))).claudeAiOauth.accessToken;
-            url = "https://api.anthropic.com/api/oauth/usage";
-            headers = [["Authorization", `Bearer ${token}`], ["anthropic-beta", "oauth-2025-04-20"]];
-          } else {
-            const auth = z.record(z.string(), z.json()).parse(parseJson(await read(join(env.GROK_HOME || join(home, ".grok"), "auth.json"))));
-            const entry = Object.entries(auth).find(([key]) => key.includes("auth.x.ai::"));
-            const token = z.object({ key: text, user_id: text }).parse(entry?.[1]);
-            url = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
-            headers = [["Authorization", `Bearer ${token.key}`], ["X-XAI-Token-Auth", "xai-grok-cli"], ["x-userid", token.user_id]];
-          }
-          const response = await request(url, { headers, redirect: "error", signal: AbortSignal.timeout(15_000) });
+          if ((deps.platform ?? process.platform) === "darwin" && !env.CLAUDE_CODE_OAUTH_TOKEN) return { report: previous, error: "Claude refresh skipped to avoid Keychain prompts on macOS", retryAt };
+          const token = env.CLAUDE_CODE_OAUTH_TOKEN || z.object({ claudeAiOauth: z.object({ accessToken: text }) }).parse(parseJson(await read(join(env.CLAUDE_CONFIG_DIR || join(home, ".claude"), ".credentials.json")))).claudeAiOauth.accessToken;
+          const response = await request("https://api.anthropic.com/api/oauth/usage", { headers: [["Authorization", `Bearer ${token}`], ["anthropic-beta", "oauth-2025-04-20"]], redirect: "error", signal: AbortSignal.timeout(15_000) });
           if (response.status === 401 || response.status === 403) throw new Error("signin");
           if (!response.ok) throw new Error("refresh");
-          const payload = await response.json();
-          if (driver === "claudeAgent") {
-            const usage = oauthUsage.parse(payload);
-            windows = (["five_hour", "seven_day"] as const).flatMap((id) => {
-              const window = usage[id];
-              return window ? [{ id, usedPercent: window.utilization, resetsAt: window.resets_at ? Date.parse(window.resets_at) : null, windowMinutes: id === "five_hour" ? 300 : 10080 }] : [];
-            });
-          } else {
-            const { config } = billing.parse(payload);
-            windows = [{ id: "seven_day", usedPercent: config.creditUsagePercent, resetsAt: Date.parse(config.currentPeriod.end), windowMinutes: 10080 }];
-          }
+          const usage = oauthUsage.parse(await response.json());
+          windows = (["five_hour", "seven_day"] as const).flatMap((id) => {
+            const window = usage[id];
+            return window ? [{ id, usedPercent: window.utilization, resetsAt: window.resets_at ? Date.parse(window.resets_at) : null, windowMinutes: id === "five_hour" ? 300 : 10080 }] : [];
+          });
         }
         if (!windows.length) throw new Error("refresh");
         return { report: { windows, observedAt: new Date(clock()).toISOString() }, retryAt };
