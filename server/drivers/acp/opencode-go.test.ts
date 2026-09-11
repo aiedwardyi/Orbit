@@ -343,7 +343,7 @@ describe("OpenCode catalog", () => {
         OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: { bash: "allow" } }),
       },
       enabled: true,
-      config: { cli: FAKE_CLI, fullAuto: false },
+      config: { cli: FAKE_CLI, fullAuto: false, workspace: scratch },
     });
     const recorder = recordEvents(instance.adapter);
     const permissionFor = async (approval: "ask" | "auto") => {
@@ -433,13 +433,24 @@ describe("OpenCode Ask for approval", () => {
     raw: string | undefined,
     files: Record<string, string> = {},
     ask = true,
+    cwd?: string,
+    extraEnv: Record<string, string> = {},
   ) => {
     const scratch = mkdtempSync(join(tmpdir(), "omb-opencode-deny-"));
     try {
       mkdirSync(join(scratch, "opencode"));
-      for (const [name, text] of Object.entries(files)) writeFileSync(join(scratch, name), text);
-      const env = { XDG_CONFIG_HOME: scratch, OPENCODE_CONFIG: files.custom && join(scratch, "custom") };
-      return JSON.parse(withOpenCodeWebSearch(raw, ask, env)).permission;
+      for (const [name, text] of Object.entries(files)) {
+        mkdirSync(dirname(join(scratch, name)), { recursive: true });
+        writeFileSync(join(scratch, name), text);
+      }
+      const env = {
+        XDG_CONFIG_HOME: scratch,
+        HOME: scratch,
+        USERPROFILE: scratch,
+        OPENCODE_CONFIG: files.custom && join(scratch, "custom"),
+        ...extraEnv,
+      };
+      return JSON.parse(withOpenCodeWebSearch(raw, ask, env, cwd && join(scratch, cwd))).permission;
     } finally {
       await removeTempDir(scratch);
     }
@@ -495,6 +506,46 @@ describe("OpenCode Ask for approval", () => {
   it("denies an inherited deny map that has no catch-all", async () => {
     const files = { "opencode/opencode.json": inline({ bash: { "rm *": "deny" } }) };
     expect((await permissionFor(inline({ bash: { "git *": "allow" } }), files)).bash).toBe("deny");
+  });
+
+  it("keeps a project deny from the git root down to cwd", async () => {
+    const files = {
+      "opencode.json": inline({ edit: "deny" }),
+      "repo/.git/HEAD": "ref: refs/heads/main\n",
+      "repo/opencode.json": inline({ bash: "deny" }),
+    };
+    expect(await permissionFor(undefined, files, true, "repo/sub")).toMatchObject({ bash: "deny", edit: "ask" });
+    const dotted = { ...files, "repo/sub/.opencode/opencode.jsonc": `// user\n${inline({ edit: "deny" })}` };
+    expect(await permissionFor(undefined, dotted, true, "repo/sub")).toMatchObject({ bash: "deny", edit: "deny" });
+  });
+
+  it("skips project config only when OPENCODE_DISABLE_PROJECT_CONFIG is 1 or true", async () => {
+    const files = { "repo/.git/HEAD": "ref: refs/heads/main\n", "repo/opencode.json": inline({ bash: "deny" }) };
+    const bashFor = async (flag: string) =>
+      (await permissionFor(undefined, files, true, "repo", { OPENCODE_DISABLE_PROJECT_CONFIG: flag })).bash;
+    expect(await bashFor("false")).toBe("deny");
+    expect(await bashFor("0")).toBe("deny");
+    expect(await bashFor("TRUE")).toBe("ask");
+  });
+
+  it("reads a relative OPENCODE_CONFIG against the turn cwd", async () => {
+    const files = { "repo/.git/HEAD": "ref: refs/heads/main\n", "repo/rel/custom.json": inline({ bash: "deny" }) };
+    const env = { OPENCODE_CONFIG: "rel/custom.json" };
+    expect((await permissionFor(undefined, files, true, "repo", env)).bash).toBe("deny");
+  });
+
+  it("carries a map-valued top-level deny into the key's rule", async () => {
+    const permission = { "*": { "*": "allow", "*.env": "deny" }, edit: { "*.txt": "allow" } };
+    const edit = (await permissionFor(inline(permission))).edit;
+    expect(Object.entries(edit)).toEqual([["*", "ask"], ["*.env", "deny"], ["*.txt", "ask"]]);
+    expect((await permissionFor(undefined, { "opencode/opencode.json": inline(permission) })).edit).toBe("deny");
+  });
+
+  it("keeps a deny from a wildcard permission name", async () => {
+    const files = { "opencode/opencode.json": inline({ "b*": "deny", EDIT: "deny" }) };
+    expect(await permissionFor(undefined, files)).toMatchObject({ bash: "deny", edit: "deny" });
+    const cased = { "opencode/opencode.json": inline({ "b*": "deny", BASH: "allow" }) };
+    expect((await permissionFor(undefined, cased)).bash).toBe("deny");
   });
 
   it("leaves Auto mode unchanged", async () => {
