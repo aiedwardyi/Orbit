@@ -12,6 +12,7 @@ import {
   createOpenCodeDriver,
   normalizeLegacyOpenCodeModel,
   parseOpenCodeModelsOutput,
+  withOpenCodeWebSearch,
 } from "./opencode-go.ts";
 import type { ModelCatalog, SendTurnInput } from "../../contracts.ts";
 
@@ -424,6 +425,81 @@ describe("OpenCode catalog", () => {
     } finally {
       await removeTempDir(scratch);
     }
+  });
+});
+
+describe("OpenCode Ask for approval", () => {
+  const permissionFor = async (
+    raw: string | undefined,
+    files: Record<string, string> = {},
+    ask = true,
+  ) => {
+    const scratch = mkdtempSync(join(tmpdir(), "omb-opencode-deny-"));
+    try {
+      mkdirSync(join(scratch, "opencode"));
+      for (const [name, text] of Object.entries(files)) writeFileSync(join(scratch, name), text);
+      const env = { XDG_CONFIG_HOME: scratch, OPENCODE_CONFIG: files.custom && join(scratch, "custom") };
+      return JSON.parse(withOpenCodeWebSearch(raw, ask, env)).permission;
+    } finally {
+      await removeTempDir(scratch);
+    }
+  };
+  const inline = (permission: Record<string, string | Record<string, string>> | string) =>
+    JSON.stringify({ permission });
+
+  it("keeps a bash deny", async () => {
+    expect(await permissionFor(inline({ bash: "deny" }))).toEqual({ bash: "deny", edit: "ask", websearch: "allow" });
+  });
+
+  it("keeps deny patterns and asks for the rest", async () => {
+    const permission = await permissionFor(inline({ bash: { "*": "allow", "git *": "allow", "rm *": "deny" } }));
+    expect(Object.entries(permission.bash)).toEqual([["*", "ask"], ["git *", "ask"], ["rm *", "deny"]]);
+  });
+
+  it("puts the catch-all first when a pattern map has none", async () => {
+    const permission = await permissionFor(inline({ edit: { "*.env": "deny" } }));
+    expect(Object.entries(permission.edit)).toEqual([["*", "ask"], ["*.env", "deny"]]);
+  });
+
+  it("turns allow into ask", async () => {
+    expect(await permissionFor(inline({ bash: "allow", edit: "allow" }))).toEqual({ bash: "ask", edit: "ask", websearch: "allow" });
+  });
+
+  it("asks when nothing is set", async () => {
+    expect(await permissionFor(undefined)).toEqual({ bash: "ask", edit: "ask", websearch: "allow" });
+  });
+
+  it("keeps a deny from the global config files and OPENCODE_CONFIG", async () => {
+    expect(await permissionFor(undefined, {
+      "opencode/opencode.json": inline({ bash: "allow" }),
+      "opencode/opencode.jsonc": `// user\n{ "permission": { "bash": "deny", }, }\n`,
+    })).toMatchObject({ bash: "deny", edit: "ask" });
+    expect(await permissionFor(undefined, { custom: inline({ edit: "deny" }) })).toMatchObject({ bash: "ask", edit: "deny" });
+  });
+
+  it("keeps a top-level deny that bash and edit would otherwise override", async () => {
+    expect(await permissionFor(undefined, { "opencode/config.json": inline("deny") })).toMatchObject({ bash: "deny", edit: "deny" });
+  });
+
+  it("keeps a top-level deny under an inline pattern map without a catch-all", async () => {
+    const files = { "opencode/opencode.json": inline("deny") };
+    const permission = await permissionFor(inline({ bash: { "git *": "allow" } }), files);
+    expect(Object.entries(permission.bash)).toEqual([["*", "deny"], ["git *", "ask"]]);
+  });
+
+  it("denies an inherited pattern map without a catch-all under a top-level deny", async () => {
+    const files = { "opencode/opencode.json": JSON.stringify({ permission: { "*": "deny", bash: { "git *": "allow" } } }) };
+    expect((await permissionFor(undefined, files)).bash).toBe("deny");
+  });
+
+  it("denies an inherited deny map that has no catch-all", async () => {
+    const files = { "opencode/opencode.json": inline({ bash: { "rm *": "deny" } }) };
+    expect((await permissionFor(inline({ bash: { "git *": "allow" } }), files)).bash).toBe("deny");
+  });
+
+  it("leaves Auto mode unchanged", async () => {
+    const files = { "opencode/opencode.json": inline({ bash: "deny" }) };
+    expect(await permissionFor(inline({ bash: "allow" }), files, false)).toEqual({ bash: "allow", websearch: "allow" });
   });
 });
 
