@@ -12,8 +12,8 @@ const bots = [
 describe("team map projection", () => {
   it("groups visible bots by section and separates chiefs", () => {
     expect(buildTeamMapSections(bots)).toEqual([
-      { key: "Work", name: "Work", chiefs: [bots[0]], members: [bots[1]] },
-      { key: "", name: "General", chiefs: [], members: [bots[2]] },
+      { key: "Work", chiefs: [bots[0]], members: [bots[1]] },
+      { key: "", chiefs: [], members: [bots[2]] },
     ]);
   });
 
@@ -22,9 +22,9 @@ describe("team map projection", () => {
       { id: "none", name: "Unsectioned" },
       { id: "named", name: "Named", section: " General " },
     ]);
-    expect(projected.map(({ key, name }) => ({ key, name }))).toEqual([
-      { key: "", name: "General" },
-      { key: "General", name: "General" },
+    expect(projected.map(({ key, members }) => ({ key, members: members.map((bot) => bot.id) }))).toEqual([
+      { key: "", members: ["none"] },
+      { key: "General", members: ["named"] },
     ]);
   });
 
@@ -46,10 +46,12 @@ describe("team map projection", () => {
       running: [],
     };
     expect(buildTeamMapEdges(bots, snapshot)).toEqual([]);
-    expect(teamMapStatus(bots[0])).toEqual({ label: "Working", tone: "success" });
+    expect(teamMapStatus(bots[0])).toEqual({ key: "teamMap.status.working", tone: "success" });
     expect(teamMapStatus({ id: "x", name: "X", activity: "waiting-on-you" })).toEqual({
-      label: "Waiting for you",
+      key: "teamMap.status.waiting",
       tone: "warning",
     });
+    expect(teamMapStatus({ id: "x", name: "X", activity: "dead" })).toEqual({ key: "teamMap.status.noSignal", tone: "danger" });
+    expect(teamMapStatus({ id: "x", name: "X" })).toEqual({ key: "teamMap.status.ready", tone: "idle" });
   });
 });

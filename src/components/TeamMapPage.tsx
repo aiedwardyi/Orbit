@@ -24,6 +24,7 @@ const statusTone = {
 } as const;
 
 function BotNode({ bot, chief = false }: { bot: Bot; chief?: boolean }) {
+  const { t } = useI18n();
   const { dispatch } = useStore();
   const status = teamMapStatus(bot);
   return (
@@ -42,13 +43,13 @@ function BotNode({ bot, chief = false }: { bot: Bot; chief?: boolean }) {
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">
           <span className="truncate text-[13.5px] font-semibold text-ink">{bot.name}</span>
-          {chief && <Crown size={12} className="shrink-0 text-warning" aria-label="Chief of Staff" />}
+          {chief && <Crown size={12} className="shrink-0 text-warning" aria-label={t("chrome.chiefOfStaff")} />}
         </span>
         <span className="block truncate text-[11.5px] text-ink-secondary">{bot.title || bot.modelSelection.model}</span>
       </span>
       <span className="flex shrink-0 items-center gap-1.5 text-[10.5px] text-ink-secondary">
-        <span className={cn("size-1.5 rounded-full", statusTone[status.tone], status.label === "Working" && "animate-pulse")} />
-        {status.label}
+        <span className={cn("size-1.5 rounded-full", statusTone[status.tone], status.key === "teamMap.status.working" && "animate-pulse")} />
+        {t(status.key)}
       </span>
     </button>
   );
@@ -103,6 +104,7 @@ interface SectionContextResponse {
 }
 
 function SectionContextDialog({ section, label, onClose }: { section: string; label: string; onClose: () => void }) {
+  const { locale, t } = useI18n();
   const dialogRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const onCloseRef = useRef(onClose);
@@ -123,9 +125,9 @@ function SectionContextDialog({ section, label, onClose }: { section: string; la
 
   const requestClose = useCallback(() => {
     if (savingRef.current) return;
-    if (dirtyRef.current && !window.confirm("Discard unsaved changes to this shared context?")) return;
+    if (dirtyRef.current && !window.confirm(t("teamMap.discardContext"))) return;
     onCloseRef.current();
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -226,17 +228,17 @@ function SectionContextDialog({ section, label, onClose }: { section: string; la
             <div className="flex items-center gap-2">
               <BookOpen size={19} className="text-accent" />
               <h2 id="section-context-title" className="text-[20px] font-semibold tracking-[-0.01em] text-ink">
-                {label} shared context
+                {t("teamMap.contextTitle", { name: label })}
               </h2>
             </div>
             <p className="mt-1.5 max-w-[520px] text-[12.5px] leading-relaxed text-ink-secondary">
-              A team brief shown to every bot in this section at the start of each turn. Only you can edit it.
+              {t("teamMap.contextHelp")}
             </p>
           </div>
           <button
             onClick={requestClose}
             disabled={saving}
-            aria-label="Close shared context"
+            aria-label={t("teamMap.closeContext")}
             className="flex size-9 shrink-0 items-center justify-center rounded-lg text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-40"
           >
             <X size={19} />
@@ -246,7 +248,7 @@ function SectionContextDialog({ section, label, onClose }: { section: string; la
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 sm:px-8">
           {loading ? (
             <div className="flex min-h-[260px] items-center justify-center text-ink-secondary">
-              <Loader2 size={20} className="animate-spin" aria-label="Loading shared context" />
+              <Loader2 size={20} className="animate-spin" aria-label={t("teamMap.loadingContext")} />
             </div>
           ) : (
             <>
@@ -254,17 +256,17 @@ function SectionContextDialog({ section, label, onClose }: { section: string; la
                 ref={textareaRef}
                 value={text}
                 onChange={(event) => setText(event.target.value)}
-                placeholder={"Goals\n- Ship the Windows onboarding refresh\n\nDecisions\n- Keep customer data local\n\nPreferences\n- Use concise weekly updates"}
-                aria-label={`${label} shared context`}
+                placeholder={t("teamMap.contextPlaceholder")}
+                aria-label={t("teamMap.contextTitle", { name: label })}
                 className="min-h-[280px] w-full resize-y rounded-xl border border-hairline/60 bg-inset px-4 py-3 font-mono text-[12.5px] leading-relaxed text-ink outline-none placeholder:text-ink-secondary/55 focus:border-accent/50"
               />
               <div className="mt-2 flex items-start justify-between gap-4 text-[11.5px] text-ink-secondary">
                 <span>
-                  Keep durable team facts here. Private notes stay in each bot's own Memory.
-                  {updatedAt ? ` Last saved ${new Date(updatedAt).toLocaleString()}.` : ""}
+                  {t("teamMap.contextHint")}
+                  {updatedAt ? ` ${t("teamMap.lastSaved", { time: new Date(updatedAt).toLocaleString(localeTag(locale)) })}` : ""}
                 </span>
                 <span className={cn("shrink-0 tabular-nums", bytes > maxBytes && "text-danger")}>
-                  {bytes.toLocaleString()} / {maxBytes.toLocaleString()} bytes
+                  {t("teamMap.bytes", { used: bytes.toLocaleString(), max: maxBytes.toLocaleString() })}
                 </span>
               </div>
             </>
@@ -274,7 +276,7 @@ function SectionContextDialog({ section, label, onClose }: { section: string; la
 
         <footer className="flex items-center justify-end gap-2 border-t border-hairline/40 px-6 py-4 sm:px-8">
           <button onClick={requestClose} disabled={saving} className="rounded-lg px-3.5 py-2 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-40">
-            Cancel
+            {t("teamMap.cancel")}
           </button>
           <button
             onClick={() => void save()}
@@ -282,7 +284,7 @@ function SectionContextDialog({ section, label, onClose }: { section: string; la
             className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-[13px] font-medium text-white hover:brightness-110 disabled:opacity-40"
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-            Save context
+            {t("teamMap.saveContext")}
           </button>
         </footer>
       </div>
@@ -292,6 +294,7 @@ function SectionContextDialog({ section, label, onClose }: { section: string; la
 }
 
 export function TeamMapPage() {
+  const { t } = useI18n();
   const { state } = useStore();
   const [snapshot, setSnapshot] = useState<TeamMapSnapshot>(EMPTY_TEAM_MAP_SNAPSHOT);
   const [refreshing, setRefreshing] = useState(false);
@@ -300,6 +303,7 @@ export function TeamMapPage() {
   const bots = useMemo(() => state.bots.filter((bot) => !bot.hidden), [state.bots]);
   const sections = useMemo(() => buildTeamMapSections(bots), [bots]);
   const edges = useMemo(() => buildTeamMapEdges(bots, snapshot), [bots, snapshot]);
+  const sectionName = (key: string) => key || t("teamMap.general");
 
   const refresh = useCallback(async (showSpinner = false) => {
     if (showSpinner) setRefreshing(true);
@@ -330,21 +334,21 @@ export function TeamMapPage() {
         <div>
           <div className="flex items-center gap-2.5">
             <Network size={20} className="text-accent" />
-            <h1 className="text-[18px] font-semibold">Team map</h1>
+            <h1 className="text-[18px] font-semibold">{t("chrome.teamMap")}</h1>
             <span className="flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[10.5px] font-medium text-success">
-              <Radio size={10} /> Live
+              <Radio size={10} /> {t("teamMap.live")}
             </span>
           </div>
           <p className="mt-1 text-[12.5px] text-ink-secondary">
-            See every section, who is working, and where tasks are moving.
+            {t("teamMap.subtitle")}
           </p>
         </div>
         <button
           onClick={() => void refresh(true)}
           disabled={refreshing}
           className="rounded-lg border border-hairline/50 bg-card p-2 text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-50"
-          aria-label="Refresh team map"
-          title="Refresh"
+          aria-label={t("teamMap.refreshAria")}
+          title={t("teamMap.refresh")}
         >
           <RefreshCw size={15} className={refreshing ? "animate-spin" : ""} />
         </button>
@@ -353,9 +357,9 @@ export function TeamMapPage() {
       <div className="min-h-0 flex-1 overflow-y-auto px-7 py-6">
         <div className="mb-5 grid max-w-[620px] grid-cols-3 gap-2">
           {[
-            [bots.length, "Bots"],
-            [working, "Working"],
-            [waiting, "Waiting on you"],
+            [bots.length, t("chrome.bots")],
+            [working, t("teamMap.status.working")],
+            [waiting, t("teamMap.waitingOnYou")],
           ].map(([value, label]) => (
             <div key={label} className="rounded-xl border border-hairline/40 bg-panel px-3.5 py-3">
               <div className="text-[18px] font-semibold tabular-nums text-ink">{value}</div>
@@ -370,15 +374,15 @@ export function TeamMapPage() {
           {sections.map((section) => (
             <section key={section.key || "__general__"} className="rounded-2xl border border-hairline/50 bg-panel p-4">
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">{section.name}</h2>
+                <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">{sectionName(section.key)}</h2>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setContextEditor({ section: section.key, label: section.name })}
+                    onClick={() => setContextEditor({ section: section.key, label: sectionName(section.key) })}
                     className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[10.5px] font-medium text-ink-secondary hover:bg-raised hover:text-ink"
-                    aria-label={`Edit ${section.name} shared context`}
-                    title="Shared context"
+                    aria-label={t("teamMap.editContext", { name: sectionName(section.key) })}
+                    title={t("teamMap.sharedContext")}
                   >
-                    <BookOpen size={11} /> Context
+                    <BookOpen size={11} /> {t("teamMap.context")}
                   </button>
                   <span className="text-[11px] tabular-nums text-ink-secondary">{section.chiefs.length + section.members.length}</span>
                 </div>
@@ -400,8 +404,8 @@ export function TeamMapPage() {
 
         <section className="mt-6 max-w-[900px]">
           <div className="mb-2.5 flex items-center justify-between">
-            <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">Agent handoffs</h2>
-            <span className="text-[11px] text-ink-secondary">Running and queued first</span>
+            <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">{t("teamMap.handoffs")}</h2>
+            <span className="text-[11px] text-ink-secondary">{t("teamMap.handoffsOrder")}</span>
           </div>
           <div className="space-y-2">
             {edges.slice(0, 12).map((edge) => (
@@ -409,7 +413,7 @@ export function TeamMapPage() {
             ))}
             {edges.length === 0 && (
               <div className="rounded-xl border border-dashed border-hairline bg-panel px-4 py-6 text-center text-[12.5px] text-ink-secondary">
-                No bot-to-bot handoffs yet. Ask a Chief of Staff to delegate a task and it will appear here live.
+                {t("teamMap.noHandoffs")}
               </div>
             )}
           </div>
