@@ -80,7 +80,7 @@ export function PlanWindowMeter({
     const segments = Math.round(fill / 10);
     return (
       <div role="group" aria-label={label}>
-        <div className="flex flex-wrap items-center gap-x-2 text-[11.5px] text-ink">
+        <div className="flex flex-wrap items-center gap-x-2 text-[12.5px] text-ink">
           <span>{t(labelKey)}</span>
           <span aria-hidden="true" className={cn("font-mono tracking-tight", planUsageTone(usedFill).textClass)}>
             {percent === null ? "▱".repeat(10) : "▰".repeat(segments) + "▱".repeat(10 - segments)}

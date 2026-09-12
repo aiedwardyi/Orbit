@@ -5,15 +5,16 @@ import { afterEach, describe, expect, it } from "vitest";
 import { applyLocale } from "@/lib/i18n";
 import { setUsageMode } from "@/lib/usage-preferences";
 import type { RateLimitWindow } from "../../server/contracts.ts";
+import type { TaskUsage } from "@/state/store";
 
 import { ChatPlanMeters } from "./ChatPlanMeters";
 
 const now = Date.UTC(2026, 8, 4, 12, 0, 0);
 afterEach(() => setUsageMode("used"));
 
-function render(windows: RateLimitWindow[] | undefined) {
+function render(windows: RateLimitWindow[] | undefined, usage?: TaskUsage) {
   applyLocale("en");
-  return renderToStaticMarkup(createElement(ChatPlanMeters, { windows, now }));
+  return renderToStaticMarkup(createElement(ChatPlanMeters, { windows, usage, now }));
 }
 
 describe("ChatPlanMeters", () => {
@@ -72,5 +73,32 @@ describe("ChatPlanMeters", () => {
     expect(unknown).not.toContain("100%");
     expect(unknown).not.toContain("▰");
     expect(render([{ id: "five_hour", usedPercent: 80, resetsAt: now - 1 }])).toBe("");
+  });
+
+  it("shows read/written tokens only when the task banked them", () => {
+    const live: RateLimitWindow[] = [{ id: "five_hour", usedPercent: 10, resetsAt: now + 115 * 60_000 }];
+    const banked = render(live, { input: 52_400, output: 4, cachedInput: 41_000, costUsd: null, turns: 3 });
+    expect(banked).toContain("↑52.4k ↓4");
+    expect(banked).toContain("52.4k in (41k cached)");
+    expect(banked).toContain("grid-cols-[auto_auto]");
+    const idle = render(live, { input: 0, output: 0, costUsd: null, turns: 2 });
+    expect(idle).not.toContain("↑");
+    expect(idle).not.toContain("↓");
+    expect(idle).toContain("grid-cols-1");
+    expect(render(live)).not.toContain("↑");
+  });
+
+  it("gives both windows and the token readout their own column", () => {
+    const html = render(
+      [
+        { id: "five_hour", usedPercent: 10, resetsAt: now + 115 * 60_000 },
+        { id: "seven_day", usedPercent: 49, resetsAt: now + 53 * 3_600_000 },
+      ],
+      { input: 52_400, output: 4_100, costUsd: null, turns: 5 },
+    );
+    expect(html).toContain("grid-cols-[auto_auto_auto]");
+    expect(html).toContain("↑52.4k ↓4.1k");
+    expect(html).toContain("5h");
+    expect(html).toContain("7d");
   });
 });

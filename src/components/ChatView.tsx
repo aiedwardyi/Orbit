@@ -1410,7 +1410,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
           packet={activeTask?.taskState}
           turns={activeTask?.usage?.turns ?? 0}
         />
-        <ChatPlanMeters windows={engine?.rateLimits?.windows} />
+        <ChatPlanMeters windows={engine?.rateLimits?.windows} usage={activeTask?.usage} />
         <Composer
           key={bot.threadId}
           bot={bot}
