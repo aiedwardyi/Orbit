@@ -3998,7 +3998,7 @@ async function runClaimedGroupMemberTurn(
   // has its folder moved underneath it. Off-host members skip the folder
   // but must not decide the pin: the room's desk is a property of the
   // room, not of whichever member happened to speak first.
-  const cwd = groupTurnCwd(workspace, () => store.pinGroupCwd(group.id, threadId));
+  const cwd = groupTurnCwd(workspace, () => store.pinGroupCwd(group.id, threadId), bot.cwd);
   const roomSystem =
     system +
     projectFolderPrompt(cwd, workspace, instance.driverKind) +

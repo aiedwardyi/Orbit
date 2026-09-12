@@ -6,13 +6,16 @@
 // cannot reach. Lives outside the dispatch path so the rule is testable
 // without booting the server.
 
-/** `memberDefault` is the folder the member would use on its own (its
- * private workspace); undefined = the engine runs off-host. The pin is a
- * callback so off-host turns cannot accidentally decide it. */
+/** `memberDefault` is the private workspace the member falls back to;
+ * undefined = the engine runs off-host. `memberPin` is the member's own
+ * project folder: a bot pinned to a repo keeps working there in a room that
+ * has no desk of its own, exactly as it does 1:1. `pinRoomCwd` is a callback
+ * so off-host turns cannot accidentally decide the room's pin. */
 export function groupTurnCwd(
   memberDefault: string | undefined,
   pinRoomCwd: () => string | null,
+  memberPin?: string,
 ): string | undefined {
   if (memberDefault === undefined) return undefined;
-  return pinRoomCwd() ?? memberDefault;
+  return pinRoomCwd() ?? memberPin ?? memberDefault;
 }

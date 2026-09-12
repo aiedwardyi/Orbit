@@ -5270,11 +5270,16 @@ describe("room project folder in the system prompt", () => {
     return dump.argv[at + 1];
   };
 
-  const roomWithOneMember = async (name: string, folder?: string) => {
+  const roomWithOneMember = async (name: string, folder?: string, memberFolder?: string) => {
     const bot = (await api("POST", "/api/bots")).body.bot;
-    expect((await api("PATCH", `/api/bots/${bot.id}`, {
+    // under the throwaway home so afterAll owns the teardown
+    if (memberFolder) mkdirSync(memberFolder, { recursive: true });
+    const patchedBot = await api("PATCH", `/api/bots/${bot.id}`, {
       modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
-    })).status).toBe(200);
+      cwd: memberFolder ?? null,
+    });
+    expect(patchedBot.status).toBe(200);
+    const botCwd = memberFolder ? z.string().parse(patchedBot.body.bot.cwd) : undefined;
     const room = (await api("POST", "/api/groups", {
       name,
       memberIds: [bot.id],
@@ -5282,13 +5287,12 @@ describe("room project folder in the system prompt", () => {
     })).body.group;
     let cwd: string | undefined;
     if (folder) {
-      // under the throwaway home so afterAll owns the teardown
       mkdirSync(folder, { recursive: true });
       const patched = await api("PATCH", `/api/groups/${room.id}`, { cwd: folder });
       expect(patched.status).toBe(200);
       cwd = z.string().parse(patched.body.group.cwd);
     }
-    return { roomId: z.string().parse(room.id), botId: z.string().parse(bot.id), cwd };
+    return { roomId: z.string().parse(room.id), botId: z.string().parse(bot.id), cwd, botCwd };
   };
 
   const remove = async (room: { roomId: string; botId: string }) => {
@@ -5312,6 +5316,27 @@ describe("room project folder in the system prompt", () => {
       const system = await roomSystemForTurn(room, "what is in the desk folder");
       expect(system).toContain('a bot in the room "Folderless room"');
       expect(system).not.toContain(FOLDER_START);
+    } finally {
+      await remove(room);
+    }
+  }, 30_000);
+
+  it("names a member's own pinned folder in a room that has none", async () => {
+    const room = await roomWithOneMember("Own desk room", undefined, join(home, "MemberDesk"));
+    try {
+      const system = await roomSystemForTurn(room, "what is in my project folder");
+      expect(system).toContain(`${FOLDER_START}${room.botCwd}. Look there first`);
+    } finally {
+      await remove(room);
+    }
+  }, 30_000);
+
+  it("the room's folder still overrides a member's own pin", async () => {
+    const room = await roomWithOneMember("Shared desk room", join(home, "SharedDesk"), join(home, "OwnDesk"));
+    try {
+      const system = await roomSystemForTurn(room, "what is in the desk folder");
+      expect(system).toContain(`${FOLDER_START}${room.cwd}. Look there first`);
+      expect(system).not.toContain(String(room.botCwd));
     } finally {
       await remove(room);
     }
