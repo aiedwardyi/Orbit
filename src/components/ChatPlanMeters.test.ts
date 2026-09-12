@@ -87,4 +87,18 @@ describe("ChatPlanMeters", () => {
     expect(idle).toContain("grid-cols-1");
     expect(render(live)).not.toContain("↑");
   });
+
+  it("gives both windows and the token readout their own column", () => {
+    const html = render(
+      [
+        { id: "five_hour", usedPercent: 10, resetsAt: now + 115 * 60_000 },
+        { id: "seven_day", usedPercent: 49, resetsAt: now + 53 * 3_600_000 },
+      ],
+      { input: 52_400, output: 4_100, costUsd: null, turns: 5 },
+    );
+    expect(html).toContain("grid-cols-[auto_auto_auto]");
+    expect(html).toContain("↑52.4k ↓4.1k");
+    expect(html).toContain("5h");
+    expect(html).toContain("7d");
+  });
 });
