@@ -244,13 +244,20 @@ function wildcardMatches(name: string, pattern: string, flags: string): boolean 
   return new RegExp(`^${source}$`, flags).test(name);
 }
 
+/** The home the spawned CLI expands `~` to: its os.homedir() reads USERPROFILE on Windows and HOME elsewhere. */
+function tildeHome(env: Record<string, string | undefined>): string {
+  const home = process.platform === "win32" ? env.USERPROFILE : env.HOME;
+  // Without it the CLI falls back to an OS lookup we cannot mirror, so deny rather than read the wrong file.
+  if (!home) throw new Error("no home directory for a {file:~/} reference");
+  return home;
+}
+
 function substitute(text: string, dir: string, env: Record<string, string | undefined>): string {
-  const home = env.HOME || env.USERPROFILE || homedir();
   return text
     .replace(/\{env:([^}]+)\}/gu, (_match, name: string) => env[name] || "")
     .replace(/\{file:([^}]+)\}/gu, (match, path: string, offset: number, source: string) => {
       if (source.slice(source.lastIndexOf("\n", offset - 1) + 1, offset).trimStart().startsWith("//")) return match;
-      const file = path.startsWith("~/") ? join(home, path.slice(2)) : resolve(dir, path);
+      const file = path.startsWith("~/") ? join(tildeHome(env), path.slice(2)) : resolve(dir, path);
       return JSON.stringify(readFileSync(file, "utf8").trim()).slice(1, -1);
     });
 }
