@@ -43,6 +43,12 @@ const noEngines = readFileSync(join(here, "../components/NoEngines.tsx"), "utf8"
 const onboarding = readFileSync(join(here, "../components/Onboarding.tsx"), "utf8");
 const skinPicker = readFileSync(join(here, "../components/SkinPicker.tsx"), "utf8");
 
+function fixedKoreanParticles(text: string): string[] {
+  return [...text.matchAll(/\{\w+\}["'”’»」』)\]〉》]*([가-힣]+(?:\([가-힣]+\))?)(?=$|\s|\p{P})/gu)]
+    .filter((match) => /^(?:은|는|이|가|을|를|와|과|으로|로|이랑|랑|이나|나|이라도|라도|이든|든|아|야|와의|과의|이라는|라는|이라고|라고|이라|라|이란|란|이며|며)$/.test(match[1]))
+    .map((match) => match[0]);
+}
+
 function splitTwoSentences(text: string): { cli: string; key: string } {
   const dotIdx = text.indexOf(". ");
   expect(dotIdx).toBeGreaterThan(-1);
@@ -77,6 +83,59 @@ describe("locale detection", () => {
 });
 
 describe("catalogs", () => {
+  it("rejects fixed Korean particles after every catalog interpolation", () => {
+    const violations = Object.entries(ko).flatMap(([key, phrase]) =>
+      fixedKoreanParticles(phrase).map((match) => ({ key, match })),
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it("detects particle suffixes through closing punctuation without flagging counters or invariant particles", () => {
+    for (const particle of ["은", "는", "이", "가", "을", "를", "와", "과", "으로", "로", "와의", "과의", "이라는", "라는", "이라고", "라고", "이라", "라", "이란", "란", "이며", "며", "이랑", "랑", "이나", "나", "이라도", "라도", "이든", "든", "아", "야"]) {
+      for (const closing of ["", "”", "’", '"', "'", ")", "]", "」", "』", "》", "〉", "»", "”)"]) {
+        for (const boundary of ["", " 설명", ".", ",", "!", "?", "\n"]) {
+          const phrase = `{value}${closing}${particle}${boundary}`;
+          expect.soft(fixedKoreanParticles(phrase), phrase).toHaveLength(1);
+        }
+      }
+    }
+    for (const phrase of [
+      "{name}이름", "{count}나열", "{name}로봇", "{name}라이브", "{name}며칠",
+      "{name}에게", "{name}에", "{name}에서", "{name}의", "{count}개", "{days}일",
+      "{hours}시간", "{minutes}분", "{name} 이름", "{name} 작업 중", "“{query}” 검색 결과",
+      "{name}은(는)", "{name}이(가)", "{name}을(를)", "{name}와(과)", "{name}으로(로)",
+    ]) {
+      expect.soft(fixedKoreanParticles(phrase), phrase).toEqual([]);
+    }
+    for (const particle of ["라고", "라", "란", "며"]) {
+      const phrase = `{name}${particle} 합니다`;
+      expect.soft(fixedKoreanParticles(phrase), phrase).toEqual([`{name}${particle}`]);
+    }
+    expect(fixedKoreanParticles("{name}이 {tool}을 실행합니다")).toEqual(["{name}이", "{tool}을"]);
+  });
+
+  it("renders the repaired phrases with consonant and vowel endings", () => {
+    const phrases = [
+      ["composer.roomLead", "{name}에게 메시지 — 응답 담당: {lead}"],
+      ["room.hint.lead", "기본 응답 담당: {name}. 다른 봇을 고르려면 @멘션하세요."],
+      ["chat.conversationAria", "대화 상대: {name}"],
+      ["settings.noMatch", "“{query}” 검색 결과가 없습니다"],
+      ["palette.noMatch", "“{query}” 검색 결과가 없습니다"],
+      ["search.noMatch", "“{query}” 검색 결과에 메시지가 없습니다"],
+      ["bot.rememberedFolderNextTask", "다음 작업에 쓸 폴더: “{folder}”. 이 작업은 {current}에 그대로 둡니다."],
+      ["bot.rememberedFolderNextTaskHome", "다음 작업에 쓸 폴더: “{folder}”. 이 작업은 비공개 작업 공간에 그대로 둡니다."],
+      ["approval.spoken", "{name}의 도구 실행 요청입니다. 도구: {tool}. {detail}. 허용할까요?"],
+      ["update.available", "사용 가능한 Orbit 버전: {version}"],
+      ["update.ready", "업데이트 준비 완료: {version}"],
+    ] as const;
+    for (const value of ["팀장", "도우미", "Read", "1.2.4"]) {
+      for (const [key, expected] of phrases) {
+        const vars = Object.fromEntries([...expected.matchAll(/\{(\w+)\}/g)].map((match) => [match[1], value]));
+        expect(translate("ko", key, vars), key).toBe(expected.replace(/\{\w+\}/g, () => value));
+      }
+    }
+  });
+
   it("has the same complete-phrase keys in English and Korean", () => {
     expect(Object.keys(ko).sort()).toEqual(Object.keys(en).sort());
     // SAFETY: catalog keys are MessageKey; Object.keys widens to string[].
@@ -705,7 +764,7 @@ describe("sidebar empty message search", () => {
     expect(en["search.messagesCount"]).toBe("Messages · {count}");
     expect(ko["search.messagesCount"]).toBe("메시지 · {count}");
     expect(en["search.noMatch"]).toBe("No messages match “{query}”");
-    expect(ko["search.noMatch"]).toBe("“{query}”와 일치하는 메시지가 없습니다");
+    expect(ko["search.noMatch"]).toBe("“{query}” 검색 결과에 메시지가 없습니다");
     expect(ko["search.noMatch"]).not.toMatch(/No messages match/i);
     expect(ko["search.messagesCount"]).not.toMatch(/Messages/i);
     expect(translate("en", "search.noMatch", { query: "keep this query" })).toBe("No messages match “keep this query”");
@@ -738,6 +797,14 @@ describe("sidebar empty message search", () => {
 });
 
 describe("plan usage", () => {
+  it("renders Korean compact reset durations with Korean units", () => {
+    expect(translate("ko", "usage.limits.compactDh", { days: 5, hours: 14 })).toBe("5일 14시간");
+    expect(translate("ko", "usage.limits.compactD", { days: 5 })).toBe("5일");
+    expect(translate("ko", "usage.limits.compactHm", { hours: 4, minutes: 46 })).toBe("4시간 46분");
+    expect(translate("ko", "usage.limits.compactH", { hours: 4 })).toBe("4시간");
+    expect(translate("ko", "usage.limits.compactM", { minutes: 46 })).toBe("46분");
+  });
+
   it("keeps the usage window phrases complete in English and Korean", () => {
     expect(en["usage.limits.title"]).toBe("Plan usage");
     expect(ko["usage.limits.title"]).toBe("요금제 사용량");
@@ -751,9 +818,9 @@ describe("plan usage", () => {
     expect(en["usage.limits.weeklyShort"]).toBe("7d");
     expect(ko["usage.limits.weeklyShort"]).toBe("7일");
     expect(en["usage.limits.compactHm"]).toBe("{hours}h{minutes}m");
-    expect(ko["usage.limits.compactHm"]).toBe("{hours}h{minutes}m");
+    expect(ko["usage.limits.compactHm"]).toBe("{hours}시간 {minutes}분");
     expect(en["usage.limits.compactDh"]).toBe("{days}d{hours}h");
-    expect(ko["usage.limits.compactDh"]).toBe("{days}d{hours}h");
+    expect(ko["usage.limits.compactDh"]).toBe("{days}일 {hours}시간");
     expect(en["usage.limits.resetsInDays"]).toBe("Resets in {days} days");
     expect(ko["usage.limits.resetsInDays"]).toBe("{days}일 후 초기화");
     expect(en["usage.limits.resetsInOneDay"]).toBe("Resets in 1 day");
@@ -794,7 +861,7 @@ describe("plan usage", () => {
     expect(translate("en", "usage.limits.percentUsed", { percent: 76 })).toBe("76%");
     expect(translate("ko", "usage.limits.percentUsed", { percent: 76 })).toBe("76%");
     expect(translate("en", "usage.limits.compactHm", { hours: 1, minutes: 55 })).toBe("1h55m");
-    expect(translate("ko", "usage.limits.compactHm", { hours: 1, minutes: 55 })).toBe("1h55m");
+    expect(translate("ko", "usage.limits.compactHm", { hours: 1, minutes: 55 })).toBe("1시간 55분");
     expect(translate("en", "usage.limits.compactDh", { days: 2, hours: 5 })).toBe("2d5h");
     expect(translate("en", "usage.limits.compactD", { days: 2 })).toBe("2d");
     expect(translate("en", "usage.limits.compactH", { hours: 3 })).toBe("3h");
