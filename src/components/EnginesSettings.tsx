@@ -34,6 +34,13 @@ export function inUseCliPath(
   return candidates[0];
 }
 
+/** Whether the connected dot lights: the engine is usable right now. Driven
+ * off the boot `<cli> --version` probe, not `cli` — an engine found on PATH
+ * has no configured override yet still runs. */
+export function isEngineConnected(instance: Pick<InstanceInfo, "snapshot">): boolean {
+  return instance.snapshot.state === "available";
+}
+
 /** Value probed and PATCHed: a typed manual path wins over the dropdown. */
 export function cliPickerCommitValue(manual: string, selected: string): string {
   return manual.trim() || selected;
@@ -256,7 +263,7 @@ function EngineRow({ instance }: { instance: InstanceInfo }) {
   return (
     <div>
       <div className="flex items-center gap-2 text-[13px]">
-        <span className={cn("size-1.5 shrink-0 rounded-full", instance.cli ? "bg-accent" : "bg-raised-hover")} />
+        <span className={cn("size-1.5 shrink-0 rounded-full", isEngineConnected(instance) ? "bg-accent" : "bg-raised-hover")} />
         <ProviderMark driverKind={instance.driverKind} size={14} />
         <span className="shrink-0 text-ink">{instance.displayName}</span>
         {instance.cli ? (
