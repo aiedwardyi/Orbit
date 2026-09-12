@@ -149,20 +149,22 @@ describe("SettingsModal friends chrome", () => {
 
   it("offers Onyx, Dracula, and Panda Syntax in Skin alongside the shipped palettes", () => {
     const html = markup("general");
-    expect(html).toContain("Catppuccin Mocha");
+    expect(html).toContain("Catppuccin Frappe");
     expect(html).toContain("Tokyo Night");
     expect(html).toContain("Vesper");
     expect(html).toContain("Ledger");
     expect(html).toContain("Onyx");
     expect(html).toContain("Dracula");
     expect(html).toContain("Panda Syntax");
+    expect(html).toContain("Gruvbox");
     expect(html).not.toContain("Cobalt");
-    expect(html).toContain('data-skin="catppuccin-mocha"');
+    expect(html).toContain('data-skin="catppuccin-frappe"');
     expect(html).toContain('data-skin="tokyo-night"');
     expect(html).toContain('data-skin="vesper"');
     expect(html).toContain('data-skin="onyx"');
     expect(html).toContain('data-skin="dracula"');
     expect(html).toContain('data-skin="cobalt"');
+    expect(html).toContain('data-skin="gruvbox"');
   });
 
   it("does not reveal Local VM, channel turns, experimental, or diagnostics when Advanced would have been open", () => {
