@@ -46,8 +46,9 @@ async function mountComposer() {
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box, value);
         box.dispatchEvent(new Event("input", { bubbles: true }));
       }),
-    paste: (text: string) =>
+    paste: (text: string, selection?: [number, number]) =>
       act(async () => {
+        if (selection) box.setSelectionRange(selection[0], selection[1]);
         const event = new Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(event, "clipboardData", { value: { files: [], getData: () => text } });
         box.dispatchEvent(event);
@@ -88,6 +89,31 @@ describe("Composer paste undo", () => {
     const undo = await composer.undo();
     expect(undo.defaultPrevented).toBe(false);
     expect(composer.box.value).toBe(block);
+    expect(composer.card()).toBeNull();
+  });
+
+  it("puts a selection the paste swallowed back on Ctrl+Z", async () => {
+    const composer = await mountComposer();
+    await composer.type("keep this");
+    await composer.paste(block, [5, 9]);
+    expect(composer.box.value).toBe("keep ");
+    expect(composer.card()).not.toBeNull();
+
+    const undo = await composer.undo();
+    expect(undo.defaultPrevented).toBe(true);
+    expect(composer.box.value).toBe("keep this");
+    expect(composer.card()).toBeNull();
+  });
+
+  it("takes the paste card back off on Ctrl+Z when nothing was selected", async () => {
+    const composer = await mountComposer();
+    await composer.type("hello");
+    await composer.paste(block);
+    expect(composer.card()).not.toBeNull();
+
+    const undo = await composer.undo();
+    expect(undo.defaultPrevented).toBe(true);
+    expect(composer.box.value).toBe("hello");
     expect(composer.card()).toBeNull();
   });
 });

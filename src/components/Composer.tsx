@@ -309,13 +309,14 @@ export function Composer({
     [editAttachments],
   );
   // A value set from code never reaches the textarea's native undo stack, so
-  // Ctrl+Z right after "Display in chat box" restores this snapshot instead.
-  const pasteUndo = useRef<{ text: string; shown: string; attachment: PasteAttachment; index: number } | null>(null);
+  // Ctrl+Z right after a long paste or "Display in chat box" restores this
+  // snapshot instead.
+  const pasteUndo = useRef<{ text: string; shown: string; attachments: Attachment[] } | null>(null);
   const displayPasteInChatBox = useCallback(
     /** Moves one pasted attachment into the editable draft and restores focus. */
     function displayPasteInChatBox(attachment: PasteAttachment) {
       const nextText = appendPastedText(text, attachment.text);
-      pasteUndo.current = { text, shown: nextText, attachment, index: attachments.findIndex((a) => a.id === attachment.id) };
+      pasteUndo.current = { text, shown: nextText, attachments };
       editText(nextText);
       editAttachments((prev) => prev.filter((a) => a.id !== attachment.id));
       setCaret(nextText.length);
@@ -334,7 +335,7 @@ export function Composer({
     pasteUndo.current = null;
     if (!undo || text !== undo.shown) return false;
     editText(undo.text);
-    editAttachments((prev) => [...prev.slice(0, undo.index), undo.attachment, ...prev.slice(undo.index)]);
+    editAttachments(() => undo.attachments);
     setCaret(undo.text.length);
     return true;
   };
@@ -897,8 +898,10 @@ export function Composer({
             // selected, the attachment replaces that selection.
             const start = e.currentTarget.selectionStart;
             const end = e.currentTarget.selectionEnd;
+            const nextText = start === end ? text : `${text.slice(0, start)}${text.slice(end)}`;
+            pasteUndo.current = { text, shown: nextText, attachments };
             if (start !== end) {
-              editText(`${text.slice(0, start)}${text.slice(end)}`);
+              editText(nextText);
               setCaret(start);
             }
             editAttachments((prev) => [...prev, pasteAttachment(pasted)]);
