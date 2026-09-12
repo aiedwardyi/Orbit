@@ -228,7 +228,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         steer: (text: string) => Promise<boolean>;
         interrupt: () => void;
         turnId: string;
-        asks: Map<string, (behavior: string, source?: "user" | "timeout" | "system") => void>;
+        asks: Map<string, (behavior: string, source?: "user" | "timeout" | "system") => string | null>;
       }
       const active = new Map<string, Turn>();
       const billingStops = new Set<() => void>();
@@ -337,7 +337,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         // Steer prompts Grok has not answered. If the running prompt ends
         // first, Grok runs each one as its own prompt inside this turn.
         const queuedSteers = new Map<Promise<any>, () => void>();
-        const asks = new Map<string, (behavior: string, source?: "user" | "timeout" | "system") => void>();
+        const asks = new Map<string, (behavior: string, source?: "user" | "timeout" | "system") => string | null>();
         let nextId = 1;
         let sessionId: string | null = null;
         let interruptTimer: ReturnType<typeof setTimeout> | null = null;
@@ -446,14 +446,17 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           const params = msg.params ?? {};
           flushAssistantText();
           const options: Array<{ optionId?: string; kind?: string }> = Array.isArray(params.options) ? params.options : [];
+          // exact `_once`, never a prefix match: agents advertise `<want>_always`
+          // in any order, and that grant lives inside the provider CLI, where
+          // this app never recorded it and cannot revoke it
           const optionFor = (want: "allow" | "reject") =>
-            options.find((o) => String(o.kind ?? "").startsWith(want) && typeof o.optionId === "string")?.optionId ?? null;
+            options.find((o) => o.kind === `${want}_once` && typeof o.optionId === "string")?.optionId ?? null;
           const cancelled = { outcome: { outcome: "cancelled" } };
           const missing = (want: string) =>
             emit({
               ...base(threadId, turnId),
               type: "runtime.error",
-              message: `${DRIVER_KIND} offered no "${want}" permission option — cancelling the request instead of guessing`,
+              message: `${DRIVER_KIND} offered no "${want}_once" permission option — cancelling the request instead of guessing`,
             });
 
           const toolCall = params.toolCall ?? {};
@@ -471,7 +474,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           const summary = String(toolCall.rawInput?.command ?? toolCall.title ?? tool).slice(0, 200);
           const requestId = newId();
           const finish = (behavior: string, source: "user" | "timeout" | "system" = "user") => {
-            if (!asks.delete(requestId)) return;
+            if (!asks.delete(requestId)) return null;
             clearTimeout(timer);
             const want = behavior === "allow" ? "allow" : "reject";
             const optionId = behavior === "cancel" ? null : optionFor(want);
@@ -489,6 +492,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               source: optionId ? source : "system",
               approvalScope: controlsHost ? "local-computer" : undefined,
             });
+            return optionId;
           };
           const timer = setTimeout(() => {
             emit({ ...base(threadId, turnId), type: "runtime.error", message: DENY_TIMEOUT_NOTE });
@@ -846,8 +850,11 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             const turn = active.get(threadId);
             const finish = turn?.asks.get(requestId);
             if (!finish) return "unavailable"; // settled, timed out, or turn gone
-            finish(decision.behavior === "allow" ? "allow" : "deny", "user");
-            return decision.behavior === "allow" ? "allowed-once" : "rejected";
+            const optionId = finish(decision.behavior === "allow" ? "allow" : "deny", "user");
+            if (decision.behavior !== "allow") return "rejected";
+            // A cancelled ask granted nothing. Reporting "allowed-once" here puts a
+            // user-approved row in the decision log for a call that never ran.
+            return optionId ? "allowed-once" : "unavailable";
           },
           hasSession: (threadId) => active.has(threadId),
           stopAll: async () => {
