@@ -53,6 +53,17 @@ describe("looksSensitive", () => {
   ]) {
     it(`stops: ${text}`, () => expect(looksSensitive(text)).toBe(true));
   }
+  // Same files, Windows spelling. A guard that fires on one separator and
+  // not the other is a guard that only works on some of the team's machines.
+  for (const text of [
+    "type C:\\Users\\milind\\.env",
+    "type C:\\Users\\milind\\project\\.env.production",
+    "type C:\\Users\\milind\\.aws\\credentials",
+    "type C:\\Users\\milind\\.docker\\config.json",
+    "type C:\\Users\\milind\\.ssh\\config",
+  ]) {
+    it(`stops: ${text}`, () => expect(looksSensitive(text)).toBe(true));
+  }
   for (const text of ["cat README.md", "npm run env-check", "echo $PATH", "cat src/environment.ts"]) {
     it(`allows: ${text}`, () => expect(looksSensitive(text)).toBe(false));
   }
