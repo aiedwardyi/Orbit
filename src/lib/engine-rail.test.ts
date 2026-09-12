@@ -154,7 +154,7 @@ describe("empty-engine first launch", () => {
     ])).toBe(true);
   });
 
-  it("keeps only Grok and Claude, Grok first, from the default-fleet zoo", () => {
+  it("keeps only Claude and Grok, Claude first, from the default-fleet zoo", () => {
     const starter = starterConnectEngines([
       { instanceId: "gemini", driverKind: "geminiAgent", install: { docsUrl: "https://gemini" } },
       { instanceId: "claude", driverKind: "claudeAgent", install: { docsUrl: "https://claude" } },
@@ -164,7 +164,15 @@ describe("empty-engine first launch", () => {
       { instanceId: "antigravity", driverKind: "antigravityAgent", install: { docsUrl: "https://antigravity" } },
       { instanceId: "cursor", driverKind: "cursorAgent" },
     ]);
-    expect(starter.map((row) => row.instanceId)).toEqual(["grok", "claude"]);
+    expect(starter.map((row) => row.instanceId)).toEqual(["claude", "grok"]);
+  });
+
+  it("leads the first-launch connect screen with Claude whatever order the zoo arrives in", () => {
+    const starter = starterConnectEngines([
+      { instanceId: "grok", driverKind: "grokAgent", install: { docsUrl: "https://grok" } },
+      { instanceId: "claude", driverKind: "claudeAgent", install: { docsUrl: "https://claude" } },
+    ]);
+    expect(starter.map((row) => row.instanceId)).toEqual(["claude", "grok"]);
   });
 
   it("drops a starter engine that has no connect flow", () => {
