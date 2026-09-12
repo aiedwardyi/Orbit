@@ -126,7 +126,7 @@ export function ManageMembersPanel({
           <button
             onClick={save}
             disabled={!memberIds.length}
-            className="flex-1 rounded-lg bg-accent py-2 text-[14px] font-medium text-white hover:brightness-110 disabled:opacity-40"
+            className="flex-1 rounded-lg bg-accent py-2 text-[14px] font-medium text-accent-ink hover:brightness-110 disabled:opacity-40"
           >
             {memberIds.length
               ? t(memberIds.length === 1 ? "room.saveMembersOne" : "room.saveMembersMany", { count: memberIds.length })

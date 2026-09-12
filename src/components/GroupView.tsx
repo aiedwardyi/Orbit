@@ -625,7 +625,7 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
     >
       <div className="rounded-t-3xl border-b border-hairline/40 bg-panel/70 px-5 py-5 sm:px-7">
         <div className="flex items-start gap-3">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-accent text-sm font-bold text-white">1</span>
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-accent text-sm font-bold text-accent-ink">1</span>
           <div>
             <h1 id="room-setup-title" className="text-xl font-semibold tracking-tight text-ink">{t("room.setupTitle", { name: group.name })}</h1>
             <p className="mt-1 max-w-[560px] text-[13.5px] leading-relaxed text-ink-secondary">
@@ -843,7 +843,7 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
           <button
             type="submit"
             disabled={saving}
-            className="flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-[13px] font-semibold text-white hover:brightness-110 disabled:opacity-50"
+            className="flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-[13px] font-semibold text-accent-ink hover:brightness-110 disabled:opacity-50"
           >
             {saving && <Loader2 size={14} className="animate-spin" />}
             {t("room.saveContinue")}

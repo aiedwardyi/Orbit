@@ -281,7 +281,7 @@ function SectionContextDialog({ section, label, onClose }: { section: string; la
           <button
             onClick={() => void save()}
             disabled={loading || saving || !dirty || bytes > maxBytes}
-            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-[13px] font-medium text-white hover:brightness-110 disabled:opacity-40"
+            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-[13px] font-medium text-accent-ink hover:brightness-110 disabled:opacity-40"
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
             {t("teamMap.saveContext")}

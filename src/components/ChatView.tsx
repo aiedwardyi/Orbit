@@ -295,7 +295,7 @@ function BubbleEditor({
         <button
           onClick={submit}
           disabled={!draft.trim()}
-          className="rounded-full bg-accent px-3 py-1 text-[13px] font-medium text-white disabled:opacity-40"
+          className="rounded-full bg-accent px-3 py-1 text-[13px] font-medium text-accent-ink disabled:opacity-40"
         >
           {t("composer.send")}
         </button>

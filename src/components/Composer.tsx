@@ -1016,7 +1016,7 @@ export function Composer({
             aria-label={t(busyChrome.sendAriaKey)}
             title={t(busyChrome.sendTitleKey)}
             className={cn(
-              "flex size-8 shrink-0 items-center justify-center rounded-full text-white",
+              "flex size-8 shrink-0 items-center justify-center rounded-full text-accent-ink",
               busyChrome.sendLooksQueued
                 ? "bg-raised text-ink-secondary hover:bg-raised-hover"
                 : "bg-accent hover:brightness-110",

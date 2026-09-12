@@ -707,7 +707,7 @@ export function PluginsPanel() {
                       <button
                         type="submit"
                         disabled={busy || !aliasDraft.trim()}
-                        className="rounded-lg bg-accent px-3 py-2 text-[12px] font-medium text-white disabled:opacity-40"
+                        className="rounded-lg bg-accent px-3 py-2 text-[12px] font-medium text-accent-ink disabled:opacity-40"
                       >
                         Continue
                       </button>

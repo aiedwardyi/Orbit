@@ -125,7 +125,7 @@ export function CreateBotSheet({ required }: { required: boolean }) {
             <button
               type="submit"
               disabled={!job.trim() || saving}
-              className="flex min-w-[140px] items-center justify-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-[14px] font-semibold text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex min-w-[140px] items-center justify-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-[14px] font-semibold text-accent-ink hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {saving && <Loader2 size={15} className="animate-spin" />}
               {t("createBot.start")}

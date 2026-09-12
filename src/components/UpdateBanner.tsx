@@ -12,7 +12,7 @@ import { useI18n, type Translate } from "@/lib/i18n";
 // flat raised grey — the "I heard you" the click needs while the main process
 // gets going.
 const primaryAction =
-  "flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent py-1.5 text-[13px] font-medium text-white transition-colors disabled:cursor-default disabled:bg-control disabled:text-ink-secondary";
+  "flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent py-1.5 text-[13px] font-medium text-accent-ink transition-colors disabled:cursor-default disabled:bg-control disabled:text-ink-secondary";
 
 // electron-updater surfaces failures as a whole HTTP dump — status line,
 // every response header, stack trace. That is unreadable in a 300px popup,

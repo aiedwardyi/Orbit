@@ -82,7 +82,7 @@ export function OpenConnectionsCta({ className }: { className?: string }) {
       type="button"
       onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "connections" })}
       className={cn(
-        "mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-[12.5px] font-semibold text-white hover:brightness-110",
+        "mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-[12.5px] font-semibold text-accent-ink hover:brightness-110",
         className,
       )}
     >
@@ -141,7 +141,7 @@ function CommandRow({ command, actionLabel }: { command: string; actionLabel: st
           <button
             type="button"
             onClick={() => void openTerminal()}
-            className="mt-2 flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-accent px-3 py-2 text-[12.5px] font-semibold text-white hover:brightness-110"
+            className="mt-2 flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-accent px-3 py-2 text-[12.5px] font-semibold text-accent-ink hover:brightness-110"
           >
             {status === "opened" ? <Check size={14} /> : <TerminalSquare size={14} />}
             {status === "opened" ? t("engine.terminalOpened") : actionLabel}
