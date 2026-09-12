@@ -1,9 +1,10 @@
+import { splitAttachedImages } from "@/lib/composer-attachments";
 import type { Message } from "@/state/store";
 
 export function replySnippet(text: string, limit = 160): string {
-  const clean = text
-    .replace(/<attached-image\s+path="[^"]*"\s*\/>/g, "[image]")
-    .replace(/\s+/g, " ")
+  const withImages = text.replace(/<attached-image\s+path="[^"]*"\s*\/>/g, "[image]");
+  const clean = splitAttachedImages(withImages)
+    .display.replace(/\s+/g, " ")
     .trim();
   if (clean.length <= limit) return clean;
   return `${clean.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;

@@ -207,3 +207,19 @@ describe("sidebar preview hides tool names when Show tool calls is off", () => {
     expect(sidebar).not.toMatch(/last\.kind === "activity" && last\.tool \? last\.tool\.name/);
   });
 });
+
+describe("sidebar preview strips pasted-text wrapper", () => {
+  it("strips pasted-text wrapper in 1:1 bot conversation preview", () => {
+    const raw = '<pasted-text index="1">\nhello world from paste\n</pasted-text>';
+    const message: Message = { id: "m1", role: "user", kind: "text", text: raw, at: 1 };
+    expect(conversationPreview(bot([message]))).toBe("hello world from paste");
+  });
+
+  it("strips pasted-text wrapper in room conversation preview", () => {
+    const raw = '<pasted-text index="1">\nroom paste preview\n</pasted-text>';
+    const message: Message = { id: "m1", role: "user", kind: "text", text: raw, at: 1 };
+    const room = { messages: [message] };
+    expect(roomConversationPreview(room)).toBe("You: room paste preview");
+  });
+});
+

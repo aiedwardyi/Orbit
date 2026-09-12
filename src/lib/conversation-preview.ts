@@ -5,6 +5,7 @@
 // stay out unless Settings → Show tool calls is on (default off).
 import { isOnboardingCard, shouldHideOnboardingCard } from "@/components/OptionCard";
 import { activityVisibleInChat } from "@/lib/activity-runs";
+import { splitAttachedImages } from "@/lib/composer-attachments";
 import { t, type Translate } from "@/lib/i18n";
 import { visibleMessages, type Bot, type Group, type OptionCardData } from "@/state/store";
 
@@ -80,7 +81,7 @@ export function conversationPreview(
       if (!showToolCalls) continue;
       return translate("chrome.screenFrame");
     }
-    if (last.text) return last.text;
+    if (last.text) return splitAttachedImages(last.text).display;
   }
   return "";
 }
@@ -105,7 +106,7 @@ export function roomConversationPreview(
     const last = group.messages[i];
     if (last.kind === "activity" && last.tool && !activityVisibleInChat(last, showToolCalls)) continue;
     if (last.kind === "screen" && !showToolCalls) continue;
-    const text = last.kind === "activity" && last.tool ? last.tool.name : (last.text ?? "");
+    const text = last.kind === "activity" && last.tool ? last.tool.name : splitAttachedImages(last.text ?? "").display;
     if (last.role === "user") return translate("chrome.youPrefix", { text });
     return last.from ? translate("chrome.speakerPrefix", { name: last.from.name, text }) : text;
   }

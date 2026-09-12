@@ -858,14 +858,14 @@ const MessagesList = memo(function MessagesList({
 /** The one pinned message, above the transcript: sender, one line, click to
  * jump, X to unpin. Resolves the pin id against the full message list; a
  * pin that no longer resolves renders nothing (edited away or deleted). */
-function PinnedBanner({
+export function PinnedBanner({
   bot,
   pinnedId,
   messages,
   onJump,
   onUnpin,
 }: {
-  bot: Bot;
+  bot: Pick<Bot, "name">;
   pinnedId?: string;
   messages: Message[];
   onJump: (messageId: string) => void;
@@ -876,7 +876,7 @@ function PinnedBanner({
   if (!pinned || pinned.kind !== "text") return null;
   const sender =
     pinned.role === "user" ? t("chat.you") : (pinned.from?.name ?? bot.name);
-  const text = (pinned.text ?? "").replace(/\s+/g, " ").trim();
+  const text = splitAttachedImages(pinned.text ?? "").display.replace(/\s+/g, " ").trim();
   if (!text) return null;
   return (
     <div className="w-full px-5">
