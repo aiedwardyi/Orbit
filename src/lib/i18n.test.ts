@@ -559,10 +559,10 @@ describe("team map, team library, and team toasts", () => {
 });
 
 describe("empty-engine first launch copy", () => {
-  it("keeps the Grok-or-Claude connect path as complete EN+KO phrases", () => {
-    expect(en["noEngines.title"]).toBe("Connect Grok or Claude");
-    expect(ko["noEngines.title"]).toBe("Grok 또는 Claude를 연결하세요");
-    expect(ko["noEngines.title"]).not.toMatch(/Connect Grok or Claude/i);
+  it("keeps the Claude-or-Grok connect path as complete EN+KO phrases", () => {
+    expect(en["noEngines.title"]).toBe("Connect Claude or Grok");
+    expect(ko["noEngines.title"]).toBe("Claude 또는 Grok을 연결하세요");
+    expect(ko["noEngines.title"]).not.toMatch(/Connect Claude or Grok/i);
     expect(en["noEngines.body"]).toBe("Your bots need one of these to run. Pick the one you already use.");
     expect(ko["noEngines.body"]).toBe("봇을 쓰려면 둘 중 하나가 필요합니다. 이미 쓰는 쪽을 고르세요.");
     expect(ko["noEngines.body"]).not.toMatch(/Your bots need one of these/i);
@@ -685,10 +685,10 @@ describe("first-run core path leftovers", () => {
     expect(en["connections.connected"]).toBe("Connected");
     expect(ko["connections.connected"]).toBe("연결됨");
     expect(en["settings.connections.subtitle"]).toBe(
-      "Set the CLI for Grok, Claude, Codex, and Antigravity. Paste an API key for Gemini and OpenCode.",
+      "Set the CLI for Claude, Codex, Grok, and Antigravity. Paste an API key for Gemini and OpenCode.",
     );
     expect(ko["settings.connections.subtitle"]).toBe(
-      "Grok, Claude, Codex, Antigravity는 CLI를 지정합니다. Gemini와 OpenCode는 API 키를 붙여넣습니다.",
+      "Claude, Codex, Grok, Antigravity는 CLI를 지정합니다. Gemini와 OpenCode는 API 키를 붙여넣습니다.",
     );
     expect(ko["settings.connections.subtitle"]).not.toMatch(/Set the CLI|Paste an API key/i);
     const enParts = splitTwoSentences(en["settings.connections.subtitle"]);
