@@ -19,7 +19,7 @@ import {
   showSettingsMoreServices,
 } from "@/lib/settings-chrome";
 import { ApiKeyRow, VpsConnection } from "./ApiKeys";
-import { useUpdaterState } from "@/lib/updater";
+import { useManualCheck, useUpdaterState } from "@/lib/updater";
 import { EnginesSettings } from "./EnginesSettings";
 import { LocalComputerSection } from "./LocalComputerSection";
 import { ProfileFields } from "./ProfileFields";
@@ -68,9 +68,10 @@ function isMissingUpdateConfig(message?: string): boolean {
   return message.includes("app-update.yml") || message.includes("dev-app-update.yml");
 }
 
-function UpdatesRow() {
+export function UpdatesRow() {
   const { t } = useI18n();
   const s = useUpdaterState();
+  const { acknowledged, check } = useManualCheck(s?.status ?? "idle");
   if (!window.ogb?.updater) return null;
   const updater = window.ogb.updater;
   const label =
@@ -86,14 +87,16 @@ function UpdatesRow() {
               ? isMissingUpdateConfig(s.message)
                 ? t("settings.updates.unavailable")
                 : t("settings.updates.error", { message: s.message ?? t("settings.updates.unknownError") })
-              : t("settings.updates.latest");
+              : acknowledged
+                ? t("update.upToDate")
+                : t("settings.updates.latest");
   return (
     <Card title={t("settings.updates.title")} subtitle={label}>
       <button
         onClick={() => {
           if (s?.status === "available") return void updater.download();
           if (s?.status === "downloaded") return void updater.install();
-          void updater.check();
+          check();
         }}
         disabled={s?.status === "checking" || s?.status === "downloading"}
         className="rounded-lg border border-hairline/40 px-3 py-1.5 text-[13px] text-ink hover:bg-control disabled:opacity-40"

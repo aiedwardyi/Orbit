@@ -12,7 +12,10 @@ const mock = vi.hoisted(() => ({
   updaterState: null as unknown,
 }));
 
-vi.mock("@/lib/updater", () => ({
+// keep the real useManualCheck: SettingsModal imports it from here too, and
+// a mock exporting only useUpdaterState throws at render
+vi.mock("@/lib/updater", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/updater")>()),
   useUpdaterState: () => mock.updaterState,
 }));
 
