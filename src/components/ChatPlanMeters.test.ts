@@ -10,7 +10,7 @@ import type { TaskUsage } from "@/state/store";
 import { ChatPlanMeters } from "./ChatPlanMeters";
 
 const now = Date.UTC(2026, 8, 4, 12, 0, 0);
-afterEach(() => setUsageMode("used"));
+afterEach(() => setUsageMode("remaining"));
 
 function render(windows: RateLimitWindow[] | undefined, usage?: TaskUsage) {
   applyLocale("en");
@@ -27,6 +27,7 @@ describe("ChatPlanMeters", () => {
   });
 
   it("shows the live 5-hour and weekly windows with used percent and a compact reset", () => {
+    setUsageMode("used");
     const html = render([
       { id: "five_hour", usedPercent: 10, resetsAt: now + 115 * 60_000 },
       { id: "seven_day", usedPercent: 49, resetsAt: now + 53 * 3_600_000 },
