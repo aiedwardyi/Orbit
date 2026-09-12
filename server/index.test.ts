@@ -2882,9 +2882,9 @@ describe("harness HTTP API", () => {
       true,
     );
 
-    // The important half: a blind PATCH — exactly what a bot curling the
-    // loopback API from a tool call would send — must be refused. The
-    // renderer's warning dialog is not a boundary; this 400 is.
+    // The important half: a PATCH that omits acknowledgeLocalAuto is
+    // refused, so the dialog can't be skipped by accident. It proves
+    // nothing about a bot, which can just send the flag itself.
     const blind = await api("PATCH", `/api/bots/${bot.id}`, { computer: "local" });
     expect(blind.status).toBe(400);
     const oneShot = await api("PATCH", `/api/bots/${bot.id}`, { computer: "local", autoApprove: true });
