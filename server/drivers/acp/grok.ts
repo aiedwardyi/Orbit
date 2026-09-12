@@ -26,6 +26,12 @@ function grokHome(env: Record<string, string | undefined>): string {
   return join(env.HOME || env.USERPROFILE || homedir(), ".grok");
 }
 
+/** Probed at the same home the config is read from: on the real homedir a set
+ *  GROK_HOME/HOME reads as signed in and the inline sign-in card never renders. */
+export function grokIsAuthenticated(env: Record<string, string | undefined>): boolean {
+  return existsSync(join(grokHome(env), "auth.json"));
+}
+
 function unquote(raw: string): string {
   const value = raw.trim();
   if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
@@ -254,7 +260,7 @@ export const grokSupport: AcpSupport = {
   // an unauthenticated CLI is a user action, not something to paper over.
   pickAuthMethod: (methods) => (methods.some((m) => m.id === "cached_token") ? "cached_token" : null),
   authFailure: "fail",
-  isAuthenticated: () => existsSync(join(homedir(), ".grok", "auth.json")),
+  isAuthenticated: grokIsAuthenticated,
 
   // `--append-system-prompt`/`--rules` are accepted by the CLI but do NOT
   // reach the agent-stdio system prompt (verified against 1.0.0), so the
