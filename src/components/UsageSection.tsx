@@ -108,7 +108,7 @@ function PlanUsage() {
                       const shortLabel = t(PLAN_WINDOW_SHORT_LABEL_KEY[windowKind(window.id, window.windowMinutes)]);
                       return (
                         <div key={window.id} role={opus ? "group" : undefined} aria-label={opus ? `${t("usage.limits.opusShort")} ${shortLabel}` : undefined}
-                          className="flex min-w-0 flex-wrap items-center gap-2 text-[11.5px] text-ink">
+                          className="flex min-w-0 flex-wrap items-center gap-2 text-[12.5px] text-ink">
                           {opus && <span aria-hidden="true">{t("usage.limits.opusShort")}</span>}
                           {windowExpired(window.resetsAt, now) ? (
                             <span>
