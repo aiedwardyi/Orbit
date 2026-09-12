@@ -819,9 +819,13 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               // fallback for existing ACP supports.
               const needsAuth = code === "invalid_credentials" || code === "inactive_subscription"
                 || message === support.loginNote;
+              // A local inject never touched the subscription, so its throttle
+              // is the loopback endpoint's, not the account's — same reason
+              // the billing probe skips it.
+              const subscription = support.rateLimits === true && !skipSubscriptionAuthForLocalInject(turn.model);
               const named = needsAuth || !(e instanceof Error)
                 ? null
-                : usageLimitFromError(e, support.rateLimits === true);
+                : usageLimitFromError(e, subscription);
               // A rejection that names the limit but not its end still leaves
               // billing to ask, so the probe runs for that too.
               const probed = needsAuth || named?.resetsAt != null ? null : await probeUsageLimit();

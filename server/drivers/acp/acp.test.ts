@@ -797,6 +797,25 @@ describe("ACP turns (fake CLI)", () => {
     expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed" });
   });
 
+  /** The named-rate-limit path needs the same guard the probe got: a local
+   *  endpoint's throttle is not the grok.com account's spent week. */
+  it("does not read a local inject's throttle as a spent subscription", async () => {
+    process.env.FAKE_ACP_MODE = "usage-limit";
+    mkdirSync(join(scratch, ".grok"), { recursive: true });
+    instance = await GrokAgentDriver.create({
+      instanceId: "acp-test",
+      displayName: "ACP Test",
+      environment: { HOME: scratch, GROK_HOME: join(scratch, ".grok") },
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: false },
+    });
+    recorder = recordEvents(instance.adapter);
+    await instance.adapter.sendTurn({ threadId: "t-usage-local-429", text: "go", model: "omlx::MiniMax-M3-4bit" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const err = recorder.events.find((e) => e.type === "runtime.error")!;
+    expect(err.usageLimit).toBeUndefined();
+  });
+
   /** configureSession is awaited inside the same try as the prompt, so its
    *  rejections land in the same catch. They carry an actionable message and
    *  must not be relabelled "your plan is used up" by a full billing window. */

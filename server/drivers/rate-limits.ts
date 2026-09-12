@@ -10,7 +10,12 @@ const SEVEN_DAYS = 7 * MINUTES_PER_DAY;
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
-const round1 = (value: number) => Math.round(value * 10) / 10;
+/** One decimal for display — but never rounded up across 100, because the
+ * same number decides whether a window is spent and 99.96% still has room. */
+const round1 = (value: number) => {
+  const rounded = Math.round(value * 10) / 10;
+  return rounded >= 100 && value < 100 ? 99.9 : rounded;
+};
 
 /** Both CLIs send epoch seconds. A value that already looks like
  * milliseconds is kept as-is so a future wire change cannot land a reset
