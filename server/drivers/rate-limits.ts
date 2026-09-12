@@ -81,3 +81,70 @@ export function grokRateLimitWindows(payload: unknown): RateLimitWindow[] {
     },
   ];
 }
+
+const USAGE_LIMIT_PATTERN =
+  /\b429\b|rate[_ -]?limit|too many requests|usage limit|\bquota\b|out of credits|credits? exhausted/i;
+
+/** What a provider may say about when a spent window comes back: an
+ * absolute time, or an offset. Every field is optional — the provider
+ * decides how much it tells us, and several tell us nothing. */
+export interface RejectionDetail {
+  resetsAt?: number;
+  resets_at?: number;
+  resetAt?: number;
+  reset_at?: number;
+  retryAfter?: number;
+  retry_after?: number;
+  retryAfterSeconds?: number;
+}
+
+/** The JSON-RPC fields an ACP rejection carries beside its message. */
+export interface RejectionFields {
+  code?: number | string;
+  data?: RejectionDetail;
+}
+
+const RESET_FIELDS = ["resetsAt", "resets_at", "resetAt", "reset_at"] as const;
+const RETRY_AFTER_FIELDS = ["retryAfter", "retry_after", "retryAfterSeconds"] as const;
+
+/** The reset the rejection itself carried. Never guessed: no field, no time. */
+function resetFromRejection(detail: RejectionDetail | undefined, now: number): number | null {
+  if (!detail) return null;
+  for (const field of RESET_FIELDS) {
+    const at = epochMs(detail[field]);
+    if (at !== null) return at;
+  }
+  for (const field of RETRY_AFTER_FIELDS) {
+    const seconds = detail[field];
+    if (finite(seconds) && seconds > 0) return now + Math.round(seconds * 1000);
+  }
+  return null;
+}
+
+/** A turn that failed because the account spent its subscription, not
+ * because anything broke. Providers bury the reason at different depths —
+ * Grok answers with a bare JSON-RPC "Internal error" and names the cause
+ * under `data` — so the whole rejection is searched, not just its message. */
+export function usageLimitFromError(error: Error, now = Date.now()): { resetsAt: number | null } | null {
+  // SAFETY: the ACP transport copies the JSON-RPC `code` and `data` onto the
+  // Error before rejecting; both stay optional, and neither is read as more
+  // than the shape declared above.
+  const { code, data } = error as Error & RejectionFields;
+  let detail = "";
+  try {
+    detail = JSON.stringify({ code, data }) ?? "";
+  } catch {
+    // a rejection carrying a cycle still has its message to go on
+  }
+  if (!USAGE_LIMIT_PATTERN.test(`${error.message} ${detail}`)) return null;
+  return { resetsAt: resetFromRejection(data, now) };
+}
+
+/** The first window the account has actually used up. A window whose reset
+ * has passed is history, not a limit. */
+export function exhaustedWindow(
+  windows: readonly RateLimitWindow[] | undefined,
+  now = Date.now(),
+): RateLimitWindow | null {
+  return windows?.find((w) => w.usedPercent >= 100 && !(w.resetsAt !== null && w.resetsAt <= now)) ?? null;
+}

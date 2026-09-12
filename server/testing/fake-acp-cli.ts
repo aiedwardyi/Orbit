@@ -6,6 +6,8 @@
 // turn. Failure modes mirror how real ACP agents misbehave:
 //
 //   FAKE_ACP_MODE   happy (default) | empty-reply | exit-early | fail-after-text | hang | no-auth | auth-required | permission | channel-peer
+//                   | usage-limit (prompt rejects -32603 with rate-limit data)
+//                   | usage-limit-silent (same rejection, no data at all)
 //                   | permission-twice (two sequential cards in one turn)
 //                   | interleave (message → tool → message → tool → message)
 //                   | no-session-config (reject session/set_mode + set_model
@@ -464,6 +466,20 @@ function handle(msg: any) {
         setInterval(() => {}, 1_000);
         return;
       }
+      if (mode === "usage-limit" || mode === "usage-limit-silent") {
+        // Grok answers an exhausted subscription with a bare JSON-RPC
+        // "Internal error"; only the silent variant leaves `data` empty.
+        recordMethod("session/prompt.error");
+        const error = { code: -32603, message: "Internal error" };
+        out({
+          jsonrpc: "2.0",
+          id: msg.id,
+          error: mode === "usage-limit"
+            ? { ...error, data: { error: { type: "rate_limit_exceeded", message: "Rate limit exceeded" } } }
+            : error,
+        });
+        return;
+      }
       if (mode === "fail-after-text") {
         // Stream real text, THEN fail the turn — the shape of a crash
         // mid-answer. This is the one case where the routine-failed/done
@@ -640,7 +656,7 @@ function handle(msg: any) {
       }
       result(msg.id, {
         config: {
-          creditUsagePercent: 42,
+          creditUsagePercent: Number(process.env.FAKE_ACP_BILLING_PERCENT ?? 42),
           currentPeriod: {
             type: "USAGE_PERIOD_TYPE_WEEKLY",
             start: "2026-09-08T00:00:00Z",

@@ -298,6 +298,7 @@ describe("ACP turns (fake CLI)", () => {
     delete process.env.FAKE_ACP_MODEL_STICKS;
     delete process.env.FAKE_ACP_USAGE_ROOT;
     delete process.env.FAKE_ACP_PERMISSION_KINDS;
+    delete process.env.FAKE_ACP_BILLING_PERCENT;
     for (const name of FOREIGN_CREDENTIALS) delete process.env[name];
     recorder?.stop();
     await instance?.dispose();
@@ -754,6 +755,39 @@ describe("ACP turns (fake CLI)", () => {
     expect(JSON.parse(readFileSync(`${dump}.permission.json`, "utf8"))).toEqual([null]);
     const err = recorder.events.find((e) => e.type === "runtime.error")!;
     expect(err.message).toContain('offered no "allow_once" permission option');
+  });
+
+  /** The owner's report: an exhausted Grok week renders a red "Internal
+   *  error" chip. The provider names the cause in `data`, so the chip must
+   *  read as a usage limit — and stay retryable, because the window rolls. */
+  it("grok reports an exhausted subscription as a usage limit, not a crash", async () => {
+    await create(GrokAgentDriver, "usage-limit");
+    await instance.adapter.sendTurn({ threadId: "t-usage", text: "go" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const err = recorder.events.find((e) => e.type === "runtime.error")!;
+    expect(err).toMatchObject({ usageLimit: { resetsAt: null } });
+    expect(err.setup).toBeUndefined();
+  });
+
+  /** The harder half: the rejection says only "Internal error". The account's
+   *  own billing call is the evidence, and it is on a path the error side
+   *  never took — a failed turn used to skip the billing read entirely. */
+  it("grok reads billing on a bare failure and classifies a full week as a usage limit", async () => {
+    process.env.FAKE_ACP_BILLING_PERCENT = "100";
+    await create(GrokAgentDriver, "usage-limit-silent");
+    await instance.adapter.sendTurn({ threadId: "t-usage-silent", text: "go" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const err = recorder.events.find((e) => e.type === "runtime.error")!;
+    expect(err).toMatchObject({ usageLimit: { resetsAt: Date.parse("2026-09-15T12:00:00Z") } });
+  });
+
+  it("leaves a bare failure alone while the week still has room", async () => {
+    await create(GrokAgentDriver, "usage-limit-silent");
+    await instance.adapter.sendTurn({ threadId: "t-usage-room", text: "go" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const err = recorder.events.find((e) => e.type === "runtime.error")!;
+    expect(err.message).toBe("Internal error");
+    expect(err.usageLimit).toBeUndefined();
   });
 
   it("grok fails closed when the CLI advertises no cached_token (needs login)", async () => {

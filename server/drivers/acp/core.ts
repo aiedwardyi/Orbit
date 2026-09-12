@@ -22,7 +22,7 @@ const LOCAL_HOST_KEY_ENVS = [
   ...new Set(LOCAL_HOSTS.map((host) => host.apiKeyEnv).filter((key): key is string => Boolean(key))),
 ];
 import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../../procs.ts";
-import { grokRateLimitWindows } from "../rate-limits.ts";
+import { exhaustedWindow, grokRateLimitWindows, usageLimitFromError } from "../rate-limits.ts";
 
 /**
  * A `host::model` pick talks to a loopback server with its own key.
@@ -159,6 +159,9 @@ export interface AcpSupport {
 }
 
 const INIT_TIMEOUT = 20_000;
+// The billing read on a failed turn sits between the user and the error
+// chip, so it gets a far shorter leash than the one on a clean turn.
+const USAGE_PROBE_TIMEOUT = 5_000;
 const SESSION_CONFIG_TIMEOUT = 20_000; // configureSession's per-request default
 const NEW_SESSION_TIMEOUT = 30_000;
 const LOAD_SESSION_TIMEOUT = 120_000; // history replay on a long thread is slow
@@ -435,6 +438,23 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               stop();
             });
           } else stop();
+        };
+
+        /** A rejection that names nothing still leaves the account's own
+         *  numbers to read — and a failed turn is the one path that never
+         *  read them, because settle() only bills a turn that finished. */
+        const probeUsageLimit = async (): Promise<{ resetsAt: number | null } | null> => {
+          if (!support.billingMethod || child.exitCode !== null || child.killed) return null;
+          try {
+            const windows = grokRateLimitWindows(await request(support.billingMethod, {}, USAGE_PROBE_TIMEOUT));
+            if (windows.length > 0) {
+              emit({ ...base(threadId, turnId), type: "account.rate-limits.updated", windows });
+            }
+            const spent = exhaustedWindow(windows);
+            return spent ? { resetsAt: spent.resetsAt } : null;
+          } catch {
+            return null;
+          }
         };
 
         // server→client permission request → canonical request.opened
@@ -791,12 +811,17 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               // fallback for existing ACP supports.
               const needsAuth = code === "invalid_credentials" || code === "inactive_subscription"
                 || message === support.loginNote;
-              emit({
+              const usageLimit = needsAuth
+                ? null
+                : (e instanceof Error ? usageLimitFromError(e) : null) ?? await probeUsageLimit();
+              const failure: Extract<RuntimeEvent, { type: "runtime.error" }> = {
                 ...base(threadId, turnId),
                 type: "runtime.error",
                 message,
                 ...(needsAuth ? { setup: true } : {}),
-              });
+              };
+              if (usageLimit) failure.usageLimit = usageLimit;
+              emit(failure);
               settle(false, needsAuth ? "auth_required" : "rpc_error");
             }
           }

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { claudeRateLimitWindows, codexRateLimitWindows, epochMs, grokRateLimitWindows } from "./rate-limits.ts";
+import {
+  claudeRateLimitWindows,
+  codexRateLimitWindows,
+  epochMs,
+  exhaustedWindow,
+  grokRateLimitWindows,
+  usageLimitFromError,
+} from "./rate-limits.ts";
 
 describe("epochMs", () => {
   it("turns provider seconds into milliseconds and leaves milliseconds alone", () => {
@@ -121,5 +128,60 @@ describe("grokRateLimitWindows", () => {
     expect(grokRateLimitWindows({ config: { creditUsagePercent: "42" } })).toEqual([]);
     expect(grokRateLimitWindows(null)).toEqual([]);
     expect(grokRateLimitWindows("42%")).toEqual([]);
+  });
+});
+
+describe("usageLimitFromError", () => {
+  it("reads an explicit rate-limit rejection, with the reset it carries", () => {
+    expect(
+      usageLimitFromError(
+        Object.assign(new Error("Internal error"), {
+          code: -32603,
+          data: { error: { type: "rate_limit_exceeded", message: "Rate limit exceeded" }, resetsAt: 1_790_172_800 },
+        }),
+      ),
+    ).toEqual({ resetsAt: 1_790_172_800_000 });
+  });
+
+  it("matches the vocabulary providers actually send", () => {
+    for (const message of [
+      "xAI HTTP 429: Too Many Requests",
+      "rate limit exceeded, slow down",
+      "You have exceeded your usage limit for this week",
+      "monthly quota exhausted",
+    ]) {
+      expect(usageLimitFromError(new Error(message))).toEqual({ resetsAt: null });
+    }
+  });
+
+  it("reads retry-after seconds as a reset time", () => {
+    const now = 1_790_000_000_000;
+    expect(usageLimitFromError(Object.assign(new Error("429 Too Many Requests"), { data: { retryAfter: 600 } }), now))
+      .toEqual({ resetsAt: now + 600_000 });
+  });
+
+  it("leaves anything that is not a usage limit alone", () => {
+    expect(usageLimitFromError(new Error("Internal error"))).toBeNull();
+    expect(usageLimitFromError(new Error("Invalid API key"))).toBeNull();
+    expect(usageLimitFromError(new Error("model not found: grok-9"))).toBeNull();
+  });
+});
+
+describe("exhaustedWindow", () => {
+  const now = 1_790_000_000_000;
+
+  it("finds a full window that has not reset yet", () => {
+    expect(exhaustedWindow([{ id: "seven_day", usedPercent: 100, resetsAt: now + 60_000 }], now)).toEqual({
+      id: "seven_day",
+      usedPercent: 100,
+      resetsAt: now + 60_000,
+    });
+  });
+
+  it("ignores a window with room left, and one whose reset has passed", () => {
+    expect(exhaustedWindow([{ id: "seven_day", usedPercent: 99.4, resetsAt: now + 60_000 }], now)).toBeNull();
+    expect(exhaustedWindow([{ id: "seven_day", usedPercent: 100, resetsAt: now - 1 }], now)).toBeNull();
+    expect(exhaustedWindow([], now)).toBeNull();
+    expect(exhaustedWindow(undefined, now)).toBeNull();
   });
 });

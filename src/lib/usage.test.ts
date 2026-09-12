@@ -15,6 +15,7 @@ import {
   sumUsage,
   usageChip,
   usageDetail,
+  usageLimitReset,
   windowExpired,
   windowFillPercent,
   windowKind,
@@ -212,5 +213,16 @@ describe("subscription windows", () => {
     const primary = { id: "primary", usedPercent: 12, resetsAt: hours(2) };
     const secondary = { id: "secondary", usedPercent: 40, resetsAt: hours(53) };
     expect(planMeterWindows([primary, secondary], now)).toEqual([primary, secondary]);
+  });
+});
+
+describe("usageLimitReset", () => {
+  const now = Date.parse("2026-09-13T00:00:00Z");
+
+  it("phrases a reported reset and stays silent about one the provider never sent", () => {
+    expect(usageLimitReset(now + 2 * 60 * 60_000, now)).toEqual({ key: "usage.limits.resetsInHours", vars: { hours: 2 } });
+    expect(usageLimitReset(null, now)).toBeNull();
+    expect(usageLimitReset(undefined, now)).toBeNull();
+    expect(usageLimitReset(now - 1, now)).toBeNull();
   });
 });
