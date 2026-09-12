@@ -8,7 +8,8 @@ import { formatTokens, planMeterWindows, usageDetail } from "@/lib/usage";
 import { PlanWindowMeter, useNow } from "./PlanUsageBar";
 
 // Indexed by cell count so Tailwind sees each template as a literal.
-const GRID_COLS = ["grid-cols-1", "grid-cols-1", "grid-cols-[auto_auto]", "grid-cols-[auto_auto_auto]"] as const;
+// Shared with the Settings plan card so both grids span the same columns.
+export const GRID_COLS = ["grid-cols-1", "grid-cols-1", "grid-cols-[auto_auto]", "grid-cols-[auto_auto_auto]"] as const;
 
 export function ChatPlanMeters({
   windows,

@@ -28,6 +28,15 @@ import {
   windowKind,
 } from "@/lib/usage";
 import { PLAN_WINDOW_SHORT_LABEL_KEY, PlanWindowMeter, useNow } from "./PlanUsageBar";
+import { GRID_COLS } from "./ChatPlanMeters";
+
+// Chat lists the session window before the weekly one; Settings keeps every
+// window the engine reported but in that same priority. Array sort is stable,
+// so windows of the same kind keep the engine's report order.
+function windowRank(id: string, windowMinutes?: number): number {
+  const kind = windowKind(id, windowMinutes);
+  return kind === "session" ? 0 : kind === "weekly" ? 1 : 2;
+}
 
 function PlanUsage() {
   const { t } = useI18n();
@@ -91,20 +100,24 @@ function PlanUsage() {
           {engines.map((instance) => {
             const spent = engineTokens(instance);
             const detail = usageDetail(spent);
+            const hasSpent = spent.input + spent.output > 0;
+            const windows = [...(instance.rateLimits?.windows ?? [])].sort(
+              (a, b) => windowRank(a.id, a.windowMinutes) - windowRank(b.id, b.windowMinutes),
+            );
+            // The meters grid mirrors the chat strip: centred, content-sized,
+            // same columns for the same cell count, with the token readout as
+            // its last cell. mt-2 is the only deliberate extra — it clears the
+            // engine header, which the strip does not have.
+            const cells = windows.length + (hasSpent ? 1 : 0);
             return (
               <div key={instance.instanceId}>
                 <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
                   <ProviderMark driverKind={instance.driverKind} size={16} />
                   <span className="truncate">{instance.displayName}</span>
-                  {spent.input + spent.output > 0 && (
-                    <span className="ml-auto shrink-0 font-normal tabular-nums text-[11.5px] text-ink-secondary" title={t(detail.key, detail.vars)}>
-                      {`↑${formatTokens(spent.input)} ↓${formatTokens(spent.output)}`}
-                    </span>
-                  )}
                 </div>
-                {instance.rateLimits ? (
-                  <div className={cn("mx-auto mt-2 grid w-fit gap-x-6", instance.rateLimits.windows.length > 1 ? "grid-cols-[auto_auto]" : "grid-cols-1")}>
-                    {instance.rateLimits.windows.map((window) => {
+                {cells > 0 && (
+                  <div className={cn("mx-auto mt-2 grid w-fit items-center gap-x-6", GRID_COLS[Math.min(cells, 3)])}>
+                    {windows.map((window) => {
                       const opus = window.id === "seven_day_opus";
                       const shortLabel = t(PLAN_WINDOW_SHORT_LABEL_KEY[windowKind(window.id, window.windowMinutes)]);
                       return (
@@ -125,8 +138,14 @@ function PlanUsage() {
                         </div>
                       );
                     })}
+                    {hasSpent && (
+                      <span className="shrink-0 tabular-nums text-[12.5px] text-ink-secondary" title={t(detail.key, detail.vars)}>
+                        {`↑${formatTokens(spent.input)} ↓${formatTokens(spent.output)}`}
+                      </span>
+                    )}
                   </div>
-                ) : (
+                )}
+                {!instance.rateLimits && (
                   <div className="mt-1 text-[12px] text-ink-secondary">{honestCaption(instance)}</div>
                 )}
                 {canRefresh(instance) && (
