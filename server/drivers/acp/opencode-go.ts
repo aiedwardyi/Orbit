@@ -193,8 +193,11 @@ const stripForeignProviderKeys = (env: Record<string, string | undefined>) => {
   ]) delete env[key];
 };
 
-function opencodeConfigDir(env: Record<string, string | undefined>): string {
-  const home = env.HOME || env.USERPROFILE || homedir();
+function opencodeConfigDir(
+  env: Record<string, string | undefined>,
+  // The write path's own resolution; a read path must pass tildeHome(env).
+  home = env.HOME || env.USERPROFILE || homedir(),
+): string {
   return join(env.XDG_CONFIG_HOME || join(home, ".config"), "opencode");
 }
 
@@ -218,8 +221,8 @@ function permissionFiles(env: Record<string, string | undefined>, cwd: string | 
       if (existsSync(join(dir, ".git")) || dirname(dir) === dir) break;
     }
   }
-  const home = env.HOME || env.USERPROFILE || homedir();
-  const global = opencodeConfigDir(env);
+  const home = tildeHome(env);
+  const global = opencodeConfigDir(env, home);
   const configDirs = new Set([
     // .opencode dirs load nearest-first after the project files, so the farther dir wins.
     ...dirs.map((dir) => join(dir, ".opencode")),
@@ -244,11 +247,11 @@ function wildcardMatches(name: string, pattern: string, flags: string): boolean 
   return new RegExp(`^${source}$`, flags).test(name);
 }
 
-/** The home the spawned CLI expands `~` to: its os.homedir() reads USERPROFILE on Windows and HOME elsewhere. */
+/** The home the spawned CLI resolves `~` to: its os.homedir() reads USERPROFILE on Windows and HOME elsewhere. */
 function tildeHome(env: Record<string, string | undefined>): string {
   const home = process.platform === "win32" ? env.USERPROFILE : env.HOME;
   // Without it the CLI falls back to an OS lookup we cannot mirror, so deny rather than read the wrong file.
-  if (!home) throw new Error("no home directory for a {file:~/} reference");
+  if (!home) throw new Error("no home directory for a ~ reference");
   return home;
 }
 

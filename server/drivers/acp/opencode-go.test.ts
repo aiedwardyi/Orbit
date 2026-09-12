@@ -562,6 +562,43 @@ describe("OpenCode Ask for approval", () => {
     expect((await permissionFor(undefined, files, true, "outer/link", link)).bash).toBe("deny");
   });
 
+  it("reads the global config dir from the home the CLI resolves when XDG_CONFIG_HOME is unset", async () => {
+    const cliHome = process.platform === "win32" ? "profile" : "home";
+    const files = {
+      "home/.config/opencode/opencode.json": inline({ bash: cliHome === "home" ? "deny" : "allow" }),
+      "profile/.config/opencode/opencode.json": inline({ bash: cliHome === "profile" ? "deny" : "allow" }),
+    };
+    const split = (scratch: string) => ({
+      XDG_CONFIG_HOME: "",
+      HOME: join(scratch, "home"),
+      USERPROFILE: join(scratch, "profile"),
+    });
+    expect((await permissionFor(undefined, files, true, undefined, split)).bash).toBe("deny");
+  });
+
+  it("reads ~/.opencode from the home the CLI resolves, not the other platform's", async () => {
+    const cliHome = process.platform === "win32" ? "profile" : "home";
+    const files = {
+      "home/.opencode/opencode.json": inline({ bash: cliHome === "home" ? "deny" : "allow" }),
+      "profile/.opencode/opencode.json": inline({ bash: cliHome === "profile" ? "deny" : "allow" }),
+    };
+    const split = (scratch: string) => ({ HOME: join(scratch, "home"), USERPROFILE: join(scratch, "profile") });
+    expect((await permissionFor(undefined, files, true, undefined, split)).bash).toBe("deny");
+  });
+
+  it("denies rather than guess the ~/.opencode home when the CLI's variable is unset", async () => {
+    const files = {
+      "home/.opencode/opencode.json": inline({ bash: "allow" }),
+      "profile/.opencode/opencode.json": inline({ bash: "allow" }),
+    };
+    const win32 = process.platform === "win32";
+    const unset = (scratch: string) => ({
+      HOME: win32 ? join(scratch, "home") : "",
+      USERPROFILE: win32 ? "" : join(scratch, "profile"),
+    });
+    expect((await permissionFor(undefined, files, true, undefined, unset)).bash).toBe("deny");
+  });
+
   it("keeps a deny from OPENCODE_CONFIG_DIR over the project files", async () => {
     const files = {
       "repo/.git/HEAD": "ref: refs/heads/main\n",
