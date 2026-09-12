@@ -154,7 +154,8 @@ describe("UsageSection friends plan card", () => {
 
   it("renders every window as the chat's compact meter, with the Opus row labeled and stale windows as text", () => {
     const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-    expect(html).toContain("mx-auto mt-2 grid w-fit items-center gap-x-6 grid-cols-[auto_auto_auto]");
+    // five windows and no spend: columns cap at four, the fifth cell wraps
+    expect(html).toContain("mx-auto mt-2 grid w-fit items-center gap-x-6 grid-cols-[auto_auto_auto_auto]");
     expect(html).toContain('aria-label="5h: 10% used"');
     expect(html).toContain('aria-label="7d: 49% used"');
     expect(html).toContain(">Opus<");
@@ -224,6 +225,40 @@ describe("UsageSection friends plan card", () => {
     expect(weekly).toBeGreaterThan(primary);
     expect(opus).toBeGreaterThan(weekly);
     expect(html).toContain("Reset since the last check");
+  });
+
+  it("keeps three windows plus spend on one four-column row", () => {
+    const report = mockState.instances[0].rateLimits;
+    if (!report) throw new Error("claude fixture missing rateLimits");
+    const originalWindows = report.windows;
+    const spendBot = {
+      id: "bot-claude",
+      hidden: false,
+      name: "Claude Friend",
+      modelSelection: { instanceId: "claude", model: "claude-opus" },
+      tasks: [{ threadId: "t", title: "", createdAt: 0, usage: { input: 12_400, output: 2_300, costUsd: 0.42, turns: 5 } }],
+    };
+    try {
+      persistPreference("en");
+      setUsageMode("used");
+      report.windows = [
+        { id: "five_hour", usedPercent: 10, resetsAt: Date.now() + 3_600_000 },
+        { id: "seven_day", usedPercent: 49, resetsAt: Date.now() + 6 * 86_400_000 },
+        { id: "seven_day_opus", usedPercent: 75, resetsAt: Date.now() + 6 * 86_400_000 },
+      ];
+      mockState.bots.push(spendBot);
+      const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+      expect(html).toContain("mx-auto mt-2 grid w-fit items-center gap-x-6 grid-cols-[auto_auto_auto_auto]");
+      expect(html).toContain('aria-label="5h: 10% used"');
+      expect(html).toContain('aria-label="7d: 49% used"');
+      expect(html).toContain('aria-label="7d: 75% used"');
+      expect(html).toContain('<span class="shrink-0 tabular-nums text-[12.5px] text-ink-secondary" title="12.4k in · 2.3k out">↑12.4k ↓2.3k</span>');
+      expect(html).not.toContain("Reset since the last check");
+    } finally {
+      report.windows = originalWindows;
+      mockState.bots.pop();
+      persistPreference("en");
+    }
   });
 
   it("names the Opus meter's group in English and Korean", () => {

@@ -107,7 +107,9 @@ function PlanUsage() {
             // The meters grid mirrors the chat strip: centred, content-sized,
             // same columns for the same cell count, with the token readout as
             // its last cell. mt-2 is the only deliberate extra — it clears the
-            // engine header, which the strip does not have.
+            // engine header, which the strip does not have. Columns cap at
+            // four: three windows plus spend is the widest real row, and a
+            // wider auto grid would overflow the card.
             const cells = windows.length + (hasSpent ? 1 : 0);
             return (
               <div key={instance.instanceId}>
@@ -116,7 +118,7 @@ function PlanUsage() {
                   <span className="truncate">{instance.displayName}</span>
                 </div>
                 {cells > 0 && (
-                  <div className={cn("mx-auto mt-2 grid w-fit items-center gap-x-6", GRID_COLS[Math.min(cells, 3)])}>
+                  <div className={cn("mx-auto mt-2 grid w-fit items-center gap-x-6", GRID_COLS[Math.min(cells, 4)])}>
                     {windows.map((window) => {
                       const opus = window.id === "seven_day_opus";
                       const shortLabel = t(PLAN_WINDOW_SHORT_LABEL_KEY[windowKind(window.id, window.windowMinutes)]);
