@@ -90,13 +90,14 @@ function PlanUsage() {
         <div className="flex flex-col gap-4">
           {engines.map((instance) => {
             const spent = engineTokens(instance);
+            const detail = usageDetail(spent);
             return (
               <div key={instance.instanceId}>
                 <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
                   <ProviderMark driverKind={instance.driverKind} size={16} />
                   <span className="truncate">{instance.displayName}</span>
                   {spent.input + spent.output > 0 && (
-                    <span className="ml-auto shrink-0 font-normal tabular-nums text-[11.5px] text-ink-secondary" title={usageDetail(spent)}>
+                    <span className="ml-auto shrink-0 font-normal tabular-nums text-[11.5px] text-ink-secondary" title={t(detail.key, detail.vars)}>
                       {`↑${formatTokens(spent.input)} ↓${formatTokens(spent.output)}`}
                     </span>
                   )}
@@ -152,6 +153,7 @@ function PlanUsage() {
 }
 
 export function UsageSection() {
+  const { t } = useI18n();
   const { state } = useStore();
   const rows = state.bots
     .filter((b) => !b.hidden)
@@ -168,6 +170,7 @@ export function UsageSection() {
       return costOf(b.usage.costUsd) - costOf(a.usage.costUsd) || b.usage.input + b.usage.output - (a.usage.input + a.usage.output);
     });
   const total = sumUsage(rows.map((r) => r.usage));
+  const totalDetail = usageDetail(total);
   const billings = new Set(rows.map((r) => r.billing));
 
   return (
@@ -192,7 +195,7 @@ export function UsageSection() {
                   <span className="truncate">{bot.name}</span>
                 </span>
                 <span className="text-right tabular-nums text-ink-secondary">{usage.turns}</span>
-                <span className="text-right tabular-nums text-ink" title={usageDetail(usage)}>
+                <span className="text-right tabular-nums text-ink" title={t(usageDetail(usage).key, usageDetail(usage).vars)}>
                   {formatTokens(usage.input + usage.output)}
                 </span>
                 <span className="text-right tabular-nums text-ink">{hasFiniteCost(usage.costUsd) ? formatUsd(usage.costUsd) : <span className="text-ink-secondary">—</span>}</span>
@@ -201,7 +204,7 @@ export function UsageSection() {
             <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-5 pt-2.5 text-[13px] font-medium text-ink">
               <span>All bots</span>
               <span className="text-right tabular-nums">{total.turns}</span>
-              <span className="text-right tabular-nums" title={usageDetail(total)}>{formatTokens(total.input + total.output)}</span>
+              <span className="text-right tabular-nums" title={t(totalDetail.key, totalDetail.vars)}>{formatTokens(total.input + total.output)}</span>
               <span className="text-right tabular-nums">{hasFiniteCost(total.costUsd) ? formatUsd(total.costUsd) : "—"}</span>
             </div>
             {cachedInput(total) > 0 && (

@@ -59,10 +59,14 @@ export function cachedInput(u: TaskUsage): number {
  * on a thread with a system prompt and tool schemas really do cost the
  * model ~17k tokens of reading each turn — so the breakdown is where the
  * "was that really 100k?" question gets answered. */
-export function usageDetail(u: TaskUsage): string {
+export function usageDetail(u: TaskUsage): { key: MessageKey; vars: Record<string, string | number> } {
   const cached = cachedInput(u);
-  const input = cached > 0 ? `${formatTokens(u.input)} in (${formatTokens(cached)} cached)` : `${formatTokens(u.input)} in`;
-  return `${input} · ${formatTokens(u.output)} out`;
+  const vars: Record<string, string | number> = { input: formatTokens(u.input), output: formatTokens(u.output) };
+  if (cached > 0) {
+    vars.cached = formatTokens(cached);
+    return { key: "usage.detail.withCached", vars };
+  }
+  return { key: "usage.detail.plain", vars };
 }
 
 /** The chip text: tokens, and cost when known. Empty string when nothing

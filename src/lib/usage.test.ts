@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { translate } from "./i18n";
 import {
   botUsage,
   cachedInput,
@@ -62,9 +63,14 @@ describe("usage formatting", () => {
       .toEqual({ input: 300, output: 30, cachedInput: 150, costUsd: null, turns: 2 });
     expect(sumUsage([{ input: 100, output: 10, costUsd: null, turns: 1 }])).toEqual({ input: 100, output: 10, costUsd: null, turns: 1 });
     // the headline stays the whole figure; the split is what explains it
-    expect(usageDetail({ input: 88_200, output: 1_200, cachedInput: 79_000, costUsd: null, turns: 5 })).toBe("88.2k in (79k cached) · 1.2k out");
-    expect(usageDetail({ input: 900, output: 50, costUsd: null, turns: 1 })).toBe("900 in · 50 out");
-    expect(usageDetail({ input: 900, output: 50, cachedInput: 0, costUsd: null, turns: 1 })).toBe("900 in · 50 out");
+    const withCached = usageDetail({ input: 88_200, output: 1_200, cachedInput: 79_000, costUsd: null, turns: 5 });
+    expect(translate("en", withCached.key, withCached.vars)).toBe("88.2k in (79k cached) · 1.2k out");
+    expect(translate("ko", withCached.key, withCached.vars)).toBe("입력 88.2k(캐시 79k) · 출력 1.2k");
+    const plain = usageDetail({ input: 900, output: 50, costUsd: null, turns: 1 });
+    expect(translate("en", plain.key, plain.vars)).toBe("900 in · 50 out");
+    expect(translate("ko", plain.key, plain.vars)).toBe("입력 900 · 출력 50");
+    const zeroCache = usageDetail({ input: 900, output: 50, cachedInput: 0, costUsd: null, turns: 1 });
+    expect(translate("en", zeroCache.key, zeroCache.vars)).toBe("900 in · 50 out");
     // a cached figure can never exceed the input it is part of, or go negative
     expect(cachedInput({ input: 100, output: 0, cachedInput: 250, costUsd: null, turns: 1 })).toBe(100);
     expect(cachedInput({ input: 100, output: 0, cachedInput: -3, costUsd: null, turns: 1 })).toBe(0);
