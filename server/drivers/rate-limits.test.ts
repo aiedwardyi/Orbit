@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { claudeRateLimitWindows, codexRateLimitWindows, epochMs, grokRateLimitWindows } from "./rate-limits.ts";
+import {
+  claudeRateLimitWindows,
+  codexRateLimitWindows,
+  epochMs,
+  exhaustedWindow,
+  grokRateLimitWindows,
+  usageLimitFromError,
+} from "./rate-limits.ts";
 
 describe("epochMs", () => {
   it("turns provider seconds into milliseconds and leaves milliseconds alone", () => {
@@ -104,6 +111,20 @@ describe("grokRateLimitWindows", () => {
     ).toEqual([{ id: "seven_day", usedPercent: 12, resetsAt: null, windowMinutes: 10_080 }]);
   });
 
+  /** Display rounding must not invent an exhausted week out of 99.96%. */
+  it("keeps a nearly-full week short of spent", () => {
+    const windows = grokRateLimitWindows({
+      config: {
+        creditUsagePercent: 99.96,
+        currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", end: "2026-09-15T12:00:00Z" },
+      },
+    });
+    expect(windows).toEqual([
+      { id: "seven_day", usedPercent: 99.9, resetsAt: Date.parse("2026-09-15T12:00:00Z"), windowMinutes: 10_080 },
+    ]);
+    expect(exhaustedWindow(windows, Date.parse("2026-09-14T00:00:00Z"))).toBeNull();
+  });
+
   it("drops a payload without a weekly fill", () => {
     expect(
       grokRateLimitWindows({
@@ -121,5 +142,109 @@ describe("grokRateLimitWindows", () => {
     expect(grokRateLimitWindows({ config: { creditUsagePercent: "42" } })).toEqual([]);
     expect(grokRateLimitWindows(null)).toEqual([]);
     expect(grokRateLimitWindows("42%")).toEqual([]);
+  });
+});
+
+describe("usageLimitFromError", () => {
+  it("reads an explicit rate-limit rejection, with the reset it carries", () => {
+    expect(
+      usageLimitFromError(
+        Object.assign(new Error("Internal error"), {
+          code: -32603,
+          data: { error: { type: "rate_limit_exceeded", message: "Rate limit exceeded" }, resetsAt: 1_790_172_800 },
+        }),
+        true,
+      ),
+    ).toEqual({ resetsAt: 1_790_172_800_000 });
+  });
+
+  it("matches the vocabulary providers actually send", () => {
+    for (const message of [
+      "xAI HTTP 429: Too Many Requests",
+      "rate limit exceeded, slow down",
+      "You have exceeded your usage limit for this week",
+      "monthly quota exhausted",
+    ]) {
+      expect(usageLimitFromError(new Error(message), true)).toEqual({ resetsAt: null });
+    }
+  });
+
+  /** A bare throttle is the same sentence on a subscription CLI and on a
+   *  per-minute API key, and only one of them means "your plan is used up". */
+  it("counts a bare throttle only for a driver that bills a subscription window", () => {
+    for (const message of ["xAI HTTP 429: Too Many Requests", "rate limit exceeded, slow down"]) {
+      expect(usageLimitFromError(new Error(message), false)).toBeNull();
+    }
+    expect(usageLimitFromError(new Error("monthly quota exhausted"), false)).toEqual({ resetsAt: null });
+  });
+
+  it("never classifies a JSON-RPC protocol error, whatever its payload says", () => {
+    for (const code of [-32700, -32600, -32601, -32602, "-32602", " -32601 "]) {
+      expect(usageLimitFromError(Object.assign(new Error("rate limit exceeded"), { code }), true)).toBeNull();
+    }
+    expect(usageLimitFromError(Object.assign(new Error("rate limit exceeded"), { code: -32603 }), true))
+      .toEqual({ resetsAt: null });
+  });
+
+  /** "quota" on its own is as much an outage word as a limit word. */
+  it("wants a spent-ness word, not the bare noun", () => {
+    expect(usageLimitFromError(new Error("quota configuration is unavailable"), true)).toBeNull();
+    expect(usageLimitFromError(Object.assign(new Error("Internal error"), {
+      code: -32603,
+      data: { hint: "check quota settings" },
+    }), true)).toBeNull();
+  });
+
+  /** A named type is the provider saying it outright, so it decides alone —
+   *  and it splits the same way the prose does. */
+  it("prefers data.error.type over the prose, throttle types still gated", () => {
+    const typed = (type: string) => Object.assign(new Error("Internal error"), { code: -32603, data: { error: { type } } });
+    expect(usageLimitFromError(typed("quota_exceeded"), false)).toEqual({ resetsAt: null });
+    expect(usageLimitFromError(typed("rate_limit_exceeded"), true)).toEqual({ resetsAt: null });
+    expect(usageLimitFromError(typed("rate_limit_exceeded"), false)).toBeNull();
+    expect(usageLimitFromError(
+      Object.assign(new Error("usage limit reached"), { data: { error: { type: "invalid_request" } } }),
+      true,
+    )).toBeNull();
+  });
+
+  it("reads retry-after seconds as a reset time", () => {
+    const now = 1_790_000_000_000;
+    expect(
+      usageLimitFromError(Object.assign(new Error("429 Too Many Requests"), { data: { retryAfter: 600 } }), true, now),
+    ).toEqual({ resetsAt: now + 600_000 });
+  });
+
+  it("leaves anything that is not a usage limit alone", () => {
+    expect(usageLimitFromError(new Error("Internal error"), true)).toBeNull();
+    expect(usageLimitFromError(new Error("Invalid API key"), true)).toBeNull();
+    expect(usageLimitFromError(new Error("model not found: grok-9"), true)).toBeNull();
+  });
+});
+
+describe("exhaustedWindow", () => {
+  const now = 1_790_000_000_000;
+
+  it("finds a full window that has not reset yet", () => {
+    expect(exhaustedWindow([{ id: "seven_day", usedPercent: 100, resetsAt: now + 60_000 }], now)).toEqual({
+      id: "seven_day",
+      usedPercent: 100,
+      resetsAt: now + 60_000,
+    });
+  });
+
+  it("keeps a full window whose reset the provider never reported", () => {
+    expect(exhaustedWindow([{ id: "seven_day", usedPercent: 100, resetsAt: null }], now)).toEqual({
+      id: "seven_day",
+      usedPercent: 100,
+      resetsAt: null,
+    });
+  });
+
+  it("ignores a window with room left, and one whose reset has passed", () => {
+    expect(exhaustedWindow([{ id: "seven_day", usedPercent: 99.4, resetsAt: now + 60_000 }], now)).toBeNull();
+    expect(exhaustedWindow([{ id: "seven_day", usedPercent: 100, resetsAt: now - 1 }], now)).toBeNull();
+    expect(exhaustedWindow([], now)).toBeNull();
+    expect(exhaustedWindow(undefined, now)).toBeNull();
   });
 });

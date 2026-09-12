@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Copy,
   Crown,
+  Gauge,
   ListTree,
   Loader2,
   Monitor,
@@ -48,6 +49,7 @@ import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
 import { ApprovalCard } from "./ApprovalCard";
 import { Composer } from "./Composer";
 import { ChatPlanMeters } from "./ChatPlanMeters";
+import { useNow } from "./PlanUsageBar";
 import { ChatFindBar } from "./ChatFindBar";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
@@ -60,6 +62,7 @@ import { TaskPicker } from "./TaskPicker";
 import { ReactionBar, ReactionChips } from "./Reactions";
 import { CallButton, CallOverlay } from "./CallView";
 import { cn } from "@/lib/cn";
+import { usageLimitReset } from "@/lib/usage";
 import { useFocusMessage } from "@/lib/focus-message";
 import { activityVisibleInChat, groupActivityRuns } from "@/lib/activity-runs";
 import { chatTranscriptRows } from "@/lib/chat-transcript";
@@ -185,23 +188,50 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
  * to do instead of a Retry, because retrying hits the same wall every time.
  * Once the engine reports itself fixed the card flips back to Retry, which
  * (with the on-focus re-probe) happens by itself when the user returns from
- * the terminal. */
+ * the terminal.
+ *
+ * A spent subscription window is neither: it is an expected state with a
+ * known end, so it drops the provider's raw wording for our own, goes
+ * warning-toned rather than danger-toned, and keeps the Retry that the
+ * reset makes worth pressing. */
 function ErrorRow({
   message,
   onRetry,
   setupInstance,
+  usageLimit,
 }: {
   message: string;
   onRetry?: () => void;
   setupInstance?: InstanceInfo;
+  usageLimit?: { resetsAt: number | null };
 }) {
+  const { t } = useI18n();
+  const now = useNow();
   const action = setupErrorAction(message, setupInstance);
+  const reset = usageLimit ? usageLimitReset(usageLimit.resetsAt, now) : null;
   return (
     <div className="flex justify-start">
-      <div className="w-fit max-w-[min(42rem,78%)] rounded-xl border border-danger/30 bg-danger/10 px-3.5 py-2.5 text-[13.5px] text-danger">
+      <div
+        className={cn(
+          "w-fit max-w-[min(42rem,78%)] rounded-xl border px-3.5 py-2.5 text-[13.5px]",
+          usageLimit ? "border-warning/30 bg-warning/10 text-warning" : "border-danger/30 bg-danger/10 text-danger",
+        )}
+      >
         <div className="flex items-start gap-2">
-          <AlertTriangle size={15} className="mt-0.5 shrink-0" />
-          <span className="min-w-0 break-words">{message}</span>
+          {usageLimit ? <Gauge size={15} className="mt-0.5 shrink-0" /> : <AlertTriangle size={15} className="mt-0.5 shrink-0" />}
+          <span className="min-w-0 break-words">
+            {usageLimit ? (
+              <>
+                <span className="font-semibold">{t("chat.usageLimit")}</span>{" "}
+                {t("chat.usageLimitBody")}
+                {reset && <> {t(reset.key, reset.vars)}</>}
+                {/* the engine's own words survive a misread of them */}
+                <span className="mt-1 block text-[12px] opacity-70">{message}</span>
+              </>
+            ) : (
+              message
+            )}
+          </span>
         </div>
         {action === "cli" && setupInstance ? (
           <EngineSetup instance={setupInstance} className="mt-2 text-ink-secondary" />
@@ -211,7 +241,10 @@ function ErrorRow({
           onRetry && (
             <button
               onClick={onRetry}
-              className="mt-1.5 flex items-center gap-1.5 rounded-full border border-danger/30 px-2.5 py-1 text-[12.5px] hover:bg-danger/15"
+              className={cn(
+                "mt-1.5 flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12.5px]",
+                usageLimit ? "border-warning/30 hover:bg-warning/15" : "border-danger/30 hover:bg-danger/15",
+              )}
             >
               <RefreshCw size={12} /> Retry
             </button>
@@ -818,6 +851,7 @@ const MessagesList = memo(function MessagesList({
                     message={m.tool.name.slice(6).trim()}
                     onRetry={m.id === canonicalLastMessageId && canRetryLast ? onRegenerate : undefined}
                     setupInstance={m.tool.setup ? engine : undefined}
+                    usageLimit={m.tool.usageLimit}
                   />
                 );
               }

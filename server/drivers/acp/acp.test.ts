@@ -298,6 +298,8 @@ describe("ACP turns (fake CLI)", () => {
     delete process.env.FAKE_ACP_MODEL_STICKS;
     delete process.env.FAKE_ACP_USAGE_ROOT;
     delete process.env.FAKE_ACP_PERMISSION_KINDS;
+    delete process.env.FAKE_ACP_BILLING_PERCENT;
+    delete process.env.FAKE_ACP_BILLING_END;
     for (const name of FOREIGN_CREDENTIALS) delete process.env[name];
     recorder?.stop();
     await instance?.dispose();
@@ -756,6 +758,121 @@ describe("ACP turns (fake CLI)", () => {
     expect(err.message).toContain('offered no "allow_once" permission option');
   });
 
+  /** The owner's report: an exhausted Grok week renders a red "Internal
+   *  error" chip. The provider names the cause in `data`, so the chip must
+   *  read as a usage limit — and stay retryable, because the window rolls. */
+  it("grok reports an exhausted subscription as a usage limit, not a crash", async () => {
+    await create(GrokAgentDriver, "usage-limit");
+    await instance.adapter.sendTurn({ threadId: "t-usage", text: "go" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const err = recorder.events.find((e) => e.type === "runtime.error")!;
+    expect(err).toMatchObject({ usageLimit: { resetsAt: null } });
+    expect(err.setup).toBeUndefined();
+  });
+
+  /** The harder half: the rejection says only "Internal error". The account's
+   *  own billing call is the evidence, and it is on a path the error side
+   *  never took — a failed turn used to skip the billing read entirely. */
+  it("grok reads billing on a bare failure and classifies a full week as a usage limit", async () => {
+    const end = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+    process.env.FAKE_ACP_BILLING_PERCENT = "100";
+    process.env.FAKE_ACP_BILLING_END = end;
+    await create(GrokAgentDriver, "usage-limit-silent");
+    await instance.adapter.sendTurn({ threadId: "t-usage-silent", text: "go" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const err = recorder.events.find((e) => e.type === "runtime.error")!;
+    expect(err).toMatchObject({ usageLimit: { resetsAt: Date.parse(end) } });
+  });
+
+  /** The billing probe is awaited, so the child can die inside it. Whoever
+   *  settles first owns the failure; the loser must stay quiet rather than
+   *  post a second chip after the turn already completed. */
+  it("does not report twice when the child dies inside the billing probe", async () => {
+    await create(GrokAgentDriver, "usage-limit-close");
+    await instance.adapter.sendTurn({ threadId: "t-usage-close", text: "go" });
+    await recorder.until((e) => e.type === "turn.completed");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(recorder.events.filter((e) => e.type === "runtime.error")).toHaveLength(1);
+    expect(recorder.events.filter((e) => e.type === "turn.completed")).toHaveLength(1);
+    expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed" });
+  });
+
+  /** A provider that already explained the failure keeps its explanation:
+   *  billing sitting at 100% is corroboration for an opaque error, never a
+   *  reason to overwrite one the provider named. */
+  it.each([
+    ["a named non-limit type", "usage-limit-typed"],
+    ["a JSON-RPC protocol error", "usage-limit-protocol"],
+  ])("does not relabel %s as a spent plan", async (_label, mode) => {
+    process.env.FAKE_ACP_BILLING_PERCENT = "100";
+    await create(GrokAgentDriver, mode);
+    await instance.adapter.sendTurn({ threadId: `t-ruled-out-${mode}`, text: "go" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const err = recorder.events.find((e) => e.type === "runtime.error")!;
+    expect(err.usageLimit).toBeUndefined();
+  });
+
+  /** The named-rate-limit path needs the same guard the probe got: a local
+   *  endpoint's throttle is not the grok.com account's spent week. */
+  it("does not read a local inject's throttle as a spent subscription", async () => {
+    process.env.FAKE_ACP_MODE = "usage-limit";
+    mkdirSync(join(scratch, ".grok"), { recursive: true });
+    instance = await GrokAgentDriver.create({
+      instanceId: "acp-test",
+      displayName: "ACP Test",
+      environment: { HOME: scratch, GROK_HOME: join(scratch, ".grok") },
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: false },
+    });
+    recorder = recordEvents(instance.adapter);
+    await instance.adapter.sendTurn({ threadId: "t-usage-local-429", text: "go", model: "omlx::MiniMax-M3-4bit" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const err = recorder.events.find((e) => e.type === "runtime.error")!;
+    expect(err.usageLimit).toBeUndefined();
+  });
+
+  /** configureSession is awaited inside the same try as the prompt, so its
+   *  rejections land in the same catch. They carry an actionable message and
+   *  must not be relabelled "your plan is used up" by a full billing window. */
+  it("does not blame a spent plan for a failure that happened before the prompt", async () => {
+    process.env.FAKE_ACP_BILLING_PERCENT = "100";
+    await create(GrokAgentDriver, "set-model-invalid-params");
+    await instance.adapter.sendTurn({ threadId: "t-usage-config", text: "go", model: "grok-4.6" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const err = recorder.events.find((e) => e.type === "runtime.error")!;
+    expect(err.usageLimit).toBeUndefined();
+    expect(err.message).toContain("session/set_model");
+  });
+
+  /** A local `host::model` turn never spent the grok.com subscription, so
+   *  its failure must not be explained with that account's billing. */
+  it("skips the billing probe for a local inject turn", async () => {
+    process.env.FAKE_ACP_BILLING_PERCENT = "100";
+    mkdirSync(join(scratch, ".grok"), { recursive: true });
+    process.env.FAKE_ACP_MODE = "usage-limit-silent";
+    instance = await GrokAgentDriver.create({
+      instanceId: "acp-test",
+      displayName: "ACP Test",
+      environment: { HOME: scratch, GROK_HOME: join(scratch, ".grok") },
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: false },
+    });
+    recorder = recordEvents(instance.adapter);
+    await instance.adapter.sendTurn({ threadId: "t-usage-local", text: "go", model: "omlx::MiniMax-M3-4bit" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const err = recorder.events.find((e) => e.type === "runtime.error")!;
+    expect(err.usageLimit).toBeUndefined();
+  });
+
+  it("leaves a bare failure alone while the week still has room", async () => {
+    await create(GrokAgentDriver, "usage-limit-silent");
+    await instance.adapter.sendTurn({ threadId: "t-usage-room", text: "go" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const err = recorder.events.find((e) => e.type === "runtime.error")!;
+    expect(err.message).toBe("Internal error");
+    expect(err.usageLimit).toBeUndefined();
+  });
+
   it("grok fails closed when the CLI advertises no cached_token (needs login)", async () => {
     await create(GrokAgentDriver, "no-auth");
     await instance.adapter.sendTurn({ threadId: "t-auth", text: "go" });
@@ -962,15 +1079,15 @@ describe("ACP turns (fake CLI)", () => {
   });
 
   it("forwards Grok's weekly billing as account.rate-limits.updated", async () => {
+    const end = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+    process.env.FAKE_ACP_BILLING_END = end;
     await create(GrokAgentDriver);
     expect(instance.adapter.capabilities.rateLimits).toBe(true);
     await instance.adapter.sendTurn({ threadId: "t-billing", text: "hi" });
     await recorder.until((e) => e.type === "turn.completed");
     await recorder.until((e) => e.type === "account.rate-limits.updated");
     expect(recorder.events.filter((e) => e.type === "account.rate-limits.updated")).toMatchObject([
-      {
-        windows: [{ id: "seven_day", usedPercent: 42, resetsAt: Date.parse("2026-09-15T12:00:00Z"), windowMinutes: 10_080 }],
-      },
+      { windows: [{ id: "seven_day", usedPercent: 42, resetsAt: Date.parse(end), windowMinutes: 10_080 }] },
     ]);
   });
 

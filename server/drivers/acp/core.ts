@@ -22,7 +22,7 @@ const LOCAL_HOST_KEY_ENVS = [
   ...new Set(LOCAL_HOSTS.map((host) => host.apiKeyEnv).filter((key): key is string => Boolean(key))),
 ];
 import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../../procs.ts";
-import { grokRateLimitWindows } from "../rate-limits.ts";
+import { exhaustedWindow, grokRateLimitWindows, isConfirmedNonUsage, usageLimitFromError } from "../rate-limits.ts";
 
 /**
  * A `host::model` pick talks to a loopback server with its own key.
@@ -159,6 +159,9 @@ export interface AcpSupport {
 }
 
 const INIT_TIMEOUT = 20_000;
+// The billing read on a failed turn sits between the user and the error
+// chip, so it gets a far shorter leash than the one on a clean turn.
+const USAGE_PROBE_TIMEOUT = 5_000;
 const SESSION_CONFIG_TIMEOUT = 20_000; // configureSession's per-request default
 const NEW_SESSION_TIMEOUT = 30_000;
 const LOAD_SESSION_TIMEOUT = 120_000; // history replay on a long thread is slow
@@ -435,6 +438,34 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               stop();
             });
           } else stop();
+        };
+
+        // Whether this turn could have spent a subscription window at all.
+        // A local inject talks to a loopback endpoint on someone else's key.
+        const billsSubscription = support.rateLimits === true && !skipSubscriptionAuthForLocalInject(turn.model);
+
+        /** A rejection that names nothing still leaves the account's own
+         *  numbers to read — and a failed turn is the one path that never
+         *  read them, because settle() only bills a turn that finished.
+         *
+         *  Two turns are skipped. A `host::model` one never touched the
+         *  subscription, so billing would explain a loopback failure with the
+         *  wrong account; and anything that failed before the prompt went out
+         *  — session setup, model pinning — has its own actionable message
+         *  that a spent window must not be allowed to overwrite. */
+        const probeUsageLimit = async (): Promise<{ resetsAt: number | null } | null> => {
+          if (!support.billingMethod || !state.promptSent || !billsSubscription) return null;
+          if (child.exitCode !== null || child.killed) return null;
+          try {
+            const windows = grokRateLimitWindows(await request(support.billingMethod, {}, USAGE_PROBE_TIMEOUT));
+            if (windows.length > 0) {
+              emit({ ...base(threadId, turnId), type: "account.rate-limits.updated", windows });
+            }
+            const spent = exhaustedWindow(windows);
+            return spent ? { resetsAt: spent.resetsAt } : null;
+          } catch {
+            return null;
+          }
         };
 
         // server→client permission request → canonical request.opened
@@ -791,12 +822,26 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               // fallback for existing ACP supports.
               const needsAuth = code === "invalid_credentials" || code === "inactive_subscription"
                 || message === support.loginNote;
-              emit({
+              const named = needsAuth || !(e instanceof Error)
+                ? null
+                : usageLimitFromError(e, billsSubscription);
+              // A rejection that names the limit but not its end still leaves
+              // billing to ask, so the probe runs for that too — but not when
+              // the provider already ruled a usage limit out.
+              const ruledOut = e instanceof Error && isConfirmedNonUsage(e);
+              const probed = needsAuth || ruledOut || named?.resetsAt != null ? null : await probeUsageLimit();
+              // The probe awaited, and a child that closed meanwhile has
+              // already settled this turn and reported its own failure.
+              if (state.settled) return;
+              const usageLimit = named?.resetsAt != null ? named : probed ?? named;
+              const failure: Extract<RuntimeEvent, { type: "runtime.error" }> = {
                 ...base(threadId, turnId),
                 type: "runtime.error",
                 message,
                 ...(needsAuth ? { setup: true } : {}),
-              });
+              };
+              if (usageLimit) failure.usageLimit = usageLimit;
+              emit(failure);
               settle(false, needsAuth ? "auth_required" : "rpc_error");
             }
           }

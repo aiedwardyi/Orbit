@@ -6,6 +6,13 @@
 // turn. Failure modes mirror how real ACP agents misbehave:
 //
 //   FAKE_ACP_MODE   happy (default) | empty-reply | exit-early | fail-after-text | hang | no-auth | auth-required | permission | channel-peer
+//                   | usage-limit (prompt rejects -32603 with rate-limit data)
+//                   | usage-limit-silent (same rejection, no data at all)
+//                   | usage-limit-close (same, then exits under the billing call)
+//                   | usage-limit-typed / usage-limit-protocol (post-prompt
+//                     failures the provider already explained)
+//   FAKE_ACP_BILLING_PERCENT  weekly credit fill the billing call reports (default 42)
+//   FAKE_ACP_BILLING_END      ISO end of that weekly period (default now + 7 days)
 //                   | permission-twice (two sequential cards in one turn)
 //                   | interleave (message → tool → message → tool → message)
 //                   | no-session-config (reject session/set_mode + set_model
@@ -47,6 +54,7 @@ import { spawn } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
 
 const mode = process.env.FAKE_ACP_MODE ?? "happy";
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 let runningPromptId: number | undefined;
 // opencode-shaped surface: the session carries its own model catalog and the
 // model is chosen with session/set_config_option, because `opencode acp` takes
@@ -464,6 +472,33 @@ function handle(msg: any) {
         setInterval(() => {}, 1_000);
         return;
       }
+      if (mode === "usage-limit-typed" || mode === "usage-limit-protocol") {
+        // post-prompt failures the provider has already explained: a named
+        // non-limit type, and a protocol error that never reached the account
+        recordMethod("session/prompt.error");
+        out({
+          jsonrpc: "2.0",
+          id: msg.id,
+          error: mode === "usage-limit-typed"
+            ? { code: -32603, message: "Internal error", data: { error: { type: "invalid_request" } } }
+            : { code: -32602, message: "Invalid params: prompt must be an array" },
+        });
+        return;
+      }
+      if (mode === "usage-limit" || mode === "usage-limit-silent" || mode === "usage-limit-close") {
+        // Grok answers an exhausted subscription with a bare JSON-RPC
+        // "Internal error"; only the silent variant leaves `data` empty.
+        recordMethod("session/prompt.error");
+        const error = { code: -32603, message: "Internal error" };
+        out({
+          jsonrpc: "2.0",
+          id: msg.id,
+          error: mode === "usage-limit"
+            ? { ...error, data: { error: { type: "rate_limit_exceeded", message: "Rate limit exceeded" } } }
+            : error,
+        });
+        return;
+      }
       if (mode === "fail-after-text") {
         // Stream real text, THEN fail the turn — the shape of a crash
         // mid-answer. This is the one case where the routine-failed/done
@@ -635,16 +670,21 @@ function handle(msg: any) {
     }
     case "_x.ai/billing":
       if (mode === "billing-hang") return;
+      // die with the billing call in flight — the racing close the driver
+      // has to notice before it emits a second error
+      if (mode === "usage-limit-close") return process.exit(7);
       if (mode === "billing-fail") {
         return out({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: "billing failed" } });
       }
+      // The period is relative to now, and a test that asserts on the reset
+      // passes the same end in. A hardcoded date would pass until it didn't.
       result(msg.id, {
         config: {
-          creditUsagePercent: 42,
+          creditUsagePercent: Number(process.env.FAKE_ACP_BILLING_PERCENT ?? 42),
           currentPeriod: {
             type: "USAGE_PERIOD_TYPE_WEEKLY",
-            start: "2026-09-08T00:00:00Z",
-            end: "2026-09-15T12:00:00Z",
+            start: new Date(Date.now() - WEEK_MS).toISOString(),
+            end: process.env.FAKE_ACP_BILLING_END ?? new Date(Date.now() + WEEK_MS).toISOString(),
           },
         },
       });

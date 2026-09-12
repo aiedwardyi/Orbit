@@ -138,7 +138,9 @@ export type RuntimeEvent = RuntimeEventBase &
     | { type: "account.rate-limits.updated"; windows: RateLimitWindow[] }
     // `setup: true` marks a failure the user fixes by installing or
     // configuring something, not by retrying — the UI offers setup instead.
-    | { type: "runtime.error"; message: string; setup?: boolean }
+    // `usageLimit` marks the expected one: the account spent its
+    // subscription window. `resetsAt` is epoch ms, null when unreported.
+    | { type: "runtime.error"; message: string; setup?: boolean; usageLimit?: { resetsAt: number | null } }
   );
 
 /** One subscription usage window (a 5-hour session, a week) as the provider

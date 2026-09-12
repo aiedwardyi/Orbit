@@ -166,6 +166,16 @@ export function resetPhrase(
   }
 }
 
+/** The reset line on a usage-limit error chip. Only a reset the provider
+ * actually reported gets a line — an error is the wrong place to explain
+ * that a time is missing. */
+export function usageLimitReset(
+  resetsAt: number | null | undefined,
+  now = Date.now(),
+): { key: MessageKey; vars?: Record<string, number> } | null {
+  return resetCountdown(resetsAt, now) ? resetPhrase(resetsAt, now) : null;
+}
+
 export type CompactReset =
   | { key: "usage.limits.compactDh"; vars: { days: number; hours: number } }
   | { key: "usage.limits.compactD"; vars: { days: number } }
