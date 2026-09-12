@@ -516,6 +516,7 @@ const automaticCandidate = (entry: Awaited<ReturnType<typeof registry.describe>>
   available: entry.snapshot.state === "available",
   capabilities: entry.capabilities,
   effortLevels: entry.capabilities.effortLevels,
+  rateLimits: rateLimitsByInstance.get(entry.instanceId)?.windows,
 });
 
 const automaticAvailability = new Map<string, boolean>();
@@ -541,6 +542,7 @@ function liveAutomaticCandidate(instance: ProviderInstance): AutomaticCandidate 
       localComputerMcp: instance.adapter.capabilities.localComputerMcp === true,
     },
     effortLevels: instance.adapter.capabilities.effortLevels,
+    rateLimits: rateLimitsByInstance.get(instance.instanceId)?.windows,
   };
 }
 
@@ -590,7 +592,7 @@ async function resolvedBotSelection(bot: BotRecord, task?: TaskRecord): Promise<
   return selection;
 }
 
-// New bots start on the first working engine. Automatic keeps the choice
+// New bots prefer working engines without cached exhaustion. Automatic keeps the choice
 // stable per task and resolves again only at a turn boundary.
 let describeInFlight: ReturnType<typeof registry.describe> | null = null;
 
