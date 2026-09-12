@@ -9,6 +9,8 @@
 //                   | usage-limit (prompt rejects -32603 with rate-limit data)
 //                   | usage-limit-silent (same rejection, no data at all)
 //                   | usage-limit-close (same, then exits under the billing call)
+//                   | usage-limit-typed / usage-limit-protocol (post-prompt
+//                     failures the provider already explained)
 //   FAKE_ACP_BILLING_PERCENT  weekly credit fill the billing call reports (default 42)
 //   FAKE_ACP_BILLING_END      ISO end of that weekly period (default now + 7 days)
 //                   | permission-twice (two sequential cards in one turn)
@@ -468,6 +470,19 @@ function handle(msg: any) {
       if (mode === "hang") {
         // never resolve the prompt — lets tests exercise interrupt
         setInterval(() => {}, 1_000);
+        return;
+      }
+      if (mode === "usage-limit-typed" || mode === "usage-limit-protocol") {
+        // post-prompt failures the provider has already explained: a named
+        // non-limit type, and a protocol error that never reached the account
+        recordMethod("session/prompt.error");
+        out({
+          jsonrpc: "2.0",
+          id: msg.id,
+          error: mode === "usage-limit-typed"
+            ? { code: -32603, message: "Internal error", data: { error: { type: "invalid_request" } } }
+            : { code: -32602, message: "Invalid params: prompt must be an array" },
+        });
         return;
       }
       if (mode === "usage-limit" || mode === "usage-limit-silent" || mode === "usage-limit-close") {

@@ -797,6 +797,21 @@ describe("ACP turns (fake CLI)", () => {
     expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed" });
   });
 
+  /** A provider that already explained the failure keeps its explanation:
+   *  billing sitting at 100% is corroboration for an opaque error, never a
+   *  reason to overwrite one the provider named. */
+  it.each([
+    ["a named non-limit type", "usage-limit-typed"],
+    ["a JSON-RPC protocol error", "usage-limit-protocol"],
+  ])("does not relabel %s as a spent plan", async (_label, mode) => {
+    process.env.FAKE_ACP_BILLING_PERCENT = "100";
+    await create(GrokAgentDriver, mode);
+    await instance.adapter.sendTurn({ threadId: `t-ruled-out-${mode}`, text: "go" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const err = recorder.events.find((e) => e.type === "runtime.error")!;
+    expect(err.usageLimit).toBeUndefined();
+  });
+
   /** The named-rate-limit path needs the same guard the probe got: a local
    *  endpoint's throttle is not the grok.com account's spent week. */
   it("does not read a local inject's throttle as a spent subscription", async () => {

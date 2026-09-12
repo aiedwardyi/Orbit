@@ -184,6 +184,18 @@ export function usageLimitFromError(
   return { resetsAt: resetFromRejection(data, now) };
 }
 
+/** The provider ruled a usage limit out, as opposed to saying nothing
+ * useful: it named a type that is not one, or the call never reached the
+ * account at all. A failure like that keeps its own message — corroborating
+ * evidence from billing would only bury it. */
+export function isConfirmedNonUsage(error: Error): boolean {
+  // SAFETY: same transport-assigned fields usageLimitFromError reads.
+  const { code, data } = error as Error & RejectionFields;
+  if (protocolErrorCode(code)) return true;
+  const named = data?.error?.type;
+  return Boolean(named) && !EXHAUSTED_TYPES.has(named!) && !THROTTLE_TYPES.has(named!);
+}
+
 /** The first window the account has actually used up. A window whose reset
  * has passed is history, not a limit; one with no reset at all stays spent,
  * because the caller only asks about a turn that already failed. */

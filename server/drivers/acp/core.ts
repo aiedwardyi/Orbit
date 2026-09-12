@@ -22,7 +22,7 @@ const LOCAL_HOST_KEY_ENVS = [
   ...new Set(LOCAL_HOSTS.map((host) => host.apiKeyEnv).filter((key): key is string => Boolean(key))),
 ];
 import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../../procs.ts";
-import { exhaustedWindow, grokRateLimitWindows, usageLimitFromError } from "../rate-limits.ts";
+import { exhaustedWindow, grokRateLimitWindows, isConfirmedNonUsage, usageLimitFromError } from "../rate-limits.ts";
 
 /**
  * A `host::model` pick talks to a loopback server with its own key.
@@ -440,6 +440,10 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           } else stop();
         };
 
+        // Whether this turn could have spent a subscription window at all.
+        // A local inject talks to a loopback endpoint on someone else's key.
+        const billsSubscription = support.rateLimits === true && !skipSubscriptionAuthForLocalInject(turn.model);
+
         /** A rejection that names nothing still leaves the account's own
          *  numbers to read — and a failed turn is the one path that never
          *  read them, because settle() only bills a turn that finished.
@@ -450,8 +454,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
          *  — session setup, model pinning — has its own actionable message
          *  that a spent window must not be allowed to overwrite. */
         const probeUsageLimit = async (): Promise<{ resetsAt: number | null } | null> => {
-          if (!support.billingMethod || !state.promptSent) return null;
-          if (skipSubscriptionAuthForLocalInject(turn.model)) return null;
+          if (!support.billingMethod || !state.promptSent || !billsSubscription) return null;
           if (child.exitCode !== null || child.killed) return null;
           try {
             const windows = grokRateLimitWindows(await request(support.billingMethod, {}, USAGE_PROBE_TIMEOUT));
@@ -819,16 +822,14 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               // fallback for existing ACP supports.
               const needsAuth = code === "invalid_credentials" || code === "inactive_subscription"
                 || message === support.loginNote;
-              // A local inject never touched the subscription, so its throttle
-              // is the loopback endpoint's, not the account's — same reason
-              // the billing probe skips it.
-              const subscription = support.rateLimits === true && !skipSubscriptionAuthForLocalInject(turn.model);
               const named = needsAuth || !(e instanceof Error)
                 ? null
-                : usageLimitFromError(e, subscription);
+                : usageLimitFromError(e, billsSubscription);
               // A rejection that names the limit but not its end still leaves
-              // billing to ask, so the probe runs for that too.
-              const probed = needsAuth || named?.resetsAt != null ? null : await probeUsageLimit();
+              // billing to ask, so the probe runs for that too — but not when
+              // the provider already ruled a usage limit out.
+              const ruledOut = e instanceof Error && isConfirmedNonUsage(e);
+              const probed = needsAuth || ruledOut || named?.resetsAt != null ? null : await probeUsageLimit();
               // The probe awaited, and a child that closed meanwhile has
               // already settled this turn and reported its own failure.
               if (state.settled) return;
