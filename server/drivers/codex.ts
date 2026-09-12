@@ -103,9 +103,15 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       };
       // The CLI owns its own ChatGPT login, so it is granted no provider key
       // at all: a leaked one silently flips billing to pay-as-you-go
-      // (agentcal). The local-host token is the single exception —
+      // (agentcal). The local-host token is the single billing exception —
       // codexLocalProviderArgs reads it back out to serve an injected model.
-      applyCredentialAllowlist(env, ["UNSLOTH_STUDIO_AUTH_TOKEN"]);
+      // GH_TOKEN is granted so `gh auth git-credential` (the github.com
+      // credential helper) uses the env account instead of falling back to
+      // whatever account is stored on disk, which is the wrong one on a
+      // two-account machine. It reaches the app-server process and its tool
+      // calls, which is accepted because they already share the CLI's trust
+      // boundary. GITHUB_TOKEN stays stripped.
+      applyCredentialAllowlist(env, ["UNSLOTH_STUDIO_AUTH_TOKEN", "GH_TOKEN"]);
       return env;
     };
     const catalogEnv = childEnv();

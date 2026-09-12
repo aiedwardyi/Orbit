@@ -95,6 +95,8 @@ describe("CodexDriver turns (fake app-server)", () => {
     delete process.env.OPENAI_API_KEY;
     delete process.env.BOX_TOKEN;
     delete process.env.OMB_TTS_KEY;
+    delete process.env.GH_TOKEN;
+    delete process.env.GITHUB_TOKEN;
     for (const name of FOREIGN_CREDENTIALS) delete process.env[name];
     for (const [name, value] of gitEnvBefore) {
       if (value === undefined) delete process.env[name];
@@ -161,6 +163,21 @@ describe("CodexDriver turns (fake app-server)", () => {
     // would strip the credential helper or the agent SSH signing needs.
     expect(Object.keys(seen.env).filter((name) => name.startsWith("GIT_")).sort()).toEqual(parentGitNames);
     expect(seen.argv.join(" ")).not.toMatch(/\bgit\b|credential|authorization|basic /i);
+  });
+
+  it("passes GH_TOKEN to the child so gh uses the right account, and still strips GITHUB_TOKEN", async () => {
+    await create();
+    const dump = join(scratch, "gh-token.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    process.env.GH_TOKEN = "gh-token-must-survive";
+    process.env.GITHUB_TOKEN = "github-token-must-not-leak";
+
+    await instance.adapter.sendTurn({ threadId: "t-gh-token", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.env.GH_TOKEN).toBe("gh-token-must-survive");
+    expect(seen.env.GITHUB_TOKEN).toBeUndefined();
   });
 
   it("forwards the app-server's account rate limits as account.rate-limits.updated", async () => {
