@@ -47,6 +47,10 @@ function PlanUsage() {
     });
   const canRefresh = (instance: InstanceInfo) =>
     instance.driverKind === "claudeAgent" || instance.driverKind === "codex" || instance.driverKind === "grokAgent";
+  // Keyed off what was banked, not a driver allowlist: acp/core only emits
+  // token usage when the agent it wraps reports it, so a list would be wrong.
+  const engineTokens = (instance: InstanceInfo) =>
+    sumUsage(state.bots.filter((bot) => bot.modelSelection.instanceId === instance.instanceId).map(botUsage));
   const age = (observedAt: string) => {
     const minutes = Math.max(0, Math.floor((now - Date.parse(observedAt)) / 60_000));
     return minutes < 60
@@ -84,55 +88,63 @@ function PlanUsage() {
         <div className="text-[13px] text-ink-secondary">{t("usage.limits.empty")}</div>
       ) : (
         <div className="flex flex-col gap-4">
-          {engines.map((instance) => (
-            <div key={instance.instanceId}>
-              <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
-                <ProviderMark driverKind={instance.driverKind} size={16} />
-                <span className="truncate">{instance.displayName}</span>
+          {engines.map((instance) => {
+            const spent = engineTokens(instance);
+            return (
+              <div key={instance.instanceId}>
+                <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
+                  <ProviderMark driverKind={instance.driverKind} size={16} />
+                  <span className="truncate">{instance.displayName}</span>
+                  {spent.input + spent.output > 0 && (
+                    <span className="ml-auto shrink-0 font-normal tabular-nums text-[11.5px] text-ink-secondary" title={usageDetail(spent)}>
+                      {`↑${formatTokens(spent.input)} ↓${formatTokens(spent.output)}`}
+                    </span>
+                  )}
+                </div>
+                {instance.rateLimits ? (
+                  <div className={cn("mx-auto mt-2 grid w-fit gap-x-6", instance.rateLimits.windows.length > 1 ? "grid-cols-[auto_auto]" : "grid-cols-1")}>
+                    {instance.rateLimits.windows.map((window) => {
+                      const opus = window.id === "seven_day_opus";
+                      const shortLabel = t(PLAN_WINDOW_SHORT_LABEL_KEY[windowKind(window.id, window.windowMinutes)]);
+                      return (
+                        <div key={window.id} role={opus ? "group" : undefined} aria-label={opus ? `${t("usage.limits.opusShort")} ${shortLabel}` : undefined}
+                          className="flex min-w-0 flex-wrap items-center gap-2 text-[11.5px] text-ink">
+                          {opus && <span aria-hidden="true">{t("usage.limits.opusShort")}</span>}
+                          {windowExpired(window.resetsAt, now) ? (
+                            <span>
+                              {shortLabel}{" "}
+                              <span className="text-ink-secondary">{t("usage.limits.resetPassed")}</span>
+                            </span>
+                          ) : (
+                            <>
+                              <PlanWindowMeter window={window} now={now} compact />
+                              {!resetCompact(window.resetsAt, now) && <span className="text-ink-secondary">{t("usage.limits.resetUnknown")}</span>}
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="mt-1 text-[12px] text-ink-secondary">{honestCaption(instance)}</div>
+                )}
+                {canRefresh(instance) && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <button type="button" onClick={() => void refresh(instance)} disabled={refreshing.has(instance.instanceId)}
+                      className="rounded-md px-2 py-1 text-[12px] text-ink-secondary hover:bg-ink/5 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent">
+                      {t(refreshing.has(instance.instanceId) ? "usage.limits.refreshing" : "usage.limits.refresh")}
+                    </button>
+                    {instance.rateLimits && <span className="text-[11px] text-ink-secondary">{t("usage.limits.refreshAge", { age: age(instance.rateLimits.observedAt) })}</span>}
+                  </div>
+                )}
+                {refreshErrors[instance.instanceId] && (
+                  <div className="mt-1 text-[12px] text-danger">
+                    {t("usage.limits.refreshFailed", { message: refreshErrors[instance.instanceId], age: instance.rateLimits ? age(instance.rateLimits.observedAt) : "—" })}
+                  </div>
+                )}
               </div>
-              {instance.rateLimits ? (
-                <div className={cn("mt-2", instance.rateLimits.windows.length > 1 ? "grid grid-cols-2 gap-4" : "grid grid-cols-1")}>
-                  {instance.rateLimits.windows.map((window) => {
-                    const opus = window.id === "seven_day_opus";
-                    const shortLabel = t(PLAN_WINDOW_SHORT_LABEL_KEY[windowKind(window.id, window.windowMinutes)]);
-                    return (
-                      <div key={window.id} role={opus ? "group" : undefined} aria-label={opus ? `${t("usage.limits.opusShort")} ${shortLabel}` : undefined}
-                        className="flex min-w-0 flex-wrap items-center gap-2 text-[11.5px] text-ink">
-                        {opus && <span aria-hidden="true">{t("usage.limits.opusShort")}</span>}
-                        {windowExpired(window.resetsAt, now) ? (
-                          <span>
-                            {shortLabel}{" "}
-                            <span className="text-ink-secondary">{t("usage.limits.resetPassed")}</span>
-                          </span>
-                        ) : (
-                          <>
-                            <PlanWindowMeter window={window} now={now} compact />
-                            {!resetCompact(window.resetsAt, now) && <span className="text-ink-secondary">{t("usage.limits.resetUnknown")}</span>}
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="mt-1 text-[12px] text-ink-secondary">{honestCaption(instance)}</div>
-              )}
-              {canRefresh(instance) && (
-                <div className="mt-2 flex items-center gap-2">
-                  <button type="button" onClick={() => void refresh(instance)} disabled={refreshing.has(instance.instanceId)}
-                    className="rounded-md px-2 py-1 text-[12px] text-ink-secondary hover:bg-ink/5 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent">
-                    {t(refreshing.has(instance.instanceId) ? "usage.limits.refreshing" : "usage.limits.refresh")}
-                  </button>
-                  {instance.rateLimits && <span className="text-[11px] text-ink-secondary">{t("usage.limits.refreshAge", { age: age(instance.rateLimits.observedAt) })}</span>}
-                </div>
-              )}
-              {refreshErrors[instance.instanceId] && (
-                <div className="mt-1 text-[12px] text-danger">
-                  {t("usage.limits.refreshFailed", { message: refreshErrors[instance.instanceId], age: instance.rateLimits ? age(instance.rateLimits.observedAt) : "—" })}
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </Card>
