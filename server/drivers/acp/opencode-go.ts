@@ -195,6 +195,7 @@ const stripForeignProviderKeys = (env: Record<string, string | undefined>) => {
 
 function opencodeConfigDir(
   env: Record<string, string | undefined>,
+  // The write path's own resolution; a read path must pass tildeHome(env).
   home = env.HOME || env.USERPROFILE || homedir(),
 ): string {
   return join(env.XDG_CONFIG_HOME || join(home, ".config"), "opencode");
