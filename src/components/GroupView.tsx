@@ -3,7 +3,7 @@
 // does not become a wall of competing motion. Plain messages go to the room's
 // default responder; @mentions override that routing.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, Check, ChevronDown, ChevronRight, Folder, FolderOpen, Loader2, MessageSquareReply, Pin, PinOff, Plus, Search, X } from "lucide-react";
+import { ArrowDown, Check, ChevronDown, ChevronRight, Folder, FolderOpen, Gauge, Loader2, MessageSquareReply, Pin, PinOff, Plus, Search, X } from "lucide-react";
 import {
   api,
   useStore,
@@ -50,6 +50,8 @@ import { TRANSCRIPT_GAP, useComposerDockPad } from "@/lib/composer-dock";
 import { turnPresenceWaiting } from "@/lib/send-accept";
 import { activeLocale, localeTag, t, useI18n } from "@/lib/i18n";
 import { liveActivityLabel } from "@/lib/live-activity";
+import { usageLimitReset } from "@/lib/usage";
+import { useNow } from "./PlanUsageBar";
 import { splitAttachedImages } from "@/lib/composer-attachments";
 import {
   TRANSCRIPT_WINDOW_SIZE,
@@ -74,8 +76,28 @@ function dayLabel(at: number): string {
  * the 1:1 pill minus its status glyph — a room reads as a conversation. */
 function RoomToolChip({ message }: { message: Message }) {
   const { dispatch, state } = useStore();
+  const { t } = useI18n();
+  const now = useNow();
   const tool = message.tool;
   if (!tool) return null;
+  // A spent plan is the one failure a room can explain, so it gets the same
+  // warning treatment as 1:1 — with the engine's own words kept on the title.
+  if (tool.usageLimit) {
+    const reset = usageLimitReset(tool.usageLimit.resetsAt, now);
+    return (
+      <div className="flex justify-start">
+        <div
+          title={tool.name}
+          className="flex items-center gap-2 rounded-full border border-warning/30 bg-warning/10 px-3 py-1.5 text-[13px] text-warning"
+        >
+          <Gauge size={13} className="shrink-0" />
+          <span className="max-w-[480px] truncate">
+            {reset ? `${t("chat.usageLimit")} · ${t(reset.key, reset.vars)}` : t("chat.usageLimit")}
+          </span>
+        </div>
+      </div>
+    );
+  }
   const comm = message.comm;
   if (comm) {
     const peer = state.bots.find((bot) => bot.id === comm.withBotId);

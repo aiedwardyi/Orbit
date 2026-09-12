@@ -444,10 +444,14 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
          *  numbers to read — and a failed turn is the one path that never
          *  read them, because settle() only bills a turn that finished.
          *
-         *  A `host::model` turn is skipped: it never touched the subscription,
-         *  so billing would explain a loopback failure with the wrong account. */
+         *  Two turns are skipped. A `host::model` one never touched the
+         *  subscription, so billing would explain a loopback failure with the
+         *  wrong account; and anything that failed before the prompt went out
+         *  — session setup, model pinning — has its own actionable message
+         *  that a spent window must not be allowed to overwrite. */
         const probeUsageLimit = async (): Promise<{ resetsAt: number | null } | null> => {
-          if (!support.billingMethod || skipSubscriptionAuthForLocalInject(turn.model)) return null;
+          if (!support.billingMethod || !state.promptSent) return null;
+          if (skipSubscriptionAuthForLocalInject(turn.model)) return null;
           if (child.exitCode !== null || child.killed) return null;
           try {
             const windows = grokRateLimitWindows(await request(support.billingMethod, {}, USAGE_PROBE_TIMEOUT));

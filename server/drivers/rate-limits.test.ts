@@ -165,11 +165,33 @@ describe("usageLimitFromError", () => {
   });
 
   it("never classifies a JSON-RPC protocol error, whatever its payload says", () => {
-    for (const code of [-32700, -32600, -32601, -32602]) {
+    for (const code of [-32700, -32600, -32601, -32602, "-32602", " -32601 "]) {
       expect(usageLimitFromError(Object.assign(new Error("rate limit exceeded"), { code }), true)).toBeNull();
     }
     expect(usageLimitFromError(Object.assign(new Error("rate limit exceeded"), { code: -32603 }), true))
       .toEqual({ resetsAt: null });
+  });
+
+  /** "quota" on its own is as much an outage word as a limit word. */
+  it("wants a spent-ness word, not the bare noun", () => {
+    expect(usageLimitFromError(new Error("quota configuration is unavailable"), true)).toBeNull();
+    expect(usageLimitFromError(Object.assign(new Error("Internal error"), {
+      code: -32603,
+      data: { hint: "check quota settings" },
+    }), true)).toBeNull();
+  });
+
+  /** A named type is the provider saying it outright, so it decides alone —
+   *  and it splits the same way the prose does. */
+  it("prefers data.error.type over the prose, throttle types still gated", () => {
+    const typed = (type: string) => Object.assign(new Error("Internal error"), { code: -32603, data: { error: { type } } });
+    expect(usageLimitFromError(typed("quota_exceeded"), false)).toEqual({ resetsAt: null });
+    expect(usageLimitFromError(typed("rate_limit_exceeded"), true)).toEqual({ resetsAt: null });
+    expect(usageLimitFromError(typed("rate_limit_exceeded"), false)).toBeNull();
+    expect(usageLimitFromError(
+      Object.assign(new Error("usage limit reached"), { data: { error: { type: "invalid_request" } } }),
+      true,
+    )).toBeNull();
   });
 
   it("reads retry-after seconds as a reset time", () => {

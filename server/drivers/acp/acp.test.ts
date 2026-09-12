@@ -797,6 +797,19 @@ describe("ACP turns (fake CLI)", () => {
     expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed" });
   });
 
+  /** configureSession is awaited inside the same try as the prompt, so its
+   *  rejections land in the same catch. They carry an actionable message and
+   *  must not be relabelled "your plan is used up" by a full billing window. */
+  it("does not blame a spent plan for a failure that happened before the prompt", async () => {
+    process.env.FAKE_ACP_BILLING_PERCENT = "100";
+    await create(GrokAgentDriver, "set-model-invalid-params");
+    await instance.adapter.sendTurn({ threadId: "t-usage-config", text: "go", model: "grok-4.6" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const err = recorder.events.find((e) => e.type === "runtime.error")!;
+    expect(err.usageLimit).toBeUndefined();
+    expect(err.message).toContain("session/set_model");
+  });
+
   /** A local `host::model` turn never spent the grok.com subscription, so
    *  its failure must not be explained with that account's billing. */
   it("skips the billing probe for a local inject turn", async () => {

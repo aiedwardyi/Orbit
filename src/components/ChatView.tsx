@@ -49,6 +49,7 @@ import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
 import { ApprovalCard } from "./ApprovalCard";
 import { Composer } from "./Composer";
 import { ChatPlanMeters } from "./ChatPlanMeters";
+import { useNow } from "./PlanUsageBar";
 import { ChatFindBar } from "./ChatFindBar";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
@@ -205,8 +206,9 @@ function ErrorRow({
   usageLimit?: { resetsAt: number | null };
 }) {
   const { t } = useI18n();
+  const now = useNow();
   const action = setupErrorAction(message, setupInstance);
-  const reset = usageLimit ? usageLimitReset(usageLimit.resetsAt) : null;
+  const reset = usageLimit ? usageLimitReset(usageLimit.resetsAt, now) : null;
   return (
     <div className="flex justify-start">
       <div

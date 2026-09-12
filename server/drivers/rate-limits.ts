@@ -83,8 +83,17 @@ export function grokRateLimitWindows(payload: unknown): RateLimitWindow[] {
 }
 
 // Unambiguous exhaustion: the account is out, whoever the provider is.
+// Every branch needs a spent-ness word — a bare "quota" also appears in
+// "quota configuration is unavailable", which is an outage. "limit" is not
+// a noun here either: "rate limit exceeded" is the throttle below.
 const EXHAUSTED_PATTERN =
-  /usage limit|\bquota\b|out of credits|credits? exhausted|limit reached|exceeded your [^"]{0,24}limit/i;
+  /usage limit|out of credits|(?:credits?|quotas?) (?:exhausted|exceeded|reached|used up)|(?:exhausted|exceeded|reached|used up|ran out of) (?:your )?[^"]{0,24}(?:quota|credits?)/i;
+
+// A provider that names the failure in `data.error.type` has said it
+// outright, and that beats any reading of prose. The split is the same one
+// the patterns make: spent for certain, versus merely throttled.
+const EXHAUSTED_TYPES = new Set(["quota_exceeded", "insufficient_quota", "usage_limit_reached", "credits_exhausted"]);
+const THROTTLE_TYPES = new Set(["rate_limit_exceeded", "rate_limit", "too_many_requests"]);
 
 // A throttle, which reads two ways. On a CLI that bills a subscription
 // window it means the window is spent; on a per-minute API limit it means
@@ -92,12 +101,19 @@ const EXHAUSTED_PATTERN =
 const THROTTLE_PATTERN = /\b429\b|rate[_ -]?limit|too many requests/i;
 
 // JSON-RPC protocol errors describe a malformed call, never an account.
+// Transports differ on whether the code rides as a number or a string.
 const PROTOCOL_ERROR_CODES = new Set([-32700, -32600, -32601, -32602]);
+
+function protocolErrorCode(code: number | string | undefined): boolean {
+  const numeric = finite(code) ? code : Number(String(code ?? "").trim());
+  return Number.isInteger(numeric) && PROTOCOL_ERROR_CODES.has(numeric);
+}
 
 /** What a provider may say about when a spent window comes back: an
  * absolute time, or an offset. Every field is optional — the provider
  * decides how much it tells us, and several tell us nothing. */
 export interface RejectionDetail {
+  error?: { type?: string };
   resetsAt?: number;
   resets_at?: number;
   resetAt?: number;
@@ -146,7 +162,12 @@ export function usageLimitFromError(
   // Error before rejecting; both stay optional, and neither is read as more
   // than the shape declared above.
   const { code, data } = error as Error & RejectionFields;
-  if (finite(code) && PROTOCOL_ERROR_CODES.has(code)) return null;
+  if (protocolErrorCode(code)) return null;
+  const named = data?.error?.type;
+  if (named) {
+    const spent = EXHAUSTED_TYPES.has(named) || (subscription && THROTTLE_TYPES.has(named));
+    return spent ? { resetsAt: resetFromRejection(data, now) } : null;
+  }
   let detail = "";
   try {
     detail = JSON.stringify({ code, data }) ?? "";
