@@ -218,7 +218,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
               type="button"
               disabled={!instances && !instancesError}
               onClick={() => instancesError ? retryInstances() : hasReadyEngine ? finish() : setStep(1)}
-              className={`${instancesError ? "mt-3" : "mt-6"} w-full rounded-xl bg-accent py-2.5 text-[14px] font-semibold text-white transition-[filter,transform] hover:brightness-110 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40`}
+              className={`${instancesError ? "mt-3" : "mt-6"} w-full rounded-xl bg-accent py-2.5 text-[14px] font-semibold text-accent-ink transition-[filter,transform] hover:brightness-110 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40`}
             >
               {instancesError ? t("onboarding.tryAgain") : !instances ? t("onboarding.checking") : emptyConnect ? t("noEngines.title") : t("onboarding.continue")}
             </button>
@@ -267,7 +267,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             </div>
             <div className="mt-5 flex shrink-0 items-center gap-2.5">
               <button type="button" onClick={() => setStep(0)} className="rounded-xl px-4 py-2.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink">{t("onboarding.back")}</button>
-              <button type="button" onClick={instancesError || emptyConnect ? retryInstances : finish} disabled={!instancesError && !emptyConnect && !hasReadyEngine} className="flex-1 rounded-xl bg-accent py-2.5 text-[14px] font-semibold text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">{instancesError ? t("onboarding.tryAgain") : emptyConnect ? t("noEngines.checkAgain") : t("onboarding.openOrbit")}</button>
+              <button type="button" onClick={instancesError || emptyConnect ? retryInstances : finish} disabled={!instancesError && !emptyConnect && !hasReadyEngine} className="flex-1 rounded-xl bg-accent py-2.5 text-[14px] font-semibold text-accent-ink hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">{instancesError ? t("onboarding.tryAgain") : emptyConnect ? t("noEngines.checkAgain") : t("onboarding.openOrbit")}</button>
               {emptyConnect && !instancesError && (
                 <button type="button" onClick={finish} className="rounded-xl px-4 py-2.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink">{t("onboarding.openOrbit")}</button>
               )}

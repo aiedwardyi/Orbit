@@ -169,7 +169,7 @@ export function PendingApprovalActions({
       )}
       <button
         onClick={() => decide("allow")}
-        className={cn(base, "bg-accent font-medium text-white hover:brightness-110")}
+        className={cn(base, "bg-accent font-medium text-accent-ink hover:brightness-110")}
       >
         {isRoutineRequest ? t("approval.confirm") : t("approval.allowOnce")}
       </button>

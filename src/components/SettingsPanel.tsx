@@ -666,7 +666,7 @@ export function SettingsPanel({
             <div className="flex items-center gap-3">
               <span className={cn(
                 "flex size-8 shrink-0 items-center justify-center rounded-lg",
-                bot.chiefOfStaff ? "bg-accent text-white" : "bg-control text-ink-secondary",
+                bot.chiefOfStaff ? "bg-accent text-accent-ink" : "bg-control text-ink-secondary",
               )}>
                 <Crown size={17} />
               </span>
