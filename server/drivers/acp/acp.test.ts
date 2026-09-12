@@ -213,14 +213,14 @@ describe("ACP turns (fake CLI)", () => {
   let recorder: EventRecorder;
   let scratch: string;
 
-  const create = async (driver = GrokAgentDriver, mode?: string) => {
+  const create = async (driver = GrokAgentDriver, mode?: string, fullAuto = false) => {
     if (mode) process.env.FAKE_ACP_MODE = mode;
     instance = await driver.create({
       instanceId: "acp-test",
       displayName: "ACP Test",
       environment: {},
       enabled: true,
-      config: { cli: FAKE_CLI, fullAuto: false },
+      config: { cli: FAKE_CLI, fullAuto },
     });
     recorder = recordEvents(instance.adapter);
   };
@@ -673,6 +673,40 @@ describe("ACP turns (fake CLI)", () => {
 
   it("answers a one-time deny with reject_once, not a persistent reject_always", async () => {
     expect(await permissionPick("deny")).toEqual(["reject_once"]);
+  });
+
+  /** fullAuto answers with nobody watching, so a persistent grant taken here
+   *  is the one that would never be noticed. */
+  it("auto-approves with allow_once when the agent lists allow_always first", async () => {
+    const dump = join(scratch, "perm-auto.json");
+    process.env.FAKE_ACP_DUMP = dump;
+    process.env.FAKE_ACP_PERMISSION_KINDS = "allow_always,allow_once,reject_always,reject_once";
+    await create(GrokAgentDriver, "permission", true);
+    await instance.adapter.sendTurn({ threadId: "t-auto", text: "go" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(JSON.parse(readFileSync(`${dump}.permission.json`, "utf8"))).toEqual(["allow_once"]);
+  });
+
+  /** An agent offering only a persistent grant gets no answer at all: selecting
+   *  allow_always would hand it a grant this app never recorded and cannot
+   *  revoke, so the ask cancels loudly instead. */
+  it("cancels the ask when the agent advertises no one-time allow", async () => {
+    const dump = join(scratch, "perm-persistent.json");
+    process.env.FAKE_ACP_DUMP = dump;
+    process.env.FAKE_ACP_PERMISSION_KINDS = "allow_always,reject_always";
+    await create(GrokAgentDriver, "permission");
+    await instance.adapter.sendTurn({ threadId: "t-persistent", text: "go" });
+    const opened = await recorder.until((e) => e.type === "request.opened");
+    // SAFETY: until() matched type "request.opened", the variant carrying requestId.
+    await instance.adapter.respondToRequest("t-persistent", (opened as any).requestId, { behavior: "allow" });
+    expect(await recorder.until((e) => e.type === "request.resolved")).toMatchObject({
+      behavior: "deny",
+      source: "system",
+    });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(JSON.parse(readFileSync(`${dump}.permission.json`, "utf8"))).toEqual([null]);
+    const err = recorder.events.find((e) => e.type === "runtime.error")!;
+    expect(err.message).toContain('offered no "allow_once" permission option');
   });
 
   it("grok fails closed when the CLI advertises no cached_token (needs login)", async () => {
