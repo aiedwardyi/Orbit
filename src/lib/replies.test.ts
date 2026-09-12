@@ -22,4 +22,10 @@ describe("reply display", () => {
       "hello world quoted paste",
     );
   });
+
+  it("converts attached-file tags to attachment labels in reply snippets", () => {
+    expect(replySnippet('<attached-file path="/tmp/notes.txt" /> check this')).toBe(
+      "[attachment: notes.txt] check this",
+    );
+  });
 });
