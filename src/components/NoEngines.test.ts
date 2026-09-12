@@ -96,9 +96,9 @@ function markup() {
 }
 
 describe("empty-engine first launch screen", () => {
-  it("screams one Grok or Claude connect path instead of the engine zoo", () => {
+  it("screams one Claude or Grok connect path instead of the engine zoo", () => {
     const html = markup();
-    expect(html).toContain("Connect Grok or Claude");
+    expect(html).toContain("Connect Claude or Grok");
     expect(html).toContain("Your bots need one of these to run. Pick the one you already use.");
     expect(html).toContain("Install Grok");
     expect(html).toContain("Install Claude");

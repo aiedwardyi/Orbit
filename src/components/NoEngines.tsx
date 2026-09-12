@@ -17,7 +17,7 @@ export function NoEngines() {
   const { state, refreshInstances } = useStore();
   const [rechecking, setRechecking] = useState(false);
 
-  // Grok or Claude only. The rest of the fleet is a Settings concern; listing
+  // Claude or Grok only. The rest of the fleet is a Settings concern; listing
   // it here turns first launch into a zoo. Box has no installer, so it never
   // belongs on this screen.
   const engines = firstLaunchConnectInstances(state.instances);

@@ -153,7 +153,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const emptyConnect = instances !== null && isEmptyEngineLaunch(instances);
 
   const retryInstances = () => {
-    // Keep the Grok/Claude cards up while we recheck. Nulling the list here
+    // Keep the Claude/Grok cards up while we recheck. Nulling the list here
     // would flash the disabled Open Orbit button and look like a dead app.
     if (!emptyConnect) setInstances(null);
     setInstancesError(null);
