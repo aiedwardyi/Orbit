@@ -19,7 +19,7 @@ const ACK_MS = 3000;
 /** Runs a manual check and reports when it finished with nothing to install.
  * The window opens when the RESULT lands, not on the click — timing it from
  * the click meant a check slower than the window finished silently. */
-export function useManualCheck(status: string) {
+export function useManualCheck(status: UpdaterState["status"]) {
   const [ackAt, setAckAt] = useState(0);
   const check = useCallback(() => {
     setAckAt(0);
