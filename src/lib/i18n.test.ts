@@ -44,9 +44,8 @@ const onboarding = readFileSync(join(here, "../components/Onboarding.tsx"), "utf
 const skinPicker = readFileSync(join(here, "../components/SkinPicker.tsx"), "utf8");
 
 function fixedKoreanParticles(text: string): string[] {
-  return [...text.matchAll(/\{\w+\}["'”’»」』)\]〉》]*([가-힣]+(?:\([가-힣]+\))?)/g)]
-    .filter((match) => !/^(?:은\(는\)|는\(은\)|이\(가\)|가\(이\)|을\(를\)|를\(을\)|와\(과\)|과\(와\)|으로\(로\)|로\(으로\))/.test(match[1]))
-    .filter((match) => /^(?:은|는|이|가|을|를|와|과|으로|로|랑|나|라도|든|아|야)/.test(match[1]))
+  return [...text.matchAll(/\{\w+\}["'”’»」』)\]〉》]*([가-힣]+(?:\([가-힣]+\))?)(?=$|\s|\p{P})/gu)]
+    .filter((match) => /^(?:은|는|이|가|을|를|와|과|으로|로|이랑|랑|이나|나|이라도|라도|이든|든|아|야|와의|과의|이라는|라는|이라고|라고|이라|라|이란|란|이며|며)$/.test(match[1]))
     .map((match) => match[0]);
 }
 
@@ -92,17 +91,25 @@ describe("catalogs", () => {
   });
 
   it("detects particle suffixes through closing punctuation without flagging counters or invariant particles", () => {
-    for (const particle of ["은", "는", "이", "가", "을", "를", "와", "과", "으로", "로", "와의", "이라는", "이랑", "랑", "이나", "나", "이라도", "라도", "이든", "든", "아", "야"]) {
+    for (const particle of ["은", "는", "이", "가", "을", "를", "와", "과", "으로", "로", "와의", "과의", "이라는", "라는", "이라고", "라고", "이라", "라", "이란", "란", "이며", "며", "이랑", "랑", "이나", "나", "이라도", "라도", "이든", "든", "아", "야"]) {
       for (const closing of ["", "”", "’", '"', "'", ")", "]", "」", "』", "》", "〉", "»", "”)"]) {
-        expect(fixedKoreanParticles(`{value}${closing}${particle} 설명`)).toHaveLength(1);
+        for (const boundary of ["", " 설명", ".", ",", "!", "?", "\n"]) {
+          const phrase = `{value}${closing}${particle}${boundary}`;
+          expect.soft(fixedKoreanParticles(phrase), phrase).toHaveLength(1);
+        }
       }
     }
     for (const phrase of [
+      "{name}이름", "{count}나열", "{name}로봇", "{name}라이브", "{name}며칠",
       "{name}에게", "{name}에", "{name}에서", "{name}의", "{count}개", "{days}일",
       "{hours}시간", "{minutes}분", "{name} 이름", "{name} 작업 중", "“{query}” 검색 결과",
       "{name}은(는)", "{name}이(가)", "{name}을(를)", "{name}와(과)", "{name}으로(로)",
     ]) {
-      expect(fixedKoreanParticles(phrase), phrase).toEqual([]);
+      expect.soft(fixedKoreanParticles(phrase), phrase).toEqual([]);
+    }
+    for (const particle of ["라고", "라", "란", "며"]) {
+      const phrase = `{name}${particle} 합니다`;
+      expect.soft(fixedKoreanParticles(phrase), phrase).toEqual([`{name}${particle}`]);
     }
     expect(fixedKoreanParticles("{name}이 {tool}을 실행합니다")).toEqual(["{name}이", "{tool}을"]);
   });
