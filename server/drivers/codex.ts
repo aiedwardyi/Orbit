@@ -105,10 +105,12 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       // at all: a leaked one silently flips billing to pay-as-you-go
       // (agentcal). The local-host token is the single billing exception —
       // codexLocalProviderArgs reads it back out to serve an injected model.
-      // GH_TOKEN is the single git exception: without it `gh auth
-      // git-credential` falls back to whatever account is stored on disk,
-      // which is the wrong one on a two-account machine. GITHUB_TOKEN stays
-      // stripped — the narrowest grant that fixes the wrong-account failure.
+      // GH_TOKEN is granted so `gh auth git-credential` (the github.com
+      // credential helper) uses the env account instead of falling back to
+      // whatever account is stored on disk, which is the wrong one on a
+      // two-account machine. It reaches the app-server process and its tool
+      // calls, which is accepted because they already share the CLI's trust
+      // boundary. GITHUB_TOKEN stays stripped.
       applyCredentialAllowlist(env, ["UNSLOTH_STUDIO_AUTH_TOKEN", "GH_TOKEN"]);
       return env;
     };
