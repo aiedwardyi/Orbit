@@ -26,7 +26,10 @@ afterEach(async () => {
 
 async function mountComposer() {
   vi.stubGlobal("EventSource", FakeEventSource);
-  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })));
+  vi.stubGlobal("fetch", vi.fn(async (url: string) =>
+    String(url).includes("/api/attachments")
+      ? new Response(JSON.stringify({ path: "/tmp/shot.png", mime: "image/png", bytes: 3 }), { status: 200 })
+      : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })));
   vi.spyOn(console, "warn").mockImplementation(() => {});
   const host = document.createElement("div");
   document.body.append(host);
@@ -38,9 +41,18 @@ async function mountComposer() {
   };
   const box = host.querySelector("textarea")!;
   const card = () => host.querySelector('[aria-label="Display pasted text in chat box"]');
+  const fileChip = () => host.querySelector('[aria-label="Remove file"]');
   return {
     box,
     card,
+    fileChip,
+    pasteImage: () =>
+      act(async () => {
+        const file = new File([new Uint8Array([1, 2, 3])], "shot.png", { type: "image/png" });
+        const event = new Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(event, "clipboardData", { value: { files: [file], getData: () => "" } });
+        box.dispatchEvent(event);
+      }),
     type: (value: string) =>
       act(async () => {
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box, value);
@@ -115,5 +127,18 @@ describe("Composer paste undo", () => {
     expect(undo.defaultPrevented).toBe(true);
     expect(composer.box.value).toBe("hello");
     expect(composer.card()).toBeNull();
+  });
+
+  it("keeps a chip added after the paste when Ctrl+Z takes the paste card off", async () => {
+    const composer = await mountComposer();
+    await composer.paste(block);
+    await composer.pasteImage();
+    expect(composer.card()).not.toBeNull();
+    expect(composer.fileChip()).not.toBeNull();
+
+    const undo = await composer.undo();
+    expect(undo.defaultPrevented).toBe(true);
+    expect(composer.card()).toBeNull();
+    expect(composer.fileChip()).not.toBeNull();
   });
 });
