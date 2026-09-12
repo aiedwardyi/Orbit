@@ -613,6 +613,32 @@ describe("OpenCode Ask for approval", () => {
     expect((await permissionFor(inline({ bash: "{file:rule.txt}" }), cwdFile, true, "repo")).bash).toBe("deny");
   });
 
+  it("expands {file:~/} from the home the CLI resolves, not the other platform's", async () => {
+    // The CLI expands ~ with os.homedir(): USERPROFILE on Windows, HOME elsewhere.
+    const cliHome = process.platform === "win32" ? "profile" : "home";
+    const files = {
+      "opencode/opencode.json": inline({ edit: "{file:~/edit.txt}" }),
+      "home/edit.txt": cliHome === "home" ? "deny" : "allow",
+      "profile/edit.txt": cliHome === "profile" ? "deny" : "allow",
+    };
+    const split = (scratch: string) => ({ HOME: join(scratch, "home"), USERPROFILE: join(scratch, "profile") });
+    expect((await permissionFor(undefined, files, true, undefined, split)).edit).toBe("deny");
+  });
+
+  it("denies a {file:~/} it cannot place rather than guess the home", async () => {
+    const files = {
+      "opencode/opencode.json": inline({ edit: "{file:~/edit.txt}" }),
+      "home/edit.txt": "allow",
+      "profile/edit.txt": "allow",
+    };
+    const win32 = process.platform === "win32";
+    const unset = (scratch: string) => ({
+      HOME: win32 ? join(scratch, "home") : "",
+      USERPROFILE: win32 ? "" : join(scratch, "profile"),
+    });
+    expect((await permissionFor(undefined, files, true, undefined, unset)).edit).toBe("deny");
+  });
+
   it("denies bash and edit when a {file:} is missing or a source will not parse", async () => {
     const comment = { "opencode/opencode.jsonc": `// "x": "{file:missing.txt}"\n${inline({ bash: "deny" })}` };
     expect(await permissionFor(undefined, comment)).toMatchObject({ bash: "deny", edit: "ask" });
