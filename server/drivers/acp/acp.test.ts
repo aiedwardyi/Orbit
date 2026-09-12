@@ -299,6 +299,7 @@ describe("ACP turns (fake CLI)", () => {
     delete process.env.FAKE_ACP_USAGE_ROOT;
     delete process.env.FAKE_ACP_PERMISSION_KINDS;
     delete process.env.FAKE_ACP_BILLING_PERCENT;
+    delete process.env.FAKE_ACP_BILLING_END;
     for (const name of FOREIGN_CREDENTIALS) delete process.env[name];
     recorder?.stop();
     await instance?.dispose();
@@ -773,12 +774,47 @@ describe("ACP turns (fake CLI)", () => {
    *  own billing call is the evidence, and it is on a path the error side
    *  never took — a failed turn used to skip the billing read entirely. */
   it("grok reads billing on a bare failure and classifies a full week as a usage limit", async () => {
+    const end = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
     process.env.FAKE_ACP_BILLING_PERCENT = "100";
+    process.env.FAKE_ACP_BILLING_END = end;
     await create(GrokAgentDriver, "usage-limit-silent");
     await instance.adapter.sendTurn({ threadId: "t-usage-silent", text: "go" });
     await recorder.until((e) => e.type === "turn.completed");
     const err = recorder.events.find((e) => e.type === "runtime.error")!;
-    expect(err).toMatchObject({ usageLimit: { resetsAt: Date.parse("2026-09-15T12:00:00Z") } });
+    expect(err).toMatchObject({ usageLimit: { resetsAt: Date.parse(end) } });
+  });
+
+  /** The billing probe is awaited, so the child can die inside it. Whoever
+   *  settles first owns the failure; the loser must stay quiet rather than
+   *  post a second chip after the turn already completed. */
+  it("does not report twice when the child dies inside the billing probe", async () => {
+    await create(GrokAgentDriver, "usage-limit-close");
+    await instance.adapter.sendTurn({ threadId: "t-usage-close", text: "go" });
+    await recorder.until((e) => e.type === "turn.completed");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(recorder.events.filter((e) => e.type === "runtime.error")).toHaveLength(1);
+    expect(recorder.events.filter((e) => e.type === "turn.completed")).toHaveLength(1);
+    expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed" });
+  });
+
+  /** A local `host::model` turn never spent the grok.com subscription, so
+   *  its failure must not be explained with that account's billing. */
+  it("skips the billing probe for a local inject turn", async () => {
+    process.env.FAKE_ACP_BILLING_PERCENT = "100";
+    mkdirSync(join(scratch, ".grok"), { recursive: true });
+    process.env.FAKE_ACP_MODE = "usage-limit-silent";
+    instance = await GrokAgentDriver.create({
+      instanceId: "acp-test",
+      displayName: "ACP Test",
+      environment: { HOME: scratch, GROK_HOME: join(scratch, ".grok") },
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: false },
+    });
+    recorder = recordEvents(instance.adapter);
+    await instance.adapter.sendTurn({ threadId: "t-usage-local", text: "go", model: "omlx::MiniMax-M3-4bit" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const err = recorder.events.find((e) => e.type === "runtime.error")!;
+    expect(err.usageLimit).toBeUndefined();
   });
 
   it("leaves a bare failure alone while the week still has room", async () => {
@@ -996,15 +1032,15 @@ describe("ACP turns (fake CLI)", () => {
   });
 
   it("forwards Grok's weekly billing as account.rate-limits.updated", async () => {
+    const end = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+    process.env.FAKE_ACP_BILLING_END = end;
     await create(GrokAgentDriver);
     expect(instance.adapter.capabilities.rateLimits).toBe(true);
     await instance.adapter.sendTurn({ threadId: "t-billing", text: "hi" });
     await recorder.until((e) => e.type === "turn.completed");
     await recorder.until((e) => e.type === "account.rate-limits.updated");
     expect(recorder.events.filter((e) => e.type === "account.rate-limits.updated")).toMatchObject([
-      {
-        windows: [{ id: "seven_day", usedPercent: 42, resetsAt: Date.parse("2026-09-15T12:00:00Z"), windowMinutes: 10_080 }],
-      },
+      { windows: [{ id: "seven_day", usedPercent: 42, resetsAt: Date.parse(end), windowMinutes: 10_080 }] },
     ]);
   });
 

@@ -82,8 +82,17 @@ export function grokRateLimitWindows(payload: unknown): RateLimitWindow[] {
   ];
 }
 
-const USAGE_LIMIT_PATTERN =
-  /\b429\b|rate[_ -]?limit|too many requests|usage limit|\bquota\b|out of credits|credits? exhausted/i;
+// Unambiguous exhaustion: the account is out, whoever the provider is.
+const EXHAUSTED_PATTERN =
+  /usage limit|\bquota\b|out of credits|credits? exhausted|limit reached|exceeded your [^"]{0,24}limit/i;
+
+// A throttle, which reads two ways. On a CLI that bills a subscription
+// window it means the window is spent; on a per-minute API limit it means
+// wait a moment and retry, so it only counts for the former.
+const THROTTLE_PATTERN = /\b429\b|rate[_ -]?limit|too many requests/i;
+
+// JSON-RPC protocol errors describe a malformed call, never an account.
+const PROTOCOL_ERROR_CODES = new Set([-32700, -32600, -32601, -32602]);
 
 /** What a provider may say about when a spent window comes back: an
  * absolute time, or an offset. Every field is optional — the provider
@@ -124,24 +133,34 @@ function resetFromRejection(detail: RejectionDetail | undefined, now: number): n
 /** A turn that failed because the account spent its subscription, not
  * because anything broke. Providers bury the reason at different depths —
  * Grok answers with a bare JSON-RPC "Internal error" and names the cause
- * under `data` — so the whole rejection is searched, not just its message. */
-export function usageLimitFromError(error: Error, now = Date.now()): { resetsAt: number | null } | null {
+ * under `data` — so the whole rejection is searched, not just its message.
+ *
+ * `subscription` is the driver's own `rateLimits` capability: without it a
+ * bare 429 is a throttle to wait out, not a plan to top up. */
+export function usageLimitFromError(
+  error: Error,
+  subscription: boolean,
+  now = Date.now(),
+): { resetsAt: number | null } | null {
   // SAFETY: the ACP transport copies the JSON-RPC `code` and `data` onto the
   // Error before rejecting; both stay optional, and neither is read as more
   // than the shape declared above.
   const { code, data } = error as Error & RejectionFields;
+  if (finite(code) && PROTOCOL_ERROR_CODES.has(code)) return null;
   let detail = "";
   try {
     detail = JSON.stringify({ code, data }) ?? "";
   } catch {
     // a rejection carrying a cycle still has its message to go on
   }
-  if (!USAGE_LIMIT_PATTERN.test(`${error.message} ${detail}`)) return null;
+  const blob = `${error.message} ${detail}`;
+  if (!EXHAUSTED_PATTERN.test(blob) && !(subscription && THROTTLE_PATTERN.test(blob))) return null;
   return { resetsAt: resetFromRejection(data, now) };
 }
 
 /** The first window the account has actually used up. A window whose reset
- * has passed is history, not a limit. */
+ * has passed is history, not a limit; one with no reset at all stays spent,
+ * because the caller only asks about a turn that already failed. */
 export function exhaustedWindow(
   windows: readonly RateLimitWindow[] | undefined,
   now = Date.now(),

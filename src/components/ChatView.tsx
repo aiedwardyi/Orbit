@@ -223,6 +223,8 @@ function ErrorRow({
                 <span className="font-semibold">{t("chat.usageLimit")}</span>{" "}
                 {t("chat.usageLimitBody")}
                 {reset && <> {t(reset.key, reset.vars)}</>}
+                {/* the engine's own words survive a misread of them */}
+                <span className="mt-1 block text-[12px] opacity-70">{message}</span>
               </>
             ) : (
               message

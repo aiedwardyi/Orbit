@@ -442,9 +442,13 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
 
         /** A rejection that names nothing still leaves the account's own
          *  numbers to read — and a failed turn is the one path that never
-         *  read them, because settle() only bills a turn that finished. */
+         *  read them, because settle() only bills a turn that finished.
+         *
+         *  A `host::model` turn is skipped: it never touched the subscription,
+         *  so billing would explain a loopback failure with the wrong account. */
         const probeUsageLimit = async (): Promise<{ resetsAt: number | null } | null> => {
-          if (!support.billingMethod || child.exitCode !== null || child.killed) return null;
+          if (!support.billingMethod || skipSubscriptionAuthForLocalInject(turn.model)) return null;
+          if (child.exitCode !== null || child.killed) return null;
           try {
             const windows = grokRateLimitWindows(await request(support.billingMethod, {}, USAGE_PROBE_TIMEOUT));
             if (windows.length > 0) {
@@ -811,9 +815,16 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               // fallback for existing ACP supports.
               const needsAuth = code === "invalid_credentials" || code === "inactive_subscription"
                 || message === support.loginNote;
-              const usageLimit = needsAuth
+              const named = needsAuth || !(e instanceof Error)
                 ? null
-                : (e instanceof Error ? usageLimitFromError(e) : null) ?? await probeUsageLimit();
+                : usageLimitFromError(e, support.rateLimits === true);
+              // A rejection that names the limit but not its end still leaves
+              // billing to ask, so the probe runs for that too.
+              const probed = needsAuth || named?.resetsAt != null ? null : await probeUsageLimit();
+              // The probe awaited, and a child that closed meanwhile has
+              // already settled this turn and reported its own failure.
+              if (state.settled) return;
+              const usageLimit = named?.resetsAt != null ? named : probed ?? named;
               const failure: Extract<RuntimeEvent, { type: "runtime.error" }> = {
                 ...base(threadId, turnId),
                 type: "runtime.error",

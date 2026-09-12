@@ -139,6 +139,7 @@ describe("usageLimitFromError", () => {
           code: -32603,
           data: { error: { type: "rate_limit_exceeded", message: "Rate limit exceeded" }, resetsAt: 1_790_172_800 },
         }),
+        true,
       ),
     ).toEqual({ resetsAt: 1_790_172_800_000 });
   });
@@ -150,20 +151,38 @@ describe("usageLimitFromError", () => {
       "You have exceeded your usage limit for this week",
       "monthly quota exhausted",
     ]) {
-      expect(usageLimitFromError(new Error(message))).toEqual({ resetsAt: null });
+      expect(usageLimitFromError(new Error(message), true)).toEqual({ resetsAt: null });
     }
+  });
+
+  /** A bare throttle is the same sentence on a subscription CLI and on a
+   *  per-minute API key, and only one of them means "your plan is used up". */
+  it("counts a bare throttle only for a driver that bills a subscription window", () => {
+    for (const message of ["xAI HTTP 429: Too Many Requests", "rate limit exceeded, slow down"]) {
+      expect(usageLimitFromError(new Error(message), false)).toBeNull();
+    }
+    expect(usageLimitFromError(new Error("monthly quota exhausted"), false)).toEqual({ resetsAt: null });
+  });
+
+  it("never classifies a JSON-RPC protocol error, whatever its payload says", () => {
+    for (const code of [-32700, -32600, -32601, -32602]) {
+      expect(usageLimitFromError(Object.assign(new Error("rate limit exceeded"), { code }), true)).toBeNull();
+    }
+    expect(usageLimitFromError(Object.assign(new Error("rate limit exceeded"), { code: -32603 }), true))
+      .toEqual({ resetsAt: null });
   });
 
   it("reads retry-after seconds as a reset time", () => {
     const now = 1_790_000_000_000;
-    expect(usageLimitFromError(Object.assign(new Error("429 Too Many Requests"), { data: { retryAfter: 600 } }), now))
-      .toEqual({ resetsAt: now + 600_000 });
+    expect(
+      usageLimitFromError(Object.assign(new Error("429 Too Many Requests"), { data: { retryAfter: 600 } }), true, now),
+    ).toEqual({ resetsAt: now + 600_000 });
   });
 
   it("leaves anything that is not a usage limit alone", () => {
-    expect(usageLimitFromError(new Error("Internal error"))).toBeNull();
-    expect(usageLimitFromError(new Error("Invalid API key"))).toBeNull();
-    expect(usageLimitFromError(new Error("model not found: grok-9"))).toBeNull();
+    expect(usageLimitFromError(new Error("Internal error"), true)).toBeNull();
+    expect(usageLimitFromError(new Error("Invalid API key"), true)).toBeNull();
+    expect(usageLimitFromError(new Error("model not found: grok-9"), true)).toBeNull();
   });
 });
 
@@ -175,6 +194,14 @@ describe("exhaustedWindow", () => {
       id: "seven_day",
       usedPercent: 100,
       resetsAt: now + 60_000,
+    });
+  });
+
+  it("keeps a full window whose reset the provider never reported", () => {
+    expect(exhaustedWindow([{ id: "seven_day", usedPercent: 100, resetsAt: null }], now)).toEqual({
+      id: "seven_day",
+      usedPercent: 100,
+      resetsAt: null,
     });
   });
 
