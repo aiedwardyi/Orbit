@@ -709,6 +709,23 @@ describe("ACP turns (fake CLI)", () => {
     expect(err.message).toContain('offered no "allow_once" permission option');
   });
 
+  /** fullAuto answers on its own arm, which returns before the human ever
+   *  hears about the ask, so the same guarantee needs pinning twice: this is
+   *  the one path where nothing else would notice it lapse. */
+  it("cancels in fullAuto when the agent advertises no one-time allow", async () => {
+    const dump = join(scratch, "perm-auto-persistent.json");
+    process.env.FAKE_ACP_DUMP = dump;
+    process.env.FAKE_ACP_PERMISSION_KINDS = "allow_always,reject_always";
+    await create(GrokAgentDriver, "permission", true);
+    await instance.adapter.sendTurn({ threadId: "t-auto-persistent", text: "go" });
+    await recorder.until((e) => e.type === "turn.completed");
+    // no request.opened: this answered on the fullAuto arm, not the human one
+    expect(recorder.events.some((e) => e.type === "request.opened")).toBe(false);
+    expect(JSON.parse(readFileSync(`${dump}.permission.json`, "utf8"))).toEqual([null]);
+    const err = recorder.events.find((e) => e.type === "runtime.error")!;
+    expect(err.message).toContain('offered no "allow_once" permission option');
+  });
+
   it("grok fails closed when the CLI advertises no cached_token (needs login)", async () => {
     await create(GrokAgentDriver, "no-auth");
     await instance.adapter.sendTurn({ threadId: "t-auth", text: "go" });
