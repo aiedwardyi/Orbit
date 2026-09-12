@@ -709,6 +709,28 @@ describe("ACP turns (fake CLI)", () => {
     expect(err.message).toContain('offered no "allow_once" permission option');
   });
 
+  /** The deny side of the same guarantee, and the quiet one: a persistent
+   *  reject still denies, so the resolution reads "deny" either way and
+   *  `source` is the only field separating this from an honest deny. */
+  it("cancels the ask when the agent advertises no one-time reject", async () => {
+    const dump = join(scratch, "perm-persistent-deny.json");
+    process.env.FAKE_ACP_DUMP = dump;
+    process.env.FAKE_ACP_PERMISSION_KINDS = "allow_always,reject_always";
+    await create(GrokAgentDriver, "permission");
+    await instance.adapter.sendTurn({ threadId: "t-persistent-deny", text: "go" });
+    const opened = await recorder.until((e) => e.type === "request.opened");
+    // SAFETY: until() matched type "request.opened", the variant carrying requestId.
+    await instance.adapter.respondToRequest("t-persistent-deny", (opened as any).requestId, { behavior: "deny" });
+    expect(await recorder.until((e) => e.type === "request.resolved")).toMatchObject({
+      behavior: "deny",
+      source: "system",
+    });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(JSON.parse(readFileSync(`${dump}.permission.json`, "utf8"))).toEqual([null]);
+    const err = recorder.events.find((e) => e.type === "runtime.error")!;
+    expect(err.message).toContain('offered no "reject_once" permission option');
+  });
+
   /** fullAuto answers on its own arm, which returns before the human ever
    *  hears about the ask, so the same guarantee needs pinning twice: this is
    *  the one path where nothing else would notice it lapse. */
