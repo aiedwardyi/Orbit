@@ -150,7 +150,7 @@ describe("UsageSection friends plan card", () => {
 
   it("renders every window as the chat's compact meter, with the Opus row labeled and stale windows as text", () => {
     const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-    expect(html).toContain("grid grid-cols-2 gap-4");
+    expect(html).toContain("mx-auto mt-2 grid w-fit gap-x-6 grid-cols-[auto_auto]");
     expect(html).toContain('aria-label="5h: 10% used"');
     expect(html).toContain('aria-label="7d: 49% used"');
     expect(html).toContain(">Opus<");
@@ -170,6 +170,17 @@ describe("UsageSection friends plan card", () => {
     expect(html).toContain('title="Resets in 1 hour"');
     expect(html).toContain('title="Resets in 6 days"');
     expect(html).toContain("Reset since the last check");
+  });
+
+  it("shows read/written tokens only for engines that banked them", () => {
+    const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+    // the fixture banks tokens on the Grok bot only
+    expect(html).toContain("↑10 ↓4");
+    expect((html.match(/↑/g) ?? []).length).toBe(1);
+    expect(html).toContain('title="10 in · 4 out"');
+    // Claude reports windows but has no bot spend, so it must stay bare
+    const claude = html.indexOf(">Claude<");
+    expect(html.slice(claude, html.indexOf(">Codex<"))).not.toContain("↑");
   });
 
   it("names the Opus meter's group in English and Korean", () => {
