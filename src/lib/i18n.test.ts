@@ -350,7 +350,7 @@ describe("Friends Routine naming and one Stop", () => {
     expect(en["routine.runningNamed"]).toBe("{name} is running.");
     expect(ko["routine.runningNamed"]).toBe("{name} 루틴이 실행 중입니다.");
     expect(en["routine.waitingNamed"]).toBe("{name} needs your input.");
-    expect(ko["routine.waitingNamed"]).toBe("{name} 루틴이 응답을 기다립니다.");
+    expect(ko["routine.waitingNamed"]).toBe("{name} 루틴에 사용자 입력이 필요합니다.");
     expect(en["routine.openThread"]).toBe("Open this routine thread");
     expect(ko["routine.openThread"]).toBe("이 루틴 대화 열기");
     expect(en["chat.routineQueuedElsewhere"]).toBe("{name} is queued on this bot.");
@@ -358,7 +358,7 @@ describe("Friends Routine naming and one Stop", () => {
     expect(en["chat.routineRunningElsewhere"]).toBe("{name} is running in another thread on this bot.");
     expect(ko["chat.routineRunningElsewhere"]).toBe("이 봇의 다른 대화에서 {name} 루틴이 실행 중입니다.");
     expect(en["chat.routineWaitingElsewhere"]).toBe("{name} is waiting for you in another thread on this bot.");
-    expect(ko["chat.routineWaitingElsewhere"]).toBe("이 봇의 다른 대화에서 {name} 루틴이 응답을 기다립니다.");
+    expect(ko["chat.routineWaitingElsewhere"]).toBe("이 봇의 다른 대화에서 {name} 루틴이 사용자 응답을 기다립니다.");
     expect(en["chat.openRoutineThread"]).toBe("Open that thread");
     expect(ko["chat.openRoutineThread"]).toBe("그 대화 열기");
     expect(en["task.running"]).toBe("Running");
@@ -538,7 +538,7 @@ describe("team map, team library, and team toasts", () => {
     expect(teamMapPage).toContain('t("chrome.teamMap")');
     expect(teamMapPage).toContain("t(status.key)");
     expect(en["teamMap.waitingOnYou"]).toBe("Waiting on you");
-    expect(ko["teamMap.waitingOnYou"]).toBe("응답 대기");
+    expect(ko["teamMap.waitingOnYou"]).toBe("사용자 응답 대기");
     expect(en["teamMap.status.waiting"]).toBe("Waiting for you");
     expect(ko["teamMap.status.noSignal"]).toBe("신호 없음");
     expect(ko["teamMap.general"]).toBe("일반");
