@@ -6802,12 +6802,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         patch.autoReview = body.autoReview;
       }
-      // "Auto on this Mac" hands a bot the user's real session, so the grant
-      // must prove a human saw the warning. The desktop dialog is the only
-      // caller that sends acknowledgeLocalAuto; without it a PATCH that would
-      // create the combination — a bot curling the loopback API from a tool
-      // call, a script, a stale client — is refused. The renderer dialog
-      // alone is not a boundary; this check is.
+      // Requires acknowledgeLocalAuto so the desktop dialog can't be skipped
+      // by accident. It proves a human saw the warning only when the caller
+      // is that dialog — the server can't tell it apart from any other
+      // holder of the API token, including a bot's own agent process, so
+      // this is not a boundary against a hostile agent.
       const wantsComputer = body.computer !== undefined ? body.computer : existingBot?.computer;
       const wantsAuto = body.autoApprove !== undefined ? body.autoApprove : existingBot?.autoApprove === true;
       const alreadyGranted = existingBot?.computer === "local" && existingBot?.autoApprove === true;
