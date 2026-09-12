@@ -57,7 +57,7 @@ function isGeminiOrOpenCodeApiKeyMessage(message: string): boolean {
 
 /** What a failed turn should offer: install/sign-in, paste a key, or Retry.
  *
- * `/api key/` in the error text is not enough on its own — Grok/Claude can
+ * `/api key/` in the error text is not enough on its own — Claude/Grok can
  * say "Invalid API key" and still need Terminal, not Connections. With an
  * instance, match that text only for key engines (Gemini with `authenticated`
  * true/unset still gets the paste CTA). With no instance — ChatView omits it
