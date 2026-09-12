@@ -234,7 +234,7 @@ function driveMcp(entry: McpEntry, calls: Array<{ name: string; args: (prev: str
   return new Promise((resolve, reject) => {
     const env = { ...process.env };
     for (const { name, value } of entry.env ?? []) env[name] = value;
-    const child = spawn(entry.command, entry.args ?? [], { env, stdio: ["pipe", "pipe", "inherit"] });
+    const child = spawn(entry.command, entry.args ?? [], { env, stdio: ["pipe", "pipe", "inherit"], windowsHide: true });
     child.on("error", reject);
     const timer = setTimeout(() => (child.kill(), reject(new Error("mcp timeout"))), 60_000);
     let step = -1; // -1 = initialize in flight

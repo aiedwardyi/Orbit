@@ -63,6 +63,7 @@ beforeAll(async () => {
   child = spawn(process.execPath, [PROXY], {
     env: { ...process.env, DWEB_URL: `http://127.0.0.1:${stubPort}` },
     stdio: ["pipe", "pipe", "inherit"],
+    windowsHide: true,
   });
   let buffer = "";
   child.stdout!.on("data", (chunk) => {

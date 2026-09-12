@@ -25,6 +25,7 @@ async function start() {
       OMB_STATIC_DIR: join(home, "ui"), OMB_PORT: String(port), OMB_WEBHOOK_PORT: "0",
     },
     stdio: ["ignore", "pipe", "pipe", "ipc"],
+    windowsHide: true,
   });
   child.stdout!.resume();
   child.stderr!.resume();

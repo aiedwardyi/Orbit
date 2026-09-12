@@ -86,6 +86,7 @@ beforeAll(async () => {
   await new Promise<void>((resolve) => stub.listen(0, "127.0.0.1", resolve));
   stubPort = (stub.address() as { port: number }).port;
   child = spawn(process.execPath, ["--experimental-strip-types", PROXY], {
+    windowsHide: true,
     env: {
       ...process.env,
       OMB_BROWSER_URL: `http://127.0.0.1:${stubPort}`,

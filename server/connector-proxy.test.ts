@@ -23,6 +23,7 @@ function start(env: Record<string, string>) {
   child = spawn(process.execPath, ["--experimental-strip-types", ENTRY], {
     env: { ...process.env, ...env },
     stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
   });
   return readline.createInterface({ input: child.stdout });
 }
