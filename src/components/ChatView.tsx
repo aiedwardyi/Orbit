@@ -110,7 +110,7 @@ function DaySeparator({ at }: { at: number }) {
 }
 
 function TaskTimeline({ messages, busy }: { messages: Message[]; busy: boolean }) {
-  const { locale } = useI18n();
+  const { t, locale } = useI18n();
   const [open, setOpen] = useState(false);
   const events = useMemo(() => timelineEvents(messages), [messages]);
   if (events.length === 0) return null;
@@ -123,7 +123,9 @@ function TaskTimeline({ messages, busy }: { messages: Message[]; busy: boolean }
         aria-expanded={open}
         className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-[12.5px] text-ink-secondary hover:bg-raised/50 hover:text-ink"
       >
-        <span className="flex items-center gap-1.5"><ListTree size={14} /> Execution timeline{busy ? " · running" : ""}</span>
+        <span className="flex items-center gap-1.5">
+          <ListTree size={14} /> {t(busy ? "chat.executionTimelineRunning" : "chat.executionTimeline")}
+        </span>
         <ChevronDown size={14} className={cn("transition-transform", open && "rotate-180")} />
       </button>
       {open && (

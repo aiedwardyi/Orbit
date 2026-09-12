@@ -103,7 +103,7 @@ export function SkinPicker() {
               <div className="min-w-0 flex-1">
                 <div className="text-[13px] font-medium text-ink">{skin.name}</div>
                 <div className="mt-0.5 text-[11px] leading-snug text-ink-secondary">
-                  {skin.id === "ledger" ? t("settings.skin.ledger.tagline") : skin.tagline}
+                  {t(`settings.skin.${skin.id}.tagline`)}
                 </div>
               </div>
               {selected && <Check size={13} className="mt-0.5 shrink-0 text-accent-text" />}
