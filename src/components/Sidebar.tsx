@@ -36,7 +36,7 @@ import { api, useStore, formatTime, visibleMessages, type Bot, type Group } from
 
 import { BotAvatar, InitialsAvatar } from "./Avatar";
 import { stateForBot } from "@/lib/mascot";
-import { useUpdaterState } from "@/lib/updater";
+import { useManualCheck, useUpdaterState } from "@/lib/updater";
 import { cn } from "@/lib/cn";
 import { showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
 import { showSidebarDensityControls, showSidebarPhone, showSidebarRoutines, showSidebarTeachSkill } from "@/lib/friends-chrome";
@@ -89,23 +89,16 @@ function profileInitials(profile?: { name?: string; email?: string }): string {
  * bridge in dev/browser). One button, state-dependent: check → download →
  * restart, with a brief "up to date" tick when a check finds nothing so a
  * click is never silent. The bottom-left popup handles the loud cases. */
-function UpdateButton() {
+export function UpdateButton() {
   const { t } = useI18n();
   const s = useUpdaterState();
-  const [checkedAt, setCheckedAt] = useState(0);
   const updater = window.ogb?.updater;
   const status = s?.status ?? "idle";
   // download and install both round-trip through main before the status
   // changes — spin on the click itself, and let the new status clear it
   const [pending, setPending] = useState(false);
   useEffect(() => setPending(false), [status]);
-  // a check that found nothing lands back on idle — acknowledge it for 3s
-  const upToDate = Boolean(checkedAt) && (!s || s.status === "idle") && Date.now() - checkedAt < 3000;
-  useEffect(() => {
-    if (!upToDate) return;
-    const timer = setTimeout(() => setCheckedAt(0), 3000);
-    return () => clearTimeout(timer);
-  }, [upToDate]);
+  const { acknowledged: upToDate, check } = useManualCheck(status);
   if (!updater) return null;
 
   const working =
@@ -138,8 +131,7 @@ function UpdateButton() {
           setPending(true);
           return void updater.download();
         }
-        setCheckedAt(Date.now());
-        void updater.check();
+        check();
       }}
       disabled={working}
       title={label}

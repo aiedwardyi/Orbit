@@ -12,7 +12,8 @@ const mock = vi.hoisted(() => ({
   updaterState: null as unknown,
 }));
 
-vi.mock("@/lib/updater", () => ({
+vi.mock("@/lib/updater", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/updater")>()),
   useUpdaterState: () => mock.updaterState,
 }));
 
