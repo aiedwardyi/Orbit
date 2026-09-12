@@ -109,14 +109,14 @@ describe("catalogs", () => {
 
   it("renders the repaired phrases with consonant and vowel endings", () => {
     const phrases = [
-      ["composer.roomLead", "{name}에 메시지 보내기 - 응답 담당: {lead}"],
-      ["room.hint.lead", "기본 응답 담당: {name}. 다른 봇에게 답변을 요청하려면 @로 언급하세요."],
+      ["composer.roomLead", "{name}에게 메시지 — 응답 담당: {lead}"],
+      ["room.hint.lead", "기본 응답 담당: {name}. 다른 봇을 고르려면 @멘션하세요."],
       ["chat.conversationAria", "대화 상대: {name}"],
       ["settings.noMatch", "“{query}” 검색 결과가 없습니다"],
       ["palette.noMatch", "“{query}” 검색 결과가 없습니다"],
       ["search.noMatch", "“{query}” 검색 결과에 메시지가 없습니다"],
-      ["bot.rememberedFolderNextTask", "다음 작업 폴더로 “{folder}” 경로를 기억합니다. 현재 작업은 {current}에서 계속합니다."],
-      ["bot.rememberedFolderNextTaskHome", "다음 작업 폴더로 “{folder}” 경로를 기억합니다. 현재 작업은 비공개 작업 공간에서 계속합니다."],
+      ["bot.rememberedFolderNextTask", "다음 작업에 쓸 폴더: “{folder}”. 이 작업은 {current}에 그대로 둡니다."],
+      ["bot.rememberedFolderNextTaskHome", "다음 작업에 쓸 폴더: “{folder}”. 이 작업은 비공개 작업 공간에 그대로 둡니다."],
       ["approval.spoken", "{name}의 도구 실행 요청입니다. 도구: {tool}. {detail}. 허용할까요?"],
       ["update.available", "사용 가능한 Orbit 버전: {version}"],
       ["update.ready", "업데이트 준비 완료: {version}"],
