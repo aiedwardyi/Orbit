@@ -42,6 +42,7 @@ function ChatPlanMetersLive({
   // only emits usage when the wrapped agent reports it, so any allowlist
   // would be wrong for the drivers that share it.
   const spent = usage && usage.input + usage.output > 0 ? usage : undefined;
+  const detail = spent && usageDetail(spent);
   if (visible.length === 0) return null;
   return (
     <div className="px-5 pb-1" role="group" aria-label={t("usage.limits.title")}>
@@ -50,8 +51,8 @@ function ChatPlanMetersLive({
         {visible.map((window) => (
           <PlanWindowMeter key={window.id} window={window} now={clock} compact />
         ))}
-        {spent && (
-          <span className="shrink-0 tabular-nums text-[12.5px] text-ink-secondary" title={usageDetail(spent)}>
+        {spent && detail && (
+          <span className="shrink-0 tabular-nums text-[12.5px] text-ink-secondary" title={t(detail.key, detail.vars)}>
             {`↑${formatTokens(spent.input)} ↓${formatTokens(spent.output)}`}
           </span>
         )}
