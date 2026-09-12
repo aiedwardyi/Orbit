@@ -14,6 +14,7 @@ import {
   translate,
 } from "./i18n";
 import { teamImportPreview } from "./team-import";
+import { SKIN_IDS } from "./skins";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const css = readFileSync(join(here, "../styles.css"), "utf8");
@@ -39,6 +40,7 @@ const composer = readFileSync(join(here, "../components/Composer.tsx"), "utf8");
 const routinesPage = readFileSync(join(here, "../components/RoutinesPage.tsx"), "utf8");
 const noEngines = readFileSync(join(here, "../components/NoEngines.tsx"), "utf8");
 const onboarding = readFileSync(join(here, "../components/Onboarding.tsx"), "utf8");
+const skinPicker = readFileSync(join(here, "../components/SkinPicker.tsx"), "utf8");
 
 function splitTwoSentences(text: string): { cli: string; key: string } {
   const dotIdx = text.indexOf(". ");
@@ -887,5 +889,69 @@ describe("Continuity recovery and compaction chrome", () => {
     expect(recovery).toContain('t("chat.compactionUnsupported")');
     expect(recovery).not.toMatch(/Older context was summarized/);
     expect(recovery).not.toMatch(/Context summary requires a newer Orbit version/);
+  });
+});
+
+describe("archived bots panel chrome", () => {
+  it("keeps Restore all, Restore, and the archived count as complete EN+KO phrases", () => {
+    expect(en["chrome.restoreAll"]).toBe("Restore all");
+    expect(ko["chrome.restoreAll"]).toBe("모두 복원");
+    expect(ko["chrome.restoreAll"]).not.toMatch(/Restore/i);
+    expect(en["chrome.restore"]).toBe("Restore");
+    expect(ko["chrome.restore"]).toBe("복원");
+    expect(en["chrome.archivedCountOne"]).toBe("{count} archived");
+    expect(en["chrome.archivedCountMany"]).toBe("{count} archived");
+    expect(ko["chrome.archivedCountOne"]).toBe("보관한 봇 {count}개");
+    expect(ko["chrome.archivedCountMany"]).toBe("보관한 봇 {count}개");
+    expect(translate("en", "chrome.archivedCountOne", { count: 1 })).toBe("1 archived");
+    expect(translate("en", "chrome.archivedCountMany", { count: 5 })).toBe("5 archived");
+  });
+
+  it("wires those phrases into the archived bots panel instead of hardcoded English", () => {
+    expect(sidebar).toContain('t("chrome.restoreAll")');
+    expect(sidebar).toContain('t("chrome.restore")');
+    expect(sidebar).toContain(
+      't(bots.length === 1 ? "chrome.archivedCountOne" : "chrome.archivedCountMany", { count: bots.length })',
+    );
+    expect(sidebar).not.toMatch(/>\s*Restore all\s*</);
+    expect(sidebar).not.toMatch(/>\s*Restore\s*</);
+    expect(sidebar).not.toMatch(/\{bots\.length\}\s*archived/);
+  });
+});
+
+describe("execution timeline chrome", () => {
+  it("keeps the timeline label and running suffix as complete EN+KO phrases", () => {
+    expect(en["chat.executionTimeline"]).toBe("Execution timeline");
+    expect(en["chat.executionTimelineRunning"]).toBe("Execution timeline · running");
+    expect(ko["chat.executionTimeline"]).toBe("실행 타임라인");
+    expect(ko["chat.executionTimelineRunning"]).toBe("실행 타임라인 · 실행 중");
+    expect(ko["chat.executionTimeline"]).not.toMatch(/Execution timeline/i);
+  });
+
+  it("wires those phrases into ChatView instead of hardcoded English", () => {
+    expect(chatView).toContain('t(busy ? "chat.executionTimelineRunning" : "chat.executionTimeline")');
+    expect(chatView).not.toMatch(/Execution timeline\{busy/);
+  });
+});
+
+describe("skin picker taglines", () => {
+  it("keeps a tagline key for every skin in EN and KO", () => {
+    for (const id of SKIN_IDS) {
+      const key = `settings.skin.${id}.tagline` as const;
+      expect(Object.hasOwn(en, key)).toBe(true);
+      expect(Object.hasOwn(ko, key)).toBe(true);
+      expect(en[key].length).toBeGreaterThan(0);
+      expect(ko[key].length).toBeGreaterThan(0);
+    }
+    expect(en["settings.skin.midnight.tagline"]).toBe("The original. Cool and dark.");
+    expect(ko["settings.skin.midnight.tagline"]).toBe("오리지널. 차갑고 어두운.");
+    expect(en["settings.skin.cobalt.tagline"]).toBe("Warm charcoal, mint lamp.");
+    expect(ko["settings.skin.cobalt.tagline"]).toBe("따뜻한 차콜, 민트 조명.");
+  });
+
+  it("wires every tagline into SkinPicker instead of the raw skin.tagline field", () => {
+    expect(skinPicker).toContain("t(`settings.skin.${skin.id}.tagline`)");
+    expect(skinPicker).not.toMatch(/skin\.id === "ledger" \? t\(/);
+    expect(skinPicker).not.toMatch(/:\s*skin\.tagline\s*[}]/);
   });
 });
