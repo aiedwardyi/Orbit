@@ -96,6 +96,7 @@ describe("computer proxy (fake box)", () => {
     port = (box.address() as any).port;
 
     proxy = spawn(process.execPath, ["--experimental-strip-types", PROXY], {
+      windowsHide: true,
       env: {
         ...process.env,
         OGB_BOX_API: `http://127.0.0.1:${port}`,
@@ -553,6 +554,7 @@ describe("computer proxy control gate (fake box + fake control)", () => {
     const controlPort = (controlServer.address() as any).port;
 
     proxy = spawn(process.execPath, ["--experimental-strip-types", PROXY], {
+      windowsHide: true,
       env: {
         ...process.env,
         OGB_BOX_API: `http://127.0.0.1:${boxPort}`,

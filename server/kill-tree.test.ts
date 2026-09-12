@@ -38,10 +38,15 @@ describe("killCliTree", () => {
       process.execPath,
       [
         "-e",
-        `const c = require("node:child_process").spawn(process.execPath, ["-e", ${JSON.stringify(IDLE)}], { stdio: "ignore" });` +
+        `const c = require("node:child_process").spawn(process.execPath, ["-e", ${JSON.stringify(IDLE)}], { stdio: "ignore", windowsHide: true });` +
           `console.log(c.pid); ${IDLE}`,
       ],
-      { stdio: ["ignore", "pipe", "ignore"], detached: true },
+      // spawnCli's exact posture: posix needs its own process group for
+      // killCliTree's kill(-pid), win32 reaps by pid via taskkill /T instead.
+      {
+        stdio: ["ignore", "pipe", "ignore"],
+        ...(process.platform === "win32" ? { windowsHide: true } : { detached: true }),
+      },
     );
     let grandchild = 0;
     try {

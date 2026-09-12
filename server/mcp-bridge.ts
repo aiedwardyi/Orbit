@@ -48,6 +48,7 @@ export function runLivenessProbe(probe: BridgeLiveness, timeoutMs = PROBE_TIMEOU
       shell: false,
       env: { ...process.env, PATH: augmentedPath() },
       stdio: ["ignore", "ignore", "ignore"],
+      windowsHide: true,
     });
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
@@ -210,6 +211,7 @@ export function runMcpBridge(options: BridgeOptions): void {
     shell: false,
     env: { ...process.env, PATH: augmentedPath() },
     stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
   });
 
   // docker may exit before it drains stdin; pipe() leaves this error unhandled.

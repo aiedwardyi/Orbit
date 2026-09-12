@@ -48,6 +48,7 @@ beforeAll(async () => {
       OMB_PORT: String(port), OMB_WEBHOOK_PORT: "0",
     },
     stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
   });
   let stderr = "";
   child.stderr!.on("data", (chunk) => (stderr += chunk));

@@ -37,6 +37,7 @@ posixOnly("Local VM Cua MCP bridge", () => {
         {
           env: { ...process.env, OMB_EXTRA_PATH: bin, NODE_NO_WARNINGS: "1" },
           stdio: ["pipe", "pipe", "pipe"],
+          windowsHide: true,
         },
       );
       let stdout = "";

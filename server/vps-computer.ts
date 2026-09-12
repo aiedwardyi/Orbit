@@ -222,6 +222,7 @@ export function defaultRunner(args: string[], options: VpsCommandOptions = {}): 
       shell: false,
       env: { ...process.env, PATH: augmentedPath() },
       stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
     });
     const stdout = tailCollector();
     const stderr = tailCollector();
