@@ -61,8 +61,15 @@ export function ModelPickerControl({
   const instance = row?.instance;
   const isCustom = instance?.models.options.some((option) => option.id === draft.model && option.custom);
   const blocked = Boolean(instance && (needsCli(instance) || (!isCustom && needsSignIn(instance))));
-  const sameModelPin = draft.instanceId === selection.instanceId && draft.model === selection.model;
-  const canSave = sameModelPin || Boolean(instance && !blocked && instance.models.options.some((option) => option.id === draft.model));
+  const canCommit = (candidate: ModelSelection) => {
+    if (candidate.instanceId === selection.instanceId && candidate.model === selection.model) return true;
+    const target = state.instances.find((item) => item.instanceId === candidate.instanceId);
+    if (!target) return false;
+    const customOption = target.models.options.some((option) => option.id === candidate.model && option.custom);
+    if (needsCli(target) || (!customOption && needsSignIn(target))) return false;
+    return target.models.options.some((option) => option.id === candidate.model);
+  };
+  const canSave = canCommit(draft);
   const models = pickerModels(rows);
   const modelIndex = Math.max(0, models.findIndex((item) => item.instance === instance && item.cell === cell));
   const efforts = row && cell ? pickerEfforts(row, cell) : [];
@@ -91,9 +98,9 @@ export function ModelPickerControl({
     setOpen(true);
   };
   const close = () => setOpen(false);
-  const save = () => {
-    if (!canSave) return;
-    dispatch({ type: "setModel", botId: bot.id, selection: draft });
+  const save = (candidate: ModelSelection = draft) => {
+    if (!canCommit(candidate)) return;
+    dispatch({ type: "setModel", botId: bot.id, selection: candidate });
     close();
   };
   const pick = (next: ModelSelection) => {
@@ -191,10 +198,19 @@ export function ModelPickerControl({
             event.preventDefault();
             close();
           } else if (event.key === "Enter") {
-            // Focus is only an affordance: Enter always commits the draft, no
-            // matter which selection cell holds focus. Action buttons and the
+            // Focus is only an affordance: Enter always commits, no matter
+            // which selection cell holds focus. Action buttons and the
             // search field keep their native activation.
-            if (event.target !== event.currentTarget && !(event.target instanceof HTMLElement && event.target.closest("[data-model-cell], [data-picker-effort], [data-custom-option]"))) return;
+            const focused = event.target instanceof HTMLElement ? event.target : null;
+            const customId = focused?.closest("[data-custom-option]")?.getAttribute("data-custom-option");
+            if (customId && instance) {
+              // Custom options sit outside the arrow-key grid, so Tab+Enter
+              // is their only keyboard path: commit the focused option.
+              event.preventDefault();
+              save(selectPickerModel(instance, customId, draft));
+              return;
+            }
+            if (event.target !== event.currentTarget && !(focused && focused.closest("[data-model-cell], [data-picker-effort]"))) return;
             event.preventDefault();
             save();
           } else if (event.key === "Tab") {
@@ -302,7 +318,7 @@ export function ModelPickerControl({
           <span className="model-cross-binding"><kbd>{shortcut}</kbd><kbd>M</kbd>{t("model.close")}</span>
           <span className="model-cross-binding"><kbd>↑</kbd><kbd>↓</kbd>{t("model.engineAxis")}</span>
           <span className="model-cross-binding"><kbd>←</kbd><kbd>→</kbd>{t("model.modelAxis")}</span>
-          <button type="button" disabled={!canSave} className="model-cross-binding" onClick={save}><kbd>Enter</kbd>{t("settings.profile.save")}</button>
+          <button type="button" disabled={!canSave} className="model-cross-binding" onClick={() => save()}><kbd>Enter</kbd>{t("settings.profile.save")}</button>
           <button data-picker-action type="button" className="model-cross-binding" onClick={close}><kbd>Esc</kbd>{t("createBot.cancel")}</button>
         </footer>
       </div>

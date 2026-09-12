@@ -250,7 +250,6 @@ describe("ModelPicker cross navigation", () => {
   it.each([
     ["tier", "low"],
     ["effort", "high"],
-    ["custom", "Custom model"],
   ] as const)("commits the draft on Enter from a focused %s button", async (control, label) => {
     const instance = control === "tier"
       ? engine("antigravity", "antigravityAgent", ["gemini-3.8-flash-high", "gemini-3.8-flash-low"])
@@ -258,9 +257,6 @@ describe("ModelPicker cross navigation", () => {
     instance.models.options.push({ id: "provider::custom-model", label: "Custom model", custom: true });
     mock.instances = [instance];
     await mount({ instanceId: instance.instanceId, model: instance.models.default, mode: "pinned" });
-    if (control === "custom") {
-      await act(async () => Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("Use a local model"))!.click());
-    }
     // Focus rests on a cell that is NOT the draft: Enter must commit the
     // draft anyway, and suppress the browser's native re-click of the button.
     const button = Array.from(document.querySelectorAll("button")).find((button) => button.textContent === label)!;
@@ -274,6 +270,28 @@ describe("ModelPicker cross navigation", () => {
     };
     if (control !== "tier") expected.effort = "low";
     expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({ type: "setModel", botId: "bot-1", selection: expected });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("commits the focused custom option on Enter when it is not the draft", async () => {
+    // Custom options sit outside the arrow-key grid, so Tab+Enter is their
+    // only keyboard path: one Enter must commit the focused option itself,
+    // not the previous draft. (.focus() stands in for keyboard focus.)
+    const instance = engine("codex", "codex", ["gpt-5.6-sol"], ["low", "high"]);
+    instance.models.options.push({ id: "provider::custom-model", label: "Custom model", custom: true });
+    mock.instances = [instance];
+    await mount({ instanceId: "codex", model: "gpt-5.6-sol", mode: "pinned" });
+    await act(async () => Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("Use a local model"))!.click());
+    const button = Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Custom model")!;
+    const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    await act(async () => button.focus());
+    expect(document.activeElement).toBe(button);
+    await act(async () => button.dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(true);
+    expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({
+      type: "setModel", botId: "bot-1",
+      selection: { instanceId: "codex", model: "provider::custom-model", mode: "pinned", effort: "low" },
+    });
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
