@@ -8,7 +8,17 @@ import { formatTokens, planMeterWindows, usageDetail } from "@/lib/usage";
 import { PlanWindowMeter, useNow } from "./PlanUsageBar";
 
 // Indexed by cell count so Tailwind sees each template as a literal.
-const GRID_COLS = ["grid-cols-1", "grid-cols-1", "grid-cols-[auto_auto]", "grid-cols-[auto_auto_auto]"] as const;
+// Shared with the Settings plan card so both grids span the same columns.
+// Index 4 is Settings-only: three windows plus the spend readout. The chat
+// strip never reaches it — planMeterWindows caps it at two windows, so with
+// the readout it peaks at three cells.
+export const GRID_COLS = [
+  "grid-cols-1",
+  "grid-cols-1",
+  "grid-cols-[auto_auto]",
+  "grid-cols-[auto_auto_auto]",
+  "grid-cols-[auto_auto_auto_auto]",
+] as const;
 
 export function ChatPlanMeters({
   windows,
