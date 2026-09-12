@@ -6,10 +6,16 @@ afterEach(() => {
 });
 
 describe("usage mode preference", () => {
-  it.each([null, "invalid", "used", "remaining"])("loads %s with used as the default", async (stored) => {
+  it("defaults to remaining on a clean localStorage", async () => {
+    vi.stubGlobal("localStorage", { getItem: () => null });
+    const { getUsageMode } = await import("./usage-preferences");
+    expect(getUsageMode()).toBe("remaining");
+  });
+
+  it.each([null, "invalid", "used", "remaining"])("loads %s with remaining as the default", async (stored) => {
     vi.stubGlobal("localStorage", { getItem: () => stored });
     const { getUsageMode } = await import("./usage-preferences");
-    expect(getUsageMode()).toBe(stored === "remaining" ? "remaining" : "used");
+    expect(getUsageMode()).toBe(stored === "used" ? "used" : "remaining");
   });
 
   it("restores the choice after a module reload", async () => {
@@ -30,8 +36,8 @@ describe("usage mode preference", () => {
       setItem: () => { throw new Error("blocked"); },
     });
     const { getUsageMode, setUsageMode } = await import("./usage-preferences");
-    expect(getUsageMode()).toBe("used");
-    setUsageMode("remaining");
     expect(getUsageMode()).toBe("remaining");
+    setUsageMode("used");
+    expect(getUsageMode()).toBe("used");
   });
 });

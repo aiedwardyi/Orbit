@@ -6,9 +6,9 @@ const watchers = new Set<() => void>();
 
 function readUsageMode(): UsageMode {
   try {
-    return localStorage.getItem(KEY) === "remaining" ? "remaining" : "used";
+    return localStorage.getItem(KEY) === "used" ? "used" : "remaining";
   } catch {
-    return "used";
+    return "remaining";
   }
 }
 

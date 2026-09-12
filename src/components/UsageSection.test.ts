@@ -93,7 +93,7 @@ describe("UsageSection friends plan card", () => {
         createElement(UsageSection), createElement(ChatPlanMeters, { windows }))));
       const down = [...host.querySelectorAll("button")].find((button) => button.textContent === "Count down (remaining)");
       expect(down).toBeDefined();
-      expect(down?.getAttribute("aria-pressed")).toBe("false");
+      expect(down?.getAttribute("aria-pressed")).toBe("true");
       await act(async () => down?.click());
       expect(down?.getAttribute("aria-pressed")).toBe("true");
       expect(localStorage.getItem("omb-usage-mode")).toBe("remaining");
