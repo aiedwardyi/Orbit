@@ -90,10 +90,10 @@ describe("ModelPicker cross navigation", () => {
     });
   });
 
-  it("labels Alt+M Close and cancels the draft", async () => {
+  it("labels Alt+M Open/Close and cancels the draft", async () => {
     mock.instances = [engine("grok", "grokAgent", ["grok-4.6", "grok-4.5"])];
     await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" });
-    expect(document.querySelector(".model-cross-binding")?.textContent).toBe("AltMClose");
+    expect(document.querySelector(".model-cross-binding")?.textContent).toBe("AltMOpen/Close");
     await key("ArrowDown");
     await act(async () => document.querySelector('[role="dialog"]')!.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", altKey: true, bubbles: true })));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -247,7 +247,11 @@ describe("ModelPicker cross navigation", () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
-  it.each(["tier", "effort", "custom"])("preserves native Enter activation for a focused %s button", async (control) => {
+  it.each([
+    ["tier", "low"],
+    ["effort", "high"],
+    ["custom", "Custom model"],
+  ] as const)("commits the draft on Enter from a focused %s button", async (control, label) => {
     const instance = control === "tier"
       ? engine("antigravity", "antigravityAgent", ["gemini-3.8-flash-high", "gemini-3.8-flash-low"])
       : engine("codex", "codex", ["gpt-5.6-sol"], ["low", "high"]);
@@ -257,23 +261,20 @@ describe("ModelPicker cross navigation", () => {
     if (control === "custom") {
       await act(async () => Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("Use a local model"))!.click());
     }
-    const button = Array.from(document.querySelectorAll("button")).find((button) => button.textContent === (control === "custom" ? "Custom model" : "low"))!;
+    // Focus rests on a cell that is NOT the draft: Enter must commit the
+    // draft anyway, and suppress the browser's native re-click of the button.
+    const button = Array.from(document.querySelectorAll("button")).find((button) => button.textContent === label)!;
     const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
     await act(async () => { button.focus(); button.dispatchEvent(event); });
-    expect(event.defaultPrevented).toBe(false);
-    expect(mock.dispatch).not.toHaveBeenCalled();
-    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
-    // Happy DOM does not synthesize the browser's click default action.
-    await act(async () => button.click());
-    await act(async () => document.querySelector<HTMLElement>('[role="dialog"]')!.focus());
-    await key("Enter");
+    expect(event.defaultPrevented).toBe(true);
     const expected: ModelSelection = {
       instanceId: instance.instanceId,
-      model: control === "tier" ? "gemini-3.8-flash-low" : control === "custom" ? "provider::custom-model" : "gpt-5.6-sol",
+      model: control === "tier" ? "gemini-3.8-flash-high" : "gpt-5.6-sol",
       mode: "pinned",
     };
     if (control !== "tier") expected.effort = "low";
-    expect(mock.dispatch.mock.calls[0]?.[0].selection).toEqual(expected);
+    expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({ type: "setModel", botId: "bot-1", selection: expected });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
   it.each(["ArrowUp", "ArrowDown"])("skips an empty engine row with %s", async (direction) => {
@@ -396,5 +397,96 @@ describe("ModelPicker cross navigation", () => {
     expect(document.querySelector('[role="dialog"]')).not.toBeNull();
     await key("Escape");
     expect(mock.dispatch).not.toHaveBeenCalled();
+  });
+});
+
+describe("ModelPicker commit and selection", () => {
+  it("commits an effort-only change with Enter when the effort cell has focus", async () => {
+    mock.instances = [engine("claude", "claudeAgent", ["claude-fable-5-1"], ["low", "medium", "high", "xhigh", "max"])];
+    await mount({ instanceId: "claude", model: "claude-fable-5-1", mode: "pinned" });
+    const medium = document.querySelector<HTMLButtonElement>('[data-picker-effort="medium"]')!;
+    // A real click also moves focus onto the cell; happy-dom needs the nudge.
+    await act(async () => { medium.click(); medium.focus(); });
+    expect(document.querySelector('[data-picker-effort="medium"][aria-pressed="true"]')).not.toBeNull();
+    await key("Enter");
+    expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({
+      type: "setModel", botId: "bot-1",
+      selection: { instanceId: "claude", model: "claude-fable-5-1", mode: "pinned", effort: "medium" },
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("commits the keyboard selection on Enter when focus rests on another effort cell", async () => {
+    mock.instances = [engine("claude", "claudeAgent", ["claude-fable-5-1"], ["low", "medium", "high", "xhigh", "max"])];
+    await mount({ instanceId: "claude", model: "claude-fable-5-1", mode: "pinned" });
+    const extraHigh = document.querySelector<HTMLButtonElement>('[data-picker-effort="xhigh"]')!;
+    await act(async () => { extraHigh.click(); extraHigh.focus(); });
+    expect(document.querySelector('[data-picker-effort="xhigh"][aria-pressed="true"]')).not.toBeNull();
+    await key("ArrowLeft");
+    await key("ArrowLeft");
+    expect(document.querySelector('[data-picker-effort="medium"][aria-pressed="true"]')).not.toBeNull();
+    expect(document.activeElement).toBe(extraHigh);
+    const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    await act(async () => document.activeElement!.dispatchEvent(enter));
+    expect(enter.defaultPrevented).toBe(true);
+    expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({
+      type: "setModel", botId: "bot-1",
+      selection: { instanceId: "claude", model: "claude-fable-5-1", mode: "pinned", effort: "medium" },
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("closes on Escape even when an effort cell has focus", async () => {
+    mock.instances = [engine("claude", "claudeAgent", ["claude-fable-5-1"], ["low", "medium", "high", "xhigh", "max"])];
+    await mount({ instanceId: "claude", model: "claude-fable-5-1", mode: "pinned" });
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-picker-effort="xhigh"]')!.focus());
+    await key("Escape");
+    expect(mock.dispatch).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("selects on first click and commits on a second click of the model cell", async () => {
+    mock.instances = [engine("grok", "grokAgent", ["grok-4.6", "grok-4.5"])];
+    await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" });
+    const cell = document.querySelector<HTMLButtonElement>('[data-model-cell="grok-4.5"]')!;
+    await act(async () => cell.click());
+    expect(document.querySelector('[data-model-cell="grok-4.5"][aria-pressed="true"]')).not.toBeNull();
+    expect(mock.dispatch).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    await act(async () => cell.click());
+    expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({
+      type: "setModel", botId: "bot-1",
+      selection: { instanceId: "grok", model: "grok-4.5", mode: "pinned" },
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("selects on first click and commits on a second click of the effort cell", async () => {
+    mock.instances = [engine("claude", "claudeAgent", ["claude-fable-5-1"], ["low", "medium", "high", "xhigh", "max"])];
+    await mount({ instanceId: "claude", model: "claude-fable-5-1", mode: "pinned" });
+    const cell = document.querySelector<HTMLButtonElement>('[data-picker-effort="medium"]')!;
+    await act(async () => cell.click());
+    expect(document.querySelector('[data-picker-effort="medium"][aria-pressed="true"]')).not.toBeNull();
+    expect(mock.dispatch).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    await act(async () => cell.click());
+    expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({
+      type: "setModel", botId: "bot-1",
+      selection: { instanceId: "claude", model: "claude-fable-5-1", mode: "pinned", effort: "medium" },
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("labels the toggle hint in ko", async () => {
+    vi.stubGlobal("localStorage", window.localStorage);
+    try {
+      persistPreference("ko");
+      mock.instances = [engine("grok", "grokAgent", ["grok-4.6"])];
+      await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" });
+      expect(document.querySelector(".model-cross-binding")?.textContent).toContain("열기/닫기");
+    } finally {
+      persistPreference("en");
+      vi.unstubAllGlobals();
+    }
   });
 });
