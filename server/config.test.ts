@@ -126,6 +126,11 @@ describe("configuration boundaries", () => {
 });
 
 describe("default fleet", () => {
+  it("puts claude first, since it's every user's main engine", () => {
+    const map = instanceConfigs({});
+    expect(Object.keys(map)[0]).toBe("claude");
+  });
+
   it("ships Qwen and Hermes as custom-only engines", () => {
     const map = instanceConfigs({});
     expect(map.qwen).toEqual({ driver: "qwenAgent", environment: {} });

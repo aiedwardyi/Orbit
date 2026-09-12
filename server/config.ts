@@ -473,15 +473,20 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
   // a credential Milind doesn't want to manage; an `instances` entry brings
   // it back anytime.
   //
+  // Order reflects real usage, not alphabetical or install order: every
+  // user's main engine is claude, so a new bot with nothing else deciding
+  // gets claude first. Codex and grok are each somebody's second choice;
+  // codex ranks above grok only because grok bills from a balance that
+  // never refills, so it's the one engine that can sit at 100% used.
   const DEFAULT_FLEET: InstanceConfigMap = {
+    claude: { driver: "claudeAgent" },
+    codex: { driver: "codex" },
     grok: { driver: "grokAgent" },
+    antigravity: { driver: "antigravityAgent" },
     gemini: { driver: "geminiAgent" },
     kimi: { driver: "kimiAgent" },
     droid: { driver: "droidAgent" },
     cursor: { driver: "cursorAgent" },
-    claude: { driver: "claudeAgent" },
-    codex: { driver: "codex" },
-    antigravity: { driver: "antigravityAgent" },
     opencodeGo: { driver: "opencodeGo" },
     computer: { driver: "boxAgent" },
     openaiCompat: { driver: "openai-compat" },
