@@ -262,7 +262,7 @@ describe("complete phrases", () => {
   it("does not append an English bot-maintained fragment", () => {
     expect(en["chat.savedJustNowBot"]).toContain("bot-maintained");
     expect(ko["chat.savedJustNowBot"]).not.toMatch(/bot-maintained/i);
-    expect(ko["chat.savedJustNowBot"]).toContain("봇이 유지");
+    expect(ko["chat.savedJustNowBot"]).toContain("봇이 관리 중");
   });
 
   it("does not glue an ellipsis onto room.choose", () => {
