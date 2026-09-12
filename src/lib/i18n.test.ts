@@ -15,6 +15,7 @@ import {
 } from "./i18n";
 import { teamImportPreview } from "./team-import";
 import { SKIN_IDS } from "./skins";
+import { SECTION_PHRASE_KEYS } from "./settings-search";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const css = readFileSync(join(here, "../styles.css"), "utf8");
@@ -899,20 +900,16 @@ describe("archived bots panel chrome", () => {
     expect(ko["chrome.restoreAll"]).not.toMatch(/Restore/i);
     expect(en["chrome.restore"]).toBe("Restore");
     expect(ko["chrome.restore"]).toBe("복원");
-    expect(en["chrome.archivedCountOne"]).toBe("{count} archived");
-    expect(en["chrome.archivedCountMany"]).toBe("{count} archived");
-    expect(ko["chrome.archivedCountOne"]).toBe("보관한 봇 {count}개");
-    expect(ko["chrome.archivedCountMany"]).toBe("보관한 봇 {count}개");
-    expect(translate("en", "chrome.archivedCountOne", { count: 1 })).toBe("1 archived");
-    expect(translate("en", "chrome.archivedCountMany", { count: 5 })).toBe("5 archived");
+    expect(en["chrome.archivedCount"]).toBe("{count} archived");
+    expect(ko["chrome.archivedCount"]).toBe("보관한 봇 {count}개");
+    expect(translate("en", "chrome.archivedCount", { count: 1 })).toBe("1 archived");
+    expect(translate("en", "chrome.archivedCount", { count: 5 })).toBe("5 archived");
   });
 
   it("wires those phrases into the archived bots panel instead of hardcoded English", () => {
     expect(sidebar).toContain('t("chrome.restoreAll")');
     expect(sidebar).toContain('t("chrome.restore")');
-    expect(sidebar).toContain(
-      't(bots.length === 1 ? "chrome.archivedCountOne" : "chrome.archivedCountMany", { count: bots.length })',
-    );
+    expect(sidebar).toContain('t("chrome.archivedCount", { count: bots.length })');
     expect(sidebar).not.toMatch(/>\s*Restore all\s*</);
     expect(sidebar).not.toMatch(/>\s*Restore\s*</);
     expect(sidebar).not.toMatch(/\{bots\.length\}\s*archived/);
@@ -953,5 +950,12 @@ describe("skin picker taglines", () => {
     expect(skinPicker).toContain("t(`settings.skin.${skin.id}.tagline`)");
     expect(skinPicker).not.toMatch(/skin\.id === "ledger" \? t\(/);
     expect(skinPicker).not.toMatch(/:\s*skin\.tagline\s*[}]/);
+  });
+
+  it("keeps every skin tagline searchable from Settings, so a future skin can't render but stay unsearchable", () => {
+    for (const id of SKIN_IDS) {
+      const key = `settings.skin.${id}.tagline` as const;
+      expect(SECTION_PHRASE_KEYS.general).toContain(key);
+    }
   });
 });

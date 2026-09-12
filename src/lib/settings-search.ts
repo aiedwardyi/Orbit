@@ -4,7 +4,7 @@ import { catalogs, type MessageKey } from "./i18n-catalog";
 
 /** Settings nav search matches both English and Korean labels/body copy so a
  * Korean query still finds a section when the chrome is English, and vice versa. */
-const SECTION_PHRASE_KEYS = {
+export const SECTION_PHRASE_KEYS = {
   general: [
     "settings.section.general",
     "language.title",

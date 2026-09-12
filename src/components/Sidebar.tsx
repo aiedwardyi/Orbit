@@ -1032,7 +1032,7 @@ function ArchivedBotsPanel({
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-7 pt-3 sm:px-8">
           <div className="mb-3 text-[12px] font-medium text-ink-secondary">
-            {t(bots.length === 1 ? "chrome.archivedCountOne" : "chrome.archivedCountMany", { count: bots.length })}
+            {t("chrome.archivedCount", { count: bots.length })}
           </div>
           <div className="grid grid-cols-1 gap-x-8 md:grid-cols-2">
             {bots.map((bot) => (
