@@ -220,17 +220,17 @@ describe("Ledger", () => {
 
 const DARK_INK_SKINS = [
   {
-    id: "catppuccin-mocha",
-    name: "Catppuccin Mocha",
+    id: "catppuccin-frappe",
+    name: "Catppuccin Frappe",
     tokens: {
-      "--color-app": "#1e1e2e",
-      "--color-raised": "#313244",
-      "--color-ink": "#cdd6f4",
-      "--color-ink-secondary": "#a6adc8",
-      "--color-accent": "#cba6f7",
-      "--color-hairline": "#45475a",
-      "--color-danger": "#f38ba8",
-      "--color-success": "#a6e3a1",
+      "--color-app": "#303446",
+      "--color-raised": "#292c3c",
+      "--color-ink": "#c6d0f5",
+      "--color-ink-secondary": "#b5bfe2",
+      "--color-accent": "#a6d189",
+      "--color-hairline": "#626880",
+      "--color-danger": "#e78284",
+      "--color-success": "#a6d189",
     },
   },
   {
@@ -301,6 +301,20 @@ const DARK_INK_SKINS = [
       "--color-hairline": "#4a4e5c",
       "--color-danger": "#ff75b5",
       "--color-success": "#6fe7d2",
+    },
+  },
+  {
+    id: "gruvbox",
+    name: "Gruvbox",
+    tokens: {
+      "--color-app": "#282828",
+      "--color-raised": "#3c3836",
+      "--color-ink": "#ebdbb2",
+      "--color-ink-secondary": "#d5c4a1",
+      "--color-accent": "#fe8019",
+      "--color-hairline": "#7c6f64",
+      "--color-danger": "#fb524b",
+      "--color-success": "#b8bb26",
     },
   },
 ] as const;
@@ -390,6 +404,11 @@ describe("skin persistence", () => {
     store.set("omb-skin", "graphite");
     expect(readSkin()).toBe("ledger");
     expect(readSkin()).toBe(DEFAULT_SKIN);
+  });
+
+  it("migrates a stored Catppuccin Mocha to Catppuccin Frappe", () => {
+    store.set("omb-skin", "catppuccin-mocha");
+    expect(readSkin()).toBe("catppuccin-frappe");
   });
 
   it("keeps a stored Midnight skin on upgrade instead of migrating it to Ledger", () => {
