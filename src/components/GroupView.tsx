@@ -1191,7 +1191,7 @@ export function GroupView({ group }: { group: Group }) {
       {/* Pinned message banner — resolves against the room's full transcript */}
       {(() => {
         const pinned = group.messages.find((m) => m.id === group.pinnedMessageId && m.kind === "text");
-        const text = pinned ? (pinned.text ?? "").replace(/\s+/g, " ").trim() : "";
+        const text = pinned ? splitAttachedImages(pinned.text ?? "").display.replace(/\s+/g, " ").trim() : "";
         if (!pinned || !text) return null;
         const sender = pinned.role === "user" ? t("room.you") : (pinned.from?.name ?? t("chrome.aBot"));
         return (

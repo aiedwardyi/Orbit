@@ -16,4 +16,10 @@ describe("reply display", () => {
     expect(replySnippet('<attached-image path="/tmp/a.png" /> hi\nthere')).toBe("[image] hi there");
     expect(replySnippet("123456", 5)).toBe("1234…");
   });
+
+  it("strips pasted-text wrapper tags from reply snippets", () => {
+    expect(replySnippet('<pasted-text index="1">\nhello world quoted paste\n</pasted-text>')).toBe(
+      "hello world quoted paste",
+    );
+  });
 });
