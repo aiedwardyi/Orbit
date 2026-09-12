@@ -446,14 +446,17 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           const params = msg.params ?? {};
           flushAssistantText();
           const options: Array<{ optionId?: string; kind?: string }> = Array.isArray(params.options) ? params.options : [];
+          // exact `_once`, never a prefix match: agents advertise `<want>_always`
+          // in any order, and that grant lives inside the provider CLI, where
+          // this app never recorded it and cannot revoke it
           const optionFor = (want: "allow" | "reject") =>
-            options.find((o) => String(o.kind ?? "").startsWith(want) && typeof o.optionId === "string")?.optionId ?? null;
+            options.find((o) => o.kind === `${want}_once` && typeof o.optionId === "string")?.optionId ?? null;
           const cancelled = { outcome: { outcome: "cancelled" } };
           const missing = (want: string) =>
             emit({
               ...base(threadId, turnId),
               type: "runtime.error",
-              message: `${DRIVER_KIND} offered no "${want}" permission option — cancelling the request instead of guessing`,
+              message: `${DRIVER_KIND} offered no "${want}_once" permission option — cancelling the request instead of guessing`,
             });
 
           const toolCall = params.toolCall ?? {};

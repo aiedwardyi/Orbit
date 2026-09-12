@@ -35,6 +35,12 @@
 //                        core.ts has something to catch
 //   FAKE_ACP_USAGE_ROOT  put the prompt result's usage at the root instead of
 //                        under _meta (what opencode 1.18.18 actually does)
+//   FAKE_ACP_PERMISSION_KINDS  comma-separated ACP option kinds, in the order
+//                        the agent advertises them (e.g.
+//                        "allow_always,allow_once,reject_always,reject_once").
+//                        Unset keeps the two-option list every existing mode
+//                        already sees. The chosen optionId lands in
+//                        `$FAKE_ACP_DUMP.permission.json`.
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
 import { spawn } from "node:child_process";
@@ -193,6 +199,27 @@ const recordConfigCall = (method: string, params: ConfigCallParams) => {
   }
 };
 
+// Permission options this run advertises, in order. Unset env keeps the list
+// every existing mode already sees, so those stay byte-identical.
+const permissionKinds = (process.env.FAKE_ACP_PERMISSION_KINDS ?? "").split(",").filter(Boolean);
+const permissionOptions = () =>
+  permissionKinds.length
+    ? permissionKinds.map((kind) => ({ optionId: kind, kind }))
+    : [
+        { optionId: "allow-once", kind: "allow_once" },
+        { optionId: "reject", kind: "reject_once" },
+      ];
+
+// optionIds the client actually selected, so a test can assert the driver sent
+// back the option the human chose and not merely one of the right family
+const permissionPicks: Array<string | null> = [];
+const recordPermissionPick = (msg: any) => {
+  permissionPicks.push(msg.result?.outcome?.optionId ?? null);
+  if (process.env.FAKE_ACP_DUMP) {
+    writeFileSync(`${process.env.FAKE_ACP_DUMP}.permission.json`, JSON.stringify(permissionPicks, null, 2));
+  }
+};
+
 // pending server→client permission request id → resolver
 let pendingPermissionId: number | null = null;
 let onPermissionAnswered: (() => void) | null = null;
@@ -290,6 +317,7 @@ function handle(msg: any) {
   // client's response to our permission request
   if (msg.id !== undefined && (msg.result !== undefined || msg.error !== undefined) && msg.id === pendingPermissionId) {
     pendingPermissionId = null;
+    recordPermissionPick(msg);
     onPermissionAnswered?.();
     return;
   }
@@ -595,10 +623,7 @@ function handle(msg: any) {
             method: "session/request_permission",
             params: {
               toolCall: { kind: "execute", rawInput: { command }, title: command },
-              options: [
-                { optionId: "allow-once", kind: "allow_once" },
-                { optionId: "reject", kind: "reject_once" },
-              ],
+              options: permissionOptions(),
             },
           });
         };

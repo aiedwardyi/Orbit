@@ -297,6 +297,7 @@ describe("ACP turns (fake CLI)", () => {
     delete process.env.FAKE_ACP_MODELS;
     delete process.env.FAKE_ACP_MODEL_STICKS;
     delete process.env.FAKE_ACP_USAGE_ROOT;
+    delete process.env.FAKE_ACP_PERMISSION_KINDS;
     for (const name of FOREIGN_CREDENTIALS) delete process.env[name];
     recorder?.stop();
     await instance?.dispose();
@@ -648,6 +649,30 @@ describe("ACP turns (fake CLI)", () => {
     });
     const done = await recorder.until((e) => e.type === "turn.completed");
     expect(done).toMatchObject({ ok: true });
+  });
+
+  /** ACP lets an agent advertise `allow_always` alongside `allow_once`, in any
+   *  order. A one-time answer must select the one-time option: a persistent
+   *  grant lives inside the provider CLI, where this app cannot revoke it. */
+  const permissionPick = async (behavior: "allow" | "deny") => {
+    const dump = join(scratch, `perm-${behavior}.json`);
+    process.env.FAKE_ACP_DUMP = dump;
+    process.env.FAKE_ACP_PERMISSION_KINDS = "allow_always,allow_once,reject_always,reject_once";
+    await create(GrokAgentDriver, "permission");
+    await instance.adapter.sendTurn({ threadId: `t-${behavior}`, text: "go" });
+    const opened = await recorder.until((e) => e.type === "request.opened");
+    // SAFETY: until() matched type "request.opened", the variant carrying requestId.
+    await instance.adapter.respondToRequest(`t-${behavior}`, (opened as any).requestId, { behavior });
+    await recorder.until((e) => e.type === "turn.completed");
+    return JSON.parse(readFileSync(`${dump}.permission.json`, "utf8"));
+  };
+
+  it("answers a one-time allow with allow_once, not a persistent allow_always", async () => {
+    expect(await permissionPick("allow")).toEqual(["allow_once"]);
+  });
+
+  it("answers a one-time deny with reject_once, not a persistent reject_always", async () => {
+    expect(await permissionPick("deny")).toEqual(["reject_once"]);
   });
 
   it("grok fails closed when the CLI advertises no cached_token (needs login)", async () => {
