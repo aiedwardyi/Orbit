@@ -43,9 +43,9 @@ const noEngines = readFileSync(join(here, "../components/NoEngines.tsx"), "utf8"
 const onboarding = readFileSync(join(here, "../components/Onboarding.tsx"), "utf8");
 const skinPicker = readFileSync(join(here, "../components/SkinPicker.tsx"), "utf8");
 
-function fixedKoreanParticles(text: string): string[] {
+function hardcodedKoreanParticles(text: string): string[] {
   return [...text.matchAll(/\{\w+\}["'”’»」』)\]〉》]*([가-힣]+(?:\([가-힣]+\))?)(?=$|\s|\p{P})/gu)]
-    .filter((match) => /^(?:은|는|이|가|을|를|와|과|으로|로|이랑|랑|이나|나|이라도|라도|이든|든|아|야|와의|과의|이라는|라는|이라고|라고|이라|라|이란|란|이며|며)$/.test(match[1]))
+    .filter((match) => /^(?:은|는|이|가|을|를|와|과|으로|로|이랑|랑|이나|나|이라도|라도|이든|든|아|야|와의|과의|이라는|라는|이라고|라고|이라|라|이란|란|이며|며|으로서|로서|으로써|로써|으로만|로만|으로는|로는|으로도|로도|으로부터|로부터|으로까지|로까지|과는|와는|과도|와도|이랑은|랑은|이랑도|랑도|이나마|나마|이든지|든지|이에요|예요|이었어요|였어요)$/.test(match[1]))
     .map((match) => match[0]);
 }
 
@@ -85,7 +85,7 @@ describe("locale detection", () => {
 describe("catalogs", () => {
   it("rejects fixed Korean particles after every catalog interpolation", () => {
     const violations = Object.entries(ko).flatMap(([key, phrase]) =>
-      fixedKoreanParticles(phrase).map((match) => ({ key, match })),
+      hardcodedKoreanParticles(phrase).map((match) => ({ key, match })),
     );
     expect(violations).toEqual([]);
   });
@@ -95,7 +95,7 @@ describe("catalogs", () => {
       for (const closing of ["", "”", "’", '"', "'", ")", "]", "」", "』", "》", "〉", "»", "”)"]) {
         for (const boundary of ["", " 설명", ".", ",", "!", "?", "\n"]) {
           const phrase = `{value}${closing}${particle}${boundary}`;
-          expect.soft(fixedKoreanParticles(phrase), phrase).toHaveLength(1);
+          expect.soft(hardcodedKoreanParticles(phrase), phrase).toHaveLength(1);
         }
       }
     }
@@ -105,16 +105,38 @@ describe("catalogs", () => {
       "{hours}시간", "{minutes}분", "{name} 이름", "{name} 작업 중", "“{query}” 검색 결과",
       "{name}은(는)", "{name}이(가)", "{name}을(를)", "{name}와(과)", "{name}으로(로)",
     ]) {
-      expect.soft(fixedKoreanParticles(phrase), phrase).toEqual([]);
+      expect.soft(hardcodedKoreanParticles(phrase), phrase).toEqual([]);
     }
     for (const particle of ["라고", "라", "란", "며"]) {
       const phrase = `{name}${particle} 합니다`;
-      expect.soft(fixedKoreanParticles(phrase), phrase).toEqual([`{name}${particle}`]);
+      expect.soft(hardcodedKoreanParticles(phrase), phrase).toEqual([`{name}${particle}`]);
     }
-    expect(fixedKoreanParticles("{name}이 {tool}을 실행합니다")).toEqual(["{name}이", "{tool}을"]);
+    expect(hardcodedKoreanParticles("{name}이 {tool}을 실행합니다")).toEqual(["{name}이", "{tool}을"]);
   });
 
-  it("renders the repaired phrases with consonant and vowel endings", () => {
+  it("detects compound and copular particles on both sides of each pair", () => {
+    for (const particle of [
+      "으로서", "로서", "으로써", "로써", "으로만", "로만", "으로는", "로는",
+      "으로도", "로도", "으로부터", "로부터", "으로까지", "로까지",
+      "과는", "와는", "과도", "와도", "이랑은", "랑은", "이랑도", "랑도",
+      "이나마", "나마", "이든지", "든지", "이에요", "예요", "이었어요", "였어요",
+    ]) {
+      for (const closing of ["", "”)"]) {
+        for (const boundary of ["", " 설명", "."]) {
+          const phrase = `{name}${closing}${particle}${boundary}`;
+          expect.soft(hardcodedKoreanParticles(phrase), phrase).toEqual([`{name}${closing}${particle}`]);
+        }
+      }
+    }
+    for (const phrase of [
+      "{name}으로서의미", "{name}로만든", "{name}이랑이름", "{name}나머지",
+      "{name}으로서(로서)", "{name}이에요(예요)", "{name}예요(이에요)",
+    ]) {
+      expect.soft(hardcodedKoreanParticles(phrase), phrase).toEqual([]);
+    }
+  });
+
+  it("substitutes template values across different runtime values", () => {
     const phrases = [
       ["composer.roomLead", "{name}에게 메시지 — 응답 담당: {lead}"],
       ["room.hint.lead", "기본 응답 담당: {name}. 다른 봇을 고르려면 @멘션하세요."],
