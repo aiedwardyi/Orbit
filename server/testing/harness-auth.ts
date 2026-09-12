@@ -8,6 +8,8 @@ export async function harnessToken(origin: string): Promise<string> {
 }
 
 export function spawnHarness(command: string, args: string[], options: SpawnOptions) {
+  // stdio and windowsHide sit after the spread deliberately: the ipc channel
+  // is load-bearing for the token handshake below, and no harness wants a console.
   const child = spawn(command, args, { ...options, stdio: ["ignore", "pipe", "pipe", "ipc"], windowsHide: true });
   const origin = `http://127.0.0.1:${options.env?.OMB_PORT ?? options.env?.OGB_PORT ?? 8799}`;
   const token = new Promise<string>((resolve) => {
