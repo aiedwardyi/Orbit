@@ -51,7 +51,7 @@ vi.mock("@/state/store", async (importOriginal) => {
   };
 });
 
-import { CustomPicker, EnginesSettings, cliPickerCommitValue, inUseCliPath } from "./EnginesSettings";
+import { CustomPicker, EnginesSettings, cliPickerCommitValue, inUseCliPath, isEngineConnected } from "./EnginesSettings";
 
 applyLocale("en");
 
@@ -177,5 +177,30 @@ describe("EnginesSettings friends Connections list", () => {
     expect(codex).toBeGreaterThan(claude);
     expect(grok).toBeGreaterThan(codex);
     expect(antigravity).toBeGreaterThan(grok);
+  });
+});
+
+describe("isEngineConnected", () => {
+  it("lights an engine detected on PATH with no configured override", () => {
+    expect(isEngineConnected(instance({ snapshot: { state: "available" } }))).toBe(true);
+  });
+
+  it("lights an engine whose override probe succeeded", () => {
+    expect(isEngineConnected(instance({ snapshot: { state: "available" }, cli: OTHER }))).toBe(true);
+  });
+
+  it("leaves an absent engine unlit even with an override configured", () => {
+    expect(isEngineConnected(instance({ snapshot: { state: "unavailable" }, cli: OTHER }))).toBe(false);
+    expect(isEngineConnected(instance({ snapshot: { state: "unavailable" } }))).toBe(false);
+  });
+});
+
+describe("connected dot", () => {
+  it("renders lit dots for detected engines that have no override", () => {
+    const html = renderToStaticMarkup(
+      createElement(I18nProvider, null, createElement(EnginesSettings)),
+    );
+    expect(html).toContain("size-1.5 shrink-0 rounded-full bg-accent");
+    expect(html).not.toContain("size-1.5 shrink-0 rounded-full bg-raised-hover");
   });
 });
