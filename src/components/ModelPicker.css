@@ -65,14 +65,6 @@
   will-change: transform;
 }
 
-.model-cross-column::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 50%;
-  width: 1px;
-  background: color-mix(in srgb, var(--picker-accent) 15%, transparent);
-}
-
 .model-cross-cell {
   position: relative;
   flex-shrink: 0;
@@ -128,16 +120,6 @@
 }
 
 .model-cross-efforts { position: absolute; inset: 0; pointer-events: none; }
-.model-cross-efforts::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: calc(50% - (var(--picker-columns) - 1) * var(--picker-x-step) / 2);
-  width: calc((var(--picker-columns) - 1) * var(--picker-x-step));
-  height: 1px;
-  background: color-mix(in srgb, var(--picker-accent) 18%, transparent);
-  z-index: -1;
-}
 
 .model-cross-effort {
   position: absolute;

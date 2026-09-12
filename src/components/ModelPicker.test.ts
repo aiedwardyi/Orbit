@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -132,8 +135,8 @@ function platformMarkup(platform: string, defaultOpen = false) {
 }
 
 describe("ModelPicker friends chip", () => {
-  it.each([["MacIntel", "Option"], ["Win32", "Alt"]])("labels the %s close shortcut", (platform, shortcut) => {
-    expect(platformMarkup(platform, true)).toContain(`<kbd>${shortcut}</kbd><kbd>M</kbd>Close`);
+  it.each([["MacIntel", "Option"], ["Win32", "Alt"]])("labels the %s open/close shortcut", (platform, shortcut) => {
+    expect(platformMarkup(platform, true)).toContain(`<kbd>${shortcut}</kbd><kbd>M</kbd>Open/Close`);
   });
 
   it.each([["MacIntel", "Option"], ["Win32", "Alt"]])("paints Grok 4.6 with the %s shortcut while automatic is the mode", (platform, shortcut) => {
@@ -237,5 +240,14 @@ describe("ModelPicker friends chip", () => {
     expect(list).toContain('data-model-cell="kimi-default" aria-pressed="true"');
     expect(list).not.toContain('data-model-row="gemini"');
     expect(list).not.toContain("Show all engines");
+  });
+});
+
+describe("ModelPicker centre guides", () => {
+  it("draws no crosshair guide lines in any theme", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const css = readFileSync(join(here, "ModelPicker.css"), "utf8");
+    expect(css).not.toContain(".model-cross-column::before");
+    expect(css).not.toContain(".model-cross-efforts::before");
   });
 });

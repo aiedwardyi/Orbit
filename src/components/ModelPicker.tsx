@@ -61,8 +61,15 @@ export function ModelPickerControl({
   const instance = row?.instance;
   const isCustom = instance?.models.options.some((option) => option.id === draft.model && option.custom);
   const blocked = Boolean(instance && (needsCli(instance) || (!isCustom && needsSignIn(instance))));
-  const sameModelPin = draft.instanceId === selection.instanceId && draft.model === selection.model;
-  const canSave = sameModelPin || Boolean(instance && !blocked && instance.models.options.some((option) => option.id === draft.model));
+  const canCommit = (candidate: ModelSelection) => {
+    if (candidate.instanceId === selection.instanceId && candidate.model === selection.model) return true;
+    const target = state.instances.find((item) => item.instanceId === candidate.instanceId);
+    if (!target) return false;
+    const customOption = target.models.options.some((option) => option.id === candidate.model && option.custom);
+    if (needsCli(target) || (!customOption && needsSignIn(target))) return false;
+    return target.models.options.some((option) => option.id === candidate.model);
+  };
+  const canSave = canCommit(draft);
   const models = pickerModels(rows);
   const modelIndex = Math.max(0, models.findIndex((item) => item.instance === instance && item.cell === cell));
   const efforts = row && cell ? pickerEfforts(row, cell) : [];
@@ -75,8 +82,7 @@ export function ModelPickerControl({
   };
   const effortX = effortIndex >= 0 ? effortPosition(effortIndex) * 130 : 0;
   const offset = stageWidth ? Math.max(EFFORT_EDGE_CLEARANCE - stageWidth / 2 - effortX, Math.min(0, stageWidth / 2 - EFFORT_EDGE_CLEARANCE - effortX)) : 0;
-  const planeStyle: CSSProperties & { "--picker-columns": number; "--picker-offset": string } = {
-    "--picker-columns": Math.max(split, efforts.length - split) * 2 + 1,
+  const planeStyle: CSSProperties & { "--picker-offset": string } = {
     "--picker-offset": `${offset}px`,
   };
   const families = new Map([["codex", "gpt"], ["grokAgent", "grok"], ["antigravityAgent", "gemini"], ["geminiAgent", "gemini"], ["claudeAgent", "claude"], ["opencodeGo", "opencode"]]);
@@ -92,9 +98,9 @@ export function ModelPickerControl({
     setOpen(true);
   };
   const close = () => setOpen(false);
-  const save = () => {
-    if (!canSave) return;
-    dispatch({ type: "setModel", botId: bot.id, selection: draft });
+  const save = (candidate: ModelSelection = draft) => {
+    if (!canCommit(candidate)) return;
+    dispatch({ type: "setModel", botId: bot.id, selection: candidate });
     close();
   };
   const pick = (next: ModelSelection) => {
@@ -192,7 +198,19 @@ export function ModelPickerControl({
             event.preventDefault();
             close();
           } else if (event.key === "Enter") {
-            if (event.target !== event.currentTarget && !(event.target instanceof HTMLElement && event.target.closest("[data-model-cell]"))) return;
+            // Focus is only an affordance: Enter always commits, no matter
+            // which selection cell holds focus. Action buttons and the
+            // search field keep their native activation.
+            const focused = event.target instanceof HTMLElement ? event.target : null;
+            const customId = focused?.closest("[data-custom-option]")?.getAttribute("data-custom-option");
+            if (customId && instance) {
+              // Custom options sit outside the arrow-key grid, so Tab+Enter
+              // is their only keyboard path: commit the focused option.
+              event.preventDefault();
+              save(selectPickerModel(instance, customId, draft));
+              return;
+            }
+            if (event.target !== event.currentTarget && !(focused && focused.closest("[data-model-cell], [data-picker-effort]"))) return;
             event.preventDefault();
             save();
           } else if (event.key === "Tab") {
@@ -237,7 +255,7 @@ export function ModelPickerControl({
                     tabIndex={selected ? 0 : -1}
                     className="model-cross-cell"
                     title={option.options.map((model) => model.id).join("\n")}
-                    onClick={() => pick(selectPickerModel(item.instance, id, draft))}
+                    onClick={() => { if (selected) save(); else pick(selectPickerModel(item.instance, id, draft)); }}
                   >
                     <ModelIcon size={30} strokeWidth={1.1} aria-hidden />
                     <span className="model-cross-engine">{gpt ? gpt[1]!.replace("gpt-", "GPT ") : item.label}</span>
@@ -260,7 +278,7 @@ export function ModelPickerControl({
                   data-picker-effort={option.id}
                   aria-pressed={index === effortIndex}
                   style={{ transform: `translateX(calc(${effortPosition(index)} * var(--picker-x-step)))` }}
-                  onClick={() => pick(selectPickerEffort(draft, option))}
+                  onClick={() => { if (index === effortIndex) save(); else pick(selectPickerEffort(draft, option)); }}
                 >
                   <EffortIcon size={26} strokeWidth={1.1} aria-hidden />
                   <span className="model-cross-name">{effortLabel(option.label)}</span>
@@ -292,7 +310,7 @@ export function ModelPickerControl({
           {custom.length > 0 && <button type="button" className="text-xs text-ink-secondary hover:text-ink" aria-expanded={customOpen} onClick={() => setCustomOpen(!customOpen)}>{t("model.useLocalCount", { count: custom.length })}</button>}
           {customOpen && instance && <div className="model-cross-custom">
             <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label={t("model.searchLocal")} placeholder={t("model.searchLocal")} className="w-full rounded-lg bg-inset px-3 py-2 text-base sm:text-sm text-ink" />
-            {filteredCustom.map((option) => <button key={option.id} type="button" className="block w-full rounded-lg px-3 py-2 text-left text-sm text-ink hover:bg-control" onClick={() => pick(selectPickerModel(instance, option.id, draft))}>{option.label}</button>)}
+            {filteredCustom.map((option) => <button key={option.id} type="button" data-custom-option={option.id} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-ink hover:bg-control" onClick={() => { if (option.id === draft.model) save(); else pick(selectPickerModel(instance, option.id, draft)); }}>{option.label}</button>)}
             {filteredCustom.length === 0 && <p className="text-xs text-ink-secondary">{t("palette.noMatch", { query })}</p>}
           </div>}
         </div>
@@ -300,7 +318,7 @@ export function ModelPickerControl({
           <span className="model-cross-binding"><kbd>{shortcut}</kbd><kbd>M</kbd>{t("model.close")}</span>
           <span className="model-cross-binding"><kbd>↑</kbd><kbd>↓</kbd>{t("model.engineAxis")}</span>
           <span className="model-cross-binding"><kbd>←</kbd><kbd>→</kbd>{t("model.modelAxis")}</span>
-          <button type="button" disabled={!canSave} className="model-cross-binding" onClick={save}><kbd>Enter</kbd>{t("settings.profile.save")}</button>
+          <button type="button" disabled={!canSave} className="model-cross-binding" onClick={() => save()}><kbd>Enter</kbd>{t("settings.profile.save")}</button>
           <button data-picker-action type="button" className="model-cross-binding" onClick={close}><kbd>Esc</kbd>{t("createBot.cancel")}</button>
         </footer>
       </div>
