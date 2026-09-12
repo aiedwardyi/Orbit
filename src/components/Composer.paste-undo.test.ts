@@ -141,4 +141,20 @@ describe("Composer paste undo", () => {
     expect(composer.card()).toBeNull();
     expect(composer.fileChip()).not.toBeNull();
   });
+
+  it("keeps a chip added after \"Display in chat box\" when Ctrl+Z undoes it", async () => {
+    const composer = await mountComposer();
+    await composer.paste(block);
+    await composer.display();
+    await composer.pasteImage();
+    expect(composer.box.value).toBe(block);
+    expect(composer.card()).toBeNull();
+    expect(composer.fileChip()).not.toBeNull();
+
+    const undo = await composer.undo();
+    expect(undo.defaultPrevented).toBe(true);
+    expect(composer.box.value).toBe("");
+    expect(composer.card()).not.toBeNull();
+    expect(composer.fileChip()).not.toBeNull();
+  });
 });
