@@ -1264,7 +1264,7 @@ export const ko = {
 
   "composer.roomDm": "{name}에 메시지 — 대화를 이어가세요",
   "composer.roomEveryone": "{name}에 메시지 — 모두 응답합니다",
-  "composer.roomMentions": "{name}에 메시지 — @로 봇을 부르세요",
+  "composer.roomMentions": "{name}에 메시지 — @로 봇을 언급하세요",
   "composer.roomLead": "{name}에 메시지 — 응답 담당: {lead}",
   "composer.approvalMenu": "{name}의 작업은 어떻게 승인할까요?",
   "composer.askApprovalHelp": "권한이 필요한 작업은 먼저 물어봅니다",
@@ -1293,8 +1293,8 @@ export const ko = {
   "bot.workingFolderSave": "저장",
   "bot.workingFolderPinned": "새 작업은 여기에서 시작합니다. 이 작업은 {folder}에 고정되어 있습니다 — 새 폴더를 쓰려면 새 작업을 시작하세요.",
   "bot.workingFolderPinnedHome": "새 작업은 여기에서 시작합니다. 이 작업은 홈 폴더에 고정되어 있습니다 — 새 폴더를 쓰려면 새 작업을 시작하세요.",
-  "bot.rememberedFolderNextTask": "다음 작업에 쓸 폴더: “{folder}”. 이 작업은 {current}에서 계속됩니다.",
-  "bot.rememberedFolderNextTaskHome": "다음 작업에 쓸 폴더: “{folder}”. 이 작업은 비공개 작업 공간에서 계속됩니다.",
+  "bot.rememberedFolderNextTask": "다음 작업에 쓸 폴더: “{folder}”. 이 작업은 {current}에 남습니다.",
+  "bot.rememberedFolderNextTaskHome": "다음 작업에 쓸 폴더: “{folder}”. 이 작업은 비공개 작업 공간에 남습니다.",
 
   "room.setupTitle": "{name} 설정하기",
   "room.setupBody": "첫 대화 전에 응답 방식과 간단한 맥락을 정해 주세요. 공유 폴더는 선택 사항입니다.",
