@@ -1,4 +1,4 @@
-import type { EffortLevel, ModelSelection } from "./contracts.ts";
+import type { EffortLevel, ModelSelection, RateLimitWindow } from "./contracts.ts";
 import { defaultModelEffort } from "../shared/model-effort.ts";
 
 export type AutomaticCapability =
@@ -16,6 +16,7 @@ export interface AutomaticCandidate {
   available: boolean;
   capabilities: Partial<Record<AutomaticCapability, boolean>>;
   effortLevels?: readonly EffortLevel[];
+  rateLimits?: readonly RateLimitWindow[];
 }
 
 export function resolveAutomaticSelection(input: {
@@ -32,8 +33,14 @@ export function resolveAutomaticSelection(input: {
       required.every((capability) => candidate.capabilities[capability] === true),
   );
   const preferredIds = [input.continuity?.instanceId, input.current?.instanceId];
+  const now = Date.now();
+  const exhausted = (entry: AutomaticCandidate) => entry.rateLimits?.some(
+    (window) => Number.isFinite(window.usedPercent) && window.usedPercent >= 100 &&
+      !(window.resetsAt !== null && Number.isFinite(window.resetsAt) && window.resetsAt <= now),
+  );
   const candidate =
     preferredIds.flatMap((id) => (id ? eligible.filter((entry) => entry.instanceId === id) : []))[0] ??
+    eligible.find((entry) => !exhausted(entry)) ??
     eligible[0];
   if (!candidate) return null;
 
