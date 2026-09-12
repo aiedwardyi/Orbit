@@ -22,10 +22,12 @@ const DESTRUCTIVE = [
 
 // Not destructive, but exactly what you don't hand over unattended: a
 // bot reading your keys is quiet, permanent, and unrecoverable.
+// [\\/] throughout: the same file is spelled C:\Users\you\.env on Windows and
+// ~/.env everywhere else, and a guard that only knows one of them is no guard.
 const SENSITIVE = [
-  /(^|[\s/"'])\.env(\.|$|["'\s])/i,
-  /\.ssh\/|id_rsa|id_ed25519|authorized_keys/i,
-  /\.aws\/credentials|\.netrc|\.npmrc|\.pypirc|\.docker\/config\.json/i,
+  /(^|[\s\\/"'])\.env(\.|$|["'\s])/i,
+  /\.ssh[\\/]|id_rsa|id_ed25519|authorized_keys/i,
+  /\.aws[\\/]credentials|\.netrc|\.npmrc|\.pypirc|\.docker[\\/]config\.json/i,
   /security\s+find-(generic|internet)-password|\bkeychain\b/i,
   /\bcredentials?\.json\b|\bserviceaccount\b/i,
 ];
