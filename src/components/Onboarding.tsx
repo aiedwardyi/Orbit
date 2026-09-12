@@ -8,7 +8,9 @@ import { useI18n } from "@/lib/i18n";
 import { ProviderMark } from "./ProviderIcons";
 
 const CORE_DRIVERS = new Set(["grokAgent", "claudeAgent", "codex", "geminiAgent"]);
-const ENGINE_ORDER = ["grokAgent", "claudeAgent", "codex", "antigravityAgent", "geminiAgent"];
+// Leads with the DEFAULT_FLEET order like the rail does. Gemini API stays on this
+// list even though it is off-rail: onboarding is about connecting CLIs.
+const ENGINE_ORDER = ["claudeAgent", "codex", "grokAgent", "antigravityAgent", "geminiAgent"];
 
 function StatusRow({
   ok,

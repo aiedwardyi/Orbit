@@ -105,7 +105,7 @@ describe("empty-engine first launch screen", () => {
     expect(html).toContain("curl -fsSL https://x.ai/cli/install.sh | bash");
     expect(html).toContain("npm install -g @anthropic-ai/claude-code");
     expect(html).toContain("Requires Node.js and npm.");
-    expect(html.indexOf("Install Grok")).toBeLessThan(html.indexOf("Install Claude"));
+    expect(html.indexOf("Install Claude")).toBeLessThan(html.indexOf("Install Grok"));
     expect(html).toContain("Check again");
     expect(html).not.toContain("Install an AI engine to get started");
     expect(html).not.toContain("Install Codex");

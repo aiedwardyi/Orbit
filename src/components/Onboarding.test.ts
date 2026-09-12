@@ -22,7 +22,7 @@ describe("onboarding empty-engine path", () => {
         { instanceId: "grok", driverKind: "grokAgent", install: { docsUrl: "https://grok" } },
         { instanceId: "claude", driverKind: "claudeAgent", install: { docsUrl: "https://claude" } },
       ]).map((row) => row.instanceId),
-    ).toEqual(["grok", "claude"]);
+    ).toEqual(["claude", "grok"]);
   });
 
   it("wires that path into the first-launch dialog instead of the engine zoo", () => {

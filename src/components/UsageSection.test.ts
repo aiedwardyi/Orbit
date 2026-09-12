@@ -140,10 +140,10 @@ describe("UsageSection friends plan card", () => {
     const codex = html.indexOf("Codex");
     const antigravity = html.indexOf("Gemini (Antigravity)");
     const opencode = html.indexOf("OpenCode");
-    expect(grok).toBeGreaterThan(-1);
-    expect(claude).toBeGreaterThan(grok);
+    expect(claude).toBeGreaterThan(-1);
     expect(codex).toBeGreaterThan(claude);
-    expect(antigravity).toBeGreaterThan(codex);
+    expect(grok).toBeGreaterThan(codex);
+    expect(antigravity).toBeGreaterThan(grok);
     expect(opencode).toBeGreaterThan(antigravity);
   });
 
@@ -267,7 +267,7 @@ describe("UsageSection friends plan card", () => {
       });
       expect([...host.querySelectorAll("button")].filter((button) => button.textContent === "Refreshing…")).toHaveLength(2);
       await act(async () => {
-        deferred.get("grok")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
+        deferred.get("claude")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
       });
       const labels = [...host.querySelectorAll("button")].map((button) => button.textContent);
       expect(labels.filter((label) => label === "Refreshing…")).toHaveLength(1);

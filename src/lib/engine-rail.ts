@@ -28,21 +28,22 @@ export function splitEngineRail<T>(instances: readonly T[]): {
   return { subscription, custom };
 }
 
-// Friends featured rail — Grok, Claude, Codex, Antigravity, OpenCode.
+// Friends featured rail — Claude, Codex, Grok, Antigravity, OpenCode, matching
+// the DEFAULT_FLEET order so the rail leads with the same engine selection does.
 // Gemini API is not a rail engine: Gemini models live on Antigravity.
 // The local/custom zoo stays off this list (showEngineRailZoo can restore it).
 export const FRIENDS_DRIVER_ORDER = [
-  "grokAgent",
   "claudeAgent",
   "codex",
+  "grokAgent",
   "antigravityAgent",
   "opencodeGo",
 ] as const;
 
 export const FRIENDS_CLI_DRIVERS = new Set([
-  "grokAgent",
   "claudeAgent",
   "codex",
+  "grokAgent",
   "antigravityAgent",
 ]);
 
@@ -86,7 +87,7 @@ export function splitFriendsEngines<T>(instances: readonly T[]): {
   return { friends: orderFriendsEngines(friends), rest };
 }
 
-/** Chat-header engine rail: featured friends only, in Grok → Claude → Codex
+/** Chat-header engine rail: featured friends only, in Claude → Codex → Grok
  * → Antigravity → OpenCode order. The zoo expander is a friends-chrome flag. */
 export function visibleFriendsRail<T extends { instanceId: string }>(
   instances: readonly T[],
@@ -116,10 +117,11 @@ export function showFriendsLocalZoo(input: {
   return input.customCount > 0;
 }
 
-// First launch with nothing connected: one path, Grok or Claude. The rest of
-// the fleet stays in Settings. An empty list means "not asked yet" so we do
-// not flash this screen before /api/instances returns.
-const STARTER_CONNECT_DRIVERS = ["grokAgent", "claudeAgent"] as const;
+// First launch with nothing connected: one path, Claude or Grok, leading with
+// the default fleet like the rail. The rest of the fleet stays in Settings. An
+// empty list means "not asked yet" so we do not flash this screen before
+// /api/instances returns.
+const STARTER_CONNECT_DRIVERS = ["claudeAgent", "grokAgent"] as const;
 
 export function isEmptyEngineLaunch(
   instances: readonly { snapshot?: { state?: string } }[],

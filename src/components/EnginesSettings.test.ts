@@ -153,7 +153,7 @@ describe("CLI-candidates in-use marker", () => {
 });
 
 describe("EnginesSettings friends Connections list", () => {
-  it("shows Set CLI for Grok Claude Codex Antigravity, not Gemini API or OpenCode or the zoo", () => {
+  it("shows Set CLI for Claude Codex Grok Antigravity, not Gemini API or OpenCode or the zoo", () => {
     const html = renderToStaticMarkup(
       createElement(I18nProvider, null, createElement(EnginesSettings)),
     );
@@ -173,9 +173,9 @@ describe("EnginesSettings friends Connections list", () => {
     const claude = html.indexOf("Claude");
     const codex = html.indexOf("Codex");
     const antigravity = html.indexOf("Gemini (Antigravity)");
-    expect(grok).toBeGreaterThan(-1);
-    expect(claude).toBeGreaterThan(grok);
+    expect(claude).toBeGreaterThan(-1);
     expect(codex).toBeGreaterThan(claude);
-    expect(antigravity).toBeGreaterThan(codex);
+    expect(grok).toBeGreaterThan(codex);
+    expect(antigravity).toBeGreaterThan(grok);
   });
 });
