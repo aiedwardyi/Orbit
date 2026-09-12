@@ -92,8 +92,12 @@ describe("UsageSection friends plan card", () => {
       await act(async () => root.render(createElement(I18nProvider, null,
         createElement(UsageSection), createElement(ChatPlanMeters, { windows }))));
       const down = [...host.querySelectorAll("button")].find((button) => button.textContent === "Count down (remaining)");
+      const up = [...host.querySelectorAll("button")].find((button) => button.textContent === "Count up (used)");
       expect(down).toBeDefined();
       expect(down?.getAttribute("aria-pressed")).toBe("true");
+      await act(async () => up?.click());
+      expect(up?.getAttribute("aria-pressed")).toBe("true");
+      expect(down?.getAttribute("aria-pressed")).toBe("false");
       await act(async () => down?.click());
       expect(down?.getAttribute("aria-pressed")).toBe("true");
       expect(localStorage.getItem("omb-usage-mode")).toBe("remaining");
