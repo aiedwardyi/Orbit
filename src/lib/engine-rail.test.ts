@@ -43,7 +43,7 @@ describe("splitEngineRail", () => {
 });
 
 describe("splitFriendsEngines", () => {
-  it("keeps the featured rail in Grok → Claude → Codex → Antigravity → OpenCode order", () => {
+  it("keeps the featured rail in Claude → Codex → Grok → Antigravity → OpenCode order", () => {
     const { friends, rest } = splitFriendsEngines([
       { instanceId: "claude", driverKind: "claudeAgent" },
       { instanceId: "kimi", driverKind: "kimiAgent" },
@@ -57,9 +57,9 @@ describe("splitFriendsEngines", () => {
       { instanceId: "hermes", driverKind: "hermesAgent" },
     ]);
     expect(friends.map((row) => row.instanceId)).toEqual([
-      "grok",
       "claude",
       "codex",
+      "grok",
       "antigravity",
       "opencode",
     ]);
@@ -80,9 +80,9 @@ describe("splitFriendsEngines", () => {
     expect(isFriendsEngine({ driverKind: "antigravityAgent" })).toBe(true);
     expect(isFriendsCliEngine({ driverKind: "antigravityAgent" })).toBe(true);
     expect(isFriendsCliEngine({ driverKind: "opencodeGo" })).toBe(false);
-    expect(friendsDriverRank("grokAgent")).toBeLessThan(friendsDriverRank("claudeAgent"));
     expect(friendsDriverRank("claudeAgent")).toBeLessThan(friendsDriverRank("codex"));
-    expect(friendsDriverRank("codex")).toBeLessThan(friendsDriverRank("antigravityAgent"));
+    expect(friendsDriverRank("codex")).toBeLessThan(friendsDriverRank("grokAgent"));
+    expect(friendsDriverRank("grokAgent")).toBeLessThan(friendsDriverRank("antigravityAgent"));
     expect(friendsDriverRank("antigravityAgent")).toBeLessThan(friendsDriverRank("opencodeGo"));
   });
 });
@@ -102,9 +102,9 @@ describe("visibleFriendsRail", () => {
   it("shows only the featured five, in order, with no zoo expander", () => {
     const folded = visibleFriendsRail(fleet, { showAll: false, activeId: "grok" });
     expect(folded.visible.map((row) => row.instanceId)).toEqual([
-      "grok",
       "claude",
       "codex",
+      "grok",
       "antigravity",
       "opencode",
     ]);
@@ -112,9 +112,9 @@ describe("visibleFriendsRail", () => {
 
     const withActiveRest = visibleFriendsRail(fleet, { showAll: false, activeId: "kimi" });
     expect(withActiveRest.visible.map((row) => row.instanceId)).toEqual([
-      "grok",
       "claude",
       "codex",
+      "grok",
       "antigravity",
       "opencode",
     ]);
@@ -124,9 +124,9 @@ describe("visibleFriendsRail", () => {
   it("does not reveal the rest after Show all while the zoo flag is off", () => {
     const opened = visibleFriendsRail(fleet, { showAll: true, activeId: "grok" });
     expect(opened.visible.map((row) => row.instanceId)).toEqual([
-      "grok",
       "claude",
       "codex",
+      "grok",
       "antigravity",
       "opencode",
     ]);
