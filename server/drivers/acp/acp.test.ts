@@ -662,7 +662,8 @@ describe("ACP turns (fake CLI)", () => {
     await instance.adapter.sendTurn({ threadId: `t-${behavior}`, text: "go" });
     const opened = await recorder.until((e) => e.type === "request.opened");
     // SAFETY: until() matched type "request.opened", the variant carrying requestId.
-    await instance.adapter.respondToRequest(`t-${behavior}`, (opened as any).requestId, { behavior });
+    const outcome = await instance.adapter.respondToRequest(`t-${behavior}`, (opened as any).requestId, { behavior });
+    expect(outcome).toBe(behavior === "allow" ? "allowed-once" : "rejected");
     await recorder.until((e) => e.type === "turn.completed");
     return JSON.parse(readFileSync(`${dump}.permission.json`, "utf8"));
   };
@@ -698,7 +699,11 @@ describe("ACP turns (fake CLI)", () => {
     await instance.adapter.sendTurn({ threadId: "t-persistent", text: "go" });
     const opened = await recorder.until((e) => e.type === "request.opened");
     // SAFETY: until() matched type "request.opened", the variant carrying requestId.
-    await instance.adapter.respondToRequest("t-persistent", (opened as any).requestId, { behavior: "allow" });
+    // "allowed-once" here would put a user-approved row in the decision log
+    // for a call that never ran: nothing was granted, so nothing is reportable
+    expect(await instance.adapter.respondToRequest("t-persistent", (opened as any).requestId, { behavior: "allow" })).toBe(
+      "unavailable",
+    );
     expect(await recorder.until((e) => e.type === "request.resolved")).toMatchObject({
       behavior: "deny",
       source: "system",
@@ -720,7 +725,10 @@ describe("ACP turns (fake CLI)", () => {
     await instance.adapter.sendTurn({ threadId: "t-persistent-deny", text: "go" });
     const opened = await recorder.until((e) => e.type === "request.opened");
     // SAFETY: until() matched type "request.opened", the variant carrying requestId.
-    await instance.adapter.respondToRequest("t-persistent-deny", (opened as any).requestId, { behavior: "deny" });
+    // the call did not run and the human asked for that, so this stays a denial
+    expect(await instance.adapter.respondToRequest("t-persistent-deny", (opened as any).requestId, { behavior: "deny" })).toBe(
+      "rejected",
+    );
     expect(await recorder.until((e) => e.type === "request.resolved")).toMatchObject({
       behavior: "deny",
       source: "system",

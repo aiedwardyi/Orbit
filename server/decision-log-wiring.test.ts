@@ -7,9 +7,10 @@
 //
 //   1. a rule-matched auto-approval writes a row naming the rule
 //   2. a card and the human's answer write two rows (allow and deny)
-//   3. an unattended block writes its row — the audit row that says "this
+//   3. an answer that could not be delivered writes NO approval row
+//   4. an unattended block writes its row — the audit row that says "this
 //      would have auto-approved, and only the block stood in the way"
-//   4. GET /api/decisions pages newest-last with ?limit=
+//   5. GET /api/decisions pages newest-last with ?limit=
 import type { ChildProcess } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -100,13 +101,13 @@ async function waitForRunThread(runId: string, ms = 20_000) {
 /** A bot whose fake engine asks permission to run `echo hi` (the ACP core
  * folds that to tool "shell", summary "echo hi" — so the always-allow key
  * is "shell:echo"). */
-async function makePermissionBot(patch: Record<string, unknown>) {
+async function makePermissionBot(patch: Record<string, unknown>, instanceId = "grok") {
   const created = await api("POST", "/api/bots");
   expect(created.status).toBe(201);
   const bot = created.body.bot;
   const patched = await api("PATCH", `/api/bots/${bot.id}`, {
     ...patch,
-    modelSelection: { instanceId: "grok", model: "fake-model" },
+    modelSelection: { instanceId, model: "fake-model" },
   });
   expect(patched.status).toBe(200);
   return patched.body.bot ?? bot;
@@ -124,6 +125,11 @@ posixOnly("authorization decisions are logged", () => {
           grok: {
             driver: "grokAgent",
             environment: { FAKE_ACP_MODE: "permission" },
+            config: { cli: FAKE_CLI, fullAuto: false },
+          },
+          grokPersistent: {
+            driver: "grokAgent",
+            environment: { FAKE_ACP_MODE: "permission", FAKE_ACP_PERMISSION_KINDS: "allow_always,reject_always" },
             config: { cli: FAKE_CLI, fullAuto: false },
           },
         },
@@ -221,6 +227,34 @@ posixOnly("authorization decisions are logged", () => {
       const user = await waitForDecision((r) => r.decision === "user-denied" && r.requestId === requestId);
       expect(user, "the denial never reached the decision log").not.toBeNull();
       expect(user!.source).toBe("user");
+    },
+    90_000,
+  );
+
+  it(
+    "an allow the agent left no way to deliver writes no approval row",
+    async () => {
+      // This agent advertises allow_always but no allow_once, so the driver
+      // cancels rather than take a grant it could never revoke. The human
+      // still pressed Allow, and that is exactly the trap: the row would say
+      // they approved a command that never ran.
+      const bot = await makePermissionBot({ name: "Onlypersistent" }, "grokPersistent");
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "run it" })).status).toBe(202);
+
+      const card = await waitForBotCard(bot.id);
+      expect(card, "no approval card ever appeared").not.toBeNull();
+      // SAFETY: waitForBotCard only matches a message whose card carries a requestId.
+      const requestId = card.card.requestId as string;
+      // the card row proving the log itself is alive, so the absence below means
+      // "not written" rather than "logging broken"
+      expect(await waitForDecision((r) => r.decision === "card-shown" && r.requestId === requestId)).not.toBeNull();
+
+      const answered = await api("POST", `/api/bots/${bot.id}/respond`, { requestId, behavior: "allow" });
+      expect(answered.status).toBe(200);
+      expect(answered.body.outcome).toBe("unavailable");
+
+      const approved = await waitForDecision((r) => r.decision === "user-approved" && r.requestId === requestId, 5_000);
+      expect(approved, "an approval was logged for a command that never ran").toBeNull();
     },
     90_000,
   );
