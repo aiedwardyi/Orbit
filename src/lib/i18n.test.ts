@@ -707,10 +707,10 @@ describe("first-run core path leftovers", () => {
     expect(en["connections.connected"]).toBe("Connected");
     expect(ko["connections.connected"]).toBe("연결됨");
     expect(en["settings.connections.subtitle"]).toBe(
-      "Set the CLI for Claude, Codex, Grok, and Antigravity. Paste an API key for Gemini and OpenCode.",
+      "Orbit detects installed Claude, Codex, Grok, and Antigravity CLIs on its own, so set a CLI only to override one. Paste an API key for Gemini and OpenCode.",
     );
     expect(ko["settings.connections.subtitle"]).toBe(
-      "Claude, Codex, Grok, Antigravity는 CLI를 지정합니다. Gemini와 OpenCode는 API 키를 붙여넣습니다.",
+      "Orbit이 설치된 Claude, Codex, Grok, Antigravity CLI를 알아서 찾으므로, 직접 바꿀 때만 CLI를 지정하면 됩니다. Gemini와 OpenCode는 API 키를 붙여넣습니다.",
     );
     expect(ko["settings.connections.subtitle"]).not.toMatch(/Set the CLI|Paste an API key/i);
     const enParts = splitTwoSentences(en["settings.connections.subtitle"]);
