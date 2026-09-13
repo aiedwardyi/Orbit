@@ -62,6 +62,32 @@ function brightness110(hex: string) {
   return `#${hex2(r)}${hex2(g)}${hex2(b)}`;
 }
 
+function blend(fgHex: string, bgHex: string, alpha: number): string {
+  const f = channels(fgHex);
+  const b = channels(bgHex);
+  const c = (vf: number, vb: number) =>
+    Math.round(vf * alpha + vb * (1 - alpha))
+      .toString(16)
+      .padStart(2, "0");
+  return `#${c(f.r, b.r)}${c(f.g, b.g)}${c(f.b, b.b)}`;
+}
+
+function skinToken(id: string, name: string): string {
+  if (id === "default") {
+    const rootBody = css.match(/(?:@theme|:root)\s*\{([^}]*)\}/)?.[1] ?? "";
+    const match = rootBody.match(new RegExp(`${name}\\s*:\\s*(#[0-9a-fA-F]+)`));
+    if (match) return match[1].toLowerCase();
+    throw new Error(`Token ${name} missing for skin ${id}`);
+  }
+  const token = cssToken(id, name);
+  if (token) return token;
+  const rootBody = css.match(/(?:@theme|:root)\s*\{([^}]*)\}/)?.[1] ?? "";
+  const rootMatch = rootBody.match(new RegExp(`${name}\\s*:\\s*(#[0-9a-fA-F]+)`));
+  if (rootMatch) return rootMatch[1].toLowerCase();
+  throw new Error(`Token ${name} missing for skin ${id}`);
+}
+
+
 describe("skins", () => {
   it("gives every registered skin a stylesheet block", () => {
     for (const id of SKIN_IDS) expect(blocks).toContain(id);
@@ -412,9 +438,9 @@ describe("dark ink skins", () => {
   const DANGER_PAIRINGS = [
     {
       file: "src/components/EnginesSettings.tsx",
-      snippet: "bg-raised px-3 py-1.5 text-[13px] text-danger hover:bg-raised-hover",
+      snippet: "border border-danger/40 px-3 py-1.5 text-[13px] text-danger hover:bg-raised/40",
       textToken: "--color-danger",
-      surfaceToken: "--color-raised",
+      surfaceToken: "--color-card",
     },
     {
       file: "src/components/GroupView.tsx",
@@ -424,7 +450,7 @@ describe("dark ink skins", () => {
     },
     {
       file: "src/components/Sidebar.tsx",
-      snippet: "text-danger hover:bg-raised/70",
+      snippet: "text-danger hover:bg-raised/40",
       textToken: "--color-danger",
       surfaceToken: "--color-card",
     },
@@ -462,6 +488,93 @@ describe("dark ink skins", () => {
     expect.soft(contrast(frappeInk, frappeFill)).toBeGreaterThanOrEqual(4.5);
     expect.soft(contrast(brightness110(frappeInk), brightness110(frappeFill))).toBeGreaterThanOrEqual(4.5);
   });
+
+  it("keeps red danger text readable at rest and on hover across all skins", () => {
+    const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
+    const allSkins = ["default", ...SKIN_IDS];
+
+    const enginesSrc = readFileSync(join(repoRoot, "src/components/EnginesSettings.tsx"), "utf8");
+    const sidebarSrc = readFileSync(join(repoRoot, "src/components/Sidebar.tsx"), "utf8");
+    const taskSrc = readFileSync(join(repoRoot, "src/components/TaskPicker.tsx"), "utf8");
+    const avatarSrc = readFileSync(join(repoRoot, "src/components/BotProfileAvatarCard.tsx"), "utf8");
+    const compSrc = readFileSync(join(repoRoot, "src/components/CompanionSection.tsx"), "utf8");
+
+    const enginesIdx = enginesSrc.indexOf("engines.saveAnyway");
+    expect(enginesIdx, "engines.saveAnyway found in EnginesSettings.tsx").toBeGreaterThanOrEqual(0);
+    const enginesSlice = enginesSrc.slice(enginesSrc.lastIndexOf("<button", enginesIdx), enginesIdx);
+
+    const deleteChannelIdx = sidebarSrc.indexOf("chrome.deleteChannel");
+    expect(deleteChannelIdx, "chrome.deleteChannel found in Sidebar.tsx").toBeGreaterThanOrEqual(0);
+    const deleteChannelSlice = sidebarSrc.slice(sidebarSrc.lastIndexOf("<button", deleteChannelIdx), deleteChannelIdx);
+
+    const removeFromContextIdx = sidebarSrc.indexOf("chrome.removeFromContext");
+    expect(removeFromContextIdx, "chrome.removeFromContext found in Sidebar.tsx").toBeGreaterThanOrEqual(0);
+    const removeFromContextSlice = sidebarSrc.slice(sidebarSrc.lastIndexOf("<button", removeFromContextIdx), removeFromContextIdx);
+
+    const deleteIdx = sidebarSrc.indexOf('"chrome.delete"');
+    expect(deleteIdx, "chrome.delete found in Sidebar.tsx").toBeGreaterThanOrEqual(0);
+    const itemIdx = sidebarSrc.lastIndexOf("const item", deleteIdx);
+    expect(itemIdx, "item() definition found before chrome.delete in Sidebar.tsx").toBeGreaterThanOrEqual(0);
+    const buttonEnd = sidebarSrc.indexOf("</button>", itemIdx);
+    const itemEnd = sidebarSrc.indexOf(");", buttonEnd);
+    const itemSlice = sidebarSrc.slice(itemIdx, itemEnd + 2);
+
+    function textHoverSurface(slice: string, danger: string, card: string, raised: string, raisedHover: string): string {
+      if (slice.includes("hover:bg-raised/40")) return blend(raised, card, 0.4);
+      if (slice.includes("hover:bg-danger/10")) return blend(danger, card, 0.1);
+      if (slice.includes("hover:bg-raised/70")) return blend(raised, card, 0.7);
+      if (slice.includes("hover:bg-raised-hover")) return raisedHover;
+      throw new Error(`Unknown hover class in slice: ${slice}`);
+    }
+
+    for (const skin of allSkins) {
+      const danger = skinToken(skin, "--color-danger");
+      const card = skinToken(skin, "--color-card");
+      const raised = skinToken(skin, "--color-raised");
+      const raisedHover = skinToken(skin, "--color-raised-hover");
+      const control = skinToken(skin, "--color-control");
+      const inset = skinToken(skin, "--color-inset");
+
+      // 1. EnginesSettings "engines.saveAnyway"
+      const enginesRest = /(?<!hover:)bg-raised\b/.test(enginesSlice) ? raised : card;
+      const enginesHover = textHoverSurface(enginesSlice, danger, card, raised, raisedHover);
+      expect.soft(contrast(danger, enginesRest), `${skin} EnginesSettings rest`).toBeGreaterThanOrEqual(4.5);
+      expect.soft(contrast(danger, enginesHover), `${skin} EnginesSettings hover`).toBeGreaterThanOrEqual(4.5);
+
+      // 2. Sidebar "chrome.deleteChannel"
+      const deleteChannelRest = /(?<!hover:)bg-raised\b/.test(deleteChannelSlice) ? raised : card;
+      const deleteChannelHover = textHoverSurface(deleteChannelSlice, danger, card, raised, raisedHover);
+      expect.soft(contrast(danger, deleteChannelRest), `${skin} Sidebar deleteChannel rest`).toBeGreaterThanOrEqual(4.5);
+      expect.soft(contrast(danger, deleteChannelHover), `${skin} Sidebar deleteChannel hover`).toBeGreaterThanOrEqual(4.5);
+
+      // 3. Sidebar "chrome.removeFromContext"
+      const removeContextRest = /(?<!hover:)bg-raised\b/.test(removeFromContextSlice) ? raised : card;
+      const removeContextHover = textHoverSurface(removeFromContextSlice, danger, card, raised, raisedHover);
+      expect.soft(contrast(danger, removeContextRest), `${skin} Sidebar removeFromContext rest`).toBeGreaterThanOrEqual(4.5);
+      expect.soft(contrast(danger, removeContextHover), `${skin} Sidebar removeFromContext hover`).toBeGreaterThanOrEqual(4.5);
+
+      // 4. Sidebar "chrome.delete" (the item() row)
+      const deleteRest = card;
+      const deleteHover = itemSlice.includes("opts?.danger") && itemSlice.includes("hover:bg-raised/40")
+        ? blend(raised, card, 0.4)
+        : textHoverSurface(itemSlice, danger, card, raised, raisedHover);
+      expect.soft(contrast(danger, deleteRest), `${skin} Sidebar chrome.delete rest`).toBeGreaterThanOrEqual(4.5);
+      expect.soft(contrast(danger, deleteHover), `${skin} Sidebar chrome.delete hover`).toBeGreaterThanOrEqual(4.5);
+
+      // Icon-only control 1: TaskPicker delete button
+      const taskHover = taskSrc.includes("hover:bg-danger/10") ? blend(danger, card, 0.1) : raised;
+      expect.soft(contrast(danger, taskHover), `${skin} TaskPicker hover`).toBeGreaterThanOrEqual(3.0);
+
+      // Icon-only control 2: BotProfileAvatarCard remove button
+      const avatarHover = avatarSrc.includes("hover:bg-danger/10") ? blend(danger, card, 0.1) : control;
+      expect.soft(contrast(danger, avatarHover), `${skin} BotProfileAvatarCard hover`).toBeGreaterThanOrEqual(3.0);
+
+      // Icon-only control 3: CompanionSection remove button
+      const compHover = compSrc.includes("hover:bg-danger/10") ? blend(danger, inset, 0.1) : control;
+      expect.soft(contrast(danger, compHover), `${skin} CompanionSection hover`).toBeGreaterThanOrEqual(3.0);
+    }
+  });
+
 
   it("maintains WCAG AA contrast between secondary ink and controls in dark skins", () => {
     for (const skin of DARK_INK_SKINS) {

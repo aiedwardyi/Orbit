@@ -203,7 +203,7 @@ export function CustomPicker({ instance, cliDefault, onClose, onSaved }: {
             <button
               onClick={() => persist()}
               disabled={busy}
-              className="flex items-center gap-1.5 rounded-lg bg-raised px-3 py-1.5 text-[13px] text-danger hover:bg-raised-hover disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-lg border border-danger/40 px-3 py-1.5 text-[13px] text-danger hover:bg-raised/40 disabled:opacity-50"
             >
               {saving ? <Loader2 size={13} className="animate-spin" /> : t("engines.saveAnyway")}
             </button>
