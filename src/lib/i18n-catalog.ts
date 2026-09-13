@@ -781,7 +781,7 @@ export const en = {
   "connections.gemini.label": "Gemini API key",
   "connections.gemini.placeholder": "Paste a Gemini API key",
   "connections.gemini.link": "Create a Gemini API key",
-  "connections.gemini.description": "Runs the native Gemini CLI directly. Google subscription accounts can use Gemini through Antigravity without this key.",
+  "connections.gemini.description": "Lets Orbit use Gemini with your own API key.",
   "connections.gemini.warning": "Direct API usage may incur charges outside your subscription.",
   "connections.box.label": "Box API key",
   "connections.box.placeholder": "Paste your Box API key",

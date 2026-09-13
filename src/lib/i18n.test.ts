@@ -184,6 +184,10 @@ describe("catalogs", () => {
     expect(ko["chat.conversationAria"].includes("{name}")).toBe(true);
     expect(ko["chrome.botWorking"].startsWith("{name}")).toBe(true);
   });
+
+  it("describes the Gemini API key plainly", () => {
+    expect(en["connections.gemini.description"]).not.toMatch(/CLI|native|binary|Antigravity/i);
+  });
 });
 
 describe("translate", () => {
