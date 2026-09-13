@@ -8,27 +8,29 @@ export function OrbitMark({ size = 76 }: { size?: number }) {
       aria-label="Orbit"
       className="drop-shadow-[0_14px_32px_rgba(0,0,0,0.45)]"
     >
-      <defs>
-        <linearGradient id="orbit-spectrum" x1="12" y1="84" x2="84" y2="12" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#1688FF" />
-          <stop offset="0.48" stopColor="#8B6CFF" />
-          <stop offset="1" stopColor="#F45AA8" />
-        </linearGradient>
-        <radialGradient id="orbit-core" cx="0" cy="0" r="1" gradientTransform="translate(39 35) rotate(48) scale(31)">
-          <stop stopColor="#FFFFFF" />
-          <stop offset="0.7" stopColor="#DDE5F2" />
-          <stop offset="1" stopColor="#8C96A8" />
-        </radialGradient>
-      </defs>
-      <circle cx="48" cy="48" r="45" fill="#121216" stroke="#FFFFFF" strokeOpacity="0.1" strokeWidth="1.5" />
-      <g className="orbit-mark-rings" fill="none" strokeLinecap="round">
-        <ellipse cx="48" cy="48" rx="35" ry="16" transform="rotate(-24 48 48)" stroke="url(#orbit-spectrum)" strokeWidth="4" strokeDasharray="77 46" />
-        <ellipse cx="48" cy="48" rx="35" ry="16" transform="rotate(66 48 48)" stroke="#FFFFFF" strokeOpacity="0.2" strokeWidth="2" strokeDasharray="54 68" />
+      <rect x="12" y="10.5" width="71.5" height="72.5" rx="15" fill="#303446" />
+      <ellipse
+        cx="47.9"
+        cy="46.8"
+        rx="32.8"
+        ry="13.6"
+        transform="rotate(-20 47.9 46.8)"
+        fill="none"
+        stroke="#a6d189"
+        strokeWidth="5.6"
+      />
+      <g transform="rotate(-8 47.8 47.3)">
+        <rect x="26.2" y="27.2" width="43.1" height="40.3" rx="13.1" fill="#fdf6e4" />
+        <circle cx="40.8" cy="43.6" r="2.2" fill="#2b2e36" />
+        <circle cx="55.1" cy="43.6" r="2.2" fill="#2b2e36" />
       </g>
-      <circle cx="48" cy="48" r="11" fill="url(#orbit-core)" />
-      <circle cx="43" cy="43" r="3" fill="#FFFFFF" fillOpacity="0.9" />
-      <circle cx="78" cy="40" r="3.5" fill="#F45AA8" />
-      <circle cx="20" cy="61" r="3" fill="#1688FF" />
+      <path
+        d="M 78.5 40.6 A 32.8 13.6 -20 0 1 52.6 59.6 A 32.8 13.6 -20 0 1 20.5 61.7"
+        fill="none"
+        stroke="#a6d189"
+        strokeWidth="5.6"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
