@@ -179,6 +179,7 @@ import {
   TASK_RESUME_PROMPT,
   taskRecordBlock,
 } from "./turn-context.ts";
+import { providerReloadErrorActivity, stallErrorActivity } from "./room-error-attribution.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import {
   ensureWorkspace,
@@ -1411,11 +1412,10 @@ const watchdog = new TurnWatchdog({
     const instance = bot ? registry.get(bot.modelSelection.instanceId) : null;
     void instance?.adapter.interruptTurn(turn.threadId).catch(() => {});
     const minutes = Math.round(TURN_STALL_MS / 60_000);
-    store.appendMessage(turn.threadId, {
-      role: "bot",
-      kind: "activity",
-      tool: { name: `error: no activity for ${minutes} minutes — the turn was stopped`, ok: false },
-    });
+    store.appendMessage(
+      turn.threadId,
+      stallErrorActivity(bot, minutes, Boolean(store.groupByThread(turn.threadId))),
+    );
     finalizeDelegationWatch(turn.threadId, false, "", "Delegated turn stalled and was stopped");
     turnUsage.delete(turn.threadId);
     roomStallCompletions.stall(turn.threadId);
@@ -4737,12 +4737,8 @@ async function reloadProviders() {
       "",
       "Delegated turn did not finish — provider settings changed",
     );
-    store.appendMessage(threadId, {
-      role: "bot",
-      kind: "activity",
-      tool: { name: "error: turn interrupted — provider settings changed", ok: false },
-    });
     const group = store.groupByThread(threadId);
+    store.appendMessage(threadId, providerReloadErrorActivity(b, Boolean(group)));
     if (group) {
       cancelGroupTurnOperations(group.id, threadId);
       for (const operation of [...(groupTurnOperations.get(group.id) ?? [])]) {
