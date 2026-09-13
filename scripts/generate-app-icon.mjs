@@ -3,89 +3,30 @@
 //   node scripts/generate-app-icon.mjs --source <path-to-1024-master>
 //   node scripts/generate-app-icon.mjs --check
 //
-// The master has an alpha channel but everything outside the rounded square
-// is OPAQUE WHITE, so it cannot ship as-is: the white corners are
-// flood-filled to transparent from the borders (with the anti-aliased edge
-// unblended from white), then every shipped size is area-averaged down from
-// the cleaned 1024 with premultiplied alpha. ICO/ICNS containers are rebuilt
-// from those same renders. No image dependencies — pure node:zlib PNG codec.
-// --source is required: the master is author-provided and lives outside the
-// repo, so there is no in-repo default.
+// The master must be a non-interlaced 8-bit RGBA PNG whose surround outside
+// the rounded square is OPAQUE WHITE: the white corners are flood-filled to
+// transparent from the borders (with the anti-aliased edge unblended from
+// white), then every shipped size is area-averaged down from the cleaned
+// 1024 with premultiplied alpha. ICO/ICNS containers are rebuilt from those
+// same renders, including the 16/32 1x ic04/ic05 entries. PNG encode/decode
+// lives in scripts/png-codec.mjs (shared with the asset test). No image
+// dependencies. --source is required: the master is author-provided and
+// lives outside the repo, so there is no in-repo default.
 //
 // --check is read-only: it re-reads every shipped PNG and fails if any
 // corner is not fully transparent (also wired into
 // scripts/app-icon-assets.test.mjs). It never writes and never needs --source.
-import { inflateSync, deflateSync } from "node:zlib";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { decodePng, encodePng } from "./png-codec.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-// Slate base of the new artwork; the outer edge is always a blend of this
-// with white, which is what lets the fringe unblend back to a clean edge.
-const EDGE_FG = [55, 65, 80];
-
-function decodePng(path) {
-  const bytes = readFileSync(path);
-  let offset = 8;
-  let width = 0;
-  let height = 0;
-  let colorType = 0;
-  const idat = [];
-  while (offset < bytes.length) {
-    const length = bytes.readUInt32BE(offset);
-    const type = bytes.toString("ascii", offset + 4, offset + 8);
-    if (type === "IHDR") {
-      width = bytes.readUInt32BE(offset + 8);
-      height = bytes.readUInt32BE(offset + 12);
-      colorType = bytes[offset + 17];
-    } else if (type === "IDAT") {
-      idat.push(bytes.subarray(offset + 8, offset + 8 + length));
-    } else if (type === "IEND") {
-      break;
-    }
-    offset += 12 + length;
-  }
-  const channels = colorType === 6 ? 4 : colorType === 2 ? 3 : 1;
-  const stride = width * channels;
-  const raw = inflateSync(Buffer.concat(idat));
-  const pixels = Buffer.alloc(width * height * 4);
-  let pos = 0;
-  let previous = Buffer.alloc(stride);
-  for (let y = 0; y < height; y++) {
-    const filter = raw[pos++];
-    const current = raw.subarray(pos, pos + stride);
-    pos += stride;
-    const row = Buffer.alloc(stride);
-    for (let x = 0; x < stride; x++) {
-      const left = x >= channels ? row[x - channels] : 0;
-      const up = previous[x];
-      let value = current[x];
-      if (filter === 1) value = (value + left) & 255;
-      else if (filter === 2) value = (value + up) & 255;
-      else if (filter === 3) value = (value + ((left + up) >> 1)) & 255;
-      else if (filter === 4) {
-        const upperLeft = x >= channels ? previous[x - channels] : 0;
-        const p = left + up - upperLeft;
-        const pa = Math.abs(p - left);
-        const pb = Math.abs(p - up);
-        const pc = Math.abs(p - upperLeft);
-        value = (value + (pa <= pb && pa <= pc ? left : pb <= pc ? up : upperLeft)) & 255;
-      }
-      row[x] = value;
-    }
-    for (let x = 0; x < width; x++) {
-      const o = (y * width + x) * 4;
-      pixels[o] = row[x * channels];
-      pixels[o + 1] = channels >= 3 ? row[x * channels + 1] : row[x * channels];
-      pixels[o + 2] = channels >= 3 ? row[x * channels + 2] : row[x * channels];
-      pixels[o + 3] = channels === 4 ? row[x * channels + 3] : 255;
-    }
-    previous = row;
-  }
-  return { width, height, pixels };
-}
+// Solid base shade sampled 3px inside the 1024 master's straight tile edges
+// (n=628, mean 49.6/58.2/71.1): the outer fringe is always a blend of this
+// with white, which is what lets it unblend back to a clean edge.
+const EDGE_FG = [50, 58, 71];
 
 /** Masks the opaque-white surround to alpha 0, keeping an anti-aliased edge. */
 function cleanWhite({ width, height, pixels }) {
@@ -198,83 +139,6 @@ function resample(src, dstWidth, dstHeight) {
   return { width: dstWidth, height: dstHeight, pixels: dst };
 }
 
-let CRC_TABLE = null;
-function crc32(buffer) {
-  if (!CRC_TABLE) {
-    CRC_TABLE = new Int32Array(256);
-    for (let n = 0; n < 256; n++) {
-      let c = n;
-      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-      CRC_TABLE[n] = c;
-    }
-  }
-  let c = -1;
-  for (const byte of buffer) c = CRC_TABLE[(c ^ byte) & 0xff] ^ (c >>> 8);
-  return c ^ -1;
-}
-
-function encodePng({ width, height, pixels }) {
-  const stride = width * 4;
-  const raw = Buffer.alloc((stride + 1) * height);
-  let previous = Buffer.alloc(stride);
-  for (let y = 0; y < height; y++) {
-    const row = pixels.subarray(y * stride, (y + 1) * stride);
-    const candidates = [Buffer.alloc(stride), Buffer.alloc(stride), Buffer.alloc(stride)];
-    for (let x = 0; x < stride; x++) {
-      const left = x >= 4 ? row[x - 4] : 0;
-      const up = previous[x];
-      const upperLeft = x >= 4 ? previous[x - 4] : 0;
-      candidates[0][x] = row[x];
-      candidates[1][x] = (row[x] - left) & 255;
-      const p = left + up - upperLeft;
-      const pa = Math.abs(p - left);
-      const pb = Math.abs(p - up);
-      const pc = Math.abs(p - upperLeft);
-      candidates[2][x] = (row[x] - (pa <= pb && pa <= pc ? left : pb <= pc ? up : upperLeft)) & 255;
-    }
-    let best = 0;
-    let bestScore = Infinity;
-    for (let f = 0; f < 3; f++) {
-      // Standard minimum-sum-of-absolute-values heuristic: each filtered
-      // byte is a signed residual, so its magnitude is v (v <= 127) or
-      // 256 - v. |v - 128| and plain |v| both mis-score small negatives.
-      let score = 0;
-      for (let x = 0; x < stride; x++) {
-        const v = candidates[f][x];
-        score += v <= 127 ? v : 256 - v;
-      }
-      if (score < bestScore) {
-        bestScore = score;
-        best = f;
-      }
-    }
-    // candidate index maps to PNG filter 0 (none), 1 (sub), 4 (paeth)
-    const filter = best === 0 ? 0 : best === 1 ? 1 : 4;
-    raw[y * (stride + 1)] = filter;
-    candidates[best].copy(raw, y * (stride + 1) + 1);
-    previous = row;
-  }
-  const chunk = (type, data) => {
-    const length = Buffer.alloc(4);
-    length.writeUInt32BE(data.length);
-    const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
-    const crc = Buffer.alloc(4);
-    crc.writeUInt32BE(crc32(body) >>> 0);
-    return Buffer.concat([length, body, crc]);
-  };
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(width, 0);
-  ihdr.writeUInt32BE(height, 4);
-  ihdr[8] = 8;
-  ihdr[9] = 6; // truecolour with alpha
-  return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    chunk("IHDR", ihdr),
-    chunk("IDAT", deflateSync(raw, { level: 9 })),
-    chunk("IEND", Buffer.alloc(0)),
-  ]);
-}
-
 /** Vista-style ICO: PNG payloads, same six sizes the project already ships. */
 function encodeIco(rendered) {
   const sizes = [256, 128, 64, 48, 32, 16];
@@ -298,7 +162,7 @@ function encodeIco(rendered) {
   return Buffer.concat([header, ...bodies]);
 }
 
-/** ICNS with PNG entries mirroring the project's current type set. */
+/** ICNS with PNG entries: 2x/retina types plus the 16/32 1x ic04/ic05 types. */
 function encodeIcns(rendered) {
   const entries = [];
   const put = (type, size) => {
@@ -315,6 +179,8 @@ function encodeIcns(rendered) {
   put("ic07", 128);
   put("ic12", 64);
   put("ic11", 32);
+  put("ic05", 32);
+  put("ic04", 16);
   // Carry the existing 'info' block so the container keeps its shape.
   try {
     const current = readFileSync(join(ROOT, "build/icon.icns"));
@@ -391,7 +257,14 @@ function main() {
     return;
   }
   const source = args[sourceIndex + 1];
-  const master = cleanWhite(decodePng(source));
+  let master;
+  try {
+    master = cleanWhite(decodePng(source));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+    return;
+  }
   const rendered = {};
   for (const size of [16, 32, 48, 64, 128, 256, 512, 1024]) {
     rendered[size] = size === 1024 ? master : resample(master, size, size);
@@ -409,4 +282,6 @@ function main() {
   write("build/icon.icns", encodeIcns(rendered));
 }
 
-main();
+export { SHIPPED_PNGS };
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) main();
