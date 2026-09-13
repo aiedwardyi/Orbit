@@ -660,6 +660,12 @@ body {
   outline-offset: 2px;
 }
 
+/* Dialog containers take mount-focus via tabindex -1; the global ring would
+   outline the whole modal for keyboard users. */
+[role="dialog"][tabindex="-1"]:focus-visible {
+  outline: none;
+}
+
 /* Text fields already sit in a bordered card (the composer pill especially).
    Chromium treats a pointer click as :focus-visible on inputs, so the
    global ring above becomes a sharp blue rectangle inside the rounded
