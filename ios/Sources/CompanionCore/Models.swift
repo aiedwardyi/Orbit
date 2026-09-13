@@ -67,6 +67,14 @@ public struct OptionCard: Codable, Hashable, Sendable {
     }
 }
 
+public struct UsageLimit: Codable, Hashable, Sendable {
+    public var resetsAt: Double?
+
+    public init(resetsAt: Double? = nil) {
+        self.resetsAt = resetsAt
+    }
+}
+
 public struct ToolActivity: Codable, Hashable, Sendable {
     public var name: String
     public var ok: Bool?
@@ -74,6 +82,21 @@ public struct ToolActivity: Codable, Hashable, Sendable {
     public var spoken: String?
     /// Marks an error fixed by installing something, not by retrying.
     public var setup: Bool?
+    public var usageLimit: UsageLimit?
+
+    public init(
+        name: String,
+        ok: Bool? = nil,
+        spoken: String? = nil,
+        setup: Bool? = nil,
+        usageLimit: UsageLimit? = nil
+    ) {
+        self.name = name
+        self.ok = ok
+        self.spoken = spoken
+        self.setup = setup
+        self.usageLimit = usageLimit
+    }
 }
 
 public struct Sender: Codable, Hashable, Sendable {
