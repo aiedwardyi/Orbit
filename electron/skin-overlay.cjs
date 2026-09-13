@@ -16,12 +16,13 @@ const SKIN_CHROME = Object.freeze({
   foundry: Object.freeze({ color: "#100e0b", symbolColor: "#b0a696" }),
   lagoon: Object.freeze({ color: "#dfeceb", symbolColor: "#4d5c5b" }),
   ledger: Object.freeze({ color: "#e9e9e9", symbolColor: "#575757" }),
-  "catppuccin-mocha": Object.freeze({ color: "#1e1e2e", symbolColor: "#a6adc8" }),
+  "catppuccin-frappe": Object.freeze({ color: "#303446", symbolColor: "#b5bfe2" }),
   "tokyo-night": Object.freeze({ color: "#1a1b26", symbolColor: "#a9b1d6" }),
   vesper: Object.freeze({ color: "#101010", symbolColor: "#a0a0a0" }),
   onyx: Object.freeze({ color: "#0a0a0b", symbolColor: "#9c9ca5" }),
   dracula: Object.freeze({ color: "#282a36", symbolColor: "#a4abcc" }),
   cobalt: Object.freeze({ color: "#292a2b", symbolColor: "#bcaafe" }),
+  gruvbox: Object.freeze({ color: "#282828", symbolColor: "#d5c4a1" }),
 });
 
 const DEFAULT_SKIN = "ledger";
@@ -30,29 +31,35 @@ const SKIN_PREFERENCE_FILE = "skin-preference.json";
 const LOCAL_STORAGE_DIR = path.join("Local Storage", "leveldb");
 const OMB_SKIN_MARKER = Buffer.from("omb-skin");
 const KNOWN_SKIN_RE =
-  /^(midnight|atelier|foundry|lagoon|ledger|catppuccin-mocha|tokyo-night|vesper|onyx|dracula|cobalt)(?![A-Za-z0-9_-])/;
+  /^(midnight|atelier|foundry|lagoon|ledger|catppuccin-frappe|catppuccin-mocha|tokyo-night|vesper|onyx|dracula|cobalt|gruvbox)(?![A-Za-z0-9_-])/;
 const MAX_SKIN_ID_LEN = Math.max(...Object.keys(SKIN_CHROME).map((id) => id.length));
+
+function migrateSkin(skin) {
+  return skin === "catppuccin-mocha" ? "catppuccin-frappe" : skin;
+}
 
 /** The chrome colours for a skin id sent by the renderer. Anything that is
  * not a known skin — a renamed skin, a stale value, a non-string — falls
  * back to Ledger rather than throwing, because the renderer has already
  * painted and a wrong overlay is recoverable while a broken IPC is not. */
 function skinChrome(skin) {
-  return Object.hasOwn(SKIN_CHROME, skin) ? SKIN_CHROME[skin] : SKIN_CHROME[DEFAULT_SKIN];
+  const resolved = migrateSkin(skin);
+  return Object.hasOwn(SKIN_CHROME, resolved) ? SKIN_CHROME[resolved] : SKIN_CHROME[DEFAULT_SKIN];
 }
 
 /** True when the id names a skin this module knows. A non-string coerces to a
  * property key that cannot match a skin id, so it answers false without a
  * separate type guard. */
 function isKnownSkin(skin) {
-  return Object.hasOwn(SKIN_CHROME, skin);
+  return Object.hasOwn(SKIN_CHROME, migrateSkin(skin));
 }
 
 /** Windows caption glyphs and DWM follow nativeTheme; light skins need
  * `light` or the symbols stay Midnight-on-Midnight. Unknown or missing ids
  * follow DEFAULT_SKIN, the same fallback skinChrome uses. */
 function skinThemeSource(skin) {
-  const id = Object.hasOwn(SKIN_CHROME, skin) ? skin : DEFAULT_SKIN;
+  const resolved = migrateSkin(skin);
+  const id = Object.hasOwn(SKIN_CHROME, resolved) ? resolved : DEFAULT_SKIN;
   return LIGHT_SKINS.has(id) ? "light" : "dark";
 }
 
@@ -63,7 +70,8 @@ function preferencePath(userDataDir) {
 function readSkinPreferenceFile(userDataDir) {
   try {
     const parsed = JSON.parse(fs.readFileSync(preferencePath(userDataDir), "utf8"));
-    if (isKnownSkin(parsed?.skin)) return parsed.skin;
+    const skin = migrateSkin(parsed?.skin);
+    if (isKnownSkin(skin)) return skin;
   } catch {
     /* missing or unreadable — try Chromium localStorage next */
   }
@@ -86,7 +94,7 @@ function extractOmbSkin(bytes) {
     while (i < bytes.length && bytes[i] < 0x20) i += 1;
     const slice = bytes.toString("utf8", i, Math.min(bytes.length, i + MAX_SKIN_ID_LEN + 1));
     const match = slice.match(KNOWN_SKIN_RE);
-    if (match) found = match[1];
+    if (match) found = migrateSkin(match[1]);
     from = at + OMB_SKIN_MARKER.length;
   }
   return found;
@@ -139,4 +147,6 @@ module.exports = {
   extractOmbSkin,
   readPersistedSkin,
   writePersistedSkin,
+  preferencePath,
+  migrateSkin,
 };
