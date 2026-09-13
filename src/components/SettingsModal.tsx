@@ -485,7 +485,6 @@ export function SettingsModal({
 
             {section === "connections" && (
               <Card
-                title={t("settings.connections.title")}
                 subtitle={t("settings.connections.subtitle")}
               >
                 <div className="flex flex-col gap-4">
