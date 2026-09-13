@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Atom, BookOpen, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Hexagon, Leaf, MoonStar, Mountain, Orbit, Sparkle, Sparkles, Sun, X } from "lucide-react";
 import { useStore, type Bot, type ModelSelection } from "@/state/store";
 import { filterCustomModels } from "@/lib/custom-models";
-import { engineBadgeText, modelChipText, modelChipTitle } from "@/lib/model-chip";
+import { engineBadgeText, modelChipText, modelChipTitle, modelFamilyAccent } from "@/lib/model-chip";
 import { movePicker, pickerColumn, pickerEfforts, pickerModels, pickerRows, selectPickerEffort, selectPickerModel, withPickerEffort } from "@/lib/cross-model-picker";
 import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
@@ -173,6 +173,12 @@ export function ModelPickerControl({
       <span className={cn("max-w-[160px] truncate", !contained && active && "@max-4xl/chathead:hidden")}>
         {modelChipText({ instance: active, model: selection.model }, t)}
       </span>
+      {selection.effort && (
+        <span data-model-effort className={cn("flex items-center gap-1", !contained && active && "@max-4xl/chathead:hidden")}>
+          <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(active?.driverKind) }} />
+          <span className="text-[12px] text-ink-secondary">{effortLabel(selection.effort)}</span>
+        </span>
+      )}
       {!contained && active && <span className="hidden max-w-[96px] truncate @max-4xl/chathead:inline">{active.displayName}</span>}
       <ChevronDown size={14} className={cn("text-ink-secondary", !contained && active && "@max-4xl/chathead:hidden")} />
     </button>

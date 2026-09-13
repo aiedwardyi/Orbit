@@ -40,6 +40,30 @@ export function modelChipTitle(
   return live;
 }
 
+/** Family accents mirror ModelPicker.css's --picker-accent table. Kept here
+ * (not read from the stylesheet) so the header chip can wear the same
+ * color; the driver's family mapping matches ModelPicker's `families`. */
+const FAMILY_ACCENTS = {
+  gpt: "#3594ff",
+  claude: "#ed6549",
+  opencode: "#43ce8b",
+  gemini: "#aa7bfa",
+  grok: "#8b929c",
+} as const;
+
+const DRIVER_FAMILIES = new Map<string, keyof typeof FAMILY_ACCENTS>([
+  ["codex", "gpt"],
+  ["grokAgent", "grok"],
+  ["antigravityAgent", "gemini"],
+  ["geminiAgent", "gemini"],
+  ["claudeAgent", "claude"],
+  ["opencodeGo", "opencode"],
+]);
+
+export function modelFamilyAccent(driverKind?: string): string {
+  return FAMILY_ACCENTS[DRIVER_FAMILIES.get(driverKind ?? "") ?? "grok"];
+}
+
 /** Short status for the model-picker engine pill. CLI --version belongs on Set CLI. */
 export function engineBadgeText(
   _snapshot: { version?: string | null },
