@@ -111,7 +111,7 @@ describe("UsageSection friends plan card", () => {
       expect(host.querySelector('[aria-pressed="true"]')?.textContent).toBe("Count down (remaining)");
     } finally {
       await act(async () => root.unmount());
-      await act(async () => setUsageMode("used"));
+      await act(async () => setUsageMode("remaining"));
       host.remove();
     }
   });
@@ -153,6 +153,7 @@ describe("UsageSection friends plan card", () => {
   });
 
   it("renders every window as the chat's compact meter, with the Opus row labeled and stale windows as text", () => {
+    setUsageMode("used");
     const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
     // five windows and no spend: columns cap at four, the fifth cell wraps
     expect(html).toContain("mx-auto mt-2 grid w-fit items-center gap-x-6 grid-cols-[auto_auto_auto_auto]");
