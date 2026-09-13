@@ -79,8 +79,16 @@ function RoomToolChip({ message, onRetry }: { message: Message; onRetry?: () => 
   const { dispatch, state } = useStore();
   const { t } = useI18n();
   const now = useNow();
+  const [retried, setRetried] = useState(false);
   const tool = message.tool;
   if (!tool) return null;
+  const handleRetry = onRetry
+    ? () => {
+        if (retried) return;
+        setRetried(true);
+        onRetry();
+      }
+    : undefined;
   // A spent plan is the one failure a room can explain, so it gets the same
   // warning treatment as 1:1 — with the engine's own words kept on the title.
   if (tool.usageLimit) {
@@ -99,10 +107,12 @@ function RoomToolChip({ message, onRetry }: { message: Message; onRetry?: () => 
           </div>
           {onRetry && (
             <button
-              onClick={onRetry}
+              disabled={retried}
+              onClick={handleRetry}
               className={cn(
                 "mt-1.5 flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12.5px]",
                 "border-warning/30 hover:bg-warning/15",
+                "disabled:pointer-events-none disabled:opacity-50",
               )}
             >
               <RefreshCw size={12} /> {t("composer.retry")}
@@ -143,10 +153,12 @@ function RoomToolChip({ message, onRetry }: { message: Message; onRetry?: () => 
         </div>
         {onRetry && (
           <button
-            onClick={onRetry}
+            disabled={retried}
+            onClick={handleRetry}
             className={cn(
               "mt-1.5 flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12.5px]",
               tool.usageLimit ? "border-warning/30 hover:bg-warning/15" : "border-danger/30 hover:bg-danger/15",
+              "disabled:pointer-events-none disabled:opacity-50",
             )}
           >
             <RefreshCw size={12} /> {t("composer.retry")}
@@ -228,7 +240,7 @@ const Transcript = memo(function Transcript({
   );
   const focus = state.focusMessage;
   const focusedId = focus && !focus.consumed && focus.threadId === group.threadId ? focus.messageId : null;
-  const retry = roomRetry(group.messages, group.busyBotId, group.threadId);
+  const retry = roomRetry(group.messages, members, group, group.threadId, group.busyBotId);
   const onRetryFor = (messageId: string) =>
     retry && messageId === retry.messageId
       ? () =>
