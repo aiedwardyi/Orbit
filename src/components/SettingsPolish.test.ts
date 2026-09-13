@@ -245,7 +245,7 @@ describe("Settings Polish", () => {
     });
 
     const pane = host.querySelector(".flex.min-w-0.flex-1.flex-col");
-    expect(pane).toBeDefined();
+    expect(pane).toBeTruthy();
     const connectionsLabels = [...(pane?.querySelectorAll("*") ?? [])].filter(
       (el) => el.children.length === 0 && el.textContent?.trim() === "Connections",
     );
@@ -290,7 +290,7 @@ describe("Settings Polish", () => {
     });
 
     const populatedBox = host.querySelector('[title="/home/user/my-project"]');
-    expect(populatedBox).toBeDefined();
+    expect(populatedBox).toBeTruthy();
     expect(populatedBox?.className).toContain("font-mono");
     expect(populatedBox?.textContent).toContain("my-project");
     expect(populatedBox?.querySelector(".font-sans")).toBeNull();
