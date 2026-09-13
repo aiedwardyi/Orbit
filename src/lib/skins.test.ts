@@ -77,11 +77,14 @@ function skinToken(id: string, name: string): string {
     const rootBody = css.match(/(?:@theme|:root)\s*\{([^}]*)\}/)?.[1] ?? "";
     const match = rootBody.match(new RegExp(`${name}\\s*:\\s*(#[0-9a-fA-F]+)`));
     if (match) return match[1].toLowerCase();
+    throw new Error(`Token ${name} missing for skin ${id}`);
   }
   const token = cssToken(id, name);
   if (token) return token;
   const rootBody = css.match(/(?:@theme|:root)\s*\{([^}]*)\}/)?.[1] ?? "";
-  return rootBody.match(new RegExp(`${name}\\s*:\\s*(#[0-9a-fA-F]+)`))?.[1]?.toLowerCase() ?? "#000000";
+  const rootMatch = rootBody.match(new RegExp(`${name}\\s*:\\s*(#[0-9a-fA-F]+)`));
+  if (rootMatch) return rootMatch[1].toLowerCase();
+  throw new Error(`Token ${name} missing for skin ${id}`);
 }
 
 
@@ -435,7 +438,7 @@ describe("dark ink skins", () => {
   const DANGER_PAIRINGS = [
     {
       file: "src/components/EnginesSettings.tsx",
-      snippet: "border border-danger/40 px-3 py-1.5 text-[13px] text-danger hover:bg-danger/10",
+      snippet: "border border-danger/40 px-3 py-1.5 text-[13px] text-danger hover:bg-raised/40",
       textToken: "--color-danger",
       surfaceToken: "--color-card",
     },
@@ -447,7 +450,7 @@ describe("dark ink skins", () => {
     },
     {
       file: "src/components/Sidebar.tsx",
-      snippet: "text-danger hover:bg-danger/10",
+      snippet: "text-danger hover:bg-raised/40",
       textToken: "--color-danger",
       surfaceToken: "--color-card",
     },
@@ -496,6 +499,34 @@ describe("dark ink skins", () => {
     const avatarSrc = readFileSync(join(repoRoot, "src/components/BotProfileAvatarCard.tsx"), "utf8");
     const compSrc = readFileSync(join(repoRoot, "src/components/CompanionSection.tsx"), "utf8");
 
+    const enginesIdx = enginesSrc.indexOf("engines.saveAnyway");
+    expect(enginesIdx, "engines.saveAnyway found in EnginesSettings.tsx").toBeGreaterThanOrEqual(0);
+    const enginesSlice = enginesSrc.slice(enginesSrc.lastIndexOf("<button", enginesIdx), enginesIdx);
+
+    const deleteChannelIdx = sidebarSrc.indexOf("chrome.deleteChannel");
+    expect(deleteChannelIdx, "chrome.deleteChannel found in Sidebar.tsx").toBeGreaterThanOrEqual(0);
+    const deleteChannelSlice = sidebarSrc.slice(sidebarSrc.lastIndexOf("<button", deleteChannelIdx), deleteChannelIdx);
+
+    const removeFromContextIdx = sidebarSrc.indexOf("chrome.removeFromContext");
+    expect(removeFromContextIdx, "chrome.removeFromContext found in Sidebar.tsx").toBeGreaterThanOrEqual(0);
+    const removeFromContextSlice = sidebarSrc.slice(sidebarSrc.lastIndexOf("<button", removeFromContextIdx), removeFromContextIdx);
+
+    const deleteIdx = sidebarSrc.indexOf('"chrome.delete"');
+    expect(deleteIdx, "chrome.delete found in Sidebar.tsx").toBeGreaterThanOrEqual(0);
+    const itemIdx = sidebarSrc.lastIndexOf("const item", deleteIdx);
+    expect(itemIdx, "item() definition found before chrome.delete in Sidebar.tsx").toBeGreaterThanOrEqual(0);
+    const buttonEnd = sidebarSrc.indexOf("</button>", itemIdx);
+    const itemEnd = sidebarSrc.indexOf(");", buttonEnd);
+    const itemSlice = sidebarSrc.slice(itemIdx, itemEnd + 2);
+
+    function textHoverSurface(slice: string, danger: string, card: string, raised: string, raisedHover: string): string {
+      if (slice.includes("hover:bg-raised/40")) return blend(raised, card, 0.4);
+      if (slice.includes("hover:bg-danger/10")) return blend(danger, card, 0.1);
+      if (slice.includes("hover:bg-raised/70")) return blend(raised, card, 0.7);
+      if (slice.includes("hover:bg-raised-hover")) return raisedHover;
+      throw new Error(`Unknown hover class in slice: ${slice}`);
+    }
+
     for (const skin of allSkins) {
       const danger = skinToken(skin, "--color-danger");
       const card = skinToken(skin, "--color-card");
@@ -504,26 +535,31 @@ describe("dark ink skins", () => {
       const control = skinToken(skin, "--color-control");
       const inset = skinToken(skin, "--color-inset");
 
-      // Text control 1: EnginesSettings "Save anyway"
-      const enginesIdx = enginesSrc.indexOf("engines.saveAnyway");
-      const enginesButton = enginesIdx >= 0 ? enginesSrc.slice(enginesSrc.lastIndexOf("<button", enginesIdx), enginesIdx) : enginesSrc;
-      const enginesRest = enginesButton.includes("bg-raised") ? raised : card;
-      const enginesHover = enginesButton.includes("hover:bg-raised-hover")
-        ? raisedHover
-        : blend(danger, card, 0.1);
+      // 1. EnginesSettings "engines.saveAnyway"
+      const enginesRest = /(?<!hover:)bg-raised\b/.test(enginesSlice) ? raised : card;
+      const enginesHover = textHoverSurface(enginesSlice, danger, card, raised, raisedHover);
       expect.soft(contrast(danger, enginesRest), `${skin} EnginesSettings rest`).toBeGreaterThanOrEqual(4.5);
-      // Midnight, Dracula, and Cobalt preserve palette danger hover contrast gaps (> 4.0:1)
-      const hoverFloor = ["default", "midnight", "dracula", "cobalt"].includes(skin) && !enginesButton.includes("hover:bg-raised-hover") ? 4.0 : 4.5;
-      expect.soft(contrast(danger, enginesHover), `${skin} EnginesSettings hover`).toBeGreaterThanOrEqual(hoverFloor);
+      expect.soft(contrast(danger, enginesHover), `${skin} EnginesSettings hover`).toBeGreaterThanOrEqual(4.5);
 
-      // Text control 2: Sidebar danger menu rows
-      const sidebarRest = card;
-      const sidebarHover = sidebarSrc.includes("text-danger hover:bg-raised/70")
-        ? blend(raised, card, 0.7)
-        : blend(danger, card, 0.1);
-      expect.soft(contrast(danger, sidebarRest), `${skin} Sidebar rest`).toBeGreaterThanOrEqual(4.5);
-      const sidebarHoverFloor = ["default", "midnight", "dracula", "cobalt"].includes(skin) && !sidebarSrc.includes("text-danger hover:bg-raised/70") ? 4.0 : 4.5;
-      expect.soft(contrast(danger, sidebarHover), `${skin} Sidebar hover`).toBeGreaterThanOrEqual(sidebarHoverFloor);
+      // 2. Sidebar "chrome.deleteChannel"
+      const deleteChannelRest = /(?<!hover:)bg-raised\b/.test(deleteChannelSlice) ? raised : card;
+      const deleteChannelHover = textHoverSurface(deleteChannelSlice, danger, card, raised, raisedHover);
+      expect.soft(contrast(danger, deleteChannelRest), `${skin} Sidebar deleteChannel rest`).toBeGreaterThanOrEqual(4.5);
+      expect.soft(contrast(danger, deleteChannelHover), `${skin} Sidebar deleteChannel hover`).toBeGreaterThanOrEqual(4.5);
+
+      // 3. Sidebar "chrome.removeFromContext"
+      const removeContextRest = /(?<!hover:)bg-raised\b/.test(removeFromContextSlice) ? raised : card;
+      const removeContextHover = textHoverSurface(removeFromContextSlice, danger, card, raised, raisedHover);
+      expect.soft(contrast(danger, removeContextRest), `${skin} Sidebar removeFromContext rest`).toBeGreaterThanOrEqual(4.5);
+      expect.soft(contrast(danger, removeContextHover), `${skin} Sidebar removeFromContext hover`).toBeGreaterThanOrEqual(4.5);
+
+      // 4. Sidebar "chrome.delete" (the item() row)
+      const deleteRest = card;
+      const deleteHover = itemSlice.includes("opts?.danger") && itemSlice.includes("hover:bg-raised/40")
+        ? blend(raised, card, 0.4)
+        : textHoverSurface(itemSlice, danger, card, raised, raisedHover);
+      expect.soft(contrast(danger, deleteRest), `${skin} Sidebar chrome.delete rest`).toBeGreaterThanOrEqual(4.5);
+      expect.soft(contrast(danger, deleteHover), `${skin} Sidebar chrome.delete hover`).toBeGreaterThanOrEqual(4.5);
 
       // Icon-only control 1: TaskPicker delete button
       const taskHover = taskSrc.includes("hover:bg-danger/10") ? blend(danger, card, 0.1) : raised;
