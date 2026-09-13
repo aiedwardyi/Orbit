@@ -79,11 +79,9 @@ function dayLabel(at: number): string {
 export function RoomToolChip({
   message,
   onRetry,
-  canSetup,
 }: {
   message: Message;
-  onRetry?: ((callbacks?: { onError?: () => void }) => void) | (() => void);
-  canSetup?: boolean;
+  onRetry?: (callbacks?: { onError?: () => void }) => void;
 }) {
   const { dispatch, state } = useStore();
   const { t } = useI18n();
@@ -153,9 +151,8 @@ export function RoomToolChip({
   const instance = member?.modelSelection?.instanceId
     ? state.instances.find((i) => i.instanceId === member.modelSelection.instanceId)
     : undefined;
-  const isEligible = Boolean(onRetry || canSetup);
   const setupAction =
-    tool.setup && isEligible
+    tool.setup && onRetry
       ? setupErrorAction(tool.name.startsWith("error:") ? tool.name.slice(6).trim() : tool.name, instance)
       : undefined;
 
@@ -265,13 +262,11 @@ const Transcript = memo(function Transcript({
   );
   const focus = state.focusMessage;
   const focusedId = focus && !focus.consumed && focus.threadId === group.threadId ? focus.messageId : null;
-  const retry = roomRetry(group.messages, members, group, group.threadId, group.busyBotId);
-  const setupTarget = roomRetry(group.messages, members, group, group.threadId, group.busyBotId, { allowSetup: true });
-  const target = retry ?? setupTarget;
+  const target = roomRetry(group.messages, members, group, group.threadId, group.busyBotId, { allowSetup: true });
   const onRetryFor = (messageId: string) =>
     target && messageId === target.messageId
-      ? (callbacks?: { onError?: () => void } | (() => void)) => {
-          const onError = typeof callbacks === "function" ? callbacks : callbacks?.onError;
+      ? (callbacks?: { onError?: () => void }) => {
+          const onError = callbacks?.onError;
           dispatch({
             type: "sendGroup",
             groupId: group.id,
@@ -305,7 +300,6 @@ const Transcript = memo(function Transcript({
                     <RoomToolChip
                       message={step}
                       onRetry={onRetryFor(step.id)}
-                      canSetup={Boolean(setupTarget && step.id === setupTarget.messageId)}
                     />
                   </div>
                 ))}
@@ -348,7 +342,6 @@ const Transcript = memo(function Transcript({
             <RoomToolChip
               message={m}
               onRetry={onRetryFor(m.id)}
-              canSetup={Boolean(setupTarget && m.id === setupTarget.messageId)}
             />
           ) : m.kind === "screen" && m.png ? (
             <div className="flex justify-start">

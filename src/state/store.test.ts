@@ -1294,6 +1294,17 @@ describe("resumeTask settle", () => {
   });
 });
 
+describe("sendGroup reject onError", () => {
+  it("calls action.onError on receipt rejection and cancelled sends", async () => {
+    const { readFileSync } = await import("node:fs");
+    const store = readFileSync(new URL("./store.tsx", import.meta.url), "utf8");
+    const sendGroupCase = store.slice(store.indexOf('/api/groups/${action.groupId}/messages'));
+    const thenBlock = sendGroupCase.slice(0, sendGroupCase.indexOf(".catch("));
+    expect(thenBlock).toMatch(/receiptRejectsAcceptedSend\(body\)[\s\S]*?action\.onError\?\.()/);
+    expect(thenBlock).toMatch(/cancelledSendsRef\.current\.has\(sendId\)[\s\S]*?action\.onError\?\.()/);
+  });
+});
+
 describe("formatDateTime", () => {
   const at = Date.UTC(2026, 2, 4, 7, 5);
 

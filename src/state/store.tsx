@@ -2138,6 +2138,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 if (body?.message && typeof body.threadId === "string") {
                   rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
                 }
+                action.onError?.();
                 return;
               }
               if (cancelledSendsRef.current.has(sendId)) {
@@ -2145,6 +2146,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 if (typeof threadId === "string") {
                   rawDispatch({ type: "sendRejected", threadId, sendId });
                 }
+                action.onError?.();
                 return;
               }
               const settledThread =

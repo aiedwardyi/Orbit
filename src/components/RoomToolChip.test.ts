@@ -116,7 +116,8 @@ describe("RoomToolChip", () => {
     });
 
     // 1:1 setupErrorAction gives "cli", which renders EngineSetup with install action
-    expect(host.textContent).toMatch(/install|claude/i);
+    expect(host.querySelector("code")?.textContent).toBe(claudeInstance.install?.command?.win32);
+    expect(host.textContent).toContain("Copy command");
 
     const botBob = {
       id: "b2",
