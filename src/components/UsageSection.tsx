@@ -44,6 +44,7 @@ function PlanUsage() {
   const now = useNow();
   const mode = useUsageMode();
   const [refreshing, setRefreshing] = useState<Set<string>>(() => new Set());
+  const [refreshingAll, setRefreshingAll] = useState(false);
   const [refreshErrors, setRefreshErrors] = useState<Record<string, string>>({});
   const engines = splitFriendsEngines(state.instances).friends;
   // Claude/Codex/Grok declare rateLimits but only emit a window after a
@@ -56,6 +57,7 @@ function PlanUsage() {
     });
   const canRefresh = (instance: InstanceInfo) =>
     instance.driverKind === "claudeAgent" || instance.driverKind === "codex" || instance.driverKind === "grokAgent";
+  const refreshable = engines.filter(canRefresh);
   // Keyed off what was banked, not a driver allowlist: acp/core only emits
   // token usage when the agent it wraps reports it, so a list would be wrong.
   const engineTokens = (instance: InstanceInfo) =>
@@ -82,16 +84,37 @@ function PlanUsage() {
       });
     }
   };
+  const refreshAll = async () => {
+    if (refreshingAll || refreshing.size > 0 || refreshable.length === 0) return;
+    setRefreshingAll(true);
+    try {
+      await Promise.all(refreshable.map(refresh));
+    } finally {
+      setRefreshingAll(false);
+    }
+  };
 
   return (
     <Card title={t("usage.limits.title")} subtitle={t("usage.limits.subtitle")}>
-      <div className="mb-4 flex flex-wrap gap-1" role="group" aria-label={t("usage.limits.direction")}>
-        {(["used", "remaining"] as const).map((value) => (
-          <button key={value} type="button" aria-pressed={mode === value} onClick={() => setUsageMode(value)}
-            className="rounded-md px-2 py-1 text-[12px] text-ink-secondary hover:bg-ink/5 aria-pressed:bg-ink/10 aria-pressed:text-ink focus-visible:outline-2 focus-visible:outline-accent">
-            {t(value === "used" ? "usage.limits.countUp" : "usage.limits.countDown")}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-1" role="group" aria-label={t("usage.limits.direction")}>
+          {(["used", "remaining"] as const).map((value) => (
+            <button key={value} type="button" aria-pressed={mode === value} onClick={() => setUsageMode(value)}
+              className="rounded-md px-2 py-1 text-[12px] text-ink-secondary hover:bg-ink/5 aria-pressed:bg-ink/10 aria-pressed:text-ink focus-visible:outline-2 focus-visible:outline-accent">
+              {t(value === "used" ? "usage.limits.countUp" : "usage.limits.countDown")}
+            </button>
+          ))}
+        </div>
+        {refreshable.length > 0 && (
+          <button
+            type="button"
+            onClick={() => void refreshAll()}
+            disabled={refreshingAll || refreshing.size > 0}
+            className="shrink-0 rounded-lg border border-hairline/40 px-3 py-1 text-[12px] text-ink-secondary hover:bg-raised/50 hover:text-ink disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent"
+          >
+            {t(refreshingAll ? "usage.limits.refreshing" : "usage.limits.refreshAll")}
           </button>
-        ))}
+        )}
       </div>
       {engines.length === 0 ? (
         <div className="text-[13px] text-ink-secondary">{t("usage.limits.empty")}</div>
