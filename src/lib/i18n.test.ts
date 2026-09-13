@@ -456,7 +456,7 @@ describe("sidebar create channel and bot/room chrome", () => {
     expect(en["chrome.cannotContactTeammates"]).toBe("This engine cannot contact teammates yet");
     expect(ko["chrome.cannotContactTeammates"]).toBe("이 엔진은 아직 팀원에게 연락할 수 없습니다");
     expect(ko["chrome.cannotContactTeammates"]).not.toMatch(/cannot contact/i);
-    expect(en["chrome.moveToContext"]).toBe("Move to context");
+    expect(en["chrome.moveToContext"]).toBe("Move to section");
     expect(ko["chrome.moveToContext"]).toBe("맥락으로 이동");
     expect(ko["chrome.moveToContext"]).not.toMatch(/Move to context/i);
     expect(en["chrome.deleteChannel"]).toBe("Delete Channel");
@@ -662,8 +662,12 @@ describe("first-run core path leftovers", () => {
     expect(ko["secret.saveSecurely"]).not.toMatch(/Save securely/i);
     expect(en["chrome.add"]).toBe("Add");
     expect(ko["chrome.add"]).toBe("추가");
-    expect(en["chrome.removeFromContext"]).toBe("Remove from context");
+    expect(en["chrome.removeFromContext"]).toBe("Remove from section");
     expect(ko["chrome.removeFromContext"]).not.toMatch(/Remove from context/i);
+    expect(en["chrome.newContextName"]).toBe("New section name");
+    expect(en["chrome.channelContext"]).toBe("Section (optional)");
+    expect(en["teamMap.context"]).toBe("Shared context");
+    expect(en["teamMap.saveContext"]).toBe("Save shared context");
     expect(en["task.new"]).toBe("New task");
     expect(ko["task.new"]).toBe("새 작업");
     expect(en["task.matching"]).toContain("{count}");
