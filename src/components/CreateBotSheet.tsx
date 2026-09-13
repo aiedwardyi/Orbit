@@ -51,7 +51,12 @@ export function CreateBotSheet({ required }: { required: boolean }) {
   }, [required, saving]);
 
   const pick = async () => {
-    const chosen = await window.ogb?.pickFolder?.(folder.trim() || undefined);
+    let chosen: string | null | undefined;
+    try {
+      chosen = await window.ogb?.pickFolder?.(folder.trim() || undefined);
+    } catch {
+      return;
+    }
     if (chosen) setFolder(chosen);
   };
 
@@ -85,7 +90,7 @@ export function CreateBotSheet({ required }: { required: boolean }) {
         aria-modal="true"
         aria-labelledby="create-bot-title"
         aria-describedby="create-bot-help"
-        className="w-full max-w-[560px] rounded-2xl border border-hairline/50 bg-panel p-7 shadow-2xl shadow-black/60"
+        className="max-h-[min(680px,calc(100dvh-2rem))] w-full max-w-[560px] overflow-y-auto rounded-2xl border border-hairline/50 bg-panel p-7 shadow-2xl shadow-black/60"
       >
         <div className="flex items-start gap-4">
           <div className="relative shrink-0">
