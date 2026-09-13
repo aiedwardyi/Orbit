@@ -1030,7 +1030,7 @@ function ArchivedBotsPanel({
           <div className="mb-3 text-[12px] font-medium text-ink-secondary">
             {t("chrome.archivedCount", { count: bots.length })}
           </div>
-          <div className="grid grid-cols-1 gap-x-8 md:grid-cols-2">
+          <div className={cn("grid grid-cols-1 gap-x-8", bots.length >= 2 && "md:grid-cols-2")}>
             {bots.map((bot) => (
               <div key={bot.id} className="flex min-h-[82px] items-center gap-3 border-b border-hairline/35 px-1 py-3">
                 <BotAvatar bot={bot} state="happy" size={42} animated={false} />
