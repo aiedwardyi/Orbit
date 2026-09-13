@@ -1011,7 +1011,6 @@ struct ActivityChip: View {
 
     @ViewBuilder
     private func usageLimitView(usageLimit: UsageLimit, tool: ToolActivity) -> some View {
-        let reset = resetLine(resetsAt: usageLimit.resetsAt)
         let message = tool.name.hasPrefix("error:")
             ? String(tool.name.dropFirst(6)).trimmingCharacters(in: .whitespaces)
             : tool.name
@@ -1031,10 +1030,12 @@ struct ActivityChip: View {
                     .font(.system(size: 13.5))
                     .foregroundStyle(Color.orange)
 
-                if let reset {
-                    Text(reset)
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color.orange.opacity(0.9))
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    if let reset = resetLine(resetsAt: usageLimit.resetsAt, now: context.date) {
+                        Text(reset)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Color.orange.opacity(0.9))
+                    }
                 }
 
                 if !message.isEmpty {
@@ -1056,9 +1057,9 @@ struct ActivityChip: View {
         .padding(.leading, 2)
     }
 
-    private func resetLine(resetsAt: Double?) -> String? {
+    private func resetLine(resetsAt: Double?, now: Date) -> String? {
         guard let resetsAt else { return nil }
-        let nowMs = Date().timeIntervalSince1970 * 1000
+        let nowMs = now.timeIntervalSince1970 * 1000
         guard resetsAt > nowMs else { return nil }
         let diffMs = resetsAt - nowMs
         let totalMinutes = max(1, Int(ceil(diffMs / 60_000.0)))
