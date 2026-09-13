@@ -408,6 +408,14 @@ describe("dark ink skins", () => {
     );
     expect(apiKeys).not.toContain("bg-control text-danger");
   });
+
+  it("maintains WCAG AA contrast between secondary ink and controls in dark skins", () => {
+    for (const skin of DARK_INK_SKINS) {
+      const secondary = cssToken(skin.id, "--color-ink-secondary")!;
+      const control = cssToken(skin.id, "--color-control")!;
+      expect(contrast(secondary, control)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
 });
 
 describe("skin persistence", () => {
@@ -448,6 +456,11 @@ describe("skin persistence", () => {
     store.set("omb-skin", "midnight");
     expect(readSkin()).toBe("midnight");
     expect(readSkin()).not.toBe(DEFAULT_SKIN);
+  });
+
+  it("migrates a stored Catppuccin Mocha to Catppuccin Frappe", () => {
+    store.set("omb-skin", "catppuccin-mocha");
+    expect(readSkin()).toBe("catppuccin-frappe");
   });
 
   it("stamps the skin before React mounts", () => {
