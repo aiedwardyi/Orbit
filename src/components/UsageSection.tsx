@@ -153,7 +153,7 @@ function PlanUsage() {
                 {canRefresh(instance) && (
                   <div className="mt-2 flex items-center gap-2">
                     <button type="button" onClick={() => void refresh(instance)} disabled={refreshing.has(instance.instanceId)}
-                      className="rounded-md px-2 py-1 text-[12px] text-ink-secondary hover:bg-ink/5 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent">
+                      className="shrink-0 rounded-lg border border-hairline/40 px-3 py-1 text-[12px] text-ink-secondary hover:bg-raised/50 hover:text-ink disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent">
                       {t(refreshing.has(instance.instanceId) ? "usage.limits.refreshing" : "usage.limits.refresh")}
                     </button>
                     {instance.rateLimits && <span className="text-[11px] text-ink-secondary">{t("usage.limits.refreshAge", { age: age(instance.rateLimits.observedAt) })}</span>}
