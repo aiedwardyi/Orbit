@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { I18nProvider, persistPreference } from "@/lib/i18n";
 import { setUsageMode } from "@/lib/usage-preferences";
@@ -78,6 +78,8 @@ import { ChatPlanMeters } from "./ChatPlanMeters";
 import { planUsageTone } from "./PlanUsageBar";
 
 describe("UsageSection friends plan card", () => {
+  afterEach(() => setUsageMode("remaining"));
+
   it("shares the 75/90 thresholds between text and fill colors", () => {
     expect(planUsageTone(74)).toEqual({ textClass: "text-accent", fillClass: "bg-accent" });
     expect(planUsageTone(75)).toEqual({ textClass: "text-warning", fillClass: "bg-warning" });
@@ -263,6 +265,7 @@ describe("UsageSection friends plan card", () => {
   });
 
   it("names the Opus meter's group in English and Korean", () => {
+    setUsageMode("used");
     const opusGroup = (html: string, meter: string) =>
       new DOMParser()
         .parseFromString(html, "text/html")
