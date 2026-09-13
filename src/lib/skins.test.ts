@@ -40,6 +40,20 @@ function spread(hex: string) {
   return Math.max(r, g, b) - Math.min(r, g, b);
 }
 
+function luminance(hex: string) {
+  const { r, g, b } = channels(hex);
+  const lin = (c: number) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+function contrast(hex1: string, hex2: string) {
+  const [hi, lo] = [luminance(hex1), luminance(hex2)].sort((a, b) => b - a);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
 describe("skins", () => {
   it("gives every registered skin a stylesheet block", () => {
     for (const id of SKIN_IDS) expect(blocks).toContain(id);
@@ -220,17 +234,17 @@ describe("Ledger", () => {
 
 const DARK_INK_SKINS = [
   {
-    id: "catppuccin-mocha",
-    name: "Catppuccin Mocha",
+    id: "catppuccin-frappe",
+    name: "Catppuccin Frappe",
     tokens: {
-      "--color-app": "#1e1e2e",
-      "--color-raised": "#313244",
-      "--color-ink": "#cdd6f4",
-      "--color-ink-secondary": "#a6adc8",
-      "--color-accent": "#cba6f7",
-      "--color-hairline": "#45475a",
-      "--color-danger": "#f38ba8",
-      "--color-success": "#a6e3a1",
+      "--color-app": "#303446",
+      "--color-raised": "#363a4f",
+      "--color-ink": "#c6d0f5",
+      "--color-ink-secondary": "#b5bfe2",
+      "--color-accent": "#a6d189",
+      "--color-hairline": "#626880",
+      "--color-danger": "#e78284",
+      "--color-success": "#a6d189",
     },
   },
   {
@@ -303,6 +317,20 @@ const DARK_INK_SKINS = [
       "--color-success": "#6fe7d2",
     },
   },
+  {
+    id: "gruvbox",
+    name: "Gruvbox",
+    tokens: {
+      "--color-app": "#282828",
+      "--color-raised": "#46413e",
+      "--color-ink": "#ebdbb2",
+      "--color-ink-secondary": "#d5c4a1",
+      "--color-accent": "#fe8019",
+      "--color-hairline": "#7c6f64",
+      "--color-danger": "#fb524b",
+      "--color-success": "#b8bb26",
+    },
+  },
 ] as const;
 
 describe("dark ink skins", () => {
@@ -324,6 +352,14 @@ describe("dark ink skins", () => {
       for (const [token, value] of Object.entries(skin.tokens)) {
         expect(cssToken(skin.id, token)).toBe(value);
       }
+    }
+  });
+
+  it("gives each dark skin a raised surface distinct from its panel background", () => {
+    for (const skin of DARK_INK_SKINS) {
+      const panel = cssToken(skin.id, "--color-panel");
+      const raised = cssToken(skin.id, "--color-raised");
+      expect(raised).not.toBe(panel);
     }
   });
 
@@ -355,6 +391,30 @@ describe("dark ink skins", () => {
     expect(success).toBe("#6fe7d2");
     expect(accent).toBe("#19f9d8");
     expect(success).not.toBe(accent);
+  });
+
+  it("maintains WCAG AA contrast on danger fills in all dark skins", () => {
+    for (const skin of DARK_INK_SKINS) {
+      const danger = cssToken(skin.id, "--color-danger")!;
+      const ink = cssToken(skin.id, "--color-danger-ink")!;
+      expect(contrast(ink, danger)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it("gives ApiKeys clear buttons WCAG AA contrast across all skins", () => {
+    const apiKeys = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "../components/ApiKeys.tsx"),
+      "utf8",
+    );
+    expect(apiKeys).not.toContain("bg-control text-danger");
+  });
+
+  it("maintains WCAG AA contrast between secondary ink and controls in dark skins", () => {
+    for (const skin of DARK_INK_SKINS) {
+      const secondary = cssToken(skin.id, "--color-ink-secondary")!;
+      const control = cssToken(skin.id, "--color-control")!;
+      expect(contrast(secondary, control)).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });
 
@@ -396,6 +456,11 @@ describe("skin persistence", () => {
     store.set("omb-skin", "midnight");
     expect(readSkin()).toBe("midnight");
     expect(readSkin()).not.toBe(DEFAULT_SKIN);
+  });
+
+  it("migrates a stored Catppuccin Mocha to Catppuccin Frappe", () => {
+    store.set("omb-skin", "catppuccin-mocha");
+    expect(readSkin()).toBe("catppuccin-frappe");
   });
 
   it("stamps the skin before React mounts", () => {

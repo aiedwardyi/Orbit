@@ -143,12 +143,13 @@ describe("skin overlay chrome", () => {
     expect(skinThemeSource("lagoon")).toBe("light");
     expect(skinThemeSource("midnight")).toBe("dark");
     expect(skinThemeSource("foundry")).toBe("dark");
-    expect(skinThemeSource("catppuccin-mocha")).toBe("dark");
+    expect(skinThemeSource("catppuccin-frappe")).toBe("dark");
     expect(skinThemeSource("tokyo-night")).toBe("dark");
     expect(skinThemeSource("vesper")).toBe("dark");
     expect(skinThemeSource("onyx")).toBe("dark");
     expect(skinThemeSource("dracula")).toBe("dark");
     expect(skinThemeSource("cobalt")).toBe("dark");
+    expect(skinThemeSource("gruvbox")).toBe("dark");
   });
 
   it("maps a missing persisted skin to Ledger light nativeTheme", () => {
@@ -178,19 +179,19 @@ describe("skin overlay chrome", () => {
     expect(readPersistedSkin(dir)).toBe("ledger");
   });
 
-  it("reads a hyphenated skin id at the 16-character buffer limit from localStorage logs", () => {
+  it("reads a hyphenated skin id at the 17-character buffer limit from localStorage logs", () => {
     const dir = scratch();
     const level = join(dir, "Local Storage", "leveldb");
     mkdirSync(level, { recursive: true });
-    writeFileSync(join(level, "000003.log"), Buffer.from("xxomb-skin\u0000\u0001catppuccin-mocha\u0000yy"));
-    expect(readPersistedSkin(dir)).toBe("catppuccin-mocha");
+    writeFileSync(join(level, "000003.log"), Buffer.from("xxomb-skin\u0000\u0001catppuccin-frappe\u0000yy"));
+    expect(readPersistedSkin(dir)).toBe("catppuccin-frappe");
   });
 
   it("does not treat a longer hyphenated value as a known skin", () => {
     const dir = scratch();
     const level = join(dir, "Local Storage", "leveldb");
     mkdirSync(level, { recursive: true });
-    writeFileSync(join(level, "000003.log"), Buffer.from("xxomb-skin\u0000\u0001catppuccin-mocha-extra\u0000yy"));
+    writeFileSync(join(level, "000003.log"), Buffer.from("xxomb-skin\u0000\u0001catppuccin-frappe-extra\u0000yy"));
     expect(readPersistedSkin(dir)).toBe(null);
   });
 
@@ -201,5 +202,24 @@ describe("skin overlay chrome", () => {
     writeFileSync(join(level, "000003.log"), Buffer.from("omb-skin\u0000\u0001ledger"));
     writePersistedSkin(dir, "atelier");
     expect(readPersistedSkin(dir)).toBe("atelier");
+  });
+
+  it("migrates a stored Catppuccin Mocha preference to Catppuccin Frappe", () => {
+    const dir = scratch();
+    writeFileSync(join(dir, "skin-preference.json"), JSON.stringify({ skin: "catppuccin-mocha" }), "utf8");
+    expect(readPersistedSkin(dir)).toBe("catppuccin-frappe");
+  });
+
+  it("migrates a Catppuccin Mocha localStorage log to Catppuccin Frappe", () => {
+    const dir = scratch();
+    const level = join(dir, "Local Storage", "leveldb");
+    mkdirSync(level, { recursive: true });
+    writeFileSync(join(level, "000003.log"), Buffer.from("xxomb-skin\u0000\u0001catppuccin-mocha\u0000yy"));
+    expect(readPersistedSkin(dir)).toBe("catppuccin-frappe");
+  });
+
+  it("resolves catppuccin-mocha to catppuccin-frappe chrome and dark theme", () => {
+    expect(skinChrome("catppuccin-mocha")).toEqual(SKIN_CHROME["catppuccin-frappe"]);
+    expect(skinThemeSource("catppuccin-mocha")).toBe("dark");
   });
 });

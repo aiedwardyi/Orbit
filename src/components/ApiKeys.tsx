@@ -219,7 +219,7 @@ export function ApiKeyRow({
           className={cn(
             "flex w-[72px] shrink-0 items-center justify-center gap-1.5 rounded-lg py-2 text-[13px]",
             clearing
-              ? "bg-control text-danger hover:bg-raised-hover"
+              ? "bg-danger text-danger-ink hover:opacity-90"
               : "bg-control text-ink hover:bg-raised-hover",
             "disabled:cursor-not-allowed disabled:opacity-50",
           )}
@@ -291,7 +291,9 @@ export function VpsConnection() {
           disabled={saving || (!alias.trim() && !configured)}
           className={cn(
             "flex w-[72px] shrink-0 items-center justify-center gap-1.5 rounded-lg py-2 text-[13px]",
-            !alias.trim() && configured ? "bg-control text-danger hover:bg-raised-hover" : "bg-control text-ink hover:bg-raised-hover",
+            !alias.trim() && configured
+              ? "bg-danger text-danger-ink hover:opacity-90"
+              : "bg-control text-ink hover:bg-raised-hover",
             "disabled:cursor-not-allowed disabled:opacity-50",
           )}
           title={!alias.trim() && configured ? t("connections.removeAlias") : t("settings.browserProfiles.save")}

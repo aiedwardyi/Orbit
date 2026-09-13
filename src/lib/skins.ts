@@ -10,12 +10,13 @@ export const SKIN_IDS = [
   "foundry",
   "lagoon",
   "ledger",
-  "catppuccin-mocha",
+  "catppuccin-frappe",
   "tokyo-night",
   "vesper",
   "onyx",
   "dracula",
   "cobalt",
+  "gruvbox",
 ] as const;
 export type SkinId = (typeof SKIN_IDS)[number];
 
@@ -32,12 +33,13 @@ export const SKINS: readonly Skin[] = [
   { id: "foundry", name: "Foundry", tagline: "Night shift. Dark, warm, lit in brass." },
   { id: "lagoon", name: "Lagoon", tagline: "Cool daylight. Porcelain and deep teal." },
   { id: "ledger", name: "Ledger", tagline: "Neutral daylight. Stone and ink." },
-  { id: "catppuccin-mocha", name: "Catppuccin Mocha", tagline: "Soft pastel on navy." },
+  { id: "catppuccin-frappe", name: "Catppuccin Frappe", tagline: "Muted pastel on slate." },
   { id: "tokyo-night", name: "Tokyo Night", tagline: "Indigo night, cool counterpart to Foundry." },
   { id: "vesper", name: "Vesper", tagline: "Warm near-black, peach accent." },
   { id: "onyx", name: "Onyx", tagline: "Black glass, silver trim." },
   { id: "dracula", name: "Dracula", tagline: "Slate purple, neon status." },
   { id: "cobalt", name: "Panda Syntax", tagline: "Warm charcoal, mint lamp." },
+  { id: "gruvbox", name: "Gruvbox", tagline: "Warm and earthy, retro groove." },
 ];
 
 export const DEFAULT_SKIN: SkinId = "ledger";
@@ -68,6 +70,7 @@ function getStore(): Storage | undefined {
 export function readSkin(): SkinId {
   try {
     const stored = getStore()?.getItem(KEY);
+    if (stored === "catppuccin-mocha") return "catppuccin-frappe";
     return isSkinId(stored) ? stored : DEFAULT_SKIN;
   } catch {
     return DEFAULT_SKIN;
