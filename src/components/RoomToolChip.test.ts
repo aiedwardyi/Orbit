@@ -1,0 +1,162 @@
+// @vitest-environment happy-dom
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import type { Bot, InstanceInfo, Message } from "@/state/store";
+
+let mockState = {
+  bots: [] as Bot[],
+  instances: [] as InstanceInfo[],
+};
+
+vi.mock("@/state/store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/state/store")>();
+  return {
+    ...actual,
+    useStore: () => ({
+      state: mockState,
+      dispatch: () => undefined,
+    }),
+  };
+});
+
+import { RoomToolChip } from "./GroupView";
+
+describe("RoomToolChip", () => {
+  let host: HTMLDivElement;
+  let root: ReturnType<typeof createRoot>;
+
+  afterEach(async () => {
+    if (root) {
+      await act(async () => {
+        root.unmount();
+      });
+    }
+    host?.remove();
+  });
+
+  it("A rejected resend re-enables the Retry button", async () => {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+
+    let capturedCallbacks: { onError?: () => void } | undefined;
+    const onRetry = (callbacks?: { onError?: () => void }) => {
+      capturedCallbacks = callbacks;
+    };
+
+    const message: Message = {
+      id: "a1",
+      role: "bot",
+      kind: "activity",
+      tool: { name: "error: failed", ok: false },
+      at: 1,
+    };
+
+    await act(async () => {
+      root.render(createElement(RoomToolChip, { message, onRetry }));
+    });
+
+    const button = host.querySelector("button");
+    expect(button).not.toBeNull();
+    expect(button?.hasAttribute("disabled")).toBe(false);
+
+    await act(async () => {
+      button?.click();
+    });
+
+    expect(button?.hasAttribute("disabled")).toBe(true);
+
+    await act(async () => {
+      capturedCallbacks?.onError?.();
+    });
+
+    expect(button?.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("A setup error on the last activity from the sole responder: exposes the same action setupErrorAction gives 1:1", async () => {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+
+    const botAlice = {
+      id: "b1",
+      name: "Alice",
+      color: "blue",
+      modelSelection: { model: "claude-3-7-sonnet", instanceId: "claude" },
+    } as unknown as Bot;
+    const claudeInstance = {
+      instanceId: "claude",
+      driverKind: "claudeAgent",
+      displayName: "Claude",
+      models: { default: "claude-3-7-sonnet", options: [] },
+      install: {
+        command: { win32: "npm install -g @anthropic-ai/claude-code", darwin: "npm i", linux: "npm i" },
+      },
+      snapshot: { state: "unavailable", reason: "`claude` CLI not found" },
+    } as unknown as InstanceInfo;
+    mockState = {
+      bots: [botAlice],
+      instances: [claudeInstance],
+    };
+
+    const cliMessage: Message = {
+      id: "a1",
+      role: "bot",
+      kind: "activity",
+      tool: { name: "error: claude cli missing", ok: false, setup: true },
+      from: { botId: "b1", name: "Alice", color: "blue" as any },
+      at: 2,
+    };
+
+    await act(async () => {
+      root.render(createElement(RoomToolChip, { message: cliMessage, onRetry: () => {} }));
+    });
+
+    // 1:1 setupErrorAction gives "cli", which renders EngineSetup with install action
+    expect(host.textContent).toMatch(/install|claude/i);
+
+    const botBob = {
+      id: "b2",
+      name: "Bob",
+      color: "orange",
+      modelSelection: { model: "auto", instanceId: "gemini" },
+    } as unknown as Bot;
+    const geminiInstance = {
+      instanceId: "gemini",
+      driverKind: "geminiAgent",
+      displayName: "Gemini",
+      models: { default: "auto", options: [] },
+      snapshot: { state: "available", authenticated: false, version: "0.1.0" },
+    } as unknown as InstanceInfo;
+    mockState = {
+      bots: [botAlice, botBob],
+      instances: [claudeInstance, geminiInstance],
+    };
+
+    // API key setup error renders OpenConnectionsCta
+    const keyMessage: Message = {
+      id: "a2",
+      role: "bot",
+      kind: "activity",
+      tool: { name: "error: Gemini API key missing", ok: false, setup: true },
+      from: { botId: "b2", name: "Bob", color: "amber" as any },
+      at: 3,
+    };
+
+    await act(async () => {
+      root.render(createElement(RoomToolChip, { message: keyMessage, onRetry: () => {} }));
+    });
+
+    expect(host.querySelector("button")?.textContent).toMatch(/enter api key/i);
+
+    // Without onRetry/canSetup (not sole responder or not last activity), no setup action exposed
+    await act(async () => {
+      root.render(createElement(RoomToolChip, { message: keyMessage }));
+    });
+
+    expect(host.querySelector("button")).toBeNull();
+  });
+});

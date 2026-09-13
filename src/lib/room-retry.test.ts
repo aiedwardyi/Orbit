@@ -222,4 +222,80 @@ describe("roomRetry", () => {
     ];
     expect(roomRetry(messages, members, leadGroup, "thread-1")).toBeNull();
   });
+
+  it("DM room, unmentioned last user text, the failed member was the last text speaker: returns a payload", () => {
+    const dmGroup = { dm: true, defaultResponder: { kind: "mentions" as const } };
+    const messages: Message[] = [
+      msg({ id: "t1", role: "bot", kind: "text", text: "hello", from: { botId: "b2", name: "Bob", color: "blue" as any }, at: 1 }),
+      msg({ id: "u1", role: "user", kind: "text", text: "unmentioned user text", at: 2 }),
+      msg({
+        id: "a1",
+        role: "bot",
+        kind: "activity",
+        tool: { name: "error: failed", ok: false },
+        from: { botId: "b2", name: "Bob", color: "blue" as any },
+        at: 3,
+      }),
+    ];
+    expect(roomRetry(messages, members, dmGroup, "thread-1")).toEqual({
+      messageId: "a1",
+      text: "unmentioned user text",
+      replyToId: undefined,
+      threadId: "thread-1",
+    });
+  });
+
+  it("DM room, no earlier bot text, the failed member is the first available member: returns a payload", () => {
+    const dmGroup = { dm: true, defaultResponder: { kind: "mentions" as const } };
+    const messages: Message[] = [
+      msg({ id: "u1", role: "user", kind: "text", text: "unmentioned user text", at: 1 }),
+      msg({
+        id: "a1",
+        role: "bot",
+        kind: "activity",
+        tool: { name: "error: failed", ok: false },
+        from: { botId: "b1", name: "Alice", color: "blue" as any },
+        at: 2,
+      }),
+    ];
+    expect(roomRetry(messages, members, dmGroup, "thread-1")).toEqual({
+      messageId: "a1",
+      text: "unmentioned user text",
+      replyToId: undefined,
+      threadId: "thread-1",
+    });
+  });
+
+  it("DM room, the failed member is NOT that fallback: null", () => {
+    const dmGroup = { dm: true, defaultResponder: { kind: "mentions" as const } };
+    const messages: Message[] = [
+      msg({ id: "u1", role: "user", kind: "text", text: "unmentioned user text", at: 1 }),
+      msg({
+        id: "a1",
+        role: "bot",
+        kind: "activity",
+        tool: { name: "error: failed", ok: false },
+        from: { botId: "b2", name: "Bob", color: "blue" as any },
+        at: 2,
+      }),
+    ];
+    expect(roomRetry(messages, members, dmGroup, "thread-1")).toBeNull();
+  });
+
+  it("Non-DM room, no mention, no default responder: still null", () => {
+    const messages: Message[] = [
+      msg({ id: "t1", role: "bot", kind: "text", text: "hello", from: { botId: "b2", name: "Bob", color: "blue" as any }, at: 1 }),
+      msg({ id: "u1", role: "user", kind: "text", text: "unmentioned user text", at: 2 }),
+      msg({
+        id: "a1",
+        role: "bot",
+        kind: "activity",
+        tool: { name: "error: failed", ok: false },
+        from: { botId: "b2", name: "Bob", color: "blue" as any },
+        at: 3,
+      }),
+    ];
+    expect(roomRetry(messages, members, mentionsGroup, "thread-1")).toBeNull();
+  });
 });
+
