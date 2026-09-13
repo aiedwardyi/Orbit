@@ -156,6 +156,39 @@ describe("ModelPicker friends chip", () => {
     expect(html).toContain("@max-4xl/chathead:hidden");
   });
 
+  it("shows effort beside the model name wearing the family accent", () => {
+    const html = markup({ instanceId: "grok", model: "grok-4.6", mode: "automatic", effort: "high" });
+    expect(html).toContain("Grok 4.6");
+    expect(html).toContain("data-model-effort");
+    expect(html).toContain(">high<");
+    expect(html).toContain("#8b929c");
+  });
+
+  it.each([
+    ["codex", "codex-default", "#3594ff"],
+    ["claude", "claude-fable-5-1", "#ed6549"],
+    ["opencode", "opencode-default", "#43ce8b"],
+    ["antigravity", "antigravity-default", "#aa7bfa"],
+    ["grok", "grok-4.6", "#8b929c"],
+  ])("paints the %s effort marker with %s", (instanceId, model, accent) => {
+    const html = markup({ instanceId, model, mode: "pinned", effort: "medium" });
+    expect(html).toContain("data-model-effort");
+    expect(html).toContain(">medium<");
+    expect(html).toContain(accent);
+  });
+
+  it("degrades to name-only when effort is absent", () => {
+    const html = markup();
+    expect(html).toContain("Grok 4.6");
+    expect(html).not.toContain("data-model-effort");
+    expect(html).not.toContain("#8b929c");
+  });
+
+  it("folds effort with the model label in a narrow chat header", () => {
+    const html = markup({ instanceId: "grok", model: "grok-4.6", mode: "automatic", effort: "high" });
+    expect(html).toMatch(/data-model-effort[^>]*@max-4xl\/chathead:hidden/);
+  });
+
   it("shows unresolved when automatic has no live model", () => {
     const html = markup({ instanceId: "", model: "", mode: "automatic" });
     expect(html).toContain(">unresolved<");

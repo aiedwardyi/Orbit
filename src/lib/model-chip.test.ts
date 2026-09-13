@@ -5,6 +5,7 @@ import {
   engineBadgeText,
   modelChipText,
   modelChipTitle,
+  modelFamilyAccent,
 } from "./model-chip";
 
 const grok = {
@@ -58,6 +59,24 @@ describe("modelChipTitle", () => {
     expect(modelChipTitle({ mode: "pinned", instance: grok, model: "grok-4.5" }, t)).toBe(
       "Grok · Grok 4.5",
     );
+  });
+});
+
+describe("modelFamilyAccent", () => {
+  it.each([
+    ["codex", "#3594ff"],
+    ["claudeAgent", "#ed6549"],
+    ["opencodeGo", "#43ce8b"],
+    ["geminiAgent", "#aa7bfa"],
+    ["antigravityAgent", "#aa7bfa"],
+    ["grokAgent", "#8b929c"],
+  ])("paints the %s chip with %s", (driverKind, accent) => {
+    expect(modelFamilyAccent(driverKind)).toBe(accent);
+  });
+
+  it("falls back to the grok grey when the driver is unknown", () => {
+    expect(modelFamilyAccent("mysteryDriver")).toBe("#8b929c");
+    expect(modelFamilyAccent(undefined)).toBe("#8b929c");
   });
 });
 
