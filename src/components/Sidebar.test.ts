@@ -100,10 +100,14 @@ describe("Sidebar keyboard reorder", () => {
       await vi.waitFor(() => expect(rows()).toHaveLength(3));
       expect(order()[0]).toContain("a");
       expect(order()[1]).toContain("b");
-      // Alt+Up on the middle row moves it before the first row.
-      await act(async () => key(rowButtons()[1]!, "ArrowUp"));
+      expect(rowButtons()[0]!.getAttribute("aria-keyshortcuts")).toContain("Alt+ArrowUp");
+      // Alt+Up on the middle row moves it before the first row, keeping focus.
+      const moved = rowButtons()[1]! as HTMLElement;
+      moved.focus();
+      await act(async () => key(moved, "ArrowUp"));
       await vi.waitFor(() => expect(order()[0]).toContain("b"));
       expect(order()[1]).toContain("a");
+      expect(document.activeElement?.textContent).toContain("b");
       // Alt+Down moves it back after the second row.
       await act(async () => key(rowButtons()[0]!, "ArrowDown"));
       await vi.waitFor(() => expect(order()[0]).toContain("a"));
@@ -116,6 +120,125 @@ describe("Sidebar keyboard reorder", () => {
       await act(async () => fire(rows()[2]!, "dragover"));
       await act(async () => fire(rows()[2]!, "drop"));
       await vi.waitFor(() => expect(order()[2]).toContain("a"));
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("ignores Alt+Arrow when Ctrl, Meta, or Shift is also pressed", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/bots") return new Response(JSON.stringify({ bots: ["a", "b", "c"].map(bot), groups: [] }));
+      if (url === "/api/bots/order") return new Response(JSON.stringify({}), { status: 200 });
+      return new Response(JSON.stringify({ error: "not in this test" }), { status: 404 });
+    }));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const rows = () => host.querySelectorAll('[draggable="true"]');
+    const order = () => Array.from(rows()).map((row) => row.textContent ?? "");
+    const rowButtons = () => host.querySelectorAll('[draggable="true"] > [role="button"]');
+    const chord = (target: Element, keyName: string, mods: object) => {
+      target.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: keyName, altKey: true, ...mods }));
+    };
+    try {
+      await act(async () =>
+        root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+      );
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      await vi.waitFor(() => expect(rows()).toHaveLength(3));
+      await act(async () => chord(rowButtons()[1]!, "ArrowUp", { ctrlKey: true }));
+      await act(async () => chord(rowButtons()[1]!, "ArrowDown", { metaKey: true }));
+      await act(async () => chord(rowButtons()[1]!, "ArrowUp", { shiftKey: true }));
+      expect(order()[0]).toContain("a");
+      expect(order()[1]).toContain("b");
+      expect(order()[2]).toContain("c");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("moves to the adjacent visible bot when a filter hides the middle", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/bots") return new Response(JSON.stringify({ bots: ["ax", "bx", "ax2"].map(bot), groups: [] }));
+      if (url === "/api/bots/order") return new Response(JSON.stringify({}), { status: 200 });
+      return new Response(JSON.stringify({ error: "not in this test" }), { status: 404 });
+    }));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const rows = () => host.querySelectorAll('[draggable="true"]');
+    const order = () => Array.from(rows()).map((row) => row.textContent ?? "");
+    const rowButtons = () => host.querySelectorAll('[draggable="true"] > [role="button"]');
+    try {
+      await act(async () =>
+        root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+      );
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      await vi.waitFor(() => expect(rows()).toHaveLength(3));
+      const search = host.querySelector("input")!;
+      await act(async () => {
+        (search as HTMLInputElement).focus();
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () => {
+        const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+        nativeSetter.call(search, "ax");
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await vi.waitFor(() => expect(rows()).toHaveLength(2));
+      expect(order()[0]).toContain("ax");
+      // Alt+Down skips the filtered-out middle and lands after the visible neighbor.
+      await act(async () => {
+        rowButtons()[0]!.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "ArrowDown", altKey: true }));
+      });
+      await vi.waitFor(() => expect(order()[0]).toContain("ax2"));
+      expect(order()[1]).toContain("ax");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("declares the shortcut only where the keys work", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const chief = { ...bot("chief"), chiefOfStaff: true };
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/bots") return new Response(JSON.stringify({ bots: [chief, ...["a", "b"].map(bot)], groups: [] }));
+      if (url === "/api/bots/order") return new Response(JSON.stringify({}), { status: 200 });
+      return new Response(JSON.stringify({ error: "not in this test" }), { status: 404 });
+    }));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+      );
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      await vi.waitFor(() => expect(host.querySelectorAll('[draggable="true"] > [role="button"]')).toHaveLength(2));
+      const movable = host.querySelectorAll('[draggable="true"] > [role="button"]');
+      expect(movable[0]!.getAttribute("aria-keyshortcuts")).toBe("Alt+ArrowUp Alt+ArrowDown");
+      const allButtons = Array.from(host.querySelectorAll('[role="button"]'));
+      const chiefButton = allButtons.find((el) => (el.textContent ?? "").includes("chief") && el.getAttribute("aria-keyshortcuts") === null);
+      expect(chiefButton).toBeTruthy();
+      const chiefWithShortcut = allButtons.filter((el) => (el.textContent ?? "").includes("chief") && el.getAttribute("aria-keyshortcuts") !== null);
+      expect(chiefWithShortcut).toHaveLength(0);
     } finally {
       await act(async () => root.unmount());
       host.remove();

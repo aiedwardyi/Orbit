@@ -14,18 +14,38 @@ const sameGroup = (a: OrderedBot, b: OrderedBot) =>
   (a.section ?? "") === (b.section ?? "") &&
   Boolean(a.pinned) === Boolean(b.pinned);
 
+const keyboardNeighbor = (
+  bots: readonly OrderedBot[],
+  fromId: string,
+  direction: -1 | 1,
+): string | null => {
+  const from = bots.find((bot) => bot.id === fromId);
+  if (!from) return null;
+  const group = bots.filter((bot) => sameGroup(bot, from)).map((bot) => bot.id);
+  const index = group.indexOf(fromId);
+  if (index === -1) return null;
+  return group[index + direction] ?? null;
+};
+
 /** Every bot id after moving `fromId` one slot with the keyboard, or null for a move the sidebar would undo. */
 export function botOrderAfterKeyboardMove(
   bots: readonly OrderedBot[],
   fromId: string,
   direction: -1 | 1,
 ): string[] | null {
-  const from = bots.find((bot) => bot.id === fromId);
-  if (!from) return null;
-  const group = bots.filter((bot) => sameGroup(bot, from)).map((bot) => bot.id);
-  const index = group.indexOf(fromId);
-  if (index === -1) return null;
-  const neighbor = group[index + direction];
+  const neighbor = keyboardNeighbor(bots, fromId, direction);
+  if (!neighbor) return null;
+  return botOrderAfterDrop(bots, fromId, neighbor);
+}
+
+/** Every bot id after moving `fromId` to its adjacent visible slot, or null for a move the sidebar would undo. */
+export function botOrderAfterVisibleKeyboardMove(
+  bots: readonly OrderedBot[],
+  visibleBots: readonly OrderedBot[],
+  fromId: string,
+  direction: -1 | 1,
+): string[] | null {
+  const neighbor = keyboardNeighbor(visibleBots, fromId, direction);
   if (!neighbor) return null;
   return botOrderAfterDrop(bots, fromId, neighbor);
 }

@@ -30,7 +30,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { botOrderAfterDrop, botOrderAfterKeyboardMove } from "@/lib/bot-order";
+import { botOrderAfterDrop, botOrderAfterVisibleKeyboardMove } from "@/lib/bot-order";
 import { conversationPreview, roomConversationPreview } from "@/lib/conversation-preview";
 import { api, useStore, formatTime, visibleMessages, type Bot, type Group } from "@/state/store";
 
@@ -748,6 +748,7 @@ function BotListItem({
   onArchive,
   archiveDisabled,
   drag,
+  onKeyboardMove,
 }: {
   bot: Bot;
   density: SidebarDensity;
@@ -755,6 +756,7 @@ function BotListItem({
   onArchive: (bot: Bot) => void;
   archiveDisabled: boolean;
   drag?: BotRowDrag;
+  onKeyboardMove?: (direction: -1 | 1) => void;
 }) {
   const { t, locale } = useI18n();
   const { state, dispatch } = useStore();
@@ -884,12 +886,18 @@ function BotListItem({
         role="button"
         tabIndex={0}
         aria-label={iconOnly ? bot.name : undefined}
+        aria-keyshortcuts={onKeyboardMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
         onClick={() => dispatch({ type: "select", id: bot.id })}
         onKeyDown={(event) => {
-          if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+          if (
+            event.altKey &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            !event.shiftKey &&
+            (event.key === "ArrowUp" || event.key === "ArrowDown")
+          ) {
             event.preventDefault();
-            const botIds = botOrderAfterKeyboardMove(state.bots, bot.id, event.key === "ArrowUp" ? -1 : 1);
-            if (botIds) dispatch({ type: "reorderBots", botIds });
+            onKeyboardMove?.(event.key === "ArrowUp" ? -1 : 1);
             return;
           }
           if (event.key === "Enter" || event.key === " ") {
@@ -1455,6 +1463,10 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       onEnd: () => setDrag(null),
     };
   };
+  const rowKeyboardMove = (bot: Bot, direction: -1 | 1) => {
+    const botIds = botOrderAfterVisibleKeyboardMove(state.bots, matchingBots, bot.id, direction);
+    if (botIds) dispatch({ type: "reorderBots", botIds });
+  };
   const pendingTeamUndo = teamFeedback?.undo;
   const pendingBotUndo = teamFeedback?.restoreBot;
 
@@ -1711,6 +1723,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               onArchive={(bot) => void archiveBot(bot)}
               archiveDisabled={activeBotCount <= 1}
               drag={rowDrag(b)}
+              onKeyboardMove={(direction) => rowKeyboardMove(b, direction)}
             />
           ))}
           {sectionNames.map((name) => (
@@ -1744,6 +1757,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                     onArchive={(bot) => void archiveBot(bot)}
                     archiveDisabled={activeBotCount <= 1}
                     drag={rowDrag(b)}
+                    onKeyboardMove={(direction) => rowKeyboardMove(b, direction)}
                   />
                 ))}
             </Fragment>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { botOrderAfterDrop, botOrderAfterKeyboardMove } from "./bot-order";
+import { botOrderAfterDrop, botOrderAfterKeyboardMove, botOrderAfterVisibleKeyboardMove } from "./bot-order";
 
 const bots = [
   { id: "chief", chiefOfStaff: true },
@@ -79,5 +79,21 @@ describe("botOrderAfterKeyboardMove", () => {
     expect(botOrderAfterKeyboardMove(withHidden, "b", 1)).toBeNull();
     expect(botOrderAfterKeyboardMove(withHidden, "b", -1)).toBeNull();
     expect(botOrderAfterKeyboardMove(withHidden, "a", 1)).toEqual(["c", "b", "a"]);
+  });
+});
+
+describe("botOrderAfterVisibleKeyboardMove", () => {
+  it("moves to the adjacent visible bot, skipping filtered-out middles", () => {
+    const full = [{ id: "ax" }, { id: "bx" }, { id: "ax2" }];
+    const visible = [{ id: "ax" }, { id: "ax2" }];
+    expect(botOrderAfterVisibleKeyboardMove(full, visible, "ax", 1)).toEqual(["bx", "ax2", "ax"]);
+    expect(botOrderAfterVisibleKeyboardMove(full, visible, "ax2", -1)).toEqual(["ax2", "ax", "bx"]);
+  });
+
+  it("is a no-op at visible edges even when hidden bots sit beyond", () => {
+    const full = [{ id: "ax" }, { id: "bx" }, { id: "ax2" }];
+    const visible = [{ id: "ax" }, { id: "ax2" }];
+    expect(botOrderAfterVisibleKeyboardMove(full, visible, "ax", -1)).toBeNull();
+    expect(botOrderAfterVisibleKeyboardMove(full, visible, "ax2", 1)).toBeNull();
   });
 });
