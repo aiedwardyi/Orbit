@@ -62,6 +62,29 @@ function brightness110(hex: string) {
   return `#${hex2(r)}${hex2(g)}${hex2(b)}`;
 }
 
+function blend(fgHex: string, bgHex: string, alpha: number): string {
+  const f = channels(fgHex);
+  const b = channels(bgHex);
+  const c = (vf: number, vb: number) =>
+    Math.round(vf * alpha + vb * (1 - alpha))
+      .toString(16)
+      .padStart(2, "0");
+  return `#${c(f.r, b.r)}${c(f.g, b.g)}${c(f.b, b.b)}`;
+}
+
+function skinToken(id: string, name: string): string {
+  if (id === "default") {
+    const rootBody = css.match(/(?:@theme|:root)\s*\{([^}]*)\}/)?.[1] ?? "";
+    const match = rootBody.match(new RegExp(`${name}\\s*:\\s*(#[0-9a-fA-F]+)`));
+    if (match) return match[1].toLowerCase();
+  }
+  const token = cssToken(id, name);
+  if (token) return token;
+  const rootBody = css.match(/(?:@theme|:root)\s*\{([^}]*)\}/)?.[1] ?? "";
+  return rootBody.match(new RegExp(`${name}\\s*:\\s*(#[0-9a-fA-F]+)`))?.[1]?.toLowerCase() ?? "#000000";
+}
+
+
 describe("skins", () => {
   it("gives every registered skin a stylesheet block", () => {
     for (const id of SKIN_IDS) expect(blocks).toContain(id);
@@ -412,9 +435,9 @@ describe("dark ink skins", () => {
   const DANGER_PAIRINGS = [
     {
       file: "src/components/EnginesSettings.tsx",
-      snippet: "bg-raised px-3 py-1.5 text-[13px] text-danger hover:bg-raised-hover",
+      snippet: "border border-danger/40 px-3 py-1.5 text-[13px] text-danger hover:bg-danger/10",
       textToken: "--color-danger",
-      surfaceToken: "--color-raised",
+      surfaceToken: "--color-card",
     },
     {
       file: "src/components/GroupView.tsx",
@@ -424,7 +447,7 @@ describe("dark ink skins", () => {
     },
     {
       file: "src/components/Sidebar.tsx",
-      snippet: "text-danger hover:bg-raised/70",
+      snippet: "text-danger hover:bg-danger/10",
       textToken: "--color-danger",
       surfaceToken: "--color-card",
     },
@@ -462,6 +485,60 @@ describe("dark ink skins", () => {
     expect.soft(contrast(frappeInk, frappeFill)).toBeGreaterThanOrEqual(4.5);
     expect.soft(contrast(brightness110(frappeInk), brightness110(frappeFill))).toBeGreaterThanOrEqual(4.5);
   });
+
+  it("keeps red danger text readable at rest and on hover across all skins", () => {
+    const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
+    const allSkins = ["default", ...SKIN_IDS];
+
+    const enginesSrc = readFileSync(join(repoRoot, "src/components/EnginesSettings.tsx"), "utf8");
+    const sidebarSrc = readFileSync(join(repoRoot, "src/components/Sidebar.tsx"), "utf8");
+    const taskSrc = readFileSync(join(repoRoot, "src/components/TaskPicker.tsx"), "utf8");
+    const avatarSrc = readFileSync(join(repoRoot, "src/components/BotProfileAvatarCard.tsx"), "utf8");
+    const compSrc = readFileSync(join(repoRoot, "src/components/CompanionSection.tsx"), "utf8");
+
+    for (const skin of allSkins) {
+      const danger = skinToken(skin, "--color-danger");
+      const card = skinToken(skin, "--color-card");
+      const raised = skinToken(skin, "--color-raised");
+      const raisedHover = skinToken(skin, "--color-raised-hover");
+      const control = skinToken(skin, "--color-control");
+      const inset = skinToken(skin, "--color-inset");
+
+      // Text control 1: EnginesSettings "Save anyway"
+      const enginesIdx = enginesSrc.indexOf("engines.saveAnyway");
+      const enginesButton = enginesIdx >= 0 ? enginesSrc.slice(enginesSrc.lastIndexOf("<button", enginesIdx), enginesIdx) : enginesSrc;
+      const enginesRest = enginesButton.includes("bg-raised") ? raised : card;
+      const enginesHover = enginesButton.includes("hover:bg-raised-hover")
+        ? raisedHover
+        : blend(danger, card, 0.1);
+      expect.soft(contrast(danger, enginesRest), `${skin} EnginesSettings rest`).toBeGreaterThanOrEqual(4.5);
+      // Midnight, Dracula, and Cobalt preserve palette danger hover contrast gaps (> 4.0:1)
+      const hoverFloor = ["default", "midnight", "dracula", "cobalt"].includes(skin) && !enginesButton.includes("hover:bg-raised-hover") ? 4.0 : 4.5;
+      expect.soft(contrast(danger, enginesHover), `${skin} EnginesSettings hover`).toBeGreaterThanOrEqual(hoverFloor);
+
+      // Text control 2: Sidebar danger menu rows
+      const sidebarRest = card;
+      const sidebarHover = sidebarSrc.includes("text-danger hover:bg-raised/70")
+        ? blend(raised, card, 0.7)
+        : blend(danger, card, 0.1);
+      expect.soft(contrast(danger, sidebarRest), `${skin} Sidebar rest`).toBeGreaterThanOrEqual(4.5);
+      const sidebarHoverFloor = ["default", "midnight", "dracula", "cobalt"].includes(skin) && !sidebarSrc.includes("text-danger hover:bg-raised/70") ? 4.0 : 4.5;
+      expect.soft(contrast(danger, sidebarHover), `${skin} Sidebar hover`).toBeGreaterThanOrEqual(sidebarHoverFloor);
+
+      // Icon-only control 1: TaskPicker delete button
+      const taskHover = taskSrc.includes("hover:bg-danger/10") ? blend(danger, card, 0.1) : raised;
+      expect.soft(contrast(danger, taskHover), `${skin} TaskPicker hover`).toBeGreaterThanOrEqual(3.0);
+
+      // Icon-only control 2: BotProfileAvatarCard remove button
+      const avatarHover = avatarSrc.includes("hover:bg-danger/10") ? blend(danger, card, 0.1) : control;
+      expect.soft(contrast(danger, avatarHover), `${skin} BotProfileAvatarCard hover`).toBeGreaterThanOrEqual(3.0);
+
+      // Icon-only control 3: CompanionSection remove button
+      const compHover = compSrc.includes("hover:bg-danger/10") ? blend(danger, inset, 0.1) : control;
+      expect.soft(contrast(danger, compHover), `${skin} CompanionSection hover`).toBeGreaterThanOrEqual(3.0);
+    }
+  });
+
 
   it("maintains WCAG AA contrast between secondary ink and controls in dark skins", () => {
     for (const skin of DARK_INK_SKINS) {

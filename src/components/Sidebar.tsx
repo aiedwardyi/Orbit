@@ -377,7 +377,7 @@ function RoomContextMenu({
           dispatch({ type: "deleteGroup", groupId: group.id });
           onClose();
         }}
-        className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-danger hover:bg-raised/70"
+        className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-danger hover:bg-danger/10"
       >
         <Trash2 size={16} />
         {t("chrome.deleteChannel")}
@@ -592,7 +592,7 @@ function SectionPicker({
           <div className="mx-2 my-1 border-t border-hairline/40" />
           <button
             onClick={() => assign("")}
-            className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[13px] text-danger hover:bg-raised/70"
+            className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[13px] text-danger hover:bg-danger/10"
           >
             <FolderMinus size={15} />
             {t("chrome.removeFromContext")}
