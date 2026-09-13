@@ -7,14 +7,18 @@ import { PinnedBanner } from "./ChatView";
 import type { Message } from "@/state/store";
 
 describe("PinnedBanner", () => {
+  let host: HTMLDivElement;
+  let root: ReturnType<typeof createRoot>;
+
+  afterEach(() => {
+    root.unmount();
+    host.remove();
+  });
+
   it("strips pasted-text wrapper tags from the pinned message banner", async () => {
-    const host = document.createElement("div");
+    host = document.createElement("div");
     document.body.append(host);
-    const root = createRoot(host);
-    afterEach(() => {
-      root.unmount();
-      host.remove();
-    });
+    root = createRoot(host);
     const raw = '<pasted-text index="1">\nimportant pinned note\n</pasted-text>';
     const pinned: Message = { id: "p1", role: "user", kind: "text", text: raw, at: 1 };
     const bot = { name: "Bot" };

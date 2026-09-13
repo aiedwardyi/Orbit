@@ -7,14 +7,18 @@ import { ReplyQuote } from "./ReplyQuote";
 import type { Message } from "@/state/store";
 
 describe("ReplyQuote", () => {
+  let host: HTMLDivElement;
+  let root: ReturnType<typeof createRoot>;
+
+  afterEach(() => {
+    root.unmount();
+    host.remove();
+  });
+
   it("strips pasted-text wrapper tags from the reply quote snippet", async () => {
-    const host = document.createElement("div");
+    host = document.createElement("div");
     document.body.append(host);
-    const root = createRoot(host);
-    afterEach(() => {
-      root.unmount();
-      host.remove();
-    });
+    root = createRoot(host);
     const raw = '<pasted-text index="1">\nquoted message text\n</pasted-text>';
     const message: Message = { id: "m1", role: "user", kind: "text", text: raw, at: 1 };
 

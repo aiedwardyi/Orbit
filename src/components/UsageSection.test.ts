@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { I18nProvider, persistPreference } from "@/lib/i18n";
 import { setUsageMode } from "@/lib/usage-preferences";
@@ -78,6 +78,8 @@ import { ChatPlanMeters } from "./ChatPlanMeters";
 import { planUsageTone } from "./PlanUsageBar";
 
 describe("UsageSection friends plan card", () => {
+  afterEach(() => setUsageMode("remaining"));
+
   it("shares the 75/90 thresholds between text and fill colors", () => {
     expect(planUsageTone(74)).toEqual({ textClass: "text-accent", fillClass: "bg-accent" });
     expect(planUsageTone(75)).toEqual({ textClass: "text-warning", fillClass: "bg-warning" });
@@ -111,7 +113,7 @@ describe("UsageSection friends plan card", () => {
       expect(host.querySelector('[aria-pressed="true"]')?.textContent).toBe("Count down (remaining)");
     } finally {
       await act(async () => root.unmount());
-      await act(async () => setUsageMode("used"));
+      await act(async () => setUsageMode("remaining"));
       host.remove();
     }
   });
@@ -153,6 +155,7 @@ describe("UsageSection friends plan card", () => {
   });
 
   it("renders every window as the chat's compact meter, with the Opus row labeled and stale windows as text", () => {
+    setUsageMode("used");
     const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
     // five windows and no spend: columns cap at four, the fifth cell wraps
     expect(html).toContain("mx-auto mt-2 grid w-fit items-center gap-x-6 grid-cols-[auto_auto_auto_auto]");
@@ -262,6 +265,7 @@ describe("UsageSection friends plan card", () => {
   });
 
   it("names the Opus meter's group in English and Korean", () => {
+    setUsageMode("used");
     const opusGroup = (html: string, meter: string) =>
       new DOMParser()
         .parseFromString(html, "text/html")
