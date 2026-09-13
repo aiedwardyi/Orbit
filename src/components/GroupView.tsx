@@ -3,7 +3,7 @@
 // does not become a wall of competing motion. Plain messages go to the room's
 // default responder; @mentions override that routing.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, Check, ChevronDown, ChevronRight, Folder, FolderOpen, Gauge, Loader2, MessageSquareReply, Pin, PinOff, Plus, Search, X } from "lucide-react";
+import { ArrowDown, Check, ChevronDown, ChevronRight, Folder, FolderOpen, Gauge, Loader2, MessageSquareReply, Pin, PinOff, Plus, RefreshCw, Search, X } from "lucide-react";
 import {
   api,
   useStore,
@@ -38,6 +38,7 @@ import { ApprovalCard } from "./ApprovalCard";
 import { ManageMembersPanel } from "./ManageMembersPanel";
 import { groupActivityRuns } from "@/lib/activity-runs";
 import { roomTranscriptRows } from "@/lib/room-transcript";
+import { roomRetry } from "@/lib/room-retry";
 import { nextBulletin } from "@/lib/room-bulletin";
 import { ActivityRun } from "./ActivityRun";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
@@ -74,26 +75,49 @@ function dayLabel(at: number): string {
 
 /** One activity row in a room: a comm chip that opens its channel, otherwise
  * the 1:1 pill minus its status glyph — a room reads as a conversation. */
-function RoomToolChip({ message }: { message: Message }) {
+function RoomToolChip({ message, onRetry }: { message: Message; onRetry?: () => void }) {
   const { dispatch, state } = useStore();
   const { t } = useI18n();
   const now = useNow();
+  const [retried, setRetried] = useState(false);
   const tool = message.tool;
   if (!tool) return null;
+  const handleRetry = onRetry
+    ? () => {
+        if (retried) return;
+        setRetried(true);
+        onRetry();
+      }
+    : undefined;
   // A spent plan is the one failure a room can explain, so it gets the same
   // warning treatment as 1:1 — with the engine's own words kept on the title.
   if (tool.usageLimit) {
     const reset = usageLimitReset(tool.usageLimit.resetsAt, now);
     return (
       <div className="flex justify-start">
-        <div
-          title={tool.name}
-          className="flex items-center gap-2 rounded-full border border-warning/30 bg-warning/10 px-3 py-1.5 text-[13px] text-warning"
-        >
-          <Gauge size={13} className="shrink-0" />
-          <span className="max-w-[480px] truncate">
-            {reset ? `${t("chat.usageLimit")} · ${t(reset.key, reset.vars)}` : t("chat.usageLimit")}
-          </span>
+        <div className="flex flex-col items-start">
+          <div
+            title={tool.name}
+            className="flex items-center gap-2 rounded-full border border-warning/30 bg-warning/10 px-3 py-1.5 text-[13px] text-warning"
+          >
+            <Gauge size={13} className="shrink-0" />
+            <span className="max-w-[480px] truncate">
+              {reset ? `${t("chat.usageLimit")} · ${t(reset.key, reset.vars)}` : t("chat.usageLimit")}
+            </span>
+          </div>
+          {onRetry && (
+            <button
+              disabled={retried}
+              onClick={handleRetry}
+              className={cn(
+                "mt-1.5 flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12.5px]",
+                "border-warning/30 hover:bg-warning/15",
+                "disabled:pointer-events-none disabled:opacity-50",
+              )}
+            >
+              <RefreshCw size={12} /> {t("composer.retry")}
+            </button>
+          )}
         </div>
       </div>
     );
@@ -118,13 +142,28 @@ function RoomToolChip({ message }: { message: Message }) {
   }
   return (
     <div className="flex justify-start">
-      <div
-        className={cn(
-          "flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px]",
-          tool.ok === false ? "text-danger" : "text-ink-secondary",
+      <div className="flex flex-col items-start">
+        <div
+          className={cn(
+            "flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px]",
+            tool.ok === false ? "text-danger" : "text-ink-secondary",
+          )}
+        >
+          <span className="max-w-[480px] truncate font-mono">{tool.name}</span>
+        </div>
+        {onRetry && (
+          <button
+            disabled={retried}
+            onClick={handleRetry}
+            className={cn(
+              "mt-1.5 flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12.5px]",
+              tool.usageLimit ? "border-warning/30 hover:bg-warning/15" : "border-danger/30 hover:bg-danger/15",
+              "disabled:pointer-events-none disabled:opacity-50",
+            )}
+          >
+            <RefreshCw size={12} /> {t("composer.retry")}
+          </button>
         )}
-      >
-        <span className="max-w-[480px] truncate font-mono">{tool.name}</span>
       </div>
     </div>
   );
@@ -201,6 +240,18 @@ const Transcript = memo(function Transcript({
   );
   const focus = state.focusMessage;
   const focusedId = focus && !focus.consumed && focus.threadId === group.threadId ? focus.messageId : null;
+  const retry = roomRetry(group.messages, members, group, group.threadId, group.busyBotId);
+  const onRetryFor = (messageId: string) =>
+    retry && messageId === retry.messageId
+      ? () =>
+          dispatch({
+            type: "sendGroup",
+            groupId: group.id,
+            text: retry.text,
+            replyToId: retry.replyToId,
+            threadId: retry.threadId,
+          })
+      : undefined;
   return (
     <>
       {items.map((item, i) => {
@@ -221,7 +272,7 @@ const Transcript = memo(function Transcript({
               <ActivityRun messages={item.messages} forceOpen={item.messages.some((step) => step.id === focusedId)}>
                 {item.messages.map((step) => (
                   <div key={step.id} className="contents" data-mid={step.id}>
-                    <RoomToolChip message={step} />
+                    <RoomToolChip message={step} onRetry={onRetryFor(step.id)} />
                   </div>
                 ))}
               </ActivityRun>
@@ -260,7 +311,7 @@ const Transcript = memo(function Transcript({
               />
             </div>
           ) : m.kind === "activity" && m.tool ? (
-            <RoomToolChip message={m} />
+            <RoomToolChip message={m} onRetry={onRetryFor(m.id)} />
           ) : m.kind === "screen" && m.png ? (
             <div className="flex justify-start">
               <img

@@ -246,7 +246,7 @@ function ErrorRow({
                 usageLimit ? "border-warning/30 hover:bg-warning/15" : "border-danger/30 hover:bg-danger/15",
               )}
             >
-              <RefreshCw size={12} /> Retry
+              <RefreshCw size={12} /> {t("composer.retry")}
             </button>
           )
         )}
