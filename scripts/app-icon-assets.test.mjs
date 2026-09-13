@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -106,6 +107,16 @@ describe("app icon assets", () => {
       const center = rgba(image, image.width >> 1, image.height >> 1);
       expect(center[3], `${relative} center alpha`).toBe(255);
     }
+  });
+
+  it("validates the shipped files through the generator --check branch", () => {
+    const output = execFileSync(
+      process.execPath,
+      [join(ROOT, "scripts/generate-app-icon.mjs"), "--check"],
+      { encoding: "utf8" },
+    );
+    expect(output).toContain("ok build/icon-1024.png");
+    expect(output).not.toContain("FAIL");
   });
 
   it("paints the vector sources in the new slate/cream/green artwork", () => {

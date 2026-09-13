@@ -1,23 +1,26 @@
-// Regenerates every raster app-icon surface from Edward's 1024 master.
+// Regenerates every raster app-icon surface from the 1024 master.
 //
-//   node scripts/generate-app-icon.mjs [--source <png>] [--check]
+//   node scripts/generate-app-icon.mjs --source <path-to-1024-master>
+//   node scripts/generate-app-icon.mjs --check
 //
-// Edward's master has an alpha channel but everything outside the rounded
-// square is OPAQUE WHITE, so it cannot ship as-is: the white corners are
+// The master has an alpha channel but everything outside the rounded square
+// is OPAQUE WHITE, so it cannot ship as-is: the white corners are
 // flood-filled to transparent from the borders (with the anti-aliased edge
 // unblended from white), then every shipped size is area-averaged down from
 // the cleaned 1024 with premultiplied alpha. ICO/ICNS containers are rebuilt
 // from those same renders. No image dependencies — pure node:zlib PNG codec.
+// --source is required: the master is author-provided and lives outside the
+// repo, so there is no in-repo default.
 //
-// --check re-reads every shipped PNG and fails if any corner is not fully
-// transparent (also wired into scripts/app-icon-assets.test.mjs).
+// --check is read-only: it re-reads every shipped PNG and fails if any
+// corner is not fully transparent (also wired into
+// scripts/app-icon-assets.test.mjs). It never writes and never needs --source.
 import { inflateSync, deflateSync } from "node:zlib";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const DEFAULT_SOURCE = "/mnt/c/Users/mredw/Desktop/orbit-icon/Orbit-icon-1024.png";
 
 // Slate base of the new artwork; the outer edge is always a blend of this
 // with white, which is what lets the fringe unblend back to a clean edge.
@@ -232,8 +235,14 @@ function encodePng({ width, height, pixels }) {
     let best = 0;
     let bestScore = Infinity;
     for (let f = 0; f < 3; f++) {
+      // Standard minimum-sum-of-absolute-values heuristic: each filtered
+      // byte is a signed residual, so its magnitude is v (v <= 127) or
+      // 256 - v. |v - 128| and plain |v| both mis-score small negatives.
       let score = 0;
-      for (let x = 0; x < stride; x++) score += Math.abs(candidates[f][x] - 128);
+      for (let x = 0; x < stride; x++) {
+        const v = candidates[f][x];
+        score += v <= 127 ? v : 256 - v;
+      }
       if (score < bestScore) {
         bestScore = score;
         best = f;
@@ -342,10 +351,46 @@ const ICONSET = [
   ["icon_512x512@2x.png", 1024],
 ];
 
+const SHIPPED_PNGS = [
+  "build/icon-1024.png",
+  ...ICONSET.map(([name]) => `build/icon.iconset/${name}`),
+  "electron/resources/app-icon.png",
+];
+
+/** Read-only validation of the shipped PNGs: no writes, no source needed. */
+function check() {
+  let failed = 0;
+  for (const relative of SHIPPED_PNGS) {
+    const image = decodePng(join(ROOT, relative));
+    // decodePng always expands to RGBA.
+    const alpha = (x, y) => image.pixels[(y * image.width + x) * 4 + 3];
+    const corners = [
+      alpha(0, 0),
+      alpha(image.width - 1, 0),
+      alpha(0, image.height - 1),
+      alpha(image.width - 1, image.height - 1),
+    ];
+    const center = alpha(image.width >> 1, image.height >> 1);
+    const ok = corners.every((a) => a === 0) && center === 255;
+    if (!ok) failed++;
+    console.log(`${ok ? "ok" : "FAIL"} ${relative} corners[${corners.join(",")}] centerA=${center}`);
+  }
+  if (failed) {
+    console.error(`${failed} file(s) failed the corner-transparency check`);
+    process.exitCode = 1;
+  }
+}
+
 function main() {
   const args = process.argv.slice(2);
+  if (args.includes("--check")) return check();
   const sourceIndex = args.indexOf("--source");
-  const source = sourceIndex === -1 ? DEFAULT_SOURCE : args[sourceIndex + 1];
+  if (sourceIndex === -1 || !args[sourceIndex + 1]) {
+    console.error("missing required --source <path-to-1024-master>");
+    process.exitCode = 1;
+    return;
+  }
+  const source = args[sourceIndex + 1];
   const master = cleanWhite(decodePng(source));
   const rendered = {};
   for (const size of [16, 32, 48, 64, 128, 256, 512, 1024]) {
