@@ -997,12 +997,81 @@ struct ActivityChip: View {
 
     var body: some View {
         if let tool {
-            SkillExecutionReceiptView(
-                skillName: tool.name,
-                status: tool.ok.map { $0 ? "success" : "error" } ?? "running"
-            )
-            .padding(.leading, 2)
+            if let usageLimit = tool.usageLimit {
+                usageLimitView(usageLimit: usageLimit, tool: tool)
+            } else {
+                SkillExecutionReceiptView(
+                    skillName: tool.name,
+                    status: tool.ok.map { $0 ? "success" : "error" } ?? "running"
+                )
+                .padding(.leading, 2)
+            }
         }
+    }
+
+    @ViewBuilder
+    private func usageLimitView(usageLimit: UsageLimit, tool: ToolActivity) -> some View {
+        let message = tool.name.hasPrefix("error:")
+            ? String(tool.name.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+            : tool.name
+
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "gauge.with.needle")
+                .font(.system(size: 15))
+                .foregroundStyle(Color.orange)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Usage limit reached")
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(Color.orange)
+
+                Text("This engine's plan is used up. Try again after it resets.")
+                    .font(.system(size: 13.5))
+                    .foregroundStyle(Color.orange)
+
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    if let reset = resetLine(resetsAt: usageLimit.resetsAt, now: context.date) {
+                        Text(reset)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Color.orange.opacity(0.9))
+                    }
+                }
+
+                if !message.isEmpty {
+                    Text(message)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.orange.opacity(0.7))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color.orange.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.orange.opacity(0.30), lineWidth: 1)
+        )
+        .padding(.leading, 2)
+    }
+
+    private func resetLine(resetsAt: Double?, now: Date) -> String? {
+        guard let resetsAt else { return nil }
+        let nowMs = now.timeIntervalSince1970 * 1000
+        guard resetsAt > nowMs else { return nil }
+        let diffMs = resetsAt - nowMs
+        let totalMinutes = max(1, Int(ceil(diffMs / 60_000.0)))
+        if totalMinutes < 60 {
+            return totalMinutes == 1 ? "Resets in 1 minute" : "Resets in \(totalMinutes) minutes"
+        }
+        let hours = Int((Double(totalMinutes) / 60.0).rounded())
+        if hours < 24 {
+            return hours == 1 ? "Resets in 1 hour" : "Resets in \(hours) hours"
+        }
+        let days = max(1, Int((Double(hours) / 24.0).rounded()))
+        return days == 1 ? "Resets in 1 day" : "Resets in \(days) days"
     }
 }
 

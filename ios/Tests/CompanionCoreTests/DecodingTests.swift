@@ -506,4 +506,36 @@ final class DecodingTests: XCTestCase {
         XCTAssertEqual(message.kind, .unknown)
         XCTAssertEqual(message.text, "ran")
     }
+
+    func testDecodesToolActivityWithUsageLimitNumber() throws {
+        let json = """
+        {"name":"error: out of credits","ok":false,"usageLimit":{"resetsAt":1726272000000}}
+        """
+        let tool = try JSONDecoder().decode(ToolActivity.self, from: Data(json.utf8))
+        XCTAssertEqual(tool.name, "error: out of credits")
+        XCTAssertEqual(tool.ok, false)
+        XCTAssertEqual(tool.usageLimit?.resetsAt, 1726272000000)
+    }
+
+    func testDecodesToolActivityWithNullReset() throws {
+        let json = """
+        {"name":"error: out of credits","ok":false,"usageLimit":{"resetsAt":null}}
+        """
+        let tool = try JSONDecoder().decode(ToolActivity.self, from: Data(json.utf8))
+        XCTAssertEqual(tool.name, "error: out of credits")
+        XCTAssertEqual(tool.ok, false)
+        XCTAssertNotNil(tool.usageLimit)
+        XCTAssertNil(tool.usageLimit?.resetsAt)
+    }
+
+    func testDecodesToolActivityWithoutUsageLimit() throws {
+        let json = """
+        {"name":"error: file not found","ok":false}
+        """
+        let tool = try JSONDecoder().decode(ToolActivity.self, from: Data(json.utf8))
+        XCTAssertEqual(tool.name, "error: file not found")
+        XCTAssertEqual(tool.ok, false)
+        XCTAssertNil(tool.usageLimit)
+    }
 }
+
