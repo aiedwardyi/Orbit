@@ -22,6 +22,7 @@ import { DEFAULT_MAUS_COLOR, normalizeState } from "@/lib/mascot";
 import { effectiveDefaultResponder, groupResponseHint } from "@/lib/group-routing";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { Composer } from "./Composer";
+import { EngineSetup, OpenConnectionsCta, setupErrorAction } from "./EngineSetup";
 import { TaskRecoveryCard } from "./TaskRecoveryCard";
 import { roomRecoveryBusy, roomRecoveryPacket } from "@/lib/task-recovery";
 import { ChatFindBar } from "./ChatFindBar";
@@ -75,7 +76,13 @@ function dayLabel(at: number): string {
 
 /** One activity row in a room: a comm chip that opens its channel, otherwise
  * the 1:1 pill minus its status glyph — a room reads as a conversation. */
-function RoomToolChip({ message, onRetry }: { message: Message; onRetry?: () => void }) {
+export function RoomToolChip({
+  message,
+  onRetry,
+}: {
+  message: Message;
+  onRetry?: (callbacks?: { onError?: () => void }) => void;
+}) {
   const { dispatch, state } = useStore();
   const { t } = useI18n();
   const now = useNow();
@@ -86,7 +93,7 @@ function RoomToolChip({ message, onRetry }: { message: Message; onRetry?: () => 
     ? () => {
         if (retried) return;
         setRetried(true);
-        onRetry();
+        onRetry({ onError: () => setRetried(false) });
       }
     : undefined;
   // A spent plan is the one failure a room can explain, so it gets the same
@@ -140,6 +147,15 @@ function RoomToolChip({ message, onRetry }: { message: Message; onRetry?: () => 
       </div>
     );
   }
+  const member = message.from?.botId ? state.bots.find((bot) => bot.id === message.from?.botId) : undefined;
+  const instance = member?.modelSelection?.instanceId
+    ? state.instances.find((i) => i.instanceId === member.modelSelection.instanceId)
+    : undefined;
+  const setupAction =
+    tool.setup && onRetry
+      ? setupErrorAction(tool.name.startsWith("error:") ? tool.name.slice(6).trim() : tool.name, instance)
+      : undefined;
+
   return (
     <div className="flex justify-start">
       <div className="flex flex-col items-start">
@@ -151,18 +167,24 @@ function RoomToolChip({ message, onRetry }: { message: Message; onRetry?: () => 
         >
           <span className="max-w-[480px] truncate font-mono">{tool.name}</span>
         </div>
-        {onRetry && (
-          <button
-            disabled={retried}
-            onClick={handleRetry}
-            className={cn(
-              "mt-1.5 flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12.5px]",
-              tool.usageLimit ? "border-warning/30 hover:bg-warning/15" : "border-danger/30 hover:bg-danger/15",
-              "disabled:pointer-events-none disabled:opacity-50",
-            )}
-          >
-            <RefreshCw size={12} /> {t("composer.retry")}
-          </button>
+        {setupAction === "cli" && instance ? (
+          <EngineSetup instance={instance} className="mt-2 text-ink-secondary" />
+        ) : setupAction === "key" ? (
+          <OpenConnectionsCta />
+        ) : (
+          onRetry && (
+            <button
+              disabled={retried}
+              onClick={handleRetry}
+              className={cn(
+                "mt-1.5 flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12.5px]",
+                tool.usageLimit ? "border-warning/30 hover:bg-warning/15" : "border-danger/30 hover:bg-danger/15",
+                "disabled:pointer-events-none disabled:opacity-50",
+              )}
+            >
+              <RefreshCw size={12} /> {t("composer.retry")}
+            </button>
+          )
         )}
       </div>
     </div>
@@ -240,17 +262,20 @@ const Transcript = memo(function Transcript({
   );
   const focus = state.focusMessage;
   const focusedId = focus && !focus.consumed && focus.threadId === group.threadId ? focus.messageId : null;
-  const retry = roomRetry(group.messages, members, group, group.threadId, group.busyBotId);
+  const target = roomRetry(group.messages, members, group, group.threadId, group.busyBotId, { allowSetup: true });
   const onRetryFor = (messageId: string) =>
-    retry && messageId === retry.messageId
-      ? () =>
+    target && messageId === target.messageId
+      ? (callbacks?: { onError?: () => void }) => {
+          const onError = callbacks?.onError;
           dispatch({
             type: "sendGroup",
             groupId: group.id,
-            text: retry.text,
-            replyToId: retry.replyToId,
-            threadId: retry.threadId,
-          })
+            text: target.text,
+            replyToId: target.replyToId,
+            threadId: target.threadId,
+            onError,
+          });
+        }
       : undefined;
   return (
     <>
@@ -272,7 +297,10 @@ const Transcript = memo(function Transcript({
               <ActivityRun messages={item.messages} forceOpen={item.messages.some((step) => step.id === focusedId)}>
                 {item.messages.map((step) => (
                   <div key={step.id} className="contents" data-mid={step.id}>
-                    <RoomToolChip message={step} onRetry={onRetryFor(step.id)} />
+                    <RoomToolChip
+                      message={step}
+                      onRetry={onRetryFor(step.id)}
+                    />
                   </div>
                 ))}
               </ActivityRun>
@@ -311,7 +339,10 @@ const Transcript = memo(function Transcript({
               />
             </div>
           ) : m.kind === "activity" && m.tool ? (
-            <RoomToolChip message={m} onRetry={onRetryFor(m.id)} />
+            <RoomToolChip
+              message={m}
+              onRetry={onRetryFor(m.id)}
+            />
           ) : m.kind === "screen" && m.png ? (
             <div className="flex justify-start">
               <img
