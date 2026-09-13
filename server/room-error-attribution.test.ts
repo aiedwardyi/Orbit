@@ -13,8 +13,9 @@ import {
 
 const bot = { id: "b1", name: "Alice", color: "blue" };
 
-// Mirrors the Retry gate in src/lib/room-retry.ts: an error activity only
-// becomes a Retry candidate when it carries speaker attribution.
+// Mirrors the Retry gate in roomRetry (src/lib/room-retry.ts): an error
+// activity only becomes a Retry candidate when it carries speaker
+// attribution.
 function wouldShowRetry(message: Omit<Message, "id" | "at">): boolean {
   if (message.kind !== "activity") return false;
   if (!message.tool?.name?.startsWith("error:")) return false;
@@ -42,6 +43,11 @@ describe("room retry attribution", () => {
     expect(providerReloadErrorActivity(bot, false).from).toBeUndefined();
     expect(wouldShowRetry(stallErrorActivity(bot, 20, false))).toBe(false);
     expect(wouldShowRetry(providerReloadErrorActivity(bot, false))).toBe(false);
+  });
+
+  it("leaves bot-null room errors unattributed as an intentional silent fallback", () => {
+    expect(stallErrorActivity(null, 20, true).from).toBeUndefined();
+    expect(providerReloadErrorActivity(null, true).from).toBeUndefined();
   });
 
   it("adds only attribution, never duplicates or reorders", () => {
