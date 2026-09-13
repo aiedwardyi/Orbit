@@ -111,13 +111,19 @@ describe("RoomToolChip", () => {
       at: 2,
     };
 
-    await act(async () => {
-      root.render(createElement(RoomToolChip, { message: cliMessage, onRetry: () => {} }));
-    });
+    const prevOgb = window.ogb;
+    window.ogb = { platform: "win32" } as any;
+    try {
+      await act(async () => {
+        root.render(createElement(RoomToolChip, { message: cliMessage, onRetry: () => {} }));
+      });
 
-    // 1:1 setupErrorAction gives "cli", which renders EngineSetup with install action
-    expect(host.querySelector("code")?.textContent).toBe(claudeInstance.install?.command?.win32);
-    expect(host.textContent).toContain("Copy command");
+      // 1:1 setupErrorAction gives "cli", which renders EngineSetup with install action
+      expect(host.querySelector("code")?.textContent).toBe(claudeInstance.install?.command?.win32);
+      expect(host.textContent).toContain("Copy command");
+    } finally {
+      window.ogb = prevOgb;
+    }
 
     const botBob = {
       id: "b2",

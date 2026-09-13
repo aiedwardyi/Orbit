@@ -1300,8 +1300,8 @@ describe("sendGroup reject onError", () => {
     const store = readFileSync(new URL("./store.tsx", import.meta.url), "utf8");
     const sendGroupCase = store.slice(store.indexOf('/api/groups/${action.groupId}/messages'));
     const thenBlock = sendGroupCase.slice(0, sendGroupCase.indexOf(".catch("));
-    expect(thenBlock).toMatch(/receiptRejectsAcceptedSend\(body\)[\s\S]*?action\.onError\?\.()/);
-    expect(thenBlock).toMatch(/cancelledSendsRef\.current\.has\(sendId\)[\s\S]*?action\.onError\?\.()/);
+    expect(thenBlock).toMatch(/receiptRejectsAcceptedSend\(body\)[\s\S]*?action\.onError\?\.\(\)/);
+    expect(thenBlock).toMatch(/cancelledSendsRef\.current\.has\(sendId\)[\s\S]*?action\.onError\?\.\(\)/);
   });
 });
 
