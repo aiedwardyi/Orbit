@@ -573,7 +573,7 @@ describe("team map, team library, and team toasts", () => {
     applyLocale("ko");
     expect(() => teamImportPreview({ format: "nope" })).toThrow(ko["teamImport.notTeamFile"]);
     expect(() => teamImportPreview({ format: "openmaus.team", version: 1, team: { name: "x", members: [null] } })).toThrow(
-      "팀원 1이(가) 올바르지 않습니다.",
+      "1번 팀원 정보가 올바르지 않습니다.",
     );
     applyLocale("en");
     expect(() => teamImportPreview({ format: "nope" })).toThrow("This is not an Orbit playbook or a team file.");
