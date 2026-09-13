@@ -44,7 +44,7 @@ const { mockState, mockApi, claudeInstance, codexInstance, grokInstance, geminiI
     capabilities: { rateLimits: false },
   };
   return {
-    mockApi: vi.fn(async () => ({})),
+    mockApi: vi.fn(async (_path: string, _options?: RequestInit): Promise<{ report?: { windows: { id: string; usedPercent: number }[]; observedAt: string }; error?: string }> => ({})),
     mockState: {
       appSettingsOpen: true,
       appSettingsSection: "connections",
@@ -183,6 +183,58 @@ describe("Settings Polish", () => {
       expect(mockApi).toHaveBeenCalledTimes(3);
     } finally {
       mockState.instances = previousInstances;
+    }
+  });
+
+  it("disables 'Refresh all' while an engine refresh is running and ignores clicks", async () => {
+    const previousInstances = mockState.instances;
+    mockState.instances = [claudeInstance, codexInstance, grokInstance, geminiInstance];
+    let resolveClaude: () => void = () => {};
+    mockApi.mockReset();
+    mockApi.mockImplementation((path: string) => {
+      if (path === "/api/usage/refresh/claude") {
+        return new Promise((resolve) => {
+          resolveClaude = () => resolve({});
+        });
+      }
+      return Promise.resolve({});
+    });
+    try {
+      await act(async () => {
+        root.render(createElement(I18nProvider, null, createElement(UsageSection)));
+      });
+
+      const engineRefreshButton = [...host.querySelectorAll("button")].find(
+        (b) => b.textContent?.trim() === "Refresh",
+      );
+      expect(engineRefreshButton).toBeDefined();
+
+      await act(async () => {
+        engineRefreshButton?.click();
+      });
+
+      expect(mockApi).toHaveBeenCalledTimes(1);
+      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/claude", { method: "POST" });
+
+      const refreshAllButton = [...host.querySelectorAll("button")].find(
+        (b) => b.textContent?.trim() === "Refresh all",
+      );
+      expect(refreshAllButton).toBeDefined();
+      expect(refreshAllButton?.hasAttribute("disabled")).toBe(true);
+
+      await act(async () => {
+        refreshAllButton?.click();
+      });
+
+      expect(mockApi).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        resolveClaude();
+      });
+    } finally {
+      mockState.instances = previousInstances;
+      mockApi.mockReset();
+      mockApi.mockImplementation(async () => ({}));
     }
   });
 

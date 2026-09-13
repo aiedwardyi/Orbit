@@ -85,7 +85,7 @@ function PlanUsage() {
     }
   };
   const refreshAll = async () => {
-    if (refreshingAll || refreshable.length === 0) return;
+    if (refreshingAll || refreshing.size > 0 || refreshable.length === 0) return;
     setRefreshingAll(true);
     try {
       await Promise.all(refreshable.map(refresh));
@@ -109,7 +109,7 @@ function PlanUsage() {
           <button
             type="button"
             onClick={() => void refreshAll()}
-            disabled={refreshingAll}
+            disabled={refreshingAll || refreshing.size > 0}
             className="shrink-0 rounded-lg border border-hairline/40 px-3 py-1 text-[12px] text-ink-secondary hover:bg-raised/50 hover:text-ink disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent"
           >
             {t(refreshingAll ? "usage.limits.refreshing" : "usage.limits.refreshAll")}
