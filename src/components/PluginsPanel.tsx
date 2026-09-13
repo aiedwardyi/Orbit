@@ -597,7 +597,7 @@ export function PluginsPanel() {
               <div className="mb-3 text-[12px] font-medium text-ink-secondary">
                 {tab === "connected" ? "Your connections" : search ? "Search results" : "Available apps"}
               </div>
-              <div className="grid grid-cols-1 gap-x-10 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-x-10 lg:grid-cols-2">
               {visible.map((card) => {
               const serviceStatus = status[card.slug];
               const pending = serviceStatus?.pending;

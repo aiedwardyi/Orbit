@@ -402,7 +402,7 @@ export function TeamMapPage() {
           ))}
         </div>
 
-        <section className="mt-6 max-w-[900px]">
+        <section className="mt-6">
           <div className="mb-2.5 flex items-center justify-between">
             <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">{t("teamMap.handoffs")}</h2>
             <span className="text-[11px] text-ink-secondary">{t("teamMap.handoffsOrder")}</span>
