@@ -219,7 +219,7 @@ export function ApiKeyRow({
           className={cn(
             "flex w-[72px] shrink-0 items-center justify-center gap-1.5 rounded-lg py-2 text-[13px]",
             clearing
-              ? "bg-danger text-danger-ink hover:opacity-90"
+              ? "bg-danger text-danger-ink hover:brightness-110"
               : "bg-control text-ink hover:bg-raised-hover",
             "disabled:cursor-not-allowed disabled:opacity-50",
           )}
@@ -292,7 +292,7 @@ export function VpsConnection() {
           className={cn(
             "flex w-[72px] shrink-0 items-center justify-center gap-1.5 rounded-lg py-2 text-[13px]",
             !alias.trim() && configured
-              ? "bg-danger text-danger-ink hover:opacity-90"
+              ? "bg-danger text-danger-ink hover:brightness-110"
               : "bg-control text-ink hover:bg-raised-hover",
             "disabled:cursor-not-allowed disabled:opacity-50",
           )}
