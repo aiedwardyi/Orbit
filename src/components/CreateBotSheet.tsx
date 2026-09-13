@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { FolderOpen, Loader2 } from "lucide-react";
 
 import { BOT_PROFILE_LIMITS } from "../../shared/bot-profile";
 import { api, useStore, type Bot } from "@/state/store";
@@ -10,10 +10,12 @@ export function CreateBotSheet({ required }: { required: boolean }) {
   const { t } = useI18n();
   const { dispatch } = useStore();
   const [job, setJob] = useState("");
+  const [folder, setFolder] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const canPick = Boolean(window.ogb?.pickFolder);
 
   const close = () => {
     if (!required && !saving) dispatch({ type: "closeCreateBot" });
@@ -31,7 +33,7 @@ export function CreateBotSheet({ required }: { required: boolean }) {
       }
       if (event.key !== "Tab") return;
       const controls = [...dialog.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        'button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
       )];
       if (!controls.length) return event.preventDefault();
       const first = controls[0]!;
@@ -48,15 +50,27 @@ export function CreateBotSheet({ required }: { required: boolean }) {
     return () => dialog.removeEventListener("keydown", onKey);
   }, [required, saving]);
 
+  const pick = async () => {
+    let chosen: string | null | undefined;
+    try {
+      chosen = await window.ogb?.pickFolder?.(folder.trim() || undefined);
+    } catch {
+      return;
+    }
+    if (chosen) setFolder(chosen);
+  };
+
   const submit = async () => {
     const normalized = job.trim();
     if (!normalized || saving) return;
     setSaving(true);
     setError(null);
     try {
+      const trimmedFolder = folder.trim();
+      const payload = { job: normalized, cwd: trimmedFolder || undefined };
       const result: { bot: Bot } = await api("/api/bots", {
         method: "POST",
-        body: JSON.stringify({ job: normalized }),
+        body: JSON.stringify(payload),
       });
       dispatch({ type: "botAdded", bot: result.bot, focusComposer: true });
     } catch (cause) {
@@ -76,7 +90,7 @@ export function CreateBotSheet({ required }: { required: boolean }) {
         aria-modal="true"
         aria-labelledby="create-bot-title"
         aria-describedby="create-bot-help"
-        className="w-full max-w-[560px] rounded-2xl border border-hairline/50 bg-panel p-7 shadow-2xl shadow-black/60"
+        className="max-h-[min(680px,calc(100dvh-2rem))] w-full max-w-[560px] overflow-y-auto rounded-2xl border border-hairline/50 bg-panel p-7 shadow-2xl shadow-black/60"
       >
         <div className="flex items-start gap-4">
           <div className="relative shrink-0">
@@ -110,6 +124,41 @@ export function CreateBotSheet({ required }: { required: boolean }) {
             placeholder={t("createBot.placeholder")}
             className="min-h-[150px] w-full resize-y rounded-xl border border-hairline/50 bg-inset px-4 py-3 text-[15px] leading-relaxed text-ink placeholder:text-ink-secondary focus:border-accent/70 focus:outline-none"
           />
+          <div className="mt-4">
+            <label htmlFor="create-bot-folder" className="mb-1.5 block text-[13px] text-ink-secondary">
+              {t("bot.workingFolder")}
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id="create-bot-folder"
+                value={folder}
+                onChange={(event) => setFolder(event.target.value)}
+                placeholder={t("bot.workingFolderPlaceholder")}
+                className="min-w-0 flex-1 rounded-xl border border-hairline/50 bg-inset px-4 py-2.5 font-mono text-[13px] text-ink placeholder:text-ink-secondary focus:border-accent/70 focus:outline-none"
+              />
+              {canPick && (
+                <button
+                  type="button"
+                  onClick={() => void pick()}
+                  disabled={saving}
+                  className="flex shrink-0 items-center gap-1.5 rounded-xl bg-control px-4 py-2.5 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50"
+                >
+                  <FolderOpen size={14} /> {t("bot.workingFolderChoose")}
+                </button>
+              )}
+              {folder.trim() && (
+                <button
+                  type="button"
+                  onClick={() => setFolder("")}
+                  disabled={saving}
+                  className="shrink-0 rounded-xl px-2 py-2.5 text-[13px] text-ink-secondary hover:text-ink disabled:opacity-50"
+                >
+                  {t("bot.workingFolderClear")}
+                </button>
+              )}
+            </div>
+            <div className="mt-1.5 text-[12.5px] leading-relaxed text-ink-secondary">{t("bot.workingFolderHelp")}</div>
+          </div>
           {error && <div role="alert" className="mt-2 text-[12.5px] text-danger">{error}</div>}
           <div className="mt-5 flex items-center justify-end gap-2.5">
             {!required && (

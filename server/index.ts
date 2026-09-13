@@ -6565,7 +6565,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         mascotStyle = parsedStyle.data;
       }
-      const bot = store.createBot({ ...profile.patch, section, modelSelection: selection, color, mascotStyle }, { job });
+      let cwd: string | undefined;
+      if (body.cwd !== undefined) {
+        const checked = validateBotCwd(body.cwd);
+        if (!checked.ok) return json(res, 400, { error: checked.error });
+        cwd = checked.cwd ?? undefined;
+      }
+      const createProfile: Parameters<typeof store.createBot>[0] = { ...profile.patch, section, modelSelection: selection, color, mascotStyle };
+      if (cwd) createProfile.cwd = cwd;
+      const bot = store.createBot(createProfile, { job });
       return json(res, 201, {
         bot: {
           ...wireBot(bot),
