@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/lib/i18n";
 import type { Bot, InstanceInfo } from "@/state/store";
 
-const { mockState } = vi.hoisted(() => {
+const { mockState, mockApi, claudeInstance, codexInstance, grokInstance, geminiInstance } = vi.hoisted(() => {
   const claudeInstance: InstanceInfo = {
     instanceId: "claude",
     driverKind: "claudeAgent",
@@ -19,7 +19,32 @@ const { mockState } = vi.hoisted(() => {
       windows: [],
     },
   };
+  const codexInstance: InstanceInfo = {
+    instanceId: "codex",
+    driverKind: "codex",
+    displayName: "Codex",
+    snapshot: { state: "available", authenticated: true },
+    models: { default: "o3-mini", options: [] },
+    capabilities: { rateLimits: true },
+  };
+  const grokInstance: InstanceInfo = {
+    instanceId: "grok",
+    driverKind: "grokAgent",
+    displayName: "Grok",
+    snapshot: { state: "available", authenticated: true },
+    models: { default: "grok-4", options: [] },
+    capabilities: { rateLimits: true },
+  };
+  const geminiInstance: InstanceInfo = {
+    instanceId: "gemini",
+    driverKind: "geminiAgent",
+    displayName: "Gemini",
+    snapshot: { state: "available", authenticated: true },
+    models: { default: "gemini-2.5", options: [] },
+    capabilities: { rateLimits: false },
+  };
   return {
+    mockApi: vi.fn(async () => ({})),
     mockState: {
       appSettingsOpen: true,
       appSettingsSection: "connections",
@@ -38,6 +63,10 @@ const { mockState } = vi.hoisted(() => {
       },
       mascotMotion: null,
     },
+    claudeInstance,
+    codexInstance,
+    grokInstance,
+    geminiInstance,
   };
 });
 
@@ -45,7 +74,7 @@ vi.mock("@/state/store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/state/store")>();
   return {
     ...actual,
-    api: vi.fn(async () => ({})),
+    api: mockApi,
     useStore: () => ({
       state: mockState,
       dispatch: () => undefined,
@@ -128,6 +157,33 @@ describe("Settings Polish", () => {
     expect(refreshButton?.className).toContain("border border-hairline/40");
     expect(refreshButton?.className).toContain("hover:bg-raised/50");
     expect(refreshButton?.className).toContain("hover:text-ink");
+  });
+
+  it("with Claude, Codex, Grok and one Gemini instance, clicking the button labelled 'Refresh all' POSTs /api/usage/refresh/ once for each of claude, codex and grok, and never for gemini", async () => {
+    const previousInstances = mockState.instances;
+    mockState.instances = [claudeInstance, codexInstance, grokInstance, geminiInstance];
+    mockApi.mockClear();
+    try {
+      await act(async () => {
+        root.render(createElement(I18nProvider, null, createElement(UsageSection)));
+      });
+
+      const refreshAllButton = [...host.querySelectorAll("button")].find(
+        (b) => b.textContent?.trim() === "Refresh all",
+      );
+      expect(refreshAllButton).toBeDefined();
+      await act(async () => {
+        refreshAllButton?.click();
+      });
+
+      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/claude", { method: "POST" });
+      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/codex", { method: "POST" });
+      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/grok", { method: "POST" });
+      expect(mockApi).not.toHaveBeenCalledWith(expect.stringContaining("gemini"), expect.anything());
+      expect(mockApi).toHaveBeenCalledTimes(3);
+    } finally {
+      mockState.instances = previousInstances;
+    }
   });
 
   it("the Connections pane shows \"Connections\" exactly once", async () => {
