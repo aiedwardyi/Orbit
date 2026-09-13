@@ -54,6 +54,14 @@ function contrast(hex1: string, hex2: string) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+// Model brightness-110 as each sRGB channel of both fill and ink times 1.1, capped at 255.
+function brightness110(hex: string) {
+  const { r, g, b } = channels(hex);
+  const scale = (c: number) => Math.min(255, Math.round(c * 1.1));
+  const hex2 = (c: number) => scale(c).toString(16).padStart(2, "0");
+  return `#${hex2(r)}${hex2(g)}${hex2(b)}`;
+}
+
 describe("skins", () => {
   it("gives every registered skin a stylesheet block", () => {
     for (const id of SKIN_IDS) expect(blocks).toContain(id);
@@ -327,7 +335,7 @@ const DARK_INK_SKINS = [
       "--color-ink-secondary": "#d5c4a1",
       "--color-accent": "#fe8019",
       "--color-hairline": "#7c6f64",
-      "--color-danger": "#fb524b",
+      "--color-danger": "#ff8f85",
       "--color-success": "#b8bb26",
     },
   },
@@ -401,12 +409,58 @@ describe("dark ink skins", () => {
     }
   });
 
-  it("gives ApiKeys clear buttons WCAG AA contrast across all skins", () => {
-    const apiKeys = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), "../components/ApiKeys.tsx"),
-      "utf8",
-    );
-    expect(apiKeys).not.toContain("bg-control text-danger");
+  const DANGER_PAIRINGS = [
+    {
+      file: "src/components/EnginesSettings.tsx",
+      snippet: "bg-raised px-3 py-1.5 text-[13px] text-danger hover:bg-raised-hover",
+      textToken: "--color-danger",
+      surfaceToken: "--color-raised",
+    },
+    {
+      file: "src/components/GroupView.tsx",
+      snippet: "rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px]",
+      textToken: "--color-danger",
+      surfaceToken: "--color-panel",
+    },
+    {
+      file: "src/components/Sidebar.tsx",
+      snippet: "text-danger hover:bg-raised/70",
+      textToken: "--color-danger",
+      surfaceToken: "--color-card",
+    },
+    {
+      file: "src/components/ApiKeys.tsx",
+      snippet: "bg-danger text-danger-ink hover:brightness-110",
+      textToken: "--color-danger-ink",
+      surfaceToken: "--color-danger",
+    },
+  ] as const;
+
+  it("gives ApiKeys clear buttons and danger pairings WCAG AA contrast", () => {
+    const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
+    for (const row of DANGER_PAIRINGS) {
+      const source = readFileSync(join(repoRoot, row.file), "utf8");
+      expect.soft(source).toContain(row.snippet);
+    }
+
+    const engines = DANGER_PAIRINGS.find((p) => p.file.endsWith("EnginesSettings.tsx"))!;
+    const chip = DANGER_PAIRINGS.find((p) => p.file.endsWith("GroupView.tsx"))!;
+    const clear = DANGER_PAIRINGS.find((p) => p.file.endsWith("ApiKeys.tsx"))!;
+
+    // Rest surface in gruvbox: EnginesSettings on raised, RoomToolChip on panel
+    expect.soft(contrast(cssToken("gruvbox", engines.textToken)!, cssToken("gruvbox", engines.surfaceToken)!)).toBeGreaterThanOrEqual(4.5);
+    expect.soft(contrast(cssToken("gruvbox", chip.textToken)!, cssToken("gruvbox", chip.surfaceToken)!)).toBeGreaterThanOrEqual(4.5);
+
+    // bg-danger with text-danger-ink in gruvbox and catppuccin-frappe, both at rest and on hover
+    const gruvFill = cssToken("gruvbox", clear.surfaceToken)!;
+    const gruvInk = cssToken("gruvbox", clear.textToken)!;
+    expect.soft(contrast(gruvInk, gruvFill)).toBeGreaterThanOrEqual(4.5);
+    expect.soft(contrast(brightness110(gruvInk), brightness110(gruvFill))).toBeGreaterThanOrEqual(4.5);
+
+    const frappeFill = cssToken("catppuccin-frappe", clear.surfaceToken)!;
+    const frappeInk = cssToken("catppuccin-frappe", clear.textToken)!;
+    expect.soft(contrast(frappeInk, frappeFill)).toBeGreaterThanOrEqual(4.5);
+    expect.soft(contrast(brightness110(frappeInk), brightness110(frappeFill))).toBeGreaterThanOrEqual(4.5);
   });
 
   it("maintains WCAG AA contrast between secondary ink and controls in dark skins", () => {
