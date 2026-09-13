@@ -30,7 +30,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { botOrderAfterDrop } from "@/lib/bot-order";
+import { botOrderAfterDrop, botOrderAfterKeyboardMove } from "@/lib/bot-order";
 import { conversationPreview, roomConversationPreview } from "@/lib/conversation-preview";
 import { api, useStore, formatTime, visibleMessages, type Bot, type Group } from "@/state/store";
 
@@ -886,6 +886,12 @@ function BotListItem({
         aria-label={iconOnly ? bot.name : undefined}
         onClick={() => dispatch({ type: "select", id: bot.id })}
         onKeyDown={(event) => {
+          if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+            event.preventDefault();
+            const botIds = botOrderAfterKeyboardMove(state.bots, bot.id, event.key === "ArrowUp" ? -1 : 1);
+            if (botIds) dispatch({ type: "reorderBots", botIds });
+            return;
+          }
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
             dispatch({ type: "select", id: bot.id });

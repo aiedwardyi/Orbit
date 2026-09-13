@@ -14,6 +14,22 @@ const sameGroup = (a: OrderedBot, b: OrderedBot) =>
   (a.section ?? "") === (b.section ?? "") &&
   Boolean(a.pinned) === Boolean(b.pinned);
 
+/** Every bot id after moving `fromId` one slot with the keyboard, or null for a move the sidebar would undo. */
+export function botOrderAfterKeyboardMove(
+  bots: readonly OrderedBot[],
+  fromId: string,
+  direction: -1 | 1,
+): string[] | null {
+  const from = bots.find((bot) => bot.id === fromId);
+  if (!from) return null;
+  const group = bots.filter((bot) => sameGroup(bot, from)).map((bot) => bot.id);
+  const index = group.indexOf(fromId);
+  if (index === -1) return null;
+  const neighbor = group[index + direction];
+  if (!neighbor) return null;
+  return botOrderAfterDrop(bots, fromId, neighbor);
+}
+
 /** Every bot id after moving `fromId` into `toId`'s slot, or null for a drop the sidebar would undo. */
 export function botOrderAfterDrop(bots: readonly OrderedBot[], fromId: string, toId: string): string[] | null {
   const from = bots.find((bot) => bot.id === fromId);

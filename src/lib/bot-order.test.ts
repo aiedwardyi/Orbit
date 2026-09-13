@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { botOrderAfterDrop } from "./bot-order";
+import { botOrderAfterDrop, botOrderAfterKeyboardMove } from "./bot-order";
 
 const bots = [
   { id: "chief", chiefOfStaff: true },
@@ -44,5 +44,40 @@ describe("botOrderAfterDrop", () => {
   it("ignores a drop onto itself or an unknown bot", () => {
     expect(botOrderAfterDrop(bots, "a", "a")).toBeNull();
     expect(botOrderAfterDrop(bots, "a", "gone")).toBeNull();
+  });
+});
+
+describe("botOrderAfterKeyboardMove", () => {
+  it("moves the focused bot one slot up or down within its group", () => {
+    expect(botOrderAfterKeyboardMove(bots, "b", -1)).toEqual(["chief", "b", "pinned", "a", "work", "c"]);
+    expect(botOrderAfterKeyboardMove(bots, "b", 1)).toEqual(["chief", "a", "pinned", "c", "work", "b"]);
+  });
+
+  it("is a no-op at group edges", () => {
+    expect(botOrderAfterKeyboardMove(bots, "a", -1)).toBeNull();
+    expect(botOrderAfterKeyboardMove(bots, "c", 1)).toBeNull();
+  });
+
+  it("keeps pinned and unpinned bots in separate groups", () => {
+    const pinned = [{ id: "p1", pinned: true }, { id: "p2", pinned: true }, { id: "u1" }];
+    expect(botOrderAfterKeyboardMove(pinned, "p1", 1)).toEqual(["p2", "p1", "u1"]);
+    expect(botOrderAfterKeyboardMove(pinned, "p2", 1)).toBeNull();
+    expect(botOrderAfterKeyboardMove(pinned, "u1", -1)).toBeNull();
+    expect(botOrderAfterKeyboardMove(pinned, "p1", -1)).toBeNull();
+  });
+
+  it("keeps sections separate", () => {
+    const sectioned = [{ id: "a1", section: "A" }, { id: "b1", section: "B" }, { id: "a2", section: "A" }];
+    expect(botOrderAfterKeyboardMove(sectioned, "a1", 1)).toEqual(["a2", "b1", "a1"]);
+    expect(botOrderAfterKeyboardMove(sectioned, "b1", 1)).toBeNull();
+  });
+
+  it("never moves a Chief of Staff or hidden bot", () => {
+    expect(botOrderAfterKeyboardMove(bots, "chief", 1)).toBeNull();
+    expect(botOrderAfterKeyboardMove(bots, "chief", -1)).toBeNull();
+    const withHidden = [{ id: "a" }, { id: "b", hidden: true }, { id: "c" }];
+    expect(botOrderAfterKeyboardMove(withHidden, "b", 1)).toBeNull();
+    expect(botOrderAfterKeyboardMove(withHidden, "b", -1)).toBeNull();
+    expect(botOrderAfterKeyboardMove(withHidden, "a", 1)).toEqual(["c", "b", "a"]);
   });
 });
