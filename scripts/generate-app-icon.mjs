@@ -8,7 +8,7 @@
 // transparent from the borders (with the anti-aliased edge unblended from
 // white), then every shipped size is area-averaged down from the cleaned
 // 1024 with premultiplied alpha. ICO/ICNS containers are rebuilt from those
-// same renders, including the 16/32 1x ic04/ic05 entries. PNG encode/decode
+// same renders, including the 16/32 1x icp4/icp5 entries. PNG encode/decode
 // lives in scripts/png-codec.mjs (shared with the asset test). No image
 // dependencies. --source is required: the master is author-provided and
 // lives outside the repo, so there is no in-repo default.
@@ -179,8 +179,10 @@ function encodeIcns(rendered) {
   put("ic07", 128);
   put("ic12", 64);
   put("ic11", 32);
-  put("ic05", 32);
-  put("ic04", 16);
+  // Small-size PNG codes: icp4/icp5 are the PNG-compressed 16/32 entries
+  // (ic04/ic05 are classic 4-bit codes and must not carry PNG data).
+  put("icp5", 32);
+  put("icp4", 16);
   // Carry the existing 'info' block so the container keeps its shape.
   try {
     const current = readFileSync(join(ROOT, "build/icon.icns"));
@@ -262,6 +264,15 @@ function main() {
     master = cleanWhite(decodePng(source));
   } catch (error) {
     console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+    return;
+  }
+  // The 1024 render is the cleaned source itself, so anything else would be
+  // silently mislabelled: refuse before writing anything.
+  if (master.width !== 1024 || master.height !== 1024) {
+    console.error(
+      `refusing ${source}: master must be exactly 1024x1024 RGBA (got ${master.width}x${master.height})`,
+    );
     process.exitCode = 1;
     return;
   }

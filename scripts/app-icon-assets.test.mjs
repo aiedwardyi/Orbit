@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { SHIPPED_PNGS } from "./generate-app-icon.mjs";
-import { decodePng } from "./png-codec.mjs";
+import { decodePng, encodePng } from "./png-codec.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -84,6 +84,31 @@ describe("app icon assets", () => {
       const gray = join(dir, "gray.png");
       writeFileSync(gray, grayPng());
       expect(() => decodePng(gray)).toThrow(/only non-interlaced 8-bit RGBA/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a master that is not exactly 1024x1024 before writing", () => {
+    const dir = mkdtempSync(join(tmpdir(), "omb-icon-size-"));
+    try {
+      const small = join(dir, "small.png");
+      writeFileSync(
+        small,
+        encodePng({ width: 64, height: 64, pixels: Buffer.alloc(64 * 64 * 4, 255) }),
+      );
+      let error = null;
+      try {
+        execFileSync(process.execPath, [join(ROOT, "scripts/generate-app-icon.mjs"), "--source", small], {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+      } catch (failure) {
+        error = failure;
+      }
+      expect(error, "expected a nonzero exit").not.toBeNull();
+      expect(error.status).not.toBe(0);
+      expect(String(error.stderr)).toContain("must be exactly 1024x1024 RGBA");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
