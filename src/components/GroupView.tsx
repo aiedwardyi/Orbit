@@ -543,7 +543,7 @@ function RoomWorkingFolder({ group }: { group: Group }) {
       {locked ? (
         <div className="mt-3">
           <div className="truncate rounded-lg border border-hairline/40 bg-inset px-3 py-2 font-mono text-[12.5px] text-ink" title={shownCwd}>
-            {shownCwd ? shortPath(shownCwd, home) : <span className="text-ink-secondary">{emptyLabel}</span>}
+            {shownCwd ? shortPath(shownCwd, home) : <span className="font-sans text-ink-secondary">{emptyLabel}</span>}
           </div>
           <div className="mt-2 text-[12px] text-ink-secondary">
             {t("room.fixedFolder")}
@@ -552,7 +552,7 @@ function RoomWorkingFolder({ group }: { group: Group }) {
       ) : canPick ? (
         <div className="mt-3 flex items-center gap-2">
           <div className="min-w-0 flex-1 truncate rounded-lg border border-hairline/40 bg-inset px-3 py-2 font-mono text-[12.5px] text-ink" title={group.cwd}>
-            {group.cwd ? shortPath(group.cwd, home) : <span className="text-ink-secondary">{emptyLabel}</span>}
+            {group.cwd ? shortPath(group.cwd, home) : <span className="font-sans text-ink-secondary">{emptyLabel}</span>}
           </div>
           <button onClick={() => void pick()} disabled={saving} className="flex shrink-0 items-center gap-1.5 rounded-lg bg-raised px-3 py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50">
             <FolderOpen size={14} /> {t("room.chooseEllipsis")}
@@ -573,7 +573,7 @@ function RoomWorkingFolder({ group }: { group: Group }) {
           }}
         >
           <input
-            className="w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2.5 font-mono text-[12.5px] text-ink placeholder:text-ink-secondary focus:outline-none focus:border-hairline"
+            className="w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2.5 font-mono text-[12.5px] text-ink placeholder:font-sans placeholder:text-ink-secondary focus:outline-none focus:border-hairline"
             placeholder={t("room.eachBotFolderPath")}
             value={draft ?? group.cwd ?? ""}
             onChange={(e) => setDraft(e.target.value)}
@@ -753,7 +753,7 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
               value={folder}
               onChange={(event) => setFolder(event.target.value)}
               placeholder={t("room.chooseSharedFolder")}
-              className="min-w-0 flex-1 rounded-xl border border-hairline/50 bg-inset px-3 py-2.5 font-mono text-[12.5px] text-ink placeholder:text-ink-secondary focus:border-accent focus:outline-none"
+              className="min-w-0 flex-1 rounded-xl border border-hairline/50 bg-inset px-3 py-2.5 font-mono text-[12.5px] text-ink placeholder:font-sans placeholder:text-ink-secondary focus:border-accent focus:outline-none"
             />
             {window.ogb?.pickFolder && (
               <button
@@ -788,7 +788,7 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
                   "flex min-h-[72px] w-full flex-col items-start justify-between rounded-2xl border px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-50",
                   behavior === "lead"
                     ? "border-accent bg-accent/10 text-ink ring-1 ring-accent/30"
-                    : "border-hairline/50 bg-inset text-ink-secondary hover:border-hairline hover:bg-raised",
+                    : "border-hairline/50 bg-panel text-ink-secondary hover:border-hairline hover:bg-raised",
                 )}
               >
                 <span className="flex w-full items-center justify-between gap-2">
@@ -873,7 +873,7 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
                 "flex min-h-[72px] w-full flex-col items-start justify-between rounded-2xl border px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-50",
                 behavior === "everyone"
                   ? "border-accent bg-accent/10 text-ink ring-1 ring-accent/30"
-                  : "border-hairline/50 bg-inset text-ink-secondary hover:border-hairline hover:bg-raised",
+                  : "border-hairline/50 bg-panel text-ink-secondary hover:border-hairline hover:bg-raised",
               )}
             >
               <span className="flex items-center gap-2 text-[13px] font-semibold">
@@ -903,7 +903,7 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
                 "flex min-h-[72px] w-full flex-col items-start justify-between rounded-2xl border px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-50",
                 behavior === "mentions"
                   ? "border-accent bg-accent/10 text-ink ring-1 ring-accent/30"
-                  : "border-hairline/50 bg-inset text-ink-secondary hover:border-hairline hover:bg-raised",
+                  : "border-hairline/50 bg-panel text-ink-secondary hover:border-hairline hover:bg-raised",
               )}
             >
               <span className="flex items-center gap-2 text-[13px] font-semibold">
