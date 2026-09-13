@@ -457,7 +457,7 @@ describe("sidebar create channel and bot/room chrome", () => {
     expect(ko["chrome.cannotContactTeammates"]).toBe("이 엔진은 아직 팀원에게 연락할 수 없습니다");
     expect(ko["chrome.cannotContactTeammates"]).not.toMatch(/cannot contact/i);
     expect(en["chrome.moveToContext"]).toBe("Move to section");
-    expect(ko["chrome.moveToContext"]).toBe("맥락으로 이동");
+    expect(ko["chrome.moveToContext"]).toBe("섹션으로 이동");
     expect(ko["chrome.moveToContext"]).not.toMatch(/Move to context/i);
     expect(en["chrome.deleteChannel"]).toBe("Delete Channel");
     expect(ko["chrome.deleteChannel"]).toBe("채널 삭제");
