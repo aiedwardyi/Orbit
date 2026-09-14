@@ -3995,6 +3995,25 @@ describe("harness HTTP API", () => {
     expect(put.body.opencodeGo).toBeUndefined();
   });
 
+  it("omits a legacy opencodeGo.apiKey from responses while valid updates succeed", async () => {
+    try {
+      const put = await api("PUT", "/api/config", {
+        opencodeGo: { apiKey: "legacy-secret" },
+        gemini: { apiKey: "gemini-secret" },
+      });
+      expect(put.status).toBe(200);
+      expect(put.body.opencodeGo).toBeUndefined();
+      expect(JSON.stringify(put.body)).not.toContain("legacy-secret");
+      expect(put.body.gemini).toEqual({ configured: true });
+
+      const after = await api("GET", "/api/config");
+      expect(after.body.opencodeGo).toBeUndefined();
+      expect(JSON.stringify(after.body)).not.toContain("legacy-secret");
+    } finally {
+      await api("PUT", "/api/config", { gemini: { apiKey: "" } });
+    }
+  });
+
   it("Clear returns cwd null so Bot details can refresh to the private workspace", async () => {
     const folder = mkdtempSync(join(tmpdir(), "omb-clear-cwd-"));
     const created = await api("POST", "/api/bots");

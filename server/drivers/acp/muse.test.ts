@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { MuseAgentDriver, STATIC_MUSE_MODELS, classifyMuseError, museDefaultCli, museIsAuthenticated, withWslKeySharing } from "./muse.ts";
+import { MuseAgentDriver, STATIC_MUSE_MODELS, classifyMuseError, museDefaultCli, museIsAuthenticated, museSignInCommand, withWslKeySharing } from "./muse.ts";
 import { BUILT_IN_DRIVERS } from "../builtIn.ts";
 import { resolveCliSpawn } from "../../env-path.ts";
 
@@ -29,9 +29,34 @@ describe("Meta Muse driver catalog", () => {
   });
 
   it("accepts META_API_KEY without a stored login", () => {
-    expect(museIsAuthenticated({ META_API_KEY: "meta-key" })).toBe(true);
-    expect(museIsAuthenticated({})).toBe(false);
-    expect(museIsAuthenticated({ META_API_KEY: "  " })).toBe(false);
+    // Isolated from the real home: an ambient developer login must not leak
+    // into (or out of) this assertion.
+    const home = mkdtempSync(join(tmpdir(), "omb-muse-nologin-home-"));
+    const env = { HOME: home, XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "omb-muse-nologin-xdg-")) };
+    expect(museIsAuthenticated({ ...env, META_API_KEY: "meta-key" })).toBe(true);
+    expect(museIsAuthenticated(env)).toBe(false);
+    expect(museIsAuthenticated({ ...env, META_API_KEY: "  " })).toBe(false);
+  });
+
+  it("probes the WSL-side login on win32 instead of trusting the Windows home", () => {
+    const home = mkdtempSync(join(tmpdir(), "omb-muse-win-home-"));
+    const env = { HOME: home, XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "omb-muse-win-xdg-")) };
+    expect(museIsAuthenticated(env, undefined, { platform: "win32", probeWslAuth: () => true })).toBe(true);
+    expect(museIsAuthenticated(env, undefined, { platform: "win32", probeWslAuth: () => false })).toBe(false);
+    // a probe that throws (no WSL, timeout) reads as logged out, never crashes
+    expect(museIsAuthenticated(env, undefined, {
+      platform: "win32",
+      probeWslAuth: () => {
+        throw new Error("wsl missing");
+      },
+    })).toBe(false);
+  });
+
+  it("reads the sign-in command for this platform", () => {
+    expect(museSignInCommand("win32")).toBe("wsl muse login");
+    expect(museSignInCommand("linux")).toBe("muse login");
+    expect(museSignInCommand("darwin")).toBe("muse login");
+    expect(MuseAgentDriver.install?.signInCommand).toBe(museSignInCommand());
   });
 
   it("accepts the stored OIDC login at the XDG path", () => {
@@ -47,6 +72,17 @@ describe("Meta Muse driver catalog", () => {
     expect(classifyMuseError({ code: "AUTH_REQUIRED" })).toBe("invalid_credentials");
     expect(classifyMuseError({ code: "QUOTA_EXCEEDED" })).toBe("quota_or_region_restriction");
     expect(classifyMuseError({ code: -32601 })).toBeUndefined();
+  });
+
+  it("reads the provider code inside a -32000 envelope before falling back", () => {
+    expect(classifyMuseError({ code: -32000, data: { code: "QUOTA_EXCEEDED" } })).toBe("quota_or_region_restriction");
+    expect(classifyMuseError({ code: -32000, data: { error: { code: "REGION_RESTRICTED" } } })).toBe("quota_or_region_restriction");
+    expect(classifyMuseError({ code: -32000, data: { error: { code: "SUBSCRIPTION_INACTIVE" } } })).toBe("inactive_subscription");
+    expect(classifyMuseError({ code: -32000, data: { code: "AUTH_REQUIRED" } })).toBe("invalid_credentials");
+    // no inner code (e.g. the harness auth-required envelope) keeps the old fallback
+    expect(classifyMuseError({ code: -32000, message: "Authentication required", data: { providerId: "muse" } })).toBe("invalid_credentials");
+    expect(classifyMuseError({ code: -32000 })).toBe("invalid_credentials");
+    expect(classifyMuseError({ code: -32000, data: { code: "SOMETHING_NEW" } })).toBe("invalid_credentials");
   });
 
   it("replaces OpenCode in the built-in fleet", () => {

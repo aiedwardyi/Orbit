@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -19,6 +19,7 @@ import {
   showToolCallsEnabled,
   skillRecorderEnabled,
   builtInBrowserEnabled,
+  sweepLegacyOpencodeKey,
   syncCredentialEnv,
   vpsSshAlias,
   withInstanceCli,
@@ -278,6 +279,47 @@ describe("Meta Muse fleet", () => {
   it("keeps a legacy OpenCode instance entry without crashing", () => {
     const instances = instanceConfigs({ instances: { opencode: { driver: "opencodeGo" } } });
     expect(instances.opencode.driver).toBe("opencodeGo");
+  });
+});
+
+describe("legacy OpenCode key sweep", () => {
+  const writeConfig = (dir: string, raw: string) => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "config.json"), raw);
+  };
+
+  it("drops the opencodeGo section from the stored file and keeps everything else", () => {
+    const dir = join(DATA_DIR, "..", `omb-sweep-${process.pid}`);
+    writeConfig(dir, JSON.stringify({ gemini: { apiKey: "kept" }, opencodeGo: { apiKey: "legacy-secret" } }));
+    try {
+      expect(sweepLegacyOpencodeKey(dir)).toBe(true);
+      expect(parseStoredConfig(JSON.parse(readFileSync(join(dir, "config.json"), "utf8")))).toEqual({ gemini: { apiKey: "kept" } });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves files without the legacy section alone", () => {
+    const dir = join(DATA_DIR, "..", `omb-sweep-clean-${process.pid}`);
+    const raw = JSON.stringify({ gemini: { apiKey: "kept" } });
+    writeConfig(dir, raw);
+    try {
+      expect(sweepLegacyOpencodeKey(dir)).toBe(false);
+      expect(readFileSync(join(dir, "config.json"), "utf8")).toBe(raw);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("treats a missing or corrupt file as nothing to sweep", () => {
+    expect(sweepLegacyOpencodeKey(join(DATA_DIR, "..", `omb-sweep-missing-${process.pid}`))).toBe(false);
+    const dir = join(DATA_DIR, "..", `omb-sweep-corrupt-${process.pid}`);
+    writeConfig(dir, "{not json");
+    try {
+      expect(sweepLegacyOpencodeKey(dir)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

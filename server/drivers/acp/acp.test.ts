@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ensureDirs, PROVIDER_CREDENTIAL_ENV, WORKSPACE_CREDENTIAL_ENV } from "../../config.ts";
 import type { ProviderDriver, ProviderInstance } from "../../contracts.ts";
 import { recordEvents, type EventRecorder } from "../../testing/events.ts";
-import { createAcpDriver, skipSubscriptionAuthForLocalInject, type AcpSupport } from "./core.ts";
+import { createAcpDriver, skipSubscriptionAuthForLocalInject, wslSessionPaths, type AcpSupport } from "./core.ts";
 import { GrokAgentDriver } from "./grok.ts";
 import { GeminiAgentDriver } from "./gemini.ts";
 import { KimiAgentDriver } from "./kimi.ts";
@@ -92,6 +92,32 @@ describe("skipSubscriptionAuthForLocalInject", () => {
     expect(skipSubscriptionAuthForLocalInject("unsloth::orcarouter/Qwen3.8-27B-Uncensored-GGUF")).toBe(true);
     expect(skipSubscriptionAuthForLocalInject("grok-4.6")).toBe(false);
     expect(skipSubscriptionAuthForLocalInject(undefined)).toBe(false);
+  });
+});
+
+describe("wslSessionPaths", () => {
+  const server = (command: string, args: string[] = []) => ({ name: "agents", command, args, env: [] });
+
+  it("maps the session cwd and every server command onto the WSL mount", () => {
+    expect(
+      wslSessionPaths("C:\\work\\proj", [
+        server("C:\\tools\\agent-server.exe", ["--port", "8080"]),
+        server("D:/tools/other.exe"),
+      ]),
+    ).toEqual({
+      cwd: "/mnt/c/work/proj",
+      servers: [
+        { name: "agents", command: "/mnt/c/tools/agent-server.exe", args: ["--port", "8080"], env: [] },
+        { name: "agents", command: "/mnt/d/tools/other.exe", args: [], env: [] },
+      ],
+    });
+  });
+
+  it("leaves POSIX values and non-path args alone", () => {
+    expect(wslSessionPaths("/home/ed/proj", [server("/usr/local/bin/agent-server", ["--port", "8080"])])).toEqual({
+      cwd: "/home/ed/proj",
+      servers: [{ name: "agents", command: "/usr/local/bin/agent-server", args: ["--port", "8080"], env: [] }],
+    });
   });
 });
 
@@ -328,6 +354,61 @@ describe("ACP turns (fake CLI)", () => {
     const done = recorder.events.at(-1)!;
     expect(done).toMatchObject({ type: "turn.completed", ok: true });
     expect(instance.adapter.hasSession("t-happy")).toBe(false);
+  });
+
+  it("lets an ambiently-authenticated Muse session past the handshake with no ACP authenticate step", async () => {
+    // The harness advertises no authMethods (live `muse serve` initialize
+    // carries none either), so pickAuthMethod is null; the META_API_KEY /
+    // stored login is the whole credential and must reach session/new.
+    process.env.META_API_KEY = "meta-key";
+    await create(MuseAgentDriver, "no-auth");
+    await instance.adapter.sendTurn({ threadId: "t-muse-ambient-auth", text: "hi", model: "muse-spark-1.3" });
+    const done = await recorder.until((e) => e.type === "turn.completed");
+    expect(done).toMatchObject({ ok: true });
+    expect(recorder.events).not.toContainEqual(expect.objectContaining({ type: "runtime.error" }));
+  });
+
+  it("translates Windows MCP commands for the WSL-crossing Muse driver", async () => {
+    // The local spawn stays Windows-side, so the turn cwd must exist here;
+    // the Windows-shaped server command is what crosses translated. cwd
+    // mapping itself is covered by wslSessionPaths below (a Windows cwd
+    // cannot spawn a child off-Windows to observe it through).
+    process.env.META_API_KEY = "meta-key";
+    await create(MuseAgentDriver);
+    const dump = join(scratch, "wsl-paths.json");
+    process.env.FAKE_ACP_DUMP = dump;
+    await instance.adapter.sendTurn({
+      threadId: "t-muse-wsl-paths",
+      text: "hi",
+      model: "muse-spark-1.3",
+      cwd: scratch,
+      integrations: { agents: { command: "C:\\tools\\agent-server.exe", args: ["--port", "8080"], env: {} } },
+    });
+    const done = await recorder.until((e) => e.type === "turn.completed");
+    expect(done).toMatchObject({ ok: true });
+    expect(JSON.parse(readFileSync(`${dump}.cwd.json`, "utf8"))).toBe(scratch);
+    const servers = JSON.parse(readFileSync(`${dump}.mcp.json`, "utf8"));
+    expect(servers).toContainEqual(
+      expect.objectContaining({ name: "agents", command: "/mnt/c/tools/agent-server.exe", args: ["--port", "8080"] }),
+    );
+  });
+
+  it("sends MCP commands verbatim for drivers that stay on Windows", async () => {
+    await create(GrokAgentDriver);
+    const dump = join(scratch, "verbatim-paths.json");
+    process.env.FAKE_ACP_DUMP = dump;
+    await instance.adapter.sendTurn({
+      threadId: "t-grok-verbatim-paths",
+      text: "hi",
+      model: "grok-4.5",
+      cwd: scratch,
+      integrations: { agents: { command: "C:\\tools\\agent-server.exe", args: [], env: {} } },
+    });
+    const done = await recorder.until((e) => e.type === "turn.completed");
+    expect(done).toMatchObject({ ok: true });
+    expect(JSON.parse(readFileSync(`${dump}.cwd.json`, "utf8"))).toBe(scratch);
+    const servers = JSON.parse(readFileSync(`${dump}.mcp.json`, "utf8"));
+    expect(servers).toContainEqual(expect.objectContaining({ name: "agents", command: "C:\\tools\\agent-server.exe" }));
   });
 
   it("emits each assistant text block before the tool that follows it", async () => {

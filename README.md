@@ -2,13 +2,13 @@
 
 A calm, local-first desktop workspace for AI teammates.
 
-Orbit brings Claude Code, Codex, Gemini CLI, and Grok into one polished chat app. Each bot keeps its own identity, model, thread, workspace, memory, tools, and approval history.
+Orbit brings Claude Code, Codex, Gemini CLI, Grok, and Meta Muse into one polished chat app. Each bot keeps its own identity, model, thread, workspace, memory, tools, and approval history.
 
 ## What is included
 
 - Persistent one-to-one chats and multi-agent rooms
 - Model switching without losing the conversation
-- Claude, Codex, Gemini, and Grok subscription logins
+- Claude, Codex, Gemini, Grok, and Meta Muse subscription logins
 - File attachments, generated-file downloads, and rich Markdown
 - Tool approvals, secret requests, and inspectable activity
 - Per-bot browser sessions and optional computer control
@@ -25,6 +25,7 @@ Orbit brings Claude Code, Codex, Gemini CLI, and Grok into one polished chat app
 | Gemini subscription | `agy` | Existing Antigravity login |
 | Gemini API | `gemini --acp` | Gemini API key |
 | Grok | `grok` | Existing Grok login |
+| Meta Muse | `muse` | Existing Muse login |
 
 Orbit detects installed engines during setup. More compatible engines remain available under Settings.
 

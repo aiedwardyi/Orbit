@@ -80,6 +80,7 @@ import {
   showToolCallsEnabled,
   skillRecorderEnabled,
   builtInBrowserEnabled,
+  sweepLegacyOpencodeKey,
   syncCredentialEnv,
   withInstanceCli,
   vpsSshAlias,
@@ -249,6 +250,10 @@ const MIME: Record<string, string> = {
 };
 
 ensureDirs();
+// One-shot upgrade cleanup: drop the removed engine's plaintext key from the
+// stored file before anything reads it. Idempotent — a file without the
+// legacy section is left untouched.
+sweepLegacyOpencodeKey();
 const cfg = loadConfig();
 const registry = new ProviderRegistry(BUILT_IN_DRIVERS);
 await registry.load(instanceConfigs(cfg));

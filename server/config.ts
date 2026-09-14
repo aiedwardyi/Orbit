@@ -154,6 +154,30 @@ export function parseConfigPatch(value: JsonValue): ConfigPatch {
   return parsed.data;
 }
 
+/** Drop the legacy OpenCode section from the stored file. The engine is gone
+ * and no driver reads it, but upgrades keep a plaintext apiKey on disk: zod
+ * strips unknown keys in memory only, so nothing ever rewrites the file.
+ * Cleanup-only — the section is swept, never consumed. Returns whether the
+ * file was rewritten. Never throws: a missing or corrupt file is simply
+ * nothing to sweep. */
+export function sweepLegacyOpencodeKey(dataDir: string = DATA_DIR): boolean {
+  const path = join(dataDir, "config.json");
+  let raw: unknown;
+  try {
+    raw = parseJson(readFileSync(path, "utf8"));
+  } catch {
+    return false;
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || !Object.hasOwn(raw, "opencodeGo")) return false;
+  const { opencodeGo: _dropped, ...rest } = raw as Record<string, unknown>;
+  try {
+    writeFileAtomic(path, `${JSON.stringify(rest, null, 2)}\n`);
+  } catch {
+    return false;
+  }
+  return true;
+}
+
 export function vpsSshAlias(cfg: AppConfig): string | null {
   return isValidSshAlias(cfg.vps?.sshAlias) ? cfg.vps.sshAlias : null;
 }

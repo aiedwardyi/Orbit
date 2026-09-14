@@ -2,6 +2,7 @@
 // on the Meta developer login (`muse login` OIDC device-code flow,
 // ~/.config/muse/auth.json) or META_API_KEY. The generic protocol runtime
 // lives in acp/core.ts; this file is only the per-harness quirks.
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -52,21 +53,61 @@ export function withWslKeySharing(env: Record<string, string | undefined>): void
   if (!current.includes("META_API_KEY")) env.WSLENV = [...current, "META_API_KEY"].join(":");
 }
 
-/** The credential check as a named function, so the support entry and the
- * exported test surface are the same implementation, not a self-call. */
-export function museIsAuthenticated(env: Record<string, string | undefined>): boolean {
-  if (nonBlank(env.META_API_KEY)) return true;
+/** Interactive sign-in for this platform. There is no native Windows `muse`
+ * binary, so win32 runs the login inside WSL — the same Linux home the
+ * engine process reads (see the auth probe below). */
+export function museSignInCommand(platform: NodeJS.Platform = process.platform): string {
+  return platform === "win32" ? "wsl muse login" : "muse login";
+}
+
+/** Probe the WSL-side login on win32. wsl.exe forwards almost nothing from
+ * the Windows environment, so the Linux `muse` process reads the Linux
+ * home — where a WSL-side `muse login` wrote auth.json — while orbit's own
+ * check reads the Windows HOME. Exit 0 from `test -f` is the whole answer;
+ * anything else (no WSL, cold-boot timeout, missing file) reads as logged
+ * out. Sync because the support shape is sync-invoked and the snapshot path
+ * already awaits it; the 10s bound caps a cold WSL boot. */
+export function probeWslMuseAuth(): boolean {
   try {
-    return existsSync(museAuthPath(env));
+    execFileSync("wsl.exe", ["sh", "-c", 'test -f "${XDG_CONFIG_HOME:-$HOME/.config}/muse/auth.json"'], {
+      stdio: "ignore",
+      timeout: 10_000,
+    });
+    return true;
   } catch {
     return false;
   }
 }
 
-export function classifyMuseError(error: unknown): ProviderErrorCode | undefined {
-  const value = error && typeof error === "object" ? (error as Record<string, unknown>) : {};
-  const code = value.code;
-  if (code === -32000) return "invalid_credentials";
+/** The credential check as a named function, so the support entry and the
+ * exported test surface are the same implementation, not a self-call. */
+export function museIsAuthenticated(
+  env: Record<string, string | undefined>,
+  _config?: unknown,
+  overrides?: { platform?: NodeJS.Platform; probeWslAuth?: () => boolean },
+): boolean {
+  if (nonBlank(env.META_API_KEY)) return true;
+  let stored = false;
+  try {
+    stored = existsSync(museAuthPath(env));
+  } catch {
+    stored = false;
+  }
+  if (stored) return true;
+  // The Windows-side paths above can never satisfy the Linux process, so on
+  // win32 a miss there falls through to the WSL-side probe instead of
+  // reporting a valid WSL login as unauthenticated.
+  if ((overrides?.platform ?? process.platform) === "win32") {
+    try {
+      return (overrides?.probeWslAuth ?? probeWslMuseAuth)();
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+function classifyMuseCode(code: string | undefined): ProviderErrorCode | undefined {
   if (code === "AUTH_REQUIRED" || code === "INVALID_API_KEY" || code === "UNAUTHORIZED") {
     return "invalid_credentials";
   }
@@ -75,6 +116,31 @@ export function classifyMuseError(error: unknown): ProviderErrorCode | undefined
   if (code === "UPSTREAM_UNAVAILABLE" || code === "SERVICE_UNAVAILABLE") return "upstream_outage";
   if (code === "MODEL_CATALOG_UNAVAILABLE") return "model_catalog_outage";
   return undefined;
+}
+
+/** The provider's own code rides inside the -32000 envelope (data.code or
+ * data.error.code); read it before falling back, so a quota envelope never
+ * reads as bad credentials. */
+function providerCodeFromEnvelope(data: unknown): string | undefined {
+  const outer = data && typeof data === "object" ? (data as Record<string, unknown>) : null;
+  if (!outer) return undefined;
+  if (typeof outer.code === "string" && outer.code) return outer.code;
+  const nested = outer.error;
+  if (nested && typeof nested === "object") {
+    const record = nested as Record<string, unknown>;
+    const code = record.code ?? record.type;
+    if (typeof code === "string" && code) return code;
+  }
+  return undefined;
+}
+
+export function classifyMuseError(error: unknown): ProviderErrorCode | undefined {
+  const value = error && typeof error === "object" ? (error as Record<string, unknown>) : {};
+  const code = value.code;
+  if (code === -32000) {
+    return classifyMuseCode(providerCodeFromEnvelope(value.data)) ?? "invalid_credentials";
+  }
+  return classifyMuseCode(typeof code === "string" ? code : undefined);
 }
 
 const support: AcpSupport = {
@@ -87,7 +153,7 @@ const support: AcpSupport = {
   effortLevels: ["low", "medium", "high", "xhigh"],
   defaultCli: museDefaultCli(),
   nativeSource: "muse.acp",
-  loginNote: "Muse CLI is not signed in — run `muse login` in a terminal and complete the browser sign-in",
+  loginNote: `Muse CLI is not signed in — run \`${museSignInCommand()}\` in a terminal and complete the browser sign-in`,
   install: {
     command: {
       darwin: "curl -fsSL https://dev.meta.ai/install.sh | bash",
@@ -95,7 +161,7 @@ const support: AcpSupport = {
       win32: 'wsl bash -c "curl -fsSL https://dev.meta.ai/install.sh | bash"',
     },
     docsUrl: "https://developer.meta.com/ai/products/muse-code/",
-    signInCommand: "muse login",
+    signInCommand: museSignInCommand(),
   },
   transformEnv: (env) => {
     if (process.platform === "win32") withWslKeySharing(env);
@@ -106,8 +172,15 @@ const support: AcpSupport = {
     ...(turn.effort ? ["--reasoning-effort", turn.effort === "max" ? "ultra" : turn.effort] : []),
   ],
   credentialEnv: ["META_API_KEY"],
+  // The harness advertises no ACP authMethods (verified against live `muse
+  // serve` initialize), so there is no method to pick: the META_API_KEY /
+  // stored login is the whole credential. "continue" lets an ambiently
+  // authenticated session reach session/new; "fail" would throw loginNote
+  // on every turn even with a valid login.
   pickAuthMethod: () => null,
-  authFailure: "fail",
+  authFailure: "continue",
+  // Session cwd and MCP server commands cross into WSL as Linux paths.
+  wslPathTranslation: true,
   isAuthenticated: museIsAuthenticated,
   requireAuthenticationBeforeSpawn: true,
   classifyError: classifyMuseError,

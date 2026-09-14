@@ -359,6 +359,9 @@ function handle(msg: any) {
       if (process.env.FAKE_ACP_DUMP) {
         dumpState.mcpServers = servers;
         writeFileSync(process.env.FAKE_ACP_DUMP, JSON.stringify(dumpState, null, 2));
+        // session/new's cwd, verbatim as the driver put it on the wire, so a
+        // test can assert path translation without touching the argv dump.
+        writeFileSync(`${process.env.FAKE_ACP_DUMP}.cwd.json`, JSON.stringify(msg.params?.cwd ?? null));
       }
       agentsMcp = servers.find((s: any) => s?.name === "agents") ?? null;
       if (process.env.FAKE_ACP_DUMP) {

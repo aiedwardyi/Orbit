@@ -32,6 +32,26 @@ export function skipSubscriptionAuthForLocalInject(model: string | undefined): b
   return Boolean(decodeInjectId(model));
 }
 
+export interface AcpMcpServer {
+  name: string;
+  command: string;
+  args: string[];
+  env: Array<{ name: string; value: string }>;
+}
+
+/** Translate Windows session paths for a Linux child behind the wsl wrapper
+ * (wslpath-style): the session cwd and every MCP server command go through
+ * toWslPath. Args are left alone — flags are indistinguishable from paths.
+ * Pure so the mapping is unit-testable off-Windows; the sendTurn closure
+ * applies it to the session/new + session/load params when the driver opts
+ * in via wslPathTranslation. */
+export function wslSessionPaths(cwd: string, servers: AcpMcpServer[]): { cwd: string; servers: AcpMcpServer[] } {
+  return {
+    cwd: toWslPath(cwd),
+    servers: servers.map((server) => ({ ...server, command: toWslPath(server.command) })),
+  };
+}
+
 import type {
   DriverCreateInput,
   EffortLevel,
@@ -47,7 +67,7 @@ import type {
 } from "../../contracts.ts";
 import { newEventId, newId } from "../../contracts.ts";
 import { computerProxyEnv } from "../../container-computer.ts";
-import { augmentedPath } from "../../env-path.ts";
+import { augmentedPath, toWslPath } from "../../env-path.ts";
 
 // Resolved from the server root, never relative to this file: bundling inlines
 // this module two directories up, so the `".."` pair here would climb past the
@@ -123,6 +143,12 @@ export interface AcpSupport {
   /** "fail": abort the turn if auth is missing/errors (subscription CLIs).
    *  "continue": proceed anyway (CLIs that work off an ambient login). */
   authFailure: "fail" | "continue";
+  /** The child is a Linux process behind the wsl wrapper while orbit's paths
+   * are Windows ones: translate the session cwd and MCP server commands
+   * (wslpath-style) before session/new. MCP args are left alone — flags are
+   * indistinguishable from paths. Only drivers whose CLI crosses into WSL
+   * opt in; everyone else sends paths verbatim. */
+  wslPathTranslation?: boolean;
   /** snapshot(): can this harness actually run a turn? (env already carries the
    *  merged config). May be async for harnesses that have to ask the CLI. */
   isAuthenticated(env: Record<string, string | undefined>, config: AcpConfig): boolean | Promise<boolean>;
@@ -253,7 +279,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
       // an injected stdio proxy — e.g. the peer-agent comms tool — attaches
       // fine here. env is the ACP {name,value}[] shape.
       const acpMcpServers = (turn: SendTurnInput) => {
-        const servers: Array<{ name: string; command: string; args: string[]; env: Array<{ name: string; value: string }> }> = [];
+        const servers: AcpMcpServer[] = [];
         const acpEnv = (env: Record<string, string>) =>
           Object.entries(env).map(([name, value]) => ({ name, value: String(value) }));
         const agents = turn.integrations?.agents;
@@ -326,7 +352,16 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           resolvedModel !== undefined && resolvedModel !== turn.model
             ? { ...turn, model: resolvedModel }
             : turn;
-        const mcpServers = acpMcpServers(turn);
+        // A Linux child behind the wsl wrapper cannot use Windows paths, so
+        // the session params (not the local spawn, which stays Windows-side)
+        // cross translated when the driver opts in. toWslPath rewrites only
+        // drive-letter paths, so POSIX values pass through even where the
+        // flag is on — off-Windows this changes nothing for real paths.
+        const sessionPaths = support.wslPathTranslation === true
+          ? wslSessionPaths(cwd, acpMcpServers(turn))
+          : { cwd, servers: acpMcpServers(turn) };
+        const sessionCwd = sessionPaths.cwd;
+        const mcpServers = sessionPaths.servers;
 
         const child = spawnCli(config.cli, support.spawnArgs(config, cliTurn), {
           cwd,
@@ -703,7 +738,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               try {
                 sessionResult = await request(
                   "session/load",
-                  { sessionId: cursor, cwd, mcpServers },
+                  { sessionId: cursor, cwd: sessionCwd, mcpServers },
                   LOAD_SESSION_TIMEOUT,
                 );
                 sessionId = cursor;
@@ -712,7 +747,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               }
             }
             if (!sessionId) {
-              sessionResult = await request("session/new", { cwd, mcpServers }, NEW_SESSION_TIMEOUT);
+              sessionResult = await request("session/new", { cwd: sessionCwd, mcpServers }, NEW_SESSION_TIMEOUT);
               sessionId = typeof sessionResult?.sessionId === "string" ? sessionResult.sessionId : null;
               if (!sessionId) throw new Error("session/new returned no sessionId");
             }
