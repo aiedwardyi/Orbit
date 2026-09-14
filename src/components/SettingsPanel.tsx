@@ -468,17 +468,17 @@ export function SettingsPanel({
       <div className="flex items-center justify-between px-4 py-3">
         <button
           onClick={closeSettings}
-          aria-label="Collapse bot details"
-          title="Collapse bot details"
+          aria-label={t("bot.collapseDetails")}
+          title={t("bot.collapseDetails")}
           className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-control hover:text-ink"
         >
           <ChevronLeft size={18} />
         </button>
-        <span className="text-[15px] font-semibold text-ink">Bot details</span>
+        <span className="text-[15px] font-semibold text-ink">{t("bot.details")}</span>
         <button
           onClick={closeSettings}
-          aria-label="Close bot details"
-          title="Close bot details"
+          aria-label={t("bot.closeDetails")}
+          title={t("bot.closeDetails")}
           className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-control hover:text-ink"
         >
           <X size={18} />
@@ -567,7 +567,7 @@ export function SettingsPanel({
 
           <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
             <div>
-              <div className="text-[15px] font-medium text-ink">Connected apps</div>
+              <div className="text-[15px] font-medium text-ink">{t("chrome.connectedApps")}</div>
               <div className="mt-0.5 text-[13px] text-ink-secondary">
                 {!connectedAppsConfigured
                   ? "Connect apps in App Settings before giving this bot access."
