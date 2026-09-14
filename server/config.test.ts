@@ -311,20 +311,24 @@ describe("legacy OpenCode key sweep", () => {
     }
   });
 
-  it("treats a missing or corrupt file as nothing to sweep", () => {
+  it("treats a missing file as nothing to sweep", () => {
     expect(sweepLegacyOpencodeKey(join(DATA_DIR, "..", `omb-sweep-missing-${process.pid}`))).toBe("absent");
+  });
+
+  it("reports failure for a corrupt file that may still hold the secret", () => {
     const dir = join(DATA_DIR, "..", `omb-sweep-corrupt-${process.pid}`);
     writeConfig(dir, "{not json");
     try {
-      expect(sweepLegacyOpencodeKey(dir)).toBe("absent");
+      expect(sweepLegacyOpencodeKey(dir)).toBe("failed");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  // POSIX-only: Windows ignores mode bits, so a read-only dir still accepts
-  // the rewrite there. The mock test below covers the failure on every OS.
-  it.skipIf(process.platform === "win32")("reports failure when the section is found but the rewrite does not land", () => {
+  // POSIX non-root only: Windows ignores mode bits, and root bypasses them,
+  // so a read-only dir fails the rewrite on neither. The injected-writer
+  // test below is the real failure coverage on every OS.
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("reports failure when the section is found but the rewrite does not land", () => {
     const dir = join(DATA_DIR, "..", `omb-sweep-readonly-${process.pid}`);
     const raw = JSON.stringify({ gemini: { apiKey: "kept" }, opencodeGo: { apiKey: "legacy-secret" } });
     writeConfig(dir, raw);

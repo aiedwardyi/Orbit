@@ -328,6 +328,13 @@ describe("toWslPath", () => {
     expect(toWslPath("\\\\wsl$\\")).toBe("\\\\wsl$\\");
   });
 
+  it("strips wsl.localhost distro paths the same way", () => {
+    expect(toWslPath("\\\\wsl.localhost\\Ubuntu\\home\\ed")).toBe("/home/ed");
+    expect(toWslPath("\\\\WSL.LOCALHOST\\Ubuntu\\home\\ed")).toBe("/home/ed");
+    expect(toWslPath("\\\\wsl.localhost\\Ubuntu")).toBe("/");
+    expect(toWslPath("\\\\wsl.localhost\\")).toBe("\\\\wsl.localhost\\");
+  });
+
   it("leaves POSIX and drive-relative values alone", () => {
     expect(toWslPath("/home/ed/proj")).toBe("/home/ed/proj");
     expect(toWslPath("C:proj")).toBe("C:proj");

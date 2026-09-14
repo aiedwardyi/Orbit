@@ -342,15 +342,22 @@ export function resolveCliSpawn(cli: string, args: string[]): ResolvedSpawn {
 
 /** Translate a Windows path for a Linux process behind the wsl wrapper
  * (`C:\Users\ed` → `/mnt/c/Users/ed`, wslpath-style). Drive-letter paths
- * are rewritten onto the WSL mount; a `\\wsl$\<distro>\...` path already
- * names the target distro's own filesystem, so it strips to a root path.
- * POSIX paths and drive-relative fragments pass through, so applying it
- * off-Windows is a no-op for real paths. */
+ * are rewritten onto the WSL mount; a `\\wsl$\<distro>\...` or
+ * `\\wsl.localhost\<distro>\...` path already names the target distro's own
+ * filesystem, so it strips to a root path. POSIX paths and drive-relative
+ * fragments pass through, so applying it off-Windows is a no-op for real
+ * paths. */
 export function toWslPath(value: string): string {
-  // Prefix matched case-insensitively; the tail keeps its case — Linux
-  // paths are case-sensitive.
-  if (value.slice(0, 7).toLowerCase() === "\\\\wsl$\\") {
-    const rest = value.slice(7);
+  // Either WSL hostname, matched case-insensitively; the tail keeps its
+  // case — Linux paths are case-sensitive.
+  const lower = value.toLowerCase();
+  const prefix = lower.startsWith("\\\\wsl$\\")
+    ? "\\\\wsl$\\"
+    : lower.startsWith("\\\\wsl.localhost\\")
+      ? "\\\\wsl.localhost\\"
+      : null;
+  if (prefix !== null) {
+    const rest = value.slice(prefix.length);
     const i = rest.indexOf("\\");
     // Bare prefix or empty distro name: malformed, leave alone.
     if (rest === "" || i === 0) return value;

@@ -158,11 +158,12 @@ export function parseConfigPatch(value: JsonValue): ConfigPatch {
  * and no driver reads it, but upgrades keep a plaintext apiKey on disk: zod
  * strips unknown keys in memory only, so nothing ever rewrites the file.
  * Cleanup-only — the section is swept, never consumed. Returns "swept" when
- * the file was rewritten, "absent" when there was nothing to remove
- * (missing, corrupt, or keyless file), and "failed" when the section was
- * found but the rewrite did not land — boot must surface that, or the
- * plaintext survives silently. Never throws. The rewrite keeps the 0o600
- * secret-file mode saveConfig uses. */
+ * the file was rewritten, "absent" when there was provably nothing to remove
+ * (missing file, or valid JSON without the key), and "failed" whenever we
+ * cannot tell — an unreadable or unparseable file may still hold the secret,
+ * and a failed rewrite leaves it in place. Boot surfaces "failed" so the
+ * plaintext never survives silently. Never throws. The rewrite keeps the
+ * 0o600 secret-file mode saveConfig uses. */
 export function sweepLegacyOpencodeKey(
   dataDir: string = DATA_DIR,
   // Injected so tests can fail the rewrite deterministically: POSIX mode
@@ -171,11 +172,17 @@ export function sweepLegacyOpencodeKey(
   write: typeof writeFileAtomic = writeFileAtomic,
 ): "swept" | "absent" | "failed" {
   const path = join(dataDir, "config.json");
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    return (error as NodeJS.ErrnoException)?.code === "ENOENT" ? "absent" : "failed";
+  }
   let raw: unknown;
   try {
-    raw = parseJson(readFileSync(path, "utf8"));
+    raw = parseJson(text);
   } catch {
-    return "absent";
+    return "failed";
   }
   if (!raw || typeof raw !== "object" || Array.isArray(raw) || !Object.hasOwn(raw, "opencodeGo")) return "absent";
   const { opencodeGo: _dropped, ...rest } = raw as Record<string, unknown>;
