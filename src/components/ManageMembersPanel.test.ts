@@ -51,6 +51,9 @@ describe("ManageMembersPanel Korean title", () => {
       })),
     );
     expect(html).toContain("구성원 관리");
+    expect(html).toContain("first-letter:uppercase");
+    expect(html).toContain("Channel의 구성원 관리");
     expect(html).not.toContain(">Manage Members<");
+    expect(html).not.toContain("Manage members of Channel");
   });
 });

@@ -350,9 +350,11 @@ describe("connected apps and bot details Korean coverage", () => {
     expect(en["connectedApps.unavailable"]).toMatch(/temporarily unavailable/);
     expect(ko["connectedApps.unavailable"]).toMatch(/일시적으로/);
     expect(ko["connectedApps.unavailable"]).not.toMatch(/temporarily unavailable/);
-    expect(en["room.manageMembersTitle"]).toBe("Manage Members");
-    expect(ko["room.manageMembersTitle"]).toBe("구성원 관리");
-    expect(ko["room.manageMembersTitle"]).not.toMatch(/Manage Members/);
+    expect("room.manageMembersTitle" in en).toBe(false);
+    expect("room.manageMembersTitle" in ko).toBe(false);
+    expect(en["room.manageMembersOf"]).toBe("Manage members of {name}");
+    expect(ko["room.manageMembersOf"]).toBe("{name}의 구성원 관리");
+    expect(ko["room.manageMembersOf"]).not.toMatch(/Manage members of/);
     expect(en["bot.details"]).toBe("Bot details");
     expect(ko["bot.details"]).toBe("봇 세부 정보");
     expect(en["bot.collapseDetails"]).toBe("Collapse bot details");
@@ -368,8 +370,11 @@ describe("connected apps and bot details Korean coverage", () => {
     expect(pluginsPanel).not.toMatch(/>Connected apps</);
     expect(pluginsPanel).not.toMatch(/aria-label="Connected apps view"/);
     expect(pluginsPanel).not.toMatch(/temporarily unavailable\. You can retry/);
-    expect(manageMembers).toContain('t("room.manageMembersTitle")');
+    expect(manageMembers).toContain('t("room.manageMembers")');
+    expect(manageMembers).toContain('t("room.manageMembersOf"');
+    expect(manageMembers).not.toContain("room.manageMembersTitle");
     expect(manageMembers).not.toMatch(/>Manage Members</);
+    expect(manageMembers).not.toMatch(/Manage members of \$\{group\.name\}/);
     expect(settingsPanel).toContain('t("chrome.connectedApps")');
     expect(settingsPanel).toContain('t("bot.details")');
     expect(settingsPanel).toContain('t("bot.collapseDetails")');
