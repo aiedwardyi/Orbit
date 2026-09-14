@@ -360,8 +360,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         // A Linux child behind the wsl wrapper cannot use Windows paths, so
         // the session params (not the local spawn, which stays Windows-side)
         // cross translated when the driver opts in. toWslPath rewrites only
-        // drive-letter paths, so POSIX values pass through even where the
-        // flag is on — off-Windows this changes nothing for real paths.
+        // drive-letter and wsl$ paths, so POSIX values pass through even
+        // where the flag is on — off-Windows this changes nothing for real
+        // paths.
         const sessionPaths = support.wslPathTranslation === true
           ? wslSessionPaths(cwd, acpMcpServers(turn))
           : { cwd, servers: acpMcpServers(turn) };

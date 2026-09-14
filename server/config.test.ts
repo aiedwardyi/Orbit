@@ -322,7 +322,9 @@ describe("legacy OpenCode key sweep", () => {
     }
   });
 
-  it("reports failure when the section is found but the rewrite does not land", () => {
+  // POSIX-only: Windows ignores mode bits, so a read-only dir still accepts
+  // the rewrite there. The mock test below covers the failure on every OS.
+  it.skipIf(process.platform === "win32")("reports failure when the section is found but the rewrite does not land", () => {
     const dir = join(DATA_DIR, "..", `omb-sweep-readonly-${process.pid}`);
     const raw = JSON.stringify({ gemini: { apiKey: "kept" }, opencodeGo: { apiKey: "legacy-secret" } });
     writeConfig(dir, raw);
@@ -332,6 +334,22 @@ describe("legacy OpenCode key sweep", () => {
       expect(readFileSync(join(dir, "config.json"), "utf8")).toBe(raw);
     } finally {
       chmodSync(dir, 0o755);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports failure on any platform when the rewrite throws", () => {
+    const dir = join(DATA_DIR, "..", `omb-sweep-throw-${process.pid}`);
+    const raw = JSON.stringify({ gemini: { apiKey: "kept" }, opencodeGo: { apiKey: "legacy-secret" } });
+    writeConfig(dir, raw);
+    try {
+      expect(
+        sweepLegacyOpencodeKey(dir, () => {
+          throw new Error("EACCES");
+        }),
+      ).toBe("failed");
+      expect(readFileSync(join(dir, "config.json"), "utf8")).toBe(raw);
+    } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });

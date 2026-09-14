@@ -163,7 +163,13 @@ export function parseConfigPatch(value: JsonValue): ConfigPatch {
  * found but the rewrite did not land — boot must surface that, or the
  * plaintext survives silently. Never throws. The rewrite keeps the 0o600
  * secret-file mode saveConfig uses. */
-export function sweepLegacyOpencodeKey(dataDir: string = DATA_DIR): "swept" | "absent" | "failed" {
+export function sweepLegacyOpencodeKey(
+  dataDir: string = DATA_DIR,
+  // Injected so tests can fail the rewrite deterministically: POSIX mode
+  // bits do not fail writes on Windows, so no filesystem trick fails the
+  // rewrite on every OS.
+  write: typeof writeFileAtomic = writeFileAtomic,
+): "swept" | "absent" | "failed" {
   const path = join(dataDir, "config.json");
   let raw: unknown;
   try {
@@ -174,7 +180,7 @@ export function sweepLegacyOpencodeKey(dataDir: string = DATA_DIR): "swept" | "a
   if (!raw || typeof raw !== "object" || Array.isArray(raw) || !Object.hasOwn(raw, "opencodeGo")) return "absent";
   const { opencodeGo: _dropped, ...rest } = raw as Record<string, unknown>;
   try {
-    writeFileAtomic(path, `${JSON.stringify(rest, null, 2)}\n`, { mode: 0o600 });
+    write(path, `${JSON.stringify(rest, null, 2)}\n`, { mode: 0o600 });
   } catch {
     return "failed";
   }

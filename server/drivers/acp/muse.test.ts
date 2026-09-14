@@ -34,12 +34,14 @@ describe("Meta Muse driver catalog", () => {
 
   it("accepts META_API_KEY without a stored login", () => {
     // Isolated from the real home: an ambient developer login must not leak
-    // into (or out of) this assertion.
+    // into (or out of) this assertion. Pinned off-win32 so the `false` cases
+    // never reach the real WSL probe, which CI cannot control.
+    const platform = { platform: "linux" } as const;
     const home = mkdtempSync(join(tmpdir(), "omb-muse-nologin-home-"));
     const env = { HOME: home, XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "omb-muse-nologin-xdg-")) };
-    expect(museIsAuthenticated({ ...env, META_API_KEY: "meta-key" })).toBe(true);
-    expect(museIsAuthenticated(env)).toBe(false);
-    expect(museIsAuthenticated({ ...env, META_API_KEY: "  " })).toBe(false);
+    expect(museIsAuthenticated({ ...env, META_API_KEY: "meta-key" }, undefined, platform)).toBe(true);
+    expect(museIsAuthenticated(env, undefined, platform)).toBe(false);
+    expect(museIsAuthenticated({ ...env, META_API_KEY: "  " }, undefined, platform)).toBe(false);
   });
 
   it("probes the WSL-side login on win32 instead of trusting the Windows home", () => {
@@ -83,8 +85,12 @@ describe("Meta Muse driver catalog", () => {
     const xdg = mkdtempSync(join(tmpdir(), "omb-muse-xdg-"));
     mkdirSync(join(xdg, "muse"), { recursive: true });
     writeFileSync(join(xdg, "muse", "auth.json"), JSON.stringify({ token: "stored" }));
-    expect(museIsAuthenticated({ HOME: home, XDG_CONFIG_HOME: xdg })).toBe(true);
-    expect(museIsAuthenticated({ HOME: home, XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "omb-muse-empty-")) })).toBe(false);
+    // Pinned off-win32: on win32 the file path is deliberately ignored in
+    // favor of the WSL-side probe (see the stale-copy test below), so an
+    // ambient-platform call would take the real probe there.
+    const platform = { platform: "linux" } as const;
+    expect(museIsAuthenticated({ HOME: home, XDG_CONFIG_HOME: xdg }, undefined, platform)).toBe(true);
+    expect(museIsAuthenticated({ HOME: home, XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "omb-muse-empty-")) }, undefined, platform)).toBe(false);
   });
 
   it("classifies auth failures without coupling to messages", () => {

@@ -341,10 +341,19 @@ export function resolveCliSpawn(cli: string, args: string[]): ResolvedSpawn {
 }
 
 /** Translate a Windows path for a Linux process behind the wsl wrapper
- * (`C:\Users\ed` → `/mnt/c/Users/ed`, wslpath-style). Only drive-letter
- * paths are rewritten; POSIX paths, UNC paths, and drive-relative fragments
- * pass through, so applying it off-Windows is a no-op for real paths. */
+ * (`C:\Users\ed` → `/mnt/c/Users/ed`, wslpath-style). Drive-letter paths
+ * and `\\wsl$\<distro>\...` paths are rewritten; POSIX paths and
+ * drive-relative fragments pass through, so applying it off-Windows is a
+ * no-op for real paths. */
 export function toWslPath(value: string): string {
+  if (value.startsWith("\\\\wsl$\\")) {
+    const rest = value.slice("\\\\wsl$\\".length);
+    const i = rest.indexOf("\\");
+    const distro = i < 0 ? rest : rest.slice(0, i);
+    if (!distro) return value;
+    const tail = i < 0 ? "" : rest.slice(i);
+    return "/mnt/" + distro[0].toLowerCase() + tail.replace(/\\/g, "/");
+  }
   const match = value.match(/^([A-Za-z]):[\\/]/);
   if (!match) return value;
   return `/mnt/${match[1].toLowerCase()}${value.slice(2).replace(/\\/g, "/")}`;

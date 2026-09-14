@@ -321,9 +321,14 @@ describe("toWslPath", () => {
     expect(toWslPath("c:\\lower")).toBe("/mnt/c/lower");
   });
 
-  it("leaves POSIX, UNC, and drive-relative values alone", () => {
+  it("maps wsl$ distro paths onto the mount", () => {
+    expect(toWslPath("\\\\wsl$\\Ubuntu\\home\\ed")).toBe("/mnt/u/home/ed");
+    expect(toWslPath("\\\\wsl$\\Ubuntu")).toBe("/mnt/u");
+    expect(toWslPath("\\\\wsl$\\")).toBe("\\\\wsl$\\");
+  });
+
+  it("leaves POSIX and drive-relative values alone", () => {
     expect(toWslPath("/home/ed/proj")).toBe("/home/ed/proj");
-    expect(toWslPath("\\\\wsl$\\Ubuntu\\home\\ed")).toBe("\\\\wsl$\\Ubuntu\\home\\ed");
     expect(toWslPath("C:proj")).toBe("C:proj");
     expect(toWslPath("")).toBe("");
   });
