@@ -3,9 +3,9 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { MuseAgentDriver, STATIC_MUSE_MODELS, classifyMuseError, museDefaultCli, museIsAuthenticated, museSignInCommand, withWslKeySharing } from "./muse.ts";
+import { MuseAgentDriver, STATIC_MUSE_MODELS, classifyMuseError, museDefaultCli, museIsAuthenticated, museSignInCommand, museWslFallbackCli, withWslKeySharing } from "./muse.ts";
 import { BUILT_IN_DRIVERS } from "../builtIn.ts";
-import { resolveCliSpawn } from "../../env-path.ts";
+import { augmentedPath, resolveCliSpawn } from "../../env-path.ts";
 
 describe("Meta Muse driver catalog", () => {
   it("serves exactly the two Meta Muse models with the required labels", () => {
@@ -56,6 +56,24 @@ describe("Meta Muse driver catalog", () => {
         throw new Error("wsl missing");
       },
     })).toBe(false);
+  });
+
+  it("hands the WSL auth probe the augmented PATH, not the bare GUI one", () => {
+    let seen: NodeJS.ProcessEnv | undefined;
+    const env = { PATH: "/gui/bin", HOME: "/tmp/win-home" };
+    expect(
+      museIsAuthenticated(env, undefined, {
+        platform: "win32",
+        probeWslAuth: (probeEnv) => {
+          seen = probeEnv;
+          return true;
+        },
+      }),
+    ).toBe(true);
+    // System32 (and the rest of the augmented PATH) rides along so wsl.exe
+    // resolves; the caller's own entries survive underneath it.
+    expect(seen?.PATH).toBe(augmentedPath());
+    expect(seen?.HOME).toBe("/tmp/win-home");
   });
 
   it("never accepts a Windows-side login file for the WSL process", () => {
@@ -144,5 +162,15 @@ describe("Meta Muse driver catalog", () => {
 
   it("installs inside WSL on Windows with a PowerShell-runnable command", () => {
     expect(MuseAgentDriver.install?.command?.win32).toBe('wsl bash -c "curl -fsSL https://dev.meta.ai/install.sh | bash"');
+  });
+
+  it("retries a bare CLI override through WSL instead of asking for a filepath", () => {
+    expect(museWslFallbackCli("muse")).toBe("wsl muse");
+    expect(museWslFallbackCli("  muse  ")).toBe("wsl muse");
+    expect(museWslFallbackCli("C:\\tools\\muse.exe")).toBe("wsl C:\\tools\\muse.exe");
+    // already wrapped: nothing to fall back to
+    expect(museWslFallbackCli("wsl muse")).toBeNull();
+    expect(museWslFallbackCli("wsl.exe muse")).toBeNull();
+    expect(museWslFallbackCli("WSL muse")).toBeNull();
   });
 });

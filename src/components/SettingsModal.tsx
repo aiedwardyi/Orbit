@@ -3,7 +3,7 @@
 // is the stuff shared by every bot: who you are, your keys, and the
 // machine your bots can borrow.
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Coins, KeyRound, Monitor, Search, Smartphone, Terminal, User, X } from "lucide-react";
+import { ChevronDown, Coins, KeyRound, Monitor, Palette, Search, Smartphone, Terminal, User, X } from "lucide-react";
 import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
 import { builtInBrowserEnabled, showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
 import {
@@ -40,6 +40,7 @@ const SECTIONS: Array<{
 }> = [
   { id: "general", icon: User },
   { id: "connections", icon: KeyRound },
+  { id: "themes", icon: Palette },
   { id: "engines", icon: Terminal },
   { id: "companion", icon: Smartphone },
   { id: "computer", icon: Monitor },
@@ -49,6 +50,7 @@ const SECTIONS: Array<{
 const SECTION_KEY = {
   general: "settings.section.general",
   connections: "settings.section.connections",
+  themes: "settings.section.themes",
   engines: "settings.section.engines",
   companion: "settings.section.companion",
   computer: "settings.section.computer",
@@ -445,9 +447,6 @@ export function SettingsModal({
                   <ProfileFields />
                 </Card>
                 <ToolCallsRow />
-                <Card title={t("settings.skin.title")} subtitle={t("settings.skin.subtitle")}>
-                  <SkinPicker />
-                </Card>
                 <UpdatesRow />
                 {showSettingsAdvancedSection() && (
                   <>
@@ -525,6 +524,12 @@ export function SettingsModal({
                     </>
                   )}
                 </div>
+              </Card>
+            )}
+
+            {section === "themes" && (
+              <Card title={t("settings.skin.title")} subtitle={t("settings.skin.subtitle")}>
+                <SkinPicker />
               </Card>
             )}
 

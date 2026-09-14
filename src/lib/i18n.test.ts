@@ -1100,7 +1100,8 @@ describe("skin picker taglines", () => {
   it("keeps every skin tagline searchable from Settings, so a future skin can't render but stay unsearchable", () => {
     for (const id of SKIN_IDS) {
       const key = `settings.skin.${id}.tagline` as const;
-      expect(SECTION_PHRASE_KEYS.general).toContain(key);
+      expect(SECTION_PHRASE_KEYS.themes).toContain(key);
+      expect(SECTION_PHRASE_KEYS.general).not.toContain(key);
     }
   });
 });

@@ -154,6 +154,11 @@ export interface AcpSupport {
    * integrations depending on them are unavailable to WSL-crossing turns.
    * Normal turns without integrations are unaffected. */
   wslPathTranslation?: boolean;
+  /** win32 only: when the `--version` probe fails, retry once through the
+   * CLI this returns (null = no fallback). Lets a bare-CLI override keep
+   * working when only the WSL login exists, without the user typing a
+   * filepath. The winner is remembered for later spawns until a rescan. */
+  wslProbeWrapper?: (cli: string) => string | null;
   /** snapshot(): can this harness actually run a turn? (env already carries the
    *  merged config). May be async for harnesses that have to ask the CLI. */
   isAuthenticated(env: Record<string, string | undefined>, config: AcpConfig): boolean | Promise<boolean>;
@@ -187,6 +192,30 @@ export interface AcpSupport {
      * without this. Empty when the agent advertised none. */
     sessionModels: Array<{ modelId?: string; name?: string }>;
   }): Promise<void>;
+}
+
+/**
+ * Probe a CLI for its version, with an optional platform fallback wrapper.
+ *
+ * On win32, when `configCli --version` fails but the driver supplies a
+ * `wslProbeWrapper`, the wrapped command is probed; a hit means the CLI
+ * lives inside WSL. The resolved `{ cli, version }` tells callers which
+ * command to spawn until the next rescan. A `null` return means neither
+ * answered. `probe` is injectable so the fallback order is unit-testable.
+ */
+export async function probeCliVersion(
+  configCli: string,
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+  wslProbeWrapper: ((cli: string) => string | null) | undefined,
+  probe: (target: string, probeEnv: NodeJS.ProcessEnv) => Promise<string | null>,
+): Promise<{ cli: string; version: string } | null> {
+  const version = await probe(configCli, env);
+  if (version || platform !== "win32" || !wslProbeWrapper) return version ? { cli: configCli, version } : null;
+  const wrapped = wslProbeWrapper(configCli);
+  if (!wrapped) return null;
+  const wrappedVersion = await probe(wrapped, env);
+  return wrappedVersion ? { cli: wrapped, version: wrappedVersion } : null;
 }
 
 const INIT_TIMEOUT = 20_000;
@@ -240,6 +269,17 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
 
     async create(input: DriverCreateInput<AcpConfig>): Promise<ProviderInstance> {
       const { instanceId, config } = input;
+      // win32 WSL auto-detect: when the bare CLI probe fails but the wrapped
+      // one answers, remember the winner for later spawns until a rescan.
+      // A later bare success clears it, so a native install always wins.
+      let wslCli: string | null = null;
+      const effectiveCli = () => wslCli ?? config.cli;
+      const probe = (target: string, probeEnv: NodeJS.ProcessEnv): Promise<string | null> =>
+        new Promise((resolve) => {
+          execCli(target, ["--version"], { timeout: 8000, env: probeEnv }, (err, stdout) =>
+            resolve(err ? null : stdout.trim()),
+          );
+        });
       const childEnv = (extraAllowed: readonly string[] = []) => acpChildEnv(support, config, {
         ...process.env,
         ...input.environment,
@@ -337,39 +377,60 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         const turnId = newId();
         const cwd = turn.cwd ?? config.workspace ?? homedir();
         const env = childEnv(LOCAL_HOST_KEY_ENVS);
-        if (
-          support.requireAuthenticationBeforeSpawn
-          && !skipSubscriptionAuthForLocalInject(turn.model)
-          && !(await support.isAuthenticated(env, config))
-        ) {
-          emit({ ...base(threadId, turnId), type: "turn.started" });
-          emit({ ...base(threadId, turnId), type: "runtime.error", message: support.loginNote, setup: true });
-          emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "auth_required", cost: null });
-          return { turnId };
-        }
-        const resolvedModel = support.resolveTurnModel?.(turn.model, env);
-        support.applyTurnEnv?.(env, { model: resolvedModel, requestedModel: turn.model, approval: turn.approval, cwd });
-        const allowed = new Set(support.credentialEnv ?? []);
-        for (const key of LOCAL_HOST_KEY_ENVS) {
-          if (!allowed.has(key)) delete env[key];
-        }
-        const cliTurn =
-          resolvedModel !== undefined && resolvedModel !== turn.model
-            ? { ...turn, model: resolvedModel }
-            : turn;
-        // A Linux child behind the wsl wrapper cannot use Windows paths, so
-        // the session params (not the local spawn, which stays Windows-side)
-        // cross translated when the driver opts in. toWslPath rewrites only
-        // drive-letter and wsl$ paths, so POSIX values pass through even
-        // where the flag is on — off-Windows this changes nothing for real
-        // paths.
-        const sessionPaths = support.wslPathTranslation === true
-          ? wslSessionPaths(cwd, acpMcpServers(turn))
-          : { cwd, servers: acpMcpServers(turn) };
-        const sessionCwd = sessionPaths.cwd;
-        const mcpServers = sessionPaths.servers;
-
-        const child = spawnCli(config.cli, support.spawnArgs(config, cliTurn), {
+        // Reserve before the first await: two concurrent first turns would
+        // both pass the guard, spawn twice, and the second active.set would
+        // orphan the first turn's controls. The real entry after spawn
+        // replaces this placeholder; the gap between is synchronous, and
+        // every early exit below releases it.
+        active.set(threadId, { stop: () => {}, steer: async () => false, interrupt: () => {}, turnId, asks: new Map() });
+        // The pre-spawn section runs as one unit so the reservation above is
+        // released on every early exit; the sync gap between it and the real
+        // entry below admits no interleaving, and only our own turnId is
+        // ever released.
+        const prelude = await (async () => {
+          try {
+            if (
+              support.requireAuthenticationBeforeSpawn
+              && !skipSubscriptionAuthForLocalInject(turn.model)
+              && !(await support.isAuthenticated(env, config))
+            ) {
+              emit({ ...base(threadId, turnId), type: "turn.started" });
+              emit({ ...base(threadId, turnId), type: "runtime.error", message: support.loginNote, setup: true });
+              emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "auth_required", cost: null });
+              return { early: true as const };
+            }
+            const resolvedModel = support.resolveTurnModel?.(turn.model, env);
+            support.applyTurnEnv?.(env, { model: resolvedModel, requestedModel: turn.model, approval: turn.approval, cwd });
+            const allowed = new Set(support.credentialEnv ?? []);
+            for (const key of LOCAL_HOST_KEY_ENVS) {
+              if (!allowed.has(key)) delete env[key];
+            }
+            const cliTurn =
+              resolvedModel !== undefined && resolvedModel !== turn.model
+                ? { ...turn, model: resolvedModel }
+                : turn;
+            // A Linux child behind the wsl wrapper cannot use Windows paths, so
+            // the session params (not the local spawn, which stays Windows-side)
+            // cross translated when the driver opts in. toWslPath rewrites only
+            // drive-letter and wsl$ paths, so POSIX values pass through even
+            // where the flag is on — off-Windows this changes nothing for real
+            // paths.
+            const sessionPaths = support.wslPathTranslation === true
+              ? wslSessionPaths(cwd, acpMcpServers(turn))
+              : { cwd, servers: acpMcpServers(turn) };
+            // Turns can precede any snapshot() (startup routines, API-driven
+            // turns), and the auth gate above never probes — without this the
+            // first such turn on win32 would spawn the bare CLI that only
+            // exists inside WSL.
+            await ensureCli(env);
+            return { early: false as const, cliTurn, sessionCwd: sessionPaths.cwd, mcpServers: sessionPaths.servers };
+          } finally {
+            if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
+          }
+        })();
+        if (prelude.early) return { turnId };
+        const { cliTurn, sessionCwd, mcpServers } = prelude;
+        const child = spawnCli(effectiveCli(), support.spawnArgs(config, cliTurn), {
           cwd,
           env,
           stdio: ["pipe", "pipe", "pipe"],
@@ -682,7 +743,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         });
         child.on("error", (e) => {
           if (state.settled) return;
-          emit({ ...base(threadId, turnId), type: "runtime.error", ...describeSpawnFailure(e, config.cli) });
+          emit({ ...base(threadId, turnId), type: "runtime.error", ...describeSpawnFailure(e, effectiveCli()) });
           settle(false, "spawn_error");
         });
         child.on("close", (code) => {
@@ -891,15 +952,32 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         return { turnId };
       };
 
+      // Shared by snapshot() and the pre-spawn path: resolves (and
+      // remembers) the WSL fallback, so a first turn that never saw a
+      // snapshot still launches the working wrapper. snapshot() always
+      // probes fresh and refreshes the memo; turns reuse the memo and only
+      // the first pre-snapshot turn pays for a probe.
+      let cliProbe: Promise<{ cli: string; version: string } | null> | null = null;
+      const resolveCli = (probeEnv: NodeJS.ProcessEnv) => {
+        const started = probeCliVersion(config.cli, probeEnv, process.platform, support.wslProbeWrapper, probe).then(
+          (probed) => {
+            // Side-effect, not a pure read: steers effectiveCli() for all
+            // later spawns until the next rescan clears or replaces it.
+            wslCli = probed && probed.cli !== config.cli ? probed.cli : null;
+            return probed;
+          },
+        );
+        cliProbe = started;
+        return started;
+      };
+      const ensureCli = (probeEnv: NodeJS.ProcessEnv): Promise<{ cli: string; version: string } | null> =>
+        cliProbe ?? (cliProbe = resolveCli(probeEnv));
+
       const snapshot = async (): Promise<ProviderSnapshot> => {
         const env = childEnv();
-        const version = await new Promise<string | null>((resolve) => {
-          execCli(config.cli, ["--version"], { timeout: 8000, env }, (err, stdout) =>
-            resolve(err ? null : stdout.trim()),
-          );
-        });
-        if (!version) return { state: "unavailable", reason: `\`${config.cli}\` CLI not found` };
-        return { state: "available", version, authenticated: await support.isAuthenticated(env, config) };
+        const probed = await resolveCli(env);
+        if (!probed) return { state: "unavailable", reason: `\`${effectiveCli()}\` CLI not found` };
+        return { state: "available", version: probed.version, authenticated: await support.isAuthenticated(env, config) };
       };
 
       return {

@@ -628,6 +628,132 @@
   --radius-xl: 8px;
 }
 
+/* ── Kanagawa ──────────────────────────────────────────────────────────────
+   Muted wave blues and warm paper. Signature tokens are exact Windows
+   Terminal Kanagawa scheme hex: ground background, paper foreground, wave
+   brightBlue accent, cyan secondary, blue hairline, brightRed danger,
+   brightGreen success, yellow warning. Structural surfaces stay dark so the
+   paper ink clears AA; panel/hover/card/inset are dark variants between the
+   two scheme darks. Ground rides accent and danger fills.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="kanagawa"] {
+  --color-app: #1f1f28;
+  --color-panel: #24242f;
+  --color-raised: #2a2a37;
+  --color-raised-hover: #343442;
+  --color-card: #1b1b24;
+  --color-inset: #16161d;
+  --color-control: #2a2a37;       /* = raised */
+  --color-hairline: #658594;
+
+  --color-ink: #dcd7ba;
+  --color-ink-secondary: #9cabca;
+
+  --color-accent: #7fb4ca;
+  --color-accent-border: #a3d4d5;
+  --color-accent-text: #7fb4ca;
+  --color-focus: #7fb4ca;
+  --color-accent-ink: #1f1f28;    /* ground on the wave fill */
+  --color-bubble-user: #24242f;
+
+  --color-success: #98bb6c;
+  --color-danger: #ff5d62;
+  --color-danger-ink: #1f1f28;
+  --color-warning: #ff9e3b;
+  --color-scrollbar: #658594;
+  --color-maus-line: #9cabca;
+
+  --font-sans: "Inter", -apple-system, "BlinkMacSystemFont", "SF Pro Text",
+    "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+}
+
+/* ── HaX0R_BLUE ────────────────────────────────────────────────────────────
+   Deep-space blue, monochrome phosphor. Signature tokens are exact Windows
+   Terminal HaX0R_BLUE scheme hex: background ground, black raised, white
+   ink, selectionBackground secondary and success, blue accent and danger,
+   brightBlue hairline, foreground warning. The scheme's three darks sit
+   within 1.03 of each other, so panel, hover, card, inset, and control are
+   deep-space variants that keep light ink readable while clearing the
+   surface-step rules. The vivid blues sit within 1.05 of each other, so
+   success takes the pale ice and danger keeps the vivid phosphor: go and
+   stop differ at a glance, while warning keeps the vivid foreground tone
+   and errs toward alarm, never toward go.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="haxor-blue"] {
+  --color-app: #010515;
+  --color-panel: #0a1026;
+  --color-raised: #010921;
+  --color-raised-hover: #16204a;
+  --color-card: #0d1530;
+  --color-inset: #00030a;
+  --color-control: #1e2a5a;
+  --color-hairline: #00b3f7;
+
+  --color-ink: #fafafa;
+  --color-ink-secondary: #c1e4ff;
+
+  --color-accent: #10b6ff;
+  --color-accent-border: #00b3f7;
+  --color-accent-text: #10b6ff;
+  --color-focus: #10b6ff;
+  --color-accent-ink: #010515;    /* ground on the phosphor fill */
+  --color-bubble-user: #0a1026;
+
+  --color-success: #c1e4ff;       /* pale ice, 1.73 vs the vivid danger */
+  --color-danger: #10b6ff;
+  --color-danger-ink: #010515;
+  --color-warning: #11b7ff;
+  --color-scrollbar: #00b3f7;
+  --color-maus-line: #c1e4ff;
+
+  --font-sans: "Inter", -apple-system, "BlinkMacSystemFont", "SF Pro Text",
+    "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+}
+
+/* ── Hurtado ───────────────────────────────────────────────────────────────
+   Pure black, neon pink and ice. Signature tokens are exact Windows Terminal
+   Hurtado scheme hex: background ground, brightBlack raised, foreground ink,
+   selectionBackground ice secondary, purple neon-pink accent, black hairline,
+   red danger, brightGreen success, brightYellow warning. Ground rides accent
+   and danger fills.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="hurtado"] {
+  --color-app: #000000;
+  --color-panel: #121212;
+  --color-raised: #262626;
+  --color-raised-hover: #333333;
+  --color-card: #0e0e0e;
+  --color-inset: #050505;
+  --color-control: #262626;       /* = raised */
+  --color-hairline: #575757;
+
+  --color-ink: #dbdbdb;
+  --color-ink-secondary: #b5d5ff;
+
+  --color-accent: #fd5ff1;
+  --color-accent-border: #fd5ff1;
+  --color-accent-text: #fd5ff1;
+  --color-focus: #fd5ff1;
+  --color-accent-ink: #000000;    /* ground on the neon fill */
+  --color-bubble-user: #121212;
+
+  --color-success: #a5df55;
+  --color-danger: #ff1b00;
+  --color-danger-ink: #000000;
+  --color-warning: #fbe84a;
+  --color-scrollbar: #575757;
+  --color-maus-line: #b5d5ff;
+
+  --font-sans: "Inter", -apple-system, "BlinkMacSystemFont", "SF Pro Text",
+    "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+}
+
 html,
 body,
 #root {

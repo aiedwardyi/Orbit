@@ -435,6 +435,17 @@ describe("dark ink skins", () => {
     }
   });
 
+  it("keeps HaX0R_BLUE success distinct from danger inside the monochrome palette", () => {
+    // The scheme's vivid blues sit within 1.05 of each other, so success
+    // takes the pale selectionBackground ice while danger keeps the vivid
+    // phosphor — go and stop can never be confused at a glance.
+    const success = cssToken("haxor-blue", "--color-success");
+    const danger = cssToken("haxor-blue", "--color-danger");
+    expect(success).toBe("#c1e4ff");
+    expect(danger).toBe("#10b6ff");
+    expect(contrast(success!, danger!)).toBeGreaterThanOrEqual(1.5);
+  });
+
   const DANGER_PAIRINGS = [
     {
       file: "src/components/EnginesSettings.tsx",

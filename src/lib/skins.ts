@@ -17,6 +17,9 @@ export const SKIN_IDS = [
   "dracula",
   "cobalt",
   "gruvbox",
+  "kanagawa",
+  "haxor-blue",
+  "hurtado",
 ] as const;
 export type SkinId = (typeof SKIN_IDS)[number];
 
@@ -40,6 +43,9 @@ export const SKINS: readonly Skin[] = [
   { id: "dracula", name: "Dracula", tagline: "Slate purple, neon status." },
   { id: "cobalt", name: "Panda Syntax", tagline: "Warm charcoal, mint lamp." },
   { id: "gruvbox", name: "Gruvbox", tagline: "Warm and earthy, retro groove." },
+  { id: "kanagawa", name: "Kanagawa", tagline: "Muted wave blues and warm paper." },
+  { id: "haxor-blue", name: "HaX0R_BLUE", tagline: "Deep-space blue, monochrome phosphor." },
+  { id: "hurtado", name: "Hurtado", tagline: "Pure black, neon pink and ice." },
 ];
 
 export const DEFAULT_SKIN: SkinId = "ledger";

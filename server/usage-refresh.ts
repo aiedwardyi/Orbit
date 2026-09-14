@@ -7,9 +7,10 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { z } from "zod";
 
+import { writeFileAtomic } from "./atomic.ts";
+import type { RateLimitWindow } from "./contracts.ts";
 import { acpChildEnv } from "./drivers/acp/core.ts";
 import { grokSupport } from "./drivers/acp/grok.ts";
-import type { RateLimitWindow } from "./contracts.ts";
 import { antigravityRateLimitWindows, codexRateLimitWindows, grokRateLimitWindows, museRateLimitWindows } from "./drivers/rate-limits.ts";
 import { augmentedPath } from "./env-path.ts";
 import { killCliTree, spawnCli } from "./procs.ts";
@@ -23,6 +24,26 @@ const percent = z.number().finite().nonnegative();
 const timestamp = z.string().refine((value) => !Number.isNaN(Date.parse(value)));
 const oauthWindow = z.object({ utilization: percent, resets_at: timestamp.nullable() });
 const oauthUsage = z.object({ five_hour: oauthWindow.nullable(), seven_day: oauthWindow.nullable() });
+const claudeStoredOauth = z.object({
+  claudeAiOauth: z.object({ accessToken: text, refreshToken: text.optional(), expiresAt: z.number().finite().optional() }).passthrough(),
+}).passthrough();
+const claudeRefreshAnswer = z.object({
+  access_token: text,
+  refresh_token: text.optional(),
+  expires_in: z.number().finite().positive().optional(),
+}).passthrough();
+
+/** Claude Code's public OAuth client id, hardcoded in the CLI itself (also
+ * visible in the claude.ai/login redirect URL). Refreshing with it is the
+ * same grant the CLI performs lazily on its next API call. */
+const CLAUDE_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+/** Primary first, then the newer host: third-party tooling disagrees on
+ * which is canonical, so both are tried rather than trusting one. */
+const CLAUDE_TOKEN_ENDPOINTS = [
+  "https://console.anthropic.com/v1/oauth/token",
+  "https://platform.claude.com/v1/oauth/token",
+];
+const CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const rpcMessage = z.object({ id: z.number().optional(), method: z.string().optional(), result: z.json().optional(), error: z.object({ code: z.number() }).optional() });
 
 export function usageRefreshResponse(instanceId: string, result: Result) {
@@ -270,9 +291,201 @@ export function readMuseUsage(): Promise<JsonValue> {
   return Promise.reject(new Error("refresh"));
 }
 
+const oauthErrorBody = z.object({ error: z.string().optional() }).passthrough();
+
+/** Mint a fresh Claude access token from the stored refresh token.
+ *
+ * Throws "signin" only when the grant itself is dead (`invalid_grant` —
+ * revoked, rotated away by another device: the user really is signed out)
+ * and "refresh" for everything else, so a blip keeps the last report
+ * instead of demanding a re-login. Other 4xx (`invalid_request`, an
+ * unsupported grant shape, another client/server mismatch) and an
+ * unparseable body stay transient: the stored grant may still be valid, so
+ * they must never read as a logout. The next endpoint is tried only on 404,
+ * which proves this host never saw the grant (host migration). Any other
+ * outcome may already have consumed and rotated it server-side, so
+ * replaying the same grant elsewhere is forbidden: a lost rotation would
+ * come back `invalid_grant` and read as a false sign-out. */
+async function refreshClaudeOauth(
+  request: typeof fetch,
+  refreshToken: string,
+): Promise<z.infer<typeof claudeRefreshAnswer>> {
+  for (const endpoint of CLAUDE_TOKEN_ENDPOINTS) {
+    let response: Response;
+    try {
+      response = await request(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: CLAUDE_OAUTH_CLIENT_ID }),
+        redirect: "error",
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (error) {
+      throw error instanceof Error ? error : new Error("refresh");
+    }
+    if (response.status === 404) continue;
+    const body: unknown = await response.json().catch(() => null);
+    if (response.status === 400 || response.status === 401 || response.status === 403) {
+      if (oauthErrorBody.safeParse(body).data?.error === "invalid_grant") throw new Error("signin");
+      throw new Error("refresh");
+    }
+    if (!response.ok) throw new Error("refresh");
+    const parsed = claudeRefreshAnswer.safeParse(body);
+    if (!parsed.success) throw new Error("refresh");
+    return parsed.data;
+  }
+  throw new Error("refresh");
+}
+
+/** Write the minted tokens back to .credentials.json in the shape the CLI
+ * reads, preserving every other key (scopes, subscriptionType, sibling
+ * accounts). Returns whether the write landed: on failure the caller keeps
+ * the minted rotation in memory, because the file still holds the now
+ * consumed grant and redeeming it again would read as a false sign-out. */
+async function persistClaudeOauth(
+  write: (path: string, content: string) => Promise<void>,
+  path: string,
+  stored: unknown,
+  minted: { access_token: string; refresh_token?: string; expires_in?: number },
+  now: number,
+): Promise<boolean> {
+  try {
+    const file = (stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {}) as Record<string, unknown>;
+    const entry = (file.claudeAiOauth && typeof file.claudeAiOauth === "object" && !Array.isArray(file.claudeAiOauth)
+      ? file.claudeAiOauth
+      : {}) as Record<string, unknown>;
+    await write(
+      path,
+      JSON.stringify({
+        ...file,
+        claudeAiOauth: {
+          ...entry,
+          accessToken: minted.access_token,
+          refreshToken: minted.refresh_token ?? entry.refreshToken,
+          ...(minted.expires_in ? { expiresAt: now + minted.expires_in * 1000 } : {}),
+        },
+      }),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Serialize tasks sharing one Claude credential file (normalized path), so
+ * concurrent instances racing an expiry never redeem the same rotating
+ * refresh token twice. The per-instance cache dedupes repeats of one
+ * instance; this dedupes across instances. A rejected predecessor never
+ * wedges the chain, and entries are dropped when their chain drains. */
+function withCredentialLock<T>(locks: Map<string, Promise<unknown>>, path: string, task: () => Promise<T>): Promise<T> {
+  const current = (locks.get(path) ?? Promise.resolve()).then(task, task);
+  locks.set(path, current);
+  const cleanup = () => {
+    if (locks.get(path) === current) locks.delete(path);
+  };
+  void current.then(cleanup, cleanup);
+  return current;
+}
+
+type ClaudeFileDeps = {
+  request: typeof fetch;
+  read: (path: string) => Promise<string>;
+  write: (path: string, content: string) => Promise<void>;
+  locks: Map<string, Promise<unknown>>;
+  mintedByPath: Map<string, { accessToken: string; refreshToken: string }>;
+  credentialsPath: string;
+  now: number;
+};
+
+/** One Claude usage read against the file credential store: first attempt,
+ * opportunistic heal, and the locked refresh section. Callers map a final
+ * 401/403 to sign-in and other failures to a transient refresh error. */
+async function readClaudeFileUsage(deps: ClaudeFileDeps): Promise<Response> {
+  const { request, read, write, locks, mintedByPath, credentialsPath, now } = deps;
+  const fetchUsage = (token: string) =>
+    request(CLAUDE_USAGE_URL, { headers: [["Authorization", `Bearer ${token}`], ["anthropic-beta", "oauth-2025-04-20"]], redirect: "error", signal: AbortSignal.timeout(15_000) });
+  const stored = parseJson(await read(credentialsPath));
+  const storedOauth = claudeStoredOauth.parse(stored).claudeAiOauth;
+  // A rotation whose persist failed last cycle: the file still holds the
+  // consumed grant, so lead with the remembered tokens.
+  const remembered = mintedByPath.get(credentialsPath);
+  const accessToken = remembered?.accessToken ?? storedOauth.accessToken;
+  let response = await fetchUsage(accessToken);
+  if (response.ok && remembered) {
+    // The remembered rotation still works. Heal the file when it is
+    // unchanged since our read; when it moved on elsewhere the file wins
+    // and the bridge is dropped — the file is the CLI-owned source of truth.
+    await withCredentialLock(locks, credentialsPath, async () => {
+      if (mintedByPath.get(credentialsPath) !== remembered) return;
+      const raw: unknown = await read(credentialsPath).then(parseJson, () => null);
+      const current = claudeStoredOauth.safeParse(raw).data?.claudeAiOauth;
+      if (!current || current.accessToken !== storedOauth.accessToken || current.refreshToken !== storedOauth.refreshToken) {
+        mintedByPath.delete(credentialsPath);
+        return;
+      }
+      if (await persistClaudeOauth(write, credentialsPath, raw, { access_token: remembered.accessToken, refresh_token: remembered.refreshToken }, now)) {
+        mintedByPath.delete(credentialsPath);
+      }
+    });
+  }
+  // Only 401 (invalid/expired token, RFC 6750 §3.1) justifies a mint. A 403
+  // is insufficient scope: the minted token would carry the same scopes and
+  // 403 again, so it goes straight to sign-in below without the round-trip.
+  if (response.status === 401 && (storedOauth.refreshToken || remembered?.refreshToken)) {
+    response = await withCredentialLock(locks, credentialsPath, async () => {
+      const raw: unknown = await read(credentialsPath).then(parseJson, () => null);
+      const reread = claudeStoredOauth.safeParse(raw).data?.claudeAiOauth;
+      const live = mintedByPath.get(credentialsPath);
+      // Tokens that appeared since our first attempt — a concurrent rotation
+      // or an outside refresh — get one try each before minting again.
+      for (const candidate of [reread?.accessToken, live?.accessToken]) {
+        if (!candidate || candidate === accessToken) continue;
+        const retry = await fetchUsage(candidate);
+        if (retry.ok) {
+          if (candidate !== reread?.accessToken && live && raw) {
+            if (await persistClaudeOauth(write, credentialsPath, raw, { access_token: live.accessToken, refresh_token: live.refreshToken }, now)) {
+              mintedByPath.delete(credentialsPath);
+            }
+          } else {
+            mintedByPath.delete(credentialsPath);
+          }
+          return retry;
+        }
+      }
+      // Mint with the live rotation first (the file grant may already be
+      // consumed), then the file grant. A dead grant falls through to the
+      // next candidate; anything transient aborts without burning grants.
+      const grants = [...new Set([live?.refreshToken, reread?.refreshToken].filter((grant): grant is string => !!grant))];
+      let exhausted: unknown = null;
+      for (const grant of grants) {
+        try {
+          const minted = await refreshClaudeOauth(request, grant);
+          if (raw && (await persistClaudeOauth(write, credentialsPath, raw, minted, now))) mintedByPath.delete(credentialsPath);
+          else mintedByPath.set(credentialsPath, { accessToken: minted.access_token, refreshToken: minted.refresh_token ?? grant });
+          return await fetchUsage(minted.access_token);
+        } catch (error) {
+          if (error instanceof Error && error.message === "signin" && grant !== grants[grants.length - 1]) {
+            exhausted = error;
+            continue;
+          }
+          throw error;
+        }
+      }
+      // No grant was ever tested when the reread itself failed (file busy,
+      // mid-replace): that is transient, never proof the user signed out.
+      // A reread that parses but holds no grant, or an invalid_grant on a
+      // tested one, means sign-in.
+      if (exhausted instanceof Error) throw exhausted;
+      throw new Error(reread ? "signin" : "refresh");
+    });
+  }
+  return response;
+}
+
 export function createUsageRefresh(deps: {
   request?: typeof fetch;
   read?: (path: string) => Promise<string>;
+  write?: (path: string, content: string) => Promise<void>;
   rpc?: typeof readUsageRpc;
   billing?: typeof readGrokBillingRpc;
   antigravity?: typeof readAntigravityQuota;
@@ -282,6 +495,12 @@ export function createUsageRefresh(deps: {
 } = {}) {
   const request = deps.request ?? fetch;
   const read = deps.read ?? ((path: string) => readFile(path, "utf8"));
+  // Atomic by default: a torn write would leave half-written JSON that the
+  // next read treats as a missing login. The async wrapper turns the sync
+  // helper's throws into rejections persistClaudeOauth already observes.
+  const write = deps.write ?? (async (path: string, content: string) => { writeFileAtomic(path, content, { mode: 0o600 }); });
+  const credentialLocks = new Map<string, Promise<unknown>>();
+  const mintedByPath = new Map<string, { accessToken: string; refreshToken: string }>();
   const clock = deps.now ?? Date.now;
   const cache = new Map<string, { retryAt: number; pending: Promise<Result> }>();
   return async (driver: string, options: Options, previous?: Report): Promise<Result> => {
@@ -306,8 +525,18 @@ export function createUsageRefresh(deps: {
           windows = museRateLimitWindows(await (deps.muse ?? readMuseUsage)(), clock());
         } else {
           if ((deps.platform ?? process.platform) === "darwin" && !env.CLAUDE_CODE_OAUTH_TOKEN) return { report: previous, error: "Claude refresh skipped to avoid Keychain prompts on macOS", retryAt };
-          const token = env.CLAUDE_CODE_OAUTH_TOKEN || z.object({ claudeAiOauth: z.object({ accessToken: text }) }).parse(parseJson(await read(join(env.CLAUDE_CONFIG_DIR || join(home, ".claude"), ".credentials.json")))).claudeAiOauth.accessToken;
-          const response = await request("https://api.anthropic.com/api/oauth/usage", { headers: [["Authorization", `Bearer ${token}`], ["anthropic-beta", "oauth-2025-04-20"]], redirect: "error", signal: AbortSignal.timeout(15_000) });
+          // An env token has no refresh grant behind it, so it keeps the
+          // old fail-closed read; the file store goes through the
+          // refresh-aware helper (expired access token, cross-instance
+          // locking, in-memory retention across a failed persist).
+          const envToken = env.CLAUDE_CODE_OAUTH_TOKEN;
+          let response: Response;
+          if (envToken) {
+            response = await request(CLAUDE_USAGE_URL, { headers: [["Authorization", `Bearer ${envToken}`], ["anthropic-beta", "oauth-2025-04-20"]], redirect: "error", signal: AbortSignal.timeout(15_000) });
+          } else {
+            const credentialsPath = join(env.CLAUDE_CONFIG_DIR || join(home, ".claude"), ".credentials.json");
+            response = await readClaudeFileUsage({ request, read, write, locks: credentialLocks, mintedByPath, credentialsPath, now: clock() });
+          }
           if (response.status === 401 || response.status === 403) throw new Error("signin");
           if (!response.ok) throw new Error("refresh");
           const usage = oauthUsage.parse(await response.json());

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { installCommandFor, isApiKeySetupMessage, needsApiKey, needsCli, needsSignIn, setupErrorAction } from "./EngineSetup";
+import { installCommandFor, isApiKeySetupMessage, needsApiKey, needsCli, needsSignIn, openInstallTerminalOrCopy, setupErrorAction } from "./EngineSetup";
 import type { InstanceInfo } from "@/state/store";
 
 function instance(snapshot: InstanceInfo["snapshot"]): InstanceInfo {
@@ -105,6 +105,64 @@ describe("API key setup", () => {
     expect(needsApiKey(unset)).toBe(false);
     expect(setupErrorAction("Gemini API key missing", installed)).toBe("key");
     expect(setupErrorAction("Gemini API key missing", unset)).toBe("key");
+  });
+});
+
+describe("openInstallTerminalOrCopy", () => {
+  it("reports opened without touching the clipboard when the terminal launches", async () => {
+    let copies = 0;
+    const result = await openInstallTerminalOrCopy("install-cmd", async () => true, async () => {
+      copies++;
+    });
+    expect(result).toBe("opened");
+    expect(copies).toBe(0);
+  });
+
+  it("trusts the main-process clipboard copy when no terminal launches", async () => {
+    let copies = 0;
+    const result = await openInstallTerminalOrCopy("install-cmd", async () => false, async () => {
+      copies++;
+    });
+    expect(result).toBe("copied");
+    expect(copies).toBe(0);
+  });
+
+  it("copies the command when the terminal invoke rejects", async () => {
+    let copied: string | null = null;
+    const result = await openInstallTerminalOrCopy(
+      "install-cmd",
+      async () => {
+        throw new Error("No handler registered for 'engine:open-terminal'");
+      },
+      async (text) => {
+        copied = text;
+      },
+    );
+    expect(result).toBe("copied");
+    expect(copied).toBe("install-cmd");
+  });
+
+  it("copies the command when there is no terminal opener at all", async () => {
+    let copied: string | null = null;
+    const result = await openInstallTerminalOrCopy("install-cmd", undefined, async (text) => {
+      copied = text;
+    });
+    expect(result).toBe("copied");
+    expect(copied).toBe("install-cmd");
+  });
+
+  it("propagates a blocked clipboard so the caller shows no false copied state", async () => {
+    await expect(
+      openInstallTerminalOrCopy(
+        "install-cmd",
+        async () => {
+          throw new Error("no handler");
+        },
+        async () => {
+          throw new Error("clipboard blocked");
+        },
+      ),
+    ).rejects.toThrow("clipboard blocked");
   });
 });
 

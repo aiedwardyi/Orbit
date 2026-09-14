@@ -29,4 +29,17 @@ describe("settings section search", () => {
     expect(settingsSectionMatches("connections", "opencode")).toBe(false);
     expect(settingsSectionMatches("connections", "cli")).toBe(true);
   });
+
+  it("finds skins on Themes, not General", () => {
+    expect(settingsSectionMatches("themes", "skin")).toBe(true);
+    expect(settingsSectionMatches("themes", "theme")).toBe(true);
+    expect(settingsSectionMatches("themes", "kanagawa")).toBe(true);
+    expect(settingsSectionMatches("themes", "haxor")).toBe(true);
+    expect(settingsSectionMatches("themes", "hax0r")).toBe(true);
+    expect(settingsSectionMatches("themes", "테마")).toBe(true);
+    expect(settingsSectionMatches("general", "skin")).toBe(false);
+    expect(settingsSectionMatches("general", "kanagawa")).toBe(false);
+    expect(settingsSectionMatches("general", "hax0r")).toBe(false);
+    expect(settingsSectionMatches("themes", "updates")).toBe(false);
+  });
 });
