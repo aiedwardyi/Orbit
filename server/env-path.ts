@@ -342,17 +342,22 @@ export function resolveCliSpawn(cli: string, args: string[]): ResolvedSpawn {
 
 /** Translate a Windows path for a Linux process behind the wsl wrapper
  * (`C:\Users\ed` → `/mnt/c/Users/ed`, wslpath-style). Drive-letter paths
- * and `\\wsl$\<distro>\...` paths are rewritten; POSIX paths and
- * drive-relative fragments pass through, so applying it off-Windows is a
- * no-op for real paths. */
+ * are rewritten onto the WSL mount; a `\\wsl$\<distro>\...` path already
+ * names the target distro's own filesystem, so it strips to a root path.
+ * POSIX paths and drive-relative fragments pass through, so applying it
+ * off-Windows is a no-op for real paths. */
 export function toWslPath(value: string): string {
-  if (value.startsWith("\\\\wsl$\\")) {
-    const rest = value.slice("\\\\wsl$\\".length);
+  // Prefix matched case-insensitively; the tail keeps its case — Linux
+  // paths are case-sensitive.
+  if (value.slice(0, 7).toLowerCase() === "\\\\wsl$\\") {
+    const rest = value.slice(7);
     const i = rest.indexOf("\\");
-    const distro = i < 0 ? rest : rest.slice(0, i);
-    if (!distro) return value;
-    const tail = i < 0 ? "" : rest.slice(i);
-    return "/mnt/" + distro[0].toLowerCase() + tail.replace(/\\/g, "/");
+    // Bare prefix or empty distro name: malformed, leave alone.
+    if (rest === "" || i === 0) return value;
+    // Bare distro with no tail is the filesystem root.
+    if (i < 0) return "/";
+    const tail = rest.slice(i + 1).replace(/\\/g, "/");
+    return tail ? `/${tail}` : "/";
   }
   const match = value.match(/^([A-Za-z]):[\\/]/);
   if (!match) return value;

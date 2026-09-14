@@ -321,9 +321,10 @@ describe("toWslPath", () => {
     expect(toWslPath("c:\\lower")).toBe("/mnt/c/lower");
   });
 
-  it("maps wsl$ distro paths onto the mount", () => {
-    expect(toWslPath("\\\\wsl$\\Ubuntu\\home\\ed")).toBe("/mnt/u/home/ed");
-    expect(toWslPath("\\\\wsl$\\Ubuntu")).toBe("/mnt/u");
+  it("strips wsl$ distro paths to the distro filesystem root", () => {
+    expect(toWslPath("\\\\wsl$\\Ubuntu\\home\\ed")).toBe("/home/ed");
+    expect(toWslPath("\\\\WSL$\\Ubuntu\\home\\ed")).toBe("/home/ed");
+    expect(toWslPath("\\\\wsl$\\Ubuntu")).toBe("/");
     expect(toWslPath("\\\\wsl$\\")).toBe("\\\\wsl$\\");
   });
 
