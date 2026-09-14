@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Bot } from "@/state/store";
 
@@ -158,5 +158,35 @@ describe("SettingsPanel friends effort", () => {
 
     expect(buttonTag).not.toContain("disabled");
     expect(html).not.toContain("This engine cannot contact other bots");
+  });
+});
+
+describe("SettingsPanel Korean bot details", () => {
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => (key === "omb-locale" ? "ko" : null),
+      setItem: () => {},
+      removeItem: () => {},
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("renders the bot details header and connected row in Korean", async () => {
+    const { SettingsPanel } = await import("./SettingsPanel");
+    const { I18nProvider } = await import("@/lib/i18n");
+    const html = renderToStaticMarkup(
+      createElement(I18nProvider, null, createElement(SettingsPanel, { bot })),
+    );
+    expect(html).toContain("봇 세부 정보");
+    expect(html).toContain("aria-label=\"봇 세부 정보 접기\"");
+    expect(html).toContain("aria-label=\"봇 세부 정보 닫기\"");
+    expect(html).toContain(">연결 앱<");
+    expect(html).not.toContain(">Bot details<");
+    expect(html).not.toContain("Collapse bot details");
+    expect(html).not.toContain("Close bot details");
+    expect(html).not.toMatch(/>Connected apps</);
   });
 });
