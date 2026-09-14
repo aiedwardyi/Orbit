@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { homedir } from "node:os";
@@ -23,6 +23,26 @@ const percent = z.number().finite().nonnegative();
 const timestamp = z.string().refine((value) => !Number.isNaN(Date.parse(value)));
 const oauthWindow = z.object({ utilization: percent, resets_at: timestamp.nullable() });
 const oauthUsage = z.object({ five_hour: oauthWindow.nullable(), seven_day: oauthWindow.nullable() });
+const claudeStoredOauth = z.object({
+  claudeAiOauth: z.object({ accessToken: text, refreshToken: text.optional(), expiresAt: z.number().finite().optional() }).passthrough(),
+}).passthrough();
+const claudeRefreshAnswer = z.object({
+  access_token: text,
+  refresh_token: text.optional(),
+  expires_in: z.number().finite().positive().optional(),
+}).passthrough();
+
+/** Claude Code's public OAuth client id, hardcoded in the CLI itself (also
+ * visible in the claude.ai/login redirect URL). Refreshing with it is the
+ * same grant the CLI performs lazily on its next API call. */
+const CLAUDE_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+/** Primary first, then the newer host: third-party tooling disagrees on
+ * which is canonical, so both are tried rather than trusting one. */
+const CLAUDE_TOKEN_ENDPOINTS = [
+  "https://console.anthropic.com/v1/oauth/token",
+  "https://platform.claude.com/v1/oauth/token",
+];
+const CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const rpcMessage = z.object({ id: z.number().optional(), method: z.string().optional(), result: z.json().optional(), error: z.object({ code: z.number() }).optional() });
 
 export function usageRefreshResponse(instanceId: string, result: Result) {
@@ -270,9 +290,89 @@ export function readMuseUsage(): Promise<JsonValue> {
   return Promise.reject(new Error("refresh"));
 }
 
+/** Mint a fresh Claude access token from the stored refresh token.
+ *
+ * Throws "signin" when the grant itself is dead (the user really is signed
+ * out — revoked, rotated away by another device, 4xx from the token
+ * endpoint) and "refresh" when the network or Anthropic is at fault, so a
+ * blip keeps the last report instead of demanding a re-login. A 404 moves
+ * to the next endpoint (host migration); other 4xx do not. */
+async function refreshClaudeOauth(
+  request: typeof fetch,
+  refreshToken: string,
+): Promise<z.infer<typeof claudeRefreshAnswer>> {
+  let transient: unknown = null;
+  for (const endpoint of CLAUDE_TOKEN_ENDPOINTS) {
+    let response: Response;
+    try {
+      response = await request(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: CLAUDE_OAUTH_CLIENT_ID }),
+        redirect: "error",
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (error) {
+      transient = error;
+      continue;
+    }
+    if (response.status === 404) {
+      transient = new Error("refresh");
+      continue;
+    }
+    if (response.status === 400 || response.status === 401 || response.status === 403) throw new Error("signin");
+    if (!response.ok) {
+      transient = new Error("refresh");
+      continue;
+    }
+    const parsed = claudeRefreshAnswer.safeParse(await response.json().catch(() => null));
+    if (!parsed.success) {
+      transient = new Error("refresh");
+      continue;
+    }
+    return parsed.data;
+  }
+  throw transient instanceof Error ? transient : new Error("refresh");
+}
+
+/** Write the minted tokens back to .credentials.json in the shape the CLI
+ * reads, preserving every other key (scopes, subscriptionType, sibling
+ * accounts). A failed write is swallowed: the fresh token is still used
+ * for this refresh, and the next cycle simply refreshes again. */
+async function persistClaudeOauth(
+  write: (path: string, content: string) => Promise<void>,
+  path: string,
+  stored: JsonValue,
+  minted: z.infer<typeof claudeRefreshAnswer>,
+  now: number,
+): Promise<void> {
+  try {
+    const file = (stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {}) as Record<string, unknown>;
+    const entry = (file.claudeAiOauth && typeof file.claudeAiOauth === "object" && !Array.isArray(file.claudeAiOauth)
+      ? file.claudeAiOauth
+      : {}) as Record<string, unknown>;
+    await write(
+      path,
+      JSON.stringify({
+        ...file,
+        claudeAiOauth: {
+          ...entry,
+          accessToken: minted.access_token,
+          refreshToken: minted.refresh_token ?? entry.refreshToken,
+          ...(minted.expires_in ? { expiresAt: now + minted.expires_in * 1000 } : {}),
+        },
+      }),
+    );
+  } catch {
+    // The minted token still serves this refresh from memory; the next
+    // cycle simply refreshes again.
+  }
+}
+
 export function createUsageRefresh(deps: {
   request?: typeof fetch;
   read?: (path: string) => Promise<string>;
+  write?: (path: string, content: string) => Promise<void>;
   rpc?: typeof readUsageRpc;
   billing?: typeof readGrokBillingRpc;
   antigravity?: typeof readAntigravityQuota;
@@ -282,6 +382,7 @@ export function createUsageRefresh(deps: {
 } = {}) {
   const request = deps.request ?? fetch;
   const read = deps.read ?? ((path: string) => readFile(path, "utf8"));
+  const write = deps.write ?? ((path: string, content: string) => writeFile(path, content, { mode: 0o600 }));
   const clock = deps.now ?? Date.now;
   const cache = new Map<string, { retryAt: number; pending: Promise<Result> }>();
   return async (driver: string, options: Options, previous?: Report): Promise<Result> => {
@@ -306,8 +407,25 @@ export function createUsageRefresh(deps: {
           windows = museRateLimitWindows(await (deps.muse ?? readMuseUsage)(), clock());
         } else {
           if ((deps.platform ?? process.platform) === "darwin" && !env.CLAUDE_CODE_OAUTH_TOKEN) return { report: previous, error: "Claude refresh skipped to avoid Keychain prompts on macOS", retryAt };
-          const token = env.CLAUDE_CODE_OAUTH_TOKEN || z.object({ claudeAiOauth: z.object({ accessToken: text }) }).parse(parseJson(await read(join(env.CLAUDE_CONFIG_DIR || join(home, ".claude"), ".credentials.json")))).claudeAiOauth.accessToken;
-          const response = await request("https://api.anthropic.com/api/oauth/usage", { headers: [["Authorization", `Bearer ${token}`], ["anthropic-beta", "oauth-2025-04-20"]], redirect: "error", signal: AbortSignal.timeout(15_000) });
+          // The stored access token expires on its own (~8h) while the
+          // refresh token stays valid — only the CLI rewrites this file, so
+          // without a refresh here every post-expiry poll 401s and the user
+          // reads "Sign in again" though still logged in. An env token has
+          // no refresh grant behind it, so it keeps the old fail-closed read.
+          const credentialsPath = join(env.CLAUDE_CONFIG_DIR || join(home, ".claude"), ".credentials.json");
+          const envToken = env.CLAUDE_CODE_OAUTH_TOKEN;
+          const stored = envToken ? null : parseJson(await read(credentialsPath));
+          const storedOauth = stored ? claudeStoredOauth.parse(stored).claudeAiOauth : null;
+          const fetchUsage = (token: string) =>
+            request(CLAUDE_USAGE_URL, { headers: [["Authorization", `Bearer ${token}`], ["anthropic-beta", "oauth-2025-04-20"]], redirect: "error", signal: AbortSignal.timeout(15_000) });
+          const accessToken = envToken || storedOauth?.accessToken;
+          if (!accessToken) throw new Error("refresh");
+          let response = await fetchUsage(accessToken);
+          if ((response.status === 401 || response.status === 403) && storedOauth?.refreshToken) {
+            const minted = await refreshClaudeOauth(request, storedOauth.refreshToken);
+            await persistClaudeOauth(write, credentialsPath, stored, minted, clock());
+            response = await fetchUsage(minted.access_token);
+          }
           if (response.status === 401 || response.status === 403) throw new Error("signin");
           if (!response.ok) throw new Error("refresh");
           const usage = oauthUsage.parse(await response.json());

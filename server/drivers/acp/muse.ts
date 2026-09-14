@@ -60,6 +60,14 @@ export function museSignInCommand(platform: NodeJS.Platform = process.platform):
   return platform === "win32" ? "wsl muse login" : "muse login";
 }
 
+/** win32 auto-detect for an explicitly-configured bare CLI. There is no
+ * native Windows `muse` binary, so a bare `muse` override can never answer
+ * natively — retry it through the wrapper instead of asking the user for a
+ * filepath. An already-wrapped CLI yields null (nothing to fall back to). */
+export function museWslFallbackCli(cli: string): string | null {
+  return /^\s*wsl(\.exe)?(\s|$)/i.test(cli) ? null : `wsl ${cli.trim()}`;
+}
+
 /** Probe the WSL-side login on win32. wsl.exe forwards almost nothing from
  * the Windows environment, so the Linux `muse` process reads the Linux
  * home — where a WSL-side `muse login` wrote auth.json — while orbit's own
@@ -177,6 +185,7 @@ const support: AcpSupport = {
   // on every turn even with a valid login.
   pickAuthMethod: () => null,
   authFailure: "continue",
+  wslProbeWrapper: museWslFallbackCli,
   // Session cwd and MCP server commands cross into WSL as Linux paths. Known
   // limit: MCP server env beyond META_API_KEY and non-command paths do not
   // cross, so integrations depending on them are unavailable to

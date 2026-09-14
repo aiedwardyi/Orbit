@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ensureDirs, PROVIDER_CREDENTIAL_ENV, WORKSPACE_CREDENTIAL_ENV } from "../../config.ts";
 import type { ProviderDriver, ProviderInstance } from "../../contracts.ts";
 import { recordEvents, type EventRecorder } from "../../testing/events.ts";
-import { createAcpDriver, skipSubscriptionAuthForLocalInject, wslSessionPaths, type AcpSupport } from "./core.ts";
+import { createAcpDriver, probeCliVersion, skipSubscriptionAuthForLocalInject, wslSessionPaths, type AcpSupport } from "./core.ts";
 import { toWslPath } from "../../env-path.ts";
 import { GrokAgentDriver } from "./grok.ts";
 import { GeminiAgentDriver } from "./gemini.ts";
@@ -1305,6 +1305,48 @@ describe("ACP turns (fake CLI)", () => {
     });
     expect(fullAuto.adapter.capabilities.askApproval).toBe(false);
     await fullAuto.dispose();
+  });
+});
+
+describe("probeCliVersion", () => {
+  const probeFor = (answers: Record<string, string | null>) => {
+    const seen: string[] = [];
+    const probe = async (target: string) => {
+      seen.push(target);
+      return answers[target] ?? null;
+    };
+    return { seen, probe };
+  };
+
+  it("keeps the bare CLI when it answers, without consulting the wrapper", async () => {
+    const { seen, probe } = probeFor({ muse: "1.2.1" });
+    const result = await probeCliVersion("muse", {}, "win32", () => "wsl muse", probe);
+    expect(result).toEqual({ cli: "muse", version: "1.2.1" });
+    expect(seen).toEqual(["muse"]);
+  });
+
+  it("falls back to the WSL wrapper on win32 when only the WSL login exists", async () => {
+    const { seen, probe } = probeFor({ muse: null, "wsl muse": "1.2.1" });
+    const result = await probeCliVersion("muse", {}, "win32", (cli) => `wsl ${cli}`, probe);
+    expect(result).toEqual({ cli: "wsl muse", version: "1.2.1" });
+    expect(seen).toEqual(["muse", "wsl muse"]);
+  });
+
+  it("reports unavailable when neither the bare CLI nor the wrapper answers", async () => {
+    const { probe } = probeFor({ muse: null, "wsl muse": null });
+    expect(await probeCliVersion("muse", {}, "win32", (cli) => `wsl ${cli}`, probe)).toBeNull();
+  });
+
+  it("reports unavailable when the driver offers no wrapper", async () => {
+    const { seen, probe } = probeFor({ muse: null });
+    expect(await probeCliVersion("muse", {}, "win32", undefined, probe)).toBeNull();
+    expect(seen).toEqual(["muse"]);
+  });
+
+  it("never wraps off win32, so a native miss stays a miss", async () => {
+    const { seen, probe } = probeFor({ muse: null, "wsl muse": "1.2.1" });
+    expect(await probeCliVersion("muse", {}, "linux", (cli) => `wsl ${cli}`, probe)).toBeNull();
+    expect(seen).toEqual(["muse"]);
   });
 });
 

@@ -215,6 +215,39 @@ describe("antigravityRateLimitWindows", () => {
     ]);
   });
 
+  it("unwraps the response envelope around live quota-summary groups", () => {
+    // bucket ids and camelCase fields as observed live against the local
+    // language server: gemini + third-party pools, 5h and weekly each.
+    expect(
+      antigravityRateLimitWindows(
+        {
+          response: {
+            groups: [
+              {
+                displayName: "Gemini Models",
+                buckets: [
+                  { bucketId: "gemini-weekly", displayName: "Weekly Limit", remainingFraction: 0.9, resetTime: "2026-09-21T12:00:00Z" },
+                  { bucketId: "gemini-5h", displayName: "Five Hour Limit", remainingFraction: 0.4, resetTime: "2026-09-14T13:00:00Z" },
+                ],
+              },
+              {
+                displayName: "Claude and GPT models",
+                buckets: [
+                  { bucketId: "3p-weekly", displayName: "Weekly Limit", remainingFraction: 0.7, resetTime: "2026-09-21T12:00:00Z" },
+                  { bucketId: "3p-5h", displayName: "Five Hour Limit", remainingFraction: 0.8, resetTime: "2026-09-14T13:00:00Z" },
+                ],
+              },
+            ],
+          },
+        },
+        now,
+      ),
+    ).toEqual([
+      { id: "five_hour", usedPercent: 60, resetsAt: Date.parse("2026-09-14T13:00:00Z"), windowMinutes: 300 },
+      { id: "seven_day", usedPercent: 30, resetsAt: Date.parse("2026-09-21T12:00:00Z"), windowMinutes: 10_080 },
+    ]);
+  });
+
   it("drops buckets without a fill level and tolerates junk", () => {
     expect(
       antigravityRateLimitWindows({ "gemini-weekly": { reset_in_seconds: 60 }, "gemini-5h": { remaining_fraction: "0.5" } }, now),

@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { MuseAgentDriver, STATIC_MUSE_MODELS, classifyMuseError, museDefaultCli, museIsAuthenticated, museSignInCommand, withWslKeySharing } from "./muse.ts";
+import { MuseAgentDriver, STATIC_MUSE_MODELS, classifyMuseError, museDefaultCli, museIsAuthenticated, museSignInCommand, museWslFallbackCli, withWslKeySharing } from "./muse.ts";
 import { BUILT_IN_DRIVERS } from "../builtIn.ts";
 import { resolveCliSpawn } from "../../env-path.ts";
 
@@ -144,5 +144,15 @@ describe("Meta Muse driver catalog", () => {
 
   it("installs inside WSL on Windows with a PowerShell-runnable command", () => {
     expect(MuseAgentDriver.install?.command?.win32).toBe('wsl bash -c "curl -fsSL https://dev.meta.ai/install.sh | bash"');
+  });
+
+  it("retries a bare CLI override through WSL instead of asking for a filepath", () => {
+    expect(museWslFallbackCli("muse")).toBe("wsl muse");
+    expect(museWslFallbackCli("  muse  ")).toBe("wsl muse");
+    expect(museWslFallbackCli("C:\\tools\\muse.exe")).toBe("wsl C:\\tools\\muse.exe");
+    // already wrapped: nothing to fall back to
+    expect(museWslFallbackCli("wsl muse")).toBeNull();
+    expect(museWslFallbackCli("wsl.exe muse")).toBeNull();
+    expect(museWslFallbackCli("WSL muse")).toBeNull();
   });
 });

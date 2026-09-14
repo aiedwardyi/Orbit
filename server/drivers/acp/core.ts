@@ -154,6 +154,11 @@ export interface AcpSupport {
    * integrations depending on them are unavailable to WSL-crossing turns.
    * Normal turns without integrations are unaffected. */
   wslPathTranslation?: boolean;
+  /** win32 only: when the `--version` probe fails, retry once through the
+   * CLI this returns (null = no fallback). Lets a bare-CLI override keep
+   * working when only the WSL login exists, without the user typing a
+   * filepath. The winner is remembered for later spawns until a rescan. */
+  wslProbeWrapper?: (cli: string) => string | null;
   /** snapshot(): can this harness actually run a turn? (env already carries the
    *  merged config). May be async for harnesses that have to ask the CLI. */
   isAuthenticated(env: Record<string, string | undefined>, config: AcpConfig): boolean | Promise<boolean>;
@@ -187,6 +192,30 @@ export interface AcpSupport {
      * without this. Empty when the agent advertised none. */
     sessionModels: Array<{ modelId?: string; name?: string }>;
   }): Promise<void>;
+}
+
+/**
+ * Probe a CLI for its version, with an optional platform fallback wrapper.
+ *
+ * On win32, when `configCli --version` fails but the driver supplies a
+ * `wslProbeWrapper`, the wrapped command is probed; a hit means the CLI
+ * lives inside WSL. The resolved `{ cli, version }` tells callers which
+ * command to spawn until the next rescan. A `null` return means neither
+ * answered. `probe` is injectable so the fallback order is unit-testable.
+ */
+export async function probeCliVersion(
+  configCli: string,
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+  wslProbeWrapper: ((cli: string) => string | null) | undefined,
+  probe: (target: string, probeEnv: NodeJS.ProcessEnv) => Promise<string | null>,
+): Promise<{ cli: string; version: string } | null> {
+  const version = await probe(configCli, env);
+  if (version || platform !== "win32" || !wslProbeWrapper) return version ? { cli: configCli, version } : null;
+  const wrapped = wslProbeWrapper(configCli);
+  if (!wrapped) return null;
+  const wrappedVersion = await probe(wrapped, env);
+  return wrappedVersion ? { cli: wrapped, version: wrappedVersion } : null;
 }
 
 const INIT_TIMEOUT = 20_000;
@@ -240,6 +269,17 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
 
     async create(input: DriverCreateInput<AcpConfig>): Promise<ProviderInstance> {
       const { instanceId, config } = input;
+      // win32 WSL auto-detect: when the bare CLI probe fails but the wrapped
+      // one answers, remember the winner for later spawns until a rescan.
+      // A later bare success clears it, so a native install always wins.
+      let wslCli: string | null = null;
+      const effectiveCli = () => wslCli ?? config.cli;
+      const probe = (target: string, probeEnv: NodeJS.ProcessEnv): Promise<string | null> =>
+        new Promise((resolve) => {
+          execCli(target, ["--version"], { timeout: 8000, env: probeEnv }, (err, stdout) =>
+            resolve(err ? null : stdout.trim()),
+          );
+        });
       const childEnv = (extraAllowed: readonly string[] = []) => acpChildEnv(support, config, {
         ...process.env,
         ...input.environment,
@@ -369,7 +409,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         const sessionCwd = sessionPaths.cwd;
         const mcpServers = sessionPaths.servers;
 
-        const child = spawnCli(config.cli, support.spawnArgs(config, cliTurn), {
+        const child = spawnCli(effectiveCli(), support.spawnArgs(config, cliTurn), {
           cwd,
           env,
           stdio: ["pipe", "pipe", "pipe"],
@@ -682,7 +722,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         });
         child.on("error", (e) => {
           if (state.settled) return;
-          emit({ ...base(threadId, turnId), type: "runtime.error", ...describeSpawnFailure(e, config.cli) });
+          emit({ ...base(threadId, turnId), type: "runtime.error", ...describeSpawnFailure(e, effectiveCli()) });
           settle(false, "spawn_error");
         });
         child.on("close", (code) => {
@@ -893,13 +933,10 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
 
       const snapshot = async (): Promise<ProviderSnapshot> => {
         const env = childEnv();
-        const version = await new Promise<string | null>((resolve) => {
-          execCli(config.cli, ["--version"], { timeout: 8000, env }, (err, stdout) =>
-            resolve(err ? null : stdout.trim()),
-          );
-        });
-        if (!version) return { state: "unavailable", reason: `\`${config.cli}\` CLI not found` };
-        return { state: "available", version, authenticated: await support.isAuthenticated(env, config) };
+        const probed = await probeCliVersion(config.cli, env, process.platform, support.wslProbeWrapper, probe);
+        wslCli = probed && probed.cli !== config.cli ? probed.cli : null;
+        if (!probed) return { state: "unavailable", reason: `\`${effectiveCli()}\` CLI not found` };
+        return { state: "available", version: probed.version, authenticated: await support.isAuthenticated(env, config) };
       };
 
       return {

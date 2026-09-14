@@ -221,6 +221,139 @@ describe("usage refresh route result", () => {
     expect(result.error).toBe(kind === "signin" ? "Sign in again in Grok" : "Could not refresh Grok limits");
   });
 
+  it("refreshes an expired Claude access token instead of demanding sign-in", async () => {
+    const now = 1_000_000;
+    const stored = { claudeAiOauth: { accessToken: "stale-access", refreshToken: "stored-refresh", expiresAt: now - 1, scopes: ["user:inference"] }, sibling: { keep: true } };
+    let writes: Array<{ path: string; content: string }> = [];
+    const seen: string[] = [];
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      now: () => now,
+      read: async () => JSON.stringify(stored),
+      write: async (path, content) => {
+        writes.push({ path, content });
+      },
+      request: async (url, init) => {
+        const target = String(url);
+        seen.push(target);
+        if (target.includes("/oauth/token")) {
+          const body = JSON.parse(String(init?.body));
+          expect(body).toMatchObject({ grant_type: "refresh_token", refresh_token: "stored-refresh", client_id: "9d1c250a-e61b-44d9-88ed-5944d1962f5e" });
+          return Response.json({ access_token: "fresh-access", refresh_token: "rotated-refresh", expires_in: 28_800 });
+        }
+        const token = new Headers(init?.headers).get("authorization");
+        if (token === "Bearer stale-access") return Response.json({ error: "expired" }, { status: 401 });
+        expect(token).toBe("Bearer fresh-access");
+        return Response.json(fixtures.claudeAgent);
+      },
+    });
+    const result = await refresh("claudeAgent", { instanceId: "claude" });
+    expect(result.error).toBeUndefined();
+    expect(result.report?.windows.map((window) => window.usedPercent)).toEqual([42, 19]);
+    expect(seen[0]).toContain("/api/oauth/usage");
+    // the minted tokens persist in the CLI's shape, sibling keys untouched
+    expect(writes).toHaveLength(1);
+    expect(writes[0].path).toMatch(/\.credentials\.json$/);
+    const persisted = JSON.parse(writes[0].content);
+    expect(persisted.claudeAiOauth).toMatchObject({ accessToken: "fresh-access", refreshToken: "rotated-refresh", expiresAt: now + 28_800_000, scopes: ["user:inference"] });
+    expect(persisted.sibling).toEqual({ keep: true });
+    for (const secret of ["stale-access", "stored-refresh", "fresh-access", "rotated-refresh"]) expect(JSON.stringify(result)).not.toContain(secret);
+  });
+
+  it("treats a dead Claude refresh grant as signed out", async () => {
+    let usageCalls = 0;
+    let writes = 0;
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      read: async () => JSON.stringify({ claudeAiOauth: { accessToken: "stale-access", refreshToken: "dead-refresh" } }),
+      write: async () => {
+        writes++;
+      },
+      request: async (url) => {
+        if (String(url).includes("/oauth/token")) return Response.json({ error: "invalid_grant" }, { status: 400 });
+        usageCalls++;
+        return Response.json({ error: "expired" }, { status: 401 });
+      },
+    });
+    const result = await refresh("claudeAgent", { instanceId: "claude" });
+    expect(result.error).toBe("Sign in again in Claude");
+    expect(usageCalls).toBe(1);
+    expect(writes).toBe(0);
+  });
+
+  it("treats a Claude token-endpoint outage as transient", async () => {
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      read: async () => JSON.stringify({ claudeAiOauth: { accessToken: "stale-access", refreshToken: "stored-refresh" } }),
+      request: async (url) => {
+        if (String(url).includes("/oauth/token")) throw new Error("network down");
+        return Response.json({ error: "expired" }, { status: 401 });
+      },
+    });
+    const report = { windows: [{ id: "five_hour", usedPercent: 12, resetsAt: null }], observedAt: reset };
+    const result = await refresh("claudeAgent", { instanceId: "claude" }, report);
+    expect(result.report).toEqual(report);
+    expect(result.error).toBe("Could not refresh Claude limits");
+  });
+
+  it("fails the token over to the fallback host when the primary path is gone", async () => {
+    const seen: string[] = [];
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      read: async () => JSON.stringify({ claudeAiOauth: { accessToken: "stale-access", refreshToken: "stored-refresh" } }),
+      request: async (url, init) => {
+        const target = String(url);
+        seen.push(target);
+        if (target.includes("/oauth/token")) {
+          if (target.startsWith("https://console.anthropic.com")) return Response.json({}, { status: 404 });
+          return Response.json({ access_token: "fresh-access", expires_in: 28_800 });
+        }
+        return new Headers(init?.headers).get("authorization") === "Bearer fresh-access"
+          ? Response.json(fixtures.claudeAgent)
+          : Response.json({ error: "expired" }, { status: 401 });
+      },
+    });
+    const result = await refresh("claudeAgent", { instanceId: "claude" });
+    expect(result.error).toBeUndefined();
+    expect(seen.filter((target) => target.includes("/oauth/token"))).toEqual([
+      "https://console.anthropic.com/v1/oauth/token",
+      "https://platform.claude.com/v1/oauth/token",
+    ]);
+  });
+
+  it("still serves the refresh when persisting the minted token fails", async () => {
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      read: async () => JSON.stringify({ claudeAiOauth: { accessToken: "stale-access", refreshToken: "stored-refresh" } }),
+      write: async () => {
+        throw new Error("read-only fs");
+      },
+      request: async (url, init) => {
+        if (String(url).includes("/oauth/token")) return Response.json({ access_token: "fresh-access" });
+        return new Headers(init?.headers).get("authorization") === "Bearer fresh-access"
+          ? Response.json(fixtures.claudeAgent)
+          : Response.json({ error: "expired" }, { status: 401 });
+      },
+    });
+    const result = await refresh("claudeAgent", { instanceId: "claude" });
+    expect(result.error).toBeUndefined();
+    expect(result.report?.windows.map((window) => window.usedPercent)).toEqual([42, 19]);
+  });
+
+  it("keeps the env-token path fail-closed with no refresh attempt", async () => {
+    let tokenCalls = 0;
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      request: async (url) => {
+        if (String(url).includes("/oauth/token")) tokenCalls++;
+        return Response.json({ error: "expired" }, { status: 401 });
+      },
+    });
+    const result = await refresh("claudeAgent", { instanceId: "claude", environment: { CLAUDE_CODE_OAUTH_TOKEN: "env-token" } });
+    expect(result.error).toBe("Sign in again in Claude");
+    expect(tokenCalls).toBe(0);
+  });
+
   it("rejects malformed usage and skips unsupported engines and macOS Keychain access", async () => {
     let calls = 0;
     const refresh = createUsageRefresh({
