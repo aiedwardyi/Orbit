@@ -103,4 +103,159 @@ describe("ConfirmDialog", () => {
       host.remove();
     }
   });
+
+  it("traps Tab inside the panel and pulls outside focus back in", async () => {
+    const { host, root } = await renderDialog();
+    // SAFETY: every call site focuses a known element first, so activeElement is set.
+    const tab = (shiftKey: boolean) =>
+      (document.activeElement as Element).dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true, shiftKey }),
+      );
+    try {
+      const cancel = button("Cancel")!;
+      const confirm = button("Delete")!;
+      // Wrap both directions.
+      cancel.focus();
+      await act(async () => tab(true));
+      expect(document.activeElement).toBe(confirm);
+      await act(async () => tab(false));
+      expect(document.activeElement).toBe(cancel);
+      // No wrap mid-dialog: Cancel -> Confirm stays put for the trap (the
+      // browser moves focus natively; the trap only intervenes at the edges).
+      cancel.focus();
+      await act(async () => tab(false));
+      expect(document.activeElement).toBe(cancel);
+      // Focus that left the panel is pulled back in.
+      host.tabIndex = -1;
+      host.focus();
+      await act(async () => tab(false));
+      expect(document.activeElement).toBe(cancel);
+      host.focus();
+      await act(async () => tab(true));
+      expect(document.activeElement).toBe(confirm);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("restores focus to its previous owner on close, if still mounted", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    // Outside the React root: unmounting the dialog must not take the owner
+    // with it, or there is nothing connected left to restore to.
+    const owner = document.createElement("button");
+    owner.textContent = "owner";
+    document.body.append(owner);
+    const root = createRoot(host);
+    owner.focus();
+    await act(async () =>
+      root.render(
+        createElement(
+          I18nProvider,
+          null,
+          createElement(ConfirmDialog, {
+            title: "t",
+            confirmLabel: "Delete",
+            onConfirm: () => {},
+            onCancel: () => {},
+          }),
+        ),
+      ),
+    );
+    try {
+      expect(document.activeElement?.textContent).toBe("Cancel");
+      await act(async () => root.unmount());
+      expect(document.activeElement).toBe(owner);
+    } finally {
+      owner.remove();
+      host.remove();
+    }
+  });
+
+  it("closes cleanly when its previous focus owner is already gone", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const owner = document.createElement("button");
+    host.append(owner);
+    const root = createRoot(host);
+    owner.focus();
+    await act(async () =>
+      root.render(
+        createElement(
+          I18nProvider,
+          null,
+          createElement(ConfirmDialog, {
+            title: "t",
+            confirmLabel: "Delete",
+            onConfirm: () => {},
+            onCancel: () => {},
+          }),
+        ),
+      ),
+    );
+    owner.remove();
+    await act(async () => root.unmount());
+    host.remove();
+    expect(document.activeElement).not.toBe(owner);
+    expect(dialog()).toBeNull();
+  });
+
+  it("never steals focus back on re-render and always calls the latest onCancel", async () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const render = (onCancel: () => void, title: string) =>
+      act(async () =>
+        root.render(
+          createElement(
+            I18nProvider,
+            null,
+            createElement(ConfirmDialog, { title, confirmLabel: "Delete", onConfirm: () => {}, onCancel }),
+          ),
+        ),
+      );
+    try {
+      await render(first, "one");
+      button("Delete")!.focus();
+      // A parent re-render with a fresh inline callback must not refocus.
+      await render(second, "two");
+      expect(document.activeElement?.textContent).toBe("Delete");
+      // ...but Escape must reach the latest callback, not the stale one.
+      // SAFETY: Delete was focused above and nothing blurred it since.
+      await act(async () =>
+        (document.activeElement as Element).dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+        ),
+      );
+      expect(first).not.toHaveBeenCalled();
+      expect(second).toHaveBeenCalledTimes(1);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("stops one Escape press at the dialog so underlying closers never see it", async () => {
+    const { host, root, onCancel } = await renderDialog();
+    const documentSpy = vi.fn();
+    const windowSpy = vi.fn();
+    document.addEventListener("keydown", documentSpy);
+    window.addEventListener("keydown", windowSpy);
+    try {
+      const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+      await act(async () => button("Cancel")!.dispatchEvent(event));
+      expect(onCancel).toHaveBeenCalledTimes(1);
+      expect(event.defaultPrevented).toBe(true);
+      expect(documentSpy).not.toHaveBeenCalled();
+      expect(windowSpy).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener("keydown", documentSpy);
+      window.removeEventListener("keydown", windowSpy);
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
 });

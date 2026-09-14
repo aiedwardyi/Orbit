@@ -47,5 +47,7 @@ describe("ProviderMark", () => {
     expect(markup).toContain('width="14"');
     expect(markup).toContain('height="14"');
     expect(markup).toContain("shrink-0");
+    // Decorative beside a visible label: hidden from assistive technology.
+    expect(markup).toContain("aria-hidden");
   });
 });
