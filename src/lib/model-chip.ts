@@ -42,9 +42,10 @@ function tierSuffix(modelId: string): { stem: string; tier: string } | undefined
 
 /** Display-only effort for the header chip: an explicit selection.effort
  * wins; otherwise a tier parsed from the model-id suffix counts only when
- * the stem belongs to a catalog family (some shipped, non-custom option
- * shares the stem), so arbitrary ids that merely end in "-high" stay
- * name-only. Never touches selection state. */
+ * a DISTINCT tier sibling exists — some shipped, non-custom option with the
+ * same stem but a different id (a bare stem or another tier both count).
+ * The model itself never counts, so lone suffixed options stay name-only.
+ * Never touches selection state. */
 export function displayedChipEffort(
   instance: CatalogRef,
   model: string,
@@ -53,12 +54,28 @@ export function displayedChipEffort(
   if (effort) return effort;
   const parsed = tierSuffix(model);
   if (!parsed || !parsed.stem) return undefined;
-  const family = instance?.models.options.some((option) => {
-    if (option.custom) return false;
+  const sibling = instance?.models.options.some((option) => {
+    if (option.custom || option.id === model) return false;
     const other = tierSuffix(option.id);
     return (other ? other.stem : option.id) === parsed.stem;
   });
-  return family ? parsed.tier : undefined;
+  return sibling ? parsed.tier : undefined;
+}
+
+/** Level ids to catalog keys, shared by the badge and the tooltip so both
+ * localize together. Unknown ids pass through verbatim. */
+const EFFORT_MESSAGE_KEYS = new Map<string, MessageKey>([
+  ["none", "model.effortNone"],
+  ["low", "model.effortLow"],
+  ["medium", "model.effortMedium"],
+  ["high", "model.effortHigh"],
+  ["xhigh", "model.extraHigh"],
+  ["max", "model.effortMax"],
+]);
+
+export function modelEffortLabel(effort: string, t: Translate): string {
+  const key = EFFORT_MESSAGE_KEYS.get(effort);
+  return key ? t(key) : effort;
 }
 
 export function modelChipTitle(
@@ -72,7 +89,7 @@ export function modelChipTitle(
 ): string {
   const live = modelChipText(input, t);
   const shown = displayedChipEffort(input.instance, input.model, input.effort);
-  const named = shown ? `${live} · ${shown}` : live;
+  const named = shown ? `${live} · ${modelEffortLabel(shown, t)}` : live;
   if (input.mode === "automatic") {
     return t("model.automaticTitle", {
       name: input.instance ? named : t("model.unresolved"),

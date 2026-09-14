@@ -259,6 +259,19 @@ describe("ModelPicker cross navigation", () => {
     expect(document.querySelector('[data-model-picker-content]')).not.toBeNull();
   });
 
+  it("stays shut with Alt+M over the Team Library trap", async () => {
+    mock.instances = [engine("grok", "grokAgent", ["grok-4.6"])];
+    await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" }, false, false, "bot-1");
+    expect(document.querySelector('[data-model-picker-content]')).toBeNull();
+    const library = document.createElement("div");
+    library.setAttribute("role", "dialog");
+    library.setAttribute("aria-labelledby", "team-library-title");
+    library.textContent = "Team Library";
+    document.body.append(library);
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", altKey: true, bubbles: true })));
+    expect(document.querySelector('[data-model-picker-content]')).toBeNull();
+  });
+
   it("still does not open a second picker over its own dialog", async () => {
     mock.instances = [engine("grok", "grokAgent", ["grok-4.6"])];
     await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" }, false, false, "bot-1");

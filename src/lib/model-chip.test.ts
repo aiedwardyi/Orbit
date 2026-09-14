@@ -100,6 +100,19 @@ describe("modelChipTitle", () => {
     expect(title).toContain("high");
     expect(title).not.toMatch(/\(High\)/);
   });
+
+  it("localizes the tooltip effort while the badge does the same", () => {
+    const tko = (
+      key: Parameters<typeof translate>[1],
+      vars?: Record<string, string | number>,
+    ) => translate("ko", key, vars);
+    const title = modelChipTitle(
+      { mode: "pinned", instance: antigravity, model: "gemini-3.8-flash-high" },
+      tko,
+    );
+    expect(title).toContain("높음");
+    expect(title).not.toMatch(/\(High\)/);
+  });
 });
 
 const antigravity = {
@@ -134,6 +147,31 @@ describe("displayedChipEffort", () => {
 
   it("leaves suffix-free selections alone", () => {
     expect(displayedChipEffort(grok, "grok-4.6", undefined)).toBeUndefined();
+  });
+
+  it("shows no badge for a lone suffixed option with no tier siblings", () => {
+    const cursor = {
+      displayName: "Cursor",
+      models: {
+        default: "claude-sonnet-5-thinking-high",
+        options: [{ id: "claude-sonnet-5-thinking-high", label: "Claude Sonnet 5 1M Thinking" }],
+      },
+    };
+    expect(displayedChipEffort(cursor, "claude-sonnet-5-thinking-high", undefined)).toBeUndefined();
+  });
+
+  it("counts a bare stem sibling as family evidence", () => {
+    const bare = {
+      displayName: "Test",
+      models: {
+        default: "model-x-high",
+        options: [
+          { id: "model-x", label: "Model X" },
+          { id: "model-x-high", label: "Model X (High)" },
+        ],
+      },
+    };
+    expect(displayedChipEffort(bare, "model-x-high", undefined)).toBe("high");
   });
 });
 
