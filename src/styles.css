@@ -676,6 +676,14 @@ body {
   outline: none;
 }
 
+/* Settings → General → Profile Name keeps the same keyboard ring as its
+   sibling controls; the generic input reset above would otherwise leave it
+   ringless for keyboard users. */
+#settings-profile-name:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
 ::selection {
   background: color-mix(in oklab, var(--color-accent) 45%, transparent);
   color: var(--color-ink);

@@ -3,19 +3,15 @@ import { createPortal } from "react-dom";
 import { Atom, BookOpen, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Hexagon, Leaf, MoonStar, Mountain, Orbit, Sparkle, Sparkles, Sun, X } from "lucide-react";
 import { useStore, type Bot, type ModelSelection } from "@/state/store";
 import { filterCustomModels } from "@/lib/custom-models";
-import { engineBadgeText, modelChipText, modelChipTitle, modelFamilyAccent } from "@/lib/model-chip";
+import { displayedChipEffort, engineBadgeText, modelChipText, modelChipTitle, modelEffortLabel, modelFamilyAccent } from "@/lib/model-chip";
 import { movePicker, pickerColumn, pickerEfforts, pickerModels, pickerRows, selectPickerEffort, selectPickerModel, withPickerEffort } from "@/lib/cross-model-picker";
 import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
 import { cn } from "@/lib/cn";
-import { useI18n, type MessageKey } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n";
 import "./ModelPicker.css";
 
 const EFFORT_EDGE_CLEARANCE = 130 / 2 + 38; // Half the horizontal step plus chevron clearance.
-const EFFORT_LABELS = new Map<string, MessageKey>([
-  ["none", "model.effortNone"], ["low", "model.effortLow"], ["medium", "model.effortMedium"],
-  ["high", "model.effortHigh"], ["xhigh", "model.extraHigh"], ["max", "model.effortMax"],
-]);
 
 type ModelPickerProps = {
   bot: Bot;
@@ -76,10 +72,8 @@ export function ModelPickerControl({
   const effortIndex = efforts.findIndex((option) => option.model ? option.model === draft.model : option.effort === draft.effort);
   const split = Math.ceil(efforts.length / 2);
   const effortPosition = (index: number) => index < split ? index - split : index - split + 1;
-  const effortLabel = (label: string) => {
-    const key = EFFORT_LABELS.get(label);
-    return key ? t(key) : label;
-  };
+  // Level labels live in lib/model-chip so the badge and tooltip localize together.
+  const effortLabel = (label: string) => modelEffortLabel(label, t);
   const effortX = effortIndex >= 0 ? effortPosition(effortIndex) * 130 : 0;
   const offset = stageWidth ? Math.max(EFFORT_EDGE_CLEARANCE - stageWidth / 2 - effortX, Math.min(0, stageWidth / 2 - EFFORT_EDGE_CLEARANCE - effortX)) : 0;
   const planeStyle: CSSProperties & { "--picker-offset": string } = {
@@ -111,7 +105,12 @@ export function ModelPickerControl({
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat || event.isComposing || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.code !== "KeyM") return;
-      if (!shortcutEnabled || (!open && document.querySelector('[role="dialog"]'))) return;
+      // Only picker and trapping dialogs block Alt+M (prevents a second
+      // picker over its own dialog, and keeps the Team Library's
+      // capture-phase focus trap intact). Compatible dialogs such as
+      // Settings must not swallow the shortcut — the picker renders above
+      // them (z-100 over z-50).
+      if (!shortcutEnabled || (!open && document.querySelector('[data-model-picker-content], [aria-labelledby="team-library-title"]'))) return;
       event.preventDefault();
       if (open) close();
       else show();
@@ -158,6 +157,9 @@ export function ModelPickerControl({
     };
   }, [open]);
 
+  // Display-only: tier-suffixed model ids (no selection.effort) still show
+  // their dot+effort via the catalog family check. No state changes here.
+  const chipEffort = displayedChipEffort(active, selection.model, selection.effort);
   const trigger = (
     <button
       ref={triggerRef}
@@ -167,16 +169,16 @@ export function ModelPickerControl({
       aria-haspopup="dialog"
       aria-keyshortcuts={shortcutEnabled ? "Alt+M" : undefined}
       className="flex items-center gap-1.5 rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover"
-      title={modelChipTitle({ mode: selection.mode, instance: active, model: selection.model }, t) + (shortcutEnabled ? ` (${shortcut}+M)` : "")}
+      title={modelChipTitle({ mode: selection.mode, instance: active, model: selection.model, effort: selection.effort }, t) + (shortcutEnabled ? ` (${shortcut}+M)` : "")}
     >
       {active ? <ProviderMark driverKind={active.driverKind} size={14} /> : <Sparkles size={14} className="text-accent" />}
       <span className={cn("max-w-[160px] truncate", !contained && active && "@max-4xl/chathead:hidden")}>
-        {modelChipText({ instance: active, model: selection.model }, t)}
+        {modelChipText({ instance: active, model: selection.model, effort: selection.effort }, t)}
       </span>
-      {selection.effort && (
+      {chipEffort && (
         <span data-model-effort className={cn("flex items-center gap-1", !contained && active && "@max-4xl/chathead:hidden")}>
           <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(active?.driverKind) }} />
-          <span className="text-[12px] text-ink-secondary">{effortLabel(selection.effort)}</span>
+          <span className="text-[12px] text-ink-secondary">{effortLabel(chipEffort)}</span>
         </span>
       )}
       {!contained && active && <span className="hidden max-w-[96px] truncate @max-4xl/chathead:inline">{active.displayName}</span>}

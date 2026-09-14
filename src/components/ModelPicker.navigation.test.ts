@@ -247,6 +247,42 @@ describe("ModelPicker cross navigation", () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
+  it("opens with Alt+M even when a foreign dialog (Settings) is open", async () => {
+    mock.instances = [engine("grok", "grokAgent", ["grok-4.6"])];
+    await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" }, false, false, "bot-1");
+    expect(document.querySelector('[data-model-picker-content]')).toBeNull();
+    const foreign = document.createElement("div");
+    foreign.setAttribute("role", "dialog");
+    foreign.textContent = "Settings";
+    document.body.append(foreign);
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", altKey: true, bubbles: true })));
+    expect(document.querySelector('[data-model-picker-content]')).not.toBeNull();
+  });
+
+  it("stays shut with Alt+M over the Team Library trap", async () => {
+    mock.instances = [engine("grok", "grokAgent", ["grok-4.6"])];
+    await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" }, false, false, "bot-1");
+    expect(document.querySelector('[data-model-picker-content]')).toBeNull();
+    const library = document.createElement("div");
+    library.setAttribute("role", "dialog");
+    library.setAttribute("aria-labelledby", "team-library-title");
+    library.textContent = "Team Library";
+    document.body.append(library);
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", altKey: true, bubbles: true })));
+    expect(document.querySelector('[data-model-picker-content]')).toBeNull();
+  });
+
+  it("still does not open a second picker over its own dialog", async () => {
+    mock.instances = [engine("grok", "grokAgent", ["grok-4.6"])];
+    await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" }, false, false, "bot-1");
+    const existing = document.createElement("div");
+    existing.setAttribute("role", "dialog");
+    existing.setAttribute("data-model-picker-content", "");
+    document.body.append(existing);
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", altKey: true, bubbles: true })));
+    expect(document.querySelectorAll('[data-model-picker-content]')).toHaveLength(1);
+  });
+
   it.each([
     ["tier", "low"],
     ["effort", "high"],
