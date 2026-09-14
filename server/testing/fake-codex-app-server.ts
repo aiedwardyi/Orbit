@@ -6,6 +6,7 @@
 //
 //   FAKE_CODEX_MODE   happy (default) | approval | resume | stream | windows-command |
 //                     mcp-elicitation | logged-in-stdout | logged-out | unauthorized
+//                     | bench-quiet (no tool items — latency floor)
 //   FAKE_CODEX_DUMP   path to write {argv, env, calls, decision} as JSON
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
@@ -44,8 +45,12 @@ const dump = () => {
 };
 
 const finishTurn = () => {
-  notify("item/completed", { item: { id: "i1", type: "commandExecution", status: "completed" } });
-  notify("item/completed", { item: { id: "w1", type: "webSearch", status: "completed" } });
+  // bench-quiet never started tool items (see turn/start), so there is
+  // nothing to complete — a text-only fixture turn.
+  if (mode !== "bench-quiet") {
+    notify("item/completed", { item: { id: "i1", type: "commandExecution", status: "completed" } });
+    notify("item/completed", { item: { id: "w1", type: "webSearch", status: "completed" } });
+  }
   if (mode === "stream") {
     // token deltas, then the whole message — the driver must not double-emit
     notify("item/agentMessage/delta", { itemId: "m1", delta: "done from " });
@@ -193,8 +198,10 @@ process.stdin.on("data", (chunk) => {
               `\"Get-Content -Raw -LiteralPath 'C:\\Users\\Ada\\workspaces\\${"very-long-folder\\".repeat(8)}NOTES.md'\"`,
             ].join(" ")
           : "ls -la";
-        notify("item/started", { item: { id: "i1", type: "commandExecution", command } });
-        notify("item/started", { item: { id: "w1", type: "webSearch", query: "OpenMausBot" } });
+        if (mode !== "bench-quiet") {
+          notify("item/started", { item: { id: "i1", type: "commandExecution", command } });
+          notify("item/started", { item: { id: "w1", type: "webSearch", query: "OpenMausBot" } });
+        }
         if (mode === "mcp-elicitation") {
           out({
             jsonrpc: "2.0",
