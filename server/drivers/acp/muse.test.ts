@@ -63,7 +63,9 @@ describe("Meta Muse driver catalog", () => {
 
   it("carries the muse argv through the wsl wrapper without a shell", () => {
     const resolved = resolveCliSpawn(museDefaultCli("win32"), ["serve", "--model", "muse-spark-1.3"]);
-    expect(resolved.command.endsWith("wsl") || resolved.command.endsWith("wsl.exe")).toBe(true);
+    // PATHEXT-aware whichWin can return uppercase `wsl.EXE` on win32, so the
+    // match is case-insensitive; Windows executes it either way.
+    expect(resolved.command).toMatch(/wsl(\.exe)?$/i);
     expect(resolved.args).toEqual(["muse", "serve", "--model", "muse-spark-1.3"]);
   });
 
