@@ -5625,6 +5625,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
 
     // ── bots ──
+    // There is deliberately no GET /api/groups list endpoint: groups ride
+    // along on this response (the sidebar's group-order refetch reads them
+    // here), so do not "fix" this into a separate groups fetch.
     if (method === "GET" && path === "/api/bots") {
       const limit = pageSize(url.searchParams.get("messages"));
       if (limit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
