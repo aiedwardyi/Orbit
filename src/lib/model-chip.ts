@@ -103,7 +103,7 @@ export function modelChipTitle(
 ): string {
   const live = modelChipText(input, t);
   const shown = displayedChipEffort(input.instance, input.model, input.effort);
-  const named = shown ? `${live} · ${modelEffortLabel(shown, t)}` : live;
+  const named = shown ? `${live} · ${chipEffortLabel(shown, t)}` : live;
   if (input.mode === "automatic") {
     return t("model.automaticTitle", {
       name: input.instance ? named : t("model.unresolved"),

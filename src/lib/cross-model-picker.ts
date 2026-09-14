@@ -120,7 +120,14 @@ export function movePicker(rows: PickerRow[], current: ModelSelection, key: stri
     const target = models[(index + direction + models.length) % models.length]!;
     const tier = row.instance.driverKind === "antigravityAgent" ? current.model.match(/-(low|medium|high)$/)?.[0] : undefined;
     const option = (tier && target.cell.options.find((option) => option.id.endsWith(tier))) || target.cell.options[0]!;
-    return selectPickerModel(target.instance, option.id, current);
+    // Antigravity encodes effort in the model id with no selection.effort, so
+    // a bare jump would lose it: carry the tier across when the target speaks
+    // effort. Antigravity targets keep their id-encoded tiers effort-free.
+    const encoded: ModelSelection["effort"] = tier === "-low" ? "low" : tier === "-medium" ? "medium" : tier === "-high" ? "high" : undefined;
+    const previous = !current.effort && encoded && target.instance.driverKind !== "antigravityAgent"
+      ? { ...current, effort: encoded }
+      : current;
+    return selectPickerModel(target.instance, option.id, previous);
   }
   return current;
 }

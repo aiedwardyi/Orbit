@@ -177,13 +177,13 @@ export function ModelPickerControl({
       <span className={cn("min-w-0 max-w-[160px] truncate", !contained && active && "@max-4xl/chathead:hidden")}>
         {modelChipText({ instance: active, model: selection.model, effort: selection.effort }, t)}
       </span>
+      {!contained && active && <span className="hidden max-w-[96px] truncate @max-4xl/chathead:inline">{active.displayName}</span>}
       {chipEffort && (
         <span data-model-effort className="flex shrink-0 items-center gap-1 whitespace-nowrap">
           <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(active?.driverKind) }} />
           <span className="text-[12px] text-ink-secondary">{" · "}{chipEffortLabel(chipEffort, t)}</span>
         </span>
       )}
-      {!contained && active && <span className="hidden max-w-[96px] truncate @max-4xl/chathead:inline">{active.displayName}</span>}
       <ChevronDown size={14} className={cn("shrink-0 text-ink-secondary", !contained && active && "@max-4xl/chathead:hidden")} />
     </button>
   );
@@ -257,8 +257,10 @@ export function ModelPickerControl({
                   : /opus/i.test(id) ? Sun : /sonnet/i.test(id) ? Sparkles : Orbit;
                 // Contributor variants read as a short card ("Meta Muse 1.3" +
                 // Contrib badge) with the full catalog name kept in
-                // aria-label/title for screen readers and tooltips.
-                const shortContrib = !gpt && option.options.length === 1 && /-contributor$/i.test(option.options[0]!.id);
+                // aria-label/title for screen readers and tooltips. Off-list
+                // pins stay verbatim (no rename, no badge) so the accessible
+                // name keeps the exact pinned id and off-list note.
+                const shortContrib = !gpt && !option.offList && option.options.length === 1 && /-contributor$/i.test(option.options[0]!.id);
                 const fullName = shortContrib ? option.options[0]!.label : option.label;
                 const shortName = shortContrib ? option.options[0]!.label.replace(/\s+contributor$/i, "") : option.label;
                 return (

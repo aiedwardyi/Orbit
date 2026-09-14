@@ -168,9 +168,12 @@ function platformMarkup(platform: string, defaultOpen = false) {
   }
 }
 
-/** Visible chip text: strip tags so model + effort read as one line. */
+/** Visible wide chip text: drop the narrow-header engine fallback (display:none
+ * at wide widths) then strip tags so model + effort read as one line. */
 function chipText(html: string): string {
-  return html.replace(/<[^>]*>/g, "");
+  return html
+    .replace(/<span class="hidden max-w-\[96px\][^>]*>[^<]*<\/span>/g, "")
+    .replace(/<[^>]*>/g, "");
 }
 
 describe("ModelPicker friends chip", () => {
@@ -264,6 +267,50 @@ describe("ModelPicker friends chip", () => {
     expect(list).not.toContain("model-cross-name\">Meta Muse 1.3 Contributor<");
   });
 
+  it("keeps an off-list contributor pin verbatim with no short rename", () => {
+    const museFuture: InstanceInfo = {
+      instanceId: "muse",
+      driverKind: "museAgent",
+      displayName: "Meta Muse",
+      snapshot: { state: "available" as const, authenticated: true, version: "1.0.0" },
+      models: {
+        default: "muse-spark-1.4-contributor",
+        options: [
+          { id: "muse-spark-1.3", label: "Meta Muse 1.3" },
+          { id: "muse-spark-1.3-contributor", label: "Meta Muse 1.3 Contributor" },
+          { id: "muse-spark-1.4-contributor", label: "Meta Muse 1.4 Contributor" },
+        ],
+      },
+      capabilities: {},
+    };
+    const html = renderToStaticMarkup(
+      createElement(
+        I18nProvider,
+        null,
+        createElement(ModelPickerControl, {
+          bot: { ...bot, modelSelection: { instanceId: "muse", model: "muse-spark-1.4-contributor", mode: "pinned" } },
+          store: {
+            state: { instances: [museFuture], selectedId: "bot-1" },
+            dispatch: () => undefined,
+            refreshInstances: async () => undefined,
+          },
+          defaultOpen: true,
+        }),
+      ),
+    );
+    const list = html.slice(html.indexOf("data-model-picker-content"));
+    expect(list).toContain('data-model-cell="muse-spark-1.4-contributor" aria-pressed="true"');
+    // verbatim full name, and the off-list cell carries no badge or rename:
+    // the accessible name keeps the exact pin plus the off-list note.
+    expect(list).toContain("model-cross-name\">Meta Muse 1.4 Contributor<");
+    const cell = list.slice(
+      list.indexOf('data-model-cell="muse-spark-1.4-contributor"'),
+      list.indexOf("</button>", list.indexOf('data-model-cell="muse-spark-1.4-contributor"')),
+    );
+    expect(cell).not.toContain("model-cross-badge");
+    expect(cell).not.toContain("aria-label=");
+  });
+
   it("keeps a lone legacy tier label with no badge when nothing derives", () => {
     const legacy: InstanceInfo = {
       ...antigravityTiered,
@@ -319,6 +366,15 @@ describe("ModelPicker friends chip", () => {
     // …but the effort badge never folds away, dot included
     expect(html).toContain("data-model-effort");
     expect(html).not.toMatch(/data-model-effort[^>]*@max-4xl\/chathead:hidden/);
+  });
+
+  it("keeps the compact label before the effort in a narrow chat header", () => {
+    const html = markup({ instanceId: "grok", model: "grok-4.6", mode: "automatic", effort: "high" });
+    const label = html.indexOf("max-w-[96px]");
+    const badge = html.indexOf("data-model-effort");
+    expect(label).toBeGreaterThan(-1);
+    expect(badge).toBeGreaterThan(-1);
+    expect(label).toBeLessThan(badge);
   });
 
   it.each(["ledger", "midnight"])("keeps the accent dot and effort visible beside a long label under the %s skin", (skin) => {

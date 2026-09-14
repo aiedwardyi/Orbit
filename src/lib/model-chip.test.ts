@@ -118,8 +118,9 @@ describe("modelChipTitle", () => {
       { mode: "pinned", instance: antigravity, model: "gemini-3.8-flash-high" },
       t,
     );
-    expect(title).toContain("Gemini 3.8 Flash");
-    expect(title).toContain("high");
+    // Unified with the header chip: capitalized one-line Model · Effort.
+    expect(title).toContain("Gemini 3.8 Flash · High");
+    expect(title).not.toContain("· high");
     expect(title).not.toMatch(/\(High\)/);
   });
 
