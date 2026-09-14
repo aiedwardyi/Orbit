@@ -28,6 +28,7 @@ describe("friendsSettingsNavVisible", () => {
     expect(friendsSettingsNavVisible("companion", "", { phoneAvailable: false })).toBe(false);
     expect(friendsSettingsNavVisible("general", "", { phoneAvailable: false })).toBe(true);
     expect(friendsSettingsNavVisible("connections", "", { phoneAvailable: false })).toBe(true);
+    expect(friendsSettingsNavVisible("themes", "", { phoneAvailable: false })).toBe(true);
     expect(friendsSettingsNavVisible("engines", "", { phoneAvailable: false })).toBe(false);
     expect(friendsSettingsNavVisible("usage", "", { phoneAvailable: false })).toBe(true);
   });

@@ -105,12 +105,12 @@ describe("SettingsModal friends chrome", () => {
   it("keeps idle General short: no Advanced, no Local VM / channel / experimental / diagnostics", () => {
     const html = markup("general");
     expect(html).toContain("Profile");
-    expect(html).toContain("Skin");
+    expect(html).not.toContain("Skin");
+    expect(html).not.toContain("Applies instantly and is remembered");
     expect(html).toContain("Tool calls");
     expect(html).toContain("Show tool calls");
     expect(html).toContain("Failed tools, turn-level errors, and bot-to-bot messages still appear.");
     expect(html).toMatch(/aria-label="Show tool calls in chat"[^>]*aria-checked="false"|aria-checked="false"[^>]*aria-label="Show tool calls in chat"/);
-    expect(html.indexOf("Show tool calls")).toBeLessThan(html.indexOf("Applies instantly and is remembered"));
     expect(html).toContain("Match this computer");
     expect(html).toContain("Uses English or Korean from the operating system.");
     expect(html).toContain("aria-describedby");
@@ -150,7 +150,9 @@ describe("SettingsModal friends chrome", () => {
   });
 
   it("offers Onyx, Dracula, and Panda Syntax in Skin alongside the shipped palettes", () => {
-    const html = markup("general");
+    const html = markup("themes");
+    expect(html).toContain("Skin");
+    expect(html).toContain("Applies instantly and is remembered");
     expect(html).toContain("Catppuccin Frappe");
     expect(html).toContain("Tokyo Night");
     expect(html).toContain("Vesper");
@@ -159,6 +161,9 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain("Dracula");
     expect(html).toContain("Panda Syntax");
     expect(html).toContain("Gruvbox");
+    expect(html).toContain("Kanagawa");
+    expect(html).toContain("HaX0R_BLUE");
+    expect(html).toContain("Hurtado");
     expect(html).not.toContain("Cobalt");
     expect(html).toContain('data-skin="catppuccin-frappe"');
     expect(html).toContain('data-skin="tokyo-night"');
@@ -167,6 +172,19 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain('data-skin="dracula"');
     expect(html).toContain('data-skin="cobalt"');
     expect(html).toContain('data-skin="gruvbox"');
+    expect(html).toContain('data-skin="kanagawa"');
+    expect(html).toContain('data-skin="haxor-blue"');
+    expect(html).toContain('data-skin="hurtado"');
+  });
+
+  it("keeps Skin out of General and on its own Themes tab", () => {
+    const general = markup("general");
+    expect(general).not.toContain("Skin");
+    expect(general).not.toContain("Applies instantly and is remembered");
+    expect(general).not.toContain('data-skin="kanagawa"');
+    const themes = markup("themes");
+    expect(themes).toContain("Skin");
+    expect(themes).toContain('data-skin="kanagawa"');
   });
 
   it("does not reveal Local VM, channel turns, experimental, or diagnostics when Advanced would have been open", () => {
@@ -229,7 +247,11 @@ describe("SettingsModal friends chrome", () => {
     const general = source.slice(source.indexOf('section === "general"'), source.indexOf('section === "connections"'));
     expect(general.indexOf("<LanguagePicker")).toBeGreaterThan(-1);
     expect(general.indexOf("<ToolCallsRow")).toBeGreaterThan(general.indexOf("<LanguagePicker"));
-    expect(general.indexOf("<ToolCallsRow")).toBeLessThan(general.indexOf("settings.skin.title"));
+    expect(general).not.toContain("settings.skin.title");
+    expect(general).not.toContain("<SkinPicker");
+    const themes = source.slice(source.indexOf('section === "themes"'), source.indexOf('section === "engines"') === -1 ? undefined : source.indexOf('section === "engines"'));
+    expect(themes).toContain("<SkinPicker");
+    expect(themes).toContain("settings.skin.title");
   });
 
   it("keeps Local VM, channel turns, experimental, and diagnostics inside the folded Advanced body", () => {
