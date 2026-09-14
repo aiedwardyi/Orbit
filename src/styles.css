@@ -672,11 +672,14 @@
 /* ── HaX0R_BLUE ────────────────────────────────────────────────────────────
    Deep-space blue, monochrome phosphor. Signature tokens are exact Windows
    Terminal HaX0R_BLUE scheme hex: background ground, black raised, white
-   ink, selectionBackground secondary, blue accent, brightBlue hairline and
-   success. The scheme's three darks sit within 1.03 of each other, so panel,
-   hover, card, inset, and control are deep-space variants that keep light
-   ink readable while clearing the surface-step rules. Danger stays the same
-   phosphor blue on purpose — monochrome means status is shape, not hue.
+   ink, selectionBackground secondary and success, blue accent and danger,
+   brightBlue hairline, foreground warning. The scheme's three darks sit
+   within 1.03 of each other, so panel, hover, card, inset, and control are
+   deep-space variants that keep light ink readable while clearing the
+   surface-step rules. The vivid blues sit within 1.05 of each other, so
+   success takes the pale ice and danger keeps the vivid phosphor: go and
+   stop differ at a glance, while warning keeps the vivid foreground tone
+   and errs toward alarm, never toward go.
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="haxor-blue"] {
   --color-app: #010515;
@@ -698,10 +701,10 @@
   --color-accent-ink: #010515;    /* ground on the phosphor fill */
   --color-bubble-user: #0a1026;
 
-  --color-success: #00b3f7;
+  --color-success: #c1e4ff;       /* pale ice, 1.73 vs the vivid danger */
   --color-danger: #10b6ff;
   --color-danger-ink: #010515;
-  --color-warning: #c1e4ff;
+  --color-warning: #11b7ff;
   --color-scrollbar: #00b3f7;
   --color-maus-line: #c1e4ff;
 

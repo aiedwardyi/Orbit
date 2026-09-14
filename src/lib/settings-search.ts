@@ -99,7 +99,7 @@ function phraseKeysFor(id: AppSettingsSection): readonly MessageKey[] {
 const EXTRA_KEYWORDS = {
   general: ["profile", "name", "updates", "tools", "tool calls", "language", "locale", "vm", "diagnostics", "experimental"],
   connections: ["keys", "api", "gemini", "muse", "claude", "grok", "codex", "antigravity", "cli"],
-  themes: ["skin", "theme", "appearance", "kanagawa", "haxor", "hurtado"],
+  themes: ["skin", "theme", "appearance", "kanagawa", "haxor", "hax0r", "hurtado"],
   engines: ["models", "claude", "grok", "providers", "cli"],
   companion: ["companion", "phone", "pair", "mobile"],
   computer: ["vm", "virtual", "desktop"],
