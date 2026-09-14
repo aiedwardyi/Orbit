@@ -173,11 +173,12 @@ export function ModelPickerControl({
     >
       {active ? <ProviderMark driverKind={active.driverKind} size={14} /> : <Sparkles size={14} className="text-accent" />}
       {/* Only the label side may shrink: a long name truncates in place while
-          the accent dot, effort, and chevron stay visible at any width. */}
-      <span className={cn("min-w-0 max-w-[160px] truncate", !contained && active && "@max-4xl/chathead:hidden")}>
+          the accent dot, effort, and chevron stay visible at any width. The
+          label is always the full selected model — never the bare engine
+          name — so the header matches Bot details at every width. */}
+      <span className="min-w-0 max-w-[160px] truncate">
         {modelChipText({ instance: active, model: selection.model, effort: selection.effort }, t)}
       </span>
-      {!contained && active && <span className="hidden max-w-[96px] truncate @max-4xl/chathead:inline">{active.displayName}</span>}
       {chipEffort && (
         <span data-model-effort className="flex shrink-0 items-center gap-1 whitespace-nowrap">
           <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(active?.driverKind) }} />

@@ -168,12 +168,9 @@ function platformMarkup(platform: string, defaultOpen = false) {
   }
 }
 
-/** Visible wide chip text: drop the narrow-header engine fallback (display:none
- * at wide widths) then strip tags so model + effort read as one line. */
+/** Chip text as one line: strip tags so the full model + effort read together. */
 function chipText(html: string): string {
-  return html
-    .replace(/<span class="hidden max-w-\[96px\][^>]*>[^<]*<\/span>/g, "")
-    .replace(/<[^>]*>/g, "");
+  return html.replace(/<[^>]*>/g, "");
 }
 
 describe("ModelPicker friends chip", () => {
@@ -191,11 +188,46 @@ describe("ModelPicker friends chip", () => {
     expect(html).toContain(`title="Stay on this engine while it works. Currently Grok 4.6. (${shortcut}+M)"`);
   });
 
-  it("folds the chip to the engine name in a narrow chat header", () => {
+  it("shows the full selected model at any width, never the bare engine name", () => {
     const html = markup();
-    expect(html).toMatch(/max-w-\[160px\] truncate[^"]*@max-4xl\/chathead:hidden"[^>]*>Grok 4\.6</);
-    expect(html).toMatch(/hidden max-w-\[96px\] truncate @max-4xl\/chathead:inline"[^>]*>Grok</);
-    expect(html).toContain("@max-4xl/chathead:hidden");
+    expect(html).toMatch(/min-w-0 max-w-\[160px\] truncate">Grok 4\.6</);
+    expect(html).not.toContain("@max-4xl/chathead:inline");
+    expect(html).not.toMatch(/<span[^>]*>Grok<\/span>/);
+  });
+
+  it("shows the full Claude model plus effort exactly as Bot details does", () => {
+    const claudeFull: InstanceInfo = {
+      instanceId: "claude",
+      driverKind: "claudeAgent",
+      displayName: "Claude",
+      snapshot: { state: "available" as const, authenticated: true, version: "1.0.0" },
+      models: {
+        default: "claude-sonnet-5",
+        options: [{ id: "claude-sonnet-5", label: "Claude Sonnet 5" }],
+      },
+      capabilities: {},
+    };
+    const html = renderToStaticMarkup(
+      createElement(
+        I18nProvider,
+        null,
+        createElement(ModelPickerControl, {
+          bot: {
+            ...bot,
+            modelSelection: { instanceId: "claude", model: "claude-sonnet-5", mode: "pinned", effort: "high" },
+          },
+          store: {
+            state: { instances: [claudeFull], selectedId: "bot-1" },
+            dispatch: () => undefined,
+            refreshInstances: async () => undefined,
+          },
+        }),
+      ),
+    );
+    expect(chipText(html)).toContain("Claude Sonnet 5 · High");
+    expect(html).toMatch(/min-w-0 max-w-\[160px\] truncate">Claude Sonnet 5</);
+    expect(html).not.toContain("@max-4xl/chathead:inline");
+    expect(html).not.toMatch(/<span[^>]*>Claude<\/span>/);
   });
 
   it("shows effort beside the model name wearing the family accent", () => {
@@ -358,19 +390,20 @@ describe("ModelPicker friends chip", () => {
     expect(html).not.toContain("#8b929c");
   });
 
-  it("keeps effort visible while the model label folds in a narrow chat header", () => {
+  it("keeps the full model and effort on one line with no narrow fold", () => {
     const html = markup({ instanceId: "grok", model: "grok-4.6", mode: "automatic", effort: "high" });
-    // the label still folds to the engine name below the breakpoint…
-    expect(html).toMatch(/max-w-\[160px\] truncate[^"]*@max-4xl\/chathead:hidden/);
-    expect(html).toMatch(/hidden max-w-\[96px\] truncate @max-4xl\/chathead:inline/);
-    // …but the effort badge never folds away, dot included
+    // the label never folds to the engine name below the breakpoint…
+    expect(chipText(html)).toContain("Grok 4.6 · High");
+    expect(html).not.toContain("@max-4xl/chathead:inline");
+    expect(html).not.toMatch(/<span[^>]*>Grok<\/span>/);
+    // …and the effort badge never folds away, dot included
     expect(html).toContain("data-model-effort");
     expect(html).not.toMatch(/data-model-effort[^>]*@max-4xl\/chathead:hidden/);
   });
 
-  it("keeps the compact label before the effort in a narrow chat header", () => {
+  it("keeps the model label before the effort on the one-line chip", () => {
     const html = markup({ instanceId: "grok", model: "grok-4.6", mode: "automatic", effort: "high" });
-    const label = html.indexOf("max-w-[96px]");
+    const label = html.indexOf("max-w-[160px]");
     const badge = html.indexOf("data-model-effort");
     expect(label).toBeGreaterThan(-1);
     expect(badge).toBeGreaterThan(-1);

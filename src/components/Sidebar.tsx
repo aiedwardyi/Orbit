@@ -47,6 +47,7 @@ import { MIN_QUERY, SearchResults } from "./SearchResults";
 import { TeamLibraryPanel, type TeamImportResult } from "./TeamLibraryPanel";
 import { RenameTitle } from "./RenameTitle";
 import { BotPickerList } from "./BotPickerList";
+import { ConfirmDialog } from "./ConfirmDialog";
 import {
   displaySidebarWidth,
   dockedDetailsWidth,
@@ -239,31 +240,11 @@ function GroupListItem({
         onDragEnd: drag.onEnd,
       }
     : {};
+  // Native drag lives on a plain wrapper div, exactly like BotListItem: the
+  // draggable element is never the button itself, so press-then-move from
+  // anywhere on the row (avatar, name, preview) initiates the row drag.
   return (
-    <button
-      onClick={() => dispatch({ type: "select", id: group.id })}
-      {...dragProps}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        onMenu({ groupId: group.id, x: e.clientX, y: e.clientY });
-      }}
-      // the menu must be reachable without a pointer: Shift+F10, and the
-      // dedicated ContextMenu key (whose native event carries no useful
-      // coordinates) both open it centered on the row
-      onKeyDown={(e) => {
-        if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return;
-        e.preventDefault();
-        const rect = e.currentTarget.getBoundingClientRect();
-        onMenu({ groupId: group.id, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-      }}
-      className={cn(
-        "relative flex w-full items-center rounded-xl text-left",
-        density === "icons" ? "justify-center px-1 py-1.5" : density === "compact" ? "gap-2 px-2 py-1.5" : "gap-3 px-3 py-2.5",
-        selected ? "bg-raised" : "hover:bg-raised/50",
-      )}
-      title={density === "icons" ? group.name : undefined}
-      aria-label={density === "icons" ? group.name : undefined}
-    >
+    <div className="group relative" title={density === "icons" ? group.name : undefined} {...dragProps}>
       {drag?.edge && (
         <span
           className={cn(
@@ -272,23 +253,47 @@ function GroupListItem({
           )}
         />
       )}
-      <StackedMauses members={members} density={density} />
-      <div className={cn("min-w-0 flex-1", density === "icons" && "hidden")}>
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="truncate text-[15px] font-semibold text-ink">{group.name}</span>
-          {selected && last && <span className="shrink-0 text-xs text-ink-secondary">{formatTime(last.at, localeTag(locale))}</span>}
+      <button
+        type="button"
+        onClick={() => dispatch({ type: "select", id: group.id })}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onMenu({ groupId: group.id, x: e.clientX, y: e.clientY });
+        }}
+        // the menu must be reachable without a pointer: Shift+F10, and the
+        // dedicated ContextMenu key (whose native event carries no useful
+        // coordinates) both open it centered on the row
+        onKeyDown={(e) => {
+          if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return;
+          e.preventDefault();
+          const rect = e.currentTarget.getBoundingClientRect();
+          onMenu({ groupId: group.id, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+        }}
+        className={cn(
+          "flex w-full items-center rounded-xl text-left",
+          density === "icons" ? "justify-center px-1 py-1.5" : density === "compact" ? "gap-2 px-2 py-1.5" : "gap-3 px-3 py-2.5",
+          selected ? "bg-raised" : "hover:bg-raised/50",
+        )}
+        aria-label={density === "icons" ? group.name : undefined}
+      >
+        <StackedMauses members={members} density={density} />
+        <div className={cn("min-w-0 flex-1", density === "icons" && "hidden")}>
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="truncate text-[15px] font-semibold text-ink">{group.name}</span>
+            {selected && last && <span className="shrink-0 text-xs text-ink-secondary">{formatTime(last.at, localeTag(locale))}</span>}
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate text-[13px] text-ink-secondary">
+              {roomConversationPreview(group, state.bots, showToolCalls)}
+            </span>
+            {group.unread && <span className="size-2 shrink-0 rounded-full bg-accent" />}
+          </div>
         </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-[13px] text-ink-secondary">
-            {roomConversationPreview(group, state.bots, showToolCalls)}
-          </span>
-          {group.unread && <span className="size-2 shrink-0 rounded-full bg-accent" />}
-        </div>
-      </div>
+      </button>
       {density === "icons" && group.unread && (
         <span className="absolute bottom-1.5 right-1.5 size-2 rounded-full border border-panel bg-accent" />
       )}
-    </button>
+    </div>
   );
 }
 
@@ -644,11 +649,13 @@ function BotContextMenu({
   onClose,
   onArchive,
   onMoveToSection,
+  onDeleteRequest,
 }: {
   menu: MenuState;
   onClose: () => void;
   onArchive: (bot: Bot) => void;
   onMoveToSection: (botId: string) => void;
+  onDeleteRequest: (bot: Bot) => void;
 }) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
@@ -760,7 +767,7 @@ function BotContextMenu({
             hint: archiveHint,
           },
         ),
-        item(<Trash2 size={16} />, t("chrome.delete"), () => dispatch({ type: "deleteBot", botId: bot.id }), {
+        item(<Trash2 size={16} />, t("chrome.delete"), () => onDeleteRequest(bot), {
           danger: true,
         }),
       ]}
@@ -1100,6 +1107,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const showPhone = showSidebarPhone() && phoneSettingsAvailable(capabilities.host);
   const importReturnRef = useRef<HTMLButtonElement>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Bot | null>(null);
   const [drag, setDrag] = useState<{ kind: "bot" | "group"; from: string; over: string | null } | null>(null);
   const [sectionPicker, setSectionPicker] = useState<MenuState | null>(null);
   const [roomMenu, setRoomMenu] = useState<{ groupId: string; x: number; y: number } | null>(null);
@@ -1904,6 +1912,19 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           onClose={() => setMenu(null)}
           onArchive={(bot) => void archiveBot(bot)}
           onMoveToSection={(botId) => setSectionPicker({ botId, x: menu.x, y: menu.y })}
+          onDeleteRequest={(bot) => setDeleteTarget(bot)}
+        />
+      )}
+      {deleteTarget && (
+        <ConfirmDialog
+          title={t("chrome.deleteBotTitle")}
+          body={t("chrome.deleteBotBody", { name: deleteTarget.name })}
+          confirmLabel={t("chrome.delete")}
+          onConfirm={() => {
+            dispatch({ type: "deleteBot", botId: deleteTarget.id });
+            setDeleteTarget(null);
+          }}
+          onCancel={() => setDeleteTarget(null)}
         />
       )}
       {sectionPicker && (

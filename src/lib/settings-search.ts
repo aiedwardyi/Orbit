@@ -15,7 +15,7 @@ export const SECTION_PHRASE_KEYS = {
     "settings.channelTurns.title",
     "settings.channelTurns.subtitle",
     "settings.toolCalls.title",
-    "settings.toolCalls.subtitle",
+    "settings.toolCalls.help",
     "settings.toolCalls.toggle",
     "settings.experimental.title",
     "settings.experimental.skill",
