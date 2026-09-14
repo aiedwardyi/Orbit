@@ -7,7 +7,7 @@ import { homedir, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { augmentedPath, resetPathCache, resetPathCacheForTests, splitCliString, toWslPath } from "./env-path.ts";
+import { augmentedPath, resetPathCache, resetPathCacheForTests, splitCliString, toWslPath, windowsKnownDirs } from "./env-path.ts";
 import { resolveCli } from "./procs.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
 
@@ -127,6 +127,14 @@ describe("augmentedPath", () => {
       resetPathCacheForTests();
       rmSync(localAppData, { recursive: true, force: true });
     }
+  });
+});
+
+describe("windowsKnownDirs", () => {
+  it("leads with System32 so wsl.exe resolves under a GUI-launched PATH", () => {
+    const dirs = windowsKnownDirs();
+    expect(dirs.length).toBeGreaterThan(0);
+    expect(dirs[0]).toMatch(/system32$/i);
   });
 });
 

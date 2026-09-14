@@ -55,6 +55,33 @@ function isGeminiApiKeyMessage(message: string): boolean {
   return /gemini api key/i.test(message);
 }
 
+/** Open a terminal with the install command, falling back to the clipboard.
+ *
+ * The `engine:open-terminal` invoke rejects when the packaged main has no
+ * handler for it (or the handler throws) — without this the Install button
+ * silently does nothing: no terminal, no copy, no feedback. A `false`
+ * resolve trusts main's clipboard contract (it copies before reporting
+ * failure); only a rejection re-copies here, since main may never have run.
+ * A throwing `copy` propagates so the caller shows no false "copied". */
+export async function openInstallTerminalOrCopy(
+  command: string,
+  opener: (() => Promise<boolean>) | undefined,
+  copy: (text: string) => Promise<void>,
+): Promise<"opened" | "copied"> {
+  if (!opener) {
+    await copy(command);
+    return "copied";
+  }
+  let opened: boolean;
+  try {
+    opened = await opener();
+  } catch {
+    await copy(command);
+    return "copied";
+  }
+  return opened ? "opened" : "copied";
+}
+
 /** What a failed turn should offer: install/sign-in, paste a key, or Retry.
  *
  * `/api key/` in the error text is not enough on its own — Claude/Grok can
@@ -112,8 +139,16 @@ function CommandRow({ command, actionLabel }: { command: string; actionLabel: st
   };
 
   const openTerminal = async () => {
-    const opened = await window.ogb!.openInstallTerminal!(command);
-    settle(opened ? "opened" : "copied");
+    try {
+      settle(
+        await openInstallTerminalOrCopy(command, () => window.ogb!.openInstallTerminal!(command), (text) =>
+          navigator.clipboard.writeText(text),
+        ),
+      );
+    } catch {
+      // Clipboard blocked too: the command stays selectable, and no false
+      // "copied" is shown.
+    }
   };
 
   return (

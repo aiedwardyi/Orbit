@@ -54,11 +54,16 @@ function knownDirs(): string[] {
  * those without a restart — `~/.grok/bin` (the x.ai installer) and
  * `%APPDATA%\npm` (global npm shims), plus `%LOCALAPPDATA%\agy\bin`, cover
  * every engine we ship an install command for. */
-function windowsKnownDirs(): string[] {
+export function windowsKnownDirs(): string[] {
   const home = homedir();
   const appData = process.env.APPDATA ?? join(home, "AppData", "Roaming");
   const localAppData = process.env.LOCALAPPDATA ?? join(home, "AppData", "Local");
   return [
+    // System32 first: wsl.exe (and taskkill) live here, and GUI-launched
+    // apps often inherit a PATH without it — without this nothing
+    // WSL-backed resolves, and Meta reports Not installed while `muse`
+    // works fine in the user's own terminal.
+    join(process.env.SystemRoot ?? "C:\\Windows", "System32"),
     join(appData, "npm"), // npm -g shims: claude, codex
     join(home, ".grok", "bin"), // x.ai installer
     join(localAppData, "agy", "bin"), // Antigravity installer

@@ -96,6 +96,14 @@ export function grokRateLimitWindows(payload: unknown): RateLimitWindow[] {
  * dropped. Both pools (Gemini, Claude + GPT) report the same two windows,
  * so each id keeps the most constrained pool — the binding constraint. */
 export function antigravityRateLimitWindows(payload: unknown, now = Date.now()): RateLimitWindow[] {
+  // Some transports wrap the message in a `response` envelope (seen live on
+  // the quota-summary path). Unwrap only a real quota envelope — groups or
+  // userStatus inside — because a bare payload can carry its own
+  // record-valued `response` field, and replacing the payload with it would
+  // discard valid sibling quota data.
+  const envelope = isRecord(payload) ? payload.response : undefined;
+  const body =
+    isRecord(envelope) && (Array.isArray(envelope.groups) || isRecord(envelope.userStatus)) ? envelope : payload;
   const classify = (name: string): { id: string; windowMinutes: number } | null => {
     const text = name.toLowerCase();
     if (/weekly|7\s*d|seven[\s_-]?day/.test(text)) return { id: "seven_day", windowMinutes: SEVEN_DAYS };
@@ -112,8 +120,8 @@ export function antigravityRateLimitWindows(payload: unknown, now = Date.now()):
   };
   type Candidate = { name: string; fraction: unknown; resetMs: number | null };
   const candidates: Candidate[] = [];
-  if (isRecord(payload)) {
-    for (const [bucket, entry] of Object.entries(payload)) {
+  if (isRecord(body)) {
+    for (const [bucket, entry] of Object.entries(body)) {
       if (bucket === "groups" || bucket === "userStatus") continue;
       if (!isRecord(entry)) continue;
       const seconds = entry.reset_in_seconds ?? entry.resetInSeconds;
@@ -128,8 +136,8 @@ export function antigravityRateLimitWindows(payload: unknown, now = Date.now()):
               : resetFromUnknown(entry.resetTime),
       });
     }
-    if (Array.isArray(payload.groups)) {
-      for (const group of payload.groups) {
+    if (Array.isArray(body.groups)) {
+      for (const group of body.groups) {
         if (!isRecord(group) || !Array.isArray(group.buckets)) continue;
         for (const bucket of group.buckets) {
           if (!isRecord(bucket)) continue;
@@ -142,7 +150,7 @@ export function antigravityRateLimitWindows(payload: unknown, now = Date.now()):
         }
       }
     }
-    const userStatus = isRecord(payload.userStatus) ? payload.userStatus : null;
+    const userStatus = isRecord(body.userStatus) ? body.userStatus : null;
     const cascade = userStatus && isRecord(userStatus.cascadeModelConfigData) ? userStatus.cascadeModelConfigData : null;
     const configs = cascade && Array.isArray(cascade.clientModelConfigs) ? cascade.clientModelConfigs : [];
     for (const config of configs) {
