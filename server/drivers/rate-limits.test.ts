@@ -280,6 +280,15 @@ describe("museRateLimitWindows", () => {
     ]);
   });
 
+  it("drops negative fills but keeps overage past 100", () => {
+    expect(museRateLimitWindows({ five_hour: { utilization: -0.2, resetsAt: 1_790_000_000 } }, now)).toEqual([]);
+    expect(museRateLimitWindows({ five_hour: { usedPercent: -5, resetsAt: 1_790_000_000 } }, now)).toEqual([]);
+    expect(museRateLimitWindows({ five_hour: { remaining_fraction: 1.2, resetsAt: 1_790_000_000 } }, now)).toEqual([]);
+    expect(museRateLimitWindows({ five_hour: { usedPercent: 120, resetsAt: 1_790_000_000 } }, now)).toEqual([
+      { id: "five_hour", usedPercent: 120, resetsAt: 1_790_000_000_000, windowMinutes: 300 },
+    ]);
+  });
+
   it("drops windows without a fill level and tolerates junk", () => {
     expect(museRateLimitWindows({ five_hour: { resetsAt: 60 }, seven_day: { utilization: "0.5" } }, now)).toEqual([]);
     expect(museRateLimitWindows({ monthly: { utilization: 0.5, resetsAt: 60 } }, now)).toEqual([]);

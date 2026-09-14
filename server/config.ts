@@ -157,25 +157,28 @@ export function parseConfigPatch(value: JsonValue): ConfigPatch {
 /** Drop the legacy OpenCode section from the stored file. The engine is gone
  * and no driver reads it, but upgrades keep a plaintext apiKey on disk: zod
  * strips unknown keys in memory only, so nothing ever rewrites the file.
- * Cleanup-only — the section is swept, never consumed. Returns whether the
- * file was rewritten. Never throws: a missing or corrupt file is simply
- * nothing to sweep. */
-export function sweepLegacyOpencodeKey(dataDir: string = DATA_DIR): boolean {
+ * Cleanup-only — the section is swept, never consumed. Returns "swept" when
+ * the file was rewritten, "absent" when there was nothing to remove
+ * (missing, corrupt, or keyless file), and "failed" when the section was
+ * found but the rewrite did not land — boot must surface that, or the
+ * plaintext survives silently. Never throws. The rewrite keeps the 0o600
+ * secret-file mode saveConfig uses. */
+export function sweepLegacyOpencodeKey(dataDir: string = DATA_DIR): "swept" | "absent" | "failed" {
   const path = join(dataDir, "config.json");
   let raw: unknown;
   try {
     raw = parseJson(readFileSync(path, "utf8"));
   } catch {
-    return false;
+    return "absent";
   }
-  if (!raw || typeof raw !== "object" || Array.isArray(raw) || !Object.hasOwn(raw, "opencodeGo")) return false;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || !Object.hasOwn(raw, "opencodeGo")) return "absent";
   const { opencodeGo: _dropped, ...rest } = raw as Record<string, unknown>;
   try {
-    writeFileAtomic(path, `${JSON.stringify(rest, null, 2)}\n`);
+    writeFileAtomic(path, `${JSON.stringify(rest, null, 2)}\n`, { mode: 0o600 });
   } catch {
-    return false;
+    return "failed";
   }
-  return true;
+  return "swept";
 }
 
 export function vpsSshAlias(cfg: AppConfig): string | null {

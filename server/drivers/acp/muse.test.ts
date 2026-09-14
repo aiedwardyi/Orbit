@@ -25,7 +25,11 @@ describe("Meta Muse driver catalog", () => {
   it("advertises subscription windows and the official installer", () => {
     expect(MuseAgentDriver.install?.command?.linux).toContain("https://dev.meta.ai/install.sh");
     expect(MuseAgentDriver.install?.command?.darwin).toContain("https://dev.meta.ai/install.sh");
-    expect(MuseAgentDriver.install?.signInCommand).toBe("muse login");
+    // Explicit platforms: the shipped value is platform-evaluated, so it is
+    // `wsl muse login` on win32 by design, never bare `muse login` there.
+    expect(museSignInCommand("darwin")).toBe("muse login");
+    expect(museSignInCommand("win32")).toBe("wsl muse login");
+    expect(MuseAgentDriver.install?.signInCommand).toBe(museSignInCommand());
   });
 
   it("accepts META_API_KEY without a stored login", () => {
@@ -50,6 +54,21 @@ describe("Meta Muse driver catalog", () => {
         throw new Error("wsl missing");
       },
     })).toBe(false);
+  });
+
+  it("never accepts a Windows-side login file for the WSL process", () => {
+    const home = mkdtempSync(join(tmpdir(), "omb-muse-stale-home-"));
+    const xdg = mkdtempSync(join(tmpdir(), "omb-muse-stale-xdg-"));
+    mkdirSync(join(xdg, "muse"), { recursive: true });
+    writeFileSync(join(xdg, "muse", "auth.json"), JSON.stringify({ token: "stale-windows-copy" }));
+    const env = { HOME: home, XDG_CONFIG_HOME: xdg };
+    // The same file counts off-Windows, where the process reads it directly.
+    expect(museIsAuthenticated(env, undefined, { platform: "linux" })).toBe(true);
+    // On win32 only the key and the WSL-side probe count: a stale copy must
+    // not read as signed in while every turn would fail.
+    expect(museIsAuthenticated(env, undefined, { platform: "win32", probeWslAuth: () => false })).toBe(false);
+    expect(museIsAuthenticated(env, undefined, { platform: "win32", probeWslAuth: () => true })).toBe(true);
+    expect(museIsAuthenticated({ ...env, META_API_KEY: "meta-key" }, undefined, { platform: "win32", probeWslAuth: () => false })).toBe(true);
   });
 
   it("reads the sign-in command for this platform", () => {

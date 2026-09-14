@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -292,7 +292,7 @@ describe("legacy OpenCode key sweep", () => {
     const dir = join(DATA_DIR, "..", `omb-sweep-${process.pid}`);
     writeConfig(dir, JSON.stringify({ gemini: { apiKey: "kept" }, opencodeGo: { apiKey: "legacy-secret" } }));
     try {
-      expect(sweepLegacyOpencodeKey(dir)).toBe(true);
+      expect(sweepLegacyOpencodeKey(dir)).toBe("swept");
       expect(parseStoredConfig(JSON.parse(readFileSync(join(dir, "config.json"), "utf8")))).toEqual({ gemini: { apiKey: "kept" } });
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -304,7 +304,7 @@ describe("legacy OpenCode key sweep", () => {
     const raw = JSON.stringify({ gemini: { apiKey: "kept" } });
     writeConfig(dir, raw);
     try {
-      expect(sweepLegacyOpencodeKey(dir)).toBe(false);
+      expect(sweepLegacyOpencodeKey(dir)).toBe("absent");
       expect(readFileSync(join(dir, "config.json"), "utf8")).toBe(raw);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -312,12 +312,26 @@ describe("legacy OpenCode key sweep", () => {
   });
 
   it("treats a missing or corrupt file as nothing to sweep", () => {
-    expect(sweepLegacyOpencodeKey(join(DATA_DIR, "..", `omb-sweep-missing-${process.pid}`))).toBe(false);
+    expect(sweepLegacyOpencodeKey(join(DATA_DIR, "..", `omb-sweep-missing-${process.pid}`))).toBe("absent");
     const dir = join(DATA_DIR, "..", `omb-sweep-corrupt-${process.pid}`);
     writeConfig(dir, "{not json");
     try {
-      expect(sweepLegacyOpencodeKey(dir)).toBe(false);
+      expect(sweepLegacyOpencodeKey(dir)).toBe("absent");
     } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports failure when the section is found but the rewrite does not land", () => {
+    const dir = join(DATA_DIR, "..", `omb-sweep-readonly-${process.pid}`);
+    const raw = JSON.stringify({ gemini: { apiKey: "kept" }, opencodeGo: { apiKey: "legacy-secret" } });
+    writeConfig(dir, raw);
+    chmodSync(dir, 0o555);
+    try {
+      expect(sweepLegacyOpencodeKey(dir)).toBe("failed");
+      expect(readFileSync(join(dir, "config.json"), "utf8")).toBe(raw);
+    } finally {
+      chmodSync(dir, 0o755);
       rmSync(dir, { recursive: true, force: true });
     }
   });

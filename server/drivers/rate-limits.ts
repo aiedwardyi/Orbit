@@ -206,8 +206,12 @@ export function museRateLimitWindows(payload: unknown, now = Date.now()): RateLi
       if (remaining < 0 || remaining > 1) return null;
       return round1((1 - remaining) * 100);
     }
-    if (finite(window.usedPercent)) return round1(window.usedPercent);
+    // A negative fill is malformed, never a window; past-100 overage stays.
+    if (finite(window.usedPercent)) {
+      return window.usedPercent < 0 ? null : round1(window.usedPercent);
+    }
     if (finite(window.utilization)) {
+      if (window.utilization < 0) return null;
       // A fraction like Claude's; a value already past 1 is a percent.
       return window.utilization <= 1 ? round1(window.utilization * 100) : round1(window.utilization);
     }

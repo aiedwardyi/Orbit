@@ -252,8 +252,11 @@ const MIME: Record<string, string> = {
 ensureDirs();
 // One-shot upgrade cleanup: drop the removed engine's plaintext key from the
 // stored file before anything reads it. Idempotent — a file without the
-// legacy section is left untouched.
-sweepLegacyOpencodeKey();
+// legacy section is left untouched. A failed sweep is loud: the secret would
+// otherwise survive silently on disk.
+if (sweepLegacyOpencodeKey() === "failed") {
+  console.warn(`config: could not remove the legacy OpenCode section from ${join(DATA_DIR, "config.json")}; delete the opencodeGo key manually`);
+}
 const cfg = loadConfig();
 const registry = new ProviderRegistry(BUILT_IN_DRIVERS);
 await registry.load(instanceConfigs(cfg));

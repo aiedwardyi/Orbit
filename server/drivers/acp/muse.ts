@@ -87,16 +87,10 @@ export function museIsAuthenticated(
   overrides?: { platform?: NodeJS.Platform; probeWslAuth?: () => boolean },
 ): boolean {
   if (nonBlank(env.META_API_KEY)) return true;
-  let stored = false;
-  try {
-    stored = existsSync(museAuthPath(env));
-  } catch {
-    stored = false;
-  }
-  if (stored) return true;
-  // The Windows-side paths above can never satisfy the Linux process, so on
-  // win32 a miss there falls through to the WSL-side probe instead of
-  // reporting a valid WSL login as unauthenticated.
+  // On win32 the engine is a Linux process: only the key and the WSL-side
+  // login count. A Windows-side auth.json can never satisfy it, so it is
+  // never accepted there — a stale copy would otherwise read as signed in
+  // while every turn fails.
   if ((overrides?.platform ?? process.platform) === "win32") {
     try {
       return (overrides?.probeWslAuth ?? probeWslMuseAuth)();
@@ -104,7 +98,11 @@ export function museIsAuthenticated(
       return false;
     }
   }
-  return false;
+  try {
+    return existsSync(museAuthPath(env));
+  } catch {
+    return false;
+  }
 }
 
 function classifyMuseCode(code: string | undefined): ProviderErrorCode | undefined {

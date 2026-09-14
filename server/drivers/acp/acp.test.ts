@@ -16,6 +16,7 @@ import { ensureDirs, PROVIDER_CREDENTIAL_ENV, WORKSPACE_CREDENTIAL_ENV } from ".
 import type { ProviderDriver, ProviderInstance } from "../../contracts.ts";
 import { recordEvents, type EventRecorder } from "../../testing/events.ts";
 import { createAcpDriver, skipSubscriptionAuthForLocalInject, wslSessionPaths, type AcpSupport } from "./core.ts";
+import { toWslPath } from "../../env-path.ts";
 import { GrokAgentDriver } from "./grok.ts";
 import { GeminiAgentDriver } from "./gemini.ts";
 import { KimiAgentDriver } from "./kimi.ts";
@@ -386,7 +387,9 @@ describe("ACP turns (fake CLI)", () => {
     });
     const done = await recorder.until((e) => e.type === "turn.completed");
     expect(done).toMatchObject({ ok: true });
-    expect(JSON.parse(readFileSync(`${dump}.cwd.json`, "utf8"))).toBe(scratch);
+    // The dump records session/new's cwd verbatim: translated on win32 where
+    // the scratch dir is Windows-shaped, untouched POSIX elsewhere.
+    expect(JSON.parse(readFileSync(`${dump}.cwd.json`, "utf8"))).toBe(toWslPath(scratch));
     const servers = JSON.parse(readFileSync(`${dump}.mcp.json`, "utf8"));
     expect(servers).toContainEqual(
       expect.objectContaining({ name: "agents", command: "/mnt/c/tools/agent-server.exe", args: ["--port", "8080"] }),
