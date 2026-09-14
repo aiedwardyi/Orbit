@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type { execFile } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { MuseAgentDriver, STATIC_MUSE_MODELS, classifyMuseError, museDefaultCli, museIsAuthenticated, museSignInCommand, museWslFallbackCli, withWslKeySharing } from "./muse.ts";
+import { MuseAgentDriver, STATIC_MUSE_MODELS, classifyMuseError, museDefaultCli, museIsAuthenticated, museSignInCommand, museWslFallbackCli, resolveWslMuseCli, withWslKeySharing } from "./muse.ts";
 import { BUILT_IN_DRIVERS } from "../builtIn.ts";
 import { augmentedPath, resolveCliSpawn } from "../../env-path.ts";
 
@@ -172,5 +173,54 @@ describe("Meta Muse driver catalog", () => {
     expect(museWslFallbackCli("wsl muse")).toBeNull();
     expect(museWslFallbackCli("wsl.exe muse")).toBeNull();
     expect(museWslFallbackCli("WSL muse")).toBeNull();
+  });
+
+  describe("resolveWslMuseCli", () => {
+    const runFor = (stdout: string | null, err: Error | null = null) => {
+      const seen: Array<{ command: string; args: string[] }> = [];
+      const run = ((command: string, args: string[], _options: unknown, cb: (e: Error | null, out: string) => void) => {
+        seen.push({ command, args });
+        queueMicrotask(() => cb(err, stdout ?? ""));
+      }) as unknown as typeof execFile;
+      return { seen, run };
+    };
+
+    it("resolves bare muse through a login shell to an absolute WSL path", async () => {
+      const { seen, run } = runFor("/home/ed/.local/bin/muse\n");
+      await expect(resolveWslMuseCli("wsl muse", {}, run)).resolves.toBe("wsl /home/ed/.local/bin/muse");
+      expect(seen).toHaveLength(1);
+      expect(seen[0]?.command).toMatch(/wsl(\.exe)?$/i);
+      expect(seen[0]?.args).toEqual(["bash", "-lc", "command -v muse"]);
+    });
+
+    it("resolves a bare override the same way, so turns and probe share the winner", async () => {
+      const { run } = runFor("/home/ed/.local/bin/muse\n");
+      await expect(resolveWslMuseCli("muse", {}, run)).resolves.toBe("wsl /home/ed/.local/bin/muse");
+    });
+
+    it("ignores profile echoes and takes the single absolute line", async () => {
+      const { run } = runFor("motd noise\n/home/ed/.local/bin/muse\n");
+      await expect(resolveWslMuseCli("wsl muse", {}, run)).resolves.toBe("wsl /home/ed/.local/bin/muse");
+    });
+
+    it("fails closed on exec errors, empty output, and ambiguous paths", async () => {
+      const failing = runFor(null, new Error("wsl missing"));
+      await expect(resolveWslMuseCli("wsl muse", {}, failing.run)).resolves.toBeNull();
+      expect(failing.seen).toHaveLength(1);
+      const empty = runFor("\n");
+      await expect(resolveWslMuseCli("wsl muse", {}, empty.run)).resolves.toBeNull();
+      const relative = runFor("muse\n");
+      await expect(resolveWslMuseCli("wsl muse", {}, relative.run)).resolves.toBeNull();
+      const ambiguous = runFor("/opt/muse\n/home/ed/.local/bin/muse\n");
+      await expect(resolveWslMuseCli("wsl muse", {}, ambiguous.run)).resolves.toBeNull();
+    });
+
+    it("leaves custom spellings alone instead of reinterpreting them", async () => {
+      const { seen, run } = runFor("/home/ed/.local/bin/muse\n");
+      await expect(resolveWslMuseCli("C:\\tools\\muse.exe", {}, run)).resolves.toBeNull();
+      await expect(resolveWslMuseCli("wsl /opt/bin/muse", {}, run)).resolves.toBeNull();
+      await expect(resolveWslMuseCli("wsl muse --flag", {}, run)).resolves.toBeNull();
+      expect(seen).toEqual([]);
+    });
   });
 });

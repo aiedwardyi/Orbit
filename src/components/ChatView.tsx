@@ -1,4 +1,4 @@
-import { Component, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
@@ -36,7 +36,7 @@ import {
 } from "@/state/store";
 import { EngineSetup, OpenConnectionsCta, setupErrorAction } from "./EngineSetup";
 import { BotAvatar } from "./Avatar";
-import { TurnPresence } from "./TurnPresence";
+import { MessageBoundary, PresenceAnswer, TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { showBotNewTaskControl, showComputerPanelChrome } from "@/lib/friends-chrome";
 import { stateForBot } from "@/lib/mascot";
@@ -253,25 +253,6 @@ function ErrorRow({
       </div>
     </div>
   );
-}
-
-/** One bad markdown node must not white-screen the app — the transcript
- * degrades to a plain-text bubble instead. */
-class MessageBoundary extends Component<{ children: ReactNode; fallbackText: string }, { failed: boolean }> {
-  state = { failed: false };
-  static getDerivedStateFromError() {
-    return { failed: true };
-  }
-  render() {
-    if (this.state.failed) {
-      return (
-        <div className="w-fit max-w-[min(42rem,78%)] rounded-2xl bg-card px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-ink">
-          {this.props.fallbackText}
-        </div>
-      );
-    }
-    return this.props.children;
-  }
 }
 
 /** Inline editor a user bubble turns into: Enter sends (forking the
@@ -1032,10 +1013,11 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
     [canonicalMessages],
   );
 
-  // Mascot while the turn works. Streaming stays invisible — when the reply
-  // is finished, the whole bubble pops in above the mascot. The label is what
-  // differentiates the wait, so deltas stage it without ever painting text.
-  // Placeholders never become the tail: stream buffers key off the last canonical message.
+  // Mascot while the turn works, with the reply growing above it: partial
+  // text paints incrementally as deltas arrive, and the settled pop-in takes
+  // over on completion. Empty buffers paint nothing — the label still says
+  // Responding from the first delta. Placeholders never become the tail:
+  // stream buffers key off the last canonical message.
   const lastMessage = canonicalMessages.at(-1);
   const live = buffersForTurn(stream, bot.threadId, lastMessage?.id);
   const streaming = live.streaming;
@@ -1069,6 +1051,10 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
     return () => clearTimeout(timer);
   }, [lastMessage?.id, lastMessage?.role, lastMessage?.kind, lastMessage?.text]);
   const presenceVisible = waiting || popping !== null;
+  // Settled pop-in wins; while the turn works, the live partial paints
+  // above the still-shimmering wait label.
+  const partialText = !popping && waiting && streaming ? streaming : null;
+  const answerText = popping?.text ?? partialText;
 
   // regenerate = fork the last user message with the same text — reuses the
   // existing branch machinery, so the old answer stays reachable via ‹ ›
@@ -1409,13 +1395,12 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
             visible={presenceVisible}
             label={activityLabel}
             answering={popping !== null}
+            streaming={partialText !== null}
           >
-            {popping ? (
-              <div className="w-fit max-w-[min(42rem,78%)] rounded-2xl bg-card px-4 py-2.5 text-[15px] leading-relaxed text-ink">
-                <MessageBoundary fallbackText={popping.text}>
-                  <ChatMarkdown text={popping.text} />
-                </MessageBoundary>
-              </div>
+            {answerText ? (
+              <MessageBoundary fallbackText={answerText}>
+                <PresenceAnswer text={answerText} />
+              </MessageBoundary>
             ) : null}
           </TurnPresence>
         </div>

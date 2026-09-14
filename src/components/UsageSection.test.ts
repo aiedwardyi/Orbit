@@ -514,4 +514,46 @@ describe("UsageSection friends plan card", () => {
       mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
     }
   });
+
+  it("says no usage data yet when a refresh fails with nothing saved", async () => {
+    // claude carries last-good values in the fixture, antigravity carries
+    // none — one refresh-all covers both wordings.
+    mockApi.mockImplementation(async (path: string) => {
+      if (path.endsWith("/claude")) return { error: "Could not refresh Claude limits" };
+      if (path.endsWith("/antigravity")) return { error: "Could not refresh Antigravity limits" };
+      return { report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } };
+    });
+    try {
+      persistPreference("en");
+      const enHost = document.createElement("div");
+      document.body.append(enHost);
+      const enRoot = createRoot(enHost);
+      await act(async () => enRoot.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      await act(async () => {
+        [...enHost.querySelectorAll("button")].find((button) => button.textContent === "Refresh all")?.click();
+      });
+      expect(enHost.textContent).toContain("Could not refresh Claude limits Last good values are");
+      expect(enHost.textContent).toContain("Could not refresh Antigravity limits No usage data yet.");
+      expect(enHost.textContent).not.toContain("Last good values are — old.");
+      await act(async () => enRoot.unmount());
+      enHost.remove();
+
+      persistPreference("ko");
+      const koHost = document.createElement("div");
+      document.body.append(koHost);
+      const koRoot = createRoot(koHost);
+      await act(async () => koRoot.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      await act(async () => {
+        [...koHost.querySelectorAll("button")].find((button) => button.textContent === "모두 새로 고침")?.click();
+      });
+      expect(koHost.textContent).toContain("아직 사용량 정보가 없습니다.");
+      expect(koHost.textContent).not.toContain("— 전 정보");
+      await act(async () => koRoot.unmount());
+      koHost.remove();
+    } finally {
+      persistPreference("en");
+      mockApi.mockReset();
+      mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
+    }
+  });
 });

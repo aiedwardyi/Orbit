@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { createUsageRefresh, usageRefreshResponse } from "./usage-refresh.ts";
+import { createUsageRefresh, isCsrfRejection, readAntigravityQuota, readAntigravityUsageCommand, usageRefreshResponse } from "./usage-refresh.ts";
+import { antigravityRateLimitWindows } from "./drivers/rate-limits.ts";
 
 const reset = "2026-10-01T12:00:00Z";
 const fixtures = {
@@ -530,5 +531,110 @@ describe("usage refresh route result", () => {
     expect((await refresh("opencodeGo", { instanceId: "opencode" })).error).toBe("Usage refresh is not supported");
     expect(calls).toBe(0);
     expect((await refresh("grokAgent", { instanceId: "grok" })).error).toBe("Could not refresh Grok limits");
+  });
+});
+
+describe("antigravity /usage quota command", () => {
+  const groups = {
+    groups: [
+      {
+        buckets: [
+          { bucketId: "gemini-5h", displayName: "5 hour", remaining: { remainingFraction: 0.58 }, resetTime: reset },
+          { bucketId: "gemini-weekly", displayName: "Weekly", remaining: { remainingFraction: 0.81 }, resetTime: reset },
+        ],
+      },
+    ],
+  };
+  const usageLine = (data: unknown) => JSON.stringify({ event: "command_result", command: { name: "usage", data } });
+
+  it("reads quota windows from the command_result line without a running server", async () => {
+    const seen: Array<{ command: string; args: string[] }> = [];
+    const data = await readAntigravityUsageCommand("agy", {}, async (command, args) => {
+      seen.push({ command, args });
+      return `${usageLine(groups)}\n`;
+    });
+    expect(data).toEqual(groups);
+    expect(antigravityRateLimitWindows(data).map((window) => window.id)).toEqual(["five_hour", "seven_day"]);
+    expect(seen).toEqual([{ command: "agy", args: ["-p", "/usage", "--output-format", "stream-json"] }]);
+  });
+
+  it("falls through to the final result command when the first line carries nothing", async () => {
+    const stdout = [
+      usageLine({ groups: [] }),
+      "not json",
+      JSON.stringify({ event: "result", result: { status: "SUCCESS", command: { name: "usage", data: groups } } }),
+    ].join("\n");
+    const data = await readAntigravityUsageCommand("agy", {}, async () => stdout);
+    expect(data).toEqual(groups);
+  });
+
+  it("throws refresh on exec failure, garbage, and empty groups — never signin", async () => {
+    await expect(readAntigravityUsageCommand("agy", {}, async () => null)).rejects.toThrow("refresh");
+    await expect(readAntigravityUsageCommand("agy", {}, async () => "not json\n")).rejects.toThrow("refresh");
+    await expect(readAntigravityUsageCommand("agy", {}, async () => `${usageLine({ groups: [] })}\n`)).rejects.toThrow("refresh");
+    await expect(readAntigravityUsageCommand("agy", {}, async () => "")).rejects.toThrow("refresh");
+  });
+
+  it("ignores foreign or unnamed command payloads even when they carry quota-shaped data", async () => {
+    const foreign = JSON.stringify({ event: "command_result", command: { name: "other", data: groups } });
+    await expect(readAntigravityUsageCommand("agy", {}, async () => `${foreign}\n`)).rejects.toThrow("refresh");
+    const unnamed = JSON.stringify({ event: "command_result", command: { data: groups } });
+    await expect(readAntigravityUsageCommand("agy", {}, async () => `${unnamed}\n`)).rejects.toThrow("refresh");
+    const wrongEvent = JSON.stringify({ event: "assistant", command: { name: "usage", data: groups } });
+    await expect(readAntigravityUsageCommand("agy", {}, async () => `${wrongEvent}\n`)).rejects.toThrow("refresh");
+  });
+
+  it("reads a CSRF wall as unreachable, not as signed out", () => {
+    expect(isCsrfRejection('{"code":"unauthenticated","message":"missing CSRF token"}')).toBe(true);
+    expect(isCsrfRejection('{"code":"unauthenticated","message":"invalid CSRF token"}')).toBe(true);
+    expect(isCsrfRejection("missing CSRF token")).toBe(true);
+    expect(isCsrfRejection("")).toBe(false);
+    expect(isCsrfRejection('{"code":"unauthenticated"}')).toBe(false);
+  });
+
+  it("refuses near-miss CSRF mentions so they keep the legacy signin meaning", () => {
+    expect(isCsrfRejection('{"code":"unauthenticated","message":"CSRF token for language server expired"}')).toBe(false);
+    expect(isCsrfRejection("check the CSRF token configuration and retry")).toBe(false);
+    expect(isCsrfRejection('{"code":"unauthenticated","message":"missing CSRF token: quota denied"}')).toBe(false);
+  });
+
+  it("tries the usage command first and the RPC scrape only on failure", async () => {
+    let rpcCalls = 0;
+    const win = await readAntigravityQuota("agy", {}, {
+      usage: async () => groups,
+      rpc: async () => {
+        rpcCalls++;
+        return {};
+      },
+    });
+    expect(win).toEqual(groups);
+    expect(rpcCalls).toBe(0);
+
+    const fallback = await readAntigravityQuota("agy", {}, {
+      usage: async () => {
+        throw new Error("refresh");
+      },
+      rpc: async () => groups,
+    });
+    expect(fallback).toEqual(groups);
+  });
+
+  it("propagates the fallback outcome when the usage command fails", async () => {
+    await expect(readAntigravityQuota("agy", {}, {
+      usage: async () => {
+        throw new Error("refresh");
+      },
+      rpc: async () => {
+        throw new Error("signin");
+      },
+    })).rejects.toThrow("signin");
+    await expect(readAntigravityQuota("agy", {}, {
+      usage: async () => {
+        throw new Error("refresh");
+      },
+      rpc: async () => {
+        throw new Error("refresh");
+      },
+    })).rejects.toThrow("refresh");
   });
 });

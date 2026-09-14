@@ -13,7 +13,7 @@ import { acpChildEnv } from "./drivers/acp/core.ts";
 import { grokSupport } from "./drivers/acp/grok.ts";
 import { antigravityRateLimitWindows, codexRateLimitWindows, grokRateLimitWindows, museRateLimitWindows } from "./drivers/rate-limits.ts";
 import { augmentedPath } from "./env-path.ts";
-import { killCliTree, spawnCli } from "./procs.ts";
+import { execCli, killCliTree, spawnCli } from "./procs.ts";
 import { parseJson, type JsonValue } from "./schema.ts";
 
 type Report = { windows: RateLimitWindow[]; observedAt: string };
@@ -135,14 +135,97 @@ const agyQuotaPaths = [
   "/exa.language_server_pb.LanguageServerService/GetUserStatus",
 ] as const;
 
+/** Quota from `agy -p /usage --output-format stream-json`: the CLI prints a
+ * structured `command_result` (plus a final `result`, same `command.data`)
+ * without spending a token or needing the IDE open, so bars can appear
+ * before any chat message. Returns the first `data` payload that reads as
+ * quota windows; anything else (exec failure, unparseable output, empty
+ * groups) is a refresh error, never signin — a logged-out CLI answers with
+ * empty groups and exit 0, indistinguishable from "no quota to report". */
+export function readAntigravityUsageCommand(
+  cli: string,
+  env: NodeJS.ProcessEnv,
+  run: (command: string, args: string[]) => Promise<string | null> = (command, args) =>
+    new Promise((resolve) => {
+      execCli(
+        command,
+        args,
+        { timeout: 20_000, windowsHide: true, encoding: "utf8", maxBuffer: 4 * 1024 * 1024, env, cwd: homedir() },
+        (error, stdout) => resolve(error ? null : stdout),
+      );
+    }),
+): Promise<JsonValue> {
+  const usageData = (holder: unknown): unknown => {
+    const command = holder && typeof holder === "object" ? ((holder as Record<string, unknown>).command as Record<string, unknown> | undefined) : undefined;
+    if (!command || typeof command !== "object" || command.name !== "usage") return undefined;
+    return command.data;
+  };
+  const dataOf = (message: unknown): unknown => {
+    const record = message && typeof message === "object" ? (message as Record<string, unknown>) : null;
+    if (!record) return undefined;
+    // Only the two shapes seen live: the command_result line and the final
+    // result's nested command. Anything else — another command's result, an
+    // unnamed payload, a future shape — is ignored so a foreign data object
+    // can never read as quota; unknown output falls through to the RPC leg.
+    if (record.event === "command_result") return usageData(record);
+    if (record.event === "result") {
+      const result = record.result && typeof record.result === "object" ? record.result : null;
+      return result ? usageData(result) : undefined;
+    }
+    return undefined;
+  };
+  return (async (): Promise<JsonValue> => {
+    const out = await run(cli, ["-p", "/usage", "--output-format", "stream-json"]);
+    if (!out) throw new Error("refresh");
+    for (const line of out.split("\n")) {
+      if (!line.trim()) continue;
+      let message: unknown;
+      try {
+        message = parseJson(line);
+      } catch {
+        continue;
+      }
+      const data = dataOf(message);
+      if (data !== undefined) {
+        try {
+          if (antigravityRateLimitWindows(data as JsonValue).length > 0) return data as JsonValue;
+        } catch {
+          continue;
+        }
+      }
+    }
+    throw new Error("refresh");
+  })();
+}
+
+/** A 401/403 from the quota RPC names its cause: agy 1.2.2+ walls the
+ * language server behind a per-boot CSRF secret (`x-codeium-csrf-token`)
+ * that only the spawning IDE/CLI knows, so its missing/invalid-token
+ * message is an unreachable endpoint — a refresh error — and must never
+ * read as the user being signed out. Only those two exact messages match;
+ * anything else keeps the legacy signin meaning. */
+export function isCsrfRejection(body: string): boolean {
+  let message = body.trim();
+  try {
+    const parsed = parseJson(body) as { message?: unknown };
+    if (parsed && typeof parsed === "object" && typeof parsed.message === "string") message = parsed.message.trim();
+  } catch {
+    // not JSON — match against the raw body
+  }
+  return /^(missing|invalid) CSRF token$/i.test(message);
+}
+
 /** Quota from the local Antigravity language server — the same
  * RetrieveUserQuotaSummary RPC behind agy's own `/usage`. The server only
  * exists while agy or the IDE runs, on a random loopback port behind a
  * self-signed cert, so candidates come from the process list and their
  * ports from the listener table; anything missing means "not running", a
  * refresh error rather than a signin one. Loopback only — `rejectUnauthorized: false`
- * is scoped to these calls, never global. Total work stays inside 15s. */
-export function readAntigravityQuota(cli: string, env: NodeJS.ProcessEnv): Promise<JsonValue> {
+ * is scoped to these calls, never global. Total work stays inside 15s.
+ * Fallback only: the /usage command above answers without a running
+ * server, and current agy walls this RPC behind CSRF (see
+ * isCsrfRejection), so this path survives for older servers. */
+export function readAntigravityQuotaRpc(cli: string, env: NodeJS.ProcessEnv): Promise<JsonValue> {
   const started = Date.now();
   const remaining = () => 15_000 - (Date.now() - started);
   const shellEnv = { ...process.env, ...env };
@@ -155,7 +238,7 @@ export function readAntigravityQuota(cli: string, env: NodeJS.ProcessEnv): Promi
         (error, stdout) => resolve(error ? null : stdout),
       );
     });
-  const post = (secure: boolean, port: number, path: string): Promise<{ status: number; json: JsonValue } | null> =>
+  const post = (secure: boolean, port: number, path: string): Promise<{ status: number; json: JsonValue; body?: string } | null> =>
     new Promise((resolve) => {
       if (remaining() <= 0) {
         resolve(null);
@@ -181,7 +264,7 @@ export function readAntigravityQuota(cli: string, env: NodeJS.ProcessEnv): Promi
         response.on("end", () => {
           const status = response.statusCode ?? 0;
           if (status === 401 || status === 403) {
-            resolve({ status, json: null });
+            resolve({ status, json: null, body: text });
             return;
           }
           try {
@@ -261,14 +344,14 @@ export function readAntigravityQuota(cli: string, env: NodeJS.ProcessEnv): Promi
         const quota = await post(secure, port, agyQuotaPaths[0]);
         if (!quota) continue;
         if (quota.status === 401 || quota.status === 403) {
-          auth = true;
+          if (!isCsrfRejection(quota.body ?? "")) auth = true;
           continue;
         }
         if (quota.status === 200 && antigravityRateLimitWindows(quota.json).length > 0) return quota.json;
         const status = await post(secure, port, agyQuotaPaths[1]);
         if (!status) continue;
         if (status.status === 401 || status.status === 403) {
-          auth = true;
+          if (!isCsrfRejection(status.body ?? "")) auth = true;
           continue;
         }
         if (status.status === 200 && antigravityRateLimitWindows(status.json).length > 0) return status.json;
@@ -276,6 +359,29 @@ export function readAntigravityQuota(cli: string, env: NodeJS.ProcessEnv): Promi
       }
     }
     throw new Error(auth ? "signin" : "refresh");
+  })();
+}
+
+/** Antigravity quota for usage refresh: the /usage command first (no
+ * running server needed, so bars can appear before any chat message),
+ * the language-server RPC scrape as the fallback for older servers.
+ * `deps` swaps either leg in tests. */
+export function readAntigravityQuota(
+  cli: string,
+  env: NodeJS.ProcessEnv,
+  deps: {
+    usage?: typeof readAntigravityUsageCommand;
+    rpc?: typeof readAntigravityQuotaRpc;
+  } = {},
+): Promise<JsonValue> {
+  const usage = deps.usage ?? readAntigravityUsageCommand;
+  const rpc = deps.rpc ?? readAntigravityQuotaRpc;
+  return (async (): Promise<JsonValue> => {
+    try {
+      return await usage(cli, env);
+    } catch {
+      return rpc(cli, env);
+    }
   })();
 }
 

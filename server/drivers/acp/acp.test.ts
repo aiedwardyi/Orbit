@@ -1357,6 +1357,61 @@ describe("probeCliVersion", () => {
     expect(await probeCliVersion("muse", {}, "linux", (cli) => `wsl ${cli}`, probe)).toBeNull();
     expect(seen).toEqual(["muse"]);
   });
+
+  it("resolves through the async hook after the wrapper misses, probing the winner", async () => {
+    const { seen, probe } = probeFor({ "wsl muse": null, "wsl /home/ed/.local/bin/muse": "Muse Code 1.2.1" });
+    const calls: string[] = [];
+    const result = await probeCliVersion("wsl muse", {}, "win32", () => null, probe, async (cli) => {
+      calls.push(cli);
+      return "wsl /home/ed/.local/bin/muse";
+    });
+    expect(result).toEqual({ cli: "wsl /home/ed/.local/bin/muse", version: "Muse Code 1.2.1" });
+    expect(calls).toEqual(["wsl muse"]);
+    expect(seen).toEqual(["wsl muse", "wsl /home/ed/.local/bin/muse"]);
+  });
+
+  it("skips the resolver when the direct or wrapper probe already answered", async () => {
+    const direct = probeFor({ muse: "1.2.1" });
+    let calls = 0;
+    await expect(
+      probeCliVersion("muse", {}, "win32", (cli) => `wsl ${cli}`, direct.probe, async () => {
+        calls++;
+        return "wsl /home/ed/.local/bin/muse";
+      }),
+    ).resolves.toEqual({ cli: "muse", version: "1.2.1" });
+    const wrapped = probeFor({ muse: null, "wsl muse": "1.2.1" });
+    await expect(
+      probeCliVersion("muse", {}, "win32", (cli) => `wsl ${cli}`, wrapped.probe, async () => {
+        calls++;
+        return "wsl /home/ed/.local/bin/muse";
+      }),
+    ).resolves.toEqual({ cli: "wsl muse", version: "1.2.1" });
+    expect(calls).toBe(0);
+    expect(direct.seen).toEqual(["muse"]);
+    expect(wrapped.seen).toEqual(["muse", "wsl muse"]);
+  });
+
+  it("reports unavailable when the resolver finds nothing new", async () => {
+    const { seen, probe } = probeFor({ "wsl muse": null });
+    await expect(probeCliVersion("wsl muse", {}, "win32", () => null, probe, async () => null)).resolves.toBeNull();
+    expect(seen).toEqual(["wsl muse"]);
+    const echo = probeFor({ "wsl muse": null });
+    await expect(probeCliVersion("wsl muse", {}, "win32", () => null, echo.probe, async () => "wsl muse")).resolves.toBeNull();
+    expect(echo.seen).toEqual(["wsl muse"]);
+  });
+
+  it("never resolves off win32", async () => {
+    const { seen, probe } = probeFor({ muse: null });
+    let calls = 0;
+    await expect(
+      probeCliVersion("muse", {}, "linux", undefined, probe, async () => {
+        calls++;
+        return "wsl /home/ed/.local/bin/muse";
+      }),
+    ).resolves.toBeNull();
+    expect(calls).toBe(0);
+    expect(seen).toEqual(["muse"]);
+  });
 });
 
 describe("ACP snapshot", () => {

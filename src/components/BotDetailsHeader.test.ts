@@ -165,7 +165,7 @@ const botWithUsage = {
 } as Bot;
 
 describe("ChatView mid-turn sends", () => {
-  it("keeps the live reply staged and gives placeholders no transcript controls", async () => {
+  it("streams the live reply above the label and gives placeholders no transcript controls", async () => {
     const { ChatView } = await import("./ChatView");
     // u0 is an edited-away version of u1, so u1 carries the branch switcher
     const bot: Bot = {
@@ -181,7 +181,7 @@ describe("ChatView mid-turn sends", () => {
       const pending = renderToStaticMarkup(createElement(ChatView, { bot }));
       expect(pending).toContain("Follow-up");
       expect(pending).toContain("Responding");
-      expect(pending).not.toContain("A reply still streaming");
+      expect(pending).toContain("A reply still streaming");
       expect(pending.match(/data-message-hover-actions/g)).toHaveLength(1);
       expect(pending.match(/class="tabular-nums"/g)).toHaveLength(1);
       const confirmed = renderToStaticMarkup(createElement(ChatView, {

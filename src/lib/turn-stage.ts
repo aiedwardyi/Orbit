@@ -1,6 +1,7 @@
-// One shimmer label per real wait phase. The 1:1 bubble deliberately pops in
-// whole, so this label is the only thing separating a slow provider from a
-// wedged one. Every phase below reads a signal the client already receives.
+// One shimmer label per real wait phase. Partial reply text paints above the
+// mascot once deltas arrive; before the first token, this label is what
+// separates a slow provider from a wedged one. Every phase below reads a
+// signal the client already receives.
 import type { Message } from "@/state/store";
 import { t } from "./i18n";
 

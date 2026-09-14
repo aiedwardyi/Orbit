@@ -118,7 +118,9 @@ function EnginePlanRow({
       )}
       {error && (
         <div className="mt-1 text-[12px] text-danger">
-          {t("usage.limits.refreshFailed", { message: error, age: instance.rateLimits ? age(instance.rateLimits.observedAt) : "—" })}
+          {instance.rateLimits
+            ? t("usage.limits.refreshFailed", { message: error, age: age(instance.rateLimits.observedAt) })
+            : t("usage.limits.refreshFailedNoData", { message: error })}
         </div>
       )}
     </div>
