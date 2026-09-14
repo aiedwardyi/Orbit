@@ -177,7 +177,10 @@ const support: AcpSupport = {
   // on every turn even with a valid login.
   pickAuthMethod: () => null,
   authFailure: "continue",
-  // Session cwd and MCP server commands cross into WSL as Linux paths.
+  // Session cwd and MCP server commands cross into WSL as Linux paths. Known
+  // limit: MCP server env beyond META_API_KEY and non-command paths do not
+  // cross, so integrations depending on them are unavailable to
+  // WSL-crossing Meta turns on Windows; normal turns are unaffected.
   wslPathTranslation: true,
   isAuthenticated: museIsAuthenticated,
   requireAuthenticationBeforeSpawn: true,

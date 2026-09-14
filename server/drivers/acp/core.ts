@@ -147,7 +147,12 @@ export interface AcpSupport {
    * are Windows ones: translate the session cwd and MCP server commands
    * (wslpath-style) before session/new. MCP args are left alone — flags are
    * indistinguishable from paths. Only drivers whose CLI crosses into WSL
-   * opt in; everyone else sends paths verbatim. */
+   * opt in; everyone else sends paths verbatim. Known limit (Codex P1
+   * 4002576106, recorded not fixed — a full env/path bridge for MCP-over-WSL
+   * is a project, not a patch): MCP server env beyond the driver's
+   * credentialEnv and non-command paths do not cross into WSL, so
+   * integrations depending on them are unavailable to WSL-crossing turns.
+   * Normal turns without integrations are unaffected. */
   wslPathTranslation?: boolean;
   /** snapshot(): can this harness actually run a turn? (env already carries the
    *  merged config). May be async for harnesses that have to ask the CLI. */
