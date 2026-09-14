@@ -23,6 +23,9 @@ const SKIN_CHROME = Object.freeze({
   dracula: Object.freeze({ color: "#282a36", symbolColor: "#a4abcc" }),
   cobalt: Object.freeze({ color: "#292a2b", symbolColor: "#bcaafe" }),
   gruvbox: Object.freeze({ color: "#282828", symbolColor: "#d5c4a1" }),
+  kanagawa: Object.freeze({ color: "#1f1f28", symbolColor: "#9cabca" }),
+  "haxor-blue": Object.freeze({ color: "#010515", symbolColor: "#c1e4ff" }),
+  hurtado: Object.freeze({ color: "#000000", symbolColor: "#b5d5ff" }),
 });
 
 const DEFAULT_SKIN = "ledger";
@@ -31,7 +34,7 @@ const SKIN_PREFERENCE_FILE = "skin-preference.json";
 const LOCAL_STORAGE_DIR = path.join("Local Storage", "leveldb");
 const OMB_SKIN_MARKER = Buffer.from("omb-skin");
 const KNOWN_SKIN_RE =
-  /^(midnight|atelier|foundry|lagoon|ledger|catppuccin-frappe|catppuccin-mocha|tokyo-night|vesper|onyx|dracula|cobalt|gruvbox)(?![A-Za-z0-9_-])/;
+  /^(midnight|atelier|foundry|lagoon|ledger|catppuccin-frappe|catppuccin-mocha|tokyo-night|vesper|onyx|dracula|cobalt|gruvbox|kanagawa|haxor-blue|hurtado)(?![A-Za-z0-9_-])/;
 const MAX_SKIN_ID_LEN = Math.max(...Object.keys(SKIN_CHROME).map((id) => id.length));
 
 function migrateSkin(skin) {
