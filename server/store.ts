@@ -376,6 +376,7 @@ export type StoreChange =
   | { type: "bot"; botId: string }
   | { type: "bot.deleted"; botId: string }
   | { type: "bots.order"; botIds: string[] }
+  | { type: "groups.order"; groupIds: string[] }
   | { type: "group"; groupId: string }
   | { type: "group.deleted"; groupId: string };
 
@@ -1258,6 +1259,18 @@ export class Store {
     this.bots = ids.map((id) => byId.get(id)!);
     this.saveBots();
     this.emit({ type: "bots.order", botIds: ids });
+    return true;
+  }
+
+  /** False unless `ids` names every group exactly once. */
+  reorderGroups(ids: string[]): boolean {
+    const byId = new Map(this.groups.map((group) => [group.id, group]));
+    if (ids.length !== byId.size || new Set(ids).size !== ids.length || !ids.every((id) => byId.has(id))) {
+      return false;
+    }
+    this.groups = ids.map((id) => byId.get(id)!);
+    this.saveGroups();
+    this.emit({ type: "groups.order", groupIds: ids });
     return true;
   }
 

@@ -687,6 +687,7 @@ export type Action =
   | { type: "composerFocused"; botId: string }
   | { type: "deleteBot"; botId: string }
   | { type: "reorderBots"; botIds: string[] }
+  | { type: "reorderGroups"; groupIds: string[] }
   | { type: "duplicateBot"; botId: string }
   | { type: "markUnread"; botId: string }
   | { type: "botPatched"; bot: BotAnnouncement }
@@ -1032,6 +1033,12 @@ export function reducer(state: AppState, action: Action): AppState {
       // A bot the list does not name is newer than it: creates land on top.
       const bots = [...state.bots].sort((a, b) => (rank.get(a.id) ?? -1) - (rank.get(b.id) ?? -1));
       return { ...state, bots };
+    }
+    case "reorderGroups": {
+      const rank = new Map(action.groupIds.map((id, index) => [id, index]));
+      // A group the list does not name is newer than it: creates land on top.
+      const groups = [...state.groups].sort((a, b) => (rank.get(a.id) ?? -1) - (rank.get(b.id) ?? -1));
+      return { ...state, groups };
     }
     case "markUnread":
       return updateBot(withMascotMotion(state, action.botId, "surprise"), action.botId, (b) => ({ ...b, unread: true }));
@@ -1672,6 +1679,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useMascotMotionExpiry(state.mascotMotion?.nonce, rawDispatch);
   const cancelledSendsRef = useRef(new Set<string>());
   const reorderGeneration = useRef(0);
+  const groupReorderGeneration = useRef(0);
   // per-frame stream-delta batching (see the "runtime" SSE case); stream
   // state is intentionally OUTSIDE the reducer so token frames re-render
   // only StreamContext consumers
@@ -2075,6 +2083,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             showError(error);
             takeServerOrder()
               .catch(() => (generation === reorderGeneration.current ? takeServerOrder() : undefined))
+              .catch(() => {});
+          });
+          break;
+        }
+        case "reorderGroups": {
+          // Only the newest reorder reacts to a failure, and it takes the server's order: the PUT may have saved.
+          const generation = ++groupReorderGeneration.current;
+          const takeServerOrder = () =>
+            api("/api/bots?messages=0").then(({ groups }: { groups: Group[] }) => {
+              if (generation !== groupReorderGeneration.current) return;
+              rawDispatch({ type: "reorderGroups", groupIds: groups.map((group) => group.id) });
+            });
+          api("/api/groups/order", { method: "PUT", body: JSON.stringify({ groupIds: action.groupIds }) }).catch((error) => {
+            if (generation !== groupReorderGeneration.current) return;
+            showError(error);
+            takeServerOrder()
+              .catch(() => (generation === groupReorderGeneration.current ? takeServerOrder() : undefined))
               .catch(() => {});
           });
           break;
@@ -2637,6 +2662,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           // A saved order is the truth: a failure handler or refetch still in flight is now stale.
           reorderGeneration.current += 1;
           rawDispatch({ type: "reorderBots", botIds: frame.botIds });
+          break;
+        case "groups.order":
+          // A saved order is the truth: a failure handler or refetch still in flight is now stale.
+          groupReorderGeneration.current += 1;
+          rawDispatch({ type: "reorderGroups", groupIds: frame.groupIds });
           break;
         // a key changed and the fleet hot-reloaded — refresh the picker so
         // newly available providers un-dim immediately

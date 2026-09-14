@@ -30,7 +30,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { botOrderAfterDrop } from "@/lib/bot-order";
+import { botOrderAfterDrop, groupOrderAfterDrop } from "@/lib/bot-order";
 import { conversationPreview, roomConversationPreview } from "@/lib/conversation-preview";
 import { api, useStore, formatTime, visibleMessages, type Bot, type Group } from "@/state/store";
 
@@ -199,10 +199,12 @@ function GroupListItem({
   group,
   density,
   onMenu,
+  drag,
 }: {
   group: Group;
   density: SidebarDensity;
   onMenu: (menu: { groupId: string; x: number; y: number }) => void;
+  drag?: SidebarRowDrag;
 }) {
   const { locale } = useI18n();
   const { state, dispatch } = useStore();
@@ -212,9 +214,35 @@ function GroupListItem({
     .map((id) => state.bots.find((b) => b.id === id))
     .filter((b): b is Bot => Boolean(b));
   const last = group.messages.at(-1);
+  const dragProps = drag
+    ? {
+        draggable: true,
+        onDragStart: (event: React.DragEvent) => {
+          event.dataTransfer.effectAllowed = "move";
+          // a custom type: text fields ignore it, so the row never drops in as text
+          event.dataTransfer.setData("application/x-orbit-group", group.id);
+          drag.onStart();
+        },
+        onDragOver: (event: React.DragEvent) => {
+          if (!drag.onOver()) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+        },
+        onDragLeave: (event: React.DragEvent) => {
+          const next = event.relatedTarget;
+          if (!(next instanceof Node) || !event.currentTarget.contains(next)) drag.onLeave();
+        },
+        onDrop: (event: React.DragEvent) => {
+          event.preventDefault();
+          drag.onDrop();
+        },
+        onDragEnd: drag.onEnd,
+      }
+    : {};
   return (
     <button
       onClick={() => dispatch({ type: "select", id: group.id })}
+      {...dragProps}
       onContextMenu={(e) => {
         e.preventDefault();
         onMenu({ groupId: group.id, x: e.clientX, y: e.clientY });
@@ -236,6 +264,14 @@ function GroupListItem({
       title={density === "icons" ? group.name : undefined}
       aria-label={density === "icons" ? group.name : undefined}
     >
+      {drag?.edge && (
+        <span
+          className={cn(
+            "pointer-events-none absolute inset-x-2 z-10 h-0.5 rounded-full bg-accent",
+            drag.edge === "top" ? "-top-0.5" : "-bottom-0.5",
+          )}
+        />
+      )}
       <StackedMauses members={members} density={density} />
       <div className={cn("min-w-0 flex-1", density === "icons" && "hidden")}>
         <div className="flex items-baseline justify-between gap-2">
@@ -732,7 +768,7 @@ function BotContextMenu({
   );
 }
 
-type BotRowDrag = {
+type SidebarRowDrag = {
   edge: "top" | "bottom" | null;
   onStart: () => void;
   onOver: () => boolean;
@@ -754,7 +790,7 @@ function BotListItem({
   onMenu: (menu: MenuState) => void;
   onArchive: (bot: Bot) => void;
   archiveDisabled: boolean;
-  drag?: BotRowDrag;
+  drag?: SidebarRowDrag;
 }) {
   const { t, locale } = useI18n();
   const { state, dispatch } = useStore();
@@ -1064,7 +1100,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const showPhone = showSidebarPhone() && phoneSettingsAvailable(capabilities.host);
   const importReturnRef = useRef<HTMLButtonElement>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
-  const [drag, setDrag] = useState<{ from: string; over: string | null } | null>(null);
+  const [drag, setDrag] = useState<{ kind: "bot" | "group"; from: string; over: string | null } | null>(null);
   const [sectionPicker, setSectionPicker] = useState<MenuState | null>(null);
   const [roomMenu, setRoomMenu] = useState<{ groupId: string; x: number; y: number } | null>(null);
   const [roomSectionPicker, setRoomSectionPicker] = useState<{ groupId: string; x: number; y: number } | null>(null);
@@ -1428,14 +1464,17 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   }
   const activeBotCount = state.bots.filter((bot) => !bot.hidden).length;
   const archivedBots = state.bots.filter((bot) => bot.hidden);
-  const dropOrder = (toId: string) => (drag ? botOrderAfterDrop(state.bots, drag.from, toId) : null);
-  const rowDrag = (bot: Bot): BotRowDrag => {
-    const order = drag?.over === bot.id ? dropOrder(bot.id) : null;
+  const dropOrder = (toId: string) =>
+    drag?.kind === "bot" ? botOrderAfterDrop(state.bots, drag.from, toId) : null;
+  const groupDropOrder = (toId: string) =>
+    drag?.kind === "group" ? groupOrderAfterDrop(state.groups, drag.from, toId) : null;
+  const rowDrag = (bot: Bot): SidebarRowDrag => {
+    const order = drag?.kind === "bot" && drag?.over === bot.id ? dropOrder(bot.id) : null;
     return {
       edge: order ? (order.indexOf(bot.id) < order.indexOf(drag!.from) ? "bottom" : "top") : null,
-      onStart: () => setDrag({ from: bot.id, over: null }),
+      onStart: () => setDrag({ kind: "bot", from: bot.id, over: null }),
       onOver: () => {
-        if (!drag) return false;
+        if (!drag || drag.kind !== "bot") return false;
         const over = dropOrder(bot.id) ? bot.id : null;
         if (drag.over !== over) setDrag((current) => (current ? { ...current, over } : null));
         return over !== null;
@@ -1445,6 +1484,26 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         const botIds = dropOrder(bot.id);
         setDrag(null);
         if (botIds) dispatch({ type: "reorderBots", botIds });
+      },
+      onEnd: () => setDrag(null),
+    };
+  };
+  const groupRowDrag = (group: Group): SidebarRowDrag => {
+    const order = drag?.kind === "group" && drag?.over === group.id ? groupDropOrder(group.id) : null;
+    return {
+      edge: order ? (order.indexOf(group.id) < order.indexOf(drag!.from) ? "bottom" : "top") : null,
+      onStart: () => setDrag({ kind: "group", from: group.id, over: null }),
+      onOver: () => {
+        if (!drag || drag.kind !== "group") return false;
+        const over = groupDropOrder(group.id) ? group.id : null;
+        if (drag.over !== over) setDrag((current) => (current ? { ...current, over } : null));
+        return over !== null;
+      },
+      onLeave: () => setDrag((current) => (current?.over === group.id ? { ...current, over: null } : current)),
+      onDrop: () => {
+        const groupIds = groupDropOrder(group.id);
+        setDrag(null);
+        if (groupIds) dispatch({ type: "reorderGroups", groupIds });
       },
       onEnd: () => setDrag(null),
     };
@@ -1693,7 +1752,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           )}
           {unsectionedGroups.length > 0 && density !== "icons" && <SectionDivider name={t("chrome.channels")} />}
           {unsectionedGroups.map((g) => (
-            <GroupListItem key={g.id} group={g} density={density} onMenu={setRoomMenu} />
+            <GroupListItem key={g.id} group={g} density={density} onMenu={setRoomMenu} drag={groupRowDrag(g)} />
           ))}
           {visibleBots.length > 0 && density !== "icons" && <SectionDivider name={t("chrome.bots")} />}
           {visibleBots.map((b) => (
@@ -1725,7 +1784,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               {sectionedGroups
                 .filter((g) => g.section === name)
                 .map((g) => (
-                  <GroupListItem key={g.id} group={g} density={density} onMenu={setRoomMenu} />
+                  <GroupListItem key={g.id} group={g} density={density} onMenu={setRoomMenu} drag={groupRowDrag(g)} />
                 ))}
               {sectionedBots
                 .filter((b) => b.section === name)

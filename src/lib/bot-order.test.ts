@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { botOrderAfterDrop } from "./bot-order";
+import { botOrderAfterDrop, groupOrderAfterDrop } from "./bot-order";
 
 const bots = [
   { id: "chief", chiefOfStaff: true },
@@ -44,5 +44,40 @@ describe("botOrderAfterDrop", () => {
   it("ignores a drop onto itself or an unknown bot", () => {
     expect(botOrderAfterDrop(bots, "a", "a")).toBeNull();
     expect(botOrderAfterDrop(bots, "a", "gone")).toBeNull();
+  });
+});
+
+const groups = [
+  { id: "r1" },
+  { id: "r2" },
+  { id: "w1", section: "Work" },
+  { id: "r3" },
+];
+
+describe("groupOrderAfterDrop", () => {
+  it("moves a group into the dropped row's slot, in either direction", () => {
+    expect(groupOrderAfterDrop(groups, "r1", "r3")).toEqual(["r2", "r3", "w1", "r1"]);
+    expect(groupOrderAfterDrop(groups, "r3", "r1")).toEqual(["r3", "r1", "w1", "r2"]);
+    expect(groupOrderAfterDrop(groups, "r1", "r2")).toEqual(["r2", "r1", "w1", "r3"]);
+  });
+
+  it("moves within a section and keeps every other group in its slot", () => {
+    const sectioned = [
+      { id: "w1", section: "Work" },
+      { id: "h1", section: "Home" },
+      { id: "w2", section: "Work" },
+    ];
+    expect(groupOrderAfterDrop(sectioned, "w1", "w2")).toEqual(["w2", "h1", "w1"]);
+  });
+
+  it("refuses drops across sections, like single chats do", () => {
+    expect(groupOrderAfterDrop(groups, "r1", "w1")).toBeNull();
+    expect(groupOrderAfterDrop(groups, "w1", "r1")).toBeNull();
+    expect(groupOrderAfterDrop([...groups, { id: "h1", section: "Home" }], "w1", "h1")).toBeNull();
+  });
+
+  it("ignores a drop onto itself or an unknown group", () => {
+    expect(groupOrderAfterDrop(groups, "r1", "r1")).toBeNull();
+    expect(groupOrderAfterDrop(groups, "r1", "gone")).toBeNull();
   });
 });
