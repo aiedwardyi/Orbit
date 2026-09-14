@@ -213,7 +213,7 @@ const support: AcpSupport = {
   // Fixed subscription catalog, like Gemini: no resolveModels, so boot never
   // pays for live local-inject probes for this engine.
   models: STATIC_MUSE_MODELS,
-  effortLevels: ["low", "medium", "high", "xhigh"],
+  effortLevels: ["low", "medium", "high", "xhigh", "max"],
   defaultCli: museDefaultCli(),
   nativeSource: "muse.acp",
   loginNote: `Muse CLI is not signed in — run \`${museSignInCommand()}\` in a terminal and complete the browser sign-in`,
