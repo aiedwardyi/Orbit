@@ -575,11 +575,27 @@ describe("antigravity /usage quota command", () => {
     await expect(readAntigravityUsageCommand("agy", {}, async () => "")).rejects.toThrow("refresh");
   });
 
+  it("ignores foreign or unnamed command payloads even when they carry quota-shaped data", async () => {
+    const foreign = JSON.stringify({ event: "command_result", command: { name: "other", data: groups } });
+    await expect(readAntigravityUsageCommand("agy", {}, async () => `${foreign}\n`)).rejects.toThrow("refresh");
+    const unnamed = JSON.stringify({ event: "command_result", command: { data: groups } });
+    await expect(readAntigravityUsageCommand("agy", {}, async () => `${unnamed}\n`)).rejects.toThrow("refresh");
+    const wrongEvent = JSON.stringify({ event: "assistant", command: { name: "usage", data: groups } });
+    await expect(readAntigravityUsageCommand("agy", {}, async () => `${wrongEvent}\n`)).rejects.toThrow("refresh");
+  });
+
   it("reads a CSRF wall as unreachable, not as signed out", () => {
     expect(isCsrfRejection('{"code":"unauthenticated","message":"missing CSRF token"}')).toBe(true);
     expect(isCsrfRejection('{"code":"unauthenticated","message":"invalid CSRF token"}')).toBe(true);
+    expect(isCsrfRejection("missing CSRF token")).toBe(true);
     expect(isCsrfRejection("")).toBe(false);
     expect(isCsrfRejection('{"code":"unauthenticated"}')).toBe(false);
+  });
+
+  it("refuses near-miss CSRF mentions so they keep the legacy signin meaning", () => {
+    expect(isCsrfRejection('{"code":"unauthenticated","message":"CSRF token for language server expired"}')).toBe(false);
+    expect(isCsrfRejection("check the CSRF token configuration and retry")).toBe(false);
+    expect(isCsrfRejection('{"code":"unauthenticated","message":"missing CSRF token: quota denied"}')).toBe(false);
   });
 
   it("tries the usage command first and the RPC scrape only on failure", async () => {

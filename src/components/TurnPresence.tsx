@@ -7,11 +7,19 @@ import { ChatMarkdown } from "./ChatMarkdown";
 
 /** One bad markdown node must not white-screen the app — the bubble
  * degrades to plain text instead. Partial fence runs make this the rule
- * rather than the exception while streaming. */
-export class MessageBoundary extends Component<{ children: ReactNode; fallbackText: string }, { failed: boolean }> {
-  state = { failed: false };
+ * rather than the exception while streaming, so new text resets the trip:
+ * every delta retries the render instead of sticking on the first bad one. */
+export class MessageBoundary extends Component<{ children: ReactNode; fallbackText: string }, { failed: boolean; text: string }> {
+  state = { failed: false, text: this.props.fallbackText };
   static getDerivedStateFromError() {
     return { failed: true };
+  }
+  static getDerivedStateFromProps(
+    props: { children: ReactNode; fallbackText: string },
+    state: { failed: boolean; text: string },
+  ) {
+    if (props.fallbackText !== state.text) return { failed: false, text: props.fallbackText };
+    return null;
   }
   render() {
     if (this.state.failed) {

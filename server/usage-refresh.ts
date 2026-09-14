@@ -155,14 +155,23 @@ export function readAntigravityUsageCommand(
       );
     }),
 ): Promise<JsonValue> {
+  const usageData = (holder: unknown): unknown => {
+    const command = holder && typeof holder === "object" ? ((holder as Record<string, unknown>).command as Record<string, unknown> | undefined) : undefined;
+    if (!command || typeof command !== "object" || command.name !== "usage") return undefined;
+    return command.data;
+  };
   const dataOf = (message: unknown): unknown => {
     const record = message && typeof message === "object" ? (message as Record<string, unknown>) : null;
     if (!record) return undefined;
-    const direct = record.command && typeof record.command === "object" ? (record.command as Record<string, unknown>) : null;
-    if (direct && (direct.name === undefined || direct.name === "usage")) return direct.data;
-    const result = record.result && typeof record.result === "object" ? (record.result as Record<string, unknown>) : null;
-    const nested = result?.command && typeof result.command === "object" ? (result.command as Record<string, unknown>) : null;
-    if (nested && (nested.name === undefined || nested.name === "usage")) return nested.data;
+    // Only the two shapes seen live: the command_result line and the final
+    // result's nested command. Anything else — another command's result, an
+    // unnamed payload, a future shape — is ignored so a foreign data object
+    // can never read as quota; unknown output falls through to the RPC leg.
+    if (record.event === "command_result") return usageData(record);
+    if (record.event === "result") {
+      const result = record.result && typeof record.result === "object" ? record.result : null;
+      return result ? usageData(result) : undefined;
+    }
     return undefined;
   };
   return (async (): Promise<JsonValue> => {
@@ -191,11 +200,19 @@ export function readAntigravityUsageCommand(
 
 /** A 401/403 from the quota RPC names its cause: agy 1.2.2+ walls the
  * language server behind a per-boot CSRF secret (`x-codeium-csrf-token`)
- * that only the spawning IDE/CLI knows, so "missing/invalid CSRF token" is
- * an unreachable endpoint — a refresh error — and must never read as the
- * user being signed out. Anything else keeps the legacy signin meaning. */
+ * that only the spawning IDE/CLI knows, so its missing/invalid-token
+ * message is an unreachable endpoint — a refresh error — and must never
+ * read as the user being signed out. Only those two exact messages match;
+ * anything else keeps the legacy signin meaning. */
 export function isCsrfRejection(body: string): boolean {
-  return /csrf token/i.test(body);
+  let message = body.trim();
+  try {
+    const parsed = parseJson(body) as { message?: unknown };
+    if (parsed && typeof parsed === "object" && typeof parsed.message === "string") message = parsed.message.trim();
+  } catch {
+    // not JSON — match against the raw body
+  }
+  return /^(missing|invalid) CSRF token$/i.test(message);
 }
 
 /** Quota from the local Antigravity language server — the same
