@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import { I18nProvider } from "@/lib/i18n";
-import type { Bot } from "@/state/store";
+import type { Bot, InstanceInfo } from "@/state/store";
 
 const { mockInstances } = vi.hoisted(() => {
   const readyEngine = (
@@ -79,7 +79,40 @@ vi.mock("@/state/store", async (importOriginal) => {
   };
 });
 
-import { ModelPicker } from "./ModelPicker";
+import { ModelPicker, ModelPickerControl } from "./ModelPicker";
+
+const antigravityTiered: InstanceInfo = {
+  instanceId: "antigravity",
+  driverKind: "antigravityAgent",
+  displayName: "Gemini (Antigravity)",
+  snapshot: { state: "available" as const, authenticated: true, version: "1.0.0" },
+  models: {
+    default: "gemini-3.8-flash-high",
+    options: [
+      { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
+      { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)" },
+      { id: "gemini-3.8-flash-low", label: "Gemini 3.8 Flash (Low)" },
+    ],
+  },
+  capabilities: {},
+};
+
+function tieredMarkup(selection: Bot["modelSelection"]) {
+  return renderToStaticMarkup(
+    createElement(
+      I18nProvider,
+      null,
+      createElement(ModelPickerControl, {
+        bot: { ...bot, modelSelection: selection },
+        store: {
+          state: { instances: [antigravityTiered], selectedId: "bot-1" },
+          dispatch: () => undefined,
+          refreshInstances: async () => undefined,
+        },
+      }),
+    ),
+  );
+}
 
 const bot = {
   id: "bot-1",
@@ -162,6 +195,41 @@ describe("ModelPicker friends chip", () => {
     expect(html).toContain("data-model-effort");
     expect(html).toContain(">high<");
     expect(html).toContain("#8b929c");
+  });
+
+  it("shows a derived effort dot for a tier-suffixed model without selection.effort", () => {
+    const html = tieredMarkup({ instanceId: "antigravity", model: "gemini-3.8-flash-high", mode: "pinned" });
+    expect(html).toContain("Gemini 3.8 Flash");
+    expect(html).not.toContain("(High)");
+    expect(html).toContain("data-model-effort");
+    expect(html).toContain(">high<");
+    expect(html).toContain("#aa7bfa");
+  });
+
+  it("keeps a lone legacy tier label with no badge when nothing derives", () => {
+    const legacy: InstanceInfo = {
+      ...antigravityTiered,
+      models: {
+        default: "gpt-oss-120b-medium",
+        options: [{ id: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium)" }],
+      },
+    };
+    const html = renderToStaticMarkup(
+      createElement(
+        I18nProvider,
+        null,
+        createElement(ModelPickerControl, {
+          bot: { ...bot, modelSelection: { instanceId: "antigravity", model: "gpt-oss-120b-medium", mode: "pinned" } },
+          store: {
+            state: { instances: [legacy], selectedId: "bot-1" },
+            dispatch: () => undefined,
+            refreshInstances: async () => undefined,
+          },
+        }),
+      ),
+    );
+    expect(html).toContain("GPT-OSS 120B (Medium)");
+    expect(html).not.toContain("data-model-effort");
   });
 
   it.each([
