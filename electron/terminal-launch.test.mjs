@@ -32,10 +32,44 @@ describe("blank terminal launcher", () => {
     ]);
   });
 
-  it("opens a blank PowerShell window on Windows", async () => {
+  it("opens a visible window on Windows through start, without a profile", async () => {
     const fake = launcher(["spawn"]);
-    await expect(openBlankTerminal("win32", fake.run)).resolves.toBe(true);
-    expect(fake.calls[0]).toMatchObject({ executable: "powershell.exe", args: ["-NoExit"] });
+    const deps = { pathEnv: "", pathExt: ".EXE", existsSync: () => false };
+    await expect(openBlankTerminal("win32", fake.run, deps)).resolves.toBe(true);
+    expect(fake.calls).toEqual([
+      {
+        executable: "cmd.exe",
+        args: ["/c", "start", "", "powershell.exe", "-NoProfile", "-NoExit"],
+        options: { windowsHide: true },
+      },
+    ]);
+  });
+
+  it("prefers pwsh on Windows when it is on PATH, still profile-free", async () => {
+    const fake = launcher(["spawn"]);
+    const deps = {
+      pathEnv: "C:\\Windows\\System32;C:\\Program Files\\PowerShell\\7",
+      pathExt: ".COM;.EXE",
+      existsSync: (candidate) => candidate.toLowerCase().endsWith("pwsh.exe"),
+    };
+    await expect(openBlankTerminal("win32", fake.run, deps)).resolves.toBe(true);
+    expect(fake.calls).toEqual([
+      {
+        executable: "cmd.exe",
+        args: ["/c", "start", "", "pwsh", "-NoProfile", "-NoExit"],
+        options: { windowsHide: true },
+      },
+    ]);
+  });
+
+  it("never passes installer text to the Windows shell", async () => {
+    const fake = launcher(["spawn"]);
+    const deps = { pathEnv: "", pathExt: ".EXE", existsSync: () => false };
+    await openBlankTerminal("win32", fake.run, deps);
+    const argv = [fake.calls[0].executable, ...fake.calls[0].args].join(" ");
+    for (const needle of ["curl", "install.sh", "http", "bash", "|"]) {
+      expect(argv).not.toContain(needle);
+    }
   });
 
   it("tries the next Linux terminal after an asynchronous launch error", async () => {

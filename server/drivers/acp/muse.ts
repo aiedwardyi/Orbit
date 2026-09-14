@@ -2,13 +2,13 @@
 // on the Meta developer login (`muse login` OIDC device-code flow,
 // ~/.config/muse/auth.json) or META_API_KEY. The generic protocol runtime
 // lives in acp/core.ts; this file is only the per-harness quirks.
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { ModelCatalog, ProviderErrorCode } from "../../contracts.ts";
-import { augmentedPath } from "../../env-path.ts";
+import { augmentedPath, resolveCliSpawn } from "../../env-path.ts";
 import { createAcpDriver, type AcpSupport } from "./core.ts";
 
 export const STATIC_MUSE_MODELS: ModelCatalog = {
@@ -67,6 +67,50 @@ export function museSignInCommand(platform: NodeJS.Platform = process.platform):
  * filepath. An already-wrapped CLI yields null (nothing to fall back to). */
 export function museWslFallbackCli(cli: string): string | null {
   return /^\s*wsl(\.exe)?(\s|$)/i.test(cli) ? null : `wsl ${cli.trim()}`;
+}
+
+/** The WSL-side bare name this resolver understands. Only exactly `muse`,
+ * bare or behind the `wsl` wrapper: a custom path or wrapper string is the
+ * user's explicit spelling and is probed as-is, never reinterpreted. */
+function wslMuseName(cli: string): string | null {
+  if (/^muse$/i.test(cli.trim())) return "muse";
+  return /^\s*wsl(\.exe)?\s+muse\s*$/i.test(cli) ? "muse" : null;
+}
+
+/** Resolve `muse` inside WSL to an absolute Linux path (`wsl /abs/path`).
+ *
+ * `wsl muse` runs without a login shell, so ~/.profile never applies and
+ * ~/.local/bin — the installer default — is missing: the probe AND every
+ * turn fail with `muse: command not found` while the user's interactive
+ * terminal works fine. A login shell sees the real PATH, so `command -v`
+ * through `bash -lc` finds it (verified live: 0.14s warm). The absolute
+ * path is then used for both the --version probe and turn spawns — no shell
+ * at spawn, so no rc-file echo can pollute the ACP stdio stream and no
+ * per-turn shell startup is paid. Exactly one absolute line is accepted;
+ * anything else (missing binary, chatty profile, broken shell) fails closed
+ * to null and the engine reads as unavailable, same as before. `run` is
+ * injectable so the parsing is unit-testable off Windows. */
+export function resolveWslMuseCli(
+  cli: string,
+  env: NodeJS.ProcessEnv,
+  run: typeof execFile = execFile,
+): Promise<string | null> {
+  const name = wslMuseName(cli);
+  if (!name) return Promise.resolve(null);
+  const { command, args } = resolveCliSpawn("wsl", ["bash", "-lc", `command -v ${name}`]);
+  return new Promise((resolve) => {
+    run(command, args, { timeout: 15_000, windowsHide: true, encoding: "utf8", env }, (err, stdout) => {
+      if (err) {
+        resolve(null);
+        return;
+      }
+      const hits = String(stdout ?? "")
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => /^\/[^\s]+$/.test(line));
+      resolve(hits.length === 1 ? `wsl ${hits[0]}` : null);
+    });
+  });
 }
 
 /** Absolute wsl.exe: a GUI-launched process can inherit a PATH without
@@ -199,6 +243,7 @@ const support: AcpSupport = {
   pickAuthMethod: () => null,
   authFailure: "continue",
   wslProbeWrapper: museWslFallbackCli,
+  wslResolveCli: resolveWslMuseCli,
   // Session cwd and MCP server commands cross into WSL as Linux paths. Known
   // limit: MCP server env beyond META_API_KEY and non-command paths do not
   // cross, so integrations depending on them are unavailable to

@@ -159,6 +159,14 @@ export interface AcpSupport {
    * working when only the WSL login exists, without the user typing a
    * filepath. The winner is remembered for later spawns until a rescan. */
   wslProbeWrapper?: (cli: string) => string | null;
+  /** win32 only, after the wrapper: asynchronously resolve the CLI to the
+   * spelling that actually works (null = no resolution). For muse this is
+   * the login-shell `command -v` that finds ~/.local/bin, which the
+   * non-login `wsl <cmd>` PATH never contains. The resolved winner is
+   * probed, then remembered for later spawns exactly like a wrapper win —
+   * one resolution steers both the snapshot probe and every turn, so the
+   * picker can never disagree with what turns spawn. */
+  wslResolveCli?: (cli: string, probeEnv: NodeJS.ProcessEnv) => Promise<string | null>;
   /** snapshot(): can this harness actually run a turn? (env already carries the
    *  merged config). May be async for harnesses that have to ask the CLI. */
   isAuthenticated(env: Record<string, string | undefined>, config: AcpConfig): boolean | Promise<boolean>;
@@ -199,9 +207,11 @@ export interface AcpSupport {
  *
  * On win32, when `configCli --version` fails but the driver supplies a
  * `wslProbeWrapper`, the wrapped command is probed; a hit means the CLI
- * lives inside WSL. The resolved `{ cli, version }` tells callers which
- * command to spawn until the next rescan. A `null` return means neither
- * answered. `probe` is injectable so the fallback order is unit-testable.
+ * lives inside WSL. When that also fails and the driver supplies a
+ * `wslResolveCli`, its resolved spelling is probed last. The resolved
+ * `{ cli, version }` tells callers which command to spawn until the next
+ * rescan. A `null` return means nothing answered. `probe` is injectable so
+ * the fallback order is unit-testable.
  */
 export async function probeCliVersion(
   configCli: string,
@@ -209,13 +219,23 @@ export async function probeCliVersion(
   platform: NodeJS.Platform,
   wslProbeWrapper: ((cli: string) => string | null) | undefined,
   probe: (target: string, probeEnv: NodeJS.ProcessEnv) => Promise<string | null>,
+  wslResolveCli?: (cli: string, probeEnv: NodeJS.ProcessEnv) => Promise<string | null>,
 ): Promise<{ cli: string; version: string } | null> {
   const version = await probe(configCli, env);
-  if (version || platform !== "win32" || !wslProbeWrapper) return version ? { cli: configCli, version } : null;
-  const wrapped = wslProbeWrapper(configCli);
-  if (!wrapped) return null;
-  const wrappedVersion = await probe(wrapped, env);
-  return wrappedVersion ? { cli: wrapped, version: wrappedVersion } : null;
+  if (version) return { cli: configCli, version };
+  if (platform !== "win32") return null;
+  const tried = new Set([configCli]);
+  const wrapped = wslProbeWrapper?.(configCli) ?? null;
+  if (wrapped && !tried.has(wrapped)) {
+    tried.add(wrapped);
+    const wrappedVersion = await probe(wrapped, env);
+    if (wrappedVersion) return { cli: wrapped, version: wrappedVersion };
+  }
+  if (!wslResolveCli) return null;
+  const resolved = await wslResolveCli(configCli, env);
+  if (!resolved || tried.has(resolved)) return null;
+  const resolvedVersion = await probe(resolved, env);
+  return resolvedVersion ? { cli: resolved, version: resolvedVersion } : null;
 }
 
 const INIT_TIMEOUT = 20_000;
@@ -959,7 +979,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
       // the first pre-snapshot turn pays for a probe.
       let cliProbe: Promise<{ cli: string; version: string } | null> | null = null;
       const resolveCli = (probeEnv: NodeJS.ProcessEnv) => {
-        const started = probeCliVersion(config.cli, probeEnv, process.platform, support.wslProbeWrapper, probe).then(
+        const started = probeCliVersion(config.cli, probeEnv, process.platform, support.wslProbeWrapper, probe, support.wslResolveCli).then(
           (probed) => {
             // Side-effect, not a pure read: steers effectiveCli() for all
             // later spawns until the next rescan clears or replaces it.

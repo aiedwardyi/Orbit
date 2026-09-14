@@ -16,7 +16,7 @@ import {
   type Message,
 } from "@/state/store";
 import { BotAvatar } from "./Avatar";
-import { TurnPresence } from "./TurnPresence";
+import { MessageBoundary, PresenceAnswer, TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { DEFAULT_MAUS_COLOR, normalizeState } from "@/lib/mascot";
 import { effectiveDefaultResponder, groupResponseHint } from "@/lib/group-routing";
@@ -1004,7 +1004,8 @@ export function GroupView({ group }: { group: Group }) {
     : undefined;
   const setupPending = roomNeedsSetup(group);
 
-  // Mascot stays while a member works; the finished reply pops in above it.
+  // Mascot stays while a member works, with the reply growing above it:
+  // partial text paints incrementally, the finished reply takes over.
   const lastGroupMessage = group.messages.at(-1);
   const toolInFlight = lastGroupMessage?.kind === "activity" && lastGroupMessage.tool?.ok === undefined;
   const showToolCalls = showToolCallsEnabled(state.config);
@@ -1043,6 +1044,10 @@ export function GroupView({ group }: { group: Group }) {
     lastGroupMessage?.from?.botId,
   ]);
   const presenceVisible = waiting || popping !== null;
+  // Settled pop-in wins; while the member works, the live partial paints
+  // above the still-shimmering wait label.
+  const partialText = !popping && waiting && streaming ? streaming : null;
+  const answerText = popping?.text ?? partialText;
   const presenceSpeaker = speaker ?? members.find((member) => member.id === popping?.botId) ?? members[0];
 
   // Windowed transcript, mirroring ChatView: only a tail of the room mounts;
@@ -1431,11 +1436,12 @@ export function GroupView({ group }: { group: Group }) {
               visible={presenceVisible}
               label={activityLabel}
               answering={popping !== null}
+              streaming={partialText !== null}
             >
-              {popping ? (
-                <div className="w-fit max-w-[min(42rem,78%)] rounded-2xl bg-card px-4 py-2.5 text-[15px] leading-relaxed text-ink">
-                  <ChatMarkdown text={popping.text} />
-                </div>
+              {answerText ? (
+                <MessageBoundary fallbackText={answerText}>
+                  <PresenceAnswer text={answerText} />
+                </MessageBoundary>
               ) : null}
             </TurnPresence>
           )}
