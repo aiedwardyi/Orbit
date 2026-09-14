@@ -168,6 +168,11 @@ function platformMarkup(platform: string, defaultOpen = false) {
   }
 }
 
+/** Visible chip text: strip tags so model + effort read as one line. */
+function chipText(html: string): string {
+  return html.replace(/<[^>]*>/g, "");
+}
+
 describe("ModelPicker friends chip", () => {
   it.each([["MacIntel", "Option"], ["Win32", "Alt"]])("labels the %s open/close shortcut", (platform, shortcut) => {
     expect(platformMarkup(platform, true)).toContain(`<kbd>${shortcut}</kbd><kbd>M</kbd>Open/Close`);
@@ -192,19 +197,71 @@ describe("ModelPicker friends chip", () => {
 
   it("shows effort beside the model name wearing the family accent", () => {
     const html = markup({ instanceId: "grok", model: "grok-4.6", mode: "automatic", effort: "high" });
-    expect(html).toContain("Grok 4.6");
+    expect(chipText(html)).toContain("Grok 4.6 · High");
     expect(html).toContain("data-model-effort");
-    expect(html).toContain(">high<");
+    expect(html).not.toContain(">high<");
     expect(html).toContain("#8b929c");
   });
 
   it("shows a derived effort dot for a tier-suffixed model without selection.effort", () => {
     const html = tieredMarkup({ instanceId: "antigravity", model: "gemini-3.8-flash-high", mode: "pinned" });
-    expect(html).toContain("Gemini 3.8 Flash");
+    expect(chipText(html)).toContain("Gemini 3.8 Flash · High");
     expect(html).not.toContain("(High)");
     expect(html).toContain("data-model-effort");
-    expect(html).toContain(">high<");
+    expect(html).not.toContain(">high<");
     expect(html).toContain("#aa7bfa");
+  });
+
+  it.each([
+    ["codex", "codex-default", "Codex default · Medium"],
+    ["claude", "claude-fable-5-1", "Fable 5.1 · Medium"],
+    ["muse", "muse-default", "Meta Muse default · Medium"],
+    ["antigravity", "antigravity-default", "Gemini (Antigravity) default · Medium"],
+    ["grok", "grok-4.6", "Grok 4.6 · Medium"],
+  ])("shows the %s chip as one-line Model · Effort", (instanceId, model, chip) => {
+    const html = markup({ instanceId, model, mode: "pinned", effort: "medium" });
+    expect(chipText(html)).toContain(chip);
+    expect(html).toContain("data-model-effort");
+    expect(html).toContain("whitespace-nowrap");
+  });
+
+  it("shortens the contributor card with the full name in aria/title", () => {
+    const museTwo: InstanceInfo = {
+      instanceId: "muse",
+      driverKind: "museAgent",
+      displayName: "Meta Muse",
+      snapshot: { state: "available" as const, authenticated: true, version: "1.0.0" },
+      models: {
+        default: "muse-spark-1.3",
+        options: [
+          { id: "muse-spark-1.3", label: "Meta Muse 1.3" },
+          { id: "muse-spark-1.3-contributor", label: "Meta Muse 1.3 Contributor" },
+        ],
+      },
+      capabilities: {},
+    };
+    const html = renderToStaticMarkup(
+      createElement(
+        I18nProvider,
+        null,
+        createElement(ModelPickerControl, {
+          bot: { ...bot, modelSelection: { instanceId: "muse", model: "muse-spark-1.3-contributor", mode: "pinned" } },
+          store: {
+            state: { instances: [museTwo], selectedId: "bot-1" },
+            dispatch: () => undefined,
+            refreshInstances: async () => undefined,
+          },
+          defaultOpen: true,
+        }),
+      ),
+    );
+    const list = html.slice(html.indexOf("data-model-picker-content"));
+    expect(list).toContain('data-model-cell="muse-spark-1.3-contributor" aria-pressed="true"');
+    expect(list).toContain("model-cross-name\">Meta Muse 1.3<");
+    expect(list).toContain(">Contrib<");
+    expect(list).toContain('aria-label="Meta Muse 1.3 Contributor"');
+    expect(list).toContain('title="Meta Muse 1.3 Contributor"');
+    expect(list).not.toContain("model-cross-name\">Meta Muse 1.3 Contributor<");
   });
 
   it("keeps a lone legacy tier label with no badge when nothing derives", () => {
@@ -242,7 +299,8 @@ describe("ModelPicker friends chip", () => {
   ])("paints the %s effort marker with %s", (instanceId, model, accent) => {
     const html = markup({ instanceId, model, mode: "pinned", effort: "medium" });
     expect(html).toContain("data-model-effort");
-    expect(html).toContain(">medium<");
+    expect(html).toContain("· Medium");
+    expect(html).not.toContain(">medium<");
     expect(html).toContain(accent);
   });
 
@@ -298,7 +356,8 @@ describe("ModelPicker friends chip", () => {
     // palette lookup, not a hardcoded hex: the dot must wear the family's
     // resolved accent, whatever the palette table holds.
     expect(html).toContain(`background-color:${modelFamilyAccent("grokAgent")}`);
-    expect(html).toContain(">high<");
+    expect(chipText(html)).toContain("Northwind 9 Contributor Extended Edition · High");
+    expect(html).not.toContain(">high<");
   });
 
   it("shows unresolved when automatic has no live model", () => {

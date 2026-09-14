@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Atom, BookOpen, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Hexagon, Leaf, MoonStar, Mountain, Orbit, Sparkle, Sparkles, Sun, X } from "lucide-react";
 import { useStore, type Bot, type ModelSelection } from "@/state/store";
 import { filterCustomModels } from "@/lib/custom-models";
-import { displayedChipEffort, engineBadgeText, modelChipText, modelChipTitle, modelEffortLabel, modelFamilyAccent } from "@/lib/model-chip";
+import { chipEffortLabel, displayedChipEffort, engineBadgeText, modelChipText, modelChipTitle, modelEffortLabel, modelFamilyAccent } from "@/lib/model-chip";
 import { movePicker, pickerColumn, pickerEfforts, pickerModels, pickerRows, selectPickerEffort, selectPickerModel, withPickerEffort } from "@/lib/cross-model-picker";
 import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
@@ -168,7 +168,7 @@ export function ModelPickerControl({
       aria-expanded={open}
       aria-haspopup="dialog"
       aria-keyshortcuts={shortcutEnabled ? "Alt+M" : undefined}
-      className="flex items-center gap-1.5 rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover"
+      className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover"
       title={modelChipTitle({ mode: selection.mode, instance: active, model: selection.model, effort: selection.effort }, t) + (shortcutEnabled ? ` (${shortcut}+M)` : "")}
     >
       {active ? <ProviderMark driverKind={active.driverKind} size={14} /> : <Sparkles size={14} className="text-accent" />}
@@ -178,9 +178,9 @@ export function ModelPickerControl({
         {modelChipText({ instance: active, model: selection.model, effort: selection.effort }, t)}
       </span>
       {chipEffort && (
-        <span data-model-effort className="flex shrink-0 items-center gap-1">
+        <span data-model-effort className="flex shrink-0 items-center gap-1 whitespace-nowrap">
           <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(active?.driverKind) }} />
-          <span className="text-[12px] text-ink-secondary">{effortLabel(chipEffort)}</span>
+          <span className="text-[12px] text-ink-secondary">{" · "}{chipEffortLabel(chipEffort, t)}</span>
         </span>
       )}
       {!contained && active && <span className="hidden max-w-[96px] truncate @max-4xl/chathead:inline">{active.displayName}</span>}
@@ -255,6 +255,12 @@ export function ModelPickerControl({
                 const ModelIcon = /astra/i.test(id) ? Atom : /sol/i.test(id) ? Sun : /terra/i.test(id) ? Mountain
                   : /luna/i.test(id) ? MoonStar : /fable/i.test(id) ? BookOpen : /haiku/i.test(id) ? Leaf
                   : /opus/i.test(id) ? Sun : /sonnet/i.test(id) ? Sparkles : Orbit;
+                // Contributor variants read as a short card ("Meta Muse 1.3" +
+                // Contrib badge) with the full catalog name kept in
+                // aria-label/title for screen readers and tooltips.
+                const shortContrib = !gpt && option.options.length === 1 && /-contributor$/i.test(option.options[0]!.id);
+                const fullName = shortContrib ? option.options[0]!.label : option.label;
+                const shortName = shortContrib ? option.options[0]!.label.replace(/\s+contributor$/i, "") : option.label;
                 return (
                   <button
                     key={`${item.instance.instanceId}:${option.options[0]!.id}`}
@@ -262,14 +268,16 @@ export function ModelPickerControl({
                     data-model-row={item.instance.instanceId}
                     data-model-cell={option.options[0]!.id}
                     aria-pressed={selected}
+                    aria-label={shortContrib ? fullName : undefined}
                     tabIndex={selected ? 0 : -1}
                     className="model-cross-cell"
-                    title={option.options.map((model) => model.id).join("\n")}
+                    title={shortContrib ? fullName : option.options.map((model) => model.id).join("\n")}
                     onClick={() => { if (selected) save(); else pick(selectPickerModel(item.instance, id, draft)); }}
                   >
                     <ModelIcon size={30} strokeWidth={1.1} aria-hidden />
                     <span className="model-cross-engine">{gpt ? gpt[1]!.replace("gpt-", "GPT ") : item.label}</span>
-                    <span className="model-cross-name">{gpt ? gpt[2]![0]!.toUpperCase() + gpt[2]!.slice(1) : option.label}</span>
+                    <span className="model-cross-name">{gpt ? gpt[2]![0]!.toUpperCase() + gpt[2]!.slice(1) : shortName}</span>
+                    {shortContrib && <span className="model-cross-badge">Contrib</span>}
                     {option.offList && <span className="model-cross-note">{t("model.offList")}</span>}
                   </button>
                 );

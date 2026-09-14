@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { translate } from "./i18n";
 import {
+  chipEffortLabel,
   displayedChipEffort,
   engineBadgeText,
   modelChipText,
@@ -193,6 +194,31 @@ describe("displayedChipEffort", () => {
       },
     };
     expect(displayedChipEffort(bare, "model-x-high", undefined)).toBe("high");
+  });
+});
+
+describe("chipEffortLabel", () => {
+  it.each([
+    ["none", "None"],
+    ["low", "Low"],
+    ["medium", "Medium"],
+    ["high", "High"],
+    ["xhigh", "Extra High"],
+    ["max", "Max"],
+  ])("capitalizes the %s chip effort in English", (effort, label) => {
+    expect(chipEffortLabel(effort, t)).toBe(label);
+  });
+
+  it("leaves non-cased locales untouched", () => {
+    const tko = (
+      key: Parameters<typeof translate>[1],
+      vars?: Record<string, string | number>,
+    ) => translate("ko", key, vars);
+    expect(chipEffortLabel("high", tko)).toBe("높음");
+  });
+
+  it("passes unknown ids through with a leading capital", () => {
+    expect(chipEffortLabel("turbo", t)).toBe("Turbo");
   });
 });
 

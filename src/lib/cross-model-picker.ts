@@ -27,7 +27,15 @@ export function pickerRows(instances: InstanceInfo[], current: ModelSelection, p
   const other = instances.find((instance) => instance.instanceId === current.instanceId);
   if (other && !ordered.some((row) => row.instance === other)) ordered.push({ instance: other, label: other.displayName });
   return ordered.map(({ instance, label }) => {
-    const catalog = instance.models.options.filter((option) => !option.custom);
+    // Roster dedup: a repeated catalog id must not fan out into repeated
+    // picker cells (3x Meta Muse + 2x Contributor from one engine). First
+    // row wins so the card labels stay stable.
+    const seen = new Set<string>();
+    const catalog = instance.models.options.filter((option) => {
+      if (option.custom || seen.has(option.id)) return false;
+      seen.add(option.id);
+      return true;
+    });
     let cells: PickerCell[];
     if (instance.driverKind === "antigravityAgent") {
       cells = ["3.8", "3.7", "3.6", "3.5"].flatMap((version) => {
@@ -86,7 +94,10 @@ export function selectPickerEffort(current: ModelSelection, option: PickerEffort
 export function selectPickerModel(instance: InstanceInfo, model: string, previous: ModelSelection): ModelSelection {
   if (previous.instanceId === instance.instanceId && previous.model === model) return withPickerEffort(instance, previous);
   const next: ModelSelection = { instanceId: instance.instanceId, model, mode: "pinned" };
-  if (instance.instanceId === previous.instanceId && previous.effort && instance.capabilities?.effortLevels?.includes(previous.effort)) {
+  // Keep the effort when the target engine supports it, even across engines:
+  // changing effort keeps the model list, so jumping models must keep the
+  // effort instead of snapping the plane back to the edge.
+  if (previous.effort && instance.capabilities?.effortLevels?.includes(previous.effort)) {
     next.effort = previous.effort;
   }
   return withPickerEffort(instance, next);
