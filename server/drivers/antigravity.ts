@@ -779,6 +779,9 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
         capabilities: {
           sessionModelSwitch: "in-session",
           images: true,
+          // Usage refresh polls the local agy quota server, so the engine
+          // reports subscription windows instead of sitting unreported.
+          rateLimits: true,
           // Cloud box, Local VM, and VPS computers all mount through the
           // global mcp_config.json above. Only full-auto instances advertise
           // it: print mode has no interactive approval channel, and outside

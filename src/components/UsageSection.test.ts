@@ -51,7 +51,7 @@ const { mockState, mockApi } = vi.hoisted(() => {
         engine("codex", "codex", "Codex", { capabilities: { rateLimits: true } }),
         engine("grok", "grokAgent", "Grok", { capabilities: { rateLimits: true } }),
         engine("gemini", "geminiAgent", "Gemini API"),
-        engine("antigravity", "antigravityAgent", "Gemini (Antigravity)"),
+        engine("antigravity", "antigravityAgent", "Gemini (Antigravity)", { capabilities: { rateLimits: true } }),
         engine("opencode", "opencodeGo", "OpenCode"),
       ],
     },
@@ -147,6 +147,28 @@ describe("UsageSection friends plan card", () => {
     expect(grok).toBeGreaterThan(codex);
     expect(antigravity).toBeGreaterThan(grok);
     expect(opencode).toBeGreaterThan(antigravity);
+  });
+
+  it("includes the antigravity engine in the single refresh-all", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    mockApi.mockClear();
+    try {
+      persistPreference("en");
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      const refreshAll = [...host.querySelectorAll("button")].find((button) => button.textContent === "Refresh all");
+      expect(refreshAll).toBeDefined();
+      await act(async () => {
+        refreshAll?.click();
+      });
+      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/antigravity", { method: "POST" });
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      mockApi.mockClear();
+      persistPreference("en");
+    }
   });
 
   it("shows exactly one refresh control for the whole section, never per-engine ones", () => {
@@ -375,8 +397,8 @@ describe("UsageSection friends plan card", () => {
       await act(async () => {
         refreshAll?.click();
       });
-      // one control refreshes Claude, Codex, and Grok together
-      expect(mockApi).toHaveBeenCalledTimes(3);
+      // one control refreshes Claude, Codex, Grok, and Antigravity together
+      expect(mockApi).toHaveBeenCalledTimes(4);
       const busy = [...host.querySelectorAll("button")].find((button) => button.textContent === "Refreshing…");
       expect(busy).toBeDefined();
       expect(busy?.hasAttribute("disabled")).toBe(true);
@@ -384,11 +406,12 @@ describe("UsageSection friends plan card", () => {
       await act(async () => {
         busy?.click();
       });
-      expect(mockApi).toHaveBeenCalledTimes(3);
+      expect(mockApi).toHaveBeenCalledTimes(4);
       await act(async () => {
         deferred.get("claude")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
         deferred.get("codex")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
         deferred.get("grok")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
+        deferred.get("antigravity")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
       });
       expect([...host.querySelectorAll("button")].find((button) => button.textContent === "Refresh all")).toBeDefined();
     } finally {

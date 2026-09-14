@@ -36,10 +36,10 @@ function windowRank(id: string, windowMinutes?: number): number {
   return kind === "session" ? 0 : kind === "weekly" ? 1 : 2;
 }
 
-// Claude/Codex/Grok declare rateLimits and answer a refresh POST; engines
-// that never report stay off the refresh path entirely.
+// Claude/Codex/Grok/Antigravity declare rateLimits and answer a refresh
+// POST; engines that never report stay off the refresh path entirely.
 const canRefresh = (instance: InstanceInfo) =>
-  instance.driverKind === "claudeAgent" || instance.driverKind === "codex" || instance.driverKind === "grokAgent";
+  instance.driverKind === "claudeAgent" || instance.driverKind === "codex" || instance.driverKind === "grokAgent" || instance.driverKind === "antigravityAgent";
 
 // One shared row for every engine in the plan card: the label sits left and
 // the values stack in a single left-aligned column underneath. Every engine
@@ -64,10 +64,10 @@ function EnginePlanRow({
   const windows = [...(instance.rateLimits?.windows ?? [])].sort(
     (a, b) => windowRank(a.id, a.windowMinutes) - windowRank(b.id, b.windowMinutes),
   );
-  // Claude/Codex/Grok declare rateLimits but only emit a window after a
-  // turn or refresh — pending, not an outage. Engines that never report
-  // (Antigravity, OpenCode) stay on the unsupported line so a missing
-  // observation is not mistaken for downtime.
+  // Claude/Codex/Grok/Antigravity declare rateLimits but only emit a window
+  // after a turn or refresh — pending, not an outage. Engines that never
+  // report (OpenCode) stay on the unsupported line so a missing observation
+  // is not mistaken for downtime.
   const honestCaption = t(instance.capabilities?.rateLimits ? "usage.limits.pending" : "usage.limits.notReported", {
     name: instance.displayName,
   });
@@ -147,7 +147,8 @@ function PlanUsage() {
     }
   };
   // The section's only refresh control: one tap refreshes every engine that
-  // answers a refresh POST (Claude, Codex, Grok), never just one of them.
+  // answers a refresh POST (Claude, Codex, Grok, Antigravity), never just one
+  // of them.
   const refreshAll = async () => {
     if (refreshing || refreshable.length === 0) return;
     setRefreshing(true);
