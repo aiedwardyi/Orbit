@@ -409,6 +409,11 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         const sessionCwd = sessionPaths.cwd;
         const mcpServers = sessionPaths.servers;
 
+        // Turns can precede any snapshot() (startup routines, API-driven
+        // turns), and the auth gate above never probes — without this the
+        // first such turn on win32 would spawn the bare CLI that only
+        // exists inside WSL.
+        await ensureCli(env);
         const child = spawnCli(effectiveCli(), support.spawnArgs(config, cliTurn), {
           cwd,
           env,
@@ -931,10 +936,30 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         return { turnId };
       };
 
+      // Shared by snapshot() and the pre-spawn path: resolves (and
+      // remembers) the WSL fallback, so a first turn that never saw a
+      // snapshot still launches the working wrapper. snapshot() always
+      // probes fresh and refreshes the memo; turns reuse the memo and only
+      // the first pre-snapshot turn pays for a probe.
+      let cliProbe: Promise<{ cli: string; version: string } | null> | null = null;
+      const resolveCli = (probeEnv: NodeJS.ProcessEnv) => {
+        const started = probeCliVersion(config.cli, probeEnv, process.platform, support.wslProbeWrapper, probe).then(
+          (probed) => {
+            // Side-effect, not a pure read: steers effectiveCli() for all
+            // later spawns until the next rescan clears or replaces it.
+            wslCli = probed && probed.cli !== config.cli ? probed.cli : null;
+            return probed;
+          },
+        );
+        cliProbe = started;
+        return started;
+      };
+      const ensureCli = (probeEnv: NodeJS.ProcessEnv): Promise<{ cli: string; version: string } | null> =>
+        cliProbe ?? (cliProbe = resolveCli(probeEnv));
+
       const snapshot = async (): Promise<ProviderSnapshot> => {
         const env = childEnv();
-        const probed = await probeCliVersion(config.cli, env, process.platform, support.wslProbeWrapper, probe);
-        wslCli = probed && probed.cli !== config.cli ? probed.cli : null;
+        const probed = await resolveCli(env);
         if (!probed) return { state: "unavailable", reason: `\`${effectiveCli()}\` CLI not found` };
         return { state: "available", version: probed.version, authenticated: await support.isAuthenticated(env, config) };
       };

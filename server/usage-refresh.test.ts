@@ -340,6 +340,127 @@ describe("usage refresh route result", () => {
     expect(result.report?.windows.map((window) => window.usedPercent)).toEqual([42, 19]);
   });
 
+  it("sends a 403 straight to sign-in without burning a mint round-trip", async () => {
+    let tokenCalls = 0;
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      read: async () => JSON.stringify({ claudeAiOauth: { accessToken: "scoped-access", refreshToken: "stored-refresh" } }),
+      request: async (url) => {
+        // 403 is insufficient scope: a minted token carries the same scopes.
+        if (String(url).includes("/oauth/token")) tokenCalls++;
+        return Response.json({ error: "insufficient_scope" }, { status: 403 });
+      },
+    });
+    const result = await refresh("claudeAgent", { instanceId: "claude" });
+    expect(result.error).toBe("Sign in again in Claude");
+    expect(tokenCalls).toBe(0);
+  });
+
+  it("treats a non-grant OAuth 400 as transient, not signed out", async () => {
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      read: async () => JSON.stringify({ claudeAiOauth: { accessToken: "stale-access", refreshToken: "stored-refresh" } }),
+      request: async (url) => {
+        if (String(url).includes("/oauth/token")) return Response.json({ error: "invalid_request" }, { status: 400 });
+        return Response.json({ error: "expired" }, { status: 401 });
+      },
+    });
+    const report = { windows: [{ id: "five_hour", usedPercent: 12, resetsAt: null }], observedAt: reset };
+    const result = await refresh("claudeAgent", { instanceId: "claude" }, report);
+    expect(result.report).toEqual(report);
+    expect(result.error).toBe("Could not refresh Claude limits");
+  });
+
+  it("treats an unreadable OAuth error body as transient, not signed out", async () => {
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      read: async () => JSON.stringify({ claudeAiOauth: { accessToken: "stale-access", refreshToken: "stored-refresh" } }),
+      request: async (url) => {
+        if (String(url).includes("/oauth/token")) return new Response("not json", { status: 400 });
+        return Response.json({ error: "expired" }, { status: 401 });
+      },
+    });
+    const result = await refresh("claudeAgent", { instanceId: "claude" });
+    expect(result.report).toBeUndefined();
+    expect(result.error).toBe("Could not refresh Claude limits");
+  });
+
+  it("mints once when two instances share one credential file", async () => {
+    let files = JSON.stringify({ claudeAiOauth: { accessToken: "stale-access", refreshToken: "shared-refresh" } });
+    let tokenCalls = 0;
+    let writes = 0;
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      now: () => 1_000_000,
+      read: async () => files,
+      write: async (_path, content) => {
+        writes++;
+        files = content;
+      },
+      request: async (url, init) => {
+        const target = String(url);
+        if (target.includes("/oauth/token")) {
+          tokenCalls++;
+          return Response.json({ access_token: "fresh-access", refresh_token: "rotated-refresh", expires_in: 28_800 });
+        }
+        return new Headers(init?.headers).get("authorization") === "Bearer fresh-access"
+          ? Response.json(fixtures.claudeAgent)
+          : Response.json({ error: "expired" }, { status: 401 });
+      },
+    });
+    const options = (instanceId: string) => ({ instanceId, environment: { CLAUDE_CONFIG_DIR: "/shared/claude" } });
+    const [first, second] = await Promise.all([refresh("claudeAgent", options("a")), refresh("claudeAgent", options("b"))]);
+    expect(first.error).toBeUndefined();
+    expect(second.error).toBeUndefined();
+    // One mint serves both: the loser re-reads the rotated file inside the
+    // lock instead of redeeming the consumed grant a second time.
+    expect(tokenCalls).toBe(1);
+    expect(writes).toBe(1);
+  });
+
+  it("bridges a failed persist from memory instead of redeeming the dead grant", async () => {
+    let now = 1_000_000;
+    const file = JSON.stringify({ claudeAiOauth: { accessToken: "stale-access", refreshToken: "original-refresh" } });
+    let failWrites = true;
+    const written: string[] = [];
+    let tokenCalls = 0;
+    const grants: unknown[] = [];
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      now: () => now,
+      read: async () => file,
+      write: async (_path, content) => {
+        if (failWrites) throw new Error("read-only fs");
+        written.push(content);
+      },
+      request: async (url, init) => {
+        const target = String(url);
+        if (target.includes("/oauth/token")) {
+          tokenCalls++;
+          grants.push(JSON.parse(String(init?.body)).refresh_token);
+          return Response.json({ access_token: "memory-access", refresh_token: "memory-refresh", expires_in: 28_800 });
+        }
+        return new Headers(init?.headers).get("authorization") === "Bearer memory-access"
+          ? Response.json(fixtures.claudeAgent)
+          : Response.json({ error: "expired" }, { status: 401 });
+      },
+    });
+    const first = await refresh("claudeAgent", { instanceId: "claude" });
+    expect(first.error).toBeUndefined();
+    expect(tokenCalls).toBe(1);
+    // Next cycle the file still holds the consumed grant, but no second
+    // mint happens: the remembered rotation serves usage, then heals the file.
+    now += 31_000;
+    failWrites = false;
+    const second = await refresh("claudeAgent", { instanceId: "claude" });
+    expect(second.error).toBeUndefined();
+    expect(second.report?.windows.map((window) => window.usedPercent)).toEqual([42, 19]);
+    expect(tokenCalls).toBe(1);
+    expect(grants).toEqual(["original-refresh"]);
+    expect(written).toHaveLength(1);
+    expect(JSON.parse(written[0]).claudeAiOauth).toMatchObject({ accessToken: "memory-access", refreshToken: "memory-refresh" });
+  });
+
   it("keeps the env-token path fail-closed with no refresh attempt", async () => {
     let tokenCalls = 0;
     const refresh = createUsageRefresh({
