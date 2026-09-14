@@ -9,6 +9,14 @@ export function catalogModelLabel(
   return instance?.models.options.find((option) => option.id === model)?.label ?? model;
 }
 
+/** Antigravity catalog labels carry the throttle tier in parens
+ * ("Gemini 3.8 Flash (High)"); the header chip shows the base name and
+ * renders effort separately, so the parenthesized tier is stripped here.
+ * Non-tier parens ("Auto (recommended)") are kept verbatim. */
+function stripTierParen(label: string): string {
+  return label.replace(/\s+\((high|medium|low)\)\s*$/i, "").trim() || label;
+}
+
 /** Chip copy is the live engine/model. Automatic is a picker mode, not a name. */
 export function modelChipText(
   input: {
@@ -17,7 +25,9 @@ export function modelChipText(
   },
   t: Translate,
 ): string {
-  return catalogModelLabel(input.instance, input.model) || t("model.unresolved");
+  const raw = catalogModelLabel(input.instance, input.model);
+  if (!raw) return t("model.unresolved");
+  return stripTierParen(raw) || t("model.unresolved");
 }
 
 export function modelChipTitle(

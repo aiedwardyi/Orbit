@@ -40,6 +40,35 @@ describe("modelChipText", () => {
   it("uses unresolved when there is no live model id", () => {
     expect(modelChipText({ model: "" }, t)).toBe("unresolved");
   });
+
+  it("strips a tier in parens from an Antigravity catalog label", () => {
+    const antigravity = {
+      displayName: "Gemini (Antigravity)",
+      models: {
+        default: "gemini-3.8-flash-high",
+        options: [{ id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" }],
+      },
+    };
+    expect(
+      modelChipText({ instance: antigravity, model: "gemini-3.8-flash-high" }, t),
+    ).toBe("Gemini 3.8 Flash");
+    expect(
+      modelChipText({ instance: antigravity, model: "gemini-3.8-flash-high" }, t),
+    ).not.toMatch(/\(High\)/);
+  });
+
+  it("keeps non-tier parens such as Auto (recommended) verbatim", () => {
+    const gemini = {
+      displayName: "Gemini API",
+      models: {
+        default: "auto",
+        options: [{ id: "auto", label: "Auto (recommended)" }],
+      },
+    };
+    expect(modelChipText({ instance: gemini, model: "auto" }, t)).toBe(
+      "Auto (recommended)",
+    );
+  });
 });
 
 describe("modelChipTitle", () => {

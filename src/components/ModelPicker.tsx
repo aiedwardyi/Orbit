@@ -111,7 +111,10 @@ export function ModelPickerControl({
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat || event.isComposing || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.code !== "KeyM") return;
-      if (!shortcutEnabled || (!open && document.querySelector('[role="dialog"]'))) return;
+      // Only a picker dialog blocks Alt+M (prevents a second picker over its
+      // own dialog). Foreign dialogs such as Settings must not swallow the
+      // shortcut — the picker renders above them (z-100 over z-50).
+      if (!shortcutEnabled || (!open && document.querySelector('[data-model-picker-content]'))) return;
       event.preventDefault();
       if (open) close();
       else show();
