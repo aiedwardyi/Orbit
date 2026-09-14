@@ -905,6 +905,9 @@ store.onChange((change) => {
     case "bots.order":
       broadcast({ kind: "bots.order", botIds: change.botIds });
       break;
+    case "groups.order":
+      broadcast({ kind: "groups.order", groupIds: change.groupIds });
+      break;
     case "group": {
       const group = store.group(change.groupId);
       if (group) broadcast({ kind: "group", group: publicGroupState(group) });
@@ -5642,6 +5645,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 400, { error: "botIds must list every bot exactly once" });
       }
       return json(res, 200, { botIds: parsed.data.botIds });
+    }
+    if (method === "PUT" && path === "/api/groups/order") {
+      const parsed = z.object({ groupIds: z.array(z.string()) }).safeParse(await readBody(req));
+      if (!parsed.success || !store.reorderGroups(parsed.data.groupIds)) {
+        return json(res, 400, { error: "groupIds must list every group exactly once" });
+      }
+      return json(res, 200, { groupIds: parsed.data.groupIds });
     }
 
     // scrollback: the page before a message the client already holds
