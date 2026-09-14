@@ -51,7 +51,7 @@ const { mockState, mockApi } = vi.hoisted(() => {
         engine("codex", "codex", "Codex", { capabilities: { rateLimits: true } }),
         engine("grok", "grokAgent", "Grok", { capabilities: { rateLimits: true } }),
         engine("gemini", "geminiAgent", "Gemini API"),
-        engine("antigravity", "antigravityAgent", "Gemini (Antigravity)"),
+        engine("antigravity", "antigravityAgent", "Gemini (Antigravity)", { capabilities: { rateLimits: true } }),
         engine("muse", "museAgent", "Meta Muse", {
           capabilities: { rateLimits: true },
           rateLimits: {
@@ -167,16 +167,70 @@ describe("UsageSection friends plan card", () => {
     expect(html).toContain('aria-label="7d: 61% used"');
   });
 
-  it("shows refresh controls for the three supported engines", () => {
-    const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-    expect((html.match(/>Refresh</g) ?? []).length).toBe(3);
+  it("includes the antigravity engine in the single refresh-all", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    mockApi.mockClear();
+    try {
+      persistPreference("en");
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      const refreshAll = [...host.querySelectorAll("button")].find((button) => button.textContent === "Refresh all");
+      expect(refreshAll).toBeDefined();
+      await act(async () => {
+        refreshAll?.click();
+      });
+      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/antigravity", { method: "POST" });
+      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/muse", { method: "POST" });
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      mockApi.mockClear();
+      persistPreference("en");
+    }
+  });
+
+  it("shows exactly one refresh control for the whole section, never per-engine ones", () => {
+    try {
+      persistPreference("en");
+      const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+      expect((html.match(/>Refresh all</g) ?? []).length).toBe(1);
+      expect(html).not.toContain(">Refresh<");
+    } finally {
+      persistPreference("en");
+    }
+  });
+
+  it("shares one left-aligned column across engine rows instead of centering each grid", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      persistPreference("en");
+      setUsageMode("used");
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      // Claude renders windows, Grok renders banked spend: both value columns
+      // share one structure and one left alignment, so a future engine row
+      // inherits it instead of re-centering itself.
+      const columns = [...host.querySelectorAll("div.mt-2.flex.flex-col.items-start")];
+      expect(columns.length).toBeGreaterThanOrEqual(2);
+      for (const column of columns) {
+        expect(column.className).toBe(columns[0]?.className);
+      }
+      expect(host.innerHTML).not.toContain("mx-auto");
+      expect(host.innerHTML).not.toContain("w-fit");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      persistPreference("en");
+    }
   });
 
   it("renders every window as the chat's compact meter, with the Opus row labeled and stale windows as text", () => {
     setUsageMode("used");
     const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-    // five windows and no spend: columns cap at four, the fifth cell wraps
-    expect(html).toContain("mx-auto mt-2 grid w-fit items-center gap-x-6 grid-cols-[auto_auto_auto_auto]");
+    // five windows stacked in the shared single column, left-aligned
+    expect(html).toContain("mt-2 flex flex-col items-start gap-1.5");
     expect(html).toContain('aria-label="5h: 10% used"');
     expect(html).toContain('aria-label="7d: 49% used"');
     expect(html).toContain(">Opus<");
@@ -224,11 +278,11 @@ describe("UsageSection friends plan card", () => {
       })));
     expect(chat).toContain(tokenSpan);
     expect(settings).not.toContain("text-[11.5px]");
-    // the Grok readout sits inside a meters grid even though Grok reports no
-    // windows yet — spend is never dropped for lack of a meter
-    const grid = settings.indexOf("mx-auto mt-2 grid w-fit items-center gap-x-6 grid-cols-1");
-    expect(grid).toBeGreaterThan(-1);
-    expect(settings.indexOf(tokenSpan)).toBeGreaterThan(grid);
+    // the Grok readout sits inside the shared left-aligned column even though
+    // Grok reports no windows yet — spend is never dropped for lack of a meter
+    const column = settings.indexOf("mt-2 flex flex-col items-start gap-1.5");
+    expect(column).toBeGreaterThan(-1);
+    expect(settings.indexOf(tokenSpan)).toBeGreaterThan(column);
   });
 
   it("orders windows session-first like the chat strip without dropping any", () => {
@@ -248,7 +302,7 @@ describe("UsageSection friends plan card", () => {
     expect(html).toContain("Reset since the last check");
   });
 
-  it("keeps three windows plus spend on one four-column row", () => {
+  it("stacks three windows plus spend in the shared single column", () => {
     const report = mockState.instances[0].rateLimits;
     if (!report) throw new Error("claude fixture missing rateLimits");
     const originalWindows = report.windows;
@@ -269,7 +323,8 @@ describe("UsageSection friends plan card", () => {
       ];
       mockState.bots.push(spendBot);
       const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-      expect(html).toContain("mx-auto mt-2 grid w-fit items-center gap-x-6 grid-cols-[auto_auto_auto_auto]");
+      expect(html).toContain("mt-2 flex flex-col items-start gap-1.5");
+      expect(html).not.toContain("grid-cols-");
       expect(html).toContain('aria-label="5h: 10% used"');
       expect(html).toContain('aria-label="7d: 49% used"');
       expect(html).toContain('aria-label="7d: 75% used"');
@@ -344,7 +399,7 @@ describe("UsageSection friends plan card", () => {
     }
   });
 
-  it("keeps each engine's refresh busy until that request finishes", async () => {
+  it("keeps the single refresh control busy until every engine request finishes", async () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
@@ -355,19 +410,30 @@ describe("UsageSection friends plan card", () => {
     try {
       persistPreference("en");
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
-      const buttons = [...host.querySelectorAll("button")].filter((button) => button.textContent === "Refresh");
-      expect(buttons).toHaveLength(3);
+      expect([...host.querySelectorAll("button")].filter((button) => button.textContent === "Refresh")).toHaveLength(0);
+      const refreshAll = [...host.querySelectorAll("button")].find((button) => button.textContent === "Refresh all");
+      expect(refreshAll).toBeDefined();
       await act(async () => {
-        buttons[0]?.click();
-        buttons[1]?.click();
+        refreshAll?.click();
       });
-      expect([...host.querySelectorAll("button")].filter((button) => button.textContent === "Refreshing…")).toHaveLength(2);
+      // one control refreshes Claude, Codex, Grok, Antigravity, and Meta Muse together
+      expect(mockApi).toHaveBeenCalledTimes(5);
+      const busy = [...host.querySelectorAll("button")].find((button) => button.textContent === "Refreshing…");
+      expect(busy).toBeDefined();
+      expect(busy?.hasAttribute("disabled")).toBe(true);
+      // a second click while busy issues no new requests
+      await act(async () => {
+        busy?.click();
+      });
+      expect(mockApi).toHaveBeenCalledTimes(5);
       await act(async () => {
         deferred.get("claude")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
+        deferred.get("codex")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
+        deferred.get("grok")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
+        deferred.get("antigravity")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
+        deferred.get("muse")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
       });
-      const labels = [...host.querySelectorAll("button")].map((button) => button.textContent);
-      expect(labels.filter((label) => label === "Refreshing…")).toHaveLength(1);
-      expect(labels.filter((label) => label === "Refresh")).toHaveLength(2);
+      expect([...host.querySelectorAll("button")].find((button) => button.textContent === "Refresh all")).toBeDefined();
     } finally {
       await act(async () => root.unmount());
       host.remove();

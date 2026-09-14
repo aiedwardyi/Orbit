@@ -87,6 +87,162 @@ export function grokRateLimitWindows(payload: unknown): RateLimitWindow[] {
   ];
 }
 
+/** Antigravity quota buckets into subscription windows. Three wire shapes,
+ * one account: the statusline JSON dict (`gemini-5h` / `gemini-weekly` with
+ * `remaining_fraction` + `reset_in_seconds`), RetrieveUserQuotaSummary
+ * `groups[].buckets[]` (the same RPC behind agy's own `/usage`), and the
+ * legacy GetUserStatus model configs. A bucket is matched by the window
+ * length named in its id or display name; anything without a fill level is
+ * dropped. Both pools (Gemini, Claude + GPT) report the same two windows,
+ * so each id keeps the most constrained pool — the binding constraint. */
+export function antigravityRateLimitWindows(payload: unknown, now = Date.now()): RateLimitWindow[] {
+  const classify = (name: string): { id: string; windowMinutes: number } | null => {
+    const text = name.toLowerCase();
+    if (/weekly|7\s*d|seven[\s_-]?day/.test(text)) return { id: "seven_day", windowMinutes: SEVEN_DAYS };
+    if (/5\s*h|five[\s_-]?hour|session/.test(text)) return { id: "five_hour", windowMinutes: FIVE_HOURS };
+    if (/daily|24\s*h/.test(text)) return { id: "daily", windowMinutes: MINUTES_PER_DAY };
+    return null;
+  };
+  const resetFromUnknown = (value: unknown): number | null => {
+    if (typeof value === "string") {
+      const parsed = Date.parse(value);
+      return Number.isNaN(parsed) ? null : parsed;
+    }
+    return epochMs(value);
+  };
+  type Candidate = { name: string; fraction: unknown; resetMs: number | null };
+  const candidates: Candidate[] = [];
+  if (isRecord(payload)) {
+    for (const [bucket, entry] of Object.entries(payload)) {
+      if (bucket === "groups" || bucket === "userStatus") continue;
+      if (!isRecord(entry)) continue;
+      const seconds = entry.reset_in_seconds ?? entry.resetInSeconds;
+      candidates.push({
+        name: bucket,
+        fraction: entry.remaining_fraction ?? entry.remainingFraction,
+        resetMs:
+          finite(seconds) && seconds > 0
+            ? Math.round(now + seconds * 1000)
+            : entry.resetTime === undefined
+              ? null
+              : resetFromUnknown(entry.resetTime),
+      });
+    }
+    if (Array.isArray(payload.groups)) {
+      for (const group of payload.groups) {
+        if (!isRecord(group) || !Array.isArray(group.buckets)) continue;
+        for (const bucket of group.buckets) {
+          if (!isRecord(bucket)) continue;
+          const remaining = isRecord(bucket.remaining) ? bucket.remaining : null;
+          candidates.push({
+            name: `${String(bucket.bucketId ?? "")} ${String(bucket.displayName ?? "")}`,
+            fraction: remaining?.remainingFraction ?? bucket.remainingFraction ?? bucket.remaining_fraction,
+            resetMs: resetFromUnknown(bucket.resetTime ?? bucket.resetsAt ?? bucket.reset_at),
+          });
+        }
+      }
+    }
+    const userStatus = isRecord(payload.userStatus) ? payload.userStatus : null;
+    const cascade = userStatus && isRecord(userStatus.cascadeModelConfigData) ? userStatus.cascadeModelConfigData : null;
+    const configs = cascade && Array.isArray(cascade.clientModelConfigs) ? cascade.clientModelConfigs : [];
+    for (const config of configs) {
+      if (!isRecord(config)) continue;
+      const info = isRecord(config.quotaInfo) ? config.quotaInfo : null;
+      candidates.push({
+        name: `${String(config.quotaWindow ?? "")} ${String(config.displayName ?? "")} ${String(config.model ?? "")}`,
+        fraction: info?.remainingFraction ?? info?.remaining_fraction,
+        resetMs: resetFromUnknown(info?.resetTime ?? info?.resetsAt),
+      });
+    }
+  }
+  const best = new Map<string, RateLimitWindow>();
+  for (const candidate of candidates) {
+    const kind = classify(candidate.name);
+    if (!kind) continue;
+    if (typeof candidate.fraction !== "number" || !Number.isFinite(candidate.fraction)) continue;
+    if (candidate.fraction < 0 || candidate.fraction > 1) continue;
+    const usedPercent = round1((1 - candidate.fraction) * 100);
+    const current = best.get(kind.id);
+    if (!current || usedPercent > current.usedPercent) {
+      best.set(kind.id, { id: kind.id, usedPercent, resetsAt: candidate.resetMs, windowMinutes: kind.windowMinutes });
+    }
+  }
+  const out: RateLimitWindow[] = [];
+  for (const id of ["five_hour", "seven_day", "daily"] as const) {
+    const window = best.get(id);
+    if (window) out.push(window);
+  }
+  return out;
+}
+
+/** Meta `muse` quota into subscription windows. Verified against the local
+ * `muse` binary (1.2.1): the MSP schema (stable and experimental) carries
+ * per-turn token usage but no subscription quota method, `account/read`
+ * answers `experimentalRequired` on the default serve host, and there is
+ * no `muse usage` subcommand — so no live surface feeds this yet. The
+ * parser reads the Meta account-quota shape (five_hour / seven_day windows
+ * with a utilization fraction and an epoch-seconds reset, the same family
+ * as Claude's stream-json shape) so the first surface that reports it
+ * needs no new normalization. Total like the others: windows are keyed by
+ * name and normalized to the family id, each id keeps the fullest pool,
+ * and a window without a fill level is dropped. */
+export function museRateLimitWindows(payload: unknown, now = Date.now()): RateLimitWindow[] {
+  const classify = (name: string): { id: string; windowMinutes: number } | null => {
+    const text = name.toLowerCase();
+    if (/weekly|7\s*d|seven[\s_-]?day/.test(text)) return { id: "seven_day", windowMinutes: SEVEN_DAYS };
+    if (/5\s*h|five[\s_-]?hour|session/.test(text)) return { id: "five_hour", windowMinutes: FIVE_HOURS };
+    return null;
+  };
+  const resetFromUnknown = (value: unknown): number | null => {
+    if (typeof value === "string") {
+      const parsed = Date.parse(value);
+      return Number.isNaN(parsed) ? null : parsed;
+    }
+    return epochMs(value);
+  };
+  const fillPercent = (window: Record<string, unknown>): number | null => {
+    const remaining = window.remaining_fraction ?? window.remainingFraction;
+    if (finite(remaining)) {
+      if (remaining < 0 || remaining > 1) return null;
+      return round1((1 - remaining) * 100);
+    }
+    if (finite(window.usedPercent)) return round1(window.usedPercent);
+    if (finite(window.utilization)) {
+      // A fraction like Claude's; a value already past 1 is a percent.
+      return window.utilization <= 1 ? round1(window.utilization * 100) : round1(window.utilization);
+    }
+    return null;
+  };
+  const resetMs = (window: Record<string, unknown>): number | null => {
+    const seconds = window.reset_in_seconds ?? window.resetInSeconds;
+    if (finite(seconds) && seconds > 0) return Math.round(now + seconds * 1000);
+    return resetFromUnknown(window.resetsAt ?? window.resets_at ?? window.resetTime ?? window.reset_at);
+  };
+  const best = new Map<string, RateLimitWindow>();
+  const consider = (name: string, window: unknown) => {
+    const kind = classify(name);
+    if (!kind || !isRecord(window)) return;
+    const usedPercent = fillPercent(window);
+    if (usedPercent === null) return;
+    const current = best.get(kind.id);
+    if (!current || usedPercent > current.usedPercent) {
+      best.set(kind.id, { id: kind.id, usedPercent, resetsAt: resetMs(window), windowMinutes: kind.windowMinutes });
+    }
+  };
+  if (isRecord(payload)) {
+    for (const [name, window] of Object.entries(payload)) consider(name, window);
+    if (best.size === 0 && typeof payload.rateLimitType === "string" && payload.rateLimitType !== "overage") {
+      consider(payload.rateLimitType, payload);
+    }
+  }
+  const out: RateLimitWindow[] = [];
+  for (const id of ["five_hour", "seven_day"] as const) {
+    const window = best.get(id);
+    if (window) out.push(window);
+  }
+  return out;
+}
+
 // Unambiguous exhaustion: the account is out, whoever the provider is.
 // Every branch needs a spent-ness word — a bare "quota" also appears in
 // "quota configuration is unavailable", which is an outage. "limit" is not

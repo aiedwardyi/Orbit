@@ -1,4 +1,7 @@
+import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { request as httpRequest, type IncomingMessage } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -7,7 +10,7 @@ import { z } from "zod";
 import { acpChildEnv } from "./drivers/acp/core.ts";
 import { grokSupport } from "./drivers/acp/grok.ts";
 import type { RateLimitWindow } from "./contracts.ts";
-import { codexRateLimitWindows, grokRateLimitWindows } from "./drivers/rate-limits.ts";
+import { antigravityRateLimitWindows, codexRateLimitWindows, grokRateLimitWindows, museRateLimitWindows } from "./drivers/rate-limits.ts";
 import { augmentedPath } from "./env-path.ts";
 import { killCliTree, spawnCli } from "./procs.ts";
 import { parseJson, type JsonValue } from "./schema.ts";
@@ -106,11 +109,174 @@ export function readGrokBillingRpc(cli: string, env: NodeJS.ProcessEnv): Promise
   });
 }
 
+const agyQuotaPaths = [
+  "/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary",
+  "/exa.language_server_pb.LanguageServerService/GetUserStatus",
+] as const;
+
+/** Quota from the local Antigravity language server — the same
+ * RetrieveUserQuotaSummary RPC behind agy's own `/usage`. The server only
+ * exists while agy or the IDE runs, on a random loopback port behind a
+ * self-signed cert, so candidates come from the process list and their
+ * ports from the listener table; anything missing means "not running", a
+ * refresh error rather than a signin one. Loopback only — `rejectUnauthorized: false`
+ * is scoped to these calls, never global. Total work stays inside 15s. */
+export function readAntigravityQuota(cli: string, env: NodeJS.ProcessEnv): Promise<JsonValue> {
+  const started = Date.now();
+  const remaining = () => 15_000 - (Date.now() - started);
+  const shellEnv = { ...process.env, ...env };
+  const run = (command: string, args: string[]): Promise<string | null> =>
+    new Promise((resolve) => {
+      execFile(
+        command,
+        args,
+        { timeout: Math.max(1, remaining()), windowsHide: true, encoding: "utf8", maxBuffer: 4 * 1024 * 1024, env: shellEnv },
+        (error, stdout) => resolve(error ? null : stdout),
+      );
+    });
+  const post = (secure: boolean, port: number, path: string): Promise<{ status: number; json: JsonValue } | null> =>
+    new Promise((resolve) => {
+      if (remaining() <= 0) {
+        resolve(null);
+        return;
+      }
+      const body = JSON.stringify({ ideName: "antigravity", extensionName: "antigravity", locale: "en", ideVersion: "unknown" });
+      const options = {
+        host: "127.0.0.1",
+        port,
+        path,
+        method: "POST",
+        headers: { "content-type": "application/json", "connect-protocol-version": "1", "content-length": Buffer.byteLength(body) },
+      };
+      const done = (response: IncomingMessage) => {
+        let text = "";
+        response.on("data", (chunk) => {
+          text += chunk;
+          if (text.length > 4 * 1024 * 1024) {
+            request.destroy();
+            resolve(null);
+          }
+        });
+        response.on("end", () => {
+          const status = response.statusCode ?? 0;
+          if (status === 401 || status === 403) {
+            resolve({ status, json: null });
+            return;
+          }
+          try {
+            resolve({ status, json: parseJson(text) });
+          } catch {
+            resolve(null);
+          }
+        });
+      };
+      const request = secure ? httpsRequest({ ...options, rejectUnauthorized: false }, done) : httpRequest(options, done);
+      request.on("timeout", () => {
+        request.destroy();
+        resolve(null);
+      });
+      request.on("error", () => resolve(null));
+      request.setTimeout(Math.max(1, remaining()));
+      request.write(body);
+      request.end();
+    });
+  return (async (): Promise<JsonValue> => {
+    const base = cli.split(/[\\/]/).pop()?.trim() || "agy";
+    const windows = process.platform === "win32";
+    const listing = windows ? await run("tasklist", ["/FO", "CSV", "/NH"]) : await run("ps", ["-ax", "-o", "pid=,command="]);
+    const pids = new Set<string>();
+    if (listing) {
+      for (const line of listing.split("\n")) {
+        if (windows) {
+          const cells = line.split('","');
+          const name = (cells[0] ?? "").replace(/^"/, "").toLowerCase();
+          const pid = cells[1] ?? "";
+          if (/^\d+$/.test(pid) && (name.includes(base.toLowerCase()) || name.includes("language_server"))) pids.add(pid);
+        } else {
+          const match = line.trim().match(/^(\d+)\s+(.*)$/);
+          if (!match) continue;
+          const command = match[2];
+          if (
+            command.includes(base) ||
+            /(^|\/)agy(\s|$)/.test(command) ||
+            /antigravity-cli|antigravity_cli/.test(command) ||
+            (/language_server|language-server/.test(command) && /antigravity/i.test(command))
+          ) {
+            if (pids.size < 5) pids.add(match[1]);
+          }
+        }
+      }
+    }
+    if (pids.size === 0) throw new Error("refresh");
+    const ports: number[] = [];
+    if (windows) {
+      const table = await run("netstat", ["-ano", "-p", "TCP"]);
+      if (table) {
+        for (const line of table.split("\n")) {
+          const cells = line.trim().split(/\s+/);
+          if (cells.length >= 4 && cells[3] === "LISTENING" && pids.has(cells[4] ?? "")) {
+            const local = cells[1] ?? "";
+            const port = Number(local.startsWith("127.0.0.1:") || local.startsWith("[::1]:") ? local.slice(local.lastIndexOf(":") + 1) : "");
+            if (Number.isInteger(port) && port > 0 && !ports.includes(port) && ports.length < 4) ports.push(port);
+          }
+        }
+      }
+    } else {
+      for (const pid of pids) {
+        const open = await run("lsof", ["-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", pid]);
+        if (!open) continue;
+        for (const match of open.matchAll(/(?:127\.0\.0\.1|\[?::1\]?):(\d+)/g)) {
+          const port = Number(match[1]);
+          if (Number.isInteger(port) && port > 0 && !ports.includes(port) && ports.length < 4) ports.push(port);
+        }
+        if (ports.length >= 4) break;
+      }
+    }
+    if (ports.length === 0) throw new Error("refresh");
+    let auth = false;
+    for (const port of ports) {
+      if (remaining() <= 0) break;
+      for (const secure of [true, false] as const) {
+        const quota = await post(secure, port, agyQuotaPaths[0]);
+        if (!quota) continue;
+        if (quota.status === 401 || quota.status === 403) {
+          auth = true;
+          continue;
+        }
+        if (quota.status === 200 && antigravityRateLimitWindows(quota.json).length > 0) return quota.json;
+        const status = await post(secure, port, agyQuotaPaths[1]);
+        if (!status) continue;
+        if (status.status === 401 || status.status === 403) {
+          auth = true;
+          continue;
+        }
+        if (status.status === 200 && antigravityRateLimitWindows(status.json).length > 0) return status.json;
+        break;
+      }
+    }
+    throw new Error(auth ? "signin" : "refresh");
+  })();
+}
+
+/** Meta quota probe. Verified against the local `muse` binary (1.2.1):
+ * `muse schema` (stable and experimental) carries per-turn token usage
+ * but no subscription quota method, `account/read` answers
+ * `experimentalRequired` on the default `muse serve` host, and there is
+ * no `muse usage` subcommand — so there is nothing to read yet. Throws
+ * "refresh" so a refresh keeps the last report instead of claiming a
+ * source it cannot honor; the `muse` dep slot with museRateLimitWindows
+ * is the seam for the day a surface exists. */
+export function readMuseUsage(): Promise<JsonValue> {
+  return Promise.reject(new Error("refresh"));
+}
+
 export function createUsageRefresh(deps: {
   request?: typeof fetch;
   read?: (path: string) => Promise<string>;
   rpc?: typeof readUsageRpc;
   billing?: typeof readGrokBillingRpc;
+  antigravity?: typeof readAntigravityQuota;
+  muse?: typeof readMuseUsage;
   now?: () => number;
   platform?: NodeJS.Platform;
 } = {}) {
@@ -119,7 +285,7 @@ export function createUsageRefresh(deps: {
   const clock = deps.now ?? Date.now;
   const cache = new Map<string, { retryAt: number; pending: Promise<Result> }>();
   return async (driver: string, options: Options, previous?: Report): Promise<Result> => {
-    const name = driver === "claudeAgent" ? "Claude" : driver === "codex" ? "Codex" : driver === "grokAgent" ? "Grok" : undefined;
+    const name = driver === "claudeAgent" ? "Claude" : driver === "codex" ? "Codex" : driver === "grokAgent" ? "Grok" : driver === "antigravityAgent" ? "Antigravity" : driver === "museAgent" ? "Muse" : undefined;
     if (!name) return { report: previous, error: "Usage refresh is not supported", retryAt: 0 };
     const cached = cache.get(options.instanceId);
     if (cached && clock() < cached.retryAt) return cached.pending;
@@ -134,6 +300,10 @@ export function createUsageRefresh(deps: {
           windows = codexRateLimitWindows(result.rateLimits);
         } else if (driver === "grokAgent") {
           windows = grokRateLimitWindows(await (deps.billing ?? readGrokBillingRpc)(options.cli || "grok", env));
+        } else if (driver === "antigravityAgent") {
+          windows = antigravityRateLimitWindows(await (deps.antigravity ?? readAntigravityQuota)(options.cli || "agy", env), clock());
+        } else if (driver === "museAgent") {
+          windows = museRateLimitWindows(await (deps.muse ?? readMuseUsage)(), clock());
         } else {
           if ((deps.platform ?? process.platform) === "darwin" && !env.CLAUDE_CODE_OAUTH_TOKEN) return { report: previous, error: "Claude refresh skipped to avoid Keychain prompts on macOS", retryAt };
           const token = env.CLAUDE_CODE_OAUTH_TOKEN || z.object({ claudeAiOauth: z.object({ accessToken: text }) }).parse(parseJson(await read(join(env.CLAUDE_CONFIG_DIR || join(home, ".claude"), ".credentials.json")))).claudeAiOauth.accessToken;

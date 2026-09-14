@@ -7,6 +7,14 @@ const fixtures = {
   claudeAgent: { five_hour: { utilization: 42, resets_at: reset }, seven_day: { utilization: 19, resets_at: reset } },
   codex: { rateLimits: { primary: { usedPercent: 42, windowDurationMins: 300, resetsAt: Date.parse(reset) / 1000 }, secondary: { usedPercent: 19, windowDurationMins: 10080, resetsAt: Date.parse(reset) / 1000 } } },
   grokAgent: { config: { creditUsagePercent: 42, currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", end: reset } } },
+  antigravityAgent: {
+    "gemini-5h": { remaining_fraction: 0.58, reset_in_seconds: 3600 },
+    "gemini-weekly": { remaining_fraction: 0.81, reset_in_seconds: 518_400 },
+  },
+  museAgent: {
+    five_hour: { utilization: 0.22, resetsAt: 1_790_000_000 },
+    seven_day: { utilization: 0.61, resetsAt: 1_790_172_800 },
+  },
 };
 const credentials = JSON.stringify({ claudeAiOauth: { accessToken: "access-secret" }, "auth.x.ai::test": { key: "access-secret", user_id: "user" }, tokens: { access_token: "access-secret", refresh_token: "refresh-secret" } });
 
@@ -101,6 +109,105 @@ describe("usage refresh route result", () => {
     expect(calls).toBe(2);
   });
 
+  it("normalizes antigravityAgent from the local quota server without touching credentials", async () => {
+    let reads = 0;
+    let http = 0;
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      read: async () => {
+        reads++;
+        return credentials;
+      },
+      request: async () => {
+        http++;
+        return Response.json({ access_token: "access-secret" });
+      },
+      antigravity: async () => fixtures.antigravityAgent,
+    });
+    const result = await refresh("antigravityAgent", { instanceId: "antigravity" });
+    expect(result.error).toBeUndefined();
+    expect(result.report?.windows.map((window) => window.id)).toEqual(["five_hour", "seven_day"]);
+    expect(result.report?.windows.map((window) => window.usedPercent)).toEqual([42, 19]);
+    expect(result.report?.windows.map((window) => window.windowMinutes)).toEqual([300, 10_080]);
+    expect(reads).toBe(0);
+    expect(http).toBe(0);
+    expect(JSON.stringify(result)).not.toContain("access-secret");
+  });
+
+  it.each(["signin", "refresh"] as const)("keeps the last report after Antigravity %s", async (kind) => {
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      antigravity: async () => {
+        throw new Error(kind);
+      },
+    });
+    const report = { windows: [{ id: "five_hour", usedPercent: 12, resetsAt: null }], observedAt: reset };
+    const result = await refresh("antigravityAgent", { instanceId: "antigravity" }, report);
+    expect(result.report).toEqual(report);
+    expect(result.error).toBe(kind === "signin" ? "Sign in again in Antigravity" : "Could not refresh Antigravity limits");
+  });
+
+  it("treats an empty Antigravity quota as a refresh failure", async () => {
+    const refresh = createUsageRefresh({ platform: "linux", antigravity: async () => ({}) });
+    const result = await refresh("antigravityAgent", { instanceId: "antigravity" });
+    expect(result.report).toBeUndefined();
+    expect(result.error).toBe("Could not refresh Antigravity limits");
+  });
+
+  it("normalizes museAgent from the injected quota source without touching credentials", async () => {
+    let reads = 0;
+    let http = 0;
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      read: async () => {
+        reads++;
+        return credentials;
+      },
+      request: async () => {
+        http++;
+        return Response.json({ access_token: "access-secret" });
+      },
+      muse: async () => fixtures.museAgent,
+    });
+    const result = await refresh("museAgent", { instanceId: "muse" });
+    expect(result.error).toBeUndefined();
+    expect(result.report?.windows.map((window) => window.id)).toEqual(["five_hour", "seven_day"]);
+    expect(result.report?.windows.map((window) => window.usedPercent)).toEqual([22, 61]);
+    expect(result.report?.windows.map((window) => window.windowMinutes)).toEqual([300, 10_080]);
+    expect(result.report?.windows.map((window) => window.resetsAt)).toEqual([1_790_000_000_000, 1_790_172_800_000]);
+    expect(reads).toBe(0);
+    expect(http).toBe(0);
+    expect(JSON.stringify(result)).not.toContain("access-secret");
+  });
+
+  it.each(["signin", "refresh"] as const)("keeps the last report after Muse %s", async (kind) => {
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      muse: async () => {
+        throw new Error(kind);
+      },
+    });
+    const report = { windows: [{ id: "five_hour", usedPercent: 12, resetsAt: null }], observedAt: reset };
+    const result = await refresh("museAgent", { instanceId: "muse" }, report);
+    expect(result.report).toEqual(report);
+    expect(result.error).toBe(kind === "signin" ? "Sign in again in Muse" : "Could not refresh Muse limits");
+  });
+
+  it("treats an empty Muse quota as a refresh failure", async () => {
+    const refresh = createUsageRefresh({ platform: "linux", muse: async () => ({}) });
+    const result = await refresh("museAgent", { instanceId: "muse" });
+    expect(result.report).toBeUndefined();
+    expect(result.error).toBe("Could not refresh Muse limits");
+  });
+
+  it("degrades gracefully while the muse CLI exposes no quota surface", async () => {
+    const refresh = createUsageRefresh({ platform: "linux" });
+    const report = { windows: [{ id: "five_hour", usedPercent: 12, resetsAt: null }], observedAt: reset };
+    const result = await refresh("museAgent", { instanceId: "muse" }, report);
+    expect(result.report).toEqual(report);
+    expect(result.error).toBe("Could not refresh Muse limits");
+  });
+
   it.each(["signin", "refresh"] as const)("keeps the last report after Grok billing %s", async (kind) => {
     const refresh = createUsageRefresh({
       platform: "linux",
@@ -121,9 +228,11 @@ describe("usage refresh route result", () => {
       read: async () => credentials,
       request: async () => { calls++; return Response.json({}); },
       billing: async () => ({}),
+      antigravity: async () => ({}),
     });
     expect((await refresh("claudeAgent", { instanceId: "claude" })).error).toContain("Keychain");
-    expect((await refresh("antigravityAgent", { instanceId: "antigravity" })).error).toBe("Usage refresh is not supported");
+    expect((await refresh("antigravityAgent", { instanceId: "antigravity" })).error).toBe("Could not refresh Antigravity limits");
+    expect((await refresh("opencodeGo", { instanceId: "opencode" })).error).toBe("Usage refresh is not supported");
     expect(calls).toBe(0);
     expect((await refresh("grokAgent", { instanceId: "grok" })).error).toBe("Could not refresh Grok limits");
   });

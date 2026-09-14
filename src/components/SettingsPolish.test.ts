@@ -144,13 +144,17 @@ describe("Settings Polish", () => {
     host.remove();
   });
 
-  it("the Usage Refresh button carries border border-hairline/40", async () => {
+  it("the single Usage refresh button carries border border-hairline/40", async () => {
     await act(async () => {
       root.render(createElement(I18nProvider, null, createElement(UsageSection)));
     });
 
-    const refreshButton = [...host.querySelectorAll("button")].find(
+    // exactly one refresh control for the whole section, never per-engine ones
+    expect([...host.querySelectorAll("button")].filter(
       (b) => b.textContent?.trim() === "Refresh",
+    )).toHaveLength(0);
+    const refreshButton = [...host.querySelectorAll("button")].find(
+      (b) => b.textContent?.trim() === "Refresh all",
     );
     expect(refreshButton).toBeDefined();
     expect(refreshButton?.className).toContain("border border-hairline/40");
@@ -185,7 +189,7 @@ describe("Settings Polish", () => {
     }
   });
 
-  it("disables 'Refresh all' while an engine refresh is running and ignores clicks", async () => {
+  it("disables 'Refresh all' while a refresh is running and ignores clicks", async () => {
     const previousInstances = mockState.instances;
     mockState.instances = [claudeInstance, codexInstance, grokInstance, geminiInstance];
     let resolveClaude: () => void = () => {};
@@ -203,33 +207,37 @@ describe("Settings Polish", () => {
         root.render(createElement(I18nProvider, null, createElement(UsageSection)));
       });
 
-      const engineRefreshButton = [...host.querySelectorAll("button")].find(
-        (b) => b.textContent?.trim() === "Refresh",
-      );
-      expect(engineRefreshButton).toBeDefined();
-
-      await act(async () => {
-        engineRefreshButton?.click();
-      });
-
-      expect(mockApi).toHaveBeenCalledTimes(1);
-      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/claude", { method: "POST" });
-
       const refreshAllButton = [...host.querySelectorAll("button")].find(
         (b) => b.textContent?.trim() === "Refresh all",
       );
       expect(refreshAllButton).toBeDefined();
-      expect(refreshAllButton?.hasAttribute("disabled")).toBe(true);
 
       await act(async () => {
         refreshAllButton?.click();
       });
 
-      expect(mockApi).toHaveBeenCalledTimes(1);
+      expect(mockApi).toHaveBeenCalledTimes(3);
+      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/claude", { method: "POST" });
+
+      const busyButton = [...host.querySelectorAll("button")].find(
+        (b) => b.textContent?.trim() === "Refreshing…",
+      );
+      expect(busyButton).toBeDefined();
+      expect(busyButton?.hasAttribute("disabled")).toBe(true);
+
+      await act(async () => {
+        busyButton?.click();
+      });
+
+      expect(mockApi).toHaveBeenCalledTimes(3);
 
       await act(async () => {
         resolveClaude();
       });
+
+      expect([...host.querySelectorAll("button")].find(
+        (b) => b.textContent?.trim() === "Refresh all",
+      )).toBeDefined();
     } finally {
       mockState.instances = previousInstances;
       mockApi.mockReset();

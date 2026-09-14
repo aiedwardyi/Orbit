@@ -26,8 +26,30 @@ function museConfigDir(env: Record<string, string | undefined>): string {
 
 function museAuthPath(env: Record<string, string | undefined>): string {
   const dir = museConfigDir(env);
-  // XDG_CONFIG_HOME already includes the muse segment; HOME fallback does too.
+  // XDG_CONFIG_HOME names the config root only; the muse segment is appended
+  // here, while the HOME fallback already includes it.
   return env.XDG_CONFIG_HOME ? join(dir, "muse", "auth.json") : join(dir, "auth.json");
+}
+
+/** Spawn command for this platform. There is no native Windows `muse`
+ * binary — the official installer is a POSIX shell script and Windows
+ * integrations launch it from WSL — so on win32 the CLI is the `wsl muse`
+ * wrapper string, which resolveCliSpawn splits into wsl.exe + fixed args
+ * with no shell. stdio pipes through wsl.exe untouched, so the stdio
+ * protocol runtime is unchanged. Verified on Linux/macOS only: no win32
+ * runner was available here, so the wsl.exe hop itself is assumed from the
+ * documented WSL launch path, not observed. */
+export function museDefaultCli(platform: NodeJS.Platform = process.platform): string {
+  return platform === "win32" ? "wsl muse" : "muse";
+}
+
+/** Share META_API_KEY across the WSL boundary. wsl.exe forwards only
+ * WSLENV-listed names into Linux, so without this the key advertised in
+ * credentialEnv would silently never reach muse on Windows. */
+export function withWslKeySharing(env: Record<string, string | undefined>): void {
+  if (!nonBlank(env.META_API_KEY)) return;
+  const current = env.WSLENV?.split(":").filter(Boolean) ?? [];
+  if (!current.includes("META_API_KEY")) env.WSLENV = [...current, "META_API_KEY"].join(":");
 }
 
 /** The credential check as a named function, so the support entry and the
@@ -63,17 +85,20 @@ const support: AcpSupport = {
   // pays for live local-inject probes for this engine.
   models: STATIC_MUSE_MODELS,
   effortLevels: ["low", "medium", "high", "xhigh"],
-  defaultCli: "muse",
+  defaultCli: museDefaultCli(),
   nativeSource: "muse.acp",
   loginNote: "Muse CLI is not signed in — run `muse login` in a terminal and complete the browser sign-in",
   install: {
     command: {
       darwin: "curl -fsSL https://dev.meta.ai/install.sh | bash",
       linux: "curl -fsSL https://dev.meta.ai/install.sh | bash",
-      win32: "curl -fsSL https://dev.meta.ai/install.sh | bash",
+      win32: 'wsl bash -c "curl -fsSL https://dev.meta.ai/install.sh | bash"',
     },
     docsUrl: "https://developer.meta.com/ai/products/muse-code/",
     signInCommand: "muse login",
+  },
+  transformEnv: (env) => {
+    if (process.platform === "win32") withWslKeySharing(env);
   },
   spawnArgs: (_config, turn) => [
     "serve",

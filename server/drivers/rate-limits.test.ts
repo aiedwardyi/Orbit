@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  antigravityRateLimitWindows,
   claudeRateLimitWindows,
   codexRateLimitWindows,
   epochMs,
   exhaustedWindow,
   grokRateLimitWindows,
+  museRateLimitWindows,
   usageLimitFromError,
 } from "./rate-limits.ts";
 
@@ -142,6 +144,147 @@ describe("grokRateLimitWindows", () => {
     expect(grokRateLimitWindows({ config: { creditUsagePercent: "42" } })).toEqual([]);
     expect(grokRateLimitWindows(null)).toEqual([]);
     expect(grokRateLimitWindows("42%")).toEqual([]);
+  });
+});
+
+describe("antigravityRateLimitWindows", () => {
+  const now = Date.parse("2026-09-14T12:00:00Z");
+
+  it("reads statusline quota buckets as used percent with resets", () => {
+    expect(
+      antigravityRateLimitWindows(
+        {
+          "gemini-5h": { remaining_fraction: 0.58, reset_in_seconds: 5400 },
+          "gemini-daily": { remaining_fraction: 0.7, reset_in_seconds: 3600 },
+          "gemini-weekly": { remaining_fraction: 0.81, reset_in_seconds: 518_400 },
+        },
+        now,
+      ),
+    ).toEqual([
+      { id: "five_hour", usedPercent: 42, resetsAt: now + 5_400_000, windowMinutes: 300 },
+      { id: "seven_day", usedPercent: 19, resetsAt: now + 518_400_000, windowMinutes: 10_080 },
+      { id: "daily", usedPercent: 30, resetsAt: now + 3_600_000, windowMinutes: 1440 },
+    ]);
+  });
+
+  it("reads RetrieveUserQuotaSummary groups and keeps the most constrained pool per window", () => {
+    expect(
+      antigravityRateLimitWindows(
+        {
+          groups: [
+            {
+              displayName: "Gemini Models",
+              buckets: [
+                { bucketId: "weekly", displayName: "Weekly Limit", remaining: { remainingFraction: 0.67 }, resetTime: "2026-09-21T12:00:00Z" },
+                { bucketId: "five_hour", displayName: "Five Hour Limit", remaining: { remainingFraction: 0.02 }, resetTime: "2026-09-14T13:00:00Z" },
+              ],
+            },
+            {
+              displayName: "Claude and GPT models",
+              buckets: [
+                { bucketId: "weekly", displayName: "Weekly Limit", remaining: { remainingFraction: 1 }, resetTime: "2026-09-21T12:00:00Z" },
+                { bucketId: "five_hour", displayName: "Five Hour Limit", remaining: { remainingFraction: 0.5 }, resetTime: "2026-09-14T13:00:00Z" },
+              ],
+            },
+          ],
+        },
+        now,
+      ),
+    ).toEqual([
+      { id: "five_hour", usedPercent: 98, resetsAt: Date.parse("2026-09-14T13:00:00Z"), windowMinutes: 300 },
+      { id: "seven_day", usedPercent: 33, resetsAt: Date.parse("2026-09-21T12:00:00Z"), windowMinutes: 10_080 },
+    ]);
+  });
+
+  it("reads the legacy GetUserStatus model configs", () => {
+    expect(
+      antigravityRateLimitWindows(
+        {
+          userStatus: {
+            cascadeModelConfigData: {
+              clientModelConfigs: [
+                { quotaInfo: { remainingFraction: 0.9, resetTime: "2026-09-14T17:00:00Z" }, quotaWindow: "five_hour" },
+              ],
+            },
+          },
+        },
+        now,
+      ),
+    ).toEqual([
+      { id: "five_hour", usedPercent: 10, resetsAt: Date.parse("2026-09-14T17:00:00Z"), windowMinutes: 300 },
+    ]);
+  });
+
+  it("drops buckets without a fill level and tolerates junk", () => {
+    expect(
+      antigravityRateLimitWindows({ "gemini-weekly": { reset_in_seconds: 60 }, "gemini-5h": { remaining_fraction: "0.5" } }, now),
+    ).toEqual([]);
+    expect(antigravityRateLimitWindows({ groups: [{ buckets: [{ bucketId: "weekly" }] }] }, now)).toEqual([]);
+    expect(antigravityRateLimitWindows(null, now)).toEqual([]);
+    expect(antigravityRateLimitWindows("42%", now)).toEqual([]);
+  });
+});
+
+describe("museRateLimitWindows", () => {
+  const now = Date.parse("2026-09-14T12:00:00Z");
+
+  it("reads Meta utilization fractions with resets", () => {
+    expect(
+      museRateLimitWindows(
+        {
+          five_hour: { utilization: 0.22, resetsAt: 1_790_000_000 },
+          seven_day: { utilization: 0.61, resetsAt: 1_790_172_800 },
+        },
+        now,
+      ),
+    ).toEqual([
+      { id: "five_hour", usedPercent: 22, resetsAt: 1_790_000_000_000, windowMinutes: 300 },
+      { id: "seven_day", usedPercent: 61, resetsAt: 1_790_172_800_000, windowMinutes: 10_080 },
+    ]);
+  });
+
+  it("reads percent and relative-reset shapes", () => {
+    expect(
+      museRateLimitWindows(
+        {
+          five_hour: { usedPercent: 22, resets_at: "2026-10-01T12:00:00Z" },
+          seven_day_opus: { remaining_fraction: 0.39, reset_in_seconds: 3600 },
+        },
+        now,
+      ),
+    ).toEqual([
+      { id: "five_hour", usedPercent: 22, resetsAt: Date.parse("2026-10-01T12:00:00Z"), windowMinutes: 300 },
+      { id: "seven_day", usedPercent: 61, resetsAt: now + 3_600_000, windowMinutes: 10_080 },
+    ]);
+  });
+
+  it("reads a flat rate-limit payload", () => {
+    expect(museRateLimitWindows({ rateLimitType: "five_hour", utilization: 0.5, resetsAt: 1_790_000_000 }, now)).toEqual([
+      { id: "five_hour", usedPercent: 50, resetsAt: 1_790_000_000_000, windowMinutes: 300 },
+    ]);
+  });
+
+  it("merges weekly aliases into seven_day and keeps the fuller pool", () => {
+    expect(
+      museRateLimitWindows(
+        {
+          five_hour: { utilization: 0.22, resetsAt: 1_790_000_000 },
+          weekly: { remaining_fraction: 0.2, reset_in_seconds: 518_400 },
+          seven_day: { utilization: 0.61, resetsAt: 1_790_172_800 },
+        },
+        now,
+      ),
+    ).toEqual([
+      { id: "five_hour", usedPercent: 22, resetsAt: 1_790_000_000_000, windowMinutes: 300 },
+      { id: "seven_day", usedPercent: 80, resetsAt: now + 518_400_000, windowMinutes: 10_080 },
+    ]);
+  });
+
+  it("drops windows without a fill level and tolerates junk", () => {
+    expect(museRateLimitWindows({ five_hour: { resetsAt: 60 }, seven_day: { utilization: "0.5" } }, now)).toEqual([]);
+    expect(museRateLimitWindows({ monthly: { utilization: 0.5, resetsAt: 60 } }, now)).toEqual([]);
+    expect(museRateLimitWindows(null, now)).toEqual([]);
+    expect(museRateLimitWindows("42%", now)).toEqual([]);
   });
 });
 
