@@ -38,8 +38,12 @@ function windowRank(id: string, windowMinutes?: number): number {
 
 // Claude/Codex/Grok/Antigravity declare rateLimits and answer a refresh
 // POST; engines that never report stay off the refresh path entirely.
+// Meta Muse declares rateLimits but its CLI exposes no quota surface yet,
+// so it stays off the refresh path — every tap would paint a permanent
+// failure under its row — until a surface exists. The server keeps the
+// parser + branch as the seam for that day.
 const canRefresh = (instance: InstanceInfo) =>
-  instance.driverKind === "claudeAgent" || instance.driverKind === "codex" || instance.driverKind === "grokAgent" || instance.driverKind === "antigravityAgent" || instance.driverKind === "museAgent";
+  instance.driverKind === "claudeAgent" || instance.driverKind === "codex" || instance.driverKind === "grokAgent" || instance.driverKind === "antigravityAgent";
 
 // One shared row for every engine in the plan card: the label sits left and
 // the values stack in a single left-aligned column underneath. Every engine
@@ -64,10 +68,11 @@ function EnginePlanRow({
   const windows = [...(instance.rateLimits?.windows ?? [])].sort(
     (a, b) => windowRank(a.id, a.windowMinutes) - windowRank(b.id, b.windowMinutes),
   );
-  // Claude/Codex/Grok/Antigravity/Meta Muse declare rateLimits but only emit
-  // a window after a turn or refresh — pending, not an outage. Engines that
-  // never report stay on the unsupported line so a missing observation is
-  // not mistaken for downtime.
+  // Claude/Codex/Grok/Antigravity declare rateLimits and emit a window
+  // after a turn or refresh; Meta Muse declares it but only renders windows
+  // its engine reported — pending, not an outage. Engines that never report
+  // stay on the unsupported line so a missing observation is not mistaken
+  // for downtime.
   const honestCaption = t(instance.capabilities?.rateLimits ? "usage.limits.pending" : "usage.limits.notReported", {
     name: instance.displayName,
   });
@@ -147,7 +152,7 @@ function PlanUsage() {
     }
   };
   // The section's only refresh control: one tap refreshes every engine that
-  // answers a refresh POST (Claude, Codex, Grok, Antigravity, Meta Muse),
+  // answers a refresh POST (Claude, Codex, Grok, Antigravity),
   // never just one of them.
   const refreshAll = async () => {
     if (refreshing || refreshable.length === 0) return;

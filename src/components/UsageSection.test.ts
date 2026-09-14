@@ -181,7 +181,7 @@ describe("UsageSection friends plan card", () => {
         refreshAll?.click();
       });
       expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/antigravity", { method: "POST" });
-      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/muse", { method: "POST" });
+      expect(mockApi).not.toHaveBeenCalledWith("/api/usage/refresh/muse", { method: "POST" });
     } finally {
       await act(async () => root.unmount());
       host.remove();
@@ -416,8 +416,9 @@ describe("UsageSection friends plan card", () => {
       await act(async () => {
         refreshAll?.click();
       });
-      // one control refreshes Claude, Codex, Grok, Antigravity, and Meta Muse together
-      expect(mockApi).toHaveBeenCalledTimes(5);
+      // one control refreshes Claude, Codex, Grok, and Antigravity together
+      // (Meta Muse stays off the refresh path until its CLI reports quota)
+      expect(mockApi).toHaveBeenCalledTimes(4);
       const busy = [...host.querySelectorAll("button")].find((button) => button.textContent === "Refreshing…");
       expect(busy).toBeDefined();
       expect(busy?.hasAttribute("disabled")).toBe(true);
@@ -425,13 +426,12 @@ describe("UsageSection friends plan card", () => {
       await act(async () => {
         busy?.click();
       });
-      expect(mockApi).toHaveBeenCalledTimes(5);
+      expect(mockApi).toHaveBeenCalledTimes(4);
       await act(async () => {
         deferred.get("claude")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
         deferred.get("codex")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
         deferred.get("grok")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
         deferred.get("antigravity")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
-        deferred.get("muse")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
       });
       expect([...host.querySelectorAll("button")].find((button) => button.textContent === "Refresh all")).toBeDefined();
     } finally {
