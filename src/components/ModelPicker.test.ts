@@ -206,6 +206,32 @@ describe("ModelPicker friends chip", () => {
     expect(html).toContain("#aa7bfa");
   });
 
+  it("keeps a lone legacy tier label with no badge when nothing derives", () => {
+    const legacy: InstanceInfo = {
+      ...antigravityTiered,
+      models: {
+        default: "gpt-oss-120b-medium",
+        options: [{ id: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium)" }],
+      },
+    };
+    const html = renderToStaticMarkup(
+      createElement(
+        I18nProvider,
+        null,
+        createElement(ModelPickerControl, {
+          bot: { ...bot, modelSelection: { instanceId: "antigravity", model: "gpt-oss-120b-medium", mode: "pinned" } },
+          store: {
+            state: { instances: [legacy], selectedId: "bot-1" },
+            dispatch: () => undefined,
+            refreshInstances: async () => undefined,
+          },
+        }),
+      ),
+    );
+    expect(html).toContain("GPT-OSS 120B (Medium)");
+    expect(html).not.toContain("data-model-effort");
+  });
+
   it.each([
     ["codex", "codex-default", "#3594ff"],
     ["claude", "claude-fable-5-1", "#ed6549"],

@@ -47,7 +47,11 @@ describe("modelChipText", () => {
       displayName: "Gemini (Antigravity)",
       models: {
         default: "gemini-3.8-flash-high",
-        options: [{ id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" }],
+        options: [
+          { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
+          { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)" },
+          { id: "gemini-3.8-flash-low", label: "Gemini 3.8 Flash (Low)" },
+        ],
       },
     };
     expect(
@@ -56,6 +60,23 @@ describe("modelChipText", () => {
     expect(
       modelChipText({ instance: antigravity, model: "gemini-3.8-flash-high" }, t),
     ).not.toMatch(/\(High\)/);
+  });
+
+  it("keeps a lone legacy tier label verbatim when no badge renders", () => {
+    const legacy = {
+      displayName: "Legacy",
+      models: {
+        default: "gpt-oss-120b-medium",
+        options: [{ id: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium)" }],
+      },
+    };
+    expect(displayedChipEffort(legacy, "gpt-oss-120b-medium", undefined)).toBeUndefined();
+    expect(modelChipText({ instance: legacy, model: "gpt-oss-120b-medium" }, t)).toBe(
+      "GPT-OSS 120B (Medium)",
+    );
+    expect(
+      modelChipTitle({ mode: "pinned", instance: legacy, model: "gpt-oss-120b-medium" }, t),
+    ).toContain("(Medium)");
   });
 
   it("keeps non-tier parens such as Auto (recommended) verbatim", () => {

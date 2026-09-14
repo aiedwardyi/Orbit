@@ -173,7 +173,7 @@ export function ModelPickerControl({
     >
       {active ? <ProviderMark driverKind={active.driverKind} size={14} /> : <Sparkles size={14} className="text-accent" />}
       <span className={cn("max-w-[160px] truncate", !contained && active && "@max-4xl/chathead:hidden")}>
-        {modelChipText({ instance: active, model: selection.model }, t)}
+        {modelChipText({ instance: active, model: selection.model, effort: selection.effort }, t)}
       </span>
       {chipEffort && (
         <span data-model-effort className={cn("flex items-center gap-1", !contained && active && "@max-4xl/chathead:hidden")}>

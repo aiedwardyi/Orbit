@@ -17,17 +17,23 @@ function stripTierParen(label: string): string {
   return label.replace(/\s+\((high|medium|low)\)\s*$/i, "").trim() || label;
 }
 
-/** Chip copy is the live engine/model. Automatic is a picker mode, not a name. */
+/** Chip copy is the live engine/model. Automatic is a picker mode, not a name.
+ * Strip ⟺ badge: the paren tier is stripped if and only if a separate
+ * effort badge actually renders, so lone tier labels keep their only tier
+ * signal verbatim. */
 export function modelChipText(
   input: {
     instance?: { displayName: string; models: { options: readonly { id: string; label: string }[] } };
     model: string;
+    effort?: string;
   },
   t: Translate,
 ): string {
   const raw = catalogModelLabel(input.instance, input.model);
   if (!raw) return t("model.unresolved");
-  return stripTierParen(raw);
+  return displayedChipEffort(input.instance, input.model, input.effort)
+    ? stripTierParen(raw)
+    : raw;
 }
 
 type CatalogRef =
