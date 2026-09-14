@@ -47,16 +47,16 @@ function PlanUsage() {
   const [refreshingAll, setRefreshingAll] = useState(false);
   const [refreshErrors, setRefreshErrors] = useState<Record<string, string>>({});
   const engines = splitFriendsEngines(state.instances).friends;
-  // Claude/Codex/Grok declare rateLimits but only emit a window after a
-  // turn or refresh — pending, not an outage. Engines that never report
-  // (Antigravity, OpenCode) stay on the unsupported line so a missing
-  // observation is not mistaken for downtime.
+  // Claude/Codex/Grok/Antigravity declare rateLimits but only emit a window
+  // after a turn or refresh — pending, not an outage. Engines that never
+  // report (OpenCode) stay on the unsupported line so a missing observation
+  // is not mistaken for downtime.
   const honestCaption = (instance: InstanceInfo) =>
     t(instance.capabilities?.rateLimits ? "usage.limits.pending" : "usage.limits.notReported", {
       name: instance.displayName,
     });
   const canRefresh = (instance: InstanceInfo) =>
-    instance.driverKind === "claudeAgent" || instance.driverKind === "codex" || instance.driverKind === "grokAgent";
+    instance.driverKind === "claudeAgent" || instance.driverKind === "codex" || instance.driverKind === "grokAgent" || instance.driverKind === "antigravityAgent";
   const refreshable = engines.filter(canRefresh);
   // Keyed off what was banked, not a driver allowlist: acp/core only emits
   // token usage when the agent it wraps reports it, so a list would be wrong.

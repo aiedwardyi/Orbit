@@ -51,7 +51,7 @@ const { mockState, mockApi } = vi.hoisted(() => {
         engine("codex", "codex", "Codex", { capabilities: { rateLimits: true } }),
         engine("grok", "grokAgent", "Grok", { capabilities: { rateLimits: true } }),
         engine("gemini", "geminiAgent", "Gemini API"),
-        engine("antigravity", "antigravityAgent", "Gemini (Antigravity)"),
+        engine("antigravity", "antigravityAgent", "Gemini (Antigravity)", { capabilities: { rateLimits: true } }),
         engine("opencode", "opencodeGo", "OpenCode"),
       ],
     },
@@ -149,9 +149,9 @@ describe("UsageSection friends plan card", () => {
     expect(opencode).toBeGreaterThan(antigravity);
   });
 
-  it("shows refresh controls for the three supported engines", () => {
+  it("shows refresh controls for the four supported engines", () => {
     const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-    expect((html.match(/>Refresh</g) ?? []).length).toBe(3);
+    expect((html.match(/>Refresh</g) ?? []).length).toBe(4);
   });
 
   it("renders every window as the chat's compact meter, with the Opus row labeled and stale windows as text", () => {
@@ -338,7 +338,7 @@ describe("UsageSection friends plan card", () => {
       persistPreference("en");
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
       const buttons = [...host.querySelectorAll("button")].filter((button) => button.textContent === "Refresh");
-      expect(buttons).toHaveLength(3);
+      expect(buttons).toHaveLength(4);
       await act(async () => {
         buttons[0]?.click();
         buttons[1]?.click();
@@ -349,7 +349,7 @@ describe("UsageSection friends plan card", () => {
       });
       const labels = [...host.querySelectorAll("button")].map((button) => button.textContent);
       expect(labels.filter((label) => label === "Refreshing…")).toHaveLength(1);
-      expect(labels.filter((label) => label === "Refresh")).toHaveLength(2);
+      expect(labels.filter((label) => label === "Refresh")).toHaveLength(3);
     } finally {
       await act(async () => root.unmount());
       host.remove();
