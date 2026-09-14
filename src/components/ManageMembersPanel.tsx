@@ -104,10 +104,10 @@ export function ManageMembersPanel({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label={`Manage members of ${group.name}`}
+        aria-label={t("room.manageMembersOf", { name: group.name })}
         className="w-[340px] rounded-2xl border border-hairline/50 bg-card p-4 shadow-2xl"
       >
-        <div className="mb-1 text-[15px] font-semibold text-ink">Manage Members</div>
+        <div className="mb-1 text-[15px] font-semibold text-ink first-letter:uppercase">{t("room.manageMembers")}</div>
         <div className="mb-3 truncate text-[13px] text-ink-secondary">{group.name}</div>
         <BotPickerList bots={bots} picked={picked} onToggle={toggle} emptyHint="Create a bot first — channels are made of bots." />
         {!memberIds.length && <div className="mt-2 text-[12px] text-ink-secondary">A channel needs at least one bot.</div>}

@@ -34,6 +34,7 @@ const renameTitle = readFileSync(join(here, "../components/RenameTitle.tsx"), "u
 const enginesSettings = readFileSync(join(here, "../components/EnginesSettings.tsx"), "utf8");
 const searchResults = readFileSync(join(here, "../components/SearchResults.tsx"), "utf8");
 const manageMembers = readFileSync(join(here, "../components/ManageMembersPanel.tsx"), "utf8");
+const pluginsPanel = readFileSync(join(here, "../components/PluginsPanel.tsx"), "utf8");
 const usageSection = readFileSync(join(here, "../components/UsageSection.tsx"), "utf8");
 const planUsageBar = readFileSync(join(here, "../components/PlanUsageBar.tsx"), "utf8");
 const chatPlanMeters = readFileSync(join(here, "../components/ChatPlanMeters.tsx"), "utf8");
@@ -336,6 +337,51 @@ describe("complete phrases", () => {
     expect(settingsPanel).toContain('t("bot.rememberedFolderNextTask"');
     expect(settingsPanel).not.toMatch(/>Working folder</);
     expect(settingsPanel).not.toMatch(/Where this bot runs its shell and file tools/);
+  });
+});
+
+describe("connected apps and bot details Korean coverage", () => {
+  it("keeps the shared surface name and new phrases as complete EN+KO phrases", () => {
+    expect(en["chrome.connectedApps"]).toBe("Connected apps");
+    expect(ko["chrome.connectedApps"]).toBe("연결 앱");
+    expect(en["connectedApps.view"]).toBe("Connected apps view");
+    expect(ko["connectedApps.view"]).toBe("연결 앱 보기");
+    expect(ko["connectedApps.view"]).not.toMatch(/Connected apps view/);
+    expect(en["connectedApps.unavailable"]).toMatch(/temporarily unavailable/);
+    expect(ko["connectedApps.unavailable"]).toMatch(/일시적으로/);
+    expect(ko["connectedApps.unavailable"]).not.toMatch(/temporarily unavailable/);
+    expect("room.manageMembersTitle" in en).toBe(false);
+    expect("room.manageMembersTitle" in ko).toBe(false);
+    expect(en["room.manageMembersOf"]).toBe("Manage members of {name}");
+    expect(ko["room.manageMembersOf"]).toBe("{name}의 구성원 관리");
+    expect(ko["room.manageMembersOf"]).not.toMatch(/Manage members of/);
+    expect(en["bot.details"]).toBe("Bot details");
+    expect(ko["bot.details"]).toBe("봇 세부 정보");
+    expect(en["bot.collapseDetails"]).toBe("Collapse bot details");
+    expect(ko["bot.collapseDetails"]).toBe("봇 세부 정보 접기");
+    expect(en["bot.closeDetails"]).toBe("Close bot details");
+    expect(ko["bot.closeDetails"]).toBe("봇 세부 정보 닫기");
+  });
+
+  it("wires those phrases instead of hardcoded English", () => {
+    expect(pluginsPanel).toContain('t("chrome.connectedApps")');
+    expect(pluginsPanel).toContain('t("connectedApps.view")');
+    expect(pluginsPanel).toContain('t("connectedApps.unavailable")');
+    expect(pluginsPanel).not.toMatch(/>Connected apps</);
+    expect(pluginsPanel).not.toMatch(/aria-label="Connected apps view"/);
+    expect(pluginsPanel).not.toMatch(/temporarily unavailable\. You can retry/);
+    expect(manageMembers).toContain('t("room.manageMembers")');
+    expect(manageMembers).toContain('t("room.manageMembersOf"');
+    expect(manageMembers).not.toContain("room.manageMembersTitle");
+    expect(manageMembers).not.toMatch(/>Manage Members</);
+    expect(manageMembers).not.toMatch(/Manage members of \$\{group\.name\}/);
+    expect(settingsPanel).toContain('t("chrome.connectedApps")');
+    expect(settingsPanel).toContain('t("bot.details")');
+    expect(settingsPanel).toContain('t("bot.collapseDetails")');
+    expect(settingsPanel).toContain('t("bot.closeDetails")');
+    expect(settingsPanel).not.toMatch(/>Bot details</);
+    expect(settingsPanel).not.toMatch(/Collapse bot details/);
+    expect(settingsPanel).not.toMatch(/Close bot details/);
   });
 });
 

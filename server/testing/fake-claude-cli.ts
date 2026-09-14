@@ -9,6 +9,7 @@
 //                      | stream (partial-message text deltas before the
 //                        whole-message frame, plus subagent noise to drop)
 //                      | edit (a Write then a Bash, gated like the real CLI)
+//                      | bench-quiet (text only, no tool_use — latency floor)
 //   FAKE_CLAUDE_USER_ALLOW  tools the user's own settings.json allows, e.g.
 //                      "Write,Bash" — only `edit` reads it
 //   FAKE_CLAUDE_DUMP   path to write {argv, env, prompt, mcpConfig} as JSON,
@@ -267,17 +268,22 @@ const playTurn = (prompt: JsonValue) => {
     });
   }
 
+  // bench-quiet is a text-only fixture for latency calibration: same usage
+  // figures, no tool_use, so a no-tool workload measures a no-tool turn.
+  const quiet = mode === "bench-quiet";
   out({
     type: "assistant",
     message: {
       content: [
         { type: "text", text: "hello from fake claude" },
-        { type: "tool_use", id: "tu-1", name: "Bash" },
+        ...(quiet ? [] : [{ type: "tool_use", id: "tu-1", name: "Bash" }]),
       ],
       usage: { input_tokens: 10, cache_read_input_tokens: 2, output_tokens: 5 },
     },
   });
-  out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-1", is_error: false }] } });
+  if (!quiet) {
+    out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-1", is_error: false }] } });
+  }
 
   // the real CLI (2.1.x) emits this whenever the API's unified rate-limit
   // headers change; resetsAt is epoch SECONDS on the wire
