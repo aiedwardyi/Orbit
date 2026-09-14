@@ -19,10 +19,39 @@ describe("summarizeTurn", () => {
     expect(summary.totalMs).toBe(2000);
     expect(summary.ttftMs).toBe(800);
     expect(summary.outputTokens).toBe(50);
-    expect(summary.tokPerSec).toBeCloseTo(50 / 1.2, 6);
+    expect(summary.tokPerSec).toBeCloseTo(50 / 0.9, 6);
     expect(summary.toolTrips).toEqual([300]);
     expect(summary.localMs).toEqual({ promptBuild: 50 });
     expect(summary.providerMs).toBe(1950);
+  });
+
+  it("measures the total from the send mark so pre-start costs stay inside", () => {
+    const summary = summarizeTurn([{ t: 900, kind: "send" }, ...turn]);
+    expect(summary.totalMs).toBe(2100);
+    expect(summary.providerMs).toBe(2050);
+  });
+
+  it("pairs overlapping tool boundaries by item identity, not stack order", () => {
+    const summary = summarizeTurn([
+      { t: 0, kind: "start" },
+      { t: 100, kind: "toolStart", itemId: "a" },
+      { t: 150, kind: "toolStart", itemId: "b" },
+      { t: 400, kind: "toolEnd", itemId: "a" },
+      { t: 500, kind: "toolEnd", itemId: "b" },
+      { t: 600, kind: "end" },
+    ]);
+    expect(summary.toolTrips).toEqual([300, 350]);
+  });
+
+  it("leaves throughput null when tool time covers the whole stream", () => {
+    const summary = summarizeTurn([
+      { t: 0, kind: "start" },
+      { t: 100, kind: "firstToken" },
+      { t: 100, kind: "toolStart" },
+      { t: 500, kind: "toolEnd" },
+      { t: 500, kind: "end", output: 10 },
+    ]);
+    expect(summary.tokPerSec).toBeNull();
   });
 
   it("falls back to the provider-reported output count without batches", () => {

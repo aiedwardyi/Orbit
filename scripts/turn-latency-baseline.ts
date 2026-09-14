@@ -7,16 +7,17 @@
 //   node --experimental-strip-types scripts/turn-latency-baseline.ts \
 //     --engines=claude,codex --reps=3 --out=/tmp/qa-perf
 // Env (only needed for live engines):
-//   CLAUDE_CLI=claude.exe CLAUDE_CONFIG_DIR=/mnt/c/Users/mredw/.claude
-//   CODEX_BIN=codex CODEX_HOME=/mnt/c/Users/mredw/.codex
-//   (Windows .exe CLIs get a C:\-style cwd automatically.)
+//   CLAUDE_CLI=claude.exe CLAUDE_CONFIG_DIR=<dir-with-.credentials.json>
+//   CODEX_BIN=codex CODEX_HOME=<native-home-with-auth.json>
+//   BENCH_WIN_TMPDIR=</mnt/c/...-mount-path> (Windows-drive fixture root for
+//     .exe CLIs; the fixture path is mapped to C:\ form automatically)
 // Fake calibration (no credentials, offline):
 //   node --experimental-strip-types scripts/turn-latency-baseline.ts \
 //     --engines=fake-claude,fake-codex --reps=3 --out=/tmp/qa-perf
 // Output: <out>/<engine>-<task>-rep<N>.jsonl (raw marks) plus
 // <out>/summary.json (per-rep summaries + aggregates). Exit non-zero when any
 // live turn fails or times out.
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -82,7 +83,8 @@ async function specFor(engine: string, workdir: string): Promise<EngineSpec | nu
     return {
       driver: ClaudeDriver,
       config: { cli: join(server, "testing", "fake-claude-cli.ts") },
-      environment: { FAKE_CLAUDE_MODE: "stream" },
+      // The per-task fake mode is set by the task loop (quiet for A).
+      environment: {},
       model: "claude-haiku-4-5",
       live: false,
       cwd: workdir,
@@ -104,9 +106,14 @@ async function specFor(engine: string, workdir: string): Promise<EngineSpec | nu
     const cli = process.env.CLAUDE_CLI ?? "claude.exe";
     const configDir = process.env.CLAUDE_CONFIG_DIR ?? "";
     if (!configDir) return skipped("CLAUDE_CONFIG_DIR not set");
+    // Bench-only narrowing (instance config, not product code):
+    // bypassPermissions skips the permission broker, whose --mcp-config temp
+    // file lives on a Linux-only /tmp path a Windows .exe CLI cannot open
+    // (hard exit before result on any tool turn). Neither bench task needs an
+    // approval decision, so the policy is orthogonal to the timings.
     return {
       driver: ClaudeDriver,
-      config: { cli },
+      config: { cli, permissionMode: "bypassPermissions" },
       environment: { CLAUDE_CONFIG_DIR: configDir },
       model: "claude-haiku-4-5",
       live: true,
@@ -133,16 +140,39 @@ async function specFor(engine: string, workdir: string): Promise<EngineSpec | nu
 
 const isWindowsCli = (cli: string) => /\.exe$/i.test(cli) || /^[a-z]:\\/i.test(cli);
 
+// Windows CLIs cannot open POSIX temp paths, so their fixture lives on a
+// mounted Windows drive whenever one is writable; otherwise tmpdir() stays.
+// The spawn cwd keeps the POSIX form regardless: Node stats it Linux-side,
+// so a C:\-style cwd fails the spawn before the child ever runs.
+function workdirFor(cliHint: string, engine: string): string {
+  // BENCH_WIN_TMPDIR overrides the Windows-drive temp root (must be passed
+  // as its /mnt/c/... mount path). mkdtempSync is the writability probe.
+  if (isWindowsCli(cliHint)) {
+    for (const base of [process.env.BENCH_WIN_TMPDIR, "/mnt/c/Windows/Temp"].filter((dir) => dir && existsSync(dir))) {
+      try {
+        return mkdtempSync(join(base as string, `omb-bench-${engine}-`));
+      } catch {}
+    }
+  }
+  return mkdtempSync(join(tmpdir(), `omb-bench-${engine}-`));
+}
+
+function cliHintFor(engine: string): string {
+  if (engine === "claude") return process.env.CLAUDE_CLI ?? "claude.exe";
+  if (engine === "codex") return process.env.CODEX_BIN ?? "codex";
+  return engine;
+}
+
 let failures = 0;
 mkdirSync(out, { recursive: true });
 const summaries: Array<Record<string, unknown>> = [];
 
 for (const engine of engines) {
-  const raw = mkdtempSync(join(tmpdir(), `omb-bench-${engine}-`));
+  const raw = workdirFor(cliHintFor(engine), engine);
   const spec = await specFor(engine, raw);
   if (!spec) continue;
   const cli = String((spec.config as { cli?: unknown }).cli ?? "");
-  const cwd = isWindowsCli(cli) ? toWindowsPath(raw) : raw;
+  const cwd = raw;
   const fixturePath = isWindowsCli(cli) ? toWindowsPath(join(raw, "fixture.txt")) : join(raw, "fixture.txt");
   writeFileSync(join(raw, "fixture.txt"), `${FIXTURE_TEXT}\n`);
 
@@ -162,7 +192,13 @@ for (const engine of engines) {
       console.log(`engine ${engine}: unknown task ${task}, skipped`);
       continue;
     }
-    const repSummaries: Array<ReturnType<typeof summarizeTurn> & { chars: number; inputTokens: number }> = [];
+    // Fake calibration honors the workload: task A runs the text-only quiet
+    // fixture (no-tool generation floor), task B the default scripted turn.
+    const savedClaudeMode = process.env.FAKE_CLAUDE_MODE;
+    const savedCodexMode = process.env.FAKE_CODEX_MODE;
+    if (engine === "fake-claude") process.env.FAKE_CLAUDE_MODE = task === "a" ? "bench-quiet" : "stream";
+    if (engine === "fake-codex") process.env.FAKE_CODEX_MODE = task === "a" ? "bench-quiet" : "happy";
+    const repSummaries: Array<ReturnType<typeof summarizeTurn> & { chars: number; inputTokens: number; createMs: number }> = [];
     for (let rep = 1; rep <= reps; rep++) {
       const threadId = `bench-${engine}-${task}-${Date.now()}-${rep}`;
       const marks: Array<Record<string, unknown> & { t: number }> = [];
@@ -172,7 +208,6 @@ for (const engine of engines) {
       let outputTokens = 0;
       let completed: { ok: boolean } | null = null;
       let seenContent = false;
-      const openTools = new Map<string, number>();
       const done = new Promise<void>((resolve) => {
         const stop = instance.adapter.onEvent((event) => {
           if (event.threadId !== threadId) return;
@@ -184,15 +219,19 @@ for (const engine of engines) {
             }
             tokenChars += event.delta.length;
           } else if (event.type === "item.started" && event.itemType === "tool") {
-            openTools.set(event.itemId ?? `${openTools.size}`, performance.now());
-            mark("toolStart");
+            mark("toolStart", { itemId: event.itemId ?? null });
           } else if (event.type === "item.completed" && event.itemType === "tool") {
-            mark("toolEnd");
+            mark("toolEnd", { itemId: event.itemId ?? null });
           } else if (event.type === "thread.token-usage.updated") {
             inputTokens = event.input;
             outputTokens = event.output;
           } else if (event.type === "turn.completed") {
             completed = { ok: event.ok };
+            // The completion carries this turn's aggregate as the provider
+            // reports it; the live token-usage indicator differs per driver
+            // (per-step, per-message, thread total) and is only the fallback.
+            if (event.usage && Number.isFinite(event.usage.output)) outputTokens = event.usage.output;
+            if (event.usage && Number.isFinite(event.usage.input)) inputTokens = event.usage.input;
             mark("end", { output: outputTokens, ok: event.ok, stopReason: event.stopReason ?? null });
             stop();
             resolve();
@@ -205,14 +244,25 @@ for (const engine of engines) {
       });
       const tSend = performance.now();
       await instance.adapter.sendTurn({ threadId, text: prompt(fixturePath), model: spec.model, cwd });
-      const started = marks.find((mark) => mark.kind === "start");
+      let timer: ReturnType<typeof setTimeout> | undefined;
       const summary = await Promise.race([
         done.then(() => summarizeTurn([{ t: tSend, kind: "send" }, ...marks])),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), TURN_TIMEOUT_MS)),
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), TURN_TIMEOUT_MS);
+        }),
       ]);
+      if (timer !== undefined) clearTimeout(timer);
+      // Read after the race: sendTurn returns before the driver emits
+      // turn.started, so anything earlier finds an empty timeline. The send
+      // mark is persisted too: totals span the send call, and the math
+      // module derives the same numbers offline from this file alone.
+      const started = marks.find((mark) => mark.kind === "start");
+      const file = join(out, `${engine}-${task}-rep${rep}.jsonl`);
+      const persisted = [{ t: tSend, kind: "send" }, ...marks];
+      writeFileSync(file, `${persisted.map((mark) => JSON.stringify(mark)).join("\n")}\n`);
       if (summary === null || completed === null || !completed.ok) {
         failures++;
-        console.log(`engine ${engine} task ${task} rep ${rep}: FAIL (timeout or unsuccessful turn)`);
+        console.log(`engine ${engine} task ${task} rep ${rep}: FAIL (timeout or unsuccessful turn), marks kept in ${file}`);
         for (const err of marks.filter((mark) => mark.kind === "error" || mark.kind === "retry" || mark.kind === "end")) {
           console.log(`  mark: ${JSON.stringify(err).slice(0, 400)}`);
         }
@@ -221,22 +271,29 @@ for (const engine of engines) {
         } catch {}
         continue;
       }
-      summary.localMs = { ...(summary.localMs as Record<string, number>), create: createMs, spawn: started ? (started.t as number) - tSend : 0 };
+      // createMs stays out of the per-turn subtraction: instance setup runs
+      // once per engine, before tSend, outside the total interval. Only the
+      // spawn slice (send call to turn.started) is per-turn local overhead.
+      summary.localMs = { ...(summary.localMs as Record<string, number>), spawn: started ? (started.t as number) - tSend : 0 };
       summary.providerMs =
         summary.totalMs !== null
           ? summary.totalMs - Object.values(summary.localMs as Record<string, number>).reduce((sum, ms) => sum + ms, 0)
           : null;
-      repSummaries.push({ ...summary, chars: tokenChars, inputTokens });
-      const file = join(out, `${engine}-${task}-rep${rep}.jsonl`);
-      writeFileSync(file, `${marks.map((mark) => JSON.stringify(mark)).join("\n")}\n`);
+      repSummaries.push({ ...summary, chars: tokenChars, inputTokens, createMs });
       console.log(
         `engine ${engine} task ${task} rep ${rep}: total=${summary.totalMs?.toFixed(0)}ms ttft=${summary.ttftMs?.toFixed(0)}ms ` +
           `tok/s=${summary.tokPerSec?.toFixed(1) ?? "n/a"} tools=${summary.toolCount} in/out=${inputTokens}/${outputTokens} chars=${tokenChars}`,
       );
     }
-    const totals = repSummaries.map((summary) => summary.totalMs ?? 0);
-    const ttfts = repSummaries.map((summary) => summary.ttftMs ?? 0);
-    summaries.push({ engine, task, model: spec.model, live: spec.live, reps: repSummaries.length, totalMs: stats(totals), ttftMs: stats(ttfts), turns: repSummaries });
+    // Missing TTFT stays missing: a content-free success must not read as an
+    // instantaneous first token in the aggregates.
+    const totals = repSummaries.map((summary) => summary.totalMs).filter((value): value is number => value !== null);
+    const ttfts = repSummaries.map((summary) => summary.ttftMs).filter((value): value is number => value !== null);
+    summaries.push({ engine, task, model: spec.model, live: spec.live, reps: repSummaries.length, createMs, totalMs: stats(totals), ttftMs: stats(ttfts), turns: repSummaries });
+    if (savedClaudeMode === undefined) delete process.env.FAKE_CLAUDE_MODE;
+    else process.env.FAKE_CLAUDE_MODE = savedClaudeMode;
+    if (savedCodexMode === undefined) delete process.env.FAKE_CODEX_MODE;
+    else process.env.FAKE_CODEX_MODE = savedCodexMode;
   }
   await instance.dispose?.();
 }
