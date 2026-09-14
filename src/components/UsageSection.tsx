@@ -10,7 +10,6 @@ import { MausAvatar } from "./Avatar";
 import { Card } from "./SettingsPrimitives";
 import { ProviderMark } from "./ProviderIcons";
 import { useI18n } from "@/lib/i18n";
-import { cn } from "@/lib/cn";
 import { showUsagePerBotTable } from "@/lib/friends-chrome";
 import { splitFriendsEngines } from "@/lib/engine-rail";
 import { setUsageMode, useUsageMode } from "@/lib/usage-preferences";
@@ -28,7 +27,6 @@ import {
   windowKind,
 } from "@/lib/usage";
 import { PLAN_WINDOW_SHORT_LABEL_KEY, PlanWindowMeter, useNow } from "./PlanUsageBar";
-import { GRID_COLS } from "./ChatPlanMeters";
 
 // Chat lists the session window before the weekly one; Settings keeps every
 // window the engine reported but in that same priority. Array sort is stable,
@@ -38,59 +36,126 @@ function windowRank(id: string, windowMinutes?: number): number {
   return kind === "session" ? 0 : kind === "weekly" ? 1 : 2;
 }
 
-function PlanUsage() {
+// Claude/Codex/Grok/Antigravity declare rateLimits and answer a refresh
+// POST; engines that never report stay off the refresh path entirely.
+const canRefresh = (instance: InstanceInfo) =>
+  instance.driverKind === "claudeAgent" || instance.driverKind === "codex" || instance.driverKind === "grokAgent" || instance.driverKind === "antigravityAgent";
+
+// One shared row for every engine in the plan card: the label sits left and
+// the values stack in a single left-aligned column underneath. Every engine
+// maps through this component — no per-engine markup — so a future engine
+// row inherits the alignment instead of re-centering itself.
+function EnginePlanRow({
+  instance,
+  now,
+  error,
+}: {
+  instance: InstanceInfo;
+  now: number;
+  error?: string;
+}) {
   const { t } = useI18n();
-  const { state, dispatch } = useStore();
-  const now = useNow();
-  const mode = useUsageMode();
-  const [refreshing, setRefreshing] = useState<Set<string>>(() => new Set());
-  const [refreshingAll, setRefreshingAll] = useState(false);
-  const [refreshErrors, setRefreshErrors] = useState<Record<string, string>>({});
-  const engines = splitFriendsEngines(state.instances).friends;
+  const { state } = useStore();
+  // Keyed off what was banked, not a driver allowlist: acp/core only emits
+  // token usage when the agent it wraps reports it, so a list would be wrong.
+  const spent = sumUsage(state.bots.filter((bot) => bot.modelSelection.instanceId === instance.instanceId).map(botUsage));
+  const detail = usageDetail(spent);
+  const hasSpent = spent.input + spent.output > 0;
+  const windows = [...(instance.rateLimits?.windows ?? [])].sort(
+    (a, b) => windowRank(a.id, a.windowMinutes) - windowRank(b.id, b.windowMinutes),
+  );
   // Claude/Codex/Grok/Antigravity declare rateLimits but only emit a window
   // after a turn or refresh — pending, not an outage. Engines that never
   // report (OpenCode) stay on the unsupported line so a missing observation
   // is not mistaken for downtime.
-  const honestCaption = (instance: InstanceInfo) =>
-    t(instance.capabilities?.rateLimits ? "usage.limits.pending" : "usage.limits.notReported", {
-      name: instance.displayName,
-    });
-  const canRefresh = (instance: InstanceInfo) =>
-    instance.driverKind === "claudeAgent" || instance.driverKind === "codex" || instance.driverKind === "grokAgent" || instance.driverKind === "antigravityAgent";
-  const refreshable = engines.filter(canRefresh);
-  // Keyed off what was banked, not a driver allowlist: acp/core only emits
-  // token usage when the agent it wraps reports it, so a list would be wrong.
-  const engineTokens = (instance: InstanceInfo) =>
-    sumUsage(state.bots.filter((bot) => bot.modelSelection.instanceId === instance.instanceId).map(botUsage));
+  const honestCaption = t(instance.capabilities?.rateLimits ? "usage.limits.pending" : "usage.limits.notReported", {
+    name: instance.displayName,
+  });
   const age = (observedAt: string) => {
     const minutes = Math.max(0, Math.floor((now - Date.parse(observedAt)) / 60_000));
     return minutes < 60
       ? t("usage.limits.refreshAgeMinutes", { minutes })
       : t("usage.limits.refreshAgeHours", { hours: Math.floor(minutes / 60) });
   };
+  return (
+    <div>
+      <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
+        <ProviderMark driverKind={instance.driverKind} size={16} />
+        <span className="truncate">{instance.displayName}</span>
+      </div>
+      {(windows.length > 0 || hasSpent) && (
+        <div className="mt-2 flex flex-col items-start gap-1.5">
+          {windows.map((window) => {
+            const opus = window.id === "seven_day_opus";
+            const shortLabel = t(PLAN_WINDOW_SHORT_LABEL_KEY[windowKind(window.id, window.windowMinutes)]);
+            return (
+              <div key={window.id} role={opus ? "group" : undefined} aria-label={opus ? `${t("usage.limits.opusShort")} ${shortLabel}` : undefined}
+                className="flex min-w-0 flex-wrap items-center gap-2 text-[12.5px] text-ink">
+                {opus && <span aria-hidden="true">{t("usage.limits.opusShort")}</span>}
+                {windowExpired(window.resetsAt, now) ? (
+                  <span>
+                    {shortLabel}{" "}
+                    <span className="text-ink-secondary">{t("usage.limits.resetPassed")}</span>
+                  </span>
+                ) : (
+                  <>
+                    <PlanWindowMeter window={window} now={now} compact />
+                    {!resetCompact(window.resetsAt, now) && <span className="text-ink-secondary">{t("usage.limits.resetUnknown")}</span>}
+                  </>
+                )}
+              </div>
+            );
+          })}
+          {hasSpent && (
+            <span className="shrink-0 tabular-nums text-[12.5px] text-ink-secondary" title={t(detail.key, detail.vars)}>
+              {`↑${formatTokens(spent.input)} ↓${formatTokens(spent.output)}`}
+            </span>
+          )}
+        </div>
+      )}
+      {!instance.rateLimits && (
+        <div className="mt-1 text-[12px] text-ink-secondary">{honestCaption}</div>
+      )}
+      {canRefresh(instance) && instance.rateLimits && (
+        <div className="mt-2 text-[11px] text-ink-secondary">{t("usage.limits.refreshAge", { age: age(instance.rateLimits.observedAt) })}</div>
+      )}
+      {error && (
+        <div className="mt-1 text-[12px] text-danger">
+          {t("usage.limits.refreshFailed", { message: error, age: instance.rateLimits ? age(instance.rateLimits.observedAt) : "—" })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PlanUsage() {
+  const { t } = useI18n();
+  const { state, dispatch } = useStore();
+  const now = useNow();
+  const mode = useUsageMode();
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshErrors, setRefreshErrors] = useState<Record<string, string>>({});
+  const engines = splitFriendsEngines(state.instances).friends;
+  const refreshable = engines.filter(canRefresh);
   const refresh = async (instance: InstanceInfo) => {
-    setRefreshing((current) => new Set(current).add(instance.instanceId));
     try {
       const result = await api(`/api/usage/refresh/${instance.instanceId}`, { method: "POST" });
       if (result.report) dispatch({ type: "rateLimits", instanceId: instance.instanceId, report: result.report });
       setRefreshErrors((current) => result.error ? { ...current, [instance.instanceId]: result.error } : Object.fromEntries(Object.entries(current).filter(([id]) => id !== instance.instanceId)));
     } catch (error) {
       setRefreshErrors((current) => ({ ...current, [instance.instanceId]: error instanceof Error ? error.message : "Refresh failed" }));
-    } finally {
-      setRefreshing((current) => {
-        const next = new Set(current);
-        next.delete(instance.instanceId);
-        return next;
-      });
     }
   };
+  // The section's only refresh control: one tap refreshes every engine that
+  // answers a refresh POST (Claude, Codex, Grok, Antigravity), never just one
+  // of them.
   const refreshAll = async () => {
-    if (refreshingAll || refreshing.size > 0 || refreshable.length === 0) return;
-    setRefreshingAll(true);
+    if (refreshing || refreshable.length === 0) return;
+    setRefreshing(true);
     try {
       await Promise.all(refreshable.map(refresh));
     } finally {
-      setRefreshingAll(false);
+      setRefreshing(false);
     }
   };
 
@@ -109,10 +174,10 @@ function PlanUsage() {
           <button
             type="button"
             onClick={() => void refreshAll()}
-            disabled={refreshingAll || refreshing.size > 0}
+            disabled={refreshing}
             className="shrink-0 rounded-lg border border-hairline/40 px-3 py-1 text-[12px] text-ink-secondary hover:bg-raised/50 hover:text-ink disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent"
           >
-            {t(refreshingAll ? "usage.limits.refreshing" : "usage.limits.refreshAll")}
+            {t(refreshing ? "usage.limits.refreshing" : "usage.limits.refreshAll")}
           </button>
         )}
       </div>
@@ -120,76 +185,9 @@ function PlanUsage() {
         <div className="text-[13px] text-ink-secondary">{t("usage.limits.empty")}</div>
       ) : (
         <div className="flex flex-col gap-4">
-          {engines.map((instance) => {
-            const spent = engineTokens(instance);
-            const detail = usageDetail(spent);
-            const hasSpent = spent.input + spent.output > 0;
-            const windows = [...(instance.rateLimits?.windows ?? [])].sort(
-              (a, b) => windowRank(a.id, a.windowMinutes) - windowRank(b.id, b.windowMinutes),
-            );
-            // The meters grid mirrors the chat strip: centred, content-sized,
-            // same columns for the same cell count, with the token readout as
-            // its last cell. mt-2 is the only deliberate extra — it clears the
-            // engine header, which the strip does not have. Columns cap at
-            // four: three windows plus spend is the widest real row, and a
-            // wider auto grid would overflow the card.
-            const cells = windows.length + (hasSpent ? 1 : 0);
-            return (
-              <div key={instance.instanceId}>
-                <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
-                  <ProviderMark driverKind={instance.driverKind} size={16} />
-                  <span className="truncate">{instance.displayName}</span>
-                </div>
-                {cells > 0 && (
-                  <div className={cn("mx-auto mt-2 grid w-fit items-center gap-x-6", GRID_COLS[Math.min(cells, 4)])}>
-                    {windows.map((window) => {
-                      const opus = window.id === "seven_day_opus";
-                      const shortLabel = t(PLAN_WINDOW_SHORT_LABEL_KEY[windowKind(window.id, window.windowMinutes)]);
-                      return (
-                        <div key={window.id} role={opus ? "group" : undefined} aria-label={opus ? `${t("usage.limits.opusShort")} ${shortLabel}` : undefined}
-                          className="flex min-w-0 flex-wrap items-center gap-2 text-[12.5px] text-ink">
-                          {opus && <span aria-hidden="true">{t("usage.limits.opusShort")}</span>}
-                          {windowExpired(window.resetsAt, now) ? (
-                            <span>
-                              {shortLabel}{" "}
-                              <span className="text-ink-secondary">{t("usage.limits.resetPassed")}</span>
-                            </span>
-                          ) : (
-                            <>
-                              <PlanWindowMeter window={window} now={now} compact />
-                              {!resetCompact(window.resetsAt, now) && <span className="text-ink-secondary">{t("usage.limits.resetUnknown")}</span>}
-                            </>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {hasSpent && (
-                      <span className="shrink-0 tabular-nums text-[12.5px] text-ink-secondary" title={t(detail.key, detail.vars)}>
-                        {`↑${formatTokens(spent.input)} ↓${formatTokens(spent.output)}`}
-                      </span>
-                    )}
-                  </div>
-                )}
-                {!instance.rateLimits && (
-                  <div className="mt-1 text-[12px] text-ink-secondary">{honestCaption(instance)}</div>
-                )}
-                {canRefresh(instance) && (
-                  <div className="mt-2 flex items-center gap-2">
-                    <button type="button" onClick={() => void refresh(instance)} disabled={refreshing.has(instance.instanceId)}
-                      className="shrink-0 rounded-lg border border-hairline/40 px-3 py-1 text-[12px] text-ink-secondary hover:bg-raised/50 hover:text-ink disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent">
-                      {t(refreshing.has(instance.instanceId) ? "usage.limits.refreshing" : "usage.limits.refresh")}
-                    </button>
-                    {instance.rateLimits && <span className="text-[11px] text-ink-secondary">{t("usage.limits.refreshAge", { age: age(instance.rateLimits.observedAt) })}</span>}
-                  </div>
-                )}
-                {refreshErrors[instance.instanceId] && (
-                  <div className="mt-1 text-[12px] text-danger">
-                    {t("usage.limits.refreshFailed", { message: refreshErrors[instance.instanceId], age: instance.rateLimits ? age(instance.rateLimits.observedAt) : "—" })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {engines.map((instance) => (
+            <EnginePlanRow key={instance.instanceId} instance={instance} now={now} error={refreshErrors[instance.instanceId]} />
+          ))}
         </div>
       )}
     </Card>
