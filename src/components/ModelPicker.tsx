@@ -178,7 +178,7 @@ export function ModelPickerControl({
         {modelChipText({ instance: active, model: selection.model, effort: selection.effort }, t)}
       </span>
       {chipEffort && (
-        <span data-model-effort className={cn("flex shrink-0 items-center gap-1", !contained && active && "@max-4xl/chathead:hidden")}>
+        <span data-model-effort className="flex shrink-0 items-center gap-1">
           <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(active?.driverKind) }} />
           <span className="text-[12px] text-ink-secondary">{effortLabel(chipEffort)}</span>
         </span>

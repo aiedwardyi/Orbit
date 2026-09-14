@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import { I18nProvider } from "@/lib/i18n";
+import { modelFamilyAccent } from "@/lib/model-chip";
 import type { Bot, InstanceInfo } from "@/state/store";
 
 const { mockInstances } = vi.hoisted(() => {
@@ -252,9 +253,14 @@ describe("ModelPicker friends chip", () => {
     expect(html).not.toContain("#8b929c");
   });
 
-  it("folds effort with the model label in a narrow chat header", () => {
+  it("keeps effort visible while the model label folds in a narrow chat header", () => {
     const html = markup({ instanceId: "grok", model: "grok-4.6", mode: "automatic", effort: "high" });
-    expect(html).toMatch(/data-model-effort[^>]*@max-4xl\/chathead:hidden/);
+    // the label still folds to the engine name below the breakpoint…
+    expect(html).toMatch(/max-w-\[160px\] truncate[^"]*@max-4xl\/chathead:hidden/);
+    expect(html).toMatch(/hidden max-w-\[96px\] truncate @max-4xl\/chathead:inline/);
+    // …but the effort badge never folds away, dot included
+    expect(html).toContain("data-model-effort");
+    expect(html).not.toMatch(/data-model-effort[^>]*@max-4xl\/chathead:hidden/);
   });
 
   it.each(["ledger", "midnight"])("keeps the accent dot and effort visible beside a long label under the %s skin", (skin) => {
@@ -289,7 +295,9 @@ describe("ModelPicker friends chip", () => {
     expect(html).toContain("Northwind 9 Contributor Extended Edition");
     expect(html).toMatch(/min-w-0 max-w-\[160px\] truncate/);
     expect(html).toMatch(/data-model-effort[^>]*shrink-0/);
-    expect(html).toContain("#8b929c");
+    // palette lookup, not a hardcoded hex: the dot must wear the family's
+    // resolved accent, whatever the palette table holds.
+    expect(html).toContain(`background-color:${modelFamilyAccent("grokAgent")}`);
     expect(html).toContain(">high<");
   });
 
