@@ -7,7 +7,7 @@ import { api, useStore, type ConfigStatus } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 
-export type ConfigSection = "composio" | "gemini" | "box" | "opencodeGo";
+export type ConfigSection = "composio" | "gemini" | "box";
 
 const SECTIONS: Record<
   ConfigSection,
@@ -22,14 +22,12 @@ const SECTIONS: Record<
     flag: (c) => c.gemini?.configured ?? false,
   },
   box: { body: (v) => ({ box: { token: v } }), flag: (c) => c.box.configured },
-  opencodeGo: { body: (v) => ({ opencodeGo: { apiKey: v } }), flag: (c) => c.opencodeGo?.configured ?? false },
 };
 
-const ELECTRON_CREDENTIAL: Record<ConfigSection, "composioApiKey" | "geminiApiKey" | "boxToken" | "opencodeGoApiKey"> = {
+const ELECTRON_CREDENTIAL: Record<ConfigSection, "composioApiKey" | "geminiApiKey" | "boxToken"> = {
   composio: "composioApiKey",
   gemini: "geminiApiKey",
   box: "boxToken",
-  opencodeGo: "opencodeGoApiKey",
 };
 
 const CREDENTIALS: Record<
@@ -69,14 +67,6 @@ const CREDENTIALS: Record<
     linkLabel: "connections.box.link",
     optional: true,
     warning: "connections.box.warning",
-  },
-  opencodeGo: {
-    label: "connections.opencode.label",
-    placeholder: "connections.opencode.placeholder",
-    description: "connections.opencode.description",
-    href: "https://opencode.ai/docs/providers/",
-    linkLabel: "connections.opencode.link",
-    optional: true,
   },
 };
 

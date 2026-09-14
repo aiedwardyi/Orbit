@@ -10,25 +10,15 @@ const ENGINES = [
   ["codex", "OpenAI"],
   ["grokAgent", "Grok"],
   ["antigravityAgent", "Antigravity"],
-  ["opencodeGo", "OpenCode"],
+  ["museAgent", "Meta Muse"],
 ] as const;
 
 const MODELS = new Map<string, string[]>(Object.entries({
   claudeAgent: ["claude-fable-5-1", "claude-fable-5", "claude-opus-5", "claude-sonnet-5"],
   codex: ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
   grokAgent: ["grok-4.6", "grok-4.5"],
+  museAgent: ["muse-spark-1.3", "muse-spark-1.3-contributor"],
 }));
-
-export function freePickerModels(catalog: ModelOption[]): ModelOption[] {
-  const pinned = ["meta/muse-spark-1.3", "meta/muse-spark-1.3-contributor"].flatMap((id) => catalog.filter((option) => option.id === id));
-  const openrouter = catalog.filter((option) => option.id.startsWith("openrouter/"));
-  const free = openrouter.filter((option) => option.id.endsWith(":free"));
-  const families = [/nemotron.*3.*ultra/i, /laguna-s-2[.-]1/i, /nemotron.*3[.-]5.*lightning/i];
-  const ling = /ling-3[.-]0-flash-fin/i;
-  if (free.length === 0) return [...pinned, ...openrouter.filter((option) => !ling.test(option.id))].slice(0, 4);
-  const preferred = families.flatMap((family) => free.filter((option) => family.test(option.id)).slice(0, 1));
-  return [...pinned, ...preferred, ...free.filter((option) => !preferred.includes(option) && !ling.test(option.id))].slice(0, 4);
-}
 
 export function pickerRows(instances: InstanceInfo[], current: ModelSelection, preview = current): PickerRow[] {
   const ordered: Array<{ instance: InstanceInfo; label: string }> = ENGINES.flatMap(([kind, label]) => instances
@@ -45,9 +35,7 @@ export function pickerRows(instances: InstanceInfo[], current: ModelSelection, p
         return options.length ? [{ label: `Gemini ${version} Flash`, options }] : [];
       });
     } else {
-      const options = instance.driverKind === "opencodeGo"
-        ? freePickerModels(catalog)
-        : (MODELS.get(instance.driverKind) ?? []).flatMap((id) => catalog.filter((option) => option.id === id));
+      const options = (MODELS.get(instance.driverKind) ?? []).flatMap((id) => catalog.filter((option) => option.id === id));
       cells = options.map((option) => ({ label: option.label.replace(/^Claude /, ""), options: [option] }));
     }
     for (const selection of [current, preview]) {

@@ -7,7 +7,7 @@ import { homedir, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { augmentedPath, resetPathCache, resetPathCacheForTests, splitCliString } from "./env-path.ts";
+import { augmentedPath, resetPathCache, resetPathCacheForTests, splitCliString, toWslPath } from "./env-path.ts";
 import { resolveCli } from "./procs.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
 
@@ -311,5 +311,33 @@ describe("resolveCli with wrapper commands", () => {
       command: join(bin, "omb"),
       args: ["space", "dir/nope", "two", "words", "--version"],
     });
+  });
+});
+
+describe("toWslPath", () => {
+  it("maps drive-letter paths onto the WSL mount", () => {
+    expect(toWslPath("C:\\Users\\ed\\proj")).toBe("/mnt/c/Users/ed/proj");
+    expect(toWslPath("D:/data")).toBe("/mnt/d/data");
+    expect(toWslPath("c:\\lower")).toBe("/mnt/c/lower");
+  });
+
+  it("strips wsl$ distro paths to the distro filesystem root", () => {
+    expect(toWslPath("\\\\wsl$\\Ubuntu\\home\\ed")).toBe("/home/ed");
+    expect(toWslPath("\\\\WSL$\\Ubuntu\\home\\ed")).toBe("/home/ed");
+    expect(toWslPath("\\\\wsl$\\Ubuntu")).toBe("/");
+    expect(toWslPath("\\\\wsl$\\")).toBe("\\\\wsl$\\");
+  });
+
+  it("strips wsl.localhost distro paths the same way", () => {
+    expect(toWslPath("\\\\wsl.localhost\\Ubuntu\\home\\ed")).toBe("/home/ed");
+    expect(toWslPath("\\\\WSL.LOCALHOST\\Ubuntu\\home\\ed")).toBe("/home/ed");
+    expect(toWslPath("\\\\wsl.localhost\\Ubuntu")).toBe("/");
+    expect(toWslPath("\\\\wsl.localhost\\")).toBe("\\\\wsl.localhost\\");
+  });
+
+  it("leaves POSIX and drive-relative values alone", () => {
+    expect(toWslPath("/home/ed/proj")).toBe("/home/ed/proj");
+    expect(toWslPath("C:proj")).toBe("C:proj");
+    expect(toWslPath("")).toBe("");
   });
 });

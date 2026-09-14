@@ -52,7 +52,16 @@ const { mockState, mockApi } = vi.hoisted(() => {
         engine("grok", "grokAgent", "Grok", { capabilities: { rateLimits: true } }),
         engine("gemini", "geminiAgent", "Gemini API"),
         engine("antigravity", "antigravityAgent", "Gemini (Antigravity)", { capabilities: { rateLimits: true } }),
-        engine("opencode", "opencodeGo", "OpenCode"),
+        engine("muse", "museAgent", "Meta Muse", {
+          capabilities: { rateLimits: true },
+          rateLimits: {
+            observedAt: new Date().toISOString(),
+            windows: [
+              { id: "five_hour", usedPercent: 22, resetsAt: Date.now() + 3_600_000 },
+              { id: "seven_day", usedPercent: 61, resetsAt: Date.now() + 6 * 86_400_000 },
+            ],
+          },
+        }),
       ],
     },
     mockApi: vi.fn(async (_path: string): Promise<{ report?: { windows: { id: string; usedPercent: number }[]; observedAt: string }; error?: string }> => ({
@@ -125,7 +134,8 @@ describe("UsageSection friends plan card", () => {
     expect(html).toContain("Claude");
     expect(html).toContain("Codex");
     expect(html).toContain("Gemini (Antigravity)");
-    expect(html).toContain("OpenCode");
+    expect(html).toContain("Meta Muse");
+    expect(html).not.toContain("OpenCode");
     expect(html).not.toContain("Gemini API");
     expect(html).not.toContain("Kimi");
     expect(html).not.toContain("not available at the moment");
@@ -141,12 +151,20 @@ describe("UsageSection friends plan card", () => {
     const claude = html.indexOf("Claude");
     const codex = html.indexOf("Codex");
     const antigravity = html.indexOf("Gemini (Antigravity)");
-    const opencode = html.indexOf("OpenCode");
+    const muse = html.indexOf("Meta Muse");
     expect(claude).toBeGreaterThan(-1);
     expect(codex).toBeGreaterThan(claude);
     expect(grok).toBeGreaterThan(codex);
     expect(antigravity).toBeGreaterThan(grok);
-    expect(opencode).toBeGreaterThan(antigravity);
+    expect(muse).toBeGreaterThan(antigravity);
+  });
+
+  it("shows Meta Muse 5-hour and 7-day windows", () => {
+    setUsageMode("used");
+    const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+    expect(html).toContain("Meta Muse");
+    expect(html).toContain('aria-label="5h: 22% used"');
+    expect(html).toContain('aria-label="7d: 61% used"');
   });
 
   it("includes the antigravity engine in the single refresh-all", async () => {
@@ -163,6 +181,7 @@ describe("UsageSection friends plan card", () => {
         refreshAll?.click();
       });
       expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/antigravity", { method: "POST" });
+      expect(mockApi).not.toHaveBeenCalledWith("/api/usage/refresh/muse", { method: "POST" });
     } finally {
       await act(async () => root.unmount());
       host.remove();
@@ -196,6 +215,13 @@ describe("UsageSection friends plan card", () => {
       observedAt: new Date().toISOString(),
       windows: [{ id: "five_hour", usedPercent: 20, resetsAt: Date.now() + 3_600_000 }],
     };
+    // The Meta Muse fixture row carries windows, which would add its own
+    // column to the count; park them so this test measures the shared
+    // structure, not the engine roster.
+    const muse = mockState.instances.find((instance) => instance.instanceId === "muse");
+    if (!muse) throw new Error("muse fixture missing");
+    const museOriginal = muse.rateLimits;
+    muse.rateLimits = undefined;
     try {
       persistPreference("en");
       setUsageMode("used");
@@ -209,6 +235,7 @@ describe("UsageSection friends plan card", () => {
       expect(host.innerHTML).not.toContain("w-fit");
     } finally {
       codex.rateLimits = original;
+      muse.rateLimits = museOriginal;
       await act(async () => root.unmount());
       host.remove();
       persistPreference("en");
@@ -397,6 +424,7 @@ describe("UsageSection friends plan card", () => {
         refreshAll?.click();
       });
       // one control refreshes Claude, Codex, Grok, and Antigravity together
+      // (Meta Muse stays off the refresh path until its CLI reports quota)
       expect(mockApi).toHaveBeenCalledTimes(4);
       const busy = [...host.querySelectorAll("button")].find((button) => button.textContent === "Refreshing…");
       expect(busy).toBeDefined();

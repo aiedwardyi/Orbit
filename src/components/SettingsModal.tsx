@@ -495,7 +495,6 @@ export function SettingsModal({
                   ) : null}
                   <EnginesSettings />
                   <ApiKeyRow section="gemini" />
-                  <ApiKeyRow section="opencodeGo" />
                   {showSettingsMoreServicesSection() && (
                     <>
                   <button

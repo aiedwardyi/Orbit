@@ -38,7 +38,6 @@ const { mockState } = vi.hoisted(() => {
         vps: { configured: false, sshAlias: "" },
         rooms: { turnTimeoutMinutes: 5 },
         localVm: { mode: "shared", maxInstances: 1 },
-        opencodeGo: { configured: false },
         profile: { name: "", email: "" },
         features: { skillRecorder: false, showToolCalls: false },
       },

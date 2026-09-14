@@ -365,7 +365,7 @@ describe("Antigravity snapshot", () => {
   it("strips workspace credentials from snapshot and helper children", async () => {
     const scratch = mkdtempSync(join(tmpdir(), "omb-agy-env-"));
     const dump = join(scratch, "dump.json");
-    const names = ["XAI_API_KEY", "COMPOSIO_API_KEY", "BOX_TOKEN", "OPENCODE_API_KEY", "OMB_TTS_KEY"] as const;
+    const names = ["XAI_API_KEY", "COMPOSIO_API_KEY", "BOX_TOKEN", "META_API_KEY", "OMB_TTS_KEY"] as const;
     const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
     process.env.FAKE_AGY_DUMP = dump;
     for (const name of names) process.env[name] = `${name}-must-not-leak`;

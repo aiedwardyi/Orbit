@@ -25,7 +25,8 @@ describe("settings section search", () => {
     expect(settingsSectionMatches("connections", "self-host")).toBe(false);
     expect(settingsSectionMatches("connections", "grok")).toBe(true);
     expect(settingsSectionMatches("connections", "gemini")).toBe(true);
-    expect(settingsSectionMatches("connections", "opencode")).toBe(true);
+    expect(settingsSectionMatches("connections", "muse")).toBe(true);
+    expect(settingsSectionMatches("connections", "opencode")).toBe(false);
     expect(settingsSectionMatches("connections", "cli")).toBe(true);
   });
 });

@@ -79,7 +79,7 @@ export function ModelPickerControl({
   const planeStyle: CSSProperties & { "--picker-offset": string } = {
     "--picker-offset": `${offset}px`,
   };
-  const families = new Map([["codex", "gpt"], ["grokAgent", "grok"], ["antigravityAgent", "gemini"], ["geminiAgent", "gemini"], ["claudeAgent", "claude"], ["opencodeGo", "opencode"]]);
+  const families = new Map([["codex", "gpt"], ["grokAgent", "grok"], ["antigravityAgent", "gemini"], ["geminiAgent", "gemini"], ["claudeAgent", "claude"], ["museAgent", "metamuse"]]);
   const family = families.get(instance?.driverKind ?? "") ?? "grok";
   const shortcut = /Mac/i.test(globalThis.navigator?.platform ?? "") ? "Option" : "Alt";
   const custom = instance?.models.options.filter((option) => option.custom) ?? [];

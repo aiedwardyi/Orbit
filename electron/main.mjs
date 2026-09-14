@@ -390,7 +390,7 @@ export async function secureComposioConfig() {
   }
 }
 
-// The remaining workspace credentials (xai/box/voice/OpenCode keys) get
+// The remaining workspace credentials (xai/box/voice keys) get
 // the same at-rest treatment as the Composio key above. New packaged-app
 // saves go straight through credential:set below; this boot-time sweep also
 // migrates plaintext left by older versions or direct development clients.
@@ -792,7 +792,7 @@ async function startServerOn(port) {
       : {}),
     // "we could not read your keys" must not reach the UI as "you have none"
     OMB_CREDENTIAL_STORE: credentialStoreUnavailable ? "unavailable" : "ok",
-    // one env var per stored workspace secret (xai/box/voice/OpenCode Go);
+    // one env var per stored workspace secret (xai/box/voice);
     // the server prefers these over config.json, whose plaintext fields
     // the boot migration has deleted
     ...workspaceCredentialEnv(childEnvCredentials),
@@ -1851,7 +1851,6 @@ const CREDENTIAL_PATCH = {
   geminiApiKey: (value) => ({ gemini: { apiKey: value } }),
   openaiCompatKey: (value) => ({ openaiCompat: { key: value } }),
   boxToken: (value) => ({ box: { token: value } }),
-  opencodeGoApiKey: (value) => ({ opencodeGo: { apiKey: value } }),
   ttsKey: (value) => ({ tts: { key: value } }),
   openaiImageApiKey: (value) => ({ imageGen: { key: value } }),
 };

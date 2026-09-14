@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -19,6 +19,7 @@ import {
   showToolCallsEnabled,
   skillRecorderEnabled,
   builtInBrowserEnabled,
+  sweepLegacyOpencodeKey,
   syncCredentialEnv,
   vpsSshAlias,
   withInstanceCli,
@@ -42,7 +43,7 @@ describe("configuration boundaries", () => {
 
   it("rejects malformed stored instances and API patches", () => {
     expect(() => parseStoredConfig({ instances: { claude: { driver: 42 } } })).toThrow("instances.claude.driver");
-    expect(() => parseConfigPatch({ opencodeGo: { apiKey: 42 } })).toThrow("opencodeGo.apiKey");
+    expect(() => parseConfigPatch({ gemini: { apiKey: 42 } })).toThrow("gemini.apiKey");
     expect(() => parseConfigPatch({ profile: [] })).toThrow("profile");
   });
 
@@ -147,6 +148,12 @@ describe("default fleet", () => {
     expect(map.gemini).toEqual({ driver: "geminiAgent", environment: {} });
   });
 
+  it("ships Meta Muse in the default fleet", () => {
+    const map = instanceConfigs({});
+    expect(map.muse).toEqual({ driver: "museAgent", environment: {} });
+    expect(map.opencodeGo).toBeUndefined();
+  });
+
   it("carries the saved OpenAI-compatible URL into the live default instance", () => {
     const map = instanceConfigs({
       openaiCompat: { key: "secret", url: "https://models.example.test/v1" },
@@ -199,6 +206,7 @@ describe("default fleet", () => {
     expect(map.hermes?.driver).toBe("hermesAgent");
     expect(map.cursor?.driver).toBe("cursorAgent");
     expect(map.gemini?.driver).toBe("geminiAgent");
+    expect(map.muse?.driver).toBe("museAgent");
     expect(map.openaiCompat?.driver).toBe("openai-compat");
   });
 
@@ -248,13 +256,11 @@ describe("Instance CLI override", () => {
       xai: { key: "SECRET-XAI" },
       gemini: { apiKey: "SECRET-GEMINI" },
       box: { token: "SECRET-BOX" },
-      opencodeGo: { apiKey: "SECRET-OCG" },
       instances: {
         claude: { driver: "claudeAgent" },
         grokApi: { driver: "grok" },
         gemini: { driver: "geminiAgent" },
         computer: { driver: "boxAgent" },
-        opencode: { driver: "opencodeGo" },
       },
     };
     const set = withInstanceCli(cfg, "claude", "/opt/claude");
@@ -269,19 +275,87 @@ describe("Instance CLI override", () => {
   });
 });
 
-describe("OpenCode Go configuration", () => {
-  it("injects the key only into OpenCode Go instances", () => {
-    const cfg: AppConfig = {
-      opencodeGo: { apiKey: "secret-value" },
-      instances: {
-        opencode: { driver: "opencodeGo" },
-        grok: { driver: "grokAgent" },
-      },
-    };
+describe("Meta Muse fleet", () => {
+  it("keeps a legacy OpenCode instance entry without crashing", () => {
+    const instances = instanceConfigs({ instances: { opencode: { driver: "opencodeGo" } } });
+    expect(instances.opencode.driver).toBe("opencodeGo");
+  });
+});
 
-    const instances = instanceConfigs(cfg);
-    expect(instances.opencode.environment).toEqual({ OPENCODE_API_KEY: "secret-value" });
-    expect(instances.grok.environment).toEqual({});
+describe("legacy OpenCode key sweep", () => {
+  const writeConfig = (dir: string, raw: string) => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "config.json"), raw);
+  };
+
+  it("drops the opencodeGo section from the stored file and keeps everything else", () => {
+    const dir = join(DATA_DIR, "..", `omb-sweep-${process.pid}`);
+    writeConfig(dir, JSON.stringify({ gemini: { apiKey: "kept" }, opencodeGo: { apiKey: "legacy-secret" } }));
+    try {
+      expect(sweepLegacyOpencodeKey(dir)).toBe("swept");
+      expect(parseStoredConfig(JSON.parse(readFileSync(join(dir, "config.json"), "utf8")))).toEqual({ gemini: { apiKey: "kept" } });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves files without the legacy section alone", () => {
+    const dir = join(DATA_DIR, "..", `omb-sweep-clean-${process.pid}`);
+    const raw = JSON.stringify({ gemini: { apiKey: "kept" } });
+    writeConfig(dir, raw);
+    try {
+      expect(sweepLegacyOpencodeKey(dir)).toBe("absent");
+      expect(readFileSync(join(dir, "config.json"), "utf8")).toBe(raw);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("treats a missing file as nothing to sweep", () => {
+    expect(sweepLegacyOpencodeKey(join(DATA_DIR, "..", `omb-sweep-missing-${process.pid}`))).toBe("absent");
+  });
+
+  it("reports failure for a corrupt file that may still hold the secret", () => {
+    const dir = join(DATA_DIR, "..", `omb-sweep-corrupt-${process.pid}`);
+    writeConfig(dir, "{not json");
+    try {
+      expect(sweepLegacyOpencodeKey(dir)).toBe("failed");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // POSIX non-root only: Windows ignores mode bits, and root bypasses them,
+  // so a read-only dir fails the rewrite on neither. The injected-writer
+  // test below is the real failure coverage on every OS.
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("reports failure when the section is found but the rewrite does not land", () => {
+    const dir = join(DATA_DIR, "..", `omb-sweep-readonly-${process.pid}`);
+    const raw = JSON.stringify({ gemini: { apiKey: "kept" }, opencodeGo: { apiKey: "legacy-secret" } });
+    writeConfig(dir, raw);
+    chmodSync(dir, 0o555);
+    try {
+      expect(sweepLegacyOpencodeKey(dir)).toBe("failed");
+      expect(readFileSync(join(dir, "config.json"), "utf8")).toBe(raw);
+    } finally {
+      chmodSync(dir, 0o755);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports failure on any platform when the rewrite throws", () => {
+    const dir = join(DATA_DIR, "..", `omb-sweep-throw-${process.pid}`);
+    const raw = JSON.stringify({ gemini: { apiKey: "kept" }, opencodeGo: { apiKey: "legacy-secret" } });
+    writeConfig(dir, raw);
+    try {
+      expect(
+        sweepLegacyOpencodeKey(dir, () => {
+          throw new Error("EACCES");
+        }),
+      ).toBe("failed");
+      expect(readFileSync(join(dir, "config.json"), "utf8")).toBe(raw);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -291,12 +365,10 @@ describe("credential env narrowing", () => {
       xai: { key: "SECRET-XAI" },
       gemini: { apiKey: "SECRET-GEMINI" },
       box: { token: "SECRET-BOX" },
-      opencodeGo: { apiKey: "SECRET-OCG" },
       instances: {
         grokApi: { driver: "grok" },
         gemini: { driver: "geminiAgent" },
         computer: { driver: "boxAgent" },
-        opencode: { driver: "opencodeGo" },
         claude: { driver: "claudeAgent" },
         codex: { driver: "codex" },
       },
@@ -305,7 +377,6 @@ describe("credential env narrowing", () => {
     expect(instances.grokApi.environment).toEqual({ XAI_API_KEY: "SECRET-XAI" });
     expect(instances.gemini.environment).toEqual({ GEMINI_API_KEY: "SECRET-GEMINI" });
     expect(instances.computer.environment).toEqual({ BOX_TOKEN: "SECRET-BOX" });
-    expect(instances.opencode.environment).toEqual({ OPENCODE_API_KEY: "SECRET-OCG" });
     // engines that bring their own login receive NO workspace credential
     expect(instances.claude.environment).toEqual({});
     expect(instances.codex.environment).toEqual({});
@@ -340,7 +411,6 @@ describe("credential env preference", () => {
     "OPENAI_COMPAT_MODEL",
     "OPENAI_COMPAT_PROVIDER",
     "BOX_TOKEN",
-    "OPENCODE_API_KEY",
     "OMB_TTS_KEY",
     "OMB_OPENAI_IMAGE_KEY",
     "COMPOSIO_API_KEY",
@@ -371,7 +441,6 @@ describe("credential env preference", () => {
         xai: { key: "file-xai", url: "https://api.example.test/v1" },
         gemini: { apiKey: "file-gemini" },
         box: { token: "file-box" },
-        opencodeGo: { apiKey: "file-ocg" },
         tts: { key: "file-tts", voice: "narrator" },
         imageGen: { key: "file-image" },
       }),
@@ -379,14 +448,12 @@ describe("credential env preference", () => {
     process.env.XAI_API_KEY = "env-xai";
     process.env.GEMINI_API_KEY = "env-gemini";
     process.env.BOX_TOKEN = "env-box";
-    process.env.OPENCODE_API_KEY = "env-ocg";
     process.env.OMB_TTS_KEY = "env-tts";
     process.env.OMB_OPENAI_IMAGE_KEY = "env-image";
     const cfg = loadConfig();
     expect(cfg.xai).toEqual({ key: "env-xai", url: "https://api.example.test/v1" });
     expect(cfg.gemini).toEqual({ apiKey: "env-gemini" });
     expect(cfg.box).toEqual({ token: "env-box" });
-    expect(cfg.opencodeGo).toEqual({ apiKey: "env-ocg" });
     expect(cfg.tts).toEqual({ key: "env-tts", voice: "narrator" });
     expect(cfg.imageGen).toEqual({ key: "env-image" });
   });

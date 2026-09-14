@@ -11,6 +11,10 @@ const fixtures = {
     "gemini-5h": { remaining_fraction: 0.58, reset_in_seconds: 3600 },
     "gemini-weekly": { remaining_fraction: 0.81, reset_in_seconds: 518_400 },
   },
+  museAgent: {
+    five_hour: { utilization: 0.22, resetsAt: 1_790_000_000 },
+    seven_day: { utilization: 0.61, resetsAt: 1_790_172_800 },
+  },
 };
 const credentials = JSON.stringify({ claudeAiOauth: { accessToken: "access-secret" }, "auth.x.ai::test": { key: "access-secret", user_id: "user" }, tokens: { access_token: "access-secret", refresh_token: "refresh-secret" } });
 
@@ -148,6 +152,60 @@ describe("usage refresh route result", () => {
     const result = await refresh("antigravityAgent", { instanceId: "antigravity" });
     expect(result.report).toBeUndefined();
     expect(result.error).toBe("Could not refresh Antigravity limits");
+  });
+
+  it("normalizes museAgent from the injected quota source without touching credentials", async () => {
+    let reads = 0;
+    let http = 0;
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      read: async () => {
+        reads++;
+        return credentials;
+      },
+      request: async () => {
+        http++;
+        return Response.json({ access_token: "access-secret" });
+      },
+      muse: async () => fixtures.museAgent,
+    });
+    const result = await refresh("museAgent", { instanceId: "muse" });
+    expect(result.error).toBeUndefined();
+    expect(result.report?.windows.map((window) => window.id)).toEqual(["five_hour", "seven_day"]);
+    expect(result.report?.windows.map((window) => window.usedPercent)).toEqual([22, 61]);
+    expect(result.report?.windows.map((window) => window.windowMinutes)).toEqual([300, 10_080]);
+    expect(result.report?.windows.map((window) => window.resetsAt)).toEqual([1_790_000_000_000, 1_790_172_800_000]);
+    expect(reads).toBe(0);
+    expect(http).toBe(0);
+    expect(JSON.stringify(result)).not.toContain("access-secret");
+  });
+
+  it.each(["signin", "refresh"] as const)("keeps the last report after Muse %s", async (kind) => {
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      muse: async () => {
+        throw new Error(kind);
+      },
+    });
+    const report = { windows: [{ id: "five_hour", usedPercent: 12, resetsAt: null }], observedAt: reset };
+    const result = await refresh("museAgent", { instanceId: "muse" }, report);
+    expect(result.report).toEqual(report);
+    expect(result.error).toBe(kind === "signin" ? "Sign in again in Muse" : "Could not refresh Muse limits");
+  });
+
+  it("treats an empty Muse quota as a refresh failure", async () => {
+    const refresh = createUsageRefresh({ platform: "linux", muse: async () => ({}) });
+    const result = await refresh("museAgent", { instanceId: "muse" });
+    expect(result.report).toBeUndefined();
+    expect(result.error).toBe("Could not refresh Muse limits");
+  });
+
+  it("degrades gracefully while the muse CLI exposes no quota surface", async () => {
+    const refresh = createUsageRefresh({ platform: "linux" });
+    const report = { windows: [{ id: "five_hour", usedPercent: 12, resetsAt: null }], observedAt: reset };
+    const result = await refresh("museAgent", { instanceId: "muse" }, report);
+    expect(result.report).toEqual(report);
+    expect(result.error).toBe("Could not refresh Muse limits");
   });
 
   it.each(["signin", "refresh"] as const)("keeps the last report after Grok billing %s", async (kind) => {

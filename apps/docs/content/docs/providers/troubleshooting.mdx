@@ -29,3 +29,7 @@ A `401 Unauthorized` response from `api.openai.com` means the launched Codex pro
 ## Windows notes
 
 Use a real `.exe`, `.cmd`, or resolvable command path in the engine override. If a CLI was installed in WSL, the Windows desktop app cannot treat that Linux binary as a native Windows executable without an explicit bridge or wrapper.
+
+### Meta Muse on WSL
+
+Meta Muse runs as a Linux process behind the `wsl` wrapper. Only `META_API_KEY` crosses that boundary (via `WSLENV`); MCP server environment beyond it (`ELECTRON_RUN_AS_NODE`, `OMB_*` control variables) and non-command paths do not, so integrations that depend on them are unavailable to Meta turns on Windows. Session working directories and MCP server commands are translated to Linux paths. Normal turns without integrations are unaffected.

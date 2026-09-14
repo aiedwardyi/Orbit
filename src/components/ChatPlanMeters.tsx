@@ -1,5 +1,5 @@
 // Compact 5-hour + weekly plan strip above the composer. Hidden when the
-// active engine has no live windows — Grok/OpenCode never grow a pending row.
+// active engine has no live windows.
 import type { RateLimitWindow } from "../../server/contracts.ts";
 import type { TaskUsage } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
@@ -27,8 +27,8 @@ export function ChatPlanMeters({
   usage?: TaskUsage;
   now?: number;
 }) {
-  // Decide visibility without starting the minute tick; Grok/OpenCode
-  // chats never mount a timer for a strip they will not show.
+  // Decide visibility without starting the minute tick; chats without
+  // windows never mount a timer for a strip they will not show.
   if (planMeterWindows(windows, now ?? Date.now()).length === 0) return null;
   return <ChatPlanMetersLive windows={windows} usage={usage} now={now} />;
 }

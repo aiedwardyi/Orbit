@@ -7,6 +7,7 @@ import {
   epochMs,
   exhaustedWindow,
   grokRateLimitWindows,
+  museRateLimitWindows,
   usageLimitFromError,
 } from "./rate-limits.ts";
 
@@ -221,6 +222,78 @@ describe("antigravityRateLimitWindows", () => {
     expect(antigravityRateLimitWindows({ groups: [{ buckets: [{ bucketId: "weekly" }] }] }, now)).toEqual([]);
     expect(antigravityRateLimitWindows(null, now)).toEqual([]);
     expect(antigravityRateLimitWindows("42%", now)).toEqual([]);
+  });
+});
+
+describe("museRateLimitWindows", () => {
+  const now = Date.parse("2026-09-14T12:00:00Z");
+
+  it("reads Meta utilization fractions with resets", () => {
+    expect(
+      museRateLimitWindows(
+        {
+          five_hour: { utilization: 0.22, resetsAt: 1_790_000_000 },
+          seven_day: { utilization: 0.61, resetsAt: 1_790_172_800 },
+        },
+        now,
+      ),
+    ).toEqual([
+      { id: "five_hour", usedPercent: 22, resetsAt: 1_790_000_000_000, windowMinutes: 300 },
+      { id: "seven_day", usedPercent: 61, resetsAt: 1_790_172_800_000, windowMinutes: 10_080 },
+    ]);
+  });
+
+  it("reads percent and relative-reset shapes", () => {
+    expect(
+      museRateLimitWindows(
+        {
+          five_hour: { usedPercent: 22, resets_at: "2026-10-01T12:00:00Z" },
+          seven_day_opus: { remaining_fraction: 0.39, reset_in_seconds: 3600 },
+        },
+        now,
+      ),
+    ).toEqual([
+      { id: "five_hour", usedPercent: 22, resetsAt: Date.parse("2026-10-01T12:00:00Z"), windowMinutes: 300 },
+      { id: "seven_day", usedPercent: 61, resetsAt: now + 3_600_000, windowMinutes: 10_080 },
+    ]);
+  });
+
+  it("reads a flat rate-limit payload", () => {
+    expect(museRateLimitWindows({ rateLimitType: "five_hour", utilization: 0.5, resetsAt: 1_790_000_000 }, now)).toEqual([
+      { id: "five_hour", usedPercent: 50, resetsAt: 1_790_000_000_000, windowMinutes: 300 },
+    ]);
+  });
+
+  it("merges weekly aliases into seven_day and keeps the fuller pool", () => {
+    expect(
+      museRateLimitWindows(
+        {
+          five_hour: { utilization: 0.22, resetsAt: 1_790_000_000 },
+          weekly: { remaining_fraction: 0.2, reset_in_seconds: 518_400 },
+          seven_day: { utilization: 0.61, resetsAt: 1_790_172_800 },
+        },
+        now,
+      ),
+    ).toEqual([
+      { id: "five_hour", usedPercent: 22, resetsAt: 1_790_000_000_000, windowMinutes: 300 },
+      { id: "seven_day", usedPercent: 80, resetsAt: now + 518_400_000, windowMinutes: 10_080 },
+    ]);
+  });
+
+  it("drops negative fills but keeps overage past 100", () => {
+    expect(museRateLimitWindows({ five_hour: { utilization: -0.2, resetsAt: 1_790_000_000 } }, now)).toEqual([]);
+    expect(museRateLimitWindows({ five_hour: { usedPercent: -5, resetsAt: 1_790_000_000 } }, now)).toEqual([]);
+    expect(museRateLimitWindows({ five_hour: { remaining_fraction: 1.2, resetsAt: 1_790_000_000 } }, now)).toEqual([]);
+    expect(museRateLimitWindows({ five_hour: { usedPercent: 120, resetsAt: 1_790_000_000 } }, now)).toEqual([
+      { id: "five_hour", usedPercent: 120, resetsAt: 1_790_000_000_000, windowMinutes: 300 },
+    ]);
+  });
+
+  it("drops windows without a fill level and tolerates junk", () => {
+    expect(museRateLimitWindows({ five_hour: { resetsAt: 60 }, seven_day: { utilization: "0.5" } }, now)).toEqual([]);
+    expect(museRateLimitWindows({ monthly: { utilization: 0.5, resetsAt: 60 } }, now)).toEqual([]);
+    expect(museRateLimitWindows(null, now)).toEqual([]);
+    expect(museRateLimitWindows("42%", now)).toEqual([]);
   });
 });
 

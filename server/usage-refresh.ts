@@ -10,7 +10,7 @@ import { z } from "zod";
 import { acpChildEnv } from "./drivers/acp/core.ts";
 import { grokSupport } from "./drivers/acp/grok.ts";
 import type { RateLimitWindow } from "./contracts.ts";
-import { antigravityRateLimitWindows, codexRateLimitWindows, grokRateLimitWindows } from "./drivers/rate-limits.ts";
+import { antigravityRateLimitWindows, codexRateLimitWindows, grokRateLimitWindows, museRateLimitWindows } from "./drivers/rate-limits.ts";
 import { augmentedPath } from "./env-path.ts";
 import { killCliTree, spawnCli } from "./procs.ts";
 import { parseJson, type JsonValue } from "./schema.ts";
@@ -258,12 +258,25 @@ export function readAntigravityQuota(cli: string, env: NodeJS.ProcessEnv): Promi
   })();
 }
 
+/** Meta quota probe. Verified against the local `muse` binary (1.2.1):
+ * `muse schema` (stable and experimental) carries per-turn token usage
+ * but no subscription quota method, `account/read` answers
+ * `experimentalRequired` on the default `muse serve` host, and there is
+ * no `muse usage` subcommand — so there is nothing to read yet. Throws
+ * "refresh" so a refresh keeps the last report instead of claiming a
+ * source it cannot honor; the `muse` dep slot with museRateLimitWindows
+ * is the seam for the day a surface exists. */
+export function readMuseUsage(): Promise<JsonValue> {
+  return Promise.reject(new Error("refresh"));
+}
+
 export function createUsageRefresh(deps: {
   request?: typeof fetch;
   read?: (path: string) => Promise<string>;
   rpc?: typeof readUsageRpc;
   billing?: typeof readGrokBillingRpc;
   antigravity?: typeof readAntigravityQuota;
+  muse?: typeof readMuseUsage;
   now?: () => number;
   platform?: NodeJS.Platform;
 } = {}) {
@@ -272,7 +285,7 @@ export function createUsageRefresh(deps: {
   const clock = deps.now ?? Date.now;
   const cache = new Map<string, { retryAt: number; pending: Promise<Result> }>();
   return async (driver: string, options: Options, previous?: Report): Promise<Result> => {
-    const name = driver === "claudeAgent" ? "Claude" : driver === "codex" ? "Codex" : driver === "grokAgent" ? "Grok" : driver === "antigravityAgent" ? "Antigravity" : undefined;
+    const name = driver === "claudeAgent" ? "Claude" : driver === "codex" ? "Codex" : driver === "grokAgent" ? "Grok" : driver === "antigravityAgent" ? "Antigravity" : driver === "museAgent" ? "Muse" : undefined;
     if (!name) return { report: previous, error: "Usage refresh is not supported", retryAt: 0 };
     const cached = cache.get(options.instanceId);
     if (cached && clock() < cached.retryAt) return cached.pending;
@@ -289,6 +302,8 @@ export function createUsageRefresh(deps: {
           windows = grokRateLimitWindows(await (deps.billing ?? readGrokBillingRpc)(options.cli || "grok", env));
         } else if (driver === "antigravityAgent") {
           windows = antigravityRateLimitWindows(await (deps.antigravity ?? readAntigravityQuota)(options.cli || "agy", env), clock());
+        } else if (driver === "museAgent") {
+          windows = museRateLimitWindows(await (deps.muse ?? readMuseUsage)(), clock());
         } else {
           if ((deps.platform ?? process.platform) === "darwin" && !env.CLAUDE_CODE_OAUTH_TOKEN) return { report: previous, error: "Claude refresh skipped to avoid Keychain prompts on macOS", retryAt };
           const token = env.CLAUDE_CODE_OAUTH_TOKEN || z.object({ claudeAiOauth: z.object({ accessToken: text }) }).parse(parseJson(await read(join(env.CLAUDE_CONFIG_DIR || join(home, ".claude"), ".credentials.json")))).claudeAiOauth.accessToken;

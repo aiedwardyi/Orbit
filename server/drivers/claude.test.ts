@@ -235,7 +235,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     delete process.env.XAI_API_KEY;
     delete process.env.COMPOSIO_API_KEY;
     delete process.env.BOX_TOKEN;
-    delete process.env.OPENCODE_API_KEY;
+    delete process.env.META_API_KEY;
     delete process.env.OMB_TTS_KEY;
     delete process.env.OMB_CLAUDE_SESSION_IDLE_MS;
     delete process.env.OMB_CLAUDE_SESSION_IDLE_MIN_MS;
@@ -1343,7 +1343,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await create(undefined, { CLAUDE_CONFIG_DIR: instanceConfigDir });
     const dump = join(scratch, "generate-text-env.json");
     process.env.FAKE_CLAUDE_DUMP = dump;
-    const names = ["XAI_API_KEY", "COMPOSIO_API_KEY", "BOX_TOKEN", "OPENCODE_API_KEY", "OMB_TTS_KEY"] as const;
+    const names = ["XAI_API_KEY", "COMPOSIO_API_KEY", "BOX_TOKEN", "META_API_KEY", "OMB_TTS_KEY"] as const;
     for (const name of names) process.env[name] = `${name}-must-not-leak`;
 
     await instance.generateText?.("summarize safely");

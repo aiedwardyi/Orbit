@@ -43,7 +43,7 @@ describe("splitEngineRail", () => {
 });
 
 describe("splitFriendsEngines", () => {
-  it("keeps the featured rail in Claude → Codex → Grok → Antigravity → OpenCode order", () => {
+  it("keeps the featured rail in Claude → Codex → Grok → Antigravity → Meta Muse order", () => {
     const { friends, rest } = splitFriendsEngines([
       { instanceId: "claude", driverKind: "claudeAgent" },
       { instanceId: "kimi", driverKind: "kimiAgent" },
@@ -53,7 +53,7 @@ describe("splitFriendsEngines", () => {
       { instanceId: "gemini", driverKind: "geminiAgent" },
       { instanceId: "antigravity", driverKind: "antigravityAgent" },
       { instanceId: "cursor", driverKind: "cursorAgent" },
-      { instanceId: "opencode", driverKind: "opencodeGo" },
+      { instanceId: "muse", driverKind: "museAgent" },
       { instanceId: "hermes", driverKind: "hermesAgent" },
     ]);
     expect(friends.map((row) => row.instanceId)).toEqual([
@@ -61,7 +61,7 @@ describe("splitFriendsEngines", () => {
       "codex",
       "grok",
       "antigravity",
-      "opencode",
+      "muse",
     ]);
     expect(rest.map((row) => row.instanceId)).toEqual(["kimi", "qwen", "gemini", "cursor", "hermes"]);
   });
@@ -79,11 +79,11 @@ describe("splitFriendsEngines", () => {
     expect(isFriendsEngine({ driverKind: "geminiAgent" })).toBe(false);
     expect(isFriendsEngine({ driverKind: "antigravityAgent" })).toBe(true);
     expect(isFriendsCliEngine({ driverKind: "antigravityAgent" })).toBe(true);
-    expect(isFriendsCliEngine({ driverKind: "opencodeGo" })).toBe(false);
+    expect(isFriendsCliEngine({ driverKind: "museAgent" })).toBe(true);
     expect(friendsDriverRank("claudeAgent")).toBeLessThan(friendsDriverRank("codex"));
     expect(friendsDriverRank("codex")).toBeLessThan(friendsDriverRank("grokAgent"));
     expect(friendsDriverRank("grokAgent")).toBeLessThan(friendsDriverRank("antigravityAgent"));
-    expect(friendsDriverRank("antigravityAgent")).toBeLessThan(friendsDriverRank("opencodeGo"));
+    expect(friendsDriverRank("antigravityAgent")).toBeLessThan(friendsDriverRank("museAgent"));
   });
 });
 
@@ -94,7 +94,7 @@ describe("visibleFriendsRail", () => {
     { instanceId: "codex", driverKind: "codex" },
     { instanceId: "grok", driverKind: "grokAgent" },
     { instanceId: "gemini", driverKind: "geminiAgent" },
-    { instanceId: "opencode", driverKind: "opencodeGo" },
+    { instanceId: "muse", driverKind: "museAgent" },
     { instanceId: "antigravity", driverKind: "antigravityAgent" },
     { instanceId: "cursor", driverKind: "cursorAgent" },
   ];
@@ -106,7 +106,7 @@ describe("visibleFriendsRail", () => {
       "codex",
       "grok",
       "antigravity",
-      "opencode",
+      "muse",
     ]);
     expect(folded.hiddenCount).toBe(0);
 
@@ -116,7 +116,7 @@ describe("visibleFriendsRail", () => {
       "codex",
       "grok",
       "antigravity",
-      "opencode",
+      "muse",
     ]);
     expect(withActiveRest.hiddenCount).toBe(0);
   });
@@ -128,7 +128,7 @@ describe("visibleFriendsRail", () => {
       "codex",
       "grok",
       "antigravity",
-      "opencode",
+      "muse",
     ]);
     expect(opened.hiddenCount).toBe(0);
   });

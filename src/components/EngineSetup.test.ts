@@ -49,10 +49,21 @@ describe("API key setup", () => {
     expect(needsApiKey(missingKey)).toBe(true);
     expect(setupErrorAction("Gemini API key missing", missingKey)).toBe("key");
     expect(setupErrorAction("Gemini API key missing", undefined)).toBe("key");
-    expect(setupErrorAction("OpenCode API key missing", undefined)).toBe("key");
-    expect(setupErrorAction("OpenCode Go API key missing", undefined)).toBe("key");
+    expect(setupErrorAction("OpenCode API key missing", undefined)).toBe("retry");
     expect(setupErrorAction("Invalid API key provided", undefined)).toBe("retry");
     expect(isApiKeySetupMessage("Gemini API key missing")).toBe(true);
+  });
+
+  it("sends Meta Muse sign-in through the CLI, never Connections", () => {
+    const muse: InstanceInfo = {
+      instanceId: "muse",
+      driverKind: "museAgent",
+      displayName: "Meta Muse",
+      models: { default: "muse-spark-1.3", options: [] },
+      snapshot: { state: "available", authenticated: false },
+    };
+    expect(needsApiKey(muse)).toBe(false);
+    expect(setupErrorAction("Muse CLI is not signed in", muse)).toBe("cli");
   });
 
   it("still installs the CLI first when the binary is absent", () => {

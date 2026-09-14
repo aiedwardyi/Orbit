@@ -35,13 +35,13 @@ export function needsCli(instance: InstanceInfo | undefined): boolean {
   return instance?.snapshot.state !== "available";
 }
 
-const API_KEY_DRIVERS = new Set(["geminiAgent", "opencodeGo"]);
+const API_KEY_DRIVERS = new Set(["geminiAgent"]);
 
 export function isApiKeyEngine(instance: { driverKind?: string } | undefined): boolean {
   return API_KEY_DRIVERS.has(instance?.driverKind ?? "");
 }
 
-/** Installed CLI that still needs a pasted API key (Gemini, OpenCode). */
+/** Installed CLI that still needs a pasted API key (Gemini). */
 export function needsApiKey(instance: InstanceInfo | undefined): boolean {
   return Boolean(instance && isApiKeyEngine(instance) && needsSignIn(instance));
 }
@@ -50,9 +50,9 @@ export function isApiKeySetupMessage(message: string): boolean {
   return /api key/i.test(message);
 }
 
-/** Null-instance fallback: Gemini/OpenCode copy only, not "Invalid API key". */
-function isGeminiOrOpenCodeApiKeyMessage(message: string): boolean {
-  return /gemini api key/i.test(message) || /opencode(?:\s*go)? api key/i.test(message);
+/** Null-instance fallback: Gemini copy only, not "Invalid API key". */
+function isGeminiApiKeyMessage(message: string): boolean {
+  return /gemini api key/i.test(message);
 }
 
 /** What a failed turn should offer: install/sign-in, paste a key, or Retry.
@@ -61,7 +61,7 @@ function isGeminiOrOpenCodeApiKeyMessage(message: string): boolean {
  * say "Invalid API key" and still need Terminal, not Connections. With an
  * instance, match that text only for key engines (Gemini with `authenticated`
  * true/unset still gets the paste CTA). With no instance — ChatView omits it
- * when the error is not `setup` — only Gemini/OpenCode copy counts. */
+ * when the error is not `setup` — only Gemini copy counts. */
 export function setupErrorAction(
   message: string,
   instance: InstanceInfo | undefined,
@@ -69,7 +69,7 @@ export function setupErrorAction(
   if (instance && needsCli(instance)) return "cli";
   if (needsApiKey(instance)) return "key";
   if (instance && isApiKeyEngine(instance) && isApiKeySetupMessage(message)) return "key";
-  if (instance == null && isGeminiOrOpenCodeApiKeyMessage(message)) return "key";
+  if (instance == null && isGeminiApiKeyMessage(message)) return "key";
   if (instance && needsSignIn(instance)) return "cli";
   return "retry";
 }

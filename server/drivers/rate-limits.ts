@@ -175,6 +175,78 @@ export function antigravityRateLimitWindows(payload: unknown, now = Date.now()):
   return out;
 }
 
+/** Meta `muse` quota into subscription windows. Verified against the local
+ * `muse` binary (1.2.1): the MSP schema (stable and experimental) carries
+ * per-turn token usage but no subscription quota method, `account/read`
+ * answers `experimentalRequired` on the default serve host, and there is
+ * no `muse usage` subcommand — so no live surface feeds this yet. The
+ * parser reads the Meta account-quota shape (five_hour / seven_day windows
+ * with a utilization fraction and an epoch-seconds reset, the same family
+ * as Claude's stream-json shape) so the first surface that reports it
+ * needs no new normalization. Total like the others: windows are keyed by
+ * name and normalized to the family id, each id keeps the fullest pool,
+ * and a window without a fill level is dropped. */
+export function museRateLimitWindows(payload: unknown, now = Date.now()): RateLimitWindow[] {
+  const classify = (name: string): { id: string; windowMinutes: number } | null => {
+    const text = name.toLowerCase();
+    if (/weekly|7\s*d|seven[\s_-]?day/.test(text)) return { id: "seven_day", windowMinutes: SEVEN_DAYS };
+    if (/5\s*h|five[\s_-]?hour|session/.test(text)) return { id: "five_hour", windowMinutes: FIVE_HOURS };
+    return null;
+  };
+  const resetFromUnknown = (value: unknown): number | null => {
+    if (typeof value === "string") {
+      const parsed = Date.parse(value);
+      return Number.isNaN(parsed) ? null : parsed;
+    }
+    return epochMs(value);
+  };
+  const fillPercent = (window: Record<string, unknown>): number | null => {
+    const remaining = window.remaining_fraction ?? window.remainingFraction;
+    if (finite(remaining)) {
+      if (remaining < 0 || remaining > 1) return null;
+      return round1((1 - remaining) * 100);
+    }
+    // A negative fill is malformed, never a window; past-100 overage stays.
+    if (finite(window.usedPercent)) {
+      return window.usedPercent < 0 ? null : round1(window.usedPercent);
+    }
+    if (finite(window.utilization)) {
+      if (window.utilization < 0) return null;
+      // A fraction like Claude's; a value already past 1 is a percent.
+      return window.utilization <= 1 ? round1(window.utilization * 100) : round1(window.utilization);
+    }
+    return null;
+  };
+  const resetMs = (window: Record<string, unknown>): number | null => {
+    const seconds = window.reset_in_seconds ?? window.resetInSeconds;
+    if (finite(seconds) && seconds > 0) return Math.round(now + seconds * 1000);
+    return resetFromUnknown(window.resetsAt ?? window.resets_at ?? window.resetTime ?? window.reset_at);
+  };
+  const best = new Map<string, RateLimitWindow>();
+  const consider = (name: string, window: unknown) => {
+    const kind = classify(name);
+    if (!kind || !isRecord(window)) return;
+    const usedPercent = fillPercent(window);
+    if (usedPercent === null) return;
+    const current = best.get(kind.id);
+    if (!current || usedPercent > current.usedPercent) {
+      best.set(kind.id, { id: kind.id, usedPercent, resetsAt: resetMs(window), windowMinutes: kind.windowMinutes });
+    }
+  };
+  if (isRecord(payload)) {
+    for (const [name, window] of Object.entries(payload)) consider(name, window);
+    if (best.size === 0 && typeof payload.rateLimitType === "string" && payload.rateLimitType !== "overage") {
+      consider(payload.rateLimitType, payload);
+    }
+  }
+  const out: RateLimitWindow[] = [];
+  for (const id of ["five_hour", "seven_day"] as const) {
+    const window = best.get(id);
+    if (window) out.push(window);
+  }
+  return out;
+}
+
 // Unambiguous exhaustion: the account is out, whoever the provider is.
 // Every branch needs a spent-ness word — a bare "quota" also appears in
 // "quota configuration is unavailable", which is an outage. "limit" is not

@@ -31,11 +31,10 @@ function nvmBinDirs(): string[] {
 function knownDirs(): string[] {
   const home = homedir();
   return [
-    join(home, ".local", "bin"), // claude installer default
-    join(home, ".npm-global", "bin"), // npm prefix ~/.npm-global (claude, opencode)
+    join(home, ".local", "bin"), // claude and muse installer default
+    join(home, ".npm-global", "bin"), // npm prefix ~/.npm-global (claude)
     join(home, ".kimi-code", "bin"), // kimi-code installer
     join(home, ".grok", "bin"), // x.ai installer
-    join(home, ".opencode", "bin"), // opencode installer
     join(home, ".claude", "local"), // claude "local install"
     "/opt/homebrew/bin", // brew, Apple silicon
     "/usr/local/bin", // brew Intel / classic installs
@@ -339,4 +338,35 @@ export function resolveCliSpawn(cli: string, args: string[]): ResolvedSpawn {
     return resolveWord(head, [...fixed, ...args]);
   }
   return resolveWord(cli, args);
+}
+
+/** Translate a Windows path for a Linux process behind the wsl wrapper
+ * (`C:\Users\ed` → `/mnt/c/Users/ed`, wslpath-style). Drive-letter paths
+ * are rewritten onto the WSL mount; a `\\wsl$\<distro>\...` or
+ * `\\wsl.localhost\<distro>\...` path already names the target distro's own
+ * filesystem, so it strips to a root path. POSIX paths and drive-relative
+ * fragments pass through, so applying it off-Windows is a no-op for real
+ * paths. */
+export function toWslPath(value: string): string {
+  // Either WSL hostname, matched case-insensitively; the tail keeps its
+  // case — Linux paths are case-sensitive.
+  const lower = value.toLowerCase();
+  const prefix = lower.startsWith("\\\\wsl$\\")
+    ? "\\\\wsl$\\"
+    : lower.startsWith("\\\\wsl.localhost\\")
+      ? "\\\\wsl.localhost\\"
+      : null;
+  if (prefix !== null) {
+    const rest = value.slice(prefix.length);
+    const i = rest.indexOf("\\");
+    // Bare prefix or empty distro name: malformed, leave alone.
+    if (rest === "" || i === 0) return value;
+    // Bare distro with no tail is the filesystem root.
+    if (i < 0) return "/";
+    const tail = rest.slice(i + 1).replace(/\\/g, "/");
+    return tail ? `/${tail}` : "/";
+  }
+  const match = value.match(/^([A-Za-z]):[\\/]/);
+  if (!match) return value;
+  return `/mnt/${match[1].toLowerCase()}${value.slice(2).replace(/\\/g, "/")}`;
 }

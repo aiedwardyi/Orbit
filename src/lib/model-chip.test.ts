@@ -200,7 +200,7 @@ describe("modelFamilyAccent", () => {
   it.each([
     ["codex", "#3594ff"],
     ["claudeAgent", "#ed6549"],
-    ["opencodeGo", "#43ce8b"],
+    ["museAgent", "#43ce8b"],
     ["geminiAgent", "#aa7bfa"],
     ["antigravityAgent", "#aa7bfa"],
     ["grokAgent", "#8b929c"],

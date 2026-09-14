@@ -12,7 +12,6 @@ import { DroidAgentDriver, droidInjectId, ensureDroidInjectModel } from "./acp/d
 import { ensureGrokInjectSlug } from "./acp/grok.ts";
 import { HermesAgentDriver, ensureHermesInjectProvider, hermesAcpModelId } from "./acp/hermes.ts";
 import { ensureKimiInjectAlias, KimiAgentDriver } from "./acp/kimi.ts";
-import { ensureOpenCodeInjectModel } from "./acp/opencode-go.ts";
 import { ensureQwenInjectModel, QwenAgentDriver } from "./acp/qwen.ts";
 import { ensurePiInjectModel, PiDriver } from "./pi.ts";
 import { recordEvents } from "../testing/events.ts";
@@ -70,7 +69,7 @@ const OFFICIAL_SLUGS = [
   "kimi-code/k3",
   "kimi-code/kimi-for-coding",
   "gpt-5.6-sol",
-  "opencode-go/minimax-m3",
+  "muse-spark-1.3",
   "gemini-3.1-pro-high",
   "auto",
 ] as const;
@@ -200,7 +199,7 @@ describe("Codex provider dialect", () => {
   });
 });
 
-describe("Grok / Kimi / Droid / OpenCode writers × live ids", () => {
+describe("Grok / Kimi / Droid writers × live ids", () => {
   it.each(["gemma-4-31b-it-bf16", "mlx-community/GLM-5.2-mxfp4", "Qwen3.6-35B-A3B-bf16:qwen3-5-6-n-r-reasoning"] as const)(
     "Grok writes a reusable slug for %s",
     (model) => {
@@ -245,16 +244,6 @@ describe("Grok / Kimi / Droid / OpenCode writers × live ids", () => {
     });
   });
 
-  it.each(["omlx", "ollama", "lmstudio"] as const)("OpenCode provider/%s model key keeps slashes", (hostId) => {
-    const home = scratchHome("omb-oc-mx-");
-    const native = ensureOpenCodeInjectModel(encodeInjectId(hostId, "qwen/qwen3-coder-next"), { HOME: home });
-    expect(native).toBe(`${hostId}/qwen/qwen3-coder-next`);
-    const config = JSON.parse(readFileSync(join(home, ".config", "opencode", "opencode.json"), "utf8")) as {
-      provider: Record<string, { options: { baseURL: string }; models: Record<string, unknown> }>;
-    };
-    expect(config.provider[hostId].options.baseURL).toBe(localHost(hostId)!.baseUrl);
-    expect(config.provider[hostId].models["qwen/qwen3-coder-next"]).toBeTruthy();
-  });
 });
 
 describe("Qwen writer × hosts", () => {
@@ -594,10 +583,6 @@ describe("local-inject writers keep their config 0600", () => {
       mkdirSync(join(home, ".hermes"), { recursive: true });
       ensureHermesInjectProvider(id, { ...env, HOME: home });
       return join(home, ".hermes", "config.yaml");
-    }],
-    ["opencode", (home) => {
-      ensureOpenCodeInjectModel(id, { ...env, HOME: home });
-      return join(home, ".config", "opencode", "opencode.json");
     }],
     ["qwen", (home) => {
       mkdirSync(join(home, ".qwen"), { recursive: true });

@@ -22,12 +22,6 @@ export const CREDENTIAL_TARGETS = {
     placeholder: "Paste your Box API key",
     helpUrl: "https://docs.ascii.dev/box/api-keys",
   },
-  opencodeGoApiKey: {
-    label: "OpenCode API key",
-    description: "Used for OpenCode Go and other key-backed OpenCode providers.",
-    placeholder: "Paste your OpenCode API key",
-    helpUrl: "https://opencode.ai/docs/providers/",
-  },
   ttsKey: {
     label: "ElevenLabs API key",
     description: "Enables text-to-speech voices in calls.",
@@ -47,7 +41,6 @@ export type CredentialConfig = {
   xai?: { key?: string };
   gemini?: { apiKey?: string };
   box?: { token?: string };
-  opencodeGo?: { apiKey?: string };
   tts?: { key?: string };
   imageGen?: { key?: string };
 };
@@ -64,8 +57,6 @@ export function credentialConfigPatch(id: CredentialTargetId, value: string): Cr
       return { gemini: { apiKey: value } };
     case "boxToken":
       return { box: { token: value } };
-    case "opencodeGoApiKey":
-      return { opencodeGo: { apiKey: value } };
     case "ttsKey":
       return { tts: { key: value } };
     case "openaiImageApiKey":
@@ -81,8 +72,6 @@ export function credentialIsConfigured(config: CredentialConfig, id: CredentialT
       return Boolean(config.gemini?.apiKey);
     case "boxToken":
       return Boolean(config.box?.token);
-    case "opencodeGoApiKey":
-      return Boolean(config.opencodeGo?.apiKey);
     case "ttsKey":
       return Boolean(config.tts?.key);
     case "openaiImageApiKey":

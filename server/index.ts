@@ -80,6 +80,7 @@ import {
   showToolCallsEnabled,
   skillRecorderEnabled,
   builtInBrowserEnabled,
+  sweepLegacyOpencodeKey,
   syncCredentialEnv,
   withInstanceCli,
   vpsSshAlias,
@@ -249,6 +250,13 @@ const MIME: Record<string, string> = {
 };
 
 ensureDirs();
+// One-shot upgrade cleanup: drop the removed engine's plaintext key from the
+// stored file before anything reads it. Idempotent — a file without the
+// legacy section is left untouched. A failed sweep is loud: the secret would
+// otherwise survive silently on disk.
+if (sweepLegacyOpencodeKey() === "failed") {
+  console.warn(`config: could not remove the legacy OpenCode section from ${join(DATA_DIR, "config.json")}; delete the opencodeGo key manually`);
+}
 const cfg = loadConfig();
 const registry = new ProviderRegistry(BUILT_IN_DRIVERS);
 await registry.load(instanceConfigs(cfg));
@@ -4683,7 +4691,6 @@ function configStatus() {
     },
     box: { configured: Boolean(cfg.box?.token) },
     vps: { configured: Boolean(vpsSshAlias(cfg)), sshAlias: vpsSshAlias(cfg) ?? "" },
-    opencodeGo: { configured: Boolean(cfg.opencodeGo?.apiKey) },
     // the chosen voice is a setting, not a secret; the key is reported the
     // same configured-or-not way as every other credential
     tts: tts.describeVoice(cfg),
@@ -7910,7 +7917,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (persisted.openaiCompat?.key !== undefined) persisted.openaiCompat.key = "";
         if (persisted.composio?.apiKey !== undefined) persisted.composio.apiKey = "";
         if (persisted.box?.token !== undefined) persisted.box.token = "";
-        if (persisted.opencodeGo?.apiKey !== undefined) persisted.opencodeGo.apiKey = "";
         if (persisted.tts?.key !== undefined) persisted.tts.key = "";
         if (persisted.imageGen?.key !== undefined) persisted.imageGen.key = "";
         saveConfig(persisted);
