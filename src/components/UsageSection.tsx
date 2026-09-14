@@ -171,7 +171,7 @@ function PlanUsage() {
         {refreshable.length > 0 && (
           <div className="flex shrink-0 items-center gap-2">
             {confirmed && !refreshing && (
-              <span className="flex items-center gap-1 text-[12px] text-ink-secondary">
+              <span role="status" className="flex items-center gap-1 text-[12px] text-ink-secondary">
                 <Check size={12} className="text-success" />
                 {t("usage.limits.refreshDone")}
               </span>

@@ -446,6 +446,9 @@ describe("UsageSection friends plan card", () => {
       expect(host.textContent).not.toContain("Updated just now");
       await finish();
       expect(host.textContent).toContain("Updated just now");
+      // announced politely: the note is a live-region status
+      const status = host.querySelector('[role="status"]');
+      expect(status?.textContent).toContain("Updated just now");
       // the next run clears the note until it succeeds again
       await act(async () => {
         [...host.querySelectorAll("button")].find((button) => button.textContent === "Refresh all")?.click();
