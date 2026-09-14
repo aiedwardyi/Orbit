@@ -139,4 +139,112 @@ describe("picker catalogs", () => {
     ]);
     expect(cells.at(-1)).toMatchObject({ offList: true, options: [{ id: retired }] });
   });
+
+  it("collapses duplicate roster options to one cell per model", () => {
+    const instance: InstanceInfo = {
+      instanceId: "muse", driverKind: "museAgent", displayName: "Meta Muse", snapshot: { state: "available" },
+      models: {
+        default: "muse-spark-1.3",
+        options: [
+          { id: "muse-spark-1.3", label: "Meta Muse 1.3" },
+          { id: "muse-spark-1.3", label: "Meta Muse 1.3" },
+          { id: "muse-spark-1.3", label: "Meta Muse 1.3" },
+          { id: "muse-spark-1.3-contributor", label: "Meta Muse 1.3 Contributor" },
+          { id: "muse-spark-1.3-contributor", label: "Meta Muse 1.3 Contributor" },
+        ],
+      },
+    };
+    const rows = pickerRows([instance], { instanceId: "muse", model: "muse-spark-1.3" });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.cells.map((cell) => cell.options[0]!.id)).toEqual([
+      "muse-spark-1.3",
+      "muse-spark-1.3-contributor",
+    ]);
+  });
+
+  it("preserves effort when jumping across engines that support it", () => {
+    const grok: InstanceInfo = {
+      instanceId: "grok", driverKind: "grokAgent", displayName: "Grok", snapshot: { state: "available" },
+      models: { default: "grok-4.6", options: [{ id: "grok-4.6", label: "Grok 4.6" }] },
+      capabilities: { effortLevels: ["low", "medium", "high"] },
+    };
+    const muse: InstanceInfo = {
+      instanceId: "muse", driverKind: "museAgent", displayName: "Meta Muse", snapshot: { state: "available" },
+      models: { default: "muse-spark-1.3", options: [{ id: "muse-spark-1.3", label: "Meta Muse 1.3" }] },
+      capabilities: { effortLevels: ["low", "medium", "high", "xhigh"] },
+    };
+    const current = { instanceId: "grok", model: "grok-4.6", mode: "pinned" as const, effort: "high" as const };
+    const rows = pickerRows([grok, muse], current);
+    expect(movePicker(rows, current, "ArrowDown")).toEqual({
+      instanceId: "muse", model: "muse-spark-1.3", mode: "pinned" as const, effort: "high" as const,
+    });
+  });
+
+  it("carries an Antigravity id-encoded tier across the jump as effort", () => {
+    const grok: InstanceInfo = {
+      instanceId: "grok", driverKind: "grokAgent", displayName: "Grok", snapshot: { state: "available" },
+      models: { default: "grok-4.6", options: [{ id: "grok-4.6", label: "Grok 4.6" }] },
+      capabilities: { effortLevels: ["low", "medium", "high"] },
+    };
+    const antigravity: InstanceInfo = {
+      instanceId: "antigravity", driverKind: "antigravityAgent", displayName: "Gemini (Antigravity)", snapshot: { state: "available" },
+      models: {
+        default: "gemini-3.8-flash-high",
+        options: [
+          { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
+          { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)" },
+          { id: "gemini-3.8-flash-low", label: "Gemini 3.8 Flash (Low)" },
+        ],
+      },
+      capabilities: {},
+    };
+    const current = { instanceId: "antigravity", model: "gemini-3.8-flash-high", mode: "pinned" as const };
+    const rows = pickerRows([grok, antigravity], current);
+    expect(movePicker(rows, current, "ArrowDown")).toEqual({
+      instanceId: "grok", model: "grok-4.6", mode: "pinned", effort: "high" as const,
+    });
+  });
+
+  it("drops an Antigravity id-encoded tier when the target has no effort levels", () => {
+    const muse: InstanceInfo = {
+      instanceId: "muse", driverKind: "museAgent", displayName: "Meta Muse", snapshot: { state: "available" },
+      models: { default: "muse-spark-1.3", options: [{ id: "muse-spark-1.3", label: "Meta Muse 1.3" }] },
+      capabilities: {},
+    };
+    const antigravity: InstanceInfo = {
+      instanceId: "antigravity", driverKind: "antigravityAgent", displayName: "Gemini (Antigravity)", snapshot: { state: "available" },
+      models: {
+        default: "gemini-3.8-flash-high",
+        options: [
+          { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
+          { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)" },
+          { id: "gemini-3.8-flash-low", label: "Gemini 3.8 Flash (Low)" },
+        ],
+      },
+      capabilities: {},
+    };
+    const current = { instanceId: "antigravity", model: "gemini-3.8-flash-high", mode: "pinned" as const };
+    const rows = pickerRows([muse, antigravity], current);
+    expect(movePicker(rows, current, "ArrowDown")).toEqual({
+      instanceId: "muse", model: "muse-spark-1.3", mode: "pinned" as const,
+    });
+  });
+
+  it("clears effort when jumping to an engine that does not support it", () => {
+    const grok: InstanceInfo = {
+      instanceId: "grok", driverKind: "grokAgent", displayName: "Grok", snapshot: { state: "available" },
+      models: { default: "grok-4.6", options: [{ id: "grok-4.6", label: "Grok 4.6" }] },
+      capabilities: { effortLevels: ["low", "medium", "high"] },
+    };
+    const muse: InstanceInfo = {
+      instanceId: "muse", driverKind: "museAgent", displayName: "Meta Muse", snapshot: { state: "available" },
+      models: { default: "muse-spark-1.3", options: [{ id: "muse-spark-1.3", label: "Meta Muse 1.3" }] },
+      capabilities: {},
+    };
+    const current = { instanceId: "grok", model: "grok-4.6", mode: "pinned" as const, effort: "high" as const };
+    const rows = pickerRows([grok, muse], current);
+    expect(movePicker(rows, current, "ArrowDown")).toEqual({
+      instanceId: "muse", model: "muse-spark-1.3", mode: "pinned",
+    });
+  });
 });
