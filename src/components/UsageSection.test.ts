@@ -55,7 +55,7 @@ const { mockState, mockApi } = vi.hoisted(() => {
         engine("opencode", "opencodeGo", "OpenCode"),
       ],
     },
-    mockApi: vi.fn(async (_path: string): Promise<{ report: { windows: { id: string; usedPercent: number }[]; observedAt: string } }> => ({
+    mockApi: vi.fn(async (_path: string): Promise<{ report?: { windows: { id: string; usedPercent: number }[]; observedAt: string }; error?: string }> => ({
       report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" },
     })),
   };
@@ -186,21 +186,29 @@ describe("UsageSection friends plan card", () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
+    const codex = mockState.instances.find((instance) => instance.instanceId === "codex");
+    if (!codex) throw new Error("codex fixture missing");
+    const original = codex.rateLimits;
+    // settings rows show windows only, so Codex borrows one window here to
+    // prove both value columns share one structure and one left alignment —
+    // a future engine row inherits it instead of re-centering itself.
+    codex.rateLimits = {
+      observedAt: new Date().toISOString(),
+      windows: [{ id: "five_hour", usedPercent: 20, resetsAt: Date.now() + 3_600_000 }],
+    };
     try {
       persistPreference("en");
       setUsageMode("used");
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
-      // Claude renders windows, Grok renders banked spend: both value columns
-      // share one structure and one left alignment, so a future engine row
-      // inherits it instead of re-centering itself.
       const columns = [...host.querySelectorAll("div.mt-2.flex.flex-col.items-start")];
-      expect(columns.length).toBeGreaterThanOrEqual(2);
+      expect(columns.length).toBe(2);
       for (const column of columns) {
         expect(column.className).toBe(columns[0]?.className);
       }
       expect(host.innerHTML).not.toContain("mx-auto");
       expect(host.innerHTML).not.toContain("w-fit");
     } finally {
+      codex.rateLimits = original;
       await act(async () => root.unmount());
       host.remove();
       persistPreference("en");
@@ -233,37 +241,36 @@ describe("UsageSection friends plan card", () => {
     expect(html).toContain("Reset since the last check");
   });
 
-  it("shows read/written tokens only for engines that banked them", () => {
-    const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-    // the fixture banks tokens on the Grok bot only
-    expect(html).toContain("↑10 ↓4");
-    expect((html.match(/↑/g) ?? []).length).toBe(1);
-    expect(html).toContain('title="10 in · 4 out"');
-    // Claude reports windows but has no bot spend, so it must stay bare
-    const claude = html.indexOf(">Claude<");
-    expect(html.slice(claude, html.indexOf(">Codex<"))).not.toContain("↑");
+  it("omits banked token counts from settings rows while keeping staleness visible", () => {
+    try {
+      persistPreference("en");
+      const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+      // the fixture banks tokens on the Grok bot, but settings rows never show
+      // turn input/output counts — only the chat strip does
+      expect(html).not.toContain("↑");
+      expect(html).not.toContain("↓");
+      expect(html).not.toContain("10 in · 4 out");
+      // the refresh age still reads next to refreshable engines
+      expect(html).toContain("old<");
+      expect(html).toContain("Appears after your next Codex message.");
+    } finally {
+      persistPreference("en");
+    }
   });
 
-  it("matches the chat strip's token readout markup, size, and grid placement", () => {
+  it("keeps the token readout in the chat strip only", () => {
     persistPreference("en");
     const settings = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-    // byte-identical to the chat strip's readout: 12.5px in the meters grid,
-    // not the old 11.5px header chip
     const tokenSpan = '<span class="shrink-0 tabular-nums text-[12.5px] text-ink-secondary" title="10 in · 4 out">↑10 ↓4</span>';
-    expect(settings).toContain(tokenSpan);
-    // the same spend renders the same readout above the composer
+    expect(settings).not.toContain(tokenSpan);
+    expect(settings).not.toContain("↑10 ↓4");
+    // the same spend still renders its readout above the composer
     const chat = renderToStaticMarkup(createElement(I18nProvider, null,
       createElement(ChatPlanMeters, {
         windows: [{ id: "five_hour", usedPercent: 10, resetsAt: Date.now() + 3_600_000 }],
         usage: { input: 10, output: 4, costUsd: 0.01, turns: 2 },
       })));
     expect(chat).toContain(tokenSpan);
-    expect(settings).not.toContain("text-[11.5px]");
-    // the Grok readout sits inside the shared left-aligned column even though
-    // Grok reports no windows yet — spend is never dropped for lack of a meter
-    const column = settings.indexOf("mt-2 flex flex-col items-start gap-1.5");
-    expect(column).toBeGreaterThan(-1);
-    expect(settings.indexOf(tokenSpan)).toBeGreaterThan(column);
   });
 
   it("orders windows session-first like the chat strip without dropping any", () => {
@@ -283,17 +290,10 @@ describe("UsageSection friends plan card", () => {
     expect(html).toContain("Reset since the last check");
   });
 
-  it("stacks three windows plus spend in the shared single column", () => {
+  it("stacks three windows with no spend readout in the shared single column", () => {
     const report = mockState.instances[0].rateLimits;
     if (!report) throw new Error("claude fixture missing rateLimits");
     const originalWindows = report.windows;
-    const spendBot = {
-      id: "bot-claude",
-      hidden: false,
-      name: "Claude Friend",
-      modelSelection: { instanceId: "claude", model: "claude-opus" },
-      tasks: [{ threadId: "t", title: "", createdAt: 0, usage: { input: 12_400, output: 2_300, costUsd: 0.42, turns: 5 } }],
-    };
     try {
       persistPreference("en");
       setUsageMode("used");
@@ -302,18 +302,17 @@ describe("UsageSection friends plan card", () => {
         { id: "seven_day", usedPercent: 49, resetsAt: Date.now() + 6 * 86_400_000 },
         { id: "seven_day_opus", usedPercent: 75, resetsAt: Date.now() + 6 * 86_400_000 },
       ];
-      mockState.bots.push(spendBot);
       const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
       expect(html).toContain("mt-2 flex flex-col items-start gap-1.5");
       expect(html).not.toContain("grid-cols-");
       expect(html).toContain('aria-label="5h: 10% used"');
       expect(html).toContain('aria-label="7d: 49% used"');
       expect(html).toContain('aria-label="7d: 75% used"');
-      expect(html).toContain('<span class="shrink-0 tabular-nums text-[12.5px] text-ink-secondary" title="12.4k in · 2.3k out">↑12.4k ↓2.3k</span>');
+      // banked spend no longer renders a count in settings rows
+      expect(html).not.toContain("↑");
       expect(html).not.toContain("Reset since the last check");
     } finally {
       report.windows = originalWindows;
-      mockState.bots.pop();
       persistPreference("en");
     }
   });
@@ -414,6 +413,72 @@ describe("UsageSection friends plan card", () => {
         deferred.get("antigravity")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
       });
       expect([...host.querySelectorAll("button")].find((button) => button.textContent === "Refresh all")).toBeDefined();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      mockApi.mockReset();
+      mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
+    }
+  });
+
+  it("confirms a successful refresh explicitly and clears the note on the next run", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const deferred = new Map<string, (value: { report: { windows: { id: string; usedPercent: number }[]; observedAt: string } }) => void>();
+    mockApi.mockImplementation((path: string) => new Promise((resolve) => {
+      deferred.set(path.slice(path.lastIndexOf("/") + 1), resolve);
+    }));
+    const finish = () => act(async () => {
+      deferred.get("claude")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
+      deferred.get("codex")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
+      deferred.get("grok")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
+      deferred.get("antigravity")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
+    });
+    try {
+      persistPreference("en");
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      expect(host.textContent).not.toContain("Updated just now");
+      await act(async () => {
+        [...host.querySelectorAll("button")].find((button) => button.textContent === "Refresh all")?.click();
+      });
+      // no confirmation while the run is still busy
+      expect(host.textContent).not.toContain("Updated just now");
+      await finish();
+      expect(host.textContent).toContain("Updated just now");
+      // announced politely: the note is a live-region status
+      const status = host.querySelector('[role="status"]');
+      expect(status?.textContent).toContain("Updated just now");
+      // the next run clears the note until it succeeds again
+      await act(async () => {
+        [...host.querySelectorAll("button")].find((button) => button.textContent === "Refresh all")?.click();
+      });
+      expect(host.textContent).not.toContain("Updated just now");
+      await finish();
+      expect(host.textContent).toContain("Updated just now");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      mockApi.mockReset();
+      mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
+    }
+  });
+
+  it("shows no confirmation when a refresh reports an error", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    mockApi.mockImplementation(async (path: string) => (
+      path.endsWith("/grok") ? { error: "stale" } : { report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }
+    ));
+    try {
+      persistPreference("en");
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      await act(async () => {
+        [...host.querySelectorAll("button")].find((button) => button.textContent === "Refresh all")?.click();
+      });
+      expect(host.textContent).not.toContain("Updated just now");
+      expect(host.textContent).toContain("stale");
     } finally {
       await act(async () => root.unmount());
       host.remove();

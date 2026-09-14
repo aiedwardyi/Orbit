@@ -5,6 +5,7 @@
 // each engine's subscription window is, straight from the engine's own
 // report on its last turn, so nobody has to guess from a token count.
 import { useState } from "react";
+import { Check } from "lucide-react";
 import { api, useStore, type InstanceInfo } from "@/state/store";
 import { MausAvatar } from "./Avatar";
 import { Card } from "./SettingsPrimitives";
@@ -55,12 +56,8 @@ function EnginePlanRow({
   error?: string;
 }) {
   const { t } = useI18n();
-  const { state } = useStore();
-  // Keyed off what was banked, not a driver allowlist: acp/core only emits
-  // token usage when the agent it wraps reports it, so a list would be wrong.
-  const spent = sumUsage(state.bots.filter((bot) => bot.modelSelection.instanceId === instance.instanceId).map(botUsage));
-  const detail = usageDetail(spent);
-  const hasSpent = spent.input + spent.output > 0;
+  // Settings rows never show turn input/output counts — those live only in
+  // the chat strip. Staleness ("Nm old") is the row's only number.
   const windows = [...(instance.rateLimits?.windows ?? [])].sort(
     (a, b) => windowRank(a.id, a.windowMinutes) - windowRank(b.id, b.windowMinutes),
   );
@@ -83,7 +80,7 @@ function EnginePlanRow({
         <ProviderMark driverKind={instance.driverKind} size={16} />
         <span className="truncate">{instance.displayName}</span>
       </div>
-      {(windows.length > 0 || hasSpent) && (
+      {windows.length > 0 && (
         <div className="mt-2 flex flex-col items-start gap-1.5">
           {windows.map((window) => {
             const opus = window.id === "seven_day_opus";
@@ -106,11 +103,6 @@ function EnginePlanRow({
               </div>
             );
           })}
-          {hasSpent && (
-            <span className="shrink-0 tabular-nums text-[12.5px] text-ink-secondary" title={t(detail.key, detail.vars)}>
-              {`↑${formatTokens(spent.input)} ↓${formatTokens(spent.output)}`}
-            </span>
-          )}
         </div>
       )}
       {!instance.rateLimits && (
@@ -134,26 +126,32 @@ function PlanUsage() {
   const now = useNow();
   const mode = useUsageMode();
   const [refreshing, setRefreshing] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
   const [refreshErrors, setRefreshErrors] = useState<Record<string, string>>({});
   const engines = splitFriendsEngines(state.instances).friends;
   const refreshable = engines.filter(canRefresh);
-  const refresh = async (instance: InstanceInfo) => {
+  const refresh = async (instance: InstanceInfo): Promise<string | undefined> => {
     try {
       const result = await api(`/api/usage/refresh/${instance.instanceId}`, { method: "POST" });
       if (result.report) dispatch({ type: "rateLimits", instanceId: instance.instanceId, report: result.report });
       setRefreshErrors((current) => result.error ? { ...current, [instance.instanceId]: result.error } : Object.fromEntries(Object.entries(current).filter(([id]) => id !== instance.instanceId)));
+      return result.error;
     } catch (error) {
-      setRefreshErrors((current) => ({ ...current, [instance.instanceId]: error instanceof Error ? error.message : "Refresh failed" }));
+      const message = error instanceof Error ? error.message : "Refresh failed";
+      setRefreshErrors((current) => ({ ...current, [instance.instanceId]: message }));
+      return message;
     }
   };
   // The section's only refresh control: one tap refreshes every engine that
-  // answers a refresh POST (Claude, Codex, Grok, Antigravity), never just one
-  // of them.
+  // answers a refresh POST, never just one of them. A clean run leaves an
+  // explicit confirmation behind; the next run clears it.
   const refreshAll = async () => {
     if (refreshing || refreshable.length === 0) return;
     setRefreshing(true);
+    setConfirmed(false);
     try {
-      await Promise.all(refreshable.map(refresh));
+      const errors = await Promise.all(refreshable.map(refresh));
+      setConfirmed(errors.every((error) => !error));
     } finally {
       setRefreshing(false);
     }
@@ -171,14 +169,22 @@ function PlanUsage() {
           ))}
         </div>
         {refreshable.length > 0 && (
-          <button
-            type="button"
-            onClick={() => void refreshAll()}
-            disabled={refreshing}
-            className="shrink-0 rounded-lg border border-hairline/40 px-3 py-1 text-[12px] text-ink-secondary hover:bg-raised/50 hover:text-ink disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent"
-          >
-            {t(refreshing ? "usage.limits.refreshing" : "usage.limits.refreshAll")}
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            {confirmed && !refreshing && (
+              <span role="status" className="flex items-center gap-1 text-[12px] text-ink-secondary">
+                <Check size={12} className="text-success" />
+                {t("usage.limits.refreshDone")}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => void refreshAll()}
+              disabled={refreshing}
+              className="shrink-0 rounded-lg border border-hairline/40 px-3 py-1 text-[12px] text-ink-secondary hover:bg-raised/50 hover:text-ink disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent"
+            >
+              {t(refreshing ? "usage.limits.refreshing" : "usage.limits.refreshAll")}
+            </button>
+          </div>
         )}
       </div>
       {engines.length === 0 ? (
