@@ -26,7 +26,7 @@ describe("modal dialog focus ring exemption", () => {
 
   it("gives the General Profile Name field the same accent focus ring", () => {
     expect(css).toMatch(
-      /#settings-profile-name:focus-visible\s*\{\s*outline:\s*2px solid var\(--color-focus\)/,
+      /#settings-profile-name:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--color-focus\)[^}]*outline-offset:\s*2px/,
     );
   });
 });

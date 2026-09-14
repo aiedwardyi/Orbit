@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { translate } from "./i18n";
 import {
+  displayedChipEffort,
   engineBadgeText,
   modelChipText,
   modelChipTitle,
@@ -88,6 +89,51 @@ describe("modelChipTitle", () => {
     expect(modelChipTitle({ mode: "pinned", instance: grok, model: "grok-4.5" }, t)).toBe(
       "Grok · Grok 4.5",
     );
+  });
+
+  it("keeps the tooltip truthful with the derived tier for suffixed ids", () => {
+    const title = modelChipTitle(
+      { mode: "pinned", instance: antigravity, model: "gemini-3.8-flash-high" },
+      t,
+    );
+    expect(title).toContain("Gemini 3.8 Flash");
+    expect(title).toContain("high");
+    expect(title).not.toMatch(/\(High\)/);
+  });
+});
+
+const antigravity = {
+  displayName: "Gemini (Antigravity)",
+  models: {
+    default: "gemini-3.8-flash-high",
+    options: [
+      { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
+      { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)" },
+      { id: "gemini-3.8-flash-low", label: "Gemini 3.8 Flash (Low)" },
+    ],
+  },
+};
+
+describe("displayedChipEffort", () => {
+  it("derives effort from a tier-suffixed model id when effort is unset", () => {
+    expect(displayedChipEffort(antigravity, "gemini-3.8-flash-high", undefined)).toBe(
+      "high",
+    );
+    expect(displayedChipEffort(antigravity, "gemini-3.8-flash-low", undefined)).toBe(
+      "low",
+    );
+  });
+
+  it("shows name-only effort when the stem has no catalog family", () => {
+    expect(displayedChipEffort(antigravity, "retired-model-high", undefined)).toBeUndefined();
+  });
+
+  it("prefers an explicit selection.effort over the id suffix", () => {
+    expect(displayedChipEffort(antigravity, "gemini-3.8-flash-low", "high")).toBe("high");
+  });
+
+  it("leaves suffix-free selections alone", () => {
+    expect(displayedChipEffort(grok, "grok-4.6", undefined)).toBeUndefined();
   });
 });
 

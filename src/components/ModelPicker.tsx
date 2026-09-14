@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Atom, BookOpen, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Hexagon, Leaf, MoonStar, Mountain, Orbit, Sparkle, Sparkles, Sun, X } from "lucide-react";
 import { useStore, type Bot, type ModelSelection } from "@/state/store";
 import { filterCustomModels } from "@/lib/custom-models";
-import { engineBadgeText, modelChipText, modelChipTitle, modelFamilyAccent } from "@/lib/model-chip";
+import { displayedChipEffort, engineBadgeText, modelChipText, modelChipTitle, modelFamilyAccent } from "@/lib/model-chip";
 import { movePicker, pickerColumn, pickerEfforts, pickerModels, pickerRows, selectPickerEffort, selectPickerModel, withPickerEffort } from "@/lib/cross-model-picker";
 import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
@@ -161,6 +161,9 @@ export function ModelPickerControl({
     };
   }, [open]);
 
+  // Display-only: tier-suffixed model ids (no selection.effort) still show
+  // their dot+effort via the catalog family check. No state changes here.
+  const chipEffort = displayedChipEffort(active, selection.model, selection.effort);
   const trigger = (
     <button
       ref={triggerRef}
@@ -170,16 +173,16 @@ export function ModelPickerControl({
       aria-haspopup="dialog"
       aria-keyshortcuts={shortcutEnabled ? "Alt+M" : undefined}
       className="flex items-center gap-1.5 rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover"
-      title={modelChipTitle({ mode: selection.mode, instance: active, model: selection.model }, t) + (shortcutEnabled ? ` (${shortcut}+M)` : "")}
+      title={modelChipTitle({ mode: selection.mode, instance: active, model: selection.model, effort: selection.effort }, t) + (shortcutEnabled ? ` (${shortcut}+M)` : "")}
     >
       {active ? <ProviderMark driverKind={active.driverKind} size={14} /> : <Sparkles size={14} className="text-accent" />}
       <span className={cn("max-w-[160px] truncate", !contained && active && "@max-4xl/chathead:hidden")}>
         {modelChipText({ instance: active, model: selection.model }, t)}
       </span>
-      {selection.effort && (
+      {chipEffort && (
         <span data-model-effort className={cn("flex items-center gap-1", !contained && active && "@max-4xl/chathead:hidden")}>
           <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(active?.driverKind) }} />
-          <span className="text-[12px] text-ink-secondary">{effortLabel(selection.effort)}</span>
+          <span className="text-[12px] text-ink-secondary">{effortLabel(chipEffort)}</span>
         </span>
       )}
       {!contained && active && <span className="hidden max-w-[96px] truncate @max-4xl/chathead:inline">{active.displayName}</span>}
