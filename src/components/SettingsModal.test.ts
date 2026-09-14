@@ -43,7 +43,6 @@ vi.mock("@/state/store", async (importOriginal) => {
           vps: { configured: false, sshAlias: "" },
           rooms: { turnTimeoutMinutes: 5 },
           localVm: { mode: "shared", maxInstances: 1 },
-          opencodeGo: { configured: false },
           profile: { name: "", email: "" },
           features: { skillRecorder: false, showToolCalls: false },
         },
@@ -184,10 +183,10 @@ describe("SettingsModal friends chrome", () => {
     expect(html).not.toContain("Cua Linux");
   });
 
-  it("folds Gemini and OpenCode keys into Connections and hides the zoo services", () => {
+  it("folds the Gemini key into Connections and hides the zoo services", () => {
     const html = markup("connections");
     expect(html).toContain("Gemini API key");
-    expect(html).toContain("OpenCode API key");
+    expect(html).not.toContain("OpenCode API key");
     expect(html).not.toContain("More services");
     expect(html).not.toContain("data-settings-more-services");
     expect(html).not.toContain("Box API key");
@@ -202,7 +201,7 @@ describe("SettingsModal friends chrome", () => {
   it("opens Engines as the unified Connections page", () => {
     const html = markup("engines");
     expect(html).toContain("Gemini API key");
-    expect(html).toContain("OpenCode API key");
+    expect(html).not.toContain("OpenCode API key");
     expect(html).not.toContain("More services");
     expect(html).not.toMatch(/>Engines</);
   });
@@ -262,7 +261,7 @@ describe("SettingsModal friends chrome", () => {
     expect(more).toContain('section="composio"');
     const before = source.slice(0, start);
     expect(before).toContain('section="gemini"');
-    expect(before).toContain('section="opencodeGo"');
+    expect(before).not.toContain('section="opencodeGo"');
     expect(before).not.toContain("<TranscriptionSettings");
     expect(before).not.toContain('section="box"');
     expect(before).not.toContain("<VpsConnection");

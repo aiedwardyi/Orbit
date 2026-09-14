@@ -28,7 +28,7 @@ export function splitEngineRail<T>(instances: readonly T[]): {
   return { subscription, custom };
 }
 
-// Friends featured rail — Claude, Codex, Grok, Antigravity, OpenCode, matching
+// Friends featured rail — Claude, Codex, Grok, Antigravity, Meta Muse, matching
 // the DEFAULT_FLEET order so the rail leads with the same engine selection does.
 // Gemini API is not a rail engine: Gemini models live on Antigravity.
 // The local/custom zoo stays off this list (showEngineRailZoo can restore it).
@@ -37,7 +37,7 @@ export const FRIENDS_DRIVER_ORDER = [
   "codex",
   "grokAgent",
   "antigravityAgent",
-  "opencodeGo",
+  "museAgent",
 ] as const;
 
 export const FRIENDS_CLI_DRIVERS = new Set([
@@ -45,6 +45,7 @@ export const FRIENDS_CLI_DRIVERS = new Set([
   "codex",
   "grokAgent",
   "antigravityAgent",
+  "museAgent",
 ]);
 
 const FRIENDS_DRIVERS = new Set<string>(FRIENDS_DRIVER_ORDER);
@@ -88,7 +89,7 @@ export function splitFriendsEngines<T>(instances: readonly T[]): {
 }
 
 /** Chat-header engine rail: featured friends only, in Claude → Codex → Grok
- * → Antigravity → OpenCode order. The zoo expander is a friends-chrome flag. */
+ * → Antigravity → Meta Muse order. The zoo expander is a friends-chrome flag. */
 export function visibleFriendsRail<T extends { instanceId: string }>(
   instances: readonly T[],
   options: { showAll?: boolean; activeId?: string } = {},

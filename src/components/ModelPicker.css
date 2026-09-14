@@ -9,7 +9,7 @@
 
 .model-cross-backdrop[data-picker-family="gpt"] { --picker-accent: #3594ff; }
 .model-cross-backdrop[data-picker-family="claude"] { --picker-accent: #ed6549; }
-.model-cross-backdrop[data-picker-family="opencode"] { --picker-accent: #43ce8b; }
+.model-cross-backdrop[data-picker-family="metamuse"] { --picker-accent: #43ce8b; }
 .model-cross-backdrop[data-picker-family="gemini"] { --picker-accent: #aa7bfa; }
 .model-cross-backdrop[data-picker-family="grok"] { --picker-accent: #8b929c; }
 

@@ -46,7 +46,7 @@ export function modelChipTitle(
 const FAMILY_ACCENTS = {
   gpt: "#3594ff",
   claude: "#ed6549",
-  opencode: "#43ce8b",
+  metamuse: "#43ce8b",
   gemini: "#aa7bfa",
   grok: "#8b929c",
 } as const;
@@ -57,7 +57,7 @@ const DRIVER_FAMILIES = new Map<string, keyof typeof FAMILY_ACCENTS>([
   ["antigravityAgent", "gemini"],
   ["geminiAgent", "gemini"],
   ["claudeAgent", "claude"],
-  ["opencodeGo", "opencode"],
+  ["museAgent", "metamuse"],
 ]);
 
 export function modelFamilyAccent(driverKind?: string): string {

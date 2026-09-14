@@ -143,7 +143,7 @@ beforeAll(async () => {
       req.on("end", () => {
         lastCredentialBody = JSON.parse(data);
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ messageId: "msg-key", label: "OpenCode API key" }));
+        res.end(JSON.stringify({ messageId: "msg-key", label: "Gemini API key" }));
       });
       return;
     }
@@ -433,15 +433,15 @@ describe("agents-proxy MCP surface", () => {
 
   it("requests an allowlisted credential without putting a secret in the request", async () => {
     const res = await callTool("request_credential", {
-      credential_id: "opencodeGoApiKey",
+      credential_id: "geminiApiKey",
       reason: "The selected model needs it.",
     });
-    expect(res.result.content[0].text).toContain("secure OpenCode API key card");
+    expect(res.result.content[0].text).toContain("secure Gemini API key card");
     expect(res.result.content[0].text).toContain("End this turn");
     expect(lastCredentialBody).toEqual({
       fromBotId: "bot-asker",
       fromThreadId: "thread-asker-routine",
-      credentialId: "opencodeGoApiKey",
+      credentialId: "geminiApiKey",
       reason: "The selected model needs it.",
     });
     expect(JSON.stringify(lastCredentialBody)).not.toContain("secret");

@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { applyDroidLocalAuthEnv, DroidAgentDriver, ensureDroidInjectModel } from "./acp/droid.ts";
 import { ensureGrokInjectSlug, GrokAgentDriver } from "./acp/grok.ts";
 import { applyKimiLocalModelEnv, ensureKimiInjectAlias, KimiAgentDriver } from "./acp/kimi.ts";
-import { ensureOpenCodeInjectModel } from "./acp/opencode-go.ts";
 import { AntigravityDriver } from "./antigravity.ts";
 
 const FAKE_ACP = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-acp-cli.ts");
@@ -855,49 +854,6 @@ describe("applyDroidLocalAuthEnv", () => {
     } finally {
       await instance.dispose();
     }
-  });
-});
-
-describe("ensureOpenCodeInjectModel", () => {
-  it("merges a host provider into opencode.json without dropping existing models", () => {
-    const home = mkdtempSync(join(tmpdir(), "omb-opencode-inject-"));
-    scratchDirs.push(home);
-    const dir = join(home, ".config", "opencode");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(
-      join(dir, "opencode.json"),
-      JSON.stringify({
-        provider: {
-          omlx: {
-            npm: "@ai-sdk/openai-compatible",
-            name: "oMLX",
-            options: { baseURL: "http://127.0.0.1:8080/v1" },
-            models: { "already-there": { name: "Keep me" } },
-          },
-        },
-      }),
-    );
-    const native = ensureOpenCodeInjectModel("omlx::GLM-5.2-fp8", { HOME: home });
-    expect(native).toBe("omlx/GLM-5.2-fp8");
-    const config = JSON.parse(readFileSync(join(dir, "opencode.json"), "utf8")) as {
-      provider: { omlx: { models: Record<string, { name: string }>; options: { baseURL: string } } };
-    };
-    expect(config.provider.omlx.models["already-there"]).toEqual({ name: "Keep me" });
-    expect(config.provider.omlx.models["GLM-5.2-fp8"]).toBeTruthy();
-    expect(config.provider.omlx.options.baseURL).toBe("http://127.0.0.1:8080/v1");
-  });
-
-  it("injects into a default object when opencode.json is malformed", () => {
-    const home = mkdtempSync(join(tmpdir(), "omb-opencode-bad-json-"));
-    scratchDirs.push(home);
-    const dir = join(home, ".config", "opencode");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "opencode.json"), "{not-json");
-    expect(ensureOpenCodeInjectModel("omlx::GLM-5.2-fp8", { HOME: home })).toBe("omlx/GLM-5.2-fp8");
-    const config = JSON.parse(readFileSync(join(dir, "opencode.json"), "utf8")) as {
-      provider: { omlx: { models: Record<string, unknown> } };
-    };
-    expect(config.provider.omlx.models["GLM-5.2-fp8"]).toBeTruthy();
   });
 });
 

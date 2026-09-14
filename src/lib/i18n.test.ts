@@ -715,10 +715,10 @@ describe("first-run core path leftovers", () => {
     expect(en["connections.connected"]).toBe("Connected");
     expect(ko["connections.connected"]).toBe("연결됨");
     expect(en["settings.connections.subtitle"]).toBe(
-      "Orbit detects installed Claude, Codex, Grok, and Antigravity CLIs on its own, so set a CLI only to override one. Paste an API key for Gemini and OpenCode.",
+      "Orbit detects installed Claude, Codex, Grok, Antigravity, and Meta Muse CLIs on its own, so set a CLI only to override one. Paste an API key for Gemini.",
     );
     expect(ko["settings.connections.subtitle"]).toBe(
-      "Orbit이 설치된 Claude, Codex, Grok, Antigravity CLI를 알아서 찾으므로, 직접 바꿀 때만 CLI를 지정하면 됩니다. Gemini와 OpenCode는 API 키를 붙여넣습니다.",
+      "Orbit이 설치된 Claude, Codex, Grok, Antigravity, Meta Muse CLI를 알아서 찾으므로, 직접 바꿀 때만 CLI를 지정하면 됩니다. Gemini는 API 키를 붙여넣습니다.",
     );
     expect(ko["settings.connections.subtitle"]).not.toMatch(/Set the CLI|Paste an API key/i);
     const enParts = splitTwoSentences(en["settings.connections.subtitle"]);
@@ -726,18 +726,20 @@ describe("first-run core path leftovers", () => {
     expect(enParts.cli).toMatch(/Claude/);
     expect(enParts.cli).toMatch(/Codex/);
     expect(enParts.cli).toMatch(/Antigravity/);
-    expect(enParts.cli).not.toMatch(/Gemini|OpenCode/);
+    expect(enParts.cli).toMatch(/Meta Muse/);
+    expect(enParts.cli).not.toMatch(/Gemini/);
     expect(enParts.key).toMatch(/Gemini/);
-    expect(enParts.key).toMatch(/OpenCode/);
+    expect(enParts.key).not.toMatch(/OpenCode/);
     expect(enParts.key).not.toMatch(/Grok|Claude|Codex|Antigravity/);
     const koParts = splitTwoSentences(ko["settings.connections.subtitle"]);
     expect(koParts.cli).toMatch(/Grok/);
     expect(koParts.cli).toMatch(/Claude/);
     expect(koParts.cli).toMatch(/Codex/);
     expect(koParts.cli).toMatch(/Antigravity/);
-    expect(koParts.cli).not.toMatch(/Gemini|OpenCode/);
+    expect(koParts.cli).toMatch(/Meta Muse/);
+    expect(koParts.cli).not.toMatch(/Gemini/);
     expect(koParts.key).toMatch(/Gemini/);
-    expect(koParts.key).toMatch(/OpenCode/);
+    expect(koParts.key).not.toMatch(/OpenCode/);
     expect(koParts.key).not.toMatch(/Grok|Claude|Codex|Antigravity/);
   });
 

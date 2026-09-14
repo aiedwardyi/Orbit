@@ -16,7 +16,6 @@ describe("workspace credential migration", () => {
       box: { token: "box-secret" },
       tts: { key: "tts-secret", voice: "narrator" },
       imageGen: { key: "image-secret" },
-      opencodeGo: { apiKey: "ocg-secret" },
       profile: { name: "Ada" },
     };
     const result = migrateWorkspaceCredentials(config, {});
@@ -28,7 +27,6 @@ describe("workspace credential migration", () => {
       openaiCompatKey: "compat-secret",
       boxToken: "box-secret",
       ttsKey: "tts-secret",
-      opencodeGoApiKey: "ocg-secret",
       openaiImageApiKey: "image-secret",
     });
     // secrets are DELETED (not blanked) so "" stays meaningful as "cleared";
@@ -40,7 +38,6 @@ describe("workspace credential migration", () => {
       box: {},
       tts: { voice: "narrator" },
       imageGen: {},
-      opencodeGo: {},
       profile: { name: "Ada" },
     });
     // inputs are never mutated — main.mjs decides which files to rewrite
@@ -87,16 +84,16 @@ describe("workspace credential migration", () => {
 
   it("keeps the packaged save → restart cycle lossless end to end", () => {
     // first boot migrates the plaintext key in and sweeps the field
-    const boot = migrateWorkspaceCredentials({ opencodeGo: { apiKey: "ocg-secret" } }, {});
-    expect(boot.credentials).toEqual({ opencodeGoApiKey: "ocg-secret" });
+    const boot = migrateWorkspaceCredentials({ box: { token: "box-secret" } }, {});
+    expect(boot.credentials).toEqual({ boxToken: "box-secret" });
 
     // an external-mode save commits the key to the store and leaves a ""
     // tombstone in config.json; the next boot must not read it as a clear
     const afterTombstone = migrateWorkspaceCredentials(
-      { opencodeGo: { apiKey: "" }, profile: { name: "Ada" } },
-      { opencodeGoApiKey: "ocg-secret" },
+      { box: { token: "" }, profile: { name: "Ada" } },
+      { boxToken: "box-secret" },
     );
-    expect(afterTombstone.credentials).toEqual({ opencodeGoApiKey: "ocg-secret" });
+    expect(afterTombstone.credentials).toEqual({ boxToken: "box-secret" });
     expect(afterTombstone.credentialsChanged).toBe(false);
   });
 
@@ -133,7 +130,6 @@ describe("workspace credential env", () => {
         openaiCompatKey: "compat-secret",
         boxToken: "box-secret",
         ttsKey: "tts-secret",
-        opencodeGoApiKey: "ocg-secret",
         openaiImageApiKey: "image-secret",
         composioApiKey: "ak_handled-separately",
       }),
@@ -143,7 +139,6 @@ describe("workspace credential env", () => {
       OPENAI_COMPAT_API_KEY: "compat-secret",
       BOX_TOKEN: "box-secret",
       OMB_TTS_KEY: "tts-secret",
-      OPENCODE_API_KEY: "ocg-secret",
       OMB_OPENAI_IMAGE_KEY: "image-secret",
     });
   });

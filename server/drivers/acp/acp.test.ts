@@ -21,7 +21,7 @@ import { GeminiAgentDriver } from "./gemini.ts";
 import { KimiAgentDriver } from "./kimi.ts";
 import { DroidAgentDriver } from "./droid.ts";
 import { CursorAgentDriver } from "./cursor.ts";
-import { createOpenCodeDriver } from "./opencode-go.ts";
+import { MuseAgentDriver } from "./muse.ts";
 import { readGrokBillingRpc } from "../../usage-refresh.ts";
 import { removeTempDir } from "../../testing/cleanup.ts";
 
@@ -58,8 +58,7 @@ const SELECT_MODEL_SUPPORT: AcpSupport = {
 };
 const SelectModelDriver = createAcpDriver(SELECT_MODEL_SUPPORT);
 
-/** Proves transformEnv can vary with the instance config, which is how the
- *  opencode driver picks its permission policy from `fullAuto`. */
+/** Proves transformEnv can vary with the instance config. */
 const EnvPolicyDriver = createAcpDriver({
   ...SELECT_MODEL_SUPPORT,
   driverKind: "envPolicyTest",
@@ -69,8 +68,7 @@ const EnvPolicyDriver = createAcpDriver({
   },
 });
 
-/** Proves snapshot() awaits an async isAuthenticated, which is how the
- *  opencode driver answers from a discovered catalog. */
+/** Proves snapshot() awaits an async isAuthenticated. */
 const AsyncAuthDriver = createAcpDriver({
   ...SELECT_MODEL_SUPPORT,
   driverKind: "asyncAuthTest",
@@ -289,7 +287,7 @@ describe("ACP turns (fake CLI)", () => {
     delete process.env.FAKE_ACP_DUMP;
     delete process.env.FAKE_ACP_RPC_DUMP;
     delete process.env.XAI_API_KEY;
-    delete process.env.OPENCODE_API_KEY;
+    delete process.env.META_API_KEY;
     delete process.env.CURSOR_API_KEY;
     delete process.env.CURSOR_AUTH_TOKEN;
     delete process.env.BOX_TOKEN;
@@ -375,7 +373,7 @@ describe("ACP turns (fake CLI)", () => {
     const dump = join(scratch, "dump.json");
     process.env.FAKE_ACP_DUMP = dump;
     process.env.XAI_API_KEY = "xai-should-not-leak";
-    process.env.OPENCODE_API_KEY = "opencode-should-not-leak";
+    process.env.META_API_KEY = "meta-should-not-leak";
     process.env.CURSOR_API_KEY = "cursor-should-not-leak";
     process.env.CURSOR_AUTH_TOKEN = "cursor-token-should-not-leak";
     // workspace credentials with no CLI consumer at all — held by the
@@ -391,7 +389,7 @@ describe("ACP turns (fake CLI)", () => {
     expect(seen.argv).toContain("stdio");
     expect(seen.argv).toContain("--permission-mode");
     expect(seen.env.XAI_API_KEY).toBeUndefined();
-    expect(seen.env.OPENCODE_API_KEY).toBeUndefined();
+    expect(seen.env.META_API_KEY).toBeUndefined();
     expect(seen.env.CURSOR_API_KEY).toBeUndefined();
     expect(seen.env.CURSOR_AUTH_TOKEN).toBeUndefined();
     expect(seen.env.BOX_TOKEN).toBeUndefined();
@@ -417,9 +415,9 @@ describe("ACP turns (fake CLI)", () => {
       { name: "droid", driver: DroidAgentDriver, keep: { FACTORY_API_KEY: "factory-grant" } },
       { name: "cursor", driver: CursorAgentDriver, keep: { CURSOR_API_KEY: "cursor-grant", CURSOR_AUTH_TOKEN: "cursor-token-grant" } },
       {
-        name: "opencode",
-        driver: createOpenCodeDriver(async () => ({ default: "m", options: [{ id: "m", label: "M" }] })),
-        keep: { OPENCODE_API_KEY: "opencode-grant" },
+        name: "muse",
+        driver: MuseAgentDriver,
+        keep: { META_API_KEY: "meta-grant" },
       },
     ];
     for (const { name, driver, keep } of cases) {

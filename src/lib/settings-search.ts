@@ -48,7 +48,6 @@ export const SECTION_PHRASE_KEYS = {
     "settings.connections.selfHost",
     "settings.connections.moreServices",
     "connections.gemini.label",
-    "connections.opencode.label",
     "engines.setCli",
     "engines.help",
     "connections.box.label",
@@ -93,7 +92,7 @@ function phraseKeysFor(id: AppSettingsSection): readonly MessageKey[] {
 
 const EXTRA_KEYWORDS = {
   general: ["profile", "name", "skin", "theme", "appearance", "updates", "tools", "tool calls", "language", "locale", "vm", "diagnostics", "experimental"],
-  connections: ["keys", "api", "gemini", "opencode", "claude", "grok", "codex", "antigravity", "cli"],
+  connections: ["keys", "api", "gemini", "muse", "claude", "grok", "codex", "antigravity", "cli"],
   engines: ["models", "claude", "grok", "providers", "cli"],
   companion: ["companion", "phone", "pair", "mobile"],
   computer: ["vm", "virtual", "desktop"],

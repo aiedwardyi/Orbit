@@ -52,7 +52,16 @@ const { mockState, mockApi } = vi.hoisted(() => {
         engine("grok", "grokAgent", "Grok", { capabilities: { rateLimits: true } }),
         engine("gemini", "geminiAgent", "Gemini API"),
         engine("antigravity", "antigravityAgent", "Gemini (Antigravity)"),
-        engine("opencode", "opencodeGo", "OpenCode"),
+        engine("muse", "museAgent", "Meta Muse", {
+          capabilities: { rateLimits: true },
+          rateLimits: {
+            observedAt: new Date().toISOString(),
+            windows: [
+              { id: "five_hour", usedPercent: 22, resetsAt: Date.now() + 3_600_000 },
+              { id: "seven_day", usedPercent: 61, resetsAt: Date.now() + 6 * 86_400_000 },
+            ],
+          },
+        }),
       ],
     },
     mockApi: vi.fn(async (_path: string): Promise<{ report: { windows: { id: string; usedPercent: number }[]; observedAt: string } }> => ({
@@ -125,7 +134,8 @@ describe("UsageSection friends plan card", () => {
     expect(html).toContain("Claude");
     expect(html).toContain("Codex");
     expect(html).toContain("Gemini (Antigravity)");
-    expect(html).toContain("OpenCode");
+    expect(html).toContain("Meta Muse");
+    expect(html).not.toContain("OpenCode");
     expect(html).not.toContain("Gemini API");
     expect(html).not.toContain("Kimi");
     expect(html).not.toContain("not available at the moment");
@@ -141,12 +151,20 @@ describe("UsageSection friends plan card", () => {
     const claude = html.indexOf("Claude");
     const codex = html.indexOf("Codex");
     const antigravity = html.indexOf("Gemini (Antigravity)");
-    const opencode = html.indexOf("OpenCode");
+    const muse = html.indexOf("Meta Muse");
     expect(claude).toBeGreaterThan(-1);
     expect(codex).toBeGreaterThan(claude);
     expect(grok).toBeGreaterThan(codex);
     expect(antigravity).toBeGreaterThan(grok);
-    expect(opencode).toBeGreaterThan(antigravity);
+    expect(muse).toBeGreaterThan(antigravity);
+  });
+
+  it("shows Meta Muse 5-hour and 7-day windows", () => {
+    setUsageMode("used");
+    const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+    expect(html).toContain("Meta Muse");
+    expect(html).toContain('aria-label="5h: 22% used"');
+    expect(html).toContain('aria-label="7d: 61% used"');
   });
 
   it("shows refresh controls for the three supported engines", () => {

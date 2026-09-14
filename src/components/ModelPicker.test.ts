@@ -58,7 +58,7 @@ const { mockInstances } = vi.hoisted(() => {
       readyEngine("gemini", "geminiAgent", "Gemini API"),
       readyEngine("antigravity", "antigravityAgent", "Gemini (Antigravity)"),
       readyEngine("codex", "codex", "Codex"),
-      readyEngine("opencode", "opencodeGo", "OpenCode"),
+      readyEngine("muse", "museAgent", "Meta Muse"),
       readyEngine("kimi", "kimiAgent", "Kimi"),
       readyEngine("qwen", "qwenAgent", "Qwen"),
       readyEngine("cursor", "cursorAgent", "Cursor"),
@@ -122,7 +122,7 @@ const FRIENDS_LABELS = [
   'data-model-row="claude"',
   'data-model-row="codex"',
   'data-model-row="antigravity"',
-  'data-model-row="opencode"',
+  'data-model-row="muse"',
 ];
 
 function platformMarkup(platform: string, defaultOpen = false) {
@@ -167,7 +167,7 @@ describe("ModelPicker friends chip", () => {
   it.each([
     ["codex", "codex-default", "#3594ff"],
     ["claude", "claude-fable-5-1", "#ed6549"],
-    ["opencode", "opencode-default", "#43ce8b"],
+    ["muse", "muse-default", "#43ce8b"],
     ["antigravity", "antigravity-default", "#aa7bfa"],
     ["grok", "grok-4.6", "#8b929c"],
   ])("paints the %s effort marker with %s", (instanceId, model, accent) => {
@@ -233,7 +233,7 @@ describe("ModelPicker friends chip", () => {
   });
 
   it.each([["MacIntel", "Option"], ["Win32", "Alt"]])("opens a modal with ordered model groups and %s keycap bindings", (platform, shortcut) => {
-    for (const [id, model] of [["antigravity", "gemini-3.8-flash-high"], ["codex", "gpt-6-astra"], ["opencode", "meta/muse-spark-1.3"]]) {
+    for (const [id, model] of [["antigravity", "gemini-3.8-flash-high"], ["codex", "gpt-6-astra"], ["muse", "muse-spark-1.3"]]) {
       mockInstances.find((instance) => instance.instanceId === id)!.models = { default: model!, options: [{ id: model!, label: model! }] };
     }
     const html = platformMarkup(platform, true);
@@ -258,12 +258,12 @@ describe("ModelPicker friends chip", () => {
     const claude = list.indexOf('data-model-row="claude"');
     const codex = list.indexOf('data-model-row="codex"');
     const antigravity = list.indexOf('data-model-row="antigravity"');
-    const opencode = list.indexOf('data-model-row="opencode"');
+    const muse = list.indexOf('data-model-row="muse"');
     expect(claude).toBeGreaterThan(-1);
     expect(codex).toBeGreaterThan(claude);
     expect(grok).toBeGreaterThan(codex);
     expect(antigravity).toBeGreaterThan(grok);
-    expect(opencode).toBeGreaterThan(antigravity);
+    expect(muse).toBeGreaterThan(antigravity);
   });
 
   it("preserves a non-featured pin in its own row without exposing other engines", () => {

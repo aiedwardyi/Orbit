@@ -31,11 +31,10 @@ function nvmBinDirs(): string[] {
 function knownDirs(): string[] {
   const home = homedir();
   return [
-    join(home, ".local", "bin"), // claude installer default
-    join(home, ".npm-global", "bin"), // npm prefix ~/.npm-global (claude, opencode)
+    join(home, ".local", "bin"), // claude and muse installer default
+    join(home, ".npm-global", "bin"), // npm prefix ~/.npm-global (claude)
     join(home, ".kimi-code", "bin"), // kimi-code installer
     join(home, ".grok", "bin"), // x.ai installer
-    join(home, ".opencode", "bin"), // opencode installer
     join(home, ".claude", "local"), // claude "local install"
     "/opt/homebrew/bin", // brew, Apple silicon
     "/usr/local/bin", // brew Intel / classic installs

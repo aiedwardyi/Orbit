@@ -108,11 +108,12 @@ export function AntigravityMark({ size = 16, className }: IconProps) {
   );
 }
 
-/** Official OpenCode mark. */
-export function OpenCodeMark({ size = 16, className }: IconProps) {
+/** Meta Muse mark — simple filled M using the existing ink token so it
+ * reads in light and dark without new hues, gradients, or emoji. */
+export function MuseMark({ size = 16, className }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" className={cn("fill-[var(--color-ink)]", className)} aria-hidden>
-      <path fillRule="evenodd" d="M16 6H8v12h8V6zm4 16H4V2h16v20z" />
+      <path fillRule="evenodd" d="M4 20V4h3.2l4.8 8.6L16.8 4H20v16h-3.1V9.4l-2.2 3.9H9.3l-2.2-3.9V20H4z" />
     </svg>
   );
 }
@@ -172,8 +173,8 @@ export function ProviderMark({ driverKind, size, className }: IconProps & { driv
     case "antigravityAgent":
       // Friends Gemini slot: Antigravity keeps agy CLI, Gemini logo + models.
       return <GeminiMark size={size} className={className} />;
-    case "opencodeGo":
-      return <OpenCodeMark size={size} className={className} />;
+    case "museAgent":
+      return <MuseMark size={size} className={className} />;
     case "qwenAgent":
       return <QwenMark size={size} className={className} />;
     case "hermesAgent":

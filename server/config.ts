@@ -99,8 +99,6 @@ const appConfigSchema = z.object({
   composio: z.object({ apiKey: optionalText, userId: optionalText, sessionId: optionalText }).optional(),
   box: z.object({ token: optionalText }).optional(),
   vps: vpsConfigSchema.optional(),
-  /** Optional OpenCode key; persisted write-only and passed only to its child. */
-  opencodeGo: z.object({ apiKey: optionalText }).optional(),
   /** Voice credentials and the selected voice id. `provider` picks the
    * engine: "elevenlabs" (default; needs a key) or "system" (the Mac's
    * built-in voices, no key). */
@@ -126,7 +124,6 @@ export interface AppConfig {
   box?: { token?: string };
   /** A named host from the user's SSH config. Authentication stays with SSH. */
   vps?: { sshAlias?: string };
-  opencodeGo?: { apiKey?: string };
   tts?: { key?: string; voice?: string; provider?: "elevenlabs" | "system" };
   imageGen?: { key?: string };
   profile?: { name?: string; email?: string };
@@ -223,8 +220,6 @@ export function loadConfig(): AppConfig {
   if (process.env.COMPOSIO_API_KEY !== undefined) cfg.composio.apiKey = process.env.COMPOSIO_API_KEY;
   cfg.box = { ...cfg.box };
   if (process.env.BOX_TOKEN !== undefined) cfg.box.token = process.env.BOX_TOKEN;
-  cfg.opencodeGo = { ...cfg.opencodeGo };
-  if (process.env.OPENCODE_API_KEY !== undefined) cfg.opencodeGo.apiKey = process.env.OPENCODE_API_KEY;
   cfg.tts = { ...cfg.tts };
   if (process.env.OMB_TTS_KEY !== undefined) cfg.tts.key = process.env.OMB_TTS_KEY;
   cfg.imageGen = { ...cfg.imageGen };
@@ -246,7 +241,6 @@ export function syncCredentialEnv(patch: Partial<AppConfig>): void {
     [patch.openaiCompat?.key, "OPENAI_COMPAT_API_KEY"],
     [patch.composio?.apiKey, "COMPOSIO_API_KEY"],
     [patch.box?.token, "BOX_TOKEN"],
-    [patch.opencodeGo?.apiKey, "OPENCODE_API_KEY"],
     [patch.tts?.key, "OMB_TTS_KEY"],
     [patch.imageGen?.key, "OMB_OPENAI_IMAGE_KEY"],
   ];
@@ -280,7 +274,6 @@ export const WORKSPACE_CREDENTIAL_ENV = [
   "OPENAI_COMPAT_API_KEY",
   "OPENAI_COMPAT_URL",
   "BOX_TOKEN",
-  "OPENCODE_API_KEY",
   "OMB_TTS_KEY",
   "OMB_OPENAI_IMAGE_KEY",
   "COMPOSIO_API_KEY",
@@ -300,7 +293,7 @@ export const PROVIDER_CREDENTIAL_ENV = [
   "MOONSHOT_API_KEY",
   "MINIMAX_API_KEY",
   "OPENAI_API_KEY",
-  "OPENCODE_API_KEY",
+  "META_API_KEY",
   "XAI_API_KEY",
   "CURSOR_API_KEY",
   "CURSOR_AUTH_TOKEN",
@@ -365,7 +358,7 @@ export function saveConfig(patch: Partial<AppConfig>): void {
     /* first write */
   }
   const checkedPatch = appConfigSchema.partial().parse(patch);
-  for (const key of ["xai", "gemini", "openaiCompat", "composio", "box", "opencodeGo", "tts", "imageGen", "profile", "rooms", "localVm", "features"] as const) {
+  for (const key of ["xai", "gemini", "openaiCompat", "composio", "box", "tts", "imageGen", "profile", "rooms", "localVm", "features"] as const) {
     const section = checkedPatch[key];
     if (!section) continue;
     const current = jsonObjectSchema.safeParse(disk[key]);
@@ -399,7 +392,7 @@ export function saveConfig(patch: Partial<AppConfig>): void {
  * PERSISTABLE: instanceConfigs() injects credential env into consuming
  * drivers' entries for the live fleet, so those injected keys are stripped
  * back out before the map is returned — otherwise saving an override would
- * copy xai/box/opencodeGo secrets into the instances section of
+ * copy xai/box secrets into the instances section of
  * config.json. */
 export function withInstanceCli(
   cfg: AppConfig,
@@ -445,8 +438,8 @@ interface InstanceCliUpdate {
 /** The credential env instanceConfigs() injects for one driver — shared with
  * withInstanceCli() so the inject rule and the strip rule cannot drift apart.
  * Each secret goes only to the driver that actually reads it: the API-key
- * Grok reads XAI_API_KEY, Gemini reads GEMINI_API_KEY, Computer reads
- * BOX_TOKEN, and OpenCode reads OPENCODE_API_KEY. */
+ * Grok reads XAI_API_KEY, Gemini reads GEMINI_API_KEY, and Computer reads
+ * BOX_TOKEN. */
 function injectedEnvironment(cfg: AppConfig, driver: string): Map<string, string> {
   const environment = new Map<string, string>();
   if (driver === "grok" && cfg.xai?.key) environment.set("XAI_API_KEY", cfg.xai.key);
@@ -456,7 +449,6 @@ function injectedEnvironment(cfg: AppConfig, driver: string): Map<string, string
   if (driver === "openai-compat" && cfg.openaiCompat?.url)
     environment.set("OPENAI_COMPAT_URL", cfg.openaiCompat.url);
   if (driver === "boxAgent" && cfg.box?.token) environment.set("BOX_TOKEN", cfg.box.token);
-  if (driver === "opencodeGo" && cfg.opencodeGo?.apiKey) environment.set("OPENCODE_API_KEY", cfg.opencodeGo.apiKey);
   return environment;
 }
 
@@ -487,7 +479,7 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
     kimi: { driver: "kimiAgent" },
     droid: { driver: "droidAgent" },
     cursor: { driver: "cursorAgent" },
-    opencodeGo: { driver: "opencodeGo" },
+    muse: { driver: "museAgent" },
     computer: { driver: "boxAgent" },
     openaiCompat: { driver: "openai-compat" },
     qwen: { driver: "qwenAgent" },
@@ -505,6 +497,7 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
   const PRODUCT_FLEET_ADDITIONS = {
     cursor: { driver: "cursorAgent" },
     gemini: { driver: "geminiAgent" },
+    muse: { driver: "museAgent" },
     openaiCompat: { driver: "openai-compat" },
     ...CUSTOM_ONLY,
   } as const;
