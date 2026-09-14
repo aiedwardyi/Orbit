@@ -25,4 +25,29 @@ describe("ProviderMark", () => {
     const markup = renderToStaticMarkup(createElement(ProviderMark, { driverKind: "museAgent", size: 14 }));
     expect(markup).toContain("viewBox=\"4 4 16 16\"");
   });
+
+  it.each([
+    "grok",
+    "grokAgent",
+    "claudeAgent",
+    "codex",
+    "geminiAgent",
+    "antigravityAgent",
+    "museAgent",
+    "kimiAgent",
+    "droidAgent",
+    "cursorAgent",
+    "qwenAgent",
+    "hermesAgent",
+    "boxAgent",
+    "piAgent",
+  ])("pins the %s mark to its size so row overflow cannot squish it", (driverKind) => {
+    const markup = renderToStaticMarkup(createElement(ProviderMark, { driverKind, size: 14 }));
+    expect(markup).toContain("<svg");
+    expect(markup).toContain('width="14"');
+    expect(markup).toContain('height="14"');
+    expect(markup).toContain("shrink-0");
+    // Decorative beside a visible label: hidden from assistive technology.
+    expect(markup).toContain("aria-hidden");
+  });
 });
