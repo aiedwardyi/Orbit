@@ -257,6 +257,42 @@ describe("ModelPicker friends chip", () => {
     expect(html).toMatch(/data-model-effort[^>]*@max-4xl\/chathead:hidden/);
   });
 
+  it.each(["ledger", "midnight"])("keeps the accent dot and effort visible beside a long label under the %s skin", (skin) => {
+    const longLabel: InstanceInfo = {
+      instanceId: "grok",
+      driverKind: "grokAgent",
+      displayName: "Northwind",
+      snapshot: { state: "available" as const, authenticated: true, version: "1.0.0" },
+      models: {
+        default: "northwind-9-contributor",
+        options: [{ id: "northwind-9-contributor", label: "Northwind 9 Contributor Extended Edition" }],
+      },
+    };
+    // narrow header: truncation is CSS-driven, so the test pins the structure
+    // that guarantees it — only the label side may shrink.
+    const html = renderToStaticMarkup(
+      createElement("div", { "data-skin": skin, style: { width: 240 } },
+        createElement(
+          I18nProvider,
+          null,
+          createElement(ModelPickerControl, {
+            bot: { ...bot, modelSelection: { instanceId: "grok", model: "northwind-9-contributor", mode: "pinned", effort: "high" } },
+            store: {
+              state: { instances: [longLabel], selectedId: "bot-1" },
+              dispatch: () => undefined,
+              refreshInstances: async () => undefined,
+            },
+          }),
+        )),
+    );
+    expect(html).toContain(`data-skin="${skin}"`);
+    expect(html).toContain("Northwind 9 Contributor Extended Edition");
+    expect(html).toMatch(/min-w-0 max-w-\[160px\] truncate/);
+    expect(html).toMatch(/data-model-effort[^>]*shrink-0/);
+    expect(html).toContain("#8b929c");
+    expect(html).toContain(">high<");
+  });
+
   it("shows unresolved when automatic has no live model", () => {
     const html = markup({ instanceId: "", model: "", mode: "automatic" });
     expect(html).toContain(">unresolved<");

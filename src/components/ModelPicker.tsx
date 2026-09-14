@@ -172,17 +172,19 @@ export function ModelPickerControl({
       title={modelChipTitle({ mode: selection.mode, instance: active, model: selection.model, effort: selection.effort }, t) + (shortcutEnabled ? ` (${shortcut}+M)` : "")}
     >
       {active ? <ProviderMark driverKind={active.driverKind} size={14} /> : <Sparkles size={14} className="text-accent" />}
-      <span className={cn("max-w-[160px] truncate", !contained && active && "@max-4xl/chathead:hidden")}>
+      {/* Only the label side may shrink: a long name truncates in place while
+          the accent dot, effort, and chevron stay visible at any width. */}
+      <span className={cn("min-w-0 max-w-[160px] truncate", !contained && active && "@max-4xl/chathead:hidden")}>
         {modelChipText({ instance: active, model: selection.model, effort: selection.effort }, t)}
       </span>
       {chipEffort && (
-        <span data-model-effort className={cn("flex items-center gap-1", !contained && active && "@max-4xl/chathead:hidden")}>
+        <span data-model-effort className={cn("flex shrink-0 items-center gap-1", !contained && active && "@max-4xl/chathead:hidden")}>
           <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(active?.driverKind) }} />
           <span className="text-[12px] text-ink-secondary">{effortLabel(chipEffort)}</span>
         </span>
       )}
       {!contained && active && <span className="hidden max-w-[96px] truncate @max-4xl/chathead:inline">{active.displayName}</span>}
-      <ChevronDown size={14} className={cn("text-ink-secondary", !contained && active && "@max-4xl/chathead:hidden")} />
+      <ChevronDown size={14} className={cn("shrink-0 text-ink-secondary", !contained && active && "@max-4xl/chathead:hidden")} />
     </button>
   );
 
