@@ -247,4 +247,27 @@ describe("picker catalogs", () => {
       instanceId: "muse", model: "muse-spark-1.3", mode: "pinned",
     });
   });
+
+  it("offers Max above Extra High for Meta Muse and Contributor", () => {
+    const instance: InstanceInfo = {
+      instanceId: "muse", driverKind: "museAgent", displayName: "Meta Muse", snapshot: { state: "available" },
+      models: {
+        default: "muse-spark-1.3",
+        options: [
+          { id: "muse-spark-1.3", label: "Meta Muse 1.3" },
+          { id: "muse-spark-1.3-contributor", label: "Meta Muse 1.3 Contributor" },
+        ],
+      },
+      capabilities: { effortLevels: ["low", "medium", "high", "xhigh", "max"] },
+    };
+    const rows = pickerRows([instance], { instanceId: "muse", model: "muse-spark-1.3" });
+    const row = rows[0]!;
+    for (const cell of row.cells) {
+      expect(pickerEfforts(row, cell).map((option) => option.id)).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    }
+    for (const model of ["muse-spark-1.3", "muse-spark-1.3-contributor"] as const) {
+      const current = { instanceId: "muse", model, mode: "pinned" as const, effort: "xhigh" as const };
+      expect(movePicker(rows, current, "ArrowRight")).toEqual({ ...current, effort: "max" });
+    }
+  });
 });

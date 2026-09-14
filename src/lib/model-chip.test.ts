@@ -218,6 +218,28 @@ describe("chipEffortLabel", () => {
     expect(chipEffortLabel("high", tko)).toBe("높음");
   });
 
+  it("shows Max for Meta Muse in English and Korean", () => {
+    const muse = {
+      displayName: "Meta Muse",
+      models: {
+        default: "muse-spark-1.3",
+        options: [
+          { id: "muse-spark-1.3", label: "Meta Muse 1.3" },
+          { id: "muse-spark-1.3-contributor", label: "Meta Muse 1.3 Contributor" },
+        ],
+      },
+    };
+    const tko = (
+      key: Parameters<typeof translate>[1],
+      vars?: Record<string, string | number>,
+    ) => translate("ko", key, vars);
+    expect(chipEffortLabel("max", tko)).toBe("최대");
+    for (const model of ["muse-spark-1.3", "muse-spark-1.3-contributor"] as const) {
+      expect(modelChipTitle({ mode: "pinned", instance: muse, model, effort: "max" }, t)).toContain("· Max");
+      expect(modelChipTitle({ mode: "pinned", instance: muse, model, effort: "max" }, tko)).toContain("최대");
+    }
+  });
+
   it("passes unknown ids through with a leading capital", () => {
     expect(chipEffortLabel("turbo", t)).toBe("Turbo");
   });

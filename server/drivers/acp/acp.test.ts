@@ -1283,6 +1283,30 @@ describe("ACP turns (fake CLI)", () => {
     expect(JSON.parse(readFileSync(without, "utf8")).argv).not.toContain("--reasoning-effort");
   });
 
+  it("declares Max for Muse and sends it as ultra", async () => {
+    process.env.META_API_KEY = "meta-key";
+    await create(MuseAgentDriver);
+    expect(instance.adapter.capabilities.effortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
+
+    for (const [index, model] of ["muse-spark-1.3", "muse-spark-1.3-contributor"].entries()) {
+      const dump = join(scratch, `muse-max-${index}.json`);
+      await create(MuseAgentDriver);
+      process.env.FAKE_ACP_DUMP = dump;
+      await instance.adapter.sendTurn({ threadId: "t-muse-max", text: "hi", model, effort: "max" });
+      await recorder.until((e) => e.type === "turn.completed");
+      const seen = JSON.parse(readFileSync(dump, "utf8"));
+      expect(seen.argv).toContain("--reasoning-effort");
+      expect(seen.argv[seen.argv.indexOf("--reasoning-effort") + 1]).toBe("ultra");
+    }
+    const keptDump = join(scratch, "muse-xhigh.json");
+    await create(MuseAgentDriver);
+    process.env.FAKE_ACP_DUMP = keptDump;
+    await instance.adapter.sendTurn({ threadId: "t-muse-xhigh", text: "hi", model: "muse-spark-1.3", effort: "xhigh" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const kept = JSON.parse(readFileSync(keptDump, "utf8"));
+    expect(kept.argv[kept.argv.indexOf("--reasoning-effort") + 1]).toBe("xhigh");
+  });
+
   it("puts Grok -m after agent so ACP stdio binds the local slug", async () => {
     const dump = join(scratch, "grok-argv-order.json");
     await create(GrokAgentDriver);
