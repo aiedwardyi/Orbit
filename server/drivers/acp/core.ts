@@ -377,43 +377,59 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         const turnId = newId();
         const cwd = turn.cwd ?? config.workspace ?? homedir();
         const env = childEnv(LOCAL_HOST_KEY_ENVS);
-        if (
-          support.requireAuthenticationBeforeSpawn
-          && !skipSubscriptionAuthForLocalInject(turn.model)
-          && !(await support.isAuthenticated(env, config))
-        ) {
-          emit({ ...base(threadId, turnId), type: "turn.started" });
-          emit({ ...base(threadId, turnId), type: "runtime.error", message: support.loginNote, setup: true });
-          emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "auth_required", cost: null });
-          return { turnId };
-        }
-        const resolvedModel = support.resolveTurnModel?.(turn.model, env);
-        support.applyTurnEnv?.(env, { model: resolvedModel, requestedModel: turn.model, approval: turn.approval, cwd });
-        const allowed = new Set(support.credentialEnv ?? []);
-        for (const key of LOCAL_HOST_KEY_ENVS) {
-          if (!allowed.has(key)) delete env[key];
-        }
-        const cliTurn =
-          resolvedModel !== undefined && resolvedModel !== turn.model
-            ? { ...turn, model: resolvedModel }
-            : turn;
-        // A Linux child behind the wsl wrapper cannot use Windows paths, so
-        // the session params (not the local spawn, which stays Windows-side)
-        // cross translated when the driver opts in. toWslPath rewrites only
-        // drive-letter and wsl$ paths, so POSIX values pass through even
-        // where the flag is on — off-Windows this changes nothing for real
-        // paths.
-        const sessionPaths = support.wslPathTranslation === true
-          ? wslSessionPaths(cwd, acpMcpServers(turn))
-          : { cwd, servers: acpMcpServers(turn) };
-        const sessionCwd = sessionPaths.cwd;
-        const mcpServers = sessionPaths.servers;
-
-        // Turns can precede any snapshot() (startup routines, API-driven
-        // turns), and the auth gate above never probes — without this the
-        // first such turn on win32 would spawn the bare CLI that only
-        // exists inside WSL.
-        await ensureCli(env);
+        // Reserve before the first await: two concurrent first turns would
+        // both pass the guard, spawn twice, and the second active.set would
+        // orphan the first turn's controls. The real entry after spawn
+        // replaces this placeholder; the gap between is synchronous, and
+        // every early exit below releases it.
+        active.set(threadId, { stop: () => {}, steer: async () => false, interrupt: () => {}, turnId, asks: new Map() });
+        // The pre-spawn section runs as one unit so the reservation above is
+        // released on every early exit; the sync gap between it and the real
+        // entry below admits no interleaving, and only our own turnId is
+        // ever released.
+        const prelude = await (async () => {
+          try {
+            if (
+              support.requireAuthenticationBeforeSpawn
+              && !skipSubscriptionAuthForLocalInject(turn.model)
+              && !(await support.isAuthenticated(env, config))
+            ) {
+              emit({ ...base(threadId, turnId), type: "turn.started" });
+              emit({ ...base(threadId, turnId), type: "runtime.error", message: support.loginNote, setup: true });
+              emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "auth_required", cost: null });
+              return { early: true as const };
+            }
+            const resolvedModel = support.resolveTurnModel?.(turn.model, env);
+            support.applyTurnEnv?.(env, { model: resolvedModel, requestedModel: turn.model, approval: turn.approval, cwd });
+            const allowed = new Set(support.credentialEnv ?? []);
+            for (const key of LOCAL_HOST_KEY_ENVS) {
+              if (!allowed.has(key)) delete env[key];
+            }
+            const cliTurn =
+              resolvedModel !== undefined && resolvedModel !== turn.model
+                ? { ...turn, model: resolvedModel }
+                : turn;
+            // A Linux child behind the wsl wrapper cannot use Windows paths, so
+            // the session params (not the local spawn, which stays Windows-side)
+            // cross translated when the driver opts in. toWslPath rewrites only
+            // drive-letter and wsl$ paths, so POSIX values pass through even
+            // where the flag is on — off-Windows this changes nothing for real
+            // paths.
+            const sessionPaths = support.wslPathTranslation === true
+              ? wslSessionPaths(cwd, acpMcpServers(turn))
+              : { cwd, servers: acpMcpServers(turn) };
+            // Turns can precede any snapshot() (startup routines, API-driven
+            // turns), and the auth gate above never probes — without this the
+            // first such turn on win32 would spawn the bare CLI that only
+            // exists inside WSL.
+            await ensureCli(env);
+            return { early: false as const, cliTurn, sessionCwd: sessionPaths.cwd, mcpServers: sessionPaths.servers };
+          } finally {
+            if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
+          }
+        })();
+        if (prelude.early) return { turnId };
+        const { cliTurn, sessionCwd, mcpServers } = prelude;
         const child = spawnCli(effectiveCli(), support.spawnArgs(config, cliTurn), {
           cwd,
           env,

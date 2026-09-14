@@ -248,6 +248,18 @@ describe("antigravityRateLimitWindows", () => {
     ]);
   });
 
+  it("keeps sibling quota data beside a decoy response record", () => {
+    expect(
+      antigravityRateLimitWindows(
+        {
+          response: { note: "not an envelope" },
+          "gemini-5h": { remaining_fraction: 0.5, reset_in_seconds: 60 },
+        },
+        now,
+      ),
+    ).toEqual([{ id: "five_hour", usedPercent: 50, resetsAt: now + 60_000, windowMinutes: 300 }]);
+  });
+
   it("drops buckets without a fill level and tolerates junk", () => {
     expect(
       antigravityRateLimitWindows({ "gemini-weekly": { reset_in_seconds: 60 }, "gemini-5h": { remaining_fraction: "0.5" } }, now),

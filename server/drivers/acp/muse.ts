@@ -8,6 +8,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { ModelCatalog, ProviderErrorCode } from "../../contracts.ts";
+import { augmentedPath } from "../../env-path.ts";
 import { createAcpDriver, type AcpSupport } from "./core.ts";
 
 export const STATIC_MUSE_MODELS: ModelCatalog = {
@@ -68,18 +69,29 @@ export function museWslFallbackCli(cli: string): string | null {
   return /^\s*wsl(\.exe)?(\s|$)/i.test(cli) ? null : `wsl ${cli.trim()}`;
 }
 
+/** Absolute wsl.exe: a GUI-launched process can inherit a PATH without
+ * System32, in which case no PATH search — augmented or otherwise — finds
+ * it. Off win32 the name is left bare; the spawn fails and reads as logged
+ * out, same as before. */
+function wslExePath(): string {
+  return process.platform === "win32" ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "wsl.exe") : "wsl.exe";
+}
+
 /** Probe the WSL-side login on win32. wsl.exe forwards almost nothing from
  * the Windows environment, so the Linux `muse` process reads the Linux
  * home — where a WSL-side `muse login` wrote auth.json — while orbit's own
  * check reads the Windows HOME. Exit 0 from `test -f` is the whole answer;
  * anything else (no WSL, cold-boot timeout, missing file) reads as logged
- * out. Sync because the support shape is sync-invoked and the snapshot path
- * already awaits it; the 10s bound caps a cold WSL boot. */
-export function probeWslMuseAuth(): boolean {
+ * out. The spawn env carries the augmented PATH (System32 first) rather
+ * than the inherited GUI one. Sync because the support shape is
+ * sync-invoked and the snapshot path already awaits it; the 10s bound caps
+ * a cold WSL boot. */
+export function probeWslMuseAuth(env: NodeJS.ProcessEnv = { ...process.env, PATH: augmentedPath() }): boolean {
   try {
-    execFileSync("wsl.exe", ["sh", "-c", 'test -f "${XDG_CONFIG_HOME:-$HOME/.config}/muse/auth.json"'], {
+    execFileSync(wslExePath(), ["sh", "-c", 'test -f "${XDG_CONFIG_HOME:-$HOME/.config}/muse/auth.json"'], {
       stdio: "ignore",
       timeout: 10_000,
+      env,
     });
     return true;
   } catch {
@@ -92,16 +104,17 @@ export function probeWslMuseAuth(): boolean {
 export function museIsAuthenticated(
   env: Record<string, string | undefined>,
   _config?: unknown,
-  overrides?: { platform?: NodeJS.Platform; probeWslAuth?: () => boolean },
+  overrides?: { platform?: NodeJS.Platform; probeWslAuth?: (probeEnv: NodeJS.ProcessEnv) => boolean },
 ): boolean {
   if (nonBlank(env.META_API_KEY)) return true;
   // On win32 the engine is a Linux process: only the key and the WSL-side
   // login count. A Windows-side auth.json can never satisfy it, so it is
   // never accepted there — a stale copy would otherwise read as signed in
-  // while every turn fails.
+  // while every turn fails. The probe inherits the augmented PATH, not the
+  // possibly System32-less GUI one.
   if ((overrides?.platform ?? process.platform) === "win32") {
     try {
-      return (overrides?.probeWslAuth ?? probeWslMuseAuth)();
+      return (overrides?.probeWslAuth ?? probeWslMuseAuth)({ ...env, PATH: augmentedPath() });
     } catch {
       return false;
     }

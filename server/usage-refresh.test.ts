@@ -340,6 +340,47 @@ describe("usage refresh route result", () => {
     expect(result.report?.windows.map((window) => window.usedPercent)).toEqual([42, 19]);
   });
 
+  it("never replays a grant after an ambiguous transport failure", async () => {
+    const seen: string[] = [];
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      read: async () => JSON.stringify({ claudeAiOauth: { accessToken: "stale-access", refreshToken: "stored-refresh" } }),
+      request: async (url) => {
+        const target = String(url);
+        if (target.includes("/oauth/token")) {
+          seen.push(target);
+          if (target.startsWith("https://console.anthropic.com")) throw new Error("connection reset");
+          return Response.json({ access_token: "fresh-access" });
+        }
+        return Response.json({ error: "expired" }, { status: 401 });
+      },
+    });
+    const report = { windows: [{ id: "five_hour", usedPercent: 12, resetsAt: null }], observedAt: reset };
+    const result = await refresh("claudeAgent", { instanceId: "claude" }, report);
+    // The first endpoint may already have rotated the grant: retrying it on
+    // the fallback could come back invalid_grant and read as signed out.
+    expect(seen).toEqual(["https://console.anthropic.com/v1/oauth/token"]);
+    expect(result.report).toEqual(report);
+    expect(result.error).toBe("Could not refresh Claude limits");
+  });
+
+  it("treats a failed credential reread as transient, not signed out", async () => {
+    let reads = 0;
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      read: async () => {
+        reads++;
+        if (reads > 1) throw new Error("file busy");
+        return JSON.stringify({ claudeAiOauth: { accessToken: "stale-access", refreshToken: "stored-refresh" } });
+      },
+      request: async () => Response.json({ error: "expired" }, { status: 401 }),
+    });
+    const report = { windows: [{ id: "five_hour", usedPercent: 12, resetsAt: null }], observedAt: reset };
+    const result = await refresh("claudeAgent", { instanceId: "claude" }, report);
+    expect(result.report).toEqual(report);
+    expect(result.error).toBe("Could not refresh Claude limits");
+  });
+
   it("sends a 403 straight to sign-in without burning a mint round-trip", async () => {
     let tokenCalls = 0;
     const refresh = createUsageRefresh({

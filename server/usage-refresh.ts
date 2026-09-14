@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { homedir } from "node:os";
@@ -7,9 +7,10 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { z } from "zod";
 
+import { writeFileAtomic } from "./atomic.ts";
+import type { RateLimitWindow } from "./contracts.ts";
 import { acpChildEnv } from "./drivers/acp/core.ts";
 import { grokSupport } from "./drivers/acp/grok.ts";
-import type { RateLimitWindow } from "./contracts.ts";
 import { antigravityRateLimitWindows, codexRateLimitWindows, grokRateLimitWindows, museRateLimitWindows } from "./drivers/rate-limits.ts";
 import { augmentedPath } from "./env-path.ts";
 import { killCliTree, spawnCli } from "./procs.ts";
@@ -300,13 +301,15 @@ const oauthErrorBody = z.object({ error: z.string().optional() }).passthrough();
  * instead of demanding a re-login. Other 4xx (`invalid_request`, an
  * unsupported grant shape, another client/server mismatch) and an
  * unparseable body stay transient: the stored grant may still be valid, so
- * they must never read as a logout. A 404 moves to the next endpoint (host
- * migration); other statuses do not. */
+ * they must never read as a logout. The next endpoint is tried only on 404,
+ * which proves this host never saw the grant (host migration). Any other
+ * outcome may already have consumed and rotated it server-side, so
+ * replaying the same grant elsewhere is forbidden: a lost rotation would
+ * come back `invalid_grant` and read as a false sign-out. */
 async function refreshClaudeOauth(
   request: typeof fetch,
   refreshToken: string,
 ): Promise<z.infer<typeof claudeRefreshAnswer>> {
-  let transient: unknown = null;
   for (const endpoint of CLAUDE_TOKEN_ENDPOINTS) {
     let response: Response;
     try {
@@ -318,31 +321,20 @@ async function refreshClaudeOauth(
         signal: AbortSignal.timeout(15_000),
       });
     } catch (error) {
-      transient = error;
-      continue;
+      throw error instanceof Error ? error : new Error("refresh");
     }
+    if (response.status === 404) continue;
     const body: unknown = await response.json().catch(() => null);
-    if (response.status === 404) {
-      transient = new Error("refresh");
-      continue;
-    }
     if (response.status === 400 || response.status === 401 || response.status === 403) {
       if (oauthErrorBody.safeParse(body).data?.error === "invalid_grant") throw new Error("signin");
-      transient = new Error("refresh");
-      continue;
+      throw new Error("refresh");
     }
-    if (!response.ok) {
-      transient = new Error("refresh");
-      continue;
-    }
+    if (!response.ok) throw new Error("refresh");
     const parsed = claudeRefreshAnswer.safeParse(body);
-    if (!parsed.success) {
-      transient = new Error("refresh");
-      continue;
-    }
+    if (!parsed.success) throw new Error("refresh");
     return parsed.data;
   }
-  throw transient instanceof Error ? transient : new Error("refresh");
+  throw new Error("refresh");
 }
 
 /** Write the minted tokens back to .credentials.json in the shape the CLI
@@ -479,7 +471,12 @@ async function readClaudeFileUsage(deps: ClaudeFileDeps): Promise<Response> {
           throw error;
         }
       }
-      throw exhausted instanceof Error ? exhausted : new Error("signin");
+      // No grant was ever tested when the reread itself failed (file busy,
+      // mid-replace): that is transient, never proof the user signed out.
+      // A reread that parses but holds no grant, or an invalid_grant on a
+      // tested one, means sign-in.
+      if (exhausted instanceof Error) throw exhausted;
+      throw new Error(reread ? "signin" : "refresh");
     });
   }
   return response;
@@ -498,7 +495,10 @@ export function createUsageRefresh(deps: {
 } = {}) {
   const request = deps.request ?? fetch;
   const read = deps.read ?? ((path: string) => readFile(path, "utf8"));
-  const write = deps.write ?? ((path: string, content: string) => writeFile(path, content, { mode: 0o600 }));
+  // Atomic by default: a torn write would leave half-written JSON that the
+  // next read treats as a missing login. The async wrapper turns the sync
+  // helper's throws into rejections persistClaudeOauth already observes.
+  const write = deps.write ?? (async (path: string, content: string) => { writeFileAtomic(path, content, { mode: 0o600 }); });
   const credentialLocks = new Map<string, Promise<unknown>>();
   const mintedByPath = new Map<string, { accessToken: string; refreshToken: string }>();
   const clock = deps.now ?? Date.now;

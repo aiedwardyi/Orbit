@@ -97,9 +97,13 @@ export function grokRateLimitWindows(payload: unknown): RateLimitWindow[] {
  * so each id keeps the most constrained pool — the binding constraint. */
 export function antigravityRateLimitWindows(payload: unknown, now = Date.now()): RateLimitWindow[] {
   // Some transports wrap the message in a `response` envelope (seen live on
-  // the quota-summary path); bare Connect-JSON bodies have no such key, so
-  // unwrapping is a no-op for them.
-  const body = isRecord(payload) && isRecord(payload.response) ? payload.response : payload;
+  // the quota-summary path). Unwrap only a real quota envelope — groups or
+  // userStatus inside — because a bare payload can carry its own
+  // record-valued `response` field, and replacing the payload with it would
+  // discard valid sibling quota data.
+  const envelope = isRecord(payload) ? payload.response : undefined;
+  const body =
+    isRecord(envelope) && (Array.isArray(envelope.groups) || isRecord(envelope.userStatus)) ? envelope : payload;
   const classify = (name: string): { id: string; windowMinutes: number } | null => {
     const text = name.toLowerCase();
     if (/weekly|7\s*d|seven[\s_-]?day/.test(text)) return { id: "seven_day", windowMinutes: SEVEN_DAYS };

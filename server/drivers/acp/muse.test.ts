@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { MuseAgentDriver, STATIC_MUSE_MODELS, classifyMuseError, museDefaultCli, museIsAuthenticated, museSignInCommand, museWslFallbackCli, withWslKeySharing } from "./muse.ts";
 import { BUILT_IN_DRIVERS } from "../builtIn.ts";
-import { resolveCliSpawn } from "../../env-path.ts";
+import { augmentedPath, resolveCliSpawn } from "../../env-path.ts";
 
 describe("Meta Muse driver catalog", () => {
   it("serves exactly the two Meta Muse models with the required labels", () => {
@@ -56,6 +56,24 @@ describe("Meta Muse driver catalog", () => {
         throw new Error("wsl missing");
       },
     })).toBe(false);
+  });
+
+  it("hands the WSL auth probe the augmented PATH, not the bare GUI one", () => {
+    let seen: NodeJS.ProcessEnv | undefined;
+    const env = { PATH: "/gui/bin", HOME: "/tmp/win-home" };
+    expect(
+      museIsAuthenticated(env, undefined, {
+        platform: "win32",
+        probeWslAuth: (probeEnv) => {
+          seen = probeEnv;
+          return true;
+        },
+      }),
+    ).toBe(true);
+    // System32 (and the rest of the augmented PATH) rides along so wsl.exe
+    // resolves; the caller's own entries survive underneath it.
+    expect(seen?.PATH).toBe(augmentedPath());
+    expect(seen?.HOME).toBe("/tmp/win-home");
   });
 
   it("never accepts a Windows-side login file for the WSL process", () => {

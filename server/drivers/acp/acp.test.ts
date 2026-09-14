@@ -1002,6 +1002,15 @@ describe("ACP turns (fake CLI)", () => {
     await recorder.until((e) => e.type === "turn.completed");
   });
 
+  it("rejects a second turn that arrives before the first spawns", async () => {
+    await create(GeminiAgentDriver);
+    const first = instance.adapter.sendTurn({ threadId: "t-race", text: "one" });
+    await expect(instance.adapter.sendTurn({ threadId: "t-race", text: "two" })).rejects.toThrow(/already running/);
+    await first;
+    const done = await recorder.until((e) => e.type === "turn.completed");
+    expect(done).toMatchObject({ ok: true });
+  });
+
   it("interrupt settles a hung turn as cancelled", async () => {
     await create(GrokAgentDriver, "hang");
     await instance.adapter.sendTurn({ threadId: "t-int", text: "go" });
