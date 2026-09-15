@@ -229,11 +229,10 @@ const support: AcpSupport = {
   transformEnv: (env) => {
     if (process.platform === "win32") withWslKeySharing(env);
   },
-  spawnArgs: (_config, turn) => [
-    "serve",
-    ...(turn.model ? ["--model", turn.model] : []),
-    ...(turn.effort ? ["--reasoning-effort", turn.effort === "max" ? "ultra" : turn.effort] : []),
-  ],
+  // `muse serve` takes no --model/--reasoning-effort (1.2.1 serve --help:
+  // sandbox + --no-session-log only); they exit 2. Model/effort ride MSP
+  // session/start + turn/start, unreachable from this ACP core: drop flags.
+  spawnArgs: () => ["serve"],
   credentialEnv: ["META_API_KEY"],
   // The harness advertises no ACP authMethods (verified against live `muse
   // serve` initialize), so there is no method to pick: the META_API_KEY /
