@@ -127,6 +127,7 @@ export const en = {
   "createBot.placeholder": "For example: Keep a weekly competitor brief with links and a short list of decisions I need to make.",
   "createBot.cancel": "Cancel",
   "createBot.start": "Start chatting",
+  "createBot.adding": "Adding bot…",
 
   "chrome.openBotList": "Open bot list",
   "chrome.connecting": "Connecting to the bot server…",
@@ -989,6 +990,7 @@ export const ko = {
   "createBot.placeholder": "예: 매주 경쟁사 브리핑을 링크와 함께 정리하고, 내가 결정할 일을 짧게 적어 주세요.",
   "createBot.cancel": "취소",
   "createBot.start": "대화 시작",
+  "createBot.adding": "봇 추가 중…",
 
   "chrome.openBotList": "봇 목록 열기",
   "chrome.connecting": "봇 서버에 연결하는 중…",

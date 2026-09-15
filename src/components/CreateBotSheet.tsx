@@ -3,12 +3,13 @@ import { FolderOpen, Loader2 } from "lucide-react";
 
 import { BOT_PROFILE_LIMITS } from "../../shared/bot-profile";
 import { api, useStore, type Bot } from "@/state/store";
+import { defaultModelSelection } from "@/lib/default-engine";
 import { OrbitMark } from "./OrbitMark";
 import { useI18n } from "@/lib/i18n";
 
 export function CreateBotSheet({ required }: { required: boolean }) {
   const { t } = useI18n();
-  const { dispatch } = useStore();
+  const { state, dispatch } = useStore();
   const [job, setJob] = useState("");
   const [folder, setFolder] = useState("");
   const [saving, setSaving] = useState(false);
@@ -67,7 +68,16 @@ export function CreateBotSheet({ required }: { required: boolean }) {
     setError(null);
     try {
       const trimmedFolder = folder.trim();
-      const payload = { job: normalized, cwd: trimmedFolder || undefined };
+      // The available-engine snapshot is already on hand: send the resolved
+      // default explicitly so the server skips full provider discovery
+      // (checkedModelSelection does no catalog/health I/O). With no usable
+      // engine the field stays out and the server path is unchanged.
+      const selection = defaultModelSelection(state.instances);
+      const payload = {
+        job: normalized,
+        cwd: trimmedFolder || undefined,
+        modelSelection: selection ?? undefined,
+      };
       const result: { bot: Bot } = await api("/api/bots", {
         method: "POST",
         body: JSON.stringify(payload),
@@ -121,6 +131,14 @@ export function CreateBotSheet({ required }: { required: boolean }) {
             value={job}
             maxLength={BOT_PROFILE_LIMITS.description}
             onChange={(event) => setJob(event.target.value)}
+            onKeyDown={(event) => {
+              // Enter submits (Shift+Enter keeps the newline); an IME
+              // confirm-Enter must not submit the half-composed edit.
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                void submit();
+              }
+            }}
             placeholder={t("createBot.placeholder")}
             className="min-h-[150px] w-full resize-y rounded-xl border border-hairline/50 bg-inset px-4 py-3 text-[15px] leading-relaxed text-ink placeholder:text-ink-secondary focus:border-accent/70 focus:outline-none"
           />
@@ -177,7 +195,7 @@ export function CreateBotSheet({ required }: { required: boolean }) {
               className="flex min-w-[140px] items-center justify-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-[14px] font-semibold text-accent-ink hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {saving && <Loader2 size={15} className="animate-spin" />}
-              {t("createBot.start")}
+              {saving ? t("createBot.adding") : t("createBot.start")}
             </button>
           </div>
         </form>
