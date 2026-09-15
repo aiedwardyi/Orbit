@@ -517,12 +517,12 @@ describe("sidebar create group and bot/room chrome", () => {
   it("wires those phrases into Sidebar instead of hardcoded English", () => {
     expect(sidebar).not.toContain("NewRoomPanel");
     expect(sidebar).not.toContain('"chrome.createChannelOne"');
-    expect(groupWizard).toContain('t("groupWizard.createGroup")');
-    expect(groupWizard).toContain('t("groupWizard.useThisBot")');
+    expect(groupWizard).toContain('t("groupWizard.createGroupOne")');
+    expect(groupWizard).toContain('t("groupWizard.createGroupMany", { count: picked.size })');
     expect(groupWizard).toContain('t("groupWizard.addBot")');
+    expect(groupWizard).toContain('t("groupWizard.addAnother")');
     expect(groupWizard).toContain('t("groupWizard.connectAi")');
-    expect(groupWizard).not.toMatch(/>Create group</);
-    expect(groupWizard).not.toMatch(/>Use this bot</);
+    expect(groupWizard).not.toMatch(/>Create group ·/);
     expect(groupWizard).not.toMatch(/>Add bot</);
     expect(sidebar).toContain('t("chrome.duplicate")');
     expect(sidebar).toContain('t("chrome.archive")');
