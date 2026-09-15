@@ -26,9 +26,20 @@ export function pickerRows(instances: InstanceInfo[], current: ModelSelection, p
   const ordered: Array<{ instance: InstanceInfo; label: string }> = ENGINES.flatMap(([kind, label]) => instances
     .filter((instance) => instance.driverKind === kind)
     .map((instance) => ({ instance, label })));
+  // Roster dedup by id: a duplicated entry must not fan out into repeated
+  // rows. First wins; distinct ids (two real accounts) still list twice.
+  const seen = new Set<string>();
+  const rows = ordered.filter((row) => {
+    if (seen.has(row.instance.instanceId)) return false;
+    seen.add(row.instance.instanceId);
+    return true;
+  });
   const other = instances.find((instance) => instance.instanceId === current.instanceId);
-  if (other && !ordered.some((row) => row.instance === other)) ordered.push({ instance: other, label: other.displayName });
-  return ordered.map(({ instance, label }) => {
+  if (other && !seen.has(other.instanceId)) {
+    seen.add(other.instanceId);
+    rows.push({ instance: other, label: other.displayName });
+  }
+  return rows.map(({ instance, label }) => {
     // Roster dedup: a repeated catalog id must not fan out into repeated
     // picker cells (3x Meta Muse + 2x Contributor from one engine). First
     // row wins so the card labels stay stable.

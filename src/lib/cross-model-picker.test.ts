@@ -186,6 +186,17 @@ describe("picker catalogs", () => {
     expect(rows[1]!.cells.map((cell) => cell.options[0]!.id)).toEqual(["auto", "gemini-3.1-pro-preview"]);
   });
 
+  it("collapses a duplicated roster entry to one row", () => {
+    const gemini = (): InstanceInfo => ({
+      instanceId: "gemini", driverKind: "geminiAgent", displayName: "Gemini API", snapshot: { state: "available" },
+      models: { default: "auto", options: [{ id: "auto", label: "Auto (recommended)" }] },
+    });
+    const rows = pickerRows([gemini(), gemini()], { instanceId: "gemini", model: "auto" });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.cells.map((cell) => cell.options[0]!.id)).toEqual(["auto"]);
+    expect(rows[0]!.cells.some((cell) => cell.offList)).toBe(false);
+  });
+
   it("collapses duplicate roster options to one cell per model", () => {
     const instance: InstanceInfo = {
       instanceId: "muse", driverKind: "museAgent", displayName: "Meta Muse", snapshot: { state: "available" },

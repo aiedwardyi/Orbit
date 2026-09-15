@@ -40,6 +40,7 @@ import { useManualCheck, useUpdaterState } from "@/lib/updater";
 import { cn } from "@/lib/cn";
 import { showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
 import { showSidebarDensityControls, showSidebarPhone, showSidebarRoutines, showSidebarTeachSkill } from "@/lib/friends-chrome";
+import { modelChipText } from "@/lib/model-chip";
 import { nextRename } from "@/lib/rename";
 import { downloadAllBots } from "@/lib/team-files";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
@@ -734,6 +735,10 @@ function BotListItem({
   // the visible branch, so a version switch changes the row with the chat
   const visible = visibleMessages(bot);
   const last = visible.at(-1);
+  const engine = state.instances.find((instance) => instance.instanceId === bot.modelSelection?.instanceId);
+  const modelLabel = engine && bot.modelSelection
+    ? modelChipText({ instance: engine, model: bot.modelSelection.model, effort: bot.modelSelection.effort }, t)
+    : null;
   const rowClass = cn(
     "flex w-full items-center rounded-xl border text-left",
     iconOnly
@@ -783,7 +788,9 @@ function BotListItem({
                 <Crown size={11} /> {t("chrome.chiefOfStaff")}
               </span>
             )}
-            {bot.chiefOfStaff && preview(bot, showToolCalls) && <span className="shrink-0 text-ink-secondary/60">·</span>}
+            {bot.chiefOfStaff && (modelLabel || preview(bot, showToolCalls)) && <span className="shrink-0 text-ink-secondary/60">·</span>}
+            {modelLabel && <span className="max-w-[50%] shrink-0 truncate">{modelLabel}</span>}
+            {modelLabel && preview(bot, showToolCalls) && <span className="shrink-0 text-ink-secondary/60">·</span>}
             <span className="truncate">{preview(bot, showToolCalls)}</span>
           </span>
           {bot.unread && (
