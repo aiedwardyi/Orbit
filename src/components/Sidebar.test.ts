@@ -376,8 +376,8 @@ describe("Sidebar bot second line", () => {
     };
     const { host, root } = await renderSidebar({ bots: [worker], groups: [] });
     try {
-      await vi.waitFor(() => expect(host.textContent).toContain("Working"), { timeout: 5000 });
-      expect(host.textContent).toContain("Meta Muse 1.3");
+      await vi.waitFor(() => expect(host.textContent).toContain("Meta Muse 1.3"), { timeout: 5000 });
+      expect(host.textContent).toContain("Working");
       expect(host.textContent).not.toContain("Giraffe preview sentence");
     } finally {
       await act(async () => root.unmount());

@@ -20,12 +20,12 @@ export function uuidv7(nowMs = Date.now(), rand = Math.random): string {
 }
 
 export class MspRpcError extends Error {
-  constructor(
-    message: string,
-    readonly code?: number,
-    readonly data?: unknown,
-  ) {
+  readonly code?: number;
+  readonly data?: unknown;
+  constructor(message: string, code?: number, data?: unknown) {
     super(message);
+    this.code = code;
+    this.data = data;
   }
 }
 
