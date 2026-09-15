@@ -349,7 +349,16 @@ export function ModelPickerControl({
 
   return (
     <div className={cn(contained ? "w-full" : "relative", className)}>
-      {contained ? <div className="flex items-center justify-between gap-4">{label}{trigger}</div> : trigger}
+      {contained ? (
+        // Stacked like the neighboring card sections (Project folder,
+        // Connected apps): label and description above, the model control
+        // in a full-width row below. The side-by-side row squeezed the
+        // label into a ~60px column next to the nowrap chip.
+        <div className="flex flex-col gap-3">
+          {label}
+          <div className="flex">{trigger}</div>
+        </div>
+      ) : trigger}
       {open && (globalThis.document ? createPortal(dialog, document.body) : dialog)}
     </div>
   );

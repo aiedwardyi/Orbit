@@ -253,4 +253,32 @@ describe("SettingsPanel still owns folder and usage", () => {
     expect(html).not.toMatch(/you must configure where tools run/i);
     expect(html).not.toContain("Where this bot runs its shell and file tools.");
   });
+
+  it("stacks the Model label above a full-width model control", async () => {
+    const { SettingsPanel } = await import("./SettingsPanel");
+    const { I18nProvider } = await import("@/lib/i18n");
+    const html = renderToStaticMarkup(
+      createElement(
+        I18nProvider,
+        null,
+        createElement(SettingsPanel, { bot: botWithUsage }),
+      ),
+    );
+    const description = "Stays on the active engine by default, or choose a specific one";
+    const descIdx = html.indexOf(description);
+    expect(descIdx).toBeGreaterThan(-1);
+    // the Model card is the padded card block holding the description
+    const cardIdx = html.lastIndexOf("rounded-xl bg-card p-4", descIdx);
+    expect(cardIdx).toBeGreaterThan(-1);
+    const chipIdx = html.indexOf('aria-haspopup="dialog"', descIdx);
+    expect(chipIdx).toBeGreaterThan(descIdx);
+    const section = html.slice(cardIdx, chipIdx);
+    // stacked, not squeezed beside the nowrap chip
+    expect(section).toContain("flex flex-col gap-3");
+    expect(section).not.toContain("justify-between");
+    // the chip itself is untouched (same element, attribute order aside)
+    const chipClsIdx = html.indexOf("rounded-full border border-hairline/40", descIdx);
+    expect(chipClsIdx).toBeGreaterThan(descIdx);
+    expect(Math.abs(chipClsIdx - chipIdx)).toBeLessThan(600);
+  });
 });
