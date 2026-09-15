@@ -10,8 +10,10 @@ import { BotPickerList } from "./BotPickerList";
 import {
   botNameFromJob,
   groupCreatePayload,
-  isEngineConnected,
+  resolveWizardModel,
   suggestEngine,
+  wizardEngineOptions,
+  wizardModelOptions,
   type EnginePick,
 } from "@/lib/group-wizard";
 
@@ -25,7 +27,7 @@ interface NewRow {
   error: string | null;
 }
 
-const PREFERS = [["geminiAgent"], ["codex"]];
+const PREFERS = [["codex"], ["museAgent"]];
 let nextRowKey = 1;
 
 export function GroupWizard({ onClose }: { onClose: () => void }) {
@@ -70,7 +72,7 @@ export function GroupWizard({ onClose }: { onClose: () => void }) {
     try {
       const selection = {
         instanceId: pick.instance.instanceId,
-        model: row.model ?? pick.instance.models.default,
+        model: resolveWizardModel(pick.instance, row.model),
       };
       const result: { bot: Bot } = await api("/api/bots", {
         method: "POST",
@@ -231,10 +233,8 @@ function NewBotRow({
     : (suggestEngine(instances, preferKinds) ?? null);
   const preferKind = preferKinds[0]!;
   const showSubstituted = !!pick?.substituted && instances.some((i) => i.driverKind === preferKind);
-  const connected = instances.filter(isEngineConnected);
-  const engineOptions = pick && !connected.some((i) => i.instanceId === pick.instance.instanceId)
-    ? [pick.instance, ...connected]
-    : connected;
+  const engineOptions = wizardEngineOptions(instances, pick?.instance ?? null);
+  const model = pick ? resolveWizardModel(pick.instance, row.model) : null;
 
   return (
     <div className="mt-2 rounded-lg bg-raised/50 p-2.5">
@@ -269,11 +269,11 @@ function NewBotRow({
           <div className="mt-1.5 flex items-center gap-2 text-[12.5px] text-ink-secondary">
             <select
               aria-label={t("groupWizard.modelChange")}
-              value={row.model ?? pick.instance.models.default}
+              value={model ?? ""}
               onChange={(e) => onPatch({ model: e.target.value, instanceId: pick.instance.instanceId })}
               className="min-w-0 flex-1 rounded-lg bg-raised/70 px-2 py-1.5 text-[13px] text-ink"
             >
-              {pick.instance.models.options.map((o) => (
+              {wizardModelOptions(pick.instance).map((o) => (
                 <option key={o.id} value={o.id}>{o.label}</option>
               ))}
             </select>

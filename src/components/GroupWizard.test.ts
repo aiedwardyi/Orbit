@@ -15,8 +15,8 @@ let apiImpl: (path: string, init?: RequestInit) => Promise<{ bot: Pick<Bot, "id"
 // SAFETY: picker rows read only id/name/hidden/modelSelection; the full Bot
 // contract is server-owned and untouched by these rows.
 const defaultBots = [
-  { id: "b1", name: "Ada", hidden: false, modelSelection: { instanceId: "gem-1", model: "m" } },
-  { id: "b2", name: "Bo", hidden: false, modelSelection: { instanceId: "codex-1", model: "c" } },
+  { id: "b1", name: "Ada", hidden: false, modelSelection: { instanceId: "codex-1", model: "m" } },
+  { id: "b2", name: "Bo", hidden: false, modelSelection: { instanceId: "muse-1", model: "c" } },
 ] as Bot[];
 let bots: Bot[] = [...defaultBots];
 
@@ -28,7 +28,22 @@ const engine = (instanceId: string, driverKind: string, displayName: string): In
   models: { default: `${instanceId}-model`, options: [{ id: `${instanceId}-model`, label: `${displayName} Model` }] },
 });
 
-let instances: InstanceInfo[] = [engine("gem-1", "geminiAgent", "Gemini"), engine("codex-1", "codex", "Codex")];
+/** Antigravity fixture with a catalog-shaped option list, including tiers the
+ * wizard must not offer (3.1-pro, 3.6/3.5, legacy customs). */
+const antigravity = (
+  instanceId: string,
+  displayName: string,
+  options: Array<{ id: string; label: string; custom?: boolean }>,
+  modelDefault: string,
+): InstanceInfo => ({
+  instanceId,
+  driverKind: "antigravityAgent",
+  displayName,
+  snapshot: { state: "available", authenticated: true },
+  models: { default: modelDefault, options },
+});
+
+let instances: InstanceInfo[] = [engine("codex-1", "codex", "Codex"), engine("muse-1", "museAgent", "Meta Muse")];
 let botSeq = 0;
 
 vi.mock("@/state/store", async (importOriginal) => {
@@ -108,7 +123,7 @@ afterEach(() => {
   dispatched.length = 0;
   apiCalls.length = 0;
   bots = [...defaultBots];
-  instances = [engine("gem-1", "geminiAgent", "Gemini"), engine("codex-1", "codex", "Codex")];
+  instances = [engine("codex-1", "codex", "Codex"), engine("muse-1", "museAgent", "Meta Muse")];
   botSeq = 0;
   apiImpl = () => Promise.reject(new Error("unexpected api call"));
 });
@@ -199,7 +214,7 @@ describe("GroupWizard members", () => {
       expect(JSON.parse(String(apiCalls[0]!.init?.body))).toEqual({
         job: "review my code",
         name: "Review my code",
-        modelSelection: { instanceId: "gem-1", model: "gem-1-model" },
+        modelSelection: { instanceId: "codex-1", model: "codex-1-model" },
       });
       await act(async () => {
         button(host, "Add another").click();
@@ -207,7 +222,7 @@ describe("GroupWizard members", () => {
       // SAFETY: the selector targets only the row model dropdowns rendered above.
       const selects = [...host.querySelectorAll('select[aria-label="Change model"]')] as HTMLSelectElement[];
       expect(selects).toHaveLength(1);
-      expect(selects[0]!.value).toBe("codex-1-model");
+      expect(selects[0]!.value).toBe("muse-1-model");
       const [job2] = jobInputs(host);
       await act(async () => {
         const native = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
@@ -219,7 +234,7 @@ describe("GroupWizard members", () => {
       });
       await flush();
       expect(JSON.parse(String(apiCalls[1]!.init?.body))).toMatchObject({
-        modelSelection: { instanceId: "codex-1", model: "codex-1-model" },
+        modelSelection: { instanceId: "muse-1", model: "muse-1-model" },
       });
       expect(dispatched).toContainEqual(expect.objectContaining({ type: "botAdded" }));
       await act(async () => {
@@ -235,8 +250,8 @@ describe("GroupWizard members", () => {
 
   it("flags the substitute when the preferred engine is down", async () => {
     instances = [
-      { ...engine("gem-1", "geminiAgent", "Gemini"), snapshot: { state: "available", authenticated: false } },
-      engine("codex-1", "codex", "Codex"),
+      { ...engine("codex-1", "codex", "Codex"), snapshot: { state: "available", authenticated: false } },
+      engine("muse-1", "museAgent", "Meta Muse"),
     ];
     const { host, root } = await renderWizard();
     try {
@@ -244,7 +259,7 @@ describe("GroupWizard members", () => {
       await act(async () => {
         button(host, "+ New bot").click();
       });
-      expect(host.textContent).toContain("Gemini isn't connected");
+      expect(host.textContent).toContain("Codex isn't connected");
     } finally {
       await act(async () => {
         root.unmount();
@@ -322,16 +337,16 @@ describe("GroupWizard members", () => {
       });
       // SAFETY: the engine dropdown is the only select labelled Switch engine.
       const engineSelect = host.querySelector('select[aria-label="Switch engine"]') as HTMLSelectElement;
-      expect([...engineSelect.options].map((o) => o.value)).toEqual(["gem-1", "codex-1"]);
-      expect(engineSelect.value).toBe("gem-1");
+      expect([...engineSelect.options].map((o) => o.value)).toEqual(["codex-1", "muse-1"]);
+      expect(engineSelect.value).toBe("codex-1");
       await act(async () => {
         const native = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value")!.set!;
-        native.call(engineSelect, "codex-1");
+        native.call(engineSelect, "muse-1");
         engineSelect.dispatchEvent(new Event("change", { bubbles: true }));
       });
       // SAFETY: the selector targets only the row model dropdowns rendered above.
       const modelSelect = host.querySelector('select[aria-label="Change model"]') as HTMLSelectElement;
-      expect(modelSelect.value).toBe("codex-1-model");
+      expect(modelSelect.value).toBe("muse-1-model");
       const [job] = jobInputs(host);
       await act(async () => {
         const native = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
@@ -343,8 +358,84 @@ describe("GroupWizard members", () => {
       });
       await flush();
       expect(JSON.parse(String(apiCalls[0]!.init?.body))).toMatchObject({
-        modelSelection: { instanceId: "codex-1", model: "codex-1-model" },
+        modelSelection: { instanceId: "muse-1", model: "muse-1-model" },
       });
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+    }
+  });
+
+  it("offers only 3.8/3.7 tiers for an antigravity row and never blanks the model", async () => {
+    apiImpl = () => Promise.resolve({ bot: { id: `nb${++botSeq}`, name: "New bot" } });
+    instances = [
+      antigravity(
+        "ag-1",
+        "Antigravity",
+        [
+          { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash High" },
+          { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash Medium" },
+          { id: "gemini-3.7-flash-low", label: "Gemini 3.7 Flash Low" },
+          { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
+          { id: "gemini-3.6-flash-high", label: "Gemini 3.6 Flash High" },
+          { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash" },
+          { id: "legacy-custom", label: "Legacy custom", custom: true },
+        ],
+        "gemini-3.5-flash",
+      ),
+    ];
+    const { host, root } = await renderWizard();
+    try {
+      await toMembers(host);
+      await act(async () => {
+        button(host, "+ New bot").click();
+      });
+      // SAFETY: the selector targets only the row model dropdowns rendered above.
+      const modelSelect = host.querySelector('select[aria-label="Change model"]') as HTMLSelectElement;
+      expect([...modelSelect.options].map((o) => o.value)).toEqual([
+        "gemini-3.8-flash-high",
+        "gemini-3.8-flash-medium",
+        "gemini-3.7-flash-low",
+      ]);
+      // The engine default (3.5) is not offered, so the select resolves to
+      // the first offered tier instead of going blank.
+      expect(modelSelect.value).toBe("gemini-3.8-flash-high");
+      const [job] = jobInputs(host);
+      await act(async () => {
+        const native = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+        native.call(job, "summarize docs");
+        job!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () => {
+        button(host, "Add bot").click();
+      });
+      await flush();
+      expect(JSON.parse(String(apiCalls[0]!.init?.body))).toMatchObject({
+        modelSelection: { instanceId: "ag-1", model: "gemini-3.8-flash-high" },
+      });
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+    }
+  });
+
+  it("hides a connected retired engine from the engine dropdown", async () => {
+    instances = [
+      engine("codex-1", "codex", "Codex"),
+      engine("gem-1", "geminiAgent", "Gemini"),
+      engine("muse-1", "museAgent", "Meta Muse"),
+    ];
+    const { host, root } = await renderWizard();
+    try {
+      await toMembers(host);
+      await act(async () => {
+        button(host, "+ New bot").click();
+      });
+      // SAFETY: the engine dropdown is the only select labelled Switch engine.
+      const engineSelect = host.querySelector('select[aria-label="Switch engine"]') as HTMLSelectElement;
+      expect([...engineSelect.options].map((o) => o.value)).toEqual(["codex-1", "muse-1"]);
     } finally {
       await act(async () => {
         root.unmount();
