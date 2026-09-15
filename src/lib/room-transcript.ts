@@ -2,7 +2,7 @@
 // divider belongs. A room hides tool activity unless Show tool calls is on,
 // so clustering against the previous ITEM drops the label off a bot's first
 // visible line and the bubble reads as the previous speaker's.
-import { activityVisibleInChat, type TranscriptItem } from "./activity-runs";
+import { activityRunVisible, activityVisibleInChat, type TranscriptItem } from "./activity-runs";
 import type { Message } from "@/state/store";
 
 export interface RoomTranscriptOptions {
@@ -51,7 +51,7 @@ export function roomTranscriptRows(
     const first = item.kind === "run" ? item.messages[0] : item.message;
     const visible =
       item.kind === "run"
-        ? options.showToolCalls
+        ? activityRunVisible(item.messages, options.showToolCalls)
         : first.id !== options.emergingId && messageVisible(first, options.showToolCalls);
     if (!visible) return { visible, newDay: false, cluster: false };
     const newDay = !prev || new Date(prev.at).toDateString() !== new Date(first.at).toDateString();

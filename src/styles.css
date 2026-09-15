@@ -940,34 +940,34 @@
 }
 
 /* ── TUI Amber ─────────────────────────────────────────────────────────────
-   Black and yellow. Taxi / caution tape, not CRT gold. Ground is #000.
+   True black chrome. Gray ink. Solid yellow only on accent/selection.
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="tui-amber"] {
   --color-app: #000000;
-  --color-panel: #0a0a00;
-  --color-raised: #161600;
-  --color-raised-hover: #1e1e00;
-  --color-card: #101000;
+  --color-panel: #080808;
+  --color-raised: #141414;
+  --color-raised-hover: #1c1c1c;
+  --color-card: #0a0a0a;
   --color-inset: #000000;
-  --color-control: #161600;
-  --color-hairline: #3a3a00;
+  --color-control: #141414;
+  --color-hairline: #2a2a2a;
 
-  --color-ink: #ffd400;
-  --color-ink-secondary: #c9a800;
+  --color-ink: #c8c8c8;
+  --color-ink-secondary: #9a9a9a;
 
   --color-accent: #ffd400;
   --color-accent-border: #ffe44d;
-  --color-accent-text: #ffe44d;
+  --color-accent-text: #ffd400;
   --color-focus: #ffd400;
   --color-accent-ink: #000000;
-  --color-bubble-user: #161600;
+  --color-bubble-user: #141414;
 
-  --color-success: #ffe44d;
-  --color-danger: #ff5a5a;
+  --color-success: #c8c8c8;
+  --color-danger: #ff6b6b;
   --color-danger-ink: #000000;
-  --color-warning: #ffe44d;
-  --color-scrollbar: #3a3a00;
-  --color-maus-line: #c9a800;
+  --color-warning: #ffd400;
+  --color-scrollbar: #2a2a2a;
+  --color-maus-line: #9a9a9a;
 
   --font-sans: "Cascadia Mono", "Cascadia Code", "Consolas", "Malgun Gothic",
     ui-monospace, monospace;
@@ -1011,35 +1011,35 @@
   --radius-xl: 0px;
 }
 
-/* ── TUI Commander ─────────────────────────────────────────────────────────
-   Midnight Commander. Navy panels, gray ink, cyan only on selection.
+/* ── TUI Slate ─────────────────────────────────────────────────────────────
+   True black, cool gray ink, silver selection. No saturated hue.
    ───────────────────────────────────────────────────────────────────────── */
-[data-skin="tui-commander"] {
-  --color-app: #00005a;
-  --color-panel: #000070;
-  --color-raised: #000088;
-  --color-raised-hover: #0000a0;
-  --color-card: #000070;
-  --color-inset: #00004a;
-  --color-control: #000088;
-  --color-hairline: #005faf;
+[data-skin="tui-slate"] {
+  --color-app: #000000;
+  --color-panel: #0a0a0c;
+  --color-raised: #16161a;
+  --color-raised-hover: #1e1e24;
+  --color-card: #101014;
+  --color-inset: #000000;
+  --color-control: #16161a;
+  --color-hairline: #2e2e36;
 
-  --color-ink: #d0d0d0;
-  --color-ink-secondary: #a0a0c0;
+  --color-ink: #c4c4cc;
+  --color-ink-secondary: #8a8a94;
 
-  --color-accent: #00d7d7;
-  --color-accent-border: #5fffff;
-  --color-accent-text: #5fffff;
-  --color-focus: #00d7d7;
-  --color-accent-ink: #00005a;
-  --color-bubble-user: #000088;
+  --color-accent: #c8c8d0;
+  --color-accent-border: #d8d8e0;
+  --color-accent-text: #d8d8e0;
+  --color-focus: #c8c8d0;
+  --color-accent-ink: #000000;
+  --color-bubble-user: #16161a;
 
-  --color-success: #5fffff;
-  --color-danger: #ff8787;
-  --color-danger-ink: #00005a;
-  --color-warning: #ffd75f;
-  --color-scrollbar: #005faf;
-  --color-maus-line: #a0a0c0;
+  --color-success: #c4c4cc;
+  --color-danger: #ff6b6b;
+  --color-danger-ink: #000000;
+  --color-warning: #c8c8d0;
+  --color-scrollbar: #2e2e36;
+  --color-maus-line: #8a8a94;
 
   --font-sans: "Cascadia Mono", "Cascadia Code", "Consolas", "Malgun Gothic",
     ui-monospace, monospace;
@@ -1047,35 +1047,35 @@
   --radius-xl: 0px;
 }
 
-/* ── TUI VGA ───────────────────────────────────────────────────────────────
-   16-color VGA. Light gray body on black. Cyan is selection only, not ink.
+/* ── TUI Smoke ─────────────────────────────────────────────────────────────
+   True black, warm gray chrome. Distinct from Slate (cool) and TUI (cyan).
    ───────────────────────────────────────────────────────────────────────── */
-[data-skin="tui-vga"] {
+[data-skin="tui-smoke"] {
   --color-app: #000000;
-  --color-panel: #0c0c0c;
-  --color-raised: #1c1c1c;
-  --color-raised-hover: #2a2a2a;
-  --color-card: #141414;
+  --color-panel: #0c0b0a;
+  --color-raised: #181614;
+  --color-raised-hover: #201e1a;
+  --color-card: #12110f;
   --color-inset: #000000;
-  --color-control: #1c1c1c;
-  --color-hairline: #555555;
+  --color-control: #181614;
+  --color-hairline: #322e28;
 
-  --color-ink: #c0c0c0;
-  --color-ink-secondary: #a0a0a0;
+  --color-ink: #c8c4bc;
+  --color-ink-secondary: #8a8680;
 
-  --color-accent: #00aaaa;
-  --color-accent-border: #55ffff;
-  --color-accent-text: #55ffff;
-  --color-focus: #55ffff;
+  --color-accent: #a39e96;
+  --color-accent-border: #b8b2a8;
+  --color-accent-text: #b8b2a8;
+  --color-focus: #a39e96;
   --color-accent-ink: #000000;
-  --color-bubble-user: #1c1c1c;
+  --color-bubble-user: #181614;
 
-  --color-success: #55ffff;
+  --color-success: #c8c4bc;
   --color-danger: #ff6b6b;
   --color-danger-ink: #000000;
-  --color-warning: #ffff55;
-  --color-scrollbar: #555555;
-  --color-maus-line: #a0a0a0;
+  --color-warning: #a39e96;
+  --color-scrollbar: #322e28;
+  --color-maus-line: #8a8680;
 
   --font-sans: "Cascadia Mono", "Cascadia Code", "Consolas", "Malgun Gothic",
     ui-monospace, monospace;

@@ -63,6 +63,17 @@ describe("chatTranscriptRows", () => {
     expect(result.map((row) => row.newDay)).toEqual([true, true, false]);
   });
 
+  it("folds a failed webfetch storm into one visible run while tool calls are hidden", () => {
+    const result = rows([
+      say("Searching."),
+      step("webfetch", false),
+      step("webfetch", false),
+      step("webfetch", true),
+      say("Here is what I found."),
+    ]);
+    expect(result.map((row) => row.visible)).toEqual([true, true, true]);
+  });
+
   it("keeps a failed tool step visible while tool calls are hidden", () => {
     const result = rows([
       say("Late.", at(1, 23)),

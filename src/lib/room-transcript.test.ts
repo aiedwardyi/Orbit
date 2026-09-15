@@ -62,6 +62,17 @@ describe("roomTranscriptRows", () => {
     expect(result[2].cluster).toBe(true);
   });
 
+  it("folds a failed webfetch storm into one visible run while tool calls are hidden", () => {
+    const result = rows([
+      say("challenge", "Searching."),
+      step("challenge", "webfetch", false),
+      step("challenge", "webfetch", false),
+      step("challenge", "webfetch", true),
+      say("challenge", "Here is what I found."),
+    ]);
+    expect(result.map((row) => row.visible)).toEqual([true, true, true]);
+  });
+
   it("labels a bot whose first visible line follows its own hidden run", () => {
     const result = rows([
       say("defense", "Here is the argument."),
