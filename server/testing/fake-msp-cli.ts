@@ -9,6 +9,10 @@
 //                   | approval (approval/requested, then waits for decide)
 //                   | approval-request (approval/request with id: the client
 //                     must answer the receipt before the card resolves)
+//                   | approval-decide-fails (approval/requested, then the
+//                     decide is rejected with the settlement failure a real
+//                     host reports when the turn is already tearing down;
+//                     the turn itself stays open)
 //                   | userinput (userInput/requested, then waits for answer)
 //                   | resume-fails (session/resume rejects, like a
 //                     --no-session-log host)
@@ -296,11 +300,11 @@ function handle(msg: any) {
         });
         return;
       }
-      if (mode === "approval" || mode === "approval-request") {
-        if (mode === "approval") {
-          out({ jsonrpc: "2.0", method: "approval/requested", params: approvalParams });
-        } else {
+      if (mode === "approval" || mode === "approval-request" || mode === "approval-decide-fails") {
+        if (mode === "approval-request") {
           out({ jsonrpc: "2.0", id: 7001, method: "approval/request", params: approvalParams });
+        } else {
+          out({ jsonrpc: "2.0", method: "approval/requested", params: approvalParams });
         }
         awaitingDecide = true;
         return;
@@ -375,6 +379,20 @@ function handle(msg: any) {
     }
     case "approval/decide": {
       recordDecide({ method: "approval/decide", params: msg.params ?? null });
+      if (mode === "approval-decide-fails") {
+        // A real host reports this when the turn is already tearing down:
+        // the decision is refused at settlement and the turn stays open.
+        out({
+          jsonrpc: "2.0",
+          id: msg.id,
+          error: {
+            code: -32000,
+            message:
+              "approval decide settlement failed: approval ledger durability fence: background task failed: retained acknowledgement fence left records unflushed (failed=0)",
+          },
+        });
+        break;
+      }
       result(msg.id, { commandId: msg.params?.commandId ?? null, status: "accepted" });
       if (awaitingDecide) {
         awaitingDecide = false;

@@ -227,6 +227,33 @@ describe("MSP turns (fake host)", () => {
     expect(decide.params).toMatchObject({ choiceId: "deny" });
   });
 
+  it("settles a deny as user-denied when the decide settlement fails, without failing the turn", async () => {
+    const dump = join(scratch, "muse-denyfail.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    await create("approval-decide-fails");
+    await instance.adapter.sendTurn({ threadId: "t-denyfail", text: "hi" });
+    const opened = await recorder.until((e) => e.type === "request.opened");
+    expect(await instance.adapter.respondToRequest("t-denyfail", opened.requestId!, { behavior: "deny" })).toBe(
+      "rejected",
+    );
+    // The card settles as denied by the user — the one outcome message —
+    // instead of failing the turn over the host's settlement internals.
+    expect(await recorder.until((e) => e.type === "request.resolved")).toMatchObject({
+      behavior: "deny",
+      source: "user",
+    });
+    const [decide] = JSON.parse(readFileSync(`${dump}.decide.json`, "utf8"));
+    expect(decide.params).toMatchObject({ choiceId: "deny" });
+    // The turn is still alive: interrupting it settles as cancelled, and no
+    // runtime.error (ledger/fence internals) ever surfaced.
+    await instance.adapter.interruptTurn("t-denyfail");
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({
+      ok: true,
+      stopReason: "cancelled",
+    });
+    expect(recorder.events.map((e) => e.type)).not.toContain("runtime.error");
+  });
+
   it("answers the receipt for an id-bearing approval request", async () => {
     const dump = join(scratch, "muse-approval-rpc.json");
     process.env.FAKE_MSP_DUMP = dump;

@@ -421,7 +421,25 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
                     source: decided ? source : "system",
                   });
                 })
-                .catch((err) => fail(err instanceof Error ? err.message : String(err)));
+                .catch((err) => {
+                  // A deny already states the terminal outcome — the write
+                  // will not run — so a failed deny settlement is
+                  // bookkeeping, not news: settle the card as denied and stay
+                  // quiet instead of failing the turn over the CLI's
+                  // ledger/fence internals. The turn still lands on its own,
+                  // and a failed allow decide fails exactly as before.
+                  if (want === "deny") {
+                    emit({
+                      ...base(threadId, turnId),
+                      type: "request.resolved",
+                      requestId,
+                      behavior: "deny",
+                      source,
+                    });
+                    return;
+                  }
+                  fail(err instanceof Error ? err.message : String(err));
+                });
             },
             timer: setTimeout(() => {
               emit({ ...base(threadId, turnId), type: "runtime.error", message: DENY_TIMEOUT_NOTE });
