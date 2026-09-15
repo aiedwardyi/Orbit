@@ -1148,6 +1148,15 @@ export function GroupView({ group }: { group: Group }) {
     return !el || el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_FOLLOW_THRESHOLD;
   };
 
+  // Own send re-anchors even from scrollback; incoming content never yanks.
+  const jumpToLatest = () => {
+    setBottomFollow(true);
+    setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(group.messages.length), end: null });
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    });
+  };
+
   const saveBulletin = () => {
     setBulletinOpen(false);
     const next = nextBulletin(group.bulletin, bulletinDraft);
@@ -1451,13 +1460,7 @@ export function GroupView({ group }: { group: Group }) {
 
       {!follow && (
         <button
-          onClick={() => {
-            setBottomFollow(true);
-            setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(group.messages.length), end: null });
-            requestAnimationFrame(() => {
-              scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-            });
-          }}
+          onClick={jumpToLatest}
           aria-label={t("chat.jumpToLatest")}
           className="animate-pop-in absolute left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline/40 bg-raised px-3 py-1.5 text-[12.5px] text-ink shadow-lg hover:bg-raised-hover"
           style={{ bottom: composerDock.height }}
@@ -1480,6 +1483,7 @@ export function GroupView({ group }: { group: Group }) {
         key={group.threadId}
         group={group}
         members={members}
+        onSend={jumpToLatest}
         locked={setupPending}
         replyTo={replyTo}
         onClearReply={clearReply}
