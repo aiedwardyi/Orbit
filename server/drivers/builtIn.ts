@@ -11,7 +11,7 @@ import { GeminiAgentDriver } from "./acp/gemini.ts";
 import { KimiAgentDriver } from "./acp/kimi.ts";
 import { DroidAgentDriver } from "./acp/droid.ts";
 import { CursorAgentDriver } from "./acp/cursor.ts";
-import { MuseAgentDriver } from "./acp/muse.ts";
+import { MspMuseAgentDriver as MuseAgentDriver } from "./msp/muse.ts";
 import { QwenAgentDriver } from "./acp/qwen.ts";
 import { HermesAgentDriver } from "./acp/hermes.ts";
 import { OpenAICompatDriver } from "./openai-compat.ts";

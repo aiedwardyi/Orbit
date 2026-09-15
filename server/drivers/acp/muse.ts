@@ -199,6 +199,11 @@ function providerCodeFromEnvelope(data: unknown): string | undefined {
 
 export function classifyMuseError(error: unknown): ProviderErrorCode | undefined {
   const value = error && typeof error === "object" ? (error as Record<string, unknown>) : {};
+  // MSP turn/completed failures arrive as {kind, message} (TurnError), not
+  // the ACP envelope: only the auth kind maps, the rest stay generic.
+  if (typeof value.kind === "string") {
+    return value.kind === "authRequired" ? "invalid_credentials" : undefined;
+  }
   const code = value.code;
   if (code === -32000) {
     return classifyMuseCode(providerCodeFromEnvelope(value.data)) ?? "invalid_credentials";

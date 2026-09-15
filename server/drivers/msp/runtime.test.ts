@@ -1,0 +1,272 @@
+// MSP driver contract tests, run against the scripted fake MSP host in
+// server/testing/fake-msp-cli.ts: session/start carries the model, text
+// folds into canonical events, interrupts and crashes settle cleanly.
+import { chmodSync, mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { ensureDirs } from "../../config.ts";
+import type { ProviderInstance } from "../../contracts.ts";
+import { removeTempDir } from "../../testing/cleanup.ts";
+import { recordEvents, type EventRecorder } from "../../testing/events.ts";
+import { MspMuseAgentDriver } from "./muse.ts";
+
+const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "testing", "fake-msp-cli.ts");
+
+describe("MSP turns (fake host)", () => {
+  let instance: ProviderInstance;
+  let recorder: EventRecorder;
+  let scratch: string;
+
+  const create = async (mode?: string, fullAuto = false) => {
+    if (mode) process.env.FAKE_MSP_MODE = mode;
+    process.env.META_API_KEY = "meta-key";
+    instance = await MspMuseAgentDriver.create({
+      instanceId: "msp-test",
+      displayName: "MSP Test",
+      environment: {},
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto },
+    });
+    recorder = recordEvents(instance.adapter);
+  };
+
+  const V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+  beforeEach(() => {
+    ensureDirs();
+    chmodSync(FAKE_CLI, 0o755);
+    scratch = mkdtempSync(join(tmpdir(), "omb-msp-test-"));
+  });
+
+  afterEach(async () => {
+    delete process.env.FAKE_MSP_MODE;
+    delete process.env.FAKE_MSP_DUMP;
+    delete process.env.FAKE_MSP_RPC_DUMP;
+    delete process.env.META_API_KEY;
+    recorder?.stop();
+    await instance?.dispose();
+    removeTempDir(scratch);
+  });
+
+  it("starts a session with the requested model and folds text", async () => {
+    const dump = join(scratch, "muse-model.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-model", text: "hi", model: "muse-spark-1.3" });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    expect(JSON.parse(readFileSync(`${dump}.config.json`, "utf8"))).toContainEqual({
+      method: "session/start",
+      modelId: "muse-spark-1.3",
+    });
+    expect(JSON.parse(readFileSync(`${dump}.turn.json`, "utf8"))).toEqual([{ type: "text", text: "hi" }]);
+    expect(recorder.events).toContainEqual(
+      expect.objectContaining({ type: "session.started", sessionId: "fake-msp-session" }),
+    );
+    expect(recorder.events).toContainEqual(
+      expect.objectContaining({ type: "content.delta", delta: "hello from fake msp" }),
+    );
+    expect(recorder.events).toContainEqual(
+      expect.objectContaining({ type: "item.completed", text: "hello from fake msp" }),
+    );
+  });
+
+  it("omits modelId when no model is picked", async () => {
+    const dump = join(scratch, "muse-nomodel.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-nomodel", text: "hi" });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    expect(JSON.parse(readFileSync(`${dump}.config.json`, "utf8"))).toContainEqual({
+      method: "session/start",
+      modelId: null,
+    });
+  });
+
+  it("resumes a remembered session instead of starting one", async () => {
+    const rpcDump = join(scratch, "muse-resume-rpc.json");
+    process.env.FAKE_MSP_RPC_DUMP = rpcDump;
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-resume", text: "again", resumeCursor: "old-session" });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    const methods = JSON.parse(readFileSync(rpcDump, "utf8")) as string[];
+    expect(methods).toContain("session/resume");
+    expect(methods).not.toContain("session/start");
+    expect(recorder.events).toContainEqual(
+      expect.objectContaining({ type: "session.started", sessionId: "old-session" }),
+    );
+  });
+
+  it("settles a hung turn as cancelled on interrupt", async () => {
+    const rpcDump = join(scratch, "muse-interrupt-rpc.json");
+    process.env.FAKE_MSP_RPC_DUMP = rpcDump;
+    await create("hang");
+    await instance.adapter.sendTurn({ threadId: "t-hang", text: "hi" });
+    await recorder.until((e) => e.type === "session.started");
+    await instance.adapter.interruptTurn("t-hang");
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({
+      ok: true,
+      stopReason: "cancelled",
+    });
+    expect(JSON.parse(readFileSync(rpcDump, "utf8"))).toContain("turn/interrupt");
+    expect(instance.adapter.hasSession("t-hang")).toBe(false);
+  });
+
+  it("fails the turn when the host exits early", async () => {
+    await create("exit-early");
+    await instance.adapter.sendTurn({ threadId: "t-exit", text: "hi" });
+    await recorder.until((e) => e.type === "runtime.error");
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: false });
+  });
+
+  it("keeps streamed text when the turn fails after it", async () => {
+    await create("fail-after-text");
+    await instance.adapter.sendTurn({ threadId: "t-fail", text: "hi" });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: false });
+    expect(recorder.events).toContainEqual(
+      expect.objectContaining({ type: "content.delta", delta: "half a report, then a crash" }),
+    );
+  });
+
+  it("rejects a second turn while one is in flight", async () => {
+    await create("hang");
+    await instance.adapter.sendTurn({ threadId: "t-busy", text: "first" });
+    await expect(instance.adapter.sendTurn({ threadId: "t-busy", text: "second" })).rejects.toThrow(
+      /already running/,
+    );
+    await instance.adapter.interruptTurn("t-busy");
+    await recorder.until((e) => e.type === "turn.completed");
+  });
+
+  it("decides an approval with the approved choice and requirement", async () => {
+    const dump = join(scratch, "muse-approve.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    await create("approval");
+    await instance.adapter.sendTurn({ threadId: "t-approve", text: "hi" });
+    const opened = await recorder.until((e) => e.type === "request.opened");
+    expect(opened).toMatchObject({ requestType: "permission", tool: "shell" });
+    expect(await instance.adapter.respondToRequest("t-approve", opened.requestId!, { behavior: "allow" })).toBe(
+      "allowed-once",
+    );
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    const [decide] = JSON.parse(readFileSync(`${dump}.decide.json`, "utf8"));
+    expect(decide).toMatchObject({
+      method: "approval/decide",
+      params: {
+        approvalId: "fake-approval-1",
+        choiceId: "allow-once",
+        requirementId: { approvalId: "fake-approval-1", sourceIndex: 0 },
+      },
+    });
+    expect(decide.params.commandId).toMatch(V7);
+    // The resolved event trails the decide ack by a microtask; await it.
+    expect(await recorder.until((e) => e.type === "request.resolved")).toMatchObject({
+      behavior: "allow",
+      source: "user",
+    });
+  });
+
+  it("decides the denied choice on deny", async () => {
+    const dump = join(scratch, "muse-deny.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    await create("approval");
+    await instance.adapter.sendTurn({ threadId: "t-deny", text: "hi" });
+    const opened = await recorder.until((e) => e.type === "request.opened");
+    expect(await instance.adapter.respondToRequest("t-deny", opened.requestId!, { behavior: "deny" })).toBe(
+      "rejected",
+    );
+    await recorder.until((e) => e.type === "turn.completed");
+    const [decide] = JSON.parse(readFileSync(`${dump}.decide.json`, "utf8"));
+    expect(decide.params).toMatchObject({ choiceId: "deny" });
+  });
+
+  it("answers the receipt for an id-bearing approval request", async () => {
+    const dump = join(scratch, "muse-approval-rpc.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    await create("approval-request");
+    await instance.adapter.sendTurn({ threadId: "t-approval-rpc", text: "hi" });
+    const opened = await recorder.until((e) => e.type === "request.opened");
+    await instance.adapter.respondToRequest("t-approval-rpc", opened.requestId!, { behavior: "allow" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const calls = JSON.parse(readFileSync(`${dump}.decide.json`, "utf8"));
+    expect(calls).toContainEqual({ method: "approval/receipt", result: {} });
+    expect(calls).toContainEqual(expect.objectContaining({ method: "approval/decide" }));
+  });
+
+  it("auto-allows without a card in fullAuto", async () => {
+    const dump = join(scratch, "muse-auto.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    await create("approval", true);
+    await instance.adapter.sendTurn({ threadId: "t-auto", text: "hi" });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    expect(recorder.events.map((e) => e.type)).not.toContain("request.opened");
+    const [decide] = JSON.parse(readFileSync(`${dump}.decide.json`, "utf8"));
+    expect(decide.params).toMatchObject({ choiceId: "allow-once" });
+  });
+
+  it("answers a userInput question", async () => {
+    const dump = join(scratch, "muse-ui.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    await create("userinput");
+    await instance.adapter.sendTurn({ threadId: "t-ui", text: "hi" });
+    const opened = await recorder.until((e) => e.type === "request.opened");
+    expect(opened).toMatchObject({ requestType: "question" });
+    expect(
+      await instance.adapter.respondToRequest("t-ui", opened.requestId!, { behavior: "answer", message: "A" }),
+    ).toBe("answered");
+    await recorder.until((e) => e.type === "turn.completed");
+    const [answer] = JSON.parse(readFileSync(`${dump}.decide.json`, "utf8"));
+    expect(answer).toMatchObject({
+      method: "userInput/answer",
+      params: { userInputId: "fake-ui-1", answers: [{ questionId: "q1", freeText: "A" }] },
+    });
+  });
+
+  it("cancels a userInput question on deny", async () => {
+    const dump = join(scratch, "muse-uicancel.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    await create("userinput");
+    await instance.adapter.sendTurn({ threadId: "t-uicancel", text: "hi" });
+    const opened = await recorder.until((e) => e.type === "request.opened");
+    expect(await instance.adapter.respondToRequest("t-uicancel", opened.requestId!, { behavior: "deny" })).toBe(
+      "rejected",
+    );
+    await recorder.until((e) => e.type === "turn.completed");
+    const [cancel] = JSON.parse(readFileSync(`${dump}.decide.json`, "utf8"));
+    expect(cancel).toMatchObject({ method: "userInput/cancel", params: { userInputId: "fake-ui-1" } });
+  });
+
+  it("falls back to a fresh session with fallback text when resume is rejected", async () => {
+    const dump = join(scratch, "muse-resumefail.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    process.env.FAKE_MSP_RPC_DUMP = join(scratch, "muse-resumefail-rpc.json");
+    await create("resume-fails");
+    await instance.adapter.sendTurn({
+      threadId: "t-resumefail",
+      text: "original",
+      resumeCursor: "gone-session",
+      resumeFallback: { text: "fallback hi" },
+    });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    const methods = JSON.parse(readFileSync(join(scratch, "muse-resumefail-rpc.json"), "utf8")) as string[];
+    expect(methods).toContain("session/resume");
+    expect(methods).toContain("session/start");
+    expect(JSON.parse(readFileSync(`${dump}.turn.json`, "utf8"))).toEqual([{ type: "text", text: "fallback hi" }]);
+    expect(recorder.events).toContainEqual(
+      expect.objectContaining({ type: "session.started", sessionId: "fake-msp-session" }),
+    );
+  });
+
+  it("maps an authRequired mid-turn failure to setup", async () => {
+    await create("auth-failure");
+    await instance.adapter.sendTurn({ threadId: "t-authfail", text: "hi" });
+    const error = await recorder.until((e) => e.type === "runtime.error");
+    expect(error).toMatchObject({ message: "login expired", setup: true });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({
+      ok: false,
+      stopReason: "auth_required",
+    });
+  });
+});
