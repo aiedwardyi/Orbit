@@ -314,5 +314,6 @@ function NewBotRow({
 function preferredLabel(kind: string): string {
   if (kind === "geminiAgent") return "Gemini";
   if (kind === "codex") return "Codex";
+  if (kind === "museAgent") return "Meta Muse";
   return kind;
 }

@@ -267,6 +267,42 @@ describe("GroupWizard members", () => {
     }
   });
 
+  it("names Meta Muse in the row-2 substitute notice when muse is down", async () => {
+    instances = [
+      engine("codex-1", "codex", "Codex"),
+      { ...engine("muse-1", "museAgent", "Meta Muse"), snapshot: { state: "available", authenticated: false } },
+    ];
+    apiImpl = () => Promise.resolve({ bot: { id: `nb${++botSeq}`, name: "New bot" } });
+    const { host, root } = await renderWizard();
+    try {
+      await toMembers(host);
+      await act(async () => {
+        button(host, "+ New bot").click();
+      });
+      const [job1] = jobInputs(host);
+      await act(async () => {
+        const native = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+        native.call(job1, "review my code");
+        job1!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () => {
+        button(host, "Add bot").click();
+      });
+      await flush();
+      // Second row prefers museAgent (preferIndex 1): muse is down, so the
+      // notice must name Meta Muse, never the raw driver kind.
+      await act(async () => {
+        button(host, "Add another").click();
+      });
+      expect(host.textContent).toContain("Meta Muse isn't connected");
+      expect(host.textContent).not.toContain("museAgent");
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+    }
+  });
+
   it("offers the connect CTA when no engine is connected", async () => {
     instances = [];
     const { host, root } = await renderWizard();
