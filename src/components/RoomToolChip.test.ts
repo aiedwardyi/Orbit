@@ -76,6 +76,45 @@ describe("RoomToolChip", () => {
     expect(button?.hasAttribute("disabled")).toBe(false);
   });
 
+  it("A failed turn offers Show full message and expands the truncated pill", async () => {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+
+    const longError = `error: provider-private history is incompatible with the active route: reasoning replay rs_aaa:rs_bbb has no provider mapping, so this text runs long`;
+    const message: Message = {
+      id: "a9",
+      role: "bot",
+      kind: "activity",
+      tool: { name: longError, ok: false },
+      at: 9,
+    };
+
+    await act(async () => {
+      root.render(createElement(RoomToolChip, { message, onRetry: () => {} }));
+    });
+
+    const pill = () => host.querySelector("span.max-w-\\[480px\\], span.break-words");
+    expect(pill()?.className).toMatch(/truncate/);
+    expect(host.textContent).toContain("Show full message");
+
+    const toggle = [...host.querySelectorAll("button")].find((b) => b.textContent === "Show full message");
+    expect(toggle).not.toBeUndefined();
+    await act(async () => {
+      toggle?.click();
+    });
+
+    expect(pill()?.className).not.toMatch(/truncate/);
+    expect(host.textContent).toContain(longError);
+    expect(host.textContent).toContain("Show less");
+
+    const collapse = [...host.querySelectorAll("button")].find((b) => b.textContent === "Show less");
+    await act(async () => {
+      collapse?.click();
+    });
+    expect(pill()?.className).toMatch(/truncate/);
+  });
+
   it("A setup error on the last activity from the sole responder: exposes the same action setupErrorAction gives 1:1", async () => {
     host = document.createElement("div");
     document.body.append(host);

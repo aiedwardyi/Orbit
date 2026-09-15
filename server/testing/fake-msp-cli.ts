@@ -12,6 +12,12 @@
 //                   | userinput (userInput/requested, then waits for answer)
 //                   | resume-fails (session/resume rejects, like a
 //                     --no-session-log host)
+//                   | resume-poisoned (first turn/start on a foreign session
+//                     is accepted then fails turn/completed with the
+//                     incompatible-history poison; afterwards happy)
+//                   | resume-poisoned-rpc (same trigger, but turn/start
+//                     itself returns the poison as a JSON-RPC error;
+//                     afterwards happy)
 //   FAKE_MSP_STATE  path to a JSON file holding per-session models across
 //                   the one-process-per-turn spawns, so a switch sticks.
 //   FAKE_MSP_DUMP   path to write {argv, env} as JSON, so a test can assert
@@ -114,6 +120,11 @@ const userInputParams = {
 
 let awaitingDecide = false;
 let awaitingAnswer = false;
+// Poison disarm: the poisoned modes fail exactly ONCE per process, on the
+// first turn/start aimed at a foreign (resumed) session id.
+let poisonSpent = false;
+const POISON_MESSAGE =
+  "provider-private history is incompatible with the active route: reasoning replay `rs_aaa:rs_bbb` has no provider mapping";
 const completeTurn = () =>
   out({
     jsonrpc: "2.0",
@@ -231,6 +242,37 @@ function handle(msg: any) {
           `${process.env.FAKE_MSP_DUMP}.turn-params.json`,
           JSON.stringify(msg.params ?? null, null, 2),
         );
+      }
+      if (
+        !poisonSpent &&
+        (mode === "resume-poisoned" || mode === "resume-poisoned-rpc") &&
+        typeof msg.params?.sessionId === "string" &&
+        msg.params.sessionId !== SESSION_ID
+      ) {
+        poisonSpent = true;
+        if (mode === "resume-poisoned-rpc") {
+          out({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: POISON_MESSAGE } });
+          break;
+        }
+        result(msg.id, {
+          commandId: msg.params?.commandId ?? null,
+          disposition: "started",
+          startedNewTurn: true,
+          status: "accepted",
+          turnId: TURN_ID,
+        });
+        out({
+          jsonrpc: "2.0",
+          method: "turn/completed",
+          params: {
+            sessionId: msg.params.sessionId,
+            turnId: TURN_ID,
+            terminal: "failed",
+            error: { message: POISON_MESSAGE },
+            viewCursor: "v:5",
+          },
+        });
+        break;
       }
       result(msg.id, {
         commandId: msg.params?.commandId ?? null,

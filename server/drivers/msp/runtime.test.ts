@@ -304,6 +304,25 @@ describe("MSP turns (fake host)", () => {
     );
   });
 
+  it.each(["resume-poisoned", "resume-poisoned-rpc"])(
+    "recovers poisoned history (%s) with one fresh session and the fallback text",
+    async (mode) => {
+      const dump = join(scratch, `muse-poison-${mode}.json`);
+      process.env.FAKE_MSP_DUMP = dump;
+      await create(mode);
+      await instance.adapter.sendTurn({
+        threadId: "t-poison",
+        text: "original",
+        resumeCursor: "foreign-session",
+        resumeFallback: { text: "fallback hi" },
+      });
+      expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+      expect(recorder.events.filter((e) => e.type === "session.started").map((e) => (e as { sessionId?: string }).sessionId))
+        .toEqual(["foreign-session", "fake-msp-session"]);
+      expect(JSON.parse(readFileSync(`${dump}.turn.json`, "utf8"))).toEqual([{ type: "text", text: "fallback hi" }]);
+    },
+  );
+
   it("pins a new model via setModel and the switch sticks", async () => {
     const dump = join(scratch, "muse-switch.json");
     process.env.FAKE_MSP_DUMP = dump;

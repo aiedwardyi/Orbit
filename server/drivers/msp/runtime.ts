@@ -35,6 +35,11 @@ const ASK_TIMEOUT_MS = 15 * 60_000;
 const DENY_TIMEOUT_NOTE =
   "OpenMausBot: nobody answered this permission request in time. Skip this action and finish what you can without it.";
 
+/** Resumed-session poison: provider-private history the active route cannot
+ * replay (tool-call turns). A fresh session recovers; anything else fails
+ * exactly as before. */
+const INCOMPATIBLE_HISTORY = /provider-private history is incompatible/;
+
 export interface MspMuseConfig {
   cli: string;
   fullAuto: boolean;
@@ -256,6 +261,13 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
         const buffers = new Map<string, string>();
         let interruptTimer: ReturnType<typeof setTimeout> | null = null;
         let pendingText = "";
+        // Behind the wsl wrapper the host is a Linux process: Windows
+        // paths never resolve there. Hoisted: poison recovery reuses it.
+        const sessionRoot = isWslCli() ? toWslPath(cwd) : cwd;
+        // Poisoned-resume retry state (one retry max): resumedOk flips only
+        // when session/resume succeeds; recovered flips on the single retry.
+        let resumedOk = false;
+        let recovered = false;
 
         const stop = () => {
           channel.detach();
@@ -287,6 +299,60 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
         const fail = (message: string, setup = false, stopReason: string | null = "rpc_error") => {
           emit({ ...base(threadId, turnId), type: "runtime.error", message, ...(setup ? { setup: true } : {}) });
           settle(false, stopReason);
+        };
+        const startTurnOn = async (targetSessionId: string, fullText: string) => {
+          const ack: any = await channel.request(
+            "turn/start",
+            {
+              commandId: uuidv7(),
+              sessionId: targetSessionId,
+              input: [{ type: "text", text: fullText }],
+              // Levels travel verbatim (max stays max, never ultra); none
+              // and unset both omit the key so the CLI keeps its default.
+              ...(turn.effort && turn.effort !== "none" ? { reasoningEffort: turn.effort } : undefined),
+            },
+            SESSION_TIMEOUT,
+          );
+          if (ack?.status !== "accepted" || ack?.disposition !== "started") {
+            throw new Error(`turn/start not started (status ${ack?.status}, disposition ${ack?.disposition})`);
+          }
+          state.mspTurnId = typeof ack?.turnId === "string" ? ack.turnId : null;
+        };
+        // A resumed session whose provider-private history the active route
+        // cannot replay poisons the turn (and its Retry, which resumes the
+        // same session). Recover once on a fresh session; false otherwise —
+        // and false on any throw, so callers fail exactly as before.
+        const recoverIncompatible = async (message: string): Promise<boolean> => {
+          try {
+            if (recovered || !resumedOk) return false;
+            if (!INCOMPATIBLE_HISTORY.test(message)) return false;
+            if (typeof turn.resumeCursor !== "string") return false;
+            recovered = true;
+            const started: any = await channel.request(
+              "session/start",
+              {
+                commandId: uuidv7(),
+                workspaceRoot: sessionRoot,
+                ...(turn.model ? { modelId: turn.model } : {}),
+              },
+              SESSION_TIMEOUT,
+            );
+            const freshId = typeof started?.session?.sessionId === "string" ? started.session.sessionId : null;
+            if (!freshId) return false;
+            state.sessionId = freshId;
+            state.mspTurnId = null;
+            state.model = typeof started?.session?.modelId === "string" ? started.session.modelId : null;
+            // Callers record the cursor from session.started: the fresh id
+            // steers Retry onto the recovered session, not the poisoned one.
+            emit({ ...base(threadId, turnId), type: "session.started", sessionId: freshId, model: state.model ?? turn.model ?? null });
+            const retryText = turn.system
+              ? `${turn.system}\n\n${turn.resumeFallback?.text ?? turn.text}`
+              : (turn.resumeFallback?.text ?? turn.text);
+            await startTurnOn(freshId, retryText);
+            return true;
+          } catch {
+            return false;
+          }
         };
         const onDelta = (streamKind: "assistant_text" | "reasoning_text", delta: string) => {
           if (streamKind !== "assistant_text" || !delta) return;
@@ -516,6 +582,17 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
               else {
                 const code = support.classifyError?.(p.error);
                 const auth = code === "invalid_credentials" || code === "inactive_subscription";
+                if (!auth) {
+                  const message = p.error?.message ? String(p.error.message) : (typeof p.reason === "string" ? p.reason : "failed");
+                  // Poisoned resume (failed completion): one fresh-session
+                  // retry before failing exactly as before.
+                  void recoverIncompatible(message).then((ok) => {
+                    if (!ok && !state.settled) {
+                      fail(message, false, typeof p.reason === "string" ? p.reason : "failed");
+                    }
+                  });
+                  break;
+                }
                 fail(
                   p.error?.message ? String(p.error.message) : (typeof p.reason === "string" ? p.reason : "failed"),
                   auth,
@@ -573,9 +650,6 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
             );
             channel.notify("initialized", {});
             const model = turn.model;
-            // Behind the wsl wrapper the host is a Linux process: Windows
-            // paths never resolve there.
-            const sessionRoot = isWslCli() ? toWslPath(cwd) : cwd;
             let sessionId: string | null = null;
             let sessionModel: string | null = null;
             let promptText = turn.text;
@@ -590,6 +664,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
                   ? resumed.session.sessionId
                   : turn.resumeCursor;
                 sessionModel = typeof resumed?.session?.modelId === "string" ? resumed.session.modelId : null;
+                resumedOk = true;
               } catch {
                 // --no-session-log hosts reject resume (-32601): start fresh
                 // and replay the fallback text instead of the transcript.
@@ -639,24 +714,12 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
             }
             emit({ ...base(threadId, turnId), type: "session.started", sessionId, model: state.model ?? model ?? null });
             const text = turn.system ? `${turn.system}\n\n${promptText}` : promptText;
-            const ack: any = await channel.request(
-              "turn/start",
-              {
-                commandId: uuidv7(),
-                sessionId,
-                input: [{ type: "text", text }],
-                // Levels travel verbatim (max stays max, never ultra); none
-                // and unset both omit the key so the CLI keeps its default.
-                ...(turn.effort && turn.effort !== "none" ? { reasoningEffort: turn.effort } : undefined),
-              },
-              SESSION_TIMEOUT,
-            );
-            if (ack?.status !== "accepted" || ack?.disposition !== "started") {
-              throw new Error(`turn/start not started (status ${ack?.status}, disposition ${ack?.disposition})`);
-            }
-            state.mspTurnId = typeof ack?.turnId === "string" ? ack.turnId : null;
+            await startTurnOn(sessionId, text);
           } catch (err) {
-            if (!state.settled) fail(err instanceof Error ? err.message : String(err));
+            const message = err instanceof Error ? err.message : String(err);
+            // Poisoned resume (turn/start rejected): one fresh-session retry
+            // before failing exactly as before.
+            if (!state.settled && !(await recoverIncompatible(message))) fail(message);
           }
         })();
 

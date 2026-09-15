@@ -87,6 +87,7 @@ export function RoomToolChip({
   const { t } = useI18n();
   const now = useNow();
   const [retried, setRetried] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const tool = message.tool;
   if (!tool) return null;
   const handleRetry = onRetry
@@ -165,7 +166,13 @@ export function RoomToolChip({
             tool.ok === false ? "text-danger" : "text-ink-secondary",
           )}
         >
-          <span className="max-w-[480px] truncate font-mono">{tool.name}</span>
+          <span
+            className={tool.ok === false && expanded
+              ? "break-words whitespace-pre-wrap font-mono"
+              : "max-w-[480px] truncate font-mono"}
+          >
+            {tool.name}
+          </span>
         </div>
         {setupAction === "cli" && instance ? (
           <EngineSetup instance={instance} className="mt-2 text-ink-secondary" />
@@ -185,6 +192,16 @@ export function RoomToolChip({
               <RefreshCw size={12} /> {t("composer.retry")}
             </button>
           )
+        )}
+        {/* Failed turns truncate mid-word in the pill above; the full text
+          is the debuggable part. Same affordance as ChatView bot bubbles. */}
+        {tool.ok === false && onRetry && (
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="mt-1 text-[12.5px] text-ink-secondary hover:text-ink"
+          >
+            {expanded ? "Show less" : "Show full message"}
+          </button>
         )}
       </div>
     </div>
