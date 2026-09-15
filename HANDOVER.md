@@ -33,3 +33,11 @@ gh release create v1.0.9 -R aiedwardyi/orbit-releases release/Orbit-1.0.9-setup.
 - Server boots in tests via `node --experimental-strip-types`: no TS parameter properties, enums, or
   namespaces in `server/` / `shared/` / `companion/` (non-test). tsc will not catch these — only boot does.
 - Session state also in personal memory `orbit-ship-state.md`.
+
+## 1.0.10 (same day)
+- `330eb9a4`: chip single dot (dropped middot separator next to engine dot), sidebar model names use
+  full row width (no more "..." truncation), wizard shows "describe the job to unlock Add bot" hint.
+  Version bumped to 1.0.10. Focused suites 7/7 green on Linux (170 tests).
+- Windows publish: same 5 lines as above with v1.0.10 / Orbit-1.0.10-setup.exe.
+- Note: wizard job field intentionally NOT renamed to "name" — its value becomes the bot's job brief
+  AND auto-derives the name (botNameFromJob). The hint explains the real requirement.
