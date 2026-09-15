@@ -308,3 +308,98 @@ describe("Sidebar bot model line", () => {
     }
   });
 });
+
+describe("Sidebar bot second line", () => {
+  const muse = {
+    instanceId: "muse",
+    driverKind: "museAgent",
+    displayName: "Meta Muse",
+    snapshot: { state: "available" },
+    models: {
+      default: "muse-spark-1.3",
+      options: [{ id: "muse-spark-1.3", label: "Meta Muse 1.3" }],
+    },
+  };
+
+  async function renderSidebar(payload: { bots: unknown[]; groups: unknown[] }) {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string) => {
+        if (path === "/api/bots") return new Response(JSON.stringify(payload));
+        if (path === "/api/instances") return new Response(JSON.stringify({ instances: [muse] }));
+        return new Response(JSON.stringify({ error: "not in this test" }), { status: 404 });
+      }),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () =>
+      root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+    );
+    await act(async () => FakeEventSource.current!.onmessage?.({
+      data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+      lastEventId: "",
+    }));
+    return { host, root };
+  }
+
+  it("shows dot + model on bot rows with no message preview", async () => {
+    const chatter = {
+      ...bot("chatter"),
+      modelSelection: { instanceId: "muse", model: "muse-spark-1.3" },
+      messages: [{ id: "m1", role: "bot", kind: "text", text: "Zebra preview sentence", at: 7 }],
+      activeLeafId: "m1",
+    };
+    const { host, root } = await renderSidebar({ bots: [chatter], groups: [] });
+    try {
+      await vi.waitFor(() => expect(host.textContent).toContain("Meta Muse 1.3"), { timeout: 5000 });
+      expect(host.textContent).not.toContain("Zebra preview sentence");
+      // SAFETY: the unread dot is size-2, so any size-1.5 round span with
+      // an explicit accent color is the engine dot.
+      const dots = [...host.querySelectorAll(".size-1\\.5")];
+      expect(dots.some((d) => d.getAttribute("style")?.includes("background-color"))).toBe(true);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("shows Working without preview text while the bot is busy", async () => {
+    const worker = {
+      ...bot("worker"),
+      busy: true,
+      modelSelection: { instanceId: "muse", model: "muse-spark-1.3" },
+      messages: [{ id: "m1", role: "bot", kind: "text", text: "Giraffe preview sentence", at: 7 }],
+      activeLeafId: "m1",
+    };
+    const { host, root } = await renderSidebar({ bots: [worker], groups: [] });
+    try {
+      await vi.waitFor(() => expect(host.textContent).toContain("Working"), { timeout: 5000 });
+      expect(host.textContent).toContain("Meta Muse 1.3");
+      expect(host.textContent).not.toContain("Giraffe preview sentence");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("keeps the message preview on group rows", async () => {
+    const room = {
+      id: "g1",
+      threadId: "g1-thread",
+      name: "Crew",
+      memberIds: [],
+      messages: [{ id: "m1", role: "bot", kind: "text", text: "Walrus group preview", at: 9 }],
+      section: "RANDOM CHATTER",
+    };
+    const { host, root } = await renderSidebar({ bots: [], groups: [room] });
+    try {
+      await vi.waitFor(() => expect(host.textContent).toContain("Walrus group preview"), { timeout: 5000 });
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});

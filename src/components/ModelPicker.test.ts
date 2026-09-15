@@ -383,11 +383,49 @@ describe("ModelPicker friends chip", () => {
     expect(html).toContain(accent);
   });
 
-  it("degrades to name-only when effort is absent", () => {
+  it("keeps the family dot with name-only text when effort is absent", () => {
     const html = markup();
     expect(html).toContain("Grok 4.6");
     expect(html).not.toContain("data-model-effort");
-    expect(html).not.toContain("#8b929c");
+    // The dot is engine-driven, not effort-driven: effortless selections
+    // (wizard bots, muse) still show it.
+    expect(html).toContain("#8b929c");
+  });
+
+  it("shows the family dot for a wizard-made muse contributor with no effort", () => {
+    const museWizard: InstanceInfo = {
+      instanceId: "muse",
+      driverKind: "museAgent",
+      displayName: "Meta Muse",
+      snapshot: { state: "available" as const, authenticated: true, version: "1.0.0" },
+      models: {
+        default: "muse-spark-1.3-contributor",
+        options: [
+          { id: "muse-spark-1.3", label: "Meta Muse 1.3" },
+          { id: "muse-spark-1.3-contributor", label: "Meta Muse 1.3 Contributor" },
+        ],
+      },
+      capabilities: {},
+    };
+    const html = renderToStaticMarkup(
+      createElement(
+        I18nProvider,
+        null,
+        createElement(ModelPickerControl, {
+          // SAFETY: wizard payloads carry no effort — muse has none by
+          // design, so the selection must still paint its engine dot.
+          bot: { ...bot, modelSelection: { instanceId: "muse", model: "muse-spark-1.3-contributor", mode: "pinned" } },
+          store: {
+            state: { instances: [museWizard], selectedId: "bot-1" },
+            dispatch: () => undefined,
+            refreshInstances: async () => undefined,
+          },
+        }),
+      ),
+    );
+    expect(chipText(html)).toContain("Meta Muse 1.3 Contributor");
+    expect(html).not.toContain("data-model-effort");
+    expect(html).toContain("#43ce8b");
   });
 
   it("keeps the full model and effort on one line with no narrow fold", () => {

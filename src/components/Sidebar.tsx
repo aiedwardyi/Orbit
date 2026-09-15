@@ -40,7 +40,7 @@ import { useManualCheck, useUpdaterState } from "@/lib/updater";
 import { cn } from "@/lib/cn";
 import { showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
 import { showSidebarDensityControls, showSidebarPhone, showSidebarRoutines, showSidebarTeachSkill } from "@/lib/friends-chrome";
-import { modelChipText } from "@/lib/model-chip";
+import { modelChipText, modelFamilyAccent } from "@/lib/model-chip";
 import { nextRename } from "@/lib/rename";
 import { downloadAllBots } from "@/lib/team-files";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
@@ -724,7 +724,6 @@ function BotListItem({
   const { t, locale } = useI18n();
   const { state, dispatch } = useStore();
   const [renaming, setRenaming] = useState(false);
-  const showToolCalls = showToolCallsEnabled(state.config);
   const selected = state.activeView === "chat" && state.selectedId === bot.id;
   const mascotMotion = selected && state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
   const iconOnly = density === "icons";
@@ -788,10 +787,13 @@ function BotListItem({
                 <Crown size={11} /> {t("chrome.chiefOfStaff")}
               </span>
             )}
-            {bot.chiefOfStaff && (modelLabel || preview(bot, showToolCalls)) && <span className="shrink-0 text-ink-secondary/60">·</span>}
+            {bot.chiefOfStaff && (modelLabel || bot.busy) && <span className="shrink-0 text-ink-secondary/60">·</span>}
+            {modelLabel && (
+              <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(engine?.driverKind) }} />
+            )}
             {modelLabel && <span className="max-w-[50%] shrink-0 truncate">{modelLabel}</span>}
-            {modelLabel && preview(bot, showToolCalls) && <span className="shrink-0 text-ink-secondary/60">·</span>}
-            <span className="truncate">{preview(bot, showToolCalls)}</span>
+            {bot.busy && modelLabel && <span className="shrink-0 text-ink-secondary/60">·</span>}
+            {bot.busy && <span className="shrink-0 truncate">{t("chrome.working")}</span>}
           </span>
           {bot.unread && (
             <span className="size-2 shrink-0 rounded-full bg-accent" />

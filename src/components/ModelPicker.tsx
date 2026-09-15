@@ -157,8 +157,9 @@ export function ModelPickerControl({
     };
   }, [open]);
 
-  // Display-only: tier-suffixed model ids (no selection.effort) still show
-  // their dot+effort via the catalog family check. No state changes here.
+  // Display-only: the accent dot is engine-driven, so effortless models
+  // (wizard bots, muse) still show it; only the effort label stays gated
+  // on displayedChipEffort. No state changes here.
   const chipEffort = displayedChipEffort(active, selection.model, selection.effort);
   const trigger = (
     <button
@@ -179,11 +180,11 @@ export function ModelPickerControl({
       <span className="min-w-0 max-w-[160px] truncate">
         {modelChipText({ instance: active, model: selection.model, effort: selection.effort }, t)}
       </span>
+      {active && (
+        <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(active.driverKind) }} />
+      )}
       {chipEffort && (
-        <span data-model-effort className="flex shrink-0 items-center gap-1 whitespace-nowrap">
-          <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(active?.driverKind) }} />
-          <span className="text-[12px] text-ink-secondary">{" · "}{chipEffortLabel(chipEffort, t)}</span>
-        </span>
+        <span data-model-effort className="shrink-0 whitespace-nowrap text-[12px] text-ink-secondary">{" · "}{chipEffortLabel(chipEffort, t)}</span>
       )}
       <ChevronDown size={14} className={cn("shrink-0 text-ink-secondary", !contained && active && "@max-4xl/chathead:hidden")} />
     </button>
