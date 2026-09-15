@@ -253,6 +253,9 @@ function NewBotRow({
         placeholder={t("groupWizard.jobPlaceholder")}
         className="w-full rounded-lg bg-raised/70 px-3 py-2 text-[14px] text-ink placeholder:text-ink-secondary focus:outline-none"
       />
+      {!row.job.trim() && (
+        <p className="mt-1 text-[12px] text-ink-secondary">{t("groupWizard.jobRequired")}</p>
+      )}
 
       {pick ? (
         <div className="mt-1.5">

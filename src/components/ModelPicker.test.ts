@@ -224,7 +224,7 @@ describe("ModelPicker friends chip", () => {
         }),
       ),
     );
-    expect(chipText(html)).toContain("Claude Sonnet 5 · High");
+    expect(chipText(html)).toContain("Claude Sonnet 5 High");
     expect(html).toMatch(/min-w-0 max-w-\[160px\] truncate">Claude Sonnet 5</);
     expect(html).not.toContain("@max-4xl/chathead:inline");
     expect(html).not.toMatch(/<span[^>]*>Claude<\/span>/);
@@ -232,7 +232,7 @@ describe("ModelPicker friends chip", () => {
 
   it("shows effort beside the model name wearing the family accent", () => {
     const html = markup({ instanceId: "grok", model: "grok-4.6", mode: "automatic", effort: "high" });
-    expect(chipText(html)).toContain("Grok 4.6 · High");
+    expect(chipText(html)).toContain("Grok 4.6 High");
     expect(html).toContain("data-model-effort");
     expect(html).not.toContain(">high<");
     expect(html).toContain("#8b929c");
@@ -240,7 +240,7 @@ describe("ModelPicker friends chip", () => {
 
   it("shows a derived effort dot for a tier-suffixed model without selection.effort", () => {
     const html = tieredMarkup({ instanceId: "antigravity", model: "gemini-3.8-flash-high", mode: "pinned" });
-    expect(chipText(html)).toContain("Gemini 3.8 Flash · High");
+    expect(chipText(html)).toContain("Gemini 3.8 Flash High");
     expect(html).not.toContain("(High)");
     expect(html).toContain("data-model-effort");
     expect(html).not.toContain(">high<");
@@ -248,12 +248,12 @@ describe("ModelPicker friends chip", () => {
   });
 
   it.each([
-    ["codex", "codex-default", "Codex default · Medium"],
-    ["claude", "claude-fable-5-1", "Fable 5.1 · Medium"],
-    ["muse", "muse-default", "Meta Muse default · Medium"],
-    ["antigravity", "antigravity-default", "Gemini (Antigravity) default · Medium"],
-    ["grok", "grok-4.6", "Grok 4.6 · Medium"],
-  ])("shows the %s chip as one-line Model · Effort", (instanceId, model, chip) => {
+    ["codex", "codex-default", "Codex default Medium"],
+    ["claude", "claude-fable-5-1", "Fable 5.1 Medium"],
+    ["muse", "muse-default", "Meta Muse default Medium"],
+    ["antigravity", "antigravity-default", "Gemini (Antigravity) default Medium"],
+    ["grok", "grok-4.6", "Grok 4.6 Medium"],
+  ])("shows the %s chip as one-line model + effort", (instanceId, model, chip) => {
     const html = markup({ instanceId, model, mode: "pinned", effort: "medium" });
     expect(chipText(html)).toContain(chip);
     expect(html).toContain("data-model-effort");
@@ -378,7 +378,7 @@ describe("ModelPicker friends chip", () => {
   ])("paints the %s effort marker with %s", (instanceId, model, accent) => {
     const html = markup({ instanceId, model, mode: "pinned", effort: "medium" });
     expect(html).toContain("data-model-effort");
-    expect(html).toContain("· Medium");
+    expect(html).toContain("> Medium<");
     expect(html).not.toContain(">medium<");
     expect(html).toContain(accent);
   });
@@ -431,7 +431,7 @@ describe("ModelPicker friends chip", () => {
   it("keeps the full model and effort on one line with no narrow fold", () => {
     const html = markup({ instanceId: "grok", model: "grok-4.6", mode: "automatic", effort: "high" });
     // the label never folds to the engine name below the breakpoint…
-    expect(chipText(html)).toContain("Grok 4.6 · High");
+    expect(chipText(html)).toContain("Grok 4.6 High");
     expect(html).not.toContain("@max-4xl/chathead:inline");
     expect(html).not.toMatch(/<span[^>]*>Grok<\/span>/);
     // …and the effort badge never folds away, dot included
@@ -483,7 +483,7 @@ describe("ModelPicker friends chip", () => {
     // palette lookup, not a hardcoded hex: the dot must wear the family's
     // resolved accent, whatever the palette table holds.
     expect(html).toContain(`background-color:${modelFamilyAccent("grokAgent")}`);
-    expect(chipText(html)).toContain("Northwind 9 Contributor Extended Edition · High");
+    expect(chipText(html)).toContain("Northwind 9 Contributor Extended Edition High");
     expect(html).not.toContain(">high<");
   });
 

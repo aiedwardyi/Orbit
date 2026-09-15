@@ -184,7 +184,7 @@ export function ModelPickerControl({
         <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(active.driverKind) }} />
       )}
       {chipEffort && (
-        <span data-model-effort className="shrink-0 whitespace-nowrap text-[12px] text-ink-secondary">{" · "}{chipEffortLabel(chipEffort, t)}</span>
+        <span data-model-effort className="shrink-0 whitespace-nowrap text-[12px] text-ink-secondary">{" "}{chipEffortLabel(chipEffort, t)}</span>
       )}
       <ChevronDown size={14} className={cn("shrink-0 text-ink-secondary", !contained && active && "@max-4xl/chathead:hidden")} />
     </button>

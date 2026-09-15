@@ -87,7 +87,7 @@ export function modelEffortLabel(effort: string, t: Translate): string {
 }
 
 /** Header-chip effort: the localized level with each word leading-capitalized,
- * so the one-line chip reads "Model · High" while the picker cells and status
+ * so the one-line chip reads "Model High" while the picker cells and status
  * line keep the catalog's lowercase "high". Cased ASCII only in practice —
  * non-cased locales (ko) pass through untouched. */
 export function chipEffortLabel(effort: string, t: Translate): string {

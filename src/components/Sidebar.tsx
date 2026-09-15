@@ -791,7 +791,7 @@ function BotListItem({
             {modelLabel && (
               <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(engine?.driverKind) }} />
             )}
-            {modelLabel && <span className="max-w-[50%] shrink-0 truncate">{modelLabel}</span>}
+            {modelLabel && <span className="min-w-0 flex-1 truncate">{modelLabel}</span>}
             {bot.busy && modelLabel && <span className="shrink-0 text-ink-secondary/60">·</span>}
             {bot.busy && <span className="shrink-0 truncate">{t("chrome.working")}</span>}
           </span>
