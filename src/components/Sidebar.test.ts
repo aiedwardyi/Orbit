@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -71,6 +74,16 @@ describe("Sidebar drag to reorder", () => {
 });
 
 describe("Sidebar row time", () => {
+  it("hides the time on hover so the name reclaims the width", () => {
+    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "Sidebar.tsx"), "utf8");
+    const botTime = source.slice(source.indexOf("function BotListItem"), source.indexOf("function ArchivedBotsPanel"));
+    expect(botTime).toContain("group-hover:hidden");
+    expect(botTime).toContain("group-focus-within:hidden");
+    expect(botTime).not.toContain("group-hover:opacity-0");
+    expect(botTime).toContain("min-w-0 flex-1 truncate");
+    expect(botTime).toContain("overflow-hidden");
+  });
+
   it.each(["en", "ko"] as const)("follows the %s UI language like the chat", async (locale) => {
     const at = Date.UTC(2026, 8, 12, 16, 36);
     const a = { ...bot("a"), messages: [{ id: "m", role: "bot", kind: "text", text: "hi", at }], activeLeafId: "m" };

@@ -940,39 +940,59 @@
 }
 
 /* ── TUI Amber ─────────────────────────────────────────────────────────────
-   True black chrome. Gray ink. Solid yellow only on accent/selection.
+   Boxy gray chrome, black thread, muted amber selection.
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="tui-amber"] {
-  --color-app: #000000;
-  --color-panel: #080808;
-  --color-raised: #141414;
-  --color-raised-hover: #1c1c1c;
-  --color-card: #0a0a0a;
+  --color-app: #1a1a1a;
+  --color-panel: #222222;
+  --color-raised: #2c2c2c;
+  --color-raised-hover: #343434;
+  --color-card: #141414;
   --color-inset: #000000;
-  --color-control: #141414;
-  --color-hairline: #2a2a2a;
+  --color-control: #2c2c2c;
+  --color-hairline: #3d3d3d;
 
-  --color-ink: #c8c8c8;
-  --color-ink-secondary: #9a9a9a;
+  --color-ink: #dedcd7;
+  --color-ink-secondary: #aaa7a0;
 
-  --color-accent: #ffd400;
-  --color-accent-border: #ffe44d;
-  --color-accent-text: #ffd400;
-  --color-focus: #ffd400;
-  --color-accent-ink: #000000;
-  --color-bubble-user: #141414;
+  --color-accent: #d6b779;
+  --color-accent-border: #e2c994;
+  --color-accent-text: #e2c994;
+  --color-focus: #e2c994;
+  --color-accent-ink: #1a1a1a;
+  --color-bubble-user: #222222;
 
-  --color-success: #c8c8c8;
+  --color-success: #dedcd7;
   --color-danger: #ff6b6b;
-  --color-danger-ink: #000000;
-  --color-warning: #ffd400;
-  --color-scrollbar: #2a2a2a;
-  --color-maus-line: #9a9a9a;
+  --color-danger-ink: #1a1a1a;
+  --color-warning: #e2c994;
+  --color-scrollbar: #3d3d3d;
+  --color-maus-line: #aaa7a0;
 
   --font-sans: "Cascadia Mono", "Cascadia Code", "Consolas", "Malgun Gothic",
     ui-monospace, monospace;
   --radius-lg: 0px;
   --radius-xl: 0px;
+}
+
+/* Stop at nested skin previews so Amber cannot reshape the other skins. */
+@scope ([data-skin="tui-amber"]) to ([data-skin]) {
+  [class*="rounded"], button, input, textarea, select {
+    border-radius: 0;
+  }
+
+  main, main .bg-app, [data-orbit-transcript], :scope > .min-w-0 {
+    background-color: var(--color-inset);
+  }
+
+  [data-orbit-transcript] {
+    box-shadow: inset 1px 0 var(--color-hairline), inset -1px 0 var(--color-hairline);
+  }
+
+  .bg-bubble-user, [data-orbit-transcript] .bg-card, .grid.bg-raised {
+    outline: 1px solid var(--color-hairline);
+    outline-offset: -1px;
+  }
 }
 
 /* ── TUI Ice ───────────────────────────────────────────────────────────────

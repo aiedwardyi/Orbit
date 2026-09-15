@@ -31,7 +31,7 @@ const SKIN_CHROME = Object.freeze({
   "github-dimmed": Object.freeze({ color: "#22272e", symbolColor: "#adbac7" }),
   tui: Object.freeze({ color: "#0c0c0c", symbolColor: "#a0a0a0" }),
   "tui-black": Object.freeze({ color: "#000000", symbolColor: "#9a9a9a" }),
-  "tui-amber": Object.freeze({ color: "#000000", symbolColor: "#9a9a9a" }),
+  "tui-amber": Object.freeze({ color: "#1a1a1a", symbolColor: "#aaa7a0" }),
   "tui-ice": Object.freeze({ color: "#000000", symbolColor: "#8aa8b8" }),
   "tui-slate": Object.freeze({ color: "#000000", symbolColor: "#8a8a8a" }),
   "tui-smoke": Object.freeze({ color: "#000000", symbolColor: "#8a8680" }),

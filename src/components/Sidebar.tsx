@@ -279,8 +279,8 @@ function GroupListItem({
       >
         <StackedMauses members={members} density={density} />
         <div className={cn("min-w-0 flex-1", density === "icons" && "hidden")}>
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="truncate text-[15px] font-semibold text-ink">{group.name}</span>
+          <div className="flex min-w-0 items-baseline gap-2 overflow-hidden">
+            <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink">{group.name}</span>
             {selected && last && <span className="shrink-0 text-xs text-ink-secondary">{formatTime(last.at, localeTag(locale))}</span>}
           </div>
           <div className="flex items-center justify-between gap-2">
@@ -762,20 +762,20 @@ function BotListItem({
         animated={Boolean(bot.busy) || Boolean(bot.unread) || (mascotMotion?.kind ?? "none") !== "none"}
       />
       <div className={cn("min-w-0 flex-1", iconOnly && "hidden")}>
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="flex min-w-0 items-center gap-1.5 truncate text-[15px] font-semibold text-ink">
+        <div className="flex min-w-0 items-baseline gap-2 overflow-hidden">
+          <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-semibold text-ink">
             {bot.pinned && <Pin size={12} className="shrink-0 text-ink-secondary" />}
             <RenameTitle
               key={iconOnly ? "icons" : "expanded"}
               value={bot.name}
               onCommit={(name) => dispatch({ type: "updateBot", botId: bot.id, patch: { name } })}
               onEditingChange={setRenaming}
-              className="truncate"
+              className="min-w-0 flex-1 truncate"
               inputClassName="w-full rounded bg-inset px-1 py-0.5 text-[15px] font-semibold"
             />
           </span>
           {selected && last && !renaming && (
-            <span className="shrink-0 text-xs text-ink-secondary transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
+            <span className="shrink-0 text-xs text-ink-secondary group-hover:hidden group-focus-within:hidden">
               {formatTime(last.at, localeTag(locale))}
             </span>
           )}
