@@ -735,6 +735,11 @@ describe("first-run core path leftovers", () => {
     expect(ko["chat.startConversation"]).not.toMatch(/Send a message/i);
     expect(en["model.automatic"]).toBe("Current model");
     expect(ko["model.automatic"]).toBe("현재 모델");
+    expect(en["model.effortMinimal"]).toBe("minimal");
+    expect(ko["model.effortMinimal"]).toBe("최소");
+    expect(ko["model.effortMinimal"]).not.toMatch(/minimal/i);
+    expect(en["model.effortUltra"]).toBe("ultra");
+    expect(ko["model.effortUltra"]).toBe("울트라");
     expect(en["model.switchEngine"]).toBe("Switch engine");
     expect(ko["model.switchEngine"]).toBe("엔진 바꾸기");
     expect(ko["model.switchEngine"]).not.toMatch(/Switch engine/i);

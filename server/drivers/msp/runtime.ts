@@ -8,6 +8,7 @@ import { homedir } from "node:os";
 
 import type {
   DriverCreateInput,
+  EffortLevel,
   EngineInstall,
   ModelCatalog,
   ProviderDriver,
@@ -45,6 +46,8 @@ export interface MspSupport {
   displayName: string;
   /** Static catalog; model/list stays the live source of truth (see muse.ts). */
   models: ModelCatalog;
+  /** Effort tiers the host accepts; absent = the selector stays hidden. */
+  effortLevels?: readonly EffortLevel[];
   defaultCli: string;
   nativeSource: string;
   loginNote: string;
@@ -638,7 +641,14 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
             const text = turn.system ? `${turn.system}\n\n${promptText}` : promptText;
             const ack: any = await channel.request(
               "turn/start",
-              { commandId: uuidv7(), sessionId, input: [{ type: "text", text }] },
+              {
+                commandId: uuidv7(),
+                sessionId,
+                input: [{ type: "text", text }],
+                // Levels travel verbatim (max stays max, never ultra); none
+                // and unset both omit the key so the CLI keeps its default.
+                ...(turn.effort && turn.effort !== "none" ? { reasoningEffort: turn.effort } : undefined),
+              },
               SESSION_TIMEOUT,
             );
             if (ack?.status !== "accepted" || ack?.disposition !== "started") {
@@ -688,6 +698,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
             sessionModelSwitch: "in-session",
             rateLimits: true,
             askApproval: !config.fullAuto,
+            effortLevels: support.effortLevels,
           },
           sendTurn,
           interruptTurn: async (threadId) => {

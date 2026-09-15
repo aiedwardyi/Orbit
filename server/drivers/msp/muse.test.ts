@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { MspMuseAgentDriver, MSP_MUSE_MODELS } from "./muse.ts";
+import { MspMuseAgentDriver, MSP_MUSE_EFFORT_LEVELS, MSP_MUSE_MODELS } from "./muse.ts";
 import { classifyMuseError, museDefaultCli } from "../acp/muse.ts";
+import { defaultModelEffort } from "../../../shared/model-effort.ts";
 
 describe("classifyMuseError MSP turn errors", () => {
   it("maps authRequired to invalid_credentials, leaves the rest generic", () => {
@@ -40,6 +41,40 @@ describe("MSP Muse driver", () => {
       fullAuto: true,
     });
     expect(MspMuseAgentDriver.defaultConfig().cli).toBe(museDefaultCli());
+  });
+
+  it("advertises all eight live-verified effort tiers", async () => {
+    expect([...MSP_MUSE_EFFORT_LEVELS]).toEqual([
+      "none",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ]);
+    const instance = await MspMuseAgentDriver.create({
+      instanceId: "msp-effort-caps",
+      displayName: "MSP Effort",
+      environment: {},
+      enabled: true,
+      config: { cli: "missing-muse-cli", fullAuto: false },
+    });
+    try {
+      expect(instance.adapter.capabilities.effortLevels).toEqual([...MSP_MUSE_EFFORT_LEVELS]);
+    } finally {
+      await instance.dispose();
+    }
+  });
+
+  it("leaves the Muse default unset so the CLI keeps its own (high)", () => {
+    for (const model of ["muse-spark-1.3", "muse-spark-1.3-contributor", "muse-spark-1.2"]) {
+      expect(defaultModelEffort("museAgent", model, [...MSP_MUSE_EFFORT_LEVELS])).toBeUndefined();
+    }
+    expect(defaultModelEffort("claudeAgent", "claude-sonnet-5", ["low", "medium", "high", "xhigh", "max"])).toBe(
+      "high",
+    );
   });
 
   it("gates turns on the ambient login, not a stored-file probe alone", async () => {

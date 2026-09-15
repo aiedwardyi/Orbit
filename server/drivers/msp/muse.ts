@@ -27,10 +27,25 @@ export const MSP_MUSE_MODELS: ModelCatalog = {
   ],
 };
 
+/** Live-verified on 1.3.0: a bogus-value probe returned all eight, each
+ * accepted on real sessions. Literal max is accepted; never map it to
+ * ultra. none leaves effort unset so the CLI keeps its own default. */
+export const MSP_MUSE_EFFORT_LEVELS = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+  "ultra",
+] as const;
+
 export const MspMuseAgentDriver = createMspDriver({
   driverKind: "museAgent",
   displayName: "Meta Muse",
   models: MSP_MUSE_MODELS,
+  effortLevels: MSP_MUSE_EFFORT_LEVELS,
   defaultCli: museDefaultCli(),
   nativeSource: "muse.msp",
   loginNote: `Muse CLI is not signed in — run \`${museSignInCommand()}\` in a terminal and complete the browser sign-in`,

@@ -227,6 +227,10 @@ function handle(msg: any) {
     case "turn/start": {
       if (process.env.FAKE_MSP_DUMP) {
         writeFileSync(`${process.env.FAKE_MSP_DUMP}.turn.json`, JSON.stringify(msg.params?.input ?? null, null, 2));
+        writeFileSync(
+          `${process.env.FAKE_MSP_DUMP}.turn-params.json`,
+          JSON.stringify(msg.params ?? null, null, 2),
+        );
       }
       result(msg.id, {
         commandId: msg.params?.commandId ?? null,

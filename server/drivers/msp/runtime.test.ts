@@ -86,6 +86,50 @@ describe("MSP turns (fake host)", () => {
     });
   });
 
+  it("forwards effort verbatim as reasoningEffort on turn/start", async () => {
+    const dump = join(scratch, "muse-effort.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-effort", text: "hi", effort: "ultra" });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    expect(JSON.parse(readFileSync(`${dump}.turn-params.json`, "utf8"))).toMatchObject({
+      reasoningEffort: "ultra",
+    });
+  });
+
+  it("sends literal max without mapping it to ultra", async () => {
+    const dump = join(scratch, "muse-effort-max.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-effort-max", text: "hi", effort: "max" });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    expect(JSON.parse(readFileSync(`${dump}.turn-params.json`, "utf8"))).toMatchObject({
+      reasoningEffort: "max",
+    });
+  });
+
+  it("omits reasoningEffort when effort is unset", async () => {
+    const dump = join(scratch, "muse-effort-unset.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-effort-unset", text: "hi" });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    // SAFETY: the fake writes msg.params verbatim; only the effort key is read.
+    const params = JSON.parse(readFileSync(`${dump}.turn-params.json`, "utf8")) as { reasoningEffort?: string };
+    expect(params).not.toHaveProperty("reasoningEffort");
+  });
+
+  it("omits reasoningEffort when effort is none", async () => {
+    const dump = join(scratch, "muse-effort-none.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-effort-none", text: "hi", effort: "none" });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    // SAFETY: the fake writes msg.params verbatim; only the effort key is read.
+    const params = JSON.parse(readFileSync(`${dump}.turn-params.json`, "utf8")) as { reasoningEffort?: string };
+    expect(params).not.toHaveProperty("reasoningEffort");
+  });
+
   it("resumes a remembered session instead of starting one", async () => {
     const rpcDump = join(scratch, "muse-resume-rpc.json");
     process.env.FAKE_MSP_RPC_DUMP = rpcDump;
