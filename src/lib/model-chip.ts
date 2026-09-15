@@ -72,11 +72,13 @@ export function displayedChipEffort(
  * localize together. Unknown ids pass through verbatim. */
 const EFFORT_MESSAGE_KEYS = new Map<string, MessageKey>([
   ["none", "model.effortNone"],
+  ["minimal", "model.effortMinimal"],
   ["low", "model.effortLow"],
   ["medium", "model.effortMedium"],
   ["high", "model.effortHigh"],
   ["xhigh", "model.extraHigh"],
   ["max", "model.effortMax"],
+  ["ultra", "model.effortUltra"],
 ]);
 
 export function modelEffortLabel(effort: string, t: Translate): string {

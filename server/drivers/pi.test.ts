@@ -321,10 +321,19 @@ describe("PiDriver turns (fake CLI)", () => {
     await fullAuto.dispose();
   });
 
-  it("advertises images and every harness effort level", async () => {
+  it("advertises pi's explicit effort list, never the widened union", async () => {
     await create();
     expect(instance.adapter.capabilities.images).toBe(true);
-    expect(instance.adapter.capabilities.effortLevels).toEqual(["none", "low", "medium", "high", "xhigh", "max"]);
+    expect(instance.adapter.capabilities.effortLevels).toEqual([
+      "none",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+    expect(instance.adapter.capabilities.effortLevels).not.toContain("ultra");
   });
 
   it("pins reasoning effort via set_thinking_level after the model", async () => {

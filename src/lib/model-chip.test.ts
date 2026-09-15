@@ -201,11 +201,13 @@ describe("displayedChipEffort", () => {
 describe("chipEffortLabel", () => {
   it.each([
     ["none", "None"],
+    ["minimal", "Minimal"],
     ["low", "Low"],
     ["medium", "Medium"],
     ["high", "High"],
     ["xhigh", "Extra High"],
     ["max", "Max"],
+    ["ultra", "Ultra"],
   ])("capitalizes the %s chip effort in English", (effort, label) => {
     expect(chipEffortLabel(effort, t)).toBe(label);
   });
@@ -216,6 +218,8 @@ describe("chipEffortLabel", () => {
       vars?: Record<string, string | number>,
     ) => translate("ko", key, vars);
     expect(chipEffortLabel("high", tko)).toBe("높음");
+    expect(chipEffortLabel("minimal", tko)).toBe("최소");
+    expect(chipEffortLabel("ultra", tko)).toBe("울트라");
   });
 
   it("shows Max for Meta Muse in English and Korean", () => {

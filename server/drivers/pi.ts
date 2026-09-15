@@ -869,7 +869,9 @@ export const PiDriver: ProviderDriver<PiConfig> = {
           // Reasoning effort pins pi's thinking level per turn (none → off).
           // xhigh/max only land on models that expose them; pi rejects an
           // unsupported level and the turn keeps the engine default.
-          effortLevels: EFFORT_LEVELS,
+          // Explicit list, never the global union: widening the union for
+          // another engine must not offer pi levels it cannot take.
+          effortLevels: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
         },
         sendTurn,
         interruptTurn: async (threadId) => active.get(threadId)?.stop(),
