@@ -19,7 +19,7 @@ const SKIN_CHROME = Object.freeze({
   "catppuccin-frappe": Object.freeze({ color: "#303446", symbolColor: "#b5bfe2" }),
   "tokyo-night": Object.freeze({ color: "#1a1b26", symbolColor: "#a9b1d6" }),
   vesper: Object.freeze({ color: "#101010", symbolColor: "#a0a0a0" }),
-  onyx: Object.freeze({ color: "#0a0a0b", symbolColor: "#9c9ca5" }),
+  onyx: Object.freeze({ color: "#000000", symbolColor: "#a8a6a3" }),
   dracula: Object.freeze({ color: "#282a36", symbolColor: "#a4abcc" }),
   cobalt: Object.freeze({ color: "#292a2b", symbolColor: "#bcaafe" }),
   gruvbox: Object.freeze({ color: "#282828", symbolColor: "#d5c4a1" }),

@@ -39,7 +39,7 @@ export const SKINS: readonly Skin[] = [
   { id: "catppuccin-frappe", name: "Catppuccin Frappe", tagline: "Muted pastel on slate." },
   { id: "tokyo-night", name: "Tokyo Night", tagline: "Indigo night, cool counterpart to Foundry." },
   { id: "vesper", name: "Vesper", tagline: "Warm near-black, peach accent." },
-  { id: "onyx", name: "Onyx", tagline: "Black glass, silver trim." },
+  { id: "onyx", name: "Onyx", tagline: "True black, pastel accents." },
   { id: "dracula", name: "Dracula", tagline: "Slate purple, neon status." },
   { id: "cobalt", name: "Panda Syntax", tagline: "Warm charcoal, mint lamp." },
   { id: "gruvbox", name: "Gruvbox", tagline: "Warm and earthy, retro groove." },

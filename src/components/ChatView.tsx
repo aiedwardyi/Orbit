@@ -66,6 +66,9 @@ import { usageLimitReset } from "@/lib/usage";
 import { useFocusMessage } from "@/lib/focus-message";
 import { activityVisibleInChat, groupActivityRuns } from "@/lib/activity-runs";
 import { chatTranscriptRows } from "@/lib/chat-transcript";
+import { chatOptionChoices } from "@/lib/chat-options";
+import { ChatOptionChips } from "./ChatOptionChips";
+import { MemorySaveChip } from "./MemorySaveChip";
 import { ActivityRun } from "./ActivityRun";
 import { webhookMessageView } from "@/lib/webhook-message";
 import { splitAttachedImages } from "@/lib/composer-attachments";
@@ -427,6 +430,7 @@ function Bubble({
   const user = message.role === "user";
   const [expanded, setExpanded] = useState(false);
   const text = message.text ?? "";
+  const optionChoices = !user && isLastBotText && !bot.busy ? chatOptionChoices(text) : null;
   const webhookView = user ? webhookMessageView(text) : null;
   const attachedImages = user && !webhookView ? splitAttachedImages(text) : null;
   const visibleText = webhookView?.task ?? attachedImages?.display ?? text;
@@ -614,6 +618,12 @@ function Bubble({
           </div>
         )}
       </div>
+      {optionChoices && (
+        <ChatOptionChips
+          options={optionChoices}
+          onPick={(option) => dispatch({ type: "send", botId: bot.id, text: option })}
+        />
+      )}
       <TimestampLabel at={message.at} />
       {!message.placeholder && <ReactionChips threadId={bot.threadId} message={message} align={user ? "right" : "left"} />}
       {!message.placeholder && versions.length > 1 && (
@@ -649,6 +659,7 @@ function ActivityChip({ message }: { message: Message }) {
   const { t } = useI18n();
   const tool = message.tool;
   if (!tool) return null;
+  if (tool.name === "memory.save") return <MemorySaveChip summary={tool.spoken ?? ""} />;
   // bot⇄bot comm chip: opens the channel where the exchange lives
   const comm = message.comm;
   if (comm) {

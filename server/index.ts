@@ -194,6 +194,7 @@ import {
   writeMemoryFile,
   MEMORY_FILE_MAX_BYTES,
 } from "./workspace.ts";
+import { MEMORY_SAVE_TOOL, peekMemory, rememberMemoryWrite } from "./memory-save.ts";
 import {
   readSectionContext,
   sectionContextKey,
@@ -1728,10 +1729,21 @@ bus.subscribe((event: RuntimeEvent) => {
         if (bot && /computer|screenshot|click|type_text|press_key|scroll|open_url|browser_/i.test(toolName)) {
           pokeScreenPoller(bot.id);
         }
+        if (turnOwnerId && event.ok) {
+          const note = rememberMemoryWrite(turnOwnerId);
+          if (note) {
+            pushMessage({
+              role: "bot",
+              kind: "activity",
+              tool: { name: MEMORY_SAVE_TOOL, ok: true, spoken: note },
+            });
+          }
+        }
       }
       break;
     case "item.started":
       if (event.itemType === "tool") {
+        if (turnOwnerId) peekMemory(turnOwnerId);
         // ask_bot's raw tool chip is redundant — the internal endpoint
         // appends a richer "Messaged @X" chip linking to the channel
         if (event.title?.endsWith("__ask_bot")) break;
