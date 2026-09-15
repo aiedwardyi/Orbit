@@ -1,6 +1,6 @@
 // Pure step logic for the New group wizard: engine suggestions, local bot
 // naming, and the create payloads. No React, no I/O — unit-tested below.
-import type { Bot, InstanceInfo } from "@/state/store";
+import type { InstanceInfo } from "@/state/store";
 
 /** An engine row the host can actually run a turn on. */
 export function isEngineConnected(instance: InstanceInfo): boolean {
@@ -66,7 +66,4 @@ export function groupCreatePayload(name: string, memberIds: string[]): WizardGro
   return { name, memberIds, setup: { bulletin: "", defaultResponder: { kind: "everyone" } } };
 }
 
-/** Bots the step-3 list may offer: visible, and not the first bot. */
-export function botChoicesForStep(bots: Bot[], excludeId: string | null): Bot[] {
-  return bots.filter((b) => !b.hidden && b.id !== excludeId);
-}
+

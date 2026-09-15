@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { Bot, InstanceInfo } from "@/state/store";
+import type { InstanceInfo } from "@/state/store";
 import {
-  botChoicesForStep,
   botNameFromJob,
   groupCreatePayload,
   isEngineConnected,
@@ -68,17 +67,5 @@ describe("wizard naming and payloads", () => {
       memberIds: ["b1", "b2"],
       setup: { bulletin: "", defaultResponder: { kind: "everyone" } },
     });
-  });
-
-  it("offers visible bots except the first pick on step 3", () => {
-    // SAFETY: the filter reads only id/hidden; remaining Bot fields are
-    // irrelevant to the choice list.
-    const bots = [
-      { id: "b1", hidden: false },
-      { id: "b2", hidden: true },
-      { id: "b3", hidden: false },
-    ] as Bot[];
-    expect(botChoicesForStep(bots, "b1").map((b) => b.id)).toEqual(["b3"]);
-    expect(botChoicesForStep(bots, null).map((b) => b.id)).toEqual(["b1", "b3"]);
   });
 });
