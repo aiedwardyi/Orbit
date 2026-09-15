@@ -54,3 +54,8 @@ gh release create v1.0.9 -R aiedwardyi/orbit-releases release/Orbit-1.0.9-setup.
    of the memory-write pipeline first.
 - Parked: group-chat discipline (free-for-all stays default; Edward will try 5-bot groups on
   Gemini/Grok first and report back). Waiting-for-you keep-vs-restore still open.
+
+## Theme direction locked (Edward): Onyx
+- True-black (#000) ground, off-white text (~#e8e6e3, NOT pure white — halation), Tokyo Night
+  pastels (mint/peach/lavender/ice) as accents ONLY: model dots, progress bars, active states,
+  buttons. Minimal chrome, hairline borders. Replaces the earlier generic "pastel theme" plan.
