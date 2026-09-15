@@ -22,6 +22,7 @@ const css = readFileSync(join(here, "../styles.css"), "utf8");
 const updateBanner = readFileSync(join(here, "../components/UpdateBanner.tsx"), "utf8");
 const chatView = readFileSync(join(here, "../components/ChatView.tsx"), "utf8");
 const sidebar = readFileSync(join(here, "../components/Sidebar.tsx"), "utf8");
+const groupWizard = readFileSync(join(here, "../components/GroupWizard.tsx"), "utf8");
 const settingsPanel = readFileSync(join(here, "../components/SettingsPanel.tsx"), "utf8");
 const createBotSheet = readFileSync(join(here, "../components/CreateBotSheet.tsx"), "utf8");
 const engineSetup = readFileSync(join(here, "../components/EngineSetup.tsx"), "utf8");
@@ -472,7 +473,8 @@ describe("remaining P1 surfaces", () => {
     expect(chatView).not.toContain('t("composer.stop")');
     expect(chatView).not.toMatch(/type: "interrupt"/);
     expect(sidebar).toContain('t("chrome.newChannel")');
-    expect(sidebar).toContain('t("chrome.createBotFirst")');
+    expect(sidebar).toContain("GroupWizard");
+    expect(sidebar).not.toContain("NewRoomPanel");
     expect(sidebar).toContain('t("chrome.chooseAnotherChief")');
     expect(sidebar).toContain('t("chrome.teamMap")');
     expect(sidebar).toContain('t("chrome.resizeSidebar")');
@@ -511,10 +513,15 @@ describe("sidebar create channel and bot/room chrome", () => {
   });
 
   it("wires those phrases into Sidebar instead of hardcoded English", () => {
-    expect(sidebar).toContain('t("chrome.createChannel")');
-    expect(sidebar).toContain('"chrome.createChannelOne"');
-    expect(sidebar).toContain('"chrome.createChannelMany"');
-    expect(sidebar).toContain('picked.size === 1 ? "chrome.createChannelOne" : "chrome.createChannelMany"');
+    expect(sidebar).not.toContain("NewRoomPanel");
+    expect(sidebar).not.toContain('"chrome.createChannelOne"');
+    expect(groupWizard).toContain('t("groupWizard.createGroup")');
+    expect(groupWizard).toContain('t("groupWizard.useThisBot")');
+    expect(groupWizard).toContain('t("groupWizard.addBot")');
+    expect(groupWizard).toContain('t("groupWizard.connectAi")');
+    expect(groupWizard).not.toMatch(/>Create group</);
+    expect(groupWizard).not.toMatch(/>Use this bot</);
+    expect(groupWizard).not.toMatch(/>Add bot</);
     expect(sidebar).toContain('t("chrome.duplicate")');
     expect(sidebar).toContain('t("chrome.archive")');
     expect(sidebar).toContain('t("chrome.delete")');
