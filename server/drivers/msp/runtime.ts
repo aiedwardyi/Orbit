@@ -541,7 +541,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
               "initialize",
               {
                 protocolVersion: 1,
-                clientInfo: { name: "orbit", version: "1.0.4" },
+                clientInfo: { name: "orbit", version: "1.0.5" },
                 // Schema key is `capabilities`; the ACP-shaped
                 // clientCapabilities rides along (tolerated live).
                 capabilities: { userInputDialogs: false },
