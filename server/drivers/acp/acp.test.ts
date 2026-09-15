@@ -1336,6 +1336,20 @@ describe("ACP turns (fake CLI)", () => {
     expect(fullAuto.adapter.capabilities.askApproval).toBe(false);
     await fullAuto.dispose();
   });
+
+  it("offers the approval chip for Gemini unless fullAuto means nothing ever asks", async () => {
+    await create(GeminiAgentDriver);
+    expect(instance.adapter.capabilities.askApproval).toBe(true);
+    const fullAuto = await GeminiAgentDriver.create({
+      instanceId: "gemini-full-auto-chip",
+      displayName: "Gemini",
+      environment: {},
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: true },
+    });
+    expect(fullAuto.adapter.capabilities.askApproval).toBe(false);
+    await fullAuto.dispose();
+  });
 });
 
 describe("probeCliVersion", () => {
