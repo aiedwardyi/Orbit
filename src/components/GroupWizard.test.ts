@@ -311,4 +311,44 @@ describe("GroupWizard members", () => {
       });
     }
   });
+
+  it("switches the row engine across every connected engine", async () => {
+    apiImpl = () => Promise.resolve({ bot: { id: `nb${++botSeq}`, name: "New bot" } });
+    const { host, root } = await renderWizard();
+    try {
+      await toMembers(host);
+      await act(async () => {
+        button(host, "+ New bot").click();
+      });
+      // SAFETY: the engine dropdown is the only select labelled Switch engine.
+      const engineSelect = host.querySelector('select[aria-label="Switch engine"]') as HTMLSelectElement;
+      expect([...engineSelect.options].map((o) => o.value)).toEqual(["gem-1", "codex-1"]);
+      expect(engineSelect.value).toBe("gem-1");
+      await act(async () => {
+        const native = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value")!.set!;
+        native.call(engineSelect, "codex-1");
+        engineSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      // SAFETY: the selector targets only the row model dropdowns rendered above.
+      const modelSelect = host.querySelector('select[aria-label="Change model"]') as HTMLSelectElement;
+      expect(modelSelect.value).toBe("codex-1-model");
+      const [job] = jobInputs(host);
+      await act(async () => {
+        const native = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+        native.call(job, "plan trips");
+        job!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () => {
+        button(host, "Add bot").click();
+      });
+      await flush();
+      expect(JSON.parse(String(apiCalls[0]!.init?.body))).toMatchObject({
+        modelSelection: { instanceId: "codex-1", model: "codex-1-model" },
+      });
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+    }
+  });
 });

@@ -140,6 +140,52 @@ describe("picker catalogs", () => {
     expect(cells.at(-1)).toMatchObject({ offList: true, options: [{ id: retired }] });
   });
 
+  it("lists every Gemini catalog model with no off-list card", () => {
+    const instance: InstanceInfo = {
+      instanceId: "gemini", driverKind: "geminiAgent", displayName: "Gemini API", snapshot: { state: "available" },
+      models: {
+        default: "auto",
+        options: [
+          { id: "auto", label: "Auto (recommended)" },
+          { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
+          { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash" },
+          { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+          { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+        ],
+      },
+    };
+    const rows = pickerRows([instance], { instanceId: "gemini", model: "auto" });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.cells.map((cell) => cell.options[0]!.id)).toEqual([
+      "auto",
+      "gemini-3.1-pro-preview",
+      "gemini-3.5-flash",
+      "gemini-2.5-pro",
+      "gemini-2.5-flash",
+    ]);
+    expect(rows[0]!.cells.some((cell) => cell.offList)).toBe(false);
+  });
+
+  it("shows the Gemini row even when another engine is current", () => {
+    const gemini: InstanceInfo = {
+      instanceId: "gemini", driverKind: "geminiAgent", displayName: "Gemini API", snapshot: { state: "available" },
+      models: {
+        default: "auto",
+        options: [
+          { id: "auto", label: "Auto (recommended)" },
+          { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
+        ],
+      },
+    };
+    const muse: InstanceInfo = {
+      instanceId: "muse", driverKind: "museAgent", displayName: "Meta Muse", snapshot: { state: "available" },
+      models: { default: "muse-spark-1.3", options: [{ id: "muse-spark-1.3", label: "Meta Muse 1.3" }] },
+    };
+    const rows = pickerRows([muse, gemini], { instanceId: "muse", model: "muse-spark-1.3" });
+    expect(rows.map((row) => row.instance.instanceId)).toEqual(["muse", "gemini"]);
+    expect(rows[1]!.cells.map((cell) => cell.options[0]!.id)).toEqual(["auto", "gemini-3.1-pro-preview"]);
+  });
+
   it("collapses duplicate roster options to one cell per model", () => {
     const instance: InstanceInfo = {
       instanceId: "muse", driverKind: "museAgent", displayName: "Meta Muse", snapshot: { state: "available" },

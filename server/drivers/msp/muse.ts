@@ -27,18 +27,16 @@ export const MSP_MUSE_MODELS: ModelCatalog = {
   ],
 };
 
-/** Live-verified on 1.3.0: a bogus-value probe returned all eight, each
- * accepted on real sessions. Literal max is accepted; never map it to
- * ultra. none leaves effort unset so the CLI keeps its own default. */
+/** Matches the CLI /effort picker exactly: minimal–max. none/ultra are
+ * intentionally not offered — none duplicates unset (no other driver
+ * offers it) and ultra behaves as max over the wire. */
 export const MSP_MUSE_EFFORT_LEVELS = [
-  "none",
   "minimal",
   "low",
   "medium",
   "high",
   "xhigh",
   "max",
-  "ultra",
 ] as const;
 
 export const MspMuseAgentDriver = createMspDriver({

@@ -10,6 +10,7 @@ import { BotPickerList } from "./BotPickerList";
 import {
   botNameFromJob,
   groupCreatePayload,
+  isEngineConnected,
   suggestEngine,
   type EnginePick,
 } from "@/lib/group-wizard";
@@ -230,6 +231,10 @@ function NewBotRow({
     : (suggestEngine(instances, preferKinds) ?? null);
   const preferKind = preferKinds[0]!;
   const showSubstituted = !!pick?.substituted && instances.some((i) => i.driverKind === preferKind);
+  const connected = instances.filter(isEngineConnected);
+  const engineOptions = pick && !connected.some((i) => i.instanceId === pick.instance.instanceId)
+    ? [pick.instance, ...connected]
+    : connected;
 
   return (
     <div className="mt-2 rounded-lg bg-raised/50 p-2.5">
@@ -250,24 +255,36 @@ function NewBotRow({
       />
 
       {pick ? (
-        <div className="mt-1.5 flex items-center gap-2 text-[12.5px] text-ink-secondary">
+        <div className="mt-1.5">
           <select
-            aria-label={t("groupWizard.modelChange")}
-            value={row.model ?? pick.instance.models.default}
-            onChange={(e) => onPatch({ model: e.target.value, instanceId: pick.instance.instanceId })}
-            className="min-w-0 flex-1 rounded-lg bg-raised/70 px-2 py-1.5 text-[13px] text-ink"
+            aria-label={t("model.switchEngine")}
+            value={pick.instance.instanceId}
+            onChange={(e) => onPatch({ instanceId: e.target.value, model: null })}
+            className="w-full rounded-lg bg-raised/70 px-2 py-1.5 text-[13px] text-ink"
           >
-            {pick.instance.models.options.map((o) => (
-              <option key={o.id} value={o.id}>{o.label}</option>
+            {engineOptions.map((i) => (
+              <option key={i.instanceId} value={i.instanceId}>{i.displayName}</option>
             ))}
           </select>
-          <button
-            onClick={() => onAdd(pick)}
-            disabled={!row.job.trim() || row.saving}
-            className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-[13px] font-medium text-accent-ink hover:brightness-110 disabled:opacity-40"
-          >
-            {t("groupWizard.addBot")}
-          </button>
+          <div className="mt-1.5 flex items-center gap-2 text-[12.5px] text-ink-secondary">
+            <select
+              aria-label={t("groupWizard.modelChange")}
+              value={row.model ?? pick.instance.models.default}
+              onChange={(e) => onPatch({ model: e.target.value, instanceId: pick.instance.instanceId })}
+              className="min-w-0 flex-1 rounded-lg bg-raised/70 px-2 py-1.5 text-[13px] text-ink"
+            >
+              {pick.instance.models.options.map((o) => (
+                <option key={o.id} value={o.id}>{o.label}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => onAdd(pick)}
+              disabled={!row.job.trim() || row.saving}
+              className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-[13px] font-medium text-accent-ink hover:brightness-110 disabled:opacity-40"
+            >
+              {t("groupWizard.addBot")}
+            </button>
+          </div>
         </div>
       ) : (
         <div className="mt-1.5 text-[12.5px] text-ink-secondary">

@@ -43,16 +43,14 @@ describe("MSP Muse driver", () => {
     expect(MspMuseAgentDriver.defaultConfig().cli).toBe(museDefaultCli());
   });
 
-  it("advertises all eight live-verified effort tiers", async () => {
+  it("advertises the six CLI /effort tiers", async () => {
     expect([...MSP_MUSE_EFFORT_LEVELS]).toEqual([
-      "none",
       "minimal",
       "low",
       "medium",
       "high",
       "xhigh",
       "max",
-      "ultra",
     ]);
     const instance = await MspMuseAgentDriver.create({
       instanceId: "msp-effort-caps",
