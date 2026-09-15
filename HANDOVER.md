@@ -45,3 +45,12 @@ gh release create v1.0.9 -R aiedwardyi/orbit-releases release/Orbit-1.0.9-setup.
 ## 1.0.10 published (same day, Edward on Windows)
 - Release v1.0.10 live on aiedwardyi/orbit-releases (Latest). App Update path verified by Edward.
 - Next up (Edward's asks): new pastel theme (terminal powerline colors), conversation-efficacy ideas.
+
+## Next session plan (agreed with Edward)
+1. Pastel theme (lavender/pink/ice-blue, from his terminal powerline) — quick win.
+2. Tappable option buttons in chat — when bot asks A-or-B, render options as tap-to-send buttons.
+3. Memory autosave + autocheck — subtle "Saving to memory…" flicker + 1-line-max summary back to
+   user ("Got it — bullet-style standups"), wrong entries correctable on the spot. Needs discovery
+   of the memory-write pipeline first.
+- Parked: group-chat discipline (free-for-all stays default; Edward will try 5-bot groups on
+  Gemini/Grok first and report back). Waiting-for-you keep-vs-restore still open.
