@@ -221,6 +221,7 @@ export function Composer({
   group,
   members,
   onEditLast,
+  onSend,
   replyTo,
   onClearReply,
   onConsumeReply,
@@ -232,6 +233,8 @@ export function Composer({
   group?: Group;
   members?: Bot[];
   onEditLast?: () => void;
+  /** Fired on the user's own send (or retry): the view re-anchors to latest. */
+  onSend?: () => void;
   replyTo?: Message | null;
   onClearReply?: () => void;
   onConsumeReply?: () => void;
@@ -547,6 +550,7 @@ export function Composer({
     } else if (bot) {
       dispatch({ type: "send", botId: bot.id, ...retry });
     }
+    onSend?.();
   };
   const send = () => {
     const action = composerBusySendAction({
@@ -587,6 +591,7 @@ export function Composer({
       setText("");
       setAttachments([]);
       onConsumeReply?.();
+      onSend?.();
       return;
     }
     if (group) {
@@ -613,6 +618,7 @@ export function Composer({
     setText("");
     setAttachments([]);
     onConsumeReply?.();
+    onSend?.();
   };
   useEffect(() => {
     if (!group) return;

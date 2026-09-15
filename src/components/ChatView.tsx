@@ -1022,6 +1022,9 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
   const live = buffersForTurn(stream, bot.threadId, lastMessage?.id);
   const streaming = live.streaming;
   const reasoning = live.reasoning;
+  // Stage transitions (Preparing -> Waiting -> Reconnecting) swap presence
+  // content while messages, buffers and busy stay put, so the pin watches it.
+  const turnSignal = stream.signal[bot.threadId];
   const toolInFlight = lastMessage?.kind === "activity" && lastMessage.tool?.ok === undefined;
   const showToolCalls = showToolCallsEnabled(state.config);
   const activityLabel = turnStageLabel(
@@ -1101,13 +1104,14 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
   // changes windowedMessages) can never re-trigger this bottom scrollTo.
   // `follow` is intentionally omitted: flipping it true used to yank the
   // viewport to the end. Re-pinning only arms future content; Jump to latest
-  // and this effect on new rows do the scrolling.
+  // and this effect on new rows do the scrolling. The one exception is the
+  // user's own send, which re-anchors via onSend even from scrollback.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || !followRef.current) return;
     el.scrollTo({ top: el.scrollHeight });
     previousScrollTop.current = el.scrollTop;
-  }, [bot.id, messages.length, streaming, reasoning, bot.busy, composerDock.pad]);
+  }, [bot.id, messages.length, streaming, reasoning, turnSignal, bot.busy, composerDock.pad]);
 
   // Expanding prepends rows: capture the height first, then after the commit
   // shift scrollTop by the growth so the message under the cursor stays put
@@ -1433,6 +1437,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
         <Composer
           key={bot.threadId}
           bot={bot}
+          onSend={jumpToLatest}
           focusBlocked={focusComposerBlocked}
           replyTo={replyTo}
           onClearReply={clearReply}

@@ -25,6 +25,7 @@ import type { Message } from "@/state/store";
 const here = dirname(fileURLToPath(import.meta.url));
 const chatView = readFileSync(join(here, "../components/ChatView.tsx"), "utf8");
 const groupView = readFileSync(join(here, "../components/GroupView.tsx"), "utf8");
+const composerView = readFileSync(join(here, "../components/Composer.tsx"), "utf8");
 
 const phaseAfter = (events: Parameters<typeof nextTurnSignals>[2][]) => {
   const signals = events.reduce<TurnSignals>((acc, event) => nextTurnSignals(acc, "t1", event), {});
@@ -359,13 +360,64 @@ describe("streamResetFor", () => {
   });
 });
 
-// Both invariants below are about JSX that never renders under the node test
+// The invariants below are about JSX that never renders under the node test
 // environment, so source text is the only handle on them.
 describe("wiring", () => {
   it("stages the 1:1 label and leaves rooms alone", () => {
     expect(chatView).toContain("turnStageLabel");
     expect(chatView).toContain("turnPhase");
     expect(groupView).not.toContain("turnStageLabel");
+  });
+
+  it("pins the 1:1 viewport on turn-stage transitions, not just deltas", () => {
+    // turnPhase/activityLabel derive from stream.signal[threadId]; a
+    // started/retrying signal changes stage content (Preparing -> Waiting
+    // for the model -> Reconnecting) while messages.length, streaming,
+    // reasoning and busy stay put. Sparse-delta engines strand the viewport
+    // below the thinking block until the next delta unless the pin effect
+    // also watches the per-thread stage signal. `follow` itself stays out
+    // of the deps (re-pinning only arms future content, never yanks).
+    const pinDeps =
+      chatView.match(
+        /el\.scrollTo\(\{\s*top:\s*el\.scrollHeight\s*\}\);\s*previousScrollTop\.current\s*=\s*el\.scrollTop;\s*\},\s*\[([^\]]*)\]\)/,
+      )?.[1] ?? "";
+    expect(pinDeps).toContain("messages.length");
+    expect(pinDeps).toContain("streaming");
+    expect(pinDeps).toContain("reasoning");
+    expect(pinDeps).toContain("bot.busy");
+    expect(pinDeps).toMatch(/signal/i);
+    expect(pinDeps).not.toMatch(/\bfollow\b/);
+  });
+
+  it("never yanks a viewport the user scrolled up, in 1:1 or rooms", () => {
+    // Incoming content (deltas, stage changes, bot messages) only scrolls
+    // while following: the pin effect early-returns otherwise, and `follow`
+    // itself stays out of the deps so re-arming never scrolls on its own.
+    // The pill is the only way back while unfollowed.
+    for (const src of [chatView, groupView]) {
+      expect(src).toContain("if (!el || !followRef.current) return;");
+    }
+    const roomPinDeps =
+      groupView.match(
+        /el\.scrollTo\(\{\s*top:\s*el\.scrollHeight\s*\}\);\s*previousScrollTop\.current\s*=\s*el\.scrollTop;\s*\},\s*\[([^\]]*)\]\)/,
+      )?.[1] ?? "";
+    expect(roomPinDeps).toContain("group.messages.length");
+    expect(roomPinDeps).toContain("streaming");
+    expect(roomPinDeps).toContain("group.busyBotId");
+    expect(roomPinDeps).not.toMatch(/\bfollow\b/);
+  });
+
+  it("re-anchors to latest on the user's own send, even from scrollback", () => {
+    // Industry normal (Discord/Slack jump on send): the gesture re-arms
+    // follow and scrolls to the end. Both views hand their jumpToLatest to
+    // the composer, which fires it on send and retry.
+    expect(chatView).toContain("onSend={jumpToLatest}");
+    expect(groupView).toContain("onSend={jumpToLatest}");
+    expect(composerView).toContain("onSend?: () => void;");
+    expect(composerView).toContain("onSend?.();");
+    for (const src of [chatView, groupView]) {
+      expect(src).toMatch(/const jumpToLatest = \(\) => \{\s*setBottomFollow\(true\)/);
+    }
   });
 
   it("keeps the pop-in: no streamed text is rendered into the 1:1 answer", () => {
