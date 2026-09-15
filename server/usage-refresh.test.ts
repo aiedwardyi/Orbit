@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createUsageRefresh, isCsrfRejection, readAntigravityQuota, readAntigravityUsageCommand, usageRefreshResponse } from "./usage-refresh.ts";
+import { createUsageRefresh, isCsrfRejection, readAntigravityQuota, readAntigravityUsageCommand, readMuseUsage, usageRefreshResponse } from "./usage-refresh.ts";
 import { antigravityRateLimitWindows } from "./drivers/rate-limits.ts";
 
 const reset = "2026-10-01T12:00:00Z";
@@ -207,6 +207,38 @@ describe("usage refresh route result", () => {
     const result = await refresh("museAgent", { instanceId: "muse" }, report);
     expect(result.report).toEqual(report);
     expect(result.error).toBe("Could not refresh Muse limits");
+  });
+
+  it("rejects the default Muse probe with refresh so no quota is invented", async () => {
+    await expect(readMuseUsage()).rejects.toThrow("refresh");
+  });
+
+  it("leaves Gemini API off the refresh path without inventing numbers", async () => {
+    let reads = 0;
+    let http = 0;
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      read: async () => {
+        reads++;
+        return credentials;
+      },
+      request: async () => {
+        http++;
+        return Response.json({});
+      },
+    });
+    const report = { windows: [{ id: "five_hour", usedPercent: 12, resetsAt: null }], observedAt: reset };
+    const kept = await refresh("geminiAgent", { instanceId: "gemini" }, report);
+    expect(kept.report).toEqual(report);
+    expect(kept.error).toBe("Usage refresh is not supported");
+    expect(kept.retryAt).toBe(0);
+    const fresh = await refresh("geminiAgent", { instanceId: "gemini" });
+    expect(fresh.report).toBeUndefined();
+    expect(fresh.error).toBe("Usage refresh is not supported");
+    expect(fresh.retryAt).toBe(0);
+    expect(reads).toBe(0);
+    expect(http).toBe(0);
+    expect(JSON.stringify(kept)).not.toContain("access-secret");
   });
 
   it.each(["signin", "refresh"] as const)("keeps the last report after Grok billing %s", async (kind) => {
