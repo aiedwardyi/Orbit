@@ -261,3 +261,50 @@ describe("Sidebar bot delete confirm", () => {
     }
   });
 });
+
+describe("Sidebar bot model line", () => {
+  it("shows the bot's pinned model label from the matching instance catalog", async () => {
+    const pinned = {
+      ...bot("m"),
+      modelSelection: { instanceId: "muse", model: "muse-spark-1.3" },
+    };
+    const muse = {
+      instanceId: "muse",
+      driverKind: "museAgent",
+      displayName: "Meta Muse",
+      snapshot: { state: "available" },
+      models: {
+        default: "muse-spark-1.3",
+        options: [{ id: "muse-spark-1.3", label: "Meta Muse 1.3" }],
+      },
+    };
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string) => {
+        if (path === "/api/bots")
+          return new Response(JSON.stringify({ bots: [pinned], groups: [] }));
+        if (path === "/api/instances")
+          return new Response(JSON.stringify({ instances: [muse] }));
+        return new Response(JSON.stringify({ error: "not in this test" }), { status: 404 });
+      }),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+      );
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      await vi.waitFor(() => expect(host.textContent).toContain("Meta Muse 1.3"), { timeout: 5000 });
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});

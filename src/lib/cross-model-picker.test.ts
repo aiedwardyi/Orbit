@@ -140,60 +140,26 @@ describe("picker catalogs", () => {
     expect(cells.at(-1)).toMatchObject({ offList: true, options: [{ id: retired }] });
   });
 
-  it("lists every Gemini catalog model with no off-list card", () => {
+  it("renders an unlisted geminiAgent pin as one fallback row preserving the pinned id", () => {
+    const pinned = "gemini-3.5-flash";
     const instance: InstanceInfo = {
       instanceId: "gemini", driverKind: "geminiAgent", displayName: "Gemini API", snapshot: { state: "available" },
-      models: {
-        default: "auto",
-        options: [
-          { id: "auto", label: "Auto (recommended)" },
-          { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
-          { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash" },
-          { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-          { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
-        ],
-      },
+      models: { default: pinned, options: [{ id: pinned, label: "Gemini 3.5 Flash" }] },
     };
-    const rows = pickerRows([instance], { instanceId: "gemini", model: "auto" });
+    const rows = pickerRows([instance], { instanceId: "gemini", model: pinned });
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.cells.map((cell) => cell.options[0]!.id)).toEqual([
-      "auto",
-      "gemini-3.1-pro-preview",
-      "gemini-3.5-flash",
-      "gemini-2.5-pro",
-      "gemini-2.5-flash",
-    ]);
-    expect(rows[0]!.cells.some((cell) => cell.offList)).toBe(false);
-  });
-
-  it("shows the Gemini row even when another engine is current", () => {
-    const gemini: InstanceInfo = {
-      instanceId: "gemini", driverKind: "geminiAgent", displayName: "Gemini API", snapshot: { state: "available" },
-      models: {
-        default: "auto",
-        options: [
-          { id: "auto", label: "Auto (recommended)" },
-          { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
-        ],
-      },
-    };
-    const muse: InstanceInfo = {
-      instanceId: "muse", driverKind: "museAgent", displayName: "Meta Muse", snapshot: { state: "available" },
-      models: { default: "muse-spark-1.3", options: [{ id: "muse-spark-1.3", label: "Meta Muse 1.3" }] },
-    };
-    const rows = pickerRows([muse, gemini], { instanceId: "muse", model: "muse-spark-1.3" });
-    expect(rows.map((row) => row.instance.instanceId)).toEqual(["muse", "gemini"]);
-    expect(rows[1]!.cells.map((cell) => cell.options[0]!.id)).toEqual(["auto", "gemini-3.1-pro-preview"]);
+    expect(rows[0]!.cells).toHaveLength(1);
+    expect(rows[0]!.cells[0]).toMatchObject({ offList: true, options: [{ id: pinned }] });
   });
 
   it("collapses a duplicated roster entry to one row", () => {
-    const gemini = (): InstanceInfo => ({
-      instanceId: "gemini", driverKind: "geminiAgent", displayName: "Gemini API", snapshot: { state: "available" },
-      models: { default: "auto", options: [{ id: "auto", label: "Auto (recommended)" }] },
+    const muse = (): InstanceInfo => ({
+      instanceId: "muse", driverKind: "museAgent", displayName: "Meta Muse", snapshot: { state: "available" },
+      models: { default: "muse-spark-1.3", options: [{ id: "muse-spark-1.3", label: "Meta Muse 1.3" }] },
     });
-    const rows = pickerRows([gemini(), gemini()], { instanceId: "gemini", model: "auto" });
+    const rows = pickerRows([muse(), muse()], { instanceId: "muse", model: "muse-spark-1.3" });
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.cells.map((cell) => cell.options[0]!.id)).toEqual(["auto"]);
+    expect(rows[0]!.cells.map((cell) => cell.options[0]!.id)).toEqual(["muse-spark-1.3"]);
     expect(rows[0]!.cells.some((cell) => cell.offList)).toBe(false);
   });
 

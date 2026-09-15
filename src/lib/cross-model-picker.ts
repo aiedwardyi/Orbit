@@ -11,7 +11,6 @@ const ENGINES = [
   ["grokAgent", "Grok"],
   ["antigravityAgent", "Antigravity"],
   ["museAgent", "Meta Muse"],
-  ["geminiAgent", "Gemini"],
 ] as const;
 
 const MODELS = new Map<string, string[]>(Object.entries({
@@ -19,7 +18,6 @@ const MODELS = new Map<string, string[]>(Object.entries({
   codex: ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
   grokAgent: ["grok-4.6", "grok-4.5"],
   museAgent: ["muse-spark-1.3", "muse-spark-1.3-contributor"],
-  geminiAgent: ["auto", "gemini-3.1-pro-preview", "gemini-3.5-flash", "gemini-2.5-pro", "gemini-2.5-flash"],
 }));
 
 export function pickerRows(instances: InstanceInfo[], current: ModelSelection, preview = current): PickerRow[] {
@@ -51,7 +49,7 @@ export function pickerRows(instances: InstanceInfo[], current: ModelSelection, p
     });
     let cells: PickerCell[];
     if (instance.driverKind === "antigravityAgent") {
-      cells = ["3.8", "3.7", "3.6", "3.5"].flatMap((version) => {
+      cells = ["3.8", "3.7"].flatMap((version) => {
         const options = catalog.filter((option) => new RegExp(`^gemini-${version.replace(".", "\\.")}-flash-(high|medium|low)$`).test(option.id));
         return options.length ? [{ label: `Gemini ${version} Flash`, options }] : [];
       });
