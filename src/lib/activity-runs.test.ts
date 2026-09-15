@@ -120,6 +120,19 @@ describe("activityVisibleInChat", () => {
     };
     expect(activityVisibleInChat(message, false)).toBe(true);
   });
+
+  it("keeps a memory-save chip visible while tool calls are hidden", () => {
+    expect(activityVisibleInChat(tool("memory.save"), false)).toBe(true);
+    expect(activityVisibleInChat(running("memory.save"), false)).toBe(true);
+  });
+});
+
+describe("memory save stays out of a folded run", () => {
+  it("does not swallow the save chip into neighboring tool steps", () => {
+    const items = groupActivityRuns([tool("Edit"), tool("memory.save"), tool("Write")]);
+    expect(items.map((item) => item.kind)).toEqual(["message", "message", "message"]);
+    expect(items[1].kind === "message" && items[1].message.tool?.name).toBe("memory.save");
+  });
 });
 
 describe("describeRun", () => {

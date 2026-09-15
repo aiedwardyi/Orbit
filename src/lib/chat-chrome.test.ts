@@ -37,6 +37,15 @@ describe("failed tool chip", () => {
   it("explains itself in plain words on hover", () => {
     expect(chip).toContain('title={failed ? t("chat.stepDidNotComplete") : undefined}');
   });
+
+  it("flickers Saving to memory then the one-line summary", () => {
+    const memoryChip = readFileSync(join(components, "MemorySaveChip.tsx"), "utf8");
+    expect(chip).toContain("memory.save");
+    expect(chip).toContain("MemorySaveChip");
+    expect(memoryChip).toContain('t("chat.savingMemory")');
+    expect(memoryChip).toContain('t("chat.savedMemory"');
+    expect(memoryChip).not.toMatch(/contentEditable/);
+  });
 });
 
 /** The class list a JSX block resolves to, as tokens: substring matching reads

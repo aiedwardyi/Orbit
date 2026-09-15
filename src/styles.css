@@ -470,37 +470,36 @@
 }
 
 /* ── Onyx ──────────────────────────────────────────────────────────────────
-   Black glass, silver trim. Mapped tokens are the near-black ground, raised
-   steel, bright ink, muted silver, silver accent, hairline, coral, and green.
-   Accent and danger fills carry the ground as ink. Links use a distinct blue
-   so they are not the same silver as body copy.
+   True black, pastel accents. Ground is #000; ink is off-white so it does
+   not halate. Lavender / ice / mint / peach are buttons, links, success,
+   and warning only — never chrome. Accent and danger fills carry the ground.
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="onyx"] {
-  --color-app: #0a0a0b;
-  --color-panel: #0f0f11;
-  --color-raised: #1a1a1d;
-  --color-raised-hover: #28282c;
-  --color-card: #121214;
-  --color-inset: #070708;
-  --color-control: #1a1a1d;       /* = raised */
-  --color-hairline: #343438;
+  --color-app: #000000;
+  --color-panel: #050505;
+  --color-raised: #141414;
+  --color-raised-hover: #1c1c1c;
+  --color-card: #0a0a0a;
+  --color-inset: #000000;
+  --color-control: #141414;       /* = raised */
+  --color-hairline: #222222;
 
-  --color-ink: #ededf0;
-  --color-ink-secondary: #9c9ca5;
+  --color-ink: #e8e6e3;           /* off-white: pure white halates on true black */
+  --color-ink-secondary: #a8a6a3;
 
-  --color-accent: #e4e4e7;
-  --color-accent-border: #e7e7ea;
-  --color-accent-text: #8fb3e6;   /* silver accent is too close to ink for links */
-  --color-focus: #e4e4e7;
-  --color-accent-ink: #0a0a0b;    /* ground on the silver fill */
-  --color-bubble-user: #18181a;
+  --color-accent: #bb9af7;        /* lavender — buttons, active, progress */
+  --color-accent-border: #c4a8f8;
+  --color-accent-text: #7dcfff;   /* ice links */
+  --color-focus: #bb9af7;
+  --color-accent-ink: #000000;    /* ground on the pastel fill */
+  --color-bubble-user: #141414;
 
-  --color-success: #5fcf86;
+  --color-success: #73daca;       /* mint */
   --color-danger: #f2655f;
-  --color-danger-ink: #0a0a0b;
-  --color-warning: #e0b44a;
-  --color-scrollbar: #343438;
-  --color-maus-line: #9c9ca5;
+  --color-danger-ink: #000000;
+  --color-warning: #ff9e64;       /* peach */
+  --color-scrollbar: #222222;
+  --color-maus-line: #e8e6e3;
 
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;

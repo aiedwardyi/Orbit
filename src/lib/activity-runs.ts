@@ -18,7 +18,11 @@ export function activityVisibleInChat(message: Message, showToolCalls: boolean):
   return Boolean(
     message.kind === "activity" &&
       tool &&
-      (showToolCalls || message.comm || tool.name.startsWith("error:") || tool.ok === false),
+      (showToolCalls ||
+        message.comm ||
+        tool.name.startsWith("error:") ||
+        tool.name === "memory.save" ||
+        tool.ok === false),
   );
 }
 
@@ -31,7 +35,8 @@ function foldable(message: Message): boolean {
   if (message.kind !== "activity" || !tool) return false;
   if (message.comm) return false;
   if (tool.ok !== true) return false;
-  return !tool.name.startsWith("error:");
+  if (tool.name.startsWith("error:") || tool.name === "memory.save") return false;
+  return true;
 }
 
 export function groupActivityRuns(messages: Message[]): TranscriptItem[] {

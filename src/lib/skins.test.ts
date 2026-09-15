@@ -313,14 +313,14 @@ const DARK_INK_SKINS = [
     id: "onyx",
     name: "Onyx",
     tokens: {
-      "--color-app": "#0a0a0b",
-      "--color-raised": "#1a1a1d",
-      "--color-ink": "#ededf0",
-      "--color-ink-secondary": "#9c9ca5",
-      "--color-accent": "#e4e4e7",
-      "--color-hairline": "#343438",
+      "--color-app": "#000000",
+      "--color-raised": "#141414",
+      "--color-ink": "#e8e6e3",
+      "--color-ink-secondary": "#a8a6a3",
+      "--color-accent": "#bb9af7",
+      "--color-hairline": "#222222",
       "--color-danger": "#f2655f",
-      "--color-success": "#5fcf86",
+      "--color-success": "#73daca",
     },
   },
   {
@@ -407,8 +407,18 @@ describe("dark ink skins", () => {
     }
   });
 
-  it("gives Onyx a blue link colour so silver accent is not the only cue", () => {
-    expect(cssToken("onyx", "--color-accent-text")).toBe("#8fb3e6");
+  it("gives Onyx ice links and peach warning, not silver chrome", () => {
+    expect(cssToken("onyx", "--color-accent-text")).toBe("#7dcfff");
+    expect(cssToken("onyx", "--color-warning")).toBe("#ff9e64");
+    expect(cssToken("onyx", "--color-accent")).toBe("#bb9af7");
+    expect(cssToken("onyx", "--color-accent")).not.toBe("#e4e4e7");
+  });
+
+  it("keeps Onyx ground true-black and ink off-white", () => {
+    expect(cssToken("onyx", "--color-app")).toBe("#000000");
+    expect(cssToken("onyx", "--color-ink")).toBe("#e8e6e3");
+    expect(cssToken("onyx", "--color-ink")).not.toBe("#ffffff");
+    expect(cssToken("onyx", "--color-ink")).not.toBe("#ededf0");
   });
 
   it("gives Panda a warning apricot distinct from the mint accent", () => {

@@ -21,6 +21,9 @@ import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { DEFAULT_MAUS_COLOR, normalizeState } from "@/lib/mascot";
 import { effectiveDefaultResponder, groupResponseHint } from "@/lib/group-routing";
 import { ChatMarkdown } from "./ChatMarkdown";
+import { ChatOptionChips } from "./ChatOptionChips";
+import { MemorySaveChip } from "./MemorySaveChip";
+import { chatOptionChoices } from "@/lib/chat-options";
 import { Composer } from "./Composer";
 import { EngineSetup, OpenConnectionsCta, setupErrorAction } from "./EngineSetup";
 import { TaskRecoveryCard } from "./TaskRecoveryCard";
@@ -90,6 +93,7 @@ export function RoomToolChip({
   const [expanded, setExpanded] = useState(false);
   const tool = message.tool;
   if (!tool) return null;
+  if (tool.name === "memory.save") return <MemorySaveChip summary={tool.spoken ?? ""} />;
   const handleRetry = onRetry
     ? () => {
         if (retried) return;
@@ -279,6 +283,7 @@ const Transcript = memo(function Transcript({
   );
   const focus = state.focusMessage;
   const focusedId = focus && !focus.consumed && focus.threadId === group.threadId ? focus.messageId : null;
+  const lastBotTextId = [...transcript].reverse().find((entry) => entry.role === "bot" && entry.kind === "text")?.id;
   const target = roomRetry(group.messages, members, group, group.threadId, group.busyBotId, { allowSetup: true });
   const onRetryFor = (messageId: string) =>
     target && messageId === target.messageId
@@ -327,6 +332,10 @@ const Transcript = memo(function Transcript({
         const m = item.message;
         const user = m.role === "user";
         const attachedImages = user && m.text ? splitAttachedImages(m.text) : null;
+        const optionChoices =
+          !user && m.kind === "text" && m.id === lastBotTextId && !group.busyBotId
+            ? chatOptionChoices(m.text ?? "")
+            : null;
         const routineOwner = m.kind === "routine.run" ? memberOf(m.from?.botId) : undefined;
         const routineExecutionThreadId = m.routineRun?.executionThreadId;
         const routineTarget = routineOwner && hasRoutineExecutionTask(routineOwner.tasks, routineExecutionThreadId)
@@ -422,6 +431,12 @@ const Transcript = memo(function Transcript({
                     </>
                   ) : <ChatMarkdown text={m.text} />}
                 </div>
+                {optionChoices && (
+                  <ChatOptionChips
+                    options={optionChoices}
+                    onPick={(option) => dispatch({ type: "sendGroup", groupId: group.id, text: option })}
+                  />
+                )}
                 {!user && (
                   <div
                     data-message-hover-actions
