@@ -30,6 +30,9 @@ const SKIN_CHROME = Object.freeze({
   nord: Object.freeze({ color: "#2e3440", symbolColor: "#d8dee9" }),
   "github-dimmed": Object.freeze({ color: "#22272e", symbolColor: "#adbac7" }),
   tui: Object.freeze({ color: "#0c0c0c", symbolColor: "#a0a0a0" }),
+  "tui-black": Object.freeze({ color: "#000000", symbolColor: "#9a9a9a" }),
+  "tui-amber": Object.freeze({ color: "#000000", symbolColor: "#c49200" }),
+  "tui-ice": Object.freeze({ color: "#000000", symbolColor: "#8aa8b8" }),
 });
 
 const DEFAULT_SKIN = "ledger";
@@ -38,7 +41,7 @@ const SKIN_PREFERENCE_FILE = "skin-preference.json";
 const LOCAL_STORAGE_DIR = path.join("Local Storage", "leveldb");
 const OMB_SKIN_MARKER = Buffer.from("omb-skin");
 const KNOWN_SKIN_RE =
-  /^(midnight|atelier|foundry|lagoon|ledger|catppuccin-frappe|catppuccin-mocha|tokyo-night|vesper|onyx|dracula|cobalt|gruvbox|kanagawa|haxor-blue|hurtado|rose-pine|nord|github-dimmed|tui)(?![A-Za-z0-9_-])/;
+  /^(midnight|atelier|foundry|lagoon|ledger|catppuccin-frappe|catppuccin-mocha|tokyo-night|vesper|onyx|dracula|cobalt|gruvbox|kanagawa|haxor-blue|hurtado|rose-pine|nord|github-dimmed|tui-black|tui-amber|tui-ice|tui)(?![A-Za-z0-9_-])/;
 const MAX_SKIN_ID_LEN = Math.max(...Object.keys(SKIN_CHROME).map((id) => id.length));
 
 function migrateSkin(skin) {

@@ -24,6 +24,9 @@ export const SKIN_IDS = [
   "nord",
   "github-dimmed",
   "tui",
+  "tui-black",
+  "tui-amber",
+  "tui-ice",
 ] as const;
 export type SkinId = (typeof SKIN_IDS)[number];
 
@@ -54,6 +57,9 @@ export const SKINS: readonly Skin[] = [
   { id: "nord", name: "Nord", tagline: "Polar night, frost blue." },
   { id: "github-dimmed", name: "GitHub Dimmed", tagline: "Medium gray, Primer blue." },
   { id: "tui", name: "TUI", tagline: "Monospace, sharp corners, terminal chrome." },
+  { id: "tui-black", name: "TUI Black", tagline: "True black, terminal chrome." },
+  { id: "tui-amber", name: "TUI Amber", tagline: "Amber CRT, terminal chrome." },
+  { id: "tui-ice", name: "TUI Ice", tagline: "True black, ice selection." },
 ];
 
 export const DEFAULT_SKIN: SkinId = "ledger";

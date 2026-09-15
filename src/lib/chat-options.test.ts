@@ -65,4 +65,11 @@ describe("chat option chips wiring", () => {
     expect(groupView).toContain("chatOptionChoices");
     expect(groupView).toContain("ChatOptionChips");
   });
+
+  it("always offers a type-your-own field next to the chips", () => {
+    const chips = readFileSync(join(dir, "../components/ChatOptionChips.tsx"), "utf8");
+    expect(chips).toContain('t("chat.ownAnswer")');
+    expect(chips).toContain("sendCustom");
+    expect(chips).toContain("custom.trim()");
+  });
 });
