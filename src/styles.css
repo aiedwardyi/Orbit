@@ -940,34 +940,34 @@
 }
 
 /* ── TUI Amber ─────────────────────────────────────────────────────────────
-   Amber CRT. Black ground, phosphor gold ink, still sharp and mono.
+   Black and yellow. Taxi / caution tape, not CRT gold. Ground is #000.
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="tui-amber"] {
   --color-app: #000000;
-  --color-panel: #0a0800;
-  --color-raised: #161208;
-  --color-raised-hover: #1e180c;
-  --color-card: #100c04;
+  --color-panel: #0a0a00;
+  --color-raised: #161600;
+  --color-raised-hover: #1e1e00;
+  --color-card: #101000;
   --color-inset: #000000;
-  --color-control: #161208;
-  --color-hairline: #3a2e10;
+  --color-control: #161600;
+  --color-hairline: #3a3a00;
 
-  --color-ink: #ffb000;
-  --color-ink-secondary: #c49200;
+  --color-ink: #ffd400;
+  --color-ink-secondary: #c9a800;
 
-  --color-accent: #ffcc33;
-  --color-accent-border: #ffd454;
-  --color-accent-text: #ffcc33;
-  --color-focus: #ffcc33;
+  --color-accent: #ffd400;
+  --color-accent-border: #ffe44d;
+  --color-accent-text: #ffe44d;
+  --color-focus: #ffd400;
   --color-accent-ink: #000000;
-  --color-bubble-user: #161208;
+  --color-bubble-user: #161600;
 
-  --color-success: #ffcc33;
-  --color-danger: #ff6b4a;
+  --color-success: #ffe44d;
+  --color-danger: #ff5a5a;
   --color-danger-ink: #000000;
-  --color-warning: #ffe566;
-  --color-scrollbar: #3a2e10;
-  --color-maus-line: #c49200;
+  --color-warning: #ffe44d;
+  --color-scrollbar: #3a3a00;
+  --color-maus-line: #c9a800;
 
   --font-sans: "Cascadia Mono", "Cascadia Code", "Consolas", "Malgun Gothic",
     ui-monospace, monospace;
@@ -1004,6 +1004,78 @@
   --color-warning: #ff9e64;
   --color-scrollbar: #243038;
   --color-maus-line: #8aa8b8;
+
+  --font-sans: "Cascadia Mono", "Cascadia Code", "Consolas", "Malgun Gothic",
+    ui-monospace, monospace;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+}
+
+/* ── TUI Commander ─────────────────────────────────────────────────────────
+   Midnight Commander. Navy panels, gray ink, cyan only on selection.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="tui-commander"] {
+  --color-app: #00005a;
+  --color-panel: #000070;
+  --color-raised: #000088;
+  --color-raised-hover: #0000a0;
+  --color-card: #000070;
+  --color-inset: #00004a;
+  --color-control: #000088;
+  --color-hairline: #005faf;
+
+  --color-ink: #d0d0d0;
+  --color-ink-secondary: #a0a0c0;
+
+  --color-accent: #00d7d7;
+  --color-accent-border: #5fffff;
+  --color-accent-text: #5fffff;
+  --color-focus: #00d7d7;
+  --color-accent-ink: #00005a;
+  --color-bubble-user: #000088;
+
+  --color-success: #5fffff;
+  --color-danger: #ff8787;
+  --color-danger-ink: #00005a;
+  --color-warning: #ffd75f;
+  --color-scrollbar: #005faf;
+  --color-maus-line: #a0a0c0;
+
+  --font-sans: "Cascadia Mono", "Cascadia Code", "Consolas", "Malgun Gothic",
+    ui-monospace, monospace;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+}
+
+/* ── TUI VGA ───────────────────────────────────────────────────────────────
+   16-color VGA. Light gray body on black. Cyan is selection only, not ink.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="tui-vga"] {
+  --color-app: #000000;
+  --color-panel: #0c0c0c;
+  --color-raised: #1c1c1c;
+  --color-raised-hover: #2a2a2a;
+  --color-card: #141414;
+  --color-inset: #000000;
+  --color-control: #1c1c1c;
+  --color-hairline: #555555;
+
+  --color-ink: #c0c0c0;
+  --color-ink-secondary: #a0a0a0;
+
+  --color-accent: #00aaaa;
+  --color-accent-border: #55ffff;
+  --color-accent-text: #55ffff;
+  --color-focus: #55ffff;
+  --color-accent-ink: #000000;
+  --color-bubble-user: #1c1c1c;
+
+  --color-success: #55ffff;
+  --color-danger: #ff6b6b;
+  --color-danger-ink: #000000;
+  --color-warning: #ffff55;
+  --color-scrollbar: #555555;
+  --color-maus-line: #a0a0a0;
 
   --font-sans: "Cascadia Mono", "Cascadia Code", "Consolas", "Malgun Gothic",
     ui-monospace, monospace;

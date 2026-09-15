@@ -440,13 +440,13 @@ const DARK_INK_SKINS = [
     name: "TUI Amber",
     tokens: {
       "--color-app": "#000000",
-      "--color-raised": "#161208",
-      "--color-ink": "#ffb000",
-      "--color-ink-secondary": "#c49200",
-      "--color-accent": "#ffcc33",
-      "--color-hairline": "#3a2e10",
-      "--color-danger": "#ff6b4a",
-      "--color-success": "#ffcc33",
+      "--color-raised": "#161600",
+      "--color-ink": "#ffd400",
+      "--color-ink-secondary": "#c9a800",
+      "--color-accent": "#ffd400",
+      "--color-hairline": "#3a3a00",
+      "--color-danger": "#ff5a5a",
+      "--color-success": "#ffe44d",
     },
   },
   {
@@ -461,6 +461,34 @@ const DARK_INK_SKINS = [
       "--color-hairline": "#243038",
       "--color-danger": "#ff6b6b",
       "--color-success": "#73daca",
+    },
+  },
+  {
+    id: "tui-commander",
+    name: "TUI Commander",
+    tokens: {
+      "--color-app": "#00005a",
+      "--color-raised": "#000088",
+      "--color-ink": "#d0d0d0",
+      "--color-ink-secondary": "#a0a0c0",
+      "--color-accent": "#00d7d7",
+      "--color-hairline": "#005faf",
+      "--color-danger": "#ff8787",
+      "--color-success": "#5fffff",
+    },
+  },
+  {
+    id: "tui-vga",
+    name: "TUI VGA",
+    tokens: {
+      "--color-app": "#000000",
+      "--color-raised": "#1c1c1c",
+      "--color-ink": "#c0c0c0",
+      "--color-ink-secondary": "#a0a0a0",
+      "--color-accent": "#00aaaa",
+      "--color-hairline": "#555555",
+      "--color-danger": "#ff6b6b",
+      "--color-success": "#55ffff",
     },
   },
 ] as const;
@@ -506,7 +534,7 @@ describe("dark ink skins", () => {
   });
 
   it("gives every TUI skin zero radius and a monospace stack", () => {
-    for (const id of ["tui", "tui-black", "tui-amber", "tui-ice"]) {
+    for (const id of ["tui", "tui-black", "tui-amber", "tui-ice", "tui-commander", "tui-vga"]) {
       const body = css.match(new RegExp(`\\[data-skin="${id}"\\]\\s*\\{([^}]*)\\}`))?.[1] ?? "";
       expect(body, id).toMatch(/--radius-lg:\s*0px/);
       expect(body, id).toMatch(/--radius-xl:\s*0px/);
