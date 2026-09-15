@@ -609,7 +609,16 @@ export type Action =
   | { type: "markRoutineRunSeen"; runId: string }
   | { type: "groupPatched"; group: Partial<Group> & { id: string } }
   | { type: "groupDeleted"; groupId: string }
-  | { type: "createGroup"; memberIds: string[]; name?: string; section?: string }
+  | {
+      type: "createGroup";
+      memberIds: string[];
+      name?: string;
+      section?: string;
+      /** Wizard path: completed setup skips the old setup screen. */
+      setup?: { bulletin: string; defaultResponder: GroupDefaultResponder };
+      onSuccess?: (group: Group) => void;
+      onError?: () => void;
+    }
   | {
       type: "sendGroup";
       groupId: string;
@@ -2135,13 +2144,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "createGroup":
           api(`/api/groups`, {
             method: "POST",
-            body: JSON.stringify({ memberIds: action.memberIds, name: action.name, section: action.section }),
+            body: JSON.stringify({
+              memberIds: action.memberIds,
+              name: action.name,
+              section: action.section,
+              ...(action.setup ? { setup: action.setup } : {}),
+            }),
           })
             .then(({ group }) => {
               rawDispatch({ type: "groupPatched", group });
               rawDispatch({ type: "select", id: group.id });
+              action.onSuccess?.(group);
             })
-            .catch(showError);
+            .catch((error) => {
+              showError(error);
+              action.onError?.();
+            });
           break;
         case "sendGroup": {
           const threadId =

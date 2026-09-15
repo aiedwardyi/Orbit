@@ -46,7 +46,7 @@ import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { MIN_QUERY, SearchResults } from "./SearchResults";
 import { TeamLibraryPanel, type TeamImportResult } from "./TeamLibraryPanel";
 import { RenameTitle } from "./RenameTitle";
-import { BotPickerList } from "./BotPickerList";
+import { GroupWizard } from "./GroupWizard";
 import { ConfirmDialog } from "./ConfirmDialog";
 import {
   displaySidebarWidth,
@@ -425,85 +425,6 @@ function RoomContextMenu({
       </button>
     </div>,
     document.body,
-  );
-}
-
-/** Pick members and an optional Work/Personal/project context, then create. */
-function NewRoomPanel({ onClose }: { onClose: () => void }) {
-  const { t } = useI18n();
-  const { state, dispatch } = useStore();
-  const [name, setName] = useState("");
-  const [section, setSection] = useState("");
-  const [picked, setPicked] = useState<Set<string>>(new Set());
-  const bots = state.bots.filter((b) => !b.hidden);
-  const toggle = (id: string) =>
-    setPicked((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  const create = () => {
-    if (!picked.size) return;
-    dispatch({
-      type: "createGroup",
-      memberIds: [...picked],
-      name: name.trim() || undefined,
-      section: section.trim() || undefined,
-    });
-    onClose();
-  };
-  return (
-    <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/40"
-      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div className="w-[340px] rounded-2xl border border-hairline/50 bg-card p-4 shadow-2xl">
-        <div className="mb-3 text-[15px] font-semibold text-ink">{t("chrome.newChannel")}</div>
-        <input
-          autoFocus
-          maxLength={100}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") create();
-            if (e.key === "Escape") onClose();
-          }}
-          placeholder={t("chrome.channelNamePlaceholder")}
-          aria-label={t("chrome.channelNamePlaceholder")}
-          className="mb-3 w-full rounded-lg bg-raised/70 px-3 py-2 text-[14px] text-ink placeholder:text-ink-secondary focus:outline-none"
-        />
-        <input
-          value={section}
-          maxLength={60}
-          onChange={(e) => setSection(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") create();
-            if (e.key === "Escape") onClose();
-          }}
-          placeholder={t("chrome.channelContext")}
-          aria-label={t("chrome.channelContext")}
-          className="mb-3 w-full rounded-lg bg-raised/70 px-3 py-2 text-[14px] text-ink placeholder:text-ink-secondary focus:outline-none"
-        />
-        <BotPickerList
-          bots={bots}
-          picked={picked}
-          onToggle={toggle}
-          emptyHint={t("chrome.createBotFirst")}
-        />
-        <button
-          onClick={create}
-          disabled={!picked.size}
-          className="mt-3 w-full rounded-lg bg-accent py-2 text-[14px] font-medium text-accent-ink hover:brightness-110 disabled:opacity-40"
-        >
-          {picked.size === 0
-            ? t("chrome.createChannel")
-            : t(picked.size === 1 ? "chrome.createChannelOne" : "chrome.createChannelMany", {
-                count: picked.size,
-              })}
-        </button>
-      </div>
-    </div>
   );
 }
 
@@ -1113,7 +1034,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const [roomMenu, setRoomMenu] = useState<{ groupId: string; x: number; y: number } | null>(null);
   const [roomSectionPicker, setRoomSectionPicker] = useState<{ groupId: string; x: number; y: number } | null>(null);
   const [plusOpen, setPlusOpen] = useState(false);
-  const [newRoom, setNewRoom] = useState(false);
+  const [wizard, setWizard] = useState(false);
   const [teamLibraryOpen, setTeamLibraryOpen] = useState(false);
   const [teamInstallUrl, setTeamInstallUrl] = useState<string | null>(null);
   const [archivedBotsOpen, setArchivedBotsOpen] = useState(false);
@@ -1530,7 +1451,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         // v4 emits the native `translate` property, and any value other than
         // `none` turns this element into a containing block for its `fixed`
         // descendants. Cancelling it with an `md:` prefix still emits a value, which
-        // silently reparents NewRoomPanel's overlay and the "+" menu backdrop on
+        // silently reparents the wizard overlay and the "+" menu backdrop on
         // desktop.
         "max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-40",
         "max-md:transition-transform max-md:duration-200",
@@ -1659,7 +1580,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                 <button
                   onClick={() => {
                     setPlusOpen(false);
-                    setNewRoom(true);
+                    setWizard(true);
                   }}
                   className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
                 >
@@ -1953,7 +1874,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           }
         />
       )}
-      {newRoom && <NewRoomPanel onClose={() => setNewRoom(false)} />}
+      {wizard && <GroupWizard onClose={() => setWizard(false)} />}
       {archivedBotsOpen && (
         <ArchivedBotsPanel
           bots={archivedBots}
