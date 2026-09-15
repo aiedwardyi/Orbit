@@ -86,7 +86,7 @@ export function ManageMembersPanel({
     const rosterChanged =
       opened.length !== group.memberIds.length || opened.some((id, index) => id !== group.memberIds[index]);
     if (rosterChanged) {
-      setSaveError("This channel's members changed while the panel was open. Close it and try again.");
+      setSaveError("This group's members changed while the panel was open. Close it and try again.");
       return;
     }
     if (changed) {
@@ -109,8 +109,8 @@ export function ManageMembersPanel({
       >
         <div className="mb-1 text-[15px] font-semibold text-ink first-letter:uppercase">{t("room.manageMembers")}</div>
         <div className="mb-3 truncate text-[13px] text-ink-secondary">{group.name}</div>
-        <BotPickerList bots={bots} picked={picked} onToggle={toggle} emptyHint="Create a bot first — channels are made of bots." />
-        {!memberIds.length && <div className="mt-2 text-[12px] text-ink-secondary">A channel needs at least one bot.</div>}
+        <BotPickerList bots={bots} picked={picked} onToggle={toggle} emptyHint="Add an existing bot or create one here." />
+        {!memberIds.length && <div className="mt-2 text-[12px] text-ink-secondary">A group needs at least one bot.</div>}
         {saveError && (
           <div role="alert" className="mt-2 text-[12px] text-danger">
             {saveError}

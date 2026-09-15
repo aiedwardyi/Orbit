@@ -276,18 +276,20 @@ describe("complete phrases", () => {
     expect(ko["room.choose"]).not.toContain("…");
   });
 
-  it("frames the channel folder as optional, not required homework", () => {
+  it("frames the group folder as a choice, not required homework", () => {
     expect(en["room.workingFolder"]).toBe("Shared folder (optional)");
     expect(ko["room.workingFolder"]).toBe("공유 폴더 (선택)");
-    expect(en["room.workingFolderHelp"]).toMatch(/Skip is fine/i);
-    expect(en["room.workingFolderHelp"]).toMatch(/pin this channel/i);
-    expect(ko["room.workingFolderHelp"]).toMatch(/건너뛰어도/);
+    expect(en["room.workingFolderHelp"]).toMatch(/Choose a shared folder/i);
+    expect(en["room.workingFolderHelp"]).toMatch(/each bot use its own/i);
+    expect(en["room.workingFolderHelp"]).not.toMatch(/pin this channel/i);
+    expect(ko["room.workingFolderHelp"]).toMatch(/공유 폴더/);
+    expect(ko["room.workingFolderHelp"]).toMatch(/자신의 폴더/);
     expect(ko["room.workingFolderHelp"]).not.toMatch(/Where room members/i);
-    expect(en["room.setupBody"]).toMatch(/response style/i);
-    expect(en["room.setupBody"]).toMatch(/optional/i);
-    expect(en["room.setupBody"]).not.toMatch(/^Give this room a shared workspace/);
-    expect(ko["room.setupBody"]).toMatch(/응답 방식/);
-    expect(ko["room.setupBody"]).toMatch(/선택/);
+    expect(en["room.setupBody"]).toMatch(/who replies/i);
+    expect(en["room.setupBody"]).toMatch(/shared folder/i);
+    expect(en["room.setupBody"]).not.toMatch(/response style/i);
+    expect(ko["room.setupBody"]).toMatch(/누가 답할지/);
+    expect(ko["room.setupBody"]).toMatch(/공유 폴더/);
     expect(ko["room.setupBody"]).not.toMatch(/공유 작업 공간, 응답 방식/);
     expect(en["room.fixedFolder"]).not.toMatch(/task/i);
     expect(ko["room.fixedFolder"]).not.toMatch(/새 작업/);
@@ -446,8 +448,8 @@ describe("remaining P1 surfaces", () => {
     expect(ko["update.available"]).not.toMatch(/is available/i);
     expect(en["update.later"]).toBe("Later");
     expect(ko["update.later"]).toBe("나중에");
-    expect(en["chrome.newChannel"]).toBe("New Channel");
-    expect(ko["chrome.newChannel"]).toBe("새 채널");
+    expect(en["chrome.newChannel"]).toBe("New group");
+    expect(ko["chrome.newChannel"]).toBe("새 그룹");
     expect(ko["chrome.newChannel"]).not.toMatch(/New Channel/i);
     expect(ko["chrome.createBotFirst"]).not.toMatch(/Create a bot first/i);
     expect(ko["chrome.chooseAnotherChief"]).not.toMatch(/Chief of Staff/i);
@@ -481,14 +483,14 @@ describe("remaining P1 surfaces", () => {
   });
 });
 
-describe("sidebar create channel and bot/room chrome", () => {
-  it("keeps Create Channel, Duplicate, Archive, Delete, and Move to context as complete EN+KO phrases", () => {
-    expect(en["chrome.createChannel"]).toBe("Create Channel");
-    expect(en["chrome.createChannelOne"]).toBe("Create Channel · {count} bot");
-    expect(en["chrome.createChannelMany"]).toBe("Create Channel · {count} bots");
-    expect(ko["chrome.createChannel"]).toBe("채널 만들기");
-    expect(ko["chrome.createChannelOne"]).toBe("채널 만들기 · 봇 {count}개");
-    expect(ko["chrome.createChannelMany"]).toBe("채널 만들기 · 봇 {count}개");
+describe("sidebar create group and bot/room chrome", () => {
+  it("keeps Create group, Duplicate, Archive, Delete, and Move to context as complete EN+KO phrases", () => {
+    expect(en["chrome.createChannel"]).toBe("Create group");
+    expect(en["chrome.createChannelOne"]).toBe("Create group · {count} bot");
+    expect(en["chrome.createChannelMany"]).toBe("Create group · {count} bots");
+    expect(ko["chrome.createChannel"]).toBe("그룹 만들기");
+    expect(ko["chrome.createChannelOne"]).toBe("그룹 만들기 · 봇 {count}개");
+    expect(ko["chrome.createChannelMany"]).toBe("그룹 만들기 · 봇 {count}개");
     expect(ko["chrome.createChannelOne"]).not.toMatch(/Create Channel|\bbot\b|\bbots\b/i);
     expect(ko["chrome.createChannelMany"]).not.toMatch(/Create Channel|\bbot\b|\bbots\b/i);
     expect(en["chrome.duplicate"]).toBe("Duplicate");
@@ -505,8 +507,8 @@ describe("sidebar create channel and bot/room chrome", () => {
     expect(en["chrome.moveToContext"]).toBe("Move to section");
     expect(ko["chrome.moveToContext"]).toBe("섹션으로 이동");
     expect(ko["chrome.moveToContext"]).not.toMatch(/Move to context/i);
-    expect(en["chrome.deleteChannel"]).toBe("Delete Channel");
-    expect(ko["chrome.deleteChannel"]).toBe("채널 삭제");
+    expect(en["chrome.deleteChannel"]).toBe("Delete group");
+    expect(ko["chrome.deleteChannel"]).toBe("그룹 삭제");
     expect(ko["chrome.deleteChannel"]).not.toMatch(/Delete Channel/i);
   });
 

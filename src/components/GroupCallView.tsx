@@ -341,7 +341,7 @@ function GroupCall({ group, members }: { group: Group; members: Bot[] }) {
         submitted: false,
       };
       spokenIds.current.add(approval.message.id);
-      const name = member?.name ?? approval.message.from?.name ?? "A channel member";
+      const name = member?.name ?? approval.message.from?.name ?? "A group member";
       enqueueSpeech(spokenApprovalPrompt(approval, name), member, true);
     }
 
@@ -349,7 +349,7 @@ function GroupCall({ group, members }: { group: Group; members: Bot[] }) {
       const member = members.find((candidate) => candidate.id === question.from?.botId);
       askedQuestion.current = { requestId: question.card.requestId, member };
       spokenIds.current.add(question.id);
-      const name = member?.name ?? question.from?.name ?? "A channel member";
+      const name = member?.name ?? question.from?.name ?? "A group member";
       const detail = question.card.subtitle.trim();
       const choices = question.card.options.length
         ? " The options are " + question.card.options.join(", ") + "."
@@ -429,9 +429,9 @@ function GroupCall({ group, members }: { group: Group; members: Bot[] }) {
         ? "Push to talk"
         : "Listening"
       : phase === "sending"
-        ? "Bringing the channel in"
+        ? "Bringing the group in"
         : phase === "speaking"
-          ? (speakingMember?.name ?? "Channel member") + " is speaking"
+          ? (speakingMember?.name ?? "Group member") + " is speaking"
           : workingMember
             ? workingMember.name + " is working"
             : "Working";
@@ -497,7 +497,7 @@ function GroupCall({ group, members }: { group: Group; members: Bot[] }) {
             <span className="text-ink-secondary">
               {pushToTalk
                 ? "Release Control + Option to send…"
-                : "Say a name, say “everyone,” or just talk to the channel…"}
+                : "Say a name, say “everyone,” or just talk to the group…"}
             </span>
           )
         ) : phase === "speaking" ? (
