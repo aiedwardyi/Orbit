@@ -27,6 +27,8 @@ export const SKIN_IDS = [
   "tui-black",
   "tui-amber",
   "tui-ice",
+  "tui-commander",
+  "tui-vga",
 ] as const;
 export type SkinId = (typeof SKIN_IDS)[number];
 
@@ -58,8 +60,10 @@ export const SKINS: readonly Skin[] = [
   { id: "github-dimmed", name: "GitHub Dimmed", tagline: "Medium gray, Primer blue." },
   { id: "tui", name: "TUI", tagline: "Monospace, sharp corners, terminal chrome." },
   { id: "tui-black", name: "TUI Black", tagline: "True black, terminal chrome." },
-  { id: "tui-amber", name: "TUI Amber", tagline: "Amber CRT, terminal chrome." },
+  { id: "tui-amber", name: "TUI Amber", tagline: "Black and yellow." },
   { id: "tui-ice", name: "TUI Ice", tagline: "True black, ice selection." },
+  { id: "tui-commander", name: "TUI Commander", tagline: "Navy panels, cyan selection." },
+  { id: "tui-vga", name: "TUI VGA", tagline: "Light gray on black, VGA cyan." },
 ];
 
 export const DEFAULT_SKIN: SkinId = "ledger";
