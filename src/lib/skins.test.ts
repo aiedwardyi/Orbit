@@ -365,6 +365,62 @@ const DARK_INK_SKINS = [
       "--color-success": "#b8bb26",
     },
   },
+  {
+    id: "rose-pine",
+    name: "Rosé Pine",
+    tokens: {
+      "--color-app": "#191724",
+      "--color-raised": "#26233a",
+      "--color-ink": "#e0def4",
+      "--color-ink-secondary": "#908caa",
+      "--color-accent": "#c4a7e7",
+      "--color-hairline": "#403d52",
+      "--color-danger": "#eb6f92",
+      "--color-success": "#9ccfd8",
+    },
+  },
+  {
+    id: "nord",
+    name: "Nord",
+    tokens: {
+      "--color-app": "#2e3440",
+      "--color-raised": "#434c5e",
+      "--color-ink": "#eceff4",
+      "--color-ink-secondary": "#d8dee9",
+      "--color-accent": "#88c0d0",
+      "--color-hairline": "#4c566a",
+      "--color-danger": "#ff9aa3",
+      "--color-success": "#a3be8c",
+    },
+  },
+  {
+    id: "github-dimmed",
+    name: "GitHub Dimmed",
+    tokens: {
+      "--color-app": "#22272e",
+      "--color-raised": "#373e47",
+      "--color-ink": "#cdd9e5",
+      "--color-ink-secondary": "#adbac7",
+      "--color-accent": "#539bf5",
+      "--color-hairline": "#444c56",
+      "--color-danger": "#ff7b72",
+      "--color-success": "#57ab5a",
+    },
+  },
+  {
+    id: "tui",
+    name: "TUI",
+    tokens: {
+      "--color-app": "#0c0c0c",
+      "--color-raised": "#1a1a1a",
+      "--color-ink": "#cccccc",
+      "--color-ink-secondary": "#a0a0a0",
+      "--color-accent": "#13a8a8",
+      "--color-hairline": "#3a3a3a",
+      "--color-danger": "#ff6b6b",
+      "--color-success": "#3dd6d6",
+    },
+  },
 ] as const;
 
 describe("dark ink skins", () => {
@@ -405,6 +461,14 @@ describe("dark ink skins", () => {
       expect(cssToken(skin.id, "--color-accent-ink")).not.toBe("#ffffff");
       expect(cssToken(skin.id, "--color-danger-ink")).not.toBe("#ffffff");
     }
+  });
+
+  it("gives TUI zero radius and a monospace stack", () => {
+    const body = css.match(/\[data-skin="tui"\]\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(body).toMatch(/--radius-lg:\s*0px/);
+    expect(body).toMatch(/--radius-xl:\s*0px/);
+    expect(body).toMatch(/ui-monospace/);
+    expect(body).not.toMatch(/"Inter"/);
   });
 
   it("gives Onyx ice links and peach warning, not silver chrome", () => {
