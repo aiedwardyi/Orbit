@@ -67,10 +67,30 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const noEngines = state.connected && isEmptyEngineLaunch(state.instances);
 
   // App-wide shortcuts: ⌘N new bot · ⌘1–9 jump to bot · ⌘⇧[ / ⌘⇧] prev/next.
-  // Kept deliberately small; every panel already closes on Esc.
+  // Alt+T Themes · Alt+U Usage. Kept deliberately small; Esc still closes panels.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
+      if (e.altKey && !mod && !e.shiftKey) {
+        if (e.code === "KeyT") {
+          e.preventDefault();
+          dispatch({
+            type: "toggleAppSettings",
+            open: !(state.appSettingsOpen && state.appSettingsSection === "themes"),
+            section: "themes",
+          });
+          return;
+        }
+        if (e.code === "KeyU") {
+          e.preventDefault();
+          dispatch({
+            type: "toggleAppSettings",
+            open: !(state.appSettingsOpen && state.appSettingsSection === "usage"),
+            section: "usage",
+          });
+          return;
+        }
+      }
       if (!mod) return;
       const bots = state.bots.filter((b) => !b.hidden);
       if (e.key === "n" && !e.shiftKey) {
@@ -93,7 +113,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [state.bots, state.selectedId, dispatch]);
+  }, [state.bots, state.selectedId, state.appSettingsOpen, state.appSettingsSection, dispatch]);
 
   useEffect(() => {
     window.ogb?.setUnreadCount?.(unreadCount);

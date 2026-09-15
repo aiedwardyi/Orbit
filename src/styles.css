@@ -753,6 +753,156 @@
   --radius-xl: 8px;
 }
 
+/* ── Rosé Pine ─────────────────────────────────────────────────────────────
+   Dusk pine, rose and foam. Ground is base, surfaces overlay, ink is text,
+   secondary is subtle. Iris accent, foam links, love danger, gold warning.
+   Foam is success so go is ice, not green. Ground rides accent and danger.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="rose-pine"] {
+  --color-app: #191724;
+  --color-panel: #1f1d2e;
+  --color-raised: #26233a;
+  --color-raised-hover: #2a273f;
+  --color-card: #1f1d2e;
+  --color-inset: #191724;
+  --color-control: #26233a;       /* = raised */
+  --color-hairline: #403d52;
+
+  --color-ink: #e0def4;
+  --color-ink-secondary: #908caa;
+
+  --color-accent: #c4a7e7;
+  --color-accent-border: #d0b6ee;
+  --color-accent-text: #9ccfd8;
+  --color-focus: #c4a7e7;
+  --color-accent-ink: #191724;
+  --color-bubble-user: #26233a;
+
+  --color-success: #9ccfd8;
+  --color-danger: #eb6f92;
+  --color-danger-ink: #191724;
+  --color-warning: #f6c177;
+  --color-scrollbar: #403d52;
+  --color-maus-line: #908caa;
+
+  --font-sans: "Inter", -apple-system, "BlinkMacSystemFont", "SF Pro Text",
+    "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+}
+
+/* ── Nord ──────────────────────────────────────────────────────────────────
+   Polar night, frost blue. Polar Night grounds, Snow Storm ink, Frost accent,
+   Aurora danger/warning/success. Ground rides accent and danger fills.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="nord"] {
+  --color-app: #2e3440;
+  --color-panel: #3b4252;
+  --color-raised: #434c5e;
+  --color-raised-hover: #4c566a;
+  --color-card: #3b4252;
+  --color-inset: #2e3440;
+  --color-control: #434c5e;       /* = raised */
+  --color-hairline: #4c566a;
+
+  --color-ink: #eceff4;
+  --color-ink-secondary: #d8dee9;
+
+  --color-accent: #88c0d0;
+  --color-accent-border: #8fbcbb;
+  --color-accent-text: #88c0d0;
+  --color-focus: #88c0d0;
+  --color-accent-ink: #2e3440;
+  --color-bubble-user: #3b4252;
+
+  --color-success: #a3be8c;
+  --color-danger: #ff9aa3;        /* aurora red lifted for AA on polar night */
+  --color-danger-ink: #2e3440;
+  --color-warning: #ebcb8b;
+  --color-scrollbar: #4c566a;
+  --color-maus-line: #d8dee9;
+
+  --font-sans: "Inter", -apple-system, "BlinkMacSystemFont", "SF Pro Text",
+    "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+}
+
+/* ── GitHub Dimmed ─────────────────────────────────────────────────────────
+   Medium gray Primer Dark Dimmed, not the near-black default. Canvas
+   #22272e, muted #2d333b, fg #adbac7, accent #539bf5. Ground rides fills.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="github-dimmed"] {
+  --color-app: #22272e;
+  --color-panel: #2d333b;
+  --color-raised: #373e47;
+  --color-raised-hover: #444c56;
+  --color-card: #2d333b;
+  --color-inset: #1c2128;
+  --color-control: #373e47;       /* = raised */
+  --color-hairline: #444c56;
+
+  --color-ink: #cdd9e5;           /* onEmphasis: default fg is shy of AA on raised */
+  --color-ink-secondary: #adbac7;
+
+  --color-accent: #539bf5;
+  --color-accent-border: #6cb6ff;
+  --color-accent-text: #539bf5;
+  --color-focus: #539bf5;
+  --color-accent-ink: #22272e;
+  --color-bubble-user: #373e47;
+
+  --color-success: #57ab5a;
+  --color-danger: #ff7b72;        /* Primer danger lifted for AA on dimmed gray */
+  --color-danger-ink: #22272e;
+  --color-warning: #c69026;
+  --color-scrollbar: #444c56;
+  --color-maus-line: #adbac7;
+
+  --font-sans: "Inter", -apple-system, "BlinkMacSystemFont", "SF Pro Text",
+    "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+}
+
+/* ── TUI ───────────────────────────────────────────────────────────────────
+   Monospace, sharp corners, terminal chrome. Windows Terminal default ground,
+   gray ink, cyan selection. Not HaX0R_BLUE: this one is a TUI, not phosphor.
+   Ground rides accent and danger fills. Radius is zero on purpose.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="tui"] {
+  --color-app: #0c0c0c;
+  --color-panel: #121212;
+  --color-raised: #1a1a1a;
+  --color-raised-hover: #252525;
+  --color-card: #121212;
+  --color-inset: #000000;
+  --color-control: #1a1a1a;       /* = raised */
+  --color-hairline: #3a3a3a;
+
+  --color-ink: #cccccc;
+  --color-ink-secondary: #a0a0a0;
+
+  --color-accent: #13a8a8;
+  --color-accent-border: #3dd6d6;
+  --color-accent-text: #3dd6d6;
+  --color-focus: #3dd6d6;
+  --color-accent-ink: #0c0c0c;
+  --color-bubble-user: #1a1a1a;
+
+  --color-success: #3dd6d6;       /* cyan go, not forest green */
+  --color-danger: #ff6b6b;
+  --color-danger-ink: #0c0c0c;
+  --color-warning: #f9f1a5;
+  --color-scrollbar: #3a3a3a;
+  --color-maus-line: #a0a0a0;
+
+  --font-sans: "Cascadia Mono", "Cascadia Code", "Consolas", "Malgun Gothic",
+    ui-monospace, monospace;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+}
+
 html,
 body,
 #root {

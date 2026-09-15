@@ -164,6 +164,10 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain("Kanagawa");
     expect(html).toContain("HaX0R_BLUE");
     expect(html).toContain("Hurtado");
+    expect(html).toContain("Rosé Pine");
+    expect(html).toContain("Nord");
+    expect(html).toContain("GitHub Dimmed");
+    expect(html).toContain("TUI");
     expect(html).not.toContain("Cobalt");
     expect(html).toContain('data-skin="catppuccin-frappe"');
     expect(html).toContain('data-skin="tokyo-night"');
@@ -175,6 +179,10 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain('data-skin="kanagawa"');
     expect(html).toContain('data-skin="haxor-blue"');
     expect(html).toContain('data-skin="hurtado"');
+    expect(html).toContain('data-skin="rose-pine"');
+    expect(html).toContain('data-skin="nord"');
+    expect(html).toContain('data-skin="github-dimmed"');
+    expect(html).toContain('data-skin="tui"');
   });
 
   it("keeps Skin out of General and on its own Themes tab", () => {
