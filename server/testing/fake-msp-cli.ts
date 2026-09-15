@@ -12,13 +12,15 @@
 //                   | userinput (userInput/requested, then waits for answer)
 //                   | resume-fails (session/resume rejects, like a
 //                     --no-session-log host)
+//   FAKE_MSP_STATE  path to a JSON file holding per-session models across
+//                   the one-process-per-turn spawns, so a switch sticks.
 //   FAKE_MSP_DUMP   path to write {argv, env} as JSON, so a test can assert
 //                   the spawn shape. session/start params land next to it in
 //                   `<path>.config.json`; turn/start input in `<path>.turn.json`.
 //   FAKE_MSP_RPC_DUMP  path to write the method sequence seen this run.
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 const mode = process.env.FAKE_MSP_MODE ?? "happy";
 
@@ -54,6 +56,22 @@ const recordConfig = (entry: unknown) => {
 const SESSION_ID = "fake-msp-session";
 const TURN_ID = "fake-msp-turn-1";
 const ITEM_ID = "fake-msp-item-1";
+
+// Durable per-session models, so a switch sticks across the one-process-per
+// turn spawns. FAKE_MSP_STATE points at a JSON file shared by the run.
+const STATE_PATH = process.env.FAKE_MSP_STATE;
+function readModels(): Record<string, string> {
+  if (!STATE_PATH) return {};
+  try {
+    return JSON.parse(readFileSync(STATE_PATH, "utf8"));
+  } catch {
+    return {};
+  }
+}
+function writeModels(models: Record<string, string>) {
+  if (!STATE_PATH) return;
+  writeFileSync(STATE_PATH, JSON.stringify(models));
+}
 
 const decideCalls: unknown[] = [];
 const recordDecide = (entry: unknown) => {
@@ -184,6 +202,9 @@ function handle(msg: any) {
     case "session/start": {
       recordConfig({ method: "session/start", modelId: msg.params?.modelId ?? null });
       const modelId = typeof msg.params?.modelId === "string" ? msg.params.modelId : "fake-msp-default";
+      const models = readModels();
+      models[SESSION_ID] = modelId;
+      writeModels(models);
       // The real host emits the notification before the result.
       out({ jsonrpc: "2.0", method: "session/started", params: { session: { sessionId: SESSION_ID, modelId }, viewCursor: "v:1" } });
       result(msg.id, { session: { sessionId: SESSION_ID, modelId }, viewCursor: "v:1" });
@@ -194,8 +215,9 @@ function handle(msg: any) {
         out({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "method not found" } });
         break;
       }
+      const resumedId = msg.params?.sessionId ?? SESSION_ID;
       result(msg.id, {
-        session: { sessionId: msg.params?.sessionId ?? SESSION_ID, modelId: "fake-msp-resumed" },
+        session: { sessionId: resumedId, modelId: readModels()[resumedId] ?? "fake-msp-resumed" },
         history: { mode: "none" },
         pendingRequests: [],
         viewCursor: "v:1",
@@ -283,9 +305,25 @@ function handle(msg: any) {
       });
       break;
     }
-    case "session/setModel":
     case "session/setReasoningEffort": {
       recordConfig({ method: msg.method, params: msg.params ?? null });
+      result(msg.id, { commandId: msg.params?.commandId ?? null, status: "accepted" });
+      break;
+    }
+    case "session/setModel": {
+      recordConfig({ method: "session/setModel", params: msg.params ?? null });
+      const target = typeof msg.params?.sessionId === "string" ? msg.params.sessionId : SESSION_ID;
+      const next = msg.params?.model?.modelId;
+      if (typeof next === "string") {
+        const models = readModels();
+        models[target] = next;
+        writeModels(models);
+        out({
+          jsonrpc: "2.0",
+          method: "session/modelChanged",
+          params: { session: { sessionId: target, modelId: next }, viewCursor: "v:7" },
+        });
+      }
       result(msg.id, { commandId: msg.params?.commandId ?? null, status: "accepted" });
       break;
     }

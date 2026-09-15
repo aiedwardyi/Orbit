@@ -243,7 +243,12 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
         const child = spawnCli(effectiveCli(), ["serve"], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
         children.add(child);
         const channel = createMspChannel(child);
-        const state = { settled: false, mspTurnId: null as string | null, sessionId: null as string | null };
+        const state = {
+          settled: false,
+          mspTurnId: null as string | null,
+          sessionId: null as string | null,
+          model: null as string | null,
+        };
         const kinds: ItemKinds = new Map();
         const buffers = new Map<string, string>();
         let interruptTimer: ReturnType<typeof setTimeout> | null = null;
@@ -486,6 +491,20 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
               }
               break;
             }
+            case "session/modelChanged": {
+              const frame: unknown = p.session ?? {};
+              const frameId = typeof frame === "object" && frame !== null && "sessionId" in frame
+                ? frame.sessionId
+                : undefined;
+              const frameModel = typeof frame === "object" && frame !== null && "modelId" in frame
+                ? frame.modelId
+                : undefined;
+              const changed = typeof p.modelId === "string" ? p.modelId : frameModel;
+              if (typeof changed === "string" && (frameId === undefined || frameId === state.sessionId)) {
+                state.model = changed;
+              }
+              break;
+            }
             case "turn/completed": {
               if (typeof p.turnId === "string" && p.turnId !== state.mspTurnId) break;
               const terminal = p.terminal as string | undefined;
@@ -596,7 +615,26 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
               if (!sessionId) throw new Error("session/start returned no sessionId");
             }
             state.sessionId = sessionId;
-            emit({ ...base(threadId, turnId), type: "session.started", sessionId, model: sessionModel ?? model ?? null });
+            state.model = sessionModel;
+            if (model && model !== state.model) {
+              // Mid-session switch (cursor.ts configureSession is the ACP
+              // twin): unlike cursor there is no argv pin to fall back on,
+              // so a rejected switch fails the turn instead of silently
+              // running the wrong model.
+              try {
+                await channel.request(
+                  "session/setModel",
+                  { commandId: uuidv7(), sessionId, model: { modelId: model } },
+                  SESSION_TIMEOUT,
+                );
+              } catch (err) {
+                throw new Error(
+                  `Muse rejected model "${model}" via session/setModel: ${err instanceof Error ? err.message : String(err)}`,
+                );
+              }
+              state.model = model;
+            }
+            emit({ ...base(threadId, turnId), type: "session.started", sessionId, model: state.model ?? model ?? null });
             const text = turn.system ? `${turn.system}\n\n${promptText}` : promptText;
             const ack: any = await channel.request(
               "turn/start",
@@ -647,7 +685,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
         adapter: {
           provider: DRIVER_KIND,
           capabilities: {
-            sessionModelSwitch: "unsupported",
+            sessionModelSwitch: "in-session",
             rateLimits: true,
             askApproval: !config.fullAuto,
           },

@@ -44,6 +44,7 @@ describe("MSP turns (fake host)", () => {
   afterEach(async () => {
     delete process.env.FAKE_MSP_MODE;
     delete process.env.FAKE_MSP_DUMP;
+    delete process.env.FAKE_MSP_STATE;
     delete process.env.FAKE_MSP_RPC_DUMP;
     delete process.env.META_API_KEY;
     recorder?.stop();
@@ -257,6 +258,69 @@ describe("MSP turns (fake host)", () => {
     expect(recorder.events).toContainEqual(
       expect.objectContaining({ type: "session.started", sessionId: "fake-msp-session" }),
     );
+  });
+
+  it("pins a new model via setModel and the switch sticks", async () => {
+    const dump = join(scratch, "muse-switch.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    process.env.FAKE_MSP_STATE = join(scratch, "muse-switch-state.json");
+    await create();
+    expect(instance.adapter.capabilities.sessionModelSwitch).toBe("in-session");
+
+    await instance.adapter.sendTurn({ threadId: "t-switch", text: "hi", model: "muse-spark-1.3" });
+    const first = await recorder.until((e) => e.type === "turn.completed");
+    expect(first).toMatchObject({ ok: true });
+    const started = recorder.events.find((e) => e.type === "session.started");
+    if (started?.type !== "session.started") throw new Error("no session started");
+
+    const second = await instance.adapter.sendTurn({
+      threadId: "t-switch",
+      text: "again",
+      resumeCursor: started.sessionId,
+      model: "muse-spark-1.3-contributor",
+    });
+    expect(
+      await recorder.until((e) => e.type === "turn.completed" && (e as { turnId?: string }).turnId === second.turnId),
+    ).toMatchObject({ ok: true });
+    const calls = JSON.parse(readFileSync(`${dump}.config.json`, "utf8")) as Array<{
+      method: string;
+      params: Record<string, unknown>;
+    }>;
+    const set = calls.find((c) => c.method === "session/setModel");
+    expect(set?.params).toMatchObject({
+      sessionId: "fake-msp-session",
+      model: { modelId: "muse-spark-1.3-contributor" },
+    });
+    expect(set?.params.commandId).toMatch(V7);
+
+    await instance.adapter.sendTurn({ threadId: "t-switch", text: "third", resumeCursor: started.sessionId });
+    await recorder.until(
+      (e) => e.type === "turn.completed" && (e as { turnId?: string }).turnId !== second.turnId && e !== first,
+    );
+    const lastStarted = [...recorder.events].reverse().find((e) => e.type === "session.started");
+    expect(lastStarted).toMatchObject({ sessionId: "fake-msp-session", model: "muse-spark-1.3-contributor" });
+  });
+
+  it("skips setModel when the session already runs the model", async () => {
+    const dump = join(scratch, "muse-samemodel.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    process.env.FAKE_MSP_STATE = join(scratch, "muse-samemodel-state.json");
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-same", text: "hi", model: "muse-spark-1.3" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const started = recorder.events.find((e) => e.type === "session.started");
+    if (started?.type !== "session.started") throw new Error("no session started");
+    const retry = await instance.adapter.sendTurn({
+      threadId: "t-same",
+      text: "again",
+      resumeCursor: started.sessionId,
+      model: "muse-spark-1.3",
+    });
+    expect(
+      await recorder.until((e) => e.type === "turn.completed" && (e as { turnId?: string }).turnId === retry.turnId),
+    ).toMatchObject({ ok: true });
+    const calls = JSON.parse(readFileSync(`${dump}.config.json`, "utf8")) as Array<{ method: string }>;
+    expect(calls.map((c) => c.method)).not.toContain("session/setModel");
   });
 
   it("maps an authRequired mid-turn failure to setup", async () => {
