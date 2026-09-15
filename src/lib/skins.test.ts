@@ -440,13 +440,13 @@ const DARK_INK_SKINS = [
     name: "TUI Amber",
     tokens: {
       "--color-app": "#000000",
-      "--color-raised": "#161600",
-      "--color-ink": "#ffd400",
-      "--color-ink-secondary": "#c9a800",
+      "--color-raised": "#141414",
+      "--color-ink": "#c8c8c8",
+      "--color-ink-secondary": "#9a9a9a",
       "--color-accent": "#ffd400",
-      "--color-hairline": "#3a3a00",
-      "--color-danger": "#ff5a5a",
-      "--color-success": "#ffe44d",
+      "--color-hairline": "#2a2a2a",
+      "--color-danger": "#ff6b6b",
+      "--color-success": "#c8c8c8",
     },
   },
   {
@@ -464,31 +464,31 @@ const DARK_INK_SKINS = [
     },
   },
   {
-    id: "tui-commander",
-    name: "TUI Commander",
+    id: "tui-slate",
+    name: "TUI Slate",
     tokens: {
-      "--color-app": "#00005a",
-      "--color-raised": "#000088",
-      "--color-ink": "#d0d0d0",
-      "--color-ink-secondary": "#a0a0c0",
-      "--color-accent": "#00d7d7",
-      "--color-hairline": "#005faf",
-      "--color-danger": "#ff8787",
-      "--color-success": "#5fffff",
+      "--color-app": "#000000",
+      "--color-raised": "#16161a",
+      "--color-ink": "#c4c4cc",
+      "--color-ink-secondary": "#8a8a94",
+      "--color-accent": "#c8c8d0",
+      "--color-hairline": "#2e2e36",
+      "--color-danger": "#ff6b6b",
+      "--color-success": "#c4c4cc",
     },
   },
   {
-    id: "tui-vga",
-    name: "TUI VGA",
+    id: "tui-smoke",
+    name: "TUI Smoke",
     tokens: {
       "--color-app": "#000000",
-      "--color-raised": "#1c1c1c",
-      "--color-ink": "#c0c0c0",
-      "--color-ink-secondary": "#a0a0a0",
-      "--color-accent": "#00aaaa",
-      "--color-hairline": "#555555",
+      "--color-raised": "#181614",
+      "--color-ink": "#c8c4bc",
+      "--color-ink-secondary": "#8a8680",
+      "--color-accent": "#a39e96",
+      "--color-hairline": "#322e28",
       "--color-danger": "#ff6b6b",
-      "--color-success": "#55ffff",
+      "--color-success": "#c8c4bc",
     },
   },
 ] as const;
@@ -534,7 +534,7 @@ describe("dark ink skins", () => {
   });
 
   it("gives every TUI skin zero radius and a monospace stack", () => {
-    for (const id of ["tui", "tui-black", "tui-amber", "tui-ice", "tui-commander", "tui-vga"]) {
+    for (const id of ["tui", "tui-black", "tui-amber", "tui-ice", "tui-slate", "tui-smoke"]) {
       const body = css.match(new RegExp(`\\[data-skin="${id}"\\]\\s*\\{([^}]*)\\}`))?.[1] ?? "";
       expect(body, id).toMatch(/--radius-lg:\s*0px/);
       expect(body, id).toMatch(/--radius-xl:\s*0px/);
@@ -785,6 +785,13 @@ describe("skin persistence", () => {
   it("migrates a stored Catppuccin Mocha to Catppuccin Frappe", () => {
     store.set("omb-skin", "catppuccin-mocha");
     expect(readSkin()).toBe("catppuccin-frappe");
+  });
+
+  it("migrates TUI Commander and VGA to Slate and Smoke", () => {
+    store.set("omb-skin", "tui-commander");
+    expect(readSkin()).toBe("tui-slate");
+    store.set("omb-skin", "tui-vga");
+    expect(readSkin()).toBe("tui-smoke");
   });
 
   it("stamps the skin before React mounts", () => {

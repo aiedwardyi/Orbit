@@ -5,7 +5,7 @@
 // is not a blank chat.
 import { shouldHideOnboardingCard } from "@/components/OptionCard";
 import { readContextCompaction } from "../../shared/context-compaction";
-import { activityVisibleInChat, type TranscriptItem } from "./activity-runs";
+import { activityRunVisible, activityVisibleInChat, type TranscriptItem } from "./activity-runs";
 import type { Message } from "@/state/store";
 
 export interface ChatTranscriptOptions {
@@ -56,7 +56,9 @@ export function chatTranscriptRows(
   return items.map((item) => {
     const first = item.kind === "run" ? item.messages[0] : item.message;
     const visible =
-      item.kind === "run" ? options.showToolCalls : messageVisible(first, options);
+      item.kind === "run"
+        ? activityRunVisible(item.messages, options.showToolCalls)
+        : messageVisible(first, options);
     if (!visible) return { visible, newDay: false };
     const newDay = !prev || new Date(prev.at).toDateString() !== new Date(first.at).toDateString();
     prev = item.kind === "run" ? item.messages.at(-1) : item.message;

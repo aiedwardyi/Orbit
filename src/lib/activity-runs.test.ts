@@ -41,7 +41,7 @@ describe("groupActivityRuns", () => {
     expect(items.map((i) => i.kind)).toEqual(["message", "message"]);
   });
 
-  it("keeps ordinary failed tools visible between successful runs", () => {
+  it("folds ordinary failed tools into the same run as the work around them", () => {
     const items = groupActivityRuns([
       tool("Read"),
       tool("Edit"),
@@ -49,7 +49,20 @@ describe("groupActivityRuns", () => {
       tool("Write"),
       tool("Write"),
     ]);
-    expect(items.map((i) => i.kind)).toEqual(["run", "message", "run"]);
+    expect(items).toHaveLength(1);
+    expect(items[0].kind).toBe("run");
+    expect(items[0].kind === "run" && items[0].messages).toHaveLength(5);
+  });
+
+  it("folds a storm of failed webfetch chips into one run", () => {
+    const items = groupActivityRuns([
+      tool("webfetch", false),
+      tool("webfetch", false),
+      tool("webfetch", true),
+      tool("webfetch", false),
+    ]);
+    expect(items).toHaveLength(1);
+    expect(items[0].kind === "run" && items[0].messages).toHaveLength(4);
   });
 
   it("gives a run a stable id taken from its first step", () => {
@@ -152,5 +165,11 @@ describe("describeRun", () => {
 
   it("says how many steps failed, because that is the reason to open it", () => {
     expect(describeRun([tool("Edit"), tool("Bash", false)])).toBe("2 steps · Edit, Bash · 1 failed");
+  });
+
+  it("drops the steps prefix when every chip is the same tool", () => {
+    expect(describeRun([tool("webfetch"), tool("webfetch", false), tool("webfetch", false)])).toBe(
+      "3 webfetch · 2 failed",
+    );
   });
 });

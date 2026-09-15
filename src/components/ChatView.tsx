@@ -791,7 +791,9 @@ const MessagesList = memo(function MessagesList({
             <div key={item.id} className="contents">
               {newDay && <DaySeparator at={first.at} />}
               <ActivityRun messages={item.messages} forceOpen={item.messages.some((step) => step.id === focusedId)}>
-                {item.messages.map((step) => (
+                {item.messages
+                  .filter((step) => showToolCalls || step.tool?.ok === false)
+                  .map((step) => (
                   <div key={step.id} className="contents" data-mid={step.id}>
                     <ActivityChip message={step} />
                   </div>

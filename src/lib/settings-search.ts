@@ -52,8 +52,8 @@ export const SECTION_PHRASE_KEYS = {
     "settings.skin.tui-black.tagline",
     "settings.skin.tui-amber.tagline",
     "settings.skin.tui-ice.tagline",
-    "settings.skin.tui-commander.tagline",
-    "settings.skin.tui-vga.tagline",
+    "settings.skin.tui-slate.tagline",
+    "settings.skin.tui-smoke.tagline",
   ],
   connections: [
     "settings.section.connections",
@@ -108,7 +108,7 @@ function phraseKeysFor(id: AppSettingsSection): readonly MessageKey[] {
 const EXTRA_KEYWORDS = {
   general: ["profile", "name", "updates", "tools", "tool calls", "language", "locale", "vm", "diagnostics", "experimental"],
   connections: ["keys", "api", "gemini", "muse", "claude", "grok", "codex", "antigravity", "cli"],
-  themes: ["skin", "theme", "appearance", "kanagawa", "haxor", "hax0r", "hurtado", "rose", "nord", "github", "dimmed", "tui", "terminal", "amber", "crt", "commander", "vga"],
+  themes: ["skin", "theme", "appearance", "kanagawa", "haxor", "hax0r", "hurtado", "rose", "nord", "github", "dimmed", "tui", "terminal", "amber", "slate", "smoke"],
   engines: ["models", "claude", "grok", "providers", "cli"],
   companion: ["companion", "phone", "pair", "mobile"],
   computer: ["vm", "virtual", "desktop"],

@@ -1,8 +1,8 @@
 // A folded stretch of tool chips: one row saying what ran, click to open.
 //
-// Collapsed by default, with two exceptions the transcript would be worse
-// without: a run holding a failure opens itself (the failure is the reason
-// you would have opened it), and a run stays open once you have opened it.
+// Collapsed by default. A run stays open once you open it, and search can
+// force it open so a hit is not stuck behind the fold. Failures stay in the
+// summary line — opening them all would bring the yellow tower back.
 import { useEffect, useState } from "react";
 import { ChevronRight, Check, X } from "lucide-react";
 import type { Message } from "@/state/store";
@@ -22,10 +22,10 @@ export function ActivityRun({
   children: React.ReactNode;
 }) {
   const failed = messages.some((message) => message.tool?.ok === false);
-  const [open, setOpen] = useState(failed || forceOpen);
+  const [open, setOpen] = useState(forceOpen);
   useEffect(() => {
-    if (failed || forceOpen) setOpen(true);
-  }, [failed, forceOpen]);
+    if (forceOpen) setOpen(true);
+  }, [forceOpen]);
   if (open) {
     return (
       <div className="flex flex-col gap-1">

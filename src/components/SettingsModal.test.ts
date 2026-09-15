@@ -171,8 +171,8 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain("TUI Black");
     expect(html).toContain("TUI Amber");
     expect(html).toContain("TUI Ice");
-    expect(html).toContain("TUI Commander");
-    expect(html).toContain("TUI VGA");
+    expect(html).toContain("TUI Slate");
+    expect(html).toContain("TUI Smoke");
     expect(html).not.toContain("Cobalt");
     expect(html).toContain('data-skin="catppuccin-frappe"');
     expect(html).toContain('data-skin="tokyo-night"');
@@ -191,8 +191,8 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain('data-skin="tui-black"');
     expect(html).toContain('data-skin="tui-amber"');
     expect(html).toContain('data-skin="tui-ice"');
-    expect(html).toContain('data-skin="tui-commander"');
-    expect(html).toContain('data-skin="tui-vga"');
+    expect(html).toContain('data-skin="tui-slate"');
+    expect(html).toContain('data-skin="tui-smoke"');
   });
 
   it("shows Alt+T and Alt+U on the Themes and Usage nav rows", () => {
