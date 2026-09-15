@@ -421,6 +421,48 @@ const DARK_INK_SKINS = [
       "--color-success": "#3dd6d6",
     },
   },
+  {
+    id: "tui-black",
+    name: "TUI Black",
+    tokens: {
+      "--color-app": "#000000",
+      "--color-raised": "#141414",
+      "--color-ink": "#c8c8c8",
+      "--color-ink-secondary": "#9a9a9a",
+      "--color-accent": "#13a8a8",
+      "--color-hairline": "#2a2a2a",
+      "--color-danger": "#ff6b6b",
+      "--color-success": "#3dd6d6",
+    },
+  },
+  {
+    id: "tui-amber",
+    name: "TUI Amber",
+    tokens: {
+      "--color-app": "#000000",
+      "--color-raised": "#161208",
+      "--color-ink": "#ffb000",
+      "--color-ink-secondary": "#c49200",
+      "--color-accent": "#ffcc33",
+      "--color-hairline": "#3a2e10",
+      "--color-danger": "#ff6b4a",
+      "--color-success": "#ffcc33",
+    },
+  },
+  {
+    id: "tui-ice",
+    name: "TUI Ice",
+    tokens: {
+      "--color-app": "#000000",
+      "--color-raised": "#101418",
+      "--color-ink": "#c8dce8",
+      "--color-ink-secondary": "#8aa8b8",
+      "--color-accent": "#7dcfff",
+      "--color-hairline": "#243038",
+      "--color-danger": "#ff6b6b",
+      "--color-success": "#73daca",
+    },
+  },
 ] as const;
 
 describe("dark ink skins", () => {
@@ -463,12 +505,14 @@ describe("dark ink skins", () => {
     }
   });
 
-  it("gives TUI zero radius and a monospace stack", () => {
-    const body = css.match(/\[data-skin="tui"\]\s*\{([^}]*)\}/)?.[1] ?? "";
-    expect(body).toMatch(/--radius-lg:\s*0px/);
-    expect(body).toMatch(/--radius-xl:\s*0px/);
-    expect(body).toMatch(/ui-monospace/);
-    expect(body).not.toMatch(/"Inter"/);
+  it("gives every TUI skin zero radius and a monospace stack", () => {
+    for (const id of ["tui", "tui-black", "tui-amber", "tui-ice"]) {
+      const body = css.match(new RegExp(`\\[data-skin="${id}"\\]\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+      expect(body, id).toMatch(/--radius-lg:\s*0px/);
+      expect(body, id).toMatch(/--radius-xl:\s*0px/);
+      expect(body, id).toMatch(/ui-monospace/);
+      expect(body, id).not.toMatch(/"Inter"/);
+    }
   });
 
   it("gives Onyx ice links and peach warning, not silver chrome", () => {

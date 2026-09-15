@@ -168,6 +168,9 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain("Nord");
     expect(html).toContain("GitHub Dimmed");
     expect(html).toContain("TUI");
+    expect(html).toContain("TUI Black");
+    expect(html).toContain("TUI Amber");
+    expect(html).toContain("TUI Ice");
     expect(html).not.toContain("Cobalt");
     expect(html).toContain('data-skin="catppuccin-frappe"');
     expect(html).toContain('data-skin="tokyo-night"');
@@ -183,6 +186,9 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain('data-skin="nord"');
     expect(html).toContain('data-skin="github-dimmed"');
     expect(html).toContain('data-skin="tui"');
+    expect(html).toContain('data-skin="tui-black"');
+    expect(html).toContain('data-skin="tui-amber"');
+    expect(html).toContain('data-skin="tui-ice"');
   });
 
   it("shows Alt+T and Alt+U on the Themes and Usage nav rows", () => {

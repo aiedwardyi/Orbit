@@ -903,6 +903,114 @@
   --radius-xl: 0px;
 }
 
+/* ── TUI Black ─────────────────────────────────────────────────────────────
+   Same TUI chrome, true black ground. Cyan selection like TUI, just darker.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="tui-black"] {
+  --color-app: #000000;
+  --color-panel: #080808;
+  --color-raised: #141414;
+  --color-raised-hover: #1c1c1c;
+  --color-card: #0a0a0a;
+  --color-inset: #000000;
+  --color-control: #141414;
+  --color-hairline: #2a2a2a;
+
+  --color-ink: #c8c8c8;
+  --color-ink-secondary: #9a9a9a;
+
+  --color-accent: #13a8a8;
+  --color-accent-border: #3dd6d6;
+  --color-accent-text: #3dd6d6;
+  --color-focus: #3dd6d6;
+  --color-accent-ink: #000000;
+  --color-bubble-user: #141414;
+
+  --color-success: #3dd6d6;
+  --color-danger: #ff6b6b;
+  --color-danger-ink: #000000;
+  --color-warning: #f9f1a5;
+  --color-scrollbar: #2a2a2a;
+  --color-maus-line: #9a9a9a;
+
+  --font-sans: "Cascadia Mono", "Cascadia Code", "Consolas", "Malgun Gothic",
+    ui-monospace, monospace;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+}
+
+/* ── TUI Amber ─────────────────────────────────────────────────────────────
+   Amber CRT. Black ground, phosphor gold ink, still sharp and mono.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="tui-amber"] {
+  --color-app: #000000;
+  --color-panel: #0a0800;
+  --color-raised: #161208;
+  --color-raised-hover: #1e180c;
+  --color-card: #100c04;
+  --color-inset: #000000;
+  --color-control: #161208;
+  --color-hairline: #3a2e10;
+
+  --color-ink: #ffb000;
+  --color-ink-secondary: #c49200;
+
+  --color-accent: #ffcc33;
+  --color-accent-border: #ffd454;
+  --color-accent-text: #ffcc33;
+  --color-focus: #ffcc33;
+  --color-accent-ink: #000000;
+  --color-bubble-user: #161208;
+
+  --color-success: #ffcc33;
+  --color-danger: #ff6b4a;
+  --color-danger-ink: #000000;
+  --color-warning: #ffe566;
+  --color-scrollbar: #3a2e10;
+  --color-maus-line: #c49200;
+
+  --font-sans: "Cascadia Mono", "Cascadia Code", "Consolas", "Malgun Gothic",
+    ui-monospace, monospace;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+}
+
+/* ── TUI Ice ───────────────────────────────────────────────────────────────
+   True black, ice selection. Same TUI chrome, powerline ice accent.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="tui-ice"] {
+  --color-app: #000000;
+  --color-panel: #05080c;
+  --color-raised: #101418;
+  --color-raised-hover: #181e24;
+  --color-card: #0a0e12;
+  --color-inset: #000000;
+  --color-control: #101418;
+  --color-hairline: #243038;
+
+  --color-ink: #c8dce8;
+  --color-ink-secondary: #8aa8b8;
+
+  --color-accent: #7dcfff;
+  --color-accent-border: #9ad9ff;
+  --color-accent-text: #7dcfff;
+  --color-focus: #7dcfff;
+  --color-accent-ink: #000000;
+  --color-bubble-user: #101418;
+
+  --color-success: #73daca;
+  --color-danger: #ff6b6b;
+  --color-danger-ink: #000000;
+  --color-warning: #ff9e64;
+  --color-scrollbar: #243038;
+  --color-maus-line: #8aa8b8;
+
+  --font-sans: "Cascadia Mono", "Cascadia Code", "Consolas", "Malgun Gothic",
+    ui-monospace, monospace;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+}
+
 html,
 body,
 #root {
