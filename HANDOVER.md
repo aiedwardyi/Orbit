@@ -41,3 +41,7 @@ gh release create v1.0.9 -R aiedwardyi/orbit-releases release/Orbit-1.0.9-setup.
 - Windows publish: same 5 lines as above with v1.0.10 / Orbit-1.0.10-setup.exe.
 - Note: wizard job field intentionally NOT renamed to "name" — its value becomes the bot's job brief
   AND auto-derives the name (botNameFromJob). The hint explains the real requirement.
+
+## 1.0.10 published (same day, Edward on Windows)
+- Release v1.0.10 live on aiedwardyi/orbit-releases (Latest). App Update path verified by Edward.
+- Next up (Edward's asks): new pastel theme (terminal powerline colors), conversation-efficacy ideas.
