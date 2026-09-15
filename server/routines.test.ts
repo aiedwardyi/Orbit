@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   nextOccurrence,
   RoutineManager,
+  routineTriggerIsUnattended,
   type RoutineManagerOptions,
   type RoutineSchedule,
 } from "./routines.ts";
@@ -441,6 +442,45 @@ describe("RoutineManager", () => {
     expect(h.runOns).toEqual(["cloud"]);
     expect(h.manager.listRuns()[0]).toMatchObject({ runOn: "cloud" });
     expect(h.manager.listRoutines()[0]).toMatchObject({ runOn: "maus" });
+  });
+
+  it("marks schedule and webhook triggers unattended, manual attended", () => {
+    expect(routineTriggerIsUnattended("schedule")).toBe(true);
+    expect(routineTriggerIsUnattended("webhook")).toBe(true);
+    expect(routineTriggerIsUnattended("manual")).toBe(false);
+    expect(routineTriggerIsUnattended(undefined)).toBe(false);
+  });
+
+  it("dispatches scheduled runs with the unattended trigger source", async () => {
+    const h = harness();
+    const routine = h.manager.create({
+      name: "Nightly check",
+      prompt: "Check overnight",
+      botId: "maus-1",
+      schedule: { type: "once", at: new Date(2026, 7, 17, 8, 1).getTime() },
+    });
+    h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+    expect(h.triggerSources).toEqual(["schedule"]);
+    // startClaimedTurn marks exactly these sources unattended, so a
+    // scheduled turn with auto mode on still asks a human
+    expect(routineTriggerIsUnattended(h.triggerSources[0] as "schedule")).toBe(true);
+    expect(h.manager.listRuns()[0]).toMatchObject({ triggerSource: "schedule", manual: false });
+  });
+
+  it("dispatches run-now with the attended manual trigger source", async () => {
+    const h = harness();
+    const routine = h.manager.create({
+      name: "Manual check",
+      prompt: "Check now",
+      botId: "maus-1",
+      schedule: { type: "once", at: new Date(2026, 7, 17, 8, 1).getTime() },
+    });
+    h.manager.runNow(routine.id);
+    await h.manager.tick();
+    expect(h.triggerSources).toEqual(["manual"]);
+    expect(routineTriggerIsUnattended(h.triggerSources[0] as "manual")).toBe(false);
+    expect(h.manager.listRuns()[0]).toMatchObject({ triggerSource: "manual", manual: true });
   });
 
   it("opens webhook jobs in the assigned bot's live chat", async () => {
