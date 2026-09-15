@@ -1389,6 +1389,37 @@ export class Store {
     this.emit({ type: "bot", botId });
   }
 
+  /** A bot's working folder changed: unpin every task's folder and drop
+   * the resume state that would resurrect an old-rooted CLI session on
+   * that thread. CLI sessions persist their creation root, so re-pinning
+   * without recycling would lie (Orbit says the new root, the CLI works
+   * in the old one). The next turn re-pins from the new bot.cwd (the pin
+   * wins in resolveProjectFolder) on a FRESH session. Scoped strictly to
+   * this bot's threads — rooms keep their own rules, other bots untouched.
+   * The caller compares old vs new first; same value never reaches here. */
+  resetTasksForCwdChange(botId: string): void {
+    const bot = this.bot(botId);
+    if (!bot) return;
+    let touched = false;
+    for (const task of bot.tasks ?? []) {
+      if (task.cwd !== undefined) {
+        task.cwd = undefined;
+        touched = true;
+      }
+      if (Object.keys(task.resumeCursors).length !== 0) {
+        task.resumeCursors = {};
+        touched = true;
+      }
+    }
+    if (Object.keys(bot.resumeCursors).length !== 0) {
+      bot.resumeCursors = {};
+      touched = true;
+    }
+    if (!touched) return;
+    this.saveBots();
+    this.emit({ type: "bot", botId });
+  }
+
   /** Record which instance just took a turn on this task. Called at
    * dispatch, not at cursor time — transcript-replay engines never
    * produce a cursor, and they still count as having run last. */

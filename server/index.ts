@@ -6809,9 +6809,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const backendError = cloudBackendChangeError(Boolean(existingBot?.busy), activeVpsThreads.has(m[1]));
         if (backendError) return json(res, 409, { error: backendError });
       }
+      // Capture before patchBot: it mutates the record in place, so
+      // existingBot.cwd would already read the new value afterwards.
+      let cwdBefore: string | undefined;
       if (body.cwd !== undefined) {
         const checked = validateBotCwd(body.cwd);
         if (!checked.ok) return json(res, 400, { error: checked.error });
+        cwdBefore = existingBot?.cwd ?? undefined;
         patch.cwd = checked.cwd ?? undefined;
       }
       if (body.hidden === true && existingBot?.chiefOfStaff && body.chiefOfStaff !== false) {
@@ -6868,6 +6872,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         sectionKey(existingBot?.section) !== sectionKey(section);
       const bot = store.patchBot(m[1], patch);
       if (!bot) return json(res, 404, { error: "no such bot" });
+      // A changed working folder must reach existing tasks: their pinned
+      // cwd predates the change and their resume cursors point at
+      // old-rooted CLI sessions. Reset both so the next turn re-pins the
+      // new folder on a fresh session. Same value = no-op.
+      if (body.cwd !== undefined && cwdBefore !== (bot.cwd ?? undefined)) {
+        store.resetTasksForCwdChange(bot.id);
+      }
       const chiefChanges =
         body.chiefOfStaff === true || chiefMovedSections
           ? store.setChiefOfStaff(bot.id)

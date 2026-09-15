@@ -1338,6 +1338,63 @@ describe("Store task working folder", () => {
     expect(store.pinTaskCwd(bot.id, next.threadId)).toBe("/tmp/project-b");
   });
 
+  it("resetTasksForCwdChange unpins every task and drops cursors so the next turn re-pins fresh", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.patchBot(bot.id, { cwd: "/tmp/project-a" });
+    const second = store.createTask(bot.id, "second")!;
+    expect(store.pinTaskCwd(bot.id, bot.threadId)).toBe("/tmp/project-a");
+    expect(store.pinTaskCwd(bot.id, second.threadId)).toBe("/tmp/project-a");
+    store.setResumeCursor(bot.id, "claude", "sess-old", bot.threadId);
+    store.setResumeCursor(bot.id, "claude", "sess-old-2", second.threadId);
+
+    // the PATCH path compares old vs new, then calls this on a real change
+    store.patchBot(bot.id, { cwd: "/tmp/project-b" });
+    store.resetTasksForCwdChange(bot.id);
+
+    expect(store.taskByThread(bot.id, bot.threadId)?.cwd).toBeUndefined();
+    expect(store.taskByThread(bot.id, second.threadId)?.cwd).toBeUndefined();
+    expect(store.taskByThread(bot.id, bot.threadId)?.resumeCursors).toEqual({});
+    expect(store.taskByThread(bot.id, second.threadId)?.resumeCursors).toEqual({});
+    expect(store.bot(bot.id)?.resumeCursors).toEqual({});
+    // the next turn re-resolves the new pin (pin wins) on a fresh session
+    expect(store.pinTaskCwd(bot.id, bot.threadId)).toBe("/tmp/project-b");
+    const reloaded = new Store(selection);
+    expect(reloaded.taskByThread(bot.id, bot.threadId)?.cwd).toBe("/tmp/project-b");
+    expect(reloaded.taskByThread(bot.id, second.threadId)?.resumeCursors).toEqual({});
+  });
+
+  it("resetTasksForCwdChange touches nothing when nothing is pinned", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const changes: unknown[] = [];
+    store.onChange((change) => changes.push(change));
+
+    store.resetTasksForCwdChange(bot.id);
+    store.resetTasksForCwdChange("nope");
+
+    expect(changes).toEqual([]);
+    expect(store.taskByThread(bot.id, bot.threadId)?.cwd).toBeUndefined();
+  });
+
+  it("resetTasksForCwdChange scopes strictly to the bot's own threads", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const other = store.createBot();
+    store.patchBot(bot.id, { cwd: "/tmp/project-a" });
+    store.patchBot(other.id, { cwd: "/tmp/project-a" });
+    expect(store.pinTaskCwd(bot.id, bot.threadId)).toBe("/tmp/project-a");
+    expect(store.pinTaskCwd(other.id, other.threadId)).toBe("/tmp/project-a");
+    store.setResumeCursor(other.id, "claude", "other-sess", other.threadId);
+
+    store.resetTasksForCwdChange(bot.id);
+
+    // rooms live in separate records with their own pin rules; other bots
+    // keep both their pin and their session, same mechanism
+    expect(store.taskByThread(other.id, other.threadId)?.cwd).toBe("/tmp/project-a");
+    expect(store.taskByThread(other.id, other.threadId)?.resumeCursors).toEqual({ claude: "other-sess" });
+  });
+
   it("pins the default (null) when the bot has no folder, so a later folder can't move a live session", () => {
     const store = new Store(selection);
     const bot = store.createBot();
