@@ -1,5 +1,5 @@
 import type { EffortLevel, ModelSelection, RateLimitWindow } from "./contracts.ts";
-import { defaultModelEffort } from "../shared/model-effort.ts";
+import { defaultModelEffort, isEffortOffered } from "../shared/model-effort.ts";
 
 export type AutomaticCapability =
   | "agentsMcp"
@@ -52,10 +52,12 @@ export function resolveAutomaticSelection(input: {
     instanceId: candidate.instanceId,
     model: continuityModel || currentModel || candidate.defaultModel,
   };
+  // Model-aware carry-over: a 4.6 xhigh resolving onto 4.5 is dropped,
+  // never retained — the CLI would reject it.
   if (
     input.current?.instanceId === candidate.instanceId &&
     input.current.effort &&
-    candidate.effortLevels?.includes(input.current.effort)
+    isEffortOffered(candidate.driverKind ?? "", selection.model, input.current.effort, candidate.effortLevels ?? [])
   ) {
     selection.effort = input.current.effort;
   }

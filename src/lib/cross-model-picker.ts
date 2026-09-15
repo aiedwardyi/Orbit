@@ -1,5 +1,5 @@
 import type { InstanceInfo, ModelSelection } from "@/state/store";
-import { defaultModelEffort } from "../../shared/model-effort.ts";
+import { defaultModelEffort, isEffortOffered, offeredEffortLevels } from "../../shared/model-effort.ts";
 
 type ModelOption = InstanceInfo["models"]["options"][number];
 export type PickerCell = { label: string; options: ModelOption[]; offList?: boolean };
@@ -76,7 +76,10 @@ export function pickerEfforts(row: PickerRow, cell: PickerCell): PickerEffort[] 
       .map((option) => ({ id: option.id, label: tier, model: option.id })));
   }
   const levels = row.instance.capabilities?.effortLevels ?? [];
-  return levels.map((effort) => ({ id: effort, label: effort, effort }));
+  // Effort options belong to this cell's model: Grok xhigh is 4.6-only, so
+  // the 4.5 cell never offers it even though the engine declares it.
+  const model = cell.options[0]?.id ?? "";
+  return offeredEffortLevels(row.instance.driverKind, model, levels).map((effort) => ({ id: effort, label: effort, effort }));
 }
 
 export function withPickerEffort(instance: InstanceInfo | undefined, selection: ModelSelection): ModelSelection {
@@ -96,8 +99,9 @@ export function selectPickerModel(instance: InstanceInfo, model: string, previou
   const next: ModelSelection = { instanceId: instance.instanceId, model, mode: "pinned" };
   // Keep the effort when the target engine supports it, even across engines:
   // changing effort keeps the model list, so jumping models must keep the
-  // effort instead of snapping the plane back to the edge.
-  if (previous.effort && instance.capabilities?.effortLevels?.includes(previous.effort)) {
+  // effort instead of snapping the plane back to the edge. The check is
+  // model-aware: switching 4.6 → 4.5 drops xhigh instead of retaining it.
+  if (previous.effort && isEffortOffered(instance.driverKind, model, previous.effort, instance.capabilities?.effortLevels ?? [])) {
     next.effort = previous.effort;
   }
   return withPickerEffort(instance, next);
