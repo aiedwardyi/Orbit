@@ -671,6 +671,9 @@ describe("create-bot sheet", () => {
     expect(en["createBot.start"]).toBe("Start chatting");
     expect(ko["createBot.start"]).toBe("대화 시작");
     expect(ko["createBot.start"]).not.toMatch(/Start chatting/i);
+    expect(en["createBot.adding"]).toBe("Adding bot…");
+    expect(ko["createBot.adding"]).toBe("봇 추가 중…");
+    expect(ko["createBot.adding"]).not.toMatch(/Adding bot/i);
     expect(en["chrome.you"]).toBe("You");
     expect(ko["chrome.you"]).toBe("나");
   });
@@ -682,6 +685,7 @@ describe("create-bot sheet", () => {
     expect(createBotSheet).toContain('t("createBot.placeholder")');
     expect(createBotSheet).toContain('t("createBot.cancel")');
     expect(createBotSheet).toContain('t("createBot.start")');
+    expect(createBotSheet).toContain('t("createBot.adding")');
     expect(createBotSheet).not.toMatch(/What should this bot handle\?/);
     expect(createBotSheet).not.toMatch(/Describe one ongoing job/);
     expect(createBotSheet).not.toMatch(/Keep a weekly competitor brief/);
