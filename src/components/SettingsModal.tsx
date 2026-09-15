@@ -37,14 +37,15 @@ import { cn } from "@/lib/cn";
 const SECTIONS: Array<{
   id: AppSettingsSection;
   icon: typeof User;
+  shortcut?: string;
 }> = [
   { id: "general", icon: User },
   { id: "connections", icon: KeyRound },
-  { id: "themes", icon: Palette },
+  { id: "themes", icon: Palette, shortcut: "Alt+T" },
   { id: "engines", icon: Terminal },
   { id: "companion", icon: Smartphone },
   { id: "computer", icon: Monitor },
-  { id: "usage", icon: Coins },
+  { id: "usage", icon: Coins, shortcut: "Alt+U" },
 ];
 
 const SECTION_KEY = {
@@ -406,18 +407,24 @@ export function SettingsModal({
               {t("settings.noMatch", { query: query.trim() })}
             </div>
           )}
-          {visibleSections.map(({ id, icon: Icon }) => (
+          {visibleSections.map(({ id, icon: Icon, shortcut }) => (
             <button
               key={id}
               onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: id })}
               aria-current={section === id ? "page" : undefined}
+              aria-keyshortcuts={shortcut}
               className={cn(
                 "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[14px]",
                 section === id ? "bg-control text-ink" : "text-ink-secondary hover:bg-control/50 hover:text-ink",
               )}
             >
               <Icon size={15} />
-              {t(SECTION_KEY[id])}
+              <span className="min-w-0 flex-1 truncate">{t(SECTION_KEY[id])}</span>
+              {shortcut && (
+                <kbd className="ml-auto shrink-0 font-mono text-[10px] tracking-wide text-ink-secondary/55">
+                  {shortcut}
+                </kbd>
+              )}
             </button>
           ))}
         </nav>

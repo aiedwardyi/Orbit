@@ -185,6 +185,14 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain('data-skin="tui"');
   });
 
+  it("shows Alt+T and Alt+U on the Themes and Usage nav rows", () => {
+    const html = markup("themes");
+    expect(html).toContain("Alt+T");
+    expect(html).toContain("Alt+U");
+    expect(html).toContain('aria-keyshortcuts="Alt+T"');
+    expect(html).toContain('aria-keyshortcuts="Alt+U"');
+  });
+
   it("keeps Skin out of General and on its own Themes tab", () => {
     const general = markup("general");
     expect(general).not.toContain("Skin");
