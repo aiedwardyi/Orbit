@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { pickerModels, movePicker, pickerRows, pickerEfforts, withPickerEffort } from "./cross-model-picker";
+import { pickerModels, movePicker, pickerRows, pickerEfforts, selectPickerModel, withPickerEffort } from "./cross-model-picker";
 import type { InstanceInfo } from "@/state/store";
 
 describe("picker catalogs", () => {
@@ -160,6 +160,44 @@ describe("picker catalogs", () => {
       "muse-spark-1.3",
       "muse-spark-1.3-contributor",
     ]);
+  });
+
+  it("offers xhigh on the 4.6 cell and never on the 4.5 cell", () => {
+    const instance: InstanceInfo = {
+      instanceId: "grok", driverKind: "grokAgent", displayName: "Grok", snapshot: { state: "available" },
+      models: {
+        default: "grok-4.6",
+        options: [{ id: "grok-4.6", label: "Grok 4.6" }, { id: "grok-4.5", label: "Grok 4.5" }],
+      },
+      capabilities: { effortLevels: ["low", "medium", "high", "xhigh"] },
+    };
+    const row = pickerRows([instance], { instanceId: "grok", model: "grok-4.6" })[0]!;
+    const byModel = new Map(row.cells.map((cell) => [cell.options[0]!.id, cell]));
+    expect(pickerEfforts(row, byModel.get("grok-4.6")!).map((option) => option.id))
+      .toEqual(["low", "medium", "high", "xhigh"]);
+    expect(pickerEfforts(row, byModel.get("grok-4.5")!).map((option) => option.id))
+      .toEqual(["low", "medium", "high"]);
+  });
+
+  it("drops xhigh when switching 4.6 to 4.5 instead of retaining it", () => {
+    const instance: InstanceInfo = {
+      instanceId: "grok", driverKind: "grokAgent", displayName: "Grok", snapshot: { state: "available" },
+      models: {
+        default: "grok-4.6",
+        options: [{ id: "grok-4.6", label: "Grok 4.6" }, { id: "grok-4.5", label: "Grok 4.5" }],
+      },
+      capabilities: { effortLevels: ["low", "medium", "high", "xhigh"] },
+    };
+    // xhigh cannot survive the switch; the 4.5 default fills in behind it
+    expect(selectPickerModel(instance, "grok-4.5",
+      { instanceId: "grok", model: "grok-4.6", mode: "pinned" as const, effort: "xhigh" as const }).effort)
+      .toBe("high");
+    expect(selectPickerModel(instance, "grok-4.5",
+      { instanceId: "grok", model: "grok-4.6", mode: "pinned" as const, effort: "high" as const }).effort)
+      .toBe("high");
+    expect(selectPickerModel(instance, "grok-4.6",
+      { instanceId: "grok", model: "grok-4.5", mode: "pinned" as const, effort: "high" as const }).effort)
+      .toBe("high");
   });
 
   it("preserves effort when jumping across engines that support it", () => {

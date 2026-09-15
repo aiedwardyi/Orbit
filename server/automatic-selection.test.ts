@@ -117,6 +117,18 @@ describe("resolveAutomaticSelection", () => {
     })?.effort).toBe("medium");
   });
 
+  it("drops a saved xhigh when resolving onto grok-4.5, keeps it on 4.6", () => {
+    const levels: ("low" | "medium" | "high" | "xhigh")[] = ["low", "medium", "high", "xhigh"];
+    expect(resolveAutomaticSelection({
+      candidates: [candidate("grok", { driverKind: "grokAgent", defaultModel: "grok-4.5", effortLevels: levels })],
+      current: { instanceId: "grok", model: "grok-4.5", mode: "automatic", effort: "xhigh" },
+    })?.effort).toBe("high");
+    expect(resolveAutomaticSelection({
+      candidates: [candidate("grok", { driverKind: "grokAgent", defaultModel: "grok-4.6", effortLevels: levels })],
+      current: { instanceId: "grok", model: "grok-4.6", mode: "automatic", effort: "xhigh" },
+    })?.effort).toBe("xhigh");
+  });
+
   it("keeps the engine and model that last ran this task", () => {
     expect(
       resolveAutomaticSelection({

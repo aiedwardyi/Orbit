@@ -186,6 +186,43 @@ export function ensureGrokInjectSlug(
   return slug;
 }
 
+/** Candidate spellings for the reasoning-effort config option, most
+ * specific first. LIVE-verified primary first: the grok CLI advertises
+ * {id: "reasoning_effort", name: "Reasoning Effort"}; the rest keep
+ * discovery working across CLI renames. */
+const EFFORT_CONFIG_CANDIDATES = ["reasoning_effort", "reasoningEffort", "reasoning-effort", "reasoning", "effort"];
+
+const normalizeConfigToken = (value: unknown): string => String(value ?? "").toLowerCase().replace(/[-_\s]/g, "");
+
+/** Find the reasoning-effort option id in a session/new (or load) result's
+ * configOptions. Discovery, not a hardcoded id: the CLI names it, we match
+ * the effort vocabulary. Returns null when nothing advertises it. */
+export function findGrokEffortConfigId(sessionResult: unknown): string | null {
+  const options = (sessionResult as { configOptions?: unknown } | null | undefined)?.configOptions;
+  if (!Array.isArray(options)) return null;
+  for (const candidate of EFFORT_CONFIG_CANDIDATES) {
+    const want = normalizeConfigToken(candidate);
+    for (const option of options) {
+      if (!option || typeof option !== "object") continue;
+      const { id, name } = option as { id?: unknown; name?: unknown };
+      if (typeof id !== "string" || !id) continue;
+      if (normalizeConfigToken(id) === want || normalizeConfigToken(name) === want) return id;
+    }
+  }
+  return null;
+}
+
+/** currentValue of one config option in a set_config_option result. */
+export function configOptionValue(result: unknown, configId: string): unknown {
+  const options = (result as { configOptions?: unknown } | null | undefined)?.configOptions;
+  if (!Array.isArray(options)) return null;
+  const hit = options.find(
+    (option): option is { id: string; currentValue?: unknown } =>
+      !!option && typeof option === "object" && (option as { id?: unknown }).id === configId,
+  );
+  return hit?.currentValue ?? null;
+}
+
 export const grokSupport: AcpSupport = {
   driverKind: "grokAgent",
   grokInterjections: true,
@@ -195,10 +232,12 @@ export const grokSupport: AcpSupport = {
   images: false,
   models: STATIC_GROK_MODELS,
   resolveModels: (env) => mergeLocalInject(readGrokModelCatalog(env), env),
-  // Grok's accepted levels vary by model and the CLI validates lazily — a
-  // rejected level only logs and falls back. Offer the intersection shared
-  // by every model in this driver's picker; notably, grok-4.5 rejects xhigh.
-  effortLevels: ["low", "medium", "high"],
+  // Grok's accepted levels vary by model (LIVE-verified CLI 1.0.30): 4.6
+  // takes low–xhigh, 4.5 takes low–high and rejects xhigh/max. The declared
+  // list is the union; the per-model gate in shared/model-effort.ts
+  // (isEffortOffered/offeredEffortLevels) enforces eligibility at every
+  // offer and validation site, so 4.5 is never offered xhigh.
+  effortLevels: ["low", "medium", "high", "xhigh"],
   defaultCli: "grok",
   nativeSource: "grok.acp",
   loginNote: "Grok CLI is not signed in — run `grok login` in a terminal",
@@ -238,14 +277,44 @@ export const grokSupport: AcpSupport = {
 
   // -m on argv is necessary but not sufficient: session/new still starts on
   // [models].default. Pin the slug over the wire, same as Hermes/Droid.
-  async configureSession({ request, sessionId, turn }) {
-    if (!turn.model) return;
+  // argv --reasoning-effort alone does not stick either (LIVE-verified
+  // 1.0.30): the effort must be set explicitly AFTER the model, over the
+  // same session/set_config_option shape core uses for its model pin.
+  async configureSession({ request, sessionId, turn, sessionResult }) {
+    if (turn.model) {
+      try {
+        await request("session/set_model", { sessionId, modelId: turn.model });
+      } catch (e) {
+        throw new Error(
+          `Grok rejected model "${turn.model}" via session/set_model: ${(e as Error).message}. ` +
+            `Check that grok is current (1.0.6+ supports it) and that this slug exists in ~/.grok/config.toml.`,
+        );
+      }
+    }
+    if (!turn.effort) return;
+    const configId = findGrokEffortConfigId(sessionResult);
+    if (!configId) {
+      throw new Error(
+        `Grok advertises no reasoning-effort setting, so effort "${turn.effort}" cannot be applied. ` +
+          `Check that grok is current (1.0.30+ supports it).`,
+      );
+    }
+    let applied: unknown;
     try {
-      await request("session/set_model", { sessionId, modelId: turn.model });
+      applied = await request("session/set_config_option", { sessionId, configId, value: turn.effort });
     } catch (e) {
       throw new Error(
-        `Grok rejected model "${turn.model}" via session/set_model: ${(e as Error).message}. ` +
-          `Check that grok is current (1.0.6+ supports it) and that this slug exists in ~/.grok/config.toml.`,
+        `Grok rejected reasoning effort "${turn.effort}" via session/set_config_option: ${(e as Error).message}. ` +
+          `Check that grok is current (1.0.30+ supports it).`,
+      );
+    }
+    // An agent that answers OK but keeps its old effort burns a paid turn on
+    // the wrong setting — worse than erroring. Verify it stuck.
+    const current = configOptionValue(applied, configId);
+    if (current !== turn.effort) {
+      throw new Error(
+        `Grok did not switch reasoning effort to "${turn.effort}" (still ${current ?? "unknown"}). ` +
+          `Check that grok is current (1.0.30+ supports it).`,
       );
     }
   },

@@ -11,7 +11,7 @@ import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { z } from "zod";
 import { botAvatarUrlFromStoredPath, MASCOT_STYLES, mascotStyleSchema } from "../shared/bot-avatar.ts";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
-import { defaultModelEffort } from "../shared/model-effort.ts";
+import { defaultModelEffort, isEffortOffered } from "../shared/model-effort.ts";
 import { canDeleteWhileWorking, canSwitchWhileWorking, workingThreadId } from "../shared/working-thread.ts";
 import {
   CREDENTIAL_TARGETS,
@@ -695,8 +695,10 @@ function checkedModelSelection(
       };
     }
   }
-  const allowed: readonly string[] = target?.adapter.capabilities.effortLevels ?? [];
-  if (target && selection.effort !== undefined && !allowed.includes(selection.effort)) {
+  const allowed = target?.adapter.capabilities.effortLevels ?? [];
+  // Model-aware: Grok xhigh is 4.6-only, so an engine-level include is not
+  // enough — xhigh on 4.5 is rejected here, never sent to the CLI.
+  if (target && selection.effort !== undefined && !isEffortOffered(target.driverKind, selection.model, selection.effort, allowed)) {
     return { ok: false, status: 400, error: `effort "${selection.effort}" is not offered by this bot's engine` };
   }
   if (!current && target && selection.effort === undefined) {
@@ -2623,7 +2625,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   const effort = opts?.runOn === "cloud" ? undefined : selection.effort;
   // A selection can be persisted while its engine is offline. Re-check when
   // the engine returns so an old or unsupported value never reaches a CLI.
-  if (effort && !instance.adapter.capabilities.effortLevels?.includes(effort)) {
+  // Model-aware like the save path: a 4.6 xhigh carried onto 4.5 stops here.
+  if (effort && !isEffortOffered(instance.driverKind, model, effort, instance.adapter.capabilities.effortLevels ?? [])) {
     throw Object.assign(
       new Error(`effort "${effort}" is not offered by this bot's engine — choose another level in settings`),
       { status: 409 },
