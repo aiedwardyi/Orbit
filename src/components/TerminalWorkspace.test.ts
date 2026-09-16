@@ -179,7 +179,7 @@ it("queues live output until historical replay finishes and preserves seq order"
       writeCb = cb;
       return;
     }
-    if (typeof cb === "function") voidMicrotask(cb);
+    if (typeof cb === "function") queueMicrotask(cb);
   });
   const open = vi.fn(() => new Promise<TerminalSnapshot>((resolve) => { resolveOpen = resolve; }));
   const bridge: TerminalBridge = {

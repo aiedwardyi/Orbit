@@ -70,7 +70,6 @@ export function TerminalWorkspace({
   const showProjectBanner = projectMismatch && !bannerDismissed;
   const folderLabel = bot.cwd ? folderBasename(bot.cwd) : t("terminal.privateWorkspace");
   const folderTooltip = bot.cwd ?? t("terminal.privateWorkspace");
-  const restartTargetLabel = bot.cwd ? folderBasename(bot.cwd) : t("terminal.privateWorkspace");
 
   useEffect(() => {
     setBannerDismissed(false);
@@ -416,7 +415,7 @@ export function TerminalWorkspace({
       </footer>
       {confirmRestart && (
         <ConfirmDialog
-          title={t("terminal.restartConfirmTitle", { folder: restartTargetLabel })}
+          title={t("terminal.restartConfirmTitle", { folder: folderLabel })}
           body={t("terminal.restartConfirmBody")}
           confirmLabel={t("terminal.restartConfirmAction")}
           danger
