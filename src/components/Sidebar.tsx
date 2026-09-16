@@ -280,7 +280,16 @@ function GroupListItem({
         <div className={cn("min-w-0 flex-1", density === "icons" && "hidden")}>
           <div className="flex min-w-0 items-baseline gap-2 overflow-hidden">
             <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink">{group.name}</span>
-            {selected && last && <span className="shrink-0 text-xs text-ink-secondary">{formatTime(last.at, localeTag(locale))}</span>}
+            {last && (
+              <span
+                className={cn(
+                  "shrink-0 text-xs text-ink-secondary",
+                  !selected && "hidden group-hover:inline group-focus-within:inline",
+                )}
+              >
+                {formatTime(last.at, localeTag(locale))}
+              </span>
+            )}
           </div>
           <div className="flex items-center justify-between gap-2">
             <span className="truncate text-[13px] text-ink-secondary">
@@ -787,8 +796,13 @@ function BotListItem({
               inputClassName="w-full rounded bg-inset px-1 py-0.5 text-[15px] font-semibold"
             />
           </span>
-          {selected && last && !renaming && (
-            <span className="shrink-0 text-xs text-ink-secondary group-hover:hidden group-focus-within:hidden">
+          {last && !renaming && (
+            <span
+              className={cn(
+                "shrink-0 text-xs text-ink-secondary",
+                !selected && "hidden group-hover:inline group-focus-within:inline",
+              )}
+            >
               {formatTime(last.at, localeTag(locale))}
             </span>
           )}

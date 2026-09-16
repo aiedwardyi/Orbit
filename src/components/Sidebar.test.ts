@@ -74,12 +74,15 @@ describe("Sidebar drag to reorder", () => {
 });
 
 describe("Sidebar row time", () => {
-  it("hides the time on hover so the name reclaims the width", () => {
+  it("keeps the active time visible and reveals inactive times on hover or focus", () => {
     const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "Sidebar.tsx"), "utf8");
     const botTime = source.slice(source.indexOf("function BotListItem"), source.indexOf("function ArchivedBotsPanel"));
-    expect(botTime).toContain("group-hover:hidden");
-    expect(botTime).toContain("group-focus-within:hidden");
-    expect(botTime).not.toContain("group-hover:opacity-0");
+    const groupTime = source.slice(source.indexOf("function GroupListItem"), source.indexOf("function RoomContextMenu"));
+    for (const row of [botTime, groupTime]) {
+      expect(row).toContain('!selected && "hidden group-hover:inline group-focus-within:inline"');
+      expect(row).not.toContain("group-hover:hidden");
+      expect(row).not.toContain("group-focus-within:hidden");
+    }
     expect(botTime).toContain("min-w-0 flex-1 truncate");
     expect(botTime).toContain("overflow-hidden");
   });
