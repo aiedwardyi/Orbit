@@ -83,8 +83,10 @@ function prefixBeforeTrailingList(
 
 function orChoices(text: string): string[] | null {
   const candidate = text.trim();
-  // Keep this heuristic for short direct questions, not parenthetical prose.
-  if (candidate.split(/\s+/).length > 12 || /[()[\]{}]/.test(candidate)) return null;
+  // Reject parenthetical prose (brackets signal embedded lists, not choices).
+  if (/[()[\]{}]/.test(candidate)) return null;
+  // Soft length guard — keep reasonable direct A/B; policy prose is caught by brackets.
+  if (candidate.split(/\s+/).length > 20) return null;
   const match = candidate.match(/^(?:[\s\S]*\n)?(.+?)\s+or\s+(.+?)\?\s*$/i);
   if (!match) return null;
   let left = match[1]!.trim();

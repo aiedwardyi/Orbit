@@ -27,6 +27,13 @@ describe("chatOptionChoices", () => {
     ).toBeNull();
   });
 
+  it("keeps a longer direct A-or-B without parentheses as choices", () => {
+    // 13 words — previously rejected by the blunt >12 cutoff
+    expect(
+      chatOptionChoices("Should I ship the hotfix tonight or wait until Monday morning after standup?"),
+    ).toEqual(["tonight", "wait until Monday morning after standup"]);
+  });
+
   it("ignores a bulleted list that is not a question", () => {
     expect(
       chatOptionChoices("Here's the plan:\n- fix the tests\n- ship the build\n- write the docs"),
