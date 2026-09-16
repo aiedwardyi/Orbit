@@ -1,7 +1,8 @@
 /**
  * SPEED-4 warm ACP session eligibility fingerprint.
- * Reuse only when bot/thread identity, provider identity, cwd, tools/MCP,
- * approval scope, model, and effort still match. Prompt/system text is NOT
+ * Reuse only when bot/thread identity, provider identity, cwd, tools/MCP
+ * (including composio.env), approval scope, model, and effort still match.
+ * Prompt/system text is NOT
  * part of the fingerprint: each turn re-composes session/prompt via
  * buildPromptText. A missing or different resumeCursor forces cold
  * session/new or session/load (compaction/rewind) instead of reviving the
@@ -32,11 +33,24 @@ export type SendTurnIntegrations = {
   browser?: unknown;
 };
 
+function stableEnvKey(env: Record<string, string> | undefined): string {
+  if (!env) return "";
+  return Object.keys(env)
+    .sort()
+    .map((k) => `${k}=${env[k]}`)
+    .join(",");
+}
+
 export function warmToolsKey(integrations: SendTurnIntegrations | undefined): string {
   if (!integrations) return "";
   const parts: string[] = [];
   if (integrations.composio) {
-    parts.push(`composio:${integrations.composio.command}|${(integrations.composio.args ?? []).join(" ")}`);
+    // composio.env is mounted into the ACP MCP server at session/new
+    // (core.ts acpMcpServers); include it so rotated tokens / bot/thread
+    // bootstrap vars force a cold session instead of stale warm reuse.
+    parts.push(
+      `composio:${integrations.composio.command}|${(integrations.composio.args ?? []).join(" ")}|${stableEnvKey(integrations.composio.env)}`,
+    );
   }
   if (integrations.computer) {
     parts.push(`computer:${integrations.computer.boxId ?? ""}`);

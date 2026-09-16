@@ -186,6 +186,8 @@ describe("SPEED4 warm session reuse (fake CLI)", () => {
     delete process.env.FAKE_ACP_LATE_REPLAY;
     delete process.env.FAKE_ACP_LATE_TEXT;
     delete process.env.FAKE_ACP_BILLING_DELAY_MS;
+    delete process.env.FAKE_ACP_BILLING_END;
+    delete process.env.FAKE_ACP_BILLING_PERCENT;
     await removeTempDir(scratch);
   });
 
@@ -212,7 +214,7 @@ describe("SPEED4 warm session reuse (fake CLI)", () => {
   const sessionIdFor = (turnId: string) => {
     const started = recorder.events.find((e) => e.type === "session.started" && e.turnId === turnId) as any;
     expect(started?.sessionId).toEqual(expect.any(String));
-    return started.sessionId as string;
+    return started?.sessionId as string;
   };
 
   it("runs two consecutive prompts on one child without re-initialize/load", async () => {
