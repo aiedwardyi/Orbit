@@ -60,7 +60,7 @@ afterEach(async () => {
 function mountBridge(bridge: TerminalBridge, bot = { id: "bot-1", name: "Desk", cwd: "C:\\work" as string | null }) {
   vi.stubGlobal("localStorage", window.localStorage);
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
-  Object.defineProperty(window, "ogb", { configurable: true, value: { platform: "win32", terminal: bridge, pickFolder: bridge && (window as unknown as { __pick?: unknown }).__pick } });
+  Object.defineProperty(window, "ogb", { configurable: true, value: { platform: "win32", terminal: bridge, pickFolder: undefined } });
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -261,6 +261,7 @@ it("persists a header folder choice without restarting a live session", async ()
   expect(api).toHaveBeenCalledWith("/api/bots/bot-f", expect.objectContaining({ method: "PATCH" }));
   expect(open).toHaveBeenCalledTimes(1);
 });
+
 it("folderBasename keeps root paths non-empty", () => {
   expect(folderBasename("/")).toBe("/");
   expect(folderBasename("///")).toBe("///");
@@ -506,4 +507,46 @@ it("starts a new shell from an exited session via New shell", async () => {
   expect(terminal.dispose.mock.calls.length).toBe(disposeBefore);
   expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["BEFORE_EXIT", "AFTER_RESTART"]);
   expect(host.textContent).not.toMatch(/Shell exited \(0\)|exited \(0\)/i);
+});
+
+it("restores keyboard input forwarding when fallback restart IPC throws", async () => {
+  const snapshot = { id: "session-fallback-err", cwd: "C:\\work", shell: "pwsh.exe", output: "READY", seq: 1, exitCode: null as number | null };
+  const write = vi.fn(async () => {});
+  const open = vi.fn(async (opts: { restart?: boolean }) => {
+    if (open.mock.calls.length === 1) return { ...snapshot };
+    if (opts.restart) return { needsFolder: true as const, reason: "explicit-unavailable" };
+    throw new Error("IPC transport failure");
+  });
+  const bridge: TerminalBridge = {
+    appearance: vi.fn(async () => null),
+    open,
+    write,
+    resize: vi.fn(async () => {}),
+    onData: () => vi.fn(),
+    onExit: () => vi.fn(),
+  };
+  Object.defineProperty(window, "ogb", { configurable: true, value: { platform: "win32", terminal: bridge, pickFolder: vi.fn(async () => null) } });
+  vi.stubGlobal("localStorage", window.localStorage);
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => root.render(createElement(TerminalWorkspace, {
+    bot: { id: "bot-err", name: "Desk", cwd: "C:\\work" },
+    visible: true,
+    focusBlocked: false,
+    onClose: vi.fn(),
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Restart"));
+  expect(restartBtn).toBeTruthy();
+  await act(async () => { restartBtn!.click(); });
+  const confirmBtn = [...document.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Restart terminal");
+  expect(confirmBtn).toBeTruthy();
+  await act(async () => { confirmBtn!.click(); });
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+  expect(host.textContent).toMatch(/unavailable|Choose a folder/i);
+  // Fallback restart failed, but preserved session must still forward keyboard input.
+  await act(async () => { terminal.__emitData("ls\r"); });
+  expect(write).toHaveBeenCalledWith("session-fallback-err", "ls\r");
 });

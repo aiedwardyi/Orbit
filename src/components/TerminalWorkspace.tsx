@@ -254,6 +254,7 @@ export function TerminalWorkspace({
               setFolderReason(resumed.reason ?? result.reason ?? "choose-folder");
             } catch (cause) {
               report(cause);
+              replayComplete = true;
               setNeedsFolder(true);
               setFolderReason(result.reason ?? "choose-folder");
             }
