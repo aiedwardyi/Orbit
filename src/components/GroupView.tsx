@@ -1161,7 +1161,7 @@ export function GroupView({ group }: { group: Group }) {
     });
     observer.observe(content);
     return () => observer.disconnect();
-  }, []);
+  }, [setupPending]);
 
   // Expanding prepends rows: capture the height first, then after the commit
   // shift scrollTop by the growth so the message under the cursor stays put
