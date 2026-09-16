@@ -28,10 +28,8 @@ describe("chatOptionChoices", () => {
   });
 
   it("does not turn parenthetical policy prose into choices", () => {
-    // or-inside-group is the reject signal (not mere presence of parens)
-    expect(
-      chatOptionChoices("Want me to save your role boundaries (no code, push, merge, release or Obsidian edits unless you ask) to my local memory?"),
-    ).toBeNull();
+    // <=20 words so word cutoff cannot reject; depth must reject or-inside-group
+    expect(chatOptionChoices("Use (A or B)?")).toBeNull();
   });
 
   it("keeps a longer direct A-or-B without parentheses as choices", () => {

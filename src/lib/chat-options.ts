@@ -99,6 +99,8 @@ function lastTopLevelOrIndex(text: string): number {
       continue;
     }
     if (depth !== 0) continue;
+    // Early-exit unless this char could start "or" — avoid slice+regex on every index
+    if (text[i] !== "o" && text[i] !== "O") continue;
     if (i > 0 && /\s/.test(text[i - 1]!) && /^or\b/i.test(text.slice(i))) {
       const after = i + 2;
       if (after < text.length && /\s/.test(text[after]!)) last = i;
