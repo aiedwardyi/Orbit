@@ -294,9 +294,18 @@ bus.attach(registry.instances());
 
 // ── peer-agent comms wiring ────────────────────────────────────────────
 // A shared secret guards the localhost-only /api/internal endpoints the
-// agents-proxy calls; regenerated each boot (the proxy gets it via env).
-const COMMS_TOKEN = randomBytes(24).toString("hex");
+// agents-proxy calls; regenerated each boot (the proxy gets it via env)
+// unless packaged-boot pre-issued OMB_COMMS_TOKEN before fat import.
+const COMMS_TOKEN_RE = /^[a-f0-9]{48}$/;
+const preissuedCommsToken = process.env.OMB_COMMS_TOKEN;
+const COMMS_TOKEN =
+  typeof preissuedCommsToken === "string" && COMMS_TOKEN_RE.test(preissuedCommsToken)
+    ? preissuedCommsToken
+    : randomBytes(24).toString("hex");
+if (process.env.OMB_COMMS_TOKEN !== COMMS_TOKEN) process.env.OMB_COMMS_TOKEN = COMMS_TOKEN;
 const appTokenMessage = { type: "orbit:api-token", token: COMMS_TOKEN };
+// Packaged-boot may already have posted the same token; a second post is
+// harmless once waitForAppToken has resolved. Dev/Node still needs this path.
 utilityParentPort?.postMessage(appTokenMessage);
 process.send?.(appTokenMessage);
 
