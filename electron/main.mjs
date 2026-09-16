@@ -16,6 +16,9 @@ import {
   stopRecorder,
 } from "./skill-recorder.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
+import { createTerminalHost, trustedTerminalSender } from "./terminal-host.mjs";
+import { spawnTerminalPty } from "./terminal-pty.mjs";
+import { readTerminalAppearance } from "./terminal-appearance.mjs";
 import { applyPendingUpdateInstall, consumePendingUpdateInstall, registerUpdaterIpc, startUpdater } from "./updater.mjs";
 import { completeQuitAfterCleanup } from "./app-quit.mjs";
 import { companionParkedOnDesktop } from "./companion-policy.mjs";
@@ -251,6 +254,41 @@ app.on("second-instance", (_event, commandLine) => {
 let serverProc = null;
 let serverToken = app.isPackaged ? null : (process.env.OMB_COMMS_TOKEN ?? null);
 const appAuthorization = createAppAuthorization();
+const terminalHost = createTerminalHost({
+  authorize(event) {
+    const origin = app.isPackaged ? `http://127.0.0.1:${SERVER_PORT}` : new URL(DEV_URL).origin;
+    if (!trustedTerminalSender(event, mainWindow?.webContents, origin)) throw new Error("Untrusted terminal caller");
+  },
+  loadPty: () => ({ spawn: (shell, args, options) => spawnTerminalPty(
+    require.resolve(app.isPackaged ? path.join(process.resourcesPath, "terminal", "node-pty") : "node-pty"), shell, args, options,
+  ) }),
+  async resolveCwd(botId, event) {
+    if (app.isPackaged && !serverToken) throw new Error("Server is not ready");
+    const port = app.isPackaged ? SERVER_PORT : Number(process.env.OMB_PORT || process.env.OGB_PORT || SERVER_PORT);
+    const response = await fetch(`http://127.0.0.1:${port}/api/bots?messages=0`, {
+      headers: serverToken ? { Authorization: `Bearer ${serverToken}` } : {},
+      redirect: "error",
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) throw new Error("Could not resolve terminal folder");
+    const { bots } = await response.json();
+    const bot = bots?.find((entry) => entry.id === botId);
+    if (!bot) throw new Error("Unknown bot");
+    if (bot.cwd) return bot.cwd;
+    if (event.sender !== mainWindow?.webContents) throw new Error("Terminal window is unavailable");
+    const result = await dialog.showOpenDialog(mainWindow, { properties: ["openDirectory"] });
+    if (result.canceled || !result.filePaths[0]) throw new Error("No terminal folder selected");
+    return result.filePaths[0];
+  },
+});
+ipcMain.handle("terminal:open", (event, input) => terminalHost.open(event, input));
+ipcMain.handle("terminal:write", (event, id, data) => terminalHost.write(event, id, data));
+ipcMain.handle("terminal:resize", (event, id, cols, rows) => terminalHost.resize(event, id, cols, rows));
+ipcMain.handle("terminal:appearance", (event) => {
+  const origin = app.isPackaged ? `http://127.0.0.1:${SERVER_PORT}` : new URL(DEV_URL).origin;
+  if (!trustedTerminalSender(event, mainWindow?.webContents, origin)) throw new Error("Untrusted terminal caller");
+  return readTerminalAppearance();
+});
 let serverReady = !app.isPackaged;
 // Packaged window URL state. `serverReady` stays a boolean for the rest of
 // main (companion, activate-after-ready); this ternary is what createWindow
@@ -2082,6 +2120,7 @@ app.on("before-quit", (e) => {
   // stop it here so quitting never orphans a recording process
   if (nativeActions.appleSpeech) stopSpeech();
   stopRecorder();
+  terminalHost.dispose();
   try {
     browserSurface?.closeAll();
   } catch {}

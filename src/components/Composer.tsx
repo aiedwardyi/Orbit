@@ -843,7 +843,7 @@ export function Composer({
             aria-hidden
             className="absolute -left-5 -right-5 top-[calc(100%-1.5rem)] h-[50vh] bg-app"
           />
-        <div className="relative grid grid-cols-[auto_1fr_auto] items-center gap-x-2 rounded-3xl bg-raised px-3 pb-2 pt-1">
+        <div data-orbit-composer-frame className="relative grid grid-cols-[auto_1fr_auto] items-center gap-x-2 rounded-3xl bg-raised px-3 pb-2 pt-1">
           <input
             ref={fileInput}
             type="file"

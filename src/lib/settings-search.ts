@@ -5,8 +5,11 @@ import { catalogs, type MessageKey } from "./i18n-catalog";
 /** Settings nav search matches both English and Korean labels/body copy so a
  * Korean query still finds a section when the chrome is English, and vice versa. */
 export const SECTION_PHRASE_KEYS = {
+  shortcuts: ["settings.section.shortcuts", "shortcuts.navigation", "shortcuts.chat", "shortcuts.help"],
   general: [
     "settings.section.general",
+    "terminal.appearance.title",
+    "terminal.appearance.help",
     "language.title",
     "settings.profile.title",
     "settings.profile.subtitle",
@@ -106,6 +109,7 @@ function phraseKeysFor(id: AppSettingsSection): readonly MessageKey[] {
 }
 
 const EXTRA_KEYWORDS = {
+  shortcuts: ["keyboard", "hotkeys", "keys", "단축키", "키보드"],
   general: ["profile", "name", "updates", "tools", "tool calls", "language", "locale", "vm", "diagnostics", "experimental"],
   connections: ["keys", "api", "gemini", "muse", "claude", "grok", "codex", "antigravity", "cli"],
   themes: ["skin", "theme", "appearance", "kanagawa", "haxor", "hax0r", "hurtado", "rose", "nord", "github", "dimmed", "tui", "terminal", "amber", "slate", "smoke"],

@@ -1,5 +1,78 @@
 @import "tailwindcss";
 
+.orbit-terminal-overlay {
+  transform: translateX(100%);
+  visibility: hidden;
+  transition: transform 120ms ease-out, visibility 0s 120ms;
+  pointer-events: none;
+}
+
+.orbit-terminal-overlay[data-open="true"] {
+  transform: translateX(0);
+  visibility: visible;
+  transition-delay: 0s;
+  animation: terminal-enter 120ms ease-out;
+  pointer-events: auto;
+}
+
+@keyframes terminal-enter {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+:root[data-shape="soft"][data-skin^="tui"] {
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+}
+
+/* Nested skin previews keep their own geometry. */
+@scope (:root[data-shape="boxy"]) to ([data-skin]) {
+  [class*="rounded"], button, input, textarea, select {
+    border-radius: 0;
+  }
+
+  [data-orbit-composer-frame] {
+    outline: 1px solid var(--color-hairline);
+    outline-offset: -1px;
+  }
+
+  [data-orbit-message] {
+    align-items: flex-start;
+    animation: none;
+  }
+
+  [data-orbit-message-body] {
+    width: 100%;
+    max-width: 72rem;
+  }
+
+  .orbit-message-speaker {
+    display: block;
+    min-height: 28px;
+    padding: 4px 0;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-ink-secondary);
+  }
+
+  [data-orbit-message-content] {
+    width: 100%;
+    border-left: 2px solid var(--color-hairline);
+    outline: none;
+  }
+
+  [data-orbit-message="user"] [data-orbit-message-content] {
+    border-left-color: var(--color-accent-border);
+  }
+
+  [data-orbit-message="user"] [data-message-hover-actions] {
+    top: 0;
+    right: 0;
+    transform: none;
+    background: var(--color-app);
+  }
+}
+
 /* ─────────────────────────────────────────────────────────────────────────
    SKINS
 
@@ -976,11 +1049,13 @@
 }
 
 /* Stop at nested skin previews so Amber cannot reshape the other skins. */
-@scope ([data-skin="tui-amber"]) to ([data-skin]) {
+@scope ([data-skin="tui-amber"]:not([data-shape="soft"])) to ([data-skin]) {
   [class*="rounded"], button, input, textarea, select {
     border-radius: 0;
   }
+}
 
+@scope ([data-skin="tui-amber"]) to ([data-skin]) {
   main, main .bg-app, [data-orbit-transcript], :scope > .min-w-0 {
     background-color: var(--color-inset);
   }
