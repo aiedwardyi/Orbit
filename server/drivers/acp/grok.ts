@@ -4,6 +4,7 @@
 // The generic protocol runtime lives in acp/core.ts; this file is only the
 // per-harness quirks. Verified against grok 1.0.0.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -226,6 +227,11 @@ export function configOptionValue(result: unknown, configId: string): unknown {
 export const grokSupport: AcpSupport = {
   driverKind: "grokAgent",
   grokInterjections: true,
+  warmSessionIdentity: (env) => {
+    try {
+      return createHash("sha256").update(readFileSync(join(grokHome(env), "auth.json"))).digest("hex");
+    } catch { return null; }
+  },
   rateLimits: true,
   billingMethod: "_x.ai/billing",
   displayName: "Grok",
