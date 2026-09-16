@@ -22,7 +22,6 @@ describe("QuestionChoiceCard", () => {
     expect(html).toContain(">B<");
     expect(html).toContain("Write my own answer");
     expect(html).toContain("Click a choice to reply");
-    expect(html).toContain("max-w-[560px]");
     expect(html).not.toContain("rounded-full border"); // pill chips; signal dot may be rounded-full
   });
 

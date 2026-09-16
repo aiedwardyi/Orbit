@@ -406,6 +406,7 @@ function TimestampLabel({ at }: { at: number }) {
 function Bubble({
   bot,
   message,
+  transcript,
   editing,
   isLastBotText,
   onStartEdit,
@@ -417,6 +418,7 @@ function Bubble({
 }: {
   bot: Bot;
   message: Message;
+  transcript: Message[];
   editing: boolean;
   isLastBotText: boolean;
   onStartEdit: () => void;
@@ -431,7 +433,6 @@ function Bubble({
   const user = message.role === "user";
   const [expanded, setExpanded] = useState(false);
   const text = message.text ?? "";
-  const transcript = visibleMessages(bot);
   const detectedOptions = !user && message.kind === "text" ? detectChatOptions(text) : null;
   const answeredChoice = detectedOptions ? laterUserAnswer(transcript, message.id) : null;
   const optionChoices =
@@ -872,6 +873,7 @@ const MessagesList = memo(function MessagesList({
                 <Bubble
                   bot={bot}
                   message={m}
+                  transcript={transcript}
                   editing={editingId === m.id}
                   isLastBotText={m.id === lastBotTextId}
                   onStartEdit={() => onStartEdit(m.id)}

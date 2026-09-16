@@ -457,15 +457,15 @@ const Transcript = memo(function Transcript({
                   </div>
                 )}
               </div>
-                {optionChoices && (
-                  <ChatOptionChips
-                    options={optionChoices.options}
-                    question={optionChoices.question}
-                    answeredText={answeredChoice}
-                    disabled={!answeredChoice && Boolean(group.busyBotId)}
-                    onPick={(option) => dispatch({ type: "sendGroup", groupId: group.id, text: option })}
-                  />
-                )}
+              {optionChoices && (
+                <ChatOptionChips
+                  options={optionChoices.options}
+                  question={optionChoices.question}
+                  answeredText={answeredChoice}
+                  disabled={!answeredChoice && Boolean(group.busyBotId)}
+                  onPick={(option) => dispatch({ type: "sendGroup", groupId: group.id, text: option })}
+                />
+              )}
               <span className="mt-0.5 text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                 {formatTime(m.at, localeTag(locale))}
               </span>
