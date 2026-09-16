@@ -18,10 +18,17 @@ import {
   ANTIGRAVITY_COMPUTER_MCP_KEY,
   AntigravityDriver,
   antigravityComputerMcpServer,
+  antigravityStreamUserLine,
+  buildAntigravityTurnArgv,
+  composeAntigravityPrompt,
   ensureAntigravityComputerMcp,
+  estimateWin32CmdlineLength,
+  measureAntigravityTransportLengths,
   readAntigravityModelCatalog,
   STATIC_ANTIGRAVITY_MODELS,
+  WIN32_CREATEPROCESS_CMDLINE_MAX,
 } from "./antigravity.ts";
+import { describeSpawnFailure } from "../procs.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-agy-cli.ts");
 
@@ -286,7 +293,10 @@ describe("Antigravity turns (fake CLI)", () => {
 
       const invocation = JSON.parse(readFileSync(dump, "utf8"));
       expect(invocation.argv).not.toContain("--conversation");
-      expect(invocation.argv[invocation.argv.indexOf("--print") + 1]).toBe("durable task record and recent work\n\ncontinue");
+      expect(invocation.argv).toContain("--input-format");
+      expect(invocation.argv).toContain("stream-json");
+      expect(invocation.argv).not.toContain("--print");
+      expect(invocation.prompt).toBe("durable task record and recent work\n\ncontinue");
       expect(recorder.events.filter((event) => event.type === "turn.completed")).toHaveLength(1);
       expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true });
     } finally {
@@ -776,4 +786,152 @@ describe("Antigravity computer MCP config", () => {
       rmSync(home, { recursive: true, force: true });
     }
   }, 10_000);
+});
+
+
+describe("Antigravity Windows long-prompt transport", () => {
+  let instance: ProviderInstance;
+  let recorder: EventRecorder;
+
+  const create = async () => {
+    instance = await AntigravityDriver.create({
+      instanceId: "agy-enametoolong",
+      displayName: "Antigravity ENAMETOOLONG",
+      environment: {},
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: true },
+    });
+    recorder = recordEvents(instance.adapter);
+  };
+
+  beforeEach(() => {
+    ensureDirs();
+    chmodSync(FAKE_CLI, 0o755);
+  });
+
+  afterEach(async () => {
+    recorder?.stop();
+    await instance?.dispose();
+    delete process.env.FAKE_AGY_DUMP;
+  });
+
+  it("keeps the prompt off argv and under the Windows cmdline ceiling", () => {
+    const userText = "paste-" + "字".repeat(12_000);
+    const system = "persona-" + "A".repeat(8_000);
+    const continuity = "continuity-" + "B".repeat(20_000);
+    const combinedSystem = `${system}\n\n${continuity}`;
+    const prompt = composeAntigravityPrompt(combinedSystem, userText);
+    const cwd = "C:\\Users\\mredw\\Desktop\\Orbit-worker-antigravity-enametoolong\\workspaces\\thread";
+    const argv = buildAntigravityTurnArgv({ fullAuto: true, cwd, model: "gemini-3.1-pro-high" });
+    const stdinLine = antigravityStreamUserLine(prompt);
+    const lengths = measureAntigravityTransportLengths({
+      userText,
+      system: combinedSystem,
+      continuity,
+      toolMcpConfigJson: JSON.stringify({ mcpServers: { "openmausbot-computer": { command: "node", args: ["proxy.js"] } } }),
+      cli: "agy",
+      argv,
+      stdinLine,
+    });
+
+    // Lengths only — prove the old --print argv path would have blown CreateProcess.
+    const legacyArgv = ["--print", prompt, ...argv];
+    const legacyCmdline = estimateWin32CmdlineLength("agy", legacyArgv);
+    expect(legacyCmdline).toBeGreaterThan(WIN32_CREATEPROCESS_CMDLINE_MAX);
+    expect(lengths.totalArgvChars).toBeLessThan(WIN32_CREATEPROCESS_CMDLINE_MAX);
+    expect(lengths.stdinBytes).toBeGreaterThan(20_000);
+    expect(lengths.userTextChars).toBe(userText.length);
+    expect(lengths.systemChars).toBe(combinedSystem.length);
+    expect(lengths.continuityChars).toBe(continuity.length);
+    expect(lengths.toolMcpConfigChars).toBeGreaterThan(0);
+    expect(argv).not.toContain("--print");
+    expect(argv).not.toContain(prompt);
+    expect(JSON.parse(stdinLine).event).toBe("user");
+  });
+
+  it("delivers a long paste over stdin and leaves continuity in the prompt body", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "omb-agy-long-"));
+    const dump = join(scratch, "dump.json");
+    process.env.FAKE_AGY_DUMP = dump;
+    const continuity = "CONTINUITY_BLOCK:" + "C".repeat(20_000);
+    const userText = "LONG_PASTE:" + "한".repeat(6_000) + ' and quotes: "hello" \\path\\file';
+    try {
+      await create();
+      await instance.adapter.sendTurn({
+        threadId: "t-long-paste",
+        text: userText,
+        system: `persona\n\n${continuity}`,
+        model: "gemini-3.1-pro-high",
+      });
+      await recorder.until((event) => event.type === "turn.completed");
+
+      const invocation = JSON.parse(readFileSync(dump, "utf8"));
+      expect(invocation.argv).toEqual(expect.arrayContaining(["--input-format", "stream-json", "--output-format", "stream-json"]));
+      expect(invocation.argv).not.toContain("--print");
+      expect(invocation.argv.some((arg: string) => arg.includes("LONG_PASTE") || arg.includes("CONTINUITY_BLOCK"))).toBe(false);
+      expect(invocation.prompt).toContain("CONTINUITY_BLOCK:");
+      expect(invocation.prompt).toContain("LONG_PASTE:");
+      expect(invocation.prompt).toContain('"hello"');
+      expect(invocation.promptChars).toBeGreaterThan(20_000);
+      expect(estimateWin32CmdlineLength(FAKE_CLI, invocation.argv)).toBeLessThan(WIN32_CREATEPROCESS_CMDLINE_MAX);
+      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true });
+      expect(instance.adapter.hasSession("t-long-paste")).toBe(false);
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  it("delivers a short message with large injected system/continuity the same way", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "omb-agy-short-"));
+    const dump = join(scratch, "dump.json");
+    process.env.FAKE_AGY_DUMP = dump;
+    const continuity = "INJECTED:" + "D".repeat(25_000);
+    try {
+      await create();
+      await instance.adapter.sendTurn({
+        threadId: "t-short-huge-context",
+        text: "lets get rid of this pycache what is that",
+        system: continuity,
+      });
+      await recorder.until((event) => event.type === "turn.completed");
+      const invocation = JSON.parse(readFileSync(dump, "utf8"));
+      expect(invocation.prompt.startsWith("INJECTED:")).toBe(true);
+      expect(invocation.prompt.endsWith("lets get rid of this pycache what is that")).toBe(true);
+      expect(invocation.argv).not.toContain(invocation.prompt);
+      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true });
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  it("fails one turn recoverably when remaining argv exceeds the Windows cmdline ceiling", async () => {
+    await create();
+    const hugeCursor = "c".repeat(WIN32_CREATEPROCESS_CMDLINE_MAX);
+    await instance.adapter.sendTurn({
+      threadId: "t-argv-too-long",
+      text: "hi",
+      resumeCursor: hugeCursor,
+    });
+    await recorder.until((event) => event.type === "turn.completed");
+    const err = recorder.events.find((event) => event.type === "runtime.error");
+    expect(err).toMatchObject({ type: "runtime.error" });
+    expect(String((err as { message?: string }).message)).toMatch(/command line too long/i);
+    expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: false, stopReason: "spawn_error" });
+    expect(instance.adapter.hasSession("t-argv-too-long")).toBe(false);
+
+    // Subsequent short turn still works — not stuck busy.
+    await instance.adapter.sendTurn({ threadId: "t-argv-too-long", text: "hi again" });
+    await recorder.until((event) => event.type === "turn.completed" && event.ok === true);
+    expect(recorder.events.filter((event) => event.type === "turn.completed")).toHaveLength(2);
+  });
+
+  it("maps ENAMETOOLONG spawn failures to a clear recoverable message", () => {
+    const err = Object.assign(new Error("spawn agy ENAMETOOLONG"), { code: "ENAMETOOLONG" });
+    expect(describeSpawnFailure(err, "agy")).toEqual({
+      message: "spawn failed: command line too long for this OS (`agy`)",
+      setup: false,
+    });
+    const e2big = Object.assign(new Error("spawn agy E2BIG"), { code: "E2BIG" });
+    expect(describeSpawnFailure(e2big, "agy").message).toMatch(/command line too long/);
+  });
 });

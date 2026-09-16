@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // Fake of the Antigravity `agy` CLI's print-mode stdio surface, for driver
 // tests of drivers/antigravity.ts. On `--version` it prints a version; on a
-// print-mode invocation (`--print <prompt> … --output-format stream-json`) it
-// reads the prompt from the `--print` ARGV value (the real CLI does NOT read a
-// piped prompt in print mode), then emits a canned NDJSON turn: init → tool
-// step (ACTIVE then DONE) → agent_response step with usage → result with
-// status SUCCESS. Deterministic, no network.
+// stream-json print-mode invocation (`--input-format stream-json
+// --output-format stream-json`) it reads one NDJSON user event from stdin
+// (agy 1.1.15+ / verified 1.2.4: {"event":"user","message":{...}}), then
+// emits a canned NDJSON turn: init → tool step (ACTIVE then DONE) →
+// agent_response step with usage → result with status SUCCESS.
+// Deterministic, no network.
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
 import { readFileSync, writeFileSync } from "node:fs";
@@ -18,12 +19,71 @@ if (process.env.FAKE_AGY_IGNORE_SIGTERM === "1") {
 if (process.env.FAKE_AGY_READY_FILE) {
   writeFileSync(process.env.FAKE_AGY_READY_FILE, "ready");
 }
-if (process.env.FAKE_AGY_DUMP) {
-  writeFileSync(process.env.FAKE_AGY_DUMP, JSON.stringify({ argv, env: process.env }, null, 2));
-}
 if (argv.includes("--version")) {
+  if (process.env.FAKE_AGY_DUMP) {
+    writeFileSync(process.env.FAKE_AGY_DUMP, JSON.stringify({ argv, env: process.env }, null, 2));
+  }
   console.log("1.1.12");
   process.exit(0);
+}
+
+function readStdin(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    process.stdin.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    process.stdin.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    process.stdin.on("error", reject);
+  });
+}
+
+function promptFromStreamJson(raw: string): string | undefined {
+  const line = raw.split(/\r?\n/).find((row) => row.trim());
+  if (!line) return undefined;
+  let msg: { event?: unknown; message?: { content?: unknown } };
+  try {
+    msg = JSON.parse(line) as { event?: unknown; message?: { content?: unknown } };
+  } catch {
+    process.stderr.write("error: stream input message is not valid JSON\n");
+    process.exit(1);
+  }
+  if (msg.event !== "user") {
+    process.stderr.write('error: stream input message is missing the "event" field\n');
+    process.exit(1);
+  }
+  const content = msg.message?.content;
+  if (typeof content === "string") return content;
+  if (content == null) return undefined;
+  return JSON.stringify(content);
+}
+
+const inputFormatIdx = argv.indexOf("--input-format");
+const inputFormat = inputFormatIdx !== -1 ? argv[inputFormatIdx + 1] : undefined;
+const printIdx = argv.includes("--print") ? argv.indexOf("--print") : argv.indexOf("-p");
+let stdinRaw = "";
+let prompt: string | undefined;
+if (inputFormat === "stream-json") {
+  stdinRaw = await readStdin();
+  prompt = promptFromStreamJson(stdinRaw);
+} else if (printIdx !== -1) {
+  prompt = argv[printIdx + 1];
+}
+
+if (process.env.FAKE_AGY_DUMP) {
+  writeFileSync(
+    process.env.FAKE_AGY_DUMP,
+    JSON.stringify(
+      {
+        argv,
+        env: process.env,
+        // Lengths only — tests that need the prompt body read `prompt` explicitly.
+        stdinBytes: Buffer.byteLength(stdinRaw),
+        promptChars: prompt?.length ?? 0,
+        prompt,
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 const delayMs = Number(process.env.FAKE_AGY_DELAY_MS ?? 0);
@@ -44,10 +104,7 @@ const CONV = "conv-fake-123";
 const systemNotice = "The following is a <SYSTEM_MESSAGE> not actually sent by the user.\n<SYSTEM_MESSAGE>internal notice</SYSTEM_MESSAGE>";
 const cancelledTool = process.env.FAKE_AGY_CANCELLED_TOOL === "1";
 
-// The prompt is the value that follows --print on argv (mirrors the driver,
-// which no longer pipes stdin). A bare --print with no value yields no turn.
-const printIdx = argv.indexOf("--print");
-const prompt = printIdx !== -1 ? argv[printIdx + 1] : undefined;
+// stream-json / --print with no prompt yields no turn (mirrors real CLI).
 if (!prompt) process.exit(0);
 if (process.env.FAKE_AGY_RESUME_FAIL && argv.includes("--conversation")) {
   const diagnostic = process.env.FAKE_AGY_RESUME_FAIL === "multiline"

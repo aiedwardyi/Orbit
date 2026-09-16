@@ -77,6 +77,8 @@ export function describeSpawnFailure(err: NodeJS.ErrnoException, cli: string): S
     return { message: `\`${cli}\` isn't installed, or isn't on this app's PATH`, setup: true };
   if (err.code === "EACCES" || err.code === "EPERM")
     return { message: `\`${cli}\` isn't executable — check its file permissions`, setup: true };
+  if (err.code === "ENAMETOOLONG" || err.code === "E2BIG")
+    return { message: `spawn failed: command line too long for this OS (\`${cli}\`)`, setup: false };
   return { message: `spawn failed: ${err.message}`, setup: false };
 }
 
