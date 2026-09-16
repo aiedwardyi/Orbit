@@ -435,7 +435,7 @@ export function SettingsModal({
         </nav>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex shrink-0 items-center justify-between gap-3 px-5 py-3">
+          <div className="flex shrink-0 items-center justify-between px-5 py-3 gap-3">
             <span className="text-[15px] font-semibold text-ink">
               {t(SECTION_KEY[section])}
             </span>
