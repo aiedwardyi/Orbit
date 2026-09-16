@@ -589,3 +589,167 @@ it("preserves an exit received during snapshot replay", async () => {
   expect(host.textContent).toMatch(/Shell exited \(7\)|exited \(7\)/i);
   expect(terminal.options.disableStdin).toBe(true);
 });
+
+it("restores replayComplete and drains gap events when openShell restart rejects on a live session", async () => {
+  const snapshot = { id: "session-live-rej", cwd: "C:\\work", shell: "pwsh.exe", output: "LIVE_SNAP", seq: 1, exitCode: null as number | null };
+  let receive!: (event: { id: string; data: string; seq: number }) => void;
+  let rejectRestart!: (error: Error) => void;
+  const write = vi.fn(async () => {});
+  const open = vi.fn(async (_opts: { restart?: boolean }) => {
+    if (open.mock.calls.length === 1) return { ...snapshot };
+    return new Promise<typeof snapshot>((_, reject) => { rejectRestart = reject; });
+  });
+  const bridge: TerminalBridge = {
+    appearance: vi.fn(async () => null),
+    open,
+    write,
+    resize: vi.fn(async () => {}),
+    onData: (cb) => { receive = cb; return vi.fn(); },
+    onExit: () => vi.fn(),
+  };
+  Object.defineProperty(window, "ogb", { configurable: true, value: { platform: "win32", terminal: bridge, pickFolder: vi.fn(async () => null) } });
+  vi.stubGlobal("localStorage", window.localStorage);
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => root.render(createElement(TerminalWorkspace, {
+    bot: { id: "bot-live-rej", name: "Desk", cwd: "C:\\work" },
+    visible: true,
+    focusBlocked: false,
+    onClose: vi.fn(),
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["LIVE_SNAP"]);
+  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Restart"));
+  expect(restartBtn).toBeTruthy();
+  await act(async () => { restartBtn!.click(); });
+  const confirmBtn = [...document.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Restart terminal");
+  expect(confirmBtn).toBeTruthy();
+  await act(async () => { confirmBtn!.click(); });
+  await act(async () => { await Promise.resolve(); });
+  // Event arrives during in-flight restart IPC.
+  await act(async () => {
+    receive({ id: "session-live-rej", data: "GAP_DATA", seq: 2 });
+  });
+  await act(async () => {
+    rejectRestart(new Error("Restart IPC rejected"));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(host.textContent).toMatch(/Restart IPC rejected/i);
+  // Queued gap event must be drained exactly once without replaying scrollback.
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["LIVE_SNAP", "GAP_DATA"]);
+  // Stdin forwarding must be restored on live session.
+  await act(async () => { terminal.__emitData("dir\r"); });
+  expect(write).toHaveBeenCalledWith("session-live-rej", "dir\r");
+  // Subsequent live output must forward immediately.
+  await act(async () => {
+    receive({ id: "session-live-rej", data: "AFTER_DATA", seq: 3 });
+  });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["LIVE_SNAP", "GAP_DATA", "AFTER_DATA"]);
+  expect(terminal.options.disableStdin).toBe(false);
+});
+
+it("never revives an exited session when openShell restart rejects", async () => {
+  const snapshot = { id: "session-dead-rej", cwd: "C:\\work", shell: "pwsh.exe", output: "BEFORE_EXIT", seq: 1, exitCode: 5 as number | null };
+  let rejectRestart!: (error: Error) => void;
+  const write = vi.fn(async () => {});
+  const open = vi.fn(async (_opts: { restart?: boolean }) => {
+    if (open.mock.calls.length === 1) return { ...snapshot };
+    return new Promise<typeof snapshot>((_, reject) => { rejectRestart = reject; });
+  });
+  const bridge: TerminalBridge = {
+    appearance: vi.fn(async () => null),
+    open,
+    write,
+    resize: vi.fn(async () => {}),
+    onData: () => vi.fn(),
+    onExit: () => vi.fn(),
+  };
+  Object.defineProperty(window, "ogb", { configurable: true, value: { platform: "win32", terminal: bridge, pickFolder: vi.fn(async () => null) } });
+  vi.stubGlobal("localStorage", window.localStorage);
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => root.render(createElement(TerminalWorkspace, {
+    bot: { id: "bot-dead-rej", name: "Desk", cwd: "C:\\work" },
+    visible: true,
+    focusBlocked: false,
+    onClose: vi.fn(),
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(host.textContent).toMatch(/Shell exited \(5\)|exited \(5\)/i);
+  expect(terminal.options.disableStdin).toBe(true);
+  const restartBtn = [...host.querySelectorAll("button")].find((el) => /Restart|다시 시작/i.test(el.textContent ?? ""));
+  expect(restartBtn).toBeTruthy();
+  await act(async () => { restartBtn!.click(); });
+  await act(async () => { await Promise.resolve(); });
+  await act(async () => {
+    rejectRestart(new Error("Spawn failed"));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(host.textContent).toMatch(/Spawn failed/i);
+  // Exited session must remain exited and never accept stdin.
+  expect(host.textContent).toMatch(/Shell exited \(5\)|exited \(5\)/i);
+  expect(terminal.options.disableStdin).toBe(true);
+  await act(async () => { terminal.__emitData("dir\r"); });
+  expect(write).not.toHaveBeenCalled();
+});
+
+it("preserves exit received during a rejected restart attempt", async () => {
+  const snapshot = { id: "session-dying-rej", cwd: "C:\\work", shell: "pwsh.exe", output: "BEFORE", seq: 1, exitCode: null as number | null };
+  let receive!: (event: { id: string; data: string; seq: number }) => void;
+  let exitHandler!: (event: { id: string; exitCode: number }) => void;
+  let rejectRestart!: (error: Error) => void;
+  const write = vi.fn(async () => {});
+  const open = vi.fn(async (_opts: { restart?: boolean }) => {
+    if (open.mock.calls.length === 1) return { ...snapshot };
+    return new Promise<typeof snapshot>((_, reject) => { rejectRestart = reject; });
+  });
+  const bridge: TerminalBridge = {
+    appearance: vi.fn(async () => null),
+    open,
+    write,
+    resize: vi.fn(async () => {}),
+    onData: (cb) => { receive = cb; return vi.fn(); },
+    onExit: (cb) => { exitHandler = cb; return vi.fn(); },
+  };
+  Object.defineProperty(window, "ogb", { configurable: true, value: { platform: "win32", terminal: bridge, pickFolder: vi.fn(async () => null) } });
+  vi.stubGlobal("localStorage", window.localStorage);
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => root.render(createElement(TerminalWorkspace, {
+    bot: { id: "bot-dying-rej", name: "Desk", cwd: "C:\\work" },
+    visible: true,
+    focusBlocked: false,
+    onClose: vi.fn(),
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Restart"));
+  expect(restartBtn).toBeTruthy();
+  await act(async () => { restartBtn!.click(); });
+  const confirmBtn = [...document.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Restart terminal");
+  expect(confirmBtn).toBeTruthy();
+  await act(async () => { confirmBtn!.click(); });
+  await act(async () => { await Promise.resolve(); });
+  // Event and exit arrive while restart IPC is in flight.
+  await act(async () => {
+    receive({ id: "session-dying-rej", data: "FINAL_WORDS", seq: 2 });
+    exitHandler({ id: "session-dying-rej", exitCode: 137 });
+  });
+  await act(async () => {
+    rejectRestart(new Error("Restart failure"));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["BEFORE", "FINAL_WORDS"]);
+  expect(host.textContent).toMatch(/Shell exited \(137\)|exited \(137\)/i);
+  expect(terminal.options.disableStdin).toBe(true);
+  await act(async () => { terminal.__emitData("dir\r"); });
+  expect(write).not.toHaveBeenCalled();
+});

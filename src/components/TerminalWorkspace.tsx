@@ -157,7 +157,7 @@ export function TerminalWorkspace({
     });
     // Forward keystrokes and emulator replies only after historical replay finishes.
     const input = terminal.onData((data) => {
-      if (id && replayComplete) void bridge.write(id, data).catch(report);
+      if (id && replayComplete && !terminal.options.disableStdin && !exits.has(id)) void bridge.write(id, data).catch(report);
     });
     const resize = () => {
       cancelAnimationFrame(frame);
@@ -186,6 +186,7 @@ export function TerminalWorkspace({
       replayComplete = true;
       for (const event of queued) receive(event);
       const code = exits.get(snapshot.id) ?? snapshot.exitCode;
+      if (code !== null) exits.set(snapshot.id, code);
       setExitCode(code);
       terminal.options.disableStdin = code !== null;
       setSession({ cwd: snapshot.cwd, shell: snapshot.shell });
@@ -198,6 +199,23 @@ export function TerminalWorkspace({
       replacingRef.current = false;
       resize();
       if (!blockedRef.current) terminal.focus();
+    };
+
+    const recoverPreservedSession = () => {
+      if (!id) return;
+      const isExited = exits.has(id);
+      const queued = [...liveQueue]
+        .filter((event) => event.id === id && event.seq > lastSeq)
+        .sort((a, b) => a.seq - b.seq);
+      liveQueue.length = 0;
+      replayComplete = true;
+      for (const event of queued) receive(event);
+      terminal.options.disableStdin = isExited;
+      if (isExited) {
+        setExitCode(exits.get(id)!);
+      } else if (!blockedRef.current) {
+        terminal.focus();
+      }
     };
 
     const openShell = (restart: boolean) => {
@@ -255,9 +273,9 @@ export function TerminalWorkspace({
               setFolderReason(resumed.reason ?? result.reason ?? "choose-folder");
             } catch (cause) {
               report(cause);
-              replayComplete = true;
               setNeedsFolder(true);
               setFolderReason(result.reason ?? "choose-folder");
+              recoverPreservedSession();
             }
             setReplacing(false);
             replacingRef.current = false;
@@ -283,7 +301,9 @@ export function TerminalWorkspace({
         opening = false;
         setReplacing(false);
         replacingRef.current = false;
+        if (!alive || botIdRef.current !== expectedBotId) return;
         report(cause);
+        if (restart) recoverPreservedSession();
       });
     };
     openShellRef.current = openShell;
