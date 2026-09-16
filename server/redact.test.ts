@@ -345,9 +345,11 @@ describe("redactSecretsInText", () => {
     const alpha = "abcdefghijklmnopqrstuvwxyz0123456789";
     const key = `sk-ant-api03-${alpha}`;
     const masker = new StreamSecretMasker();
-    expect(masker.push(`hello ${key.slice(0, 6)}`)).not.toContain("sk-ant");
+    const first = masker.push(`hello ${key.slice(0, 6)}`);
+    expect(first).not.toContain("sk-ant");
     const rest = masker.push(`${key.slice(6)} done`);
-    const flushed = rest + masker.flush();
+    expect(rest).not.toContain("sk-ant");
+    const flushed = first + rest + masker.flush();
     expect(flushed).not.toContain(key);
     expect(flushed).not.toMatch(/sk-ant/);
     expect(flushed).toMatch(/hello «redacted \d+ chars» done/);
@@ -460,5 +462,190 @@ describe("redactSecretsInText", () => {
     const out = redactSecrets({ command: "curl -H 'Authorization: Bearer abcdefghijklmnop'", note: "fine" }) as Record<string, string>;
     expect(out.command).toContain("«redacted");
     expect(out.note).toBe("fine");
+  });
+
+  it("emits ordinary short replies before flush when chunked into 5-character pieces", () => {
+    const sentence = "This chat is a latency probe measuring how fast Maple replies.";
+    const masker = new StreamSecretMasker();
+    let beforeFlush = "";
+    for (const chunk of chunksOf(sentence, 5)) beforeFlush += masker.push(chunk);
+    expect(beforeFlush.length).toBeGreaterThan(20);
+    expect(beforeFlush + masker.flush()).toBe(sentence);
+  });
+});
+
+function pushChunks(chunks: string[]) {
+  const masker = new StreamSecretMasker();
+  const pieces: string[] = [];
+  for (const chunk of chunks) pieces.push(masker.push(chunk));
+  const flushed = masker.flush();
+  return { pieces, flushed, out: pieces.join("") + flushed };
+}
+
+function everySplit(text: string): string[][] {
+  const splits: string[][] = [chunksOf(text, 1)];
+  for (let i = 1; i < text.length; i++) splits.push([text.slice(0, i), text.slice(i)]);
+  return splits;
+}
+
+function seededChunks(text: string, seed: number): string[] {
+  let s = seed >>> 0;
+  const rand = () => {
+    s += 0x6d2b79f5;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const chunks: string[] = [];
+  for (let i = 0; i < text.length; ) {
+    const n = 1 + Math.floor(rand() * 17);
+    chunks.push(text.slice(i, i + n));
+    i += n;
+  }
+  return chunks;
+}
+
+function assertNoCredentialLeak(pieces: string[], secret: string) {
+  for (const piece of pieces) {
+    expect(piece, JSON.stringify(piece)).not.toContain(secret);
+    if (secret.length >= 6) expect(piece).not.toContain(secret.slice(0, 6));
+  }
+}
+
+describe("StreamSecretMasker incremental safety", () => {
+  const alpha = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const pemLine = "AbCd0123+/".repeat(10);
+  const pemBody = Array(8).fill(pemLine).join("\n");
+  const jwt = `eyJ${"a".repeat(12)}.${"b".repeat(12)}.${"c".repeat(16)}`;
+  const families: Array<[string, string, string]> = [
+    ["anthropic", `prose sk-ant-api03-${alpha} tail`, `sk-ant-api03-${alpha}`],
+    ["openai", `prose sk-proj-${alpha}ABCD tail`, `sk-proj-${alpha}ABCD`],
+    ["github", `prose ${"gh" + "p_"}${alpha}xxxx tail`, `${"gh" + "p_"}${alpha}xxxx`],
+    ["github-pat", `prose ${"github_" + "pat_"}11ABCDEFG0${alpha} tail`, `${"github_" + "pat_"}11ABCDEFG0${alpha}`],
+    ["slack", `prose ${"xox" + "b-"}${"123456789012"}-${"1234567890123"}-${alpha.slice(0, 24)} tail`, `${"xox" + "b-"}${"123456789012"}-${"1234567890123"}-${alpha.slice(0, 24)}`],
+    ["aws", `prose ${"AKIA" + "IOSFODNN7EXAMPLE"} tail`, `${"AKIA" + "IOSFODNN7EXAMPLE"}`],
+    ["google", `prose ${"AIza" + "SyA-"}${alpha.slice(0, 32)} tail`, `${"AIza" + "SyA-"}${alpha.slice(0, 32)}`],
+    ["google-oauth", `prose ${"ya29" + "."}abcdefghijklmnop_0123456789-ABCD tail`, `${"ya29" + "."}abcdefghijklmnop_0123456789-ABCD`],
+    ["npm", `prose ${"npm" + "_"}${alpha}xxxx tail`, `${"npm" + "_"}${alpha}xxxx`],
+    ["xai", `prose ${"xai" + "-"}${alpha} tail`, `${"xai" + "-"}${alpha}`],
+    ["stripe", `prose ${"sk" + "_"}live_51H${alpha.slice(0, 30)} tail`, `${"sk" + "_"}live_51H${alpha.slice(0, 30)}`],
+    ["stripe-rk", `prose ${"rk" + "_"}live_51H${alpha.slice(0, 30)} tail`, `${"rk" + "_"}live_51H${alpha.slice(0, 30)}`],
+    ["composio", `prose ${"ak" + "_"}${alpha.slice(0, 26)} tail`, `${"ak" + "_"}${alpha.slice(0, 26)}`],
+    ["jwt", `prose ${jwt} tail`, jwt],
+    ["bearer", `prose Bearer abcdefghijklmnop_0123 tail`, "abcdefghijklmnop_0123"],
+    ["password", `prose password=abcdefgh!@suffix tail`, "abcdefgh!@suffix"],
+    ["kv-quote-before-eq", `prose password"=abcdefghijklmn tail`, "abcdefghijklmn"],
+    ["kv-spaces", `prose SECRET_KEY = 'abcdef123456789' tail`, "abcdef123456789"],
+    ["kv-newlines", `prose token\n=\n${alpha.slice(0, 16)} tail`, alpha.slice(0, 16)],
+    ["long-name", `prose VERY_LONG_CUSTOM_SERVICE_API_KEY=abcdefghijklmnop tail`, "abcdefghijklmnop"],
+    ["quoted-config", `prose "key": "${"fw" + "_"}${"3a9c1e7b4d5a6f8e"}" tail`, `${"fw" + "_"}${"3a9c1e7b4d5a6f8e"}`],
+    ["config-mismatch-dq-sq", `"key': "AbCdEf0123456789AbCdEf"`, "AbCdEf0123456789AbCdEf"],
+    ["config-mismatch-sq-dq", `'key": "AbCdEf0123456789AbCdEf"`, "AbCdEf0123456789AbCdEf"],
+    ["pem", `prose\n-----BEGIN PRIVATE KEY-----\n${pemBody}\n-----END PRIVATE KEY-----\ntail`, pemLine],
+  ];
+
+  it("never leaks credential bytes in intermediate output for two-part, one-char, and seeded splits", () => {
+    for (const [family, text, secret] of families) {
+      const plans = [...everySplit(text), seededChunks(text, 1), seededChunks(text, 2), seededChunks(text, 99)];
+      for (const chunks of plans) {
+        const { pieces, out } = pushChunks(chunks);
+        assertNoCredentialLeak(pieces, secret);
+        expect(out, family).not.toContain(secret);
+        expect(out, family).toMatch(/«redacted \d+ chars»/);
+        expect(out, family).toBe(redactSecretsInText(text));
+      }
+    }
+  });
+
+  it("holds unfinished prefixes, long continuations, and overlapping families without leaking", () => {
+    const key = `sk-ant-api03-${alpha}`;
+    const password = "abcdefghijklmnop";
+    const overlap = `password=${key}`;
+    const prefix = pushChunks(["hello sk-ant"]);
+    expect(prefix.pieces.join("")).not.toContain("sk-ant");
+    expect(prefix.out).toContain("hello");
+
+    const grown = pushChunks(["sk-ant-", "A".repeat(16), "B".repeat(20)]);
+    assertNoCredentialLeak(grown.pieces, "A".repeat(16));
+    assertNoCredentialLeak(grown.pieces, "B".repeat(20));
+    expect(grown.out).toMatch(/^«redacted \d+ chars»$/);
+
+    const mixed = pushChunks(chunksOf(overlap, 3));
+    assertNoCredentialLeak(mixed.pieces, key);
+    assertNoCredentialLeak(mixed.pieces, password);
+    expect(mixed.out).not.toContain(key);
+
+    const afterProse = `ordinary English then ${key} and more`;
+    const streamed = pushChunks(chunksOf(afterProse, 7));
+    expect(streamed.pieces.join("").length).toBeGreaterThan(10);
+    assertNoCredentialLeak(streamed.pieces, key);
+  });
+
+  it("masks PEM begin/end splits, oversized bodies, and unclosed blocks without leaking", () => {
+    const pem = `-----BEGIN PRIVATE KEY-----\n${pemBody}\n-----END PRIVATE KEY-----`;
+    for (const chunks of everySplit(pem).slice(0, 40)) {
+      const { pieces, out } = pushChunks(chunks);
+      assertNoCredentialLeak(pieces, pemLine);
+      expect(out).not.toContain(pemLine);
+    }
+    const beginSplit = pushChunks(["-----BEGIN PRI", `VATE KEY-----\n${pemBody}\n-----END PRIVATE KEY-----`]);
+    assertNoCredentialLeak(beginSplit.pieces, pemLine);
+    const unclosed = pushChunks(chunksOf(`-----BEGIN PRIVATE KEY-----\n${pemBody}`, 9));
+    assertNoCredentialLeak(unclosed.pieces, pemLine);
+    expect(unclosed.out).toBe(`-----BEGIN PRIVATE KEY-----\n«redacted ${pemBody.length} chars»`);
+
+    const huge = "AbCd0123+/".repeat(200);
+    const masker = new StreamSecretMasker();
+    const pieces = [masker.push("-----BEGIN PRIVATE KEY-----\n")];
+    for (let i = 0; i < huge.length; i += 40) pieces.push(masker.push(huge.slice(i, i + 40)));
+    pieces.push(masker.flush());
+    assertNoCredentialLeak(pieces, "AbCd0123+/");
+    expect(pieces.join("")).toBe(`-----BEGIN PRIVATE KEY-----\n«redacted ${huge.length} chars»`);
+  });
+
+  it("holds mismatched config-key name quotes the way the full matcher does", () => {
+    const secret = "AbCdEf0123456789AbCdEf";
+    const texts = [
+      `"key': "${secret}"`,
+      `'key": '${secret}'`,
+      `"key': '${secret}'`,
+      `'key": "${secret}"`,
+      `"key": '${secret}'`,
+      `'key': "${secret}"`,
+      `"key' : "${secret}"`,
+      `'key" : '${secret}'`,
+    ];
+    for (const text of texts) {
+      const expected = redactSecretsInText(text);
+      expect(expected, text).not.toContain(secret);
+      expect(expected, text).toMatch(/«redacted 22 chars»/);
+      for (const chunks of everySplit(text)) {
+        const { pieces, out } = pushChunks(chunks);
+        expect(pieces.join(""), text).not.toContain(secret);
+        assertNoCredentialLeak(pieces, secret);
+        expect(out, text).toBe(expected);
+      }
+    }
+  });
+
+  it("lets ordinary English, Korean, punctuation, URLs, code, and near-misses progress", () => {
+    const samples = [
+      "This chat is a latency probe measuring how fast Maple replies.",
+      "안녕하세요. 이 채팅은 속도 측정용입니다.",
+      "Hello, world! Question? Yes - wait, dash: ok.",
+      "https://example.com/path?page=2&sort=asc",
+      "const token = await getToken(); // fetches later",
+      "the keyboard shortcut is cmd-k",
+      "git commit 3f2a9c1e7b4d5a6f8e9c0b1a2d3e4f5a6b7c8d9e",
+      "password: leave blank for now",
+      "Bearer tokens are sent in the Authorization header",
+      "sk-8 is too short to be a key",
+      'the JSON field "key": "documentation"',
+    ];
+    for (const sample of samples) {
+      const { pieces, out } = pushChunks(chunksOf(sample, 5));
+      expect(pieces.join("").length, sample).toBeGreaterThan(Math.min(8, sample.length - 1));
+      expect(out, sample).toBe(sample);
+    }
   });
 });

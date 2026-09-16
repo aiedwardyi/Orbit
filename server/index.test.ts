@@ -120,6 +120,12 @@ beforeAll(async () => {
           environment: { FAKE_CLAUDE_MODE: "happy" },
           config: { cli: FAKE_CLAUDE_CLI },
         },
+        claudeStream: {
+          driver: "claudeAgent",
+          displayName: "Fixture Claude Stream",
+          environment: { FAKE_CLAUDE_MODE: "stream" },
+          config: { cli: FAKE_CLAUDE_CLI },
+        },
       },
     }),
   );
@@ -4373,6 +4379,41 @@ describe("message pages", () => {
     // and the phantom thread is not now answerable as an empty conversation
     expect((await api("GET", "/api/threads/not-a-thread/messages")).status).toBe(404);
     expect((await api("GET", "/api/bots")).body.bots.length).toBe(before);
+  });
+});
+
+describe("SSE short-reply streaming", () => {
+  it("delivers nonempty masked assistant text before turn completion", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    const stream = await openSse(`${BASE}/api/events`);
+    try {
+      await stream.until((frame) => frame.kind === "hello");
+      const instances = (await api("GET", "/api/instances")).body.instances;
+      const streaming = instances.find((instance: { instanceId: string }) => instance.instanceId === "claudeStream");
+      expect(streaming?.snapshot.state).toBe("available");
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claudeStream", model: streaming.models.default },
+      })).status).toBe(200);
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "latency probe" })).status).toBe(202);
+
+      const completed = await stream.until((frame) =>
+        frame.kind === "runtime" && frame.event?.type === "turn.completed" && frame.event?.threadId === bot.threadId,
+      );
+      const deltas = stream.frames.filter((frame) =>
+        frame.kind === "runtime"
+        && frame.event?.type === "content.delta"
+        && frame.event?.streamKind === "assistant_text"
+        && frame.event?.threadId === bot.threadId,
+      );
+      const beforeComplete = deltas.filter((frame) => frame.seq < completed.seq);
+      const visible = beforeComplete.map((frame) => frame.event.delta).join("");
+      expect(visible.length).toBeGreaterThan(0);
+      expect(visible).toContain("hello");
+      expect(deltas.map((frame) => frame.event.delta).join("")).toContain("hello from fake claude");
+    } finally {
+      stream.close();
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
   });
 });
 

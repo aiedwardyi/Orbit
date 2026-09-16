@@ -149,6 +149,36 @@ describe("EventBus", () => {
     expect(JSON.stringify(client)).toContain("«redacted");
   });
 
+  it("persists ordinary short assistant text before turn completion", () => {
+    const sentence = "This chat is a latency probe measuring how fast Maple replies.";
+    const bus = new EventBus();
+    for (let i = 0; i < sentence.length; i += 5) {
+      bus.publish(testEvent({
+        threadId: "short-reply",
+        type: "content.delta",
+        streamKind: "assistant_text",
+        delta: sentence.slice(i, i + 5),
+      }));
+    }
+    const beforeComplete = readFileSync(join(EVENTS_DIR, "short-reply.ndjson"), "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l))
+      .filter((e) => e.type === "content.delta")
+      .map((e) => e.delta)
+      .join("");
+    expect(beforeComplete.length).toBeGreaterThan(20);
+    bus.publish(testEvent({ threadId: "short-reply", type: "turn.completed", ok: true }));
+    const joined = readFileSync(join(EVENTS_DIR, "short-reply.ndjson"), "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l))
+      .filter((e) => e.type === "content.delta")
+      .map((e) => e.delta)
+      .join("");
+    expect(joined).toBe(sentence);
+  });
+
   it("holds each stream kind's tail separately and flushes it under its own kind", () => {
     const key = `sk-ant-api03-${"abcdefghijklmnopqrstuvwxyz0123456789"}`;
     const delta = (streamKind: "assistant_text" | "reasoning_text", text: string) =>
@@ -169,7 +199,7 @@ describe("EventBus", () => {
     expect(joined("assistant_text")).toBe("here is the answer");
     expect(joined("reasoning_text")).not.toContain(key);
     expect(joined("reasoning_text")).toMatch(/^thinking about «redacted \d+ chars» done$/);
-    expect(logged.some((e) => e.eventId === "ev-1-delta-flush-reasoning_text")).toBe(true);
+    expect(logged.filter((e) => String(e.eventId).includes("delta-flush-assistant_text"))).toHaveLength(0);
   });
 
   it("keeps a streamed PEM private key out of the canonical log", () => {

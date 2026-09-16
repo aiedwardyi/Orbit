@@ -83,7 +83,8 @@ const CONFIG_KEY_FIELD = /(["']key["']\s*:\s*)(["'])([A-Za-z0-9._~+/=-]{16,})\2/
  * a value go out in pieces. */
 const CONFIG_KEY_OPEN = /["']key["']\s*:\s*["'][A-Za-z0-9._~+/=-]*$/i;
 
-/** Longest prefix we must hold so a key split across chunks can still match. */
+/** Bound for delimiter prefixes whose regexes can grow without a terminator
+ * (`-----BEGIN [A-Z ]*…`). Ordinary text uses secretPrefixStart instead. */
 const STREAM_HOLD = 96;
 
 /** Enough of an open block's tail to still match an END split across chunks. */
@@ -91,12 +92,191 @@ const PEM_TAIL_HOLD = 96;
 
 const STREAM_MATCHERS: RegExp[] = [PEM_BLOCK, ...KEY_PREFIXES, BEARER, KEY_VALUE, CONFIG_KEY_FIELD];
 
+const WORD_CHAR = /[A-Za-z0-9_]/;
+const JWT_SEG_CHAR = /[A-Za-z0-9_-]/;
+const BEARER_TOKEN_CHAR = /[A-Za-z0-9._~+/=-]/;
+const KV_VALUE_CHAR = /[A-Za-z0-9._~+/=!@#$%^*?-]/;
+const CONFIG_VALUE_CHAR = /[A-Za-z0-9._~+/=-]/;
+const SECRET_KEY_NAME =
+  /^(?:[A-Za-z0-9_-]*_)?(?:api[_-]?key|apikey|secret|token|password|passwd|authorization|auth[_-]?token|access[_-]?key|private[_-]?key)(?:[_-]?key)?s?$/i;
+const SECRET_NAME_STEMS = [
+  "apikey", "api_key", "api-key", "secret", "token", "password", "passwd",
+  "authorization", "authtoken", "auth_token", "auth-token",
+  "accesskey", "access_key", "access-key",
+  "privatekey", "private_key", "private-key",
+];
+const SECRET_NAME_SUFFIXES = ["", "s", "key", "_key", "-key", "keys", "_keys", "-keys"];
+
+const KEY_STARTERS: Array<readonly [string, RegExp]> = [
+  ["sk-ant-", /[A-Za-z0-9_-]/],
+  ["sk-proj-", /[A-Za-z0-9_-]/],
+  ["sk-live-", /[A-Za-z0-9_-]/],
+  ["sk-test-", /[A-Za-z0-9_-]/],
+  ["sk-", /[A-Za-z0-9_-]/],
+  ["github_pat_", /[A-Za-z0-9_]/],
+  ["ghp_", /[A-Za-z0-9]/],
+  ["gho_", /[A-Za-z0-9]/],
+  ["ghu_", /[A-Za-z0-9]/],
+  ["ghs_", /[A-Za-z0-9]/],
+  ["ghr_", /[A-Za-z0-9]/],
+  ["xoxa-", /[A-Za-z0-9-]/],
+  ["xoxb-", /[A-Za-z0-9-]/],
+  ["xoxp-", /[A-Za-z0-9-]/],
+  ["xoxo-", /[A-Za-z0-9-]/],
+  ["xoxs-", /[A-Za-z0-9-]/],
+  ["xoxr-", /[A-Za-z0-9-]/],
+  ["AKIA", /[0-9A-Z]/],
+  ["AIza", /[0-9A-Za-z_-]/],
+  ["ya29.", /[A-Za-z0-9._-]/],
+  ["npm_", /[A-Za-z0-9]/],
+  ["xai-", /[A-Za-z0-9]/],
+  ["sk_live_", /[A-Za-z0-9]/],
+  ["sk_test_", /[A-Za-z0-9]/],
+  ["rk_live_", /[A-Za-z0-9]/],
+  ["rk_test_", /[A-Za-z0-9]/],
+  ["sk_", /[A-Za-z0-9]/],
+  ["rk_", /[A-Za-z0-9]/],
+  ["ak_", /[A-Za-z0-9_-]/],
+];
+
+function atWordBoundary(text: string, i: number): boolean {
+  const prev = i === 0 ? "" : text[i - 1]!;
+  const curr = text[i] ?? "";
+  return WORD_CHAR.test(prev) !== WORD_CHAR.test(curr);
+}
+
+function charsetRun(s: string, re: RegExp): boolean {
+  for (const c of s) {
+    if (!re.test(c)) return false;
+  }
+  return true;
+}
+
+function couldBeJwt(s: string): boolean {
+  if ("eyJ".startsWith(s)) return true;
+  if (!s.startsWith("eyJ")) return false;
+  let segs = 1;
+  let n = 0;
+  for (let i = 3; i < s.length; i++) {
+    const c = s[i]!;
+    if (c === ".") {
+      if (n < 8 || segs >= 3) return false;
+      segs += 1;
+      n = 0;
+      continue;
+    }
+    if (!JWT_SEG_CHAR.test(c)) return false;
+    n += 1;
+  }
+  return true;
+}
+
+function couldBeKeyPrefix(s: string): boolean {
+  if (couldBeJwt(s)) return true;
+  for (const [starter, charset] of KEY_STARTERS) {
+    if (starter.startsWith(s)) return true;
+    if (s.startsWith(starter) && charsetRun(s.slice(starter.length), charset)) return true;
+  }
+  return false;
+}
+
+function couldBeBearer(s: string): boolean {
+  if (/^b(e(a(r(e(r)?)?)?)?)?$/i.test(s)) return true;
+  const m = /^(Bearer)(\s+)(.*)$/i.exec(s);
+  if (!m) return false;
+  return charsetRun(m[3]!, BEARER_TOKEN_CHAR);
+}
+
+function couldBePemBegin(s: string): boolean {
+  if (s.length === 0 || s.length > STREAM_HOLD) return false;
+  if (/^-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(s)) return false;
+  if (/^-{1,5}$/.test(s)) return true;
+  if (/^-----B(E(G(I(N)?)?)?)?$/.test(s)) return true;
+  if (/^-----BEGIN [A-Z ]*$/.test(s)) return true;
+  return /^-----BEGIN [A-Z ]*P(R(I(V(A(T(E( (K(E(Y-{0,5})?)?)?)?)?)?)?)?)?)?$/.test(s);
+}
+
+function couldBeConfigKey(s: string): boolean {
+  if (s[0] !== '"' && s[0] !== "'") return false;
+  const rest = s.slice(1);
+  if (rest.length === 0) return true;
+  if (/^k(e(y)?)?$/i.test(rest)) return true;
+  if (!/^key/i.test(rest)) return false;
+  let i = 3;
+  if (i >= rest.length) return true;
+  // CONFIG_KEY_FIELD / CONFIG_KEY_OPEN use ["']key["'] — the two name quotes
+  // are independent, so "key' and 'key" are still field prefixes.
+  if (rest[i] !== '"' && rest[i] !== "'") return false;
+  i += 1;
+  while (i < rest.length && /\s/.test(rest[i]!)) i += 1;
+  if (i >= rest.length) return true;
+  if (rest[i] !== ":") return false;
+  i += 1;
+  while (i < rest.length && /\s/.test(rest[i]!)) i += 1;
+  if (i >= rest.length) return true;
+  const q2 = rest[i]!;
+  if (q2 !== '"' && q2 !== "'") return false;
+  i += 1;
+  while (i < rest.length && CONFIG_VALUE_CHAR.test(rest[i]!)) i += 1;
+  if (i >= rest.length) return true;
+  return false;
+}
+
+function couldBecomeSecretKeyName(id: string): boolean {
+  if (SECRET_KEY_NAME.test(id)) return true;
+  if (id.endsWith("_") || id.endsWith("-")) return true;
+  const lower = id.toLowerCase();
+  for (const stem of SECRET_NAME_STEMS) {
+    for (const suffix of SECRET_NAME_SUFFIXES) {
+      const name = stem + suffix;
+      if (name.startsWith(lower)) return true;
+      for (let i = 1; i < lower.length; i++) {
+        const prev = lower[i - 1];
+        if ((prev === "_" || prev === "-") && name.startsWith(lower.slice(i))) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function couldBeKeyValue(s: string): boolean {
+  if (!/^[A-Za-z0-9_-]/.test(s)) return false;
+  let i = 0;
+  while (i < s.length && /[A-Za-z0-9_-]/.test(s[i]!)) i += 1;
+  const id = s.slice(0, i);
+  if (i >= s.length) return couldBecomeSecretKeyName(id);
+  if (!SECRET_KEY_NAME.test(id)) return false;
+  if (s[i] === '"' || s[i] === "'") i += 1;
+  if (i >= s.length) return true;
+  while (i < s.length && /\s/.test(s[i]!)) i += 1;
+  if (i >= s.length) return true;
+  if (s[i] !== "=" && s[i] !== ":") return false;
+  i += 1;
+  while (i < s.length && /\s/.test(s[i]!)) i += 1;
+  if (i >= s.length) return true;
+  if (s[i] === '"' || s[i] === "'") i += 1;
+  if (i >= s.length) return true;
+  while (i < s.length && KV_VALUE_CHAR.test(s[i]!)) i += 1;
+  return i >= s.length;
+}
+
+/** Leftmost index of a suffix that could still complete into a secret match. */
+function secretPrefixStart(text: string): number {
+  for (let i = 0; i < text.length; i++) {
+    const suffix = text.slice(i);
+    if (couldBePemBegin(suffix) || couldBeConfigKey(suffix)) return i;
+    if (!atWordBoundary(text, i)) continue;
+    if (couldBeKeyPrefix(suffix) || couldBeBearer(suffix) || couldBeKeyValue(suffix)) return i;
+  }
+  return text.length;
+}
+
 /** How much of the buffer may be masked and emitted now. A match reaching the
  * unsettled tail can still grow, and masking it strands the rest of the secret
  * in a later chunk with no prefix left to match — so it stays whole in the hold
  * until a non-matching character or flush() ends it. */
 function safeCut(text: string): number {
-  const tail = Math.max(0, text.length - STREAM_HOLD);
+  let cut = secretPrefixStart(text);
   const spans = STREAM_MATCHERS.flatMap((re) =>
     [...text.matchAll(re)].map((m) => [m.index ?? 0, (m.index ?? 0) + m[0].length] as const),
   );
@@ -104,12 +284,12 @@ function safeCut(text: string): number {
   if (open) spans.push([open.index, text.length] as const);
   const openPem = PEM_OPEN.exec(text);
   if (openPem) spans.push([openPem.index, text.length] as const);
-  let cut = tail;
   // Regexes from different families can overlap, so one shift can expose another.
+  // A match that reaches EOS can still grow; treat that as overlapping the cut.
   for (let moved = true; moved; ) {
     moved = false;
     for (const [start, end] of spans) {
-      if (start < cut && end > cut) {
+      if (start < cut && (end > cut || end === text.length)) {
         cut = start;
         moved = true;
       }
