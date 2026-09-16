@@ -535,15 +535,16 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           }
         }
         if (reused) {
+          const warmChild = reused.connection.child;
           active.set(threadId, {
             stop: () => {
               canceledBeforePrompt = true;
-              killCliTree(reused!.connection.child);
+              killCliTree(warmChild);
             },
             steer: async () => false,
             interrupt: () => {
               canceledBeforePrompt = true;
-              killCliTree(reused!.connection.child);
+              killCliTree(warmChild);
             },
             turnId,
             asks: new Map(),
@@ -551,7 +552,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           try {
             await reused.ready;
           } catch {
-            killCliTree(reused.connection.child);
+            killCliTree(warmChild);
             reused = undefined;
           }
           if (canceledBeforePrompt || disposed || active.get(threadId)?.turnId !== turnId) {
