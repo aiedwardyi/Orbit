@@ -5,8 +5,29 @@ import { catalogs, type MessageKey } from "./i18n-catalog";
 /** Settings nav search matches both English and Korean labels/body copy so a
  * Korean query still finds a section when the chrome is English, and vice versa. */
 export const SECTION_PHRASE_KEYS = {
+  shortcuts: [
+    "settings.section.shortcuts",
+    "shortcuts.help",
+    "shortcuts.navigation",
+    "shortcuts.chat",
+    "shortcuts.themes",
+    "shortcuts.usage",
+    "shortcuts.newBot",
+    "shortcuts.jump",
+    "shortcuts.previous",
+    "shortcuts.next",
+    "shortcuts.close",
+    "shortcuts.model",
+    "shortcuts.find",
+    "shortcuts.terminal",
+    "shortcuts.send",
+    "shortcuts.newline",
+    "shortcuts.edit",
+  ],
   general: [
     "settings.section.general",
+    "terminal.appearance.title",
+    "terminal.appearance.help",
     "language.title",
     "settings.profile.title",
     "settings.profile.subtitle",
@@ -28,6 +49,9 @@ export const SECTION_PHRASE_KEYS = {
   ],
   themes: [
     "settings.section.themes",
+    "settings.shape.title",
+    "settings.shape.soft",
+    "settings.shape.boxy",
     "settings.skin.title",
     "settings.skin.subtitle",
     "settings.skin.midnight.tagline",
@@ -106,6 +130,7 @@ function phraseKeysFor(id: AppSettingsSection): readonly MessageKey[] {
 }
 
 const EXTRA_KEYWORDS = {
+  shortcuts: ["keyboard", "hotkeys", "keys", "단축키", "키보드"],
   general: ["profile", "name", "updates", "tools", "tool calls", "language", "locale", "vm", "diagnostics", "experimental"],
   connections: ["keys", "api", "gemini", "muse", "claude", "grok", "codex", "antigravity", "cli"],
   themes: ["skin", "theme", "appearance", "kanagawa", "haxor", "hax0r", "hurtado", "rose", "nord", "github", "dimmed", "tui", "terminal", "amber", "slate", "smoke"],

@@ -3,7 +3,7 @@
 // is the stuff shared by every bot: who you are, your keys, and the
 // machine your bots can borrow.
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Coins, KeyRound, Monitor, Palette, Search, Smartphone, Terminal, User, X } from "lucide-react";
+import { ChevronDown, Coins, Keyboard, KeyRound, Monitor, Palette, Search, Smartphone, Terminal, User, X } from "lucide-react";
 import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
 import { builtInBrowserEnabled, showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
 import {
@@ -26,6 +26,9 @@ import { ProfileFields } from "./ProfileFields";
 import { Card } from "./SettingsPrimitives";
 import { UsageSection } from "./UsageSection";
 import { SkinPicker } from "./SkinPicker";
+import { GeometryPicker } from "./GeometryPicker";
+import { TerminalAppearanceRow } from "./TerminalAppearanceRow";
+import { KeyboardShortcuts } from "./KeyboardShortcuts";
 import { LanguagePicker } from "./LanguagePicker";
 import { useI18n } from "@/lib/i18n";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
@@ -42,6 +45,7 @@ const SECTIONS: Array<{
   { id: "general", icon: User },
   { id: "connections", icon: KeyRound },
   { id: "themes", icon: Palette, shortcut: "Alt+T" },
+  { id: "shortcuts", icon: Keyboard },
   { id: "engines", icon: Terminal },
   { id: "companion", icon: Smartphone },
   { id: "computer", icon: Monitor },
@@ -52,6 +56,7 @@ const SECTION_KEY = {
   general: "settings.section.general",
   connections: "settings.section.connections",
   themes: "settings.section.themes",
+  shortcuts: "settings.section.shortcuts",
   engines: "settings.section.engines",
   companion: "settings.section.companion",
   computer: "settings.section.computer",
@@ -430,17 +435,20 @@ export function SettingsModal({
         </nav>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex shrink-0 items-center justify-between px-5 py-3">
+          <div className="flex shrink-0 items-center justify-between px-5 py-3 gap-3">
             <span className="text-[15px] font-semibold text-ink">
               {t(SECTION_KEY[section])}
             </span>
-            <button
-              onClick={() => dispatch({ type: "toggleAppSettings", open: false })}
-              aria-label={t("settings.close")}
-              className="rounded-md p-1 text-ink-secondary hover:bg-control hover:text-ink"
-            >
-              <X size={18} />
-            </button>
+            <div className="ml-auto flex items-center gap-3">
+              {section === "themes" && <GeometryPicker />}
+              <button
+                onClick={() => dispatch({ type: "toggleAppSettings", open: false })}
+                aria-label={t("settings.close")}
+                className="rounded-md p-1 text-ink-secondary hover:bg-control hover:text-ink"
+              >
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
           <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 pb-5">
@@ -451,6 +459,7 @@ export function SettingsModal({
                   <ProfileFields />
                 </Card>
                 <ToolCallsRow />
+                <TerminalAppearanceRow />
                 <UpdatesRow />
                 {showSettingsAdvancedSection() && (
                   <>
@@ -546,6 +555,7 @@ export function SettingsModal({
             {showSettingsAdvancedSection() && section === "computer" && <LocalComputerSection />}
 
             {section === "usage" && <UsageSection />}
+            {section === "shortcuts" && <KeyboardShortcuts />}
           </div>
         </div>
       </div>

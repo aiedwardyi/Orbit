@@ -1,6 +1,6 @@
-/** Subpixel slack for "at the rest position" — not a magnet zone. A larger
- * value used to re-pin follow ~48px early and then jump the pane to the end. */
-export const BOTTOM_FOLLOW_THRESHOLD = 4;
+/** Subpixel slack for "at the rest position" - not a magnet zone. Handles
+ * high-DPI fractional scaling without creating a wide snap zone. */
+export const BOTTOM_FOLLOW_THRESHOLD = 16;
 
 /**
  * Resume automatic bottom-follow only when the reader is already at the
