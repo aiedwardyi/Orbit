@@ -656,7 +656,15 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           // arrive after the next turn arms promptSent cannot be distinguished
           // from that turn's chunks — ACP gives no Orbit turnId on the wire.
           connection.onNotification = () => {};
-          connection.onRequest = (msg) => send({ jsonrpc: "2.0", id: msg.id, result: { outcome: { outcome: "cancelled" } } });
+          // askPermission-shaped cancel is only valid for session/request_permission;
+          // other methods get a JSON-RPC error so the CLI does not mis-parse the result.
+          connection.onRequest = (msg) => {
+            if (msg.method === "session/request_permission") {
+              send({ jsonrpc: "2.0", id: msg.id, result: { outcome: { outcome: "cancelled" } } });
+              return;
+            }
+            send({ jsonrpc: "2.0", id: msg.id, error: { code: -32600, message: "no active turn" } });
+          };
           const keep = Boolean(
             eligibility
             && ok

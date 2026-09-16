@@ -98,4 +98,20 @@ describe("warm-eligibility", () => {
       warmToolsKey({ browser: { command: "node", args: ["a", "b"], env: {} } }),
     );
   });
+
+  it("distinguishes U+001F inside fingerprint fields", () => {
+    // prior join("\u001f") collided when a field itself contained U+001F
+    const sep = "\u001f";
+    expect(
+      warmFingerprint({ ...base, threadId: `a${sep}b`, cwd: "c" }),
+    ).not.toBe(
+      warmFingerprint({ ...base, threadId: "a", cwd: `b${sep}c` }),
+    );
+    expect(
+      warmFingerprint({ ...base, cli: `x${sep}y`, argsKey: "z" }),
+    ).not.toBe(
+      warmFingerprint({ ...base, cli: "x", argsKey: `y${sep}z` }),
+    );
+  });
+
 });

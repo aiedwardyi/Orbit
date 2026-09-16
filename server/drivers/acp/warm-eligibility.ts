@@ -81,7 +81,9 @@ export function warmToolsKey(integrations: SendTurnIntegrations | undefined): st
 }
 
 export function warmFingerprint(input: WarmEligibilityInput): string {
-  return [
+  // JSON array — unambiguous if threadId/cwd/cli/argsKey contain U+001F
+  // (same approach as stableEnvKey / stableArgsKey).
+  return JSON.stringify([
     input.identity,
     input.threadId,
     input.cli,
@@ -93,7 +95,7 @@ export function warmFingerprint(input: WarmEligibilityInput): string {
     input.approval ?? "",
     input.fullAuto ? "1" : "0",
     input.toolsKey,
-  ].join("\u001f");
+  ]);
 }
 
 /**

@@ -24,7 +24,8 @@ export function acpConnection(
 
   const failTransport = (error: Error) => {
     if (closed) {
-      // onError already fired; don't fire it again.
+      // closed was already set (either by a prior failTransport call or by the
+      // close handler); just flush any remaining pending RPCs and bail.
       connection.rejectPending(error.message);
       return;
     }

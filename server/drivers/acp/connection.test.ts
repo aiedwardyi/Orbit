@@ -44,4 +44,18 @@ describe("acpConnection", () => {
     child.emit("error", new Error("spawn failed"));
     await expect(connection.request("initialize", {})).rejects.toThrow(/process closed|spawn failed/);
   });
+
+  it("does not re-fire onError after close then stdin error", async () => {
+    const { child, stdin } = fakeChild();
+    const connection = acpConnection(child as any, () => {});
+    let errors = 0;
+    connection.onError = () => {
+      errors += 1;
+    };
+    child.emit("close", 0);
+    expect(connection.healthy).toBe(false);
+    stdin.emit("error", new Error("EPIPE"));
+    expect(errors).toBe(0);
+    await expect(connection.request("initialize", {})).rejects.toThrow(/process closed/);
+  });
 });
