@@ -3,7 +3,11 @@
 // self-contained. Per-turn CLI process; the conversation continues across
 // turns via `--conversation <id>` (the resumeCursor is agy's conversation_id)
 // until Orbit compaction, when the harness starts a fresh conversation and
-// injects the bounded transcript. Verified against agy 1.1.12.
+// injects the bounded transcript. Verified against agy 1.1.12 for event shapes.
+// Prompt transport re-verified against agy 1.2.4: --input-format stream-json
+// (since 1.1.15) carries the prompt on stdin as {"event":"user",...} NDJSON —
+// not --print argv (mutually exclusive with stream-json input) and not Claude's
+// {"type":"user"} shape.
 //
 // Unlike claude, print mode has NO interactive permission hook: there is no
 // per-action broker here. `--mode accept-edits` allows file edits but
@@ -325,6 +329,92 @@ function decodeConfig(raw: unknown): AntigravityConfig {
   };
 }
 
+
+/** Windows CreateProcess lpCommandLine ceiling (characters), including the exe path. */
+export const WIN32_CREATEPROCESS_CMDLINE_MAX = 32_767;
+
+/** Compose persona/system + user text the same way --print argv used to. Continuity
+ * injected by the harness into system/text is preserved verbatim — never stripped. */
+export function composeAntigravityPrompt(system: string | null | undefined, text: string): string {
+  return system ? `${system}\n\n${text}` : text;
+}
+
+/** One NDJSON stdin line for `--input-format stream-json` (agy 1.1.15+). The CLI
+ * requires an `event` key — Claude's `type` key is rejected. */
+export function antigravityStreamUserLine(prompt: string): string {
+  return `${JSON.stringify({ event: "user", message: { role: "user", content: prompt } })}\n`;
+}
+
+/** Quote one argv token the way Node approximates CreateProcess on win32. */
+export function quoteWin32ArgvToken(arg: string): string {
+  if (arg.length === 0) return '""';
+  if (!/[ \t"]/.test(arg)) return arg;
+  return `"${arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1")}"`;
+}
+
+/** Estimated CreateProcess command-line length for command + args on Windows. */
+export function estimateWin32CmdlineLength(command: string, args: string[]): number {
+  return [command, ...args].map(quoteWin32ArgvToken).join(" ").length;
+}
+
+export interface AntigravityTurnArgvInput {
+  fullAuto: boolean;
+  cwd: string;
+  model?: string | null;
+  resumeCursor?: string | null;
+}
+
+/** Print-mode argv with the prompt on stdin — never on --print. */
+export function buildAntigravityTurnArgv(input: AntigravityTurnArgvInput): string[] {
+  const args = [
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--print-timeout",
+    "10m",
+    "--add-dir",
+    input.cwd,
+  ];
+  if (input.fullAuto) args.push("--dangerously-skip-permissions");
+  else {
+    args.push("--mode", "accept-edits");
+  }
+  if (input.model) args.push("--model", injectedApiModel(input.model) ?? input.model);
+  if (input.resumeCursor) args.push("--conversation", input.resumeCursor);
+  return args;
+}
+
+/** Length-only accounting for spawn budgets. Never logs private text or credentials. */
+export function measureAntigravityTransportLengths(opts: {
+  userText: string;
+  system?: string | null;
+  continuity?: string | null;
+  toolMcpConfigJson?: string | null;
+  cli: string;
+  argv: string[];
+  stdinLine: string;
+}): {
+  userTextChars: number;
+  systemChars: number;
+  continuityChars: number;
+  toolMcpConfigChars: number;
+  totalArgvChars: number;
+  stdinBytes: number;
+  promptBytes: number;
+} {
+  const prompt = composeAntigravityPrompt(opts.system, opts.userText);
+  return {
+    userTextChars: opts.userText.length,
+    systemChars: (opts.system ?? "").length,
+    continuityChars: (opts.continuity ?? "").length,
+    toolMcpConfigChars: (opts.toolMcpConfigJson ?? "").length,
+    totalArgvChars: estimateWin32CmdlineLength(opts.cli, opts.argv),
+    stdinBytes: Buffer.byteLength(opts.stdinLine),
+    promptBytes: Buffer.byteLength(prompt),
+  };
+}
+
 export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
   driverKind: DRIVER_KIND,
   metadata: { displayName: "Gemini (Antigravity)", supportsMultipleInstances: true },
@@ -416,12 +506,11 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
       }
       const cwd = turn.cwd ?? workspace;
 
-      // prompt is passed as the `--print` argv value: agy does NOT read the
-      // prompt from piped stdin in print mode — a bare `--print` produces zero
-      // output (verified against agy 1.1.12). Combine persona + text.
-      // Trade-off: a very large prompt could exceed argv limits (E2BIG),
-      // guarded below since stdin is not an option.
-      const prompt = turn.system ? `${turn.system}\n\n${turn.text}` : turn.text;
+      // Prompt travels on stdin via --input-format stream-json (agy 1.1.15+;
+      // verified 1.2.4). --print <prompt> is mutually exclusive with that
+      // transport and is what blew Windows CreateProcess (~32k) with long
+      // pastes / injected continuity. Continuity stays in system/text.
+      const prompt = composeAntigravityPrompt(turn.system, turn.text);
       const resumeCursor = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
 
       let settled = false;
@@ -445,20 +534,6 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
         armPostSettleCleanup();
         emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason, cost, ...(usage ? { usage } : {}) });
       };
-
-      // agy's print mode is argv-only, so a prompt beyond ARG_MAX would fail the
-      // spawn with E2BIG. Reject oversized prompts up front with a clear error
-      // instead of a cryptic spawn failure.
-      if (Buffer.byteLength(prompt) > 256 * 1024) {
-        emit({
-          ...base(threadId, turnId),
-          type: "runtime.error",
-          message: `prompt too large for Antigravity's argv-only print mode (${Buffer.byteLength(prompt)} bytes)`,
-        });
-        settle(false, "prompt_too_large");
-        pending.delete(threadId);
-        return { turnId };
-      }
 
       // agy's config is global, so every turn — including one without a
       // computer — owns the mount for its complete child lifetime. This keeps
@@ -488,18 +563,30 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
         return { turnId };
       }
 
-      const args = [
-        "--print", prompt, // print mode reads the prompt from this argv value
-        "--output-format", "stream-json",
-        "--print-timeout", "10m",
-        "--add-dir", cwd,
-        // fullAuto approves everything; otherwise accept-edits allows file
-        // edits but auto-denies shell (no interactive channel in print mode)
-        config.fullAuto ? "--dangerously-skip-permissions" : "--mode",
-      ];
-      if (!config.fullAuto) args.push("accept-edits");
-      if (turn.model) args.push("--model", injectedApiModel(turn.model) ?? turn.model);
-      if (resumeCursor) args.push("--conversation", resumeCursor);
+      const args = buildAntigravityTurnArgv({
+        fullAuto: config.fullAuto,
+        cwd,
+        model: turn.model,
+        resumeCursor,
+      });
+      // Remaining argv (paths, model, conversation id) can still blow the
+      // Windows CreateProcess ceiling even with the prompt on stdin.
+      if (process.platform === "win32" && estimateWin32CmdlineLength(config.cli, args) > WIN32_CREATEPROCESS_CMDLINE_MAX) {
+        try {
+          restoreMcp();
+        } finally {
+          releaseMcpLease();
+        }
+        pending.delete(threadId);
+        emit({
+          ...base(threadId, turnId),
+          type: "runtime.error",
+          message: `spawn failed: command line too long for Windows (${estimateWin32CmdlineLength(config.cli, args)} chars > ${WIN32_CREATEPROCESS_CMDLINE_MAX})`,
+          setup: false,
+        });
+        settle(false, "spawn_error");
+        return { turnId };
+      }
 
       // spawnCli resolves npm .cmd shims / shebang scripts on Windows and
       // owns the process-group vs windowsHide difference (see procs.ts)
@@ -508,7 +595,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
         child = spawnCli(config.cli, args, {
           cwd,
           env,
-          stdio: ["ignore", "pipe", "pipe"], // prompt is on argv; stdin is unused
+          stdio: ["pipe", "pipe", "pipe"], // prompt on stdin as stream-json NDJSON
         });
       } catch (error) {
         try {
@@ -526,6 +613,47 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
         return { turnId };
       }
       children.add(child);
+
+      // Deliver the full prompt (system/persona + user text, continuity included)
+      // as one stream-json user event, then close stdin so one-shot print exits
+      // after the turn — same lifecycle as the old --print argv path.
+      const stdinLine = antigravityStreamUserLine(prompt);
+      try {
+        const stdin = child.stdin;
+        if (!stdin || stdin.destroyed || !stdin.writable) {
+          throw new Error("agy stdin is not writable");
+        }
+        stdin.write(stdinLine, (writeError) => {
+          if (writeError) {
+            emit({
+              ...base(threadId, turnId),
+              type: "runtime.error",
+              message: `failed to write Antigravity prompt to stdin: ${writeError.message}`,
+            });
+            settle(false, "stdin_write_failed");
+            killCliTree(child);
+          }
+        });
+        stdin.end();
+      } catch (error) {
+        try {
+          restoreMcp();
+        } finally {
+          releaseMcpLease();
+        }
+        children.delete(child);
+        try {
+          killCliTree(child);
+        } catch {}
+        pending.delete(threadId);
+        emit({
+          ...base(threadId, turnId),
+          type: "runtime.error",
+          message: `failed to write Antigravity prompt to stdin: ${error instanceof Error ? error.message : String(error)}`,
+        });
+        settle(false, "stdin_write_failed");
+        return { turnId };
+      }
 
       let childClosed = false;
       let postSettleReaper: ReturnType<typeof setTimeout> | undefined;
