@@ -515,7 +515,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                 effort: cliTurn.effort,
                 approval: turn.approval,
                 fullAuto: config.fullAuto === true,
-                toolsKey: warmToolsKey(turn.integrations as any),
+                toolsKey: warmToolsKey(turn.integrations),
               }
             : null;
         let reused: WarmIdle | undefined;

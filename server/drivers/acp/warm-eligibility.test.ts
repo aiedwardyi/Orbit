@@ -38,8 +38,8 @@ describe("warm-eligibility", () => {
     expect(canReuseWarmSession(base, { ...base, identity: "other-auth" }, "sess-1", "sess-1")).toBe(false);
     expect(
       canReuseWarmSession(
-        { ...base, toolsKey: warmToolsKey({ agents: { command: "a", args: [] } }) },
-        { ...base, toolsKey: warmToolsKey({ agents: { command: "b", args: [] } }) },
+        { ...base, toolsKey: warmToolsKey({ agents: { command: "a", args: [], env: {} } }) },
+        { ...base, toolsKey: warmToolsKey({ agents: { command: "b", args: [], env: {} } }) },
         "sess-1",
         "sess-1",
       ),
@@ -51,33 +51,33 @@ describe("warm-eligibility", () => {
   });
 
   it("distinguishes composio.env keys/values that share =/, characters", () => {
-    const a = warmToolsKey({ composio: { command: "c", env: { "a,b": "c" } } });
-    const b = warmToolsKey({ composio: { command: "c", env: { a: "b,c" } } });
+    const a = warmToolsKey({ composio: { command: "c", args: [], env: { "a,b": "c" } } });
+    const b = warmToolsKey({ composio: { command: "c", args: [], env: { a: "b,c" } } });
     expect(a).not.toBe(b);
   });
 
   it("distinguishes space-ambiguous args for composio / localComputer / agents", () => {
     // ["a b"] vs ["a","b"] collided under join(" ")
     expect(
-      warmToolsKey({ composio: { command: "c", args: ["a b"] } }),
+      warmToolsKey({ composio: { command: "c", args: ["a b"], env: {} } }),
     ).not.toBe(
-      warmToolsKey({ composio: { command: "c", args: ["a", "b"] } }),
+      warmToolsKey({ composio: { command: "c", args: ["a", "b"], env: {} } }),
     );
     expect(
-      warmToolsKey({ localComputer: { command: "lc", args: ["a b"] } }),
+      warmToolsKey({ localComputer: { command: "lc", args: ["a b"], env: {} } }),
     ).not.toBe(
-      warmToolsKey({ localComputer: { command: "lc", args: ["a", "b"] } }),
+      warmToolsKey({ localComputer: { command: "lc", args: ["a", "b"], env: {} } }),
     );
     expect(
-      warmToolsKey({ agents: { command: "ag", args: ["a b"] } }),
+      warmToolsKey({ agents: { command: "ag", args: ["a b"], env: {} } }),
     ).not.toBe(
-      warmToolsKey({ agents: { command: "ag", args: ["a", "b"] } }),
+      warmToolsKey({ agents: { command: "ag", args: ["a", "b"], env: {} } }),
     );
     // also the classic flag/value-with-space case from review
     expect(
-      warmToolsKey({ composio: { command: "c", args: ["--flag", "value with space"] } }),
+      warmToolsKey({ composio: { command: "c", args: ["--flag", "value with space"], env: {} } }),
     ).not.toBe(
-      warmToolsKey({ composio: { command: "c", args: ["--flag value", "with space"] } }),
+      warmToolsKey({ composio: { command: "c", args: ["--flag value", "with space"], env: {} } }),
     );
   });
 
@@ -111,6 +111,25 @@ describe("warm-eligibility", () => {
       warmFingerprint({ ...base, cli: `x${sep}y`, argsKey: "z" }),
     ).not.toBe(
       warmFingerprint({ ...base, cli: "x", argsKey: `y${sep}z` }),
+    );
+  });
+
+
+  it("distinguishes phone / dweb / computer token drift", () => {
+    expect(
+      warmToolsKey({ phone: { command: "adb", args: [], env: { A: "1" } } }),
+    ).not.toBe(
+      warmToolsKey({ phone: { command: "adb", args: [], env: { A: "2" } } }),
+    );
+    expect(
+      warmToolsKey({ dweb: { url: "http://127.0.0.1:1" } }),
+    ).not.toBe(
+      warmToolsKey({ dweb: { url: "http://127.0.0.1:2" } }),
+    );
+    expect(
+      warmToolsKey({ computer: { boxId: "b1", token: "t1" } }),
+    ).not.toBe(
+      warmToolsKey({ computer: { boxId: "b1", token: "t2" } }),
     );
   });
 

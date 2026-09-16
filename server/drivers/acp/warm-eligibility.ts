@@ -8,6 +8,8 @@
  * session/new or session/load (compaction/rewind) instead of reviving the
  * warm child.
  */
+import type { SendTurnInput } from "../../contracts.ts";
+
 export type WarmEligibilityInput = {
   threadId: string;
   cwd: string;
@@ -25,13 +27,8 @@ export type WarmEligibilityInput = {
   toolsKey: string;
 };
 
-export type SendTurnIntegrations = {
-  composio?: { command: string; args?: string[]; env?: Record<string, string> };
-  computer?: { boxId?: string };
-  localComputer?: { command: string; args?: string[]; scope?: string };
-  agents?: { command: string; args?: string[] };
-  browser?: { command: string; args?: string[]; env?: Record<string, string> };
-};
+/** Canonical integrations shape — keep warmToolsKey in lockstep with SendTurnInput. */
+export type SendTurnIntegrations = NonNullable<SendTurnInput["integrations"]>;
 
 function stableEnvKey(env: Record<string, string> | undefined): string {
   if (!env) return "";
@@ -48,6 +45,18 @@ function stableArgsKey(args: string[] | undefined): string {
   return JSON.stringify(args ?? []);
 }
 
+function stableControlKey(control: { url: string; token: string } | undefined): string {
+  if (!control) return "";
+  return JSON.stringify([control.url, control.token]);
+}
+
+/**
+ * Compile-time exhaustiveness: every key of SendTurnIntegrations must appear
+ * here. Adding a new integration to contracts.SendTurnInput.integrations
+ * without updating warmToolsKey is a type error.
+ */
+type AssertCovered<T extends Record<keyof SendTurnIntegrations, unknown>> = T;
+
 export function warmToolsKey(integrations: SendTurnIntegrations | undefined): string {
   if (!integrations) return "";
   const parts: string[] = [];
@@ -60,15 +69,25 @@ export function warmToolsKey(integrations: SendTurnIntegrations | undefined): st
     );
   }
   if (integrations.computer) {
-    parts.push(`computer:${integrations.computer.boxId ?? ""}`);
+    // computerProxyEnv mounts boxId/token/control into the MCP adapter env.
+    parts.push(
+      `computer:${integrations.computer.kind ?? ""}|${integrations.computer.boxId}|${integrations.computer.token}|${stableControlKey(integrations.computer.control)}`,
+    );
   }
   if (integrations.localComputer) {
     parts.push(
-      `local:${integrations.localComputer.command}|${stableArgsKey(integrations.localComputer.args)}|${integrations.localComputer.scope ?? ""}`,
+      `local:${integrations.localComputer.command}|${stableArgsKey(integrations.localComputer.args)}|${stableEnvKey(integrations.localComputer.env)}|${integrations.localComputer.platform ?? ""}|${integrations.localComputer.generation ?? ""}|${integrations.localComputer.scope ?? ""}`,
     );
   }
   if (integrations.agents) {
-    parts.push(`agents:${integrations.agents.command}|${stableArgsKey(integrations.agents.args)}`);
+    parts.push(
+      `agents:${integrations.agents.command}|${stableArgsKey(integrations.agents.args)}|${stableEnvKey(integrations.agents.env)}`,
+    );
+  }
+  if (integrations.phone) {
+    parts.push(
+      `phone:${integrations.phone.command}|${stableArgsKey(integrations.phone.args)}|${stableEnvKey(integrations.phone.env)}`,
+    );
   }
   if (integrations.browser) {
     // browser MCP proxy env carries botId/profile/url/token — fingerprint
@@ -77,6 +96,22 @@ export function warmToolsKey(integrations: SendTurnIntegrations | undefined): st
       `browser:${integrations.browser.command}|${stableArgsKey(integrations.browser.args)}|${stableEnvKey(integrations.browser.env)}`,
     );
   }
+  if (integrations.dweb) {
+    parts.push(`dweb:${integrations.dweb.url}`);
+  }
+
+  // Forces a compile error when SendTurnIntegrations gains a new key.
+  const _covered = {
+    composio: integrations.composio,
+    computer: integrations.computer,
+    localComputer: integrations.localComputer,
+    agents: integrations.agents,
+    phone: integrations.phone,
+    browser: integrations.browser,
+    dweb: integrations.dweb,
+  } satisfies AssertCovered<Record<keyof SendTurnIntegrations, unknown>>;
+  void _covered;
+
   return parts.sort().join(";");
 }
 

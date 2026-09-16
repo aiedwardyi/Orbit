@@ -71,7 +71,11 @@ export function acpConnection(
         timer?.unref?.();
         pending.set(id, { resolve, reject, timer });
         if (!connection.send({ jsonrpc: "2.0", id, method, params })) {
-          // If send threw sync (EPIPE), failTransport already rejectPending'd this id.
+          // Two paths reach here:
+          // 1. EPIPE/sync throw: failTransport already called rejectPending (clears map);
+          //    pending.delete returns false, outer reject is skipped.
+          // 2. !healthy early return: failTransport was NOT called; pending.delete
+          //    returns true, and this outer reject is the only settler.
           if (pending.delete(id)) {
             clearTimeout(timer);
             reject(new Error("process closed"));
