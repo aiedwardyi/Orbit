@@ -42,6 +42,7 @@ import { showSidebarDensityControls, showSidebarPhone, showSidebarRoutines, show
 import { modelChipText, modelFamilyAccent } from "@/lib/model-chip";
 import { nextRename } from "@/lib/rename";
 import { downloadAllBots } from "@/lib/team-files";
+import { focusComposerOnActivation } from "@/lib/focus-composer";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { MIN_QUERY, SearchResults } from "./SearchResults";
 import { TeamLibraryPanel, type TeamImportResult } from "./TeamLibraryPanel";
@@ -255,7 +256,13 @@ function GroupListItem({
       )}
       <button
         type="button"
-        onClick={() => dispatch({ type: "select", id: group.id })}
+        onClick={(e) => {
+          dispatch({ type: "select", id: group.id });
+          focusComposerOnActivation({
+            activatedElement: e.currentTarget,
+            settingsOpen: state.settingsOpen || state.appSettingsOpen,
+          });
+        }}
         onContextMenu={(e) => {
           e.preventDefault();
           onMenu({ groupId: group.id, x: e.clientX, y: e.clientY });
@@ -264,6 +271,20 @@ function GroupListItem({
         // dedicated ContextMenu key (whose native event carries no useful
         // coordinates) both open it centered on the row
         onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            dispatch({ type: "select", id: group.id });
+            focusComposerOnActivation({
+              activatedElement: e.currentTarget,
+              settingsOpen: state.settingsOpen || state.appSettingsOpen,
+            });
+            return;
+          }
+          if (e.key === " ") {
+            e.preventDefault();
+            dispatch({ type: "select", id: group.id });
+            return;
+          }
           if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return;
           e.preventDefault();
           const rect = e.currentTarget.getBoundingClientRect();
@@ -884,9 +905,22 @@ function BotListItem({
         role="button"
         tabIndex={0}
         aria-label={iconOnly ? (modelLabel ? `${bot.name} · ${modelLabel}` : bot.name) : undefined}
-        onClick={() => dispatch({ type: "select", id: bot.id })}
+        onClick={(event) => {
+          dispatch({ type: "select", id: bot.id });
+          focusComposerOnActivation({
+            activatedElement: event.currentTarget,
+            settingsOpen: state.settingsOpen || state.appSettingsOpen,
+          });
+        }}
         onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            dispatch({ type: "select", id: bot.id });
+            focusComposerOnActivation({
+              activatedElement: event.currentTarget,
+              settingsOpen: state.settingsOpen || state.appSettingsOpen,
+            });
+          } else if (event.key === " ") {
             event.preventDefault();
             dispatch({ type: "select", id: bot.id });
           }
