@@ -11,6 +11,9 @@ import "./styles.css";
 applySkin(readSkin());
 applyGeometry(readGeometry());
 applyLocale(resolveLocale(readPreference(), readOsLocaleTag()));
+// Windows titleBarOverlay covers the top of the renderer; stamp the platform
+// so CSS can reserve a global 32px caption inset before React mounts.
+if (window.ogb?.platform === "win32") document.documentElement.dataset.orbitCaption = "win32";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

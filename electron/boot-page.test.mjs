@@ -48,6 +48,20 @@ describe("packaged connecting page", () => {
     expect(html).toContain("#575757");
     expect(html).not.toContain("#fcfcfc99");
   });
+  it("reserves a Windows caption drag strip when captionInset is set", () => {
+    const href = buildConnectingPage({
+      locale: "en",
+      fontStack: "system-ui,sans-serif",
+      backgroundColor: "#070707",
+      color: "#b5b5b5",
+      message: "Connecting…",
+      captionInset: 32,
+    });
+    const html = decodeURIComponent(href.slice("data:text/html;charset=utf-8,".length));
+    expect(html).toContain("padding-top:32px");
+    expect(html).toContain("-webkit-app-region:drag");
+    expect(html).toContain("height:32px");
+  });
 });
 
 describe("packaged boot-phase URL policy", () => {
