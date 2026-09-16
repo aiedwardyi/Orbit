@@ -21,14 +21,21 @@ describe("chatOptionChoices", () => {
     expect(chatOptionChoices("Should I use pnpm or npm?")).toEqual(["pnpm", "npm"]);
   });
 
+  it("keeps incidental parentheses on a choice label", () => {
+    // or is outside the group — "pnpm (v9)" is one label, not a reject signal
+    expect(chatOptionChoices("pnpm (v9) or npm?")).toEqual(["pnpm (v9)", "npm"]);
+    expect(chatOptionChoices("Should I use pnpm (v9) or npm?")).toEqual(["pnpm (v9)", "npm"]);
+  });
+
   it("does not turn parenthetical policy prose into choices", () => {
+    // or-inside-group is the reject signal (not mere presence of parens)
     expect(
       chatOptionChoices("Want me to save your role boundaries (no code, push, merge, release or Obsidian edits unless you ask) to my local memory?"),
     ).toBeNull();
   });
 
   it("keeps a longer direct A-or-B without parentheses as choices", () => {
-    // 13 words — previously rejected by the blunt >12 cutoff
+    // 13 words — still under the soft >20 cutoff
     expect(
       chatOptionChoices("Should I ship the hotfix tonight or wait until Monday morning after standup?"),
     ).toEqual(["tonight", "wait until Monday morning after standup"]);

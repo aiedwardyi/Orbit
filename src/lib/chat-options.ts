@@ -81,20 +81,89 @@ function prefixBeforeTrailingList(
   return proseBeforeQuestion(fromOriginal.prompt, questionFromPrompt(fromOriginal.prompt) || question);
 }
 
+const OPEN_TO_CLOSE: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
+const CLOSE_TO_OPEN: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
+
+/** Index of the last top-level `\s+or\s+` word, or -1 if none (e.g. or only inside groups). */
+function lastTopLevelOrIndex(text: string): number {
+  let depth = 0;
+  let last = -1;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+    if (OPEN_TO_CLOSE[ch]) {
+      depth += 1;
+      continue;
+    }
+    if (CLOSE_TO_OPEN[ch]) {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (depth !== 0) continue;
+    if (i > 0 && /\s/.test(text[i - 1]!) && /^or\b/i.test(text.slice(i))) {
+      const after = i + 2;
+      if (after < text.length && /\s/.test(text[after]!)) last = i;
+    }
+  }
+  return last;
+}
+
+/**
+ * Last choice label from the left phrase: final word, or `word (…)` / `word […]`
+ * when the phrase ends in a balanced group (incidental version tags stay attached).
+ */
+function lastChoiceLabel(phrase: string): string {
+  const trimmed = phrase.trim();
+  if (!trimmed) return trimmed;
+  const endCh = trimmed[trimmed.length - 1]!;
+  const openCh = CLOSE_TO_OPEN[endCh];
+  if (openCh) {
+    let depth = 0;
+    let openAt = -1;
+    for (let i = trimmed.length - 1; i >= 0; i--) {
+      const ch = trimmed[i]!;
+      if (ch === endCh) depth += 1;
+      else if (ch === openCh) {
+        depth -= 1;
+        if (depth === 0) {
+          openAt = i;
+          break;
+        }
+      }
+    }
+    if (openAt >= 0) {
+      let start = openAt;
+      while (start > 0 && /\s/.test(trimmed[start - 1]!)) start -= 1;
+      while (start > 0 && !/\s/.test(trimmed[start - 1]!)) start -= 1;
+      return trimmed.slice(start).trim();
+    }
+  }
+  const words = trimmed.split(/\s+/);
+  return words[words.length - 1]!;
+}
+
+/**
+ * Split a trailing A-or-B question into two choices.
+ * Incidental parens/brackets on a label are OK; reject when the splitting
+ * `or` itself sits inside a balanced group (policy lists, embedded alternatives).
+ * Soft >20 word cutoff still drops huge bracket-free prose.
+ */
 function orChoices(text: string): string[] | null {
   const candidate = text.trim();
-  // Reject parenthetical prose (brackets signal embedded lists, not choices).
-  if (/[()[\]{}]/.test(candidate)) return null;
-  // Soft length guard — keep reasonable direct A/B; policy prose is caught by brackets.
   if (candidate.split(/\s+/).length > 20) return null;
-  const match = candidate.match(/^(?:[\s\S]*\n)?(.+?)\s+or\s+(.+?)\?\s*$/i);
-  if (!match) return null;
-  let left = match[1]!.trim();
-  const right = match[2]!.trim().replace(/[?.!]+$/, "").trim();
+  const lineMatch = candidate.match(/^(?:[\s\S]*\n)?(.+)\?\s*$/);
+  if (!lineMatch) return null;
+  const line = lineMatch[1]!.trim();
+  const orIdx = lastTopLevelOrIndex(line);
+  if (orIdx < 0) return null;
+  let left = line.slice(0, orIdx).trim();
+  const right = line
+    .slice(orIdx + 2)
+    .trim()
+    .replace(/[?.!]+$/, "")
+    .trim();
   if (!left || !right || left.includes("\n") || right.includes("\n")) return null;
   if (/\bor\b/i.test(left) || /\bor\b/i.test(right)) return null;
-  const words = left.split(/\s+/);
-  if (words.length >= 2) left = words[words.length - 1]!;
+  if (left.split(/\s+/).length >= 2) left = lastChoiceLabel(left);
   if (left.length > MAX_OPTION_LEN || right.length > MAX_OPTION_LEN) return null;
   if (left.toLowerCase() === right.toLowerCase()) return null;
   return [left, right];
