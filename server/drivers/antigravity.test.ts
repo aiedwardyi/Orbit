@@ -904,7 +904,7 @@ describe("Antigravity Windows long-prompt transport", () => {
     }
   });
 
-  it("fails one turn recoverably when remaining argv exceeds the Windows cmdline ceiling", async () => {
+  it.skipIf(process.platform !== "win32")("fails one turn recoverably when remaining argv exceeds the Windows cmdline ceiling", async () => {
     await create();
     const hugeCursor = "c".repeat(WIN32_CREATEPROCESS_CMDLINE_MAX);
     await instance.adapter.sendTurn({
