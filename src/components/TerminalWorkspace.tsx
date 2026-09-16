@@ -173,6 +173,7 @@ export function TerminalWorkspace({
     const appearance = new MutationObserver(() => { void theme(); resize(); });
     appearance.observe(document.documentElement, { attributes: true, attributeFilter: ["data-skin", "data-shape"] });
 
+    let attachedLaunchProject: string | null = null;
     const finishAttach = (snapshot: { id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number }, launchedProject: string | null) => {
       if (!alive) return;
       const queued = [...liveQueue]
@@ -185,6 +186,7 @@ export function TerminalWorkspace({
       setExitCode(code);
       terminal.options.disableStdin = code !== null;
       setSession({ cwd: snapshot.cwd, shell: snapshot.shell });
+      attachedLaunchProject = launchedProject;
       setLaunchProject(launchedProject);
       setNeedsFolder(false);
       setFolderReason(null);
@@ -240,17 +242,8 @@ export function TerminalWorkspace({
                   replayComplete = false;
                   terminal.write(resumed.output, () => finishAttach(resumed, expectedProject));
                 } else {
-                  // Same-id fallback skipped finishAttach — restore the live gate and drain the queue.
-                  const queued = [...liveQueue]
-                    .filter((event) => event.id === id && event.seq > lastSeq)
-                    .sort((a, b) => a.seq - b.seq);
-                  liveQueue.length = 0;
-                  replayComplete = true;
-                  for (const event of queued) receive(event);
-                  setNeedsFolder(false);
-                  setFolderReason(null);
-                  setReplacing(false);
-                  replacingRef.current = false;
+                  // Same session already painted — skip re-dump, but still finishAttach for live drain + resize/focus.
+                  finishAttach(resumed, attachedLaunchProject);
                 }
                 return;
               }
@@ -345,7 +338,9 @@ export function TerminalWorkspace({
     if (exitCode === null && sessionIdRef.current) setConfirmRestart(true);
     else {
       setBannerDismissed(false);
-      setGeneration((value) => value + 1);
+      // Dead/missing session: in-place restart (restart:true). openShell(false) would early-return while id is still set.
+      if (openShellRef.current) openShellRef.current(true);
+      else setGeneration((value) => value + 1);
     }
   };
 

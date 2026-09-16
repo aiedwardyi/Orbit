@@ -314,6 +314,8 @@ it("fallback resume after failed restart does not rewrite xterm scrollback", asy
   // Same-id skip path must restore replayComplete so live output is not stuck in liveQueue.
   await act(async () => { receive({ id: "session-same", data: "LIVE_AFTER_FALLBACK", seq: 3 }); });
   expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["SCROLLBACK", "LIVE_AFTER_FALLBACK"]);
+  // finishAttach (resize + focus) must still run on the same-id path.
+  expect(terminal.focus).toHaveBeenCalled();
 });
 
 it("does not flash needsFolder banner while restart fallback is pending", async () => {
@@ -405,4 +407,52 @@ it("new-id fallback attach uses current bot cwd, not stale launchProject", async
   expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["OLD", "NEW"]);
   expect(host.textContent).not.toMatch(/Terminal started in a different folder/i);
   expect(host.textContent).not.toContain("C:\\old");
+});
+
+it("starts a new shell from an exited session via New shell", async () => {
+  let exitHandler: ((event: { id: string; exitCode: number }) => void) | null = null;
+  let openCount = 0;
+  const open = vi.fn(async (opts: { restart?: boolean }) => {
+    openCount += 1;
+    if (openCount === 1) {
+      return { id: "session-dead", cwd: "C:\\work", shell: "pwsh.exe", output: "BEFORE_EXIT", seq: 1, exitCode: null as number | null };
+    }
+    expect(opts.restart).toBe(true);
+    return { id: "session-fresh", cwd: "C:\\work", shell: "pwsh.exe", output: "AFTER_RESTART", seq: 1, exitCode: null as number | null };
+  });
+  const bridge: TerminalBridge = {
+    appearance: vi.fn(async () => null),
+    open,
+    write: vi.fn(),
+    resize: vi.fn(async () => {}),
+    onData: () => vi.fn(),
+    onExit: (cb) => { exitHandler = cb; return vi.fn(); },
+  };
+  Object.defineProperty(window, "ogb", { configurable: true, value: { platform: "win32", terminal: bridge, pickFolder: vi.fn(async () => null) } });
+  vi.stubGlobal("localStorage", window.localStorage);
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => root.render(createElement(TerminalWorkspace, {
+    bot: { id: "bot-dead", name: "Desk", cwd: "C:\\work" },
+    visible: true,
+    focusBlocked: false,
+    onClose: vi.fn(),
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["BEFORE_EXIT"]);
+  expect(exitHandler).toBeTruthy();
+  const disposeBefore = terminal.dispose.mock.calls.length;
+  await act(async () => { exitHandler!({ id: "session-dead", exitCode: 0 }); });
+  expect(host.textContent).toMatch(/Shell exited|exited/i);
+  const newShellBtn = [...host.querySelectorAll("button")].find((el) => /New shell|새 셸/i.test(el.textContent ?? ""));
+  expect(newShellBtn).toBeTruthy();
+  await act(async () => { newShellBtn!.click(); });
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+  // Must restart in place (restart:true) without remounting the xterm effect.
+  expect(open.mock.calls.some((call) => call[0]?.restart === true)).toBe(true);
+  expect(terminal.dispose.mock.calls.length).toBe(disposeBefore);
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["BEFORE_EXIT", "AFTER_RESTART"]);
+  expect(host.textContent).not.toMatch(/Shell exited \(0\)|exited \(0\)/i);
 });
