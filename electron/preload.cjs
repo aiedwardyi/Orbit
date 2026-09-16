@@ -13,6 +13,22 @@ ipcRenderer.on("package:install", (_event, url) => {
 contextBridge.exposeInMainWorld("ogb", {
   /** Host platform ("darwin" | "win32" | "linux") — for platform-aware UI. */
   platform: process.platform,
+  terminal: {
+    appearance: () => ipcRenderer.invoke("terminal:appearance"),
+    open: (input) => ipcRenderer.invoke("terminal:open", input),
+    write: (id, data) => ipcRenderer.invoke("terminal:write", id, data),
+    resize: (id, cols, rows) => ipcRenderer.invoke("terminal:resize", id, cols, rows),
+    onData: (cb) => {
+      const handler = (_event, value) => cb(value);
+      ipcRenderer.on("terminal:data", handler);
+      return () => ipcRenderer.removeListener("terminal:data", handler);
+    },
+    onExit: (cb) => {
+      const handler = (_event, value) => cb(value);
+      ipcRenderer.on("terminal:exit", handler);
+      return () => ipcRenderer.removeListener("terminal:exit", handler);
+    },
+  },
   getCapabilities: () => ipcRenderer.invoke("desktop:capabilities"),
   onCapabilitiesChanged: (cb) => {
     const handler = (_event, capabilities) => cb(capabilities);

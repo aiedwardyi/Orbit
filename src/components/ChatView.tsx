@@ -19,6 +19,7 @@ import {
   PinOff,
   RefreshCw,
   Search,
+  TerminalSquare,
   Webhook,
   X,
 } from "lucide-react";
@@ -454,12 +455,14 @@ function Bubble({
 
   return (
     <div
+      data-orbit-message={user ? "user" : "bot"}
       className={cn("group flex w-full flex-col outline-none", user ? "animate-msg-in items-end" : "items-start")}
       tabIndex={-1}
     >
       {/* padded for bot messages so the docked action row below the bubble
           keeps out of the timestamp and reaction chips that follow it */}
-      <div className={cn("relative w-fit max-w-[min(42rem,78%)]", !user && "pb-8")}>
+      <div data-orbit-message-body className={cn("relative w-fit max-w-[min(42rem,78%)]", !user && "pb-8")}>
+        <div className="orbit-message-speaker hidden">{user ? t("chat.you") : bot.name}</div>
         {user && !message.placeholder && (
           <div
             data-message-hover-actions
@@ -505,6 +508,7 @@ function Bubble({
           </div>
         )}
         <div
+          data-orbit-message-content
           className={cn(
             "w-fit max-w-full rounded-2xl text-[15px] leading-relaxed",
             user && webhookView
@@ -931,7 +935,7 @@ export function PinnedBanner({
   );
 }
 
-export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focusComposerBlocked?: boolean }) {
+export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: { bot: Bot; focusComposerBlocked?: boolean; onOpenTerminal?: () => void }) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const { capabilities, ready: capabilitiesReady } = useDesktopCapabilities();
@@ -959,6 +963,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
   useEffect(() => setFindOpen(false), [bot.threadId]);
   useEffect(() => {
     const onFind = (event: KeyboardEvent) => {
+      if (focusComposerBlocked) return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
         event.preventDefault();
         setFindOpen(true);
@@ -966,7 +971,7 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
     };
     window.addEventListener("keydown", onFind);
     return () => window.removeEventListener("keydown", onFind);
-  }, []);
+  }, [focusComposerBlocked]);
 
   // only the active branch is rendered; forks stay reachable via ‹ › nav
   const accepted = state.acceptedSends[bot.threadId];
@@ -1228,6 +1233,17 @@ export function ChatView({ bot, focusComposerBlocked = false }: { bot: Bot; focu
           {bot.busy && <Loader2 size={14} className="animate-spin text-ink-secondary" />}
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {onOpenTerminal && (
+            <button
+              type="button"
+              onClick={onOpenTerminal}
+              aria-label={t("terminal.open")}
+              title={`${t("terminal.open")} (${window.ogb?.platform === "darwin" ? "⌘" : "Ctrl+"}\`)`}
+              className="rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink"
+            >
+              <TerminalSquare size={18} />
+            </button>
+          )}
           <button
             onClick={() => setFindOpen((open) => !open)}
             aria-label={t("chat.findInConversation")}

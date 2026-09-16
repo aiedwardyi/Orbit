@@ -469,6 +469,7 @@ export type AppSettingsSection =
   | "general"
   | "connections"
   | "themes"
+  | "shortcuts"
   | "engines"
   | "companion"
   | "computer"

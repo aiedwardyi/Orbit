@@ -8,7 +8,9 @@ packages:
 allowBuilds:
   electron: true # postinstall downloads the Electron dist
   esbuild: true # postinstall validates the platform binary
+  node-pty: true
   electron-winstaller: false # unused — Windows builds ship NSIS
 onlyBuiltDependencies:
   - electron
   - esbuild
+  - node-pty

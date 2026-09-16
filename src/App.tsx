@@ -25,6 +25,7 @@ const BrowserWorkspace = lazy(() => import("@/components/BrowserWorkspace").then
 const SkillRecorderPage = lazy(() => import("@/components/SkillRecorderPage").then((m) => ({ default: m.SkillRecorderPage })));
 const TeamMapPage = lazy(() => import("@/components/TeamMapPage").then((m) => ({ default: m.TeamMapPage })));
 const CreateBotSheet = lazy(() => import("@/components/CreateBotSheet").then((m) => ({ default: m.CreateBotSheet })));
+const TerminalWorkspace = lazy(() => import("@/components/TerminalWorkspace").then((m) => ({ default: m.TerminalWorkspace })));
 
 function BootFallback({
   label,
@@ -53,13 +54,17 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   // Sidebar.tsx's className comment).
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [terminalViews, setTerminalViews] = useState<Record<string, boolean>>({});
   const [localVmWorkspaceBotId, setLocalVmWorkspaceBotId] = useState<string | null>(null);
   // the Browser tab, expanded into the main column (the small preview in
   // the panel hands off to this and back)
   const [browserWorkspaceBotId, setBrowserWorkspaceBotId] = useState<string | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const conversationRef = useRef<HTMLDivElement>(null);
   const group = state.groups.find((g) => g.id === state.selectedId);
   const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? state.bots[0]);
+  const terminalOpen = Boolean(bot && terminalViews[bot.id] && state.activeView === "chat" && !browserWorkspaceBotId && !localVmWorkspaceBotId);
+  const openTerminal = () => { if (bot) setTerminalViews((views) => ({ ...views, [bot.id]: true })); };
 
   // Nothing on this machine can run a bot. A missing cloud login does not
   // count: that CLI can still host a local model. An empty list means the
@@ -185,8 +190,8 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   // the workspace paints before a passive effect would run, and an unread frame
   // landing in that gap would clear a badge for a chat nobody can see
   useLayoutEffect(() => {
-    dispatch({ type: "setWorkspaceOpen", open: Boolean(browserWorkspaceBotId || localVmWorkspaceBotId) });
-  }, [browserWorkspaceBotId, localVmWorkspaceBotId, dispatch]);
+    dispatch({ type: "setWorkspaceOpen", open: Boolean(browserWorkspaceBotId || localVmWorkspaceBotId || terminalOpen) });
+  }, [browserWorkspaceBotId, localVmWorkspaceBotId, terminalOpen, dispatch]);
 
   const openComputerFromWorkspace = (botId: string) => {
     setLocalVmWorkspaceBotId(null);
@@ -203,6 +208,25 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     state.appSettingsOpen ||
     state.pluginsOpen ||
     state.createBotOpen;
+
+  const closeTerminal = () => {
+    if (bot) setTerminalViews((views) => ({ ...views, [bot.id]: false }));
+    requestAnimationFrame(() => conversationRef.current?.querySelector<HTMLTextAreaElement>("[data-orbit-composer]")?.focus());
+  };
+
+  useEffect(() => {
+    const toggleTerminal = (event: KeyboardEvent) => {
+      if (event.repeat || event.isComposing) return;
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.code !== "Backquote") return;
+      if (!window.ogb?.terminal || !bot || group || state.activeView !== "chat" || nativeViewOverlayOpen || browserWorkspaceBotId || localVmWorkspaceBotId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (terminalOpen) closeTerminal();
+      else openTerminal();
+    };
+    window.addEventListener("keydown", toggleTerminal, true);
+    return () => window.removeEventListener("keydown", toggleTerminal, true);
+  }, [bot?.id, group?.id, state.activeView, nativeViewOverlayOpen, browserWorkspaceBotId, localVmWorkspaceBotId, terminalOpen]);
 
   // The viewer outlives ComputerPanel and can target any bot, so release control
   // here (always mounted) when a bot's viewer closes. release() is idempotent.
@@ -289,7 +313,22 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       ) : group ? (
         <GroupView key={group.id} group={group} />
       ) : bot ? (
-        <ChatView bot={bot} focusComposerBlocked={paletteOpen} />
+        <div ref={conversationRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="flex min-h-0 flex-1" inert={terminalOpen} aria-hidden={terminalOpen}>
+            <ChatView
+              bot={bot}
+              focusComposerBlocked={paletteOpen || terminalOpen}
+              onOpenTerminal={window.ogb?.terminal ? openTerminal : undefined}
+            />
+          </div>
+          {terminalViews[bot.id] !== undefined && (
+            <div className="orbit-terminal-overlay absolute inset-0 z-20 flex" data-open={terminalOpen} inert={!terminalOpen} aria-hidden={!terminalOpen}>
+            <Suspense fallback={<BootFallback label={t("terminal.connecting")} />}>
+              <TerminalWorkspace key={bot.id} bot={bot} visible={terminalOpen} focusBlocked={nativeViewOverlayOpen} onClose={closeTerminal} />
+            </Suspense>
+            </div>
+          )}
+        </div>
       ) : (
         <BootFallback
           label={state.connected ? t("chrome.noBots") : t("chrome.connecting")}

@@ -29,6 +29,7 @@ afterPack: ./scripts/after-pack.mjs
 files:
   - electron/**
   - "!electron/**/*.test.*"
+  - "!electron/terminal-*.node-test.mjs"
   - "!electron/resources/speech-helper"
   - "!electron/resources/speech-helper.swift"
   - "!electron/resources/speech-helper-Info.plist"
@@ -43,6 +44,18 @@ files:
 asar: true
 
 extraResources:
+  - from: node_modules/node-pty
+    to: terminal/node-pty
+    filter:
+      - lib/**
+      - build/Release/*.node
+      - build/Release/*.dll
+      - build/Release/*.exe
+      - build/Release/spawn-helper
+      - build/Release/conpty/**
+      - prebuilds/**
+      - package.json
+      - LICENSE
   # Ship the app's own license terms in every desktop distribution.
   - from: LICENSE
     to: licenses/Orbit-LICENSE.txt
@@ -123,6 +136,8 @@ win:
       arch: x64
   icon: build/icon-1024.png
   extraResources:
+    - from: node_modules/node-pty/prebuilds/win32-${arch}/conpty
+      to: terminal/node-pty/build/Release/conpty
     - from: dist-native/cloudflared/win32-x64/cloudflared.exe
       to: cloudflared/cloudflared.exe
   # No signing config yet (would go under win.signtoolOptions or
