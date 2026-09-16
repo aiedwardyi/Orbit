@@ -40,7 +40,7 @@ vi.mock("@/state/store", async () => {
     api: vi.fn(),
   };
 });
-import { TerminalWorkspace } from "./TerminalWorkspace";
+import { TerminalWorkspace, folderBasename } from "./TerminalWorkspace";
 import { applyTerminalMatch } from "@/lib/terminal-appearance";
 import { api } from "@/state/store";
 
@@ -106,7 +106,7 @@ it("joins the snapshot to live output once and retains the renderer across visib
 
 it("does not open a shell while the overlay is hidden after remount", async () => {
   const open = vi.fn(async () => ({ id: "session-1", cwd: "C:\\work", shell: "pwsh.exe", output: "", seq: 0, exitCode: null }));
-  const bridge: TerminalBridge = { open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() };
+  const bridge: TerminalBridge = { appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() };
   mountBridge(bridge, { id: "bot-hidden", name: "Hidden", cwd: null });
   await act(async () => root.render(createElement(TerminalWorkspace, { bot: { id: "bot-hidden", name: "Hidden", cwd: null }, visible: false, focusBlocked: false, onClose: vi.fn() })));
   expect(open).not.toHaveBeenCalled();
@@ -114,7 +114,7 @@ it("does not open a shell while the overlay is hidden after remount", async () =
 
 it("shows a neutral choose-folder state instead of throwing on needsFolder", async () => {
   const open = vi.fn(async () => ({ needsFolder: true as const, reason: "explicit-unavailable" }));
-  const bridge: TerminalBridge = { open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() };
+  const bridge: TerminalBridge = { appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() };
   Object.defineProperty(window, "ogb", {
     configurable: true,
     value: { platform: "win32", terminal: bridge, pickFolder: vi.fn(async () => null) },
@@ -144,6 +144,7 @@ it("does not write device-attribute replies from historical replay to the PTY", 
     exitCode: null,
   }));
   const bridge: TerminalBridge = {
+    appearance: vi.fn(async () => null),
     open,
     write,
     resize: vi.fn(async () => {}),
@@ -183,6 +184,7 @@ it("queues live output until historical replay finishes and preserves seq order"
   });
   const open = vi.fn(() => new Promise<TerminalSnapshot>((resolve) => { resolveOpen = resolve; }));
   const bridge: TerminalBridge = {
+    appearance: vi.fn(async () => null),
     open,
     write: vi.fn(),
     resize: vi.fn(async () => {}),
@@ -214,7 +216,7 @@ it("queues live output until historical replay finishes and preserves seq order"
 
 it("shows header folder and restart controls for a private workspace", async () => {
   const open = vi.fn(async () => ({ id: "session-p", cwd: "C:\\Users\\private", shell: "pwsh.exe", output: "", seq: 0, exitCode: null }));
-  const bridge: TerminalBridge = { open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() };
+  const bridge: TerminalBridge = { appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() };
   Object.defineProperty(window, "ogb", {
     configurable: true,
     value: { platform: "win32", terminal: bridge, pickFolder: vi.fn(async () => null) },
@@ -240,7 +242,7 @@ it("persists a header folder choice without restarting a live session", async ()
   const open = vi.fn(async () => ({ id: "session-f", cwd: "C:\\old", shell: "pwsh.exe", output: "hi", seq: 1, exitCode: null }));
   const pickFolder = vi.fn(async () => "C:\\AI Newsroom");
   vi.mocked(api).mockResolvedValue({ bot: { id: "bot-f", name: "News", cwd: "C:\\AI Newsroom" } });
-  const bridge: TerminalBridge = { open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() };
+  const bridge: TerminalBridge = { appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() };
   Object.defineProperty(window, "ogb", { configurable: true, value: { platform: "win32", terminal: bridge, pickFolder } });
   vi.stubGlobal("localStorage", window.localStorage);
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
@@ -259,3 +261,12 @@ it("persists a header folder choice without restarting a live session", async ()
   expect(api).toHaveBeenCalledWith("/api/bots/bot-f", expect.objectContaining({ method: "PATCH" }));
   expect(open).toHaveBeenCalledTimes(1);
 });
+it("folderBasename keeps root paths non-empty", () => {
+  expect(folderBasename("/")).toBe("/");
+  expect(folderBasename("///")).toBe("///");
+  expect(folderBasename("\\")).toBe("\\");
+  expect(folderBasename("C:\\")).toBe("C:");
+  expect(folderBasename("/home/user")).toBe("user");
+  expect(folderBasename("C:\\work\\orbit")).toBe("orbit");
+});
+

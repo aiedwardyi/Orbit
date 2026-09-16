@@ -19,10 +19,10 @@ function samePath(a: string | null | undefined, b: string | null | undefined): b
   return norm(a) === norm(b);
 }
 
-function folderBasename(cwd: string): string {
+export function folderBasename(cwd: string): string {
   const trimmed = cwd.replace(/[\\/]+$/, "");
   const base = trimmed.split(/[\\/]/).pop();
-  return base || trimmed;
+  return base || cwd;
 }
 
 export function TerminalWorkspace({
@@ -87,7 +87,6 @@ export function TerminalWorkspace({
     let appearanceRequest = 0;
     let opening = false;
     let replayComplete = false;
-    const pending: OutputEvent[] = [];
     const liveQueue: OutputEvent[] = [];
     const exits = new Map<string, number>();
     setSession(null);
@@ -145,7 +144,7 @@ export function TerminalWorkspace({
       terminal.write(event.data);
     };
     const offData = bridge.onData((event) => {
-      if (id === null) pending.push(event);
+      if (id === null) liveQueue.push(event);
       else receive(event);
     });
     const offExit = bridge.onExit((event) => {
@@ -176,10 +175,9 @@ export function TerminalWorkspace({
 
     const finishAttach = (snapshot: { id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number }, launchedProject: string | null) => {
       if (!alive) return;
-      const queued = [...pending, ...liveQueue]
+      const queued = [...liveQueue]
         .filter((event) => event.id === snapshot.id && event.seq > snapshot.seq)
         .sort((a, b) => a.seq - b.seq);
-      pending.length = 0;
       liveQueue.length = 0;
       replayComplete = true;
       for (const event of queued) receive(event);
@@ -256,7 +254,6 @@ export function TerminalWorkspace({
         sessionIdRef.current = snapshot.id;
         lastSeq = snapshot.seq;
         replayComplete = false;
-        liveQueue.length = 0;
         terminal.write(snapshot.output, () => finishAttach(snapshot, expectedProject));
       }).catch((cause) => {
         opening = false;
