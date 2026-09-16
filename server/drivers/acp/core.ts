@@ -662,6 +662,11 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             }
             send({ jsonrpc: "2.0", id: msg.id, error: { code: -32600, message: "no active turn" } });
           };
+          // Belt-and-suspenders: close usually evicts idle warm, but an
+          // error-without-close must not leave a dead entry until TTL.
+          connection.onError = (_e) => {
+            if (idleWarm?.connection === connection) discardIdle(idleWarm);
+          };
           const keep = Boolean(
             eligibility
             && ok
