@@ -150,6 +150,7 @@ export function TerminalWorkspace({
     const offExit = bridge.onExit((event) => {
       if (id === null) exits.set(event.id, event.exitCode);
       else if (event.id === id) {
+        exits.set(event.id, event.exitCode);
         terminal.options.disableStdin = true;
         setExitCode(event.exitCode);
       }

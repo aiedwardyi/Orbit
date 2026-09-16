@@ -550,3 +550,42 @@ it("restores keyboard input forwarding when fallback restart IPC throws", async 
   await act(async () => { terminal.__emitData("ls\r"); });
   expect(write).toHaveBeenCalledWith("session-fallback-err", "ls\r");
 });
+
+it("preserves an exit received during snapshot replay", async () => {
+  let exitHandler: ((event: { id: string; exitCode: number }) => void) | null = null;
+  let writeCallback: (() => void) | undefined;
+  terminal.write.mockImplementation((data: string, cb?: () => void) => {
+    if (String(data) === "SNAPSHOT") {
+      writeCallback = cb;
+      return;
+    }
+    if (typeof cb === "function") queueMicrotask(cb);
+  });
+  const open = vi.fn(async () => ({ id: "session-exit", cwd: "C:\\work", shell: "pwsh.exe", output: "SNAPSHOT", seq: 1, exitCode: null as number | null }));
+  const bridge: TerminalBridge = {
+    appearance: vi.fn(async () => null),
+    open,
+    write: vi.fn(async () => {}),
+    resize: vi.fn(async () => {}),
+    onData: () => vi.fn(),
+    onExit: (cb) => { exitHandler = cb; return vi.fn(); },
+  };
+  Object.defineProperty(window, "ogb", { configurable: true, value: { platform: "win32", terminal: bridge, pickFolder: vi.fn(async () => null) } });
+  vi.stubGlobal("localStorage", window.localStorage);
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => root.render(createElement(TerminalWorkspace, {
+    bot: { id: "bot-exit", name: "Desk", cwd: "C:\\work" },
+    visible: true,
+    focusBlocked: false,
+    onClose: vi.fn(),
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(writeCallback).toBeTruthy();
+  await act(async () => { exitHandler!({ id: "session-exit", exitCode: 7 }); });
+  await act(async () => { writeCallback?.(); await Promise.resolve(); });
+  expect(host.textContent).toMatch(/Shell exited \(7\)|exited \(7\)/i);
+  expect(terminal.options.disableStdin).toBe(true);
+});
