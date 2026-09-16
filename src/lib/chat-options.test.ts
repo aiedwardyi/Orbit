@@ -37,11 +37,26 @@ describe("chatOptionChoices", () => {
     expect(chatOptionChoices("Use (A or B) or npm?")).toBeNull();
   });
 
+  it("conservatively rejects nested or in parenthetical options", () => {
+    expect(chatOptionChoices("npm (v8 or later) or yarn?")).toBeNull();
+    expect(chatOptionChoices("pnpm or npm (v8 or later)?")).toBeNull();
+  });
+
   it("keeps a longer direct A-or-B without parentheses as choices", () => {
     // 13 words — still under the soft >20 cutoff
     expect(
       chatOptionChoices("Should I ship the hotfix tonight or wait until Monday morning after standup?"),
     ).toEqual(["tonight", "wait until Monday morning after standup"]);
+  });
+
+  it("keeps final-line choices after a long preamble", () => {
+    const preamble =
+      "There are several factors to weigh when choosing a runtime for this project and configuring dependencies across team environments. We need to decide soon.";
+    expect(chatOptionChoices(`${preamble}\n\nNode or Bun?`)).toEqual(["Node", "Bun"]);
+    expect(chatOptionChoices(`${preamble}\n\nShould I use pnpm (v9) or npm?`)).toEqual([
+      "pnpm (v9)",
+      "npm",
+    ]);
   });
 
   it("ignores a bulleted list that is not a question", () => {

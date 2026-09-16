@@ -151,10 +151,10 @@ function lastChoiceLabel(phrase: string): string {
  */
 function orChoices(text: string): string[] | null {
   const candidate = text.trim();
-  if (candidate.split(/\s+/).length > 20) return null;
   const lineMatch = candidate.match(/^(?:[\s\S]*\n)?(.+)\?\s*$/);
   if (!lineMatch) return null;
   const line = lineMatch[1]!.trim();
+  if (line.split(/\s+/).length > 20) return null;
   const orIdx = lastTopLevelOrIndex(line);
   if (orIdx < 0) return null;
   let left = line.slice(0, orIdx).trim();
@@ -164,6 +164,7 @@ function orChoices(text: string): string[] | null {
     .replace(/[?.!]+$/, "")
     .trim();
   if (!left || !right) return null;
+  // Conservative: reject if left or right contains a nested "or" (e.g. parenthetical options).
   if (/\bor\b/i.test(left) || /\bor\b/i.test(right)) return null;
   if (left.split(/\s+/).length >= 2) left = lastChoiceLabel(left);
   if (left.length > MAX_OPTION_LEN || right.length > MAX_OPTION_LEN) return null;
