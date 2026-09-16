@@ -179,6 +179,7 @@ describe("SPEED4 warm session reuse (fake CLI)", () => {
     recorder?.stop();
     await instance?.dispose();
     delete process.env.FAKE_ACP_MODE;
+    delete process.env.FAKE_ACP_SESSION_ID;
     delete process.env.FAKE_ACP_DUMP;
     delete process.env.FAKE_ACP_RPC_DUMP;
     delete process.env.FAKE_ACP_LATE_CHUNK_MS;
@@ -344,12 +345,16 @@ describe("SPEED4 warm session reuse (fake CLI)", () => {
 
     // Missing cursor (compaction) → kill warm + cold respawn. A new process
     // overwrites the rpc dump, so prompt count resets instead of accumulating.
+    // Distinct FAKE_ACP_SESSION_ID reaches the cold child via process.env (same
+    // mid-test switch pattern as FAKE_ACP_MODE), so we can assert a new session.
+    process.env.FAKE_ACP_SESSION_ID = "fake-session-after-compact";
     const t2 = await instance.adapter.sendTurn({ threadId: "t-cursor", text: "compacted" });
     await recorder.until((e) => e.type === "turn.completed" && e.turnId === t2.turnId);
     const afterMissing = await waitForRpc((m) => m.includes("session/new") || m.includes("initialize"));
     expect(afterMissing.filter((m) => m === "session/prompt").length).toBeLessThanOrEqual(promptsAfterT1);
     expect(afterMissing.includes("session/new") || afterMissing.includes("initialize")).toBe(true);
     expect(sessionIdFor(t2.turnId)).toBeTruthy();
+    expect(sessionIdFor(t2.turnId)).not.toBe(sessionId);
 
     // Different cursor → session/load (or new after failed load) on a fresh child.
     const t3 = await instance.adapter.sendTurn({

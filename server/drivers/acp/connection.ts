@@ -71,9 +71,11 @@ export function acpConnection(
         timer?.unref?.();
         pending.set(id, { resolve, reject, timer });
         if (!connection.send({ jsonrpc: "2.0", id, method, params })) {
-          pending.delete(id);
-          clearTimeout(timer);
-          reject(new Error("process closed"));
+          // If send threw sync (EPIPE), failTransport already rejectPending'd this id.
+          if (pending.delete(id)) {
+            clearTimeout(timer);
+            reject(new Error("process closed"));
+          }
         }
       });
     },
