@@ -273,11 +273,19 @@ it("folderBasename keeps root paths non-empty", () => {
 
 it("fallback resume after failed restart does not rewrite xterm scrollback", async () => {
   const snapshot = { id: "session-same", cwd: "C:\\work", shell: "pwsh.exe", output: "SCROLLBACK", seq: 2, exitCode: null as number | null };
+  let receive!: (event: { id: string; data: string; seq: number }) => void;
   const open = vi.fn(async (opts: { restart?: boolean }) => {
     if (opts.restart) return { needsFolder: true as const, reason: "explicit-unavailable" };
     return { ...snapshot };
   });
-  const bridge: TerminalBridge = { appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() };
+  const bridge: TerminalBridge = {
+    appearance: vi.fn(async () => null),
+    open,
+    write: vi.fn(),
+    resize: vi.fn(async () => {}),
+    onData: (cb) => { receive = cb; return vi.fn(); },
+    onExit: () => vi.fn(),
+  };
   Object.defineProperty(window, "ogb", { configurable: true, value: { platform: "win32", terminal: bridge, pickFolder: vi.fn(async () => null) } });
   vi.stubGlobal("localStorage", window.localStorage);
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
@@ -303,4 +311,7 @@ it("fallback resume after failed restart does not rewrite xterm scrollback", asy
   expect(open.mock.calls.some((call) => call[0]?.restart === true)).toBe(true);
   expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["SCROLLBACK"]);
   expect(host.textContent).not.toMatch(/unavailable|Choose a folder/i);
+  // Same-id skip path must restore replayComplete so live output is not stuck in liveQueue.
+  await act(async () => { receive({ id: "session-same", data: "LIVE_AFTER_FALLBACK", seq: 3 }); });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["SCROLLBACK", "LIVE_AFTER_FALLBACK"]);
 });

@@ -241,6 +241,13 @@ export function TerminalWorkspace({
                   replayComplete = false;
                   terminal.write(resumed.output, () => finishAttach(resumed, launchProject ?? expectedProject));
                 } else {
+                  // Same-id fallback skipped finishAttach — restore the live gate and drain the queue.
+                  const queued = [...liveQueue]
+                    .filter((event) => event.id === id && event.seq > lastSeq)
+                    .sort((a, b) => a.seq - b.seq);
+                  liveQueue.length = 0;
+                  replayComplete = true;
+                  for (const event of queued) receive(event);
                   setNeedsFolder(false);
                   setFolderReason(null);
                   setReplacing(false);
