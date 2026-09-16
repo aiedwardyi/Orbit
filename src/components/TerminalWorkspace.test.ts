@@ -270,3 +270,37 @@ it("folderBasename keeps root paths non-empty", () => {
   expect(folderBasename("C:\\work\\orbit")).toBe("orbit");
 });
 
+
+it("fallback resume after failed restart does not rewrite xterm scrollback", async () => {
+  const snapshot = { id: "session-same", cwd: "C:\\work", shell: "pwsh.exe", output: "SCROLLBACK", seq: 2, exitCode: null as number | null };
+  const open = vi.fn(async (opts: { restart?: boolean }) => {
+    if (opts.restart) return { needsFolder: true as const, reason: "explicit-unavailable" };
+    return { ...snapshot };
+  });
+  const bridge: TerminalBridge = { appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() };
+  Object.defineProperty(window, "ogb", { configurable: true, value: { platform: "win32", terminal: bridge, pickFolder: vi.fn(async () => null) } });
+  vi.stubGlobal("localStorage", window.localStorage);
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => root.render(createElement(TerminalWorkspace, {
+    bot: { id: "bot-fb", name: "Desk", cwd: "C:\\work" },
+    visible: true,
+    focusBlocked: false,
+    onClose: vi.fn(),
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["SCROLLBACK"]);
+  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Restart"));
+  expect(restartBtn).toBeTruthy();
+  await act(async () => { restartBtn!.click(); });
+  const confirmBtn = [...document.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Restart terminal");
+  expect(confirmBtn).toBeTruthy();
+  await act(async () => { confirmBtn!.click(); });
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+  // restart:true -> needsFolder, then restart:false resumes same id -- must not dump SCROLLBACK again
+  expect(open.mock.calls.some((call) => call[0]?.restart === true)).toBe(true);
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["SCROLLBACK"]);
+  expect(host.textContent).not.toMatch(/unavailable|Choose a folder/i);
+});

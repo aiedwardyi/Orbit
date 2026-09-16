@@ -226,13 +226,26 @@ export function TerminalWorkspace({
             // Host keeps the prior session when the new target is unavailable.
             try {
               const resumed = await bridge.open({ botId: expectedBotId, cols: terminal.cols, rows: terminal.rows, restart: false });
-              if (!alive || botIdRef.current !== expectedBotId) return;
+              if (!alive) return;
+              if (botIdRef.current !== expectedBotId) {
+                setReplacing(false);
+                replacingRef.current = false;
+                return;
+              }
               if (!("needsFolder" in resumed)) {
-                id = resumed.id;
-                sessionIdRef.current = resumed.id;
-                lastSeq = resumed.seq;
-                replayComplete = false;
-                terminal.write(resumed.output, () => finishAttach(resumed, launchProject ?? expectedProject));
+                // Same session already painted in xterm — skip re-dump to avoid duplicate scrollback.
+                if (resumed.id !== id) {
+                  id = resumed.id;
+                  sessionIdRef.current = resumed.id;
+                  lastSeq = resumed.seq;
+                  replayComplete = false;
+                  terminal.write(resumed.output, () => finishAttach(resumed, launchProject ?? expectedProject));
+                } else {
+                  setNeedsFolder(false);
+                  setFolderReason(null);
+                  setReplacing(false);
+                  replacingRef.current = false;
+                }
                 return;
               }
             } catch (cause) {
@@ -421,7 +434,9 @@ export function TerminalWorkspace({
           onConfirm={() => {
             setConfirmRestart(false);
             setBannerDismissed(false);
-            setGeneration((value) => value + 1);
+            // In-place restart keeps painted scrollback; fallback can skip re-dump when session id matches.
+            if (openShellRef.current) openShellRef.current(true);
+            else setGeneration((value) => value + 1);
           }}
         />
       )}
