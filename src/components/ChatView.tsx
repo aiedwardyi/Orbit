@@ -67,7 +67,7 @@ import { usageLimitReset } from "@/lib/usage";
 import { useFocusMessage } from "@/lib/focus-message";
 import { activityVisibleInChat, groupActivityRuns } from "@/lib/activity-runs";
 import { chatTranscriptRows } from "@/lib/chat-transcript";
-import { chatOptionChoices } from "@/lib/chat-options";
+import { detectChatOptions, laterUserAnswer } from "@/lib/chat-options";
 import { ChatOptionChips } from "./ChatOptionChips";
 import { MemorySaveChip } from "./MemorySaveChip";
 import { ActivityRun } from "./ActivityRun";
@@ -431,7 +431,13 @@ function Bubble({
   const user = message.role === "user";
   const [expanded, setExpanded] = useState(false);
   const text = message.text ?? "";
-  const optionChoices = !user && isLastBotText && !bot.busy ? chatOptionChoices(text) : null;
+  const transcript = visibleMessages(bot);
+  const detectedOptions = !user && message.kind === "text" ? detectChatOptions(text) : null;
+  const answeredChoice = detectedOptions ? laterUserAnswer(transcript, message.id) : null;
+  const optionChoices =
+    detectedOptions && (answeredChoice != null || isLastBotText) ? detectedOptions : null;
+  const markdownText =
+    optionChoices?.messagePrefix != null ? optionChoices.messagePrefix : text;
   const webhookView = user ? webhookMessageView(text) : null;
   const attachedImages = user && !webhookView ? splitAttachedImages(text) : null;
   const visibleText = webhookView?.task ?? attachedImages?.display ?? text;
@@ -570,11 +576,11 @@ function Bubble({
                 </button>
               )}
             </>
-          ) : (
-            <MessageBoundary fallbackText={text}>
-              <ChatMarkdown text={text} />
+          ) : markdownText.trim() ? (
+            <MessageBoundary fallbackText={markdownText}>
+              <ChatMarkdown text={markdownText} />
             </MessageBoundary>
-          )}
+          ) : null}
         </div>
         {!user && (
           <div
@@ -624,7 +630,10 @@ function Bubble({
       </div>
       {optionChoices && (
         <ChatOptionChips
-          options={optionChoices}
+          options={optionChoices.options}
+          question={optionChoices.question}
+          answeredText={answeredChoice}
+          disabled={!answeredChoice && bot.busy}
           onPick={(option) => dispatch({ type: "send", botId: bot.id, text: option })}
         />
       )}

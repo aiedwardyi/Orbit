@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chatOptionChoices } from "./chat-options";
+import { chatOptionChoices, detectChatOptions, laterUserAnswer } from "./chat-options";
 
 describe("chatOptionChoices", () => {
   it("reads a trailing lettered list after a question", () => {
@@ -54,22 +54,61 @@ describe("chatOptionChoices", () => {
   });
 });
 
+describe("detectChatOptions", () => {
+  it("exposes the trailing question and strips it from the bubble prefix", () => {
+    const detected = detectChatOptions(
+      "The cleanup already runs safely.\n\nHow should the app close?\n\nA) Finish the current task, then close\nB) Close immediately\nC) Ask me each time",
+    );
+    expect(detected).toEqual({
+      options: ["Finish the current task, then close", "Close immediately", "Ask me each time"],
+      question: "How should the app close?",
+      messagePrefix: "The cleanup already runs safely.",
+    });
+  });
+
+  it("does not invent a heading or strip prose for A-or-B", () => {
+    expect(detectChatOptions("Should I use pnpm or npm?")).toEqual({
+      options: ["pnpm", "npm"],
+      question: null,
+      messagePrefix: null,
+    });
+  });
+});
+
+describe("laterUserAnswer", () => {
+  it("returns the next user text after a bot question", () => {
+    expect(
+      laterUserAnswer(
+        [
+          { id: "b1", role: "bot", kind: "text", text: "Pick?\n- a\n- b" },
+          { id: "u1", role: "user", kind: "text", text: "a" },
+        ],
+        "b1",
+      ),
+    ).toBe("a");
+  });
+
+  it("returns null when nobody has answered yet", () => {
+    expect(laterUserAnswer([{ id: "b1", role: "bot", kind: "text", text: "Pick?" }], "b1")).toBeNull();
+  });
+});
+
 describe("chat option chips wiring", () => {
   const dir = dirname(fileURLToPath(import.meta.url));
   const chatView = readFileSync(join(dir, "../components/ChatView.tsx"), "utf8");
   const groupView = readFileSync(join(dir, "../components/GroupView.tsx"), "utf8");
 
-  it("renders chips from chatOptionChoices on 1:1 and room bubbles", () => {
-    expect(chatView).toContain("chatOptionChoices");
+  it("renders chips from detectChatOptions on 1:1 and room bubbles", () => {
+    expect(chatView).toContain("detectChatOptions");
     expect(chatView).toContain("ChatOptionChips");
-    expect(groupView).toContain("chatOptionChoices");
+    expect(groupView).toContain("detectChatOptions");
     expect(groupView).toContain("ChatOptionChips");
   });
 
-  it("always offers a type-your-own field next to the chips", () => {
+  it("offers write-own via the composer, not an inline chip input", () => {
     const chips = readFileSync(join(dir, "../components/ChatOptionChips.tsx"), "utf8");
-    expect(chips).toContain('t("chat.ownAnswer")');
-    expect(chips).toContain("sendCustom");
-    expect(chips).toContain("custom.trim()");
+    expect(chips).toContain("focusOrbitComposer");
+    expect(chips).toContain("QuestionChoiceCard");
+    expect(chips).not.toContain("sendCustom");
   });
 });

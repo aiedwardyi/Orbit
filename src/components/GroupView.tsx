@@ -23,7 +23,7 @@ import { effectiveDefaultResponder, groupResponseHint } from "@/lib/group-routin
 import { ChatMarkdown } from "./ChatMarkdown";
 import { ChatOptionChips } from "./ChatOptionChips";
 import { MemorySaveChip } from "./MemorySaveChip";
-import { chatOptionChoices } from "@/lib/chat-options";
+import { detectChatOptions, laterUserAnswer } from "@/lib/chat-options";
 import { Composer } from "./Composer";
 import { EngineSetup, OpenConnectionsCta, setupErrorAction } from "./EngineSetup";
 import { TaskRecoveryCard } from "./TaskRecoveryCard";
@@ -334,10 +334,15 @@ const Transcript = memo(function Transcript({
         const m = item.message;
         const user = m.role === "user";
         const attachedImages = user && m.text ? splitAttachedImages(m.text) : null;
+        const detectedOptions =
+          !user && m.kind === "text" ? detectChatOptions(m.text ?? "") : null;
+        const answeredChoice = detectedOptions ? laterUserAnswer(transcript, m.id) : null;
         const optionChoices =
-          !user && m.kind === "text" && m.id === lastBotTextId && !group.busyBotId
-            ? chatOptionChoices(m.text ?? "")
+          detectedOptions && (answeredChoice != null || m.id === lastBotTextId)
+            ? detectedOptions
             : null;
+        const markdownText =
+          optionChoices?.messagePrefix != null ? optionChoices.messagePrefix : (m.text ?? "");
         const routineOwner = m.kind === "routine.run" ? memberOf(m.from?.botId) : undefined;
         const routineExecutionThreadId = m.routineRun?.executionThreadId;
         const routineTarget = routineOwner && hasRoutineExecutionTask(routineOwner.tasks, routineExecutionThreadId)
@@ -431,14 +436,8 @@ const Transcript = memo(function Transcript({
                       )}
                       {attachedImages?.display ?? m.text}
                     </>
-                  ) : <ChatMarkdown text={m.text} />}
+                  ) : markdownText.trim() ? <ChatMarkdown text={markdownText} /> : null}
                 </div>
-                {optionChoices && (
-                  <ChatOptionChips
-                    options={optionChoices}
-                    onPick={(option) => dispatch({ type: "sendGroup", groupId: group.id, text: option })}
-                  />
-                )}
                 {!user && (
                   <div
                     data-message-hover-actions
@@ -458,6 +457,15 @@ const Transcript = memo(function Transcript({
                   </div>
                 )}
               </div>
+                {optionChoices && (
+                  <ChatOptionChips
+                    options={optionChoices.options}
+                    question={optionChoices.question}
+                    answeredText={answeredChoice}
+                    disabled={!answeredChoice && Boolean(group.busyBotId)}
+                    onPick={(option) => dispatch({ type: "sendGroup", groupId: group.id, text: option })}
+                  />
+                )}
               <span className="mt-0.5 text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                 {formatTime(m.at, localeTag(locale))}
               </span>
