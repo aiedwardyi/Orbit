@@ -47,7 +47,7 @@ import {
   shouldStartPackagedSmoke,
 } from "./boot-page.mjs";
 import { PACKAGE_INSTALL_SCHEME, packageUrlFromCommandLine, packageUrlFromDeepLink } from "./package-link.mjs";
-import { windowChromeOptions } from "./window-chrome.mjs";
+import { WINDOWS_CAPTION_HEIGHT, applyWindowsTitleBarOverlay, windowChromeOptions } from "./window-chrome.mjs";
 import { applyZoomShortcut } from "./window-zoom.mjs";
 import { defaultSaveName, withSavableFile } from "./save-file.mjs";
 import {
@@ -947,11 +947,17 @@ function buildErrorPage({ allPortsOccupied }) {
   const reason = allPortsOccupied
     ? nativeText("packaged.bootPorts")
     : nativeText("packaged.bootTimeout");
+  const chrome = skinChrome(readPersistedSkin(app.getPath("userData")));
+  const caption = process.platform === "win32" ? WINDOWS_CAPTION_HEIGHT : 0;
+  const drag = caption
+    ? `<div style="position:fixed;top:0;left:0;right:0;height:${caption}px;-webkit-app-region:drag;background:${chrome.color}"></div>`
+    : "";
+  const inset = caption ? `padding-top:${caption}px;box-sizing:border-box;` : "";
   return (
     "data:text/html;charset=utf-8," +
     encodeURIComponent(
       markFailedBootPage(
-        `<html lang="${uiLocale()}"><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:#070707;color:#fcfcfc;font:15px ${uiFontStack()}"><div style="text-align:center;max-width:360px"><div style="font-size:40px">🐭</div><h2 style="font-weight:600;margin:12px 0 6px">${escapeHtml(nativeText("packaged.bootTitle"))}</h2><p style="color:#fcfcfc99;line-height:1.5">${escapeHtml(reason)} ${escapeHtml(nativeText("packaged.bootCheckLog"))} <code style="color:#fcfcfc">${escapeHtml(serverLogPath)}</code>.</p></div></body>`,
+        `<html lang="${uiLocale()}"><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:${chrome.color};color:${chrome.symbolColor};font:15px ${uiFontStack()};${inset}">${drag}<div style="text-align:center;max-width:360px"><div style="font-size:40px">🐭</div><h2 style="font-weight:600;margin:12px 0 6px">${escapeHtml(nativeText("packaged.bootTitle"))}</h2><p style="color:${chrome.symbolColor};opacity:0.7;line-height:1.5">${escapeHtml(reason)} ${escapeHtml(nativeText("packaged.bootCheckLog"))} <code style="opacity:1">${escapeHtml(serverLogPath)}</code>.</p></div></body>`,
       ),
     )
   );
@@ -1335,7 +1341,7 @@ function createWindow() {
     icon: APP_ICON,
     backgroundColor: chrome.color,
     autoHideMenuBar: process.platform !== "darwin",
-    ...windowChromeOptions(process.platform),
+    ...windowChromeOptions(process.platform, chrome),
     webPreferences: {
       contextIsolation: true,
       preload: path.join(__dirname, "preload.cjs"),
@@ -1444,6 +1450,7 @@ function connectingPageHref(backgroundColor) {
     backgroundColor: backgroundColor ?? chrome.color,
     color: chrome.symbolColor,
     message: nativeText("packaged.connecting"),
+    captionInset: process.platform === "win32" ? WINDOWS_CAPTION_HEIGHT : 0,
   });
 }
 
@@ -1678,9 +1685,6 @@ ipcMain.handle("desktop:save-file", async (event, rawPath) => {
   });
 });
 
-// The renderer owns the skin. Native Windows/Linux chrome is intentionally
-// outside that surface; acknowledge the renderer handshake without creating
-// a frameless caption overlay that can cover page controls.
 ipcMain.on("desktop:os-locale", (event) => {
   event.returnValue = app.getLocale();
 });
@@ -1692,15 +1696,17 @@ ipcMain.handle("desktop:locale-preference", (_event, preference) => {
   return true;
 });
 
+// Renderer skin -> nativeTheme + window ground + Windows titleBarOverlay.
 ipcMain.handle("desktop:skin", (event, skin) => {
   if (!isKnownSkin(skin)) return false;
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win !== mainWindow || win.isDestroyed()) return false;
   writePersistedSkin(app.getPath("userData"), skin);
   nativeTheme.themeSource = skinThemeSource(skin);
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (win && !win.isDestroyed()) {
-    win.setBackgroundColor(skinChrome(skin).color);
-    if (!win.isVisible()) win.show();
-  }
+  const chrome = skinChrome(skin);
+  win.setBackgroundColor(chrome.color);
+  if (process.platform === "win32") applyWindowsTitleBarOverlay(win, chrome);
+  if (!win.isVisible()) win.show();
   return true;
 });
 

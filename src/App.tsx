@@ -254,6 +254,10 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
 
   return (
     <div className="flex h-full flex-col">
+      {/* Windows titleBarOverlay drag strip; height reserved via body padding. */}
+      {typeof window !== "undefined" && window.ogb?.platform === "win32" ? (
+        <div className="orbit-windows-caption" aria-hidden />
+      ) : null}
       {/* fixed-position popup, bottom-left — outside the layout flow */}
       <UpdateBanner />
       <div className="relative flex min-h-0 flex-1">

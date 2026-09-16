@@ -68,7 +68,7 @@ describe("skin overlay chrome", () => {
     // 61b9905's desktop:skin handler returned isKnownSkin and did nothing
     // else, so a saved light skin sat behind Midnight #070707 until the 5s
     // fallback. The handler has to call skinChrome + setBackgroundColor +
-    // show; titleBarOverlay is still empty and this test does not claim it.
+    // show, and on Windows also recolor the titleBarOverlay.
     const main = readFileSync(join(here, "main.mjs"), "utf8");
     const handler = main.match(/ipcMain\.handle\("desktop:skin",[\s\S]*?\n\}\);/)?.[0] ?? "";
     expect(handler).toContain("skinChrome");
@@ -76,6 +76,8 @@ describe("skin overlay chrome", () => {
     expect(handler).toContain("nativeTheme.themeSource");
     expect(handler).toContain(".show()");
     expect(handler).toContain("writePersistedSkin");
+    expect(handler).toContain("applyWindowsTitleBarOverlay");
+    expect(handler).toContain("win !== mainWindow");
   });
 
   it("paints connecting-page ink from the skin's symbolColor", () => {

@@ -1193,6 +1193,33 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Windows titleBarOverlay: one global 32px caption strip so native controls
+   never cover routes or fixed overlays. Blank strip is drag-only. */
+html[data-orbit-caption="win32"] {
+  --orbit-caption-height: env(titlebar-area-height, 32px);
+}
+
+html[data-orbit-caption="win32"] body {
+  box-sizing: border-box;
+  padding-top: var(--orbit-caption-height);
+}
+
+html[data-orbit-caption="win32"] .orbit-windows-caption {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2147483000;
+  height: var(--orbit-caption-height);
+  background: var(--color-app);
+  -webkit-app-region: drag;
+}
+
+html[data-orbit-caption="win32"] .fixed.inset-0 {
+  top: var(--orbit-caption-height);
+}
+
+
 .orbit-mark-rings {
   transform-box: fill-box;
   transform-origin: center;
