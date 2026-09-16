@@ -262,23 +262,19 @@ const terminalHost = createTerminalHost({
   loadPty: () => ({ spawn: (shell, args, options) => spawnTerminalPty(
     require.resolve(app.isPackaged ? path.join(process.resourcesPath, "terminal", "node-pty") : "node-pty"), shell, args, options,
   ) }),
-  async resolveCwd(botId, event) {
+  async resolveCwd(botId) {
     if (app.isPackaged && !serverToken) throw new Error("Server is not ready");
     const port = app.isPackaged ? SERVER_PORT : Number(process.env.OMB_PORT || process.env.OGB_PORT || SERVER_PORT);
-    const response = await fetch(`http://127.0.0.1:${port}/api/bots?messages=0`, {
+    // Server owns project-vs-workspace resolution so Electron never invents
+    // a desk path or silently rewrites bot.cwd.
+    const response = await fetch(`http://127.0.0.1:${port}/api/bots/${encodeURIComponent(botId)}/terminal-cwd`, {
       headers: serverToken ? { Authorization: `Bearer ${serverToken}` } : {},
       redirect: "error",
       signal: AbortSignal.timeout(10000),
     });
+    if (response.status === 404) throw new Error("Unknown bot");
     if (!response.ok) throw new Error("Could not resolve terminal folder");
-    const { bots } = await response.json();
-    const bot = bots?.find((entry) => entry.id === botId);
-    if (!bot) throw new Error("Unknown bot");
-    if (bot.cwd) return bot.cwd;
-    if (event.sender !== mainWindow?.webContents) throw new Error("Terminal window is unavailable");
-    const result = await dialog.showOpenDialog(mainWindow, { properties: ["openDirectory"] });
-    if (result.canceled || !result.filePaths[0]) throw new Error("No terminal folder selected");
-    return result.filePaths[0];
+    return response.json();
   },
 });
 ipcMain.handle("terminal:open", (event, input) => terminalHost.open(event, input));
