@@ -549,12 +549,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             turnId,
             asks: new Map(),
           });
-          try {
-            await reused.ready;
-          } catch {
-            killCliTree(warmChild);
-            reused = undefined;
-          }
+          // ready never rejects: billing probe uses .catch(() => {}) when built
+          // (see settle). Health check below is the real warm-reuse fallback.
+          await reused.ready;
           if (canceledBeforePrompt || disposed || active.get(threadId)?.turnId !== turnId) {
             if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
             if (reused) killCliTree(reused.connection.child);

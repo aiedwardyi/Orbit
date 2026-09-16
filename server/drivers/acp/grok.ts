@@ -230,11 +230,25 @@ type AuthHashCache = { mtimeMs: number; size: number; hash: string };
 const authHashByPath = new Map<string, AuthHashCache>();
 
 export function hashGrokAuthJson(path: string): string {
-  const { mtimeMs, size } = statSync(path);
+  const before = statSync(path);
   const cached = authHashByPath.get(path);
-  if (cached && cached.mtimeMs === mtimeMs && cached.size === size) return cached.hash;
-  const hash = createHash("sha256").update(readFileSync(path)).digest("hex");
-  authHashByPath.set(path, { mtimeMs, size, hash });
+  if (cached && cached.mtimeMs === before.mtimeMs && cached.size === before.size) {
+    return cached.hash;
+  }
+  // Read once into a buffer, then re-stat. Only cache when metadata still
+  // matches the bytes we hashed — closes the stat→read TOCTOU where an
+  // atomic replace with same size in the same mtime tick could otherwise
+  // store a new digest under the old key.
+  const buf = readFileSync(path);
+  const hash = createHash("sha256").update(buf).digest("hex");
+  const after = statSync(path);
+  if (
+    after.mtimeMs === before.mtimeMs
+    && after.size === before.size
+    && after.size === buf.length
+  ) {
+    authHashByPath.set(path, { mtimeMs: after.mtimeMs, size: after.size, hash });
+  }
   return hash;
 }
 
