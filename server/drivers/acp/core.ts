@@ -562,8 +562,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             emit({ ...base(threadId, turnId), type: "turn.completed", ok: true, stopReason: "cancelled", cost: null });
             return { turnId };
           }
-          if (!reused || !reused.connection.healthy) {
-            if (reused) killCliTree(reused.connection.child);
+          if (!reused.connection.healthy) {
+            killCliTree(reused.connection.child);
             reused = undefined;
           }
         }
