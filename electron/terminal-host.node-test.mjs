@@ -51,24 +51,45 @@ test("concurrent opens share one shell and reopening replays bounded sequenced o
   assert.equal(f.children[0].killed, false);
 });
 
-test("validates writes, dimensions, ownership and explicit restart after exit", async () => {
+test("validates writes, dimensions, ownership and explicit restart", async () => {
   const f = fixture();
   const first = await f.host.open(f.event, f.input);
   assert.throws(() => f.host.write(f.event, "wrong", "x"), /Unknown/);
   assert.throws(() => f.host.write(f.event, first.id, "x".repeat(65537)), /Invalid/);
   assert.throws(() => f.host.resize(f.event, first.id, Infinity, 24), /Invalid/);
-  assert.equal((await f.host.open(f.event, { ...f.input, restart: true })).id, first.id);
   f.host.write(f.event, first.id, "git status\r");
   assert.deepEqual(f.children[0].writes, ["git status\r"]);
-  f.children[0].exit({ exitCode: 7 });
+  // Explicit restart replaces a live session (Restart here).
+  const replaced = await f.host.open(f.event, { ...f.input, restart: true });
+  assert.notEqual(replaced.id, first.id);
+  assert.equal(f.children[0].killed, true);
+  assert.equal(f.children.length, 2);
+  f.children[1].exit({ exitCode: 7 });
   assert.equal((await f.host.open(f.event, f.input)).exitCode, 7);
-  assert.throws(() => f.host.write(f.event, first.id, "x"), /exited/);
+  assert.throws(() => f.host.write(f.event, replaced.id, "x"), /exited/);
   const next = await f.host.open(f.event, { ...f.input, restart: true });
-  assert.notEqual(next.id, first.id);
+  assert.notEqual(next.id, replaced.id);
   f.host.dispose();
-  assert.equal(f.children[0].killed, false);
-  assert.equal(f.children[1].killed, true);
+  assert.equal(f.children[1].killed, false);
+  assert.equal(f.children[2].killed, true);
   await assert.rejects(f.host.open(f.event, f.input), /shutting down/);
+});
+
+test("needsFolder resolution does not spawn a shell", async () => {
+  const events = [];
+  const owner = { id: 1, mainFrame: { url: "http://127.0.0.1:8799/" }, getURL: () => "http://127.0.0.1:8799/", isDestroyed: () => false, send: (...args) => events.push(args) };
+  const event = { sender: owner, senderFrame: owner.mainFrame };
+  const children = [];
+  const host = createTerminalHost({
+    authorize: (caller) => { if (!trustedTerminalSender(caller, owner, "http://127.0.0.1:8799")) throw new Error("Untrusted"); },
+    resolveCwd: async () => ({ needsFolder: true, reason: "explicit-unavailable" }),
+    platform: "linux",
+    env: { SHELL: "/bin/sh" },
+    loadPty: () => ({ spawn: () => { const child = {}; children.push(child); return child; } }),
+  });
+  const result = await host.open(event, { botId: "bot-1", cols: 80, rows: 24 });
+  assert.deepEqual(result, { needsFolder: true, reason: "explicit-unavailable" });
+  assert.equal(children.length, 0);
 });
 
 test("removes app and provider secrets from the shell environment", () => {

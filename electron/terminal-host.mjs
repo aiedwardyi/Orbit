@@ -55,8 +55,17 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       dimensions(input.cols, input.rows);
       const key = `${event.sender.id}:${input.botId}`;
       if (pending.has(key)) return pending.get(key);
-      const existing = [...sessions.values()].find((s) => s.key === key);
-      if (existing && !(input.restart === true && existing.exitCode !== null)) return snapshot(existing);
+      let existing = [...sessions.values()].find((s) => s.key === key);
+      // Explicit restart replaces a live or exited session after the user confirms.
+      if (existing && input.restart === true) {
+        if (existing.exitCode === null) {
+          try { existing.pty.kill(); } catch {}
+        }
+        sessions.delete(existing.id);
+        existing = null;
+      } else if (existing) {
+        return snapshot(existing);
+      }
       if (!existing && sessions.size >= 16) {
         for (const [id, session] of sessions) {
           if (session.exitCode !== null || session.owner.isDestroyed?.()) {
@@ -67,10 +76,23 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       }
       if (sessions.size >= 16 && !existing) throw new Error("Too many terminal sessions");
       const task = (async () => {
-        const cwd = await resolveCwd(input.botId, event);
+        let cwd;
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Optional session-only override from an explicit folder pick.
+        if (typeof input.cwd === "string" && input.cwd.trim()) {
+          cwd = input.cwd.trim();
+        } else {
+          const resolved = await resolveCwd(input.botId, event);
+          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Discriminated folder resolution may ask the UI to choose.
+          if (resolved && typeof resolved === "object" && resolved.needsFolder === true) {
+            return { needsFolder: true, reason: typeof resolved.reason === "string" ? resolved.reason : "choose-folder" };
+          }
+          // Server returns { cwd, source }; older stubs may still return a path string.
+          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Normalize server and test stub shapes.
+          cwd = typeof resolved === "string" ? resolved : resolved?.cwd;
+        }
         authorize(event);
         if (disposed) throw new Error("Terminal host is shutting down");
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Validate the API or native dialog result before spawning.
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Validate the API or picked folder before spawning.
         if (typeof cwd !== "string" || !path.isAbsolute(cwd) || !(await fs.promises.stat(cwd).then((s) => s.isDirectory()).catch(() => false))) throw new Error("Terminal folder is unavailable");
         const shell = platform === "win32"
           ? [path.join(env.ProgramFiles || "C:\\Program Files", "PowerShell", "7", "pwsh.exe"), path.join(env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")].find((file) => fs.existsSync(file))
@@ -124,3 +146,4 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
     },
   };
 }
+

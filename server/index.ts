@@ -32,6 +32,7 @@ import {
 import * as checkpoints from "./checkpoints.ts";
 import { appendDecision, readDecisions } from "./decision-log.ts";
 import { validateBotCwd } from "./bot-cwd.ts";
+import { resolveBotTerminalFolder } from "./terminal-cwd.ts";
 import {
   applyResolvedProjectFolder,
   projectFolderPrompt,
@@ -7041,6 +7042,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       });
     }
 
+
+    m = path.match(/^\/api\/bots\/([\w-]+)\/terminal-cwd$/);
+    if (m && method === "GET") {
+      const bot = store.bot(m[1]);
+      if (!bot) return json(res, 404, { error: "no such bot" });
+      return json(res, 200, resolveBotTerminalFolder(bot));
+    }
     // ── bot memory: MEMORY.md + memory/ topic files ─────────────────────
     // The files already belong to the user (plain markdown in the bot's
     // workspace); these routes only make them visible without a trip to

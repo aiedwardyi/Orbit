@@ -131,9 +131,10 @@ type SkillRecordingPayload = {
       platform: NodeJS.Platform;
       terminal?: {
         appearance(): Promise<{ profileName: string; fontFamily?: string; fontSize?: number; theme: Record<string, string> } | null>;
-        open(input: { botId: string; cols: number; rows: number; restart?: boolean }): Promise<{
-          id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number;
-        }>;
+        open(input: { botId: string; cols: number; rows: number; restart?: boolean; cwd?: string }): Promise<
+          | { id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number }
+          | { needsFolder: true; reason?: string }
+        >;
         write(id: string, data: string): Promise<void>;
         resize(id: string, cols: number, rows: number): Promise<void>;
         onData(cb: (event: { id: string; data: string; seq: number }) => void): () => void;
