@@ -13,12 +13,15 @@
 const DESTRUCTIVE = [
   /\brm\s+(-[a-z]*\s+)*-[a-z]*[rf]/i, // rm -rf, rm -fr, rm -r -f
   /\bmkfs\b|\bdiskutil\s+erase|\bdd\s+[^|]*\bof=\/dev\//i,
-  /\bshutdown\b|\breboot\b|\bhalt\b/i,
   /:\(\)\s*\{.*\}\s*;?\s*:/, // fork bomb
   /\bgit\s+push\s+[^|]*--force(-with-lease)?\b|\bgit\s+reset\s+--hard\b/i,
   /\bDROP\s+(TABLE|DATABASE)\b|\bTRUNCATE\s+TABLE\b/i,
   /\bsudo\s+rm\b|\bchmod\s+-R\s+777\s+\//i,
 ];
+// shutdown/reboot/halt: hyphen is a word boundary, so feat/graceful-shutdown
+// matched the old /\bshutdown\b/ scan. Match command position instead (below).
+const POWER_OFF_RULE = String.raw`\bshutdown\b|\breboot\b|\bhalt\b`;
+const POWER_OFF = new Set(["shutdown", "reboot", "halt"]);
 
 // Not destructive, but exactly what you don't hand over unattended: a
 // bot reading your keys is quiet, permanent, and unrecoverable.
@@ -46,7 +49,7 @@ export function looksSensitive(text: string): boolean {
 }
 
 export function looksDestructive(text: string): boolean {
-  return matchFirst(DESTRUCTIVE, text) !== null;
+  return matchDestructive(text) !== null;
 }
 
 /** The key an "Always allow" remembers.
@@ -80,6 +83,69 @@ const LAUNCHERS = new Set(["env", "nohup", "nice", "timeout", "xargs", "exec", "
 const ELEVATORS = new Set(["sudo", "doas", "run0"]);
 // Windows matches a program by basename in any case, with or without .exe.
 const programName = (word: string) => (word.split(/[\\/]/).pop() ?? "").toLowerCase().replace(/\.exe$/, "");
+
+function isPowerOffProgram(word: string): boolean {
+  return POWER_OFF.has(programName(word.replace(/^["']+|["']+$/g, "")));
+}
+
+/** shutdown/reboot/halt as the program that runs, not a branch/path/message token. */
+function matchPowerOffCommand(text: string): string | null {
+  const segments: string[] = [];
+  const add = (chunk: string) => {
+    for (const part of chunk.split(/[;&|\n\r]+|\$\(|`/)) {
+      const trimmed = part.trim();
+      if (trimmed) segments.push(trimmed);
+    }
+  };
+  add(text);
+  // Nested shells: bash -c '...', cmd /c ..., pwsh -Command "..."
+  for (const m of text.matchAll(/(?:^|[\s"'"])(?:-[cC]|-Command|\/[cC])\s+(?:'([^']*)'|"([^"]*)"|(\S+))/g)) {
+    add(m[1] ?? m[2] ?? m[3] ?? "");
+  }
+  for (const segment of segments) {
+    if (segmentHasPowerOffCommand(segment)) return POWER_OFF_RULE;
+  }
+  return null;
+}
+
+function segmentHasPowerOffCommand(segment: string): boolean {
+  const words = segment.trim().split(/\s+/).filter(Boolean);
+  let i = 0;
+  while (i < words.length) {
+    const w = words[i];
+    if (/^[A-Z_][A-Z0-9_]*=/.test(w)) {
+      i += 1;
+      continue;
+    }
+    if (ELEVATORS.has(programName(w))) {
+      i += 1;
+      continue;
+    }
+    const name = programName(w.replace(/^["']+|["']+$/g, ""));
+    if (!name || name.startsWith("-")) {
+      i += 1;
+      continue;
+    }
+    if (LAUNCHERS.has(name)) {
+      i += 1;
+      while (i < words.length && /^[-/]/.test(words[i])) {
+        const flag = words[i].toLowerCase();
+        i += 1;
+        if ((flag === "-c" || flag === "-command" || flag === "/c") && i < words.length) i += 1;
+      }
+      // timeout 5 shutdown / nice 10 reboot
+      if (i < words.length && /^\d+(?:\.\d+)?[smhd]?$/i.test(words[i])) i += 1;
+      continue;
+    }
+    return isPowerOffProgram(w);
+  }
+  return false;
+}
+
+function matchDestructive(text: string): string | null {
+  return matchFirst(DESTRUCTIVE, text) ?? matchPowerOffCommand(text);
+}
+
 
 export function approvalKey(tool: string, summary: string, scope?: "local-computer"): string | null {
   const bare = tool.replace(/^mcp__[^_]+__/, "").toLowerCase();
@@ -145,7 +211,7 @@ export function autoVerdict(
 ): AutoVerdict {
   // the guards outrank the grants, so an "always allow" can never widen
   // into them
-  const destructive = matchFirst(DESTRUCTIVE, summary) ?? matchFirst(DESTRUCTIVE, tool);
+  const destructive = matchDestructive(summary) ?? matchDestructive(tool);
   const sensitive = destructive ? null : matchFirst(SENSITIVE, summary);
   // The grant is computed even when a hard block will refuse it: the row
   // worth auditing is "this WOULD have auto-approved, and only the block

@@ -89,6 +89,27 @@ describe("EventBus", () => {
     expect(logged).toContain("«redacted");
   });
 
+  it("auto-mode allows a request.opened summary that only mentions shutdown in a branch name", () => {
+    const summary =
+      "cd /c/Users/mredw/OneDrive/Desktop/nudge && git push -u origin feat/graceful-shutdown && git log --oneline -1";
+    const bus = new EventBus();
+    const seen: RuntimeEvent[] = [];
+    bus.subscribe((event) => seen.push(event));
+    bus.publish(testEvent({
+      threadId: "branch-shutdown",
+      type: "request.opened",
+      requestType: "permission",
+      requestId: "ask-branch",
+      tool: "Bash",
+      summary,
+    }));
+    const opened = seen[0] as RuntimeEvent & { type: "request.opened" };
+    expect(autoVerdict({ autoApprove: true }, opened.tool, opened.summary)).toMatchObject({
+      approve: "auto-approved Bash",
+      source: "auto-mode",
+    });
+  });
+
   it("lets policy see the raw sensitive path that persist and client copies mask", () => {
     // token=… is credential-shaped, so redactSecrets hides ~/.aws/credentials
     // before sensitive-guard can match it. The provider still runs the original
