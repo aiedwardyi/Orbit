@@ -1382,6 +1382,17 @@ body {
 }
 .thinking-sheen, .thinking-sheen > span { animation: shimmer 1s linear infinite; }
 .thinking-sheen > span { display: block; animation-direction: reverse; }
+
+/* Question choice card: keep the 5px accent signal round even under boxy. */
+.orbit-question-card [data-choice-signal] {
+  border-radius: 50%;
+}
+@media (prefers-reduced-motion: reduce) {
+  .orbit-question-card button {
+    transition: none !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-caret, .animate-msg-in { animation: none; }
   .thinking-sheen { display: none; }
