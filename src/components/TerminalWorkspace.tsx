@@ -144,13 +144,12 @@ export function TerminalWorkspace({
       terminal.write(event.data);
     };
     const offData = bridge.onData((event) => {
-      if (id === null) liveQueue.push(event);
+      if (!replayComplete) liveQueue.push(event);
       else receive(event);
     });
     const offExit = bridge.onExit((event) => {
-      if (id === null) exits.set(event.id, event.exitCode);
-      else if (event.id === id) {
-        exits.set(event.id, event.exitCode);
+      if (!replayComplete || event.id === id) exits.set(event.id, event.exitCode);
+      if (event.id === id) {
         terminal.options.disableStdin = true;
         setExitCode(event.exitCode);
       }

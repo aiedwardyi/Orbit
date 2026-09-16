@@ -509,6 +509,53 @@ it("starts a new shell from an exited session via New shell", async () => {
   expect(host.textContent).not.toMatch(/Shell exited \(0\)|exited \(0\)/i);
 });
 
+it.each([null, 7])("retains replacement events before restart resolves with exit %s", async (exitCode) => {
+  let receive!: (event: { id: string; data: string; seq: number }) => void;
+  let exit!: (event: { id: string; exitCode: number }) => void;
+  let resolveRestart!: (snapshot: TerminalSnapshot) => void;
+  const open = vi.fn(async () => {
+    if (open.mock.calls.length === 1) {
+      return { id: "old", cwd: "C:\\work", shell: "pwsh.exe", output: "OLD", seq: 10, exitCode: null };
+    }
+    return new Promise<TerminalSnapshot>((resolve) => { resolveRestart = resolve; });
+  });
+  const write = vi.fn(async () => {});
+  const bot = mountBridge({
+    appearance: vi.fn(async () => null), open, write, resize: vi.fn(async () => {}),
+    onData: (cb) => { receive = cb; return vi.fn(); },
+    onExit: (cb) => { exit = cb; return vi.fn(); },
+  });
+  await act(async () => root.render(createElement(TerminalWorkspace, {
+    bot, visible: true, focusBlocked: false, onClose: vi.fn(),
+  })));
+  const restart = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Restart"));
+  expect(restart).toBeTruthy();
+  await act(async () => { restart!.click(); });
+  const confirm = [...document.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Restart terminal");
+  expect(confirm).toBeTruthy();
+  await act(async () => { confirm!.click(); });
+  await act(async () => {
+    receive({ id: "new", data: "SNAPSHOT", seq: 1 });
+    receive({ id: "new", data: "GAP", seq: 2 });
+    receive({ id: "old", data: "STALE", seq: 11 });
+    exit({ id: "old", exitCode: 0 });
+    if (exitCode !== null) exit({ id: "new", exitCode });
+    terminal.__emitData("blocked\r");
+  });
+  expect(write).not.toHaveBeenCalled();
+  await act(async () => {
+    resolveRestart({ id: "new", cwd: "C:\\work", shell: "pwsh.exe", output: "SNAPSHOT", seq: 1, exitCode: null });
+  });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["OLD", "SNAPSHOT", "GAP"]);
+  expect(terminal.options.disableStdin).toBe(exitCode !== null);
+  await act(async () => { terminal.__emitData("dir\r"); });
+  if (exitCode === null) expect(write).toHaveBeenCalledWith("new", "dir\r");
+  else {
+    expect(write).not.toHaveBeenCalled();
+    expect(host.textContent).toContain("(7)");
+  }
+});
+
 it("restores keyboard input forwarding when fallback restart IPC throws", async () => {
   const snapshot = { id: "session-fallback-err", cwd: "C:\\work", shell: "pwsh.exe", output: "READY", seq: 1, exitCode: null as number | null };
   const write = vi.fn(async () => {});
