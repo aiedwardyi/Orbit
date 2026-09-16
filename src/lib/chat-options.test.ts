@@ -32,6 +32,11 @@ describe("chatOptionChoices", () => {
     expect(chatOptionChoices("Use (A or B)?")).toBeNull();
   });
 
+  it("rejects top-level or when left still contains a nested or", () => {
+    // depth picks the outer or; \bor\b on left catches nested "or" -> null
+    expect(chatOptionChoices("Use (A or B) or npm?")).toBeNull();
+  });
+
   it("keeps a longer direct A-or-B without parentheses as choices", () => {
     // 13 words — still under the soft >20 cutoff
     expect(
