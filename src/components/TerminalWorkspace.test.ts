@@ -315,3 +315,45 @@ it("fallback resume after failed restart does not rewrite xterm scrollback", asy
   await act(async () => { receive({ id: "session-same", data: "LIVE_AFTER_FALLBACK", seq: 3 }); });
   expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["SCROLLBACK", "LIVE_AFTER_FALLBACK"]);
 });
+
+it("does not flash needsFolder banner while restart fallback is pending", async () => {
+  const snapshot = { id: "session-pending", cwd: "C:\\work", shell: "pwsh.exe", output: "SCROLLBACK", seq: 2, exitCode: null as number | null };
+  let resolveFallback!: (value: typeof snapshot) => void;
+  const open = vi.fn(async (opts: { restart?: boolean }) => {
+    if (opts.restart) return { needsFolder: true as const, reason: "explicit-unavailable" };
+    if (open.mock.calls.length === 1) return { ...snapshot };
+    return new Promise<typeof snapshot>((resolve) => { resolveFallback = resolve; });
+  });
+  const bridge: TerminalBridge = {
+    appearance: vi.fn(async () => null),
+    open,
+    write: vi.fn(),
+    resize: vi.fn(async () => {}),
+    onData: () => vi.fn(),
+    onExit: () => vi.fn(),
+  };
+  Object.defineProperty(window, "ogb", { configurable: true, value: { platform: "win32", terminal: bridge, pickFolder: vi.fn(async () => null) } });
+  vi.stubGlobal("localStorage", window.localStorage);
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => root.render(createElement(TerminalWorkspace, {
+    bot: { id: "bot-pending", name: "Desk", cwd: "C:\\work" },
+    visible: true,
+    focusBlocked: false,
+    onClose: vi.fn(),
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Restart"));
+  expect(restartBtn).toBeTruthy();
+  await act(async () => { restartBtn!.click(); });
+  const confirmBtn = [...document.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Restart terminal");
+  expect(confirmBtn).toBeTruthy();
+  await act(async () => { confirmBtn!.click(); });
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  // Fallback open is still pending — choose-folder banner must not flash yet.
+  expect(host.textContent).not.toMatch(/unavailable|Choose a folder/i);
+  await act(async () => { resolveFallback({ ...snapshot }); await Promise.resolve(); await Promise.resolve(); });
+  expect(host.textContent).not.toMatch(/unavailable|Choose a folder/i);
+});

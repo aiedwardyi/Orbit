@@ -538,7 +538,7 @@ export const en = {
   "composer.channel": "Group",
 
   "bot.workingFolder": "Project folder (optional)",
-  "bot.workingFolderHelp": "Where this bot works.",
+  "bot.workingFolderHelp": "Where this bot works. Leave empty for a private workspace; tools and shell stay in that folder.",
   "bot.workingFolderEmpty": "Private bot workspace",
   "bot.workingFolderPlaceholder": "Private bot workspace — or an absolute path",
   "bot.workingFolderChoose": "Choose…",
@@ -1492,7 +1492,7 @@ export const ko = {
   "composer.channel": "그룹",
 
   "bot.workingFolder": "프로젝트 폴더 (선택)",
-  "bot.workingFolderHelp": "이 봇이 작업하는 위치입니다.",
+  "bot.workingFolderHelp": "이 봇이 작업하는 위치입니다. 비워 두면 비공개 작업 공간이며, 셸과 파일 도구는 해당 폴더로 제한됩니다.",
   "bot.workingFolderEmpty": "비공개 봇 작업 공간",
   "bot.workingFolderPlaceholder": "비공개 봇 작업 공간 — 또는 절대 경로",
   "bot.workingFolderChoose": "선택…",

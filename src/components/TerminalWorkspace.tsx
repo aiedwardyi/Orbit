@@ -220,10 +220,9 @@ export function TerminalWorkspace({
           return;
         }
         if ("needsFolder" in result && result.needsFolder) {
-          setNeedsFolder(true);
-          setFolderReason(result.reason ?? "choose-folder");
           if (restart) {
             // Host keeps the prior session when the new target is unavailable.
+            // Defer needsFolder until fallback open settles — avoid flashing the banner mid-resume.
             try {
               const resumed = await bridge.open({ botId: expectedBotId, cols: terminal.cols, rows: terminal.rows, restart: false });
               if (!alive) return;
@@ -255,12 +254,18 @@ export function TerminalWorkspace({
                 }
                 return;
               }
+              setNeedsFolder(true);
+              setFolderReason(resumed.reason ?? result.reason ?? "choose-folder");
             } catch (cause) {
               report(cause);
+              setNeedsFolder(true);
+              setFolderReason(result.reason ?? "choose-folder");
             }
             setReplacing(false);
             replacingRef.current = false;
           } else {
+            setNeedsFolder(true);
+            setFolderReason(result.reason ?? "choose-folder");
             id = null;
             sessionIdRef.current = null;
             setSession(null);
