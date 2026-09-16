@@ -85,7 +85,7 @@ const ELEVATORS = new Set(["sudo", "doas", "run0"]);
 const programName = (word: string) => (word.split(/[\\/]/).pop() ?? "").toLowerCase().replace(/\.exe$/, "");
 
 function isPowerOffProgram(word: string): boolean {
-  return POWER_OFF.has(programName(word.replace(/^["']+|["']+$/g, "")));
+  return POWER_OFF.has(programName(word.replace(/^["'({!]+|["')}]+$/g, "")));
 }
 
 /** shutdown/reboot/halt as the program that runs, not a branch/path/message token. */
@@ -121,7 +121,7 @@ function segmentHasPowerOffCommand(segment: string): boolean {
       i += 1;
       continue;
     }
-    const name = programName(w.replace(/^["']+|["']+$/g, ""));
+    const name = programName(w.replace(/^["'({!]+|["')}]+$/g, ""));
     if (!name || name.startsWith("-")) {
       i += 1;
       continue;

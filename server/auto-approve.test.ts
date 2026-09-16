@@ -27,6 +27,7 @@ describe("looksDestructive", () => {
     "git status && shutdown -h now",
     "bash -c 'shutdown -h now'",
     "timeout 5 reboot",
+    "(shutdown -h now)",
     ":(){ :|:& };:",
     "chmod -R 777 /",
   ];
@@ -294,6 +295,7 @@ describe("power-off command vs branch/path/message", () => {
       "halt",
       "git status && shutdown -h now",
       "bash -c 'shutdown -h now'",
+      "(shutdown -h now)",
       "/sbin/shutdown -P now",
     ]) {
       expect(autoVerdict(bot, "Bash", summary)).toMatchObject({
