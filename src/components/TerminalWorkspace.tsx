@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowLeft, TerminalSquare } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -12,7 +12,9 @@ export function TerminalWorkspace({ bot, onClose, focusBlocked, visible }: { bot
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const blockedRef = useRef(focusBlocked || !visible);
-  blockedRef.current = focusBlocked || !visible;
+  useLayoutEffect(() => {
+    blockedRef.current = focusBlocked || !visible;
+  }, [focusBlocked, visible]);
   const [generation, setGeneration] = useState(0);
   const [session, setSession] = useState<{ cwd: string; shell: string } | null>(null);
   const [exitCode, setExitCode] = useState<number | null>(null);

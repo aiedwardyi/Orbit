@@ -997,6 +997,7 @@ export function GroupView({ group }: { group: Group }) {
   const stream = useStreaming();
   const streaming = stream.streaming[group.threadId];
   const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const composerDockRef = useRef<HTMLDivElement>(null);
   const composerDock = useComposerDockPad(composerDockRef);
   const [follow, setFollow] = useState(true);
@@ -1141,13 +1142,26 @@ export function GroupView({ group }: { group: Group }) {
   useEffect(() => setBulletinOpen(false), [group.id]);
   // deps track the FULL messages.length, so expanding the window (which only
   // changes windowedMessages) can never re-trigger this bottom scrollTo.
-  // `follow` is intentionally omitted — see ChatView.
+  // `follow` is intentionally omitted - see ChatView.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || !followRef.current) return;
     el.scrollTo({ top: el.scrollHeight });
     previousScrollTop.current = el.scrollTop;
-  }, [group.id, group.messages.length, streaming, group.busyBotId, composerDock.pad]);
+  }, [group.id, group.messages.length, streaming, group.busyBotId, composerDock.pad, popping]);
+
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    const observer = new ResizeObserver(() => {
+      const el = scrollRef.current;
+      if (!el || !followRef.current) return;
+      el.scrollTo({ top: el.scrollHeight });
+      previousScrollTop.current = el.scrollTop;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
 
   // Expanding prepends rows: capture the height first, then after the commit
   // shift scrollTop by the growth so the message under the cursor stays put
@@ -1409,6 +1423,7 @@ export function GroupView({ group }: { group: Group }) {
           </div>
         ) : (
         <div
+          ref={contentRef}
           className={cn("flex w-full flex-col gap-3 px-5", CHAT_COLUMN_CLASS)}
           style={{ paddingBottom: TRANSCRIPT_GAP }}
           role="log"

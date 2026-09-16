@@ -3,11 +3,12 @@ import test from "node:test";
 import os from "node:os";
 import { createTerminalHost } from "./terminal-host.mjs";
 
-test("real PTY accepts input, resizes, replays output and reports shell exit", { timeout: 20000 }, async () => {
+test("real PTY accepts input, resizes, replays output and reports shell exit", { timeout: 20000 }, async (t) => {
   let finish;
   const exited = new Promise((resolve) => { finish = resolve; });
   const owner = { id: 1, mainFrame: {}, send(channel, value) { if (channel === "terminal:exit") finish(value); } };
   const host = createTerminalHost({ authorize() {}, resolveCwd: async () => os.tmpdir() });
+  t.after(() => host.dispose());
   const event = { sender: owner, senderFrame: owner.mainFrame };
   const input = { botId: "smoke", cols: 80, rows: 24 };
   const session = await host.open(event, input);
@@ -22,7 +23,7 @@ test("real PTY accepts input, resizes, replays output and reports shell exit", {
   host.dispose();
 });
 
-test("app shutdown closes its idle shell", { timeout: 20000 }, async () => {
+test("app shutdown closes its idle shell", { timeout: 20000 }, async (t) => {
   let ready;
   let finish;
   let output = "";
@@ -36,6 +37,7 @@ test("app shutdown closes its idle shell", { timeout: 20000 }, async () => {
     if (channel === "terminal:exit") finish(value);
   } };
   const host = createTerminalHost({ authorize() {}, resolveCwd: async () => os.tmpdir() });
+  t.after(() => host.dispose());
   const event = { sender: owner, senderFrame: owner.mainFrame };
   const session = await host.open(event, { botId: "shutdown", cols: 80, rows: 24 });
   host.write(event, session.id, process.platform === "win32" ? "Write-Output ('ORBIT_SHELL_PID=' + $PID)\r" : "echo ORBIT_SHELL_PID=$$\n");

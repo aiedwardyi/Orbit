@@ -323,9 +323,9 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
           </div>
           {terminalViews[bot.id] !== undefined && (
             <div className="orbit-terminal-overlay absolute inset-0 z-20 flex" data-open={terminalOpen} inert={!terminalOpen} aria-hidden={!terminalOpen}>
-            <Suspense fallback={<BootFallback label={t("terminal.connecting")} />}>
-              <TerminalWorkspace key={bot.id} bot={bot} visible={terminalOpen} focusBlocked={nativeViewOverlayOpen} onClose={closeTerminal} />
-            </Suspense>
+              <Suspense fallback={<BootFallback label={t("terminal.connecting")} />}>
+                <TerminalWorkspace key={bot.id} bot={bot} visible={terminalOpen} focusBlocked={nativeViewOverlayOpen} onClose={closeTerminal} />
+              </Suspense>
             </div>
           )}
         </div>

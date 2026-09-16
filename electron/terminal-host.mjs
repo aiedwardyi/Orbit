@@ -57,13 +57,21 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       if (pending.has(key)) return pending.get(key);
       const existing = [...sessions.values()].find((s) => s.key === key);
       if (existing && !(input.restart === true && existing.exitCode !== null)) return snapshot(existing);
+      if (!existing && sessions.size >= 16) {
+        for (const [id, session] of sessions) {
+          if (session.exitCode !== null || session.owner.isDestroyed?.()) {
+            try { session.pty.kill(); } catch {}
+            sessions.delete(id);
+          }
+        }
+      }
       if (sessions.size >= 16 && !existing) throw new Error("Too many terminal sessions");
       const task = (async () => {
         const cwd = await resolveCwd(input.botId, event);
         authorize(event);
         if (disposed) throw new Error("Terminal host is shutting down");
         // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Validate the API or native dialog result before spawning.
-        if (typeof cwd !== "string" || !path.isAbsolute(cwd) || !fs.statSync(cwd).isDirectory()) throw new Error("Terminal folder is unavailable");
+        if (typeof cwd !== "string" || !path.isAbsolute(cwd) || !(await fs.promises.stat(cwd).then((s) => s.isDirectory()).catch(() => false))) throw new Error("Terminal folder is unavailable");
         const shell = platform === "win32"
           ? [path.join(env.ProgramFiles || "C:\\Program Files", "PowerShell", "7", "pwsh.exe"), path.join(env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")].find((file) => fs.existsSync(file))
           : (env.SHELL || "/bin/sh");
@@ -74,6 +82,12 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
         const session = { id: randomUUID(), key, owner: event.sender, cwd, shell, pty, output: "", exitCode: null, seq: 0 };
         if (existing) sessions.delete(existing.id);
         sessions.set(session.id, session);
+        if (typeof event.sender.once === "function") {
+          event.sender.once("destroyed", () => {
+            try { session.pty.kill(); } catch {}
+            sessions.delete(session.id);
+          });
+        }
         pty.onData((data) => {
           session.output = (session.output + data).slice(-OUTPUT_LIMIT);
           emit(session, "terminal:data", { id: session.id, data, seq: ++session.seq });

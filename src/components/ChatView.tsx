@@ -940,6 +940,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   const { state, dispatch } = useStore();
   const { capabilities, ready: capabilitiesReady } = useDesktopCapabilities();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const composerDockRef = useRef<HTMLDivElement>(null);
   const composerDock = useComposerDockPad(composerDockRef);
 
@@ -1129,7 +1130,20 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
     if (!el || !followRef.current) return;
     el.scrollTo({ top: el.scrollHeight });
     previousScrollTop.current = el.scrollTop;
-  }, [bot.id, messages.length, streaming, reasoning, turnSignal, bot.busy, composerDock.pad]);
+  }, [bot.id, messages.length, streaming, reasoning, turnSignal, bot.busy, composerDock.pad, popping]);
+
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    const observer = new ResizeObserver(() => {
+      const el = scrollRef.current;
+      if (!el || !followRef.current) return;
+      el.scrollTo({ top: el.scrollHeight });
+      previousScrollTop.current = el.scrollTop;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
 
   // Expanding prepends rows: capture the height first, then after the commit
   // shift scrollTop by the growth so the message under the cursor stays put
@@ -1364,6 +1378,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
         }}
       >
         <div
+          ref={contentRef}
           className={cn("flex w-full flex-col gap-3 px-5", CHAT_COLUMN_CLASS)}
           style={{ paddingBottom: TRANSCRIPT_GAP }}
           role="log"
