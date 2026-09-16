@@ -82,13 +82,11 @@ export const SECTION_PHRASE_KEYS = {
   connections: [
     "settings.section.connections",
     "settings.connections.title",
-    "settings.connections.subtitle",
     "settings.connections.ready",
     "settings.connections.selfHost",
     "settings.connections.moreServices",
     "connections.gemini.label",
     "engines.setCli",
-    "engines.help",
     "connections.box.label",
     "connections.vps.label",
     "connections.transcription.label",
@@ -98,7 +96,6 @@ export const SECTION_PHRASE_KEYS = {
     "settings.engines.title",
     "settings.engines.subtitle",
     "engines.setCli",
-    "engines.help",
     "engines.none",
   ],
   companion: [
@@ -150,3 +147,4 @@ export function settingsSectionMatches(id: AppSettingsSection, query: string): b
   if (!q) return true;
   return settingsSectionSearchHaystack(id).includes(q);
 }
+

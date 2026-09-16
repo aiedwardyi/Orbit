@@ -44,11 +44,11 @@ const SECTIONS: Array<{
 }> = [
   { id: "general", icon: User },
   { id: "connections", icon: KeyRound },
-  { id: "themes", icon: Palette, shortcut: "Alt+T" },
   { id: "shortcuts", icon: Keyboard },
   { id: "engines", icon: Terminal },
   { id: "companion", icon: Smartphone },
   { id: "computer", icon: Monitor },
+  { id: "themes", icon: Palette, shortcut: "Alt+T" },
   { id: "usage", icon: Coins, shortcut: "Alt+U" },
 ];
 
@@ -496,9 +496,7 @@ export function SettingsModal({
             )}
 
             {section === "connections" && (
-              <Card
-                subtitle={t("settings.connections.subtitle")}
-              >
+              <Card>
                 <div className="flex flex-col gap-4">
                   {state.config?.composio.mode === "managed" ? (
                     <div className="rounded-lg border border-success/25 bg-success/10 px-3 py-2 text-[13px] text-success">
@@ -506,7 +504,6 @@ export function SettingsModal({
                     </div>
                   ) : null}
                   <EnginesSettings />
-                  <ApiKeyRow section="gemini" />
                   {showSettingsMoreServicesSection() && (
                     <>
                   <button
