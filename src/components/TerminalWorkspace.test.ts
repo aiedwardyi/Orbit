@@ -357,3 +357,52 @@ it("does not flash needsFolder banner while restart fallback is pending", async 
   await act(async () => { resolveFallback({ ...snapshot }); await Promise.resolve(); await Promise.resolve(); });
   expect(host.textContent).not.toMatch(/unavailable|Choose a folder/i);
 });
+
+it("new-id fallback attach uses current bot cwd, not stale launchProject", async () => {
+  const open = vi.fn(async (opts: { restart?: boolean }) => {
+    if (opts.restart) return { needsFolder: true as const, reason: "explicit-unavailable" };
+    if (open.mock.calls.length === 1) {
+      return { id: "session-old", cwd: "C:\\old", shell: "pwsh.exe", output: "OLD", seq: 1, exitCode: null as number | null };
+    }
+    // Host GC'd the prior session — fallback returns a fresh id.
+    return { id: "session-new", cwd: "C:\\new", shell: "pwsh.exe", output: "NEW", seq: 1, exitCode: null as number | null };
+  });
+  const bridge: TerminalBridge = {
+    appearance: vi.fn(async () => null),
+    open,
+    write: vi.fn(),
+    resize: vi.fn(async () => {}),
+    onData: () => vi.fn(),
+    onExit: () => vi.fn(),
+  };
+  Object.defineProperty(window, "ogb", { configurable: true, value: { platform: "win32", terminal: bridge, pickFolder: vi.fn(async () => null) } });
+  vi.stubGlobal("localStorage", window.localStorage);
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  const render = (cwd: string) => root.render(createElement(TerminalWorkspace, {
+    bot: { id: "bot-stale", name: "Desk", cwd },
+    visible: true,
+    focusBlocked: false,
+    onClose: vi.fn(),
+  }));
+  await act(async () => render("C:\\old"));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["OLD"]);
+  // Mid-flight cwd change: mismatch banner shows old launch folder.
+  await act(async () => render("C:\\new"));
+  expect(host.textContent).toMatch(/Terminal started in a different folder/i);
+  expect(host.textContent).toContain("C:\\old");
+  const restartHere = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Open terminal here"));
+  expect(restartHere).toBeTruthy();
+  await act(async () => { restartHere!.click(); });
+  const confirmBtn = [...document.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Restart terminal");
+  expect(confirmBtn).toBeTruthy();
+  await act(async () => { confirmBtn!.click(); });
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+  // New-id fallback must set launchProject from expectedProject (current cwd), clearing the mismatch banner.
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["OLD", "NEW"]);
+  expect(host.textContent).not.toMatch(/Terminal started in a different folder/i);
+  expect(host.textContent).not.toContain("C:\\old");
+});

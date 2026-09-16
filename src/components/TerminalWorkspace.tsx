@@ -238,7 +238,7 @@ export function TerminalWorkspace({
                   sessionIdRef.current = resumed.id;
                   lastSeq = resumed.seq;
                   replayComplete = false;
-                  terminal.write(resumed.output, () => finishAttach(resumed, launchProject ?? expectedProject));
+                  terminal.write(resumed.output, () => finishAttach(resumed, expectedProject));
                 } else {
                   // Same-id fallback skipped finishAttach — restore the live gate and drain the queue.
                   const queued = [...liveQueue]
