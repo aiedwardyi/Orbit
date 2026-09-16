@@ -82,7 +82,10 @@ function prefixBeforeTrailingList(
 }
 
 function orChoices(text: string): string[] | null {
-  const match = text.trim().match(/^(?:[\s\S]*\n)?(.+?)\s+or\s+(.+?)\?\s*$/i);
+  const candidate = text.trim();
+  // Keep this heuristic for short direct questions, not parenthetical prose.
+  if (candidate.split(/\s+/).length > 12 || /[()[\]{}]/.test(candidate)) return null;
+  const match = candidate.match(/^(?:[\s\S]*\n)?(.+?)\s+or\s+(.+?)\?\s*$/i);
   if (!match) return null;
   let left = match[1]!.trim();
   const right = match[2]!.trim().replace(/[?.!]+$/, "").trim();

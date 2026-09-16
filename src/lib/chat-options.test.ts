@@ -21,6 +21,12 @@ describe("chatOptionChoices", () => {
     expect(chatOptionChoices("Should I use pnpm or npm?")).toEqual(["pnpm", "npm"]);
   });
 
+  it("does not turn parenthetical policy prose into choices", () => {
+    expect(
+      chatOptionChoices("Want me to save your role boundaries (no code, push, merge, release or Obsidian edits unless you ask) to my local memory?"),
+    ).toBeNull();
+  });
+
   it("ignores a bulleted list that is not a question", () => {
     expect(
       chatOptionChoices("Here's the plan:\n- fix the tests\n- ship the build\n- write the docs"),
