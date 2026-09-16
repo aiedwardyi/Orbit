@@ -7,7 +7,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const worktree = join(here, "..", "..");
 const outDir =
   process.env.OMB_CAPTION_SMOKE_OUT ||
-  join("C:/Users/mredw/.codex/handoffs/orbit-refinement-assets/caption-smoke");
+  join(worktree, "tmp", "caption-smoke");
 
 const { WINDOWS_CAPTION_HEIGHT, windowChromeOptions } = await import(
   pathToFileURL(join(worktree, "electron", "window-chrome.mjs")).href

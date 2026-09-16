@@ -411,7 +411,7 @@ export default function App() {
       <StoreProvider>
         <Shell onboardingOpen={onboardingOpen} />
         {onboardingOpen && (
-          <Suspense fallback={<div className="fixed inset-0 z-50 bg-app" />}>
+          <Suspense fallback={<div className="orbit-inset-aware fixed inset-0 z-50 bg-app" />}>
             <Onboarding
               onDone={() => {
                 setOnboardingDone();

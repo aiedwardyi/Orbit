@@ -957,7 +957,7 @@ function buildErrorPage({ allPortsOccupied }) {
     "data:text/html;charset=utf-8," +
     encodeURIComponent(
       markFailedBootPage(
-        `<html lang="${uiLocale()}"><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:${chrome.color};color:${chrome.symbolColor};font:15px ${uiFontStack()};${inset}">${drag}<div style="text-align:center;max-width:360px"><div style="font-size:40px">🐭</div><h2 style="font-weight:600;margin:12px 0 6px">${escapeHtml(nativeText("packaged.bootTitle"))}</h2><p style="color:${chrome.symbolColor};opacity:0.7;line-height:1.5">${escapeHtml(reason)} ${escapeHtml(nativeText("packaged.bootCheckLog"))} <code style="opacity:1">${escapeHtml(serverLogPath)}</code>.</p></div></body>`,
+        `<html lang="${uiLocale()}"><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:${chrome.color};color:${chrome.symbolColor};font:15px ${uiFontStack()};${inset}">${drag}<div style="text-align:center;max-width:360px"><div style="font-size:40px">🐭</div><h2 style="font-weight:600;margin:12px 0 6px">${escapeHtml(nativeText("packaged.bootTitle"))}</h2><p style="color:${chrome.symbolColor}b3;line-height:1.5">${escapeHtml(reason)} ${escapeHtml(nativeText("packaged.bootCheckLog"))} <code style="color:${chrome.symbolColor}">${escapeHtml(serverLogPath)}</code>.</p></div></body>`,
       ),
     )
   );
