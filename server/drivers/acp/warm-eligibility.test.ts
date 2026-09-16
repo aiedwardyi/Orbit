@@ -49,4 +49,10 @@ describe("warm-eligibility", () => {
   it("rejects different threads (no cross-bot pooling)", () => {
     expect(canReuseWarmSession(base, { ...base, threadId: "t2" }, "sess-1", "sess-1")).toBe(false);
   });
+
+  it("distinguishes composio.env keys/values that share =/, characters", () => {
+    const a = warmToolsKey({ composio: { command: "c", env: { "a,b": "c" } } });
+    const b = warmToolsKey({ composio: { command: "c", env: { a: "b,c" } } });
+    expect(a).not.toBe(b);
+  });
 });

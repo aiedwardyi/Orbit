@@ -297,14 +297,14 @@ describe("SPEED4 warm session reuse (fake CLI)", () => {
     const a = await WarmGrok.create({
       instanceId: "speed4-a",
       displayName: "A",
-      environment: fakeEnv(),
+      environment: { ...fakeEnv(), FAKE_ACP_SESSION_ID: "fake-session-a" },
       enabled: true,
       config: { cli: FAKE_CLI, fullAuto: false, workspace: scratch },
     });
     const b = await WarmGrok.create({
       instanceId: "speed4-b",
       displayName: "B",
-      environment: fakeEnv(),
+      environment: { ...fakeEnv(), FAKE_ACP_SESSION_ID: "fake-session-b" },
       enabled: true,
       config: { cli: FAKE_CLI, fullAuto: false, workspace: scratch },
     });
@@ -324,6 +324,7 @@ describe("SPEED4 warm session reuse (fake CLI)", () => {
       await rb.until((e) => e.type === "turn.completed" && e.turnId !== tb.turnId);
       expect(sa).toBeTruthy();
       expect(sb).toBeTruthy();
+      expect(sa).not.toBe(sb);
     } finally {
       ra.stop();
       rb.stop();

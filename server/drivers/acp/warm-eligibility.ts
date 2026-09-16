@@ -35,10 +35,12 @@ export type SendTurnIntegrations = {
 
 function stableEnvKey(env: Record<string, string> | undefined): string {
   if (!env) return "";
-  return Object.keys(env)
-    .sort()
-    .map((k) => `${k}=${env[k]}`)
-    .join(",");
+  // JSON of sorted [k,v] pairs -- unambiguous if keys/values contain = or ,
+  return JSON.stringify(
+    Object.keys(env)
+      .sort()
+      .map((k) => [k, env[k]] as [string, string]),
+  );
 }
 
 export function warmToolsKey(integrations: SendTurnIntegrations | undefined): string {

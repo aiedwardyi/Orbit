@@ -370,7 +370,7 @@ function handle(msg: any) {
       const opts = configOptions();
       const mdls = sessionModels();
       result(msg.id, {
-        sessionId: "fake-acp-session",
+        sessionId: process.env.FAKE_ACP_SESSION_ID || "fake-acp-session",
         ...(opts ? { configOptions: opts } : {}),
         ...(mdls ? { models: mdls } : {}),
       });
