@@ -209,6 +209,7 @@ export function TerminalWorkspace({
       setError("");
       setNeedsFolder(false);
       setFolderReason(null);
+      liveQueue.length = 0;
       replayComplete = false;
       void bridge.open({ botId: expectedBotId, cols: terminal.cols, rows: terminal.rows, restart }).then(async (result) => {
         opening = false;
@@ -337,7 +338,7 @@ export function TerminalWorkspace({
             <button
               type="button"
               onClick={() => void chooseAndPersist()}
-              disabled={choosing}
+              disabled={choosing || replacing}
               title={folderTooltip}
               aria-label={t("terminal.chooseFolder")}
               className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md px-1.5 py-0.5 text-left text-[11px] text-ink-secondary hover:bg-raised hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text disabled:opacity-60"
@@ -419,7 +420,6 @@ export function TerminalWorkspace({
           onCancel={() => setConfirmRestart(false)}
           onConfirm={() => {
             setConfirmRestart(false);
-            if (botIdRef.current !== bot.id) return;
             setBannerDismissed(false);
             setGeneration((value) => value + 1);
           }}
