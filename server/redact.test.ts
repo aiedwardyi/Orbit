@@ -464,6 +464,13 @@ describe("redactSecretsInText", () => {
     expect(out.note).toBe("fine");
   });
 
+  it("preserves word-boundary context across chunks", () => {
+    const masker = new StreamSecretMasker();
+    const streamed = masker.push("z") + masker.push("sk-abcdefghijklmnop") + masker.flush();
+    expect(redactSecretsInText("zsk-abcdefghijklmnop")).toBe("zsk-abcdefghijklmnop");
+    expect(streamed).toBe("zsk-abcdefghijklmnop");
+  });
+
   it("emits ordinary short replies before flush when chunked into 5-character pieces", () => {
     const sentence = "This chat is a latency probe measuring how fast Maple replies.";
     const masker = new StreamSecretMasker();

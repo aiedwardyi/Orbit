@@ -186,7 +186,8 @@ describe("EventBus", () => {
     const bus = new EventBus();
     bus.publish(delta("reasoning_text", `thinking about ${key.slice(0, 8)}`));
     bus.publish(delta("assistant_text", "here is the answer"));
-    bus.publish(delta("reasoning_text", `${key.slice(8)} done`));
+    // Leave the key open through the last delta so turn.completed must emit a reasoning flush.
+    bus.publish(delta("reasoning_text", key.slice(8)));
     bus.publish(testEvent({ threadId: "two-streams", type: "turn.completed" }));
 
     const logged = readFileSync(join(EVENTS_DIR, "two-streams.ndjson"), "utf8")
@@ -198,7 +199,8 @@ describe("EventBus", () => {
 
     expect(joined("assistant_text")).toBe("here is the answer");
     expect(joined("reasoning_text")).not.toContain(key);
-    expect(joined("reasoning_text")).toMatch(/^thinking about «redacted \d+ chars» done$/);
+    expect(joined("reasoning_text")).toMatch(/^thinking about «redacted \d+ chars»$/);
+    expect(logged.some((e) => e.eventId === "ev-1-delta-flush-reasoning_text")).toBe(true);
     expect(logged.filter((e) => String(e.eventId).includes("delta-flush-assistant_text"))).toHaveLength(0);
   });
 

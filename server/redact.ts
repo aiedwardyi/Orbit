@@ -289,6 +289,7 @@ function safeCut(text: string): number {
   for (let moved = true; moved; ) {
     moved = false;
     for (const [start, end] of spans) {
+      // end === text.length: match ends at EOS and could still grow in the next chunk.
       if (start < cut && (end > cut || end === text.length)) {
         cut = start;
         moved = true;
@@ -334,19 +335,38 @@ class TrimmedLength {
 export class StreamSecretMasker {
   private hold = "";
   private pem: { open: string; body: TrimmedLength; tail: string } | null = null;
+  /** Last emitted character — virtual lead so the next chunk sees the same \b context as a contiguous buffer. */
+  private prevChar: string | null = null;
 
   push(chunk: string): string {
     if (this.pem) return this.pushOpenPem(chunk);
+    const lead = this.prevChar ?? "";
+    const offset = lead.length;
     const buffered = this.hold + chunk;
-    const cut = safeCut(buffered);
+    const cutWin = safeCut(lead + buffered);
+    const cut = Math.max(0, cutWin - offset);
     this.hold = buffered.slice(cut);
-    const out = cut === 0 ? "" : redactSecretsInText(buffered.slice(0, cut));
+    let out = "";
+    if (cut > 0) {
+      const redacted = redactSecretsInText(lead + buffered.slice(0, cut));
+      out = offset === 0 ? redacted : redacted.slice(offset);
+      this.prevChar = buffered[cut - 1]!;
+    }
     return out + this.startOpenPem();
   }
 
   flush(): string {
-    const out = this.pem ? this.closeOpenPem(this.pem.tail, "") : redactSecretsInText(this.hold);
+    if (this.pem) {
+      const out = this.closeOpenPem(this.pem.tail, "");
+      this.hold = "";
+      this.prevChar = null;
+      return out;
+    }
+    const lead = this.prevChar ?? "";
+    const redacted = redactSecretsInText(lead + this.hold);
+    const out = lead ? redacted.slice(lead.length) : redacted;
     this.hold = "";
+    this.prevChar = null;
     return out;
   }
 
@@ -359,7 +379,12 @@ export class StreamSecretMasker {
     this.hold = "";
     this.pem = { open: open[1], body: new TrimmedLength(), tail: "" };
     this.countBody(open[2]);
-    return head ? redactSecretsInText(head) : "";
+    if (!head) return "";
+    const lead = this.prevChar ?? "";
+    const redacted = redactSecretsInText(lead + head);
+    const out = lead ? redacted.slice(lead.length) : redacted;
+    this.prevChar = head[head.length - 1]!;
+    return out;
   }
 
   private pushOpenPem(chunk: string): string {
@@ -370,10 +395,9 @@ export class StreamSecretMasker {
       return "";
     }
     // Whatever follows the closing delimiter is ordinary text again.
-    return (
-      this.closeOpenPem(buffered.slice(0, end.index), `\n${end[0]}`) +
-      this.push(buffered.slice(end.index + end[0].length))
-    );
+    const closed = this.closeOpenPem(buffered.slice(0, end.index), `\n${end[0]}`);
+    this.prevChar = end[0][end[0].length - 1]!;
+    return closed + this.push(buffered.slice(end.index + end[0].length));
   }
 
   private countBody(text: string) {
