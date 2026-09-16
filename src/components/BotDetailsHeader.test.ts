@@ -215,7 +215,7 @@ describe("SettingsPanel still owns folder and usage", () => {
       ),
     );
     expect(html).toContain("Project folder (optional)");
-    expect(html).toMatch(/private workspace/i);
+    expect(html).toMatch(/Where this bot works/i);
     expect(html).not.toContain("Working folder");
     expect(html).not.toContain("Where this bot runs its shell and file tools.");
     expect(html).not.toContain("All bots");
@@ -249,7 +249,7 @@ describe("SettingsPanel still owns folder and usage", () => {
     );
     expect(html).toContain("Project folder (optional)");
     expect(html).toContain("Private bot workspace");
-    expect(html).toMatch(/Leave empty for a private workspace/i);
+    expect(html).toMatch(/Where this bot works/i);
     expect(html).not.toMatch(/you must configure where tools run/i);
     expect(html).not.toContain("Where this bot runs its shell and file tools.");
   });
@@ -282,3 +282,4 @@ describe("SettingsPanel still owns folder and usage", () => {
     expect(Math.abs(chipClsIdx - chipIdx)).toBeLessThan(600);
   });
 });
+

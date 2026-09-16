@@ -310,9 +310,9 @@ describe("complete phrases", () => {
   it("frames a bot project folder as optional private workspace", () => {
     expect(en["bot.workingFolder"]).toBe("Project folder (optional)");
     expect(ko["bot.workingFolder"]).toBe("프로젝트 폴더 (선택)");
-    expect(en["bot.workingFolderHelp"]).toMatch(/Leave empty for a private workspace/i);
+    expect(en["bot.workingFolderHelp"]).toBe("Where this bot works.");
     expect(en["bot.workingFolderHelp"]).not.toMatch(/you must configure where tools run/i);
-    expect(ko["bot.workingFolderHelp"]).toMatch(/비공개 작업 공간/);
+    expect(ko["bot.workingFolderHelp"]).toBe("이 봇이 작업하는 위치입니다.");
     expect(ko["bot.workingFolderHelp"]).not.toMatch(/Where this bot runs/i);
     expect(en["bot.workingFolderEmpty"]).toBe("Private bot workspace");
     expect(ko["bot.workingFolderEmpty"]).toBe("비공개 봇 작업 공간");
@@ -1097,3 +1097,4 @@ describe("skin picker taglines", () => {
     }
   });
 });
+

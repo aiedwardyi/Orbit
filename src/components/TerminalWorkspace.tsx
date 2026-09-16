@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowLeft, FolderOpen, TerminalSquare, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, FolderOpen, RotateCcw, TerminalSquare, X } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import type { Bot } from "@/state/store";
@@ -10,12 +10,19 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import "@xterm/xterm/css/xterm.css";
 
 type SessionInfo = { cwd: string; shell: string };
+type OutputEvent = { id: string; data: string; seq: number };
 
 function samePath(a: string | null | undefined, b: string | null | undefined): boolean {
   if (!a && !b) return true;
   if (!a || !b) return false;
   const norm = (value: string) => value.replace(/[\\/]+$/, "").toLowerCase();
   return norm(a) === norm(b);
+}
+
+function folderBasename(cwd: string): string {
+  const trimmed = cwd.replace(/[\\/]+$/, "");
+  const base = trimmed.split(/[\\/]/).pop();
+  return base || trimmed;
 }
 
 export function TerminalWorkspace({
@@ -37,13 +44,16 @@ export function TerminalWorkspace({
   const sessionIdRef = useRef<string | null>(null);
   const visibleRef = useRef(visible);
   const projectRef = useRef(bot.cwd ?? null);
+  const botIdRef = useRef(bot.id);
   const blockedRef = useRef(focusBlocked || !visible);
   const openShellRef = useRef<((restart: boolean) => void) | null>(null);
+  const replacingRef = useRef(false);
   useLayoutEffect(() => {
     blockedRef.current = focusBlocked || !visible;
     visibleRef.current = visible;
     projectRef.current = bot.cwd ?? null;
-  }, [focusBlocked, visible, bot.cwd]);
+    botIdRef.current = bot.id;
+  }, [focusBlocked, visible, bot.cwd, bot.id]);
   const [generation, setGeneration] = useState(0);
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [launchProject, setLaunchProject] = useState<string | null>(null);
@@ -52,11 +62,15 @@ export function TerminalWorkspace({
   const [needsFolder, setNeedsFolder] = useState(false);
   const [folderReason, setFolderReason] = useState<string | null>(null);
   const [choosing, setChoosing] = useState(false);
+  const [replacing, setReplacing] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [confirmRestart, setConfirmRestart] = useState(false);
 
   const projectMismatch = Boolean(session && !samePath(bot.cwd ?? null, launchProject));
   const showProjectBanner = projectMismatch && !bannerDismissed;
+  const folderLabel = bot.cwd ? folderBasename(bot.cwd) : t("terminal.privateWorkspace");
+  const folderTooltip = bot.cwd ?? t("terminal.privateWorkspace");
+  const restartTargetLabel = bot.cwd ? folderBasename(bot.cwd) : t("terminal.privateWorkspace");
 
   useEffect(() => {
     setBannerDismissed(false);
@@ -73,7 +87,9 @@ export function TerminalWorkspace({
     let frame = 0;
     let appearanceRequest = 0;
     let opening = false;
-    const pending: Array<{ id: string; data: string; seq: number }> = [];
+    let replayComplete = false;
+    const pending: OutputEvent[] = [];
+    const liveQueue: OutputEvent[] = [];
     const exits = new Map<string, number>();
     setSession(null);
     setLaunchProject(null);
@@ -81,6 +97,8 @@ export function TerminalWorkspace({
     setError("");
     setNeedsFolder(false);
     setFolderReason(null);
+    setReplacing(false);
+    replacingRef.current = false;
     sessionIdRef.current = null;
     const terminal = new Terminal({
       cursorBlink: false,
@@ -118,8 +136,12 @@ export function TerminalWorkspace({
     };
     void theme();
     fit.fit();
-    const receive = (event: { id: string; data: string; seq: number }) => {
+    const receive = (event: OutputEvent) => {
       if (event.id !== id || event.seq <= lastSeq) return;
+      if (!replayComplete) {
+        liveQueue.push(event);
+        return;
+      }
       lastSeq = event.seq;
       terminal.write(event.data);
     };
@@ -134,7 +156,10 @@ export function TerminalWorkspace({
         setExitCode(event.exitCode);
       }
     });
-    const input = terminal.onData((data) => { if (id) void bridge.write(id, data).catch(report); });
+    // Forward keystrokes and emulator replies only after historical replay finishes.
+    const input = terminal.onData((data) => {
+      if (id && replayComplete) void bridge.write(id, data).catch(report);
+    });
     const resize = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
@@ -150,44 +175,94 @@ export function TerminalWorkspace({
     const appearance = new MutationObserver(() => { void theme(); resize(); });
     appearance.observe(document.documentElement, { attributes: true, attributeFilter: ["data-skin", "data-shape"] });
 
+    const finishAttach = (snapshot: { id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number }, launchedProject: string | null) => {
+      if (!alive) return;
+      const queued = [...pending, ...liveQueue]
+        .filter((event) => event.id === snapshot.id && event.seq > snapshot.seq)
+        .sort((a, b) => a.seq - b.seq);
+      pending.length = 0;
+      liveQueue.length = 0;
+      replayComplete = true;
+      for (const event of queued) receive(event);
+      const code = exits.get(snapshot.id) ?? snapshot.exitCode;
+      setExitCode(code);
+      terminal.options.disableStdin = code !== null;
+      setSession({ cwd: snapshot.cwd, shell: snapshot.shell });
+      setLaunchProject(launchedProject);
+      setNeedsFolder(false);
+      setFolderReason(null);
+      setBannerDismissed(false);
+      setReplacing(false);
+      replacingRef.current = false;
+      resize();
+      if (!blockedRef.current) terminal.focus();
+    };
+
     const openShell = (restart: boolean) => {
       if (!alive || opening || !visibleRef.current) return;
       if (id && !restart) return;
+      if (restart && replacingRef.current) return;
+      const expectedBotId = botIdRef.current;
+      const expectedProject = projectRef.current;
       opening = true;
+      if (restart) {
+        replacingRef.current = true;
+        setReplacing(true);
+      }
       setError("");
       setNeedsFolder(false);
       setFolderReason(null);
-      void bridge.open({ botId: bot.id, cols: terminal.cols, rows: terminal.rows, restart }).then((result) => {
+      replayComplete = false;
+      void bridge.open({ botId: expectedBotId, cols: terminal.cols, rows: terminal.rows, restart }).then(async (result) => {
         opening = false;
         if (!alive) return;
+        if (botIdRef.current !== expectedBotId) {
+          setReplacing(false);
+          replacingRef.current = false;
+          return;
+        }
         if ("needsFolder" in result && result.needsFolder) {
-          id = null;
-          sessionIdRef.current = null;
-          setSession(null);
-          setLaunchProject(null);
           setNeedsFolder(true);
           setFolderReason(result.reason ?? "choose-folder");
+          if (restart) {
+            // Host keeps the prior session when the new target is unavailable.
+            try {
+              const resumed = await bridge.open({ botId: expectedBotId, cols: terminal.cols, rows: terminal.rows, restart: false });
+              if (!alive || botIdRef.current !== expectedBotId) return;
+              if (!("needsFolder" in resumed)) {
+                id = resumed.id;
+                sessionIdRef.current = resumed.id;
+                lastSeq = resumed.seq;
+                replayComplete = false;
+                terminal.write(resumed.output, () => finishAttach(resumed, launchProject ?? expectedProject));
+                return;
+              }
+            } catch (cause) {
+              report(cause);
+            }
+            setReplacing(false);
+            replacingRef.current = false;
+          } else {
+            id = null;
+            sessionIdRef.current = null;
+            setSession(null);
+            setLaunchProject(null);
+            setReplacing(false);
+            replacingRef.current = false;
+          }
           return;
         }
         const snapshot = result as { id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number };
         id = snapshot.id;
         sessionIdRef.current = snapshot.id;
         lastSeq = snapshot.seq;
-        terminal.write(snapshot.output);
-        for (const event of pending) receive(event);
-        pending.length = 0;
-        const code = exits.get(id) ?? snapshot.exitCode;
-        setExitCode(code);
-        terminal.options.disableStdin = code !== null;
-        setSession({ cwd: snapshot.cwd, shell: snapshot.shell });
-        setLaunchProject(projectRef.current);
-        setNeedsFolder(false);
-        setFolderReason(null);
-        setBannerDismissed(false);
-        resize();
-        if (!blockedRef.current) terminal.focus();
+        replayComplete = false;
+        liveQueue.length = 0;
+        terminal.write(snapshot.output, () => finishAttach(snapshot, expectedProject));
       }).catch((cause) => {
         opening = false;
+        setReplacing(false);
+        replacingRef.current = false;
         report(cause);
       });
     };
@@ -226,10 +301,7 @@ export function TerminalWorkspace({
     setError("");
     try {
       const picked = await window.ogb?.pickFolder?.(bot.cwd ?? undefined);
-      if (!picked) {
-        setNeedsFolder(true);
-        return;
-      }
+      if (!picked) return;
       const result: { bot?: Bot } = await api(`/api/bots/${bot.id}`, {
         method: "PATCH",
         body: JSON.stringify({ cwd: picked }),
@@ -237,7 +309,8 @@ export function TerminalWorkspace({
       if (result.bot) dispatch({ type: "botPatched", bot: result.bot });
       setNeedsFolder(false);
       setFolderReason(null);
-      setGeneration((value) => value + 1);
+      // Persist only - never inject cd or kill a live session from folder pick.
+      if (!sessionIdRef.current) setGeneration((value) => value + 1);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -246,6 +319,7 @@ export function TerminalWorkspace({
   };
 
   const requestRestartHere = () => {
+    if (replacing || replacingRef.current) return;
     if (exitCode === null && sessionIdRef.current) setConfirmRestart(true);
     else {
       setBannerDismissed(false);
@@ -253,37 +327,52 @@ export function TerminalWorkspace({
     }
   };
 
-  const headerPath = session
-    ? t("terminal.startedIn", { folder: session.cwd })
-    : needsFolder
-      ? t("terminal.chooseFolder")
-      : error
-        ? t("terminal.unavailable")
-        : t("terminal.connecting");
-
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-inset text-ink" aria-label={t("terminal.title")}>
       <header className="flex min-h-[60px] shrink-0 items-center gap-3 border-b border-hairline bg-panel py-3 pl-11 pr-5 md:pl-5">
-        <button type="button" onClick={onClose} className="flex shrink-0 items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink">
+        <button type="button" onClick={onClose} className="flex shrink-0 items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text">
           <ArrowLeft size={15} /> {t("terminal.chat")} <kbd className="text-[10px] text-ink-secondary">{window.ogb?.platform === "darwin" ? "⌘" : "Ctrl+"}`</kbd>
         </button>
         <span className="h-5 border-l border-hairline" aria-hidden />
         <TerminalSquare size={16} className="shrink-0 text-accent-text" />
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-[13px] font-medium">{t("terminal.title")} <span className="text-ink-secondary">/ {bot.name}</span></h1>
-          <p className="truncate font-mono text-[11px] text-ink-secondary" title={session?.cwd}>
-            {headerPath}
+          <div className="mt-0.5 flex min-w-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void chooseAndPersist()}
+              disabled={choosing}
+              title={folderTooltip}
+              aria-label={t("terminal.chooseFolder")}
+              className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md px-1.5 py-0.5 text-left text-[11px] text-ink-secondary hover:bg-raised hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text disabled:opacity-60"
+            >
+              <FolderOpen size={12} className="shrink-0" />
+              <span className="min-w-0 truncate font-mono">{folderLabel}</span>
+              <ChevronDown size={11} className="shrink-0 opacity-70" />
+            </button>
             {projectMismatch && bannerDismissed ? (
-              <span className="ml-2 font-sans text-ink-secondary">· {t("terminal.differentProject")}</span>
+              <span className="shrink-0 text-[11px] text-ink-secondary" title={launchProject ?? undefined}>· {t("terminal.differentProject")}</span>
             ) : null}
-          </p>
+          </div>
         </div>
         {bot.busy && <span className="shrink-0 text-[11px] text-accent-text" role="status">{t("terminal.agentWorking")}</span>}
+        <button
+          type="button"
+          onClick={requestRestartHere}
+          disabled={replacing || choosing}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-[12px] text-ink-secondary hover:bg-raised hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text disabled:opacity-60"
+        >
+          <RotateCcw size={13} className={replacing ? "animate-spin" : undefined} />
+          {t("terminal.headerRestart")}
+        </button>
       </header>
       {showProjectBanner && (
         <div role="status" className="flex min-h-8 flex-wrap items-center gap-x-3 gap-y-1 border-b border-hairline bg-inset px-5 py-1.5 text-[12px] text-ink">
-          <span className="min-w-0 flex-1" title={bot.cwd ?? undefined}>{t("terminal.projectChanged")}</span>
-          <button type="button" onClick={requestRestartHere} className="shrink-0 text-accent-text underline">
+          <span className="min-w-0 flex-1" title={launchProject ?? undefined}>
+            {t("terminal.projectChanged")}
+            {launchProject ? <span className="ml-2 font-mono text-[11px] text-ink-secondary">{launchProject}</span> : null}
+          </span>
+          <button type="button" onClick={requestRestartHere} disabled={replacing} className="shrink-0 text-accent-text underline disabled:opacity-60">
             {t("terminal.restartHere")}
           </button>
           <button type="button" onClick={() => setBannerDismissed(true)} className="shrink-0 rounded p-0.5 text-ink-secondary hover:bg-raised hover:text-ink" aria-label={t("terminal.dismissBanner")}>
@@ -307,7 +396,7 @@ export function TerminalWorkspace({
       {error && !needsFolder && (
         <div role="alert" className="flex items-center justify-between gap-3 border-b border-danger/30 bg-danger/10 px-5 py-3 text-[13px] text-danger">
           <span>{error}</span>
-          <button type="button" onClick={() => setGeneration((value) => value + 1)} className="shrink-0 underline">{t("terminal.retry")}</button>
+          <button type="button" onClick={() => setGeneration((value) => value + 1)} disabled={replacing} className="shrink-0 underline disabled:opacity-60">{t("terminal.retry")}</button>
         </div>
       )}
       <div data-orbit-terminal className="min-h-0 flex-1 p-4" onKeyDown={(event) => event.stopPropagation()}>
@@ -320,20 +409,21 @@ export function TerminalWorkspace({
             : t("terminal.exited", { code: exitCode })}
         </span>
         {exitCode !== null ? (
-          <button type="button" onClick={() => setGeneration((value) => value + 1)} className="text-accent-text underline">{t("terminal.restart")}</button>
+          <button type="button" onClick={requestRestartHere} disabled={replacing} className="text-accent-text underline disabled:opacity-60">{t("terminal.restart")}</button>
         ) : (
           <span>{t("terminal.lifetime")}</span>
         )}
       </footer>
       {confirmRestart && (
         <ConfirmDialog
-          title={t("terminal.restartConfirmTitle")}
-          body={t("terminal.restartConfirmBody", { folder: bot.cwd || t("bot.workingFolderEmpty") })}
+          title={t("terminal.restartConfirmTitle", { folder: restartTargetLabel })}
+          body={t("terminal.restartConfirmBody")}
           confirmLabel={t("terminal.restartConfirmAction")}
           danger
           onCancel={() => setConfirmRestart(false)}
           onConfirm={() => {
             setConfirmRestart(false);
+            if (botIdRef.current !== bot.id) return;
             setBannerDismissed(false);
             setGeneration((value) => value + 1);
           }}
@@ -342,3 +432,4 @@ export function TerminalWorkspace({
     </main>
   );
 }
+
