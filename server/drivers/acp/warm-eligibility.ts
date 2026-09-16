@@ -30,7 +30,7 @@ export type SendTurnIntegrations = {
   computer?: { boxId?: string };
   localComputer?: { command: string; args?: string[]; scope?: string };
   agents?: { command: string; args?: string[] };
-  browser?: unknown;
+  browser?: { command: string; args?: string[]; env?: Record<string, string> };
 };
 
 function stableEnvKey(env: Record<string, string> | undefined): string {
@@ -71,7 +71,11 @@ export function warmToolsKey(integrations: SendTurnIntegrations | undefined): st
     parts.push(`agents:${integrations.agents.command}|${stableArgsKey(integrations.agents.args)}`);
   }
   if (integrations.browser) {
-    parts.push("browser:1");
+    // browser MCP proxy env carries botId/profile/url/token — fingerprint
+    // command/args/env like composio so distinct browser configs cannot collide.
+    parts.push(
+      `browser:${integrations.browser.command}|${stableArgsKey(integrations.browser.args)}|${stableEnvKey(integrations.browser.env)}`,
+    );
   }
   return parts.sort().join(";");
 }

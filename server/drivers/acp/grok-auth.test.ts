@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { grokIsAuthenticated } from "./grok.ts";
+import { clearGrokAuthHashCache, grokIsAuthenticated, grokSupport, hashGrokAuthJson } from "./grok.ts";
 
 const scratchDirs: string[] = [];
 
@@ -39,5 +39,22 @@ describe("Grok subscription authentication", () => {
     const signedIn = { GROK_HOME: join(scratchHome(true), ".grok") };
     const signedOut = { GROK_HOME: join(scratchHome(false), ".grok") };
     expect(grokIsAuthenticated(signedIn)).not.toBe(grokIsAuthenticated(signedOut));
+  });
+
+  it("caches auth.json SHA by mtime+size across warmSessionIdentity calls", () => {
+    const home = scratchHome(true);
+    const authPath = join(home, ".grok", "auth.json");
+    clearGrokAuthHashCache();
+    writeFileSync(authPath, JSON.stringify({ token: "one" }));
+    const first = grokSupport.warmSessionIdentity!({ GROK_HOME: join(home, ".grok") });
+    expect(first).toBe(hashGrokAuthJson(authPath));
+    // same mtime+size: second call must reuse cache (same digest)
+    const second = grokSupport.warmSessionIdentity!({ GROK_HOME: join(home, ".grok") });
+    expect(second).toBe(first);
+    // content + size change invalidates
+    writeFileSync(authPath, JSON.stringify({ token: "two-different-length" }));
+    const third = grokSupport.warmSessionIdentity!({ GROK_HOME: join(home, ".grok") });
+    expect(third).not.toBe(first);
+    expect(third).toBe(hashGrokAuthJson(authPath));
   });
 });

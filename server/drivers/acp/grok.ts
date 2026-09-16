@@ -3,7 +3,7 @@
 // (~/.grok/auth.json), NOT the xAI API key (that driver is drivers/grok.ts).
 // The generic protocol runtime lives in acp/core.ts; this file is only the
 // per-harness quirks. Verified against grok 1.0.0.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -224,12 +224,32 @@ export function configOptionValue(result: unknown, configId: string): unknown {
   return hit?.currentValue ?? null;
 }
 
+/** SHA-256 of auth.json, cached by path+mtime+size so sendTurn hot path
+ * stats instead of sync-reading+hashing on every turn. */
+type AuthHashCache = { mtimeMs: number; size: number; hash: string };
+const authHashByPath = new Map<string, AuthHashCache>();
+
+export function hashGrokAuthJson(path: string): string {
+  const { mtimeMs, size } = statSync(path);
+  const cached = authHashByPath.get(path);
+  if (cached && cached.mtimeMs === mtimeMs && cached.size === size) return cached.hash;
+  const hash = createHash("sha256").update(readFileSync(path)).digest("hex");
+  authHashByPath.set(path, { mtimeMs, size, hash });
+  return hash;
+}
+
+/** Test-only: drop cached auth hashes (per-path or all). */
+export function clearGrokAuthHashCache(path?: string): void {
+  if (path) authHashByPath.delete(path);
+  else authHashByPath.clear();
+}
+
 export const grokSupport: AcpSupport = {
   driverKind: "grokAgent",
   grokInterjections: true,
   warmSessionIdentity: (env) => {
     try {
-      return createHash("sha256").update(readFileSync(join(grokHome(env), "auth.json"))).digest("hex");
+      return hashGrokAuthJson(join(grokHome(env), "auth.json"));
     } catch { return null; }
   },
   rateLimits: true,

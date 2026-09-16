@@ -24,7 +24,7 @@ export function acpConnection(
 
   const failTransport = (error: Error) => {
     if (closed) {
-      // Still reject anything left hanging if a second signal races in.
+      // onError already fired; don't fire it again.
       connection.rejectPending(error.message);
       return;
     }

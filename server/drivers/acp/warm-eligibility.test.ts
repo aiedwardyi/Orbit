@@ -80,4 +80,22 @@ describe("warm-eligibility", () => {
       warmToolsKey({ composio: { command: "c", args: ["--flag value", "with space"] } }),
     );
   });
+
+  it("distinguishes browser configs that share only presence", () => {
+    // opaque "browser:1" collided every mounted browser MCP
+    expect(
+      warmToolsKey({
+        browser: { command: "node", args: ["proxy.js"], env: { OMB_BOT_ID: "a", OMB_BROWSER_PROFILE: "" } },
+      }),
+    ).not.toBe(
+      warmToolsKey({
+        browser: { command: "node", args: ["proxy.js"], env: { OMB_BOT_ID: "b", OMB_BROWSER_PROFILE: "guest" } },
+      }),
+    );
+    expect(
+      warmToolsKey({ browser: { command: "node", args: ["a b"], env: {} } }),
+    ).not.toBe(
+      warmToolsKey({ browser: { command: "node", args: ["a", "b"], env: {} } }),
+    );
+  });
 });
