@@ -20,6 +20,14 @@ describe("looksDestructive", () => {
     "DROP TABLE users;",
     "truncate table sessions",
     "sudo shutdown -h now",
+    "shutdown -h now",
+    "/sbin/reboot",
+    "halt",
+    "C:\\Windows\\System32\\shutdown.exe /s",
+    "git status && shutdown -h now",
+    "bash -c 'shutdown -h now'",
+    "timeout 5 reboot",
+    "(shutdown -h now)",
     ":(){ :|:& };:",
     "chmod -R 777 /",
   ];
@@ -36,6 +44,10 @@ describe("looksDestructive", () => {
     "cat package.json",
     "git commit -m 'fix the reformatting'",
     "SELECT * FROM users LIMIT 10",
+    "git branch -d feat/graceful-shutdown",
+    "git push -u origin feat/graceful-shutdown",
+    "git commit -m 'halt the flaky reboot in graceful-shutdown'",
+    "cat logs/reboot-notes.txt",
   ];
   for (const command of ordinary) {
     it(`allows: ${command}`, () => expect(looksDestructive(command)).toBe(false));
@@ -244,5 +256,60 @@ describe("unattended turns", () => {
   it("still auto-approves the same action when a person started the turn", () => {
     expect(autoDecision(bot, "Bash", "git status")).toBeTruthy();
     expect(autoDecision(bot, "Bash", "git status", { unattended: false })).toBeTruthy();
+  });
+});
+
+describe("power-off command vs branch/path/message", () => {
+  const bot = { autoApprove: true };
+  const branchDelete =
+    "cd /c/Users/mredw/OneDrive/Desktop/nudge && git checkout main && git pull origin main && git branch -d feat/graceful-shutdown; git fetch --prune && git branch -a && git log --oneline -3";
+  const branchPush =
+    "cd /c/Users/mredw/OneDrive/Desktop/nudge && git push -u origin feat/graceful-shutdown && git log --oneline -1";
+
+  it("auto-approves the graceful-shutdown branch delete chain", () => {
+    expect(looksDestructive(branchDelete)).toBe(false);
+    expect(autoVerdict(bot, "Bash", branchDelete)).toMatchObject({
+      approve: "auto-approved Bash",
+      source: "auto-mode",
+    });
+  });
+
+  it("auto-approves the graceful-shutdown branch push chain", () => {
+    expect(looksDestructive(branchPush)).toBe(false);
+    expect(autoVerdict(bot, "Bash", branchPush)).toMatchObject({
+      approve: "auto-approved Bash",
+      source: "auto-mode",
+    });
+  });
+
+  it("still auto-approves when the askSummary cut keeps the branch token", () => {
+    const cut = branchDelete.slice(0, 200);
+    expect(cut).toContain("graceful-shutdown");
+    expect(autoVerdict(bot, "Bash", cut).source).toBe("auto-mode");
+  });
+
+  it("keeps real power-off commands behind the destructive guard", () => {
+    for (const summary of [
+      "shutdown -h now",
+      "sudo reboot",
+      "halt",
+      "git status && shutdown -h now",
+      "bash -c 'shutdown -h now'",
+      "(shutdown -h now)",
+      "/sbin/shutdown -P now",
+    ]) {
+      expect(autoVerdict(bot, "Bash", summary)).toMatchObject({
+        approve: null,
+        source: "destructive-guard",
+        rule: String.raw`\bshutdown\b|\breboot\b|\bhalt\b`,
+      });
+    }
+  });
+
+  it("does not let a redacted client copy change a raw power-off verdict", () => {
+    const raw = "shutdown -h now";
+    expect(autoVerdict(bot, "Bash", raw).source).toBe("destructive-guard");
+    // redaction does not touch power-off tokens; truncated harmless branch stays auto-mode
+    expect(autoVerdict(bot, "Bash", redactSecretsInText(branchPush)).source).toBe("auto-mode");
   });
 });
