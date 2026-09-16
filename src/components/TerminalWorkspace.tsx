@@ -176,8 +176,10 @@ export function TerminalWorkspace({
     let attachedLaunchProject: string | null = null;
     const finishAttach = (snapshot: { id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number }, launchedProject: string | null) => {
       if (!alive) return;
+      // Use lastSeq (not snapshot.seq): same-id fallback never advances lastSeq to
+      // resumed.seq, so IPC-gap events in (lastSeq, snapshot.seq] stay drainable.
       const queued = [...liveQueue]
-        .filter((event) => event.id === snapshot.id && event.seq > snapshot.seq)
+        .filter((event) => event.id === snapshot.id && event.seq > lastSeq)
         .sort((a, b) => a.seq - b.seq);
       liveQueue.length = 0;
       replayComplete = true;
@@ -243,6 +245,7 @@ export function TerminalWorkspace({
                   terminal.write(resumed.output, () => finishAttach(resumed, expectedProject));
                 } else {
                   // Same session already painted — skip re-dump, but still finishAttach for live drain + resize/focus.
+                  // Keep lastSeq at the pre-restart watermark so finishAttach preserves IPC-gap events.
                   finishAttach(resumed, attachedLaunchProject);
                 }
                 return;

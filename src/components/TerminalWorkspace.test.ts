@@ -270,6 +270,57 @@ it("folderBasename keeps root paths non-empty", () => {
   expect(folderBasename("C:\\work\\orbit")).toBe("orbit");
 });
 
+it("same-id fallback preserves liveQueue events from the restart IPC gap", async () => {
+  const snapshot = { id: "session-gap", cwd: "C:\\work", shell: "pwsh.exe", output: "SCROLLBACK", seq: 2, exitCode: null as number | null };
+  let receive!: (event: { id: string; data: string; seq: number }) => void;
+  let resolveFallback!: (value: typeof snapshot) => void;
+  const open = vi.fn(async (opts: { restart?: boolean }) => {
+    if (opts.restart) return { needsFolder: true as const, reason: "explicit-unavailable" };
+    if (open.mock.calls.length === 1) return { ...snapshot };
+    return new Promise<typeof snapshot>((resolve) => { resolveFallback = resolve; });
+  });
+  const bridge: TerminalBridge = {
+    appearance: vi.fn(async () => null),
+    open,
+    write: vi.fn(),
+    resize: vi.fn(async () => {}),
+    onData: (cb) => { receive = cb; return vi.fn(); },
+    onExit: () => vi.fn(),
+  };
+  Object.defineProperty(window, "ogb", { configurable: true, value: { platform: "win32", terminal: bridge, pickFolder: vi.fn(async () => null) } });
+  vi.stubGlobal("localStorage", window.localStorage);
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => root.render(createElement(TerminalWorkspace, {
+    bot: { id: "bot-gap", name: "Desk", cwd: "C:\\work" },
+    visible: true,
+    focusBlocked: false,
+    onClose: vi.fn(),
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["SCROLLBACK"]);
+  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Restart"));
+  expect(restartBtn).toBeTruthy();
+  await act(async () => { restartBtn!.click(); });
+  const confirmBtn = [...document.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Restart terminal");
+  expect(confirmBtn).toBeTruthy();
+  await act(async () => { confirmBtn!.click(); });
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  // PTY output during restart:true / restart:false IPC gap — seq in (lastSeq=2, resumed.seq=4].
+  await act(async () => {
+    receive({ id: "session-gap", data: "GAP_3", seq: 3 });
+    receive({ id: "session-gap", data: "GAP_4", seq: 4 });
+  });
+  await act(async () => {
+    resolveFallback({ ...snapshot, seq: 4, output: "SCROLLBACK\nGAP_3\nGAP_4" });
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  // Same-id path must not re-dump scrollback, but must drain the gap (not drop via seq > snapshot.seq).
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["SCROLLBACK", "GAP_3", "GAP_4"]);
+});
 
 it("fallback resume after failed restart does not rewrite xterm scrollback", async () => {
   const snapshot = { id: "session-same", cwd: "C:\\work", shell: "pwsh.exe", output: "SCROLLBACK", seq: 2, exitCode: null as number | null };
