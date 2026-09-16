@@ -43,6 +43,11 @@ function stableEnvKey(env: Record<string, string> | undefined): string {
   );
 }
 
+function stableArgsKey(args: string[] | undefined): string {
+  // JSON of the args array -- unambiguous if elements contain spaces
+  return JSON.stringify(args ?? []);
+}
+
 export function warmToolsKey(integrations: SendTurnIntegrations | undefined): string {
   if (!integrations) return "";
   const parts: string[] = [];
@@ -51,7 +56,7 @@ export function warmToolsKey(integrations: SendTurnIntegrations | undefined): st
     // (core.ts acpMcpServers); include it so rotated tokens / bot/thread
     // bootstrap vars force a cold session instead of stale warm reuse.
     parts.push(
-      `composio:${integrations.composio.command}|${(integrations.composio.args ?? []).join(" ")}|${stableEnvKey(integrations.composio.env)}`,
+      `composio:${integrations.composio.command}|${stableArgsKey(integrations.composio.args)}|${stableEnvKey(integrations.composio.env)}`,
     );
   }
   if (integrations.computer) {
@@ -59,11 +64,11 @@ export function warmToolsKey(integrations: SendTurnIntegrations | undefined): st
   }
   if (integrations.localComputer) {
     parts.push(
-      `local:${integrations.localComputer.command}|${(integrations.localComputer.args ?? []).join(" ")}|${integrations.localComputer.scope ?? ""}`,
+      `local:${integrations.localComputer.command}|${stableArgsKey(integrations.localComputer.args)}|${integrations.localComputer.scope ?? ""}`,
     );
   }
   if (integrations.agents) {
-    parts.push(`agents:${integrations.agents.command}|${(integrations.agents.args ?? []).join(" ")}`);
+    parts.push(`agents:${integrations.agents.command}|${stableArgsKey(integrations.agents.args)}`);
   }
   if (integrations.browser) {
     parts.push("browser:1");

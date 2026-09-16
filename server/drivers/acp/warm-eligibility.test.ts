@@ -55,4 +55,29 @@ describe("warm-eligibility", () => {
     const b = warmToolsKey({ composio: { command: "c", env: { a: "b,c" } } });
     expect(a).not.toBe(b);
   });
+
+  it("distinguishes space-ambiguous args for composio / localComputer / agents", () => {
+    // ["a b"] vs ["a","b"] collided under join(" ")
+    expect(
+      warmToolsKey({ composio: { command: "c", args: ["a b"] } }),
+    ).not.toBe(
+      warmToolsKey({ composio: { command: "c", args: ["a", "b"] } }),
+    );
+    expect(
+      warmToolsKey({ localComputer: { command: "lc", args: ["a b"] } }),
+    ).not.toBe(
+      warmToolsKey({ localComputer: { command: "lc", args: ["a", "b"] } }),
+    );
+    expect(
+      warmToolsKey({ agents: { command: "ag", args: ["a b"] } }),
+    ).not.toBe(
+      warmToolsKey({ agents: { command: "ag", args: ["a", "b"] } }),
+    );
+    // also the classic flag/value-with-space case from review
+    expect(
+      warmToolsKey({ composio: { command: "c", args: ["--flag", "value with space"] } }),
+    ).not.toBe(
+      warmToolsKey({ composio: { command: "c", args: ["--flag value", "with space"] } }),
+    );
+  });
 });
