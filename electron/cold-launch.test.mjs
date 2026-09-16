@@ -93,6 +93,18 @@ describe("packaged cold launch does not hide the window behind the harness", () 
     expect(main).toContain("OMB_SMOKE_TEST");
   });
 
+  it("still requires identity then app token before packaged harness ready", () => {
+    const startOn = sourceBetween(main, "async function startServerOn(", "async function startServerPackaged(");
+    expect(startOn).toContain("waitForAppToken(proc");
+    expect(startOn).toContain("await pollServerIdentity(");
+    const identityAt = startOn.indexOf("await pollServerIdentity(");
+    const tokenAwaitAt = startOn.indexOf("await tokenReady");
+    expect(identityAt).toBeGreaterThan(-1);
+    expect(tokenAwaitAt).toBeGreaterThan(identityAt);
+    // Token alone must not short-circuit: identity outcome must gate the token await.
+    expect(startOn).toMatch(/if \(identity\.outcome === "ready"\) \{\s*const token =\s*await tokenReady/);
+  });
+
   it("forks the thin packaged-boot entry so health can answer before the fat harness parses", () => {
     expect(main).toContain("packaged-boot.js");
     expect(main).toMatch(/server", "packaged-boot\.js"/);
