@@ -766,7 +766,7 @@ function BotListItem({
             aria-hidden="true"
             className={cn(
               "pointer-events-none absolute size-1.5 rounded-full",
-              // unread/busy keep bottom-right; provider identity flips left
+              // unread/busy → bottom-left; provider-dot stays bottom-right
               bot.unread || bot.busy ? "bottom-0.5 left-0.5" : "bottom-0.5 right-0.5",
               selected ? "ring-2 ring-raised" : "ring-2 ring-panel",
             )}

@@ -125,7 +125,8 @@ describe("CLI-candidates in-use marker", () => {
     expect(html).not.toContain(`value="${OTHER} · in use"`);
     const selectStart = html.indexOf("<select");
     const selectEnd = html.indexOf("</select>", selectStart);
-    expect(selectStart).toBeGreaterThan(-1);
+    expect(selectStart).toBeGreaterThanOrEqual(0);
+    expect(selectEnd).toBeGreaterThanOrEqual(0);
     const selectHtml = html.slice(selectStart, selectEnd);
     expect(selectHtml.indexOf(PATH_DEFAULT)).toBeLessThan(selectHtml.indexOf(OTHER));
   });
