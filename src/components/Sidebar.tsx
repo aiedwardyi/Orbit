@@ -25,7 +25,6 @@ import {
   Search,
   Sparkles,
   Settings,
-  Puzzle,
   Trash2,
   Users,
   X,
@@ -749,18 +748,32 @@ function BotListItem({
   );
   const body = (
     <>
-      <BotAvatar
-        bot={bot}
-        state={stateForBot({ ...bot, messages: visible })}
-        size={avatarSize}
-        motion={mascotMotion?.kind ?? "none"}
-        motionKey={mascotMotion?.nonce ?? 0}
-        // Motion means something is happening. A resting bot holds a resting
-        // pose — N idle rows bobbing at display rate was most of the app's
-        // visible-idle CPU (states are keyword-derived, so "working" can be
-        // decorative; busy/unread/motion are the real signals).
-        animated={Boolean(bot.busy) || Boolean(bot.unread) || (mascotMotion?.kind ?? "none") !== "none"}
-      />
+      <span className={cn("relative shrink-0", iconOnly && "inline-flex")}>
+        <BotAvatar
+          bot={bot}
+          state={stateForBot({ ...bot, messages: visible })}
+          size={avatarSize}
+          motion={mascotMotion?.kind ?? "none"}
+          motionKey={mascotMotion?.nonce ?? 0}
+          // Motion means something is happening. A resting bot holds a resting
+          // pose — N idle rows bobbing at display rate was most of the app's
+          // visible-idle CPU (states are keyword-derived, so "working" can be
+          // decorative; busy/unread/motion are the real signals).
+          animated={Boolean(bot.busy) || Boolean(bot.unread) || (mascotMotion?.kind ?? "none") !== "none"}
+        />
+        {iconOnly && modelLabel && (
+          <span
+            aria-hidden="true"
+            className={cn(
+              "pointer-events-none absolute size-1.5 rounded-full",
+              // unread/busy keep bottom-right; provider identity flips left
+              bot.unread || bot.busy ? "bottom-0.5 left-0.5" : "bottom-0.5 right-0.5",
+              selected ? "ring-2 ring-raised" : "ring-2 ring-panel",
+            )}
+            style={{ backgroundColor: modelFamilyAccent(engine?.driverKind) }}
+          />
+        )}
+      </span>
       <div className={cn("min-w-0 flex-1", iconOnly && "hidden")}>
         <div className="flex min-w-0 items-baseline gap-2 overflow-hidden">
           <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-semibold text-ink">
@@ -844,7 +857,7 @@ function BotListItem({
     : {};
 
   return (
-    <div className="group relative" title={iconOnly ? bot.name : undefined} {...dragProps}>
+    <div className="group relative" title={iconOnly ? (modelLabel ? `${bot.name} · ${modelLabel}` : bot.name) : undefined} {...dragProps}>
       {drag?.edge && (
         <span
           className={cn(
@@ -856,7 +869,7 @@ function BotListItem({
       <div
         role="button"
         tabIndex={0}
-        aria-label={iconOnly ? bot.name : undefined}
+        aria-label={iconOnly ? (modelLabel ? `${bot.name} · ${modelLabel}` : bot.name) : undefined}
         onClick={() => dispatch({ type: "select", id: bot.id })}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -1791,15 +1804,6 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           )}
         </button>
         )}
-        <button
-          onClick={() => dispatch({ type: "togglePlugins", open: true })}
-          className={cn("flex min-h-10 w-full items-center rounded-xl py-2 text-left hover:bg-raised/50", density === "icons" ? "justify-center px-2" : "gap-3 px-3")}
-          aria-label={density === "icons" ? t("chrome.connectedApps") : undefined}
-          title={density === "icons" ? t("chrome.connectedApps") : undefined}
-        >
-          <Puzzle size={20} className="text-ink-secondary" />
-          <span className={cn("text-[14px] text-ink", density === "icons" && "hidden")}>{t("chrome.connectedApps")}</span>
-        </button>
         {showPhone && density === "icons" && (
           <SidebarPhoneButton
             density={density}

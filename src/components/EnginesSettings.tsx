@@ -66,6 +66,7 @@ export function CustomPicker({ instance, cliDefault, onClose, onSaved }: {
   const [probing, setProbing] = useState(false);
   const [probe, setProbe] = useState<ProbeResult | null>(null);
   const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fetchedRef = useRef(false);
   const { t } = useI18n();
@@ -89,8 +90,9 @@ export function CustomPicker({ instance, cliDefault, onClose, onSaved }: {
 
   const value = cliPickerCommitValue(manual, selected);
   const dirty = value !== (instance.cli ?? "");
-  const busy = probing || saving;
+  const busy = probing || saving || resetting;
   const inUse = inUseCliPath(instance, candidates ?? []);
+  const currentPath = instance.cli || instance.cliDefault;
 
   // Editing the path invalidates a previous probe result.
   useEffect(() => {
@@ -133,8 +135,39 @@ export function CustomPicker({ instance, cliDefault, onClose, onSaved }: {
       .finally(() => setProbing(false));
   };
 
+  const reset = () => {
+    if (busy || !instance.cli) return;
+    setResetting(true);
+    setError(null);
+    api(`/api/instances/${encodeURIComponent(instance.instanceId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ cli: "" }),
+    })
+      .then(() => Promise.resolve(onSaved()).catch(() => {}))
+      .then(onClose)
+      .catch((e) => setError(e.message))
+      .finally(() => setResetting(false));
+  };
+
   return (
     <div className="mt-2.5 flex flex-col gap-2">
+      {currentPath && (
+        <div className="flex items-center gap-2 text-[12px]">
+          <span className="min-w-0 flex-1 truncate font-mono text-ink-secondary" title={currentPath}>
+            {currentPath}
+          </span>
+          {instance.cli && (
+            <button
+              type="button"
+              onClick={reset}
+              disabled={busy}
+              className="shrink-0 text-[11.5px] text-ink-secondary hover:text-ink disabled:opacity-50"
+            >
+              {resetting ? t("engines.resetting") : t("engines.reset")}
+            </button>
+          )}
+        </div>
+      )}
       {candidates !== null && candidates.length > 0 && (
         <div className="relative">
           <select
@@ -183,44 +216,49 @@ export function CustomPicker({ instance, cliDefault, onClose, onSaved }: {
         <div className="text-[12px] text-success">{t("engines.testPassed", { version: probe.version })}</div>
       )}
       {error && <div role="alert" className="text-[12px] text-danger">{error}</div>}
-      <div className="flex justify-end gap-2">
-        <button
-          onClick={onClose}
-          disabled={busy}
-          className="rounded-lg px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised/50 hover:text-ink disabled:opacity-50"
-        >
-          {t("createBot.cancel")}
-        </button>
-        {probe && !probe.ok ? (
-          <>
-            <button
-              onClick={() => setProbe(null)}
-              disabled={busy}
-              className="rounded-lg px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised/50 hover:text-ink disabled:opacity-50"
-            >
-              {t("engines.editPath")}
-            </button>
-            <button
-              onClick={() => persist()}
-              disabled={busy}
-              className="flex items-center gap-1.5 rounded-lg border border-danger/40 px-3 py-1.5 text-[13px] text-danger hover:bg-raised/40 disabled:opacity-50"
-            >
-              {saving ? <Loader2 size={13} className="animate-spin" /> : t("engines.saveAnyway")}
-            </button>
-          </>
-        ) : (
+      <div className="flex flex-col items-end gap-1.5">
+        <p className="max-w-full text-right text-[11.5px] leading-snug text-ink-secondary">
+          {t("engines.saveRestartWarning")}
+        </p>
+        <div className="flex justify-end gap-2">
           <button
-            onClick={save}
-            disabled={busy || !value || !dirty}
-            className={cn(
-              "flex w-[72px] items-center justify-center gap-1.5 rounded-lg py-1.5 text-[13px]",
-              "bg-raised text-ink hover:bg-raised-hover",
-              "disabled:cursor-not-allowed disabled:opacity-50",
-            )}
+            onClick={onClose}
+            disabled={busy}
+            className="rounded-lg px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised/50 hover:text-ink disabled:opacity-50"
           >
-            {busy ? <Loader2 size={13} className="animate-spin" /> : <><Check size={13} />{t("settings.browserProfiles.save")}</>}
+            {t("createBot.cancel")}
           </button>
-        )}
+          {probe && !probe.ok ? (
+            <>
+              <button
+                onClick={() => setProbe(null)}
+                disabled={busy}
+                className="rounded-lg px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised/50 hover:text-ink disabled:opacity-50"
+              >
+                {t("engines.editPath")}
+              </button>
+              <button
+                onClick={() => persist()}
+                disabled={busy}
+                className="flex items-center gap-1.5 rounded-lg border border-danger/40 px-3 py-1.5 text-[13px] text-danger hover:bg-raised/40 disabled:opacity-50"
+              >
+                {saving ? <Loader2 size={13} className="animate-spin" /> : t("engines.saveAnyway")}
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={save}
+              disabled={busy || !value || !dirty}
+              className={cn(
+                "flex w-[72px] items-center justify-center gap-1.5 rounded-lg py-1.5 text-[13px]",
+                "bg-raised text-ink hover:bg-raised-hover",
+                "disabled:cursor-not-allowed disabled:opacity-50",
+              )}
+            >
+              {busy ? <Loader2 size={13} className="animate-spin" /> : <><Check size={13} />{t("settings.browserProfiles.save")}</>}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -230,9 +268,8 @@ function EngineRow({ instance }: { instance: InstanceInfo }) {
   const { t } = useI18n();
   const { refreshInstances } = useStore();
   const [open, setOpen] = useState(false);
-  const [switching, setSwitching] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const wasOpenFor = useRef<string | null>(null);
+  const connected = isEngineConnected(instance);
 
   // Close the picker when this instance's override changes to anything else
   // — a save from this row, another tab, or the 5-min refresh. The picker
@@ -245,46 +282,17 @@ function EngineRow({ instance }: { instance: InstanceInfo }) {
     wasOpenFor.current = instance.cli ?? null;
   }, [instance.cli]);
 
-  const reset = () => {
-    if (switching) return;
-    setSwitching(true);
-    setError(null);
-    api(`/api/instances/${encodeURIComponent(instance.instanceId)}`, {
-      method: "PATCH",
-      body: JSON.stringify({ cli: "" }),
-    })
-      // The reset already succeeded once PATCH returns 200. A follow-up list
-      // refresh failure should not tell the user the reset itself failed.
-      .then(() => Promise.resolve(refreshInstances()).catch(() => {}))
-      .catch((e) => setError(e.message))
-      .finally(() => setSwitching(false));
-  };
-
   return (
     <div>
-      <div className="flex items-center gap-2 text-[13px]">
-        <span className={cn("size-1.5 shrink-0 rounded-full", isEngineConnected(instance) ? "bg-accent" : "bg-raised-hover")} />
+      <div className="flex min-h-[44px] items-center gap-2 rounded-lg px-1 text-[13px] hover:bg-raised/50">
+        <span
+          role="img"
+          aria-label={connected ? t("connections.connected") : t("engines.unavailable")}
+          className={cn("size-1.5 shrink-0 rounded-full", connected ? "bg-accent" : "bg-raised-hover")}
+        />
         <ProviderMark driverKind={instance.driverKind} size={14} />
-        <span className="shrink-0 text-ink">{instance.displayName}</span>
-        {instance.cli ? (
-          <span className="truncate font-mono text-[11.5px] text-accent" title={instance.cli}>
-            {instance.cli}
-          </span>
-        ) : (
-          instance.cliDefault && (
-            <span className="truncate text-[11px] text-ink-secondary">{t("engines.defaultSuffix", { cli: instance.cliDefault })}</span>
-          )
-        )}
+        <span className="min-w-0 shrink truncate text-ink">{instance.displayName}</span>
         <span className="flex-1" />
-        {instance.cli && (
-          <button
-            onClick={reset}
-            disabled={switching}
-            className="shrink-0 text-[11.5px] text-ink-secondary hover:text-ink disabled:opacity-50"
-          >
-            {switching ? t("engines.resetting") : t("engines.reset")}
-          </button>
-        )}
         <button
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
@@ -296,7 +304,6 @@ function EngineRow({ instance }: { instance: InstanceInfo }) {
           {t("engines.setCli")}
         </button>
       </div>
-      {error && <div role="alert" className="mt-1 text-[12px] text-danger">{error}</div>}
       {open && (
         <CustomPicker
           instance={instance}
@@ -305,6 +312,26 @@ function EngineRow({ instance }: { instance: InstanceInfo }) {
           onSaved={refreshInstances}
         />
       )}
+    </div>
+  );
+}
+
+function EngineGroup({
+  label,
+  rows,
+  spaced,
+}: {
+  label: string;
+  rows: InstanceInfo[];
+  spaced?: boolean;
+}) {
+  if (rows.length === 0) return null;
+  return (
+    <div className={cn("flex flex-col", spaced && "mt-3")}>
+      <EngineGroupLabel className="mb-1">{label}</EngineGroupLabel>
+      {rows.map((i) => (
+        <EngineRow key={i.instanceId} instance={i} />
+      ))}
     </div>
   );
 }
@@ -330,39 +357,25 @@ export function EnginesSettings() {
     visible = rows;
   }
 
+  const { subscription, custom } = splitEngineRail(visible);
+
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col">
       {rows.length === 0 && (
         <div className="text-[13px] text-ink-secondary">{t("engines.none")}</div>
       )}
-      {(() => {
-        const { subscription, custom } = splitEngineRail(visible);
-        return (
-          <>
-            {subscription.length > 0 && <EngineGroupLabel>{t("engines.models")}</EngineGroupLabel>}
-            {subscription.map((i) => (
-              <EngineRow key={i.instanceId} instance={i} />
-            ))}
-            {custom.length > 0 && <EngineGroupLabel className="pt-1">{t("noEngines.local")}</EngineGroupLabel>}
-            {custom.map((i) => (
-              <EngineRow key={i.instanceId} instance={i} />
-            ))}
-          </>
-        );
-      })()}
+      <EngineGroup label={t("engines.models")} rows={subscription} />
+      <EngineGroup label={t("noEngines.local")} rows={custom} spaced={subscription.length > 0} />
       {collapsible && (
         <button
           type="button"
           onClick={() => setShowAll((open) => !open)}
           aria-expanded={showAll}
-          className="self-start rounded-lg text-[12px] text-ink-secondary hover:text-ink"
+          className="mt-3 self-start rounded-lg text-[12px] text-ink-secondary hover:text-ink"
         >
           {showAll ? t("engines.showFewer") : t("engines.showAll", { count: rest.length })}
         </button>
       )}
-      <div className="text-[12px] leading-relaxed text-ink-secondary">
-        {t("engines.help")}
-      </div>
     </div>
   );
 }

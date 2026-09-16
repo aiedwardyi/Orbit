@@ -123,7 +123,11 @@ describe("CLI-candidates in-use marker", () => {
     );
     expect(html).not.toContain(`${PATH_DEFAULT} · in use`);
     expect(html).not.toContain(`value="${OTHER} · in use"`);
-    expect(html.indexOf(PATH_DEFAULT)).toBeLessThan(html.indexOf(OTHER));
+    const selectStart = html.indexOf("<select");
+    const selectEnd = html.indexOf("</select>", selectStart);
+    expect(selectStart).toBeGreaterThan(-1);
+    const selectHtml = html.slice(selectStart, selectEnd);
+    expect(selectHtml.indexOf(PATH_DEFAULT)).toBeLessThan(selectHtml.indexOf(OTHER));
   });
 
   it("marks the PATH-default candidate when the engine is on the driver default", () => {

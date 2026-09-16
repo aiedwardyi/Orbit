@@ -195,6 +195,20 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain('data-skin="tui-smoke"');
   });
 
+  it("orders Themes and Usage last in the settings left nav", () => {
+    const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
+    const start = source.indexOf("const SECTIONS");
+    const end = source.indexOf("];", start);
+    const block = source.slice(start, end);
+    const themes = block.indexOf('id: "themes"');
+    const usage = block.indexOf('id: "usage"');
+    const shortcuts = block.indexOf('id: "shortcuts"');
+    const connections = block.indexOf('id: "connections"');
+    expect(themes).toBeGreaterThan(shortcuts);
+    expect(themes).toBeGreaterThan(connections);
+    expect(usage).toBeGreaterThan(themes);
+  });
+
   it("shows Alt+T and Alt+U on the Themes and Usage nav rows", () => {
     const html = markup("themes");
     expect(html).toContain("Alt+T");
@@ -227,9 +241,10 @@ describe("SettingsModal friends chrome", () => {
     expect(html).not.toContain("Cua Linux");
   });
 
-  it("folds the Gemini key into Connections and hides the zoo services", () => {
+  it("keeps Connections quiet without Gemini key or zoo services", () => {
     const html = markup("connections");
-    expect(html).toContain("Gemini API key");
+    expect(html).not.toContain("Gemini API key");
+    expect(html).not.toContain("Orbit detects installed");
     expect(html).not.toContain("OpenCode API key");
     expect(html).not.toContain("More services");
     expect(html).not.toContain("data-settings-more-services");
@@ -244,7 +259,7 @@ describe("SettingsModal friends chrome", () => {
 
   it("opens Engines as the unified Connections page", () => {
     const html = markup("engines");
-    expect(html).toContain("Gemini API key");
+    expect(html).not.toContain("Gemini API key");
     expect(html).not.toContain("OpenCode API key");
     expect(html).not.toContain("More services");
     expect(html).not.toMatch(/>Engines</);
@@ -297,7 +312,7 @@ describe("SettingsModal friends chrome", () => {
     expect(before).not.toContain("<DiagnosticsRow");
   });
 
-  it("keeps non-Gemini connections inside the More services body", () => {
+  it("keeps optional connections inside the More services body", () => {
     const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
     const marker = "data-settings-more-services";
     const start = source.indexOf(marker);
@@ -308,7 +323,7 @@ describe("SettingsModal friends chrome", () => {
     expect(more).toContain("<VpsConnection");
     expect(more).toContain('section="composio"');
     const before = source.slice(0, start);
-    expect(before).toContain('section="gemini"');
+    expect(before).not.toContain('section="gemini"');
     expect(before).not.toContain('section="opencodeGo"');
     expect(before).not.toContain("<TranscriptionSettings");
     expect(before).not.toContain('section="box"');
