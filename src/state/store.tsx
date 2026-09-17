@@ -2304,8 +2304,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               body: JSON.stringify(action.patch),
             })
               .then((body: { group?: Group }) => {
-                if (body.group) groupPatchFallback.current.set(action.groupId, body.group);
                 if (generation !== groupPatchGeneration.current.get(action.groupId)) return;
+                if (body.group) groupPatchFallback.current.set(action.groupId, body.group);
                 groupPatchFallback.current.delete(action.groupId);
                 if (body.group) rawDispatch({ type: "groupPatched", group: body.group });
               })

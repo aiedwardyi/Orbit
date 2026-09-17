@@ -142,6 +142,17 @@ describe("parseNotifyPayload", () => {
     });
   });
 
+  it("omits the optional terminal session when the payload has none", () => {
+    expect(parseNotifyPayload(frame)).toEqual({
+      title: "Maus finished",
+      body: "All done",
+      icon: "/api/attachments/face.png",
+      botId: "bot-1",
+      threadId: "thread-1",
+      visibleThreadId: "other-thread",
+    });
+  });
+
   it("rejects payloads that cannot address a conversation", () => {
     expect(parseNotifyPayload(null)).toBeNull();
     expect(parseNotifyPayload({ title: "x", botId: "bot-1" })).toBeNull();
