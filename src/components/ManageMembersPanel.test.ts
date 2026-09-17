@@ -162,6 +162,10 @@ describe("ManageMembersPanel Korean title", () => {
         section: "Work",
       });
       expect(dispatched).toContainEqual(expect.objectContaining({ type: "botAdded", bot: created }));
+      expect(dispatched).not.toContainEqual(expect.objectContaining({ type: "patchGroup" }));
+      const save = [...host.querySelectorAll("button")].find((button) => button.textContent?.includes("Save"));
+      if (!(save instanceof HTMLButtonElement)) throw new Error("group save action did not render");
+      await act(async () => save.click());
       expect(dispatched).toContainEqual({
         type: "patchGroup",
         groupId: group.id,

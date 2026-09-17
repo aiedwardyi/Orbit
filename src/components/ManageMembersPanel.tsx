@@ -28,7 +28,6 @@ export function ManageMembersPanel({
   const [addedNew, setAddedNew] = useState(0);
   const nextRowKey = useRef(1);
   const createdBotIds = useRef(new Set<string>());
-  const removedBotIds = useRef(new Set<string>());
   const openedMemberIds = useRef([...group.memberIds]);
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -82,23 +81,16 @@ export function ManageMembersPanel({
       const next = new Set(prev);
       if (next.has(id)) {
         next.delete(id);
-        removedBotIds.current.add(id);
       } else {
         next.add(id);
-        removedBotIds.current.delete(id);
       }
-      const currentMemberIds = [
-        ...group.memberIds.filter((memberId) => !removedBotIds.current.has(memberId)),
-        ...[...createdBotIds.current].filter((memberId) => !group.memberIds.includes(memberId)),
-      ];
-      openedMemberIds.current = nextMemberIds(currentMemberIds, next, bots.map((b) => b.id));
       return next;
     });
 
   const memberIds = nextMemberIds(
     group.memberIds,
     picked,
-    bots.map((b) => b.id),
+    [...bots.map((b) => b.id), ...[...createdBotIds.current].filter((id) => !bots.some((bot) => bot.id === id))],
   );
   const changed = memberIds.length !== group.memberIds.length || memberIds.some((id, i) => id !== group.memberIds[i]);
 
@@ -119,15 +111,7 @@ export function ManageMembersPanel({
 
   const addCreatedBot = (bot: Bot) => {
     createdBotIds.current.add(bot.id);
-    removedBotIds.current.delete(bot.id);
-    const currentMemberIds = [
-      ...group.memberIds.filter((memberId) => !removedBotIds.current.has(memberId)),
-      ...[...createdBotIds.current].filter((memberId) => !group.memberIds.includes(memberId)),
-    ];
-    const nextGroupMemberIds = currentMemberIds.includes(bot.id) ? currentMemberIds : [...currentMemberIds, bot.id];
-    openedMemberIds.current = nextGroupMemberIds;
     setPicked((prev) => new Set(prev).add(bot.id));
-    dispatch({ type: "patchGroup", groupId: group.id, patch: { memberIds: nextGroupMemberIds } });
   };
 
   const patchRow = (key: number, patch: Partial<NewRow>) =>

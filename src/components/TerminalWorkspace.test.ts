@@ -104,6 +104,26 @@ it("joins the snapshot to live output once and retains the renderer across visib
   expect(terminal.options).toMatchObject({ fontSize: 13 });
 });
 
+it("changes only terminal font size on Ctrl-wheel", async () => {
+  const open = vi.fn(async () => ({ id: "session-zoom", cwd: "C:\\work", shell: "pwsh.exe", output: "", seq: 0, exitCode: null }));
+  const bridge: TerminalBridge = { appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() };
+  mountBridge(bridge);
+  await act(async () => root.render(createElement(TerminalWorkspace, { bot: { id: "bot-zoom", name: "Zoom", cwd: "C:\\work" }, visible: true, focusBlocked: false, onClose: vi.fn() })));
+  await act(async () => { await Promise.resolve(); });
+  terminal.options.fontSize = 13;
+  const pane = host.querySelector<HTMLElement>("[data-orbit-terminal]");
+  if (!pane) throw new Error("terminal pane did not render");
+  const target = pane.firstElementChild as HTMLElement;
+  const zoomIn = new window.Event("wheel", { bubbles: true, cancelable: true }) as WheelEvent;
+  Object.defineProperties(zoomIn, { deltaY: { value: -120 }, ctrlKey: { value: true } });
+  await act(async () => { target.dispatchEvent(zoomIn); });
+  expect(terminal.options.fontSize).toBe(14);
+  const zoomOut = new window.Event("wheel", { bubbles: true, cancelable: true }) as WheelEvent;
+  Object.defineProperties(zoomOut, { deltaY: { value: 120 }, ctrlKey: { value: true } });
+  await act(async () => { target.dispatchEvent(zoomOut); });
+  expect(terminal.options.fontSize).toBe(13);
+});
+
 it("does not open a shell while the overlay is hidden after remount", async () => {
   const open = vi.fn(async () => ({ id: "session-1", cwd: "C:\\work", shell: "pwsh.exe", output: "", seq: 0, exitCode: null }));
   const bridge: TerminalBridge = { appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() };

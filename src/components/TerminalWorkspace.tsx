@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type WheelEvent } from "react";
 import { ArrowLeft, ChevronDown, FolderOpen, RotateCcw, TerminalSquare, X } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -12,6 +12,8 @@ import "@xterm/xterm/css/xterm.css";
 type SessionInfo = { cwd: string; shell: string };
 type OutputEvent = { id: string; data: string; seq: number };
 type TerminalSnapshot = { id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number; launchProject?: string | null };
+const TERMINAL_FONT_MIN = 8;
+const TERMINAL_FONT_MAX = 128;
 
 function samePath(a: string | null | undefined, b: string | null | undefined): boolean {
   if (!a && !b) return true;
@@ -48,6 +50,7 @@ export function TerminalWorkspace({
   const botIdRef = useRef(bot.id);
   const blockedRef = useRef(focusBlocked || !visible);
   const openShellRef = useRef<((restart: boolean) => void) | null>(null);
+  const resizeRef = useRef<(() => void) | null>(null);
   const replacingRef = useRef(false);
   useLayoutEffect(() => {
     blockedRef.current = focusBlocked || !visible;
@@ -182,6 +185,7 @@ export function TerminalWorkspace({
         }
       });
     };
+    resizeRef.current = resize;
     const observer = new ResizeObserver(resize);
     observer.observe(host);
     const updateAppearance = () => { void theme(); };
@@ -343,6 +347,7 @@ export function TerminalWorkspace({
       terminal.dispose();
       terminalRef.current = null;
       fitRef.current = null;
+      resizeRef.current = null;
       sessionIdRef.current = null;
     };
   }, [bot.id, generation]);
@@ -355,6 +360,19 @@ export function TerminalWorkspace({
   useEffect(() => {
     if (visible && !focusBlocked) terminalRef.current?.focus();
   }, [visible, focusBlocked]);
+
+  const onTerminalWheel = (event: WheelEvent<HTMLDivElement>) => {
+    if (!(event.ctrlKey || event.metaKey) || event.deltaY === 0) return;
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const current = terminal.options.fontSize ?? 13;
+    const next = Math.min(TERMINAL_FONT_MAX, Math.max(TERMINAL_FONT_MIN, current + (event.deltaY < 0 ? 1 : -1)));
+    if (next === current) return;
+    terminal.options.fontSize = next;
+    resizeRef.current?.();
+  };
 
   const chooseAndPersist = async () => {
     if (choosing) return;
@@ -462,7 +480,7 @@ export function TerminalWorkspace({
           <button type="button" onClick={() => setGeneration((value) => value + 1)} disabled={replacing} className="shrink-0 underline disabled:opacity-60">{t("terminal.retry")}</button>
         </div>
       )}
-      <div data-orbit-terminal className="min-h-0 flex-1 p-4" onKeyDown={(event) => event.stopPropagation()}>
+      <div data-orbit-terminal className="min-h-0 flex-1 p-4" onKeyDown={(event) => event.stopPropagation()} onWheelCapture={onTerminalWheel}>
         <div ref={hostRef} className="h-full w-full" />
       </div>
       <footer className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-hairline bg-panel px-5 py-2 text-[11px] text-ink-secondary">
