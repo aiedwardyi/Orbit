@@ -167,7 +167,22 @@ describe("UsageSection friends plan card", () => {
     expect(html).toContain('aria-label="7d: 61% used"');
   });
 
-  it("includes the antigravity engine in the single refresh-all", async () => {
+  it("labels Meta Muse windows with their cached observation age", () => {
+    const muse = mockState.instances.find((instance) => instance.instanceId === "muse");
+    if (!muse?.rateLimits) throw new Error("muse fixture missing rateLimits");
+    const original = muse.rateLimits.observedAt;
+    try {
+      persistPreference("en");
+      muse.rateLimits.observedAt = new Date(Date.now() - 2.5 * 3_600_000).toISOString();
+      const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+      expect(html).toContain("Cached, as of 2h ago.");
+    } finally {
+      muse.rateLimits.observedAt = original;
+      persistPreference("en");
+    }
+  });
+
+  it("includes the subscription engines in the single refresh-all", async () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
@@ -181,7 +196,7 @@ describe("UsageSection friends plan card", () => {
         refreshAll?.click();
       });
       expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/antigravity", { method: "POST" });
-      expect(mockApi).not.toHaveBeenCalledWith("/api/usage/refresh/muse", { method: "POST" });
+      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/muse", { method: "POST" });
     } finally {
       await act(async () => root.unmount());
       host.remove();
@@ -423,9 +438,8 @@ describe("UsageSection friends plan card", () => {
       await act(async () => {
         refreshAll?.click();
       });
-      // one control refreshes Claude, Codex, Grok, and Antigravity together
-      // (Meta Muse stays off the refresh path until its CLI reports quota)
-      expect(mockApi).toHaveBeenCalledTimes(4);
+      // one control refreshes every subscription engine together
+      expect(mockApi).toHaveBeenCalledTimes(5);
       const busy = [...host.querySelectorAll("button")].find((button) => button.textContent === "Refreshing…");
       expect(busy).toBeDefined();
       expect(busy?.hasAttribute("disabled")).toBe(true);
@@ -433,12 +447,13 @@ describe("UsageSection friends plan card", () => {
       await act(async () => {
         busy?.click();
       });
-      expect(mockApi).toHaveBeenCalledTimes(4);
+      expect(mockApi).toHaveBeenCalledTimes(5);
       await act(async () => {
         deferred.get("claude")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
         deferred.get("codex")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
         deferred.get("grok")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
         deferred.get("antigravity")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
+        deferred.get("muse")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
       });
       expect([...host.querySelectorAll("button")].find((button) => button.textContent === "Refresh all")).toBeDefined();
     } finally {
@@ -462,6 +477,7 @@ describe("UsageSection friends plan card", () => {
       deferred.get("codex")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
       deferred.get("grok")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
       deferred.get("antigravity")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
+      deferred.get("muse")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
     });
     try {
       persistPreference("en");

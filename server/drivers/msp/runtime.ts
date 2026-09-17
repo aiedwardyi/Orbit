@@ -2,8 +2,8 @@
 // turn/start, view notifications), not ACP, so the ACP core cannot drive
 // it — this is the minimal session/turn runtime for that host. Phase 1:
 // spawn, initialize, session start/resume, one text turn, interrupt,
-// approvals + userInput answers. Effort/model switching (Phase 2) and
-// token usage (Phase 3) build on the same channel. Never extend acp/core.ts.
+// approvals + userInput answers. Effort/model switching and account usage
+// windows build on the same channel. Never extend acp/core.ts.
 import { homedir } from "node:os";
 
 import type {
@@ -25,6 +25,7 @@ import { applyCredentialAllowlist } from "../../config.ts";
 import { augmentedPath, toWslPath } from "../../env-path.ts";
 import { execCli, killCliTree, spawnCli } from "../../procs.ts";
 import { finishNative } from "../native.ts";
+import { museUsageReport } from "../rate-limits.ts";
 import { createMspChannel, uuidv7 } from "./protocol.ts";
 
 const INIT_TIMEOUT = 20_000;
@@ -589,6 +590,18 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
               const changed = typeof p.modelId === "string" ? p.modelId : frameModel;
               if (typeof changed === "string" && (frameId === undefined || frameId === state.sessionId)) {
                 state.model = changed;
+              }
+              break;
+            }
+            case "usage/changed": {
+              const report = museUsageReport(p);
+              if (report) {
+                emit({
+                  ...base(threadId, turnId),
+                  type: "account.rate-limits.updated",
+                  observedAt: report.observedAt,
+                  windows: report.windows,
+                });
               }
               break;
             }

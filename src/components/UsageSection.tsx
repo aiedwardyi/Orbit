@@ -3,7 +3,7 @@
 // banked per settled turn on each task (server/store.ts addTaskUsage) and
 // summed here; nothing is fetched. Plan usage sits above the table: how full
 // each engine's subscription window is, straight from the engine's own
-// report on its last turn, so nobody has to guess from a token count.
+// report from its last turn or refresh, so nobody has to guess from a token count.
 import { useState } from "react";
 import { Check } from "lucide-react";
 import { api, useStore, type InstanceInfo } from "@/state/store";
@@ -37,14 +37,10 @@ function windowRank(id: string, windowMinutes?: number): number {
   return kind === "session" ? 0 : kind === "weekly" ? 1 : 2;
 }
 
-// Claude/Codex/Grok/Antigravity declare rateLimits and answer a refresh
-// POST; engines that never report stay off the refresh path entirely.
-// Meta Muse declares rateLimits but its CLI exposes no quota surface yet,
-// so it stays off the refresh path — every tap would paint a permanent
-// failure under its row — until a surface exists. The server keeps the
-// parser + branch as the seam for that day.
+// Subscription engines with a documented usage surface answer a refresh POST;
+// engines that never report stay off the refresh path entirely.
 const canRefresh = (instance: InstanceInfo) =>
-  instance.driverKind === "claudeAgent" || instance.driverKind === "codex" || instance.driverKind === "grokAgent" || instance.driverKind === "antigravityAgent";
+  instance.driverKind === "claudeAgent" || instance.driverKind === "codex" || instance.driverKind === "grokAgent" || instance.driverKind === "antigravityAgent" || instance.driverKind === "museAgent";
 
 // One shared row for every engine in the plan card: the label sits left and
 // the values stack in a single left-aligned column underneath. Every engine
@@ -65,11 +61,9 @@ function EnginePlanRow({
   const windows = [...(instance.rateLimits?.windows ?? [])].sort(
     (a, b) => windowRank(a.id, a.windowMinutes) - windowRank(b.id, b.windowMinutes),
   );
-  // Claude/Codex/Grok/Antigravity declare rateLimits and emit a window
-  // after a turn or refresh; Meta Muse declares it but only renders windows
-  // its engine reported — pending, not an outage. Engines that never report
-  // stay on the unsupported line so a missing observation is not mistaken
-  // for downtime.
+  // Engines with rateLimits emit a window after a turn or refresh. Engines
+  // that never report stay on the unsupported line so a missing observation
+  // is not mistaken for downtime.
   const honestCaption = t(instance.capabilities?.rateLimits ? "usage.limits.pending" : "usage.limits.notReported", {
     name: instance.displayName,
   });
@@ -114,7 +108,9 @@ function EnginePlanRow({
         <div className="mt-1 text-[12px] text-ink-secondary">{honestCaption}</div>
       )}
       {canRefresh(instance) && instance.rateLimits && (
-        <div className="mt-2 text-[11px] text-ink-secondary">{t("usage.limits.refreshAge", { age: age(instance.rateLimits.observedAt) })}</div>
+        <div className="mt-2 text-[11px] text-ink-secondary">
+          {t(instance.driverKind === "museAgent" ? "usage.limits.cachedAsOf" : "usage.limits.refreshAge", { age: age(instance.rateLimits.observedAt) })}
+        </div>
       )}
       {error && (
         <div className="mt-1 text-[12px] text-danger">
@@ -150,7 +146,7 @@ function PlanUsage() {
     }
   };
   // The section's only refresh control: one tap refreshes every engine that
-  // answers a refresh POST (Claude, Codex, Grok, Antigravity),
+  // answers a refresh POST (Claude, Codex, Grok, Antigravity, Muse),
   // never just one of them. A clean run leaves an explicit confirmation
   // behind; the next run clears it.
   const refreshAll = async () => {

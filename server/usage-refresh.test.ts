@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { createUsageRefresh, isCsrfRejection, readAntigravityQuota, readAntigravityUsageCommand, readMuseUsage, usageRefreshResponse } from "./usage-refresh.ts";
 import { antigravityRateLimitWindows } from "./drivers/rate-limits.ts";
+import { removeTempDir } from "./testing/cleanup.ts";
 
 const reset = "2026-10-01T12:00:00Z";
+const FAKE_MSP_CLI = join(dirname(fileURLToPath(import.meta.url)), "testing", "fake-msp-cli.ts");
 const fixtures = {
   claudeAgent: { five_hour: { utilization: 42, resets_at: reset }, seven_day: { utilization: 19, resets_at: reset } },
   codex: { rateLimits: { primary: { usedPercent: 42, windowDurationMins: 300, resetsAt: Date.parse(reset) / 1000 }, secondary: { usedPercent: 19, windowDurationMins: 10080, resetsAt: Date.parse(reset) / 1000 } } },
@@ -13,8 +20,12 @@ const fixtures = {
     "gemini-weekly": { remaining_fraction: 0.81, reset_in_seconds: 518_400 },
   },
   museAgent: {
-    five_hour: { utilization: 0.22, resetsAt: 1_790_000_000 },
-    seven_day: { utilization: 0.61, resetsAt: 1_790_172_800 },
+    usage: {
+      observedAtMs: 1_790_000_000_000,
+      tier: "pro",
+      window: { usedPercent: 22, windowDurationMins: 300, resetsAtMs: 1_790_000_000_000 },
+      weekly: { usedPercent: 61, resetsAtMs: 1_790_172_800_000 },
+    },
   },
 };
 const credentials = JSON.stringify({ claudeAiOauth: { accessToken: "access-secret" }, "auth.x.ai::test": { key: "access-secret", user_id: "user" }, tokens: { access_token: "access-secret", refresh_token: "refresh-secret" } });
@@ -176,6 +187,7 @@ describe("usage refresh route result", () => {
     expect(result.report?.windows.map((window) => window.usedPercent)).toEqual([22, 61]);
     expect(result.report?.windows.map((window) => window.windowMinutes)).toEqual([300, 10_080]);
     expect(result.report?.windows.map((window) => window.resetsAt)).toEqual([1_790_000_000_000, 1_790_172_800_000]);
+    expect(result.report?.observedAt).toBe(new Date(1_790_000_000_000).toISOString());
     expect(reads).toBe(0);
     expect(http).toBe(0);
     expect(JSON.stringify(result)).not.toContain("access-secret");
@@ -201,16 +213,51 @@ describe("usage refresh route result", () => {
     expect(result.error).toBe("Could not refresh Muse limits");
   });
 
-  it("degrades gracefully while the muse CLI exposes no quota surface", async () => {
-    const refresh = createUsageRefresh({ platform: "linux" });
+  it("keeps the last report after malformed Muse usage", async () => {
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      muse: async () => ({ usage: { observedAtMs: 1_790_000_000_000, tier: "pro", window: {} } }),
+    });
     const report = { windows: [{ id: "five_hour", usedPercent: 12, resetsAt: null }], observedAt: reset };
     const result = await refresh("museAgent", { instanceId: "muse" }, report);
     expect(result.report).toEqual(report);
     expect(result.error).toBe("Could not refresh Muse limits");
   });
 
-  it("rejects the default Muse probe with refresh so no quota is invented", async () => {
-    await expect(readMuseUsage()).rejects.toThrow("refresh");
+  it("keeps the newer report when Muse returns an older observation", async () => {
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      muse: async () => ({
+        usage: {
+          observedAtMs: Date.parse("2026-09-01T12:00:00Z"),
+          tier: "pro",
+          window: { usedPercent: 88, windowDurationMins: 300, resetsAtMs: Date.parse("2026-09-01T17:00:00Z") },
+          weekly: { usedPercent: 70, resetsAtMs: Date.parse("2026-09-08T12:00:00Z") },
+        },
+      }),
+    });
+    const report = { windows: [{ id: "five_hour", usedPercent: 12, resetsAt: null }], observedAt: reset };
+    const result = await refresh("museAgent", { instanceId: "muse" }, report);
+    expect(result.report).toEqual(report);
+    expect(result.error).toBe("Could not refresh Muse limits");
+  });
+
+  it("reads stable usage/read through the Muse serve lifecycle", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "omb-muse-usage-"));
+    const rpcDump = join(scratch, "rpc.json");
+    process.env.FAKE_MSP_USAGE = JSON.stringify(fixtures.museAgent);
+    process.env.FAKE_MSP_RPC_DUMP = rpcDump;
+    try {
+      await expect(readMuseUsage(FAKE_MSP_CLI, {
+        FAKE_MSP_USAGE: process.env.FAKE_MSP_USAGE,
+        FAKE_MSP_RPC_DUMP: rpcDump,
+      })).resolves.toEqual(fixtures.museAgent);
+      expect(JSON.parse(readFileSync(rpcDump, "utf8"))).toEqual(["initialize", "initialized", "usage/read"]);
+    } finally {
+      delete process.env.FAKE_MSP_USAGE;
+      delete process.env.FAKE_MSP_RPC_DUMP;
+      removeTempDir(scratch);
+    }
   });
 
   it("leaves Gemini API off the refresh path without inventing numbers", async () => {

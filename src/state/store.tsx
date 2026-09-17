@@ -453,7 +453,7 @@ export interface InstanceInfo {
   /** `custom` agents sit below the rail divider — no subscription catalog. */
   access?: "subscription" | "custom";
   /** newest subscription-window report for this engine's account; absent
-   * until a turn on it reports one (server keeps it in memory only) */
+   * until a turn or refresh reports one (server keeps it in memory only) */
   rateLimits?: RateLimitReport;
   install?: EngineInstall;
   /** Configured CLI path override — set ONLY when the user overrode it;
@@ -974,9 +974,11 @@ export function reducer(state: AppState, action: Action): AppState {
     case "rateLimits":
       return {
         ...state,
-        instances: state.instances.map((instance) =>
-          instance.instanceId === action.instanceId ? { ...instance, rateLimits: action.report } : instance,
-        ),
+        instances: state.instances.map((instance) => {
+          if (instance.instanceId !== action.instanceId) return instance;
+          if (instance.rateLimits && Date.parse(action.report.observedAt) < Date.parse(instance.rateLimits.observedAt)) return instance;
+          return { ...instance, rateLimits: action.report };
+        }),
       };
     case "configStatus":
       return {
@@ -2654,7 +2656,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             rawDispatch({
               type: "rateLimits",
               instanceId: event.providerInstanceId,
-              report: { windows: event.windows, observedAt: event.createdAt },
+              report: { windows: event.windows, observedAt: event.observedAt ?? event.createdAt },
             });
           }
           break;

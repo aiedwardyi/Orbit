@@ -1668,7 +1668,11 @@ bus.subscribe((event: RuntimeEvent) => {
   }
   broadcast({ kind: "runtime", event });
   if (event.type === "account.rate-limits.updated" && event.providerInstanceId) {
-    rateLimitsByInstance.set(event.providerInstanceId, { windows: event.windows, observedAt: event.createdAt });
+    const observedAt = event.observedAt ?? event.createdAt;
+    const current = rateLimitsByInstance.get(event.providerInstanceId);
+    if (!current || Date.parse(observedAt) >= Date.parse(current.observedAt)) {
+      rateLimitsByInstance.set(event.providerInstanceId, { windows: event.windows, observedAt });
+    }
   }
   const routineRun = routines?.handleRuntimeEvent(event) ?? null;
   const bot = store.botByThread(event.threadId);

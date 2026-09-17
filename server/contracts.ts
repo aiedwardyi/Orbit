@@ -135,7 +135,7 @@ export type RuntimeEvent = RuntimeEventBase &
      * them. Per account, not per thread: the harness keeps the newest
      * report per instance. Only sent when the provider actually says how
      * full a window is, never derived from token counts. */
-    | { type: "account.rate-limits.updated"; windows: RateLimitWindow[] }
+    | { type: "account.rate-limits.updated"; windows: RateLimitWindow[]; observedAt?: string }
     // `setup: true` marks a failure the user fixes by installing or
     // configuring something, not by retrying — the UI offers setup instead.
     // `usageLimit` marks the expected one: the account spent its
