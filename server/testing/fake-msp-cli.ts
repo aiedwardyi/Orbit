@@ -22,6 +22,8 @@
 //                   | resume-poisoned-rpc (same trigger, but turn/start
 //                     itself returns the poison as a JSON-RPC error;
 //                     afterwards happy)
+//                   | usage-auth (usage/read returns an auth error)
+//                   | usage-transport (usage/read exits before a result)
 //   FAKE_MSP_STATE  path to a JSON file holding per-session models across
 //                   the one-process-per-turn spawns, so a switch sticks.
 //   FAKE_MSP_DUMP   path to write {argv, env} as JSON, so a test can assert
@@ -369,6 +371,14 @@ function handle(msg: any) {
       break;
     }
     case "usage/read": {
+      if (mode === "usage-auth") {
+        out({ jsonrpc: "2.0", id: msg.id, error: { code: 401, message: "login expired" } });
+        break;
+      }
+      if (mode === "usage-transport") {
+        process.stderr.write("fake-msp: simulated usage transport failure\n");
+        process.exit(7);
+      }
       try {
         result(msg.id, process.env.FAKE_MSP_USAGE ? JSON.parse(process.env.FAKE_MSP_USAGE) : {});
       } catch {

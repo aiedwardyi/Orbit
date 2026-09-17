@@ -13,6 +13,7 @@ import { spawnHarness as spawn, harnessFetch as fetch } from "./testing/harness-
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
 const FAKE_CLAUDE_CLI = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
+const FAKE_MSP_CLI = join(SERVER_DIR, "testing", "fake-msp-cli.ts");
 const STUB = pathToFileURL(join(SERVER_DIR, "testing", "stub-oauth-usage.mjs")).href;
 
 const windowSchema = z.object({ id: z.string(), usedPercent: z.number() }).passthrough();
@@ -24,6 +25,7 @@ const refreshSchema = z.object({
   instanceId: z.string(),
   report: reportSchema.optional(),
   error: z.string().optional(),
+  status: z.enum(["fresh", "retained", "no_observation", "transport_error", "auth_error"]).optional(),
 });
 const instanceSchema = z.object({
   instanceId: z.string(),
@@ -32,6 +34,13 @@ const instanceSchema = z.object({
 }).passthrough();
 const instancesSchema = z.object({ instances: z.array(instanceSchema) });
 const botSchema = z.object({ bot: z.object({ id: z.string() }).passthrough() });
+
+const museUsage = {
+  observedAtMs: 1_790_000_000_000,
+  tier: "pro",
+  window: { usedPercent: 22, windowDurationMins: 300, resetsAtMs: 1_790_000_000_000 },
+  weekly: { usedPercent: 61, resetsAtMs: 1_790_172_800_000 },
+};
 
 interface RefreshRouteBody {
   modelSelection?: { instanceId: string; model: string };
@@ -74,6 +83,30 @@ beforeAll(async () => {
           displayName: "Fixture Claude Happy",
           environment: { FAKE_CLAUDE_MODE: "happy", CLAUDE_CODE_OAUTH_TOKEN: "fixture-oauth" },
           config: { cli: FAKE_CLAUDE_CLI },
+        },
+        museFresh: {
+          driver: "museAgent",
+          displayName: "Fixture Muse Fresh",
+          environment: { META_API_KEY: "fixture-meta-key", FAKE_MSP_USAGE: JSON.stringify({ usage: museUsage }) },
+          config: { cli: FAKE_MSP_CLI },
+        },
+        museEmpty: {
+          driver: "museAgent",
+          displayName: "Fixture Muse Empty",
+          environment: { META_API_KEY: "fixture-meta-key", FAKE_MSP_USAGE: JSON.stringify({}) },
+          config: { cli: FAKE_MSP_CLI },
+        },
+        museAuth: {
+          driver: "museAgent",
+          displayName: "Fixture Muse Auth",
+          environment: { META_API_KEY: "fixture-meta-key", FAKE_MSP_MODE: "usage-auth" },
+          config: { cli: FAKE_MSP_CLI },
+        },
+        museTransport: {
+          driver: "museAgent",
+          displayName: "Fixture Muse Transport",
+          environment: { META_API_KEY: "fixture-meta-key", FAKE_MSP_MODE: "usage-transport" },
+          config: { cli: FAKE_MSP_CLI },
         },
       },
     }),
@@ -143,5 +176,27 @@ describe("usage refresh throttle vs runtime reports", () => {
     } finally {
       await api("DELETE", `/api/bots/${created.bot.id}`);
     }
+  });
+
+  it("returns explicit Muse fresh and no-observation outcomes", async () => {
+    const fresh = refreshSchema.parse((await api("POST", "/api/usage/refresh/museFresh")).body);
+    expect(fresh.status).toBe("fresh");
+    expect(fresh.error).toBeUndefined();
+    expect(fresh.report?.windows.map((window) => window.usedPercent)).toEqual([22, 61]);
+
+    const empty = refreshSchema.parse((await api("POST", "/api/usage/refresh/museEmpty")).body);
+    expect(empty.status).toBe("no_observation");
+    expect(empty.report).toBeUndefined();
+    expect(empty.error).toBeUndefined();
+  });
+
+  it.each([
+    ["museAuth", "auth_error", "Sign in again in Muse"],
+    ["museTransport", "transport_error", "Could not refresh Muse limits"],
+  ] as const)("keeps Muse %s failures explicit at the route", async (instanceId, status, error) => {
+    const result = refreshSchema.parse((await api("POST", `/api/usage/refresh/${instanceId}`)).body);
+    expect(result.status).toBe(status);
+    expect(result.error).toBe(error);
+    expect(result.report).toBeUndefined();
   });
 });

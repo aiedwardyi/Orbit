@@ -201,6 +201,7 @@ describe("usage refresh route result", () => {
     });
     const result = await refresh("museAgent", { instanceId: "muse" });
     expect(result.error).toBeUndefined();
+    expect(result.status).toBe("fresh");
     expect(result.report?.windows.map((window) => window.id)).toEqual(["five_hour", "seven_day"]);
     expect(result.report?.windows.map((window) => window.usedPercent)).toEqual([22, 61]);
     expect(result.report?.windows.map((window) => window.windowMinutes)).toEqual([300, 10_080]);
@@ -222,24 +223,27 @@ describe("usage refresh route result", () => {
     const result = await refresh("museAgent", { instanceId: "muse" }, report);
     expect(result.report).toEqual(report);
     expect(result.error).toBe(kind === "signin" ? "Sign in again in Muse" : "Could not refresh Muse limits");
+    expect(result.status).toBe(kind === "signin" ? "auth_error" : "transport_error");
   });
 
-  it("treats an empty Muse quota as a refresh failure", async () => {
+  it("reports no observation when Muse returns an empty snapshot", async () => {
     const refresh = createUsageRefresh({ platform: "linux", muse: async () => ({}) });
     const result = await refresh("museAgent", { instanceId: "muse" });
     expect(result.report).toBeUndefined();
-    expect(result.error).toBe("Could not refresh Muse limits");
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe("no_observation");
   });
 
-  it("quietly keeps a valid Muse cache after an empty snapshot", async () => {
+  it("retains the last report while Muse has no observed snapshot", async () => {
     const refresh = createUsageRefresh({ platform: "linux", muse: async () => ({}) });
     const report = { windows: [{ id: "five_hour", usedPercent: 12, resetsAt: null }], observedAt: reset };
     const result = await refresh("museAgent", { instanceId: "muse" }, report);
     expect(result.report).toEqual(report);
     expect(result.error).toBeUndefined();
+    expect(result.status).toBe("no_observation");
   });
 
-  it("keeps the last report after malformed Muse usage", async () => {
+  it("reports a transport error for malformed Muse usage", async () => {
     const refresh = createUsageRefresh({
       platform: "linux",
       muse: async () => ({ usage: { observedAtMs: 1_790_000_000_000, tier: "pro", window: {} } }),
@@ -247,7 +251,8 @@ describe("usage refresh route result", () => {
     const report = { windows: [{ id: "five_hour", usedPercent: 12, resetsAt: null }], observedAt: reset };
     const result = await refresh("museAgent", { instanceId: "muse" }, report);
     expect(result.report).toEqual(report);
-    expect(result.error).toBeUndefined();
+    expect(result.error).toBe("Could not refresh Muse limits");
+    expect(result.status).toBe("transport_error");
   });
 
   it("keeps the newer report when Muse returns an older observation", async () => {
@@ -266,6 +271,40 @@ describe("usage refresh route result", () => {
     const result = await refresh("museAgent", { instanceId: "muse" }, report);
     expect(result.report).toEqual(report);
     expect(result.error).toBeUndefined();
+    expect(result.status).toBe("retained");
+  });
+
+  it("retains the last report when Muse returns the same observation", async () => {
+    const refresh = createUsageRefresh({ muse: async () => fixtures.museAgent });
+    const report = {
+      windows: [
+        { id: "five_hour", usedPercent: 22, resetsAt: 1_790_000_000_000, windowMinutes: 300 },
+        { id: "seven_day", usedPercent: 61, resetsAt: 1_790_172_800_000, windowMinutes: 10_080 },
+      ],
+      observedAt: new Date(1_790_000_000_000).toISOString(),
+    };
+    const result = await refresh("museAgent", { instanceId: "muse" }, report);
+    expect(result.report).toEqual(report);
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe("retained");
+  });
+
+  it("checks Muse again after the throttle window and marks unchanged data retained", async () => {
+    let now = 1_000;
+    let calls = 0;
+    const refresh = createUsageRefresh({
+      now: () => now,
+      muse: async () => {
+        calls++;
+        return fixtures.museAgent;
+      },
+    });
+    const first = await refresh("museAgent", { instanceId: "muse" });
+    now += 30_000;
+    const second = await refresh("museAgent", { instanceId: "muse" }, first.report);
+    expect(calls).toBe(2);
+    expect(second.status).toBe("retained");
+    expect(second.report).toEqual(first.report);
   });
 
   it("reads stable usage/read through the Muse serve lifecycle", async () => {
@@ -282,6 +321,43 @@ describe("usage refresh route result", () => {
     } finally {
       delete process.env.FAKE_MSP_USAGE;
       delete process.env.FAKE_MSP_RPC_DUMP;
+      removeTempDir(scratch);
+    }
+  });
+
+  it.each([
+    ["usage-auth", "signin"],
+    ["usage-transport", "refresh"],
+  ] as const)("maps Muse %s to %s without changing the MSP sequence", async (mode, expected) => {
+    const scratch = mkdtempSync(join(tmpdir(), "omb-muse-usage-failure-"));
+    const rpcDump = join(scratch, "rpc.json");
+    try {
+      await expect(readMuseUsage(FAKE_MSP_CLI, { FAKE_MSP_MODE: mode, FAKE_MSP_RPC_DUMP: rpcDump })).rejects.toThrow(expected);
+      expect(JSON.parse(readFileSync(rpcDump, "utf8"))).toEqual(["initialize", "initialized", "usage/read"]);
+    } finally {
+      removeTempDir(scratch);
+    }
+  });
+
+  it("uses the same MSP sequence for an explicit WSL-resolved Muse CLI", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "omb-muse-usage-wsl-"));
+    const rpcDump = join(scratch, "rpc.json");
+    try {
+      await expect(
+        readMuseUsage(
+          "wsl muse",
+          { META_API_KEY: "fixture-meta-key", FAKE_MSP_USAGE: JSON.stringify(fixtures.museAgent), FAKE_MSP_RPC_DUMP: rpcDump },
+          {
+            platform: "win32",
+            resolveWsl: async (_cli, env) => {
+              expect(env.WSLENV).toBe("META_API_KEY");
+              return FAKE_MSP_CLI;
+            },
+          },
+        ),
+      ).resolves.toEqual(fixtures.museAgent);
+      expect(JSON.parse(readFileSync(rpcDump, "utf8"))).toEqual(["initialize", "initialized", "usage/read"]);
+    } finally {
       removeTempDir(scratch);
     }
   });
