@@ -33,6 +33,11 @@ contextBridge.exposeInMainWorld("ogb", {
       ipcRenderer.on("terminal:error", handler);
       return () => ipcRenderer.removeListener("terminal:error", handler);
     },
+    onAttention: (cb) => {
+      const handler = (_event, value) => cb(value);
+      ipcRenderer.on("terminal:attention", handler);
+      return () => ipcRenderer.removeListener("terminal:attention", handler);
+    },
   },
   getCapabilities: () => ipcRenderer.invoke("desktop:capabilities"),
   onCapabilitiesChanged: (cb) => {

@@ -7,7 +7,12 @@ import { spawnTerminalPty } from "./terminal-pty.mjs";
 const require = createRequire(import.meta.url);
 const OUTPUT_LIMIT = 256 * 1024;
 const READY_TIMEOUT_MS = 5_000;
+const WINDOWS_READY_TIMEOUT_MS = 15_000;
 const SHUTDOWN_TIMEOUT_MS = 500;
+
+export function terminalReadyTimeoutMs(platform = process.platform) {
+  return platform === "win32" ? WINDOWS_READY_TIMEOUT_MS : READY_TIMEOUT_MS;
+}
 
 export function terminalEnvironment(env) {
   return Object.fromEntries(Object.entries(env).filter(([key, value]) =>
@@ -26,7 +31,7 @@ export function trustedTerminalSender(event, owner, origin) {
   }
 }
 
-export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform }) {
+export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform) }) {
   const sessions = new Map();
   const active = new Map();
   const pending = new Map();
@@ -63,6 +68,11 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       authorize({ sender: session.owner, senderFrame: session.owner.mainFrame });
       session.owner.send(channel, value);
     } catch {}
+  };
+  const reportAttention = (session, reason) => {
+    if (session.attentionReported) return;
+    session.attentionReported = true;
+    emit(session, "terminal:attention", { id: session.id, botId: session.botId, reason });
   };
   const resolveFolder = async (input, event) => {
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Optional session-only override from an explicit folder pick.
@@ -109,6 +119,7 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
   };
   const reportExit = (session, exitCode) => {
     if (session.exitCode === null) session.exitCode = exitCode;
+    reportAttention(session, exitCode === 0 ? "exit" : "error");
     if (!session.exitReported) {
       session.exitReported = true;
       emit(session, "terminal:exit", { id: session.id, exitCode: session.exitCode });
@@ -119,6 +130,7 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
     if (session.retired) return;
     const error = errorValue(cause);
     session.failure = error;
+    reportAttention(session, "error");
     if (!session.errorReported) {
       session.errorReported = true;
       emit(session, "terminal:error", { id: session.id, message: error.message });
@@ -129,6 +141,7 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
   const attach = (session) => {
     session.pty.onData((data) => {
       session.output = (session.output + data).slice(-OUTPUT_LIMIT);
+      if (data.includes("\x07")) reportAttention(session, "bell");
       emit(session, "terminal:data", { id: session.id, data, seq: ++session.seq });
     });
     session.pty.onExit(({ exitCode }) => reportExit(session, exitCode));
@@ -149,9 +162,9 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       throw errorValue(cause);
     }
     const session = {
-      id: randomUUID(), key, owner: event.sender, cwd, shell, pty, output: "", exitCode: null, seq: 0,
+      id: randomUUID(), key, botId: input.botId, owner: event.sender, cwd, shell, pty, output: "", exitCode: null, seq: 0,
       launchProject: launchProject(input, folder, cwd), retired: false, exitReported: false, errorReported: false,
-      failure: null,
+      failure: null, attentionReported: false,
     };
     sessions.set(session.id, session);
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Electron sender mocks may omit lifecycle events.
@@ -161,7 +174,7 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
     attach(session);
     try {
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may expose readiness only when worker-backed.
-      if (pty.ready && typeof pty.ready.then === "function") await timeout(pty.ready, READY_TIMEOUT_MS, "Terminal worker did not become ready");
+      if (pty.ready && typeof pty.ready.then === "function") await timeout(pty.ready, readyTimeoutMs, "Terminal worker did not become ready");
       if (session.failure) throw session.failure;
       return session;
     } catch (cause) {

@@ -159,7 +159,10 @@ export function TerminalWorkspace({
       }
     });
     const offError = bridge.onError?.((event) => {
-      if (event.id === id) report(event.message);
+      if (event.id === id) {
+        terminal.options.disableStdin = true;
+        report(event.message);
+      }
     });
     // Forward keystrokes and emulator replies only after historical replay finishes.
     const input = terminal.onData((data) => {
