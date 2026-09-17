@@ -1,9 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { grokIsAuthenticated } from "./grok.ts";
+import { clearGrokAuthHashCache, grokIsAuthenticated, grokSupport, hashGrokAuthJson } from "./grok.ts";
 
 const scratchDirs: string[] = [];
 
@@ -39,5 +39,42 @@ describe("Grok subscription authentication", () => {
     const signedIn = { GROK_HOME: join(scratchHome(true), ".grok") };
     const signedOut = { GROK_HOME: join(scratchHome(false), ".grok") };
     expect(grokIsAuthenticated(signedIn)).not.toBe(grokIsAuthenticated(signedOut));
+  });
+
+  it("caches auth.json SHA by mtime+size across warmSessionIdentity calls", () => {
+    const home = scratchHome(true);
+    const authPath = join(home, ".grok", "auth.json");
+    clearGrokAuthHashCache();
+    writeFileSync(authPath, JSON.stringify({ token: "one" }));
+    const first = grokSupport.warmSessionIdentity!({ GROK_HOME: join(home, ".grok") });
+    expect(first).toBe(hashGrokAuthJson(authPath));
+    // same mtime+size: second call must reuse cache (same digest)
+    const second = grokSupport.warmSessionIdentity!({ GROK_HOME: join(home, ".grok") });
+    expect(second).toBe(first);
+    // content + size change invalidates
+    writeFileSync(authPath, JSON.stringify({ token: "two-different-length" }));
+    const third = grokSupport.warmSessionIdentity!({ GROK_HOME: join(home, ".grok") });
+    expect(third).not.toBe(first);
+    expect(third).toBe(hashGrokAuthJson(authPath));
+  });
+
+  it("invalidates the hash when equal-size auth content gets a new file identity", () => {
+    const home = scratchHome(true);
+    const authPath = join(home, ".grok", "auth.json");
+    const replacement = join(home, ".grok", "auth.replacement");
+    clearGrokAuthHashCache();
+    writeFileSync(authPath, '{"token":"one"}');
+    const original = statSync(authPath);
+    const first = hashGrokAuthJson(authPath);
+
+    writeFileSync(replacement, '{"token":"two"}');
+    utimesSync(replacement, original.atime, original.mtime);
+    rmSync(authPath);
+    renameSync(replacement, authPath);
+
+    const replaced = statSync(authPath);
+    expect(replaced.size).toBe(original.size);
+    expect(replaced.mtimeMs).toBeCloseTo(original.mtimeMs, 0);
+    expect(hashGrokAuthJson(authPath)).not.toBe(first);
   });
 });
