@@ -48,7 +48,9 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const latestState = useRef(state);
-  latestState.current = state;
+  useLayoutEffect(() => {
+    latestState.current = state;
+  }, [state]);
   const unreadCount = unreadConversationCount(state.bots, state.groups);
   // Mobile-only drawer state. Above md, none of these properties are emitted
   // at all — Sidebar scopes every mobile class with max-md: rather than

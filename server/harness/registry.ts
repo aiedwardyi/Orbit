@@ -59,6 +59,7 @@ export class ProviderRegistry {
    * from their own config; this map only reports what was configured */
   private cliByInstance = new Map<InstanceId, string>();
   private modelRefreshAt = new Map<InstanceId, number>();
+  private modelRefreshInFlight = new Map<InstanceId, Promise<void>>();
   private driversByKind: Map<string, AnyProviderDriver>;
   private readonly now: () => number;
   private readonly modelRefreshTtlMs: number;
@@ -120,6 +121,7 @@ export class ProviderRegistry {
     }));
     for (const result of loaded) {
       if (result.rawCli) this.cliByInstance.set(result.entry.instanceId, result.rawCli);
+      else this.cliByInstance.delete(result.entry.instanceId);
       this.byId.set(result.entry.instanceId, result.entry);
       if (result.entry.live?.refreshModels) this.modelRefreshAt.set(result.entry.instanceId, this.now());
       else this.modelRefreshAt.delete(result.entry.instanceId);
@@ -178,10 +180,22 @@ export class ProviderRegistry {
         try {
           const lastRefresh = this.modelRefreshAt.get(inst.instanceId) ?? 0;
           if (inst.refreshModels && this.now() - lastRefresh >= this.modelRefreshTtlMs) {
-            try {
-              await inst.refreshModels();
-            } finally {
-              this.modelRefreshAt.set(inst.instanceId, this.now());
+            const inFlight = this.modelRefreshInFlight.get(inst.instanceId);
+            if (inFlight) await inFlight;
+            else {
+              const refresh = (async () => {
+                try {
+                  await inst.refreshModels!();
+                } finally {
+                  this.modelRefreshAt.set(inst.instanceId, this.now());
+                }
+              })();
+              this.modelRefreshInFlight.set(inst.instanceId, refresh);
+              try {
+                await refresh;
+              } finally {
+                if (this.modelRefreshInFlight.get(inst.instanceId) === refresh) this.modelRefreshInFlight.delete(inst.instanceId);
+              }
             }
           }
           snapshot = await inst.snapshot();
@@ -226,5 +240,6 @@ export class ProviderRegistry {
     this.byId.clear();
     this.cliByInstance.clear();
     this.modelRefreshAt.clear();
+    this.modelRefreshInFlight.clear();
   }
 }

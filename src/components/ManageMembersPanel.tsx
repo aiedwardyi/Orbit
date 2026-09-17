@@ -27,6 +27,8 @@ export function ManageMembersPanel({
   const [rows, setRows] = useState<NewRow[]>([]);
   const [addedNew, setAddedNew] = useState(0);
   const nextRowKey = useRef(1);
+  const createdBotIds = useRef(new Set<string>());
+  const removedBotIds = useRef(new Set<string>());
   const openedMemberIds = useRef([...group.memberIds]);
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -78,8 +80,18 @@ export function ManageMembersPanel({
   const toggle = (id: string) =>
     setPicked((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+        removedBotIds.current.add(id);
+      } else {
+        next.add(id);
+        removedBotIds.current.delete(id);
+      }
+      const currentMemberIds = [
+        ...group.memberIds.filter((memberId) => !removedBotIds.current.has(memberId)),
+        ...[...createdBotIds.current].filter((memberId) => !group.memberIds.includes(memberId)),
+      ];
+      openedMemberIds.current = nextMemberIds(currentMemberIds, next, bots.map((b) => b.id));
       return next;
     });
 
@@ -106,7 +118,12 @@ export function ManageMembersPanel({
   };
 
   const addCreatedBot = (bot: Bot) => {
-    const currentMemberIds = openedMemberIds.current;
+    createdBotIds.current.add(bot.id);
+    removedBotIds.current.delete(bot.id);
+    const currentMemberIds = [
+      ...group.memberIds.filter((memberId) => !removedBotIds.current.has(memberId)),
+      ...[...createdBotIds.current].filter((memberId) => !group.memberIds.includes(memberId)),
+    ];
     const nextGroupMemberIds = currentMemberIds.includes(bot.id) ? currentMemberIds : [...currentMemberIds, bot.id];
     openedMemberIds.current = nextGroupMemberIds;
     setPicked((prev) => new Set(prev).add(bot.id));
@@ -170,10 +187,13 @@ export function ManageMembersPanel({
           <button
             type="button"
             data-manage-create-bot
-            onClick={() => setRows((prev) => [
-              ...prev,
-              { key: nextRowKey.current++, job: "", instanceId: null, model: null, saving: false, error: null },
-            ])}
+            onClick={() => {
+              const key = nextRowKey.current++;
+              setRows((prev) => [
+                ...prev,
+                { key, job: "", instanceId: null, model: null, saving: false, error: null },
+              ]);
+            }}
             className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-accent/50 px-3 py-2 text-[13px] font-medium text-accent hover:bg-accent/10"
           >
             <Plus size={15} /> {t("room.addBot")}

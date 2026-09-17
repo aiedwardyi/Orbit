@@ -89,4 +89,25 @@ describe("Windows ConPTY resources", () => {
     fs.unlinkSync(path.join(conpty, "conpty.dll"));
     await expect(afterPack({ electronPlatformName: "win32", appOutDir })).rejects.toThrow("conpty.dll");
   });
+
+  it("rejects symlinked terminal ancestry", async () => {
+    const { appOutDir, resources } = fixture();
+    const terminal = path.join(resources, "terminal");
+    const target = path.join(appOutDir, "terminal-target");
+    fs.mkdirSync(target);
+    fs.symlinkSync(target, terminal, "junction");
+    await expect(afterPack({ electronPlatformName: "win32", appOutDir })).rejects.toThrow("real directory");
+  });
+
+  it("rejects a symlinked node-pty build directory", async () => {
+    const { appOutDir, resources } = fixture();
+    const root = path.join(resources, "terminal", "node-pty");
+    const release = path.join(root, "build-target", "Release", "conpty");
+    fs.mkdirSync(release, { recursive: true });
+    for (const file of [path.join(release, "..", "conpty.node"), path.join(release, "conpty.dll"), path.join(release, "OpenConsole.exe")]) {
+      fs.writeFileSync(file, "fixture");
+    }
+    fs.symlinkSync(path.join(root, "build-target"), path.join(root, "build"), "junction");
+    await expect(afterPack({ electronPlatformName: "win32", appOutDir })).rejects.toThrow("real directory");
+  });
 });

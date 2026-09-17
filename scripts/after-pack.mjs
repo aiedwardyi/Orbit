@@ -66,7 +66,15 @@ async function validateCloudflared(resources, platform, required) {
 
 export async function validateNodePtyConpty(resources, platform, required) {
   if (platform !== "win32") return;
-  const root = path.join(resources, "terminal", "node-pty");
+  const terminal = path.join(resources, "terminal");
+  try {
+    await lstat(terminal);
+  } catch (error) {
+    if (error?.code === "ENOENT" && !required) return;
+    throw error;
+  }
+  await requireRealDirectory(terminal);
+  const root = path.join(terminal, "node-pty");
   try {
     await lstat(root);
   } catch (error) {
@@ -74,7 +82,9 @@ export async function validateNodePtyConpty(resources, platform, required) {
     throw error;
   }
   await requireRealDirectory(root);
-  const release = path.join(root, "build", "Release");
+  const build = path.join(root, "build");
+  await requireRealDirectory(build);
+  const release = path.join(build, "Release");
   const conpty = path.join(release, "conpty");
   await requireRealDirectory(release);
   await requireRealDirectory(conpty);

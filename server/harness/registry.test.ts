@@ -65,6 +65,34 @@ describe("ProviderRegistry", () => {
     expect(refreshes).toBe(2);
   });
 
+  it("coalesces concurrent model discovery refreshes", async () => {
+    const fake = makeFakeDriver();
+    const originalCreate = fake.driver.create.bind(fake.driver);
+    let refreshes = 0;
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    fake.driver.create = async (input) => {
+      const instance = await originalCreate(input);
+      Object.assign(instance, {
+        refreshModels: async () => {
+          refreshes += 1;
+          await gate;
+        },
+      });
+      return instance;
+    };
+    let now = 1_000;
+    const registry = new ProviderRegistry([fake.driver], { now: () => now, modelRefreshTtlMs: 100 });
+    await registry.load({ a: { driver: "fake" } });
+    now += 101;
+
+    const descriptions = Promise.all([registry.describe(), registry.describe()]);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(refreshes).toBe(1);
+    release!();
+    await descriptions;
+  });
+
   it("uses defaultConfig when the entry has no config", async () => {
     const fake = makeFakeDriver();
     const registry = new ProviderRegistry([fake.driver]);

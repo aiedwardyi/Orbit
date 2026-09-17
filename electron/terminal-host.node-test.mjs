@@ -138,11 +138,13 @@ test("retires a worker when its open is cancelled during readiness", async () =>
     loadPty: () => ({ spawn: () => { spawnedResolve(); return child; } }),
   });
   const opening = host.open(event, { botId: "readiness-cancel", cols: 80, rows: 24 });
+  const cancelled = assert.rejects(opening, /cancelled/);
   await spawned;
   assert.equal(host.cancelOpen(event, "readiness-cancel"), true);
-  releaseReady();
-  await assert.rejects(opening, /cancelled/);
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(child.killed, true);
+  releaseReady();
+  await cancelled;
 });
 
 test("shutdown during folder resolution cannot spawn a shell", async () => {
