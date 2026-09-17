@@ -55,7 +55,7 @@ export function SearchResults({ query, onLanded }: { query: string; onLanded: ()
   };
 
   return (
-    <div className="mt-2 border-t border-hairline/40 pt-2">
+    <div data-search-results="" className="mt-2 border-t border-hairline/40 pt-2">
       <div className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wide text-ink-secondary">
         {hits
           ? t("search.messagesCount", { count: `${hits.length}${hits.length === 40 ? "+" : ""}` })

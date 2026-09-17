@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Terminal header smoke</title>
+<style>
+  :root {
+    --color-panel: #111111;
+    --color-raised: #2f2f2f;
+    --color-raised-hover: #3d3d3d;
+    --color-inset: #191919;
+    --color-hairline: #333333;
+    --color-ink: #fcfcfc;
+    --color-ink-secondary: #fcfcfc99;
+    --color-accent-text: #7fc0ff;
+    --color-danger: #ff6b6b;
+    font-family: "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0a0a0a; color: var(--color-ink); }
+  .frame { width: 960px; margin: 24px auto; background: var(--color-inset); border: 1px solid var(--color-hairline); border-radius: 12px; overflow: hidden; }
+  .frame.narrow { width: 420px; }
+  header {
+    display: flex; align-items: center; gap: 12px; min-height: 60px;
+    border-bottom: 1px solid var(--color-hairline); background: var(--color-panel);
+    padding: 12px 20px 12px 20px;
+  }
+  .back, .restart, .folder, .link, .iconbtn {
+    display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent;
+    color: var(--color-ink-secondary); cursor: default; border-radius: 6px;
+  }
+  .back { font-size: 13px; padding: 6px 8px; }
+  .restart { font-size: 12px; padding: 6px 8px; flex-shrink: 0; }
+  .folder { font-size: 11px; padding: 2px 6px; max-width: 100%; min-width: 0; }
+  .folder .label { font-family: Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .title { min-width: 0; flex: 1; }
+  .title h1 { margin: 0; font-size: 13px; font-weight: 500; }
+  .title h1 span { color: var(--color-ink-secondary); }
+  .row { margin-top: 2px; display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .divider { width: 1px; height: 20px; background: var(--color-hairline); }
+  .termicon { color: var(--color-accent-text); }
+  .banner {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    border-bottom: 1px solid var(--color-hairline); background: var(--color-inset);
+    padding: 6px 20px; font-size: 12px;
+  }
+  .banner .link { color: var(--color-accent-text); text-decoration: underline; }
+  .banner .path { font-family: Consolas, monospace; font-size: 11px; color: var(--color-ink-secondary); margin-left: 8px; }
+  .body { height: 160px; padding: 16px; font-family: Consolas, monospace; font-size: 13px; color: #9ad; }
+  .kbd { font-size: 10px; color: var(--color-ink-secondary); }
+  .mismatch { font-size: 11px; color: var(--color-ink-secondary); flex-shrink: 0; }
+  .dialog-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,.55);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .dialog {
+    width: 360px; background: var(--color-panel); border: 1px solid var(--color-hairline);
+    border-radius: 12px; padding: 20px; box-shadow: 0 16px 40px rgba(0,0,0,.45);
+  }
+  .dialog h2 { margin: 0 0 8px; font-size: 15px; }
+  .dialog p { margin: 0 0 16px; color: var(--color-ink-secondary); font-size: 13px; line-height: 1.4; }
+  .dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .dialog button { border: 0; border-radius: 8px; padding: 8px 12px; font-size: 13px; cursor: default; }
+  .dialog .cancel { background: var(--color-raised); color: var(--color-ink); }
+  .dialog .confirm { background: #7a2e2e; color: #fff; }
+  .cap { text-align: center; color: #888; font-size: 12px; margin: 8px 0 28px; }
+  svg { flex-shrink: 0; }
+</style>
+</head>
+<body>
+<section id="default">
+  <div class="frame">
+    <header>
+      <button class="back">← Chat <span class="kbd">Ctrl+`</span></button>
+      <span class="divider"></span>
+      <span class="termicon">▣</span>
+      <div class="title">
+        <h1>Terminal <span>/ Chief of Staff</span></h1>
+        <div class="row">
+          <button class="folder" title="Private workspace"><span>📁</span><span class="label">Private workspace</span><span>▾</span></button>
+        </div>
+      </div>
+      <button class="restart">↻ Restart</button>
+    </header>
+    <div class="body">PS C:\Users\private&gt; _</div>
+  </div>
+  <div class="cap">default header</div>
+</section>
+
+<section id="selected">
+  <div class="frame">
+    <header>
+      <button class="back">← Chat <span class="kbd">Ctrl+`</span></button>
+      <span class="divider"></span>
+      <span class="termicon">▣</span>
+      <div class="title">
+        <h1>Terminal <span>/ Chief of Staff</span></h1>
+        <div class="row">
+          <button class="folder" title="D:\Downloads\AI Newsroom"><span>📁</span><span class="label">AI Newsroom</span><span>▾</span></button>
+        </div>
+      </div>
+      <button class="restart">↻ Restart</button>
+    </header>
+    <div class="body">PS D:\Downloads\AI Newsroom&gt; _</div>
+  </div>
+  <div class="cap">selected project</div>
+</section>
+
+<section id="mismatch">
+  <div class="frame">
+    <header>
+      <button class="back">← Chat <span class="kbd">Ctrl+`</span></button>
+      <span class="divider"></span>
+      <span class="termicon">▣</span>
+      <div class="title">
+        <h1>Terminal <span>/ Chief of Staff</span></h1>
+        <div class="row">
+          <button class="folder" title="D:\Downloads\files"><span>📁</span><span class="label">files</span><span>▾</span></button>
+        </div>
+      </div>
+      <button class="restart">↻ Restart</button>
+    </header>
+    <div class="banner" role="status">
+      <span>Terminal started in a different folder <span class="path">D:\Downloads\AI Newsroom</span></span>
+      <button class="link">Open terminal here</button>
+      <button class="iconbtn">✕</button>
+    </div>
+    <div class="body">PS D:\Downloads\AI Newsroom&gt; _</div>
+  </div>
+  <div class="cap">mismatch notice</div>
+</section>
+
+<section id="confirm">
+  <div class="frame" style="position:relative; min-height:280px;">
+    <header>
+      <button class="back">← Chat <span class="kbd">Ctrl+`</span></button>
+      <span class="divider"></span>
+      <span class="termicon">▣</span>
+      <div class="title">
+        <h1>Terminal <span>/ Chief of Staff</span></h1>
+        <div class="row">
+          <button class="folder" title="D:\Downloads\AI Newsroom"><span>📁</span><span class="label">AI Newsroom</span><span>▾</span></button>
+        </div>
+      </div>
+      <button class="restart">↻ Restart</button>
+    </header>
+    <div class="body">PS D:\Downloads\files&gt; long-running…</div>
+    <div class="dialog-backdrop">
+      <div class="dialog">
+        <h2>Restart terminal in AI Newsroom?</h2>
+        <p>Running commands in this terminal will stop.</p>
+        <div class="actions">
+          <button class="cancel">Cancel</button>
+          <button class="confirm">Restart terminal</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="cap">restart confirmation</div>
+</section>
+
+<section id="narrow">
+  <div class="frame narrow">
+    <header>
+      <button class="back">← Chat</button>
+      <span class="divider"></span>
+      <span class="termicon">▣</span>
+      <div class="title">
+        <h1>Terminal <span>/ Chief of Staff</span></h1>
+        <div class="row">
+          <button class="folder" title="D:\Downloads\AI Newsroom Project Files"><span>📁</span><span class="label">AI Newsroom Project Files</span><span>▾</span></button>
+        </div>
+      </div>
+      <button class="restart">↻ Restart</button>
+    </header>
+    <div class="body">PS …&gt; _</div>
+  </div>
+  <div class="cap">narrow window</div>
+</section>
+</body>
+</html>

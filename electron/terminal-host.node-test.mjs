@@ -111,3 +111,33 @@ test("shutdown during folder resolution cannot spawn a shell", async () => {
   await assert.rejects(task, /shutting down/);
   assert.equal(f.children.length, 0);
 });
+
+test("restart keeps the old session when the new folder is unavailable", async () => {
+  const events = [];
+  const owner = { id: 1, mainFrame: { url: "http://127.0.0.1:8799/" }, getURL: () => "http://127.0.0.1:8799/", isDestroyed: () => false, send: (...args) => events.push(args) };
+  const event = { sender: owner, senderFrame: owner.mainFrame };
+  const children = [];
+  let resolveCalls = 0;
+  const host = createTerminalHost({
+    authorize: (caller) => { if (!trustedTerminalSender(caller, owner, "http://127.0.0.1:8799")) throw new Error("Untrusted"); },
+    resolveCwd: async () => {
+      resolveCalls += 1;
+      if (resolveCalls === 1) return os.tmpdir();
+      return { needsFolder: true, reason: "explicit-unavailable" };
+    },
+    platform: "linux",
+    env: { SHELL: "/bin/sh" },
+    loadPty: () => ({ spawn: () => {
+      const child = { writes: [], sizes: [], killed: false, onData(cb) { this.data = cb; }, onExit(cb) { this.exit = cb; }, write(data) { this.writes.push(data); }, resize(...size) { this.sizes.push(size); }, kill() { this.killed = true; } };
+      children.push(child);
+      return child;
+    } }),
+  });
+  const first = await host.open(event, { botId: "bot-1", cols: 80, rows: 24 });
+  const blocked = await host.open(event, { botId: "bot-1", cols: 80, rows: 24, restart: true });
+  assert.deepEqual(blocked, { needsFolder: true, reason: "explicit-unavailable" });
+  assert.equal(children[0].killed, false);
+  const resumed = await host.open(event, { botId: "bot-1", cols: 80, rows: 24 });
+  assert.equal(resumed.id, first.id);
+  assert.equal(children.length, 1);
+});

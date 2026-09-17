@@ -19,7 +19,7 @@ const en = {
   "packaged.liveDesktopFailed": "Couldn't open the live desktop",
   "packaged.openInBrowser": "Open in browser",
   "packaged.liveDesktop": "Live desktop",
-  "packaged.chooseFolder": "Choose a folder",
+  "packaged.chooseFolder": "Choose project folder",
   "packaged.exportDiagnostics": "Export diagnostics",
   "packaged.saveWhere": "Where do you want to save it?",
   "packaged.save": "Save",
@@ -43,7 +43,7 @@ const ko = {
   "packaged.liveDesktopFailed": "실시간 데스크톱을 열지 못했습니다",
   "packaged.openInBrowser": "브라우저에서 열기",
   "packaged.liveDesktop": "실시간 데스크톱",
-  "packaged.chooseFolder": "폴더 선택",
+  "packaged.chooseFolder": "프로젝트 폴더 선택",
   "packaged.exportDiagnostics": "진단 내보내기",
   "packaged.saveWhere": "어디에 저장할까요?",
   "packaged.save": "저장",
@@ -113,3 +113,4 @@ export function uiFontStack() {
 }
 
 export { en, ko };
+
