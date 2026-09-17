@@ -48,7 +48,7 @@ export function ModelPickerControl({
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
-  const committedRef = useRef(false);
+  const focusComposerAfterCloseRef = useRef(false);
   const openedWithShortcutRef = useRef(false);
   const stageRef = useRef<HTMLDivElement>(null);
   const [stageWidth, setStageWidth] = useState(0);
@@ -92,19 +92,18 @@ export function ModelPickerControl({
     setDraft(selection);
     setCustomOpen(false);
     setQuery("");
+    focusComposerAfterCloseRef.current = false;
     openedWithShortcutRef.current = viaShortcut;
     setOpen(true);
   };
   const close = () => setOpen(false);
   const save = (candidate: ModelSelection = draft, fromKeyboard = false) => {
     if (!canCommit(candidate)) return;
-    committedRef.current = true;
+    focusComposerAfterCloseRef.current = fromKeyboard && openedWithShortcutRef.current && !contained;
     dispatch({ type: "setModel", botId: bot.id, selection: candidate });
     close();
-    if (fromKeyboard && openedWithShortcutRef.current && !contained) {
+    if (focusComposerAfterCloseRef.current) {
       focusComposerOnActivation({ activatedElement: triggerRef.current });
-    } else if (!contained) {
-      triggerRef.current?.focus();
     }
   };
   const pick = (next: ModelSelection) => {
@@ -131,12 +130,11 @@ export function ModelPickerControl({
 
   useEffect(() => {
     if (!open) return;
-    committedRef.current = false;
     void refreshInstances();
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : triggerRef.current;
     dialogRef.current?.focus();
     return () => {
-      if (!committedRef.current || contained) previous?.focus();
+      if (!focusComposerAfterCloseRef.current) previous?.focus();
     };
   }, [contained, open, refreshInstances]);
 

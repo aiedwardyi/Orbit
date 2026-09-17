@@ -25,7 +25,7 @@ class FakeEventSource {
 
 const bot = (id: string) => ({ id, threadId: `${id}-thread`, name: id, messages: [] });
 
-type Reply = { bots: ReturnType<typeof bot>[]; groups: [] } | { botIds: string[] } | { error: string };
+type Reply = { bots: ReturnType<typeof bot>[]; groups: unknown[] } | { botIds: string[] } | { error: string };
 
 const respond = (status: number, body: Reply) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -74,6 +74,35 @@ async function mountStore() {
     saveOnServer: (ids: string[]) => {
       serverOrder = ids;
     },
+    unmount: () => act(async () => root.unmount()),
+  };
+}
+
+async function mountGroupPatchStore() {
+  const answers: Array<(response: Response) => void> = [];
+  const group = { id: "g1", threadId: "g1-thread", name: "before", memberIds: [], messages: [] };
+  vi.stubGlobal("EventSource", FakeEventSource);
+  vi.stubGlobal("fetch", vi.fn(async (path: string, init: RequestInit = {}) => {
+    if (path === "/api/bots") return respond(200, { bots: [], groups: [group] });
+    if (path === "/api/groups/g1" && init.method === "PATCH") {
+      return new Promise<Response>((resolve) => answers.push(resolve));
+    }
+    return respond(404, { error: "not in this test" });
+  }));
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  let store: { state: AppState; dispatch: (action: Action) => void } | null = null;
+  const Probe = () => {
+    store = useStore();
+    return null;
+  };
+  const root = createRoot(document.createElement("div"));
+  await act(async () => root.render(createElement(StoreProvider, null, createElement(Probe))));
+  await act(async () => FakeEventSource.current!.send({ kind: "hello", resumed: false, cursor: "c0" }));
+  await vi.waitFor(() => expect(store!.state.groups.map((candidate) => candidate.id)).toEqual(["g1"]));
+  return {
+    current: () => store!,
+    dispatch: (action: Action) => act(async () => store!.dispatch(action)),
+    answerPatch: (index: number, response: Response) => answers[index]!(response),
     unmount: () => act(async () => root.unmount()),
   };
 }
@@ -192,6 +221,22 @@ describe("reorderBots", () => {
 
       await act(async () => FakeEventSource.current!.send({ kind: "bots.order", botIds: ["c", "b", "a"] }, "c1"));
       expect(store.order()).toEqual(["c", "b", "a"]);
+    } finally {
+      await store.unmount();
+    }
+  });
+});
+
+describe("group patches", () => {
+  it("restores the newest successful snapshot when a later patch fails", async () => {
+    const store = await mountGroupPatchStore();
+    try {
+      await store.dispatch({ type: "patchGroup", groupId: "g1", patch: { name: "first" } });
+      await store.dispatch({ type: "patchGroup", groupId: "g1", patch: { name: "second" } });
+      store.answerPatch(0, new Response(JSON.stringify({ group: { id: "g1", name: "first" } }), { status: 200 }));
+      await settle();
+      store.answerPatch(1, new Response(JSON.stringify({ error: "conflict" }), { status: 409 }));
+      await vi.waitFor(() => expect(store.current().state.groups[0]?.name).toBe("first"));
     } finally {
       await store.unmount();
     }

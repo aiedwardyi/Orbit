@@ -58,7 +58,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const { state, dispatch } = useStore();
   const latestState = useRef(state);
   const handledTerminalAttention = useRef(new Set<string>());
-  const pendingTerminalAcknowledgements = useRef(new Set<string>());
+  const pendingTerminalAcknowledgements = useRef(new Map<string, Set<string>>());
   useLayoutEffect(() => {
     latestState.current = state;
   }, [state]);
@@ -83,13 +83,16 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const openTerminal = () => { if (bot) setTerminalViews((views) => ({ ...views, [bot.id]: true })); };
   const acknowledgeTerminalAttention = (attention: Pick<TerminalAttention, "botId" | "sessionId">) => {
     const key = terminalAttentionKey(attention.botId, attention.sessionId);
-    pendingTerminalAcknowledgements.current.delete(key);
+    const sessions = pendingTerminalAcknowledgements.current.get(attention.botId);
+    sessions?.delete(attention.sessionId);
+    if (sessions?.size === 0) pendingTerminalAcknowledgements.current.delete(attention.botId);
     handledTerminalAttention.current.delete(key);
     dispatch({ type: "ackTerminalAttention", botId: attention.botId, sessionId: attention.sessionId });
   };
   const requestTerminalAcknowledgement = (attention: Pick<TerminalAttention, "botId" | "sessionId">) => {
-    const key = terminalAttentionKey(attention.botId, attention.sessionId);
-    pendingTerminalAcknowledgements.current.add(key);
+    const sessions = pendingTerminalAcknowledgements.current.get(attention.botId) ?? new Set<string>();
+    sessions.add(attention.sessionId);
+    pendingTerminalAcknowledgements.current.set(attention.botId, sessions);
     if (terminalOpen && bot?.id === attention.botId && document.hasFocus()) acknowledgeTerminalAttention(attention);
   };
   const openTerminalNotification = (target: NotificationTarget) => {
@@ -129,11 +132,14 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   useEffect(() => {
     const acknowledgeVisible = () => {
       if (!terminalOpen || !bot || !document.hasFocus()) return;
-      const pending = [...pendingTerminalAcknowledgements.current]
-        .map((key) => state.terminalAttention[key])
-        .filter((attention): attention is TerminalAttention => Boolean(attention && attention.botId === bot.id));
-      if (pending.length > 0) {
-        for (const attention of pending) acknowledgeTerminalAttention(attention);
+      const targeted = pendingTerminalAcknowledgements.current.get(bot.id);
+      if (targeted) {
+        for (const sessionId of [...targeted]) {
+          const attention = state.terminalAttention[terminalAttentionKey(bot.id, sessionId)];
+          if (attention) acknowledgeTerminalAttention(attention);
+          else targeted.delete(sessionId);
+        }
+        if (targeted.size === 0) pendingTerminalAcknowledgements.current.delete(bot.id);
         return;
       }
       const attention = terminalAttentionForBot(state.terminalAttention, bot.id);
@@ -205,6 +211,8 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
 
   useEffect(() => {
     return window.ogb?.onNotificationClick?.((target) => {
+      const current = latestState.current;
+      openNotificationTarget(dispatch, target, current);
       if (target.openTerminal) {
         setBrowserWorkspaceBotId(null);
         setLocalVmWorkspaceBotId(null);
@@ -212,7 +220,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
         setTerminalViews((views) => ({ ...views, [target.botId]: true }));
         const attention = target.terminalSessionId
           ? { botId: target.botId, sessionId: target.terminalSessionId }
-          : terminalAttentionForBot(latestState.current.terminalAttention, target.botId);
+          : terminalAttentionForBot(current.terminalAttention, target.botId);
         if (attention) requestTerminalAcknowledgement(attention);
       }
     });

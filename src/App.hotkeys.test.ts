@@ -53,8 +53,15 @@ describe("terminal attention routing", () => {
   it("carries the exact terminal session through notification clicks", () => {
     expect(app).toContain("buildTerminalNotification(bot, reason, sessionId)");
     expect(app).toContain("terminalAttentionForBot(latestState.current.terminalAttention, target.botId)");
+    expect(app).toContain("openNotificationTarget(dispatch, target, current)");
     expect(app).toContain("if (!terminalOpen || !bot || !document.hasFocus()) return;");
     expect(app).toContain('window.addEventListener("focus", acknowledgeVisible)');
     expect(app).toContain('type: "ackTerminalAttention"');
+  });
+
+  it("keeps targeted acknowledgements scoped by bot while a notification click settles", () => {
+    expect(app).toContain("useRef(new Map<string, Set<string>>())");
+    expect(app).toContain("const targeted = pendingTerminalAcknowledgements.current.get(bot.id)");
+    expect(app).toContain("if (targeted.size === 0) pendingTerminalAcknowledgements.current.delete(bot.id)");
   });
 });

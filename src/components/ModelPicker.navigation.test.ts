@@ -255,7 +255,12 @@ describe("ModelPicker cross navigation", () => {
 
   it("returns focus to the trigger after a pointer model commit", async () => {
     mock.instances = [engine("grok", "grokAgent", ["grok-4.6", "grok-4.5"])];
-    await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" });
+    await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" }, false);
+    await act(async () => {
+      const trigger = document.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!;
+      trigger.focus();
+      trigger.click();
+    });
     await act(async () => {
       document.querySelector<HTMLButtonElement>('[data-model-cell="grok-4.5"]')!.click();
     });
