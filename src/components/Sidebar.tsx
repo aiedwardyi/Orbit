@@ -12,6 +12,7 @@ import {
   Crown,
   FolderMinus,
   FolderPlus,
+  GripVertical,
   Library,
   Loader2,
   Pencil,
@@ -28,7 +29,12 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { botOrderAfterDrop, groupOrderAfterDrop } from "@/lib/bot-order";
+import {
+  botOrderAfterCrossSectionDrop,
+  botOrderAfterDrop,
+  botOrderAfterSectionDrop,
+  groupOrderAfterDrop,
+} from "@/lib/bot-order";
 import { conversationPreview, roomConversationPreview } from "@/lib/conversation-preview";
 import {
   mergeSectionOrder,
@@ -198,13 +204,19 @@ function StackedMauses({ members, density }: { members: Bot[]; density: SidebarD
   const shown = members.slice(0, 3);
   const extra = members.length - shown.length;
   return (
-    <div className={cn("flex shrink-0 items-center justify-center", slotSize)}>
+    <div
+      data-sidebar-group-avatar-slot
+      className={cn("flex shrink-0 items-center justify-center", slotSize, extra > 0 && "min-w-[76px]")}
+    >
       <div className="flex items-center -space-x-3">
         {shown.map((b) => (
           <BotAvatar key={b.id} bot={b} state="happy" size={30} animated={false} />
         ))}
         {extra > 0 && (
-          <span className="z-10 flex size-[22px] items-center justify-center rounded-full border border-hairline/40 bg-raised text-[10px] font-medium text-ink-secondary">
+          <span
+            data-sidebar-group-overflow
+            className="z-10 flex size-[22px] items-center justify-center rounded-full border border-hairline/40 bg-raised text-[10px] font-medium text-ink-secondary"
+          >
             +{extra}
           </span>
         )}
@@ -224,7 +236,7 @@ function GroupListItem({
   onMenu: (menu: { groupId: string; x: number; y: number }) => void;
   drag?: SidebarRowDrag;
 }) {
-  const { locale } = useI18n();
+  const { t, locale } = useI18n();
   const { state, dispatch } = useStore();
   const showToolCalls = showToolCallsEnabled(state.config);
   const selected = state.activeView === "chat" && state.selectedId === group.id;
@@ -246,6 +258,11 @@ function GroupListItem({
           event.preventDefault();
           event.dataTransfer.dropEffect = "move";
         },
+        onDragEnter: (event: React.DragEvent) => {
+          if (!drag.onOver()) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+        },
         onDragLeave: (event: React.DragEvent) => {
           const next = event.relatedTarget;
           if (!(next instanceof Node) || !event.currentTarget.contains(next)) drag.onLeave();
@@ -261,9 +278,17 @@ function GroupListItem({
   // draggable element is never the button itself, so press-then-move from
   // anywhere on the row (avatar, name, preview) initiates the row drag.
   return (
-    <div className="group relative" title={density === "icons" ? group.name : undefined} {...dragProps}>
+    <div
+      className="group relative min-h-12 py-0.5"
+      data-sidebar-row
+      data-sidebar-row-kind="group"
+      data-sidebar-row-id={group.id}
+      title={density === "icons" ? group.name : undefined}
+      {...dragProps}
+    >
       {drag?.edge && (
         <span
+          data-sidebar-row-drop-marker
           className={cn(
             "pointer-events-none absolute inset-x-2 z-10 h-0.5 rounded-full bg-accent",
             drag.edge === "top" ? "-top-0.5" : "-bottom-0.5",
@@ -313,6 +338,16 @@ function GroupListItem({
         )}
         aria-label={density === "icons" ? group.name : undefined}
       >
+        {density !== "icons" && drag && (
+          <span
+            aria-hidden="true"
+            data-sidebar-row-grip
+            className="flex size-6 shrink-0 items-center justify-center rounded text-ink-secondary/60 opacity-60 transition group-hover:opacity-100 group-focus-within:opacity-100"
+            title={t("chrome.dragToReorder")}
+          >
+            <GripVertical size={14} />
+          </span>
+        )}
         <StackedMauses members={members} density={density} />
         <div className={cn("min-w-0 flex-1", density === "icons" && "hidden")}>
           <div className="flex min-w-0 items-baseline gap-2 overflow-hidden">
@@ -899,6 +934,11 @@ function BotListItem({
           event.preventDefault();
           event.dataTransfer.dropEffect = "move";
         },
+        onDragEnter: (event: React.DragEvent) => {
+          if (!drag.onOver()) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+        },
         onDragLeave: (event: React.DragEvent) => {
           const next = event.relatedTarget;
           if (!(next instanceof Node) || !event.currentTarget.contains(next)) drag.onLeave();
@@ -912,9 +952,17 @@ function BotListItem({
     : {};
 
   return (
-    <div className="group relative" title={iconOnly ? (modelLabel ? `${bot.name} · ${modelLabel}` : bot.name) : undefined} {...dragProps}>
+    <div
+      className="group relative min-h-12 py-0.5"
+      data-sidebar-row
+      data-sidebar-row-kind="bot"
+      data-sidebar-row-id={bot.id}
+      title={iconOnly ? (modelLabel ? `${bot.name} · ${modelLabel}` : bot.name) : undefined}
+      {...dragProps}
+    >
       {drag?.edge && (
         <span
+          data-sidebar-row-drop-marker
           className={cn(
             "pointer-events-none absolute inset-x-2 z-10 h-0.5 rounded-full bg-accent",
             drag.edge === "top" ? "-top-0.5" : "-bottom-0.5",
@@ -948,6 +996,16 @@ function BotListItem({
         onContextMenu={onContextMenu}
         className={rowClass}
       >
+        {density !== "icons" && drag && (
+          <span
+            aria-hidden="true"
+            data-sidebar-row-grip
+            className="flex size-6 shrink-0 items-center justify-center rounded text-ink-secondary/60 opacity-60 transition group-hover:opacity-100 group-focus-within:opacity-100"
+            title={t("chrome.dragToReorder")}
+          >
+            <GripVertical size={14} />
+          </span>
+        )}
         {body}
       </div>
       {iconOnly && bot.unread && (
@@ -1120,6 +1178,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Bot | null>(null);
   const [drag, setDrag] = useState<{ kind: "bot" | "group"; from: string; over: string | null } | null>(null);
+  const [botSectionDropTarget, setBotSectionDropTarget] = useState<string | null>(null);
   const [sectionOrder, setSectionOrder] = useState<string[]>(() => loadSectionOrder());
   const [draggingSectionId, setDraggingSectionId] = useState<string | null>(null);
   const [sectionDropTarget, setSectionDropTarget] = useState<{ id: string; place: SectionDropPlace } | null>(null);
@@ -1518,6 +1577,10 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     setDraggingSectionId(null);
     setSectionDropTarget(null);
   };
+  const resetRowDrag = () => {
+    setDrag(null);
+    setBotSectionDropTarget(null);
+  };
   const updateSectionDropTarget = (event: React.DragEvent<HTMLDivElement>, id: string) => {
     if (!sectionsReorderable || !sectionDragRef.current.from || sectionDragRef.current.from === id) return;
     event.preventDefault();
@@ -1544,37 +1607,102 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     }
     resetSectionDrag();
   };
+  const updateBotSectionDropTarget = (event: React.DragEvent<HTMLDivElement>, id: string, name: string) => {
+    if (drag?.kind !== "bot") return false;
+    const from = state.bots.find((bot) => bot.id === drag.from);
+    const order = from ? botOrderAfterSectionDrop(state.bots, drag.from, name) : null;
+    if (!from || !order) return false;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    if (botSectionDropTarget !== id) setBotSectionDropTarget(id);
+    if (drag.over !== null) setDrag((current) => (current ? { ...current, over: null } : null));
+    return true;
+  };
+  const applyBotDrop = (drop: { botIds: string[]; section: string } | null, fromId: string) => {
+    const from = state.bots.find((bot) => bot.id === fromId);
+    resetRowDrag();
+    if (!drop || !from) return;
+    if ((from.section ?? "") !== drop.section) {
+      dispatch({ type: "updateBot", botId: from.id, patch: { section: drop.section } });
+    }
+    dispatch({ type: "reorderBots", botIds: drop.botIds });
+  };
+  const dropBotInSection = (event: React.DragEvent<HTMLDivElement>, name: string) => {
+    event.preventDefault();
+    if (drag?.kind !== "bot") {
+      resetRowDrag();
+      return;
+    }
+    const fromId = drag.from;
+    const from = state.bots.find((bot) => bot.id === fromId);
+    const order = botOrderAfterSectionDrop(state.bots, fromId, name);
+    applyBotDrop(order ? { botIds: order, section: name } : null, fromId);
+    if (from && order) setReorderAnnouncement(`${from.name} moved to ${name}`);
+  };
+  const isSidebarRowEvent = (event: React.DragEvent<HTMLDivElement>) => {
+    const target = event.target;
+    return target instanceof Element && Boolean(target.closest("[data-sidebar-row]"));
+  };
+  const sectionDragOver = (event: React.DragEvent<HTMLDivElement>, id: string, name: string) => {
+    if (drag?.kind === "bot") {
+      if (!isSidebarRowEvent(event)) updateBotSectionDropTarget(event, id, name);
+      return;
+    }
+    updateSectionDropTarget(event, id);
+  };
+  const sectionDrop = (event: React.DragEvent<HTMLDivElement>, name: string) => {
+    if (drag?.kind === "bot") {
+      if (!isSidebarRowEvent(event)) dropBotInSection(event, name);
+      return;
+    }
+    dropSection(event);
+  };
   const activeBotCount = state.bots.filter((bot) => !bot.hidden).length;
   const archivedBots = state.bots.filter((bot) => bot.hidden);
-  const dropOrder = (toId: string) =>
-    drag?.kind === "bot" ? botOrderAfterDrop(state.bots, drag.from, toId) : null;
+  const botDropOrder = (toId: string) => {
+    if (drag?.kind !== "bot") return null;
+    const to = state.bots.find((bot) => bot.id === toId);
+    if (!to) return null;
+    const from = state.bots.find((bot) => bot.id === drag.from);
+    if (!from) return null;
+    const order = (from.section ?? "") === (to.section ?? "")
+      ? botOrderAfterDrop(state.bots, drag.from, toId)
+      : botOrderAfterCrossSectionDrop(state.bots, drag.from, toId);
+    return order ? { botIds: order, section: to.section ?? "" } : null;
+  };
   const groupDropOrder = (toId: string) =>
     drag?.kind === "group" ? groupOrderAfterDrop(state.groups, drag.from, toId) : null;
   const rowDrag = (bot: Bot): SidebarRowDrag => {
-    const order = drag?.kind === "bot" && drag?.over === bot.id ? dropOrder(bot.id) : null;
+    const order = drag?.kind === "bot" && drag?.over === bot.id ? botDropOrder(bot.id) : null;
     return {
-      edge: order ? (order.indexOf(bot.id) < order.indexOf(drag!.from) ? "bottom" : "top") : null,
-      onStart: () => setDrag({ kind: "bot", from: bot.id, over: null }),
+      edge: order ? (order.botIds.indexOf(bot.id) < order.botIds.indexOf(drag!.from) ? "bottom" : "top") : null,
+      onStart: () => {
+        setBotSectionDropTarget(null);
+        setDrag({ kind: "bot", from: bot.id, over: null });
+      },
       onOver: () => {
         if (!drag || drag.kind !== "bot") return false;
-        const over = dropOrder(bot.id) ? bot.id : null;
+        const over = botDropOrder(bot.id) ? bot.id : null;
+        if (over) setBotSectionDropTarget(null);
         if (drag.over !== over) setDrag((current) => (current ? { ...current, over } : null));
         return over !== null;
       },
       onLeave: () => setDrag((current) => (current?.over === bot.id ? { ...current, over: null } : current)),
       onDrop: () => {
-        const botIds = dropOrder(bot.id);
-        setDrag(null);
-        if (botIds) dispatch({ type: "reorderBots", botIds });
+        const fromId = drag?.kind === "bot" ? drag.from : bot.id;
+        applyBotDrop(botDropOrder(bot.id), fromId);
       },
-      onEnd: () => setDrag(null),
+      onEnd: resetRowDrag,
     };
   };
   const groupRowDrag = (group: Group): SidebarRowDrag => {
     const order = drag?.kind === "group" && drag?.over === group.id ? groupDropOrder(group.id) : null;
     return {
       edge: order ? (order.indexOf(group.id) < order.indexOf(drag!.from) ? "bottom" : "top") : null,
-      onStart: () => setDrag({ kind: "group", from: group.id, over: null }),
+      onStart: () => {
+        setBotSectionDropTarget(null);
+        setDrag({ kind: "group", from: group.id, over: null });
+      },
       onOver: () => {
         if (!drag || drag.kind !== "group") return false;
         const over = groupDropOrder(group.id) ? group.id : null;
@@ -1584,10 +1712,10 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       onLeave: () => setDrag((current) => (current?.over === group.id ? { ...current, over: null } : current)),
       onDrop: () => {
         const groupIds = groupDropOrder(group.id);
-        setDrag(null);
+        resetRowDrag();
         if (groupIds) dispatch({ type: "reorderGroups", groupIds });
       },
-      onEnd: () => setDrag(null),
+      onEnd: resetRowDrag,
     };
   };
   const pendingTeamUndo = teamFeedback?.undo;
@@ -1856,10 +1984,17 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               <div
                 key={id}
                 data-sidebar-section-id={id}
+                data-sidebar-bot-drop-zone={name}
                 className="flex flex-col gap-0.5"
+                onDragEnter={(event) => sectionDragOver(event, id, name)}
+                onDragOver={(event) => sectionDragOver(event, id, name)}
+                onDrop={(event) => sectionDrop(event, name)}
               >
                 {sectionDropTarget?.id === id && sectionDropTarget.place === "before" && draggingSectionId !== id && (
                   <div className="mx-2 h-0.5 rounded-full bg-accent" />
+                )}
+                {botSectionDropTarget === id && (
+                  <div data-sidebar-bot-drop-marker className="mx-1 my-1 h-1 rounded-full bg-accent shadow-[0_0_8px] shadow-accent/60" />
                 )}
                 {density !== "icons" && (
                   <SidebarSectionHeader
@@ -1874,8 +2009,8 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                       setDraggingSectionId(id);
                     }}
                     onDragEnd={resetSectionDrag}
-                    onDragOver={(event) => updateSectionDropTarget(event, id)}
-                    onDrop={dropSection}
+                    onDragOver={(event) => sectionDragOver(event, id, name)}
+                    onDrop={(event) => sectionDrop(event, name)}
                     onMove={(direction) => moveSidebarSection(id, direction)}
                   />
                 )}

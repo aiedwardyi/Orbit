@@ -693,7 +693,7 @@ export type Action =
     }
   | { type: "newBot" }
   | { type: "closeCreateBot" }
-  | { type: "botAdded"; bot: Bot; focusComposer?: boolean }
+  | { type: "botAdded"; bot: Bot; focusComposer?: boolean; activate?: boolean }
   | { type: "composerFocused"; botId: string }
   | { type: "deleteBot"; botId: string }
   | { type: "reorderBots"; botIds: string[] }
@@ -1021,17 +1021,19 @@ export function reducer(state: AppState, action: Action): AppState {
       return patchCard(state, action.botId, action.messageId, { dismissed: true });
     case "decideRequest":
       return state; // the server's request.resolved patch settles the card
-    case "botAdded":
+    case "botAdded": {
+      const activate = action.activate !== false;
       return withMascotMotion({
         ...state,
         // An HTTP create/import response and its SSE broadcast can race. Fold
         // both paths without ever showing the same bot twice.
         bots: [action.bot, ...state.bots.filter((bot) => bot.id !== action.bot.id)],
-        activeView: "chat",
-        selectedId: action.bot.id,
+        activeView: activate ? "chat" : state.activeView,
+        selectedId: activate ? action.bot.id : state.selectedId,
         createBotOpen: false,
-        composerFocusBotId: action.focusComposer ? action.bot.id : state.composerFocusBotId,
+        composerFocusBotId: activate && action.focusComposer ? action.bot.id : state.composerFocusBotId,
       }, action.bot.id, "arrive");
+    }
     case "composerFocused":
       return state.composerFocusBotId === action.botId ? { ...state, composerFocusBotId: null } : state;
     case "deleteBot": {

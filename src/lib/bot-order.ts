@@ -1,7 +1,5 @@
 // Sidebar drag-to-reorder. The sidebar sorts pinned bots first and groups by
-// section, so a drop only lands inside the dragged bot's own group; anything
-// else would snap back on the next render. Sections also order by first
-// appearance, so a drop only reshuffles its own group's slots.
+// section, so same-section drops stay inside their existing slots.
 //
 // Group chats (rooms) render in their own per-section lists with no pinned or
 // hidden split, so they reorder within their own section the same way.
@@ -54,5 +52,80 @@ export function botOrderAfterDrop(bots: readonly OrderedBot[], fromId: string, t
   group.splice(target, 0, fromId);
   const ids = bots.map((bot) => bot.id);
   for (const [index, slot] of slots.entries()) ids[slot] = group[index]!;
+  return ids;
+}
+
+const movableBot = (bot: OrderedBot) => !bot.chiefOfStaff && !bot.hidden;
+
+/** Every bot id after moving a bot into another section's existing slots. */
+export function botOrderAfterSectionDrop(
+  bots: readonly OrderedBot[],
+  fromId: string,
+  section: string,
+): string[] | null {
+  const from = bots.find((bot) => bot.id === fromId);
+  const targetSection = section.trim();
+  if (!from || !movableBot(from) || (from.section ?? "") === targetSection) return null;
+
+  const fromIndex = bots.findIndex((bot) => bot.id === fromId);
+  const ids = bots.map((bot) => bot.id);
+  ids.splice(fromIndex, 1);
+  const targetSlots = bots.flatMap((bot, index) => {
+    if (
+      index === fromIndex ||
+      !movableBot(bot) ||
+      (bot.section ?? "") !== targetSection ||
+      Boolean(bot.pinned) !== Boolean(from.pinned)
+    ) {
+      return [];
+    }
+    return [index - (index > fromIndex ? 1 : 0)];
+  });
+  const destination = targetSlots.length ? targetSlots[targetSlots.length - 1]! + 1 : ids.length;
+  ids.splice(destination, 0, fromId);
+  return ids;
+}
+
+/** Every bot id after a cross-section row drop, or null for an invalid drop. */
+export function botOrderAfterCrossSectionDrop(
+  bots: readonly OrderedBot[],
+  fromId: string,
+  toId: string,
+): string[] | null {
+  const from = bots.find((bot) => bot.id === fromId);
+  const to = bots.find((bot) => bot.id === toId);
+  const targetSection = to?.section ?? "";
+  if (
+    !from ||
+    !to ||
+    from === to ||
+    !movableBot(from) ||
+    !movableBot(to) ||
+    (from.section ?? "") === targetSection
+  ) {
+    return null;
+  }
+
+  const fromIndex = bots.findIndex((bot) => bot.id === fromId);
+  const toIndex = bots.findIndex((bot) => bot.id === toId);
+  const ids = bots.map((bot) => bot.id);
+  ids.splice(fromIndex, 1);
+
+  const targetSlots = bots.flatMap((bot, index) => {
+    if (
+      index === fromIndex ||
+      !movableBot(bot) ||
+      (bot.section ?? "") !== targetSection ||
+      Boolean(bot.pinned) !== Boolean(from.pinned)
+    ) {
+      return [];
+    }
+    return [index - (index > fromIndex ? 1 : 0)];
+  });
+  const targetSlot = targetSlots.find((index) => index === toIndex - (toIndex > fromIndex ? 1 : 0));
+  const destination = targetSlot == null
+    ? (targetSlots.length ? targetSlots[targetSlots.length - 1]! + 1 : ids.length)
+    : targetSlot + (fromIndex < toIndex ? 1 : 0);
+  ids.splice(destination, 0, fromId);
   return ids;
 }

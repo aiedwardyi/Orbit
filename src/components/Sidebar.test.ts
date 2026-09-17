@@ -74,6 +74,78 @@ describe("Sidebar drag to reorder", () => {
   });
 });
 
+describe("Sidebar bot section drag", () => {
+  it("moves a bot across sections and keeps the saved section order", async () => {
+    const scopedBot = (id: string, section: string) => ({ ...bot(id), section });
+    const sectionGroup = {
+      id: "group-a",
+      threadId: "group-a-thread",
+      name: "A group",
+      memberIds: [],
+      messages: [],
+      section: "A",
+    };
+    const patchCalls: Array<{ path: string; body: unknown }> = [];
+    window.localStorage.setItem(SIDEBAR_SECTION_ORDER_KEY, JSON.stringify(["section:B", "section:A"]));
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string, init?: RequestInit) => {
+        if (path === "/api/bots") {
+          return new Response(JSON.stringify({
+            bots: [scopedBot("a", "A"), scopedBot("b", "B")],
+            groups: [sectionGroup],
+          }));
+        }
+        if (path === "/api/bots/order") {
+          const body = JSON.parse(String(init?.body)) as { botIds: string[] };
+          patchCalls.push({ path, body });
+          return new Response(JSON.stringify(body));
+        }
+        if (path === "/api/bots/a" && init?.method === "PATCH") {
+          patchCalls.push({ path, body: JSON.parse(String(init.body)) });
+          return new Response(JSON.stringify({ bot: { id: "a", section: "B" } }));
+        }
+        return new Response(JSON.stringify({ error: "not in this test" }), { status: 404 });
+      }),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    const botRows = () => host.querySelectorAll('[data-sidebar-row-kind="bot"][draggable="true"]');
+    const sections = () => [...host.querySelectorAll("[data-sidebar-section-id]")].map((section) => section.getAttribute("data-sidebar-section-id"));
+    try {
+      await act(async () =>
+        root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+      );
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      await vi.waitFor(() => expect(botRows()).toHaveLength(2));
+      const sectionB = host.querySelector('[data-sidebar-bot-drop-zone="B"]');
+      const source = host.querySelector('[data-sidebar-row-kind="bot"][data-sidebar-row-id="a"]');
+      expect(sectionB).not.toBeNull();
+      expect(source).not.toBeNull();
+
+      await act(async () => fire(source!, "dragstart"));
+      await act(async () => fire(sectionB!, "dragover"));
+      expect(host.querySelector("[data-sidebar-bot-drop-marker]")).not.toBeNull();
+      await act(async () => fire(sectionB!, "drop"));
+      await act(async () => fire(source!, "dragend"));
+
+      expect(sections()).toEqual(["section:B", "section:A"]);
+      expect(host.querySelector('[data-sidebar-section-id="section:B"]')?.textContent).toContain("a");
+      expect(patchCalls).toContainEqual({ path: "/api/bots/order", body: { botIds: ["b", "a"] } });
+      await vi.waitFor(() => expect(patchCalls).toContainEqual({ path: "/api/bots/a", body: { section: "B" } }));
+    } finally {
+      window.localStorage.removeItem(SIDEBAR_SECTION_ORDER_KEY);
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});
+
 describe("Sidebar row time", () => {
   it("keeps the active time visible and reveals inactive times on hover or focus", () => {
     const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "Sidebar.tsx"), "utf8");
@@ -315,6 +387,52 @@ describe("Sidebar group drag to reorder", () => {
           ["g-a", "g-b"],
         ]),
       );
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});
+
+describe("Sidebar group avatar overflow", () => {
+  it("reserves the overflow badge width before the group name", async () => {
+    const members = ["one", "two", "three", "four", "five"].map((id) => ({
+      ...bot(id),
+      color: "green" as const,
+    }));
+    const group = {
+      id: "group-overflow",
+      threadId: "group-overflow-thread",
+      name: "Large group",
+      memberIds: members.map((member) => member.id),
+      messages: [],
+    };
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string) =>
+        path === "/api/bots"
+          ? new Response(JSON.stringify({ bots: members, groups: [group] }))
+          : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+      );
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      const slot = await vi.waitFor(() => {
+        const element = host.querySelector("[data-sidebar-group-avatar-slot]");
+        expect(element).not.toBeNull();
+        return element!;
+      });
+      expect(slot.className).toContain("min-w-[76px]");
+      expect(slot.querySelector("[data-sidebar-group-overflow]")?.textContent).toBe("+2");
     } finally {
       await act(async () => root.unmount());
       host.remove();
