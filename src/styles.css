@@ -1350,6 +1350,12 @@
   border: 1px solid var(--color-hairline);
 }
 
+@scope (:root[data-shape="boxy"]) {
+  [data-skin="claude"] [data-orbit-message="bot"] [data-orbit-message-content] {
+    padding-left: 12px;
+  }
+}
+
 html,
 body,
 #root {

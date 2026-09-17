@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export type SidebarDensity = "comfortable" | "compact" | "icons";
 
 export type SidebarLayout = {
@@ -8,6 +10,7 @@ export type SidebarLayout = {
 export const SIDEBAR_DENSITY_KEY = "openmausbot.sidebarDensity";
 export const SIDEBAR_WIDTH_KEY = "openmausbot.sidebarWidth";
 export const SIDEBAR_COLLAPSED_KEY = "openmausbot.sidebarCollapsed";
+export const SIDEBAR_SECTION_ORDER_KEY = "openmausbot.sidebarSectionOrder.v1";
 export const SIDEBAR_MIN_WIDTH = 220;
 export const SIDEBAR_MAX_WIDTH = 480;
 export const SIDEBAR_DEFAULT_WIDTH = 320;
@@ -169,5 +172,37 @@ export function saveSidebarCollapsed(
     target?.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
   } catch {
     // Same localStorage failure mode as width — collapse still applies this session.
+  }
+}
+
+function parseStringList(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = z.array(z.string().min(1).max(240)).safeParse(JSON.parse(raw));
+    return parsed.success ? [...new Set(parsed.data)].slice(0, 100) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function loadSectionOrder(storage?: Pick<Storage, "getItem"> | null): string[] {
+  try {
+    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
+    return parseStringList(target?.getItem(SIDEBAR_SECTION_ORDER_KEY) ?? null);
+  } catch {
+    return [];
+  }
+}
+
+export function saveSectionOrder(
+  ids: string[],
+  storage?: Pick<Storage, "setItem"> | null,
+): void {
+  try {
+    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
+    const safe = [...new Set(ids.filter((id) => id.length > 0))].slice(0, 100);
+    target?.setItem(SIDEBAR_SECTION_ORDER_KEY, JSON.stringify(safe));
+  } catch {
+    // The in-memory React state still makes section order useful this session.
   }
 }

@@ -7,7 +7,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { persistPreference } from "@/lib/i18n";
-import { SIDEBAR_COLLAPSED_KEY, SIDEBAR_WIDTH_KEY } from "@/lib/sidebar-preferences";
+import { SIDEBAR_COLLAPSED_KEY, SIDEBAR_SECTION_ORDER_KEY, SIDEBAR_WIDTH_KEY } from "@/lib/sidebar-preferences";
 import { formatTime, StoreProvider } from "@/state/store";
 
 import { compactSidebarModelLabel, Sidebar } from "./Sidebar";
@@ -27,7 +27,7 @@ const bot = (id: string) => ({ id, threadId: `${id}-thread`, name: id, messages:
 // happy-dom drag events carry no dataTransfer, and the row handlers write to it.
 const fire = (target: Element, type: string) => {
   const event = new Event(type, { bubbles: true, cancelable: true });
-  Object.defineProperty(event, "dataTransfer", { value: { setData: () => {} } });
+  Object.defineProperty(event, "dataTransfer", { value: { getData: () => "", setData: () => {} } });
   target.dispatchEvent(event);
 };
 
@@ -47,7 +47,7 @@ describe("Sidebar drag to reorder", () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
-    const rows = () => host.querySelectorAll('[draggable="true"]');
+    const rows = () => host.querySelectorAll('div[draggable="true"]');
     const dropLine = () => host.querySelector('[class~="h-0.5"]');
     try {
       await act(async () =>
@@ -159,12 +159,73 @@ describe("Sidebar layout controls", () => {
     const profileRow = footer.indexOf("data-sidebar-profile-row");
     const expandedUpdate = footer.lastIndexOf("data-sidebar-update");
     const profileButton = footer.indexOf('onClick={() => dispatch({ type: "toggleAppSettings" })}', profileRow);
-    expect(expandedUpdate).toBeGreaterThan(profileRow);
-    expect(expandedUpdate).toBeLessThan(profileButton);
+    expect(profileButton).toBeLessThan(expandedUpdate);
+    expect(footer).toContain("overflow-x-hidden");
+    expect(footer).not.toContain("border-t");
     expect(footer).not.toContain('t("chrome.teamMap")');
     expect(source).toContain("density === \"compact\" ? 40 : 48");
     expect(source).toContain("gap-2 px-3 py-1.5 pr-12");
     expect(source).toContain("min-w-0 flex-1 overflow-x-hidden overflow-y-auto");
+  });
+
+  it("reorders named sections with a keyboard fallback and persists the order", async () => {
+    window.localStorage.removeItem(SIDEBAR_SECTION_ORDER_KEY);
+    const work = { ...bot("work"), section: "Work" };
+    const personal = { ...bot("personal"), section: "Personal" };
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string) =>
+        path === "/api/bots"
+          ? new Response(JSON.stringify({ bots: [work, personal], groups: [] }))
+          : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    const sectionOrder = () =>
+      [...host.querySelectorAll("[data-sidebar-section-id]")].map((section) => section.getAttribute("data-sidebar-section-id"));
+    const sectionTransfer = {
+      effectAllowed: "none",
+      dropEffect: "none",
+      setData: vi.fn(),
+      getData: vi.fn(() => "section:Work"),
+    };
+    const fireWithTransfer = (target: Element, type: string, clientY = 0) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "dataTransfer", { value: sectionTransfer });
+      Object.defineProperty(event, "clientY", { value: clientY });
+      target.dispatchEvent(event);
+    };
+    try {
+      await act(async () =>
+        root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+      );
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      await vi.waitFor(() => expect(sectionOrder()).toEqual(["section:Work", "section:Personal"]));
+
+      const workHandle = host.querySelector('[data-sidebar-section-id="section:Work"] [data-sidebar-section-handle]');
+      expect(workHandle?.getAttribute("aria-keyshortcuts")).toContain("Alt+ArrowDown");
+      await act(async () => workHandle?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", altKey: true, bubbles: true })));
+      expect(sectionOrder()).toEqual(["section:Personal", "section:Work"]);
+      expect(window.localStorage.getItem(SIDEBAR_SECTION_ORDER_KEY)).toBe(
+        JSON.stringify(["section:Personal", "section:Work"]),
+      );
+
+      const personalHeader = host.querySelector('[data-sidebar-section-id="section:Personal"] [data-sidebar-section-header]');
+      const workGrip = host.querySelector('[data-sidebar-section-id="section:Work"] [data-sidebar-section-grip]');
+      await act(async () => fireWithTransfer(workGrip!, "dragstart"));
+      await act(async () => fireWithTransfer(personalHeader!, "dragover", -1));
+      await act(async () => fireWithTransfer(personalHeader!, "drop", -1));
+      expect(sectionOrder()).toEqual(["section:Work", "section:Personal"]);
+    } finally {
+      window.localStorage.removeItem(SIDEBAR_SECTION_ORDER_KEY);
+      await act(async () => root.unmount());
+      host.remove();
+    }
   });
 });
 
@@ -206,7 +267,7 @@ describe("Sidebar group drag to reorder", () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
-    const rows = () => host.querySelectorAll('[draggable="true"]');
+    const rows = () => host.querySelectorAll('div[draggable="true"]');
     const names = () => [...rows()].map((row) => row.textContent ?? "");
     const dropLine = () => host.querySelector('[class~="h-0.5"]');
     try {
@@ -285,7 +346,7 @@ describe("Sidebar bot delete confirm", () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
-    const rows = () => host.querySelectorAll('[draggable="true"]');
+    const rows = () => host.querySelectorAll('div[draggable="true"]');
     const menuDelete = () =>
       [...document.body.querySelectorAll("[data-bot-menu] button")].find(
         (item) => item.textContent === "Delete",

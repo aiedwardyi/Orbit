@@ -89,6 +89,14 @@ function skinToken(id: string, name: string): string {
 
 
 describe("skins", () => {
+  it("insets Claude bot replies only when Boxy geometry is active", () => {
+    expect(css).toMatch(
+      /@scope \(:root\[data-shape="boxy"\]\)\s*\{\s*\[data-skin="claude"\] \[data-orbit-message="bot"\] \[data-orbit-message-content\]\s*\{\s*padding-left:\s*12px;/,
+    );
+    const claude = css.match(/\[data-skin="claude"\] \[data-orbit-message="bot"\] \[data-orbit-message-content\]\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(claude).toContain("padding: 0;");
+  });
+
   it("gives every registered skin a stylesheet block", () => {
     for (const id of SKIN_IDS) expect(blocks).toContain(id);
   });

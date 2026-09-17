@@ -9,6 +9,7 @@ import {
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
+  SIDEBAR_SECTION_ORDER_KEY,
   SIDEBAR_SNAP_DISTANCE,
   SIDEBAR_WIDTH_KEY,
   SIDEBAR_WIDTH_STEP,
@@ -18,12 +19,14 @@ import {
   fitSidebarWidth,
   loadSidebarCollapsed,
   loadSidebarDensity,
+  loadSectionOrder,
   loadSidebarWidth,
   parseSidebarCollapsed,
   parseSidebarDensity,
   parseSidebarWidth,
   saveSidebarCollapsed,
   saveSidebarDensity,
+  saveSectionOrder,
   restoreSidebarDragWidth,
   saveSidebarWidth,
   snapSidebarDrag,
@@ -46,6 +49,23 @@ describe("sidebar density preferences", () => {
     expect(setItem).toHaveBeenCalledWith(SIDEBAR_DENSITY_KEY, "icons");
     expect(loadSidebarDensity({ getItem: () => "compact" })).toBe("compact");
     expect(loadSidebarDensity({ getItem: () => { throw new Error("blocked"); } })).toBe("comfortable");
+  });
+});
+
+describe("sidebar section preferences", () => {
+  it("round-trips unique section ids and tolerates blocked or malformed storage", () => {
+    const setItem = vi.fn();
+    saveSectionOrder(["section:Work", "section:Work", "section:Personal"], { setItem });
+    expect(setItem).toHaveBeenCalledWith(
+      SIDEBAR_SECTION_ORDER_KEY,
+      JSON.stringify(["section:Work", "section:Personal"]),
+    );
+    expect(
+      loadSectionOrder({ getItem: () => JSON.stringify(["section:Work", "section:Work", "section:Personal"]) }),
+    ).toEqual(["section:Work", "section:Personal"]);
+    expect(loadSectionOrder({ getItem: () => "not-json" })).toEqual([]);
+    expect(loadSectionOrder({ getItem: () => { throw new Error("blocked"); } })).toEqual([]);
+    expect(() => saveSectionOrder(["section:Work"], { setItem: () => { throw new Error("blocked"); } })).not.toThrow();
   });
 });
 
