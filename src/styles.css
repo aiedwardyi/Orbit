@@ -1356,6 +1356,151 @@
   }
 }
 
+/* ── Precision ─────────────────────────────────────────────────────────────
+   Linear-inspired charcoal with a cool periwinkle signal. The transcript is
+   compact and rule-led: assistant prose stays open while user turns sit in a
+   quiet inset block.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="precision"] {
+  --color-app: #121316;
+  --color-panel: #191a1f;
+  --color-raised: #23252c;
+  --color-raised-hover: #2b2e36;
+  --color-card: #23252c;
+  --color-inset: #0f1013;
+  --color-control: #23252c;
+  --color-hairline: #30333c;
+
+  --color-ink: #eeeff3;
+  --color-ink-secondary: #a3a7b3;
+
+  --color-accent: #929fff;
+  --color-accent-border: #a9b3ff;
+  --color-accent-text: #b5bdff;
+  --color-focus: #a9b3ff;
+  --color-accent-ink: #121316;
+  --color-bubble-user: #1d2028;
+
+  --color-success: #7bd8a6;
+  --color-danger: #ff8c98;
+  --color-danger-ink: #121316;
+  --color-warning: #e7c56e;
+  --color-scrollbar: #3b3f4a;
+  --color-maus-line: #a3a7b3;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Malgun Gothic", system-ui, sans-serif;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+}
+
+@scope ([data-skin="precision"]) to ([data-skin]) {
+  [data-orbit-message] {
+    border-bottom: 1px solid color-mix(in srgb, var(--color-hairline) 68%, transparent);
+    padding-block: 0.5rem;
+  }
+
+  [data-orbit-message-body] {
+    max-width: min(46rem, 84%);
+  }
+
+  [data-orbit-message-content] {
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  [data-orbit-message="bot"] [data-orbit-message-content] {
+    background: transparent;
+    padding: 0;
+  }
+
+  [data-orbit-message="user"] [data-orbit-message-content] {
+    background: var(--color-bubble-user);
+    border: 1px solid var(--color-hairline);
+    box-shadow: inset 2px 0 0 color-mix(in srgb, var(--color-accent) 42%, transparent);
+  }
+}
+
+/* ── Community ─────────────────────────────────────────────────────────────
+   Discord-inspired slate with visible sender hierarchy. Message bodies stay
+   open for a channel-like transcript, with a roomy composer across the chat
+   column.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="community"] {
+  --color-app: #313338;
+  --color-panel: #2b2d31;
+  --color-raised: #383a40;
+  --color-raised-hover: #40434b;
+  --color-card: #383a40;
+  --color-inset: #232428;
+  --color-control: #383a40;
+  --color-hairline: #45474f;
+
+  --color-ink: #f2f3f5;
+  --color-ink-secondary: #b5bac1;
+
+  --color-accent: #a0aaff;
+  --color-accent-border: #b6bfff;
+  --color-accent-text: #c0c7ff;
+  --color-focus: #b6bfff;
+  --color-accent-ink: #313338;
+  --color-bubble-user: #40434b;
+
+  --color-success: #78dba3;
+  --color-danger: #ff949d;
+  --color-danger-ink: #313338;
+  --color-warning: #f0c674;
+  --color-scrollbar: #4a4d55;
+  --color-maus-line: #b5bac1;
+
+  --font-sans: "Segoe UI", -apple-system, BlinkMacSystemFont, "Malgun Gothic",
+    system-ui, sans-serif;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+}
+
+@scope ([data-skin="community"]) to ([data-skin]) {
+  [data-orbit-message] {
+    padding-block: 0.25rem;
+  }
+
+  [data-orbit-message-body] {
+    max-width: min(48rem, 90%);
+  }
+
+  .orbit-message-speaker {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: var(--color-ink);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+  }
+
+  [data-orbit-message-content] {
+    font-size: 15px;
+    line-height: 1.55;
+  }
+
+  [data-orbit-message="bot"] [data-orbit-message-content] {
+    background: transparent;
+    padding: 0;
+  }
+
+  [data-orbit-message="user"] [data-orbit-message-content] {
+    background: var(--color-bubble-user);
+    border: 1px solid color-mix(in srgb, var(--color-hairline) 82%, transparent);
+  }
+
+  [data-orbit-composer-frame] {
+    width: 100%;
+    min-height: 3.25rem;
+    border: 1px solid var(--color-hairline);
+    padding-inline: 1rem;
+    box-shadow: 0 1px 0 color-mix(in srgb, var(--color-app) 42%, transparent);
+  }
+}
+
 html,
 body,
 #root {
