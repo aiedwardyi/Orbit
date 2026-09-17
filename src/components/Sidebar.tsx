@@ -14,7 +14,6 @@ import {
   FolderPlus,
   Library,
   Loader2,
-  Network,
   Pencil,
   PanelLeftClose,
   PanelLeftOpen,
@@ -166,11 +165,11 @@ interface MenuState {
   y: number;
 }
 
-/** Room avatar: 2–3 overlapping mauses in the same 52px slot a bot gets. */
+/** Room avatar: 2–3 overlapping mauses in the same 48px slot a bot gets. */
 function StackedMauses({ members, density }: { members: Bot[]; density: SidebarDensity }) {
   const iconOnly = density === "icons";
-  const slotSize = iconOnly ? "size-12" : density === "compact" ? "size-10" : "size-[52px]";
-  const singleSize = iconOnly ? 44 : density === "compact" ? 40 : 52;
+  const slotSize = iconOnly ? "size-12" : density === "compact" ? "size-10" : "size-12";
+  const singleSize = iconOnly ? 44 : density === "compact" ? 40 : 48;
   if (members.length <= 1) {
     const b = members[0];
     return (
@@ -292,7 +291,7 @@ function GroupListItem({
         }}
         className={cn(
           "flex w-full items-center rounded-xl text-left",
-          density === "icons" ? "justify-center px-1 py-1.5" : density === "compact" ? "gap-2 px-2 py-1.5" : "gap-2.5 px-3 py-2",
+          density === "icons" ? "justify-center px-1 py-1.5" : density === "compact" ? "gap-2 px-2 py-1.5" : "gap-2 px-3 py-1.5",
           selected ? "bg-raised" : "hover:bg-raised/50",
         )}
         aria-label={density === "icons" ? group.name : undefined}
@@ -759,7 +758,7 @@ function BotListItem({
   useEffect(() => {
     if (iconOnly) setRenaming(false);
   }, [iconOnly]);
-  const avatarSize = iconOnly ? 44 : density === "compact" ? 40 : 52;
+  const avatarSize = iconOnly ? 44 : density === "compact" ? 40 : 48;
   // the visible branch, so a version switch changes the row with the chat
   const visible = visibleMessages(bot);
   const last = visible.at(-1);
@@ -773,7 +772,7 @@ function BotListItem({
       ? "justify-center px-1 py-1.5"
       : density === "compact"
         ? "gap-2 px-2 py-1.5 pr-12"
-        : "gap-2.5 px-3 py-2 pr-12",
+        : "gap-2 px-3 py-1.5 pr-12",
     sidebarConversationRowTone(selected),
   );
   const body = (
@@ -1254,6 +1253,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const toggleCollapsed = () => {
     if (density === "icons") {
       if (sidebarCollapsed) {
+        focusSearchAfterExpand.current = true;
         const next = { width: sidebarWidthRef.current, collapsed: false };
         applySidebarLayout(next);
         persistSidebarLayout(next);
@@ -1261,7 +1261,9 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       setDensity(lastExpandedDensity);
     } else {
       setLastExpandedDensity(density);
-      setDensity("icons");
+      const next = { width: sidebarWidthRef.current, collapsed: true };
+      applySidebarLayout(next);
+      persistSidebarLayout(next);
     }
   };
 
@@ -1564,7 +1566,6 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           className={cn("relative flex items-center", density === "icons" ? "flex-col gap-1" : "gap-1")}
           style={windowNoDragStyle}
         >
-          {showSidebarDensityControls() && (
           <button
             type="button"
             onClick={toggleCollapsed}
@@ -1574,7 +1575,6 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           >
             {density === "icons" ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
           </button>
-          )}
           {showSidebarDensityControls() && (
           <div className="relative">
             <button
@@ -1806,19 +1806,9 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
 
       {/* Footer */}
       <div className={cn("pb-3 pt-2", density === "icons" ? "px-2" : "px-3")}>
-        <button
-          onClick={() => dispatch({ type: "showTeamMap" })}
-          aria-label={density === "icons" ? t("chrome.teamMap") : undefined}
-          title={density === "icons" ? t("chrome.teamMap") : undefined}
-          className={cn(
-            "flex min-h-10 w-full items-center rounded-xl py-2 text-left transition-colors",
-            density === "icons" ? "justify-center px-2" : "gap-3 px-3",
-            state.activeView === "team-map" ? "bg-raised text-ink" : "text-ink hover:bg-raised/50",
-          )}
-        >
-          <Network size={20} className={state.activeView === "team-map" ? "text-accent" : "text-ink-secondary"} />
-          <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>{t("chrome.teamMap")}</span>
-        </button>
+        <div className={cn("flex min-h-10 items-center", density === "icons" && "justify-center")} data-sidebar-update>
+          <UpdateButton />
+        </div>
         {showSidebarTeachSkill() && skillRecorderEnabled(state.config) && (
           <button
             onClick={() => dispatch({ type: "showSkillRecorder" })}
@@ -1876,7 +1866,6 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               onOpen={() => dispatch(phoneSettingsAction())}
             />
           )}
-          {density !== "icons" && <UpdateButton />}
           {density !== "icons" && <button
             onClick={() => dispatch({ type: "toggleAppSettings" })}
             aria-label={t("chrome.appSettings")}

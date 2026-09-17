@@ -26,7 +26,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 // Solid base shade sampled 3px inside the 1024 master's straight tile edges
 // (n=628, mean 49.6/58.2/71.1): the outer fringe is always a blend of this
 // with white, which is what lets it unblend back to a clean edge.
-const EDGE_FG = [50, 58, 71];
+const EDGE_FG = [9, 10, 12];
 
 /** Masks the opaque-white surround to alpha 0, keeping an anti-aliased edge. */
 function cleanWhite({ width, height, pixels }) {
@@ -141,7 +141,7 @@ function resample(src, dstWidth, dstHeight) {
 
 /** Vista-style ICO: PNG payloads, same six sizes the project already ships. */
 function encodeIco(rendered) {
-  const sizes = [256, 128, 64, 48, 32, 16];
+  const sizes = [256, 128, 64, 48, 32, 20, 16];
   const header = Buffer.alloc(6 + 16 * sizes.length);
   header.writeUInt16LE(0, 0);
   header.writeUInt16LE(1, 2);
@@ -277,7 +277,7 @@ function main() {
     return;
   }
   const rendered = {};
-  for (const size of [16, 32, 48, 64, 128, 256, 512, 1024]) {
+  for (const size of [16, 20, 32, 48, 64, 128, 256, 512, 1024]) {
     rendered[size] = size === 1024 ? master : resample(master, size, size);
   }
   const write = (relative, data) => {

@@ -3,7 +3,6 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, useStore, type Bot } from "@/state/store";
 import { stateForBot } from "@/lib/mascot";
 import { CloudBackendPicker } from "./CloudBackendPicker";
-import { ModelPicker } from "./ModelPicker";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
@@ -413,10 +412,7 @@ export function SettingsPanel({
   const engine = state.instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId);
   const canAutoReview = engine?.capabilities?.approvalReview === true;
   const canCoordinate = engine?.capabilities?.agentsMcp === true;
-  const canUseConnectedApps = engine?.capabilities?.composioMcp === true;
   const canUseVps = engine?.capabilities?.computerMcp === true && engine.driverKind !== "boxAgent";
-  const connectedAppsConfigured = state.config?.composio?.configured === true;
-  const connectedAppsEnabled = bot.composio !== false;
   const canUseBrowser = engine?.capabilities?.browserMcp === true;
   const desktopBrowser = Boolean(window.ogb?.browser);
   const browserFeature = builtInBrowserEnabled(state.config);
@@ -549,61 +545,6 @@ export function SettingsPanel({
               onChange={(e) => patch({ description: e.target.value })}
             />
           </Field>
-
-          <div className="rounded-xl bg-card p-4">
-            <ModelPicker
-              bot={bot}
-              contained
-              label={
-                <div>
-                  <div className="text-[15px] font-medium text-ink">Model</div>
-                  <div className="mt-0.5 text-[13px] text-ink-secondary">
-                    Stays on the active engine by default, or choose a specific one
-                  </div>
-                </div>
-              }
-            />
-          </div>
-
-          <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
-            <div>
-              <div className="text-[15px] font-medium text-ink">{t("chrome.connectedApps")}</div>
-              <div className="mt-0.5 text-[13px] text-ink-secondary">
-                {!connectedAppsConfigured
-                  ? "Connect apps in App Settings before giving this bot access."
-                  : !canUseConnectedApps
-                    ? "This bot's current engine cannot use connected apps."
-                    : connectedAppsEnabled
-                      ? "Let this bot use your connected Gmail, Calendar, Slack, and other apps."
-                      : "Keep your connected apps unavailable to this bot."}
-              </div>
-            </div>
-            <button
-              role="switch"
-              aria-checked={connectedAppsEnabled}
-              aria-label="Allow this bot to use connected apps"
-              disabled={!connectedAppsEnabled && (!connectedAppsConfigured || !canUseConnectedApps)}
-              onClick={() => patch({ composio: !connectedAppsEnabled })}
-              title={
-                !connectedAppsEnabled && !connectedAppsConfigured
-                  ? "Connect apps in App Settings first"
-                  : !connectedAppsEnabled && !canUseConnectedApps
-                    ? "This engine cannot use connected apps"
-                    : undefined
-              }
-              className={cn(
-                "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-                connectedAppsEnabled ? "bg-accent" : "bg-control",
-              )}
-            >
-              <span
-                className={cn(
-                  "absolute top-[3px] size-5 rounded-full bg-white transition-all",
-                  connectedAppsEnabled ? "left-[21px]" : "left-[3px]",
-                )}
-              />
-            </button>
-          </div>
 
           <WorkingFolder bot={bot} />
           <MemoryCard key={bot.id} bot={bot} />

@@ -5,7 +5,7 @@
 // each engine's subscription window is, straight from the engine's own
 // report from its last turn or refresh, so nobody has to guess from a token count.
 import { useState } from "react";
-import { Check } from "lucide-react";
+import { Check, RefreshCw } from "lucide-react";
 import { api, useStore, type InstanceInfo } from "@/state/store";
 import { MausAvatar } from "./Avatar";
 import { Card } from "./SettingsPrimitives";
@@ -56,8 +56,8 @@ function EnginePlanRow({
   error?: string;
 }) {
   const { t } = useI18n();
-  // Settings rows never show turn input/output counts — those live only in
-  // the chat strip. Staleness ("Nm old") is the row's only number.
+  // Settings rows never show turn input/output counts - those live only in
+  // the chat strip. Freshness stays in the provider tooltip.
   const windows = [...(instance.rateLimits?.windows ?? [])].sort(
     (a, b) => windowRank(a.id, a.windowMinutes) - windowRank(b.id, b.windowMinutes),
   );
@@ -77,7 +77,9 @@ function EnginePlanRow({
     <div>
       <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
         <ProviderMark driverKind={instance.driverKind} size={16} />
-        <span className="truncate">{instance.displayName}</span>
+        <span className="truncate" title={canRefresh(instance) && instance.rateLimits
+          ? t(instance.driverKind === "museAgent" ? "usage.limits.cachedAsOf" : "usage.limits.refreshAge", { age: age(instance.rateLimits.observedAt) })
+          : undefined}>{instance.displayName}</span>
       </div>
       {windows.length > 0 && (
         <div className="mt-2 flex flex-col items-start gap-1.5">
@@ -107,15 +109,10 @@ function EnginePlanRow({
       {!instance.rateLimits && (
         <div className="mt-1 text-[12px] text-ink-secondary">{honestCaption}</div>
       )}
-      {canRefresh(instance) && instance.rateLimits && (
-        <div className="mt-2 text-[11px] text-ink-secondary">
-          {t(instance.driverKind === "museAgent" ? "usage.limits.cachedAsOf" : "usage.limits.refreshAge", { age: age(instance.rateLimits.observedAt) })}
-        </div>
-      )}
       {error && (
         <div className="mt-1 text-[12px] text-danger">
           {instance.rateLimits
-            ? t("usage.limits.refreshFailed", { message: error, age: age(instance.rateLimits.observedAt) })
+            ? t("usage.limits.refreshFailed", { message: error })
             : t("usage.limits.refreshFailedNoData", { message: error })}
         </div>
       )}
@@ -163,7 +160,7 @@ function PlanUsage() {
 
   return (
     <Card title={t("usage.limits.title")} subtitle={t("usage.limits.subtitle")}>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="flex flex-wrap gap-1" role="group" aria-label={t("usage.limits.direction")}>
           {(["used", "remaining"] as const).map((value) => (
             <button key={value} type="button" aria-pressed={mode === value} onClick={() => setUsageMode(value)}
@@ -184,9 +181,12 @@ function PlanUsage() {
               type="button"
               onClick={() => void refreshAll()}
               disabled={refreshing}
-              className="shrink-0 rounded-lg border border-hairline/40 px-3 py-1 text-[12px] text-ink-secondary hover:bg-raised/50 hover:text-ink disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent"
+              aria-label={t(refreshing ? "usage.limits.refreshing" : "usage.limits.refreshAll")}
+              title={t(refreshing ? "usage.limits.refreshing" : "usage.limits.refreshAll")}
+              aria-busy={refreshing}
+              className="flex size-8 shrink-0 items-center justify-center rounded-full border border-hairline/40 text-[12px] text-ink-secondary hover:bg-raised/50 hover:text-ink disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent"
             >
-              {t(refreshing ? "usage.limits.refreshing" : "usage.limits.refreshAll")}
+              <RefreshCw size={15} aria-hidden="true" className={refreshing ? "animate-spin motion-reduce:animate-none" : undefined} />
             </button>
           </div>
         )}

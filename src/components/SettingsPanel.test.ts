@@ -174,7 +174,7 @@ describe("SettingsPanel Korean bot details", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the bot details header and connected row in Korean", async () => {
+  it("renders the bot details header while keeping the core rows in Korean", async () => {
     const { SettingsPanel } = await import("./SettingsPanel");
     const { I18nProvider } = await import("@/lib/i18n");
     const html = renderToStaticMarkup(
@@ -183,7 +183,12 @@ describe("SettingsPanel Korean bot details", () => {
     expect(html).toContain("봇 세부 정보");
     expect(html).toContain("aria-label=\"봇 세부 정보 접기\"");
     expect(html).toContain("aria-label=\"봇 세부 정보 닫기\"");
-    expect(html).toContain(">연결 앱<");
+    expect(html).toContain(">프로젝트 폴더 (선택)<");
+    expect(html).toContain(">Memory<");
+    expect(html).toContain(">Notifications<");
+    expect(html).not.toContain(">연결 앱<");
+    expect(html).not.toContain("Allow this bot to use connected apps");
+    expect(html).not.toContain("Stays on the active engine by default");
     expect(html).not.toContain(">Bot details<");
     expect(html).not.toContain("Collapse bot details");
     expect(html).not.toContain("Close bot details");

@@ -16,13 +16,9 @@ export const SECTION_PHRASE_KEYS = {
     "shortcuts.jump",
     "shortcuts.previous",
     "shortcuts.next",
-    "shortcuts.close",
     "shortcuts.model",
     "shortcuts.find",
     "shortcuts.terminal",
-    "shortcuts.send",
-    "shortcuts.newline",
-    "shortcuts.edit",
   ],
   general: [
     "settings.section.general",

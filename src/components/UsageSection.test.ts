@@ -190,7 +190,7 @@ describe("UsageSection friends plan card", () => {
     try {
       persistPreference("en");
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
-      const refreshAll = [...host.querySelectorAll("button")].find((button) => button.textContent === "Refresh all");
+      const refreshAll = [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all");
       expect(refreshAll).toBeDefined();
       await act(async () => {
         refreshAll?.click();
@@ -209,8 +209,10 @@ describe("UsageSection friends plan card", () => {
     try {
       persistPreference("en");
       const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-      expect((html.match(/>Refresh all</g) ?? []).length).toBe(1);
+      expect((html.match(/aria-label="Refresh all"/g) ?? []).length).toBe(1);
       expect(html).not.toContain(">Refresh<");
+      expect(html).toContain("lucide-refresh-cw");
+      expect(html).toContain("rounded-full");
     } finally {
       persistPreference("en");
     }
@@ -292,8 +294,9 @@ describe("UsageSection friends plan card", () => {
       expect(html).not.toContain("↑");
       expect(html).not.toContain("↓");
       expect(html).not.toContain("10 in · 4 out");
-      // the refresh age still reads next to refreshable engines
-      expect(html).toContain("old<");
+      // the refresh age remains available from the provider tooltip
+      expect(html).toMatch(/title="\d+[mh] old"/);
+      expect(html).not.toMatch(/>\d+[mh] old</);
       expect(html).toContain("Appears after your next Codex message.");
     } finally {
       persistPreference("en");
@@ -404,17 +407,21 @@ describe("UsageSection friends plan card", () => {
       report.observedAt = new Date(Date.now() - 5.5 * 60_000).toISOString();
       persistPreference("en");
       const englishMinutes = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-      expect(englishMinutes).toContain(">5m old<");
+      expect(englishMinutes).toContain('title="5m old"');
+      expect(englishMinutes).not.toContain(">5m old<");
       persistPreference("ko");
       const koreanMinutes = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-      expect(koreanMinutes).toContain(">5분 전<");
+      expect(koreanMinutes).toContain('title="5분 전"');
+      expect(koreanMinutes).not.toContain(">5분 전<");
       report.observedAt = new Date(Date.now() - 2.5 * 3_600_000).toISOString();
       persistPreference("en");
       const englishHours = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-      expect(englishHours).toContain(">2h old<");
+      expect(englishHours).toContain('title="2h old"');
+      expect(englishHours).not.toContain(">2h old<");
       persistPreference("ko");
       const koreanHours = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-      expect(koreanHours).toContain(">2시간 전<");
+      expect(koreanHours).toContain('title="2시간 전"');
+      expect(koreanHours).not.toContain(">2시간 전<");
     } finally {
       report.observedAt = original;
       persistPreference("en");
@@ -433,14 +440,14 @@ describe("UsageSection friends plan card", () => {
       persistPreference("en");
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
       expect([...host.querySelectorAll("button")].filter((button) => button.textContent === "Refresh")).toHaveLength(0);
-      const refreshAll = [...host.querySelectorAll("button")].find((button) => button.textContent === "Refresh all");
+      const refreshAll = [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all");
       expect(refreshAll).toBeDefined();
       await act(async () => {
         refreshAll?.click();
       });
       // one control refreshes every subscription engine together
       expect(mockApi).toHaveBeenCalledTimes(5);
-      const busy = [...host.querySelectorAll("button")].find((button) => button.textContent === "Refreshing…");
+      const busy = [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refreshing…");
       expect(busy).toBeDefined();
       expect(busy?.hasAttribute("disabled")).toBe(true);
       // a second click while busy issues no new requests
@@ -455,7 +462,7 @@ describe("UsageSection friends plan card", () => {
         deferred.get("antigravity")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
         deferred.get("muse")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
       });
-      expect([...host.querySelectorAll("button")].find((button) => button.textContent === "Refresh all")).toBeDefined();
+      expect([...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all")).toBeDefined();
     } finally {
       await act(async () => root.unmount());
       host.remove();
@@ -484,7 +491,7 @@ describe("UsageSection friends plan card", () => {
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
       expect(host.textContent).not.toContain("Updated just now");
       await act(async () => {
-        [...host.querySelectorAll("button")].find((button) => button.textContent === "Refresh all")?.click();
+        [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all")?.click();
       });
       // no confirmation while the run is still busy
       expect(host.textContent).not.toContain("Updated just now");
@@ -495,7 +502,7 @@ describe("UsageSection friends plan card", () => {
       expect(status?.textContent).toContain("Updated just now");
       // the next run clears the note until it succeeds again
       await act(async () => {
-        [...host.querySelectorAll("button")].find((button) => button.textContent === "Refresh all")?.click();
+        [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all")?.click();
       });
       expect(host.textContent).not.toContain("Updated just now");
       await finish();
@@ -519,7 +526,7 @@ describe("UsageSection friends plan card", () => {
       persistPreference("en");
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
       await act(async () => {
-        [...host.querySelectorAll("button")].find((button) => button.textContent === "Refresh all")?.click();
+        [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all")?.click();
       });
       expect(host.textContent).not.toContain("Updated just now");
       expect(host.textContent).toContain("stale");
@@ -546,11 +553,11 @@ describe("UsageSection friends plan card", () => {
       const enRoot = createRoot(enHost);
       await act(async () => enRoot.render(createElement(I18nProvider, null, createElement(UsageSection))));
       await act(async () => {
-        [...enHost.querySelectorAll("button")].find((button) => button.textContent === "Refresh all")?.click();
+        [...enHost.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all")?.click();
       });
-      expect(enHost.textContent).toContain("Could not refresh Claude limits Last good values are");
+      expect(enHost.textContent).toContain("Could not refresh Claude limits Showing the last good values.");
       expect(enHost.textContent).toContain("Could not refresh Antigravity limits No usage data yet.");
-      expect(enHost.textContent).not.toContain("Last good values are — old.");
+      expect(enHost.textContent).not.toMatch(/\d+[mh] old/);
       await act(async () => enRoot.unmount());
       enHost.remove();
 
@@ -560,7 +567,7 @@ describe("UsageSection friends plan card", () => {
       const koRoot = createRoot(koHost);
       await act(async () => koRoot.render(createElement(I18nProvider, null, createElement(UsageSection))));
       await act(async () => {
-        [...koHost.querySelectorAll("button")].find((button) => button.textContent === "모두 새로 고침")?.click();
+        [...koHost.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "모두 새로 고침")?.click();
       });
       expect(koHost.textContent).toContain("아직 사용량 정보가 없습니다.");
       expect(koHost.textContent).not.toContain("— 전 정보");
