@@ -14,6 +14,7 @@ import {
   visibleNotificationThread,
   type Bot,
   type Group,
+  type InstanceInfo,
   type Message,
   type TaskResumePacket,
 } from "./store";
@@ -685,6 +686,30 @@ describe("task recovery state", () => {
       false,
       hydrated.dismissedTaskRecovery["t1"],
     )).toBe(false);
+  });
+});
+
+describe("instance snapshot usage reports", () => {
+  it("keeps Grok's latest report when a stale snapshot arrives after a real message", () => {
+    const report = {
+      observedAt: "2026-09-17T10:00:00.000Z",
+      windows: [{ id: "seven_day", usedPercent: 42, resetsAt: Date.parse("2026-09-24T10:00:00.000Z") }],
+    };
+    const grok = {
+      instanceId: "grok",
+      driverKind: "grokAgent",
+      displayName: "Grok",
+      snapshot: { state: "available" as const },
+      models: { default: "grok-4.6", options: [] },
+      rateLimits: report,
+    } satisfies InstanceInfo;
+
+    const next = reducer(
+      { ...initialState, instances: [grok] },
+      { type: "instances", instances: [{ ...grok, rateLimits: undefined }] },
+    );
+
+    expect(next.instances[0]?.rateLimits).toEqual(report);
   });
 });
 

@@ -970,7 +970,14 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, groups, selectedId };
     }
     case "instances":
-      return { ...state, instances: action.instances };
+      return {
+        ...state,
+        instances: action.instances.map((instance) => {
+          const current = state.instances.find((candidate) => candidate.instanceId === instance.instanceId)?.rateLimits;
+          if (!current || (instance.rateLimits && Date.parse(instance.rateLimits.observedAt) >= Date.parse(current.observedAt))) return instance;
+          return { ...instance, rateLimits: current };
+        }),
+      };
     case "rateLimits":
       return {
         ...state,
