@@ -1,7 +1,7 @@
 // 2-screen New group wizard: name, then members. Existing bots check off
 // in one list; + New bot rows expand inline for described bots. Drafts live
 // in component state so a failed create keeps everything.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { BOT_PROFILE_LIMITS } from "../../shared/bot-profile";
 import { api, useStore, type Bot } from "@/state/store";
@@ -224,6 +224,8 @@ function NewBotRow({
 }) {
   const { t } = useI18n();
   const { dispatch } = useStore();
+  const jobRef = useRef<HTMLInputElement>(null);
+  const [jobInvalid, setJobInvalid] = useState(false);
   const preferKinds = PREFERS[Math.min(preferIndex, PREFERS.length - 1)]!;
   const pick: EnginePick | null = row.instanceId
     ? (() => {
@@ -235,6 +237,15 @@ function NewBotRow({
   const showSubstituted = !!pick?.substituted && instances.some((i) => i.driverKind === preferKind);
   const engineOptions = wizardEngineOptions(instances, pick?.instance ?? null);
   const model = pick ? resolveWizardModel(pick.instance, row.model) : null;
+  const jobErrorId = `group-wizard-job-error-${row.key}`;
+  const submit = () => {
+    if (!row.job.trim()) {
+      setJobInvalid(true);
+      jobRef.current?.focus();
+      return;
+    }
+    if (pick && !row.saving) onAdd(pick);
+  };
 
   return (
     <div className="mt-2 rounded-lg bg-raised/50 p-2.5">
@@ -242,19 +253,26 @@ function NewBotRow({
         {t("groupWizard.jobLabel")}
       </label>
       <input
+        ref={jobRef}
         id={`group-wizard-job-${row.key}`}
         autoFocus
         value={row.job}
         maxLength={BOT_PROFILE_LIMITS.description}
-        onChange={(e) => onPatch({ job: e.target.value })}
+        onChange={(e) => {
+          setJobInvalid(false);
+          onPatch({ job: e.target.value });
+        }}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && pick) onAdd(pick);
+          if (e.key === "Enter") submit();
         }}
         placeholder={t("groupWizard.jobPlaceholder")}
+        required
+        aria-invalid={jobInvalid || undefined}
+        aria-describedby={jobInvalid ? jobErrorId : undefined}
         className="w-full rounded-lg bg-raised/70 px-3 py-2 text-[14px] text-ink placeholder:text-ink-secondary focus:outline-none"
       />
-      {!row.job.trim() && (
-        <p className="mt-1 text-[12px] text-ink-secondary">{t("groupWizard.jobRequired")}</p>
+      {jobInvalid && (
+        <p id={jobErrorId} role="alert" className="mt-1 text-[12px] text-danger">{t("groupWizard.jobRequired")}</p>
       )}
 
       {pick ? (
@@ -281,8 +299,8 @@ function NewBotRow({
               ))}
             </select>
             <button
-              onClick={() => onAdd(pick)}
-              disabled={!row.job.trim() || row.saving}
+              onClick={submit}
+              disabled={row.saving}
               className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-[13px] font-medium text-accent-ink hover:brightness-110 disabled:opacity-40"
             >
               {t("groupWizard.addBot")}

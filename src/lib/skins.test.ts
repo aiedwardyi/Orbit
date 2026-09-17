@@ -334,6 +334,18 @@ describe("editor dark skins", () => {
   });
 });
 
+describe("Claude skin", () => {
+  it("uses a warm near-black palette and unboxed serif bot replies", () => {
+    expect(SKIN_IDS).toContain("claude");
+    expect(SKINS.some((skin) => skin.id === "claude" && skin.name === "Claude")).toBe(true);
+    expect(cssToken("claude", "--color-app")).toBe("#171615");
+    expect(cssToken("claude", "--color-accent")).toBe("#d97757");
+    expect(css).toMatch(/\[data-skin="claude"\]\s*\[data-orbit-message="bot"\][\s\S]*?background:\s*transparent/);
+    expect(css).toMatch(/\[data-skin="claude"\]\s*\[data-orbit-message="bot"\][\s\S]*?Anthropic Serif/);
+    expect(css).toMatch(/\[data-skin="claude"\]\s*\[data-orbit-message="user"\][\s\S]*?border:\s*1px solid var\(--color-hairline\)/);
+  });
+});
+
 const DARK_INK_SKINS = [
   {
     id: "catppuccin-frappe",

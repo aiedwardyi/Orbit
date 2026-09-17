@@ -51,9 +51,9 @@ function knownDirs(): string[] {
  * launch, but only at launch: a CLI installed while the app is running is
  * invisible until it restarts, because Windows never pushes PATH changes
  * into a live process. Scanning the standard install locations recovers
- * those without a restart — `~/.grok/bin` (the x.ai installer) and
- * `%APPDATA%\npm` (global npm shims), plus `%LOCALAPPDATA%\agy\bin`, cover
- * every engine we ship an install command for. */
+ * those without a restart — `~/.grok/bin` (the x.ai installer), the Meta Muse
+ * native launcher, `%APPDATA%\npm` (global npm shims), and
+ * `%LOCALAPPDATA%\agy\bin` cover every engine we ship an install command for. */
 export function windowsKnownDirs(): string[] {
   const home = homedir();
   const appData = process.env.APPDATA ?? join(home, "AppData", "Roaming");
@@ -65,6 +65,7 @@ export function windowsKnownDirs(): string[] {
     // works fine in the user's own terminal.
     join(process.env.SystemRoot ?? "C:\\Windows", "System32"),
     join(appData, "npm"), // npm -g shims: claude, codex
+    join(localAppData, "Programs", "muse"), // Meta Muse native launcher
     join(home, ".grok", "bin"), // x.ai installer
     join(localAppData, "agy", "bin"), // Antigravity installer
     join(home, ".local", "bin"), // claude native installer

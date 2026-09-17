@@ -53,6 +53,12 @@ describe("chatOptionChoices", () => {
     ).toEqual(["tonight", "wait until Monday morning after standup"]);
   });
 
+  it("keeps a clause intact when the split follows sentence punctuation", () => {
+    expect(
+      chatOptionChoices("Ready for one more rep to solidify it, or want to walk through another part of this?"),
+    ).toEqual(["Ready for one more rep to solidify it", "want to walk through another part of this"]);
+  });
+
   it("keeps final-line choices after a long preamble", () => {
     const preamble =
       "There are several factors to weigh when choosing a runtime for this project and configuring dependencies across team environments. We need to decide soon.";

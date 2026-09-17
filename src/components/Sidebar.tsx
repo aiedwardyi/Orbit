@@ -86,6 +86,10 @@ function profileInitials(profile?: { name?: string; email?: string }): string {
   return email ? email[0]!.toUpperCase() : "?";
 }
 
+export function compactSidebarModelLabel(label: string): string {
+  return label.replace(/\s+Contributor$/i, " Cont.");
+}
+
 /** Manual update check, next to the settings gear. Packaged app only (no
  * bridge in dev/browser). One button, state-dependent: check → download →
  * restart, with a brief "up to date" tick when a check finds nothing so a
@@ -766,6 +770,7 @@ function BotListItem({
   const modelLabel = engine && bot.modelSelection
     ? modelChipText({ instance: engine, model: bot.modelSelection.model, effort: bot.modelSelection.effort }, t)
     : null;
+  const expandedModelLabel = modelLabel ? compactSidebarModelLabel(modelLabel) : null;
   const rowClass = cn(
     "flex w-full items-center rounded-xl border text-left",
     iconOnly
@@ -827,21 +832,24 @@ function BotListItem({
             </span>
           )}
         </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="flex min-w-0 items-center gap-1.5 truncate text-[13px] text-ink-secondary">
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <div className="min-w-0 flex-1">
             {bot.chiefOfStaff && (
-              <span className="flex shrink-0 items-center gap-1 text-[11.5px] font-medium text-accent">
+              <div data-sidebar-chief-title className="flex items-center gap-1 text-[11.5px] font-medium leading-4 text-accent">
                 <Crown size={11} /> {t("chrome.chiefOfStaff")}
-              </span>
+              </div>
             )}
-            {bot.chiefOfStaff && (modelLabel || bot.busy) && <span className="shrink-0 text-ink-secondary/60">·</span>}
-            {modelLabel && (
-              <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(engine?.driverKind) }} />
+            {(expandedModelLabel || bot.busy) && (
+              <div data-sidebar-model-row className="flex min-w-0 items-center gap-1.5 truncate text-[13px] text-ink-secondary">
+                {expandedModelLabel && (
+                  <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(engine?.driverKind) }} />
+                )}
+                {expandedModelLabel && <span data-sidebar-model-label className="min-w-0 flex-1 truncate">{expandedModelLabel}</span>}
+                {bot.busy && expandedModelLabel && <span className="shrink-0 text-ink-secondary/60">·</span>}
+                {bot.busy && <span className="shrink-0 truncate">{t("chrome.working")}</span>}
+              </div>
             )}
-            {modelLabel && <span className="min-w-0 flex-1 truncate">{modelLabel}</span>}
-            {bot.busy && modelLabel && <span className="shrink-0 text-ink-secondary/60">·</span>}
-            {bot.busy && <span className="shrink-0 truncate">{t("chrome.working")}</span>}
-          </span>
+          </div>
           {bot.unread && (
             <span className="size-2 shrink-0 rounded-full bg-accent" />
           )}
@@ -1516,7 +1524,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     <aside
       aria-label={t("chrome.navAria")}
       className={cn(
-        "relative flex h-full shrink-0 flex-col border-r border-hairline/40 bg-panel",
+        "relative flex h-full min-w-0 shrink-0 flex-col border-r border-hairline/40 bg-panel",
         !resizing && "transition-[width] duration-200",
         // Below md only: the sidebar leaves the flow and slides in over the chat.
         // Scoped with max-md: rather than cancelled with md: on purpose — Tailwind
@@ -1733,7 +1741,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       )}
 
       {/* Bot list */}
-      <div className={cn("flex-1 overflow-y-auto", density === "icons" ? "px-0" : "px-2")}>
+      <div className={cn("min-w-0 flex-1 overflow-x-hidden overflow-y-auto", density === "icons" ? "px-0" : "px-2")}>
         <div className="flex flex-col gap-0.5">
           {!unsectionedChief && sectionChiefs.length === 0 && visibleBots.length === 0 && sectionedBots.length === 0 && visibleGroups.length === 0 && q && q.length < MIN_QUERY && (
             <div className="px-3 py-6 text-center text-[13px] text-ink-secondary">{t("palette.noMatch", { query })}</div>
@@ -1805,10 +1813,12 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       </div>
 
       {/* Footer */}
-      <div className={cn("pb-3 pt-2", density === "icons" ? "px-2" : "px-3")}>
-        <div className={cn("flex min-h-10 items-center", density === "icons" && "justify-center")} data-sidebar-update>
-          <UpdateButton />
-        </div>
+      <div className={cn("min-w-0 pb-3 pt-2", density === "icons" ? "px-2" : "px-3")}>
+        {density === "icons" && (
+          <div className="flex min-h-10 items-center justify-center" data-sidebar-update>
+            <UpdateButton />
+          </div>
+        )}
         {showSidebarTeachSkill() && skillRecorderEnabled(state.config) && (
           <button
             onClick={() => dispatch({ type: "showSkillRecorder" })}
@@ -1848,7 +1858,12 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             onOpen={() => dispatch(phoneSettingsAction())}
           />
         )}
-        <div className={cn("flex items-center", density === "icons" && "justify-center")}>
+        <div className={cn("flex min-w-0 items-center", density === "icons" && "justify-center")} data-sidebar-profile-row>
+          {density !== "icons" && (
+            <div className="flex shrink-0 items-center" data-sidebar-update>
+              <UpdateButton />
+            </div>
+          )}
           <button
             onClick={() => dispatch({ type: "toggleAppSettings" })}
             className={cn("flex min-w-0 items-center rounded-xl py-2 text-left hover:bg-raised/50", density === "icons" ? "justify-center px-2" : "flex-1 gap-3 px-3")}

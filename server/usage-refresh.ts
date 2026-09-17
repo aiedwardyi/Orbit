@@ -389,15 +389,8 @@ export function readAntigravityQuota(
 }
 
 /** Read the stable MSP usage snapshot from a normal `muse serve` host. */
-export async function readMuseUsage(
-  cli = museDefaultCli(),
-  env: NodeJS.ProcessEnv = { ...process.env, PATH: augmentedPath() },
-): Promise<JsonValue> {
-  const childEnv = { ...env };
-  applyCredentialAllowlist(childEnv, ["META_API_KEY"]);
-  if (process.platform === "win32") withWslKeySharing(childEnv);
-  const effectiveCli = process.platform === "win32" ? (await resolveWslMuseCli(cli, childEnv)) ?? cli : cli;
-  const child = spawnCli(effectiveCli, ["serve"], { cwd: homedir(), env: childEnv, stdio: ["pipe", "pipe", "pipe"] });
+async function readMuseUsageOnce(cli: string, childEnv: NodeJS.ProcessEnv): Promise<JsonValue> {
+  const child = spawnCli(cli, ["serve"], { cwd: homedir(), env: childEnv, stdio: ["pipe", "pipe", "pipe"] });
   const channel = createMspChannel(child);
   let failed = false;
   child.once("error", () => {
@@ -430,6 +423,44 @@ export async function readMuseUsage(
       killCliTree(child);
     }
   })();
+}
+
+export async function readMuseUsage(
+  cli = museDefaultCli(),
+  env: NodeJS.ProcessEnv = { ...process.env, PATH: augmentedPath() },
+): Promise<JsonValue> {
+  const childEnv = { ...env };
+  applyCredentialAllowlist(childEnv, ["META_API_KEY"]);
+  if (process.platform === "win32") withWslKeySharing(childEnv);
+  const isWindows = process.platform === "win32";
+  const isWsl = /^\s*wsl(\.exe)?(\s|$)/i.test(cli);
+  const targets: string[] = [];
+  if (isWindows && isWsl) {
+    targets.push((await resolveWslMuseCli(cli, childEnv)) ?? cli);
+  } else {
+    targets.push(cli);
+  }
+  let lastError: unknown;
+  for (const target of targets) {
+    try {
+      return await readMuseUsageOnce(target, childEnv);
+    } catch (error) {
+      if (error instanceof Error && error.message === "signin") throw error;
+      lastError = error;
+    }
+  }
+  if (isWindows && !isWsl && /^\s*muse\s*$/i.test(cli)) {
+    const wslCli = await resolveWslMuseCli(cli, childEnv);
+    if (wslCli) {
+      try {
+        return await readMuseUsageOnce(wslCli, childEnv);
+      } catch (error) {
+        if (error instanceof Error && error.message === "signin") throw error;
+        lastError = error;
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("refresh");
 }
 
 const oauthErrorBody = z.object({ error: z.string().optional() }).passthrough();

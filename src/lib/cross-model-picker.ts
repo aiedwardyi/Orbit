@@ -19,6 +19,7 @@ const MODELS = new Map<string, string[]>(Object.entries({
   grokAgent: ["grok-4.6", "grok-4.5"],
   museAgent: ["muse-spark-1.3", "muse-spark-1.3-contributor"],
 }));
+const RETIRED_ENGINE_KINDS = new Set(["geminiAgent"]);
 
 export function pickerRows(instances: InstanceInfo[], current: ModelSelection, preview = current): PickerRow[] {
   const ordered: Array<{ instance: InstanceInfo; label: string }> = ENGINES.flatMap(([kind, label]) => instances
@@ -32,7 +33,8 @@ export function pickerRows(instances: InstanceInfo[], current: ModelSelection, p
     seen.add(row.instance.instanceId);
     return true;
   });
-  const other = instances.find((instance) => instance.instanceId === current.instanceId);
+  // Retired providers stay saved through the active chip, never as choices.
+  const other = instances.find((instance) => instance.instanceId === current.instanceId && !RETIRED_ENGINE_KINDS.has(instance.driverKind));
   if (other && !seen.has(other.instanceId)) {
     seen.add(other.instanceId);
     rows.push({ instance: other, label: other.displayName });

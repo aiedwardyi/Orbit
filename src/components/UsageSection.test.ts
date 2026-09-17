@@ -130,6 +130,7 @@ describe("UsageSection friends plan card", () => {
   it("shows the featured engines in picker order and hides the per-bot table", () => {
     const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
     expect(html).toContain("Plan usage");
+    expect(html).toContain("flex flex-col gap-5");
     expect(html).toContain("Grok");
     expect(html).toContain("Claude");
     expect(html).toContain("Codex");

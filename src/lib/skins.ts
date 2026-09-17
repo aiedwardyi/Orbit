@@ -32,6 +32,7 @@ export const SKIN_IDS = [
   "vscode-dark",
   "studio-gray",
   "steel-gray",
+  "claude",
 ] as const;
 export type SkinId = (typeof SKIN_IDS)[number];
 
@@ -70,6 +71,7 @@ export const SKINS: readonly Skin[] = [
   { id: "vscode-dark", name: "VS Code Dark", tagline: "Editor dark, command blue, readable syntax." },
   { id: "studio-gray", name: "Studio Gray", tagline: "Quiet graphite, periwinkle signal." },
   { id: "steel-gray", name: "Steel Gray", tagline: "Cool steel, mint signal." },
+  { id: "claude", name: "Claude", tagline: "Warm black, serif replies, quiet chrome." },
 ];
 
 export const DEFAULT_SKIN: SkinId = "ledger";

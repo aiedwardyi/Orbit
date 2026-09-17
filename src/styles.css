@@ -1299,6 +1299,57 @@
   --radius-xl: 8px;
 }
 
+/* ── Claude ────────────────────────────────────────────────────────────────
+   Warm near-black surfaces, terracotta focus, and quiet serif replies.
+   Assistant messages lose the card treatment while user messages keep a
+   restrained rounded surface for the same reading rhythm as Claude Desktop.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="claude"] {
+  --color-app: #171615;
+  --color-panel: #1b1a19;
+  --color-raised: #282624;
+  --color-raised-hover: #35312f;
+  --color-card: #242220;
+  --color-inset: #11100f;
+  --color-control: #2a2725;
+  --color-hairline: #3b3734;
+
+  --color-ink: #f1eee8;
+  --color-ink-secondary: #b8b0a6;
+
+  --color-accent: #d97757;
+  --color-accent-border: #e39a7d;
+  --color-accent-text: #e39a7d;
+  --color-focus: #e39a7d;
+  --color-accent-ink: #171615;
+  --color-bubble-user: #292725;
+
+  --color-success: #7fc6a2;
+  --color-danger: #ed8c86;
+  --color-danger-ink: #171615;
+  --color-warning: #e2b35a;
+  --color-scrollbar: #4a4540;
+  --color-maus-line: #b8b0a6;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Malgun Gothic", system-ui, sans-serif;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+}
+
+[data-skin="claude"] [data-orbit-message="bot"] [data-orbit-message-content] {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  font-family: "Anthropic Serif", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+[data-skin="claude"] [data-orbit-message="user"] [data-orbit-message-content] {
+  border: 1px solid var(--color-hairline);
+}
+
 html,
 body,
 #root {

@@ -140,16 +140,18 @@ describe("picker catalogs", () => {
     expect(cells.at(-1)).toMatchObject({ offList: true, options: [{ id: retired }] });
   });
 
-  it("renders an unlisted geminiAgent pin as one fallback row preserving the pinned id", () => {
-    const pinned = "gemini-3.5-flash";
+  it("hides a retired geminiAgent row without changing the saved selection", () => {
+    const selection = { instanceId: "gemini", model: "auto", mode: "automatic" as const };
     const instance: InstanceInfo = {
       instanceId: "gemini", driverKind: "geminiAgent", displayName: "Gemini API", snapshot: { state: "available" },
-      models: { default: pinned, options: [{ id: pinned, label: "Gemini 3.5 Flash" }] },
+      models: {
+        default: "auto",
+        options: [{ id: "auto", label: "Auto (recommended)" }, { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash" }],
+      },
     };
-    const rows = pickerRows([instance], { instanceId: "gemini", model: pinned });
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.cells).toHaveLength(1);
-    expect(rows[0]!.cells[0]).toMatchObject({ offList: true, options: [{ id: pinned }] });
+    const rows = pickerRows([instance], selection);
+    expect(rows).toHaveLength(0);
+    expect(selection).toEqual({ instanceId: "gemini", model: "auto", mode: "automatic" });
   });
 
   it("collapses a duplicated roster entry to one row", () => {

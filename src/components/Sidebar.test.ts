@@ -10,7 +10,7 @@ import { persistPreference } from "@/lib/i18n";
 import { SIDEBAR_COLLAPSED_KEY, SIDEBAR_WIDTH_KEY } from "@/lib/sidebar-preferences";
 import { formatTime, StoreProvider } from "@/state/store";
 
-import { Sidebar } from "./Sidebar";
+import { compactSidebarModelLabel, Sidebar } from "./Sidebar";
 
 class FakeEventSource {
   static current: FakeEventSource | null = null;
@@ -156,9 +156,15 @@ describe("Sidebar layout controls", () => {
     const footer = source.slice(source.indexOf("{/* Footer */}"), source.indexOf("{menu &&"));
     expect(footer).toContain("data-sidebar-update");
     expect(footer).toContain("<UpdateButton />");
+    const profileRow = footer.indexOf("data-sidebar-profile-row");
+    const expandedUpdate = footer.lastIndexOf("data-sidebar-update");
+    const profileButton = footer.indexOf('onClick={() => dispatch({ type: "toggleAppSettings" })}', profileRow);
+    expect(expandedUpdate).toBeGreaterThan(profileRow);
+    expect(expandedUpdate).toBeLessThan(profileButton);
     expect(footer).not.toContain('t("chrome.teamMap")');
     expect(source).toContain("density === \"compact\" ? 40 : 48");
     expect(source).toContain("gap-2 px-3 py-1.5 pr-12");
+    expect(source).toContain("min-w-0 flex-1 overflow-x-hidden overflow-y-auto");
   });
 });
 
@@ -387,7 +393,10 @@ describe("Sidebar bot second line", () => {
     snapshot: { state: "available" },
     models: {
       default: "muse-spark-1.3",
-      options: [{ id: "muse-spark-1.3", label: "Meta Muse 1.3" }],
+      options: [
+        { id: "muse-spark-1.3", label: "Meta Muse 1.3" },
+        { id: "muse-spark-1.3-contributor", label: "Meta Muse 1.3 Contributor" },
+      ],
     },
   };
 
@@ -455,6 +464,28 @@ describe("Sidebar bot second line", () => {
     }
   });
 
+  it("puts Chief of Staff above a readable compact model label", async () => {
+    const chief = {
+      ...bot("chief"),
+      chiefOfStaff: true,
+      modelSelection: { instanceId: "muse", model: "muse-spark-1.3-contributor" },
+    };
+    const { host, root } = await renderSidebar({ bots: [chief], groups: [] });
+    try {
+      await vi.waitFor(() => expect(host.querySelector("[data-sidebar-model-label]")).not.toBeNull(), { timeout: 5000 });
+      const title = host.querySelector("[data-sidebar-chief-title]");
+      const model = host.querySelector("[data-sidebar-model-label]");
+      expect(title?.textContent).toContain("Chief of Staff");
+      expect(title?.parentElement?.querySelector("[data-sidebar-model-row]")).toBe(model?.parentElement);
+      expect(model?.textContent).toBe("Meta Muse 1.3 Cont.");
+      expect(host.textContent).not.toContain("Contributor");
+      expect(model?.previousElementSibling?.getAttribute("style")).toContain("background-color");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
   it("keeps the message preview on group rows", async () => {
     const room = {
       id: "g1",
@@ -471,5 +502,12 @@ describe("Sidebar bot second line", () => {
       await act(async () => root.unmount());
       host.remove();
     }
+  });
+});
+
+describe("Sidebar model labels", () => {
+  it("shortens the Contributor suffix without changing other labels", () => {
+    expect(compactSidebarModelLabel("Meta Muse 1.3 Contributor")).toBe("Meta Muse 1.3 Cont.");
+    expect(compactSidebarModelLabel("Meta Muse 1.3")).toBe("Meta Muse 1.3");
   });
 });

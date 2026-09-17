@@ -194,7 +194,7 @@ function PlanUsage() {
       {engines.length === 0 ? (
         <div className="text-[13px] text-ink-secondary">{t("usage.limits.empty")}</div>
       ) : (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-5">
           {engines.map((instance) => (
             <EnginePlanRow key={instance.instanceId} instance={instance} now={now} error={refreshErrors[instance.instanceId]} />
           ))}

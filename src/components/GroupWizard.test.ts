@@ -339,6 +339,40 @@ describe("GroupWizard members", () => {
     }
   });
 
+  it("validates an empty bot purpose inline and clears it on input", async () => {
+    const { host, root } = await renderWizard();
+    try {
+      await toMembers(host);
+      await act(async () => {
+        button(host, "+ New bot").click();
+      });
+      const [job] = jobInputs(host);
+      expect(host.textContent).not.toContain("unlock Add bot");
+      await act(async () => {
+        button(host, "Add bot").click();
+      });
+      expect(document.activeElement).toBe(job);
+      expect(job!.getAttribute("aria-invalid")).toBe("true");
+      const errorId = job!.getAttribute("aria-describedby");
+      expect(errorId).toBeTruthy();
+      const error = document.getElementById(errorId!);
+      expect(error?.getAttribute("role")).toBe("alert");
+      expect(error?.textContent).toBe("Add a purpose first.");
+      await act(async () => {
+        const native = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+        native.call(job, "review my code");
+        job!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(job!.getAttribute("aria-invalid")).toBeNull();
+      expect(job!.getAttribute("aria-describedby")).toBeNull();
+      expect(host.textContent).not.toContain("Add a purpose first.");
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+    }
+  });
+
   it("keeps drafts and shows the error when creation fails", async () => {
     const { host, root } = await renderWizard();
     try {
