@@ -28,6 +28,8 @@
 //                   the spawn shape. session/start params land next to it in
 //                   `<path>.config.json`; turn/start input in `<path>.turn.json`.
 //   FAKE_MSP_RPC_DUMP  path to write the method sequence seen this run.
+//   FAKE_MSP_USAGE     JSON result for usage/read.
+//   FAKE_MSP_USAGE_CHANGED  JSON params for a usage/changed notification.
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
 import { readFileSync, writeFileSync } from "node:fs";
@@ -135,6 +137,16 @@ const completeTurn = () =>
     method: "turn/completed",
     params: { sessionId: SESSION_ID, turnId: TURN_ID, terminal: "completed", viewCursor: "v:6" },
   });
+
+const usageChanged = () => {
+  const raw = process.env.FAKE_MSP_USAGE_CHANGED;
+  if (!raw) return;
+  try {
+    out({ jsonrpc: "2.0", method: "usage/changed", params: JSON.parse(raw) });
+  } catch {
+    // malformed fixture: the runtime should ignore it
+  }
+};
 
 function playHappyTurn(sessionId: string) {
   out({
@@ -286,6 +298,7 @@ function handle(msg: any) {
         turnId: TURN_ID,
       });
       if (mode === "hang") return;
+      usageChanged();
       if (mode === "auth-failure") {
         out({
           jsonrpc: "2.0",
@@ -353,6 +366,14 @@ function handle(msg: any) {
           { modelId: "muse-spark-1.3-contributor", displayLabel: "muse-spark-1.3-contributor" },
         ],
       });
+      break;
+    }
+    case "usage/read": {
+      try {
+        result(msg.id, process.env.FAKE_MSP_USAGE ? JSON.parse(process.env.FAKE_MSP_USAGE) : {});
+      } catch {
+        result(msg.id, {});
+      }
       break;
     }
     case "session/setReasoningEffort": {

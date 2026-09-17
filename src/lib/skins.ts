@@ -29,6 +29,9 @@ export const SKIN_IDS = [
   "tui-ice",
   "tui-slate",
   "tui-smoke",
+  "vscode-dark",
+  "studio-gray",
+  "steel-gray",
 ] as const;
 export type SkinId = (typeof SKIN_IDS)[number];
 
@@ -64,6 +67,9 @@ export const SKINS: readonly Skin[] = [
   { id: "tui-ice", name: "TUI Ice", tagline: "True black, ice selection." },
   { id: "tui-slate", name: "TUI Slate", tagline: "True black, silver selection." },
   { id: "tui-smoke", name: "TUI Smoke", tagline: "True black, warm gray chrome." },
+  { id: "vscode-dark", name: "VS Code Dark", tagline: "Editor dark, command blue, readable syntax." },
+  { id: "studio-gray", name: "Studio Gray", tagline: "Quiet graphite, periwinkle signal." },
+  { id: "steel-gray", name: "Steel Gray", tagline: "Cool steel, mint signal." },
 ];
 
 export const DEFAULT_SKIN: SkinId = "ledger";

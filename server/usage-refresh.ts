@@ -8,10 +8,13 @@ import { createInterface } from "node:readline";
 import { z } from "zod";
 
 import { writeFileAtomic } from "./atomic.ts";
+import { applyCredentialAllowlist } from "./config.ts";
 import type { RateLimitWindow } from "./contracts.ts";
 import { acpChildEnv } from "./drivers/acp/core.ts";
 import { grokSupport } from "./drivers/acp/grok.ts";
-import { antigravityRateLimitWindows, codexRateLimitWindows, grokRateLimitWindows, museRateLimitWindows } from "./drivers/rate-limits.ts";
+import { classifyMuseError, museDefaultCli, resolveWslMuseCli, withWslKeySharing } from "./drivers/acp/muse.ts";
+import { antigravityRateLimitWindows, codexRateLimitWindows, grokRateLimitWindows, museUsageReport } from "./drivers/rate-limits.ts";
+import { createMspChannel, MspRpcError } from "./drivers/msp/protocol.ts";
 import { augmentedPath } from "./env-path.ts";
 import { execCli, killCliTree, spawnCli } from "./procs.ts";
 import { parseJson, type JsonValue } from "./schema.ts";
@@ -385,16 +388,48 @@ export function readAntigravityQuota(
   })();
 }
 
-/** Meta quota probe. Verified against the local `muse` binary (1.2.1):
- * `muse schema` (stable and experimental) carries per-turn token usage
- * but no subscription quota method, `account/read` answers
- * `experimentalRequired` on the default `muse serve` host, and there is
- * no `muse usage` subcommand — so there is nothing to read yet. Throws
- * "refresh" so a refresh keeps the last report instead of claiming a
- * source it cannot honor; the `muse` dep slot with museRateLimitWindows
- * is the seam for the day a surface exists. */
-export function readMuseUsage(): Promise<JsonValue> {
-  return Promise.reject(new Error("refresh"));
+/** Read the stable MSP usage snapshot from a normal `muse serve` host. */
+export async function readMuseUsage(
+  cli = museDefaultCli(),
+  env: NodeJS.ProcessEnv = { ...process.env, PATH: augmentedPath() },
+): Promise<JsonValue> {
+  const childEnv = { ...env };
+  applyCredentialAllowlist(childEnv, ["META_API_KEY"]);
+  if (process.platform === "win32") withWslKeySharing(childEnv);
+  const effectiveCli = process.platform === "win32" ? (await resolveWslMuseCli(cli, childEnv)) ?? cli : cli;
+  const child = spawnCli(effectiveCli, ["serve"], { cwd: homedir(), env: childEnv, stdio: ["pipe", "pipe", "pipe"] });
+  const channel = createMspChannel(child);
+  let failed = false;
+  child.once("error", () => {
+    failed = true;
+    channel.detach();
+  });
+  const request = (method: string, params: JsonValue | undefined) =>
+    failed ? Promise.reject(new Error("refresh")) : channel.request(method, params, 15_000);
+  return (async () => {
+    try {
+      await request(
+        "initialize",
+        {
+          protocolVersion: 1,
+          clientInfo: { name: "orbit", version: "1.0.8" },
+          capabilities: { userInputDialogs: false },
+          clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
+        },
+      );
+      channel.notify("initialized", {});
+      return await request("usage/read", undefined) as JsonValue;
+    } catch (error) {
+      if (
+        (error instanceof MspRpcError && (error.code === 401 || error.code === 403)) ||
+        classifyMuseError(error) === "invalid_credentials"
+      ) throw new Error("signin");
+      throw new Error("refresh");
+    } finally {
+      channel.detach();
+      killCliTree(child);
+    }
+  })();
 }
 
 const oauthErrorBody = z.object({ error: z.string().optional() }).passthrough();
@@ -620,6 +655,7 @@ export function createUsageRefresh(deps: {
         const env: NodeJS.ProcessEnv = { ...process.env, PATH: augmentedPath(), ...options.environment };
         const home = env.HOME || env.USERPROFILE || homedir();
         let windows: RateLimitWindow[];
+        let observedAt: string | undefined;
         if (driver === "codex") {
           const result = z.object({ rateLimits: z.json() }).parse(await (deps.rpc ?? readUsageRpc)(options.cli || "codex", env));
           windows = codexRateLimitWindows(result.rateLimits);
@@ -628,7 +664,10 @@ export function createUsageRefresh(deps: {
         } else if (driver === "antigravityAgent") {
           windows = antigravityRateLimitWindows(await (deps.antigravity ?? readAntigravityQuota)(options.cli || "agy", env), clock());
         } else if (driver === "museAgent") {
-          windows = museRateLimitWindows(await (deps.muse ?? readMuseUsage)(), clock());
+          const report = museUsageReport(await (deps.muse ?? readMuseUsage)(options.cli || museDefaultCli(), env));
+          if (!report) throw new Error("refresh");
+          windows = report.windows;
+          observedAt = report.observedAt;
         } else {
           if ((deps.platform ?? process.platform) === "darwin" && !env.CLAUDE_CODE_OAUTH_TOKEN) return { report: previous, error: "Claude refresh skipped to avoid Keychain prompts on macOS", retryAt };
           // An env token has no refresh grant behind it, so it keeps the
@@ -652,7 +691,11 @@ export function createUsageRefresh(deps: {
           });
         }
         if (!windows.length) throw new Error("refresh");
-        return { report: { windows, observedAt: new Date(clock()).toISOString() }, retryAt };
+        const report = { windows, observedAt: observedAt ?? new Date(clock()).toISOString() };
+        if (observedAt !== undefined && previous && Date.parse(report.observedAt) < Date.parse(previous.observedAt)) {
+          return { report: previous, error: `Could not refresh ${name} limits`, retryAt };
+        }
+        return { report, retryAt };
       } catch (error) {
         return { report: previous, error: error instanceof Error && error.message === "signin" ? `Sign in again in ${name}` : `Could not refresh ${name} limits`, retryAt };
       }

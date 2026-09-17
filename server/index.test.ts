@@ -4212,6 +4212,35 @@ describe("bot memory API", () => {
     }
   });
 
+  it("passes the saved file to a fresh local provider session", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    try {
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      })).status).toBe(200);
+      const memory = "# Memory\n- teacher source: BRAIN.md\n";
+      expect((await api("PUT", `/api/bots/${bot.id}/memory`, { text: memory })).status).toBe(200);
+
+      rmSync(fakeClaudeDump, { force: true });
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "hello" })).status).toBe(202);
+      await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 10_000 }).toBe(true);
+
+      const dump = z.object({ argv: z.array(z.string()) }).parse(
+        JSON.parse(readFileSync(fakeClaudeDump, "utf8")),
+      );
+      expect(dump.argv).toContain("--session-id");
+      expect(dump.argv).not.toContain("--resume");
+      const at = dump.argv.indexOf("--append-system-prompt");
+      expect(at).toBeGreaterThan(-1);
+      const system = dump.argv[at + 1];
+      expect(system).toContain(JSON.stringify(join(workspaceOf(bot.id), "MEMORY.md")));
+      expect(system).toContain(memory);
+    } finally {
+      await api("POST", `/api/bots/${bot.id}/interrupt`).catch(() => undefined);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  }, 30_000);
+
   it("lists memory/ topic files and serves one by (possibly encoded) name", async () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
     try {
@@ -5472,6 +5501,21 @@ describe("project folder for a chat-only engine", () => {
       const system = await nextSystem(() => api("POST", `/api/bots/${botId}/messages`, { text: "what is in the desk folder" }));
       expect(system).toContain("a personal bot in Orbit.");
       expect(system).not.toContain(FOLDER_START);
+    } finally {
+      await settled(botId);
+      await api("DELETE", `/api/bots/${botId}`);
+    }
+  }, 30_000);
+
+  it("does not send local memory to a chat-only provider", async () => {
+    const botId = await compatBot();
+    try {
+      expect((await api("PUT", `/api/bots/${botId}/memory`, {
+        text: "# Memory\n- local note that must stay out of this API turn\n",
+      })).status).toBe(200);
+      const system = await nextSystem(() => api("POST", `/api/bots/${botId}/messages`, { text: "hello" }));
+      expect(system).not.toContain("local note that must stay out of this API turn");
+      expect(system).not.toContain("Your memory (MEMORY.md):");
     } finally {
       await settled(botId);
       await api("DELETE", `/api/bots/${botId}`);

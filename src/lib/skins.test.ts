@@ -108,7 +108,7 @@ describe("skins", () => {
     }
   });
 
-  it("gives Atelier, Lagoon, and Ledger a syntax palette and leaves dark skins alone", () => {
+  it("gives light skins and VS Code Dark a syntax palette and leaves other dark skins alone", () => {
     const roles = [
       "--color-syntax-fg",
       "--color-syntax-comment",
@@ -120,12 +120,12 @@ describe("skins", () => {
       "--color-syntax-tag",
       "--color-syntax-invalid",
     ];
-    const light = ["atelier", "lagoon", "ledger"];
-    for (const id of light) {
+    const remapped = ["atelier", "lagoon", "ledger", "vscode-dark"];
+    for (const id of remapped) {
       expect([...tokensOf(id)]).toEqual(expect.arrayContaining(roles));
     }
     for (const id of SKIN_IDS) {
-      if (light.includes(id)) continue;
+      if (remapped.includes(id)) continue;
       expect([...tokensOf(id)].filter((t) => t.startsWith("--color-syntax-"))).toEqual([]);
     }
   });
@@ -151,7 +151,7 @@ describe("skins", () => {
     expect(hits).toEqual([]);
   });
 
-  it("drives light-syntax contrast from github-dark-default emitted foregrounds", () => {
+  it("drives remapped syntax contrast from github-dark-default emitted foregrounds", () => {
     const check = readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), "../../scripts/check-skin-contrast.mjs"),
       "utf8",
@@ -159,6 +159,7 @@ describe("skins", () => {
     expect(check).toContain("github-dark-default");
     expect(check).toContain("tokenColors");
     expect(check).toContain("emittedForegrounds");
+    expect(check).toContain('"vscode-dark"');
     expect(check).not.toContain("SYNTAX_ROLES");
   });
 
@@ -263,6 +264,73 @@ describe("Ledger", () => {
       "--radius-xl",
     ];
     expect([...tokensOf("ledger")]).toEqual(expect.arrayContaining(required));
+  });
+});
+
+const EDITOR_DARK_SKINS = [
+  {
+    id: "vscode-dark",
+    name: "VS Code Dark",
+    tokens: {
+      "--color-app": "#1e1e1e",
+      "--color-panel": "#252526",
+      "--color-inset": "#181818",
+      "--color-ink": "#d4d4d4",
+      "--color-accent": "#007acc",
+      "--color-syntax-comment": "#6a9955",
+      "--color-syntax-string": "#ce9178",
+      "--color-syntax-constant": "#4fc1ff",
+      "--color-syntax-tag": "#4ec9b0",
+      "--color-syntax-function": "#dcdcaa",
+    },
+  },
+  {
+    id: "studio-gray",
+    name: "Studio Gray",
+    tokens: {
+      "--color-app": "#242424",
+      "--color-panel": "#303030",
+      "--color-inset": "#1d1d1d",
+      "--color-ink": "#e5e5e5",
+      "--color-accent": "#7c9cff",
+    },
+  },
+  {
+    id: "steel-gray",
+    name: "Steel Gray",
+    tokens: {
+      "--color-app": "#2b3038",
+      "--color-panel": "#363c46",
+      "--color-inset": "#22262d",
+      "--color-ink": "#e2e8f0",
+      "--color-accent": "#63d6be",
+    },
+  },
+] as const;
+
+describe("editor dark skins", () => {
+  it("registers the optional palettes with their anchor tokens", () => {
+    for (const skin of EDITOR_DARK_SKINS) {
+      expect(SKIN_IDS).toContain(skin.id);
+      expect(SKINS.some((s) => s.id === skin.id && s.name === skin.name)).toBe(true);
+      for (const [token, value] of Object.entries(skin.tokens)) {
+        expect(cssToken(skin.id, token)).toBe(value);
+      }
+    }
+  });
+
+  it("keeps VS Code Dark syntax accents readable on its editor inset", () => {
+    const roles = [
+      "--color-syntax-comment",
+      "--color-syntax-string",
+      "--color-syntax-constant",
+      "--color-syntax-tag",
+      "--color-syntax-function",
+    ];
+    const inset = cssToken("vscode-dark", "--color-inset")!;
+    for (const role of roles) {
+      expect(contrast(cssToken("vscode-dark", role)!, inset), role).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });
 

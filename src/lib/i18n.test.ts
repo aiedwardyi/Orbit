@@ -945,6 +945,8 @@ describe("plan usage", () => {
     expect(translate("ko", "usage.limits.refreshAgeHours", { hours: 2 })).toBe("2시간");
     expect(translate("en", "usage.limits.refreshAge", { age: "5m" })).toBe("5m old");
     expect(translate("ko", "usage.limits.refreshAge", { age: "5분" })).toBe("5분 전");
+    expect(translate("en", "usage.limits.cachedAsOf", { age: "5m" })).toBe("Cached, as of 5m ago.");
+    expect(translate("ko", "usage.limits.cachedAsOf", { age: "5분" })).toBe("캐시된 값, 5분 전 기준입니다.");
   });
 
   it("wires those phrases into the Usage settings surface instead of hardcoded English", () => {
@@ -961,6 +963,7 @@ describe("plan usage", () => {
     expect(usageSection).toContain('"usage.limits.notReported"');
     expect(usageSection).toContain('"usage.limits.refreshAgeMinutes"');
     expect(usageSection).toContain('"usage.limits.refreshAgeHours"');
+    expect(usageSection).toContain('"usage.limits.cachedAsOf"');
     expect(usageSection).not.toContain('"usage.limits.unavailable"');
     expect(planUsageBar).toContain("t(phrase.key, phrase.vars)");
     expect(planUsageBar).toContain("t(compactReset.key, compactReset.vars)");

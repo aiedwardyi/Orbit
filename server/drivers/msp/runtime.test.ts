@@ -46,6 +46,7 @@ describe("MSP turns (fake host)", () => {
     delete process.env.FAKE_MSP_DUMP;
     delete process.env.FAKE_MSP_STATE;
     delete process.env.FAKE_MSP_RPC_DUMP;
+    delete process.env.FAKE_MSP_USAGE_CHANGED;
     delete process.env.META_API_KEY;
     recorder?.stop();
     await instance?.dispose();
@@ -72,6 +73,27 @@ describe("MSP turns (fake host)", () => {
     expect(recorder.events).toContainEqual(
       expect.objectContaining({ type: "item.completed", text: "hello from fake msp" }),
     );
+  });
+
+  it("folds stable usage/changed notifications into account windows", async () => {
+    const payload = {
+      observedAtMs: 1_790_000_000_000,
+      tier: "pro",
+      window: { usedPercent: 22, windowDurationMins: 300, resetsAtMs: 1_790_000_000_000 },
+      weekly: { usedPercent: 61, resetsAtMs: 1_790_172_800_000 },
+    };
+    process.env.FAKE_MSP_USAGE_CHANGED = JSON.stringify(payload);
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-usage", text: "hi" });
+    expect(await recorder.until((e) => e.type === "account.rate-limits.updated")).toMatchObject({
+      type: "account.rate-limits.updated",
+      observedAt: new Date(payload.observedAtMs).toISOString(),
+      windows: [
+        { id: "five_hour", usedPercent: 22, windowMinutes: 300, resetsAt: 1_790_000_000_000 },
+        { id: "seven_day", usedPercent: 61, windowMinutes: 10_080, resetsAt: 1_790_172_800_000 },
+      ],
+    });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
   });
 
   it("omits modelId when no model is picked", async () => {

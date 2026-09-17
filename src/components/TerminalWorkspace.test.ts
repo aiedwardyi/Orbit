@@ -461,6 +461,34 @@ it("new-id fallback attach uses current bot cwd, not stale launchProject", async
   expect(host.textContent).not.toContain("C:\\old");
 });
 
+it("uses host launch metadata after switching bots", async () => {
+  const snapshotA: TerminalSnapshot = { id: "session-a", cwd: "C:\\old", shell: "pwsh.exe", output: "A", seq: 1, exitCode: null, launchProject: "C:\\old" };
+  const snapshotB: TerminalSnapshot = { id: "session-b", cwd: "C:\\other", shell: "pwsh.exe", output: "B", seq: 1, exitCode: null, launchProject: "C:\\other" };
+  const open = vi.fn(async (opts: { botId: string; projectCwd?: string | null }) => opts.botId === "bot-a" ? snapshotA : snapshotB);
+  const bridge: TerminalBridge = {
+    appearance: vi.fn(async () => null),
+    open,
+    write: vi.fn(),
+    resize: vi.fn(async () => {}),
+    onData: () => vi.fn(),
+    onExit: () => vi.fn(),
+  };
+  mountBridge(bridge);
+  const render = (bot: { id: string; name: string; cwd: string }) => root.render(createElement(TerminalWorkspace, {
+    bot, visible: true, focusBlocked: false, onClose: vi.fn(),
+  }));
+  await act(async () => render({ id: "bot-a", name: "A", cwd: "C:\\old" }));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  terminal.write.mockClear();
+  await act(async () => render({ id: "bot-b", name: "B", cwd: "C:\\other" }));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  await act(async () => render({ id: "bot-a", name: "A", cwd: "C:\\new" }));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(open.mock.calls.map(([opts]) => opts.projectCwd)).toEqual(["C:\\old", "C:\\other", "C:\\new"]);
+  expect(host.textContent).toContain("Terminal started in a different folder");
+  expect(host.textContent).toContain("C:\\old");
+});
+
 it("starts a new shell from an exited session via New shell", async () => {
   let exitHandler: ((event: { id: string; exitCode: number }) => void) | null = null;
   let openCount = 0;

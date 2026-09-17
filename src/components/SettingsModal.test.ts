@@ -173,6 +173,9 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain("TUI Ice");
     expect(html).toContain("TUI Slate");
     expect(html).toContain("TUI Smoke");
+    expect(html).toContain("VS Code Dark");
+    expect(html).toContain("Studio Gray");
+    expect(html).toContain("Steel Gray");
     expect(html).not.toContain("Cobalt");
     expect(html).toContain('data-skin="catppuccin-frappe"');
     expect(html).toContain('data-skin="tokyo-night"');
@@ -193,6 +196,9 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain('data-skin="tui-ice"');
     expect(html).toContain('data-skin="tui-slate"');
     expect(html).toContain('data-skin="tui-smoke"');
+    expect(html).toContain('data-skin="vscode-dark"');
+    expect(html).toContain('data-skin="studio-gray"');
+    expect(html).toContain('data-skin="steel-gray"');
   });
 
   it("orders Themes and Usage last in the settings left nav", () => {

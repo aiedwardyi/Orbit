@@ -188,6 +188,7 @@ import {
   listMemoryTopics,
   isMemoryTopicName,
   memorySystemPrompt,
+  supportsWorkspaceFiles,
 } from "./workspace.ts";
 import {
   readMemoryFile,
@@ -1668,7 +1669,11 @@ bus.subscribe((event: RuntimeEvent) => {
   }
   broadcast({ kind: "runtime", event });
   if (event.type === "account.rate-limits.updated" && event.providerInstanceId) {
-    rateLimitsByInstance.set(event.providerInstanceId, { windows: event.windows, observedAt: event.createdAt });
+    const observedAt = event.observedAt ?? event.createdAt;
+    const current = rateLimitsByInstance.get(event.providerInstanceId);
+    if (!current || Date.parse(observedAt) >= Date.parse(current.observedAt)) {
+      rateLimitsByInstance.set(event.providerInstanceId, { windows: event.windows, observedAt });
+    }
   }
   const routineRun = routines?.handleRuntimeEvent(event) ?? null;
   const bot = store.botByThread(event.threadId);
@@ -2919,7 +2924,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       // than the user's home: a bot with file tools and acceptEdits gets a
       // desk, not the whole house — and the workspace is where its
       // MEMORY.md lives. API/box engines have no local filesystem story.
-      const worksInWorkspace = instance.driverKind !== "grok" && instance.driverKind !== "boxAgent";
+      const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
       const privateWorkspace = worksInWorkspace ? ensureWorkspace(bot.id) : undefined;
       const skillInstructions = renderSkillInstructions(selectedSkills, {
         includeRoot: worksInWorkspace && opts?.runOn !== "cloud",
@@ -4027,7 +4032,7 @@ async function runClaimedGroupMemberTurn(
 
   // same workspace + memory as a 1:1 turn — the room is a different
   // conversation, not a different bot
-  const worksInWorkspace = instance.driverKind !== "grok" && instance.driverKind !== "boxAgent";
+  const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
   const workspace = worksInWorkspace ? ensureWorkspace(bot.id) : undefined;
   // The room's folder pins here — on the first turn that actually
   // dispatches, not at PATCH time — so a folder set on a never-used room

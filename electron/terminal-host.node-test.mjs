@@ -141,3 +141,132 @@ test("restart keeps the old session when the new folder is unavailable", async (
   assert.equal(resumed.id, first.id);
   assert.equal(children.length, 1);
 });
+
+test("restart keeps the old session when replacement startup fails", async () => {
+  const children = [];
+  const owner = { id: 1, mainFrame: {}, send() {} };
+  const event = { sender: owner, senderFrame: owner.mainFrame };
+  const host = createTerminalHost({
+    authorize() {}, resolveCwd: async () => os.tmpdir(), platform: "linux", env: { SHELL: "/bin/sh" },
+    loadPty: () => ({ spawn: () => {
+      if (children.length > 0) throw new Error("spawn failed");
+      const child = { killed: false, onData() {}, onExit() {}, ready: Promise.resolve(), write() {}, resize() {}, kill() { this.killed = true; } };
+      children.push(child);
+      return child;
+    } }),
+  });
+  const first = await host.open(event, { botId: "spawn-failure", cols: 80, rows: 24 });
+  await assert.rejects(host.open(event, { botId: "spawn-failure", cols: 80, rows: 24, restart: true }), /spawn failed/);
+  assert.equal(children[0].killed, false);
+  assert.equal((await host.open(event, { botId: "spawn-failure", cols: 80, rows: 24 })).id, first.id);
+  assert.equal(children.length, 1);
+});
+
+test("does not expose a session before its worker is ready", async () => {
+  let resolveReady;
+  const ready = new Promise((resolve) => { resolveReady = resolve; });
+  const child = { onData() {}, onExit() {}, ready, write() {}, resize() {}, kill() {} };
+  const owner = { id: 1, mainFrame: {}, send() {} };
+  const event = { sender: owner, senderFrame: owner.mainFrame };
+  const host = createTerminalHost({
+    authorize() {}, resolveCwd: async () => os.tmpdir(), platform: "linux", env: { SHELL: "/bin/sh" },
+    loadPty: () => ({ spawn: () => child }),
+  });
+  const opening = host.open(event, { botId: "ready", cols: 80, rows: 24 });
+  await new Promise((resolve) => setImmediate(resolve));
+  let settled = false;
+  void opening.finally(() => { settled = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false);
+  resolveReady();
+  const session = await opening;
+  assert.equal(session.id.length > 0, true);
+});
+
+test("waits for the old worker shutdown acknowledgement before replacing it", async () => {
+  let releaseKill;
+  const killAck = new Promise((resolve) => { releaseKill = resolve; });
+  const children = [];
+  const makeChild = (kill = () => {}) => ({ onData() {}, onExit() {}, ready: Promise.resolve(), write() {}, resize() {}, kill });
+  const owner = { id: 1, mainFrame: {}, send() {} };
+  const event = { sender: owner, senderFrame: owner.mainFrame };
+  const host = createTerminalHost({
+    authorize() {}, resolveCwd: async () => os.tmpdir(), platform: "linux", env: { SHELL: "/bin/sh" },
+    loadPty: () => ({ spawn: () => {
+      const child = makeChild(children.length === 0 ? () => { children[0].killed = true; return killAck; } : undefined);
+      child.killed = false;
+      children.push(child);
+      return child;
+    } }),
+  });
+  const first = await host.open(event, { botId: "shutdown-ack", cols: 80, rows: 24 });
+  let settled = false;
+  const replacement = host.open(event, { botId: "shutdown-ack", cols: 80, rows: 24, restart: true }).finally(() => { settled = true; });
+  for (let attempt = 0; attempt < 20 && children.length < 2; attempt += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(children.length, 2);
+  assert.equal(children[0].killed, true);
+  assert.equal(settled, false);
+  releaseKill();
+  const next = await replacement;
+  assert.notEqual(next.id, first.id);
+});
+
+test("a restart requested during startup uses its explicit target", async () => {
+  let releaseFolder;
+  const folder = new Promise((resolve) => { releaseFolder = resolve; });
+  const children = [];
+  const owner = { id: 1, mainFrame: {}, send() {} };
+  const event = { sender: owner, senderFrame: owner.mainFrame };
+  const host = createTerminalHost({
+    authorize() {},
+    resolveCwd: async () => { await folder; return os.tmpdir(); },
+    platform: "linux", env: { SHELL: "/bin/sh" },
+    loadPty: () => ({ spawn: () => {
+      const child = { onData() {}, onExit() {}, ready: Promise.resolve(), write() {}, resize() {}, kill() {} };
+      children.push(child);
+      return child;
+    } }),
+  });
+  const opening = host.open(event, { botId: "startup-restart", cols: 80, rows: 24 });
+  const restart = host.open(event, { botId: "startup-restart", cols: 80, rows: 24, restart: true, cwd: process.cwd(), projectCwd: process.cwd() });
+  releaseFolder();
+  const session = await restart;
+  assert.equal(session.cwd, process.cwd());
+  assert.equal(session.launchProject, process.cwd());
+  assert.equal((await opening).id, session.id);
+  assert.equal(children.length, 1);
+});
+
+test("turns a synchronous EBADF write failure into an exited terminal", async () => {
+  const events = [];
+  const owner = { id: 1, mainFrame: {}, send: (...args) => events.push(args) };
+  const event = { sender: owner, senderFrame: owner.mainFrame };
+  const child = { onData() {}, onExit() {}, ready: Promise.resolve(), write() { throw Object.assign(new Error("EBADF"), { code: "EBADF" }); }, resize() {}, kill() { this.killed = true; } };
+  const host = createTerminalHost({
+    authorize() {}, resolveCwd: async () => os.tmpdir(), platform: "linux", env: { SHELL: "/bin/sh" },
+    loadPty: () => ({ spawn: () => child }),
+  });
+  const session = await host.open(event, { botId: "ebadf", cols: 80, rows: 24 });
+  assert.throws(() => host.write(event, session.id, "x"), /EBADF/);
+  assert.deepEqual(events.map(([channel, value]) => [channel, value.message ?? value.exitCode]), [
+    ["terminal:error", "EBADF"], ["terminal:exit", 1],
+  ]);
+  assert.equal(child.killed, true);
+});
+
+test("turns an asynchronous PTY write failure into an exited terminal", async () => {
+  const events = [];
+  const owner = { id: 1, mainFrame: {}, send: (...args) => events.push(args) };
+  const event = { sender: owner, senderFrame: owner.mainFrame };
+  const child = { onData() {}, onExit() {}, ready: Promise.resolve(), write: async () => { throw new Error("EBADF"); }, resize() {}, kill() { this.killed = true; } };
+  const host = createTerminalHost({
+    authorize() {}, resolveCwd: async () => os.tmpdir(), platform: "linux", env: { SHELL: "/bin/sh" },
+    loadPty: () => ({ spawn: () => child }),
+  });
+  const session = await host.open(event, { botId: "async-ebadf", cols: 80, rows: 24 });
+  await assert.rejects(host.write(event, session.id, "x"), /EBADF/);
+  assert.deepEqual(events.map(([channel, value]) => [channel, value.message ?? value.exitCode]), [
+    ["terminal:error", "EBADF"], ["terminal:exit", 1],
+  ]);
+  assert.equal(child.killed, true);
+});
