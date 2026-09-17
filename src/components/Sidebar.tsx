@@ -205,7 +205,7 @@ function StackedMauses({ members, density }: { members: Bot[]; density: SidebarD
   return (
     <div
       data-sidebar-group-avatar-slot
-      className={cn("flex shrink-0 items-center justify-center", slotSize, extra > 0 && "min-w-[76px]")}
+      className={cn("flex shrink-0 items-center justify-center", slotSize, extra > 0 && "min-w-[84px]")}
     >
       <div className="flex items-center -space-x-3">
         {shown.map((b) => (

@@ -433,7 +433,7 @@ describe("Sidebar group avatar overflow", () => {
         expect(element).not.toBeNull();
         return element!;
       });
-      expect(slot.className).toContain("min-w-[76px]");
+      expect(slot.className).toContain("min-w-[84px]");
       expect(slot.querySelector("[data-sidebar-group-overflow]")?.textContent).toBe("+2");
     } finally {
       await act(async () => root.unmount());
