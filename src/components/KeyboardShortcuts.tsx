@@ -16,15 +16,11 @@ export function KeyboardShortcuts() {
       ["shortcuts.jump", [mod, "1–9"]],
       ["shortcuts.previous", [mod, "Shift", "["]],
       ["shortcuts.next", [mod, "Shift", "]"]],
-      ["shortcuts.close", ["Esc"]],
     ] },
     { title: "shortcuts.chat", rows: [
       ["shortcuts.model", [alt, "M"]],
       ["shortcuts.find", [mod, "F"]],
       ...terminal,
-      ["shortcuts.send", ["Enter"]],
-      ["shortcuts.newline", ["Shift", "Enter"]],
-      ["shortcuts.edit", ["↑"]],
     ] },
   ];
   return (

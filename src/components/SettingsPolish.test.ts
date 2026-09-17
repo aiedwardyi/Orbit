@@ -154,7 +154,7 @@ describe("Settings Polish", () => {
       (b) => b.textContent?.trim() === "Refresh",
     )).toHaveLength(0);
     const refreshButton = [...host.querySelectorAll("button")].find(
-      (b) => b.textContent?.trim() === "Refresh all",
+      (b) => b.getAttribute("aria-label") === "Refresh all",
     );
     expect(refreshButton).toBeDefined();
     expect(refreshButton?.className).toContain("border border-hairline/40");
@@ -172,7 +172,7 @@ describe("Settings Polish", () => {
       });
 
       const refreshAllButton = [...host.querySelectorAll("button")].find(
-        (b) => b.textContent?.trim() === "Refresh all",
+        (b) => b.getAttribute("aria-label") === "Refresh all",
       );
       expect(refreshAllButton).toBeDefined();
       await act(async () => {
@@ -208,7 +208,7 @@ describe("Settings Polish", () => {
       });
 
       const refreshAllButton = [...host.querySelectorAll("button")].find(
-        (b) => b.textContent?.trim() === "Refresh all",
+        (b) => b.getAttribute("aria-label") === "Refresh all",
       );
       expect(refreshAllButton).toBeDefined();
 
@@ -220,7 +220,7 @@ describe("Settings Polish", () => {
       expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/claude", { method: "POST" });
 
       const busyButton = [...host.querySelectorAll("button")].find(
-        (b) => b.textContent?.trim() === "Refreshing…",
+        (b) => b.getAttribute("aria-label") === "Refreshing…",
       );
       expect(busyButton).toBeDefined();
       expect(busyButton?.hasAttribute("disabled")).toBe(true);
@@ -236,7 +236,7 @@ describe("Settings Polish", () => {
       });
 
       expect([...host.querySelectorAll("button")].find(
-        (b) => b.textContent?.trim() === "Refresh all",
+        (b) => b.getAttribute("aria-label") === "Refresh all",
       )).toBeDefined();
     } finally {
       mockState.instances = previousInstances;

@@ -373,7 +373,8 @@ describe("connected apps and bot details Korean coverage", () => {
     expect(manageMembers).not.toContain("room.manageMembersTitle");
     expect(manageMembers).not.toMatch(/>Manage Members</);
     expect(manageMembers).not.toMatch(/Manage members of \$\{group\.name\}/);
-    expect(settingsPanel).toContain('t("chrome.connectedApps")');
+    expect(settingsPanel).not.toContain('t("chrome.connectedApps")');
+    expect(settingsPanel).not.toContain("connectedAppsEnabled");
     expect(settingsPanel).toContain('t("bot.details")');
     expect(settingsPanel).toContain('t("bot.collapseDetails")');
     expect(settingsPanel).toContain('t("bot.closeDetails")');
