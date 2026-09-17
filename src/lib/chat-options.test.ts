@@ -21,6 +21,48 @@ describe("chatOptionChoices", () => {
     expect(chatOptionChoices("Should I use pnpm or npm?")).toEqual(["pnpm", "npm"]);
   });
 
+  it("keeps incidental parentheses on a choice label", () => {
+    // or is outside the group — "pnpm (v9)" is one label, not a reject signal
+    expect(chatOptionChoices("pnpm (v9) or npm?")).toEqual(["pnpm (v9)", "npm"]);
+    expect(chatOptionChoices("Should I use pnpm (v9) or npm?")).toEqual(["pnpm (v9)", "npm"]);
+  });
+
+  it("rejects mismatched delimiters instead of creating malformed choices", () => {
+    expect(chatOptionChoices("pnpm (v9] or npm?")).toBeNull();
+  });
+
+  it("does not turn parenthetical policy prose into choices", () => {
+    // <=20 words so word cutoff cannot reject; depth must reject or-inside-group
+    expect(chatOptionChoices("Use (A or B)?")).toBeNull();
+  });
+
+  it("rejects top-level or when left still contains a nested or", () => {
+    // depth picks the outer or; \bor\b on left catches nested "or" -> null
+    expect(chatOptionChoices("Use (A or B) or npm?")).toBeNull();
+  });
+
+  it("conservatively rejects nested or in parenthetical options", () => {
+    expect(chatOptionChoices("npm (v8 or later) or yarn?")).toBeNull();
+    expect(chatOptionChoices("pnpm or npm (v8 or later)?")).toBeNull();
+  });
+
+  it("keeps a longer direct A-or-B without parentheses as choices", () => {
+    // 13 words — still under the soft >20 cutoff
+    expect(
+      chatOptionChoices("Should I ship the hotfix tonight or wait until Monday morning after standup?"),
+    ).toEqual(["tonight", "wait until Monday morning after standup"]);
+  });
+
+  it("keeps final-line choices after a long preamble", () => {
+    const preamble =
+      "There are several factors to weigh when choosing a runtime for this project and configuring dependencies across team environments. We need to decide soon.";
+    expect(chatOptionChoices(`${preamble}\n\nNode or Bun?`)).toEqual(["Node", "Bun"]);
+    expect(chatOptionChoices(`${preamble}\n\nShould I use pnpm (v9) or npm?`)).toEqual([
+      "pnpm (v9)",
+      "npm",
+    ]);
+  });
+
   it("ignores a bulleted list that is not a question", () => {
     expect(
       chatOptionChoices("Here's the plan:\n- fix the tests\n- ship the build\n- write the docs"),
