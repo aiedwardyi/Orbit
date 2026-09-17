@@ -134,6 +134,15 @@ describe("skin overlay chrome", () => {
     expect(SKIN_CHROME.claude).toEqual({ color: "#171615", symbolColor: "#b8b0a6" });
   });
 
+  it("locks caption chrome for the six new skins", () => {
+    expect(SKIN_CHROME.precision).toEqual({ color: "#121316", symbolColor: "#a3a7b3" });
+    expect(SKIN_CHROME.notebook).toEqual({ color: "#ffffff", symbolColor: "#686862" });
+    expect(SKIN_CHROME.messenger).toEqual({ color: "#f8f9fb", symbolColor: "#606671" });
+    expect(SKIN_CHROME.community).toEqual({ color: "#313338", symbolColor: "#b5bac1" });
+    expect(SKIN_CHROME["code-review"]).toEqual({ color: "#ffffff", symbolColor: "#59636e" });
+    expect(SKIN_CHROME.blueprint).toEqual({ color: "#eaf2fa", symbolColor: "#4f6680" });
+  });
+
   it("extracts onyx, dracula, and cobalt from the omb-skin marker", () => {
     expect(extractOmbSkin(Buffer.from("xxomb-skin\u0000\u0001onyx\u0000yy"))).toBe("onyx");
     expect(extractOmbSkin(Buffer.from("xxomb-skin\u0000\u0001dracula\u0000yy"))).toBe("dracula");
@@ -159,6 +168,12 @@ describe("skin overlay chrome", () => {
     expect(skinThemeSource("dracula")).toBe("dark");
     expect(skinThemeSource("cobalt")).toBe("dark");
     expect(skinThemeSource("gruvbox")).toBe("dark");
+    expect(skinThemeSource("precision")).toBe("dark");
+    expect(skinThemeSource("community")).toBe("dark");
+    expect(skinThemeSource("notebook")).toBe("light");
+    expect(skinThemeSource("messenger")).toBe("light");
+    expect(skinThemeSource("code-review")).toBe("light");
+    expect(skinThemeSource("blueprint")).toBe("light");
   });
 
   it("maps a missing persisted skin to Ledger light nativeTheme", () => {

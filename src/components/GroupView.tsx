@@ -386,10 +386,11 @@ const Transcript = memo(function Transcript({
             </div>
           ) : m.kind === "text" && m.text ? (
             <div
+              data-orbit-message={user ? "user" : "bot"}
               className={cn("group flex w-full flex-col outline-none", user ? "items-end" : "items-start")}
               tabIndex={-1}
             >
-              <div className="relative w-fit max-w-[min(42rem,78%)]">
+              <div data-orbit-message-body className="relative w-fit max-w-[min(42rem,78%)]">
                 {user && (
                   <div
                     data-message-hover-actions
@@ -408,6 +409,7 @@ const Transcript = memo(function Transcript({
                   </div>
                 )}
                 <div
+                  data-orbit-message-content
                   className={cn(
                     "w-fit max-w-full rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed",
                     user ? "whitespace-pre-wrap bg-bubble-user text-ink" : "bg-card text-ink",
