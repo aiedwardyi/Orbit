@@ -168,6 +168,7 @@ describe("terminal notifications", () => {
       kind: "takeover",
       title: "Maus terminal needs attention",
       body: "The terminal is waiting for you.",
+      openTerminal: true,
     });
     expect(buildTerminalNotification(bot, "error")?.body).toBe("The terminal reported an error.");
     expect(buildTerminalNotification(bot, "exit")?.title).toBe("Maus terminal finished");

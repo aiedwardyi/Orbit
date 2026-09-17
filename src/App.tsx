@@ -10,7 +10,7 @@ import { DesktopCapabilitiesProvider } from "@/components/DesktopCapabilities";
 import { isEmptyEngineLaunch } from "@/lib/engine-rail";
 import { showComputerPanelChrome } from "@/lib/friends-chrome";
 import { I18nProvider, useI18n } from "@/lib/i18n";
-import { buildTerminalNotification, showNotification } from "@/lib/notify";
+import { buildTerminalNotification, showNotification, type NotificationTarget } from "@/lib/notify";
 
 const Onboarding = lazy(() => import("@/components/Onboarding").then((m) => ({ default: m.Onboarding })));
 const SettingsPanel = lazy(() => import("@/components/SettingsPanel").then((m) => ({ default: m.SettingsPanel })));
@@ -70,6 +70,10 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? state.bots[0]);
   const terminalOpen = Boolean(bot && terminalViews[bot.id] && state.activeView === "chat" && !browserWorkspaceBotId && !localVmWorkspaceBotId);
   const openTerminal = () => { if (bot) setTerminalViews((views) => ({ ...views, [bot.id]: true })); };
+  const openTerminalNotification = (target: NotificationTarget) => {
+    openNotificationTarget(dispatch, target, latestState.current);
+    if (target.openTerminal) setTerminalViews((views) => ({ ...views, [target.botId]: true }));
+  };
 
   // Nothing on this machine can run a bot. A missing cloud login does not
   // count: that CLI can still host a local model. An empty list means the
@@ -138,14 +142,20 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       if (frame) {
         showNotification(
           frame,
-          (target) => openNotificationTarget(dispatch, target, latestState.current),
+          openTerminalNotification,
           bot?.avatarUrl,
-          visibleNotificationThread(current),
+          terminalOpen && current.selectedId === botId ? visibleNotificationThread(current) : null,
         );
       }
     });
     return offAttention;
-  }, [dispatch]);
+  }, [dispatch, terminalOpen]);
+
+  useEffect(() => {
+    return window.ogb?.onNotificationClick?.((target) => {
+      if (target.openTerminal) setTerminalViews((views) => ({ ...views, [target.botId]: true }));
+    });
+  }, []);
 
   const taskbarBusy = state.bots.some((candidate) => candidate.busy);
   useEffect(() => {

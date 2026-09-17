@@ -93,6 +93,28 @@ describe("ProviderRegistry", () => {
     await descriptions;
   });
 
+  it("waits for background model discovery before describing an instance", async () => {
+    const fake = makeFakeDriver();
+    const originalCreate = fake.driver.create.bind(fake.driver);
+    let release!: () => void;
+    let ready = false;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    fake.driver.create = async (input) => {
+      const instance = await originalCreate(input);
+      Object.assign(instance, { modelsReady: gate.then(() => { ready = true; }) });
+      return instance;
+    };
+    const registry = new ProviderRegistry([fake.driver]);
+    await registry.load({ a: { driver: "fake" } });
+
+    const description = registry.describe();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(ready).toBe(false);
+    release();
+    await description;
+    expect(ready).toBe(true);
+  });
+
   it("uses defaultConfig when the entry has no config", async () => {
     const fake = makeFakeDriver();
     const registry = new ProviderRegistry([fake.driver]);

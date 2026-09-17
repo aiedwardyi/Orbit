@@ -3,9 +3,9 @@
 // the per-bot toggle); this only decides how to show it here.
 import type { Notification } from "../../server/notify.ts";
 
-export type NotifyFrame = Notification;
+export type NotifyFrame = Notification & { openTerminal?: boolean };
 
-export type NotificationTarget = Pick<NotifyFrame, "botId" | "threadId">;
+export type NotificationTarget = Pick<NotifyFrame, "botId" | "threadId"> & { openTerminal?: boolean };
 
 /** Ask while handling the settings click. Browsers may reject permission
  * requests that are triggered later by an incoming SSE frame. */
@@ -51,6 +51,7 @@ export function buildTerminalNotification(
         : reason === "error"
           ? "The terminal reported an error."
           : "The terminal process finished.",
+    openTerminal: true,
   };
 }
 
@@ -87,6 +88,7 @@ export function showNotification(
       botId: frame.botId,
       threadId: frame.threadId,
       visibleThreadId: visibleThreadId ?? null,
+      ...(frame.openTerminal ? { openTerminal: true } : {}),
     });
     return;
   }
@@ -96,7 +98,7 @@ export function showNotification(
 
   const open = () => {
     window.focus();
-    onOpen({ botId: frame.botId, threadId: frame.threadId });
+    onOpen({ botId: frame.botId, threadId: frame.threadId, ...(frame.openTerminal ? { openTerminal: true } : {}) });
   };
 
   if (Notification.permission === "granted") {

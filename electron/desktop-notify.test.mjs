@@ -232,4 +232,18 @@ describe("handleDesktopNotify", () => {
     expect(result).toEqual({ shown: false });
     expect(notices).toHaveLength(0);
   });
+
+  it("carries terminal attention through the native toast click", () => {
+    const { FakeNotification, notices } = fakeNotificationClass();
+    const clicks = [];
+    handleDesktopNotify({
+      win: fakeWindow(),
+      payload: { ...frame, openTerminal: true },
+      Notification: FakeNotification,
+      nativeSupported: true,
+      sendClick: (target) => clicks.push(target),
+    });
+    notices[0].handlers.click();
+    expect(clicks).toEqual([{ botId: "bot-1", threadId: "thread-1", openTerminal: true }]);
+  });
 });

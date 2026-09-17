@@ -149,7 +149,7 @@ export function ManageMembersPanel({
           section: group.section?.trim() || undefined,
         }),
       });
-      dispatch({ type: "botAdded", bot: result.bot });
+      dispatch({ type: "botAdded", bot: result.bot, activate: false, focusComposer: false });
       addCreatedBot(result.bot);
       setAddedNew((count) => count + 1);
       setRows((prev) => prev.filter((candidate) => candidate.key !== row.key));
@@ -213,7 +213,7 @@ export function ManageMembersPanel({
             </button>
             <button
               onClick={save}
-              disabled={!memberIds.length}
+              disabled={!memberIds.length || rows.some((row) => row.saving)}
               className="flex-1 rounded-lg bg-accent py-2 text-[14px] font-medium text-accent-ink hover:brightness-110 disabled:opacity-40"
             >
               {memberIds.length

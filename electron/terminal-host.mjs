@@ -70,7 +70,7 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
     } catch {}
   };
   const reportAttention = (session, reason) => {
-    if (session.attentionReported) return;
+    if (session.retired || session.attentionReported) return;
     session.attentionReported = true;
     emit(session, "terminal:attention", { id: session.id, botId: session.botId, reason });
   };

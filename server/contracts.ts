@@ -377,6 +377,8 @@ export interface ProviderInstance {
   readonly displayName: string | undefined;
   readonly enabled: boolean;
   readonly models: ModelCatalog;
+  /** Completes when a background catalog discovery started during create(). */
+  readonly modelsReady?: Promise<void>;
   /** Refresh a live catalog without recreating the provider instance. */
   readonly refreshModels?: () => Promise<void>;
   readonly adapter: ProviderAdapter;

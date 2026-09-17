@@ -127,7 +127,8 @@ test("retires a worker when its open is cancelled during readiness", async () =>
   const ready = new Promise((resolve) => { releaseReady = resolve; });
   let spawnedResolve;
   const spawned = new Promise((resolve) => { spawnedResolve = resolve; });
-  const owner = { id: 1, mainFrame: {}, send() {} };
+  const events = [];
+  const owner = { id: 1, mainFrame: {}, send: (...args) => events.push(args) };
   const event = { sender: owner, senderFrame: owner.mainFrame };
   const child = { onData() {}, onExit() {}, ready, write() {}, resize() {}, killed: false, kill() { this.killed = true; } };
   const host = createTerminalHost({
@@ -143,6 +144,7 @@ test("retires a worker when its open is cancelled during readiness", async () =>
   assert.equal(host.cancelOpen(event, "readiness-cancel"), true);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(child.killed, true);
+  assert.equal(events.some(([channel]) => channel === "terminal:attention"), false);
   releaseReady();
   await cancelled;
 });

@@ -123,8 +123,27 @@ export class ProviderRegistry {
       if (result.rawCli) this.cliByInstance.set(result.entry.instanceId, result.rawCli);
       else this.cliByInstance.delete(result.entry.instanceId);
       this.byId.set(result.entry.instanceId, result.entry);
-      if (result.entry.live?.refreshModels) this.modelRefreshAt.set(result.entry.instanceId, this.now());
-      else this.modelRefreshAt.delete(result.entry.instanceId);
+      const live = result.entry.live;
+      if (live?.modelsReady) {
+        const ready = live.modelsReady
+          .then(() => {
+            this.modelRefreshAt.set(result.entry.instanceId, this.now());
+          })
+          .catch(() => {
+            this.modelRefreshAt.set(result.entry.instanceId, this.now());
+          })
+          .finally(() => {
+            if (this.modelRefreshInFlight.get(result.entry.instanceId) === ready) {
+              this.modelRefreshInFlight.delete(result.entry.instanceId);
+            }
+          });
+        this.modelRefreshAt.delete(result.entry.instanceId);
+        this.modelRefreshInFlight.set(result.entry.instanceId, ready);
+      } else if (live?.refreshModels) this.modelRefreshAt.set(result.entry.instanceId, this.now());
+      else {
+        this.modelRefreshAt.delete(result.entry.instanceId);
+        this.modelRefreshInFlight.delete(result.entry.instanceId);
+      }
     }
   }
 

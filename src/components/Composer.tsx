@@ -251,7 +251,7 @@ export function Composer({
   // configured default responder.
   const threadId = group?.threadId ?? bot?.threadId ?? "";
   const acceptedSends = state.acceptedSends[threadId];
-  const busy = composerIsBusy(group ? Boolean(group.busyBotId) : Boolean(bot?.busy), acceptedSends);
+  const busy = composerIsBusy(group ? Boolean(group.working) : Boolean(bot?.busy), acceptedSends);
   const canSteer =
     !group && Boolean(bot) && state.instances.find((i) => i.instanceId === bot!.modelSelection.instanceId)?.capabilities?.queueing === true;
   // print-mode and full-auto engines never ask, so the chip would be a no-op
