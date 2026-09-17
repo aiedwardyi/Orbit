@@ -12,8 +12,8 @@ test("real PTY accepts input, resizes, replays output and reports shell exit", {
   const event = { sender: owner, senderFrame: owner.mainFrame };
   const input = { botId: "smoke", cols: 80, rows: 24 };
   const session = await host.open(event, input);
-  host.resize(event, session.id, 100, 30);
-  host.write(event, session.id, process.platform === "win32" ? "Write-Output ORBIT_PTY_SMOKE; exit 0\r" : "printf ORBIT_PTY_SMOKE; exit 0\n");
+  await host.resize(event, session.id, 100, 30);
+  await host.write(event, session.id, process.platform === "win32" ? "Write-Output ORBIT_PTY_SMOKE; exit 0\r" : "printf ORBIT_PTY_SMOKE; exit 0\n");
   const exit = await exited;
   assert.equal(exit.exitCode, 0);
   const replay = await host.open(event, input);
@@ -40,7 +40,7 @@ test("app shutdown closes its idle shell", { timeout: 20000 }, async (t) => {
   t.after(() => host.dispose());
   const event = { sender: owner, senderFrame: owner.mainFrame };
   const session = await host.open(event, { botId: "shutdown", cols: 80, rows: 24 });
-  host.write(event, session.id, process.platform === "win32" ? "Write-Output ('ORBIT_SHELL_PID=' + $PID)\r" : "echo ORBIT_SHELL_PID=$$\n");
+  await host.write(event, session.id, process.platform === "win32" ? "Write-Output ('ORBIT_SHELL_PID=' + $PID)\r" : "echo ORBIT_SHELL_PID=$$\n");
   const pid = await started;
   host.dispose();
   await exited;

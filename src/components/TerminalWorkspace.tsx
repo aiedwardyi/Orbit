@@ -11,6 +11,7 @@ import "@xterm/xterm/css/xterm.css";
 
 type SessionInfo = { cwd: string; shell: string };
 type OutputEvent = { id: string; data: string; seq: number };
+type TerminalSnapshot = { id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number; launchProject?: string | null };
 
 function samePath(a: string | null | undefined, b: string | null | undefined): boolean {
   if (!a && !b) return true;
@@ -130,7 +131,10 @@ export function TerminalWorkspace({
       };
       if (host.parentElement) host.parentElement.style.backgroundColor = imported?.theme.background ?? "";
       fit.fit();
-      if (id) void bridge.resize(id, terminal.cols, terminal.rows).catch(report);
+      if (id) {
+        const sessionId = id;
+        void Promise.resolve().then(() => bridge.resize(sessionId, terminal.cols, terminal.rows)).catch(report);
+      }
     };
     void theme();
     fit.fit();
@@ -154,16 +158,25 @@ export function TerminalWorkspace({
         setExitCode(event.exitCode);
       }
     });
+    const offError = bridge.onError?.((event) => {
+      if (event.id === id) report(event.message);
+    });
     // Forward keystrokes and emulator replies only after historical replay finishes.
     const input = terminal.onData((data) => {
-      if (id && replayComplete && !terminal.options.disableStdin && !exits.has(id)) void bridge.write(id, data).catch(report);
+      if (id && replayComplete && !terminal.options.disableStdin && !exits.has(id)) {
+        const sessionId = id;
+        void Promise.resolve().then(() => bridge.write(sessionId, data)).catch(report);
+      }
     });
     const resize = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         if (!alive || !host.clientWidth || !host.clientHeight) return;
         fit.fit();
-        if (id) void bridge.resize(id, terminal.cols, terminal.rows).catch(report);
+        if (id) {
+          const sessionId = id;
+          void Promise.resolve().then(() => bridge.resize(sessionId, terminal.cols, terminal.rows)).catch(report);
+        }
       });
     };
     const observer = new ResizeObserver(resize);
@@ -174,7 +187,7 @@ export function TerminalWorkspace({
     appearance.observe(document.documentElement, { attributes: true, attributeFilter: ["data-skin", "data-shape"] });
 
     let attachedLaunchProject: string | null = null;
-    const finishAttach = (snapshot: { id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number }, launchedProject: string | null) => {
+    const finishAttach = (snapshot: TerminalSnapshot, launchedProject: string | null) => {
       if (!alive) return;
       // Use lastSeq (not snapshot.seq): same-id fallback never advances lastSeq to
       // resumed.seq, so IPC-gap events in (lastSeq, snapshot.seq] stay drainable.
@@ -189,8 +202,9 @@ export function TerminalWorkspace({
       setExitCode(code);
       terminal.options.disableStdin = code !== null;
       setSession({ cwd: snapshot.cwd, shell: snapshot.shell });
-      attachedLaunchProject = launchedProject;
-      setLaunchProject(launchedProject);
+      const project = "launchProject" in snapshot ? snapshot.launchProject ?? null : launchedProject;
+      attachedLaunchProject = project;
+      setLaunchProject(project);
       setNeedsFolder(false);
       setFolderReason(null);
       setBannerDismissed(false);
@@ -233,7 +247,8 @@ export function TerminalWorkspace({
       setFolderReason(null);
       liveQueue.length = 0;
       replayComplete = false;
-      void bridge.open({ botId: expectedBotId, cols: terminal.cols, rows: terminal.rows, restart }).then(async (result) => {
+      terminal.options.disableStdin = true;
+      void Promise.resolve().then(() => bridge.open({ botId: expectedBotId, cols: terminal.cols, rows: terminal.rows, restart, projectCwd: expectedProject })).then(async (result) => {
         opening = false;
         if (!alive) return;
         if (botIdRef.current !== expectedBotId) {
@@ -270,6 +285,7 @@ export function TerminalWorkspace({
               }
               setNeedsFolder(true);
               setFolderReason(resumed.reason ?? result.reason ?? "choose-folder");
+              recoverPreservedSession();
             } catch (cause) {
               report(cause);
               setNeedsFolder(true);
@@ -290,7 +306,8 @@ export function TerminalWorkspace({
           }
           return;
         }
-        const snapshot = result as { id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number };
+        // SAFETY: this branch follows the needsFolder discriminant from the terminal bridge.
+        const snapshot = result as TerminalSnapshot;
         id = snapshot.id;
         sessionIdRef.current = snapshot.id;
         lastSeq = snapshot.seq;
@@ -317,6 +334,7 @@ export function TerminalWorkspace({
       window.removeEventListener(TERMINAL_APPEARANCE_EVENT, updateAppearance);
       offData();
       offExit();
+      offError?.();
       input.dispose();
       terminal.dispose();
       terminalRef.current = null;
