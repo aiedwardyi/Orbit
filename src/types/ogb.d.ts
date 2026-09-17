@@ -135,6 +135,7 @@ type SkillRecordingPayload = {
           | { id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number; launchProject?: string | null }
           | { needsFolder: true; reason?: string }
         >;
+        cancelOpen?(botId: string): Promise<boolean>;
         write(id: string, data: string): Promise<void>;
         resize(id: string, cols: number, rows: number): Promise<void>;
         onData(cb: (event: { id: string; data: string; seq: number }) => void): () => void;

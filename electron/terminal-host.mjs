@@ -185,9 +185,11 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
   const runOpen = async (operation) => {
     let input = operation.input;
     let folder = await resolveFolder(input, operation.event);
+    if (operation.cancelled) throw new Error("Terminal open cancelled");
     if (operation.restartInput && operation.restartInput !== input) {
       input = operation.restartInput;
       folder = await resolveFolder(input, operation.event);
+      if (operation.cancelled) throw new Error("Terminal open cancelled");
     }
     if (folder.needsFolder) return { needsFolder: true, reason: folder.reason };
     authorize(operation.event);
@@ -197,13 +199,18 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
     if (typeof cwd !== "string" || !path.isAbsolute(cwd) || !(await fs.promises.stat(cwd).then((s) => s.isDirectory()).catch(() => false))) {
       throw new Error("Terminal folder is unavailable");
     }
+    if (operation.cancelled) throw new Error("Terminal open cancelled");
     const replacement = await start({ key: operation.key, event: operation.event, input, folder, cwd });
+    if (operation.cancelled) {
+      await retire(replacement, true);
+      throw new Error("Terminal open cancelled");
+    }
     if (disposed) {
       await retire(replacement, true);
       throw new Error("Terminal host is shutting down");
     }
     active.set(operation.key, replacement.id);
-    if (operation.existing && operation.existing !== replacement) await retire(operation.existing);
+    if (operation.existing && operation.existing !== replacement) void retire(operation.existing);
     return snapshot(replacement);
   };
   return {
@@ -233,7 +240,7 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
         }
       }
       if (!existing && active.size >= 16) throw new Error("Too many terminal sessions");
-      const operation = { key, event, input, existing, restartInput: input.restart === true ? input : null, promise: null };
+      const operation = { key, event, input, existing, restartInput: input.restart === true ? input : null, cancelled: false, promise: null };
       operation.promise = runOpen(operation);
       pending.set(key, operation);
       try {
@@ -241,6 +248,17 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       } finally {
         if (pending.get(key) === operation) pending.delete(key);
       }
+    },
+    cancelOpen(event, botId) {
+      authorize(event);
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- IPC bot ids cross the untyped preload boundary.
+      if (typeof botId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(botId)) throw new Error("Invalid bot");
+      const key = `${event.sender.id}:${botId}`;
+      const operation = pending.get(key);
+      if (!operation) return false;
+      operation.cancelled = true;
+      if (pending.get(key) === operation) pending.delete(key);
+      return true;
     },
     write(event, id, data) {
       const session = owned(event, id);

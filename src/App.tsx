@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Loader2, Menu } from "lucide-react";
-import { StoreProvider, useStore } from "@/state/store";
+import { StoreProvider, openNotificationTarget, useStore, visibleNotificationThread } from "@/state/store";
 import { unreadConversationCount } from "@/lib/unread";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatView } from "@/components/ChatView";
@@ -10,6 +10,7 @@ import { DesktopCapabilitiesProvider } from "@/components/DesktopCapabilities";
 import { isEmptyEngineLaunch } from "@/lib/engine-rail";
 import { showComputerPanelChrome } from "@/lib/friends-chrome";
 import { I18nProvider, useI18n } from "@/lib/i18n";
+import { buildTerminalNotification, showNotification } from "@/lib/notify";
 
 const Onboarding = lazy(() => import("@/components/Onboarding").then((m) => ({ default: m.Onboarding })));
 const SettingsPanel = lazy(() => import("@/components/SettingsPanel").then((m) => ({ default: m.SettingsPanel })));
@@ -46,6 +47,8 @@ function BootFallback({
 function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
+  const latestState = useRef(state);
+  latestState.current = state;
   const unreadCount = unreadConversationCount(state.bots, state.groups);
   // Mobile-only drawer state. Above md, none of these properties are emitted
   // at all — Sidebar scopes every mobile class with max-md: rather than
@@ -125,8 +128,19 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   }, [unreadCount]);
 
   useEffect(() => {
-    const offAttention = window.ogb?.terminal?.onAttention?.(({ botId }) => {
+    const offAttention = window.ogb?.terminal?.onAttention?.(({ botId, reason }) => {
       dispatch({ type: "markUnread", botId });
+      const current = latestState.current;
+      const bot = current.bots.find((candidate) => candidate.id === botId);
+      const frame = bot ? buildTerminalNotification(bot, reason) : null;
+      if (frame) {
+        showNotification(
+          frame,
+          (target) => openNotificationTarget(dispatch, target, latestState.current),
+          bot?.avatarUrl,
+          visibleNotificationThread(current),
+        );
+      }
     });
     return offAttention;
   }, [dispatch]);

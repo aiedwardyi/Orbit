@@ -74,3 +74,19 @@ describe.skipIf(process.platform === "win32")("Linux afterPack permissions", () 
     expect(fs.lstatSync(path.join(cua, "cua-driver")).mode & 0o777).toBe(0o664);
   });
 });
+
+describe("Windows ConPTY resources", () => {
+  it("requires the native module and bundled ConPTY helpers when present", async () => {
+    const { appOutDir, resources } = fixture();
+    const release = path.join(resources, "terminal", "node-pty", "build", "Release");
+    const conpty = path.join(release, "conpty");
+    fs.mkdirSync(conpty, { recursive: true });
+    for (const file of [path.join(release, "conpty.node"), path.join(conpty, "conpty.dll"), path.join(conpty, "OpenConsole.exe")]) {
+      fs.writeFileSync(file, "fixture");
+    }
+
+    await afterPack({ electronPlatformName: "win32", appOutDir });
+    fs.unlinkSync(path.join(conpty, "conpty.dll"));
+    await expect(afterPack({ electronPlatformName: "win32", appOutDir })).rejects.toThrow("conpty.dll");
+  });
+});

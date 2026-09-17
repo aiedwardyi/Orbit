@@ -330,6 +330,7 @@ export function TerminalWorkspace({
 
     return () => {
       alive = false;
+      if (bridge.cancelOpen) void bridge.cancelOpen(bot.id).catch(() => {});
       openShellRef.current = null;
       cancelAnimationFrame(frame);
       observer.disconnect();

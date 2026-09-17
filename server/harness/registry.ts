@@ -27,6 +27,13 @@ export type RegistryEntry =
   | { instanceId: InstanceId; live: ProviderInstance; shadow?: undefined }
   | { instanceId: InstanceId; live?: undefined; shadow: ShadowInstance };
 
+const MODEL_REFRESH_TTL_MS = 5_000;
+
+export interface ProviderRegistryOptions {
+  now?: () => number;
+  modelRefreshTtlMs?: number;
+}
+
 /** The `cli` field off a driver's default config, when it has one — the
  * placeholder an override input shows when nothing is set. */
 function cliDefaultOf(driver: AnyProviderDriver | undefined): string | undefined {
@@ -51,36 +58,41 @@ export class ProviderRegistry {
   /** decoded per-instance `cli` overrides, for describe() — drivers spawn
    * from their own config; this map only reports what was configured */
   private cliByInstance = new Map<InstanceId, string>();
+  private modelRefreshAt = new Map<InstanceId, number>();
   private driversByKind: Map<string, AnyProviderDriver>;
+  private readonly now: () => number;
+  private readonly modelRefreshTtlMs: number;
 
-  constructor(drivers: readonly AnyProviderDriver[]) {
+  constructor(drivers: readonly AnyProviderDriver[], options: ProviderRegistryOptions = {}) {
     this.driversByKind = new Map(drivers.map((d) => [d.driverKind, d]));
+    this.now = options.now ?? Date.now;
+    this.modelRefreshTtlMs = options.modelRefreshTtlMs ?? MODEL_REFRESH_TTL_MS;
   }
 
   async load(configs: InstanceConfigMap) {
-    for (const [instanceId, entry] of Object.entries(configs)) {
+    const loaded = await Promise.all(Object.entries(configs).map(async ([instanceId, entry]) => {
       const driver = this.driversByKind.get(entry.driver);
       if (!driver) {
-        this.byId.set(instanceId, {
-          instanceId,
-          shadow: {
+        return {
+          entry: {
             instanceId,
-            driverKind: entry.driver,
-            displayName: entry.displayName,
-            cli: cliOfRaw(entry.config),
-            shadow: true,
-            reason: `unknown driver "${entry.driver}" — kept as configured, unavailable here`,
+            shadow: {
+              instanceId,
+              driverKind: entry.driver,
+              displayName: entry.displayName,
+              cli: cliOfRaw(entry.config),
+              shadow: true,
+              reason: `unknown driver "${entry.driver}" — kept as configured, unavailable here`,
+            },
           },
-        });
-        continue;
+        } satisfies { entry: RegistryEntry; rawCli?: string };
       }
+      const rawCli = cliOfRaw(entry.config);
       try {
         const config = entry.config === undefined ? driver.defaultConfig() : driver.decodeConfig(entry.config);
         // Override detection is on the RAW config, never the decoded one:
         // decodeConfig fills in the driver default ("claude", "codex", …),
         // so reading `cli` there would flag every instance as overridden.
-        const rawCli = cliOfRaw(entry.config);
-        if (rawCli) this.cliByInstance.set(instanceId, rawCli);
         const live = await driver.create({
           instanceId,
           displayName: entry.displayName ?? driver.metadata.displayName,
@@ -88,20 +100,29 @@ export class ProviderRegistry {
           enabled: entry.enabled ?? true,
           config,
         });
-        this.byId.set(instanceId, { instanceId, live });
+        return { entry: { instanceId, live }, rawCli } satisfies { entry: RegistryEntry; rawCli?: string };
       } catch (e) {
-        this.byId.set(instanceId, {
-          instanceId,
-          shadow: {
+        return {
+          entry: {
             instanceId,
-            driverKind: entry.driver,
-            displayName: entry.displayName ?? driver.metadata.displayName,
-            cli: cliOfRaw(entry.config),
-            shadow: true,
-            reason: e instanceof Error ? e.message : String(e),
+            shadow: {
+              instanceId,
+              driverKind: entry.driver,
+              displayName: entry.displayName ?? driver.metadata.displayName,
+              cli: cliOfRaw(entry.config),
+              shadow: true,
+              reason: e instanceof Error ? e.message : String(e),
+            },
           },
-        });
+          rawCli,
+        } satisfies { entry: RegistryEntry; rawCli?: string };
       }
+    }));
+    for (const result of loaded) {
+      if (result.rawCli) this.cliByInstance.set(result.entry.instanceId, result.rawCli);
+      this.byId.set(result.entry.instanceId, result.entry);
+      if (result.entry.live?.refreshModels) this.modelRefreshAt.set(result.entry.instanceId, this.now());
+      else this.modelRefreshAt.delete(result.entry.instanceId);
     }
   }
 
@@ -155,7 +176,14 @@ export class ProviderRegistry {
         const inst = entry.live;
         let snapshot: ProviderSnapshot;
         try {
-          await inst.refreshModels?.();
+          const lastRefresh = this.modelRefreshAt.get(inst.instanceId) ?? 0;
+          if (inst.refreshModels && this.now() - lastRefresh >= this.modelRefreshTtlMs) {
+            try {
+              await inst.refreshModels();
+            } finally {
+              this.modelRefreshAt.set(inst.instanceId, this.now());
+            }
+          }
           snapshot = await inst.snapshot();
         } catch (e) {
           snapshot = { state: "unavailable", reason: e instanceof Error ? e.message : String(e) };
@@ -197,5 +225,6 @@ export class ProviderRegistry {
     await Promise.allSettled(this.instances().map((i) => i.dispose()));
     this.byId.clear();
     this.cliByInstance.clear();
+    this.modelRefreshAt.clear();
   }
 }

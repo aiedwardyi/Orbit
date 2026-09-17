@@ -64,6 +64,25 @@ async function validateCloudflared(resources, platform, required) {
   );
 }
 
+export async function validateNodePtyConpty(resources, platform, required) {
+  if (platform !== "win32") return;
+  const root = path.join(resources, "terminal", "node-pty");
+  try {
+    await lstat(root);
+  } catch (error) {
+    if (error?.code === "ENOENT" && !required) return;
+    throw error;
+  }
+  await requireRealDirectory(root);
+  const release = path.join(root, "build", "Release");
+  const conpty = path.join(release, "conpty");
+  await requireRealDirectory(release);
+  await requireRealDirectory(conpty);
+  await requireRegularFile(path.join(release, "conpty.node"));
+  await requireRegularFile(path.join(conpty, "conpty.dll"));
+  await requireRegularFile(path.join(conpty, "OpenConsole.exe"));
+}
+
 // electron-builder normalizes copied resource directories to 0775. That is
 // unsafe for a root-owned executable path after DEB/AppImage installation, so
 // repair and revalidate the exact tree after resources are copied and before
@@ -75,6 +94,7 @@ export default async function afterPack(context) {
       : path.join(context.appOutDir, "resources")
   );
   await validateCloudflared(resources, context.electronPlatformName, Boolean(context.packager));
+  await validateNodePtyConpty(resources, context.electronPlatformName, Boolean(context.packager));
 
   if (context.electronPlatformName !== "linux") return;
 

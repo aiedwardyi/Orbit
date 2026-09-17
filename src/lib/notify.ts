@@ -31,6 +31,29 @@ export function desktopNotificationHint(canNotify: boolean): string {
     : "Desktop alerts aren't available on this computer";
 }
 
+export type TerminalAttentionReason = "bell" | "exit" | "error";
+
+export function buildTerminalNotification(
+  bot: { id: string; name: string; threadId: string; notifications?: boolean; avatarUrl?: string | null },
+  reason: TerminalAttentionReason,
+): NotifyFrame | null {
+  if (bot.notifications === false) return null;
+  const finished = reason === "exit";
+  return {
+    kind: finished ? "done" : "takeover",
+    botId: bot.id,
+    botName: bot.name,
+    threadId: bot.threadId,
+    title: finished ? `${bot.name} terminal finished` : `${bot.name} terminal needs attention`,
+    body:
+      reason === "bell"
+        ? "The terminal is waiting for you."
+        : reason === "error"
+          ? "The terminal reported an error."
+          : "The terminal process finished.",
+  };
+}
+
 /** The identity a notification groups under: one bot, wherever it was
  * working. Keyed by bot rather than thread so a single bot running across
  * tasks and rooms coalesces into one stack instead of stacking banners. */

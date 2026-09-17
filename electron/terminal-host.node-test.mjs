@@ -104,6 +104,47 @@ test("navigation during folder resolution cannot spawn a shell", async () => {
   assert.equal(f.children.length, 0);
 });
 
+test("cancels an abandoned open before spawning a shell", async () => {
+  let releaseFolder;
+  const folder = new Promise((resolve) => { releaseFolder = resolve; });
+  const f = fixture();
+  const host = createTerminalHost({
+    authorize: (caller) => { if (!trustedTerminalSender(caller, f.owner, "http://127.0.0.1:8799")) throw new Error("Untrusted"); },
+    resolveCwd: async () => { await folder; return os.tmpdir(); },
+    platform: "linux",
+    env: { SHELL: "/bin/sh" },
+    loadPty: () => ({ spawn: () => { throw new Error("spawned after cancel"); } }),
+  });
+  const opening = host.open(f.event, f.input);
+  assert.equal(host.cancelOpen(f.event, f.input.botId), true);
+  releaseFolder();
+  await assert.rejects(opening, /cancelled/);
+  assert.equal(host.cancelOpen(f.event, f.input.botId), false);
+});
+
+test("retires a worker when its open is cancelled during readiness", async () => {
+  let releaseReady;
+  const ready = new Promise((resolve) => { releaseReady = resolve; });
+  let spawnedResolve;
+  const spawned = new Promise((resolve) => { spawnedResolve = resolve; });
+  const owner = { id: 1, mainFrame: {}, send() {} };
+  const event = { sender: owner, senderFrame: owner.mainFrame };
+  const child = { onData() {}, onExit() {}, ready, write() {}, resize() {}, killed: false, kill() { this.killed = true; } };
+  const host = createTerminalHost({
+    authorize() {},
+    resolveCwd: async () => os.tmpdir(),
+    platform: "linux",
+    env: { SHELL: "/bin/sh" },
+    loadPty: () => ({ spawn: () => { spawnedResolve(); return child; } }),
+  });
+  const opening = host.open(event, { botId: "readiness-cancel", cols: 80, rows: 24 });
+  await spawned;
+  assert.equal(host.cancelOpen(event, "readiness-cancel"), true);
+  releaseReady();
+  await assert.rejects(opening, /cancelled/);
+  assert.equal(child.killed, true);
+});
+
 test("shutdown during folder resolution cannot spawn a shell", async () => {
   const f = fixture();
   const task = f.host.open(f.event, f.input);
@@ -212,7 +253,7 @@ test("rearms terminal attention after a new command", async () => {
   );
 });
 
-test("waits for the old worker shutdown acknowledgement before replacing it", async () => {
+test("returns the replacement before the old worker shutdown acknowledgement", async () => {
   let releaseKill;
   const killAck = new Promise((resolve) => { releaseKill = resolve; });
   const children = [];
@@ -234,7 +275,8 @@ test("waits for the old worker shutdown acknowledgement before replacing it", as
   for (let attempt = 0; attempt < 20 && children.length < 2; attempt += 1) await new Promise((resolve) => setImmediate(resolve));
   assert.equal(children.length, 2);
   assert.equal(children[0].killed, true);
-  assert.equal(settled, false);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, true);
   releaseKill();
   const next = await replacement;
   assert.notEqual(next.id, first.id);

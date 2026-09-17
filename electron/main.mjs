@@ -278,6 +278,7 @@ const terminalHost = createTerminalHost({
   },
 });
 ipcMain.handle("terminal:open", (event, input) => terminalHost.open(event, input));
+ipcMain.handle("terminal:cancel-open", (event, botId) => terminalHost.cancelOpen(event, botId));
 ipcMain.handle("terminal:write", (event, id, data) => terminalHost.write(event, id, data));
 ipcMain.handle("terminal:resize", (event, id, cols, rows) => terminalHost.resize(event, id, cols, rows));
 ipcMain.handle("terminal:appearance", (event) => {

@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld("ogb", {
   terminal: {
     appearance: () => ipcRenderer.invoke("terminal:appearance"),
     open: (input) => ipcRenderer.invoke("terminal:open", input),
+    cancelOpen: (botId) => ipcRenderer.invoke("terminal:cancel-open", botId),
     write: (id, data) => ipcRenderer.invoke("terminal:write", id, data),
     resize: (id, cols, rows) => ipcRenderer.invoke("terminal:resize", id, cols, rows),
     onData: (cb) => {
