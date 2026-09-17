@@ -175,6 +175,10 @@ IF EXIST "%dp0%\\node.exe" (
 endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\pkg\\bin\\ombfake.js" %*
 `;
 
+const POWERSHELL_SHIM = `@echo off
+"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%~dp0.muse-launcher.ps1" %*
+`;
+
 describe("resolveCli", () => {
   it.skipIf(process.platform === "win32")("is identity off Windows — the kernel already resolves PATH and #!", () => {
     expect(resolveCli("claude", ["-p", "hi"])).toEqual({ command: "claude", args: ["-p", "hi"] });
@@ -211,6 +215,23 @@ winOnly("resolveCli (Windows)", () => {
       command: join(dir, "node_modules", "pkg", "bin", "ombfake.exe"),
       args: ["-p", "hi"],
     });
+  });
+
+  it("runs a PowerShell launcher through powershell.exe without spawning the .cmd", () => {
+    const script = ".muse-launcher.ps1";
+    writeFileSync(join(dir, "muse.cmd"), POWERSHELL_SHIM);
+    writeFileSync(join(dir, script), "Write-Output launcher");
+    onPath();
+    const resolved = resolveCli("muse", ["serve"]);
+    expect(resolved.command.toLowerCase()).toMatch(/powershell\.exe$/);
+    expect(resolved.args).toEqual([
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      join(dir, script),
+      "serve",
+    ]);
   });
 
   it("parses an npm .cmd shim down to `node <cli.js>`, never the shim's own node.exe", async () => {

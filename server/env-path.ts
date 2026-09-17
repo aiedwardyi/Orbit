@@ -264,6 +264,14 @@ function parseCmdShim(shim: string): ResolvedSpawn | null {
     return null;
   }
   const dir = dirname(shim);
+  const powershellScript = text.match(/(?:-File|\/File)\s+"%~?dp0([^"\r\n]+\.ps1)"/i)?.[1];
+  if (powershellScript) {
+    const script = join(dir, powershellScript);
+    const powershell = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+    if (isFile(script) && isFile(powershell)) {
+      return { command: powershell, args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script] };
+    }
+  }
   const targets = [...text.matchAll(/"%~?dp0%?\\?([^"]+)"/g)]
     .map((m) => join(dir, m[1]))
     .filter((p) => isFile(p) && basename(p).toLowerCase() !== "node.exe");
