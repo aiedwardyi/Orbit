@@ -7,6 +7,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { persistPreference } from "@/lib/i18n";
+import { SIDEBAR_COLLAPSED_KEY, SIDEBAR_WIDTH_KEY } from "@/lib/sidebar-preferences";
 import { formatTime, StoreProvider } from "@/state/store";
 
 import { Sidebar } from "./Sidebar";
@@ -105,6 +106,59 @@ describe("Sidebar row time", () => {
       await act(async () => root.unmount());
       host.remove();
     }
+  });
+});
+
+describe("Sidebar layout controls", () => {
+  it("toggles the persisted icon rail while restoring the saved labeled width", async () => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "0");
+    window.localStorage.setItem(SIDEBAR_WIDTH_KEY, "360");
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string) =>
+        path === "/api/bots"
+          ? new Response(JSON.stringify({ bots: [bot("a")], groups: [] }))
+          : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+      );
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+
+      const toggle = () => host.querySelector('button[aria-label="Collapse sidebar to avatars"], button[aria-label="Expand sidebar"]');
+      expect(toggle()).not.toBeNull();
+      await act(async () => toggle()!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+      expect(window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY)).toBe("1");
+      expect(host.querySelector("aside")?.getAttribute("style")).toContain("width: 64px");
+
+      await act(async () => toggle()!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+      expect(window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY)).toBe("0");
+      expect(window.localStorage.getItem(SIDEBAR_WIDTH_KEY)).toBe("360");
+      expect(host.querySelector("aside")?.getAttribute("style")).toContain("width: 360px");
+    } finally {
+      window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
+      window.localStorage.removeItem(SIDEBAR_WIDTH_KEY);
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("keeps the update control in the footer rail and uses the tighter labeled row geometry", () => {
+    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "Sidebar.tsx"), "utf8");
+    const footer = source.slice(source.indexOf("{/* Footer */}"), source.indexOf("{menu &&"));
+    expect(footer).toContain("data-sidebar-update");
+    expect(footer).toContain("<UpdateButton />");
+    expect(footer).not.toContain('t("chrome.teamMap")');
+    expect(source).toContain("density === \"compact\" ? 40 : 48");
+    expect(source).toContain("gap-2 px-3 py-1.5 pr-12");
   });
 });
 
