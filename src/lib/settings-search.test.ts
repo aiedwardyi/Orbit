@@ -36,6 +36,12 @@ describe("settings section search", () => {
     expect(settingsSectionMatches("themes", "kanagawa")).toBe(true);
     expect(settingsSectionMatches("themes", "haxor")).toBe(true);
     expect(settingsSectionMatches("themes", "hax0r")).toBe(true);
+    expect(settingsSectionMatches("themes", "linear")).toBe(true);
+    expect(settingsSectionMatches("themes", "notion")).toBe(true);
+    expect(settingsSectionMatches("themes", "messages")).toBe(true);
+    expect(settingsSectionMatches("themes", "discord")).toBe(true);
+    expect(settingsSectionMatches("themes", "github light")).toBe(true);
+    expect(settingsSectionMatches("themes", "technical drawing")).toBe(true);
     expect(settingsSectionMatches("themes", "테마")).toBe(true);
     expect(settingsSectionMatches("general", "skin")).toBe(false);
     expect(settingsSectionMatches("general", "kanagawa")).toBe(false);

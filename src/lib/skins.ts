@@ -33,6 +33,12 @@ export const SKIN_IDS = [
   "studio-gray",
   "steel-gray",
   "claude",
+  "precision",
+  "notebook",
+  "messenger",
+  "community",
+  "code-review",
+  "blueprint",
 ] as const;
 export type SkinId = (typeof SKIN_IDS)[number];
 
@@ -72,6 +78,12 @@ export const SKINS: readonly Skin[] = [
   { id: "studio-gray", name: "Studio Gray", tagline: "Quiet graphite, periwinkle signal." },
   { id: "steel-gray", name: "Steel Gray", tagline: "Cool steel, mint signal." },
   { id: "claude", name: "Claude", tagline: "Warm black, serif replies, quiet chrome." },
+  { id: "precision", name: "Precision", tagline: "Compact issue discussion, cool charcoal." },
+  { id: "notebook", name: "Notebook", tagline: "Document calm, paper and ink." },
+  { id: "messenger", name: "Messenger", tagline: "Blue bubbles, clear conversation." },
+  { id: "community", name: "Community", tagline: "Sender-first shared space, slate dark." },
+  { id: "code-review", name: "Code Review", tagline: "Light review threads, crisp code." },
+  { id: "blueprint", name: "Blueprint", tagline: "Technical paper, fine blue rules." },
 ];
 
 export const DEFAULT_SKIN: SkinId = "ledger";
