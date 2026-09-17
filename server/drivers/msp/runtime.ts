@@ -260,6 +260,8 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
         };
         const kinds: ItemKinds = new Map();
         const buffers = new Map<string, string>();
+        let latestUsageObservedAt: string | null = null;
+        let completionPending = false;
         let interruptTimer: ReturnType<typeof setTimeout> | null = null;
         let pendingText = "";
         // Behind the wsl wrapper the host is a Linux process: Windows
@@ -359,6 +361,28 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
           if (streamKind !== "assistant_text" || !delta) return;
           pendingText += delta;
           emit({ ...base(threadId, turnId), type: "content.delta", streamKind, delta });
+        };
+        const emitUsage = (payload: unknown) => {
+          const report = museUsageReport(payload);
+          if (!report) return;
+          if (latestUsageObservedAt && Date.parse(report.observedAt) <= Date.parse(latestUsageObservedAt)) return;
+          latestUsageObservedAt = report.observedAt;
+          emit({
+            ...base(threadId, turnId),
+            type: "account.rate-limits.updated",
+            observedAt: report.observedAt,
+            windows: report.windows,
+          });
+        };
+        const settleCompleted = async () => {
+          // Muse updates its cached subscription snapshot at turn completion;
+          // read it before the short-lived serve process is cleaned up.
+          try {
+            emitUsage(await channel.request("usage/read", undefined, 1_500));
+          } catch {
+            // A host without usage/read still completes the turn normally.
+          }
+          settle(true, null);
         };
 
         const decideApproval = async (
@@ -594,21 +618,18 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
               break;
             }
             case "usage/changed": {
-              const report = museUsageReport(p);
-              if (report) {
-                emit({
-                  ...base(threadId, turnId),
-                  type: "account.rate-limits.updated",
-                  observedAt: report.observedAt,
-                  windows: report.windows,
-                });
-              }
+              emitUsage(p);
               break;
             }
             case "turn/completed": {
               if (typeof p.turnId === "string" && p.turnId !== state.mspTurnId) break;
               const terminal = p.terminal as string | undefined;
-              if (terminal === "completed") settle(true, null);
+              if (terminal === "completed") {
+                if (!completionPending) {
+                  completionPending = true;
+                  void settleCompleted();
+                }
+              }
               else if (terminal === "cancelled") settle(true, "cancelled");
               else {
                 const code = support.classifyError?.(p.error);

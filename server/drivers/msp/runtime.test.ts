@@ -46,6 +46,7 @@ describe("MSP turns (fake host)", () => {
     delete process.env.FAKE_MSP_DUMP;
     delete process.env.FAKE_MSP_STATE;
     delete process.env.FAKE_MSP_RPC_DUMP;
+    delete process.env.FAKE_MSP_USAGE;
     delete process.env.FAKE_MSP_USAGE_CHANGED;
     delete process.env.META_API_KEY;
     recorder?.stop();
@@ -91,6 +92,27 @@ describe("MSP turns (fake host)", () => {
       windows: [
         { id: "five_hour", usedPercent: 22, windowMinutes: 300, resetsAt: 1_790_000_000_000 },
         { id: "seven_day", usedPercent: 61, windowMinutes: 10_080, resetsAt: 1_790_172_800_000 },
+      ],
+    });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+  });
+
+  it("reads the cached usage snapshot before settling a completed turn", async () => {
+    const payload = {
+      observedAtMs: 1_790_000_000_100,
+      tier: "pro",
+      window: { usedPercent: 23, windowDurationMins: 300, resetsAtMs: 1_790_000_000_000 },
+      weekly: { usedPercent: 62, resetsAtMs: 1_790_172_800_000 },
+    };
+    process.env.FAKE_MSP_USAGE = JSON.stringify(payload);
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-usage-read", text: "hi" });
+    expect(await recorder.until((e) => e.type === "account.rate-limits.updated")).toMatchObject({
+      type: "account.rate-limits.updated",
+      observedAt: new Date(payload.observedAtMs).toISOString(),
+      windows: [
+        { id: "five_hour", usedPercent: 23 },
+        { id: "seven_day", usedPercent: 62 },
       ],
     });
     expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });

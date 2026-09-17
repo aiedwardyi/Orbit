@@ -1,11 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
   <title id="title">Orbit</title>
-  <rect x="130" y="112" width="762" height="772" rx="162" fill="#303446"/>
-  <ellipse cx="511" cy="499" rx="350" ry="145" transform="rotate(-20 511 499)" fill="none" stroke="#a6d189" stroke-width="60"/>
+  <rect x="61" y="43" width="900" height="910" rx="191" fill="#090a0c"/>
+  <ellipse cx="511" cy="499" rx="413" ry="171" transform="rotate(-20 511 499)" fill="none" stroke="#8da77d" stroke-width="72"/>
   <g transform="rotate(-8 510 505)">
-    <rect x="280" y="290" width="460" height="430" rx="140" fill="#fdf6e4"/>
-    <circle cx="435" cy="465" r="23" fill="#2b2e36"/>
-    <circle cx="588" cy="465" r="23" fill="#2b2e36"/>
+    <rect x="188" y="204" width="644" height="602" rx="196" fill="#fdf6e4"/>
+    <circle cx="405" cy="449" r="34" fill="#2b2e36"/>
+    <circle cx="619" cy="449" r="34" fill="#2b2e36"/>
   </g>
-  <path d="M 837.1 433.1 A 350 145 -20 0 1 560.6 635.3 A 350 145 -20 0 1 218.9 658.1" fill="none" stroke="#a6d189" stroke-width="60" stroke-linecap="round"/>
+  <path d="M 895.8 421.2 A 413 171 -20 0 1 569.5 659.8 A 413 171 -20 0 1 166.3 686.7" fill="none" stroke="#8da77d" stroke-width="72" stroke-linecap="round"/>
 </svg>
