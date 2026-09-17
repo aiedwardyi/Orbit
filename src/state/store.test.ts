@@ -10,6 +10,9 @@ import {
   loadSnapshotBoundary,
   openNotificationTarget,
   reducer,
+  terminalAttentionCount,
+  terminalAttentionForBot,
+  terminalAttentionKey,
   shouldClearSelectedUnread,
   visibleNotificationThread,
   type Bot,
@@ -215,6 +218,82 @@ describe("notification routing", () => {
     const open = { ...initialState, bots: [coveredBot], selectedId: "bot-1", workspaceOpen: true };
     expect(reducer(open, { type: "select", id: "bot-1" }).bots[0]?.unread).toBe(true);
     expect(reducer({ ...open, workspaceOpen: false }, { type: "select", id: "bot-1" }).bots[0]?.unread).toBe(false);
+  });
+});
+
+describe("terminal attention state", () => {
+  const bot = {
+    id: "bot-1",
+    threadId: "thread-1",
+    name: "Echo",
+    title: "",
+    description: "",
+    notifications: true,
+    color: "green",
+    unread: false,
+    modelSelection: { instanceId: "x", model: "y" },
+    messages: [],
+  } satisfies Bot;
+
+  const mark = (state: typeof initialState, sessionId: string, reason: "bell" | "exit" | "error", receivedAt: number) =>
+    reducer(state, { type: "markTerminalAttention", botId: bot.id, sessionId, reason, receivedAt });
+
+  it("stores PTY attention without changing durable chat unread", () => {
+    const marked = mark({ ...initialState, bots: [bot] }, "session-1", "bell", 10);
+
+    expect(marked.bots[0]?.unread).toBe(false);
+    expect(marked.terminalAttention[terminalAttentionKey(bot.id, "session-1")]).toEqual({
+      botId: bot.id,
+      sessionId: "session-1",
+      reason: "bell",
+      receivedAt: 10,
+    });
+    expect(terminalAttentionCount(marked.terminalAttention)).toBe(1);
+  });
+
+  it("dedupes a pending session while allowing a rearmed session after acknowledgement", () => {
+    const marked = mark({ ...initialState, bots: [bot] }, "session-1", "bell", 10);
+    expect(mark(marked, "session-1", "bell", 11)).toBe(marked);
+
+    const acknowledged = reducer(marked, { type: "ackTerminalAttention", botId: bot.id, sessionId: "session-1" });
+    expect(terminalAttentionCount(acknowledged.terminalAttention)).toBe(0);
+    const rearmed = mark(acknowledged, "session-1", "bell", 12);
+    expect(rearmed.terminalAttention[terminalAttentionKey(bot.id, "session-1")]).toMatchObject({ receivedAt: 12 });
+  });
+
+  it("acks only the exact session and reports the newest pending session for a bot", () => {
+    const first = mark({ ...initialState, bots: [bot] }, "session-1", "bell", 10);
+    const second = mark(first, "session-2", "error", 20);
+    expect(terminalAttentionForBot(second.terminalAttention, bot.id)).toMatchObject({
+      sessionId: "session-2",
+      reason: "error",
+    });
+
+    const afterOldAck = reducer(second, { type: "ackTerminalAttention", botId: bot.id, sessionId: "session-1" });
+    expect(terminalAttentionCount(afterOldAck.terminalAttention)).toBe(1);
+    expect(terminalAttentionForBot(afterOldAck.terminalAttention, bot.id)?.sessionId).toBe("session-2");
+  });
+
+  it("counts every pending session across bots", () => {
+    const otherBot = { ...bot, id: "bot-2", threadId: "thread-2" };
+    const state = { ...initialState, bots: [bot, otherBot] };
+    const first = reducer(state, { type: "markTerminalAttention", botId: bot.id, sessionId: "session-1", reason: "bell", receivedAt: 10 });
+    const second = reducer(first, { type: "markTerminalAttention", botId: bot.id, sessionId: "session-2", reason: "exit", receivedAt: 20 });
+    const third = reducer(second, { type: "markTerminalAttention", botId: otherBot.id, sessionId: "session-3", reason: "error", receivedAt: 30 });
+    expect(terminalAttentionCount(third.terminalAttention)).toBe(3);
+  });
+
+  it("keeps terminal attention pending while switching bots", () => {
+    const otherBot = { ...bot, id: "bot-2", threadId: "thread-2" };
+    const marked = mark({ ...initialState, bots: [bot, otherBot] }, "session-1", "bell", 10);
+    const switched = reducer(marked, { type: "select", id: otherBot.id });
+    expect(switched.terminalAttention[terminalAttentionKey(bot.id, "session-1")]).toBeDefined();
+  });
+
+  it("drops attention for deleted bots", () => {
+    const marked = mark({ ...initialState, bots: [bot] }, "session-1", "exit", 10);
+    const deleted = reducer(marked, { type: "deleteBot", botId: bot.id });
+    expect(deleted.terminalAttention).toEqual({});
   });
 });
 

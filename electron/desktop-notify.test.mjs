@@ -131,13 +131,14 @@ describe("shouldShowDesktopToast", () => {
 
 describe("parseNotifyPayload", () => {
   it("keeps the bot and thread the toast should open", () => {
-    expect(parseNotifyPayload(frame)).toEqual({
+    expect(parseNotifyPayload({ ...frame, terminalSessionId: "session-1" })).toEqual({
       title: "Maus finished",
       body: "All done",
       icon: "/api/attachments/face.png",
       botId: "bot-1",
       threadId: "thread-1",
       visibleThreadId: "other-thread",
+      terminalSessionId: "session-1",
     });
   });
 
@@ -238,12 +239,12 @@ describe("handleDesktopNotify", () => {
     const clicks = [];
     handleDesktopNotify({
       win: fakeWindow(),
-      payload: { ...frame, openTerminal: true },
+      payload: { ...frame, openTerminal: true, terminalSessionId: "session-1" },
       Notification: FakeNotification,
       nativeSupported: true,
       sendClick: (target) => clicks.push(target),
     });
     notices[0].handlers.click();
-    expect(clicks).toEqual([{ botId: "bot-1", threadId: "thread-1", openTerminal: true }]);
+    expect(clicks).toEqual([{ botId: "bot-1", threadId: "thread-1", openTerminal: true, terminalSessionId: "session-1" }]);
   });
 });

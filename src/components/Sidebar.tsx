@@ -45,7 +45,16 @@ import {
   userSectionName,
   type SectionDropPlace,
 } from "@/lib/sidebar-layout";
-import { api, useStore, formatTime, visibleMessages, type Bot, type Group } from "@/state/store";
+import {
+  api,
+  terminalAttentionForBot,
+  useStore,
+  formatTime,
+  visibleMessages,
+  type Bot,
+  type Group,
+  type TerminalAttention,
+} from "@/state/store";
 
 import { BotAvatar, InitialsAvatar } from "./Avatar";
 import { stateForBot } from "@/lib/mascot";
@@ -89,6 +98,7 @@ import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
 import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import { phoneSettingsAvailable } from "@/lib/phone-availability";
 import { localeTag, t, useI18n } from "@/lib/i18n";
+import { terminalAttentionCopy } from "@/lib/notify";
 
 /** "Milind Soni" → "MS", "milind" → "M", "you@x.dev" → "Y", unset → "?" */
 function profileInitials(profile?: { name?: string; email?: string }): string {
@@ -782,6 +792,7 @@ function BotListItem({
   onArchive,
   archiveDisabled,
   drag,
+  onTerminalAttention,
 }: {
   bot: Bot;
   density: SidebarDensity;
@@ -789,6 +800,7 @@ function BotListItem({
   onArchive: (bot: Bot) => void;
   archiveDisabled: boolean;
   drag?: SidebarRowDrag;
+  onTerminalAttention?: (attention: TerminalAttention) => void;
 }) {
   const { t, locale } = useI18n();
   const { state, dispatch } = useStore();
@@ -808,6 +820,8 @@ function BotListItem({
     ? modelChipText({ instance: engine, model: bot.modelSelection.model, effort: bot.modelSelection.effort }, t)
     : null;
   const expandedModelLabel = modelLabel ? compactSidebarModelLabel(modelLabel) : null;
+  const terminalAttention = terminalAttentionForBot(state.terminalAttention, bot.id);
+  const terminalCopy = terminalAttention ? terminalAttentionCopy(terminalAttention.reason, locale) : null;
   const rowClass = cn(
     "flex w-full items-center rounded-xl border text-left",
     iconOnly
@@ -832,17 +846,54 @@ function BotListItem({
           // decorative; busy/unread/motion are the real signals).
           animated={Boolean(bot.busy) || Boolean(bot.unread) || (mascotMotion?.kind ?? "none") !== "none"}
         />
-        {iconOnly && modelLabel && (
+        {bot.modelSelection && (
           <span
+            data-sidebar-model-dot
             aria-hidden="true"
             className={cn(
               "pointer-events-none absolute size-1.5 rounded-full",
-              // unread/busy → bottom-left; provider-dot stays bottom-right
-              bot.unread || bot.busy ? "bottom-0.5 left-0.5" : "bottom-0.5 right-0.5",
+              "bottom-0.5 left-0.5",
               selected ? "ring-2 ring-raised" : "ring-2 ring-panel",
             )}
             style={{ backgroundColor: modelFamilyAccent(engine?.driverKind) }}
           />
+        )}
+        {bot.unread && (
+          <span
+            data-sidebar-chat-unread
+            aria-hidden="true"
+            className={cn(
+              "pointer-events-none absolute bottom-0.5 right-0.5 size-2 rounded-full border",
+              selected ? "border-raised" : "border-panel",
+              "bg-accent",
+            )}
+          />
+        )}
+        {terminalAttention && terminalCopy && (
+          <button
+            type="button"
+            data-sidebar-terminal-attention
+            data-terminal-session-id={terminalAttention.sessionId}
+            data-terminal-reason={terminalAttention.reason}
+            aria-label={`${bot.name}: ${terminalCopy.tooltip}`}
+            title={terminalCopy.tooltip}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (onTerminalAttention) onTerminalAttention(terminalAttention);
+              else dispatch({ type: "ackTerminalAttention", botId: terminalAttention.botId, sessionId: terminalAttention.sessionId });
+            }}
+            className={cn(
+              "absolute -right-1 -top-1 z-10 flex size-5 items-center justify-center rounded-sm border bg-panel font-mono text-[9px] font-bold leading-none shadow-sm",
+              terminalCopy.tone === "danger"
+                ? "border-danger/60 text-danger hover:bg-danger/10"
+                : terminalCopy.tone === "success"
+                  ? "border-success/60 text-success hover:bg-success/10"
+                  : "border-accent/60 text-accent hover:bg-accent/10",
+            )}
+          >
+            <span aria-hidden="true">&gt;_</span>
+          </button>
         )}
       </span>
       <div className={cn("min-w-0 flex-1", iconOnly && "hidden")}>
@@ -878,18 +929,12 @@ function BotListItem({
             )}
             {(expandedModelLabel || bot.busy) && (
               <div data-sidebar-model-row className="flex min-w-0 items-center gap-1.5 truncate text-[13px] text-ink-secondary">
-                {expandedModelLabel && (
-                  <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(engine?.driverKind) }} />
-                )}
                 {expandedModelLabel && <span data-sidebar-model-label className="min-w-0 flex-1 truncate">{expandedModelLabel}</span>}
                 {bot.busy && expandedModelLabel && <span className="shrink-0 text-ink-secondary/60">·</span>}
                 {bot.busy && <span className="shrink-0 truncate">{t("chrome.working")}</span>}
               </div>
             )}
           </div>
-          {bot.unread && (
-            <span className="size-2 shrink-0 rounded-full bg-accent" />
-          )}
         </div>
       </div>
     </>
@@ -987,9 +1032,6 @@ function BotListItem({
       >
         {body}
       </div>
-      {iconOnly && bot.unread && (
-        <span className="pointer-events-none absolute bottom-1.5 right-1.5 size-2 rounded-full border border-panel bg-accent" />
-      )}
       {!iconOnly && <button
         type="button"
         disabled={archiveDisabled}
@@ -1148,7 +1190,15 @@ function ArchivedBotsPanel({
   );
 }
 
-export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function Sidebar({
+  open,
+  onClose,
+  onTerminalAttention,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onTerminalAttention?: (attention: TerminalAttention) => void;
+}) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
@@ -1934,6 +1984,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                 onMenu={setMenu}
                 onArchive={(bot) => void archiveBot(bot)}
                 archiveDisabled
+                onTerminalAttention={onTerminalAttention}
               />
             </div>
           )}
@@ -1951,6 +2002,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               onArchive={(bot) => void archiveBot(bot)}
               archiveDisabled={activeBotCount <= 1}
               drag={rowDrag(b)}
+              onTerminalAttention={onTerminalAttention}
             />
           ))}
           {sectionIds.map((id) => {
@@ -2001,6 +2053,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                     onMenu={setMenu}
                     onArchive={(candidate) => void archiveBot(candidate)}
                     archiveDisabled
+                    onTerminalAttention={onTerminalAttention}
                   />
                 ))}
                 {sectionGroupItems.map((group) => (
@@ -2015,6 +2068,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                     onArchive={(candidate) => void archiveBot(candidate)}
                     archiveDisabled={activeBotCount <= 1}
                     drag={rowDrag(bot)}
+                    onTerminalAttention={onTerminalAttention}
                   />
                 ))}
                 {sectionDropTarget?.id === id && sectionDropTarget.place === "after" && draggingSectionId !== id && (

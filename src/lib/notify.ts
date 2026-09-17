@@ -3,9 +3,12 @@
 // the per-bot toggle); this only decides how to show it here.
 import type { Notification } from "../../server/notify.ts";
 
-export type NotifyFrame = Notification & { openTerminal?: boolean };
+export type NotifyFrame = Notification & { openTerminal?: boolean; terminalSessionId?: string };
 
-export type NotificationTarget = Pick<NotifyFrame, "botId" | "threadId"> & { openTerminal?: boolean };
+export type NotificationTarget = Pick<NotifyFrame, "botId" | "threadId"> & {
+  openTerminal?: boolean;
+  terminalSessionId?: string;
+};
 
 /** Ask while handling the settings click. Browsers may reject permission
  * requests that are triggered later by an incoming SSE frame. */
@@ -33,13 +36,34 @@ export function desktopNotificationHint(canNotify: boolean): string {
 
 export type TerminalAttentionReason = "bell" | "exit" | "error";
 
+export interface TerminalAttentionCopy {
+  label: string;
+  tooltip: string;
+  tone: "accent" | "success" | "danger";
+}
+
+export function terminalAttentionCopy(
+  reason: TerminalAttentionReason,
+  locale: "en" | "ko" = "en",
+): TerminalAttentionCopy {
+  if (locale === "ko") {
+    if (reason === "bell") return { label: "대기 중", tooltip: "터미널이 입력을 기다리고 있습니다.", tone: "accent" };
+    if (reason === "exit") return { label: "완료", tooltip: "터미널 프로세스가 끝났습니다.", tone: "success" };
+    return { label: "오류", tooltip: "터미널에서 오류를 보고했습니다.", tone: "danger" };
+  }
+  if (reason === "bell") return { label: "Waiting", tooltip: "The terminal is waiting for input.", tone: "accent" };
+  if (reason === "exit") return { label: "Finished", tooltip: "The terminal process finished.", tone: "success" };
+  return { label: "Error", tooltip: "The terminal reported an error.", tone: "danger" };
+}
+
 export function buildTerminalNotification(
   bot: { id: string; name: string; threadId: string; notifications?: boolean; avatarUrl?: string | null },
   reason: TerminalAttentionReason,
+  terminalSessionId?: string,
 ): NotifyFrame | null {
   if (bot.notifications === false) return null;
   const finished = reason === "exit";
-  return {
+  const frame: NotifyFrame = {
     kind: finished ? "done" : "takeover",
     botId: bot.id,
     botName: bot.name,
@@ -53,6 +77,8 @@ export function buildTerminalNotification(
           : "The terminal process finished.",
     openTerminal: true,
   };
+  if (terminalSessionId) frame.terminalSessionId = terminalSessionId;
+  return frame;
 }
 
 /** The identity a notification groups under: one bot, wherever it was
@@ -81,15 +107,19 @@ export function showNotification(
 ) {
   const native = typeof window !== "undefined" ? window.ogb?.showNotification : undefined;
   if (typeof native === "function") {
-    native({
+    const payload: Parameters<typeof native>[0] = {
       title: frame.title,
       body: frame.body,
       icon: avatarUrl ?? undefined,
       botId: frame.botId,
       threadId: frame.threadId,
       visibleThreadId: visibleThreadId ?? null,
-      ...(frame.openTerminal ? { openTerminal: true } : {}),
-    });
+    };
+    if (frame.openTerminal) {
+      payload.openTerminal = true;
+      if (frame.terminalSessionId) payload.terminalSessionId = frame.terminalSessionId;
+    }
+    native(payload);
     return;
   }
 
@@ -98,7 +128,15 @@ export function showNotification(
 
   const open = () => {
     window.focus();
-    onOpen({ botId: frame.botId, threadId: frame.threadId, ...(frame.openTerminal ? { openTerminal: true } : {}) });
+    const target: NotificationTarget = {
+      botId: frame.botId,
+      threadId: frame.threadId,
+    };
+    if (frame.openTerminal) {
+      target.openTerminal = true;
+      if (frame.terminalSessionId) target.terminalSessionId = frame.terminalSessionId;
+    }
+    onOpen(target);
   };
 
   if (Notification.permission === "granted") {

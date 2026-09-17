@@ -2,13 +2,13 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { act, createElement } from "react";
+import { act, createElement, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { persistPreference } from "@/lib/i18n";
 import { SIDEBAR_COLLAPSED_KEY, SIDEBAR_SECTION_ORDER_KEY, SIDEBAR_WIDTH_KEY } from "@/lib/sidebar-preferences";
-import { formatTime, StoreProvider } from "@/state/store";
+import { formatTime, StoreProvider, useStore } from "@/state/store";
 
 import { compactSidebarModelLabel, Sidebar } from "./Sidebar";
 
@@ -23,6 +23,21 @@ class FakeEventSource {
 }
 
 const bot = (id: string) => ({ id, threadId: `${id}-thread`, name: id, messages: [] });
+
+function SeedTerminalAttention() {
+  const { state, dispatch } = useStore();
+  useEffect(() => {
+    if (!state.bots.some((candidate) => candidate.id === "attention")) return;
+    dispatch({
+      type: "markTerminalAttention",
+      botId: "attention",
+      sessionId: "session-1",
+      reason: "bell",
+      receivedAt: 10,
+    });
+  }, [dispatch, state.bots.length]);
+  return createElement(Sidebar, { open: false, onClose: () => {} });
+}
 
 // happy-dom drag events carry no dataTransfer, and the row handlers write to it.
 const fire = (target: Element, type: string) => {
@@ -616,10 +631,9 @@ describe("Sidebar bot second line", () => {
     try {
       await vi.waitFor(() => expect(host.textContent).toContain("Meta Muse 1.3"), { timeout: 5000 });
       expect(host.textContent).not.toContain("Zebra preview sentence");
-      // SAFETY: the unread dot is size-2, so any size-1.5 round span with
-      // an explicit accent color is the engine dot.
-      const dots = [...host.querySelectorAll(".size-1\\.5")];
-      expect(dots.some((d) => d.getAttribute("style")?.includes("background-color"))).toBe(true);
+      const modelDot = host.querySelector("[data-sidebar-model-dot]");
+      expect(modelDot?.className).toContain("bottom-0.5");
+      expect(modelDot?.className).toContain("left-0.5");
     } finally {
       await act(async () => root.unmount());
       host.remove();
@@ -660,7 +674,48 @@ describe("Sidebar bot second line", () => {
       expect(title?.parentElement?.querySelector("[data-sidebar-model-row]")).toBe(model?.parentElement);
       expect(model?.textContent).toBe("Meta Muse 1.3 Cont.");
       expect(host.textContent).not.toContain("Contributor");
-      expect(model?.previousElementSibling?.getAttribute("style")).toContain("background-color");
+      expect(host.querySelector("[data-sidebar-model-dot]")?.className).toContain("left-0.5");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("keeps model and chat dots in fixed corners while exposing terminal attention", async () => {
+    const attentionBot = {
+      ...bot("attention"),
+      unread: true,
+      modelSelection: { instanceId: "muse", model: "muse-spark-1.3" },
+    };
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string) => path === "/api/bots"
+        ? new Response(JSON.stringify({ bots: [attentionBot], groups: [] }))
+        : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(SeedTerminalAttention))));
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      const badge = await vi.waitFor(() => {
+        const element = host.querySelector("[data-sidebar-terminal-attention]");
+        expect(element).not.toBeNull();
+        return element!;
+      });
+      expect(badge.textContent).toBe(">_");
+      expect(badge.getAttribute("data-terminal-session-id")).toBe("session-1");
+      expect(badge.getAttribute("data-terminal-reason")).toBe("bell");
+      expect(badge.getAttribute("title")).toBe("The terminal is waiting for input.");
+      expect(host.querySelector("[data-sidebar-model-dot]")?.className).toContain("bottom-0.5");
+      expect(host.querySelector("[data-sidebar-model-dot]")?.className).toContain("left-0.5");
+      expect(host.querySelector("[data-sidebar-chat-unread]")?.className).toContain("bottom-0.5");
+      expect(host.querySelector("[data-sidebar-chat-unread]")?.className).toContain("right-0.5");
     } finally {
       await act(async () => root.unmount());
       host.remove();

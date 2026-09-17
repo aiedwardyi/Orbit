@@ -21,7 +21,7 @@ import type { RoutineRunCardData } from "../../shared/routine-run";
 import type { Routine, RoutineInput, RoutineRun } from "@/lib/routines";
 import type { WebhookAttempt, WebhookIngressStatus, WebhookTrigger } from "@/lib/webhooks";
 import { currentCall } from "@/lib/call";
-import { showNotification, type NotificationTarget } from "@/lib/notify";
+import { showNotification, type NotificationTarget, type TerminalAttentionReason } from "@/lib/notify";
 import { speaker } from "@/lib/tts";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import { firstChatPeripherals, scheduleDeferredInstancesLoad } from "./first-chat-snapshot";
@@ -323,6 +323,32 @@ export interface Bot {
   activeLeafId?: string | null;
 }
 
+export interface TerminalAttention {
+  botId: string;
+  sessionId: string;
+  reason: TerminalAttentionReason;
+  receivedAt: number;
+}
+
+export type TerminalAttentionMap = Record<string, TerminalAttention>;
+
+export function terminalAttentionKey(botId: string, sessionId: string): string {
+  return `${botId}:${sessionId}`;
+}
+
+export function terminalAttentionForBot(attention: TerminalAttentionMap, botId: string): TerminalAttention | null {
+  let latest: TerminalAttention | null = null;
+  for (const candidate of Object.values(attention)) {
+    if (candidate.botId !== botId || (latest && candidate.receivedAt < latest.receivedAt)) continue;
+    latest = candidate;
+  }
+  return latest;
+}
+
+export function terminalAttentionCount(attention: TerminalAttentionMap): number {
+  return Object.keys(attention).length;
+}
+
 /** The visible conversation: walk parentId links from the active leaf back
  * to the root. Falls back to the flat list for pre-branching payloads. */
 export function visibleMessages(bot: Pick<Bot, "messages" | "activeLeafId">): Message[] {
@@ -530,6 +556,8 @@ export interface AppState {
    * from this until POST or SSE confirms, so chrome does not wait on
    * startTurn's prepareModelContext waterfall. */
   acceptedSends: AcceptedSends;
+  /** Renderer-only PTY alerts, separate from durable chat unread state. */
+  terminalAttention: TerminalAttentionMap;
 }
 
 const MAX_CONSUMED_QUEUE_IDS = 64;
@@ -700,6 +728,14 @@ export type Action =
   | { type: "reorderGroups"; groupIds: string[] }
   | { type: "duplicateBot"; botId: string }
   | { type: "markUnread"; botId: string }
+  | {
+      type: "markTerminalAttention";
+      botId: string;
+      sessionId: string;
+      reason: TerminalAttentionReason;
+      receivedAt: number;
+    }
+  | { type: "ackTerminalAttention"; botId: string; sessionId: string }
   | { type: "botPatched"; bot: BotAnnouncement }
   | { type: "messageAdded"; threadId: string; message: Message }
   | { type: "messagePatched"; threadId: string; message: Message }
@@ -853,6 +889,9 @@ export function reducer(state: AppState, action: Action): AppState {
           bots: action.bots,
           groups: action.groups,
           computerControl: action.computerControl,
+          terminalAttention: Object.fromEntries(
+            Object.entries(state.terminalAttention).filter(([, attention]) => action.bots.some((bot) => bot.id === attention.botId)),
+          ),
           selectedId,
         },
         [...action.bots, ...action.groups],
@@ -1047,7 +1086,10 @@ export function reducer(state: AppState, action: Action): AppState {
       const bots = state.bots.filter((b) => b.id !== action.botId);
       const selectedId =
         state.selectedId === action.botId ? (bots.find((b) => !b.hidden)?.id ?? bots[0]?.id ?? "") : state.selectedId;
-      return { ...state, bots, selectedId };
+      const terminalAttention = Object.fromEntries(
+        Object.entries(state.terminalAttention).filter(([, attention]) => attention.botId !== action.botId),
+      );
+      return { ...state, bots, selectedId, terminalAttention };
     }
     case "reorderBots": {
       const rank = new Map(action.botIds.map((id, index) => [id, index]));
@@ -1063,6 +1105,29 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "markUnread":
       return updateBot(withMascotMotion(state, action.botId, "surprise"), action.botId, (b) => ({ ...b, unread: true }));
+    case "markTerminalAttention": {
+      const key = terminalAttentionKey(action.botId, action.sessionId);
+      if (state.terminalAttention[key]) return state;
+      return {
+        ...state,
+        terminalAttention: {
+          ...state.terminalAttention,
+          [key]: {
+            botId: action.botId,
+            sessionId: action.sessionId,
+            reason: action.reason,
+            receivedAt: action.receivedAt,
+          },
+        },
+      };
+    }
+    case "ackTerminalAttention": {
+      const key = terminalAttentionKey(action.botId, action.sessionId);
+      if (!state.terminalAttention[key]) return state;
+      const terminalAttention = { ...state.terminalAttention };
+      delete terminalAttention[key];
+      return { ...state, terminalAttention };
+    }
     case "botPatched": {
       const before = state.bots.find((b) => b.id === action.bot.id);
       // Bot frames are complete except for their transcript. An unknown one
@@ -1631,6 +1696,7 @@ export const initialState: AppState = {
   consumedQueueIds: {},
   dismissedTaskRecovery: {},
   acceptedSends: {},
+  terminalAttention: {},
 };
 
 // ── API client ─────────────────────────────────────────────────────────

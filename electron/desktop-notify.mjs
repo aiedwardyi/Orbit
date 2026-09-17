@@ -24,15 +24,18 @@ export function parseNotifyPayload(payload) {
   const botId = asString(payload.botId);
   const threadId = asString(payload.threadId);
   if (!title || !botId || !threadId) return null;
-  return {
+  const result = {
     title,
     body: typeof payload.body === "string" ? payload.body : "",
     icon: typeof payload.icon === "string" ? payload.icon : undefined,
     botId,
     threadId,
     visibleThreadId: payload.visibleThreadId == null ? null : asString(payload.visibleThreadId),
-    ...(payload.openTerminal === true ? { openTerminal: true } : {}),
   };
+  if (payload.openTerminal === true) result.openTerminal = true;
+  const terminalSessionId = asString(payload.terminalSessionId);
+  if (terminalSessionId) result.terminalSessionId = terminalSessionId;
+  return result;
 }
 
 export function taskbarBusyIndicator(busy) {
@@ -82,7 +85,13 @@ export function handleDesktopNotify({
   });
   notice.on("click", () => {
     activate?.(win);
-    sendClick?.({ botId: parsed.botId, threadId: parsed.threadId, ...(parsed.openTerminal ? { openTerminal: true } : {}) });
+    const target = {
+      botId: parsed.botId,
+      threadId: parsed.threadId,
+    };
+    if (parsed.openTerminal) target.openTerminal = true;
+    if (parsed.terminalSessionId) target.terminalSessionId = parsed.terminalSessionId;
+    sendClick?.(target);
   });
   notice.show();
   return { shown: true };

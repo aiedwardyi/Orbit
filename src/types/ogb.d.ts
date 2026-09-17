@@ -227,9 +227,15 @@ type SkillRecordingPayload = {
         threadId: string;
         visibleThreadId?: string | null;
         openTerminal?: boolean;
+        terminalSessionId?: string;
       }): void;
       /** Toast click: focus already happened in main; open this bot/thread. */
-      onNotificationClick?(cb: (target: { botId: string; threadId: string; openTerminal?: boolean }) => void): () => void;
+      onNotificationClick?(cb: (target: {
+        botId: string;
+        threadId: string;
+        openTerminal?: boolean;
+        terminalSessionId?: string;
+      }) => void): () => void;
       /** Opens a live desktop as a sandboxed window owned by Orbit. */
       desktopViewer?: {
         open(url: string, title: string, contextId: string): Promise<boolean>;

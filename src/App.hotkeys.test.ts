@@ -32,3 +32,25 @@ describe("bot switch shortcuts", () => {
     expect(app).not.toContain('e.key === "]"');
   });
 });
+
+describe("terminal attention routing", () => {
+  it("keys each attention event by PTY session without marking chat unread", () => {
+    const start = app.indexOf("const offAttention");
+    const end = app.indexOf("}, [dispatch, terminalOpen]);", start);
+    const handler = app.slice(start, end);
+
+    expect(handler).toContain("id: sessionId");
+    expect(handler).toContain("terminalAttentionKey(botId, sessionId)");
+    expect(handler).toContain('type: "markTerminalAttention"');
+    expect(handler.indexOf('type: "markTerminalAttention"')).toBeLessThan(handler.indexOf("buildTerminalNotification"));
+    expect(handler).not.toContain('type: "markUnread"');
+  });
+
+  it("carries the exact terminal session through notification clicks", () => {
+    expect(app).toContain("buildTerminalNotification(bot, reason, sessionId)");
+    expect(app).toContain("terminalAttentionForBot(latestState.current.terminalAttention, target.botId)");
+    expect(app).toContain("if (!terminalOpen || !bot || !document.hasFocus()) return;");
+    expect(app).toContain('window.addEventListener("focus", acknowledgeVisible)');
+    expect(app).toContain('type: "ackTerminalAttention"');
+  });
+});
