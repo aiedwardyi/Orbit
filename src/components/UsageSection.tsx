@@ -41,6 +41,7 @@ function windowRank(id: string, windowMinutes?: number): number {
 // engines that never report stay off the refresh path entirely.
 const PLAN_USAGE_DRIVERS = new Set(["claudeAgent", "codex", "grokAgent", "museAgent"]);
 const canRefresh = (instance: InstanceInfo) => PLAN_USAGE_DRIVERS.has(instance.driverKind);
+type RefreshResult = { error?: string; status?: string };
 
 // One shared row for every engine in the plan card: the label sits left and
 // the values stack in a single left-aligned column underneath. Every engine
@@ -131,16 +132,16 @@ function PlanUsage() {
   const [refreshErrors, setRefreshErrors] = useState<Record<string, string>>({});
   const engines = splitFriendsEngines(state.instances).friends.filter((instance) => PLAN_USAGE_DRIVERS.has(instance.driverKind));
   const refreshable = engines.filter(canRefresh);
-  const refresh = async (instance: InstanceInfo): Promise<string | undefined> => {
+  const refresh = async (instance: InstanceInfo): Promise<RefreshResult> => {
     try {
       const result = await api(`/api/usage/refresh/${instance.instanceId}`, { method: "POST" });
       if (result.report) dispatch({ type: "rateLimits", instanceId: instance.instanceId, report: result.report });
       setRefreshErrors((current) => result.error ? { ...current, [instance.instanceId]: result.error } : Object.fromEntries(Object.entries(current).filter(([id]) => id !== instance.instanceId)));
-      return result.error;
+      return { error: result.error, status: result.status };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Refresh failed";
       setRefreshErrors((current) => ({ ...current, [instance.instanceId]: message }));
-      return message;
+      return { error: message, status: "transport_error" };
     }
   };
   // The section's only refresh control: one tap refreshes every engine that
@@ -153,8 +154,8 @@ function PlanUsage() {
     setRefreshing(true);
     setConfirmed(false);
     try {
-      const errors = await Promise.all(refreshable.map(refresh));
-      setConfirmed(errors.every((error) => !error));
+      const results = await Promise.all(refreshable.map(refresh));
+      setConfirmed(results.every(({ error, status }) => !error && (status === undefined || status === "fresh")));
     } finally {
       refreshingRef.current = false;
       setRefreshing(false);
@@ -165,7 +166,7 @@ function PlanUsage() {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat || event.isComposing || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.code !== "KeyR") return;
       const active = event.target instanceof Element ? event.target : document.activeElement;
-      if (document.querySelector('[data-model-picker-content], .orbit-terminal-overlay[data-open="true"]') || active?.closest('[data-orbit-composer], .orbit-terminal-overlay, [data-terminal]')) return;
+      if (document.querySelector('[data-model-picker-content], .orbit-terminal-overlay[data-open="true"], [data-orbit-terminal]') || active?.closest('[data-orbit-composer], .orbit-terminal-overlay, [data-terminal], [data-orbit-terminal]')) return;
       if (refreshable.length === 0) return;
       event.preventDefault();
       void refreshAll();

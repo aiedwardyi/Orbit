@@ -4,6 +4,7 @@ import {
   StoreProvider,
   openNotificationTarget,
   terminalAttentionForBot,
+  terminalAttentionCount,
   terminalAttentionKey,
   useStore,
   visibleNotificationThread,
@@ -61,7 +62,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   useLayoutEffect(() => {
     latestState.current = state;
   }, [state]);
-  const unreadCount = unreadConversationCount(state.bots, state.groups);
+  const unreadCount = unreadConversationCount(state.bots, state.groups) + terminalAttentionCount(state.terminalAttention);
   // Mobile-only drawer state. Above md, none of these properties are emitted
   // at all — Sidebar scopes every mobile class with max-md: rather than
   // cancelling them with md:, which would still emit a translate value and

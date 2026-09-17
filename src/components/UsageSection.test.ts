@@ -64,7 +64,7 @@ const { mockState, mockApi } = vi.hoisted(() => {
         }),
       ],
     },
-    mockApi: vi.fn(async (_path: string): Promise<{ report?: { windows: { id: string; usedPercent: number }[]; observedAt: string }; error?: string }> => ({
+    mockApi: vi.fn(async (_path: string): Promise<{ report?: { windows: { id: string; usedPercent: number }[]; observedAt: string }; error?: string; status?: string }> => ({
       report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" },
     })),
   };
@@ -205,6 +205,34 @@ describe("UsageSection friends plan card", () => {
     }
   });
 
+  it("does not call a retained or empty Muse snapshot freshly updated", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    mockApi.mockReset();
+    mockApi.mockImplementation(async (path: string) =>
+      path.endsWith("/muse") ? { status: "no_observation" } : { status: "fresh" },
+    );
+    try {
+      persistPreference("en");
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      const refreshAll = [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all");
+      expect(refreshAll).toBeDefined();
+      await act(async () => {
+        refreshAll?.click();
+        await Promise.resolve();
+      });
+      await vi.waitFor(() => expect(host.querySelector('button[aria-label="Refresh all"]')).not.toBeNull());
+      expect(host.querySelector('[role="status"]')).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      mockApi.mockReset();
+      mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
+      persistPreference("en");
+    }
+  });
+
   it("shows exactly one refresh control for the whole section, never per-engine ones", () => {
     try {
       persistPreference("en");
@@ -266,6 +294,7 @@ describe("UsageSection friends plan card", () => {
       const terminal = document.createElement("div");
       terminal.className = "orbit-terminal-overlay";
       terminal.dataset.open = "true";
+      terminal.setAttribute("data-orbit-terminal", "");
       document.body.append(terminal);
       const overTerminal = send();
       await act(async () => window.dispatchEvent(overTerminal));

@@ -34,6 +34,10 @@ describe("bot switch shortcuts", () => {
 });
 
 describe("terminal attention routing", () => {
+  it("includes terminal attention in the taskbar count", () => {
+    expect(app).toContain("unreadConversationCount(state.bots, state.groups) + terminalAttentionCount(state.terminalAttention)");
+  });
+
   it("keys each attention event by PTY session without marking chat unread", () => {
     const start = app.indexOf("const offAttention");
     const end = app.indexOf("}, [dispatch, terminalOpen]);", start);
