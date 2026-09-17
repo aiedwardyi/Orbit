@@ -78,7 +78,7 @@ it("does not open a shell while the overlay is hidden after remount", async () =
   vi.stubGlobal("localStorage", window.localStorage);
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   const open = vi.fn(async () => ({ id: "session-1", cwd: "C:\\work", shell: "pwsh.exe", output: "", seq: 0, exitCode: null }));
-  const bridge: TerminalBridge = { open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() };
+  const bridge: TerminalBridge = { appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() };
   Object.defineProperty(window, "ogb", { configurable: true, value: { platform: "win32", terminal: bridge } });
   const bot = { id: "bot-hidden", name: "Hidden", cwd: null };
   host = document.createElement("div");
@@ -92,7 +92,7 @@ it("shows a neutral choose-folder state instead of throwing on needsFolder", asy
   vi.stubGlobal("localStorage", window.localStorage);
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   const open = vi.fn(async () => ({ needsFolder: true as const, reason: "explicit-unavailable" }));
-  const bridge: TerminalBridge = { open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() };
+  const bridge: TerminalBridge = { appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() };
   Object.defineProperty(window, "ogb", { configurable: true, value: { platform: "win32", terminal: bridge, pickFolder: vi.fn(async () => null) } });
   const bot = { id: "bot-missing", name: "Missing", cwd: "D:\\gone" };
   host = document.createElement("div");
