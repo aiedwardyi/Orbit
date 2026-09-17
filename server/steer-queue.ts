@@ -18,11 +18,11 @@
 // (same as delegations / approvals). The composer shows a pending chip
 // until drain appends 1:1 words; a queued room member just speaks later.
 //
-// Unlike the delegation drain, an interrupted or failed turn does NOT
-// discard this queue: delegations are a bot's fan-out (dropping them on
-// Stop is a safety property), but these are the user's own words —
-// stop-then-steer (queue a correction, hit Stop, the correction runs) is
-// the feature.
+// Unlike the delegation drain, a normal interrupted or failed 1:1 turn does
+// NOT discard queued sends: delegations are a bot's fan-out (dropping them on
+// Stop is a safety property), but these are the user's own words -
+// stop-then-steer (queue a correction, hit Stop, the correction runs) is the
+// feature. Group Stop removes queued room participations explicitly.
 
 import { newId } from "./contracts.ts";
 import type { BotRecord, Message } from "./store.ts";
@@ -325,6 +325,22 @@ export function cancelSteeredMessage(botId: string, messageId: string): CancelSt
     return { cancelled: true };
   }
   return { cancelled: false, running: false };
+}
+
+/** Drop room participations for one stopped group task. */
+export function cancelQueuedRoomParticipations(groupId: string, threadId: string): number {
+  let cancelled = 0;
+  for (const [key, entry] of queues) {
+    const items = entry.items.filter((item) => {
+      const remove = isRoomItem(item) && item.groupId === groupId && entry.threadId === threadId;
+      if (remove) cancelled += 1;
+      return !remove;
+    });
+    if (items.length === entry.items.length) continue;
+    if (items.length === 0) queues.delete(key);
+    else queues.set(key, { botId: entry.botId, threadId: entry.threadId, items });
+  }
+  return cancelled;
 }
 
 /** Test helper: drop in-memory queues and cancel/running bookkeeping. */

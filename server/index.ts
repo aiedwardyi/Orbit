@@ -113,6 +113,7 @@ import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript } from ".
 import { reactionSystemGuidance } from "../shared/reactions.ts";
 import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, findDelegationReceipt, pendingDelegationInfo, pendingDelegationSnapshot, queueDelegation, recordDelegationReceipt, threadsWaitingOn, type QueueResult } from "./delegations.ts";
 import {
+  cancelQueuedRoomParticipations,
   cancelSteeredMessage,
   clearSendRunning,
   continueQueuedDrainIfIdle,
@@ -3646,9 +3647,8 @@ const webhookIngressStatus = () => ({
 const groupQueues = new Map<string, Promise<void>>();
 const MAX_GROUP_HOPS = 1;
 
-// Same memory-only wait as 1:1 steer-queue: Stop on the current room
-// operation does not discard it. The original round already moved on;
-// the member still owes the user's words when they become idle.
+// Same memory-only wait as 1:1 steer-queue while the room remains active.
+// Group Stop drops this queued participation before it can drain later.
 function queueBusyRoomMember(
   groupId: string,
   threadId: string,
@@ -6520,6 +6520,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // This covers setup-before-busy and responder handoffs, and makes every
       // queued responder observe cancellation before it can start.
       cancelGroupTurnOperations(group.id, group.threadId);
+      cancelQueuedRoomParticipations(group.id, group.threadId);
       const busy = group.busyBotId ? store.bot(group.busyBotId) : undefined;
       const instance = busy ? registry.get(busy.modelSelection.instanceId) : undefined;
       if (busy) {

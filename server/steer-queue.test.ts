@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
+  cancelQueuedRoomParticipations,
   cancelSteeredMessage,
   clearSendRunning,
   continueQueuedDrainIfIdle,
@@ -338,6 +339,19 @@ describe("steer-queue module", () => {
     expect(run).toHaveBeenCalledTimes(2);
     expect(run.mock.calls[1][0]).toBe("nova-pair");
     expect(_queuedCount("room-pair")).toBe(0);
+  });
+
+  it("drops only the stopped room's queued participations", () => {
+    const skye = fakeBot("skye-stop", "skye-stop-1to1", true);
+    const store = fakeStore([skye]);
+    queueRoomParticipation(skye.id, "room-stop", { groupId: "group-stop" });
+    queueSteeredMessage(skye.id, "room-stop", "keep the direct follow-up");
+    queueRoomParticipation(skye.id, "room-other", { groupId: "group-other" });
+
+    expect(cancelQueuedRoomParticipations("group-stop", "room-stop")).toBe(1);
+    expect(_queuedCount("room-stop")).toBe(1);
+    expect(_queuedCount("room-other")).toBe(1);
+    expect(store.messages).toHaveLength(0);
   });
 
   it("wires the failed-start re-drain through continueQueuedDrainIfIdle", () => {
@@ -795,6 +809,56 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
           (message: any) => message.role === "bot" && message.kind === "text" && message.from?.botId === nova.id,
         ).length,
       ).toBeGreaterThanOrEqual(1);
+    },
+    60_000,
+  );
+
+  it(
+    "cancels a queued room member when the room is stopped after another reply",
+    async () => {
+      rmSync(roomBusyGate, { force: true });
+      const skye = await newBot("steerRoomBusy", "Skye");
+      const nova = await newBot("steerNow", "Nova");
+      const room = (
+        await api("POST", "/api/groups", {
+          name: "Stopped queued room",
+          memberIds: [skye.id, nova.id],
+          setup: { bulletin: "", defaultResponder: { kind: "everyone" } },
+        })
+      ).body.group;
+
+      try {
+        expect((await api("POST", `/api/bots/${skye.id}/messages`, { text: "skye is busy elsewhere" })).status).toBe(202);
+        expect((await botById(skye.id)).busy).toBe(true);
+        expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "reply once" })).status).toBe(202);
+
+        let snapshot: any;
+        await until(async () => {
+          snapshot = (await api("GET", "/api/bots")).body;
+          const current = snapshot.groups.find((candidate: any) => candidate.id === room.id);
+          return Boolean(current?.messages.some(
+            (message: any) => message.role === "bot" && message.kind === "text" && message.from?.botId === nova.id,
+          )) && !current?.working && snapshot.bots.find((candidate: any) => candidate.id === skye.id)?.busy;
+        }, "Nova's reply while Skye is queued");
+
+        expect((await api("POST", `/api/groups/${room.id}/interrupt`, { threadId: room.threadId })).status).toBe(200);
+        writeFileSync(roomBusyGate, "open");
+        await until(async () => !(await botById(skye.id)).busy, "Skye's direct turn");
+        await new Promise((resolve) => setTimeout(resolve, 250));
+
+        snapshot = (await api("GET", "/api/bots")).body;
+        const current = snapshot.groups.find((candidate: any) => candidate.id === room.id);
+        expect(current?.working).toBe(false);
+        expect(current?.messages.some(
+          (message: any) => message.role === "bot" && message.kind === "text" && message.from?.botId === skye.id,
+        )).toBe(false);
+      } finally {
+        await api("POST", `/api/groups/${room.id}/interrupt`, { threadId: room.threadId }).catch(() => undefined);
+        await api("DELETE", `/api/groups/${room.id}`);
+        await api("POST", `/api/bots/${skye.id}/interrupt`).catch(() => undefined);
+        await api("DELETE", `/api/bots/${skye.id}`);
+        await api("DELETE", `/api/bots/${nova.id}`);
+      }
     },
     60_000,
   );
