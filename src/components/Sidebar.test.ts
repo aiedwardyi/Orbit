@@ -156,11 +156,61 @@ describe("Sidebar bot section drag", () => {
       await vi.waitFor(() => expect(patchCalls).toContainEqual({ path: "/api/bots/a", body: { section: "B" } }));
       expect(patchCalls.some(({ path }) => path === "/api/bots/order")).toBe(false);
       expect(JSON.parse(window.localStorage.getItem(SIDEBAR_ORDER_KEY) ?? "{}")).toMatchObject({
-        sectionOrder: ["section:B", "section:A"],
+        sectionOrder: ["section:B", "unassigned", "section:A"],
         itemOrder: { "section:B": ["bot:b", "bot:a"] },
       });
     } finally {
       window.localStorage.removeItem(SIDEBAR_SECTION_ORDER_KEY);
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("reveals an empty Unassigned drop target while moving a row out of a section", async () => {
+    const scopedBot = { ...bot("a"), section: "A" };
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string, init?: RequestInit) => {
+        if (path === "/api/bots") return new Response(JSON.stringify({ bots: [scopedBot], groups: [] }));
+        if (path === "/api/bots/a" && init?.method === "PATCH") {
+          return new Response(JSON.stringify({ bot: { ...scopedBot, section: "" } }));
+        }
+        return new Response(JSON.stringify({ error: "not in this test" }), { status: 404 });
+      }),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+      );
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      const source = await vi.waitFor(() => {
+        const row = host.querySelector('[data-sidebar-row-kind="bot"][data-sidebar-row-id="a"]');
+        expect(row).not.toBeNull();
+        return row!;
+      });
+      expect(host.querySelector('[data-sidebar-item-drop-zone="unassigned"]')).toBeNull();
+      await act(async () => fire(source, "dragstart"));
+      const target = await vi.waitFor(() => {
+        const section = host.querySelector('[data-sidebar-item-drop-zone="unassigned"]');
+        expect(section).not.toBeNull();
+        return section!;
+      });
+      await act(async () => fire(target, "dragover"));
+      expect(host.querySelector("[data-sidebar-bot-drop-marker]")).not.toBeNull();
+      await act(async () => fire(target, "drop"));
+      await act(async () => fire(source, "dragend"));
+      await vi.waitFor(() => expect(host.querySelector('[data-sidebar-section-id="unassigned"]')?.textContent).toContain("a"));
+      await vi.waitFor(() => expect(JSON.parse(window.localStorage.getItem(SIDEBAR_ORDER_KEY) ?? "{}").itemOrder).toMatchObject({
+        unassigned: ["bot:a"],
+      }));
+    } finally {
       await act(async () => root.unmount());
       host.remove();
     }

@@ -90,7 +90,7 @@ describe("sidebar order preferences", () => {
         itemOrder: { unassigned: ["group:g1", "bot:b1"], "section:Work": ["bot:b2"] },
       }),
     );
-    expect(setItem).toHaveBeenCalledWith(SIDEBAR_SECTION_ORDER_KEY, JSON.stringify(["unassigned", "section:Work"]));
+    expect(setItem).toHaveBeenCalledWith(SIDEBAR_SECTION_ORDER_KEY, JSON.stringify(["section:Work"]));
     expect(loadSidebarOrder({
       getItem: (key) => key === SIDEBAR_ORDER_KEY
         ? JSON.stringify({ sectionOrder: ["section:Work", "section:Work"], itemOrder: { "section:Work": ["group:g1", "group:g1", "bot:b1"] } })

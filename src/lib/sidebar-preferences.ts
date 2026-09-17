@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { SidebarOrder } from "./sidebar-order";
+import { UNASSIGNED_SECTION_ID, type SidebarOrder } from "./sidebar-order";
 
 export type SidebarDensity = "comfortable" | "compact" | "icons";
 
@@ -236,7 +236,10 @@ export function saveSidebarOrder(
     }
     target?.setItem(SIDEBAR_ORDER_KEY, JSON.stringify({ sectionOrder, itemOrder }));
     // Keep the pre-v1.0.25 section preference readable by older builds.
-    target?.setItem(SIDEBAR_SECTION_ORDER_KEY, JSON.stringify(sectionOrder));
+    target?.setItem(
+      SIDEBAR_SECTION_ORDER_KEY,
+      JSON.stringify(sectionOrder.filter((id) => id !== UNASSIGNED_SECTION_ID)),
+    );
   } catch {
     // The in-memory React state still makes ordering useful this session.
   }

@@ -1589,9 +1589,10 @@ export function Sidebar({
   const naturalItemsBySection: Record<string, string[]> = {};
   for (const item of items) (naturalItemsBySection[item.sectionId] ??= []).push(item.key);
   const naturalSectionIds = Object.keys(naturalItemsBySection);
-  const allSectionIds = naturalSectionIds.includes(UNASSIGNED_SECTION_ID)
-    ? [UNASSIGNED_SECTION_ID, ...naturalSectionIds.filter((id) => id !== UNASSIGNED_SECTION_ID)]
-    : naturalSectionIds;
+  const allSectionIds = [
+    UNASSIGNED_SECTION_ID,
+    ...naturalSectionIds.filter((id) => id !== UNASSIGNED_SECTION_ID),
+  ];
   const currentSidebarOrder = normalizeSidebarOrder(sidebarOrder, allSectionIds, naturalItemsBySection);
   const sectionOrder = currentSidebarOrder.sectionOrder;
   const matchingBots = activeBots.filter(
@@ -1611,7 +1612,11 @@ export function Sidebar({
     const keys = orderedSidebarItems(naturalItemsBySection[id] ?? [], currentSidebarOrder.itemOrder[id] ?? []);
     orderedItemsBySection.set(id, keys.map((key) => itemByKey.get(key)).filter((item): item is SidebarItem => Boolean(item && matchingKeys.has(item.key))));
   }
-  const sectionIds = sectionOrder.filter((id) => (orderedItemsBySection.get(id)?.length ?? 0) > 0);
+  const showEmptyUnassignedDropTarget = q.length === 0 && Boolean(drag);
+  const sectionIds = sectionOrder.filter((id) =>
+    (orderedItemsBySection.get(id)?.length ?? 0) > 0 ||
+    (id === UNASSIGNED_SECTION_ID && showEmptyUnassignedDropTarget),
+  );
   const sectionsReorderable = density !== "icons" && q.length === 0 && sectionIds.length > 1;
   const rowsReorderable = q.length === 0;
   const currentItemOrder = () =>
