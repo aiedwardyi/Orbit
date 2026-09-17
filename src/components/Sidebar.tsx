@@ -874,6 +874,7 @@ function BotListItem({
             data-terminal-reason={terminalAttention.reason}
             aria-label={`${bot.name}: ${terminalCopy.tooltip}`}
             title={terminalCopy.tooltip}
+            onKeyDown={(event) => event.stopPropagation()}
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
@@ -2106,7 +2107,7 @@ export function Sidebar({
                     density={density}
                     onMenu={setMenu}
                     onArchive={(candidate) => void archiveBot(candidate)}
-                    archiveDisabled={activeBotCount <= 1}
+                    archiveDisabled={Boolean(item.bot!.chiefOfStaff) || activeBotCount <= 1}
                     drag={rowsReorderable ? rowDrag(item) : undefined}
                     onTerminalAttention={onTerminalAttention}
                   />

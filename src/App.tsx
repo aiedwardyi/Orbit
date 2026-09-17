@@ -149,8 +149,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   // first /api/instances response has not arrived yet.
   const noEngines = state.connected && isEmptyEngineLaunch(state.instances);
 
-  // App-wide shortcuts: ⌘N new bot · ⌘1–9 jump to bot · ⌘⇧[ / ⌘⇧] prev/next.
-  // Alt+T Themes · Alt+U Usage. Kept deliberately small; Esc still closes panels.
+  // App-wide shortcuts: Alt+T Themes · Alt+U Usage. Esc still closes panels.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
@@ -174,29 +173,10 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
           return;
         }
       }
-      if (!mod) return;
-      const bots = state.bots.filter((b) => !b.hidden);
-      if (e.key === "n" && !e.shiftKey) {
-        e.preventDefault();
-        dispatch({ type: "newBot" });
-      } else if (/^[1-9]$/.test(e.key)) {
-        const target = bots[Number(e.key) - 1];
-        if (target) {
-          e.preventDefault();
-          dispatch({ type: "select", id: target.id });
-        }
-      } else if (e.shiftKey && (e.code === "BracketLeft" || e.code === "BracketRight")) {
-        const idx = bots.findIndex((b) => b.id === state.selectedId);
-        const next = bots[(idx + (e.code === "BracketRight" ? 1 : -1) + bots.length) % bots.length];
-        if (next) {
-          e.preventDefault();
-          dispatch({ type: "select", id: next.id });
-        }
-      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [state.bots, state.selectedId, state.appSettingsOpen, state.appSettingsSection, dispatch]);
+  }, [state.appSettingsOpen, state.appSettingsSection, dispatch]);
 
   useEffect(() => {
     window.ogb?.setUnreadCount?.(unreadCount);

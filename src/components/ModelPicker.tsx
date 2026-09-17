@@ -103,6 +103,8 @@ export function ModelPickerControl({
     close();
     if (fromKeyboard && openedWithShortcutRef.current && !contained) {
       focusComposerOnActivation({ activatedElement: triggerRef.current });
+    } else if (!contained) {
+      triggerRef.current?.focus();
     }
   };
   const pick = (next: ModelSelection) => {

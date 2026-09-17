@@ -23,13 +23,13 @@ describe("settings section shortcuts", () => {
   });
 });
 
-describe("bot switch shortcuts", () => {
-  it("matches Ctrl/Cmd+Shift brackets by e.code so Shift does not rewrite the key", () => {
-    expect(app).toContain("const mod = e.metaKey || e.ctrlKey");
-    expect(app).toContain('e.shiftKey && (e.code === "BracketLeft" || e.code === "BracketRight")');
-    expect(app).toContain('(e.code === "BracketRight" ? 1 : -1)');
-    expect(app).not.toContain('e.key === "["');
-    expect(app).not.toContain('e.key === "]"');
+describe("retired bot switch shortcuts", () => {
+  it("keeps bot navigation out of the app-wide shortcut handler", () => {
+    const handler = app.slice(app.indexOf("const onKey = (e: KeyboardEvent)"), app.indexOf("window.addEventListener(\"keydown\", onKey)"));
+    expect(handler).not.toContain('type: "newBot"');
+    expect(handler).not.toContain('type: "select"');
+    expect(handler).not.toContain("BracketLeft");
+    expect(handler).not.toContain("BracketRight");
   });
 });
 
