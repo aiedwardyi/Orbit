@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -56,5 +56,25 @@ describe("Grok subscription authentication", () => {
     const third = grokSupport.warmSessionIdentity!({ GROK_HOME: join(home, ".grok") });
     expect(third).not.toBe(first);
     expect(third).toBe(hashGrokAuthJson(authPath));
+  });
+
+  it("invalidates the hash when equal-size auth content gets a new file identity", () => {
+    const home = scratchHome(true);
+    const authPath = join(home, ".grok", "auth.json");
+    const replacement = join(home, ".grok", "auth.replacement");
+    clearGrokAuthHashCache();
+    writeFileSync(authPath, '{"token":"one"}');
+    const original = statSync(authPath);
+    const first = hashGrokAuthJson(authPath);
+
+    writeFileSync(replacement, '{"token":"two"}');
+    utimesSync(replacement, original.atime, original.mtime);
+    rmSync(authPath);
+    renameSync(replacement, authPath);
+
+    const replaced = statSync(authPath);
+    expect(replaced.size).toBe(original.size);
+    expect(replaced.mtimeMs).toBeCloseTo(original.mtimeMs, 0);
+    expect(hashGrokAuthJson(authPath)).not.toBe(first);
   });
 });

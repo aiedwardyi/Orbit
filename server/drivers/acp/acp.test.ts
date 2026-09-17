@@ -576,11 +576,15 @@ describe("SPEED4 warm session reuse (fake CLI)", () => {
     );
     expect(lateOnT1).toHaveLength(0);
 
-    process.env.FAKE_ACP_LATE_SESSION_ID = "";
+    // The fake CLI reads its late-event settings only when it starts. Replace
+    // the warm child before testing the replay metadata gate.
+    recorder.stop();
+    await instance.dispose();
+    delete process.env.FAKE_ACP_LATE_SESSION_ID;
     process.env.FAKE_ACP_LATE_REPLAY = "1";
     process.env.FAKE_ACP_LATE_TEXT = "LATE_REPLAY";
-    const sessionId = sessionIdFor(t1.turnId);
-    const t2 = await instance.adapter.sendTurn({ threadId: "t-late", text: "two", resumeCursor: sessionId });
+    await createWarm();
+    const t2 = await instance.adapter.sendTurn({ threadId: "t-late", text: "two" });
     await recorder.until((e) => e.type === "turn.completed" && e.turnId === t2.turnId);
     await new Promise((r) => setTimeout(r, 80));
     const replayOnT2 = recorder.events.filter(

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { acpConnection } from "./connection.ts";
 
@@ -57,5 +57,26 @@ describe("acpConnection", () => {
     stdin.emit("error", new Error("EPIPE"));
     expect(errors).toBe(0);
     await expect(connection.request("initialize", {})).rejects.toThrow(/process closed/);
+  });
+
+  it("routes synchronous and asynchronous handler failures through onError", async () => {
+    const sync = fakeChild();
+    const syncConnection = acpConnection(sync.child as any, () => {});
+    const syncError = vi.fn();
+    syncConnection.onError = syncError;
+    syncConnection.onRequest = () => { throw new Error("request handler failed"); };
+    sync.child.stdout.emit("data", `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "server/request" })}\n`);
+    expect(syncError).toHaveBeenCalledWith(expect.objectContaining({ message: "request handler failed" }));
+    expect(syncConnection.healthy).toBe(false);
+
+    const async = fakeChild();
+    const asyncConnection = acpConnection(async.child as any, () => {});
+    const asyncError = vi.fn();
+    asyncConnection.onError = asyncError;
+    asyncConnection.onNotification = async () => { throw new Error("notification handler failed"); };
+    async.child.stdout.emit("data", `${JSON.stringify({ jsonrpc: "2.0", method: "session/update" })}\n`);
+    await Promise.resolve();
+    expect(asyncError).toHaveBeenCalledWith(expect.objectContaining({ message: "notification handler failed" }));
+    expect(asyncConnection.healthy).toBe(false);
   });
 });

@@ -224,15 +224,21 @@ export function configOptionValue(result: unknown, configId: string): unknown {
   return hit?.currentValue ?? null;
 }
 
-/** SHA-256 of auth.json, cached by path+mtime+size so sendTurn hot path
+/** SHA-256 of auth.json, cached by path+file identity+mtime+size so sendTurn hot path
  * stats instead of sync-reading+hashing on every turn. */
-type AuthHashCache = { mtimeMs: number; size: number; hash: string };
+type AuthHashCache = { dev: number; ino: number; mtimeMs: number; size: number; hash: string };
 const authHashByPath = new Map<string, AuthHashCache>();
 
 export function hashGrokAuthJson(path: string): string {
   const before = statSync(path);
   const cached = authHashByPath.get(path);
-  if (cached && cached.mtimeMs === before.mtimeMs && cached.size === before.size) {
+  if (
+    cached
+    && cached.dev === before.dev
+    && cached.ino === before.ino
+    && cached.mtimeMs === before.mtimeMs
+    && cached.size === before.size
+  ) {
     return cached.hash;
   }
   // Read once into a buffer, then re-stat. Only cache when metadata still
@@ -243,11 +249,13 @@ export function hashGrokAuthJson(path: string): string {
   const hash = createHash("sha256").update(buf).digest("hex");
   const after = statSync(path);
   if (
-    after.mtimeMs === before.mtimeMs
+    after.dev === before.dev
+    && after.ino === before.ino
+    && after.mtimeMs === before.mtimeMs
     && after.size === before.size
     && after.size === buf.length
   ) {
-    authHashByPath.set(path, { mtimeMs: after.mtimeMs, size: after.size, hash });
+    authHashByPath.set(path, { dev: after.dev, ino: after.ino, mtimeMs: after.mtimeMs, size: after.size, hash });
   }
   return hash;
 }

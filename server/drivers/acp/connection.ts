@@ -92,6 +92,16 @@ export function acpConnection(
     },
   };
 
+  const dispatch = (handler: (msg: any) => unknown, msg: any) => {
+    try {
+      void Promise.resolve(handler(msg)).catch((error) => {
+        failTransport(error instanceof Error ? error : new Error(String(error)));
+      });
+    } catch (error) {
+      failTransport(error instanceof Error ? error : new Error(String(error)));
+    }
+  };
+
   child.stdout.setEncoding("utf8");
   child.stdout.on("data", (chunk) => {
     buffer += chunk;
@@ -123,9 +133,9 @@ export function acpConnection(
           value.resolve(msg.result);
         }
       } else if (msg.id !== undefined && msg.method) {
-        connection.onRequest(msg);
+        dispatch(connection.onRequest, msg);
       } else if (msg.method) {
-        connection.onNotification(msg);
+        dispatch(connection.onNotification, msg);
       }
     }
   });
