@@ -188,6 +188,7 @@ import {
   listMemoryTopics,
   isMemoryTopicName,
   memorySystemPrompt,
+  supportsWorkspaceFiles,
 } from "./workspace.ts";
 import {
   readMemoryFile,
@@ -2923,7 +2924,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       // than the user's home: a bot with file tools and acceptEdits gets a
       // desk, not the whole house — and the workspace is where its
       // MEMORY.md lives. API/box engines have no local filesystem story.
-      const worksInWorkspace = instance.driverKind !== "grok" && instance.driverKind !== "boxAgent";
+      const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
       const privateWorkspace = worksInWorkspace ? ensureWorkspace(bot.id) : undefined;
       const skillInstructions = renderSkillInstructions(selectedSkills, {
         includeRoot: worksInWorkspace && opts?.runOn !== "cloud",
@@ -4031,7 +4032,7 @@ async function runClaimedGroupMemberTurn(
 
   // same workspace + memory as a 1:1 turn — the room is a different
   // conversation, not a different bot
-  const worksInWorkspace = instance.driverKind !== "grok" && instance.driverKind !== "boxAgent";
+  const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
   const workspace = worksInWorkspace ? ensureWorkspace(bot.id) : undefined;
   // The room's folder pins here — on the first turn that actually
   // dispatches, not at PATCH time — so a folder set on a never-used room

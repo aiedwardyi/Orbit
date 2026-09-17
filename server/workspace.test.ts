@@ -13,6 +13,7 @@ import {
   memorySystemPrompt,
   readMemoryFile,
   readMemoryTopic,
+  supportsWorkspaceFiles,
   workspaceDir,
   writeMemoryFile,
   MEMORY_MAX_BYTES,
@@ -168,5 +169,13 @@ describe("workspace", () => {
     const withMemory = memorySystemPrompt(BOT);
     expect(withMemory).toContain("Your memory (MEMORY.md):");
     expect(withMemory).toContain("railway up");
+  });
+
+  it("only sends file-backed memory to engines with local workspace files", () => {
+    expect(supportsWorkspaceFiles("claudeAgent")).toBe(true);
+    expect(supportsWorkspaceFiles("geminiAgent")).toBe(true);
+    for (const driverKind of ["grok", "openai-compat", "minimax", "boxAgent"]) {
+      expect(supportsWorkspaceFiles(driverKind), driverKind).toBe(false);
+    }
   });
 });

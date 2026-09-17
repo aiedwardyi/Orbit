@@ -15,6 +15,11 @@ import { DATA_DIR } from "./config.ts";
 
 export const WORKSPACES_DIR = join(DATA_DIR, "workspaces");
 
+/** Only engines with a local file workspace receive file-backed memory. */
+export function supportsWorkspaceFiles(driverKind: string): boolean {
+  return !["grok", "openai-compat", "minimax", "boxAgent"].includes(driverKind);
+}
+
 /** The load budget: however large MEMORY.md grows, only this much rides
  * into the system prompt. Mirrors the shape of Claude Code's auto-memory
  * budget (first N lines / bytes) so the bot learns to keep it curated. */
