@@ -917,7 +917,7 @@ export const en = {
 
   "usage.limits.title": "Plan usage",
   "usage.limits.subtitle": "How much of each engine's subscription window is used and when it resets, as the engine reports it on every message.",
-  "usage.limits.empty": "No engine has reported a usage limit yet. Claude and Codex report theirs after the next message.",
+  "usage.limits.empty": "No engine has reported a usage limit yet. Claude, Codex, Grok, and Meta Muse report theirs after a message or refresh.",
   "usage.limits.session": "5-hour window",
   "usage.limits.weekly": "Weekly",
   "usage.limits.window": "Usage window",
@@ -1876,7 +1876,7 @@ export const ko = {
 
   "usage.limits.title": "요금제 사용량",
   "usage.limits.subtitle": "엔진별 구독 한도를 얼마나 썼는지, 언제 초기화되는지 보여줍니다. 메시지를 보낼 때마다 엔진이 보고한 값입니다.",
-  "usage.limits.empty": "아직 사용 한도를 보고한 엔진이 없습니다. Claude와 Codex는 다음 메시지 이후에 보고합니다.",
+  "usage.limits.empty": "아직 사용 한도를 보고한 엔진이 없습니다. Claude, Codex, Grok, Meta Muse는 메시지나 새로 고침 후 보고합니다.",
   "usage.limits.session": "5시간 한도",
   "usage.limits.weekly": "주간 한도",
   "usage.limits.window": "사용 한도",

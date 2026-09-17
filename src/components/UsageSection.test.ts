@@ -134,7 +134,7 @@ describe("UsageSection friends plan card", () => {
     expect(html).toContain("Grok");
     expect(html).toContain("Claude");
     expect(html).toContain("Codex");
-    expect(html).toContain("Gemini (Antigravity)");
+    expect(html).not.toContain("Gemini (Antigravity)");
     expect(html).toContain("Meta Muse");
     expect(html).not.toContain("OpenCode");
     expect(html).not.toContain("Gemini API");
@@ -151,13 +151,11 @@ describe("UsageSection friends plan card", () => {
     const grok = html.indexOf("Grok");
     const claude = html.indexOf("Claude");
     const codex = html.indexOf("Codex");
-    const antigravity = html.indexOf("Gemini (Antigravity)");
     const muse = html.indexOf("Meta Muse");
     expect(claude).toBeGreaterThan(-1);
     expect(codex).toBeGreaterThan(claude);
     expect(grok).toBeGreaterThan(codex);
-    expect(antigravity).toBeGreaterThan(grok);
-    expect(muse).toBeGreaterThan(antigravity);
+    expect(muse).toBeGreaterThan(grok);
   });
 
   it("shows Meta Muse 5-hour and 7-day windows", () => {
@@ -196,7 +194,7 @@ describe("UsageSection friends plan card", () => {
       await act(async () => {
         refreshAll?.click();
       });
-      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/antigravity", { method: "POST" });
+      expect(mockApi).not.toHaveBeenCalledWith("/api/usage/refresh/antigravity", { method: "POST" });
       expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/muse", { method: "POST" });
     } finally {
       await act(async () => root.unmount());
@@ -447,7 +445,7 @@ describe("UsageSection friends plan card", () => {
         refreshAll?.click();
       });
       // one control refreshes every subscription engine together
-      expect(mockApi).toHaveBeenCalledTimes(5);
+      expect(mockApi).toHaveBeenCalledTimes(4);
       const busy = [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refreshing…");
       expect(busy).toBeDefined();
       expect(busy?.hasAttribute("disabled")).toBe(true);
@@ -455,12 +453,11 @@ describe("UsageSection friends plan card", () => {
       await act(async () => {
         busy?.click();
       });
-      expect(mockApi).toHaveBeenCalledTimes(5);
+      expect(mockApi).toHaveBeenCalledTimes(4);
       await act(async () => {
         deferred.get("claude")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
         deferred.get("codex")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
         deferred.get("grok")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
-        deferred.get("antigravity")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
         deferred.get("muse")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
       });
       expect([...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all")).toBeDefined();
@@ -484,7 +481,6 @@ describe("UsageSection friends plan card", () => {
       deferred.get("claude")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
       deferred.get("codex")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
       deferred.get("grok")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
-      deferred.get("antigravity")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
       deferred.get("muse")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
     });
     try {
@@ -540,11 +536,11 @@ describe("UsageSection friends plan card", () => {
   });
 
   it("says no usage data yet when a refresh fails with nothing saved", async () => {
-    // claude carries last-good values in the fixture, antigravity carries
+    // claude carries last-good values in the fixture, codex carries
     // none — one refresh-all covers both wordings.
     mockApi.mockImplementation(async (path: string) => {
       if (path.endsWith("/claude")) return { error: "Could not refresh Claude limits" };
-      if (path.endsWith("/antigravity")) return { error: "Could not refresh Antigravity limits" };
+      if (path.endsWith("/codex")) return { error: "Could not refresh Codex limits" };
       return { report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } };
     });
     try {
@@ -557,7 +553,7 @@ describe("UsageSection friends plan card", () => {
         [...enHost.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all")?.click();
       });
       expect(enHost.textContent).toContain("Could not refresh Claude limits Showing the last good values.");
-      expect(enHost.textContent).toContain("Could not refresh Antigravity limits No usage data yet.");
+      expect(enHost.textContent).toContain("Could not refresh Codex limits No usage data yet.");
       expect(enHost.textContent).not.toMatch(/\d+[mh] old/);
       await act(async () => enRoot.unmount());
       enHost.remove();

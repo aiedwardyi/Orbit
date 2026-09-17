@@ -39,8 +39,8 @@ function windowRank(id: string, windowMinutes?: number): number {
 
 // Subscription engines with a documented usage surface answer a refresh POST;
 // engines that never report stay off the refresh path entirely.
-const canRefresh = (instance: InstanceInfo) =>
-  instance.driverKind === "claudeAgent" || instance.driverKind === "codex" || instance.driverKind === "grokAgent" || instance.driverKind === "antigravityAgent" || instance.driverKind === "museAgent";
+const PLAN_USAGE_DRIVERS = new Set(["claudeAgent", "codex", "grokAgent", "museAgent"]);
+const canRefresh = (instance: InstanceInfo) => PLAN_USAGE_DRIVERS.has(instance.driverKind);
 
 // One shared row for every engine in the plan card: the label sits left and
 // the values stack in a single left-aligned column underneath. Every engine
@@ -128,7 +128,7 @@ function PlanUsage() {
   const [refreshing, setRefreshing] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [refreshErrors, setRefreshErrors] = useState<Record<string, string>>({});
-  const engines = splitFriendsEngines(state.instances).friends;
+  const engines = splitFriendsEngines(state.instances).friends.filter((instance) => PLAN_USAGE_DRIVERS.has(instance.driverKind));
   const refreshable = engines.filter(canRefresh);
   const refresh = async (instance: InstanceInfo): Promise<string | undefined> => {
     try {
@@ -143,7 +143,7 @@ function PlanUsage() {
     }
   };
   // The section's only refresh control: one tap refreshes every engine that
-  // answers a refresh POST (Claude, Codex, Grok, Antigravity, Muse),
+  // answers a refresh POST (Claude, Codex, Grok, Muse),
   // never just one of them. A clean run leaves an explicit confirmation
   // behind; the next run clears it.
   const refreshAll = async () => {

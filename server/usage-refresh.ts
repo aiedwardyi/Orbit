@@ -22,6 +22,8 @@ import { parseJson, type JsonValue } from "./schema.ts";
 type Report = { windows: RateLimitWindow[]; observedAt: string };
 type Result = { report?: Report; error?: string; retryAt: number };
 type Options = { instanceId: string; cli?: string; environment?: NodeJS.ProcessEnv };
+const usableReport = (report: Report | undefined): report is Report =>
+  Boolean(report && report.windows.length > 0 && Number.isFinite(Date.parse(report.observedAt)));
 const text = z.string().min(1);
 const percent = z.number().finite().nonnegative();
 const timestamp = z.string().refine((value) => !Number.isNaN(Date.parse(value)));
@@ -90,8 +92,9 @@ export function readUsageRpc(cli: string, env: NodeJS.ProcessEnv): Promise<JsonV
 
 export function readGrokBillingRpc(cli: string, env: NodeJS.ProcessEnv): Promise<JsonValue> {
   return new Promise((resolve, reject) => {
-    const childEnv = acpChildEnv(grokSupport, { cli, fullAuto: false }, env);
-    const child = spawnCli(cli, ["agent", "stdio"], { cwd: homedir(), env: childEnv, stdio: ["pipe", "pipe", "pipe"] });
+    const config = { cli, fullAuto: false };
+    const childEnv = acpChildEnv(grokSupport, config, env);
+    const child = spawnCli(cli, grokSupport.spawnArgs(config, { threadId: "usage-refresh", text: "" }), { cwd: homedir(), env: childEnv, stdio: ["pipe", "pipe", "pipe"] });
     const lines = createInterface({ input: child.stdout });
     let settled = false;
     const finish = (value?: JsonValue, code?: number) => {
@@ -123,9 +126,10 @@ export function readGrokBillingRpc(cli: string, env: NodeJS.ProcessEnv): Promise
         if (message.error) return finish(undefined, message.error.code);
         if (message.id === 1) {
           const methods = z.object({ authMethods: z.array(z.object({ id: z.string().optional() })).optional() }).catch({}).parse(message.result);
-          if (methods.authMethods?.some((method) => method.id === "cached_token")) send("authenticate", 2, { methodId: "cached_token" });
+          const authMethod = grokSupport.pickAuthMethod(methods.authMethods ?? []);
+          if (authMethod) send("authenticate", 2, { methodId: authMethod });
           else finish(undefined, 401);
-        } else if (message.id === 2) send("_x.ai/billing", 3);
+        } else if (message.id === 2 && grokSupport.billingMethod) send(grokSupport.billingMethod, 3);
         else finish(message.result);
       } catch { finish(); }
     });
@@ -696,7 +700,10 @@ export function createUsageRefresh(deps: {
           windows = antigravityRateLimitWindows(await (deps.antigravity ?? readAntigravityQuota)(options.cli || "agy", env), clock());
         } else if (driver === "museAgent") {
           const report = museUsageReport(await (deps.muse ?? readMuseUsage)(options.cli || museDefaultCli(), env));
-          if (!report) throw new Error("refresh");
+          if (!report) {
+            if (usableReport(previous)) return { report: previous, retryAt };
+            throw new Error("refresh");
+          }
           windows = report.windows;
           observedAt = report.observedAt;
         } else {
@@ -723,8 +730,8 @@ export function createUsageRefresh(deps: {
         }
         if (!windows.length) throw new Error("refresh");
         const report = { windows, observedAt: observedAt ?? new Date(clock()).toISOString() };
-        if (observedAt !== undefined && previous && Date.parse(report.observedAt) < Date.parse(previous.observedAt)) {
-          return { report: previous, error: `Could not refresh ${name} limits`, retryAt };
+        if (observedAt !== undefined && usableReport(previous) && Date.parse(report.observedAt) <= Date.parse(previous.observedAt)) {
+          return { report: previous, retryAt };
         }
         return { report, retryAt };
       } catch (error) {
