@@ -34,5 +34,6 @@ reminder.
 
 ### Local fallback
 
-The local path is `pnpm package:win`. Upload the generated Windows installer
-and `latest.yml`, publish, and verify the downloaded bytes against the feed.
+The local path is `pnpm package:win`. Upload `release/*.exe`,
+`release/*.exe.blockmap`, and `release/latest.yml`. Publish, and verify the
+downloaded bytes against the feed.

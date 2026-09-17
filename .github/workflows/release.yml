@@ -149,16 +149,19 @@ jobs:
           import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
           const sha512 = (f) => createHash("sha512").update(readFileSync(f)).digest("base64");
           let bad = 0;
+          let entries = 0;
           const feed = "latest.yml";
           if (!existsSync(feed)) { console.error(`MISSING ${feed}`); process.exit(1); }
           const text = readFileSync(feed, "utf8");
           for (const [, url, hash, size] of text.matchAll(/url:\s+(\S+)[\s\S]*?sha512:\s+(\S+)\n\s+size:\s+(\d+)/g)) {
+            entries++;
             if (!existsSync(url)) { console.error(`MISSING ${url} (listed in ${feed})`); bad++; continue; }
             const okHash = sha512(url) === hash;
             const okSize = statSync(url).size === Number(size);
             if (!okHash || !okSize) { console.error(`MISMATCH ${url} in ${feed}`); bad++; }
             else console.log(`ok ${url}`);
           }
+          if (!entries) { console.error(`NO ASSETS listed in ${feed}`); process.exit(1); }
           if (bad) process.exit(1);
           console.log(`\nWindows feed verified; ${readdirSync(".").length} assets staged`);
           EOF

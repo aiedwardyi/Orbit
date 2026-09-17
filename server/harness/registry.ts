@@ -127,10 +127,14 @@ export class ProviderRegistry {
       if (live?.modelsReady) {
         const ready = live.modelsReady
           .then(() => {
-            this.modelRefreshAt.set(result.entry.instanceId, this.now());
+            if (this.byId.get(result.entry.instanceId)?.live === live) {
+              this.modelRefreshAt.set(result.entry.instanceId, this.now());
+            }
           })
           .catch(() => {
-            this.modelRefreshAt.set(result.entry.instanceId, this.now());
+            if (this.byId.get(result.entry.instanceId)?.live === live) {
+              this.modelRefreshAt.set(result.entry.instanceId, this.now());
+            }
           })
           .finally(() => {
             if (this.modelRefreshInFlight.get(result.entry.instanceId) === ready) {
@@ -197,6 +201,8 @@ export class ProviderRegistry {
         const inst = entry.live;
         let snapshot: ProviderSnapshot;
         try {
+          const discovery = this.modelRefreshInFlight.get(inst.instanceId);
+          if (discovery) await discovery;
           const lastRefresh = this.modelRefreshAt.get(inst.instanceId) ?? 0;
           if (inst.refreshModels && this.now() - lastRefresh >= this.modelRefreshTtlMs) {
             const inFlight = this.modelRefreshInFlight.get(inst.instanceId);
@@ -206,7 +212,9 @@ export class ProviderRegistry {
                 try {
                   await inst.refreshModels!();
                 } finally {
-                  this.modelRefreshAt.set(inst.instanceId, this.now());
+                  if (this.byId.get(inst.instanceId)?.live === inst) {
+                    this.modelRefreshAt.set(inst.instanceId, this.now());
+                  }
                 }
               })();
               this.modelRefreshInFlight.set(inst.instanceId, refresh);

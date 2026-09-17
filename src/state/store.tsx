@@ -1701,6 +1701,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const cancelledSendsRef = useRef(new Set<string>());
   const reorderGeneration = useRef(0);
   const groupReorderGeneration = useRef(0);
+  const refreshGeneration = useRef(0);
   // per-frame stream-delta batching (see the "runtime" SSE case); stream
   // state is intentionally OUTSIDE the reducer so token frames re-render
   // only StreamContext consumers
@@ -2755,8 +2756,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // is invisible until something asks again — the setup screens expose this
   // as "Check again" so the user isn't told to restart when a refresh will do.
   const refreshInstances = useCallback(async () => {
+    const generation = ++refreshGeneration.current;
     try {
       const { instances } = await api("/api/instances");
+      if (generation !== refreshGeneration.current) return;
       rawDispatch({ type: "instances", instances, preserveRateLimits: true });
     } catch {
       /* offline or server down — the existing list stays */

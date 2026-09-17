@@ -107,12 +107,15 @@ describe("ProviderRegistry", () => {
     const registry = new ProviderRegistry([fake.driver]);
     await registry.load({ a: { driver: "fake" } });
 
-    const description = registry.describe();
+    let described = false;
+    const description = registry.describe().finally(() => { described = true; });
     await new Promise((resolve) => setImmediate(resolve));
     expect(ready).toBe(false);
+    expect(described).toBe(false);
     release();
     await description;
     expect(ready).toBe(true);
+    expect(described).toBe(true);
   });
 
   it("uses defaultConfig when the entry has no config", async () => {
