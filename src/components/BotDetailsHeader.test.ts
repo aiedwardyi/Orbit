@@ -47,6 +47,12 @@ describe("QA 17 one Bot-details header entry", () => {
     expect(chatHeader).not.toContain("@max-xs/chathead:hidden");
   });
 
+  it("wraps the header controls instead of overlapping at narrow widths", () => {
+    expect(chatHeader).toContain("flex min-w-0 flex-wrap items-center justify-between");
+    expect(chatHeader).toContain("flex min-w-0 flex-1 items-center");
+    expect(chatHeader).toContain("flex max-w-full shrink-0 flex-wrap items-center justify-end");
+  });
+
   it("hides Computer and new-task chrome from the ChatView header", () => {
     expect(chatHeader).toContain("showComputerPanelChrome()");
     expect(chatHeader).toContain("showBotNewTaskControl()");
