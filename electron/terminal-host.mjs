@@ -247,6 +247,8 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Reject non-text IPC payloads before passing them to the PTY.
       if (typeof data !== "string" || data.length > 64 * 1024) throw new Error("Invalid terminal input");
       if (session.exitCode !== null) throw new Error("Terminal has exited");
+      // A shell can emit a bell more than once; arm the next command after Enter.
+      if (/[\r\n]/.test(data)) session.attentionReported = false;
       try {
         const result = session.pty.write(data);
         // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may acknowledge operations synchronously or asynchronously.

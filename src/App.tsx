@@ -126,11 +126,10 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
 
   useEffect(() => {
     const offAttention = window.ogb?.terminal?.onAttention?.(({ botId }) => {
-      if (botId === bot?.id && terminalOpen) return;
       dispatch({ type: "markUnread", botId });
     });
     return offAttention;
-  }, [bot?.id, dispatch, terminalOpen]);
+  }, [dispatch]);
 
   const taskbarBusy = state.bots.some((candidate) => candidate.busy);
   useEffect(() => {

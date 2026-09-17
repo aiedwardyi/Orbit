@@ -197,6 +197,21 @@ test("emits one terminal attention event for a bell or exit", async () => {
   assert.deepEqual(attention, [["terminal:attention", { id: session.id, botId: "bot-1", reason: "bell" }]]);
 });
 
+test("rearms terminal attention after a new command", async () => {
+  const f = fixture();
+  const session = await f.host.open(f.event, f.input);
+  f.children[0].data("\x07");
+  f.host.write(f.event, session.id, "next\r");
+  f.children[0].data("\x07");
+  assert.deepEqual(
+    f.events.filter(([channel]) => channel === "terminal:attention"),
+    [
+      ["terminal:attention", { id: session.id, botId: "bot-1", reason: "bell" }],
+      ["terminal:attention", { id: session.id, botId: "bot-1", reason: "bell" }],
+    ],
+  );
+});
+
 test("waits for the old worker shutdown acknowledgement before replacing it", async () => {
   let releaseKill;
   const killAck = new Promise((resolve) => { releaseKill = resolve; });
