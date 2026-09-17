@@ -7,7 +7,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { persistPreference } from "@/lib/i18n";
-import { SIDEBAR_COLLAPSED_KEY, SIDEBAR_SECTION_ORDER_KEY, SIDEBAR_WIDTH_KEY } from "@/lib/sidebar-preferences";
+import { SIDEBAR_COLLAPSED_KEY, SIDEBAR_ORDER_KEY, SIDEBAR_SECTION_ORDER_KEY, SIDEBAR_WIDTH_KEY } from "@/lib/sidebar-preferences";
 import { formatTime, StoreProvider, useStore } from "@/state/store";
 
 import { compactSidebarModelLabel, Sidebar } from "./Sidebar";
@@ -47,6 +47,8 @@ const fire = (target: Element, type: string) => {
 };
 
 afterEach(() => {
+  window.localStorage.removeItem(SIDEBAR_ORDER_KEY);
+  window.localStorage.removeItem(SIDEBAR_SECTION_ORDER_KEY);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -151,8 +153,12 @@ describe("Sidebar bot section drag", () => {
 
       expect(sections()).toEqual(["section:B", "section:A"]);
       expect(host.querySelector('[data-sidebar-section-id="section:B"]')?.textContent).toContain("a");
-      expect(patchCalls).toContainEqual({ path: "/api/bots/order", body: { botIds: ["b", "a"] } });
       await vi.waitFor(() => expect(patchCalls).toContainEqual({ path: "/api/bots/a", body: { section: "B" } }));
+      expect(patchCalls.some(({ path }) => path === "/api/bots/order")).toBe(false);
+      expect(JSON.parse(window.localStorage.getItem(SIDEBAR_ORDER_KEY) ?? "{}")).toMatchObject({
+        sectionOrder: ["section:B", "section:A"],
+        itemOrder: { "section:B": ["bot:b", "bot:a"] },
+      });
     } finally {
       window.localStorage.removeItem(SIDEBAR_SECTION_ORDER_KEY);
       await act(async () => root.unmount());
@@ -387,7 +393,10 @@ describe("Sidebar group drag to reorder", () => {
       await act(async () => fire(first!, "dragend"));
       expect(names()[0]).toContain("Chit Chat");
       expect(names()[1]).toContain("Worker");
-      await vi.waitFor(() => expect(orderPuts).toEqual([["g-b", "g-a"]]));
+      expect(orderPuts).toEqual([]);
+      expect(JSON.parse(window.localStorage.getItem(SIDEBAR_ORDER_KEY) ?? "{}").itemOrder).toMatchObject({
+        "section:RANDOM CHATTER": ["group:g-b", "group:g-a"],
+      });
 
       // Drag back up: the rows swap again, mirroring the QA opposite-drag pair.
       const [top, bottom] = rows();
@@ -398,12 +407,10 @@ describe("Sidebar group drag to reorder", () => {
       await act(async () => fire(bottom!, "dragend"));
       expect(names()[0]).toContain("Worker");
       expect(names()[1]).toContain("Chit Chat");
-      await vi.waitFor(() =>
-        expect(orderPuts).toEqual([
-          ["g-b", "g-a"],
-          ["g-a", "g-b"],
-        ]),
-      );
+      expect(orderPuts).toEqual([]);
+      expect(JSON.parse(window.localStorage.getItem(SIDEBAR_ORDER_KEY) ?? "{}").itemOrder).toMatchObject({
+        "section:RANDOM CHATTER": ["group:g-a", "group:g-b"],
+      });
     } finally {
       await act(async () => root.unmount());
       host.remove();

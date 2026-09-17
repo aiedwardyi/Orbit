@@ -425,6 +425,7 @@ export const en = {
   "chrome.keepOneBot": "Keep at least one active bot",
   "chrome.channels": "Groups",
   "chrome.bots": "Bots",
+  "chrome.unassigned": "Unassigned",
   "chrome.you": "You",
 
   "chat.today": "Today",
@@ -1387,6 +1388,7 @@ export const ko = {
   "chrome.keepOneBot": "활성 봇을 하나 이상 유지하세요",
   "chrome.channels": "그룹",
   "chrome.bots": "봇",
+  "chrome.unassigned": "미분류",
   "chrome.you": "나",
 
   "chat.today": "오늘",
