@@ -1368,8 +1368,8 @@
   --color-raised-hover: #2b2e36;
   --color-card: #23252c;
   --color-inset: #0f1013;
-  --color-control: #23252c;
-  --color-hairline: #30333c;
+  --color-control: #272a32;
+  --color-hairline: #353944;
 
   --color-ink: #eeeff3;
   --color-ink-secondary: #a3a7b3;
@@ -1433,8 +1433,8 @@
   --color-raised-hover: #40434b;
   --color-card: #383a40;
   --color-inset: #232428;
-  --color-control: #383a40;
-  --color-hairline: #45474f;
+  --color-control: #3d4047;
+  --color-hairline: #51545f;
 
   --color-ink: #f2f3f5;
   --color-ink-secondary: #b5bac1;
@@ -1450,7 +1450,7 @@
   --color-danger: #ff949d;
   --color-danger-ink: #313338;
   --color-warning: #f0c674;
-  --color-scrollbar: #4a4d55;
+  --color-scrollbar: #4f535c;
   --color-maus-line: #b5bac1;
 
   --font-sans: "Segoe UI", -apple-system, BlinkMacSystemFont, "Malgun Gothic",
@@ -1499,6 +1499,8 @@
     padding-inline: 1rem;
     box-shadow: 0 1px 0 color-mix(in srgb, var(--color-app) 42%, transparent);
   }
+}
+
 /* ── Notebook ─────────────────────────────────────────────────────────────
    Paper white with a quiet blue ink signal. Assistant turns read like a
    document, while blockquotes become the gray callouts used for notes.

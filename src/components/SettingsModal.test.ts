@@ -176,6 +176,12 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain("VS Code Dark");
     expect(html).toContain("Studio Gray");
     expect(html).toContain("Steel Gray");
+    expect(html).toContain("Precision");
+    expect(html).toContain("Notebook");
+    expect(html).toContain("Messenger");
+    expect(html).toContain("Community");
+    expect(html).toContain("Code Review");
+    expect(html).toContain("Blueprint");
     expect(html).not.toContain("Cobalt");
     expect(html).toContain('data-skin="catppuccin-frappe"');
     expect(html).toContain('data-skin="tokyo-night"');
@@ -199,6 +205,12 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain('data-skin="vscode-dark"');
     expect(html).toContain('data-skin="studio-gray"');
     expect(html).toContain('data-skin="steel-gray"');
+    expect(html).toContain('data-skin="precision"');
+    expect(html).toContain('data-skin="notebook"');
+    expect(html).toContain('data-skin="messenger"');
+    expect(html).toContain('data-skin="community"');
+    expect(html).toContain('data-skin="code-review"');
+    expect(html).toContain('data-skin="blueprint"');
   });
 
   it("orders Themes and Usage last in the settings left nav", () => {

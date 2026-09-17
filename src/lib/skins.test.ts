@@ -128,7 +128,16 @@ describe("skins", () => {
       "--color-syntax-tag",
       "--color-syntax-invalid",
     ];
-    const remapped = ["atelier", "lagoon", "ledger", "vscode-dark"];
+    const remapped = [
+      "atelier",
+      "lagoon",
+      "ledger",
+      "vscode-dark",
+      "notebook",
+      "messenger",
+      "code-review",
+      "blueprint",
+    ];
     for (const id of remapped) {
       expect([...tokensOf(id)]).toEqual(expect.arrayContaining(roles));
     }
@@ -141,7 +150,7 @@ describe("skins", () => {
   it("drives native input color-scheme from the skin, not a hardcoded dark utility", () => {
     const rootBody = css.match(/:root\s*\{([^}]*)\}/)?.[1] ?? "";
     expect(rootBody).toMatch(/color-scheme:\s*dark\s*;/);
-    const light = ["atelier", "lagoon", "ledger"];
+    const light = ["atelier", "lagoon", "ledger", "notebook", "messenger", "code-review", "blueprint"];
     for (const id of light) {
       const body = css.match(new RegExp(`\\[data-skin="${id}"\\]\\s*\\{([^}]*)\\}`))?.[1] ?? "";
       expect(body).toMatch(/color-scheme:\s*light\s*;/);
