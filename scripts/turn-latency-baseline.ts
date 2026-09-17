@@ -20,15 +20,15 @@
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { stats, summarizeTurn } from "./turn-latency-math.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
 const server = join(root, "server");
-const { ClaudeDriver } = await import(join(server, "drivers", "claude.ts"));
-const { CodexDriver } = await import(join(server, "drivers", "codex.ts"));
+const { ClaudeDriver } = await import(pathToFileURL(join(server, "drivers", "claude.ts")).href);
+const { CodexDriver } = await import(pathToFileURL(join(server, "drivers", "codex.ts")).href);
 
 const TURN_TIMEOUT_MS = 240_000;
 const FIXTURE_LINES = 24;
