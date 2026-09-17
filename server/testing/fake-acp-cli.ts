@@ -370,7 +370,7 @@ function handle(msg: any) {
       const opts = configOptions();
       const mdls = sessionModels();
       result(msg.id, {
-        sessionId: "fake-acp-session",
+        sessionId: process.env.FAKE_ACP_SESSION_ID || "fake-acp-session",
         ...(opts ? { configOptions: opts } : {}),
         ...(mdls ? { models: mdls } : {}),
       });
@@ -446,11 +446,12 @@ function handle(msg: any) {
           setTimeout(() => {
             out({ jsonrpc: "2.0", method: "_x.ai/session/interjection", params: { sessionId: msg.params.sessionId, interjectionId: "injected-1", text: msg.params.prompt[0].text } });
             out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: msg.params.prompt[0].text } } } });
-            setTimeout(() => result(runningPromptId, { stopReason: "end_turn" }), 30);
+            setTimeout(() => { const id = runningPromptId; runningPromptId = undefined; result(id, { stopReason: "end_turn" }); }, 30);
           }, 10);
         } else if (mode === "steer-original-first") {
           // the running prompt ends before Grok interjects, so the queued one runs as its own prompt
           result(runningPromptId, { stopReason: "end_turn" });
+          runningPromptId = undefined;
           setTimeout(() => {
             out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: msg.params.prompt[0].text } } } });
             result(msg.id, { stopReason: "end_turn", _meta: { promptId: "injected-1" } });
@@ -462,7 +463,7 @@ function handle(msg: any) {
           result(msg.id, { stopReason: "cancelled", _meta: { promptId: "injected-1", completionKind: "removedFromQueue" } });
           if (mode !== "steer-removed") {
             out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: msg.params.prompt[0].text } } } });
-            setTimeout(() => result(runningPromptId, { stopReason: "end_turn" }), 30);
+            setTimeout(() => { const id = runningPromptId; runningPromptId = undefined; result(id, { stopReason: "end_turn" }); }, 30);
           }
         }
         break;
@@ -514,6 +515,7 @@ function handle(msg: any) {
         return;
       }
       const complete = () => {
+        if (runningPromptId === msg.id) runningPromptId = undefined;
         recordMethod("session/prompt.result");
         result(
           msg.id,
@@ -523,6 +525,24 @@ function handle(msg: any) {
             ? { stopReason: "end_turn", usage: { inputTokens: 10, outputTokens: 5 }, _meta: {} }
             : { stopReason: "end_turn", _meta: { inputTokens: 10, outputTokens: 5 } },
         );
+        // SPEED-4: inject a late session/update after the prompt result so tests
+        // can prove wrong-session / isReplay filtering. Untagged same-session
+        // late chunks are intentionally not distinguishable once the next turn
+        // has armed promptSent — do not claim otherwise.
+        const lateMs = Number(process.env.FAKE_ACP_LATE_CHUNK_MS ?? 0);
+        if (lateMs > 0) {
+          const lateParams: Record<string, unknown> = {
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { text: process.env.FAKE_ACP_LATE_TEXT ?? "LATE_CHUNK" },
+            },
+          };
+          if (process.env.FAKE_ACP_LATE_SESSION_ID) lateParams.sessionId = process.env.FAKE_ACP_LATE_SESSION_ID;
+          if (process.env.FAKE_ACP_LATE_REPLAY === "1") lateParams._meta = { isReplay: true };
+          setTimeout(() => {
+            out({ jsonrpc: "2.0", method: "session/update", params: lateParams });
+          }, lateMs);
+        }
       };
       if (mode === "ask-peer" && agentsMcp) {
         // the comms e2e: reach a peer bot through the injected agents proxy
@@ -680,18 +700,24 @@ function handle(msg: any) {
       if (mode === "billing-fail") {
         return out({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: "billing failed" } });
       }
-      // The period is relative to now, and a test that asserts on the reset
-      // passes the same end in. A hardcoded date would pass until it didn't.
-      result(msg.id, {
-        config: {
-          creditUsagePercent: Number(process.env.FAKE_ACP_BILLING_PERCENT ?? 42),
-          currentPeriod: {
-            type: "USAGE_PERIOD_TYPE_WEEKLY",
-            start: new Date(Date.now() - WEEK_MS).toISOString(),
-            end: process.env.FAKE_ACP_BILLING_END ?? new Date(Date.now() + WEEK_MS).toISOString(),
+      {
+        const billingDelay = Number(process.env.FAKE_ACP_BILLING_DELAY_MS ?? 0);
+        const payload = {
+          config: {
+            creditUsagePercent: Number(process.env.FAKE_ACP_BILLING_PERCENT ?? 42),
+            currentPeriod: {
+              type: "USAGE_PERIOD_TYPE_WEEKLY",
+              start: new Date(Date.now() - WEEK_MS).toISOString(),
+              end: process.env.FAKE_ACP_BILLING_END ?? new Date(Date.now() + WEEK_MS).toISOString(),
+            },
           },
-        },
-      });
+        };
+        if (billingDelay > 0) {
+          setTimeout(() => result(msg.id, payload), billingDelay);
+        } else {
+          result(msg.id, payload);
+        }
+      }
       break;
     case "session/cancel":
       // the interrupted prompt resolves as cancelled

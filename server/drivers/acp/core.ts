@@ -14,6 +14,8 @@
 // session/update notifications, so updates are double-gated: nothing emits
 // before the prompt is sent, and `_meta.isReplay` updates are dropped.
 import { homedir } from "node:os";
+import { acpConnection } from "./connection.ts";
+import { canReuseWarmSession, warmToolsKey, type WarmEligibilityInput } from "./warm-eligibility.ts";
 
 import { applyCredentialAllowlist } from "../../config.ts";
 import { decodeInjectId, LOCAL_HOSTS } from "../local-inject.ts";
@@ -86,6 +88,9 @@ export interface AcpConfig {
 /** Per-harness specifics — everything that differs between Grok, Gemini, … */
 export interface AcpSupport {
   grokInterjections?: boolean;
+  warmSessionIdentity?(env: Record<string, string | undefined>): string | null;
+  /** Idle TTL for a kept-warm child (default 60s). Tests may shorten. */
+  warmIdleMs?: number;
   /** When true the harness can report subscription windows. */
   rateLimits?: boolean;
   /** ACP extension method that returns a billing payload the Grok mapper understands. */
@@ -331,6 +336,36 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
       }
       const active = new Map<string, Turn>();
       const billingStops = new Set<() => void>();
+      // SPEED-4: at most one IDLE warm child per instance. Active turns borrow
+      // the connection (idle is null while borrowed) so TTL / eviction never
+      // kills a live prompt. Grok alone supplies warmSessionIdentity.
+      type WarmIdle = {
+        connection: ReturnType<typeof acpConnection>;
+        eligibility: WarmEligibilityInput;
+        sessionId: string;
+        model: string | null;
+        threadId: string;
+        timer?: ReturnType<typeof setTimeout>;
+        ready: Promise<void>;
+      };
+      let idleWarm: WarmIdle | null = null;
+      let disposed = false;
+      const warmIdleMs = support.warmIdleMs ?? 60_000;
+      const discardIdle = (entry: WarmIdle | null = idleWarm) => {
+        if (!entry) return;
+        if (idleWarm === entry) idleWarm = null;
+        clearTimeout(entry.timer);
+        killCliTree(entry.connection.child);
+      };
+      const stashIdle = (entry: Omit<WarmIdle, "timer">) => {
+        if (idleWarm && idleWarm.connection !== entry.connection) discardIdle(idleWarm);
+        const stored: WarmIdle = { ...entry };
+        idleWarm = stored;
+        stored.timer = setTimeout(() => {
+          if (idleWarm === stored) discardIdle(stored);
+        }, warmIdleMs);
+        stored.timer.unref?.();
+      };
 
       const emit = (event: RuntimeEvent) => {
         finishNative(event);
@@ -394,6 +429,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
 
       const sendTurn = async (turn: SendTurnInput) => {
         const { threadId } = turn;
+        if (disposed) throw new Error("provider disposed");
         if (active.has(threadId)) throw new Error("a turn is already running on this thread");
         const controlsHost = turn.integrations?.localComputer?.scope === "local-computer";
         if (controlsHost && config.fullAuto) {
@@ -455,11 +491,99 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         })();
         if (prelude.early) return { turnId };
         const { cliTurn, sessionCwd, mcpServers } = prelude;
-        const child = spawnCli(effectiveCli(), support.spawnArgs(config, cliTurn), {
-          cwd,
-          env,
-          stdio: ["pipe", "pipe", "pipe"],
+        // Re-reserve immediately: prelude's finally cleared the placeholder, and
+        // warm-ready / cold spawn may await. Only our turnId is ever released.
+        let canceledBeforePrompt = false;
+        active.set(threadId, {
+          stop: () => { canceledBeforePrompt = true; },
+          steer: async () => false,
+          interrupt: () => { canceledBeforePrompt = true; },
+          turnId,
+          asks: new Map(),
         });
+        const identity = support.warmSessionIdentity?.(env) ?? null;
+        const eligibility: WarmEligibilityInput | null =
+          identity && !skipSubscriptionAuthForLocalInject(turn.model)
+            ? {
+                identity,
+                threadId,
+                cli: effectiveCli(),
+                argsKey: support.spawnArgs(config, cliTurn).join("\0"),
+                cwd,
+                sessionCwd,
+                model: cliTurn.model,
+                effort: cliTurn.effort,
+                approval: turn.approval,
+                fullAuto: config.fullAuto === true,
+                toolsKey: warmToolsKey(turn.integrations),
+              }
+            : null;
+        let reused: WarmIdle | undefined;
+        if (idleWarm) {
+          const candidate = idleWarm;
+          const eligible =
+            !!eligibility
+            && candidate.connection.healthy
+            && canReuseWarmSession(candidate.eligibility, eligibility, candidate.sessionId, turn.resumeCursor);
+          if (!eligible) {
+            discardIdle(candidate);
+          } else {
+            // Borrow: clear the idle slot so TTL cannot kill an active turn.
+            clearTimeout(candidate.timer);
+            idleWarm = null;
+            reused = candidate;
+          }
+        }
+        if (reused) {
+          const warmChild = reused.connection.child;
+          active.set(threadId, {
+            stop: () => {
+              canceledBeforePrompt = true;
+              killCliTree(warmChild);
+            },
+            steer: async () => false,
+            interrupt: () => {
+              canceledBeforePrompt = true;
+              killCliTree(warmChild);
+            },
+            turnId,
+            asks: new Map(),
+          });
+          // ready never rejects: billing probe uses .catch(() => {}) when built
+          // (see settle). Health check below is the real warm-reuse fallback.
+          await reused.ready;
+          if (canceledBeforePrompt || disposed || active.get(threadId)?.turnId !== turnId) {
+            if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
+            if (reused) killCliTree(reused.connection.child);
+            if (disposed) throw new Error("provider disposed");
+            // Canceled while awaiting billing readiness: settle once without
+            // recursively retrying sendTurn (that would run the canceled prompt).
+            emit({ ...base(threadId, turnId), type: "turn.started" });
+            emit({ ...base(threadId, turnId), type: "turn.completed", ok: true, stopReason: "cancelled", cost: null });
+            return { turnId };
+          }
+          if (!reused.connection.healthy) {
+            killCliTree(reused.connection.child);
+            reused = undefined;
+          }
+        }
+        if (canceledBeforePrompt || disposed) {
+          if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
+          if (disposed) throw new Error("provider disposed");
+          emit({ ...base(threadId, turnId), type: "turn.started" });
+          emit({ ...base(threadId, turnId), type: "turn.completed", ok: true, stopReason: "cancelled", cost: null });
+          return { turnId };
+        }
+        let connection: ReturnType<typeof acpConnection>;
+        try {
+          connection = reused?.connection ?? acpConnection(spawnCli(effectiveCli(), support.spawnArgs(config, cliTurn), {
+            cwd, env, stdio: ["pipe", "pipe", "pipe"],
+          }), (dir, msg) => appendNative(threadId, { dir, source: SOURCE, msg }));
+        } catch (error) {
+          if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
+          throw error;
+        }
+        const child = connection.child;
 
         const state = { settled: false, promptSent: false, text: "" };
         const interjections = new Set<string>();
@@ -468,36 +592,14 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         // first, Grok runs each one as its own prompt inside this turn.
         const queuedSteers = new Map<Promise<any>, () => void>();
         const asks = new Map<string, (behavior: string, source?: "user" | "timeout" | "system") => string | null>();
-        let nextId = 1;
-        let sessionId: string | null = null;
+        let sessionId: string | null = reused?.sessionId ?? null;
+        let selectedModel: string | null = reused?.model ?? null;
         let interruptTimer: ReturnType<typeof setTimeout> | null = null;
-        const rpcPending = new Map<
-          number,
-          { resolve: (v: any) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> | null }
-        >();
-
-        const send = (obj: unknown) => {
-          try {
-            child.stdin.write(JSON.stringify(obj) + "\n");
-          } catch {}
-          appendNative(threadId, { dir: "out", source: SOURCE, msg: obj });
+        const { send, request } = connection;
+        const stop = () => {
+          if (idleWarm?.connection === connection) discardIdle(idleWarm);
+          else killCliTree(child);
         };
-        const request = (method: string, params: unknown, timeoutMs?: number) =>
-          new Promise<any>((resolve, reject) => {
-            const id = nextId++;
-            let timer: ReturnType<typeof setTimeout> | null = null;
-            if (timeoutMs) {
-              timer = setTimeout(() => {
-                rpcPending.delete(id);
-                reject(new Error(`${method} timed out`));
-              }, timeoutMs);
-              timer.unref?.();
-            }
-            rpcPending.set(id, { resolve, reject, timer });
-            send({ jsonrpc: "2.0", id, method, params });
-          });
-
-        const stop = () => killCliTree(child);
 
         const steer = (text: string): Promise<boolean> => {
           if (!support.grokInterjections || !state.promptSent || state.settled || interruptTimer || asks.size || !sessionId) {
@@ -545,26 +647,67 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           if (interruptTimer) clearTimeout(interruptTimer);
           for (const finish of [...asks.values()]) finish("cancel", "system");
           for (const finish of interjectionWaiters.values()) finish(false);
-          for (const p of rpcPending.values()) {
-            if (p.timer) clearTimeout(p.timer);
-            p.reject(new Error("turn settled"));
-          }
-          rpcPending.clear();
-          active.delete(threadId);
-          flushAssistantText();
-          emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason, cost: null });
+          connection.rejectPending("turn settled");
+          // Drop turn-scoped handlers so late untagged session/update chunks
+          // cannot attach after completion. Untagged same-session chunks that
+          // arrive after the next turn arms promptSent cannot be distinguished
+          // from that turn's chunks — ACP gives no Orbit turnId on the wire.
+          connection.onNotification = () => {};
+          // askPermission-shaped cancel is only valid for session/request_permission;
+          // other methods get a JSON-RPC error so the CLI does not mis-parse the result.
+          connection.onRequest = (msg) => {
+            if (msg.method === "session/request_permission") {
+              send({ jsonrpc: "2.0", id: msg.id, result: { outcome: { outcome: "cancelled" } } });
+              return;
+            }
+            send({ jsonrpc: "2.0", id: msg.id, error: { code: -32600, message: "no active turn" } });
+          };
+          // Belt-and-suspenders: close usually evicts idle warm, but an
+          // error-without-close must not leave a dead entry until TTL.
+          connection.onError = (_e) => {
+            if (idleWarm?.connection === connection) discardIdle(idleWarm);
+          };
+          const keep = Boolean(
+            eligibility
+            && ok
+            && stopReason === null
+            && typeof sessionId === "string"
+            && connection.healthy
+            && !disposed
+            && !interruptTimer
+            && !canceledBeforePrompt
+          );
+          // Establish billing readiness BEFORE publishing turn.completed so a
+          // synchronous completion listener cannot sendTurn before ready is set.
+          let ready: Promise<void> = Promise.resolve();
           if (readBilling && support.billingMethod) {
             billingStops.add(stop);
-            void request(support.billingMethod, {}, INIT_TIMEOUT).then((result) => {
+            ready = request(support.billingMethod, {}, INIT_TIMEOUT).then((result) => {
               const windows = grokRateLimitWindows(result);
               if (windows.length > 0) {
                 emit({ ...base(threadId, turnId), type: "account.rate-limits.updated", windows });
               }
             }).catch(() => {}).finally(() => {
               billingStops.delete(stop);
-              stop();
+              // Keep path must not kill the reused child; cold path stops here.
+              if (!keep) stop();
             });
-          } else stop();
+          } else if (!keep) {
+            stop();
+          }
+          if (keep && typeof sessionId === "string" && eligibility) {
+            stashIdle({
+              connection,
+              eligibility,
+              sessionId,
+              model: selectedModel,
+              threadId,
+              ready,
+            });
+          }
+          active.delete(threadId);
+          flushAssistantText();
+          emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason, cost: null });
         };
 
         // Whether this turn could have spent a subscription window at all.
@@ -678,7 +821,10 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           }
           if (msg.method !== "session/update") return;
           const p = msg.params ?? {};
-          if (!state.promptSent || p._meta?.isReplay === true) return;
+          // Evidence-supported gates only: prompt arming, explicit replay flag,
+          // and a present sessionId that disagrees. Orbit's turnId is never sent
+          // to the provider, so _meta.turnId is not a shared namespace.
+          if (state.settled || !state.promptSent || p._meta?.isReplay === true || (p.sessionId && p.sessionId !== sessionId)) return;
           const u = p.update ?? {};
           switch (u.sessionUpdate) {
             case "agent_message_chunk": {
@@ -722,70 +868,20 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           }
         };
 
-        let buf = "";
-        // decode as UTF-8 across chunk boundaries — a raw `buf += chunk` splits
-        // multibyte characters that straddle two reads and corrupts the text
-        child.stdout.setEncoding("utf8");
-        child.stdout.on("data", (chunk) => {
-          buf += chunk;
-          let nl;
-          while ((nl = buf.indexOf("\n")) !== -1) {
-            const line = buf.slice(0, nl);
-            buf = buf.slice(nl + 1);
-            if (!line.trim()) continue;
-            let msg: any;
-            try {
-              msg = JSON.parse(line);
-            } catch {
-              continue;
-            }
-            appendNative(threadId, { dir: "in", source: SOURCE, msg });
-            if (msg.id !== undefined && (msg.result !== undefined || msg.error !== undefined)) {
-              const pend = rpcPending.get(msg.id);
-              if (pend) {
-                rpcPending.delete(msg.id);
-                if (pend.timer) clearTimeout(pend.timer);
-                if (msg.error) {
-                  const error = new Error(msg.error.message ?? JSON.stringify(msg.error));
-                  Object.assign(error, { code: msg.error.code, data: msg.error.data });
-                  pend.reject(error);
-                } else {
-                  pend.resolve(msg.result);
-                }
-              }
-            } else if (msg.id !== undefined && msg.method) {
-              handleServerRequest(msg);
-            } else if (msg.method) {
-              handleNotification(msg);
-            }
-          }
-        });
-
-        let stderr = "";
-        child.stderr.on("data", (c) => {
-          stderr += c;
-          if (stderr.length > 8192) stderr = stderr.slice(-8192);
-        });
-        child.on("error", (e) => {
+        connection.onRequest = handleServerRequest;
+        connection.onNotification = handleNotification;
+        connection.onError = (e) => {
           if (state.settled) return;
           emit({ ...base(threadId, turnId), type: "runtime.error", ...describeSpawnFailure(e, effectiveCli()) });
           settle(false, "spawn_error");
-        });
-        child.on("close", (code) => {
-          for (const pending of rpcPending.values()) {
-            if (pending.timer) clearTimeout(pending.timer);
-            pending.reject(new Error("process closed"));
-          }
-          rpcPending.clear();
+        };
+        connection.onClose = (code, stderr) => {
+          if (idleWarm?.connection === connection) discardIdle(idleWarm);
           if (!state.settled) {
-            emit({
-              ...base(threadId, turnId),
-              type: "runtime.error",
-              message: `${DRIVER_KIND} exited ${code} before the prompt result${stderr ? `: ${stderr.trim().slice(-300)}` : ""}`,
-            });
+            emit({ ...base(threadId, turnId), type: "runtime.error", message: `${DRIVER_KIND} exited ${code} before the prompt result${stderr ? `: ${stderr.trim().slice(-300)}` : ""}` });
             settle(false, "exit_before_result");
           }
-        });
+        };
 
         const interrupt = () => {
           if (sessionId) send({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId } });
@@ -797,11 +893,28 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           interruptTimer.unref?.();
         };
         active.set(threadId, { stop, steer, interrupt, turnId, asks });
+        if (canceledBeforePrompt || disposed) {
+          active.delete(threadId);
+          if (idleWarm?.connection === connection) discardIdle(idleWarm);
+          else killCliTree(child);
+          if (disposed) throw new Error("provider disposed");
+          emit({ ...base(threadId, turnId), type: "turn.started" });
+          emit({ ...base(threadId, turnId), type: "turn.completed", ok: true, stopReason: "cancelled", cost: null });
+          return { turnId };
+        }
         emit({ ...base(threadId, turnId), type: "turn.started" });
 
         (async () => {
           try {
-            const init = await request(
+            if (canceledBeforePrompt) {
+              settle(true, "cancelled");
+              return;
+            }
+            let init: any = null;
+            let resumeFailed = false;
+            let sessionResult: any = null;
+            if (!reused) {
+            init = await request(
               "initialize",
               { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } } },
               INIT_TIMEOUT,
@@ -824,8 +937,6 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             // After Orbit compaction the harness omits resumeCursor so this
             // path starts a new session and injects the bounded transcript.
             const cursor = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
-            let sessionResult: any = null;
-            let resumeFailed = false;
             if (cursor) {
               try {
                 sessionResult = await request(
@@ -843,7 +954,13 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               sessionId = typeof sessionResult?.sessionId === "string" ? sessionResult.sessionId : null;
               if (!sessionId) throw new Error("session/new returned no sessionId");
             }
-            let selectedModel: string | null = null;
+            }
+            // Cold path throws if session/new omits sessionId; warm path borrows
+            // a string sessionId. Establish the invariant for configureSession.
+            if (typeof sessionId !== "string" || !sessionId) {
+              throw new Error("session/new returned no sessionId");
+            }
+            const activeSessionId: string = sessionId;
             let sessionStarted = false;
             const emitSessionStarted = () => {
               if (sessionStarted) return;
@@ -851,13 +968,13 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               emit({
                 ...base(threadId, turnId),
                 type: "session.started",
-                sessionId,
+                sessionId: activeSessionId,
                 model: selectedModel ?? init?._meta?.modelState?.currentModelId ?? cliTurn.model ?? null,
               });
             };
 
             try {
-              if (support.selectModel) {
+              if (!reused && support.selectModel) {
                 const { configId } = support.selectModel;
                 const currentOf = (r: any) =>
                   (Array.isArray(r?.configOptions) ? r.configOptions : []).find((o: any) => o?.id === configId)
@@ -867,7 +984,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                   selectedModel = currentOf(
                     await request(
                       "session/set_config_option",
-                      { sessionId, configId, value: cliTurn.model },
+                      { sessionId: activeSessionId, configId, value: cliTurn.model },
                       INIT_TIMEOUT,
                     ),
                   );
@@ -881,11 +998,11 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                 }
               }
 
-              if (support.configureSession) {
+              if (!reused && support.configureSession) {
                 await support.configureSession({
                   request: (method, params, timeoutMs) =>
                     request(method, params, timeoutMs ?? SESSION_CONFIG_TIMEOUT),
-                  sessionId,
+                  sessionId: activeSessionId,
                   config,
                   turn: cliTurn,
                   sessionModels: Array.isArray(sessionResult?.models?.availableModels)
@@ -915,7 +1032,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                 ? `${promptTurn.system}\n\n${promptTurn.text}`
                 : promptTurn.text;
             let result = await request("session/prompt", {
-              sessionId,
+              sessionId: activeSessionId,
               prompt: [{ type: "text", text }],
             });
             // opencode 1.18.18 reports usage at the result root; grok and
@@ -1050,6 +1167,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           stopAll: async () => {
             for (const { stop } of active.values()) stop();
             for (const stop of billingStops) stop();
+            discardIdle();
           },
           onEvent: (listener) => {
             listeners.add(listener);
@@ -1057,6 +1175,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           },
         },
         dispose: async () => {
+          disposed = true;
+          discardIdle();
           for (const { stop } of active.values()) stop();
           for (const stop of billingStops) stop();
           listeners.clear();

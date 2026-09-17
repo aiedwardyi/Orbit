@@ -17,7 +17,7 @@ import type { ProviderDriver, ProviderInstance } from "../../contracts.ts";
 import { recordEvents, type EventRecorder } from "../../testing/events.ts";
 import { createAcpDriver, probeCliVersion, skipSubscriptionAuthForLocalInject, wslSessionPaths, type AcpSupport } from "./core.ts";
 import { toWslPath } from "../../env-path.ts";
-import { GrokAgentDriver } from "./grok.ts";
+import { GrokAgentDriver, grokSupport } from "./grok.ts";
 import { GeminiAgentDriver } from "./gemini.ts";
 import { KimiAgentDriver } from "./kimi.ts";
 import { DroidAgentDriver } from "./droid.ts";
@@ -121,6 +121,479 @@ describe("wslSessionPaths", () => {
     });
   });
 });
+
+
+describe("SPEED4 warm session reuse (fake CLI)", () => {
+  let instance: ProviderInstance;
+  let recorder: EventRecorder;
+  let scratch: string;
+
+  const WarmGrok = createAcpDriver({
+    ...grokSupport,
+    // Deterministic identity so fake-CLI tests do not depend on ~/.grok/auth.json.
+    warmSessionIdentity: () => "speed4-test-identity",
+    warmIdleMs: 200,
+    isAuthenticated: () => true,
+  });
+
+  // Dump/late paths via create().env. Leave FAKE_ACP_MODE on live process.env
+  // so mid-test mode switches (hang -> happy) reach cold respawns.
+  const fakeEnv = (): Record<string, string> => {
+    const env: Record<string, string> = {};
+    for (const key of [
+      "FAKE_ACP_RPC_DUMP",
+      "FAKE_ACP_DUMP",
+      "FAKE_ACP_LATE_CHUNK_MS",
+      "FAKE_ACP_LATE_SESSION_ID",
+      "FAKE_ACP_LATE_REPLAY",
+      "FAKE_ACP_LATE_TEXT",
+      "FAKE_ACP_BILLING_DELAY_MS",
+      "FAKE_ACP_BILLING_END",
+      "FAKE_ACP_BILLING_PERCENT",
+    ]) {
+      const value = process.env[key];
+      if (value) env[key] = value;
+    }
+    return env;
+  };
+
+  const createWarm = async (mode = "happy", fullAuto = false) => {
+    if (mode) process.env.FAKE_ACP_MODE = mode;
+    instance = await WarmGrok.create({
+      instanceId: "speed4-warm",
+      displayName: "SPEED4 Warm",
+      environment: fakeEnv(),
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto, workspace: scratch },
+    });
+    recorder = recordEvents(instance.adapter);
+  };
+
+  beforeEach(() => {
+    ensureDirs();
+    chmodSync(FAKE_CLI, 0o755);
+    scratch = mkdtempSync(join(tmpdir(), "omb-speed4-"));
+  });
+
+  afterEach(async () => {
+    recorder?.stop();
+    await instance?.dispose();
+    delete process.env.FAKE_ACP_MODE;
+    delete process.env.FAKE_ACP_SESSION_ID;
+    delete process.env.FAKE_ACP_DUMP;
+    delete process.env.FAKE_ACP_RPC_DUMP;
+    delete process.env.FAKE_ACP_LATE_CHUNK_MS;
+    delete process.env.FAKE_ACP_LATE_SESSION_ID;
+    delete process.env.FAKE_ACP_LATE_REPLAY;
+    delete process.env.FAKE_ACP_LATE_TEXT;
+    delete process.env.FAKE_ACP_BILLING_DELAY_MS;
+    delete process.env.FAKE_ACP_BILLING_END;
+    delete process.env.FAKE_ACP_BILLING_PERCENT;
+    await removeTempDir(scratch);
+  });
+
+  const rpcMethods = () => {
+    const raw = readFileSync(process.env.FAKE_ACP_RPC_DUMP!, "utf8").trim();
+    if (!raw) return [] as string[];
+    try {
+      return JSON.parse(raw) as string[];
+    } catch {
+      return [] as string[];
+    }
+  };
+
+  const waitForRpc = async (pred: (methods: string[]) => boolean, timeoutMs = 5_000) => {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const methods = rpcMethods();
+      if (pred(methods)) return methods;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    return rpcMethods();
+  };
+
+  const sessionIdFor = (turnId: string) => {
+    const started = recorder.events.find((e) => e.type === "session.started" && e.turnId === turnId) as any;
+    expect(started?.sessionId).toEqual(expect.any(String));
+    return started?.sessionId as string;
+  };
+
+  it("runs two consecutive prompts on one child without re-initialize/load", async () => {
+    process.env.FAKE_ACP_RPC_DUMP = join(scratch, "warm-rpc.json");
+    writeFileSync(process.env.FAKE_ACP_RPC_DUMP, "[]");
+    await createWarm();
+    const t1 = await instance.adapter.sendTurn({ threadId: "t-warm", text: "one", system: "persona-a" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t1.turnId);
+    const sessionId = sessionIdFor(t1.turnId);
+
+    const t2 = await instance.adapter.sendTurn({
+      threadId: "t-warm",
+      text: "two",
+      system: "persona-b-with-task-state",
+      resumeCursor: sessionId,
+    });
+    expect(t2.turnId).not.toBe(t1.turnId);
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t2.turnId);
+
+    const rpc = await waitForRpc((m) => m.filter((x) => x === "session/prompt").length >= 2);
+    expect(rpc.filter((m) => m === "initialize")).toHaveLength(1);
+    expect(rpc.filter((m) => m === "session/new")).toHaveLength(1);
+    expect(rpc.filter((m) => m === "session/load")).toHaveLength(0);
+    expect(rpc.filter((m) => m === "session/prompt").length).toBeGreaterThanOrEqual(2);
+    // Distinct Orbit turnIds; same provider session; system text change did not invalidate reuse.
+    expect(sessionIdFor(t2.turnId)).toBe(sessionId);
+    expect(recorder.events.filter((e) => e.type === "content.delta" && e.turnId === t2.turnId).length).toBeGreaterThan(0);
+  });
+
+  it("starts fresh when model, effort, approval, cwd, or tools change", async () => {
+    process.env.FAKE_ACP_RPC_DUMP = join(scratch, "drift-rpc.json");
+    writeFileSync(process.env.FAKE_ACP_RPC_DUMP, "[]");
+    await createWarm();
+    const t1 = await instance.adapter.sendTurn({
+      threadId: "t-drift",
+      text: "one",
+      model: "grok-4.6",
+      effort: "low",
+      approval: "ask",
+      cwd: scratch,
+    });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t1.turnId);
+    const sessionId = sessionIdFor(t1.turnId);
+
+    // Model change must cold-start.
+    writeFileSync(process.env.FAKE_ACP_RPC_DUMP, "[]");
+    const t2 = await instance.adapter.sendTurn({
+      threadId: "t-drift",
+      text: "two",
+      model: "grok-4.5",
+      effort: "low",
+      approval: "ask",
+      cwd: scratch,
+      resumeCursor: sessionId,
+    });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t2.turnId);
+    // Model mismatch discards warm and cold-starts (load if resumeCursor set, else new).
+    const afterModel = rpcMethods();
+    expect(afterModel.filter((m) => m === "initialize").length).toBeGreaterThanOrEqual(1);
+    expect(afterModel.includes("session/load") || afterModel.includes("session/new")).toBe(true);
+
+    const session2 = sessionIdFor(t2.turnId);
+    writeFileSync(process.env.FAKE_ACP_RPC_DUMP, "[]");
+    const t3 = await instance.adapter.sendTurn({
+      threadId: "t-drift",
+      text: "three",
+      model: "grok-4.5",
+      effort: "high",
+      approval: "ask",
+      cwd: scratch,
+      resumeCursor: session2,
+    });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t3.turnId);
+    // Effort drift → another cold session/new (rpc dump rewritten by new process).
+    expect(rpcMethods().includes("session/new") || rpcMethods().includes("initialize")).toBe(true);
+  });
+
+  it("isolates two bot instances (no cross-bot warm pooling)", async () => {
+    process.env.FAKE_ACP_MODE = "happy";
+    const a = await WarmGrok.create({
+      instanceId: "speed4-a",
+      displayName: "A",
+      environment: { ...fakeEnv(), FAKE_ACP_SESSION_ID: "fake-session-a" },
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: false, workspace: scratch },
+    });
+    const b = await WarmGrok.create({
+      instanceId: "speed4-b",
+      displayName: "B",
+      environment: { ...fakeEnv(), FAKE_ACP_SESSION_ID: "fake-session-b" },
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: false, workspace: scratch },
+    });
+    const ra = recordEvents(a.adapter);
+    const rb = recordEvents(b.adapter);
+    try {
+      const ta = await a.adapter.sendTurn({ threadId: "thread-a", text: "a1" });
+      await ra.until((e) => e.type === "turn.completed" && e.turnId === ta.turnId);
+      const tb = await b.adapter.sendTurn({ threadId: "thread-b", text: "b1" });
+      await rb.until((e) => e.type === "turn.completed" && e.turnId === tb.turnId);
+      const sa = (ra.events.find((e) => e.type === "session.started") as any).sessionId;
+      const sb = (rb.events.find((e) => e.type === "session.started") as any).sessionId;
+      // Follow-ups stay on their own instance/thread.
+      await a.adapter.sendTurn({ threadId: "thread-a", text: "a2", resumeCursor: sa });
+      await ra.until((e) => e.type === "turn.completed" && e.turnId !== ta.turnId);
+      await b.adapter.sendTurn({ threadId: "thread-b", text: "b2", resumeCursor: sb });
+      await rb.until((e) => e.type === "turn.completed" && e.turnId !== tb.turnId);
+      expect(sa).toBeTruthy();
+      expect(sb).toBeTruthy();
+      expect(sa).not.toBe(sb);
+    } finally {
+      ra.stop();
+      rb.stop();
+      await a.dispose();
+      await b.dispose();
+    }
+  });
+
+  it("does not reuse when resumeCursor is missing or different", async () => {
+    process.env.FAKE_ACP_RPC_DUMP = join(scratch, "cursor-rpc.json");
+    writeFileSync(process.env.FAKE_ACP_RPC_DUMP, "[]");
+    await createWarm();
+    const t1 = await instance.adapter.sendTurn({ threadId: "t-cursor", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t1.turnId);
+    const sessionId = sessionIdFor(t1.turnId);
+    const promptsAfterT1 = rpcMethods().filter((m) => m === "session/prompt").length;
+
+    // Missing cursor (compaction) → kill warm + cold respawn. A new process
+    // overwrites the rpc dump, so prompt count resets instead of accumulating.
+    // Distinct FAKE_ACP_SESSION_ID reaches the cold child via process.env (same
+    // mid-test switch pattern as FAKE_ACP_MODE), so we can assert a new session.
+    process.env.FAKE_ACP_SESSION_ID = "fake-session-after-compact";
+    const t2 = await instance.adapter.sendTurn({ threadId: "t-cursor", text: "compacted" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t2.turnId);
+    const afterMissing = await waitForRpc((m) => m.includes("session/new") || m.includes("initialize"));
+    expect(afterMissing.filter((m) => m === "session/prompt").length).toBeLessThanOrEqual(promptsAfterT1);
+    expect(afterMissing.includes("session/new") || afterMissing.includes("initialize")).toBe(true);
+    expect(sessionIdFor(t2.turnId)).toBeTruthy();
+    expect(sessionIdFor(t2.turnId)).not.toBe(sessionId);
+
+    // Different cursor → session/load (or new after failed load) on a fresh child.
+    const t3 = await instance.adapter.sendTurn({
+      threadId: "t-cursor",
+      text: "rewind",
+      resumeCursor: "other-session-id",
+      resumeFallback: { text: "fallback" },
+    });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t3.turnId);
+    const afterDiff = await waitForRpc((m) => m.includes("session/load") || m.includes("session/new"));
+    expect(afterDiff.includes("session/load") || afterDiff.includes("session/new")).toBe(true);
+    expect(sessionId).toBeTruthy();
+  });
+
+  it("recovers with a cold spawn after stopAll kills the warm child", async () => {
+    process.env.FAKE_ACP_RPC_DUMP = join(scratch, "kill-rpc.json");
+    writeFileSync(process.env.FAKE_ACP_RPC_DUMP, "[]");
+    await createWarm();
+    const t1 = await instance.adapter.sendTurn({ threadId: "t-kill", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t1.turnId);
+    const sessionId = sessionIdFor(t1.turnId);
+    const promptsBeforeKill = rpcMethods().filter((m) => m === "session/prompt").length;
+    await instance.adapter.stopAll();
+    const t2 = await instance.adapter.sendTurn({ threadId: "t-kill", text: "two", resumeCursor: sessionId });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t2.turnId);
+    const rpc = await waitForRpc((m) => m.includes("initialize") || m.includes("session/load") || m.includes("session/new"));
+    // New process overwrote the dump (not an accumulated warm follow-up).
+    expect(rpc.filter((m) => m === "session/prompt").length).toBeLessThanOrEqual(promptsBeforeKill);
+    expect(rpc.includes("session/load") || rpc.includes("session/new") || rpc.includes("initialize")).toBe(true);
+  });
+
+  it("recovers after a poisoned RPC failure without duplicate generation", async () => {
+    await createWarm("fail-after-text");
+    const t1 = await instance.adapter.sendTurn({ threadId: "t-poison", text: "boom" });
+    const done1 = await recorder.until((e) => e.type === "turn.completed" && e.turnId === t1.turnId);
+    expect(done1).toMatchObject({ ok: false });
+    process.env.FAKE_ACP_MODE = "happy";
+    process.env.FAKE_ACP_RPC_DUMP = join(scratch, "poison-rpc.json");
+    writeFileSync(process.env.FAKE_ACP_RPC_DUMP, "[]");
+    const t2 = await instance.adapter.sendTurn({ threadId: "t-poison", text: "recover" });
+    const done2 = await recorder.until((e) => e.type === "turn.completed" && e.turnId === t2.turnId);
+    expect(done2).toMatchObject({ ok: true });
+    expect(rpcMethods().filter((m) => m === "session/prompt").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("cancel then send starts a fresh turn", async () => {
+    // Use stock hang interrupt path (same as existing ACP suite).
+    await createWarm("hang");
+    const t1 = await instance.adapter.sendTurn({ threadId: "t-cancel", text: "hang" });
+    await recorder.until((e) => e.type === "content.delta" || e.type === "turn.started");
+    await instance.adapter.interruptTurn("t-cancel");
+    const done1 = await recorder.until((e) => e.type === "turn.completed" && e.turnId === t1.turnId, 15_000);
+    expect(["cancelled", "exit_before_result"]).toContain((done1 as any).stopReason);
+    process.env.FAKE_ACP_MODE = "happy";
+    const t2 = await instance.adapter.sendTurn({ threadId: "t-cancel", text: "after" });
+    const done2 = await recorder.until((e) => e.type === "turn.completed" && e.turnId === t2.turnId);
+    expect(done2).toMatchObject({ ok: true });
+    expect(t2.turnId).not.toBe(t1.turnId);
+  });
+
+  it("cancel while billing readiness is pending does not retry the canceled prompt", async () => {
+    await createWarm("billing-hang");
+    const t1 = await instance.adapter.sendTurn({ threadId: "t-bill-cancel", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t1.turnId);
+    const sessionId = sessionIdFor(t1.turnId);
+    const completedBefore = recorder.events.filter((e) => e.type === "turn.completed").length;
+
+    // Next turn blocks on ready (hanging billing). Interrupt must cancel, not recurse.
+    const pending = instance.adapter.sendTurn({
+      threadId: "t-bill-cancel",
+      text: "should-not-run",
+      resumeCursor: sessionId,
+    });
+    // Give the await-ready path a tick, then cancel via the reserved active entry.
+    await new Promise((r) => setTimeout(r, 50));
+    await instance.adapter.interruptTurn("t-bill-cancel");
+    const { turnId } = await pending;
+    const done = await recorder.until((e) => e.type === "turn.completed" && e.turnId === turnId);
+    expect(done).toMatchObject({ stopReason: "cancelled" });
+    expect(turnId).not.toBe(t1.turnId);
+    expect(recorder.events.filter((e) => e.type === "turn.completed").length).toBe(completedBefore + 1);
+  });
+
+  it("allows an immediate follow-up send from a turn.completed listener", async () => {
+    process.env.FAKE_ACP_RPC_DUMP = join(scratch, "sync-rpc.json");
+    writeFileSync(process.env.FAKE_ACP_RPC_DUMP, "[]");
+    await createWarm();
+    let follow: Promise<{ turnId: string }> | null = null;
+    let sessionId = "";
+    const unsub = instance.adapter.onEvent((e) => {
+      if (e.type === "session.started") sessionId = (e as any).sessionId;
+      if (e.type === "turn.completed" && (e as any).ok && !follow && sessionId) {
+        follow = instance.adapter.sendTurn({
+          threadId: "t-sync",
+          text: "from-callback",
+          resumeCursor: sessionId,
+        });
+      }
+    });
+    try {
+      const t1 = await instance.adapter.sendTurn({ threadId: "t-sync", text: "one" });
+      await recorder.until((e) => e.type === "turn.completed" && e.turnId === t1.turnId);
+      expect(follow).toBeTruthy();
+      const t2 = await follow!;
+      await recorder.until((e) => e.type === "turn.completed" && e.turnId === t2.turnId);
+      const rpc = rpcMethods();
+      expect(rpc.filter((m) => m === "session/prompt").length).toBeGreaterThanOrEqual(2);
+      expect(rpc.filter((m) => m === "initialize").length).toBe(1);
+    } finally {
+      unsub();
+    }
+  });
+
+  it("evicts an idle warm child after TTL", async () => {
+    const ShortTtl = createAcpDriver({
+      ...grokSupport,
+      warmSessionIdentity: () => "speed4-ttl-identity",
+      warmIdleMs: 80,
+      isAuthenticated: () => true,
+    });
+    process.env.FAKE_ACP_MODE = "happy";
+    process.env.FAKE_ACP_RPC_DUMP = join(scratch, "ttl-rpc.json");
+    writeFileSync(process.env.FAKE_ACP_RPC_DUMP, "[]");
+    instance = await ShortTtl.create({
+      instanceId: "speed4-ttl",
+      displayName: "TTL",
+      environment: fakeEnv(),
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: false, workspace: scratch },
+    });
+    recorder = recordEvents(instance.adapter);
+    const t1 = await instance.adapter.sendTurn({ threadId: "t-ttl", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t1.turnId);
+    const sessionId = sessionIdFor(t1.turnId);
+    const promptsAfterT1 = rpcMethods().filter((m) => m === "session/prompt").length;
+    await new Promise((r) => setTimeout(r, 200));
+    const t2 = await instance.adapter.sendTurn({ threadId: "t-ttl", text: "two", resumeCursor: sessionId });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t2.turnId);
+    const after = await waitForRpc((m) => m.includes("initialize") || m.includes("session/load") || m.includes("session/new"));
+    // TTL eviction kills the idle child; the follow-up is a cold respawn that
+    // overwrites the rpc dump instead of accumulating another prompt on it.
+    expect(after.filter((m) => m === "session/prompt").length).toBeLessThanOrEqual(promptsAfterT1);
+    expect(after.includes("initialize") || after.includes("session/new") || after.includes("session/load")).toBe(true);
+  });
+
+  it("dispose kills owned warm children", async () => {
+    process.env.FAKE_ACP_RPC_DUMP = join(scratch, "dispose-rpc.json");
+    writeFileSync(process.env.FAKE_ACP_RPC_DUMP, "[]");
+    await createWarm();
+    const t1 = await instance.adapter.sendTurn({ threadId: "t-dispose", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t1.turnId);
+    await instance.dispose();
+    // Recreate — prior warm must be gone (new process / initialize).
+    process.env.FAKE_ACP_RPC_DUMP = join(scratch, "dispose-rpc2.json");
+    writeFileSync(process.env.FAKE_ACP_RPC_DUMP, "[]");
+    await createWarm();
+    const t2 = await instance.adapter.sendTurn({ threadId: "t-dispose", text: "two" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t2.turnId);
+    const rpc = await waitForRpc((m) => m.includes("initialize"));
+    expect(rpc.filter((m) => m === "initialize").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("preserves billing across warm reuse", async () => {
+    process.env.FAKE_ACP_BILLING_END = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+    await createWarm("happy");
+    const t1 = await instance.adapter.sendTurn({ threadId: "t-bill", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t1.turnId);
+    await recorder.until((e) => e.type === "account.rate-limits.updated");
+    const sessionId = sessionIdFor(t1.turnId);
+    const t2 = await instance.adapter.sendTurn({ threadId: "t-bill", text: "two", resumeCursor: sessionId });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t2.turnId);
+    // Second billing update for the follow-up turn.
+    await recorder.until(
+      (e) => e.type === "account.rate-limits.updated" && e.turnId === t2.turnId,
+    );
+  });
+
+  it("preserves permission asks on a warm follow-up", async () => {
+    // Child mode is fixed at spawn — keep permission mode for both turns.
+    await createWarm("permission");
+    const t1 = await instance.adapter.sendTurn({ threadId: "t-perm", text: "ask-1" });
+    const opened1 = await recorder.until((e) => e.type === "request.opened" && e.turnId === t1.turnId);
+    await instance.adapter.respondToRequest!("t-perm", (opened1 as any).requestId, { behavior: "allow" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t1.turnId);
+    const sessionId = sessionIdFor(t1.turnId);
+    const t2 = await instance.adapter.sendTurn({ threadId: "t-perm", text: "ask-2", resumeCursor: sessionId });
+    const opened2 = await recorder.until((e) => e.type === "request.opened" && e.turnId === t2.turnId);
+    await instance.adapter.respondToRequest!("t-perm", (opened2 as any).requestId, { behavior: "allow" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t2.turnId);
+  });
+
+  it("preserves steer on a warm follow-up", async () => {
+    await createWarm("steer");
+    const t1 = await instance.adapter.sendTurn({ threadId: "t-steer-warm", text: "first" });
+    await recorder.until((e) => e.type === "content.delta" && e.turnId === t1.turnId);
+    expect(await instance.adapter.steer!("t-steer-warm", "extra-1")).toBe(true);
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t1.turnId);
+    const sessionId = sessionIdFor(t1.turnId);
+    const t2 = await instance.adapter.sendTurn({ threadId: "t-steer-warm", text: "second", resumeCursor: sessionId });
+    await recorder.until((e) => e.type === "content.delta" && e.turnId === t2.turnId);
+    expect(await instance.adapter.steer!("t-steer-warm", "extra-2")).toBe(true);
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t2.turnId);
+  });
+
+  it("filters injected late notifications with wrong session or isReplay", async () => {
+    process.env.FAKE_ACP_LATE_CHUNK_MS = "30";
+    process.env.FAKE_ACP_LATE_TEXT = "LATE_WRONG";
+    process.env.FAKE_ACP_LATE_SESSION_ID = "not-this-session";
+    process.env.FAKE_ACP_RPC_DUMP = join(scratch, "late-rpc.json");
+    writeFileSync(process.env.FAKE_ACP_RPC_DUMP, "[]");
+    await createWarm();
+    const t1 = await instance.adapter.sendTurn({ threadId: "t-late", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t1.turnId);
+    await new Promise((r) => setTimeout(r, 80));
+    // Wrong-session late chunk must not appear as assistant text on t1 after settle
+    // (handlers are cleared) nor leak into a follow-up before promptSent.
+    const lateOnT1 = recorder.events.filter(
+      (e) => e.type === "content.delta" && e.turnId === t1.turnId && (e as any).delta === "LATE_WRONG",
+    );
+    expect(lateOnT1).toHaveLength(0);
+
+    // The fake CLI reads its late-event settings only when it starts. Replace
+    // the warm child before testing the replay metadata gate.
+    recorder.stop();
+    await instance.dispose();
+    delete process.env.FAKE_ACP_LATE_SESSION_ID;
+    process.env.FAKE_ACP_LATE_REPLAY = "1";
+    process.env.FAKE_ACP_LATE_TEXT = "LATE_REPLAY";
+    await createWarm();
+    const t2 = await instance.adapter.sendTurn({ threadId: "t-late", text: "two" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === t2.turnId);
+    await new Promise((r) => setTimeout(r, 80));
+    const replayOnT2 = recorder.events.filter(
+      (e) => e.type === "content.delta" && e.turnId === t2.turnId && (e as any).delta === "LATE_REPLAY",
+    );
+    expect(replayOnT2).toHaveLength(0);
+  });
+});
+
 
 describe("ACP decodeConfig", () => {
   it("resolves a dynamic model catalog when a support provides one", async () => {

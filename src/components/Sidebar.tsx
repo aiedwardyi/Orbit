@@ -166,11 +166,11 @@ interface MenuState {
   y: number;
 }
 
-/** Room avatar: 2–3 overlapping mauses in the same 56px slot a bot gets. */
+/** Room avatar: 2–3 overlapping mauses in the same 52px slot a bot gets. */
 function StackedMauses({ members, density }: { members: Bot[]; density: SidebarDensity }) {
   const iconOnly = density === "icons";
-  const slotSize = iconOnly ? "size-12" : density === "compact" ? "size-10" : "size-14";
-  const singleSize = iconOnly ? 44 : density === "compact" ? 40 : 56;
+  const slotSize = iconOnly ? "size-12" : density === "compact" ? "size-10" : "size-[52px]";
+  const singleSize = iconOnly ? 44 : density === "compact" ? 40 : 52;
   if (members.length <= 1) {
     const b = members[0];
     return (
@@ -292,7 +292,7 @@ function GroupListItem({
         }}
         className={cn(
           "flex w-full items-center rounded-xl text-left",
-          density === "icons" ? "justify-center px-1 py-1.5" : density === "compact" ? "gap-2 px-2 py-1.5" : "gap-3 px-3 py-2.5",
+          density === "icons" ? "justify-center px-1 py-1.5" : density === "compact" ? "gap-2 px-2 py-1.5" : "gap-2.5 px-3 py-2",
           selected ? "bg-raised" : "hover:bg-raised/50",
         )}
         aria-label={density === "icons" ? group.name : undefined}
@@ -759,7 +759,7 @@ function BotListItem({
   useEffect(() => {
     if (iconOnly) setRenaming(false);
   }, [iconOnly]);
-  const avatarSize = iconOnly ? 44 : density === "compact" ? 40 : 56;
+  const avatarSize = iconOnly ? 44 : density === "compact" ? 40 : 52;
   // the visible branch, so a version switch changes the row with the chat
   const visible = visibleMessages(bot);
   const last = visible.at(-1);
@@ -773,7 +773,7 @@ function BotListItem({
       ? "justify-center px-1 py-1.5"
       : density === "compact"
         ? "gap-2 px-2 py-1.5 pr-12"
-        : "gap-3 px-3 py-2.5 pr-12",
+        : "gap-2.5 px-3 py-2 pr-12",
     sidebarConversationRowTone(selected),
   );
   const body = (
