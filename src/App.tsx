@@ -124,6 +124,13 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     window.ogb?.setUnreadCount?.(unreadCount);
   }, [unreadCount]);
 
+  useEffect(() => {
+    const offAttention = window.ogb?.terminal?.onAttention?.(({ botId }) => {
+      dispatch({ type: "markUnread", botId });
+    });
+    return offAttention;
+  }, [dispatch]);
+
   const taskbarBusy = state.bots.some((candidate) => candidate.busy);
   useEffect(() => {
     window.ogb?.setTaskbarBusy?.(taskbarBusy);

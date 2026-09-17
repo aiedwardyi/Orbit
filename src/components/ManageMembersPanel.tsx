@@ -3,8 +3,10 @@
 // already in. Membership is the only thing this touches — the transcript
 // keeps every message a departing bot already sent.
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { useStore, type Group } from "@/state/store";
+import { Plus } from "lucide-react";
+import { useStore, type Bot, type Group } from "@/state/store";
 import { BotPickerList } from "./BotPickerList";
+import { CreateBotSheet } from "./CreateBotSheet";
 import { nextMemberIds } from "@/lib/room-members";
 import { useI18n } from "@/lib/i18n";
 
@@ -21,6 +23,7 @@ export function ManageMembersPanel({
   const { state, dispatch } = useStore();
   const [picked, setPicked] = useState<Set<string>>(() => new Set(group.memberIds));
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
   const openedMemberIds = useRef([...group.memberIds]);
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -95,45 +98,71 @@ export function ManageMembersPanel({
     onClose();
   };
 
+  const addCreatedBot = (bot: Bot) => {
+    const nextGroupMemberIds = group.memberIds.includes(bot.id) ? group.memberIds : [...group.memberIds, bot.id];
+    openedMemberIds.current = nextGroupMemberIds;
+    setPicked((prev) => new Set(prev).add(bot.id));
+    dispatch({ type: "patchGroup", groupId: group.id, patch: { memberIds: nextGroupMemberIds } });
+    setCreateOpen(false);
+  };
+
   return (
-    <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/40"
-      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
-    >
+    <>
       <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("room.manageMembersOf", { name: group.name })}
-        className="w-[340px] rounded-2xl border border-hairline/50 bg-card p-4 shadow-2xl"
+        className="fixed inset-0 z-40 flex items-center justify-center bg-black/40"
+        onMouseDown={(e) => e.target === e.currentTarget && onClose()}
       >
-        <div className="mb-1 text-[15px] font-semibold text-ink first-letter:uppercase">{t("room.manageMembers")}</div>
-        <div className="mb-3 truncate text-[13px] text-ink-secondary">{group.name}</div>
-        <BotPickerList bots={bots} picked={picked} onToggle={toggle} emptyHint="Add an existing bot or create one here." />
-        {!memberIds.length && <div className="mt-2 text-[12px] text-ink-secondary">A group needs at least one bot.</div>}
-        {saveError && (
-          <div role="alert" className="mt-2 text-[12px] text-danger">
-            {saveError}
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("room.manageMembersOf", { name: group.name })}
+          className="w-[340px] rounded-2xl border border-hairline/50 bg-card p-4 shadow-2xl"
+        >
+          <div className="mb-1 text-[15px] font-semibold text-ink first-letter:uppercase">{t("room.manageMembers")}</div>
+          <div className="mb-3 truncate text-[13px] text-ink-secondary">{group.name}</div>
+          <BotPickerList bots={bots} picked={picked} onToggle={toggle} emptyHint={t("chrome.createBotFirst")} />
+          <button
+            type="button"
+            data-manage-create-bot
+            onClick={() => setCreateOpen(true)}
+            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-accent/50 px-3 py-2 text-[13px] font-medium text-accent hover:bg-accent/10"
+          >
+            <Plus size={15} /> {t("room.addBot")}
+          </button>
+          {!memberIds.length && <div className="mt-2 text-[12px] text-ink-secondary">A group needs at least one bot.</div>}
+          {saveError && (
+            <div role="alert" className="mt-2 text-[12px] text-danger">
+              {saveError}
+            </div>
+          )}
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={onClose}
+              className="flex-1 rounded-lg bg-raised py-2 text-[14px] font-medium text-ink hover:brightness-110"
+            >
+              {t("createBot.cancel")}
+            </button>
+            <button
+              onClick={save}
+              disabled={!memberIds.length}
+              className="flex-1 rounded-lg bg-accent py-2 text-[14px] font-medium text-accent-ink hover:brightness-110 disabled:opacity-40"
+            >
+              {memberIds.length
+                ? t(memberIds.length === 1 ? "room.saveMembersOne" : "room.saveMembersMany", { count: memberIds.length })
+                : t("room.save")}
+            </button>
           </div>
-        )}
-        <div className="mt-3 flex gap-2">
-          <button
-            onClick={onClose}
-            className="flex-1 rounded-lg bg-raised py-2 text-[14px] font-medium text-ink hover:brightness-110"
-          >
-            {t("createBot.cancel")}
-          </button>
-          <button
-            onClick={save}
-            disabled={!memberIds.length}
-            className="flex-1 rounded-lg bg-accent py-2 text-[14px] font-medium text-accent-ink hover:brightness-110 disabled:opacity-40"
-          >
-            {memberIds.length
-              ? t(memberIds.length === 1 ? "room.saveMembersOne" : "room.saveMembersMany", { count: memberIds.length })
-              : t("room.save")}
-          </button>
         </div>
       </div>
-    </div>
+      {createOpen && (
+        <CreateBotSheet
+          required={false}
+          initialSection={group.section}
+          onClose={() => setCreateOpen(false)}
+          onCreated={addCreatedBot}
+        />
+      )}
+    </>
   );
 }

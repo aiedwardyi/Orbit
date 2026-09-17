@@ -356,6 +356,22 @@ describe("ModelPicker cross navigation", () => {
     expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({ type: "setModel", botId: "bot-1", selection });
   });
 
+  it("hides a retired Gemini API selection without switching its saved provider", async () => {
+    const selection: ModelSelection = { instanceId: "gemini", model: "auto", mode: "automatic" };
+    mock.instances = [
+      engine("gemini", "geminiAgent", ["auto"]),
+      engine("antigravity", "antigravityAgent", ["gemini-3.8-flash-high", "gemini-3.8-flash-low"]),
+    ];
+    mock.instances[0]!.models.options[0]!.label = "Auto (recommended)";
+    await mount(selection);
+    const list = document.querySelector('[data-model-picker-content]')!;
+    expect(list.querySelector('[data-model-row="gemini"]')).toBeNull();
+    expect(list.textContent).not.toContain("Auto (recommended)");
+    expect(list.textContent).toContain("Current (not in list)");
+    await key("Enter");
+    expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({ type: "setModel", botId: "bot-1", selection });
+  });
+
   it("selects an existing Antigravity tier id and sends no effort value", async () => {
     const ids = ["gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low", "gemini-3.1-pro-high", "gemini-3.1-pro-low"];
     mock.instances = [engine("antigravity", "antigravityAgent", ids)];

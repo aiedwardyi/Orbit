@@ -715,6 +715,27 @@ describe("job-first bot creation", () => {
     expect(reducer(opened, { type: "botAdded", bot }).composerFocusBotId).toBeNull();
   });
 
+  it("keeps the current conversation when a bot is created from a group", () => {
+    const state = { ...initialState, activeView: "chat" as const, selectedId: "group-1" };
+    const bot = {
+      id: "group-bot",
+      threadId: "group-thread",
+      name: "Group bot",
+      title: "Group helper",
+      description: "",
+      notifications: true,
+      color: "green",
+      unread: false,
+      modelSelection: { mode: "automatic", instanceId: "first", model: "default" },
+      messages: [],
+    } satisfies Bot;
+    const added = reducer(state, { type: "botAdded", bot, activate: false, focusComposer: false });
+
+    expect(added.selectedId).toBe("group-1");
+    expect(added.activeView).toBe("chat");
+    expect(added.bots[0]?.id).toBe(bot.id);
+  });
+
   it("allows a later create sheet to be cancelled", () => {
     expect(reducer({ ...initialState, createBotOpen: true }, { type: "closeCreateBot" }).createBotOpen).toBe(false);
   });

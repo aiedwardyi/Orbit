@@ -5,12 +5,13 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createUsageRefresh, isCsrfRejection, readAntigravityQuota, readAntigravityUsageCommand, readMuseUsage, usageRefreshResponse } from "./usage-refresh.ts";
+import { createUsageRefresh, isCsrfRejection, readAntigravityQuota, readAntigravityUsageCommand, readGrokBillingRpc, readMuseUsage, usageRefreshResponse } from "./usage-refresh.ts";
 import { antigravityRateLimitWindows } from "./drivers/rate-limits.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
 
 const reset = "2026-10-01T12:00:00Z";
 const FAKE_MSP_CLI = join(dirname(fileURLToPath(import.meta.url)), "testing", "fake-msp-cli.ts");
+const FAKE_ACP_CLI = join(dirname(fileURLToPath(import.meta.url)), "testing", "fake-acp-cli.ts");
 const fixtures = {
   claudeAgent: { five_hour: { utilization: 42, resets_at: reset }, seven_day: { utilization: 19, resets_at: reset } },
   codex: { rateLimits: { primary: { usedPercent: 42, windowDurationMins: 300, resetsAt: Date.parse(reset) / 1000 }, secondary: { usedPercent: 19, windowDurationMins: 10080, resetsAt: Date.parse(reset) / 1000 } } },
@@ -73,6 +74,23 @@ describe("usage refresh route result", () => {
     expect(reads).toBe(0);
     expect(http).toBe(0);
     expect(JSON.stringify(result)).not.toContain("access-secret");
+  });
+
+  it("uses Grok's launcher, cached-token auth, and billing method contract", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "omb-grok-refresh-"));
+    const argsDump = join(scratch, "args.json");
+    const rpcDump = join(scratch, "rpc.json");
+    try {
+      const result = await readGrokBillingRpc(FAKE_ACP_CLI, {
+        FAKE_ACP_DUMP: argsDump,
+        FAKE_ACP_RPC_DUMP: rpcDump,
+      });
+      expect(result).toMatchObject({ config: { creditUsagePercent: 42, currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY" } } });
+      expect(JSON.parse(readFileSync(argsDump, "utf8")).argv).toEqual(["--permission-mode", "default", "agent", "stdio"]);
+      expect(JSON.parse(readFileSync(rpcDump, "utf8"))).toEqual(["initialize", "authenticate", "_x.ai/billing"]);
+    } finally {
+      removeTempDir(scratch);
+    }
   });
 
   it("keeps two credential stores isolated within the throttle window", async () => {
@@ -213,6 +231,14 @@ describe("usage refresh route result", () => {
     expect(result.error).toBe("Could not refresh Muse limits");
   });
 
+  it("quietly keeps a valid Muse cache after an empty snapshot", async () => {
+    const refresh = createUsageRefresh({ platform: "linux", muse: async () => ({}) });
+    const report = { windows: [{ id: "five_hour", usedPercent: 12, resetsAt: null }], observedAt: reset };
+    const result = await refresh("museAgent", { instanceId: "muse" }, report);
+    expect(result.report).toEqual(report);
+    expect(result.error).toBeUndefined();
+  });
+
   it("keeps the last report after malformed Muse usage", async () => {
     const refresh = createUsageRefresh({
       platform: "linux",
@@ -221,7 +247,7 @@ describe("usage refresh route result", () => {
     const report = { windows: [{ id: "five_hour", usedPercent: 12, resetsAt: null }], observedAt: reset };
     const result = await refresh("museAgent", { instanceId: "muse" }, report);
     expect(result.report).toEqual(report);
-    expect(result.error).toBe("Could not refresh Muse limits");
+    expect(result.error).toBeUndefined();
   });
 
   it("keeps the newer report when Muse returns an older observation", async () => {
@@ -239,7 +265,7 @@ describe("usage refresh route result", () => {
     const report = { windows: [{ id: "five_hour", usedPercent: 12, resetsAt: null }], observedAt: reset };
     const result = await refresh("museAgent", { instanceId: "muse" }, report);
     expect(result.report).toEqual(report);
-    expect(result.error).toBe("Could not refresh Muse limits");
+    expect(result.error).toBeUndefined();
   });
 
   it("reads stable usage/read through the Muse serve lifecycle", async () => {

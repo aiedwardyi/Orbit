@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
 import {
   Archive,
@@ -12,6 +12,7 @@ import {
   Crown,
   FolderMinus,
   FolderPlus,
+  GripVertical,
   Library,
   Loader2,
   Pencil,
@@ -28,8 +29,23 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { botOrderAfterDrop, groupOrderAfterDrop } from "@/lib/bot-order";
+import {
+  botOrderAfterCrossSectionDrop,
+  botOrderAfterDrop,
+  botOrderAfterSectionDrop,
+  groupOrderAfterDrop,
+} from "@/lib/bot-order";
 import { conversationPreview, roomConversationPreview } from "@/lib/conversation-preview";
+import {
+  mergeSectionOrder,
+  moveSection,
+  orderedSidebarSections,
+  placeSection,
+  sameSectionOrder,
+  userSectionId,
+  userSectionName,
+  type SectionDropPlace,
+} from "@/lib/sidebar-layout";
 import { api, useStore, formatTime, visibleMessages, type Bot, type Group } from "@/state/store";
 
 import { BotAvatar, InitialsAvatar } from "./Avatar";
@@ -54,9 +70,11 @@ import {
   fitSidebarWidth,
   loadSidebarCollapsed,
   loadSidebarDensity,
+  loadSectionOrder,
   loadSidebarWidth,
   saveSidebarCollapsed,
   saveSidebarDensity,
+  saveSectionOrder,
   saveSidebarWidth,
   SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_ICONS_WIDTH,
@@ -69,6 +87,7 @@ import {
 } from "@/lib/sidebar-preferences";
 import { sidebarConversationRowTone } from "@/lib/sidebar-row";
 import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
+import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import { phoneSettingsAvailable } from "@/lib/phone-availability";
 import { localeTag, t, useI18n } from "@/lib/i18n";
 
@@ -84,6 +103,10 @@ function profileInitials(profile?: { name?: string; email?: string }): string {
   }
   const email = profile?.email?.trim();
   return email ? email[0]!.toUpperCase() : "?";
+}
+
+export function compactSidebarModelLabel(label: string): string {
+  return label.replace(/\s+Contributor$/i, " Cont.");
 }
 
 /** Manual update check, next to the settings gear. Packaged app only (no
@@ -181,13 +204,19 @@ function StackedMauses({ members, density }: { members: Bot[]; density: SidebarD
   const shown = members.slice(0, 3);
   const extra = members.length - shown.length;
   return (
-    <div className={cn("flex shrink-0 items-center justify-center", slotSize)}>
+    <div
+      data-sidebar-group-avatar-slot
+      className={cn("flex shrink-0 items-center justify-center", slotSize, extra > 0 && "min-w-[76px]")}
+    >
       <div className="flex items-center -space-x-3">
         {shown.map((b) => (
           <BotAvatar key={b.id} bot={b} state="happy" size={30} animated={false} />
         ))}
         {extra > 0 && (
-          <span className="z-10 flex size-[22px] items-center justify-center rounded-full border border-hairline/40 bg-raised text-[10px] font-medium text-ink-secondary">
+          <span
+            data-sidebar-group-overflow
+            className="z-10 flex size-[22px] items-center justify-center rounded-full border border-hairline/40 bg-raised text-[10px] font-medium text-ink-secondary"
+          >
             +{extra}
           </span>
         )}
@@ -207,7 +236,7 @@ function GroupListItem({
   onMenu: (menu: { groupId: string; x: number; y: number }) => void;
   drag?: SidebarRowDrag;
 }) {
-  const { locale } = useI18n();
+  const { t, locale } = useI18n();
   const { state, dispatch } = useStore();
   const showToolCalls = showToolCallsEnabled(state.config);
   const selected = state.activeView === "chat" && state.selectedId === group.id;
@@ -229,6 +258,11 @@ function GroupListItem({
           event.preventDefault();
           event.dataTransfer.dropEffect = "move";
         },
+        onDragEnter: (event: React.DragEvent) => {
+          if (!drag.onOver()) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+        },
         onDragLeave: (event: React.DragEvent) => {
           const next = event.relatedTarget;
           if (!(next instanceof Node) || !event.currentTarget.contains(next)) drag.onLeave();
@@ -244,9 +278,17 @@ function GroupListItem({
   // draggable element is never the button itself, so press-then-move from
   // anywhere on the row (avatar, name, preview) initiates the row drag.
   return (
-    <div className="group relative" title={density === "icons" ? group.name : undefined} {...dragProps}>
+    <div
+      className="group relative min-h-12 py-0.5"
+      data-sidebar-row
+      data-sidebar-row-kind="group"
+      data-sidebar-row-id={group.id}
+      title={density === "icons" ? group.name : undefined}
+      {...dragProps}
+    >
       {drag?.edge && (
         <span
+          data-sidebar-row-drop-marker
           className={cn(
             "pointer-events-none absolute inset-x-2 z-10 h-0.5 rounded-full bg-accent",
             drag.edge === "top" ? "-top-0.5" : "-bottom-0.5",
@@ -296,6 +338,16 @@ function GroupListItem({
         )}
         aria-label={density === "icons" ? group.name : undefined}
       >
+        {density !== "icons" && drag && (
+          <span
+            aria-hidden="true"
+            data-sidebar-row-grip
+            className="flex size-6 shrink-0 items-center justify-center rounded text-ink-secondary/60 opacity-60 transition group-hover:opacity-100 group-focus-within:opacity-100"
+            title={t("chrome.dragToReorder")}
+          >
+            <GripVertical size={14} />
+          </span>
+        )}
         <StackedMauses members={members} density={density} />
         <div className={cn("min-w-0 flex-1", density === "icons" && "hidden")}>
           <div className="flex min-w-0 items-baseline gap-2 overflow-hidden">
@@ -766,6 +818,7 @@ function BotListItem({
   const modelLabel = engine && bot.modelSelection
     ? modelChipText({ instance: engine, model: bot.modelSelection.model, effort: bot.modelSelection.effort }, t)
     : null;
+  const expandedModelLabel = modelLabel ? compactSidebarModelLabel(modelLabel) : null;
   const rowClass = cn(
     "flex w-full items-center rounded-xl border text-left",
     iconOnly
@@ -827,21 +880,24 @@ function BotListItem({
             </span>
           )}
         </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="flex min-w-0 items-center gap-1.5 truncate text-[13px] text-ink-secondary">
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <div className="min-w-0 flex-1">
             {bot.chiefOfStaff && (
-              <span className="flex shrink-0 items-center gap-1 text-[11.5px] font-medium text-accent">
+              <div data-sidebar-chief-title className="flex items-center gap-1 text-[11.5px] font-medium leading-4 text-accent">
                 <Crown size={11} /> {t("chrome.chiefOfStaff")}
-              </span>
+              </div>
             )}
-            {bot.chiefOfStaff && (modelLabel || bot.busy) && <span className="shrink-0 text-ink-secondary/60">·</span>}
-            {modelLabel && (
-              <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(engine?.driverKind) }} />
+            {(expandedModelLabel || bot.busy) && (
+              <div data-sidebar-model-row className="flex min-w-0 items-center gap-1.5 truncate text-[13px] text-ink-secondary">
+                {expandedModelLabel && (
+                  <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(engine?.driverKind) }} />
+                )}
+                {expandedModelLabel && <span data-sidebar-model-label className="min-w-0 flex-1 truncate">{expandedModelLabel}</span>}
+                {bot.busy && expandedModelLabel && <span className="shrink-0 text-ink-secondary/60">·</span>}
+                {bot.busy && <span className="shrink-0 truncate">{t("chrome.working")}</span>}
+              </div>
             )}
-            {modelLabel && <span className="min-w-0 flex-1 truncate">{modelLabel}</span>}
-            {bot.busy && modelLabel && <span className="shrink-0 text-ink-secondary/60">·</span>}
-            {bot.busy && <span className="shrink-0 truncate">{t("chrome.working")}</span>}
-          </span>
+          </div>
           {bot.unread && (
             <span className="size-2 shrink-0 rounded-full bg-accent" />
           )}
@@ -878,6 +934,11 @@ function BotListItem({
           event.preventDefault();
           event.dataTransfer.dropEffect = "move";
         },
+        onDragEnter: (event: React.DragEvent) => {
+          if (!drag.onOver()) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+        },
         onDragLeave: (event: React.DragEvent) => {
           const next = event.relatedTarget;
           if (!(next instanceof Node) || !event.currentTarget.contains(next)) drag.onLeave();
@@ -891,9 +952,17 @@ function BotListItem({
     : {};
 
   return (
-    <div className="group relative" title={iconOnly ? (modelLabel ? `${bot.name} · ${modelLabel}` : bot.name) : undefined} {...dragProps}>
+    <div
+      className="group relative min-h-12 py-0.5"
+      data-sidebar-row
+      data-sidebar-row-kind="bot"
+      data-sidebar-row-id={bot.id}
+      title={iconOnly ? (modelLabel ? `${bot.name} · ${modelLabel}` : bot.name) : undefined}
+      {...dragProps}
+    >
       {drag?.edge && (
         <span
+          data-sidebar-row-drop-marker
           className={cn(
             "pointer-events-none absolute inset-x-2 z-10 h-0.5 rounded-full bg-accent",
             drag.edge === "top" ? "-top-0.5" : "-bottom-0.5",
@@ -927,6 +996,16 @@ function BotListItem({
         onContextMenu={onContextMenu}
         className={rowClass}
       >
+        {density !== "icons" && drag && (
+          <span
+            aria-hidden="true"
+            data-sidebar-row-grip
+            className="flex size-6 shrink-0 items-center justify-center rounded text-ink-secondary/60 opacity-60 transition group-hover:opacity-100 group-focus-within:opacity-100"
+            title={t("chrome.dragToReorder")}
+          >
+            <GripVertical size={14} />
+          </span>
+        )}
         {body}
       </div>
       {iconOnly && bot.unread && (
@@ -1099,6 +1178,15 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Bot | null>(null);
   const [drag, setDrag] = useState<{ kind: "bot" | "group"; from: string; over: string | null } | null>(null);
+  const [botSectionDropTarget, setBotSectionDropTarget] = useState<string | null>(null);
+  const [sectionOrder, setSectionOrder] = useState<string[]>(() => loadSectionOrder());
+  const [draggingSectionId, setDraggingSectionId] = useState<string | null>(null);
+  const [sectionDropTarget, setSectionDropTarget] = useState<{ id: string; place: SectionDropPlace } | null>(null);
+  const [reorderAnnouncement, setReorderAnnouncement] = useState("");
+  const sectionDragRef = useRef<{
+    from: string | null;
+    over: { id: string; place: SectionDropPlace } | null;
+  }>({ from: null, over: null });
   const [sectionPicker, setSectionPicker] = useState<MenuState | null>(null);
   const [roomMenu, setRoomMenu] = useState<{ groupId: string; x: number; y: number } | null>(null);
   const [roomSectionPicker, setRoomSectionPicker] = useState<{ groupId: string; x: number; y: number } | null>(null);
@@ -1463,37 +1551,158 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   for (const group of sectionedGroups) {
     if (!sectionNames.includes(group.section!)) sectionNames.push(group.section!);
   }
+  const sectionIds = orderedSidebarSections(sectionNames.map(userSectionId), sectionOrder);
+  const sectionsReorderable = density !== "icons" && q.length === 0 && sectionIds.length > 1;
+  const commitSectionOrder = (visibleOrder: string[]) => {
+    if (!sectionsReorderable) return;
+    const next = mergeSectionOrder(sectionOrder, visibleOrder);
+    if (sameSectionOrder(next, sectionOrder)) return;
+    setSectionOrder(next);
+    saveSectionOrder(next);
+  };
+  const announceSectionPosition = (id: string, visibleOrder: string[]) => {
+    const position = visibleOrder.indexOf(id);
+    if (position < 0) return;
+    const name = userSectionName(id) ?? id;
+    setReorderAnnouncement(`${name} moved to position ${position + 1} of ${visibleOrder.length}`);
+  };
+  const moveSidebarSection = (id: string, direction: -1 | 1) => {
+    const next = moveSection(sectionIds, id, direction);
+    if (sameSectionOrder(next, sectionIds)) return;
+    commitSectionOrder(next);
+    announceSectionPosition(id, next);
+  };
+  const resetSectionDrag = () => {
+    sectionDragRef.current = { from: null, over: null };
+    setDraggingSectionId(null);
+    setSectionDropTarget(null);
+  };
+  const resetRowDrag = () => {
+    setDrag(null);
+    setBotSectionDropTarget(null);
+  };
+  const updateSectionDropTarget = (event: React.DragEvent<HTMLDivElement>, id: string) => {
+    if (!sectionsReorderable || !sectionDragRef.current.from || sectionDragRef.current.from === id) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    const rect = event.currentTarget.getBoundingClientRect();
+    const place: SectionDropPlace = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+    const next = { id, place };
+    sectionDragRef.current.over = next;
+    setSectionDropTarget(next);
+  };
+  const dropSection = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const from =
+      event.dataTransfer.getData("application/x-openmausbot-sidebar-section") ||
+      event.dataTransfer.getData("text/plain") ||
+      sectionDragRef.current.from;
+    const over = sectionDragRef.current.over;
+    if (from && over) {
+      const next = placeSection(sectionIds, from, over.id, over.place);
+      if (!sameSectionOrder(next, sectionIds)) {
+        commitSectionOrder(next);
+        announceSectionPosition(from, next);
+      }
+    }
+    resetSectionDrag();
+  };
+  const updateBotSectionDropTarget = (event: React.DragEvent<HTMLDivElement>, id: string, name: string) => {
+    if (drag?.kind !== "bot") return false;
+    const from = state.bots.find((bot) => bot.id === drag.from);
+    const order = from ? botOrderAfterSectionDrop(state.bots, drag.from, name) : null;
+    if (!from || !order) return false;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    if (botSectionDropTarget !== id) setBotSectionDropTarget(id);
+    if (drag.over !== null) setDrag((current) => (current ? { ...current, over: null } : null));
+    return true;
+  };
+  const applyBotDrop = (drop: { botIds: string[]; section: string } | null, fromId: string) => {
+    const from = state.bots.find((bot) => bot.id === fromId);
+    resetRowDrag();
+    if (!drop || !from) return;
+    if ((from.section ?? "") !== drop.section) {
+      dispatch({ type: "updateBot", botId: from.id, patch: { section: drop.section } });
+    }
+    dispatch({ type: "reorderBots", botIds: drop.botIds });
+  };
+  const dropBotInSection = (event: React.DragEvent<HTMLDivElement>, name: string) => {
+    event.preventDefault();
+    if (drag?.kind !== "bot") {
+      resetRowDrag();
+      return;
+    }
+    const fromId = drag.from;
+    const from = state.bots.find((bot) => bot.id === fromId);
+    const order = botOrderAfterSectionDrop(state.bots, fromId, name);
+    applyBotDrop(order ? { botIds: order, section: name } : null, fromId);
+    if (from && order) setReorderAnnouncement(`${from.name} moved to ${name}`);
+  };
+  const isSidebarRowEvent = (event: React.DragEvent<HTMLDivElement>) => {
+    const target = event.target;
+    return target instanceof Element && Boolean(target.closest("[data-sidebar-row]"));
+  };
+  const sectionDragOver = (event: React.DragEvent<HTMLDivElement>, id: string, name: string) => {
+    if (drag?.kind === "bot") {
+      if (!isSidebarRowEvent(event)) updateBotSectionDropTarget(event, id, name);
+      return;
+    }
+    updateSectionDropTarget(event, id);
+  };
+  const sectionDrop = (event: React.DragEvent<HTMLDivElement>, name: string) => {
+    if (drag?.kind === "bot") {
+      if (!isSidebarRowEvent(event)) dropBotInSection(event, name);
+      return;
+    }
+    dropSection(event);
+  };
   const activeBotCount = state.bots.filter((bot) => !bot.hidden).length;
   const archivedBots = state.bots.filter((bot) => bot.hidden);
-  const dropOrder = (toId: string) =>
-    drag?.kind === "bot" ? botOrderAfterDrop(state.bots, drag.from, toId) : null;
+  const botDropOrder = (toId: string) => {
+    if (drag?.kind !== "bot") return null;
+    const to = state.bots.find((bot) => bot.id === toId);
+    if (!to) return null;
+    const from = state.bots.find((bot) => bot.id === drag.from);
+    if (!from) return null;
+    const order = (from.section ?? "") === (to.section ?? "")
+      ? botOrderAfterDrop(state.bots, drag.from, toId)
+      : botOrderAfterCrossSectionDrop(state.bots, drag.from, toId);
+    return order ? { botIds: order, section: to.section ?? "" } : null;
+  };
   const groupDropOrder = (toId: string) =>
     drag?.kind === "group" ? groupOrderAfterDrop(state.groups, drag.from, toId) : null;
   const rowDrag = (bot: Bot): SidebarRowDrag => {
-    const order = drag?.kind === "bot" && drag?.over === bot.id ? dropOrder(bot.id) : null;
+    const order = drag?.kind === "bot" && drag?.over === bot.id ? botDropOrder(bot.id) : null;
     return {
-      edge: order ? (order.indexOf(bot.id) < order.indexOf(drag!.from) ? "bottom" : "top") : null,
-      onStart: () => setDrag({ kind: "bot", from: bot.id, over: null }),
+      edge: order ? (order.botIds.indexOf(bot.id) < order.botIds.indexOf(drag!.from) ? "bottom" : "top") : null,
+      onStart: () => {
+        setBotSectionDropTarget(null);
+        setDrag({ kind: "bot", from: bot.id, over: null });
+      },
       onOver: () => {
         if (!drag || drag.kind !== "bot") return false;
-        const over = dropOrder(bot.id) ? bot.id : null;
+        const over = botDropOrder(bot.id) ? bot.id : null;
+        if (over) setBotSectionDropTarget(null);
         if (drag.over !== over) setDrag((current) => (current ? { ...current, over } : null));
         return over !== null;
       },
       onLeave: () => setDrag((current) => (current?.over === bot.id ? { ...current, over: null } : current)),
       onDrop: () => {
-        const botIds = dropOrder(bot.id);
-        setDrag(null);
-        if (botIds) dispatch({ type: "reorderBots", botIds });
+        const fromId = drag?.kind === "bot" ? drag.from : bot.id;
+        applyBotDrop(botDropOrder(bot.id), fromId);
       },
-      onEnd: () => setDrag(null),
+      onEnd: resetRowDrag,
     };
   };
   const groupRowDrag = (group: Group): SidebarRowDrag => {
     const order = drag?.kind === "group" && drag?.over === group.id ? groupDropOrder(group.id) : null;
     return {
       edge: order ? (order.indexOf(group.id) < order.indexOf(drag!.from) ? "bottom" : "top") : null,
-      onStart: () => setDrag({ kind: "group", from: group.id, over: null }),
+      onStart: () => {
+        setBotSectionDropTarget(null);
+        setDrag({ kind: "group", from: group.id, over: null });
+      },
       onOver: () => {
         if (!drag || drag.kind !== "group") return false;
         const over = groupDropOrder(group.id) ? group.id : null;
@@ -1503,10 +1712,10 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       onLeave: () => setDrag((current) => (current?.over === group.id ? { ...current, over: null } : current)),
       onDrop: () => {
         const groupIds = groupDropOrder(group.id);
-        setDrag(null);
+        resetRowDrag();
         if (groupIds) dispatch({ type: "reorderGroups", groupIds });
       },
-      onEnd: () => setDrag(null),
+      onEnd: resetRowDrag,
     };
   };
   const pendingTeamUndo = teamFeedback?.undo;
@@ -1516,7 +1725,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     <aside
       aria-label={t("chrome.navAria")}
       className={cn(
-        "relative flex h-full shrink-0 flex-col border-r border-hairline/40 bg-panel",
+        "relative flex h-full min-w-0 shrink-0 flex-col border-r border-hairline/40 bg-panel",
         !resizing && "transition-[width] duration-200",
         // Below md only: the sidebar leaves the flow and slides in over the chat.
         // Scoped with max-md: rather than cancelled with md: on purpose — Tailwind
@@ -1733,7 +1942,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       )}
 
       {/* Bot list */}
-      <div className={cn("flex-1 overflow-y-auto", density === "icons" ? "px-0" : "px-2")}>
+      <div className={cn("min-w-0 flex-1 overflow-x-hidden overflow-y-auto", density === "icons" ? "px-0" : "px-2")}>
         <div className="flex flex-col gap-0.5">
           {!unsectionedChief && sectionChiefs.length === 0 && visibleBots.length === 0 && sectionedBots.length === 0 && visibleGroups.length === 0 && q && q.length < MIN_QUERY && (
             <div className="px-3 py-6 text-center text-[13px] text-ink-secondary">{t("palette.noMatch", { query })}</div>
@@ -1765,12 +1974,47 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               drag={rowDrag(b)}
             />
           ))}
-          {sectionNames.map((name) => (
-            <Fragment key={name}>
-              {density !== "icons" && <SectionDivider name={name} />}
-              {sectionChiefs
-                .filter((bot) => bot.section === name)
-                .map((bot) => (
+          {sectionIds.map((id) => {
+            const name = userSectionName(id);
+            if (!name) return null;
+            const sectionChiefItems = sectionChiefs.filter((bot) => bot.section === name);
+            const sectionGroupItems = sectionedGroups.filter((group) => group.section === name);
+            const sectionBotItems = sectionedBots.filter((bot) => bot.section === name);
+            return (
+              <div
+                key={id}
+                data-sidebar-section-id={id}
+                data-sidebar-bot-drop-zone={name}
+                className="flex flex-col gap-0.5"
+                onDragEnter={(event) => sectionDragOver(event, id, name)}
+                onDragOver={(event) => sectionDragOver(event, id, name)}
+                onDrop={(event) => sectionDrop(event, name)}
+              >
+                {sectionDropTarget?.id === id && sectionDropTarget.place === "before" && draggingSectionId !== id && (
+                  <div className="mx-2 h-0.5 rounded-full bg-accent" />
+                )}
+                {botSectionDropTarget === id && (
+                  <div data-sidebar-bot-drop-marker className="mx-1 my-1 h-1 rounded-full bg-accent shadow-[0_0_8px] shadow-accent/60" />
+                )}
+                {density !== "icons" && (
+                  <SidebarSectionHeader
+                    name={name}
+                    reorderable={sectionsReorderable}
+                    dragging={draggingSectionId === id}
+                    onDragStart={(event) => {
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData("application/x-openmausbot-sidebar-section", id);
+                      event.dataTransfer.setData("text/plain", id);
+                      sectionDragRef.current = { from: id, over: null };
+                      setDraggingSectionId(id);
+                    }}
+                    onDragEnd={resetSectionDrag}
+                    onDragOver={(event) => sectionDragOver(event, id, name)}
+                    onDrop={(event) => sectionDrop(event, name)}
+                    onMove={(direction) => moveSidebarSection(id, direction)}
+                  />
+                )}
+                {sectionChiefItems.map((bot) => (
                   <BotListItem
                     key={bot.id}
                     bot={bot}
@@ -1780,35 +2024,38 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                     archiveDisabled
                   />
                 ))}
-              {sectionedGroups
-                .filter((g) => g.section === name)
-                .map((g) => (
-                  <GroupListItem key={g.id} group={g} density={density} onMenu={setRoomMenu} drag={groupRowDrag(g)} />
+                {sectionGroupItems.map((group) => (
+                  <GroupListItem key={group.id} group={group} density={density} onMenu={setRoomMenu} drag={groupRowDrag(group)} />
                 ))}
-              {sectionedBots
-                .filter((b) => b.section === name)
-                .map((b) => (
+                {sectionBotItems.map((bot) => (
                   <BotListItem
-                    key={b.id}
-                    bot={b}
+                    key={bot.id}
+                    bot={bot}
                     density={density}
                     onMenu={setMenu}
-                    onArchive={(bot) => void archiveBot(bot)}
+                    onArchive={(candidate) => void archiveBot(candidate)}
                     archiveDisabled={activeBotCount <= 1}
-                    drag={rowDrag(b)}
+                    drag={rowDrag(bot)}
                   />
                 ))}
-            </Fragment>
-          ))}
+                {sectionDropTarget?.id === id && sectionDropTarget.place === "after" && draggingSectionId !== id && (
+                  <div className="mx-2 h-0.5 rounded-full bg-accent" />
+                )}
+              </div>
+            );
+          })}
           <SearchResults query={query} onLanded={() => setQuery("")} />
+          <span className="sr-only" aria-live="polite">{reorderAnnouncement}</span>
         </div>
       </div>
 
       {/* Footer */}
-      <div className={cn("pb-3 pt-2", density === "icons" ? "px-2" : "px-3")}>
-        <div className={cn("flex min-h-10 items-center", density === "icons" && "justify-center")} data-sidebar-update>
-          <UpdateButton />
-        </div>
+      <div className={cn("min-w-0 overflow-x-hidden pb-3 pt-2", density === "icons" ? "px-2" : "px-3")} data-sidebar-footer>
+        {density === "icons" && (
+          <div className="flex min-h-10 items-center justify-center" data-sidebar-update>
+            <UpdateButton />
+          </div>
+        )}
         {showSidebarTeachSkill() && skillRecorderEnabled(state.config) && (
           <button
             onClick={() => dispatch({ type: "showSkillRecorder" })}
@@ -1848,7 +2095,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             onOpen={() => dispatch(phoneSettingsAction())}
           />
         )}
-        <div className={cn("flex items-center", density === "icons" && "justify-center")}>
+        <div className={cn("flex min-w-0 items-center", density === "icons" && "justify-center")} data-sidebar-profile-row>
           <button
             onClick={() => dispatch({ type: "toggleAppSettings" })}
             className={cn("flex min-w-0 items-center rounded-xl py-2 text-left hover:bg-raised/50", density === "icons" ? "justify-center px-2" : "flex-1 gap-3 px-3")}
@@ -1860,6 +2107,11 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               {state.config?.profile?.name?.trim() || state.config?.profile?.email?.trim() || t("chrome.you")}
             </span>
           </button>
+          {density !== "icons" && (
+            <div className="flex shrink-0 items-center" data-sidebar-update>
+              <UpdateButton />
+            </div>
+          )}
           {showPhone && density !== "icons" && (
             <SidebarPhoneButton
               density={density}

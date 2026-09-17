@@ -80,7 +80,7 @@ export function ModelPickerControl({
     "--picker-offset": `${offset}px`,
   };
   const families = new Map([["codex", "gpt"], ["grokAgent", "grok"], ["antigravityAgent", "gemini"], ["geminiAgent", "gemini"], ["claudeAgent", "claude"], ["museAgent", "metamuse"]]);
-  const family = families.get(instance?.driverKind ?? "") ?? "grok";
+  const family = families.get((instance ?? active)?.driverKind ?? "") ?? "grok";
   const shortcut = /Mac/i.test(globalThis.navigator?.platform ?? "") ? "Option" : "Alt";
   const custom = instance?.models.options.filter((option) => option.custom) ?? [];
   const filteredCustom = filterCustomModels(custom, query);

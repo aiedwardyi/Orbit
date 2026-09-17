@@ -7,10 +7,10 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { persistPreference } from "@/lib/i18n";
-import { SIDEBAR_COLLAPSED_KEY, SIDEBAR_WIDTH_KEY } from "@/lib/sidebar-preferences";
+import { SIDEBAR_COLLAPSED_KEY, SIDEBAR_SECTION_ORDER_KEY, SIDEBAR_WIDTH_KEY } from "@/lib/sidebar-preferences";
 import { formatTime, StoreProvider } from "@/state/store";
 
-import { Sidebar } from "./Sidebar";
+import { compactSidebarModelLabel, Sidebar } from "./Sidebar";
 
 class FakeEventSource {
   static current: FakeEventSource | null = null;
@@ -27,7 +27,7 @@ const bot = (id: string) => ({ id, threadId: `${id}-thread`, name: id, messages:
 // happy-dom drag events carry no dataTransfer, and the row handlers write to it.
 const fire = (target: Element, type: string) => {
   const event = new Event(type, { bubbles: true, cancelable: true });
-  Object.defineProperty(event, "dataTransfer", { value: { setData: () => {} } });
+  Object.defineProperty(event, "dataTransfer", { value: { getData: () => "", setData: () => {} } });
   target.dispatchEvent(event);
 };
 
@@ -47,7 +47,7 @@ describe("Sidebar drag to reorder", () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
-    const rows = () => host.querySelectorAll('[draggable="true"]');
+    const rows = () => host.querySelectorAll('div[draggable="true"]');
     const dropLine = () => host.querySelector('[class~="h-0.5"]');
     try {
       await act(async () =>
@@ -68,6 +68,78 @@ describe("Sidebar drag to reorder", () => {
       });
       expect(dropLine()).toBeNull();
     } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});
+
+describe("Sidebar bot section drag", () => {
+  it("moves a bot across sections and keeps the saved section order", async () => {
+    const scopedBot = (id: string, section: string) => ({ ...bot(id), section });
+    const sectionGroup = {
+      id: "group-a",
+      threadId: "group-a-thread",
+      name: "A group",
+      memberIds: [],
+      messages: [],
+      section: "A",
+    };
+    const patchCalls: Array<{ path: string; body: unknown }> = [];
+    window.localStorage.setItem(SIDEBAR_SECTION_ORDER_KEY, JSON.stringify(["section:B", "section:A"]));
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string, init?: RequestInit) => {
+        if (path === "/api/bots") {
+          return new Response(JSON.stringify({
+            bots: [scopedBot("a", "A"), scopedBot("b", "B")],
+            groups: [sectionGroup],
+          }));
+        }
+        if (path === "/api/bots/order") {
+          const body = JSON.parse(String(init?.body)) as { botIds: string[] };
+          patchCalls.push({ path, body });
+          return new Response(JSON.stringify(body));
+        }
+        if (path === "/api/bots/a" && init?.method === "PATCH") {
+          patchCalls.push({ path, body: JSON.parse(String(init.body)) });
+          return new Response(JSON.stringify({ bot: { id: "a", section: "B" } }));
+        }
+        return new Response(JSON.stringify({ error: "not in this test" }), { status: 404 });
+      }),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    const botRows = () => host.querySelectorAll('[data-sidebar-row-kind="bot"][draggable="true"]');
+    const sections = () => [...host.querySelectorAll("[data-sidebar-section-id]")].map((section) => section.getAttribute("data-sidebar-section-id"));
+    try {
+      await act(async () =>
+        root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+      );
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      await vi.waitFor(() => expect(botRows()).toHaveLength(2));
+      const sectionB = host.querySelector('[data-sidebar-bot-drop-zone="B"]');
+      const source = host.querySelector('[data-sidebar-row-kind="bot"][data-sidebar-row-id="a"]');
+      expect(sectionB).not.toBeNull();
+      expect(source).not.toBeNull();
+
+      await act(async () => fire(source!, "dragstart"));
+      await act(async () => fire(sectionB!, "dragover"));
+      expect(host.querySelector("[data-sidebar-bot-drop-marker]")).not.toBeNull();
+      await act(async () => fire(sectionB!, "drop"));
+      await act(async () => fire(source!, "dragend"));
+
+      expect(sections()).toEqual(["section:B", "section:A"]);
+      expect(host.querySelector('[data-sidebar-section-id="section:B"]')?.textContent).toContain("a");
+      expect(patchCalls).toContainEqual({ path: "/api/bots/order", body: { botIds: ["b", "a"] } });
+      await vi.waitFor(() => expect(patchCalls).toContainEqual({ path: "/api/bots/a", body: { section: "B" } }));
+    } finally {
+      window.localStorage.removeItem(SIDEBAR_SECTION_ORDER_KEY);
       await act(async () => root.unmount());
       host.remove();
     }
@@ -156,9 +228,76 @@ describe("Sidebar layout controls", () => {
     const footer = source.slice(source.indexOf("{/* Footer */}"), source.indexOf("{menu &&"));
     expect(footer).toContain("data-sidebar-update");
     expect(footer).toContain("<UpdateButton />");
+    const profileRow = footer.indexOf("data-sidebar-profile-row");
+    const expandedUpdate = footer.lastIndexOf("data-sidebar-update");
+    const profileButton = footer.indexOf('onClick={() => dispatch({ type: "toggleAppSettings" })}', profileRow);
+    expect(profileButton).toBeLessThan(expandedUpdate);
+    expect(footer).toContain("overflow-x-hidden");
+    expect(footer).not.toContain("border-t");
     expect(footer).not.toContain('t("chrome.teamMap")');
     expect(source).toContain("density === \"compact\" ? 40 : 48");
     expect(source).toContain("gap-2 px-3 py-1.5 pr-12");
+    expect(source).toContain("min-w-0 flex-1 overflow-x-hidden overflow-y-auto");
+  });
+
+  it("reorders named sections with a keyboard fallback and persists the order", async () => {
+    window.localStorage.removeItem(SIDEBAR_SECTION_ORDER_KEY);
+    const work = { ...bot("work"), section: "Work" };
+    const personal = { ...bot("personal"), section: "Personal" };
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string) =>
+        path === "/api/bots"
+          ? new Response(JSON.stringify({ bots: [work, personal], groups: [] }))
+          : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    const sectionOrder = () =>
+      [...host.querySelectorAll("[data-sidebar-section-id]")].map((section) => section.getAttribute("data-sidebar-section-id"));
+    const sectionTransfer = {
+      effectAllowed: "none",
+      dropEffect: "none",
+      setData: vi.fn(),
+      getData: vi.fn(() => "section:Work"),
+    };
+    const fireWithTransfer = (target: Element, type: string, clientY = 0) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "dataTransfer", { value: sectionTransfer });
+      Object.defineProperty(event, "clientY", { value: clientY });
+      target.dispatchEvent(event);
+    };
+    try {
+      await act(async () =>
+        root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+      );
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      await vi.waitFor(() => expect(sectionOrder()).toEqual(["section:Work", "section:Personal"]));
+
+      const workHandle = host.querySelector('[data-sidebar-section-id="section:Work"] [data-sidebar-section-handle]');
+      expect(workHandle?.getAttribute("aria-keyshortcuts")).toContain("Alt+ArrowDown");
+      await act(async () => workHandle?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", altKey: true, bubbles: true })));
+      expect(sectionOrder()).toEqual(["section:Personal", "section:Work"]);
+      expect(window.localStorage.getItem(SIDEBAR_SECTION_ORDER_KEY)).toBe(
+        JSON.stringify(["section:Personal", "section:Work"]),
+      );
+
+      const personalHeader = host.querySelector('[data-sidebar-section-id="section:Personal"] [data-sidebar-section-header]');
+      const workGrip = host.querySelector('[data-sidebar-section-id="section:Work"] [data-sidebar-section-grip]');
+      await act(async () => fireWithTransfer(workGrip!, "dragstart"));
+      await act(async () => fireWithTransfer(personalHeader!, "dragover", -1));
+      await act(async () => fireWithTransfer(personalHeader!, "drop", -1));
+      expect(sectionOrder()).toEqual(["section:Work", "section:Personal"]);
+    } finally {
+      window.localStorage.removeItem(SIDEBAR_SECTION_ORDER_KEY);
+      await act(async () => root.unmount());
+      host.remove();
+    }
   });
 });
 
@@ -200,7 +339,7 @@ describe("Sidebar group drag to reorder", () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
-    const rows = () => host.querySelectorAll('[draggable="true"]');
+    const rows = () => host.querySelectorAll('div[draggable="true"]');
     const names = () => [...rows()].map((row) => row.textContent ?? "");
     const dropLine = () => host.querySelector('[class~="h-0.5"]');
     try {
@@ -255,6 +394,52 @@ describe("Sidebar group drag to reorder", () => {
   });
 });
 
+describe("Sidebar group avatar overflow", () => {
+  it("reserves the overflow badge width before the group name", async () => {
+    const members = ["one", "two", "three", "four", "five"].map((id) => ({
+      ...bot(id),
+      color: "green" as const,
+    }));
+    const group = {
+      id: "group-overflow",
+      threadId: "group-overflow-thread",
+      name: "Large group",
+      memberIds: members.map((member) => member.id),
+      messages: [],
+    };
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string) =>
+        path === "/api/bots"
+          ? new Response(JSON.stringify({ bots: members, groups: [group] }))
+          : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+      );
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      const slot = await vi.waitFor(() => {
+        const element = host.querySelector("[data-sidebar-group-avatar-slot]");
+        expect(element).not.toBeNull();
+        return element!;
+      });
+      expect(slot.className).toContain("min-w-[76px]");
+      expect(slot.querySelector("[data-sidebar-group-overflow]")?.textContent).toBe("+2");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});
+
 describe("Sidebar bot delete confirm", () => {
   it("asks before deleting: cancel keeps the bot, confirm deletes it", async () => {
     const deletes: string[] = [];
@@ -279,7 +464,7 @@ describe("Sidebar bot delete confirm", () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
-    const rows = () => host.querySelectorAll('[draggable="true"]');
+    const rows = () => host.querySelectorAll('div[draggable="true"]');
     const menuDelete = () =>
       [...document.body.querySelectorAll("[data-bot-menu] button")].find(
         (item) => item.textContent === "Delete",
@@ -387,7 +572,10 @@ describe("Sidebar bot second line", () => {
     snapshot: { state: "available" },
     models: {
       default: "muse-spark-1.3",
-      options: [{ id: "muse-spark-1.3", label: "Meta Muse 1.3" }],
+      options: [
+        { id: "muse-spark-1.3", label: "Meta Muse 1.3" },
+        { id: "muse-spark-1.3-contributor", label: "Meta Muse 1.3 Contributor" },
+      ],
     },
   };
 
@@ -455,6 +643,28 @@ describe("Sidebar bot second line", () => {
     }
   });
 
+  it("puts Chief of Staff above a readable compact model label", async () => {
+    const chief = {
+      ...bot("chief"),
+      chiefOfStaff: true,
+      modelSelection: { instanceId: "muse", model: "muse-spark-1.3-contributor" },
+    };
+    const { host, root } = await renderSidebar({ bots: [chief], groups: [] });
+    try {
+      await vi.waitFor(() => expect(host.querySelector("[data-sidebar-model-label]")).not.toBeNull(), { timeout: 5000 });
+      const title = host.querySelector("[data-sidebar-chief-title]");
+      const model = host.querySelector("[data-sidebar-model-label]");
+      expect(title?.textContent).toContain("Chief of Staff");
+      expect(title?.parentElement?.querySelector("[data-sidebar-model-row]")).toBe(model?.parentElement);
+      expect(model?.textContent).toBe("Meta Muse 1.3 Cont.");
+      expect(host.textContent).not.toContain("Contributor");
+      expect(model?.previousElementSibling?.getAttribute("style")).toContain("background-color");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
   it("keeps the message preview on group rows", async () => {
     const room = {
       id: "g1",
@@ -471,5 +681,12 @@ describe("Sidebar bot second line", () => {
       await act(async () => root.unmount());
       host.remove();
     }
+  });
+});
+
+describe("Sidebar model labels", () => {
+  it("shortens the Contributor suffix without changing other labels", () => {
+    expect(compactSidebarModelLabel("Meta Muse 1.3 Contributor")).toBe("Meta Muse 1.3 Cont.");
+    expect(compactSidebarModelLabel("Meta Muse 1.3")).toBe("Meta Muse 1.3");
   });
 });

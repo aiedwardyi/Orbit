@@ -7,7 +7,17 @@ import { defaultModelSelection } from "@/lib/default-engine";
 import { OrbitMark } from "./OrbitMark";
 import { useI18n } from "@/lib/i18n";
 
-export function CreateBotSheet({ required }: { required: boolean }) {
+export function CreateBotSheet({
+  required,
+  initialSection,
+  onCreated,
+  onClose,
+}: {
+  required: boolean;
+  initialSection?: string;
+  onCreated?: (bot: Bot) => void;
+  onClose?: () => void;
+}) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const [job, setJob] = useState("");
@@ -19,7 +29,10 @@ export function CreateBotSheet({ required }: { required: boolean }) {
   const canPick = Boolean(window.ogb?.pickFolder);
 
   const close = () => {
-    if (!required && !saving) dispatch({ type: "closeCreateBot" });
+    if (!required && !saving) {
+      dispatch({ type: "closeCreateBot" });
+      onClose?.();
+    }
   };
 
   useEffect(() => {
@@ -76,13 +89,15 @@ export function CreateBotSheet({ required }: { required: boolean }) {
       const payload = {
         job: normalized,
         cwd: trimmedFolder || undefined,
+        section: initialSection?.trim() || undefined,
         modelSelection: selection ?? undefined,
       };
       const result: { bot: Bot } = await api("/api/bots", {
         method: "POST",
         body: JSON.stringify(payload),
       });
-      dispatch({ type: "botAdded", bot: result.bot, focusComposer: true });
+      dispatch({ type: "botAdded", bot: result.bot, focusComposer: !onCreated, activate: !onCreated });
+      onCreated?.(result.bot);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
       setSaving(false);

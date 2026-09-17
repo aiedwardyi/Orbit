@@ -51,9 +51,9 @@ function knownDirs(): string[] {
  * launch, but only at launch: a CLI installed while the app is running is
  * invisible until it restarts, because Windows never pushes PATH changes
  * into a live process. Scanning the standard install locations recovers
- * those without a restart — `~/.grok/bin` (the x.ai installer) and
- * `%APPDATA%\npm` (global npm shims), plus `%LOCALAPPDATA%\agy\bin`, cover
- * every engine we ship an install command for. */
+ * those without a restart — `~/.grok/bin` (the x.ai installer), the Meta Muse
+ * native launcher, `%APPDATA%\npm` (global npm shims), and
+ * `%LOCALAPPDATA%\agy\bin` cover every engine we ship an install command for. */
 export function windowsKnownDirs(): string[] {
   const home = homedir();
   const appData = process.env.APPDATA ?? join(home, "AppData", "Roaming");
@@ -65,6 +65,7 @@ export function windowsKnownDirs(): string[] {
     // works fine in the user's own terminal.
     join(process.env.SystemRoot ?? "C:\\Windows", "System32"),
     join(appData, "npm"), // npm -g shims: claude, codex
+    join(localAppData, "Programs", "muse"), // Meta Muse native launcher
     join(home, ".grok", "bin"), // x.ai installer
     join(localAppData, "agy", "bin"), // Antigravity installer
     join(home, ".local", "bin"), // claude native installer
@@ -263,6 +264,14 @@ function parseCmdShim(shim: string): ResolvedSpawn | null {
     return null;
   }
   const dir = dirname(shim);
+  const powershellScript = text.match(/(?:-File|\/File)\s+"%~?dp0([^"\r\n]+\.ps1)"/i)?.[1];
+  if (powershellScript) {
+    const script = join(dir, powershellScript);
+    const powershell = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+    if (isFile(script) && isFile(powershell)) {
+      return { command: powershell, args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script] };
+    }
+  }
   const targets = [...text.matchAll(/"%~?dp0%?\\?([^"]+)"/g)]
     .map((m) => join(dir, m[1]))
     .filter((p) => isFile(p) && basename(p).toLowerCase() !== "node.exe");

@@ -26,10 +26,9 @@ describe("Meta Muse driver catalog", () => {
   it("advertises subscription windows and the official installer", () => {
     expect(MuseAgentDriver.install?.command?.linux).toContain("https://dev.meta.ai/install.sh");
     expect(MuseAgentDriver.install?.command?.darwin).toContain("https://dev.meta.ai/install.sh");
-    // Explicit platforms: the shipped value is platform-evaluated, so it is
-    // `wsl muse login` on win32 by design, never bare `muse login` there.
+    // Native Muse owns the Windows install; WSL remains an explicit fallback.
     expect(museSignInCommand("darwin")).toBe("muse login");
-    expect(museSignInCommand("win32")).toBe("wsl muse login");
+    expect(museSignInCommand("win32")).toBe("muse login");
     expect(MuseAgentDriver.install?.signInCommand).toBe(museSignInCommand());
   });
 
@@ -45,13 +44,18 @@ describe("Meta Muse driver catalog", () => {
     expect(museIsAuthenticated({ ...env, META_API_KEY: "  " }, undefined, platform)).toBe(false);
   });
 
-  it("probes the WSL-side login on win32 instead of trusting the Windows home", () => {
+  it("accepts native Windows login and falls back to the WSL-side login", () => {
     const home = mkdtempSync(join(tmpdir(), "omb-muse-win-home-"));
-    const env = { HOME: home, XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "omb-muse-win-xdg-")) };
-    expect(museIsAuthenticated(env, undefined, { platform: "win32", probeWslAuth: () => true })).toBe(true);
-    expect(museIsAuthenticated(env, undefined, { platform: "win32", probeWslAuth: () => false })).toBe(false);
+    const xdg = mkdtempSync(join(tmpdir(), "omb-muse-win-xdg-"));
+    mkdirSync(join(xdg, "muse"), { recursive: true });
+    writeFileSync(join(xdg, "muse", "auth.json"), JSON.stringify({ token: "native" }));
+    const env = { HOME: home, XDG_CONFIG_HOME: xdg };
+    expect(museIsAuthenticated(env, undefined, { platform: "win32", probeWslAuth: () => false })).toBe(true);
+    const empty = { HOME: home, XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "omb-muse-win-empty-")) };
+    expect(museIsAuthenticated(empty, undefined, { platform: "win32", probeWslAuth: () => true })).toBe(true);
+    expect(museIsAuthenticated(empty, undefined, { platform: "win32", probeWslAuth: () => false })).toBe(false);
     // a probe that throws (no WSL, timeout) reads as logged out, never crashes
-    expect(museIsAuthenticated(env, undefined, {
+    expect(museIsAuthenticated(empty, undefined, {
       platform: "win32",
       probeWslAuth: () => {
         throw new Error("wsl missing");
@@ -59,7 +63,7 @@ describe("Meta Muse driver catalog", () => {
     })).toBe(false);
   });
 
-  it("hands the WSL auth probe the augmented PATH, not the bare GUI one", () => {
+  it("hands the WSL fallback probe the augmented PATH, not the bare GUI one", () => {
     let seen: NodeJS.ProcessEnv | undefined;
     const env = { PATH: "/gui/bin", HOME: "/tmp/win-home" };
     expect(
@@ -77,7 +81,7 @@ describe("Meta Muse driver catalog", () => {
     expect(seen?.HOME).toBe("/tmp/win-home");
   });
 
-  it("never accepts a Windows-side login file for the WSL process", () => {
+  it("accepts the native Windows login file and still supports WSL fallback", () => {
     const home = mkdtempSync(join(tmpdir(), "omb-muse-stale-home-"));
     const xdg = mkdtempSync(join(tmpdir(), "omb-muse-stale-xdg-"));
     mkdirSync(join(xdg, "muse"), { recursive: true });
@@ -85,15 +89,14 @@ describe("Meta Muse driver catalog", () => {
     const env = { HOME: home, XDG_CONFIG_HOME: xdg };
     // The same file counts off-Windows, where the process reads it directly.
     expect(museIsAuthenticated(env, undefined, { platform: "linux" })).toBe(true);
-    // On win32 only the key and the WSL-side probe count: a stale copy must
-    // not read as signed in while every turn would fail.
-    expect(museIsAuthenticated(env, undefined, { platform: "win32", probeWslAuth: () => false })).toBe(false);
+    // On win32 this is the native login file, so it counts before probing WSL.
+    expect(museIsAuthenticated(env, undefined, { platform: "win32", probeWslAuth: () => false })).toBe(true);
     expect(museIsAuthenticated(env, undefined, { platform: "win32", probeWslAuth: () => true })).toBe(true);
     expect(museIsAuthenticated({ ...env, META_API_KEY: "meta-key" }, undefined, { platform: "win32", probeWslAuth: () => false })).toBe(true);
   });
 
   it("reads the sign-in command for this platform", () => {
-    expect(museSignInCommand("win32")).toBe("wsl muse login");
+    expect(museSignInCommand("win32")).toBe("muse login");
     expect(museSignInCommand("linux")).toBe("muse login");
     expect(museSignInCommand("darwin")).toBe("muse login");
     expect(MuseAgentDriver.install?.signInCommand).toBe(museSignInCommand());
@@ -104,9 +107,7 @@ describe("Meta Muse driver catalog", () => {
     const xdg = mkdtempSync(join(tmpdir(), "omb-muse-xdg-"));
     mkdirSync(join(xdg, "muse"), { recursive: true });
     writeFileSync(join(xdg, "muse", "auth.json"), JSON.stringify({ token: "stored" }));
-    // Pinned off-win32: on win32 the file path is deliberately ignored in
-    // favor of the WSL-side probe (see the stale-copy test below), so an
-    // ambient-platform call would take the real probe there.
+    // Pin off-win32 so the assertion stays independent of the host's login.
     const platform = { platform: "linux" } as const;
     expect(museIsAuthenticated({ HOME: home, XDG_CONFIG_HOME: xdg }, undefined, platform)).toBe(true);
     expect(museIsAuthenticated({ HOME: home, XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "omb-muse-empty-")) }, undefined, platform)).toBe(false);
@@ -135,14 +136,14 @@ describe("Meta Muse driver catalog", () => {
     expect(kinds).not.toContain("opencodeGo");
   });
 
-  it("routes spawn through WSL on Windows, direct elsewhere", () => {
-    expect(museDefaultCli("win32")).toBe("wsl muse");
+  it("prefers the native CLI on Windows and other platforms", () => {
+    expect(museDefaultCli("win32")).toBe("muse");
     expect(museDefaultCli("linux")).toBe("muse");
     expect(museDefaultCli("darwin")).toBe("muse");
   });
 
-  it("carries the muse argv through the wsl wrapper without a shell", () => {
-    const resolved = resolveCliSpawn(museDefaultCli("win32"), ["serve"]);
+  it("carries an explicit WSL Muse argv without a shell", () => {
+    const resolved = resolveCliSpawn("wsl muse", ["serve"]);
     // PATHEXT-aware whichWin can return uppercase `wsl.EXE` on win32, so the
     // match is case-insensitive; Windows executes it either way.
     expect(resolved.command).toMatch(/wsl(\.exe)?$/i);
@@ -161,8 +162,8 @@ describe("Meta Muse driver catalog", () => {
     expect(missing.WSLENV).toBeUndefined();
   });
 
-  it("installs inside WSL on Windows with a PowerShell-runnable command", () => {
-    expect(MuseAgentDriver.install?.command?.win32).toBe('wsl bash -c "curl -fsSL https://dev.meta.ai/install.sh | bash"');
+  it("installs the native Windows launcher with PowerShell", () => {
+    expect(MuseAgentDriver.install?.command?.win32).toBe('powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://api.meta.ai/muse-launcher.ps1 | iex"');
   });
 
   it("retries a bare CLI override through WSL instead of asking for a filepath", () => {

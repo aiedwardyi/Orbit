@@ -33,16 +33,10 @@ function museAuthPath(env: Record<string, string | undefined>): string {
   return env.XDG_CONFIG_HOME ? join(dir, "muse", "auth.json") : join(dir, "auth.json");
 }
 
-/** Spawn command for this platform. There is no native Windows `muse`
- * binary — the official installer is a POSIX shell script and Windows
- * integrations launch it from WSL — so on win32 the CLI is the `wsl muse`
- * wrapper string, which resolveCliSpawn splits into wsl.exe + fixed args
- * with no shell. stdio pipes through wsl.exe untouched, so the stdio
- * protocol runtime is unchanged. Verified on Linux/macOS only: no win32
- * runner was available here, so the wsl.exe hop itself is assumed from the
- * documented WSL launch path, not observed. */
-export function museDefaultCli(platform: NodeJS.Platform = process.platform): string {
-  return platform === "win32" ? "wsl muse" : "muse";
+/** Spawn command for this platform. The native Windows launcher is preferred;
+ * the ACP/MSP runtimes keep their WSL fallback when the native probe fails. */
+export function museDefaultCli(_platform: NodeJS.Platform = process.platform): string {
+  return "muse";
 }
 
 /** Share META_API_KEY across the WSL boundary. wsl.exe forwards only
@@ -54,17 +48,14 @@ export function withWslKeySharing(env: Record<string, string | undefined>): void
   if (!current.includes("META_API_KEY")) env.WSLENV = [...current, "META_API_KEY"].join(":");
 }
 
-/** Interactive sign-in for this platform. There is no native Windows `muse`
- * binary, so win32 runs the login inside WSL — the same Linux home the
- * engine process reads (see the auth probe below). */
-export function museSignInCommand(platform: NodeJS.Platform = process.platform): string {
-  return platform === "win32" ? "wsl muse login" : "muse login";
+/** Interactive sign-in for this platform. Native Windows Muse owns its own
+ * config; an explicit `wsl muse` override still uses the WSL login. */
+export function museSignInCommand(_platform: NodeJS.Platform = process.platform): string {
+  return "muse login";
 }
 
-/** win32 auto-detect for an explicitly-configured bare CLI. There is no
- * native Windows `muse` binary, so a bare `muse` override can never answer
- * natively — retry it through the wrapper instead of asking the user for a
- * filepath. An already-wrapped CLI yields null (nothing to fall back to). */
+/** win32 fallback for a bare CLI when the native launcher is unavailable. An
+ * already-wrapped CLI yields null (nothing to fall back to). */
 export function museWslFallbackCli(cli: string): string | null {
   return /^\s*wsl(\.exe)?(\s|$)/i.test(cli) ? null : `wsl ${cli.trim()}`;
 }
@@ -151,12 +142,14 @@ export function museIsAuthenticated(
   overrides?: { platform?: NodeJS.Platform; probeWslAuth?: (probeEnv: NodeJS.ProcessEnv) => boolean },
 ): boolean {
   if (nonBlank(env.META_API_KEY)) return true;
-  // On win32 the engine is a Linux process: only the key and the WSL-side
-  // login count. A Windows-side auth.json can never satisfy it, so it is
-  // never accepted there — a stale copy would otherwise read as signed in
-  // while every turn fails. The probe inherits the augmented PATH, not the
-  // possibly System32-less GUI one.
+  // Native Windows Muse reads its own auth file. Keep the WSL probe as a
+  // fallback for older installs and explicit WSL configurations.
   if ((overrides?.platform ?? process.platform) === "win32") {
+    try {
+      if (existsSync(museAuthPath(env))) return true;
+    } catch {
+      // Try the WSL-side login below.
+    }
     try {
       return (overrides?.probeWslAuth ?? probeWslMuseAuth)({ ...env, PATH: augmentedPath() });
     } catch {
@@ -226,7 +219,7 @@ const support: AcpSupport = {
     command: {
       darwin: "curl -fsSL https://dev.meta.ai/install.sh | bash",
       linux: "curl -fsSL https://dev.meta.ai/install.sh | bash",
-      win32: 'wsl bash -c "curl -fsSL https://dev.meta.ai/install.sh | bash"',
+      win32: 'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://api.meta.ai/muse-launcher.ps1 | iex"',
     },
     docsUrl: "https://developer.meta.com/ai/products/muse-code/",
     signInCommand: museSignInCommand(),

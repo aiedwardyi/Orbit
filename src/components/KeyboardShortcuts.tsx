@@ -12,14 +12,9 @@ export function KeyboardShortcuts() {
     { title: "shortcuts.navigation", rows: [
       ["shortcuts.themes", [alt, "T"]],
       ["shortcuts.usage", [alt, "U"]],
-      ["shortcuts.newBot", [mod, "N"]],
-      ["shortcuts.jump", [mod, "1–9"]],
-      ["shortcuts.previous", [mod, "Shift", "["]],
-      ["shortcuts.next", [mod, "Shift", "]"]],
     ] },
     { title: "shortcuts.chat", rows: [
       ["shortcuts.model", [alt, "M"]],
-      ["shortcuts.find", [mod, "F"]],
       ...terminal,
     ] },
   ];

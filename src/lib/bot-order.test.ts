@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { botOrderAfterDrop, groupOrderAfterDrop } from "./bot-order";
+import {
+  botOrderAfterCrossSectionDrop,
+  botOrderAfterDrop,
+  botOrderAfterSectionDrop,
+  groupOrderAfterDrop,
+} from "./bot-order";
 
 const bots = [
   { id: "chief", chiefOfStaff: true },
@@ -44,6 +49,31 @@ describe("botOrderAfterDrop", () => {
   it("ignores a drop onto itself or an unknown bot", () => {
     expect(botOrderAfterDrop(bots, "a", "a")).toBeNull();
     expect(botOrderAfterDrop(bots, "a", "gone")).toBeNull();
+  });
+
+  it("moves a bot into another section while keeping that section's slots together", () => {
+    const sectioned = [
+      { id: "a", section: "A" },
+      { id: "b", section: "B" },
+      { id: "c", section: "B" },
+      { id: "d", section: "A" },
+    ];
+    expect(botOrderAfterSectionDrop(sectioned, "a", "B")).toEqual(["b", "c", "a", "d"]);
+    expect(botOrderAfterSectionDrop(sectioned, "c", "A")).toEqual(["a", "b", "d", "c"]);
+    expect(botOrderAfterSectionDrop(sectioned, "d", "A")).toBeNull();
+  });
+
+  it("accepts a cross-section row drop and rejects chiefs or archived bots", () => {
+    const sectioned = [
+      { id: "a", section: "A" },
+      { id: "b", section: "B" },
+      { id: "c", section: "B" },
+      { id: "d", section: "A" },
+    ];
+    expect(botOrderAfterCrossSectionDrop(sectioned, "a", "c")).toEqual(["b", "c", "a", "d"]);
+    expect(botOrderAfterCrossSectionDrop(sectioned, "c", "a")).toEqual(["c", "a", "b", "d"]);
+    expect(botOrderAfterCrossSectionDrop([{ id: "chief", chiefOfStaff: true }, ...sectioned], "chief", "b")).toBeNull();
+    expect(botOrderAfterCrossSectionDrop([{ id: "archived", hidden: true, section: "A" }, ...sectioned], "archived", "b")).toBeNull();
   });
 });
 

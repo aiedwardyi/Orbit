@@ -89,6 +89,14 @@ function skinToken(id: string, name: string): string {
 
 
 describe("skins", () => {
+  it("insets Claude bot replies only when Boxy geometry is active", () => {
+    expect(css).toMatch(
+      /@scope \(:root\[data-shape="boxy"\]\)\s*\{\s*\[data-skin="claude"\] \[data-orbit-message="bot"\] \[data-orbit-message-content\]\s*\{\s*padding-left:\s*12px;/,
+    );
+    const claude = css.match(/\[data-skin="claude"\] \[data-orbit-message="bot"\] \[data-orbit-message-content\]\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(claude).toContain("padding: 0;");
+  });
+
   it("gives every registered skin a stylesheet block", () => {
     for (const id of SKIN_IDS) expect(blocks).toContain(id);
   });
@@ -331,6 +339,18 @@ describe("editor dark skins", () => {
     for (const role of roles) {
       expect(contrast(cssToken("vscode-dark", role)!, inset), role).toBeGreaterThanOrEqual(4.5);
     }
+  });
+});
+
+describe("Claude skin", () => {
+  it("uses a warm near-black palette and unboxed serif bot replies", () => {
+    expect(SKIN_IDS).toContain("claude");
+    expect(SKINS.some((skin) => skin.id === "claude" && skin.name === "Claude")).toBe(true);
+    expect(cssToken("claude", "--color-app")).toBe("#171615");
+    expect(cssToken("claude", "--color-accent")).toBe("#d97757");
+    expect(css).toMatch(/\[data-skin="claude"\]\s*\[data-orbit-message="bot"\][\s\S]*?background:\s*transparent/);
+    expect(css).toMatch(/\[data-skin="claude"\]\s*\[data-orbit-message="bot"\][\s\S]*?Anthropic Serif/);
+    expect(css).toMatch(/\[data-skin="claude"\]\s*\[data-orbit-message="user"\][\s\S]*?border:\s*1px solid var\(--color-hairline\)/);
   });
 });
 

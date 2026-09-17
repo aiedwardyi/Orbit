@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import os from "node:os";
-import { createTerminalHost, terminalEnvironment, trustedTerminalSender } from "./terminal-host.mjs";
+import { createTerminalHost, terminalEnvironment, terminalReadyTimeoutMs, trustedTerminalSender } from "./terminal-host.mjs";
 
 function fixture() {
   const events = [];
@@ -183,6 +183,35 @@ test("does not expose a session before its worker is ready", async () => {
   assert.equal(session.id.length > 0, true);
 });
 
+test("gives a cold Windows worker a longer readiness grace period", () => {
+  assert.equal(terminalReadyTimeoutMs("win32"), 15_000);
+  assert.equal(terminalReadyTimeoutMs("linux"), 5_000);
+});
+
+test("emits one terminal attention event for a bell or exit", async () => {
+  const f = fixture();
+  const session = await f.host.open(f.event, f.input);
+  f.children[0].data("\x07");
+  f.children[0].exit({ exitCode: 0 });
+  const attention = f.events.filter(([channel]) => channel === "terminal:attention");
+  assert.deepEqual(attention, [["terminal:attention", { id: session.id, botId: "bot-1", reason: "bell" }]]);
+});
+
+test("rearms terminal attention after a new command", async () => {
+  const f = fixture();
+  const session = await f.host.open(f.event, f.input);
+  f.children[0].data("\x07");
+  f.host.write(f.event, session.id, "next\r");
+  f.children[0].data("\x07");
+  assert.deepEqual(
+    f.events.filter(([channel]) => channel === "terminal:attention"),
+    [
+      ["terminal:attention", { id: session.id, botId: "bot-1", reason: "bell" }],
+      ["terminal:attention", { id: session.id, botId: "bot-1", reason: "bell" }],
+    ],
+  );
+});
+
 test("waits for the old worker shutdown acknowledgement before replacing it", async () => {
   let releaseKill;
   const killAck = new Promise((resolve) => { releaseKill = resolve; });
@@ -248,8 +277,8 @@ test("turns a synchronous EBADF write failure into an exited terminal", async ()
   });
   const session = await host.open(event, { botId: "ebadf", cols: 80, rows: 24 });
   assert.throws(() => host.write(event, session.id, "x"), /EBADF/);
-  assert.deepEqual(events.map(([channel, value]) => [channel, value.message ?? value.exitCode]), [
-    ["terminal:error", "EBADF"], ["terminal:exit", 1],
+  assert.deepEqual(events.map(([channel, value]) => [channel, value.message ?? value.exitCode ?? value.reason]), [
+    ["terminal:attention", "error"], ["terminal:error", "EBADF"], ["terminal:exit", 1],
   ]);
   assert.equal(child.killed, true);
 });
@@ -265,8 +294,8 @@ test("turns an asynchronous PTY write failure into an exited terminal", async ()
   });
   const session = await host.open(event, { botId: "async-ebadf", cols: 80, rows: 24 });
   await assert.rejects(host.write(event, session.id, "x"), /EBADF/);
-  assert.deepEqual(events.map(([channel, value]) => [channel, value.message ?? value.exitCode]), [
-    ["terminal:error", "EBADF"], ["terminal:exit", 1],
+  assert.deepEqual(events.map(([channel, value]) => [channel, value.message ?? value.exitCode ?? value.reason]), [
+    ["terminal:attention", "error"], ["terminal:error", "EBADF"], ["terminal:exit", 1],
   ]);
   assert.equal(child.killed, true);
 });

@@ -5,7 +5,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { InstanceInfo } from "@/state/store";
+import type { Bot, InstanceInfo } from "@/state/store";
 
 interface MockSheetState {
   instances?: InstanceInfo[];
@@ -37,12 +37,16 @@ function setOgbPick(pickFolder: (current?: string) => Promise<string | null>) {
   });
 }
 
-async function renderSheet() {
+async function renderSheet(options: {
+  required?: boolean;
+  initialSection?: string;
+  onCreated?: (bot: Bot) => void;
+} = {}) {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
   await act(async () => {
-    root.render(createElement(CreateBotSheet, { required: true }));
+    root.render(createElement(CreateBotSheet, { required: options.required ?? true, ...options }));
   });
   const dialog = host.querySelector('[role="dialog"]');
   const folder = host.querySelector<HTMLInputElement>("#create-bot-folder");
@@ -147,6 +151,22 @@ describe("CreateBotSheet submit", () => {
         job: "weekly brief",
         modelSelection: { mode: "automatic", instanceId: "fast", model: "fast-model" },
       });
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+    }
+  });
+
+  it("files a nested creation in its group and reports the new bot", async () => {
+    const calls = stubPostBot();
+    const onCreated = vi.fn();
+    const { host, root } = await renderSheet({ initialSection: " Work ", onCreated });
+    try {
+      const area = await fillJob(host, "weekly brief");
+      await pressEnter(area, false);
+      expect(calls[0]?.body).toMatchObject({ section: "Work" });
+      expect(onCreated).toHaveBeenCalledWith({ id: "b1" });
     } finally {
       await act(async () => {
         root.unmount();
