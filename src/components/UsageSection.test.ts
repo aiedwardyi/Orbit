@@ -300,12 +300,24 @@ describe("UsageSection friends plan card", () => {
       await act(async () => window.dispatchEvent(overTerminal));
       expect(overTerminal.defaultPrevented).toBe(false);
       terminal.remove();
+      composer.blur();
+
+      const closedTerminal = document.createElement("div");
+      closedTerminal.className = "orbit-terminal-overlay";
+      closedTerminal.dataset.open = "false";
+      closedTerminal.setAttribute("data-orbit-terminal", "");
+      document.body.append(closedTerminal);
+      const besideClosedTerminal = send();
+      await act(async () => window.dispatchEvent(besideClosedTerminal));
+      expect(besideClosedTerminal.defaultPrevented).toBe(true);
+      expect(mockApi).toHaveBeenCalledTimes(8);
+      closedTerminal.remove();
 
       await act(async () => root.unmount());
       const afterClose = send();
       await act(async () => window.dispatchEvent(afterClose));
       expect(afterClose.defaultPrevented).toBe(false);
-      expect(mockApi).toHaveBeenCalledTimes(4);
+      expect(mockApi).toHaveBeenCalledTimes(8);
     } finally {
       host.remove();
       composer.remove();

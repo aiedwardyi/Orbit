@@ -166,7 +166,7 @@ function PlanUsage() {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat || event.isComposing || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.code !== "KeyR") return;
       const active = event.target instanceof Element ? event.target : document.activeElement;
-      if (document.querySelector('[data-model-picker-content], .orbit-terminal-overlay[data-open="true"], [data-orbit-terminal]') || active?.closest('[data-orbit-composer], .orbit-terminal-overlay, [data-terminal], [data-orbit-terminal]')) return;
+      if (document.querySelector('[data-model-picker-content], .orbit-terminal-overlay[data-open="true"]') || active?.closest('[data-orbit-composer], .orbit-terminal-overlay, [data-terminal], [data-orbit-terminal]')) return;
       if (refreshable.length === 0) return;
       event.preventDefault();
       void refreshAll();

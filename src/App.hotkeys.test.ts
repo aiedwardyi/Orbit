@@ -23,13 +23,13 @@ describe("settings section shortcuts", () => {
   });
 });
 
-describe("bot switch shortcuts", () => {
-  it("matches Ctrl/Cmd+Shift brackets by e.code so Shift does not rewrite the key", () => {
-    expect(app).toContain("const mod = e.metaKey || e.ctrlKey");
-    expect(app).toContain('e.shiftKey && (e.code === "BracketLeft" || e.code === "BracketRight")');
-    expect(app).toContain('(e.code === "BracketRight" ? 1 : -1)');
-    expect(app).not.toContain('e.key === "["');
-    expect(app).not.toContain('e.key === "]"');
+describe("retired bot switch shortcuts", () => {
+  it("keeps bot navigation out of the app-wide shortcut handler", () => {
+    const handler = app.slice(app.indexOf("const onKey = (e: KeyboardEvent)"), app.indexOf("window.addEventListener(\"keydown\", onKey)"));
+    expect(handler).not.toContain('type: "newBot"');
+    expect(handler).not.toContain('type: "select"');
+    expect(handler).not.toContain("BracketLeft");
+    expect(handler).not.toContain("BracketRight");
   });
 });
 
@@ -53,8 +53,15 @@ describe("terminal attention routing", () => {
   it("carries the exact terminal session through notification clicks", () => {
     expect(app).toContain("buildTerminalNotification(bot, reason, sessionId)");
     expect(app).toContain("terminalAttentionForBot(latestState.current.terminalAttention, target.botId)");
+    expect(app).toContain("openNotificationTarget(dispatch, target, current)");
     expect(app).toContain("if (!terminalOpen || !bot || !document.hasFocus()) return;");
     expect(app).toContain('window.addEventListener("focus", acknowledgeVisible)');
     expect(app).toContain('type: "ackTerminalAttention"');
+  });
+
+  it("keeps targeted acknowledgements scoped by bot while a notification click settles", () => {
+    expect(app).toContain("useRef(new Map<string, Set<string>>())");
+    expect(app).toContain("const targeted = pendingTerminalAcknowledgements.current.get(bot.id)");
+    expect(app).toContain("if (targeted.size === 0) pendingTerminalAcknowledgements.current.delete(bot.id)");
   });
 });

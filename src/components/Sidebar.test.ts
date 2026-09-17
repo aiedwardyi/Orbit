@@ -738,6 +738,24 @@ describe("Sidebar bot second line", () => {
     }
   });
 
+  it("disables quick archive for Chief of Staff rows", async () => {
+    const chief = { ...bot("chief"), chiefOfStaff: true };
+    const teammate = bot("teammate");
+    const { host, root } = await renderSidebar({ bots: [chief, teammate], groups: [] });
+    try {
+      const row = await vi.waitFor(() => {
+        const element = host.querySelector('[data-sidebar-row-kind="bot"][data-sidebar-row-id="chief"]');
+        expect(element).not.toBeNull();
+        return element!;
+      });
+      const archive = row.querySelector<HTMLButtonElement>('button[aria-label*="Archive"]');
+      expect(archive?.disabled).toBe(true);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
   it("keeps model and chat dots in fixed corners while exposing terminal attention", async () => {
     const attentionBot = {
       ...bot("attention"),
@@ -777,6 +795,12 @@ describe("Sidebar bot second line", () => {
       await act(async () => root.unmount());
       host.remove();
     }
+  });
+
+  it("keeps terminal attention keyboard events inside the badge", () => {
+    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "Sidebar.tsx"), "utf8");
+    const badge = source.slice(source.indexOf("data-sidebar-terminal-attention"), source.indexOf("className=", source.indexOf("data-sidebar-terminal-attention")));
+    expect(badge).toContain("onKeyDown={(event) => event.stopPropagation()}");
   });
 
   it("keeps the message preview on group rows", async () => {
