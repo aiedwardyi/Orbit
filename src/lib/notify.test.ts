@@ -7,6 +7,7 @@ import {
   desktopNotificationHint,
   requestNotificationPermission,
   showNotification,
+  terminalAttentionCopy,
   type NotifyFrame,
 } from "./notify";
 
@@ -90,6 +91,21 @@ describe("desktop notifications", () => {
     });
   });
 
+  it("keeps the terminal session on a browser toast click", () => {
+    const { notices } = installNotification("granted");
+    const onOpen = vi.fn();
+
+    showNotification({ ...frame, openTerminal: true, terminalSessionId: "session-1" }, onOpen);
+    notices[0]!.onclick?.();
+
+    expect(onOpen).toHaveBeenCalledWith({
+      botId: frame.botId,
+      threadId: frame.threadId,
+      openTerminal: true,
+      terminalSessionId: "session-1",
+    });
+  });
+
   it("groups under the bot, not the thread", () => {
     const { notices } = installNotification("granted");
 
@@ -147,6 +163,20 @@ describe("desktop notifications", () => {
     expect(showNative).toHaveBeenCalledOnce();
     expect(notices).toHaveLength(0);
   });
+
+  it("carries the terminal session to the native toast", () => {
+    const { notices } = installNotification("default");
+    const showNative = vi.fn();
+    vi.stubGlobal("window", { focus: vi.fn(), ogb: { showNotification: showNative } });
+
+    showNotification({ ...frame, openTerminal: true, terminalSessionId: "session-1" }, vi.fn());
+
+    expect(showNative).toHaveBeenCalledWith(expect.objectContaining({
+      openTerminal: true,
+      terminalSessionId: "session-1",
+    }));
+    expect(notices).toHaveLength(0);
+  });
 });
 
 describe("desktop notification copy", () => {
@@ -172,6 +202,27 @@ describe("terminal notifications", () => {
     });
     expect(buildTerminalNotification(bot, "error")?.body).toBe("The terminal reported an error.");
     expect(buildTerminalNotification(bot, "exit")?.title).toBe("Maus terminal finished");
+  });
+
+  it("carries the terminal session through the open target", () => {
+    expect(buildTerminalNotification(bot, "bell", "session-1")).toMatchObject({
+      openTerminal: true,
+      terminalSessionId: "session-1",
+    });
+  });
+
+  it("keeps the badge reason and tone explicit in both supported locales", () => {
+    expect(terminalAttentionCopy("bell")).toEqual({
+      label: "Waiting",
+      tooltip: "The terminal is waiting for input.",
+      tone: "accent",
+    });
+    expect(terminalAttentionCopy("exit", "ko")).toEqual({
+      label: "완료",
+      tooltip: "터미널 프로세스가 끝났습니다.",
+      tone: "success",
+    });
+    expect(terminalAttentionCopy("error", "ko").tone).toBe("danger");
   });
 
   it("honors the bot notification toggle", () => {

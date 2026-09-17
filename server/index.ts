@@ -7817,6 +7817,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         report: newest,
         error: result.error,
         retryAt: result.retryAt,
+        status: result.status,
       }));
     }
 

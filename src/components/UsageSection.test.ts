@@ -64,7 +64,7 @@ const { mockState, mockApi } = vi.hoisted(() => {
         }),
       ],
     },
-    mockApi: vi.fn(async (_path: string): Promise<{ report?: { windows: { id: string; usedPercent: number }[]; observedAt: string }; error?: string }> => ({
+    mockApi: vi.fn(async (_path: string): Promise<{ report?: { windows: { id: string; usedPercent: number }[]; observedAt: string }; error?: string; status?: string }> => ({
       report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" },
     })),
   };
@@ -191,6 +191,7 @@ describe("UsageSection friends plan card", () => {
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
       const refreshAll = [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all");
       expect(refreshAll).toBeDefined();
+      expect(refreshAll?.getAttribute("aria-keyshortcuts")).toBe("Alt+R");
       await act(async () => {
         refreshAll?.click();
       });
@@ -204,6 +205,34 @@ describe("UsageSection friends plan card", () => {
     }
   });
 
+  it("does not call a retained or empty Muse snapshot freshly updated", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    mockApi.mockReset();
+    mockApi.mockImplementation(async (path: string) =>
+      path.endsWith("/muse") ? { status: "no_observation" } : { status: "fresh" },
+    );
+    try {
+      persistPreference("en");
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      const refreshAll = [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all");
+      expect(refreshAll).toBeDefined();
+      await act(async () => {
+        refreshAll?.click();
+        await Promise.resolve();
+      });
+      await vi.waitFor(() => expect(host.querySelector('button[aria-label="Refresh all"]')).not.toBeNull());
+      expect(host.querySelector('[role="status"]')).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      mockApi.mockReset();
+      mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
+      persistPreference("en");
+    }
+  });
+
   it("shows exactly one refresh control for the whole section, never per-engine ones", () => {
     try {
       persistPreference("en");
@@ -213,6 +242,75 @@ describe("UsageSection friends plan card", () => {
       expect(html).toContain("lucide-refresh-cw");
       expect(html).toContain("rounded-full");
     } finally {
+      persistPreference("en");
+    }
+  });
+
+  it("handles Alt+R only for visible Usage and leaves chat, terminal, and picker focus alone", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const composer = document.createElement("textarea");
+    composer.setAttribute("data-orbit-composer", "");
+    document.body.append(composer);
+    mockApi.mockClear();
+    const send = (init: KeyboardEventInit = {}) => new KeyboardEvent("keydown", {
+      code: "KeyR", altKey: true, bubbles: true, cancelable: true, ...init,
+    });
+    try {
+      persistPreference("en");
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      const first = send();
+      await act(async () => window.dispatchEvent(first));
+      expect(first.defaultPrevented).toBe(true);
+      expect(mockApi).toHaveBeenCalledTimes(4);
+
+      for (const event of [
+        send({ repeat: true }),
+        send({ isComposing: true }),
+        send({ ctrlKey: true }),
+        send({ metaKey: true }),
+        send({ shiftKey: true }),
+      ]) {
+        await act(async () => window.dispatchEvent(event));
+        expect(event.defaultPrevented).toBe(false);
+      }
+      expect(mockApi).toHaveBeenCalledTimes(4);
+
+      composer.focus();
+      const whileTyping = send();
+      await act(async () => window.dispatchEvent(whileTyping));
+      expect(whileTyping.defaultPrevented).toBe(false);
+      expect(mockApi).toHaveBeenCalledTimes(4);
+
+      const picker = document.createElement("div");
+      picker.setAttribute("data-model-picker-content", "");
+      document.body.append(picker);
+      const overPicker = send();
+      await act(async () => window.dispatchEvent(overPicker));
+      expect(overPicker.defaultPrevented).toBe(false);
+      picker.remove();
+
+      const terminal = document.createElement("div");
+      terminal.className = "orbit-terminal-overlay";
+      terminal.dataset.open = "true";
+      terminal.setAttribute("data-orbit-terminal", "");
+      document.body.append(terminal);
+      const overTerminal = send();
+      await act(async () => window.dispatchEvent(overTerminal));
+      expect(overTerminal.defaultPrevented).toBe(false);
+      terminal.remove();
+
+      await act(async () => root.unmount());
+      const afterClose = send();
+      await act(async () => window.dispatchEvent(afterClose));
+      expect(afterClose.defaultPrevented).toBe(false);
+      expect(mockApi).toHaveBeenCalledTimes(4);
+    } finally {
+      host.remove();
+      composer.remove();
+      mockApi.mockReset();
+      mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
       persistPreference("en");
     }
   });
@@ -461,6 +559,43 @@ describe("UsageSection friends plan card", () => {
         deferred.get("muse")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
       });
       expect([...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all")).toBeDefined();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      mockApi.mockReset();
+      mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
+    }
+  });
+
+  it("ignores a second Alt+R while the refresh-all run is busy", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const deferred = new Map<string, (value: { report: { windows: { id: string; usedPercent: number }[]; observedAt: string } }) => void>();
+    mockApi.mockReset();
+    mockApi.mockImplementation((path: string) => new Promise((resolve) => {
+      deferred.set(path.slice(path.lastIndexOf("/") + 1), resolve);
+    }));
+    try {
+      persistPreference("en");
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      const event = new KeyboardEvent("keydown", { code: "KeyR", altKey: true, bubbles: true, cancelable: true });
+      await act(async () => window.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(true);
+      expect(mockApi).toHaveBeenCalledTimes(4);
+      expect(host.querySelector('button[aria-label="Refreshing…"]')).not.toBeNull();
+
+      const second = new KeyboardEvent("keydown", { code: "KeyR", altKey: true, bubbles: true, cancelable: true });
+      await act(async () => window.dispatchEvent(second));
+      expect(second.defaultPrevented).toBe(true);
+      expect(mockApi).toHaveBeenCalledTimes(4);
+
+      await act(async () => {
+        for (const name of ["claude", "codex", "grok", "muse"]) {
+          deferred.get(name)?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
+        }
+      });
+      expect(host.querySelector('button[aria-label="Refresh all"]')).not.toBeNull();
     } finally {
       await act(async () => root.unmount());
       host.remove();

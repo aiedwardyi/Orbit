@@ -118,6 +118,24 @@ describe("MSP turns (fake host)", () => {
     expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
   });
 
+  it("does not emit an account update when usage/read has no observation", async () => {
+    process.env.FAKE_MSP_USAGE = JSON.stringify({});
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-usage-empty", text: "hi" });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    expect(recorder.events.some((event) => event.type === "account.rate-limits.updated")).toBe(false);
+  });
+
+  it.each(["usage-auth", "usage-transport"] as const)(
+    "keeps a completed turn successful when usage/read has a %s failure",
+    async (mode) => {
+      await create(mode);
+      await instance.adapter.sendTurn({ threadId: `t-${mode}`, text: "hi" });
+      expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+      expect(recorder.events.some((event) => event.type === "account.rate-limits.updated")).toBe(false);
+    },
+  );
+
   it("omits modelId when no model is picked", async () => {
     const dump = join(scratch, "muse-nomodel.json");
     process.env.FAKE_MSP_DUMP = dump;

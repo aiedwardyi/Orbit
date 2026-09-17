@@ -18,6 +18,8 @@ describe("KeyboardShortcuts", () => {
 
     expect(html).toContain(">Toggle Themes<");
     expect(html).toContain(">Toggle Usage<");
+    expect(html).toContain(">Refresh Usage<");
+    expect(html).toContain('aria-label="Alt + R"');
     expect(html).not.toContain("New bot");
     expect(html).not.toContain("Switch to bot 1");
     expect(html).not.toContain("Previous bot");

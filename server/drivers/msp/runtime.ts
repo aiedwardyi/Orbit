@@ -658,7 +658,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
           }
         });
         channel.onExit(() => {
-          if (!state.settled) fail(`${DRIVER_KIND} exited before the turn completed`, false, "exit_before_result");
+          if (!state.settled && !completionPending) fail(`${DRIVER_KIND} exited before the turn completed`, false, "exit_before_result");
         });
 
         active.set(threadId, {

@@ -1,6 +1,15 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Loader2, Menu } from "lucide-react";
-import { StoreProvider, openNotificationTarget, useStore, visibleNotificationThread } from "@/state/store";
+import {
+  StoreProvider,
+  openNotificationTarget,
+  terminalAttentionForBot,
+  terminalAttentionCount,
+  terminalAttentionKey,
+  useStore,
+  visibleNotificationThread,
+  type TerminalAttention,
+} from "@/state/store";
 import { unreadConversationCount } from "@/lib/unread";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatView } from "@/components/ChatView";
@@ -48,10 +57,12 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const latestState = useRef(state);
+  const handledTerminalAttention = useRef(new Set<string>());
+  const pendingTerminalAcknowledgements = useRef(new Set<string>());
   useLayoutEffect(() => {
     latestState.current = state;
   }, [state]);
-  const unreadCount = unreadConversationCount(state.bots, state.groups);
+  const unreadCount = unreadConversationCount(state.bots, state.groups) + terminalAttentionCount(state.terminalAttention);
   // Mobile-only drawer state. Above md, none of these properties are emitted
   // at all — Sidebar scopes every mobile class with max-md: rather than
   // cancelling them with md:, which would still emit a translate value and
@@ -70,6 +81,17 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? state.bots[0]);
   const terminalOpen = Boolean(bot && terminalViews[bot.id] && state.activeView === "chat" && !browserWorkspaceBotId && !localVmWorkspaceBotId);
   const openTerminal = () => { if (bot) setTerminalViews((views) => ({ ...views, [bot.id]: true })); };
+  const acknowledgeTerminalAttention = (attention: Pick<TerminalAttention, "botId" | "sessionId">) => {
+    const key = terminalAttentionKey(attention.botId, attention.sessionId);
+    pendingTerminalAcknowledgements.current.delete(key);
+    handledTerminalAttention.current.delete(key);
+    dispatch({ type: "ackTerminalAttention", botId: attention.botId, sessionId: attention.sessionId });
+  };
+  const requestTerminalAcknowledgement = (attention: Pick<TerminalAttention, "botId" | "sessionId">) => {
+    const key = terminalAttentionKey(attention.botId, attention.sessionId);
+    pendingTerminalAcknowledgements.current.add(key);
+    if (terminalOpen && bot?.id === attention.botId && document.hasFocus()) acknowledgeTerminalAttention(attention);
+  };
   const openTerminalNotification = (target: NotificationTarget) => {
     if (target.openTerminal) {
       setBrowserWorkspaceBotId(null);
@@ -78,7 +100,49 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     }
     openNotificationTarget(dispatch, target, latestState.current);
     if (target.openTerminal) setTerminalViews((views) => ({ ...views, [target.botId]: true }));
+    if (target.openTerminal) {
+      const attention = target.terminalSessionId
+        ? { botId: target.botId, sessionId: target.terminalSessionId }
+        : terminalAttentionForBot(latestState.current.terminalAttention, target.botId);
+      if (attention) requestTerminalAcknowledgement(attention);
+    }
   };
+  const openTerminalAttention = (attention: TerminalAttention) => {
+    const current = latestState.current;
+    const target = current.bots.find((candidate) => candidate.id === attention.botId);
+    if (!target) {
+      acknowledgeTerminalAttention(attention);
+      return;
+    }
+    setBrowserWorkspaceBotId(null);
+    setLocalVmWorkspaceBotId(null);
+    dispatch({ type: "toggleComputer", open: false });
+    openNotificationTarget(
+      dispatch,
+      { botId: attention.botId, threadId: target.threadId, openTerminal: true },
+      current,
+    );
+    setTerminalViews((views) => ({ ...views, [attention.botId]: true }));
+    requestTerminalAcknowledgement(attention);
+  };
+
+  useEffect(() => {
+    const acknowledgeVisible = () => {
+      if (!terminalOpen || !bot || !document.hasFocus()) return;
+      const pending = [...pendingTerminalAcknowledgements.current]
+        .map((key) => state.terminalAttention[key])
+        .filter((attention): attention is TerminalAttention => Boolean(attention && attention.botId === bot.id));
+      if (pending.length > 0) {
+        for (const attention of pending) acknowledgeTerminalAttention(attention);
+        return;
+      }
+      const attention = terminalAttentionForBot(state.terminalAttention, bot.id);
+      if (attention) acknowledgeTerminalAttention(attention);
+    };
+    acknowledgeVisible();
+    window.addEventListener("focus", acknowledgeVisible);
+    return () => window.removeEventListener("focus", acknowledgeVisible);
+  }, [bot?.id, state.terminalAttention, terminalOpen, dispatch]);
 
   // Nothing on this machine can run a bot. A missing cloud login does not
   // count: that CLI can still host a local model. An empty list means the
@@ -139,19 +203,22 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   }, [unreadCount]);
 
   useEffect(() => {
-    const offAttention = window.ogb?.terminal?.onAttention?.(({ botId, reason }) => {
-      dispatch({ type: "markUnread", botId });
+    const offAttention = window.ogb?.terminal?.onAttention?.(({ id: sessionId, botId, reason }) => {
       const current = latestState.current;
       const bot = current.bots.find((candidate) => candidate.id === botId);
-      const frame = bot ? buildTerminalNotification(bot, reason) : null;
-      if (frame) {
-        showNotification(
-          frame,
-          openTerminalNotification,
-          bot?.avatarUrl,
-          terminalOpen && current.selectedId === botId ? visibleNotificationThread(current) : null,
-        );
-      }
+      if (!bot) return;
+      const key = terminalAttentionKey(botId, sessionId);
+      if (handledTerminalAttention.current.has(key) || current.terminalAttention[key]) return;
+      handledTerminalAttention.current.add(key);
+      dispatch({ type: "markTerminalAttention", botId, sessionId, reason, receivedAt: Date.now() });
+      const frame = buildTerminalNotification(bot, reason, sessionId);
+      if (!frame) return;
+      showNotification(
+        frame,
+        openTerminalNotification,
+        bot.avatarUrl,
+        terminalOpen && current.selectedId === botId ? visibleNotificationThread(current) : null,
+      );
     });
     return offAttention;
   }, [dispatch, terminalOpen]);
@@ -163,6 +230,10 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
         setLocalVmWorkspaceBotId(null);
         dispatch({ type: "toggleComputer", open: false });
         setTerminalViews((views) => ({ ...views, [target.botId]: true }));
+        const attention = target.terminalSessionId
+          ? { botId: target.botId, sessionId: target.terminalSessionId }
+          : terminalAttentionForBot(latestState.current.terminalAttention, target.botId);
+        if (attention) requestTerminalAcknowledgement(attention);
       }
     });
   }, [dispatch]);
@@ -327,6 +398,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
           setDrawerOpen(false);
           menuButtonRef.current?.focus();
         }}
+        onTerminalAttention={openTerminalAttention}
       />
       {state.activeView === "team-map" ? (
         <Suspense fallback={<BootFallback />}>

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { UNASSIGNED_SECTION_ID, type SidebarOrder } from "./sidebar-order";
+
 export type SidebarDensity = "comfortable" | "compact" | "icons";
 
 export type SidebarLayout = {
@@ -11,6 +13,7 @@ export const SIDEBAR_DENSITY_KEY = "openmausbot.sidebarDensity";
 export const SIDEBAR_WIDTH_KEY = "openmausbot.sidebarWidth";
 export const SIDEBAR_COLLAPSED_KEY = "openmausbot.sidebarCollapsed";
 export const SIDEBAR_SECTION_ORDER_KEY = "openmausbot.sidebarSectionOrder.v1";
+export const SIDEBAR_ORDER_KEY = "openmausbot.sidebarOrder.v1";
 export const SIDEBAR_MIN_WIDTH = 220;
 export const SIDEBAR_MAX_WIDTH = 480;
 export const SIDEBAR_DEFAULT_WIDTH = 320;
@@ -182,6 +185,63 @@ function parseStringList(raw: string | null): string[] {
     return parsed.success ? [...new Set(parsed.data)].slice(0, 100) : [];
   } catch {
     return [];
+  }
+}
+
+function parseSidebarOrder(raw: string | null): SidebarOrder | null {
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const record = parsed as { sectionOrder?: unknown; itemOrder?: unknown };
+    const sectionOrder = Array.isArray(record.sectionOrder)
+      ? [...new Set(record.sectionOrder.filter((id): id is string => typeof id === "string" && id.length > 0))].slice(0, 100)
+      : [];
+    const itemOrder: Record<string, string[]> = {};
+    if (record.itemOrder && typeof record.itemOrder === "object" && !Array.isArray(record.itemOrder)) {
+      for (const [sectionId, rawItems] of Object.entries(record.itemOrder)) {
+        if (sectionId.length === 0 || !Array.isArray(rawItems)) continue;
+        const items = rawItems.filter((id): id is string => typeof id === "string" && id.length > 0);
+        itemOrder[sectionId] = [...new Set(items)].slice(0, 100);
+      }
+    }
+    return { sectionOrder, itemOrder };
+  } catch {
+    return null;
+  }
+}
+
+export function loadSidebarOrder(storage?: Pick<Storage, "getItem"> | null): SidebarOrder {
+  try {
+    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
+    const current = parseSidebarOrder(target?.getItem(SIDEBAR_ORDER_KEY) ?? null);
+    if (current) return current;
+    return { sectionOrder: parseStringList(target?.getItem(SIDEBAR_SECTION_ORDER_KEY) ?? null), itemOrder: {} };
+  } catch {
+    return { sectionOrder: [], itemOrder: {} };
+  }
+}
+
+export function saveSidebarOrder(
+  order: SidebarOrder,
+  storage?: Pick<Storage, "setItem"> | null,
+): void {
+  try {
+    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
+    const sectionOrder = [...new Set(order.sectionOrder.filter((id) => id.length > 0))].slice(0, 100);
+    const itemOrder: Record<string, string[]> = {};
+    for (const [sectionId, ids] of Object.entries(order.itemOrder)) {
+      if (!sectionId) continue;
+      itemOrder[sectionId] = [...new Set(ids.filter((id) => id.length > 0))].slice(0, 100);
+    }
+    target?.setItem(SIDEBAR_ORDER_KEY, JSON.stringify({ sectionOrder, itemOrder }));
+    // Keep the pre-v1.0.25 section preference readable by older builds.
+    target?.setItem(
+      SIDEBAR_SECTION_ORDER_KEY,
+      JSON.stringify(sectionOrder.filter((id) => id !== UNASSIGNED_SECTION_ID)),
+    );
+  } catch {
+    // The in-memory React state still makes ordering useful this session.
   }
 }
 

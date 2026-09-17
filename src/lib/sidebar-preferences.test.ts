@@ -9,6 +9,7 @@ import {
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
+  SIDEBAR_ORDER_KEY,
   SIDEBAR_SECTION_ORDER_KEY,
   SIDEBAR_SNAP_DISTANCE,
   SIDEBAR_WIDTH_KEY,
@@ -19,6 +20,7 @@ import {
   fitSidebarWidth,
   loadSidebarCollapsed,
   loadSidebarDensity,
+  loadSidebarOrder,
   loadSectionOrder,
   loadSidebarWidth,
   parseSidebarCollapsed,
@@ -26,6 +28,7 @@ import {
   parseSidebarWidth,
   saveSidebarCollapsed,
   saveSidebarDensity,
+  saveSidebarOrder,
   saveSectionOrder,
   restoreSidebarDragWidth,
   saveSidebarWidth,
@@ -66,6 +69,36 @@ describe("sidebar section preferences", () => {
     expect(loadSectionOrder({ getItem: () => "not-json" })).toEqual([]);
     expect(loadSectionOrder({ getItem: () => { throw new Error("blocked"); } })).toEqual([]);
     expect(() => saveSectionOrder(["section:Work"], { setItem: () => { throw new Error("blocked"); } })).not.toThrow();
+  });
+});
+
+describe("sidebar order preferences", () => {
+  it("migrates the old section list and round-trips mixed item keys", () => {
+    expect(loadSidebarOrder({ getItem: (key) => key === SIDEBAR_SECTION_ORDER_KEY ? JSON.stringify(["section:Work"]) : null })).toEqual({
+      sectionOrder: ["section:Work"],
+      itemOrder: {},
+    });
+    const setItem = vi.fn();
+    saveSidebarOrder({
+      sectionOrder: ["unassigned", "section:Work", "section:Work"],
+      itemOrder: { unassigned: ["group:g1", "bot:b1", "bot:b1"], "section:Work": ["bot:b2"] },
+    }, { setItem });
+    expect(setItem).toHaveBeenCalledWith(
+      SIDEBAR_ORDER_KEY,
+      JSON.stringify({
+        sectionOrder: ["unassigned", "section:Work"],
+        itemOrder: { unassigned: ["group:g1", "bot:b1"], "section:Work": ["bot:b2"] },
+      }),
+    );
+    expect(setItem).toHaveBeenCalledWith(SIDEBAR_SECTION_ORDER_KEY, JSON.stringify(["section:Work"]));
+    expect(loadSidebarOrder({
+      getItem: (key) => key === SIDEBAR_ORDER_KEY
+        ? JSON.stringify({ sectionOrder: ["section:Work", "section:Work"], itemOrder: { "section:Work": ["group:g1", "group:g1", "bot:b1"] } })
+        : null,
+    })).toEqual({
+      sectionOrder: ["section:Work"],
+      itemOrder: { "section:Work": ["group:g1", "bot:b1"] },
+    });
   });
 });
 

@@ -28,24 +28,25 @@ import {
   Users,
   X,
 } from "lucide-react";
-import {
-  botOrderAfterCrossSectionDrop,
-  botOrderAfterDrop,
-  botOrderAfterSectionDrop,
-  groupOrderAfterDrop,
-} from "@/lib/bot-order";
 import { conversationPreview, roomConversationPreview } from "@/lib/conversation-preview";
 import {
-  mergeSectionOrder,
   moveSection,
-  orderedSidebarSections,
   placeSection,
   sameSectionOrder,
   userSectionId,
   userSectionName,
   type SectionDropPlace,
 } from "@/lib/sidebar-layout";
-import { api, useStore, formatTime, visibleMessages, type Bot, type Group } from "@/state/store";
+import {
+  api,
+  terminalAttentionForBot,
+  useStore,
+  formatTime,
+  visibleMessages,
+  type Bot,
+  type Group,
+  type TerminalAttention,
+} from "@/state/store";
 
 import { BotAvatar, InitialsAvatar } from "./Avatar";
 import { stateForBot } from "@/lib/mascot";
@@ -69,11 +70,11 @@ import {
   fitSidebarWidth,
   loadSidebarCollapsed,
   loadSidebarDensity,
-  loadSectionOrder,
+  loadSidebarOrder,
   loadSidebarWidth,
   saveSidebarCollapsed,
   saveSidebarDensity,
-  saveSectionOrder,
+  saveSidebarOrder,
   saveSidebarWidth,
   SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_ICONS_WIDTH,
@@ -84,11 +85,23 @@ import {
   type SidebarDensity,
   type SidebarLayout,
 } from "@/lib/sidebar-preferences";
+import {
+  moveSidebarItem,
+  normalizeSidebarOrder,
+  orderedSidebarItems,
+  sameSidebarOrder,
+  sidebarItemKey,
+  UNASSIGNED_SECTION_ID,
+  type SidebarItemKind,
+  type SidebarItemOrder,
+  type SidebarOrder,
+} from "@/lib/sidebar-order";
 import { sidebarConversationRowTone } from "@/lib/sidebar-row";
 import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
 import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import { phoneSettingsAvailable } from "@/lib/phone-availability";
 import { localeTag, t, useI18n } from "@/lib/i18n";
+import { terminalAttentionCopy } from "@/lib/notify";
 
 /** "Milind Soni" → "MS", "milind" → "M", "you@x.dev" → "Y", unset → "?" */
 function profileInitials(profile?: { name?: string; email?: string }): string {
@@ -311,6 +324,11 @@ function GroupListItem({
         // dedicated ContextMenu key (whose native event carries no useful
         // coordinates) both open it centered on the row
         onKeyDown={(e) => {
+          if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+            e.preventDefault();
+            drag?.onMove?.(e.key === "ArrowUp" ? -1 : 1);
+            return;
+          }
           if (e.key === "Enter") {
             e.preventDefault();
             dispatch({ type: "select", id: group.id });
@@ -336,6 +354,7 @@ function GroupListItem({
           selected ? "bg-raised" : "hover:bg-raised/50",
         )}
         aria-label={density === "icons" ? group.name : undefined}
+        aria-keyshortcuts={drag?.onMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
       >
         <StackedMauses members={members} density={density} />
         <div className={cn("min-w-0 flex-1", density === "icons" && "hidden")}>
@@ -495,19 +514,6 @@ function RoomContextMenu({
       </button>
     </div>,
     document.body,
-  );
-}
-
-/** Labeled divider between sidebar sections. Same typographic register as
- * EngineGroupLabel so the sidebar reads as one system. */
-function SectionDivider({ name }: { name: string }) {
-  return (
-    <div className="flex items-center gap-2 px-3 pb-1 pt-3 first:pt-0" data-section={name}>
-      <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
-        {name}
-      </span>
-      <span className="h-px flex-1 bg-hairline/40" />
-    </div>
   );
 }
 
@@ -773,6 +779,7 @@ type SidebarRowDrag = {
   onLeave: () => void;
   onDrop: () => void;
   onEnd: () => void;
+  onMove?: (direction: -1 | 1) => void;
 };
 
 function BotListItem({
@@ -782,6 +789,7 @@ function BotListItem({
   onArchive,
   archiveDisabled,
   drag,
+  onTerminalAttention,
 }: {
   bot: Bot;
   density: SidebarDensity;
@@ -789,6 +797,7 @@ function BotListItem({
   onArchive: (bot: Bot) => void;
   archiveDisabled: boolean;
   drag?: SidebarRowDrag;
+  onTerminalAttention?: (attention: TerminalAttention) => void;
 }) {
   const { t, locale } = useI18n();
   const { state, dispatch } = useStore();
@@ -808,6 +817,8 @@ function BotListItem({
     ? modelChipText({ instance: engine, model: bot.modelSelection.model, effort: bot.modelSelection.effort }, t)
     : null;
   const expandedModelLabel = modelLabel ? compactSidebarModelLabel(modelLabel) : null;
+  const terminalAttention = terminalAttentionForBot(state.terminalAttention, bot.id);
+  const terminalCopy = terminalAttention ? terminalAttentionCopy(terminalAttention.reason, locale) : null;
   const rowClass = cn(
     "flex w-full items-center rounded-xl border text-left",
     iconOnly
@@ -832,17 +843,54 @@ function BotListItem({
           // decorative; busy/unread/motion are the real signals).
           animated={Boolean(bot.busy) || Boolean(bot.unread) || (mascotMotion?.kind ?? "none") !== "none"}
         />
-        {iconOnly && modelLabel && (
+        {bot.modelSelection && (
           <span
+            data-sidebar-model-dot
             aria-hidden="true"
             className={cn(
               "pointer-events-none absolute size-1.5 rounded-full",
-              // unread/busy → bottom-left; provider-dot stays bottom-right
-              bot.unread || bot.busy ? "bottom-0.5 left-0.5" : "bottom-0.5 right-0.5",
+              "bottom-0.5 left-0.5",
               selected ? "ring-2 ring-raised" : "ring-2 ring-panel",
             )}
             style={{ backgroundColor: modelFamilyAccent(engine?.driverKind) }}
           />
+        )}
+        {bot.unread && (
+          <span
+            data-sidebar-chat-unread
+            aria-hidden="true"
+            className={cn(
+              "pointer-events-none absolute bottom-0.5 right-0.5 size-2 rounded-full border",
+              selected ? "border-raised" : "border-panel",
+              "bg-accent",
+            )}
+          />
+        )}
+        {terminalAttention && terminalCopy && (
+          <button
+            type="button"
+            data-sidebar-terminal-attention
+            data-terminal-session-id={terminalAttention.sessionId}
+            data-terminal-reason={terminalAttention.reason}
+            aria-label={`${bot.name}: ${terminalCopy.tooltip}`}
+            title={terminalCopy.tooltip}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (onTerminalAttention) onTerminalAttention(terminalAttention);
+              else dispatch({ type: "ackTerminalAttention", botId: terminalAttention.botId, sessionId: terminalAttention.sessionId });
+            }}
+            className={cn(
+              "absolute -right-1 -top-1 z-10 flex size-5 items-center justify-center rounded-sm border bg-panel font-mono text-[9px] font-bold leading-none shadow-sm",
+              terminalCopy.tone === "danger"
+                ? "border-danger/60 text-danger hover:bg-danger/10"
+                : terminalCopy.tone === "success"
+                  ? "border-success/60 text-success hover:bg-success/10"
+                  : "border-accent/60 text-accent hover:bg-accent/10",
+            )}
+          >
+            <span aria-hidden="true">&gt;_</span>
+          </button>
         )}
       </span>
       <div className={cn("min-w-0 flex-1", iconOnly && "hidden")}>
@@ -878,18 +926,12 @@ function BotListItem({
             )}
             {(expandedModelLabel || bot.busy) && (
               <div data-sidebar-model-row className="flex min-w-0 items-center gap-1.5 truncate text-[13px] text-ink-secondary">
-                {expandedModelLabel && (
-                  <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(engine?.driverKind) }} />
-                )}
                 {expandedModelLabel && <span data-sidebar-model-label className="min-w-0 flex-1 truncate">{expandedModelLabel}</span>}
                 {bot.busy && expandedModelLabel && <span className="shrink-0 text-ink-secondary/60">·</span>}
                 {bot.busy && <span className="shrink-0 truncate">{t("chrome.working")}</span>}
               </div>
             )}
           </div>
-          {bot.unread && (
-            <span className="size-2 shrink-0 rounded-full bg-accent" />
-          )}
         </div>
       </div>
     </>
@@ -962,6 +1004,7 @@ function BotListItem({
         role="button"
         tabIndex={0}
         aria-label={iconOnly ? (modelLabel ? `${bot.name} · ${modelLabel}` : bot.name) : undefined}
+        aria-keyshortcuts={drag?.onMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
         onClick={(event) => {
           dispatch({ type: "select", id: bot.id });
           focusComposerOnActivation({
@@ -970,6 +1013,11 @@ function BotListItem({
           });
         }}
         onKeyDown={(event) => {
+          if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+            event.preventDefault();
+            drag?.onMove?.(event.key === "ArrowUp" ? -1 : 1);
+            return;
+          }
           if (event.key === "Enter") {
             event.preventDefault();
             dispatch({ type: "select", id: bot.id });
@@ -987,9 +1035,6 @@ function BotListItem({
       >
         {body}
       </div>
-      {iconOnly && bot.unread && (
-        <span className="pointer-events-none absolute bottom-1.5 right-1.5 size-2 rounded-full border border-panel bg-accent" />
-      )}
       {!iconOnly && <button
         type="button"
         disabled={archiveDisabled}
@@ -1148,7 +1193,15 @@ function ArchivedBotsPanel({
   );
 }
 
-export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function Sidebar({
+  open,
+  onClose,
+  onTerminalAttention,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onTerminalAttention?: (attention: TerminalAttention) => void;
+}) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
@@ -1156,9 +1209,11 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const importReturnRef = useRef<HTMLButtonElement>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Bot | null>(null);
-  const [drag, setDrag] = useState<{ kind: "bot" | "group"; from: string; over: string | null } | null>(null);
-  const [botSectionDropTarget, setBotSectionDropTarget] = useState<string | null>(null);
-  const [sectionOrder, setSectionOrder] = useState<string[]>(() => loadSectionOrder());
+  const [drag, setDrag] = useState<{ kind: SidebarItemKind; from: string; over: string | null } | null>(null);
+  const [itemSectionDropTarget, setItemSectionDropTarget] = useState<string | null>(null);
+  const [sidebarOrder, setSidebarOrder] = useState<SidebarOrder>(() => loadSidebarOrder());
+  const sidebarOrderRef = useRef(sidebarOrder);
+  sidebarOrderRef.current = sidebarOrder;
   const [draggingSectionId, setDraggingSectionId] = useState<string | null>(null);
   const [sectionDropTarget, setSectionDropTarget] = useState<{ id: string; place: SectionDropPlace } | null>(null);
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
@@ -1498,46 +1553,88 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   // instantly from local state; transcript hits are the SearchResults
   // section below the list (debounced, lands on the message).
 
-  const matchingBots = state.bots
-    .filter((b) => !b.hidden)
-    .filter(
-      (b) =>
-        !q ||
-        b.name.toLowerCase().includes(q) ||
-        (b.title ?? "").toLowerCase().includes(q) ||
-        preview(b, showToolCalls).toLowerCase().includes(q),
-    );
-  const unsectionedChief = matchingBots.find((bot) => bot.chiefOfStaff && !bot.section);
-  const sectionChiefs = matchingBots.filter((bot) => bot.chiefOfStaff && bot.section);
-  const sectionedBots = matchingBots
-    .filter((bot) => !bot.chiefOfStaff && bot.section)
-    .sort((a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false));
-  const visibleBots = matchingBots
-    .filter((bot) => !bot.chiefOfStaff && !bot.section)
-    .sort((a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false));
-  const visibleGroups = state.groups.filter((g) => !q || g.name.toLowerCase().includes(q));
-  const sectionedGroups = visibleGroups.filter((g) => g.section);
-  const unsectionedGroups = visibleGroups.filter((g) => !g.section);
-  // sections keep first-appearance order within the current list; a section
-  // whose members all moved away (or fell out of the filter) simply vanishes
-  const sectionNames: string[] = [];
-  for (const bot of sectionedBots) {
-    if (!sectionNames.includes(bot.section!)) sectionNames.push(bot.section!);
+  type SidebarItem = {
+    key: string;
+    kind: SidebarItemKind;
+    id: string;
+    name: string;
+    sectionId: string;
+    sectionName: string;
+    bot?: Bot;
+    group?: Group;
+  };
+  const sectionIdFor = (section?: string) => section?.trim() ? userSectionId(section.trim()) : UNASSIGNED_SECTION_ID;
+  const activeBots = state.bots.filter((bot) => !bot.hidden);
+  const items: SidebarItem[] = [
+    ...state.groups.map((group) => ({
+      key: sidebarItemKey("group", group.id),
+      kind: "group" as const,
+      id: group.id,
+      name: group.name,
+      sectionId: sectionIdFor(group.section),
+      sectionName: group.section?.trim() ?? "",
+      group,
+    })),
+    ...activeBots.map((bot) => ({
+      key: sidebarItemKey("bot", bot.id),
+      kind: "bot" as const,
+      id: bot.id,
+      name: bot.name,
+      sectionId: sectionIdFor(bot.section),
+      sectionName: bot.section?.trim() ?? "",
+      bot,
+    })),
+  ];
+  const itemByKey = new Map(items.map((item) => [item.key, item]));
+  const naturalItemsBySection: Record<string, string[]> = {};
+  for (const item of items) (naturalItemsBySection[item.sectionId] ??= []).push(item.key);
+  const naturalSectionIds = Object.keys(naturalItemsBySection);
+  const allSectionIds = [
+    UNASSIGNED_SECTION_ID,
+    ...naturalSectionIds.filter((id) => id !== UNASSIGNED_SECTION_ID),
+  ];
+  const currentSidebarOrder = normalizeSidebarOrder(sidebarOrder, allSectionIds, naturalItemsBySection);
+  const sectionOrder = currentSidebarOrder.sectionOrder;
+  const matchingBots = activeBots.filter(
+    (bot) =>
+      !q ||
+      bot.name.toLowerCase().includes(q) ||
+      (bot.title ?? "").toLowerCase().includes(q) ||
+      preview(bot, showToolCalls).toLowerCase().includes(q),
+  );
+  const visibleGroups = state.groups.filter((group) => !q || group.name.toLowerCase().includes(q));
+  const matchingKeys = new Set([
+    ...matchingBots.map((bot) => sidebarItemKey("bot", bot.id)),
+    ...visibleGroups.map((group) => sidebarItemKey("group", group.id)),
+  ]);
+  const orderedItemsBySection = new Map<string, SidebarItem[]>();
+  for (const id of allSectionIds) {
+    const keys = orderedSidebarItems(naturalItemsBySection[id] ?? [], currentSidebarOrder.itemOrder[id] ?? []);
+    orderedItemsBySection.set(id, keys.map((key) => itemByKey.get(key)).filter((item): item is SidebarItem => Boolean(item && matchingKeys.has(item.key))));
   }
-  for (const bot of sectionChiefs) {
-    if (!sectionNames.includes(bot.section!)) sectionNames.push(bot.section!);
-  }
-  for (const group of sectionedGroups) {
-    if (!sectionNames.includes(group.section!)) sectionNames.push(group.section!);
-  }
-  const sectionIds = orderedSidebarSections(sectionNames.map(userSectionId), sectionOrder);
+  const showEmptyUnassignedDropTarget = q.length === 0 && Boolean(drag);
+  const sectionIds = sectionOrder.filter((id) =>
+    (orderedItemsBySection.get(id)?.length ?? 0) > 0 ||
+    (id === UNASSIGNED_SECTION_ID && showEmptyUnassignedDropTarget),
+  );
   const sectionsReorderable = density !== "icons" && q.length === 0 && sectionIds.length > 1;
+  const rowsReorderable = q.length === 0;
+  const currentItemOrder = () =>
+    normalizeSidebarOrder(sidebarOrderRef.current, allSectionIds, naturalItemsBySection).itemOrder;
+  const commitSidebarOrder = (
+    candidate: SidebarOrder,
+    presentItems: Readonly<Record<string, readonly string[]>> = naturalItemsBySection,
+  ) => {
+    const next = normalizeSidebarOrder(candidate, allSectionIds, presentItems);
+    if (sameSidebarOrder(next, sidebarOrderRef.current)) return;
+    sidebarOrderRef.current = next;
+    setSidebarOrder(next);
+    saveSidebarOrder(next);
+  };
+  const sectionLabel = (id: string) => id === UNASSIGNED_SECTION_ID ? t("chrome.unassigned") : userSectionName(id) ?? id;
   const commitSectionOrder = (visibleOrder: string[]) => {
     if (!sectionsReorderable) return;
-    const next = mergeSectionOrder(sectionOrder, visibleOrder);
-    if (sameSectionOrder(next, sectionOrder)) return;
-    setSectionOrder(next);
-    saveSectionOrder(next);
+    commitSidebarOrder({ ...sidebarOrderRef.current, sectionOrder: visibleOrder });
   };
   const announceSectionPosition = (id: string, visibleOrder: string[]) => {
     const position = visibleOrder.indexOf(id);
@@ -1558,7 +1655,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   };
   const resetRowDrag = () => {
     setDrag(null);
-    setBotSectionDropTarget(null);
+    setItemSectionDropTarget(null);
   };
   const updateSectionDropTarget = (event: React.DragEvent<HTMLDivElement>, id: string) => {
     if (!sectionsReorderable || !sectionDragRef.current.from || sectionDragRef.current.from === id) return;
@@ -1586,115 +1683,145 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     }
     resetSectionDrag();
   };
-  const updateBotSectionDropTarget = (event: React.DragEvent<HTMLDivElement>, id: string, name: string) => {
-    if (drag?.kind !== "bot") return false;
-    const from = state.bots.find((bot) => bot.id === drag.from);
-    const order = from ? botOrderAfterSectionDrop(state.bots, drag.from, name) : null;
-    if (!from || !order) return false;
+  const itemDropOrder = (toKey: string) => {
+    if (!rowsReorderable || !drag) return null;
+    const from = itemByKey.get(drag.from);
+    const to = itemByKey.get(toKey);
+    if (!from || !to || from.key === to.key) return null;
+    const itemOrder = currentItemOrder();
+    const targetKeys = itemOrder[to.sectionId] ?? [];
+    const targetIndex = targetKeys.indexOf(to.key);
+    if (targetIndex < 0) return null;
+    const sourceIndex = targetKeys.indexOf(from.key);
+    const place = from.sectionId === to.sectionId && sourceIndex >= 0 && sourceIndex < targetIndex ? "after" : "before";
+    const nextItemOrder = moveSidebarItem(itemOrder, from.sectionId, to.sectionId, from.key, to.key, place);
+    const nextTarget = nextItemOrder[to.sectionId] ?? [];
+    return {
+      from,
+      to,
+      itemOrder: nextItemOrder,
+      targetSectionId: to.sectionId,
+      edge: nextTarget.indexOf(to.key) < nextTarget.indexOf(from.key) ? "bottom" as const : "top" as const,
+    };
+  };
+  const applyItemDrop = (
+    drop: ReturnType<typeof itemDropOrder> | { from: SidebarItem; to?: SidebarItem; itemOrder: SidebarItemOrder; targetSectionId: string } | null,
+    fromKey: string,
+  ) => {
+    const from = itemByKey.get(fromKey);
+    resetRowDrag();
+    if (!drop || !from) return;
+    const presentItems = Object.fromEntries(
+      Object.entries(naturalItemsBySection).map(([id, keys]) => [id, [...keys]]),
+    );
+    if (from.sectionId !== drop.targetSectionId) {
+      presentItems[from.sectionId] = (presentItems[from.sectionId] ?? []).filter((key) => key !== from.key);
+      presentItems[drop.targetSectionId] = [...(presentItems[drop.targetSectionId] ?? []), from.key];
+    }
+    commitSidebarOrder({ ...sidebarOrderRef.current, itemOrder: drop.itemOrder }, presentItems);
+    if (from.sectionId === drop.targetSectionId) return;
+    const section = drop.targetSectionId === UNASSIGNED_SECTION_ID ? "" : userSectionName(drop.targetSectionId) ?? "";
+    if (from.kind === "bot") dispatch({ type: "updateBot", botId: from.id, patch: { section } });
+    else dispatch({ type: "patchGroup", groupId: from.id, patch: { section } });
+    setReorderAnnouncement(`${from.name} moved to ${sectionLabel(drop.targetSectionId)}`);
+  };
+  const updateItemSectionDropTarget = (event: React.DragEvent<HTMLDivElement>, id: string) => {
+    if (!rowsReorderable || !drag) return false;
+    const from = itemByKey.get(drag.from);
+    if (!from || from.sectionId === id) return false;
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
-    if (botSectionDropTarget !== id) setBotSectionDropTarget(id);
+    if (itemSectionDropTarget !== id) setItemSectionDropTarget(id);
     if (drag.over !== null) setDrag((current) => (current ? { ...current, over: null } : null));
     return true;
   };
-  const applyBotDrop = (drop: { botIds: string[]; section: string } | null, fromId: string) => {
-    const from = state.bots.find((bot) => bot.id === fromId);
-    resetRowDrag();
-    if (!drop || !from) return;
-    if ((from.section ?? "") !== drop.section) {
-      dispatch({ type: "updateBot", botId: from.id, patch: { section: drop.section } });
-    }
-    dispatch({ type: "reorderBots", botIds: drop.botIds });
-  };
-  const dropBotInSection = (event: React.DragEvent<HTMLDivElement>, name: string) => {
+  const dropItemInSection = (event: React.DragEvent<HTMLDivElement>, id: string) => {
     event.preventDefault();
-    if (drag?.kind !== "bot") {
+    if (!drag) {
       resetRowDrag();
       return;
     }
-    const fromId = drag.from;
-    const from = state.bots.find((bot) => bot.id === fromId);
-    const order = botOrderAfterSectionDrop(state.bots, fromId, name);
-    applyBotDrop(order ? { botIds: order, section: name } : null, fromId);
-    if (from && order) setReorderAnnouncement(`${from.name} moved to ${name}`);
+    const from = itemByKey.get(drag.from);
+    if (!from || from.sectionId === id) {
+      resetRowDrag();
+      return;
+    }
+    const itemOrder = moveSidebarItem(currentItemOrder(), from.sectionId, id, from.key, undefined, "end");
+    applyItemDrop({ from, itemOrder, targetSectionId: id }, from.key);
   };
   const isSidebarRowEvent = (event: React.DragEvent<HTMLDivElement>) => {
     const target = event.target;
     return target instanceof Element && Boolean(target.closest("[data-sidebar-row]"));
   };
-  const sectionDragOver = (event: React.DragEvent<HTMLDivElement>, id: string, name: string) => {
-    if (drag?.kind === "bot") {
-      if (!isSidebarRowEvent(event)) updateBotSectionDropTarget(event, id, name);
+  const sectionDragOver = (event: React.DragEvent<HTMLDivElement>, id: string, _name: string) => {
+    if (drag) {
+      if (!isSidebarRowEvent(event)) updateItemSectionDropTarget(event, id);
       return;
     }
     updateSectionDropTarget(event, id);
   };
-  const sectionDrop = (event: React.DragEvent<HTMLDivElement>, name: string) => {
-    if (drag?.kind === "bot") {
-      if (!isSidebarRowEvent(event)) dropBotInSection(event, name);
+  const sectionDrop = (event: React.DragEvent<HTMLDivElement>, id: string) => {
+    if (drag) {
+      if (!isSidebarRowEvent(event)) dropItemInSection(event, id);
       return;
     }
     dropSection(event);
   };
   const activeBotCount = state.bots.filter((bot) => !bot.hidden).length;
   const archivedBots = state.bots.filter((bot) => bot.hidden);
-  const botDropOrder = (toId: string) => {
-    if (drag?.kind !== "bot") return null;
-    const to = state.bots.find((bot) => bot.id === toId);
-    if (!to) return null;
-    const from = state.bots.find((bot) => bot.id === drag.from);
-    if (!from) return null;
-    const order = (from.section ?? "") === (to.section ?? "")
-      ? botOrderAfterDrop(state.bots, drag.from, toId)
-      : botOrderAfterCrossSectionDrop(state.bots, drag.from, toId);
-    return order ? { botIds: order, section: to.section ?? "" } : null;
+  const moveItemByKeyboard = (key: string, direction: -1 | 1) => {
+    if (!rowsReorderable) return;
+    const item = itemByKey.get(key);
+    if (!item) return;
+    const itemOrder = currentItemOrder();
+    const keys = itemOrder[item.sectionId] ?? [];
+    const index = keys.indexOf(key);
+    if (index < 0) return;
+    if ((direction < 0 && index > 0) || (direction > 0 && index < keys.length - 1)) {
+      const targetKey = keys[index + direction]!;
+      const place = direction < 0 ? "before" : "after";
+      applyItemDrop({
+        from: item,
+        to: itemByKey.get(targetKey),
+        itemOrder: moveSidebarItem(itemOrder, item.sectionId, item.sectionId, key, targetKey, place),
+        targetSectionId: item.sectionId,
+      }, key);
+      return;
+    }
+    const sectionIndex = sectionIds.indexOf(item.sectionId);
+    const targetSectionId = sectionIds[sectionIndex + direction];
+    if (!targetSectionId) return;
+    const targetKeys = itemOrder[targetSectionId] ?? [];
+    const targetKey = direction > 0 ? targetKeys[0] : undefined;
+    applyItemDrop({
+      from: item,
+      to: targetKey ? itemByKey.get(targetKey) : undefined,
+      itemOrder: moveSidebarItem(itemOrder, item.sectionId, targetSectionId, key, targetKey, direction > 0 ? "before" : "end"),
+      targetSectionId,
+    }, key);
   };
-  const groupDropOrder = (toId: string) =>
-    drag?.kind === "group" ? groupOrderAfterDrop(state.groups, drag.from, toId) : null;
-  const rowDrag = (bot: Bot): SidebarRowDrag => {
-    const order = drag?.kind === "bot" && drag?.over === bot.id ? botDropOrder(bot.id) : null;
+  const rowDrag = (item: SidebarItem): SidebarRowDrag => {
+    const order = drag?.over === item.key ? itemDropOrder(item.key) : null;
     return {
-      edge: order ? (order.botIds.indexOf(bot.id) < order.botIds.indexOf(drag!.from) ? "bottom" : "top") : null,
+      edge: order?.edge ?? null,
       onStart: () => {
-        setBotSectionDropTarget(null);
-        setDrag({ kind: "bot", from: bot.id, over: null });
+        setItemSectionDropTarget(null);
+        setDrag({ kind: item.kind, from: item.key, over: null });
       },
       onOver: () => {
-        if (!drag || drag.kind !== "bot") return false;
-        const over = botDropOrder(bot.id) ? bot.id : null;
-        if (over) setBotSectionDropTarget(null);
+        if (!drag) return false;
+        const over = itemDropOrder(item.key) ? item.key : null;
+        if (over) setItemSectionDropTarget(null);
         if (drag.over !== over) setDrag((current) => (current ? { ...current, over } : null));
         return over !== null;
       },
-      onLeave: () => setDrag((current) => (current?.over === bot.id ? { ...current, over: null } : current)),
+      onLeave: () => setDrag((current) => (current?.over === item.key ? { ...current, over: null } : current)),
       onDrop: () => {
-        const fromId = drag?.kind === "bot" ? drag.from : bot.id;
-        applyBotDrop(botDropOrder(bot.id), fromId);
+        const fromKey = drag?.from ?? item.key;
+        applyItemDrop(itemDropOrder(item.key), fromKey);
       },
       onEnd: resetRowDrag,
-    };
-  };
-  const groupRowDrag = (group: Group): SidebarRowDrag => {
-    const order = drag?.kind === "group" && drag?.over === group.id ? groupDropOrder(group.id) : null;
-    return {
-      edge: order ? (order.indexOf(group.id) < order.indexOf(drag!.from) ? "bottom" : "top") : null,
-      onStart: () => {
-        setBotSectionDropTarget(null);
-        setDrag({ kind: "group", from: group.id, over: null });
-      },
-      onOver: () => {
-        if (!drag || drag.kind !== "group") return false;
-        const over = groupDropOrder(group.id) ? group.id : null;
-        if (drag.over !== over) setDrag((current) => (current ? { ...current, over } : null));
-        return over !== null;
-      },
-      onLeave: () => setDrag((current) => (current?.over === group.id ? { ...current, over: null } : current)),
-      onDrop: () => {
-        const groupIds = groupDropOrder(group.id);
-        resetRowDrag();
-        if (groupIds) dispatch({ type: "reorderGroups", groupIds });
-      },
-      onEnd: resetRowDrag,
+      onMove: (direction) => moveItemByKeyboard(item.key, direction),
     };
   };
   const pendingTeamUndo = teamFeedback?.undo;
@@ -1923,56 +2050,27 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       {/* Bot list */}
       <div className={cn("min-w-0 flex-1 overflow-x-hidden overflow-y-auto", density === "icons" ? "px-0" : "px-2")}>
         <div className="flex flex-col gap-0.5">
-          {!unsectionedChief && sectionChiefs.length === 0 && visibleBots.length === 0 && sectionedBots.length === 0 && visibleGroups.length === 0 && q && q.length < MIN_QUERY && (
+          {matchingBots.length === 0 && visibleGroups.length === 0 && q && q.length < MIN_QUERY && (
             <div className="px-3 py-6 text-center text-[13px] text-ink-secondary">{t("palette.noMatch", { query })}</div>
           )}
-          {unsectionedChief && (
-            <div className="mb-1.5">
-              <BotListItem
-                bot={unsectionedChief}
-                density={density}
-                onMenu={setMenu}
-                onArchive={(bot) => void archiveBot(bot)}
-                archiveDisabled
-              />
-            </div>
-          )}
-          {unsectionedGroups.length > 0 && density !== "icons" && <SectionDivider name={t("chrome.channels")} />}
-          {unsectionedGroups.map((g) => (
-            <GroupListItem key={g.id} group={g} density={density} onMenu={setRoomMenu} drag={groupRowDrag(g)} />
-          ))}
-          {visibleBots.length > 0 && density !== "icons" && <SectionDivider name={t("chrome.bots")} />}
-          {visibleBots.map((b) => (
-            <BotListItem
-              key={b.id}
-              bot={b}
-              density={density}
-              onMenu={setMenu}
-              onArchive={(bot) => void archiveBot(bot)}
-              archiveDisabled={activeBotCount <= 1}
-              drag={rowDrag(b)}
-            />
-          ))}
           {sectionIds.map((id) => {
-            const name = userSectionName(id);
-            if (!name) return null;
-            const sectionChiefItems = sectionChiefs.filter((bot) => bot.section === name);
-            const sectionGroupItems = sectionedGroups.filter((group) => group.section === name);
-            const sectionBotItems = sectionedBots.filter((bot) => bot.section === name);
+            const name = sectionLabel(id);
+            const sectionItems = orderedItemsBySection.get(id) ?? [];
             return (
               <div
                 key={id}
                 data-sidebar-section-id={id}
-                data-sidebar-bot-drop-zone={name}
+                data-sidebar-bot-drop-zone={id === UNASSIGNED_SECTION_ID ? "" : name}
+                data-sidebar-item-drop-zone={id}
                 className="flex flex-col gap-0.5"
                 onDragEnter={(event) => sectionDragOver(event, id, name)}
                 onDragOver={(event) => sectionDragOver(event, id, name)}
-                onDrop={(event) => sectionDrop(event, name)}
+                onDrop={(event) => sectionDrop(event, id)}
               >
                 {sectionDropTarget?.id === id && sectionDropTarget.place === "before" && draggingSectionId !== id && (
                   <div className="mx-2 h-0.5 rounded-full bg-accent" />
                 )}
-                {botSectionDropTarget === id && (
+                {itemSectionDropTarget === id && (
                   <div data-sidebar-bot-drop-marker className="mx-1 my-1 h-1 rounded-full bg-accent shadow-[0_0_8px] shadow-accent/60" />
                 )}
                 {density !== "icons" && (
@@ -1989,32 +2087,28 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                     }}
                     onDragEnd={resetSectionDrag}
                     onDragOver={(event) => sectionDragOver(event, id, name)}
-                    onDrop={(event) => sectionDrop(event, name)}
+                    onDrop={(event) => sectionDrop(event, id)}
                     onMove={(direction) => moveSidebarSection(id, direction)}
                   />
                 )}
-                {sectionChiefItems.map((bot) => (
-                  <BotListItem
-                    key={bot.id}
-                    bot={bot}
+                {sectionItems.map((item) => item.kind === "group" ? (
+                  <GroupListItem
+                    key={item.key}
+                    group={item.group!}
                     density={density}
-                    onMenu={setMenu}
-                    onArchive={(candidate) => void archiveBot(candidate)}
-                    archiveDisabled
+                    onMenu={setRoomMenu}
+                    drag={rowsReorderable ? rowDrag(item) : undefined}
                   />
-                ))}
-                {sectionGroupItems.map((group) => (
-                  <GroupListItem key={group.id} group={group} density={density} onMenu={setRoomMenu} drag={groupRowDrag(group)} />
-                ))}
-                {sectionBotItems.map((bot) => (
+                ) : (
                   <BotListItem
-                    key={bot.id}
-                    bot={bot}
+                    key={item.key}
+                    bot={item.bot!}
                     density={density}
                     onMenu={setMenu}
                     onArchive={(candidate) => void archiveBot(candidate)}
                     archiveDisabled={activeBotCount <= 1}
-                    drag={rowDrag(bot)}
+                    drag={rowsReorderable ? rowDrag(item) : undefined}
+                    onTerminalAttention={onTerminalAttention}
                   />
                 ))}
                 {sectionDropTarget?.id === id && sectionDropTarget.place === "after" && draggingSectionId !== id && (

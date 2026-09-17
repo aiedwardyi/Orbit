@@ -20,7 +20,13 @@ import { execCli, killCliTree, spawnCli } from "./procs.ts";
 import { parseJson, type JsonValue } from "./schema.ts";
 
 type Report = { windows: RateLimitWindow[]; observedAt: string };
-type Result = { report?: Report; error?: string; retryAt: number };
+export type UsageRefreshStatus =
+  | "fresh"
+  | "retained"
+  | "no_observation"
+  | "transport_error"
+  | "auth_error";
+type Result = { report?: Report; error?: string; retryAt: number; status?: UsageRefreshStatus };
 type Options = { instanceId: string; cli?: string; environment?: NodeJS.ProcessEnv };
 const usableReport = (report: Report | undefined): report is Report =>
   Boolean(report && report.windows.length > 0 && Number.isFinite(Date.parse(report.observedAt)));
@@ -52,7 +58,7 @@ const CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const rpcMessage = z.object({ id: z.number().optional(), method: z.string().optional(), result: z.json().optional(), error: z.object({ code: z.number() }).optional() });
 
 export function usageRefreshResponse(instanceId: string, result: Result) {
-  return { instanceId, report: result.report, error: result.error, retryAt: result.retryAt };
+  return { instanceId, report: result.report, error: result.error, retryAt: result.retryAt, status: result.status };
 }
 
 export function readUsageRpc(cli: string, env: NodeJS.ProcessEnv): Promise<JsonValue> {
@@ -392,6 +398,15 @@ export function readAntigravityQuota(
   })();
 }
 
+class MuseUsageFailure extends Error {
+  readonly kind: "transport" | "auth";
+
+  constructor(kind: "transport" | "auth") {
+    super(kind === "auth" ? "signin" : "refresh");
+    this.kind = kind;
+  }
+}
+
 /** Read the stable MSP usage snapshot from a normal `muse serve` host. */
 async function readMuseUsageOnce(cli: string, childEnv: NodeJS.ProcessEnv): Promise<JsonValue> {
   const child = spawnCli(cli, ["serve"], { cwd: homedir(), env: childEnv, stdio: ["pipe", "pipe", "pipe"] });
@@ -420,8 +435,8 @@ async function readMuseUsageOnce(cli: string, childEnv: NodeJS.ProcessEnv): Prom
       if (
         (error instanceof MspRpcError && (error.code === 401 || error.code === 403)) ||
         classifyMuseError(error) === "invalid_credentials"
-      ) throw new Error("signin");
-      throw new Error("refresh");
+      ) throw new MuseUsageFailure("auth");
+      throw new MuseUsageFailure("transport");
     } finally {
       channel.detach();
       killCliTree(child);
@@ -429,18 +444,32 @@ async function readMuseUsageOnce(cli: string, childEnv: NodeJS.ProcessEnv): Prom
   })();
 }
 
+type MuseUsageReadOptions = {
+  platform?: NodeJS.Platform;
+  resolveWsl?: typeof resolveWslMuseCli;
+};
+
+const isMuseNoObservation = (payload: unknown): boolean => {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const record = payload as Record<string, unknown>;
+  return Object.keys(record).length === 0 || ("usage" in record && (record.usage === null || record.usage === undefined));
+};
+
 export async function readMuseUsage(
   cli = museDefaultCli(),
   env: NodeJS.ProcessEnv = { ...process.env, PATH: augmentedPath() },
+  options: MuseUsageReadOptions = {},
 ): Promise<JsonValue> {
+  const platform = options.platform ?? process.platform;
   const childEnv = { ...env };
   applyCredentialAllowlist(childEnv, ["META_API_KEY"]);
-  if (process.platform === "win32") withWslKeySharing(childEnv);
-  const isWindows = process.platform === "win32";
+  if (platform === "win32") withWslKeySharing(childEnv);
+  const resolveWsl = options.resolveWsl ?? resolveWslMuseCli;
+  const isWindows = platform === "win32";
   const isWsl = /^\s*wsl(\.exe)?(\s|$)/i.test(cli);
   const targets: string[] = [];
   if (isWindows && isWsl) {
-    targets.push((await resolveWslMuseCli(cli, childEnv)) ?? cli);
+    targets.push((await resolveWsl(cli, childEnv)) ?? cli);
   } else {
     targets.push(cli);
   }
@@ -454,7 +483,7 @@ export async function readMuseUsage(
     }
   }
   if (isWindows && !isWsl && /^\s*muse\s*$/i.test(cli)) {
-    const wslCli = await resolveWslMuseCli(cli, childEnv);
+    const wslCli = await resolveWsl(cli, childEnv);
     if (wslCli) {
       try {
         return await readMuseUsageOnce(wslCli, childEnv);
@@ -699,10 +728,11 @@ export function createUsageRefresh(deps: {
         } else if (driver === "antigravityAgent") {
           windows = antigravityRateLimitWindows(await (deps.antigravity ?? readAntigravityQuota)(options.cli || "agy", env), clock());
         } else if (driver === "museAgent") {
-          const report = museUsageReport(await (deps.muse ?? readMuseUsage)(options.cli || museDefaultCli(), env));
+          const payload = await (deps.muse ?? readMuseUsage)(options.cli || museDefaultCli(), env);
+          const report = museUsageReport(payload);
           if (!report) {
-            if (usableReport(previous)) return { report: previous, retryAt };
-            throw new Error("refresh");
+            if (isMuseNoObservation(payload)) return { report: previous, status: "no_observation", retryAt };
+            throw new MuseUsageFailure("transport");
           }
           windows = report.windows;
           observedAt = report.observedAt;
@@ -731,11 +761,19 @@ export function createUsageRefresh(deps: {
         if (!windows.length) throw new Error("refresh");
         const report = { windows, observedAt: observedAt ?? new Date(clock()).toISOString() };
         if (observedAt !== undefined && usableReport(previous) && Date.parse(report.observedAt) <= Date.parse(previous.observedAt)) {
-          return { report: previous, retryAt };
+          return { report: previous, status: "retained", retryAt };
         }
-        return { report, retryAt };
+        return { report, ...(driver === "museAgent" ? { status: "fresh" as const } : {}), retryAt };
       } catch (error) {
-        return { report: previous, error: error instanceof Error && error.message === "signin" ? `Sign in again in ${name}` : `Could not refresh ${name} limits`, retryAt };
+        const auth = error instanceof MuseUsageFailure
+          ? error.kind === "auth"
+          : error instanceof Error && error.message === "signin";
+        return {
+          report: previous,
+          ...(driver === "museAgent" ? { status: auth ? "auth_error" as const : "transport_error" as const } : {}),
+          error: auth ? `Sign in again in ${name}` : `Could not refresh ${name} limits`,
+          retryAt,
+        };
       }
     })();
     cache.set(options.instanceId, { retryAt, pending });
