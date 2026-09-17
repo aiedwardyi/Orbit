@@ -1178,6 +1178,127 @@
   --radius-xl: 0px;
 }
 
+/* ── VS Code Dark ──────────────────────────────────────────────────────────
+   Familiar editor dark: #1e1e1e ground, #252526 chrome, command blue, and
+   the standard editor syntax register on a deeper code inset.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="vscode-dark"] {
+  --color-app: #1e1e1e;
+  --color-panel: #252526;
+  --color-raised: #333333;
+  --color-raised-hover: #3e3e42;
+  --color-card: #2d2d30;
+  --color-inset: #181818;
+  --color-control: #333333;
+  --color-hairline: #3e3e42;
+
+  --color-ink: #d4d4d4;
+  --color-ink-secondary: #aaaaaa;
+
+  --color-accent: #007acc;
+  --color-accent-border: #3794ff;
+  --color-accent-text: #4fc1ff;
+  --color-focus: #3794ff;
+  --color-accent-ink: #ffffff;
+  --color-bubble-user: #2d2d30;
+
+  --color-success: #89d185;
+  --color-danger: #f48771;
+  --color-danger-ink: #1e1e1e;
+  --color-warning: #e5c07b;
+  --color-scrollbar: #3e3e42;
+  --color-maus-line: #aaaaaa;
+
+  /* Readable VS Code syntax on --color-inset. */
+  --color-syntax-fg: #d4d4d4;
+  --color-syntax-comment: #6a9955;
+  --color-syntax-keyword: #c586c0;
+  --color-syntax-string: #ce9178;
+  --color-syntax-function: #dcdcaa;
+  --color-syntax-constant: #4fc1ff;
+  --color-syntax-variable: #9cdcfe;
+  --color-syntax-tag: #4ec9b0;
+  --color-syntax-invalid: #f44747;
+
+  --font-sans: "Segoe UI", "Malgun Gothic", -apple-system, BlinkMacSystemFont,
+    system-ui, sans-serif;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+}
+
+/* ── Studio Gray ───────────────────────────────────────────────────────────
+   Quiet graphite with a periwinkle signal. Surfaces stay neutral so the
+   accent carries the hierarchy.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="studio-gray"] {
+  --color-app: #242424;
+  --color-panel: #303030;
+  --color-raised: #3a3a3a;
+  --color-raised-hover: #454545;
+  --color-card: #353535;
+  --color-inset: #1d1d1d;
+  --color-control: #3a3a3a;
+  --color-hairline: #4a4a4a;
+
+  --color-ink: #e5e5e5;
+  --color-ink-secondary: #b8b8b8;
+
+  --color-accent: #7c9cff;
+  --color-accent-border: #9bb4ff;
+  --color-accent-text: #a9b9ff;
+  --color-focus: #9bb4ff;
+  --color-accent-ink: #242424;
+  --color-bubble-user: #353535;
+
+  --color-success: #8fd694;
+  --color-danger: #ff7b72;
+  --color-danger-ink: #242424;
+  --color-warning: #f2cc60;
+  --color-scrollbar: #4a4a4a;
+  --color-maus-line: #b8b8b8;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Malgun Gothic", system-ui, sans-serif;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+}
+
+/* ── Steel Gray ────────────────────────────────────────────────────────────
+   Cool steel surfaces and a mint signal for a calmer terminal-adjacent dark.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="steel-gray"] {
+  --color-app: #2b3038;
+  --color-panel: #363c46;
+  --color-raised: #414955;
+  --color-raised-hover: #4b5360;
+  --color-card: #3b424d;
+  --color-inset: #22262d;
+  --color-control: #414955;
+  --color-hairline: #515b68;
+
+  --color-ink: #e2e8f0;
+  --color-ink-secondary: #bec8d5;
+
+  --color-accent: #63d6be;
+  --color-accent-border: #83e4d0;
+  --color-accent-text: #83e4d0;
+  --color-focus: #83e4d0;
+  --color-accent-ink: #2b3038;
+  --color-bubble-user: #3b424d;
+
+  --color-success: #7ed6b1;
+  --color-danger: #ff9aa3;
+  --color-danger-ink: #2b3038;
+  --color-warning: #f2cc60;
+  --color-scrollbar: #515b68;
+  --color-maus-line: #bec8d5;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Malgun Gothic", system-ui, sans-serif;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+}
+
 html,
 body,
 #root {
@@ -1944,22 +2065,22 @@ button:disabled.bg-danger {
   opacity: 1;
 }
 
-/* Light-skin Shiki remap. ChatMarkdown highlights with github-dark-default and
-   clears the pre background, so those colours sit on --color-inset. Scoped to
-   Atelier / Lagoon / Ledger so dark skins keep the inline colours. The contrast
-   checker enumerates that theme's emitted foregrounds, not the variable names. */
-:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"]) .shiki {
+/* Shiki remap. ChatMarkdown highlights with github-dark-default and clears the
+   pre background, so those colours sit on --color-inset. Scoped to the light
+   skins and VS Code Dark, whose editor syntax palette replaces the inline
+   values. The contrast checker enumerates the theme's emitted foregrounds. */
+:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"], [data-skin="vscode-dark"]) .shiki {
   color: var(--color-syntax-fg) !important;
 }
-:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"]) .shiki span[style*="#8b949e" i] { color: var(--color-syntax-comment) !important; }
-:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"]) .shiki span[style*="#ff7b72" i] { color: var(--color-syntax-keyword) !important; }
-:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"]) .shiki span[style*="#a5d6ff" i] { color: var(--color-syntax-string) !important; }
-:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"]) .shiki span[style*="#d2a8ff" i] { color: var(--color-syntax-function) !important; }
-:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"]) .shiki span[style*="#79c0ff" i] { color: var(--color-syntax-constant) !important; }
-:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"]) .shiki span[style*="#ffa657" i],
-:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"]) .shiki span[style*="#f2cc60" i] { color: var(--color-syntax-variable) !important; }
-:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"]) .shiki span[style*="#7ee787" i] { color: var(--color-syntax-tag) !important; }
-:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"]) .shiki span[style*="#ffa198" i] { color: var(--color-syntax-invalid) !important; }
-:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"]) .shiki span[style*="#e6edf3" i],
-:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"]) .shiki span[style*="#f0f6fc" i],
-:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"]) .shiki span[style*="#161b22" i] { color: var(--color-syntax-fg) !important; }
+:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"], [data-skin="vscode-dark"]) .shiki span[style*="#8b949e" i] { color: var(--color-syntax-comment) !important; }
+:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"], [data-skin="vscode-dark"]) .shiki span[style*="#ff7b72" i] { color: var(--color-syntax-keyword) !important; }
+:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"], [data-skin="vscode-dark"]) .shiki span[style*="#a5d6ff" i] { color: var(--color-syntax-string) !important; }
+:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"], [data-skin="vscode-dark"]) .shiki span[style*="#d2a8ff" i] { color: var(--color-syntax-function) !important; }
+:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"], [data-skin="vscode-dark"]) .shiki span[style*="#79c0ff" i] { color: var(--color-syntax-constant) !important; }
+:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"], [data-skin="vscode-dark"]) .shiki span[style*="#ffa657" i],
+:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"], [data-skin="vscode-dark"]) .shiki span[style*="#f2cc60" i] { color: var(--color-syntax-variable) !important; }
+:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"], [data-skin="vscode-dark"]) .shiki span[style*="#7ee787" i] { color: var(--color-syntax-tag) !important; }
+:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"], [data-skin="vscode-dark"]) .shiki span[style*="#ffa198" i] { color: var(--color-syntax-invalid) !important; }
+:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"], [data-skin="vscode-dark"]) .shiki span[style*="#e6edf3" i],
+:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"], [data-skin="vscode-dark"]) .shiki span[style*="#f0f6fc" i],
+:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"], [data-skin="vscode-dark"]) .shiki span[style*="#161b22" i] { color: var(--color-syntax-fg) !important; }

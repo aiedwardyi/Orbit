@@ -78,6 +78,9 @@ export const SECTION_PHRASE_KEYS = {
     "settings.skin.tui-ice.tagline",
     "settings.skin.tui-slate.tagline",
     "settings.skin.tui-smoke.tagline",
+    "settings.skin.vscode-dark.tagline",
+    "settings.skin.studio-gray.tagline",
+    "settings.skin.steel-gray.tagline",
   ],
   connections: [
     "settings.section.connections",
@@ -130,7 +133,7 @@ const EXTRA_KEYWORDS = {
   shortcuts: ["keyboard", "hotkeys", "keys", "단축키", "키보드"],
   general: ["profile", "name", "updates", "tools", "tool calls", "language", "locale", "vm", "diagnostics", "experimental"],
   connections: ["keys", "api", "gemini", "muse", "claude", "grok", "codex", "antigravity", "cli"],
-  themes: ["skin", "theme", "appearance", "kanagawa", "haxor", "hax0r", "hurtado", "rose", "nord", "github", "dimmed", "tui", "terminal", "amber", "slate", "smoke"],
+  themes: ["skin", "theme", "appearance", "kanagawa", "haxor", "hax0r", "hurtado", "rose", "nord", "github", "dimmed", "tui", "terminal", "amber", "slate", "smoke", "vscode", "visual studio code", "studio gray", "steel gray", "graphite", "periwinkle", "mint"],
   engines: ["models", "claude", "grok", "providers", "cli"],
   companion: ["companion", "phone", "pair", "mobile"],
   computer: ["vm", "virtual", "desktop"],

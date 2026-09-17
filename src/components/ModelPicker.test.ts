@@ -448,7 +448,7 @@ describe("ModelPicker friends chip", () => {
     expect(label).toBeLessThan(badge);
   });
 
-  it.each(["ledger", "midnight"])("keeps the accent dot and effort visible beside a long label under the %s skin", (skin) => {
+  it.each(["ledger", "midnight", "vscode-dark", "studio-gray", "steel-gray"])("keeps the accent dot and effort visible beside a long label under the %s skin", (skin) => {
     const longLabel: InstanceInfo = {
       instanceId: "grok",
       driverKind: "grokAgent",

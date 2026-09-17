@@ -132,12 +132,13 @@ const PAIRS = [
 
 // ChatMarkdown paints fenced blocks with `bg-inset` and strips Shiki's pre
 // background, so syntax colours sit on --color-inset. Code is 13px (body),
-// so AA is 4.5:1. Dark skins skip this. The emitted set is github-dark-default's
-// tokenColors foregrounds plus editor.foreground — not the --color-syntax-*
-// names we happened to define — so a new token in that theme fails the run
-// until it is remapped.
+// so AA is 4.5:1. Skins without a remap keep the inline dark theme values. The
+// emitted set is github-dark-default's tokenColors foregrounds plus
+// editor.foreground, so a remapped skin fails until every emitted colour is
+// covered.
 const CODE_BLOCK_BG = "--color-inset";
 const SYNTAX_MIN = 4.5;
+const SYNTAX_SKINS = new Set(["atelier", "lagoon", "ledger", "vscode-dark"]);
 
 function githubDarkDefaultPath() {
   const pnpm = join(root, "node_modules", ".pnpm");
@@ -239,7 +240,7 @@ if (isDirectRun()) {
     const missing = [];
     let measured = 0;
     const pairs = [...PAIRS];
-    if (isLightSkin(tokens)) {
+    if (isLightSkin(tokens) || SYNTAX_SKINS.has(id)) {
       const skinRemaps = remaps.get(id) ?? new Map();
       for (const hex of emitted) {
         const token = skinRemaps.get(hex);
