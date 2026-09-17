@@ -114,11 +114,11 @@ describe("app icon assets", () => {
     }
   });
 
-  it("paints the vector sources in the new slate/cream/green artwork", () => {
+  it("paints the vector sources in the calm-dark cream/green artwork", () => {
     for (const relative of ["build/icon.svg", "public/app-icon.svg"]) {
       const svg = readFileSync(join(ROOT, relative), "utf8").toLowerCase();
-      expect(svg, `${relative} base`).toContain("#303446");
-      expect(svg, `${relative} ring`).toContain("#a6d189");
+      expect(svg, `${relative} base`).toContain("#090a0c");
+      expect(svg, `${relative} ring`).toContain("#8da77d");
       expect(svg, `${relative} stale spectrum`).not.toContain("#1688ff");
       expect(svg, `${relative} stale magenta`).not.toContain("#f45aa8");
       expect(svg, `${relative} full-bleed background`).not.toContain('width="1024"');
