@@ -1,4 +1,3 @@
-import { GripVertical } from "lucide-react";
 import type { DragEvent, KeyboardEvent } from "react";
 
 import { cn } from "@/lib/cn";
@@ -16,7 +15,7 @@ export function SidebarSectionHeader({
   name: string;
   reorderable: boolean;
   dragging: boolean;
-  onDragStart?: (event: DragEvent<HTMLSpanElement>) => void;
+  onDragStart?: (event: DragEvent<HTMLButtonElement>) => void;
   onDragEnd?: () => void;
   onDragOver?: (event: DragEvent<HTMLDivElement>) => void;
   onDrop?: (event: DragEvent<HTMLDivElement>) => void;
@@ -47,8 +46,14 @@ export function SidebarSectionHeader({
           data-sidebar-section-handle
           aria-label={name}
           aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+          draggable
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
           onKeyDown={onHeaderKeyDown}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-0.5 text-left hover:bg-raised/50"
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-0.5 text-left hover:bg-raised/50",
+            dragging && "opacity-40",
+          )}
           title="Alt+Up/Down to reorder"
         >
           <span className="truncate text-[10px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
@@ -63,22 +68,6 @@ export function SidebarSectionHeader({
           </span>
           <span className="h-px flex-1 bg-hairline/40" />
         </div>
-      )}
-      {reorderable && (
-        <span
-          aria-hidden="true"
-          draggable
-          data-sidebar-section-grip
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-          className={cn(
-            "flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-ink-secondary hover:bg-raised hover:text-ink",
-            dragging && "opacity-40",
-          )}
-          title="Drag to reorder"
-        >
-          <GripVertical size={13} />
-        </span>
       )}
     </div>
   );

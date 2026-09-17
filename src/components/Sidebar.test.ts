@@ -281,6 +281,7 @@ describe("Sidebar layout controls", () => {
 
       const workHandle = host.querySelector('[data-sidebar-section-id="section:Work"] [data-sidebar-section-handle]');
       expect(workHandle?.getAttribute("aria-keyshortcuts")).toContain("Alt+ArrowDown");
+      expect(host.querySelector('[data-sidebar-section-grip]')).toBeNull();
       await act(async () => workHandle?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", altKey: true, bubbles: true })));
       expect(sectionOrder()).toEqual(["section:Personal", "section:Work"]);
       expect(window.localStorage.getItem(SIDEBAR_SECTION_ORDER_KEY)).toBe(
@@ -288,8 +289,8 @@ describe("Sidebar layout controls", () => {
       );
 
       const personalHeader = host.querySelector('[data-sidebar-section-id="section:Personal"] [data-sidebar-section-header]');
-      const workGrip = host.querySelector('[data-sidebar-section-id="section:Work"] [data-sidebar-section-grip]');
-      await act(async () => fireWithTransfer(workGrip!, "dragstart"));
+      const workHeader = host.querySelector('[data-sidebar-section-id="section:Work"] [data-sidebar-section-handle]');
+      await act(async () => fireWithTransfer(workHeader!, "dragstart"));
       await act(async () => fireWithTransfer(personalHeader!, "dragover", -1));
       await act(async () => fireWithTransfer(personalHeader!, "drop", -1));
       expect(sectionOrder()).toEqual(["section:Work", "section:Personal"]);
@@ -358,6 +359,7 @@ describe("Sidebar group drag to reorder", () => {
         expect(row.querySelector("button")).not.toBeNull();
       }
       expect(host.querySelector('button[draggable="true"]')).toBeNull();
+      expect(host.querySelector('[data-sidebar-row-grip]')).toBeNull();
       expect(names()[0]).toContain("Worker");
       expect(names()[1]).toContain("Chit Chat");
 

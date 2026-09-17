@@ -8,8 +8,8 @@ import { api, useStore, type Bot } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
 import { BotPickerList } from "./BotPickerList";
 import {
-  botNameFromJob,
   groupCreatePayload,
+  newBotPayload,
   resolveWizardModel,
   suggestEngine,
   wizardEngineOptions,
@@ -17,7 +17,7 @@ import {
   type EnginePick,
 } from "@/lib/group-wizard";
 
-interface NewRow {
+export interface NewRow {
   key: number;
   job: string;
   /** Engine override; null follows the live suggestion. */
@@ -76,7 +76,7 @@ export function GroupWizard({ onClose }: { onClose: () => void }) {
       };
       const result: { bot: Bot } = await api("/api/bots", {
         method: "POST",
-        body: JSON.stringify({ job, name: botNameFromJob(job), modelSelection: selection }),
+        body: JSON.stringify(newBotPayload(job, selection)),
       });
       dispatch({ type: "botAdded", bot: result.bot });
       setPicked((prev) => new Set(prev).add(result.bot.id));
@@ -209,7 +209,7 @@ export function GroupWizard({ onClose }: { onClose: () => void }) {
   );
 }
 
-function NewBotRow({
+export function NewBotRow({
   row,
   preferIndex,
   instances,

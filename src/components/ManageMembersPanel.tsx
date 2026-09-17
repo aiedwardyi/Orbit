@@ -4,9 +4,10 @@
 // keeps every message a departing bot already sent.
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Plus } from "lucide-react";
-import { useStore, type Bot, type Group } from "@/state/store";
+import { api, useStore, type Bot, type Group } from "@/state/store";
+import { newBotPayload, resolveWizardModel, type EnginePick } from "@/lib/group-wizard";
 import { BotPickerList } from "./BotPickerList";
-import { CreateBotSheet } from "./CreateBotSheet";
+import { NewBotRow, type NewRow } from "./GroupWizard";
 import { nextMemberIds } from "@/lib/room-members";
 import { useI18n } from "@/lib/i18n";
 
@@ -20,12 +21,18 @@ export function ManageMembersPanel({
   triggerRef: RefObject<HTMLButtonElement | null>;
 }) {
   const { t } = useI18n();
-  const { state, dispatch } = useStore();
+  const { state, dispatch, refreshInstances } = useStore();
   const [picked, setPicked] = useState<Set<string>>(() => new Set(group.memberIds));
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
+  const [rows, setRows] = useState<NewRow[]>([]);
+  const [addedNew, setAddedNew] = useState(0);
+  const nextRowKey = useRef(1);
   const openedMemberIds = useRef([...group.memberIds]);
   const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    void refreshInstances?.();
+  }, [refreshInstances]);
 
   // Archived bots stay listed while they are still members — otherwise a
   // room could keep a member you have no way to remove.
@@ -99,11 +106,39 @@ export function ManageMembersPanel({
   };
 
   const addCreatedBot = (bot: Bot) => {
-    const nextGroupMemberIds = group.memberIds.includes(bot.id) ? group.memberIds : [...group.memberIds, bot.id];
+    const currentMemberIds = openedMemberIds.current;
+    const nextGroupMemberIds = currentMemberIds.includes(bot.id) ? currentMemberIds : [...currentMemberIds, bot.id];
     openedMemberIds.current = nextGroupMemberIds;
     setPicked((prev) => new Set(prev).add(bot.id));
     dispatch({ type: "patchGroup", groupId: group.id, patch: { memberIds: nextGroupMemberIds } });
-    setCreateOpen(false);
+  };
+
+  const patchRow = (key: number, patch: Partial<NewRow>) =>
+    setRows((prev) => prev.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+
+  const addBot = async (row: NewRow, pick: EnginePick) => {
+    const job = row.job.trim();
+    if (!job || row.saving) return;
+    patchRow(row.key, { saving: true, error: null });
+    try {
+      const selection = {
+        instanceId: pick.instance.instanceId,
+        model: resolveWizardModel(pick.instance, row.model),
+      };
+      const result: { bot: Bot } = await api("/api/bots", {
+        method: "POST",
+        body: JSON.stringify({
+          ...newBotPayload(job, selection),
+          section: group.section?.trim() || undefined,
+        }),
+      });
+      dispatch({ type: "botAdded", bot: result.bot });
+      addCreatedBot(result.bot);
+      setAddedNew((count) => count + 1);
+      setRows((prev) => prev.filter((candidate) => candidate.key !== row.key));
+    } catch (cause) {
+      patchRow(row.key, { saving: false, error: cause instanceof Error ? cause.message : String(cause) });
+    }
   };
 
   return (
@@ -122,10 +157,23 @@ export function ManageMembersPanel({
           <div className="mb-1 text-[15px] font-semibold text-ink first-letter:uppercase">{t("room.manageMembers")}</div>
           <div className="mb-3 truncate text-[13px] text-ink-secondary">{group.name}</div>
           <BotPickerList bots={bots} picked={picked} onToggle={toggle} emptyHint={t("chrome.createBotFirst")} />
+          {rows.map((row, rowIndex) => (
+            <NewBotRow
+              key={row.key}
+              row={row}
+              preferIndex={addedNew + rowIndex}
+              instances={state.instances}
+              onPatch={(patch) => patchRow(row.key, patch)}
+              onAdd={(pick) => void addBot(row, pick)}
+            />
+          ))}
           <button
             type="button"
             data-manage-create-bot
-            onClick={() => setCreateOpen(true)}
+            onClick={() => setRows((prev) => [
+              ...prev,
+              { key: nextRowKey.current++, job: "", instanceId: null, model: null, saving: false, error: null },
+            ])}
             className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-accent/50 px-3 py-2 text-[13px] font-medium text-accent hover:bg-accent/10"
           >
             <Plus size={15} /> {t("room.addBot")}
@@ -155,14 +203,6 @@ export function ManageMembersPanel({
           </div>
         </div>
       </div>
-      {createOpen && (
-        <CreateBotSheet
-          required={false}
-          initialSection={group.section}
-          onClose={() => setCreateOpen(false)}
-          onCreated={addCreatedBot}
-        />
-      )}
     </>
   );
 }
