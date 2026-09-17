@@ -71,6 +71,11 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const terminalOpen = Boolean(bot && terminalViews[bot.id] && state.activeView === "chat" && !browserWorkspaceBotId && !localVmWorkspaceBotId);
   const openTerminal = () => { if (bot) setTerminalViews((views) => ({ ...views, [bot.id]: true })); };
   const openTerminalNotification = (target: NotificationTarget) => {
+    if (target.openTerminal) {
+      setBrowserWorkspaceBotId(null);
+      setLocalVmWorkspaceBotId(null);
+      dispatch({ type: "toggleComputer", open: false });
+    }
     openNotificationTarget(dispatch, target, latestState.current);
     if (target.openTerminal) setTerminalViews((views) => ({ ...views, [target.botId]: true }));
   };
@@ -153,9 +158,14 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
 
   useEffect(() => {
     return window.ogb?.onNotificationClick?.((target) => {
-      if (target.openTerminal) setTerminalViews((views) => ({ ...views, [target.botId]: true }));
+      if (target.openTerminal) {
+        setBrowserWorkspaceBotId(null);
+        setLocalVmWorkspaceBotId(null);
+        dispatch({ type: "toggleComputer", open: false });
+        setTerminalViews((views) => ({ ...views, [target.botId]: true }));
+      }
     });
-  }, []);
+  }, [dispatch]);
 
   const taskbarBusy = state.bots.some((candidate) => candidate.busy);
   useEffect(() => {

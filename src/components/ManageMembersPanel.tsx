@@ -29,7 +29,13 @@ export function ManageMembersPanel({
   const nextRowKey = useRef(1);
   const createdBotIds = useRef(new Set<string>());
   const openedMemberIds = useRef([...group.memberIds]);
+  const pendingRowsRef = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const pendingRows = rows.some((row) => row.saving);
+
+  useEffect(() => {
+    pendingRowsRef.current = pendingRows;
+  }, [pendingRows]);
 
   useEffect(() => {
     void refreshInstances?.();
@@ -53,6 +59,7 @@ export function ManageMembersPanel({
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
+        if (pendingRowsRef.current) return;
         onClose();
         return;
       }
@@ -146,7 +153,7 @@ export function ManageMembersPanel({
     <>
       <div
         className="fixed inset-0 z-40 flex items-center justify-center bg-black/40"
-        onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+        onMouseDown={(e) => e.target === e.currentTarget && !pendingRows && onClose()}
       >
         <div
           ref={dialogRef}
@@ -191,7 +198,8 @@ export function ManageMembersPanel({
           <div className="mt-3 flex gap-2">
             <button
               onClick={onClose}
-              className="flex-1 rounded-lg bg-raised py-2 text-[14px] font-medium text-ink hover:brightness-110"
+              disabled={pendingRows}
+              className="flex-1 rounded-lg bg-raised py-2 text-[14px] font-medium text-ink hover:brightness-110 disabled:opacity-40"
             >
               {t("createBot.cancel")}
             </button>

@@ -175,6 +175,9 @@ jobs:
               --draft --title "Orbit $VERSION" \
               --notes "Draft assembled by the release workflow from aiedwardyi/Orbit@$SHA. Edit these notes, then publish."
           fi
+          while IFS= read -r name; do
+            [ -n "$name" ] && [ ! -e "$name" ] && gh release delete-asset "$tag" "$name" --repo aiedwardyi/orbit-releases --yes
+          done < <(gh release view "$tag" --repo aiedwardyi/orbit-releases --json assets --jq '.assets[].name')
           for f in *; do
             gh release upload "$tag" "$f" --repo aiedwardyi/orbit-releases --clobber
           done

@@ -641,7 +641,7 @@ export type Action =
   | { type: "deleteGroupTask"; groupId: string; threadId: string }
   | { type: "toggleReaction"; threadId: string; messageId: string; emoji: string }
   | { type: "interruptGroup"; groupId: string }
-  | { type: "instances"; instances: InstanceInfo[] }
+  | { type: "instances"; instances: InstanceInfo[]; preserveRateLimits?: boolean }
   | { type: "rateLimits"; instanceId: string; report: RateLimitReport }
   | { type: "configStatus"; config: ConfigStatus }
   | { type: "select"; id: string }
@@ -974,7 +974,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         instances: action.instances.map((instance) => {
           const current = state.instances.find((candidate) => candidate.instanceId === instance.instanceId)?.rateLimits;
-          if (!current || (instance.rateLimits && Date.parse(instance.rateLimits.observedAt) >= Date.parse(current.observedAt))) return instance;
+          if (!action.preserveRateLimits || !current || (instance.rateLimits && Date.parse(instance.rateLimits.observedAt) >= Date.parse(current.observedAt))) return instance;
           return { ...instance, rateLimits: current };
         }),
       };
@@ -2757,7 +2757,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const refreshInstances = useCallback(async () => {
     try {
       const { instances } = await api("/api/instances");
-      rawDispatch({ type: "instances", instances });
+      rawDispatch({ type: "instances", instances, preserveRateLimits: true });
     } catch {
       /* offline or server down — the existing list stays */
     }
