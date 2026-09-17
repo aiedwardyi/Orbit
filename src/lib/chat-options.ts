@@ -84,21 +84,22 @@ function prefixBeforeTrailingList(
 const OPEN_TO_CLOSE: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
 const CLOSE_TO_OPEN: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
 
-/** Index of the last top-level `\s+or\s+` word, or -1 if none (e.g. or only inside groups). */
-function lastTopLevelOrIndex(text: string): number {
-  let depth = 0;
+/** Index of the last top-level `\s+or\s+` word, or null for malformed groups. */
+function lastTopLevelOrIndex(text: string): number | null {
+  const stack: string[] = [];
   let last = -1;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]!;
     if (OPEN_TO_CLOSE[ch]) {
-      depth += 1;
+      stack.push(ch);
       continue;
     }
-    if (CLOSE_TO_OPEN[ch]) {
-      depth = Math.max(0, depth - 1);
+    const expectedOpen = CLOSE_TO_OPEN[ch];
+    if (expectedOpen) {
+      if (stack.pop() !== expectedOpen) return null;
       continue;
     }
-    if (depth !== 0) continue;
+    if (stack.length !== 0) continue;
     // Early-exit unless this char could start "or" — avoid slice+regex on every index
     if (ch !== "o" && ch !== "O") continue;
     if (i > 0 && /\s/.test(text[i - 1]!) && /^or\b/i.test(text.slice(i))) {
@@ -106,7 +107,7 @@ function lastTopLevelOrIndex(text: string): number {
       if (after < text.length && /\s/.test(text[after]!)) last = i;
     }
   }
-  return last;
+  return stack.length === 0 ? last : null;
 }
 
 /**
@@ -156,7 +157,7 @@ function orChoices(text: string): string[] | null {
   const line = lineMatch[1]!.trim();
   if (line.split(/\s+/).length > 20) return null;
   const orIdx = lastTopLevelOrIndex(line);
-  if (orIdx < 0) return null;
+  if (orIdx === null || orIdx < 0) return null;
   let left = line.slice(0, orIdx).trim();
   const right = line
     .slice(orIdx + 2)

@@ -27,6 +27,10 @@ describe("chatOptionChoices", () => {
     expect(chatOptionChoices("Should I use pnpm (v9) or npm?")).toEqual(["pnpm (v9)", "npm"]);
   });
 
+  it("rejects mismatched delimiters instead of creating malformed choices", () => {
+    expect(chatOptionChoices("pnpm (v9] or npm?")).toBeNull();
+  });
+
   it("does not turn parenthetical policy prose into choices", () => {
     // <=20 words so word cutoff cannot reject; depth must reject or-inside-group
     expect(chatOptionChoices("Use (A or B)?")).toBeNull();
