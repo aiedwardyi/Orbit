@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Loader2, Menu } from "lucide-react";
-import { StoreProvider, useStore } from "@/state/store";
+import { StoreProvider, openNotificationTarget, useStore, visibleNotificationThread } from "@/state/store";
 import { unreadConversationCount } from "@/lib/unread";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatView } from "@/components/ChatView";
@@ -10,6 +10,7 @@ import { DesktopCapabilitiesProvider } from "@/components/DesktopCapabilities";
 import { isEmptyEngineLaunch } from "@/lib/engine-rail";
 import { showComputerPanelChrome } from "@/lib/friends-chrome";
 import { I18nProvider, useI18n } from "@/lib/i18n";
+import { buildTerminalNotification, showNotification, type NotificationTarget } from "@/lib/notify";
 
 const Onboarding = lazy(() => import("@/components/Onboarding").then((m) => ({ default: m.Onboarding })));
 const SettingsPanel = lazy(() => import("@/components/SettingsPanel").then((m) => ({ default: m.SettingsPanel })));
@@ -46,6 +47,10 @@ function BootFallback({
 function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
+  const latestState = useRef(state);
+  useLayoutEffect(() => {
+    latestState.current = state;
+  }, [state]);
   const unreadCount = unreadConversationCount(state.bots, state.groups);
   // Mobile-only drawer state. Above md, none of these properties are emitted
   // at all — Sidebar scopes every mobile class with max-md: rather than
@@ -65,6 +70,15 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? state.bots[0]);
   const terminalOpen = Boolean(bot && terminalViews[bot.id] && state.activeView === "chat" && !browserWorkspaceBotId && !localVmWorkspaceBotId);
   const openTerminal = () => { if (bot) setTerminalViews((views) => ({ ...views, [bot.id]: true })); };
+  const openTerminalNotification = (target: NotificationTarget) => {
+    if (target.openTerminal) {
+      setBrowserWorkspaceBotId(null);
+      setLocalVmWorkspaceBotId(null);
+      dispatch({ type: "toggleComputer", open: false });
+    }
+    openNotificationTarget(dispatch, target, latestState.current);
+    if (target.openTerminal) setTerminalViews((views) => ({ ...views, [target.botId]: true }));
+  };
 
   // Nothing on this machine can run a bot. A missing cloud login does not
   // count: that CLI can still host a local model. An empty list means the
@@ -125,10 +139,32 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   }, [unreadCount]);
 
   useEffect(() => {
-    const offAttention = window.ogb?.terminal?.onAttention?.(({ botId }) => {
+    const offAttention = window.ogb?.terminal?.onAttention?.(({ botId, reason }) => {
       dispatch({ type: "markUnread", botId });
+      const current = latestState.current;
+      const bot = current.bots.find((candidate) => candidate.id === botId);
+      const frame = bot ? buildTerminalNotification(bot, reason) : null;
+      if (frame) {
+        showNotification(
+          frame,
+          openTerminalNotification,
+          bot?.avatarUrl,
+          terminalOpen && current.selectedId === botId ? visibleNotificationThread(current) : null,
+        );
+      }
     });
     return offAttention;
+  }, [dispatch, terminalOpen]);
+
+  useEffect(() => {
+    return window.ogb?.onNotificationClick?.((target) => {
+      if (target.openTerminal) {
+        setBrowserWorkspaceBotId(null);
+        setLocalVmWorkspaceBotId(null);
+        dispatch({ type: "toggleComputer", open: false });
+        setTerminalViews((views) => ({ ...views, [target.botId]: true }));
+      }
+    });
   }, [dispatch]);
 
   const taskbarBusy = state.bots.some((candidate) => candidate.busy);

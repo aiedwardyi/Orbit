@@ -197,6 +197,10 @@ describe("sidebar preview hides tool names when Show tool calls is off", () => {
     expect(roomConversationPreview(room, [], true)).toBe("Skye: use_tool");
   });
 
+  it("shows a working room while its next member is queued", () => {
+    expect(roomConversationPreview({ working: true, messages: [] })).toBe("A bot is working…");
+  });
+
   it("passes Show tool calls into Sidebar 1:1 and room preview chrome", () => {
     const sidebar = readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), "../components/Sidebar.tsx"),
@@ -222,4 +226,3 @@ describe("sidebar preview strips pasted-text wrapper", () => {
     expect(roomConversationPreview(room)).toBe("You: room paste preview");
   });
 });
-

@@ -4,9 +4,10 @@
 // keeps every message a departing bot already sent.
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Plus } from "lucide-react";
-import { useStore, type Bot, type Group } from "@/state/store";
+import { api, useStore, type Bot, type Group } from "@/state/store";
+import { newBotPayload, resolveWizardModel, type EnginePick } from "@/lib/group-wizard";
 import { BotPickerList } from "./BotPickerList";
-import { CreateBotSheet } from "./CreateBotSheet";
+import { NewBotRow, type NewRow } from "./GroupWizard";
 import { nextMemberIds } from "@/lib/room-members";
 import { useI18n } from "@/lib/i18n";
 
@@ -20,12 +21,25 @@ export function ManageMembersPanel({
   triggerRef: RefObject<HTMLButtonElement | null>;
 }) {
   const { t } = useI18n();
-  const { state, dispatch } = useStore();
+  const { state, dispatch, refreshInstances } = useStore();
   const [picked, setPicked] = useState<Set<string>>(() => new Set(group.memberIds));
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
+  const [rows, setRows] = useState<NewRow[]>([]);
+  const [addedNew, setAddedNew] = useState(0);
+  const nextRowKey = useRef(1);
+  const createdBotIds = useRef(new Set<string>());
   const openedMemberIds = useRef([...group.memberIds]);
+  const pendingRowsRef = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const pendingRows = rows.some((row) => row.saving);
+
+  useEffect(() => {
+    pendingRowsRef.current = pendingRows;
+  }, [pendingRows]);
+
+  useEffect(() => {
+    void refreshInstances?.();
+  }, [refreshInstances]);
 
   // Archived bots stay listed while they are still members — otherwise a
   // room could keep a member you have no way to remove.
@@ -45,6 +59,7 @@ export function ManageMembersPanel({
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
+        if (pendingRowsRef.current) return;
         onClose();
         return;
       }
@@ -71,15 +86,18 @@ export function ManageMembersPanel({
   const toggle = (id: string) =>
     setPicked((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
 
   const memberIds = nextMemberIds(
     group.memberIds,
     picked,
-    bots.map((b) => b.id),
+    [...bots.map((b) => b.id), ...[...createdBotIds.current].filter((id) => !bots.some((bot) => bot.id === id))],
   );
   const changed = memberIds.length !== group.memberIds.length || memberIds.some((id, i) => id !== group.memberIds[i]);
 
@@ -99,18 +117,43 @@ export function ManageMembersPanel({
   };
 
   const addCreatedBot = (bot: Bot) => {
-    const nextGroupMemberIds = group.memberIds.includes(bot.id) ? group.memberIds : [...group.memberIds, bot.id];
-    openedMemberIds.current = nextGroupMemberIds;
+    createdBotIds.current.add(bot.id);
     setPicked((prev) => new Set(prev).add(bot.id));
-    dispatch({ type: "patchGroup", groupId: group.id, patch: { memberIds: nextGroupMemberIds } });
-    setCreateOpen(false);
+  };
+
+  const patchRow = (key: number, patch: Partial<NewRow>) =>
+    setRows((prev) => prev.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+
+  const addBot = async (row: NewRow, pick: EnginePick) => {
+    const job = row.job.trim();
+    if (!job || row.saving) return;
+    patchRow(row.key, { saving: true, error: null });
+    try {
+      const selection = {
+        instanceId: pick.instance.instanceId,
+        model: resolveWizardModel(pick.instance, row.model),
+      };
+      const result: { bot: Bot } = await api("/api/bots", {
+        method: "POST",
+        body: JSON.stringify({
+          ...newBotPayload(job, selection),
+          section: group.section?.trim() || undefined,
+        }),
+      });
+      dispatch({ type: "botAdded", bot: result.bot, activate: false, focusComposer: false });
+      addCreatedBot(result.bot);
+      setAddedNew((count) => count + 1);
+      setRows((prev) => prev.filter((candidate) => candidate.key !== row.key));
+    } catch (cause) {
+      patchRow(row.key, { saving: false, error: cause instanceof Error ? cause.message : String(cause) });
+    }
   };
 
   return (
     <>
       <div
         className="fixed inset-0 z-40 flex items-center justify-center bg-black/40"
-        onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+        onMouseDown={(e) => e.target === e.currentTarget && !pendingRows && onClose()}
       >
         <div
           ref={dialogRef}
@@ -122,10 +165,26 @@ export function ManageMembersPanel({
           <div className="mb-1 text-[15px] font-semibold text-ink first-letter:uppercase">{t("room.manageMembers")}</div>
           <div className="mb-3 truncate text-[13px] text-ink-secondary">{group.name}</div>
           <BotPickerList bots={bots} picked={picked} onToggle={toggle} emptyHint={t("chrome.createBotFirst")} />
+          {rows.map((row, rowIndex) => (
+            <NewBotRow
+              key={row.key}
+              row={row}
+              preferIndex={addedNew + rowIndex}
+              instances={state.instances}
+              onPatch={(patch) => patchRow(row.key, patch)}
+              onAdd={(pick) => void addBot(row, pick)}
+            />
+          ))}
           <button
             type="button"
             data-manage-create-bot
-            onClick={() => setCreateOpen(true)}
+            onClick={() => {
+              const key = nextRowKey.current++;
+              setRows((prev) => [
+                ...prev,
+                { key, job: "", instanceId: null, model: null, saving: false, error: null },
+              ]);
+            }}
             className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-accent/50 px-3 py-2 text-[13px] font-medium text-accent hover:bg-accent/10"
           >
             <Plus size={15} /> {t("room.addBot")}
@@ -139,13 +198,14 @@ export function ManageMembersPanel({
           <div className="mt-3 flex gap-2">
             <button
               onClick={onClose}
-              className="flex-1 rounded-lg bg-raised py-2 text-[14px] font-medium text-ink hover:brightness-110"
+              disabled={pendingRows}
+              className="flex-1 rounded-lg bg-raised py-2 text-[14px] font-medium text-ink hover:brightness-110 disabled:opacity-40"
             >
               {t("createBot.cancel")}
             </button>
             <button
               onClick={save}
-              disabled={!memberIds.length}
+              disabled={!memberIds.length || rows.some((row) => row.saving)}
               className="flex-1 rounded-lg bg-accent py-2 text-[14px] font-medium text-accent-ink hover:brightness-110 disabled:opacity-40"
             >
               {memberIds.length
@@ -155,14 +215,6 @@ export function ManageMembersPanel({
           </div>
         </div>
       </div>
-      {createOpen && (
-        <CreateBotSheet
-          required={false}
-          initialSection={group.section}
-          onClose={() => setCreateOpen(false)}
-          onCreated={addCreatedBot}
-        />
-      )}
     </>
   );
 }

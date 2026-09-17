@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildNotificationOptions,
+  buildTerminalNotification,
   canClaimGetNotified,
   desktopNotificationHint,
   requestNotificationPermission,
@@ -156,6 +157,25 @@ describe("desktop notification copy", () => {
     expect(canClaimGetNotified({ html5: false })).toBe(false);
     expect(desktopNotificationHint(true)).toBe("Get notified when this bot finishes or needs input");
     expect(desktopNotificationHint(false)).not.toMatch(/Get notified/i);
+  });
+});
+
+describe("terminal notifications", () => {
+  const bot = { id: "bot-1", name: "Maus", threadId: "thread-1" };
+
+  it("builds attention copy for terminal bells, errors, and exits", () => {
+    expect(buildTerminalNotification(bot, "bell")).toMatchObject({
+      kind: "takeover",
+      title: "Maus terminal needs attention",
+      body: "The terminal is waiting for you.",
+      openTerminal: true,
+    });
+    expect(buildTerminalNotification(bot, "error")?.body).toBe("The terminal reported an error.");
+    expect(buildTerminalNotification(bot, "exit")?.title).toBe("Maus terminal finished");
+  });
+
+  it("honors the bot notification toggle", () => {
+    expect(buildTerminalNotification({ ...bot, notifications: false }, "exit")).toBeNull();
   });
 });
 

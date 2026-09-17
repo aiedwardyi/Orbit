@@ -3,9 +3,9 @@
 // the per-bot toggle); this only decides how to show it here.
 import type { Notification } from "../../server/notify.ts";
 
-export type NotifyFrame = Notification;
+export type NotifyFrame = Notification & { openTerminal?: boolean };
 
-export type NotificationTarget = Pick<NotifyFrame, "botId" | "threadId">;
+export type NotificationTarget = Pick<NotifyFrame, "botId" | "threadId"> & { openTerminal?: boolean };
 
 /** Ask while handling the settings click. Browsers may reject permission
  * requests that are triggered later by an incoming SSE frame. */
@@ -29,6 +29,30 @@ export function desktopNotificationHint(canNotify: boolean): string {
   return canNotify
     ? "Get notified when this bot finishes or needs input"
     : "Desktop alerts aren't available on this computer";
+}
+
+export type TerminalAttentionReason = "bell" | "exit" | "error";
+
+export function buildTerminalNotification(
+  bot: { id: string; name: string; threadId: string; notifications?: boolean; avatarUrl?: string | null },
+  reason: TerminalAttentionReason,
+): NotifyFrame | null {
+  if (bot.notifications === false) return null;
+  const finished = reason === "exit";
+  return {
+    kind: finished ? "done" : "takeover",
+    botId: bot.id,
+    botName: bot.name,
+    threadId: bot.threadId,
+    title: finished ? `${bot.name} terminal finished` : `${bot.name} terminal needs attention`,
+    body:
+      reason === "bell"
+        ? "The terminal is waiting for you."
+        : reason === "error"
+          ? "The terminal reported an error."
+          : "The terminal process finished.",
+    openTerminal: true,
+  };
 }
 
 /** The identity a notification groups under: one bot, wherever it was
@@ -64,6 +88,7 @@ export function showNotification(
       botId: frame.botId,
       threadId: frame.threadId,
       visibleThreadId: visibleThreadId ?? null,
+      ...(frame.openTerminal ? { openTerminal: true } : {}),
     });
     return;
   }
@@ -73,7 +98,7 @@ export function showNotification(
 
   const open = () => {
     window.focus();
-    onOpen({ botId: frame.botId, threadId: frame.threadId });
+    onOpen({ botId: frame.botId, threadId: frame.threadId, ...(frame.openTerminal ? { openTerminal: true } : {}) });
   };
 
   if (Notification.permission === "granted") {

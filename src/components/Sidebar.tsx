@@ -12,7 +12,6 @@ import {
   Crown,
   FolderMinus,
   FolderPlus,
-  GripVertical,
   Library,
   Loader2,
   Pencil,
@@ -206,7 +205,7 @@ function StackedMauses({ members, density }: { members: Bot[]; density: SidebarD
   return (
     <div
       data-sidebar-group-avatar-slot
-      className={cn("flex shrink-0 items-center justify-center", slotSize, extra > 0 && "min-w-[76px]")}
+      className={cn("flex shrink-0 items-center justify-center", slotSize, extra > 0 && "min-w-[84px]")}
     >
       <div className="flex items-center -space-x-3">
         {shown.map((b) => (
@@ -236,7 +235,7 @@ function GroupListItem({
   onMenu: (menu: { groupId: string; x: number; y: number }) => void;
   drag?: SidebarRowDrag;
 }) {
-  const { t, locale } = useI18n();
+  const { locale } = useI18n();
   const { state, dispatch } = useStore();
   const showToolCalls = showToolCallsEnabled(state.config);
   const selected = state.activeView === "chat" && state.selectedId === group.id;
@@ -338,16 +337,6 @@ function GroupListItem({
         )}
         aria-label={density === "icons" ? group.name : undefined}
       >
-        {density !== "icons" && drag && (
-          <span
-            aria-hidden="true"
-            data-sidebar-row-grip
-            className="flex size-6 shrink-0 items-center justify-center rounded text-ink-secondary/60 opacity-60 transition group-hover:opacity-100 group-focus-within:opacity-100"
-            title={t("chrome.dragToReorder")}
-          >
-            <GripVertical size={14} />
-          </span>
-        )}
         <StackedMauses members={members} density={density} />
         <div className={cn("min-w-0 flex-1", density === "icons" && "hidden")}>
           <div className="flex min-w-0 items-baseline gap-2 overflow-hidden">
@@ -996,16 +985,6 @@ function BotListItem({
         onContextMenu={onContextMenu}
         className={rowClass}
       >
-        {density !== "icons" && drag && (
-          <span
-            aria-hidden="true"
-            data-sidebar-row-grip
-            className="flex size-6 shrink-0 items-center justify-center rounded text-ink-secondary/60 opacity-60 transition group-hover:opacity-100 group-focus-within:opacity-100"
-            title={t("chrome.dragToReorder")}
-          >
-            <GripVertical size={14} />
-          </span>
-        )}
         {body}
       </div>
       {iconOnly && bot.unread && (

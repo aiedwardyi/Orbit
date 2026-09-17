@@ -31,6 +31,7 @@ export function parseNotifyPayload(payload) {
     botId,
     threadId,
     visibleThreadId: payload.visibleThreadId == null ? null : asString(payload.visibleThreadId),
+    ...(payload.openTerminal === true ? { openTerminal: true } : {}),
   };
 }
 
@@ -81,7 +82,7 @@ export function handleDesktopNotify({
   });
   notice.on("click", () => {
     activate?.(win);
-    sendClick?.({ botId: parsed.botId, threadId: parsed.threadId });
+    sendClick?.({ botId: parsed.botId, threadId: parsed.threadId, ...(parsed.openTerminal ? { openTerminal: true } : {}) });
   });
   notice.show();
   return { shown: true };

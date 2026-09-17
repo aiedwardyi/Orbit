@@ -641,7 +641,7 @@ export type Action =
   | { type: "deleteGroupTask"; groupId: string; threadId: string }
   | { type: "toggleReaction"; threadId: string; messageId: string; emoji: string }
   | { type: "interruptGroup"; groupId: string }
-  | { type: "instances"; instances: InstanceInfo[] }
+  | { type: "instances"; instances: InstanceInfo[]; preserveRateLimits?: boolean }
   | { type: "rateLimits"; instanceId: string; report: RateLimitReport }
   | { type: "configStatus"; config: ConfigStatus }
   | { type: "select"; id: string }
@@ -970,7 +970,14 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, groups, selectedId };
     }
     case "instances":
-      return { ...state, instances: action.instances };
+      return {
+        ...state,
+        instances: action.instances.map((instance) => {
+          const current = state.instances.find((candidate) => candidate.instanceId === instance.instanceId)?.rateLimits;
+          if (!action.preserveRateLimits || !current || (instance.rateLimits && Date.parse(instance.rateLimits.observedAt) >= Date.parse(current.observedAt))) return instance;
+          return { ...instance, rateLimits: current };
+        }),
+      };
     case "rateLimits":
       return {
         ...state,
@@ -1694,6 +1701,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const cancelledSendsRef = useRef(new Set<string>());
   const reorderGeneration = useRef(0);
   const groupReorderGeneration = useRef(0);
+  const refreshGeneration = useRef(0);
   // per-frame stream-delta batching (see the "runtime" SSE case); stream
   // state is intentionally OUTSIDE the reducer so token frames re-render
   // only StreamContext consumers
@@ -2748,9 +2756,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // is invisible until something asks again — the setup screens expose this
   // as "Check again" so the user isn't told to restart when a refresh will do.
   const refreshInstances = useCallback(async () => {
+    const generation = ++refreshGeneration.current;
     try {
       const { instances } = await api("/api/instances");
-      rawDispatch({ type: "instances", instances });
+      if (generation !== refreshGeneration.current) return;
+      rawDispatch({ type: "instances", instances, preserveRateLimits: true });
     } catch {
       /* offline or server down — the existing list stays */
     }

@@ -86,7 +86,7 @@ export function conversationPreview(
   return "";
 }
 
-export type PreviewGroup = Pick<Group, "busyBotId" | "messages">;
+export type PreviewGroup = Pick<Group, "busyBotId" | "working" | "messages">;
 
 /** Room roster line. Same Show tool calls gate as the 1:1 preview — a
  * finished `use_tool` chip must not become `Skye: use_tool` when the
@@ -97,7 +97,7 @@ export function roomConversationPreview(
   showToolCalls = false,
   translate: Translate = t,
 ): string {
-  if (group.busyBotId) {
+  if (group.busyBotId || group.working) {
     return translate("chrome.botWorking", {
       name: bots.find((b) => b.id === group.busyBotId)?.name ?? translate("chrome.aBot"),
     });

@@ -274,7 +274,7 @@ export const OpenAICompatDriver: ProviderDriver<OpenAICompatConfig> = {
         // keep DEFAULT_MODELS — never fail the instance on a catalog miss
       }
     };
-    if (apiKey) void fetchModels();
+    const modelsReady = apiKey ? fetchModels() : Promise.resolve();
 
     const sendTurn = async (turn: SendTurnInput) => {
       const { threadId } = turn;
@@ -402,6 +402,7 @@ export const OpenAICompatDriver: ProviderDriver<OpenAICompatConfig> = {
       get models() {
         return catalog;
       },
+      modelsReady,
       refreshModels: fetchModels,
       snapshot,
       adapter: {

@@ -131,6 +131,7 @@ describe("skin overlay chrome", () => {
     expect(SKIN_CHROME["vscode-dark"]).toEqual({ color: "#1e1e1e", symbolColor: "#a7a7a7" });
     expect(SKIN_CHROME["studio-gray"]).toEqual({ color: "#242424", symbolColor: "#b8b8b8" });
     expect(SKIN_CHROME["steel-gray"]).toEqual({ color: "#2b3038", symbolColor: "#b9c3d0" });
+    expect(SKIN_CHROME.claude).toEqual({ color: "#171615", symbolColor: "#b8b0a6" });
   });
 
   it("extracts onyx, dracula, and cobalt from the omb-skin marker", () => {

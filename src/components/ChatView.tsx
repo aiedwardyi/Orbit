@@ -1217,12 +1217,12 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
         className={cn(
           // @container so the chips on the right can fold to icon bubbles
           // when the column is narrow (side panel open, small window)
-          "@container/chathead flex items-center justify-between px-5 py-3",
+          "@container/chathead flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 px-5 py-3",
           // Room for the drawer button, which overlays this corner below md.
           "pl-11 md:pl-5",
         )}
       >
-        <div className="flex min-w-0 items-center gap-2.5 rounded-lg px-1.5 py-1">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-lg px-1.5 py-1">
           <button
             data-orbit-chat-focus-fallback=""
             onClick={() => dispatch({ type: "toggleSettings", open: true })}
@@ -1238,14 +1238,16 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
               motionKey={mascotMotion?.nonce ?? 0}
             />
           </button>
-          <RenameTitle
-            value={bot.name}
-            onCommit={(name) => dispatch({ type: "updateBot", botId: bot.id, patch: { name } })}
-            onActivate={() => dispatch({ type: "toggleSettings", open: true })}
-            showEditButton
-            className="truncate text-[15px] font-semibold text-ink"
-            inputClassName="max-w-[220px] rounded bg-inset px-1.5 py-0.5 text-[15px] font-semibold"
-          />
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <RenameTitle
+              value={bot.name}
+              onCommit={(name) => dispatch({ type: "updateBot", botId: bot.id, patch: { name } })}
+              onActivate={() => dispatch({ type: "toggleSettings", open: true })}
+              showEditButton
+              className="truncate text-[15px] font-semibold text-ink"
+              inputClassName="max-w-[220px] rounded bg-inset px-1.5 py-0.5 text-[15px] font-semibold"
+            />
+          </div>
           {bot.chiefOfStaff && (
             <span
               className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-accent/12 px-2 py-0.5 text-[11px] font-medium text-accent"
@@ -1257,7 +1259,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
           )}
           {bot.busy && <Loader2 size={14} className="animate-spin text-ink-secondary" />}
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2">
           {onOpenTerminal && (
             <button
               type="button"

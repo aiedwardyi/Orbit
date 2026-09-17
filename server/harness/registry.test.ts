@@ -19,6 +19,105 @@ describe("ProviderRegistry", () => {
     expect(registry.instances()).toHaveLength(1);
   });
 
+  it("creates independent instances concurrently", async () => {
+    const fake = makeFakeDriver();
+    const originalCreate = fake.driver.create.bind(fake.driver);
+    let active = 0;
+    let peak = 0;
+    const gate = new Promise((resolve) => setTimeout(resolve, 25));
+    fake.driver.create = async (input) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await gate;
+      active -= 1;
+      return originalCreate(input);
+    };
+    const registry = new ProviderRegistry([fake.driver]);
+
+    await registry.load({ a: { driver: "fake" }, b: { driver: "fake" } });
+
+    expect(peak).toBe(2);
+    expect(registry.instances()).toHaveLength(2);
+  });
+
+  it("avoids duplicate model discovery until the refresh window expires", async () => {
+    const fake = makeFakeDriver();
+    const originalCreate = fake.driver.create.bind(fake.driver);
+    let refreshes = 0;
+    let now = 1_000;
+    fake.driver.create = async (input) => {
+      const instance = await originalCreate(input);
+      const refreshModels = async () => { refreshes += 1; };
+      await refreshModels();
+      Object.assign(instance, { refreshModels });
+      return instance;
+    };
+    const registry = new ProviderRegistry([fake.driver], { now: () => now, modelRefreshTtlMs: 100 });
+
+    await registry.load({ a: { driver: "fake" } });
+    expect(refreshes).toBe(1);
+
+    await registry.describe();
+    expect(refreshes).toBe(1);
+
+    now += 101;
+    await registry.describe();
+    expect(refreshes).toBe(2);
+  });
+
+  it("coalesces concurrent model discovery refreshes", async () => {
+    const fake = makeFakeDriver();
+    const originalCreate = fake.driver.create.bind(fake.driver);
+    let refreshes = 0;
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    fake.driver.create = async (input) => {
+      const instance = await originalCreate(input);
+      Object.assign(instance, {
+        refreshModels: async () => {
+          refreshes += 1;
+          await gate;
+        },
+      });
+      return instance;
+    };
+    let now = 1_000;
+    const registry = new ProviderRegistry([fake.driver], { now: () => now, modelRefreshTtlMs: 100 });
+    await registry.load({ a: { driver: "fake" } });
+    now += 101;
+
+    const descriptions = Promise.all([registry.describe(), registry.describe()]);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(refreshes).toBe(1);
+    release!();
+    await descriptions;
+  });
+
+  it("waits for background model discovery before describing an instance", async () => {
+    const fake = makeFakeDriver();
+    const originalCreate = fake.driver.create.bind(fake.driver);
+    let release!: () => void;
+    let ready = false;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    fake.driver.create = async (input) => {
+      const instance = await originalCreate(input);
+      Object.assign(instance, { modelsReady: gate.then(() => { ready = true; }) });
+      return instance;
+    };
+    const registry = new ProviderRegistry([fake.driver]);
+    await registry.load({ a: { driver: "fake" } });
+
+    let described = false;
+    const description = registry.describe().finally(() => { described = true; });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(ready).toBe(false);
+    expect(described).toBe(false);
+    release();
+    await description;
+    expect(ready).toBe(true);
+    expect(described).toBe(true);
+  });
+
   it("uses defaultConfig when the entry has no config", async () => {
     const fake = makeFakeDriver();
     const registry = new ProviderRegistry([fake.driver]);
