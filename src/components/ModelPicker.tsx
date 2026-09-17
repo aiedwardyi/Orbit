@@ -5,6 +5,7 @@ import { useStore, type Bot, type ModelSelection } from "@/state/store";
 import { filterCustomModels } from "@/lib/custom-models";
 import { chipEffortLabel, displayedChipEffort, engineBadgeText, modelChipText, modelChipTitle, modelEffortLabel, modelFamilyAccent } from "@/lib/model-chip";
 import { movePicker, pickerColumn, pickerEfforts, pickerModels, pickerRows, selectPickerEffort, selectPickerModel, withPickerEffort } from "@/lib/cross-model-picker";
+import { focusComposerOnActivation } from "@/lib/focus-composer";
 import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
 import { cn } from "@/lib/cn";
@@ -47,6 +48,8 @@ export function ModelPickerControl({
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const committedRef = useRef(false);
+  const openedWithShortcutRef = useRef(false);
   const stageRef = useRef<HTMLDivElement>(null);
   const [stageWidth, setStageWidth] = useState(0);
   const bindingsId = useId();
@@ -85,17 +88,22 @@ export function ModelPickerControl({
   const custom = instance?.models.options.filter((option) => option.custom) ?? [];
   const filteredCustom = filterCustomModels(custom, query);
 
-  const show = () => {
+  const show = (viaShortcut = false) => {
     setDraft(selection);
     setCustomOpen(false);
     setQuery("");
+    openedWithShortcutRef.current = viaShortcut;
     setOpen(true);
   };
   const close = () => setOpen(false);
-  const save = (candidate: ModelSelection = draft) => {
+  const save = (candidate: ModelSelection = draft, fromKeyboard = false) => {
     if (!canCommit(candidate)) return;
+    committedRef.current = true;
     dispatch({ type: "setModel", botId: bot.id, selection: candidate });
     close();
+    if (fromKeyboard && openedWithShortcutRef.current && !contained) {
+      focusComposerOnActivation({ activatedElement: triggerRef.current });
+    }
   };
   const pick = (next: ModelSelection) => {
     setDraft(next);
@@ -113,7 +121,7 @@ export function ModelPickerControl({
       if (!shortcutEnabled || (!open && document.querySelector('[data-model-picker-content], [aria-labelledby="team-library-title"]'))) return;
       event.preventDefault();
       if (open) close();
-      else show();
+      else show(true);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -121,11 +129,14 @@ export function ModelPickerControl({
 
   useEffect(() => {
     if (!open) return;
+    committedRef.current = false;
     void refreshInstances();
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : triggerRef.current;
     dialogRef.current?.focus();
-    return () => previous?.focus();
-  }, [open, refreshInstances]);
+    return () => {
+      if (!committedRef.current || contained) previous?.focus();
+    };
+  }, [contained, open, refreshInstances]);
 
   useEffect(() => {
     if (!open) return;
@@ -165,7 +176,7 @@ export function ModelPickerControl({
     <button
       ref={triggerRef}
       type="button"
-      onClick={show}
+      onClick={() => show()}
       aria-expanded={open}
       aria-haspopup="dialog"
       aria-keyshortcuts={shortcutEnabled ? "Alt+M" : undefined}
@@ -219,12 +230,12 @@ export function ModelPickerControl({
               // Custom options sit outside the arrow-key grid, so Tab+Enter
               // is their only keyboard path: commit the focused option.
               event.preventDefault();
-              save(selectPickerModel(instance, customId, draft));
+              save(selectPickerModel(instance, customId, draft), true);
               return;
             }
             if (event.target !== event.currentTarget && !(focused && focused.closest("[data-model-cell], [data-picker-effort]"))) return;
             event.preventDefault();
-            save();
+            save(draft, true);
           } else if (event.key === "Tab") {
             const buttons = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input, [tabindex="0"]') ?? []);
             const first = buttons[0];

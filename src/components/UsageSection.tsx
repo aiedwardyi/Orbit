@@ -4,7 +4,7 @@
 // summed here; nothing is fetched. Plan usage sits above the table: how full
 // each engine's subscription window is, straight from the engine's own
 // report from its last turn or refresh, so nobody has to guess from a token count.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, RefreshCw } from "lucide-react";
 import { api, useStore, type InstanceInfo } from "@/state/store";
 import { MausAvatar } from "./Avatar";
@@ -126,6 +126,7 @@ function PlanUsage() {
   const now = useNow();
   const mode = useUsageMode();
   const [refreshing, setRefreshing] = useState(false);
+  const refreshingRef = useRef(false);
   const [confirmed, setConfirmed] = useState(false);
   const [refreshErrors, setRefreshErrors] = useState<Record<string, string>>({});
   const engines = splitFriendsEngines(state.instances).friends.filter((instance) => PLAN_USAGE_DRIVERS.has(instance.driverKind));
@@ -147,16 +148,31 @@ function PlanUsage() {
   // never just one of them. A clean run leaves an explicit confirmation
   // behind; the next run clears it.
   const refreshAll = async () => {
-    if (refreshing || refreshable.length === 0) return;
+    if (refreshingRef.current || refreshable.length === 0) return;
+    refreshingRef.current = true;
     setRefreshing(true);
     setConfirmed(false);
     try {
       const errors = await Promise.all(refreshable.map(refresh));
       setConfirmed(errors.every((error) => !error));
     } finally {
+      refreshingRef.current = false;
       setRefreshing(false);
     }
   };
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || event.isComposing || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.code !== "KeyR") return;
+      const active = event.target instanceof Element ? event.target : document.activeElement;
+      if (document.querySelector('[data-model-picker-content], .orbit-terminal-overlay[data-open="true"]') || active?.closest('[data-orbit-composer], .orbit-terminal-overlay, [data-terminal]')) return;
+      if (refreshable.length === 0) return;
+      event.preventDefault();
+      void refreshAll();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [refreshAll, refreshable.length]);
 
   return (
     <Card title={t("usage.limits.title")} subtitle={t("usage.limits.subtitle")}>
@@ -183,6 +199,7 @@ function PlanUsage() {
               disabled={refreshing}
               aria-label={t(refreshing ? "usage.limits.refreshing" : "usage.limits.refreshAll")}
               title={t(refreshing ? "usage.limits.refreshing" : "usage.limits.refreshAll")}
+              aria-keyshortcuts="Alt+R"
               aria-busy={refreshing}
               className="flex size-8 shrink-0 items-center justify-center rounded-full border border-hairline/40 text-[12px] text-ink-secondary hover:bg-raised/50 hover:text-ink disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent"
             >

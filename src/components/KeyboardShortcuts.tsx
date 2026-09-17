@@ -12,6 +12,7 @@ export function KeyboardShortcuts() {
     { title: "shortcuts.navigation", rows: [
       ["shortcuts.themes", [alt, "T"]],
       ["shortcuts.usage", [alt, "U"]],
+      ["shortcuts.usageRefresh", [alt, "R"]],
     ] },
     { title: "shortcuts.chat", rows: [
       ["shortcuts.model", [alt, "M"]],

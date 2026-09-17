@@ -47,6 +47,12 @@ async function key(key: string) {
   });
 }
 
+async function nextFrame() {
+  await act(async () => {
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+  });
+}
+
 afterEach(async () => {
   await act(async () => root?.unmount());
   document.body.replaceChildren();
@@ -467,6 +473,61 @@ describe("ModelPicker cross navigation", () => {
     expect(document.querySelector('[role="dialog"]')).not.toBeNull();
     await key("Escape");
     expect(mock.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("ignores repeated, composing, shifted, and prevented Alt+M events", async () => {
+    mock.instances = [engine("grok", "grokAgent", ["grok-4.6", "grok-4.5"])];
+    await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" }, false);
+    for (const init of [
+      { repeat: true },
+      { isComposing: true },
+      { shiftKey: true },
+      { metaKey: true },
+    ]) {
+      const event = new KeyboardEvent("keydown", { code: "KeyM", altKey: true, bubbles: true, cancelable: true, ...init });
+      await act(async () => window.dispatchEvent(event));
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+    }
+    const prevented = new KeyboardEvent("keydown", { code: "KeyM", altKey: true, bubbles: true, cancelable: true });
+    prevented.preventDefault();
+    await act(async () => window.dispatchEvent(prevented));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("focuses the visible composer after Alt+M and Enter without changing its draft or caret", async () => {
+    mock.instances = [engine("grok", "grokAgent", ["grok-4.6", "grok-4.5"])];
+    const composer = document.createElement("textarea");
+    composer.setAttribute("data-orbit-composer", "");
+    composer.value = "draft text";
+    document.body.append(composer);
+    composer.focus();
+    composer.setSelectionRange(5, 5);
+    await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" }, false);
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", altKey: true, bubbles: true })));
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    await key("Enter");
+    await nextFrame();
+    expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({
+      type: "setModel", botId: "bot-1",
+      selection: { instanceId: "grok", model: "grok-4.6", mode: "pinned" },
+    });
+    expect(document.activeElement).toBe(composer);
+    expect(composer.value).toBe("draft text");
+    expect(composer.selectionStart).toBe(5);
+    expect(composer.selectionEnd).toBe(5);
+  });
+
+  it("keeps a contained picker commit in the details surface", async () => {
+    mock.instances = [engine("grok", "grokAgent", ["grok-4.6", "grok-4.5"])];
+    const composer = document.createElement("textarea");
+    composer.setAttribute("data-orbit-composer", "");
+    document.body.append(composer);
+    await mount({ instanceId: "grok", model: "grok-4.6", mode: "pinned" }, false, true);
+    const trigger = document.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!;
+    await act(async () => { trigger.focus(); trigger.click(); });
+    await key("Enter");
+    expect(document.activeElement).toBe(trigger);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 });
 
