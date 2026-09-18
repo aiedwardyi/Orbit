@@ -129,6 +129,30 @@ describe("detectChatOptions", () => {
       messagePrefix: "You can start right now!",
     });
   });
+
+  it("keeps commas inside a parenthetical choice together", () => {
+    expect(detectChatOptions("You can use: Node.js (LTS, recommended), Bun, or Deno?")).toEqual({
+      options: ["Node.js (LTS, recommended)", "Bun", "Deno"],
+      question: "You can use?",
+      messagePrefix: null,
+    });
+  });
+
+  it("keeps commas inside nested delimiters together", () => {
+    expect(detectChatOptions("Choose a runtime: Node.js ([LTS, recommended]), Bun, or Deno?")).toEqual({
+      options: ["Node.js ([LTS, recommended])", "Bun", "Deno"],
+      question: "Choose a runtime?",
+      messagePrefix: null,
+    });
+  });
+
+  it("rejects malformed delimiters in an enumeration", () => {
+    expect(chatOptionChoices("Choose a runtime: Node.js (LTS, recommended], Bun, or Deno?")).toBeNull();
+  });
+
+  it("leaves Korean prose without an English choice marker alone", () => {
+    expect(chatOptionChoices("무엇을 할까요? 검토, 수정, 또는 새로 시작할까요?")).toBeNull();
+  });
 });
 
 describe("laterUserAnswer", () => {
@@ -166,5 +190,9 @@ describe("chat option chips wiring", () => {
     expect(chips).toContain("focusOrbitComposer");
     expect(chips).toContain("QuestionChoiceCard");
     expect(chips).not.toContain("sendCustom");
+    expect(chatView).toContain("composerRef={composerInputRef}");
+    expect(chatView).toContain("onFocusComposer={focusComposer}");
+    expect(groupView).toContain("composerRef={composerInputRef}");
+    expect(groupView).toContain("onFocusComposer={focusComposer}");
   });
 });

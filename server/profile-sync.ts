@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { basename, join } from "node:path";
 import { z } from "zod";
 
@@ -128,7 +128,48 @@ export interface ProfileSyncSettings {
   folder: string | null;
   botMap: Record<string, string>;
   sectionMap: Record<string, string>;
+  reviewedResolutions: Record<string, Record<string, string>>;
   nextSequence: number;
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  return `{${Object.keys(value as Record<string, unknown>).sort().flatMap((key) => {
+    const child = (value as Record<string, unknown>)[key];
+    return child === undefined ? [] : [`${JSON.stringify(key)}:${canonicalJson(child)}`];
+  }).join(",")}}`;
+}
+
+export function profileSyncRevision(operations: Iterable<ProfileSyncOperation>): string {
+  const records = [...operations].map(parseSyncOperation).map(canonicalJson).sort().join("\n");
+  return createHash("sha256").update(records).digest("hex");
+}
+
+export function localIdForSyncId(map: Record<string, string>, syncId: string): string | undefined {
+  return Object.entries(map).find(([, mappedId]) => mappedId === syncId)?.[0];
+}
+
+export function bindSyncId(map: Record<string, string>, localId: string, syncId: string): void {
+  for (const [mappedLocalId, mappedSyncId] of Object.entries(map)) {
+    if (mappedLocalId !== localId && mappedSyncId === syncId) delete map[mappedLocalId];
+  }
+  map[localId] = syncId;
+}
+
+export function resolveSyncConflictValue(
+  conflicts: readonly SyncConflict[],
+  entity: SyncEntity,
+  entityId: string,
+  field: string,
+  resolutions: Record<string, string> | undefined,
+  fallback: unknown,
+): unknown {
+  const conflict = conflicts.find((candidate) => candidate.entity === entity && candidate.entityId === entityId && candidate.field === field);
+  if (!conflict) return fallback;
+  const selected = resolutions?.[conflict.id];
+  const variant = conflict.variants.find((candidate) => candidate.operationId === selected);
+  return variant ? clone(variant.value) : fallback;
 }
 
 const workspaceSchema = z.object({
@@ -143,11 +184,16 @@ const settingsSchema = z.object({
   folder: z.string().trim().max(1_000).nullable(),
   botMap: z.record(ID, ID).default({}),
   sectionMap: z.record(ID, ID).default({}),
+  reviewedResolutions: z.record(z.string().trim().min(1).max(512), z.record(z.string().trim().min(1).max(240), ID)).default({}),
   nextSequence: z.number().int().positive().max(2_000_000_000).default(1),
 }).strict();
 
+function versionStamp(version: Pick<FieldVersion, "recordedAt" | "deviceId" | "sequence" | "operationId">): string {
+  return `${String(version.recordedAt).padStart(14, "0")}:${version.deviceId}:${String(version.sequence).padStart(12, "0")}:${version.operationId}`;
+}
+
 function stamp(operation: ProfileSyncOperation): string {
-  return `${String(operation.recordedAt).padStart(14, "0")}:${operation.deviceId}:${String(operation.sequence).padStart(12, "0")}:${operation.operationId}`;
+  return versionStamp(operation);
 }
 
 function fieldKey(operation: ProfileSyncOperation, field: string): string {
@@ -211,7 +257,7 @@ function setField(state: ProfileSyncState, operation: ProfileSyncOperation, fiel
     const conflictId = `${key}:${previous.operationId}:${operation.operationId}`;
     if (!state.conflicts.some((conflict) => conflict.id === conflictId || conflict.id === `${key}:${operation.operationId}:${previous.operationId}`)) {
       const versions = [previous, { value, operationId: operation.operationId, deviceId: operation.deviceId, recordedAt: operation.recordedAt, sequence: operation.sequence }];
-      versions.sort((left, right) => `${left.recordedAt}:${left.deviceId}:${left.sequence}:${left.operationId}`.localeCompare(`${right.recordedAt}:${right.deviceId}:${right.sequence}:${right.operationId}`));
+      versions.sort((left, right) => versionStamp(left).localeCompare(versionStamp(right)));
       const chosen = versions.at(-1)!;
       state.conflicts.push({
         id: conflictId,
@@ -255,27 +301,28 @@ export function applySyncOperations(
 ): ProfileSyncState {
   const state = clone(initial);
   const sorted = [...operations].map(parseSyncOperation).sort((left, right) => stamp(left).localeCompare(stamp(right)));
+  const appliedOperationIds = new Set(state.appliedOperationIds);
   for (const operation of sorted) {
-    if (state.appliedOperationIds.includes(operation.operationId)) continue;
+    if (appliedOperationIds.has(operation.operationId)) continue;
     const tombstone = state.tombstones[entityKey(operation)];
     if (operation.deleted) {
       if (!tombstone || stamp(operation) > stamp(tombstone)) {
         state.tombstones[entityKey(operation)] = clone(operation);
-        delete state.bots[operation.entityId];
-        delete state.sections[operation.entityId];
+        if (operation.entity === "bot") delete state.bots[operation.entityId];
+        if (operation.entity === "section") delete state.sections[operation.entityId];
       }
-      state.appliedOperationIds.push(operation.operationId);
+      appliedOperationIds.add(operation.operationId);
       continue;
     }
     if (tombstone) {
-      state.appliedOperationIds.push(operation.operationId);
+      appliedOperationIds.add(operation.operationId);
       continue;
     }
     const changes = validateChanges(operation) ?? {};
     for (const [field, value] of Object.entries(changes)) setField(state, operation, field, value);
-    state.appliedOperationIds.push(operation.operationId);
+    appliedOperationIds.add(operation.operationId);
   }
-  state.appliedOperationIds = [...new Set(state.appliedOperationIds)].slice(-10_000);
+  state.appliedOperationIds = [...appliedOperationIds].slice(-10_000);
   state.checkpoint = state.appliedOperationIds.at(-1) ?? state.checkpoint;
   return state;
 }
@@ -363,7 +410,15 @@ export function loadProfileSyncSettings(dataDir: string): ProfileSyncSettings {
     const parsed = settingsSchema.safeParse(JSON.parse(readFileSync(path, "utf8")));
     if (parsed.success) return parsed.data;
   } catch {}
-  return { workspaceId: randomUUID(), deviceId: randomUUID(), folder: null, botMap: {}, sectionMap: {}, nextSequence: 1 };
+  return {
+    workspaceId: randomUUID(),
+    deviceId: randomUUID(),
+    folder: null,
+    botMap: {},
+    sectionMap: {},
+    reviewedResolutions: {},
+    nextSequence: 1,
+  };
 }
 
 export function saveProfileSyncSettings(dataDir: string, settings: ProfileSyncSettings): ProfileSyncSettings {

@@ -283,6 +283,7 @@ beforeAll(async () => {
       FAKE_CLAUDE_RATE_LIMITS: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
   });
   child.stderr!.on("data", (c) => (stderr += c));
 

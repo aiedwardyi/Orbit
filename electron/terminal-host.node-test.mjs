@@ -295,6 +295,17 @@ test("rearms terminal attention after a new command", async () => {
   );
 });
 
+test("rearms terminal attention after a confirmed bot send", async () => {
+  const f = fixture();
+  const session = await f.host.open(f.event, f.input);
+  f.host.sendBot("bot-1", { sessionId: session.id, generation: 1, text: "first\r" });
+  f.children[0].data("\x07");
+  f.host.sendBot("bot-1", { sessionId: session.id, generation: 1, text: "next\r" });
+  f.children[0].data("\x07");
+  assert.equal(f.events.filter(([channel]) => channel === "terminal:attention").length, 2);
+  f.host.dispose();
+});
+
 test("keeps OSC title terminators and split ANSI sequences out of attention", async () => {
   const f = fixture({ activityCoalesceMs: 5 });
   const session = await f.host.open(f.event, f.input);

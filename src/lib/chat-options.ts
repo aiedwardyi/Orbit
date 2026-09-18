@@ -144,6 +144,31 @@ function lastChoiceLabel(phrase: string): string {
   return words[words.length - 1]!;
 }
 
+function splitTopLevelCommas(text: string): string[] | null {
+  const stack: string[] = [];
+  const parts: string[] = [];
+  let start = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]!;
+    if (OPEN_TO_CLOSE[ch]) {
+      stack.push(ch);
+      continue;
+    }
+    const expectedOpen = CLOSE_TO_OPEN[ch];
+    if (expectedOpen) {
+      if (stack.pop() !== expectedOpen) return null;
+      continue;
+    }
+    if (ch === "," && stack.length === 0) {
+      parts.push(text.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  if (stack.length !== 0) return null;
+  parts.push(text.slice(start).trim());
+  return parts;
+}
+
 function trailingEnumerationChoices(text: string): ChatOptionsDetection | null {
   const candidate = text.trim();
   const lineMatch = candidate.match(/^(?:[\s\S]*\n)?(.+)\?\s*$/);
@@ -157,12 +182,8 @@ function trailingEnumerationChoices(text: string): ChatOptionsDetection | null {
   const markerAt = Math.max(left.lastIndexOf("\u2014"), left.lastIndexOf(":"));
   if (markerAt < 0) return null;
   const prompt = left.slice(0, markerAt).trim();
-  const rawItems = left
-    .slice(markerAt + 1)
-    .trim()
-    .replace(/,\s*$/, "")
-    .split(",")
-    .map((item) => optionLabel(item));
+  const rawItems = splitTopLevelCommas(left.slice(markerAt + 1).trim().replace(/,\s*$/, ""))?.map((item) => optionLabel(item));
+  if (!rawItems) return null;
   if (!prompt || rawItems.length < MIN_OPTIONS - 1 || rawItems.some((item) => item === null)) return null;
   const items = [...rawItems, right] as string[];
   if (items.length > MAX_OPTIONS || items.some((item) => /\bor\b/i.test(item))) return null;

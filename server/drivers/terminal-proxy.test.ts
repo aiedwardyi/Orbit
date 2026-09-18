@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { TOOLS, callTool, readTerminalSnapshot, terminalReadGrant, terminalSnapshotText } from "./terminal-proxy.ts";
 
 describe("terminal proxy", () => {
@@ -29,9 +29,18 @@ describe("terminal proxy", () => {
   });
 
   it("returns a read error when the bridge is unavailable", async () => {
-    const result = await callTool("terminal_read", async () => new Response(JSON.stringify({ error: "stale terminal" }), { status: 409 }));
+    const fetchImpl = async () => new Response(JSON.stringify({ error: "stale terminal" }), { status: 409 });
+    const result = await callTool("terminal_read", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" });
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("shared terminal");
+    expect(result.content[0].text).toContain("stale terminal");
+  });
+
+  it("does not fetch when terminal sharing is disabled", async () => {
+    const fetchImpl = vi.fn();
+    const result = await callTool("terminal_read", fetchImpl);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("not enabled");
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("sends the already bot-scoped bearer without exposing a master token", async () => {

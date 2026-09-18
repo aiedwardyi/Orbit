@@ -1,19 +1,12 @@
 // Scoped terminal-read MCP proxy. The bot id is injected by Orbit and is never
 // accepted as a tool argument, so a model cannot switch its terminal target.
 import { createInterface } from "node:readline";
-import { createHmac } from "node:crypto";
+export { terminalReadGrant } from "../terminal-grant.ts";
 
 const HOST = process.env.OMB_TERMINAL_URL?.replace(/\/$/, "") ?? "";
 const TOKEN = process.env.OMB_TERMINAL_TOKEN ?? "";
 const BOT_ID = process.env.OMB_BOT_ID ?? "";
 const REQUEST_TIMEOUT_MS = 10_000;
-const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
-const GRANT_PREFIX = "orbit-terminal-read-v1";
-
-export function terminalReadGrant(token: string, botId: string): string {
-  if (!token || !BOT_ID_RE.test(botId)) throw new Error("the shared terminal grant is invalid");
-  return createHmac("sha256", token).update(`${GRANT_PREFIX}:${botId}`).digest("base64url");
-}
 
 export const TOOLS = [
   {
@@ -82,10 +75,14 @@ export async function readTerminalSnapshot(
   return payload as Snapshot;
 }
 
-export async function callTool(name: string, fetchImpl: typeof fetch = fetch) {
+export async function callTool(
+  name: string,
+  fetchImpl: typeof fetch = fetch,
+  config: { host?: string; token?: string; botId?: string } = {},
+) {
   if (name !== "terminal_read") return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   try {
-    return { content: [{ type: "text", text: terminalSnapshotText(await readTerminalSnapshot(fetchImpl)) }] };
+    return { content: [{ type: "text", text: terminalSnapshotText(await readTerminalSnapshot(fetchImpl, config)) }] };
   } catch (error) {
     return { content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }], isError: true };
   }

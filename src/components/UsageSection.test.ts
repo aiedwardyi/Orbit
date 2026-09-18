@@ -235,6 +235,33 @@ describe("UsageSection friends plan card", () => {
     }
   });
 
+  it("refreshes every missing Muse instance on first open", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const muse = mockState.instances.find((instance) => instance.instanceId === "muse");
+    if (!muse) throw new Error("muse fixture missing");
+    const original = muse.rateLimits;
+    const second = { ...muse, instanceId: "muse-two", displayName: "Meta Muse Two", rateLimits: undefined };
+    mockApi.mockReset();
+    mockApi.mockImplementation(async () => ({ status: "no_observation" }));
+    muse.rateLimits = undefined;
+    mockState.instances.push(second);
+    try {
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/muse", { method: "POST" });
+      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/muse-two", { method: "POST" });
+      expect(mockApi).toHaveBeenCalledTimes(2);
+    } finally {
+      mockState.instances.splice(mockState.instances.indexOf(second), 1);
+      muse.rateLimits = original;
+      await act(async () => root.unmount());
+      host.remove();
+      mockApi.mockReset();
+      mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
+    }
+  });
+
   it("does not call a retained or empty Muse snapshot freshly updated", async () => {
     const host = document.createElement("div");
     document.body.append(host);
@@ -351,6 +378,50 @@ describe("UsageSection friends plan card", () => {
     } finally {
       host.remove();
       composer.remove();
+      mockApi.mockReset();
+      mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
+      persistPreference("en");
+    }
+  });
+
+  it("accepts the character key when Windows does not expose a physical code", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    mockApi.mockClear();
+    try {
+      persistPreference("en");
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      const event = new KeyboardEvent("keydown", { key: "r", altKey: true, bubbles: true, cancelable: true });
+      await act(async () => window.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(true);
+      expect(mockApi).toHaveBeenCalledTimes(4);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      mockApi.mockReset();
+      mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
+      persistPreference("en");
+    }
+  });
+
+  it("leaves Alt+R available to editable controls", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const input = document.createElement("input");
+    host.append(input);
+    mockApi.mockClear();
+    try {
+      persistPreference("en");
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      const event = new KeyboardEvent("keydown", { key: "r", altKey: true, bubbles: true, cancelable: true });
+      input.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+      expect(mockApi).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
       mockApi.mockReset();
       mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
       persistPreference("en");

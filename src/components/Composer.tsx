@@ -232,6 +232,7 @@ export function Composer({
   onClearReply,
   onConsumeReply,
   onRestoreReply,
+  composerRef,
   locked = false,
   focusBlocked = false,
 }: {
@@ -245,6 +246,7 @@ export function Composer({
   onClearReply?: () => void;
   onConsumeReply?: () => void;
   onRestoreReply?: (message: Message, threadId: string) => void;
+  composerRef?: { current: HTMLTextAreaElement | null };
   /** New rooms keep the composer inert until their setup is saved or skipped. */
   locked?: boolean;
   focusBlocked?: boolean;
@@ -363,6 +365,13 @@ export function Composer({
   const [highlight, setHighlight] = useState(0);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null); // Esc'd this @
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const setComposerRef = useCallback(
+    (element: HTMLTextAreaElement | null) => {
+      inputRef.current = element;
+      if (composerRef) composerRef.current = element;
+    },
+    [composerRef],
+  );
   // IME composition: native isComposing can stay true after Hangul
   // commits, which used to make Enter insert a newline instead of send.
   const composingRef = useRef(false);
@@ -660,7 +669,10 @@ export function Composer({
     }
   };
   const confirmTerminalSend = async () => {
-    if (!bot || !terminalSendPreview || terminalSendBusy || !terminalBridge?.sendBot) return;
+    if (!bot || !terminalSendPreview || terminalSendBusy || !canShareTerminal || !terminalBridge?.sendBot) {
+      if (!canShareTerminal) setTerminalSendPreview(null);
+      return;
+    }
     setTerminalSendBusy(true);
     setTerminalSendError(null);
     try {
@@ -951,7 +963,7 @@ export function Composer({
             </div>
           )}
           <textarea
-          ref={inputRef}
+          ref={setComposerRef}
           data-orbit-composer=""
           rows={1}
           value={text}

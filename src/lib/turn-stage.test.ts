@@ -9,7 +9,10 @@ import {
   buffersForTurn,
   hydrationTurnThread,
   isCurrentTurnCompletion,
+  isCurrentTurnEvent,
+  isReplacementTurnStart,
   liveTurnIdAfter,
+  liveTurnIdAfterDispatch,
   nextStreamState,
   nextTurnSignals,
   rememberStreamTail,
@@ -337,6 +340,27 @@ describe("turn-scoped buffers", () => {
       : state;
     expect(afterStale.signal["t1"]).toBe("started");
     expect(phaseOn(afterStale, user)).toBe("waiting");
+  });
+
+  it("rejects old lifecycle and delta frames after a replacement dispatch", () => {
+    const dispatched = liveTurnIdAfterDispatch({ t1: "A" }, "t1");
+    expect(isCurrentTurnCompletion(dispatched, "t1", "A")).toBe(false);
+    expect(isCurrentTurnEvent(dispatched, "t1", "A")).toBe(false);
+    expect(isCurrentTurnEvent(dispatched, "t1")).toBe(false);
+    expect(isReplacementTurnStart(dispatched, "t1", "A")).toBe(false);
+    expect(isReplacementTurnStart(dispatched, "t1", "B")).toBe(true);
+
+    const live = liveTurnIdAfter(dispatched, "t1", { type: "turn.started", turnId: "B" });
+    expect(isCurrentTurnEvent(live, "t1", "A")).toBe(false);
+    expect(isCurrentTurnEvent(live, "t1", "B")).toBe(true);
+  });
+
+  it("rejects an unknown pre-dispatch start by its event timestamp", () => {
+    const dispatched = liveTurnIdAfterDispatch({}, "t1", "2026-09-18T10:00:00.000Z");
+    expect(isReplacementTurnStart(dispatched, "t1", "old", "2026-09-18T09:59:59.999Z")).toBe(false);
+    expect(isReplacementTurnStart(dispatched, "t1", "new", "2026-09-18T10:00:00.001Z")).toBe(true);
+    expect(isReplacementTurnStart(dispatched, "t1", "new")).toBe(false);
+    expect(isReplacementTurnStart(dispatched, "t1", "new", "not-a-timestamp")).toBe(false);
   });
 });
 

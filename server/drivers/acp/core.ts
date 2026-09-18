@@ -866,6 +866,14 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                   itemId: u.toolCallId,
                   ok: u.status !== "failed",
                 });
+              } else {
+                emit({
+                  ...base(threadId, turnId),
+                  type: "item.updated",
+                  itemType: "tool",
+                  itemId: u.toolCallId,
+                  tokens: typeof u.tokens === "number" ? u.tokens : null,
+                });
               }
               break;
             }

@@ -21,6 +21,12 @@ test("keeps the main screen while a TUI uses the alternate buffer", () => {
   assert.match(screen.snapshot().screenText, /^menu/u);
 });
 
+test("keeps alternate-screen cursor restoration separate from DECSC", () => {
+  const screen = createTerminalScreen({ cols: 8, rows: 2 });
+  screen.consume("abc\x1b[?1049h\x1b7\x1b[?1049lZ");
+  assert.equal(screen.snapshot().screenText.split("\n")[0], "abcZ");
+});
+
 test("bounds scrollback and reports truncation", () => {
   const screen = createTerminalScreen({ cols: 8, rows: 2, scrollback: 2 });
   screen.consume("one\r\ntwo\r\nthree\r\nfour");

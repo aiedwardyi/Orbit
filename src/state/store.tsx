@@ -46,7 +46,10 @@ import {
   currentTurnId,
   hydrationTurnThread,
   isCurrentTurnCompletion,
+  isCurrentTurnEvent,
+  isReplacementTurnStart,
   liveTurnIdAfter,
+  liveTurnIdAfterDispatch,
   nextStreamState,
   rememberStreamTail,
   streamResetFor,
@@ -2640,7 +2643,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       switch (frame.kind) {
         case "turn.dispatch":
-          if (frame.threadId) clearStream(frame.threadId, "dispatched");
+          if (frame.threadId) {
+            liveTurns.current = liveTurnIdAfterDispatch(liveTurns.current, frame.threadId, frame.createdAt);
+            clearStream(frame.threadId, "dispatched");
+          }
           break;
         case "message": {
           rawDispatch({ type: "messageAdded", threadId: frame.threadId, message: frame.message });
@@ -2756,6 +2762,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "runtime": {
           const event = frame.event;
           if (event.type === "content.delta") {
+            if (!isCurrentTurnEvent(liveTurns.current, event.threadId, event.turnId)) break;
             // Batch token deltas per animation frame (t3code-style): a fast
             // stream dispatches once per frame instead of once per token, so
             // the app tree re-renders at most ~60x/s while streaming.
@@ -2779,6 +2786,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             flushDeltas();
             clearStream(event.threadId, "completed");
           } else if (event.type === "turn.started" || event.type === "turn.retrying") {
+            if (!isReplacementTurnStart(liveTurns.current, event.threadId, event.turnId, event.createdAt)) break;
             liveTurns.current = liveTurnIdAfter(liveTurns.current, event.threadId, event);
             markTurnSignal(event.threadId, event.type === "turn.started" ? "started" : "retrying");
           } else if (

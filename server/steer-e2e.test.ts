@@ -69,6 +69,7 @@ posixOnly("mid-turn steering e2e", () => {
       cwd: join(SERVER_DIR, ".."),
       env: { ...(process.env.PATH ? { PATH: process.env.PATH } : {}), HOME: home, USERPROFILE: home, OMB_PORT: String(PORT) },
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     });
     child.stderr!.on("data", (c) => (stderr += c));
     const deadline = Date.now() + 20_000;

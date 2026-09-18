@@ -121,6 +121,20 @@ const textStreamFor = (kinds: ItemKinds, itemId: string, field: unknown) => {
   return "assistant_text" as const;
 };
 
+type MspTerminalIntegration = NonNullable<NonNullable<SendTurnInput["integrations"]>["terminal"]>;
+
+function isWindowsPath(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\");
+}
+
+export function translateMspTerminalForWsl(terminal: MspTerminalIntegration): MspTerminalIntegration {
+  return {
+    ...terminal,
+    command: toWslPath(terminal.command),
+    args: terminal.args.map((arg) => (isWindowsPath(arg) ? toWslPath(arg) : arg)),
+  };
+}
+
 /** First approved-* choice for allow, first denied-* for deny, ends as fallback. */
 const pickChoice = (choices: ApprovalChoice[], want: "allow" | "deny"): ApprovalChoice | null => {
   if (!choices.length) return null;
@@ -272,12 +286,11 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
         // when session/resume succeeds; recovered flips on the single retry.
         let resumedOk = false;
         let recovered = false;
-        const mcpServers = turn.integrations?.terminal
+        const terminalIntegration = turn.integrations?.terminal;
+        const mcpServers = terminalIntegration
           ? {
               terminal: {
-                command: turn.integrations.terminal.command,
-                args: turn.integrations.terminal.args,
-                env: turn.integrations.terminal.env,
+                ...(isWslCli() ? translateMspTerminalForWsl(terminalIntegration) : terminalIntegration),
               },
             }
           : undefined;

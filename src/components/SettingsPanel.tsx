@@ -735,7 +735,7 @@ export function SettingsPanel({
               role="switch"
               aria-checked={terminalShared}
               aria-label="Share terminal with chat"
-              disabled={!desktopTerminal}
+              disabled={!terminalShared && !desktopTerminal}
               onClick={() => patch({ shareTerminalWithChat: !terminalShared })}
               className={cn(
                 "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40",

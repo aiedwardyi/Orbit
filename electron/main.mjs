@@ -935,6 +935,22 @@ async function startServerPackaged() {
   return false;
 }
 
+async function syncDevTerminalBridge() {
+  if (app.isPackaged || !terminalBridgeAccess || !serverToken) return;
+  const port = Number(process.env.OMB_PORT || process.env.OGB_PORT || SERVER_PORT);
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/internal/terminal-bridge`, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${serverToken}`, "content-type": "application/json" },
+      body: JSON.stringify(terminalBridgeAccess),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  } catch (error) {
+    slog(`development terminal bridge sync failed: ${error?.message ?? error}`);
+  }
+}
+
 function syncManagedComposioCredentials() {
   if (!serverProc) return;
   try {
@@ -2066,18 +2082,20 @@ app.whenReady().then(async () => {
           return { mode: "unavailable", reason: String(e) };
         })
       : Promise.resolve({ mode: "unavailable", reason: "unsupported-platform" });
+  try {
+    terminalBridgeAccess = await terminalBridge.start();
+  } catch (error) {
+    terminalBridgeAccess = null;
+    slog(`terminal bridge unavailable: ${error?.message ?? error}`);
+  }
   if (app.isPackaged) {
-    try {
-      terminalBridgeAccess = await terminalBridge.start();
-    } catch (error) {
-      terminalBridgeAccess = null;
-      slog(`terminal bridge unavailable: ${error?.message ?? error}`);
-    }
     serverReady = await startServerPackaged();
     slog(`harness ${serverReady ? "ready" : "failed"} port=${SERVER_PORT} uptime=${process.uptime().toFixed(2)}s`);
     revealPackagedApp(win);
     await secureComposioConfig();
     await secureWorkspaceConfig();
+  } else {
+    await syncDevTerminalBridge();
   }
   // The companion the user left on comes back without anyone finding the
   // toggle again — one attempt, after the harness port is settled, with the

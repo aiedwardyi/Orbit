@@ -75,6 +75,7 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
   let cursorX = 0;
   let cursorY = 0;
   let savedCursor = { x: 0, y: 0 };
+  let alternateRestoreCursor = { x: 0, y: 0 };
   let scrollTop = 0;
   let scrollBottom = height - 1;
   let wrapPending = false;
@@ -157,7 +158,7 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
   function switchAlternate(enabled, clear = true) {
     if (enabled === alternateMode) return;
     if (enabled) {
-      savedCursor = { x: cursorX, y: cursorY };
+      alternateRestoreCursor = { x: cursorX, y: cursorY };
       alternateMode = true;
       active = alternate;
       if (clear) alternate = makeBuffer();
@@ -169,8 +170,8 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
     } else {
       alternateMode = false;
       active = main;
-      cursorX = clamp(savedCursor.x, 0, width - 1);
-      cursorY = clamp(savedCursor.y, 0, height - 1);
+      cursorX = clamp(alternateRestoreCursor.x, 0, width - 1);
+      cursorY = clamp(alternateRestoreCursor.y, 0, height - 1);
       scrollTop = 0;
       scrollBottom = height - 1;
     }
@@ -317,7 +318,7 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
         else if (char === "D") { lineFeed(); parserState = "normal"; }
         else if (char === "E") { carriageReturn(); lineFeed(); parserState = "normal"; }
         else if (char === "M") { if (cursorY === scrollTop) scrollDown(); else cursorY -= 1; parserState = "normal"; }
-        else if (char === "c") { main = makeBuffer(); alternate = makeBuffer(); active = alternateMode ? alternate : main; cursorX = 0; cursorY = 0; scrollTop = 0; scrollBottom = height - 1; scrollbackLines = []; parserState = "normal"; }
+        else if (char === "c") { main = makeBuffer(); alternate = makeBuffer(); active = alternateMode ? alternate : main; cursorX = 0; cursorY = 0; savedCursor = { x: 0, y: 0 }; alternateRestoreCursor = { x: 0, y: 0 }; scrollTop = 0; scrollBottom = height - 1; scrollbackLines = []; parserState = "normal"; }
         else { parserState = "normal"; }
         continue;
       }

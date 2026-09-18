@@ -24,6 +24,7 @@ import { ChatMarkdown } from "./ChatMarkdown";
 import { ChatOptionChips } from "./ChatOptionChips";
 import { MemorySaveChip } from "./MemorySaveChip";
 import { detectChatOptions, laterUserAnswer } from "@/lib/chat-options";
+import { focusComposerOnActivation } from "@/lib/focus-composer";
 import { Composer } from "./Composer";
 import { EngineSetup, OpenConnectionsCta, setupErrorAction } from "./EngineSetup";
 import { TaskRecoveryCard } from "./TaskRecoveryCard";
@@ -260,6 +261,7 @@ const Transcript = memo(function Transcript({
   transcript,
   emergingId,
   onReply,
+  onFocusComposer,
 }: {
   group: Group;
   members: Bot[];
@@ -269,6 +271,7 @@ const Transcript = memo(function Transcript({
   transcript: Message[];
   emergingId?: string | null;
   onReply: (message: Message) => void;
+  onFocusComposer: () => void;
 }) {
   const { t, locale } = useI18n();
   const { state, dispatch } = useStore();
@@ -466,6 +469,7 @@ const Transcript = memo(function Transcript({
                   answeredText={answeredChoice}
                   disabled={!answeredChoice && Boolean(group.busyBotId)}
                   onPick={(option) => dispatch({ type: "sendGroup", groupId: group.id, text: option })}
+                  onWriteOwn={onFocusComposer}
                 />
               )}
               <span className="mt-0.5 text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
@@ -1009,7 +1013,11 @@ export function GroupView({ group }: { group: Group }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const composerDockRef = useRef<HTMLDivElement>(null);
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const composerDock = useComposerDockPad(composerDockRef);
+  const focusComposer = useCallback(() => {
+    focusComposerOnActivation({ composer: composerInputRef.current });
+  }, []);
   const [follow, setFollow] = useState(true);
   const followRef = useRef(true);
   const previousScrollTop = useRef(0);
@@ -1478,6 +1486,7 @@ export function GroupView({ group }: { group: Group }) {
             transcript={group.messages}
             emergingId={popping?.id}
             onReply={selectReply}
+            onFocusComposer={focusComposer}
           />
           {laterCount > 0 && (
             <div className="flex justify-center">
@@ -1542,6 +1551,7 @@ export function GroupView({ group }: { group: Group }) {
         key={group.threadId}
         group={group}
         members={members}
+        composerRef={composerInputRef}
         onSend={jumpToLatest}
         locked={setupPending}
         replyTo={replyTo}

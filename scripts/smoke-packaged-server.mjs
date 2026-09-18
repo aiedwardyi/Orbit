@@ -38,6 +38,7 @@ const child = spawn(process.execPath, [join(staging, "server", "packaged-boot.js
     OMB_PORT: String(port),
   },
   stdio: ["ignore", "pipe", "pipe", "ipc"],
+  windowsHide: true,
 });
 
 const token = await waitForAppToken(child, 20_000);
@@ -136,6 +137,7 @@ if (listening) {
       OMB_PORT: String(port),
     },
     stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
   });
   let stdout = "";
   let stderr = "";

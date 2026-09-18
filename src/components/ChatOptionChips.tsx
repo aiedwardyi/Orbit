@@ -11,12 +11,14 @@ export function ChatOptionChips({
   options,
   question,
   onPick,
+  onWriteOwn,
   answeredText,
   disabled,
 }: {
   options: string[];
   question?: string | null;
   onPick: (text: string) => void;
+  onWriteOwn?: () => void;
   /** Later user message that answered this card, when known. */
   answeredText?: string | null;
   disabled?: boolean;
@@ -49,7 +51,7 @@ export function ChatOptionChips({
         setPending(true);
         onPick(option);
       }}
-      onWriteOwn={focusOrbitComposer}
+      onWriteOwn={onWriteOwn ?? focusOrbitComposer}
     />
   );
 }

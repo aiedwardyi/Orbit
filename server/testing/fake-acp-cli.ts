@@ -15,6 +15,7 @@
 //   FAKE_ACP_BILLING_END      ISO end of that weekly period (default now + 7 days)
 //                   | permission-twice (two sequential cards in one turn)
 //                   | interleave (message → tool → message → tool → message)
+//                   | tool-progress (a tool emits nonterminal updates)
 //                   | no-session-config (reject session/set_mode + set_model
 //                     with -32601, i.e. an agent predating those methods)
 //                   | ask-peer (spawn the injected "agents" MCP server from
@@ -302,6 +303,13 @@ function playInterleaveTurn() {
   out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "tool_call", toolCallId: "tc-2", title: "run" } } });
   out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "tool_call_update", toolCallId: "tc-2", status: "completed" } } });
   out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: "after" } } } });
+}
+
+function playToolProgressTurn() {
+  out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "tool_call", toolCallId: "tc-progress", title: "long task" } } });
+  out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "tool_call_update", toolCallId: "tc-progress", status: "in_progress", tokens: 4 } } });
+  out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "tool_call_update", toolCallId: "tc-progress", status: "running" } } });
+  out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "tool_call_update", toolCallId: "tc-progress", status: "completed" } } });
 }
 
 let buf = "";
@@ -668,6 +676,7 @@ function handle(msg: any) {
         return;
       }
       if (mode === "interleave") playInterleaveTurn();
+      else if (mode === "tool-progress") playToolProgressTurn();
       else if (mode !== "empty-reply") playTurn();
       if (mode === "permission" || mode === "permission-twice") {
         // ask the client to approve a tool, then complete once answered

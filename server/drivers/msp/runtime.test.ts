@@ -9,9 +9,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ensureDirs } from "../../config.ts";
 import type { ProviderInstance } from "../../contracts.ts";
+import { toWslPath } from "../../env-path.ts";
 import { removeTempDir } from "../../testing/cleanup.ts";
 import { recordEvents, type EventRecorder } from "../../testing/events.ts";
 import { MspMuseAgentDriver } from "./muse.ts";
+import { translateMspTerminalForWsl } from "./runtime.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "testing", "fake-msp-cli.ts");
 
@@ -34,6 +36,19 @@ describe("MSP turns (fake host)", () => {
   };
 
   const V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+  it("translates the terminal command and Windows path args for WSL", () => {
+    const terminal = {
+      command: "C:\\Program Files\\nodejs\\node.exe",
+      args: ["C:\\Orbit\\server\\drivers\\terminal-proxy.js", "--read-only"],
+      env: { OMB_TERMINAL_TOKEN: "grant" },
+    };
+    expect(translateMspTerminalForWsl(terminal)).toEqual({
+      command: toWslPath(terminal.command),
+      args: [toWslPath(terminal.args[0]), "--read-only"],
+      env: terminal.env,
+    });
+  });
 
   beforeEach(() => {
     ensureDirs();

@@ -165,29 +165,34 @@ function PlanUsage() {
     }
   }, [refresh, refreshable]);
 
-  const missingMuseInstanceId = refreshable.find((instance) => instance.driverKind === "museAgent" && !instance.rateLimits)?.instanceId;
-  const initialMuseRefresh = useRef<string | null>(null);
+  const missingMuseInstanceIds = refreshable
+    .filter((instance) => instance.driverKind === "museAgent" && !instance.rateLimits)
+    .map((instance) => instance.instanceId);
+  const initialMuseRefreshes = useRef(new Set<string>());
   // Muse can expose a cached subscription snapshot without a turn. An empty
   // response remains pending, so this never fabricates a zero-percent report.
   useEffect(() => {
-    if (!missingMuseInstanceId || initialMuseRefresh.current === missingMuseInstanceId) return;
-    const instance = refreshable.find((candidate) => candidate.instanceId === missingMuseInstanceId);
-    if (!instance) return;
-    initialMuseRefresh.current = missingMuseInstanceId;
-    void refresh(instance);
-  }, [missingMuseInstanceId, refresh, refreshable]);
+    for (const instanceId of missingMuseInstanceIds) {
+      if (initialMuseRefreshes.current.has(instanceId)) continue;
+      const instance = refreshable.find((candidate) => candidate.instanceId === instanceId);
+      if (!instance) continue;
+      initialMuseRefreshes.current.add(instanceId);
+      void refresh(instance);
+    }
+  }, [missingMuseInstanceIds, refresh, refreshable]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.repeat || event.isComposing || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.code !== "KeyR") return;
+      const refreshKey = event.code === "KeyR" || event.key.toLowerCase() === "r";
+      if (event.defaultPrevented || event.repeat || event.isComposing || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !refreshKey) return;
       const active = event.target instanceof Element ? event.target : document.activeElement;
-      if (document.querySelector('[data-model-picker-content], .orbit-terminal-overlay[data-open="true"]') || active?.closest('[data-orbit-composer], .orbit-terminal-overlay, [data-terminal], [data-orbit-terminal]')) return;
+      if (document.querySelector('[data-model-picker-content], .orbit-terminal-overlay[data-open="true"]') || active?.closest('[data-orbit-composer], .orbit-terminal-overlay, [data-terminal], [data-orbit-terminal], input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
       if (refreshable.length === 0) return;
       event.preventDefault();
       void refreshAll();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [refreshAll, refreshable.length]);
 
   return (

@@ -6,10 +6,16 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   applySyncOperations,
+  bindSyncId,
   createSyncOperation,
   emptyProfileSyncState,
+  loadProfileSyncSettings,
+  localIdForSyncId,
   parseSyncOperationText,
   readSyncOperations,
+  resolveSyncConflictValue,
+  profileSyncRevision,
+  saveProfileSyncSettings,
   serializeSyncOperation,
   syncOperationFileName,
   writeSyncOperation,
@@ -55,6 +61,34 @@ describe("profile sync operations", () => {
     expect(state.conflicts[0]?.variants.map((variant) => variant.value)).toEqual(["Tutor", "Python Tutor"]);
   });
 
+  it("binds the local-to-remote map without leaving a stale reverse alias", () => {
+    const map = { localA: "remote-1", stale: "remote-1", localB: "remote-2" };
+    expect(localIdForSyncId(map, "remote-1")).toBe("localA");
+    bindSyncId(map, "localC", "remote-1");
+    expect(map).toEqual({ localB: "remote-2", localC: "remote-1" });
+  });
+
+  it("keeps revisions content-bound and resolves an explicit null variant", () => {
+    const first = operation({ operationId: "revision", changes: { mascotExpression: "happy" } });
+    const changed = operation({ operationId: "revision", changes: { mascotExpression: null } });
+    expect(profileSyncRevision([first])).not.toBe(profileSyncRevision([changed]));
+    const state = applySyncOperations(emptyProfileSyncState(), [
+      operation({ operationId: "null-a", deviceId: "device-a", changes: { mascotExpression: "happy" } }),
+      operation({ operationId: "null-b", deviceId: "device-b", recordedAt: 1_700_000_000_001, changes: { mascotExpression: null } }),
+    ]);
+    const conflict = state.conflicts[0]!;
+    expect(resolveSyncConflictValue(state.conflicts, "bot", "bot-1", "mascotExpression", { [conflict.id]: "null-b" }, "fallback")).toBeNull();
+  });
+
+  it("persists reviewed resolutions across a settings reload", () => {
+    const root = mkdtempSync(join(tmpdir(), "orbit-profile-sync-settings-"));
+    roots.push(root);
+    const initial = loadProfileSyncSettings(root);
+    initial.reviewedResolutions = { revision: { conflict: "variant-null" } };
+    saveProfileSyncSettings(root, initial);
+    expect(loadProfileSyncSettings(root).reviewedResolutions).toEqual(initial.reviewedResolutions);
+  });
+
   it("keeps a delete tombstone from being undone by delayed offline edits", () => {
     const state = applySyncOperations(emptyProfileSyncState(), [
       operation({ operationId: "create", changes: { name: "Old" } }),
@@ -63,6 +97,16 @@ describe("profile sync operations", () => {
     ]);
     expect(state.bots["bot-1"]).toBeUndefined();
     expect(state.tombstones["bot:bot-1"]?.operationId).toBe("delete");
+  });
+
+  it("deletes only the matching entity namespace", () => {
+    const state = applySyncOperations(emptyProfileSyncState(), [
+      operation({ operationId: "bot-create", entity: "bot", entityId: "same-id", changes: { name: "Tutor" } }),
+      operation({ operationId: "section-create", entity: "section", entityId: "same-id", changes: { name: "Area" } }),
+      operation({ operationId: "bot-delete", entity: "bot", entityId: "same-id", deleted: true, changes: undefined, sequence: 3, recordedAt: 1_700_000_000_003 }),
+    ]);
+    expect(state.bots["same-id"]).toBeUndefined();
+    expect(state.sections["same-id"]).toMatchObject({ id: "same-id", name: "Area" });
   });
 
   it("round trips atomic folder records and reports corrupt files without applying them", () => {

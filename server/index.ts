@@ -1,7 +1,7 @@
 // OpenMausBot server — the harness host. Clients hold no transports
 // (upstream rule): the React app dispatches typed commands over HTTP and
 // folds one SSE event stream; every provider process runs here.
-import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, realpathSync, statSync, unlinkSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { currentEarlyListen } from "./early-listen.ts";
@@ -188,6 +188,7 @@ import {
 } from "./turn-context.ts";
 import { providerReloadErrorActivity, stallErrorActivity } from "./room-error-attribution.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
+import { terminalReadGrant } from "./terminal-grant.ts";
 import {
   ensureWorkspace,
   listMemoryTopics,
@@ -234,8 +235,12 @@ import {
   emptyProfileSyncState,
   loadOrCreateSyncWorkspace,
   loadProfileSyncSettings,
+  bindSyncId,
+  localIdForSyncId,
   readSyncOperations,
+  resolveSyncConflictValue,
   saveProfileSyncSettings,
+  profileSyncRevision,
   validateSyncFolder,
   writeSyncOperation,
   type ProfileSyncOperation,
@@ -354,7 +359,10 @@ const phoneProxyPath = SPAWNED_PROXIES.phone;
 const terminalProxyPath = SPAWNED_PROXIES.terminal;
 // in the packaged app process.execPath is Electron — run the proxy as node
 const AGENTS_NODE_FLAG = { ELECTRON_RUN_AS_NODE: "1" };
-const TERMINAL_GRANT_PREFIX = "orbit-terminal-read-v1";
+let terminalBridgeAccess =
+  process.env.OMB_TERMINAL_URL?.trim() && process.env.OMB_TERMINAL_TOKEN?.trim()
+    ? { url: process.env.OMB_TERMINAL_URL.trim().replace(/\/$/, ""), token: process.env.OMB_TERMINAL_TOKEN.trim() }
+    : null;
 
 function agentsIntegration(botId: string, threadId: string, depth: number) {
   return {
@@ -410,16 +418,14 @@ function phoneIntegration() {
 }
 
 function terminalIntegration(botId: string) {
-  const url = process.env.OMB_TERMINAL_URL?.trim();
-  const token = process.env.OMB_TERMINAL_TOKEN?.trim();
-  if (!url || !token) return null;
-  const grant = createHmac("sha256", token).update(`${TERMINAL_GRANT_PREFIX}:${botId}`).digest("base64url");
+  if (!terminalBridgeAccess) return null;
+  const grant = terminalReadGrant(terminalBridgeAccess.token, botId);
   return {
     command: process.execPath,
     args: [terminalProxyPath],
     env: {
       ...AGENTS_NODE_FLAG,
-      OMB_TERMINAL_URL: url,
+      OMB_TERMINAL_URL: terminalBridgeAccess.url,
       OMB_TERMINAL_TOKEN: grant,
       OMB_BOT_ID: botId,
     },
@@ -1012,7 +1018,6 @@ const publicBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => ({
 
 let profileSyncLastSyncAt: number | null = null;
 let profileSyncLastConflictCount = 0;
-let profileSyncReviewedRevision: string | null = null;
 
 function syncSectionId(section: string | undefined): string | null {
   const key = sectionKey(section);
@@ -1024,8 +1029,16 @@ function syncSectionId(section: string | undefined): string | null {
   return id;
 }
 
+function pruneProfileSyncSectionAliases(): void {
+  const live = new Set(store.bots.map((bot) => sectionKey(bot.section)).filter(Boolean));
+  for (const key of Object.keys(profileSyncSettings.sectionMap)) {
+    if (!live.has(key)) delete profileSyncSettings.sectionMap[key];
+  }
+}
+
 function localBotIdForGlobal(globalId: string): string | undefined {
-  return Object.entries(profileSyncSettings.botMap).find(([, mapped]) => mapped === globalId)?.[0];
+  const localId = localIdForSyncId(profileSyncSettings.botMap, globalId);
+  return localId && store.bot(localId) ? localId : undefined;
 }
 
 function ensureProfileSyncWorkspace(folder: string): void {
@@ -1036,6 +1049,7 @@ function ensureProfileSyncWorkspace(folder: string): void {
     workspaceId,
     botMap: {},
     sectionMap: {},
+    reviewedResolutions: {},
   };
 }
 
@@ -1069,17 +1083,12 @@ function portableSyncChanges(bot: BotRecord): Record<string, unknown> {
     color: bot.color,
     mascotExpression: bot.mascotExpression ?? null,
     mascotStyle: bot.mascotStyle ?? null,
-    avatarAsset: bot.avatarUrl?.startsWith("/api/attachments/") ? bot.avatarUrl.slice("/api/attachments/".length) : null,
     sectionId: syncSectionId(bot.section),
     pinned: Boolean(bot.pinned),
     chiefOfStaff: Boolean(bot.chiefOfStaff),
     instanceId: bot.modelSelection.instanceId,
     model: bot.modelSelection.model,
   };
-}
-
-function profileSyncRevision(operations: ProfileSyncOperation[]): string {
-  return operations.map((operation) => operation.operationId).sort().join("\n");
 }
 
 function profileSyncStatus() {
@@ -1099,7 +1108,10 @@ function profileSyncStatus() {
   const remote = readSyncOperations(folder);
   const remoteState = applySyncOperations(emptyProfileSyncState(), remote.operations);
   const revision = profileSyncRevision(remote.operations);
-  const conflicts = profileSyncReviewedRevision === revision ? profileSyncLastConflictCount : remoteState.conflicts.length;
+  const reviewed = profileSyncSettings.reviewedResolutions[revision] ?? {};
+  const conflicts = remoteState.conflicts.filter((conflict) =>
+    !conflict.variants.some((variant) => variant.operationId === reviewed[conflict.id]),
+  ).length;
   const status = remote.invalidFiles.length > 0 || conflicts > 0
     ? "needs-review"
     : remote.operations.length > 0
@@ -1124,6 +1136,14 @@ function profileSyncRemoteState() {
   return { ...remote, state };
 }
 
+function unresolvedProfileSyncConflicts(
+  conflicts: readonly { id: string; variants: readonly { operationId: string }[] }[],
+  revision: string,
+) {
+  const reviewed = profileSyncSettings.reviewedResolutions[revision] ?? {};
+  return conflicts.filter((conflict) => !conflict.variants.some((variant) => variant.operationId === reviewed[conflict.id]));
+}
+
 function profileSyncPreview() {
   const remote = profileSyncRemoteState();
   const botChanges = Object.values(remote.state.bots).map((bot) => {
@@ -1137,7 +1157,7 @@ function profileSyncPreview() {
   });
   return {
     bots: [...botChanges, ...deleted],
-    conflicts: remote.state.conflicts,
+    conflicts: unresolvedProfileSyncConflicts(remote.state.conflicts, profileSyncRevision(remote.operations)),
     invalidFiles: remote.invalidFiles,
     operations: remote.operations.length,
     revision: profileSyncRevision(remote.operations),
@@ -1170,6 +1190,7 @@ function profileSyncLocalRevision(): string {
 
 function publishProfileSync(): { written: number; status: ReturnType<typeof profileSyncStatus> } {
   if (!profileSyncSettings.folder) throw Object.assign(new Error("Choose a Google Drive folder first"), { status: 409 });
+  pruneProfileSyncSectionAliases();
   const now = Date.now();
   const operations: ProfileSyncOperation[] = [];
   for (const bot of store.bots) {
@@ -1180,6 +1201,7 @@ function publishProfileSync(): { written: number; status: ReturnType<typeof prof
   for (const [localId, globalId] of Object.entries(profileSyncSettings.botMap)) {
     if (!liveBotIds.has(localId)) {
       operations.push(nextProfileSyncOperation({ entity: "bot", entityId: globalId, deleted: true }, now));
+      delete profileSyncSettings.botMap[localId];
     }
   }
   const seenSections = new Set<string>();
@@ -1189,17 +1211,22 @@ function publishProfileSync(): { written: number; status: ReturnType<typeof prof
     seenSections.add(id);
     operations.push(nextProfileSyncOperation({ entity: "section", entityId: id, changes: { name: bot.section, order: seenSections.size - 1 } }, now));
   }
+  const itemOrder: Record<string, string[]> = {};
+  for (const bot of store.bots) {
+    const sectionId = syncSectionId(bot.section) ?? "";
+    (itemOrder[sectionId] ??= []).push(syncBotId(bot.id));
+  }
   operations.push(nextProfileSyncOperation({
     entity: "order",
     entityId: profileSyncSettings.workspaceId,
     changes: {
       sectionOrder: [...seenSections],
-      itemOrder: { [profileSyncSettings.workspaceId]: store.bots.map((bot) => syncBotId(bot.id)) },
+      itemOrder,
     },
   }, now));
   for (const operation of operations) writeSyncOperation(profileSyncSettings.folder, operation);
   profileSyncLastSyncAt = Date.now();
-  profileSyncReviewedRevision = null;
+  profileSyncSettings.reviewedResolutions = {};
   profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
   return { written: operations.length, status: profileSyncStatus() };
 }
@@ -1210,29 +1237,31 @@ function importProfileSync(input: { previewRevision?: string; localRevision?: st
   if (input.previewRevision !== revision || input.localRevision !== profileSyncLocalRevision()) {
     throw Object.assign(new Error("The sync preview is out of date. Preview again before importing."), { status: 409 });
   }
-  const conflictsById = new Map(remote.state.conflicts.map((conflict) => [conflict.id, conflict]));
-  const unresolved = remote.state.conflicts.filter((conflict) => {
-    const selected = input.resolutions?.[conflict.id];
-    return !selected || !conflict.variants.some((variant) => variant.operationId === selected);
-  });
-  if (unresolved.length) {
-    throw Object.assign(new Error("Resolve the sync conflicts in the preview before importing."), { status: 409 });
+  if (remote.invalidFiles.length > 0) {
+    throw Object.assign(new Error("Fix invalid sync files before importing."), { status: 409 });
   }
+  const conflictsById = new Map(remote.state.conflicts.map((conflict) => [conflict.id, conflict]));
   for (const conflictId of Object.keys(input.resolutions ?? {})) {
     if (!conflictsById.has(conflictId)) {
       throw Object.assign(new Error("The sync conflict resolution is not part of this preview."), { status: 409 });
     }
   }
+  const resolutions = { ...(profileSyncSettings.reviewedResolutions[revision] ?? {}), ...(input.resolutions ?? {}) };
+  const unresolved = remote.state.conflicts.filter((conflict) => {
+    const selected = resolutions[conflict.id];
+    return !selected || !conflict.variants.some((variant) => variant.operationId === selected);
+  });
+  if (unresolved.length) {
+    throw Object.assign(new Error("Resolve the sync conflicts in the preview before importing."), { status: 409 });
+  }
   const resolvedField = (entity: ProfileSyncOperation["entity"], entityId: string, field: string): unknown => {
-    const conflict = remote.state.conflicts.find((candidate) => candidate.entity === entity && candidate.entityId === entityId && candidate.field === field);
-    const selected = conflict ? input.resolutions?.[conflict.id] : undefined;
-    return conflict?.variants.find((variant) => variant.operationId === selected)?.value;
+    return resolveSyncConflictValue(remote.state.conflicts, entity, entityId, field, resolutions, undefined);
   };
   profileSyncLastConflictCount = 0;
-  profileSyncReviewedRevision = revision;
   for (const section of Object.values(remote.state.sections)) {
-    const name = resolvedField("section", section.id, "name") ?? section.name;
-    if (typeof name === "string" && name) profileSyncSettings.sectionMap[name] = section.id;
+    const resolvedName = resolvedField("section", section.id, "name");
+    const name = resolvedName === undefined ? section.name : resolvedName;
+    if (typeof name === "string" && name) bindSyncId(profileSyncSettings.sectionMap, name, section.id);
   }
   const sectionNames = new Map(Object.values(remote.state.sections).map((section) => [
     section.id,
@@ -1242,24 +1271,29 @@ function importProfileSync(input: { previewRevision?: string; localRevision?: st
   for (const synced of Object.values(remote.state.bots)) {
     let localId = localBotIdForGlobal(synced.id);
     let bot = localId ? store.bot(localId) : null;
+    const field = (name: string, fallback: unknown) => {
+      const resolved = resolvedField("bot", synced.id, name);
+      return resolved === undefined ? fallback : resolved;
+    };
+    const sectionId = field("sectionId", synced.sectionId);
     const profile = {
-      name: String(resolvedField("bot", synced.id, "name") ?? synced.name ?? "Imported bot"),
-      title: String(resolvedField("bot", synced.id, "title") ?? synced.title ?? ""),
-      description: String(resolvedField("bot", synced.id, "description") ?? synced.description ?? ""),
-      color: (resolvedField("bot", synced.id, "color") ?? synced.color) as BotRecord["color"],
-      mascotExpression: (resolvedField("bot", synced.id, "mascotExpression") ?? synced.mascotExpression) as BotRecord["mascotExpression"],
-      mascotStyle: (resolvedField("bot", synced.id, "mascotStyle") ?? synced.mascotStyle) as BotRecord["mascotStyle"],
-      section: typeof synced.sectionId === "string" ? sectionNames.get(String(resolvedField("bot", synced.id, "sectionId") ?? synced.sectionId)) : undefined,
+      name: String(field("name", synced.name ?? "Imported bot")),
+      title: String(field("title", synced.title ?? "")),
+      description: String(field("description", synced.description ?? "")),
+      color: field("color", synced.color) as BotRecord["color"],
+      mascotExpression: field("mascotExpression", synced.mascotExpression) as BotRecord["mascotExpression"],
+      mascotStyle: field("mascotStyle", synced.mascotStyle) as BotRecord["mascotStyle"],
+      section: typeof sectionId === "string" ? sectionNames.get(sectionId) : undefined,
     };
     if (!bot) {
       bot = store.createBot(profile, { seedMessages: false });
       localId = bot.id;
-      profileSyncSettings.botMap[localId] = synced.id;
     } else {
       store.patchBot(bot.id, profile);
     }
-    const importedInstanceId = resolvedField("bot", synced.id, "instanceId") ?? synced.instanceId;
-    const importedModel = resolvedField("bot", synced.id, "model") ?? synced.model;
+    if (localId) bindSyncId(profileSyncSettings.botMap, localId, synced.id);
+    const importedInstanceId = field("instanceId", synced.instanceId);
+    const importedModel = field("model", synced.model);
     let model = bot.modelSelection;
     if (typeof importedModel === "string" && importedModel) {
       const instanceId = typeof importedInstanceId === "string" && importedInstanceId ? importedInstanceId : bot.modelSelection.instanceId;
@@ -1267,39 +1301,78 @@ function importProfileSync(input: { previewRevision?: string; localRevision?: st
       const offered = instance && (importedModel === instance.models.default || instance.models.options.some((option) => option.id === importedModel));
       if (offered) model = { ...bot.modelSelection, instanceId, model: importedModel };
     }
-    const pinned = resolvedField("bot", synced.id, "pinned") ?? synced.pinned;
-    const chiefOfStaff = resolvedField("bot", synced.id, "chiefOfStaff") ?? synced.chiefOfStaff;
+    const pinned = field("pinned", synced.pinned);
+    const chiefOfStaff = field("chiefOfStaff", synced.chiefOfStaff);
     store.patchBot(bot.id, { pinned: pinned === true, chiefOfStaff: chiefOfStaff === true, modelSelection: model });
     imported++;
   }
   let archived = 0;
   for (const key of Object.keys(remote.state.tombstones).filter((value) => value.startsWith("bot:"))) {
-    const localId = localBotIdForGlobal(key.slice("bot:".length));
-    if (!localId || !store.bot(localId)) continue;
+    const globalId = key.slice("bot:".length);
+    const mappedLocalIds = Object.entries(profileSyncSettings.botMap)
+      .filter(([, mappedGlobalId]) => mappedGlobalId === globalId)
+      .map(([localId]) => localId);
+    const localId = mappedLocalIds.find((candidate) => Boolean(store.bot(candidate)));
+    for (const staleLocalId of mappedLocalIds) {
+      if (staleLocalId !== localId && !store.bot(staleLocalId)) delete profileSyncSettings.botMap[staleLocalId];
+    }
+    if (!localId) continue;
     store.patchBot(localId, { hidden: true, chiefOfStaff: false });
     archived++;
   }
-  const sectionOrder = remote.state.order.sectionOrder.flatMap((sectionId) => {
-    const sectionName = sectionNames.get(sectionId);
-    return sectionName ? store.bots.filter((bot) => bot.section === sectionName).map((bot) => bot.id) : [];
-  });
-  const itemOrder = remote.state.order.itemOrder[profileSyncSettings.workspaceId] ?? [];
-  const desired = [...new Set([...sectionOrder, ...itemOrder
-    .map((globalId) => localBotIdForGlobal(globalId))])]
-    .filter((id): id is string => {
-      if (!id) return false;
-      return Boolean(store.bot(id));
-    });
+  const selectedSectionOrder = resolvedField("order", profileSyncSettings.workspaceId, "sectionOrder");
+  const sectionOrder = Array.isArray(selectedSectionOrder) ? selectedSectionOrder : remote.state.order.sectionOrder;
+  const selectedItemOrder = resolvedField("order", profileSyncSettings.workspaceId, "itemOrder");
+  const itemOrder = selectedItemOrder && typeof selectedItemOrder === "object" && !Array.isArray(selectedItemOrder)
+    ? selectedItemOrder as Record<string, string[]>
+    : remote.state.order.itemOrder;
+  const remoteBotIds = Object.keys(remote.state.bots);
+  const sectionFor = (globalId: string): string | null => {
+    const synced = remote.state.bots[globalId];
+    if (!synced) return null;
+    const sectionId = resolvedField("bot", globalId, "sectionId");
+    const value = sectionId === undefined ? synced.sectionId : sectionId;
+    return typeof value === "string" ? value : null;
+  };
+  const orderedSectionIds = [...new Set([
+    ...sectionOrder.filter((id) => Boolean(remote.state.sections[id])),
+    ...Object.entries(remote.state.sections)
+      .sort(([, left], [, right]) => Number(left.order ?? Number.MAX_SAFE_INTEGER) - Number(right.order ?? Number.MAX_SAFE_INTEGER))
+      .map(([id]) => id),
+  ])];
+  const desired: string[] = [];
+  const seenDesired = new Set<string>();
+  const appendSection = (sectionId: string | null) => {
+    const listed = itemOrder[sectionId ?? ""] ?? itemOrder[profileSyncSettings.workspaceId] ?? [];
+    for (const globalId of [...listed, ...remoteBotIds]) {
+      if (sectionFor(globalId) !== sectionId) continue;
+      const localId = localBotIdForGlobal(globalId);
+      if (!localId || seenDesired.has(localId) || !store.bot(localId)) continue;
+      seenDesired.add(localId);
+      desired.push(localId);
+    }
+  };
+  for (const sectionId of orderedSectionIds) appendSection(sectionId);
+  appendSection(null);
+  for (const sectionId of [...new Set(remoteBotIds.map(sectionFor).filter((id): id is string => id !== null && !orderedSectionIds.includes(id)))]) {
+    appendSection(sectionId);
+  }
   const rest = store.bots.map((bot) => bot.id).filter((id) => !desired.includes(id));
   if (desired.length + rest.length === store.bots.length) store.reorderBots([...desired, ...rest]);
-  for (const bot of Object.values(remote.state.bots).filter((candidate) => candidate.chiefOfStaff === true)) {
+  for (const bot of Object.values(remote.state.bots)) {
+    const chiefOfStaff = resolvedField("bot", bot.id, "chiefOfStaff");
+    if ((chiefOfStaff === undefined ? bot.chiefOfStaff : chiefOfStaff) !== true) continue;
     const localId = localBotIdForGlobal(bot.id);
     const local = localId ? store.bot(localId) : null;
     if (local) store.setChiefOfStaff(local.id, local.section);
   }
+  pruneProfileSyncSectionAliases();
+  profileSyncSettings.reviewedResolutions[revision] = Object.fromEntries(
+    [...conflictsById.keys()].map((conflictId) => [conflictId, resolutions[conflictId]!]),
+  );
   profileSyncLastSyncAt = Date.now();
   profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
-  return { imported, archived, conflicts: profileSyncLastConflictCount, status: profileSyncStatus() };
+  return { imported, archived, conflicts: 0, status: profileSyncStatus() };
 }
 
 type GroupTurnOperation = {
@@ -1596,8 +1669,21 @@ function writeBroadcastFrame(payload: Record<string, unknown>, alreadyMasked = f
 // keyed by `${threadId}:${itemId}` / `${threadId}:${requestId}` — provider
 // item/request ids are only unique within a thread, so two bots acting at
 // once can collide on a bare id and patch each other's messages.
-const toolMessageByItem = new Map<string, string>(); // threadId:itemId -> messageId
+const toolMessageByItem = new Map<string, { messageId: string; turnId?: string }>(); // threadId:itemId -> message + owning turn
 const askMessageByRequest = new Map<string, string>(); // threadId:requestId -> messageId
+
+function settlePendingToolMessages(threadId: string, turnId?: string): void {
+  const prefix = `${threadId}:`;
+  for (const [key, pending] of toolMessageByItem) {
+    if (!key.startsWith(prefix)) continue;
+    if (turnId && pending.turnId && pending.turnId !== turnId) continue;
+    const message = store.messagesFor(threadId).find((candidate) => candidate.id === pending.messageId);
+    if (message?.tool && message.tool.ok === undefined) {
+      store.patchMessage(threadId, pending.messageId, { tool: { ...message.tool, ok: false } });
+    }
+    toolMessageByItem.delete(key);
+  }
+}
 
 /** Deliver a person's answer to the engine that asked, and tell the truth
  * about what happened. `unavailable` — the turn ended, the ask timed out,
@@ -1906,6 +1992,7 @@ const watchdog = new TurnWatchdog({
   checkMs: 60_000,
   onStall: (turn) => {
     repeats.settle(turn.threadId);
+    settlePendingToolMessages(turn.threadId);
     const bot = store.bot(turn.botId);
     const packet = bot && store.taskByThread(bot.id, turn.threadId)
       ? taskPacketForWrite(turn.threadId)
@@ -2149,6 +2236,7 @@ bus.subscribe((event: RuntimeEvent) => {
     localVmIdleFor(localVmTarget).touch();
   }
   if (event.type === "turn.completed") {
+    settlePendingToolMessages(event.threadId, event.turnId);
     releaseLocalVmThread(event.threadId);
   }
   broadcast({ kind: "runtime", event });
@@ -2206,7 +2294,10 @@ bus.subscribe((event: RuntimeEvent) => {
         lastReply.set(event.threadId, { text: event.text, messageId: message.id });
       } else if (event.itemType === "tool" && event.itemId) {
         const itemKey = `${event.threadId}:${event.itemId}`;
-        const messageId = toolMessageByItem.get(itemKey);
+        const pending = toolMessageByItem.get(itemKey);
+        const messageId = pending && (!event.turnId || !pending.turnId || pending.turnId === event.turnId)
+          ? pending.messageId
+          : undefined;
         let toolName = "tool";
         if (messageId) {
           // the whole tool object is replaced, so carry `spoken` across —
@@ -2266,7 +2357,7 @@ bus.subscribe((event: RuntimeEvent) => {
           kind: "activity",
           tool: { name, spoken: narrateTool(name) ?? undefined },
         });
-        if (event.itemId) toolMessageByItem.set(`${event.threadId}:${event.itemId}`, message.id);
+        if (event.itemId) toolMessageByItem.set(`${event.threadId}:${event.itemId}`, { messageId: message.id, turnId: event.turnId });
       }
       break;
     case "request.opened": {
@@ -3131,7 +3222,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // Accepted: ownership and the task exist. Announce here so a busy peer
   // (askBotAndWait) never clears a live wait that is not being replaced.
   markChatLatency({ sendId: latencySendId, threadId }, "turn.dispatch");
-  broadcast({ kind: "turn.dispatch", threadId });
+  broadcast({ kind: "turn.dispatch", threadId, createdAt: new Date().toISOString() });
   const commsDepth = opts?.commsDepth ?? 0;
   // a task takes its name from the first thing the user asked it to do —
   // never from a peer's opening line
@@ -5425,6 +5516,22 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // The agents-proxy (spawned inside a bot's agent process) calls these to
     // discover peers and hand a message to one. Not part of the public API.
     if (path.startsWith("/api/internal/")) {
+      if (method === "PUT" && path === "/api/internal/terminal-bridge") {
+        const body = await readBody(req);
+        const url = typeof body?.url === "string" ? body.url.trim().replace(/\/$/, "") : "";
+        const token = typeof body?.token === "string" ? body.token.trim() : "";
+        let parsed: URL;
+        try {
+          parsed = new URL(url);
+        } catch {
+          return json(res, 400, { error: "terminal bridge URL is invalid" });
+        }
+        if (parsed.protocol !== "http:" || !isLoopbackHost(parsed.host) || !token) {
+          return json(res, 400, { error: "terminal bridge must be a loopback HTTP endpoint" });
+        }
+        terminalBridgeAccess = { url, token };
+        return json(res, 200, { ok: true });
+      }
       if (method === "POST" && path === "/api/internal/task-state") {
         const parsed = taskStateUpdateEnvelopeSchema.safeParse(await readBody(req));
         if (!parsed.success) return json(res, 400, { error: "invalid task state update" });
@@ -6182,10 +6289,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!body || typeof body.folder !== "string") return json(res, 400, { error: "folder must be a path" });
       try {
         const folder = validateSyncFolder(body.folder);
+        if (profileSyncSettings.folder !== folder) profileSyncSettings.reviewedResolutions = {};
         ensureProfileSyncWorkspace(folder);
         profileSyncSettings.folder = folder;
         profileSyncLastConflictCount = 0;
-        profileSyncReviewedRevision = null;
         profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
         return json(res, 200, profileSyncStatus());
       } catch (error) {
@@ -6195,7 +6302,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (method === "DELETE" && path === "/api/profile-sync") {
       profileSyncSettings.folder = null;
       profileSyncLastConflictCount = 0;
-      profileSyncReviewedRevision = null;
       profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
       return json(res, 200, profileSyncStatus());
     }

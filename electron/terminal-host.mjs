@@ -510,8 +510,13 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       if (session.id !== input.sessionId || session.generation !== input.generation) throw new Error("Terminal session is stale; take a fresh snapshot");
       if (session.exitCode !== null) throw new Error("Terminal has exited");
       if (input.text.includes("\x03")) throw new Error("Ctrl+C is not allowed in a confirmed terminal send");
+      clearActivityTimer(session);
       const echo = inputEchoText(input.text);
       if (/[\r\n]/.test(input.text)) session.activityArmed = true;
+      if (/[\r\n]/.test(input.text)) {
+        session.attentionReported = false;
+        session.activityCooldownUntil = 0;
+      }
       if (echo) session.pendingInputEcho = `${session.pendingInputEcho}${echo}`.slice(-INPUT_ECHO_LIMIT);
       try {
         const result = session.pty.write(input.text);

@@ -95,6 +95,7 @@ beforeAll(async () => {
       OMB_PORT: String(PORT),
     },
     stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
   });
   child.stderr!.on("data", (c) => (stderr += c));
 

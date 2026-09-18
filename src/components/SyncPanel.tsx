@@ -172,11 +172,11 @@ export function SyncPanel() {
         {preview ? (
           <div className="rounded-lg border border-hairline/40 bg-inset p-3">
             <div className="text-[12px] leading-relaxed text-ink-secondary">{t("settings.sync.previewHelp")}</div>
-            {preview.bots.length === 0 ? <div className="mt-2 text-[12px] text-ink-secondary">{t("settings.sync.previewEmpty")}</div> : (
+            {preview.operations === 0 ? <div className="mt-2 text-[12px] text-ink-secondary">{t("settings.sync.previewEmpty")}</div> : preview.bots.length > 0 ? (
               <div className="mt-2 flex flex-col gap-1">
                 {preview.bots.slice(0, 30).map((bot) => <div key={bot.id} className="flex items-center justify-between gap-2 text-[12px] text-ink"><span className="truncate">{bot.name}</span><span className="shrink-0 text-ink-secondary">{bot.action === "add" ? t("settings.sync.previewAdd") : bot.action === "update" ? t("settings.sync.previewUpdate") : t("settings.sync.previewArchive")}</span></div>)}
               </div>
-            )}
+            ) : null}
             {preview.conflicts.length || preview.invalidFiles.length ? <div className="mt-2 flex items-start gap-1.5 text-[12px] text-warning"><AlertTriangle size={14} className="mt-0.5 shrink-0" />{t("settings.sync.conflicts")}</div> : null}
             {preview.conflicts.length > 0 ? (
               <div className="mt-3 flex flex-col gap-2 border-t border-hairline/30 pt-3">
@@ -191,14 +191,14 @@ export function SyncPanel() {
                           checked={conflictChoices[conflict.id] === variant.operationId}
                           onChange={() => setConflictChoices((current) => ({ ...current, [conflict.id]: variant.operationId }))}
                         />
-                        <span className="break-words">{String(variant.value)}</span>
+                        <span className="break-words">{typeof variant.value === "string" ? variant.value : JSON.stringify(variant.value)}</span>
                       </label>
                     ))}
                   </fieldset>
                 ))}
               </div>
             ) : null}
-            {preview.bots.length > 0 ? <button type="button" onClick={() => void action("import")} disabled={busy !== null || !conflictsResolved || preview.invalidFiles.length > 0} className="mt-3 rounded-lg bg-accent px-3 py-2 text-[12px] font-medium text-accent-ink hover:brightness-110 disabled:opacity-40">{t("settings.sync.import")}</button> : null}
+            {preview.operations > 0 ? <button type="button" onClick={() => void action("import")} disabled={busy !== null || !conflictsResolved || preview.invalidFiles.length > 0} className="mt-3 rounded-lg bg-accent px-3 py-2 text-[12px] font-medium text-accent-ink hover:brightness-110 disabled:opacity-40">{t("settings.sync.import")}</button> : null}
           </div>
         ) : null}
 
