@@ -105,6 +105,8 @@ function antigravityEnvironment(overrides: NodeJS.ProcessEnv = {}): NodeJS.Proce
   // not the workspace secrets the desktop shell injects, not another
   // provider's key, in any of its turn, snapshot, or helper children.
   applyCredentialAllowlist(env);
+  // agy's detached --bg-updater (15+ min after its last check) opens a visible console on Windows.
+  if (process.platform === "win32") env.AGY_CLI_DISABLE_AUTO_UPDATE = "true";
   return env;
 }
 

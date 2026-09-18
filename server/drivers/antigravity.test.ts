@@ -306,6 +306,22 @@ describe("Antigravity turns (fake CLI)", () => {
     }
   });
 
+  it("turns off agy's self-updater on Windows so it cannot open a console", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "omb-agy-updater-"));
+    const dump = join(scratch, "dump.json");
+    process.env.FAKE_AGY_DUMP = dump;
+    try {
+      await create();
+      await instance.adapter.sendTurn({ threadId: "t-updater", text: "hi" });
+      await recorder.until((event) => event.type === "turn.completed");
+      const { env } = JSON.parse(readFileSync(dump, "utf8"));
+      expect(env.AGY_CLI_DISABLE_AUTO_UPDATE).toBe(process.platform === "win32" ? "true" : undefined);
+    } finally {
+      delete process.env.FAKE_AGY_DUMP;
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
   it("respondToRequest resolves `unavailable` — no interactive permission channel, so the caller denies", async () => {
     await create();
     await expect(instance.adapter.respondToRequest("t-happy", "req-1", { behavior: "allow" })).resolves.toBe("unavailable");
