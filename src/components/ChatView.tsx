@@ -894,8 +894,9 @@ const MessagesList = memo(function MessagesList({
           }
         })();
         if (!row) return null;
+        // sendId survives the placeholder -> server row swap; keying on id remounts and replays msg-in
         return (
-          <div key={m.id} className="contents" data-mid={m.id}>
+          <div key={m.sendId ?? m.id} className="contents" data-mid={m.id}>
             {newDay && <DaySeparator at={m.at} />}
             {row}
           </div>
