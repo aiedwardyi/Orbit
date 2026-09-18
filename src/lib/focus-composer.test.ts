@@ -1,5 +1,5 @@
 import "@/components/ProfileFields.test-dom.ts";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   focusComposer,
@@ -44,6 +44,22 @@ describe("focusComposer", () => {
     expect(document.activeElement).toBe(textarea);
     expect(textarea.selectionStart).toBe(2);
     expect(textarea.selectionEnd).toBe(8);
+  });
+
+  it("focuses the requested active composer when several are mounted", () => {
+    const roomComposer = document.createElement("textarea");
+    roomComposer.setAttribute("data-orbit-composer", "");
+    roomComposer.value = "room draft";
+    roomComposer.setSelectionRange(2, 6);
+    const scrollIntoView = vi.fn();
+    roomComposer.scrollIntoView = scrollIntoView;
+    document.body.append(roomComposer);
+
+    expect(focusComposer(document, roomComposer)).toBe(true);
+    expect(document.activeElement).toBe(roomComposer);
+    expect(roomComposer.selectionStart).toBe(2);
+    expect(roomComposer.selectionEnd).toBe(6);
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
   });
 });
 
@@ -176,5 +192,20 @@ describe("focusComposerOnActivation guards", () => {
     await new Promise((resolve) => requestAnimationFrame(resolve));
 
     expect(document.activeElement).not.toBe(textarea);
+  });
+
+  it("focuses the requested composer after activation", async () => {
+    const roomComposer = document.createElement("textarea");
+    roomComposer.setAttribute("data-orbit-composer", "");
+    roomComposer.value = "room draft";
+    roomComposer.setSelectionRange(4, 4);
+    document.body.append(roomComposer);
+
+    focusComposerOnActivation({ composer: roomComposer, targetDocument: document });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    expect(document.activeElement).toBe(roomComposer);
+    expect(roomComposer.selectionStart).toBe(4);
+    expect(roomComposer.selectionEnd).toBe(4);
   });
 });

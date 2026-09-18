@@ -56,6 +56,37 @@ test("concurrent opens share one shell and reopening replays bounded sequenced o
   assert.equal(f.children[0].killed, false);
 });
 
+test("reads the parsed screen with a stable generation and no side effects", async () => {
+  const f = fixture();
+  const session = await f.host.open(f.event, f.input);
+  f.children[0].data("hello\x1b[2J\x1b[Hworld\r\nnext");
+  const before = f.children[0].writes.length;
+  const read = f.host.read(f.event, session.id);
+  assert.equal(read.sessionId, session.id);
+  assert.equal(read.generation, 1);
+  assert.equal(read.cwd, os.tmpdir());
+  assert.equal(read.seq, 1);
+  assert.match(read.screenText, /^world\nnext/u);
+  assert.equal(f.children[0].writes.length, before);
+  assert.equal(f.events.some(([channel]) => channel === "terminal:attention"), false);
+});
+
+test("readBot binds a snapshot to the bot and confirmed sends reject stale sessions", async () => {
+  const f = fixture();
+  const session = await f.host.open(f.event, f.input);
+  const read = f.host.readBot("bot-1");
+  assert.equal(read.sessionId, session.id);
+  assert.equal(read.generation, 1);
+  assert.throws(() => f.host.sendBot("bot-1", { sessionId: session.id, generation: 0, text: "echo stale\r" }), /stale/);
+  assert.throws(() => f.host.sendBot("bot-1", { sessionId: session.id, generation: 1, text: "cancel\x03" }), /Ctrl\+C/);
+  f.host.sendBot("bot-1", { sessionId: session.id, generation: 1, text: "echo ok\r" });
+  assert.deepEqual(f.children[0].writes, ["echo ok\r"]);
+  const replaced = await f.host.open(f.event, { ...f.input, restart: true });
+  assert.equal(f.host.readBot("bot-1").generation, 2);
+  assert.throws(() => f.host.sendBot("bot-1", { sessionId: session.id, generation: 1, text: "old\r" }), /stale/);
+  assert.notEqual(replaced.id, session.id);
+});
+
 test("validates writes, dimensions, ownership and explicit restart", async () => {
   const f = fixture();
   const first = await f.host.open(f.event, f.input);
@@ -241,6 +272,7 @@ test("gives a cold Windows worker a longer readiness grace period", () => {
 test("emits one terminal attention event for a bell or exit", async () => {
   const f = fixture();
   const session = await f.host.open(f.event, f.input);
+  f.host.write(f.event, session.id, "command\r");
   f.children[0].data("\x07");
   f.children[0].exit({ exitCode: 0 });
   const attention = f.events.filter(([channel]) => channel === "terminal:attention");
@@ -250,6 +282,7 @@ test("emits one terminal attention event for a bell or exit", async () => {
 test("rearms terminal attention after a new command", async () => {
   const f = fixture();
   const session = await f.host.open(f.event, f.input);
+  f.host.write(f.event, session.id, "first\r");
   f.children[0].data("\x07");
   f.host.write(f.event, session.id, "next\r");
   f.children[0].data("\x07");
@@ -260,6 +293,17 @@ test("rearms terminal attention after a new command", async () => {
       ["terminal:attention", { id: session.id, botId: "bot-1", reason: "bell" }],
     ],
   );
+});
+
+test("rearms terminal attention after a confirmed bot send", async () => {
+  const f = fixture();
+  const session = await f.host.open(f.event, f.input);
+  f.host.sendBot("bot-1", { sessionId: session.id, generation: 1, text: "first\r" });
+  f.children[0].data("\x07");
+  f.host.sendBot("bot-1", { sessionId: session.id, generation: 1, text: "next\r" });
+  f.children[0].data("\x07");
+  assert.equal(f.events.filter(([channel]) => channel === "terminal:attention").length, 2);
+  f.host.dispose();
 });
 
 test("keeps OSC title terminators and split ANSI sequences out of attention", async () => {
@@ -280,7 +324,7 @@ test("keeps OSC title terminators and split ANSI sequences out of attention", as
 test("does not notify for an initial prompt, replay, or resize before a command", async () => {
   const f = fixture({ activityCoalesceMs: 5 });
   const session = await f.host.open(f.event, f.input);
-  f.children[0].data("PS C:\\workspace> ");
+  f.children[0].data("PS C:\\workspace> \x07");
   await wait(15);
   f.host.resize(f.event, session.id, 100, 30);
   const replay = await f.host.open(f.event, f.input);
@@ -319,6 +363,7 @@ test("coalesces output, suppresses input echo and rearms after acknowledgement c
   await wait(15);
   assert.equal(f.events.filter(([channel]) => channel === "terminal:attention").length, 1);
   clock += 3_001;
+  f.host.write(f.event, session.id, "next\r");
   f.children[0].data("later output");
   await wait(15);
   assert.equal(f.events.filter(([channel]) => channel === "terminal:attention").length, 2);
@@ -327,6 +372,25 @@ test("coalesces output, suppresses input echo and rearms after acknowledgement c
   const replay = await f.host.open(f.event, f.input);
   assert.equal(replay.id, session.id);
   assert.equal(f.events.filter(([channel]) => channel === "terminal:attention").length, 2);
+  f.host.dispose();
+});
+
+test("does not notify for a typed echo before command submission", async () => {
+  const f = fixture({ activityCoalesceMs: 5 });
+  const session = await f.host.open(f.event, f.input);
+  f.host.write(f.event, session.id, "typed");
+  f.children[0].data("typed");
+  await wait(15);
+  assert.equal(f.events.some(([channel]) => channel === "terminal:attention"), false);
+  f.host.dispose();
+});
+
+test("contains oversized CSI counts without dropping the PTY data event", async () => {
+  const f = fixture();
+  const session = await f.host.open(f.event, f.input);
+  assert.doesNotThrow(() => f.children[0].data("\x1b[200000@safe"));
+  assert.equal(f.events.at(-1)?.[0], "terminal:data");
+  assert.equal((await f.host.read(f.event, session.id)).seq, 1);
   f.host.dispose();
 });
 
@@ -379,6 +443,18 @@ test("returns the replacement before the old worker shutdown acknowledgement", a
   releaseKill();
   const next = await replacement;
   assert.notEqual(next.id, first.id);
+});
+
+test("drops delayed output and exit events from a retired session", async () => {
+  const f = fixture();
+  const first = await f.host.open(f.event, f.input);
+  const replacement = await f.host.open(f.event, { ...f.input, restart: true });
+  f.events.length = 0;
+  f.children[0].data("stale output");
+  f.children[0].exit({ exitCode: 7 });
+  assert.equal(f.events.some(([channel]) => channel === "terminal:data" || channel === "terminal:exit"), false);
+  assert.equal((await f.host.readBot("bot-1")).sessionId, replacement.id);
+  assert.notEqual(replacement.id, first.id);
 });
 
 test("a restart requested during startup uses its explicit target", async () => {

@@ -194,6 +194,9 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         if (turn.integrations?.browser) {
           mountMcpServer(appServerArgs, env, "browser", turn.integrations.browser);
         }
+        if (turn.integrations?.terminal) {
+          mountMcpServer(appServerArgs, env, "terminal", turn.integrations.terminal);
+        }
         if (turn.integrations?.phone) {
           const bridge = turn.integrations.phone;
           Object.assign(env, bridge.env);

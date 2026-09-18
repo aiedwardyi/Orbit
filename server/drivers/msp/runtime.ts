@@ -121,6 +121,20 @@ const textStreamFor = (kinds: ItemKinds, itemId: string, field: unknown) => {
   return "assistant_text" as const;
 };
 
+type MspTerminalIntegration = NonNullable<NonNullable<SendTurnInput["integrations"]>["terminal"]>;
+
+function isWindowsPath(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\");
+}
+
+export function translateMspTerminalForWsl(terminal: MspTerminalIntegration): MspTerminalIntegration {
+  return {
+    ...terminal,
+    command: toWslPath(terminal.command),
+    args: terminal.args.map((arg) => (isWindowsPath(arg) ? toWslPath(arg) : arg)),
+  };
+}
+
 /** First approved-* choice for allow, first denied-* for deny, ends as fallback. */
 const pickChoice = (choices: ApprovalChoice[], want: "allow" | "deny"): ApprovalChoice | null => {
   if (!choices.length) return null;
@@ -272,6 +286,14 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
         // when session/resume succeeds; recovered flips on the single retry.
         let resumedOk = false;
         let recovered = false;
+        const terminalIntegration = turn.integrations?.terminal;
+        const mcpServers = terminalIntegration
+          ? {
+              terminal: {
+                ...(isWslCli() ? translateMspTerminalForWsl(terminalIntegration) : terminalIntegration),
+              },
+            }
+          : undefined;
 
         const stop = () => {
           channel.detach();
@@ -337,6 +359,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
               {
                 commandId: uuidv7(),
                 workspaceRoot: sessionRoot,
+                ...(mcpServers ? { mcpServers } : {}),
                 ...(turn.model ? { modelId: turn.model } : {}),
               },
               SESSION_TIMEOUT,
@@ -622,6 +645,13 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
               emitUsage(p);
               break;
             }
+            case "turn/started": {
+              // Hosts may stream turn/started before the turn/start response
+              // continuation assigns the returned id. Capture it here so a
+              // same-chunk turn/completed notification is not dropped.
+              if (typeof p.turnId === "string" && !state.mspTurnId) state.mspTurnId = p.turnId;
+              break;
+            }
             case "turn/completed": {
               if (typeof p.turnId === "string" && p.turnId !== state.mspTurnId) break;
               const terminal = p.terminal as string | undefined;
@@ -710,7 +740,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
               try {
                 const resumed: any = await channel.request(
                   "session/resume",
-                  { commandId: uuidv7(), sessionId: turn.resumeCursor },
+                  { commandId: uuidv7(), sessionId: turn.resumeCursor, ...(mcpServers ? { mcpServers } : {}) },
                   SESSION_TIMEOUT,
                 );
                 sessionId = typeof resumed?.session?.sessionId === "string"
@@ -723,7 +753,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
                 // and replay the fallback text instead of the transcript.
                 const started: any = await channel.request(
                   "session/start",
-                  { commandId: uuidv7(), workspaceRoot: sessionRoot },
+                  { commandId: uuidv7(), workspaceRoot: sessionRoot, ...(mcpServers ? { mcpServers } : {}) },
                   SESSION_TIMEOUT,
                 );
                 sessionId = typeof started?.session?.sessionId === "string" ? started.session.sessionId : null;
@@ -738,6 +768,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
                   commandId: uuidv7(),
                   workspaceRoot: sessionRoot,
                   ...(model ? { modelId: model } : {}),
+                  ...(mcpServers ? { mcpServers } : {}),
                 },
                 SESSION_TIMEOUT,
               );

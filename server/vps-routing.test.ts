@@ -206,6 +206,7 @@ posixOnly("VPS turn routing e2e (fake ACP fleet + fake docker over SSH)", () => 
       cwd: join(SERVER_DIR, ".."),
       env,
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     });
     child.stderr!.on("data", (c) => (stderr += c));
 

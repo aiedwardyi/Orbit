@@ -68,6 +68,7 @@ import { useFocusMessage } from "@/lib/focus-message";
 import { activityVisibleInChat, groupActivityRuns } from "@/lib/activity-runs";
 import { chatTranscriptRows } from "@/lib/chat-transcript";
 import { detectChatOptions, laterUserAnswer } from "@/lib/chat-options";
+import { focusComposerOnActivation } from "@/lib/focus-composer";
 import { ChatOptionChips } from "./ChatOptionChips";
 import { MemorySaveChip } from "./MemorySaveChip";
 import { ActivityRun } from "./ActivityRun";
@@ -415,6 +416,7 @@ function Bubble({
   onRegenerate,
   replyTarget,
   onReply,
+  onFocusComposer,
 }: {
   bot: Bot;
   message: Message;
@@ -427,6 +429,7 @@ function Bubble({
   onRegenerate?: () => void;
   replyTarget?: Message;
   onReply: () => void;
+  onFocusComposer: () => void;
 }) {
   const { t } = useI18n();
   const { dispatch } = useStore();
@@ -636,6 +639,7 @@ function Bubble({
           answeredText={answeredChoice}
           disabled={!answeredChoice && bot.busy}
           onPick={(option) => dispatch({ type: "send", botId: bot.id, text: option })}
+          onWriteOwn={onFocusComposer}
         />
       )}
       <TimestampLabel at={message.at} />
@@ -748,6 +752,7 @@ const MessagesList = memo(function MessagesList({
   onSubmitEdit,
   onRegenerate,
   onReply,
+  onFocusComposer,
 }: {
   bot: Bot;
   messages: Message[];
@@ -765,6 +770,7 @@ const MessagesList = memo(function MessagesList({
   onSubmitEdit: (id: string, text: string) => void;
   onRegenerate: () => void;
   onReply: (message: Message) => void;
+  onFocusComposer: () => void;
 }) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
@@ -882,6 +888,7 @@ const MessagesList = memo(function MessagesList({
                   onRegenerate={onRegenerate}
                   replyTarget={m.replyToId ? bot.messages.find((candidate) => candidate.id === m.replyToId) : undefined}
                   onReply={() => onReply(m)}
+                  onFocusComposer={onFocusComposer}
                 />
               );
           }
@@ -953,7 +960,11 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const composerDockRef = useRef<HTMLDivElement>(null);
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const composerDock = useComposerDockPad(composerDockRef);
+  const focusComposer = useCallback(() => {
+    focusComposerOnActivation({ composer: composerInputRef.current });
+  }, []);
 
   const stream = useStreaming();
   const provisioning = state.provisioning[bot.id];
@@ -1423,6 +1434,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
             onSubmitEdit={submitEdit}
             onRegenerate={regenerate}
             onReply={selectReply}
+            onFocusComposer={focusComposer}
           />
           {laterCount > 0 && (
             <div className="flex justify-center">
@@ -1494,6 +1506,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
         <Composer
           key={bot.threadId}
           bot={bot}
+          composerRef={composerInputRef}
           onSend={jumpToLatest}
           focusBlocked={focusComposerBlocked}
           replyTo={replyTo}

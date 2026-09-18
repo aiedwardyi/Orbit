@@ -69,7 +69,7 @@ beforeEach(async () => {
   };
   if (process.env.PATH) env.PATH = process.env.PATH;
   if (process.env.SystemRoot) env.SystemRoot = process.env.SystemRoot;
-  child = spawn(process.execPath, ["--import", STUB, join(SERVER_DIR, "index.ts")], { cwd: join(SERVER_DIR, ".."), env });
+  child = spawn(process.execPath, ["--import", STUB, join(SERVER_DIR, "index.ts")], { cwd: join(SERVER_DIR, ".."), env, windowsHide: true });
   let stderr = "";
   child.stderr?.on("data", (chunk) => { stderr += chunk; });
   const deadline = Date.now() + 20_000;

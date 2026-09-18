@@ -915,6 +915,18 @@ describe("ACP turns (fake CLI)", () => {
     expect(texts).toEqual(["before one", "before two", "after"]);
   });
 
+  it("keeps nonterminal tool progress visible to the liveness watchdog", async () => {
+    await create(GrokAgentDriver, "tool-progress");
+    await instance.adapter.sendTurn({ threadId: "t-tool-progress", text: "go", model: "grok-4.5" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    expect(recorder.events.filter((e) => e.type === "item.updated")).toEqual([
+      expect.objectContaining({ itemType: "tool", itemId: "tc-progress", tokens: 4 }),
+      expect.objectContaining({ itemType: "tool", itemId: "tc-progress", tokens: null }),
+    ]);
+    expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true });
+  });
+
   it("reads token usage from the root of the prompt result", async () => {
     process.env.FAKE_ACP_USAGE_ROOT = "1";
     await create();

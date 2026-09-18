@@ -125,6 +125,7 @@ beforeAll(async () => {
   child = spawn(process.execPath, ["--import", STUB, join(SERVER_DIR, "index.ts")], {
     cwd: ROOT,
     env,
+    windowsHide: true,
   });
   child.stderr?.on("data", (chunk) => {
     stderr += chunk;

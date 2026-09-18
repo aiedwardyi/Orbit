@@ -55,6 +55,7 @@ const start = (label, args, env) => {
     cwd: ROOT,
     env: { ...(process.env.PATH ? { PATH: process.env.PATH } : {}), ...env },
     stdio: ["ignore", "ignore", "pipe"],
+    windowsHide: true,
   });
   child.stderr.on("data", (c) => (child.err = (child.err ?? "") + c));
   children.push({ label, child });

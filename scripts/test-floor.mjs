@@ -129,7 +129,7 @@ async function main(cliArgs = process.argv.slice(2)) {
     const child = spawn(
       process.execPath,
       vitestArguments(vitestBin, summaryFile, cliArgs),
-      { stdio: "inherit" },
+      { stdio: "inherit", windowsHide: true },
     );
     child.on("error", reject);
     child.on("exit", (code) => resolve(code));

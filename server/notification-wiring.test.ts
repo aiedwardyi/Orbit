@@ -87,6 +87,7 @@ posixOnly("routine failure notification wiring", () => {
       cwd: join(SERVER_DIR, ".."),
       env,
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     });
     child.stderr!.on("data", (chunk) => (stderr += chunk));
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
-import { ArrowUp, Check, Clock, Hand, Mic, Paperclip, ShieldCheck, Square, Users, X } from "lucide-react";
+import { ArrowUp, Check, Clock, Hand, Mic, Paperclip, ShieldCheck, Square, TerminalSquare, Users, X } from "lucide-react";
 import { showComposerPermissionChip } from "@/lib/conversation-preview";
 import { useStore, visibleMessages, type Bot, type Group, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
@@ -52,6 +52,7 @@ import { composerIsBusy } from "@/lib/send-accept";
 import { composerEnterIntent, isComposerEnterKey } from "@/lib/composer-enter";
 import { useI18n } from "@/lib/i18n";
 import { ReplyQuote } from "./ReplyQuote";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 /** The active @mention query at the caret: the text between an `@` that
  * starts a word and the caret. null = no mention being typed. */
@@ -76,6 +77,11 @@ interface QueuedGroupSend {
   replyToId?: string;
   draft: ComposerDraftSnapshot;
 }
+
+type TerminalSendPreview = {
+  text: string;
+  snapshot: TerminalBotSnapshot & { sessionId: string; generation: number; cwd: string };
+};
 
 function composerDraftStore() {
   try {
@@ -226,6 +232,7 @@ export function Composer({
   onClearReply,
   onConsumeReply,
   onRestoreReply,
+  composerRef,
   locked = false,
   focusBlocked = false,
 }: {
@@ -239,6 +246,7 @@ export function Composer({
   onClearReply?: () => void;
   onConsumeReply?: () => void;
   onRestoreReply?: (message: Message, threadId: string) => void;
+  composerRef?: { current: HTMLTextAreaElement | null };
   /** New rooms keep the composer inert until their setup is saved or skipped. */
   locked?: boolean;
   focusBlocked?: boolean;
@@ -350,10 +358,20 @@ export function Composer({
   };
   const [recording, setRecording] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
+  const [terminalSendPreview, setTerminalSendPreview] = useState<TerminalSendPreview | null>(null);
+  const [terminalSendBusy, setTerminalSendBusy] = useState(false);
+  const [terminalSendError, setTerminalSendError] = useState<string | null>(null);
   const [caret, setCaret] = useState(0);
   const [highlight, setHighlight] = useState(0);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null); // Esc'd this @
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const setComposerRef = useCallback(
+    (element: HTMLTextAreaElement | null) => {
+      inputRef.current = element;
+      if (composerRef) composerRef.current = element;
+    },
+    [composerRef],
+  );
   // IME composition: native isComposing can stay true after Hangul
   // commits, which used to make Enter insert a newline instead of send.
   const composingRef = useRef(false);
@@ -521,6 +539,10 @@ export function Composer({
     t,
   );
   const hasContent = Boolean(text.trim()) || attachments.length > 0;
+  const terminalBridge = typeof window === "undefined" ? undefined : window.ogb?.terminal;
+  const canShareTerminal = Boolean(
+    bot && !group && bot.shareTerminalWithChat && terminalBridge?.readBot && terminalBridge?.sendBot,
+  );
   const retryFailedSend = (failed: FailedComposerSend) => {
     if (failed.requestText.includes("<attached-image ")) {
       const support = imageTargetsSupport(failed.requestText);
@@ -620,6 +642,61 @@ export function Composer({
     onConsumeReply?.();
     onSend?.();
   };
+  const previewTerminalSend = async () => {
+    if (!bot || group || !canShareTerminal || !terminalBridge?.readBot) return;
+    const liveText = composerSendSourceText(inputRef.current?.value, text);
+    if (!liveText.trim()) return;
+    if (attachments.length) {
+      setTerminalSendError(t("terminal.attachmentsNotSupported"));
+      return;
+    }
+    setTerminalSendError(null);
+    setTerminalSendBusy(true);
+    try {
+      const snapshot = await terminalBridge.readBot(bot.id);
+      if (snapshot.state === "no-terminal" || !snapshot.sessionId || snapshot.generation === undefined || !snapshot.cwd) {
+        setTerminalSendError(t("terminal.noActiveTerminal"));
+        return;
+      }
+      setTerminalSendPreview({
+        text: liveText,
+        snapshot: snapshot as TerminalSendPreview["snapshot"],
+      });
+    } catch (cause) {
+      setTerminalSendError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setTerminalSendBusy(false);
+    }
+  };
+  const confirmTerminalSend = async () => {
+    if (!bot || !terminalSendPreview || terminalSendBusy || !canShareTerminal || !terminalBridge?.sendBot) {
+      if (!canShareTerminal) setTerminalSendPreview(null);
+      return;
+    }
+    setTerminalSendBusy(true);
+    setTerminalSendError(null);
+    try {
+      await terminalBridge.sendBot(bot.id, {
+        sessionId: terminalSendPreview.snapshot.sessionId,
+        generation: terminalSendPreview.snapshot.generation,
+        text: terminalSendPreview.text,
+      });
+      if (inputRef.current) inputRef.current.value = "";
+      setText("");
+      setAttachments([]);
+      setTerminalSendPreview(null);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      if (/stale|changed|generation/i.test(message)) {
+        setTerminalSendError(t("terminal.staleTerminal"));
+        setTerminalSendPreview(null);
+      } else {
+        setTerminalSendError(message);
+      }
+    } finally {
+      setTerminalSendBusy(false);
+    }
+  };
   useEffect(() => {
     if (!group) return;
     if (busy) {
@@ -712,6 +789,20 @@ export function Composer({
           <button
             type="button"
             onClick={() => setImageNotice(null)}
+            aria-label={t("chat.dismiss")}
+            title={t("chat.dismiss")}
+            className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-danger/10"
+          >
+            <X size={13} strokeWidth={2.5} />
+          </button>
+        </div>
+      )}
+      {terminalSendError && (
+        <div className="pointer-events-auto mb-2 flex w-full items-start gap-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">
+          <span className="min-w-0 flex-1">{terminalSendError}</span>
+          <button
+            type="button"
+            onClick={() => setTerminalSendError(null)}
             aria-label={t("chat.dismiss")}
             title={t("chat.dismiss")}
             className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-danger/10"
@@ -872,7 +963,7 @@ export function Composer({
             </div>
           )}
           <textarea
-          ref={inputRef}
+          ref={setComposerRef}
           data-orbit-composer=""
           rows={1}
           value={text}
@@ -987,7 +1078,7 @@ export function Composer({
           aria-label={t("composer.messageAria", { name: group ? group.name : (bot?.name ?? "") })}
             className="col-span-full row-start-1 max-h-[9rem] min-h-6 w-full resize-none overflow-y-auto self-center bg-transparent px-1 py-1 text-[15px] leading-6 text-ink placeholder:text-ink-secondary focus:outline-none"
           />
-          <div className="col-start-3 row-start-2 mt-1 flex items-center gap-1">
+        <div className="col-start-3 row-start-2 mt-1 flex items-center gap-1">
           {busy && !locked && (
           <button
             onClick={() => {
@@ -1017,6 +1108,19 @@ export function Composer({
           </button>
         )}
         {hasContent && !locked && (
+          <>
+          {canShareTerminal && !busy && (
+            <button
+              type="button"
+              onClick={() => void previewTerminalSend()}
+              aria-label={t("terminal.sendToTerminal")}
+              title={t("terminal.sendToTerminalTitle", { name: bot?.name ?? "" })}
+              disabled={terminalSendBusy}
+              className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-40"
+            >
+              <TerminalSquare size={16} />
+            </button>
+          )}
           <button
             onClick={send}
             aria-label={t(busyChrome.sendAriaKey)}
@@ -1030,6 +1134,7 @@ export function Composer({
           >
             {busyChrome.sendLooksQueued ? <Clock size={15} /> : <ArrowUp size={17} />}
           </button>
+          </>
           )}
           </div>
         </div>
@@ -1051,6 +1156,28 @@ export function Composer({
         }}
       />
       </div>
+      {terminalSendPreview && (
+        <ConfirmDialog
+          title={t("terminal.sendToTerminalTitle", { name: bot?.name ?? "" })}
+          body={
+            <span className="block">
+              <span className="block">{t("terminal.sendToTerminalHelp")}</span>
+              <span className="mt-2 block text-[11px] text-ink-secondary">
+                {terminalSendPreview.snapshot.cwd} · session {terminalSendPreview.snapshot.sessionId.slice(0, 8)} · generation {terminalSendPreview.snapshot.generation}
+              </span>
+              <span className="mt-3 block max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-raised px-3 py-2 font-mono text-[12px] text-ink">
+                {terminalSendPreview.text}
+              </span>
+            </span>
+          }
+          confirmLabel={t("terminal.sendToTerminal")}
+          danger={false}
+          onConfirm={() => void confirmTerminalSend()}
+          onCancel={() => {
+            if (!terminalSendBusy) setTerminalSendPreview(null);
+          }}
+        />
+      )}
     </div>
   );
 }

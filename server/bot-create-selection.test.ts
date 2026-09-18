@@ -67,7 +67,7 @@ beforeAll(async () => {
   child = spawn(
     process.execPath,
     ["--experimental-transform-types", join(SERVER_DIR, "index.ts")],
-    { cwd: join(SERVER_DIR, ".."), env },
+    { cwd: join(SERVER_DIR, ".."), env, windowsHide: true },
   );
   child.stderr?.on("data", (chunk) => {
     stderr += chunk;

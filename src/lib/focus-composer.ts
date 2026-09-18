@@ -1,5 +1,6 @@
 export interface FocusComposerOptions {
   activatedElement?: Element | null;
+  composer?: HTMLTextAreaElement | null;
   targetDocument?: Document;
   settingsOpen?: boolean;
   terminalOpen?: boolean;
@@ -59,17 +60,24 @@ export function isSidebarNavigationActive(doc: Document, activatedElement?: Elem
   return false;
 }
 
-export function focusComposer(doc: Document = document): boolean {
-  const composer = doc.querySelector<HTMLTextAreaElement>("[data-orbit-composer]:not(:disabled)");
+export function focusComposer(doc: Document = document, target?: HTMLTextAreaElement | null): boolean {
+  let composer: HTMLTextAreaElement | undefined;
+  if (target !== undefined) {
+    if (!target || target.disabled || target.ownerDocument !== doc) return false;
+    composer = target;
+  } else {
+    const composers = [...doc.querySelectorAll<HTMLTextAreaElement>("[data-orbit-composer]:not(:disabled)")];
+    composer = composers.find((candidate) => candidate.getClientRects().length > 0) ?? composers[0];
+  }
   if (!composer) return false;
-  if (doc.activeElement === composer) return true;
 
   const start = composer.selectionStart;
   const end = composer.selectionEnd;
-  composer.focus();
+  composer.focus({ preventScroll: true });
   if (typeof start === "number" && typeof end === "number") {
     composer.setSelectionRange(start, end);
   }
+  composer.scrollIntoView?.({ block: "nearest" });
   return true;
 }
 
@@ -96,6 +104,6 @@ export function focusComposerOnActivation(options: FocusComposerOptions = {}): v
     if (isSearchActive(doc)) return;
     if (isSidebarNavigationActive(doc, options.activatedElement)) return;
 
-    focusComposer(doc);
+    focusComposer(doc, options.composer);
   });
 }

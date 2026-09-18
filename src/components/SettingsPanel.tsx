@@ -403,6 +403,7 @@ export function SettingsPanel({
         | "approvePeerComms"
         | "composio"
         | "browser"
+        | "shareTerminalWithChat"
         | "modelSelection"
       >
     > & { acknowledgeLocalAuto?: boolean },
@@ -415,8 +416,10 @@ export function SettingsPanel({
   const canUseVps = engine?.capabilities?.computerMcp === true && engine.driverKind !== "boxAgent";
   const canUseBrowser = engine?.capabilities?.browserMcp === true;
   const desktopBrowser = Boolean(window.ogb?.browser);
+  const desktopTerminal = Boolean(window.ogb?.terminal);
   const browserFeature = builtInBrowserEnabled(state.config);
   const browserEnabled = bot.browser !== false;
+  const terminalShared = bot.shareTerminalWithChat === true;
   const sectionName = bot.section?.trim() || "General";
   const currentChief = state.bots.find(
     (candidate) =>
@@ -710,6 +713,39 @@ export function SettingsPanel({
                 className={cn(
                   "absolute top-[3px] size-5 rounded-full bg-white transition-all",
                   browserEnabled ? "left-[21px]" : "left-[3px]",
+                )}
+              />
+            </button>
+            </div>
+          )}
+
+          {advancedOpen && (
+            <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
+            <div>
+              <div className="text-[15px] font-medium text-ink">Share terminal with chat</div>
+              <div className="mt-0.5 text-[13px] text-ink-secondary">
+                {!desktopTerminal
+                  ? "Terminal sharing needs the Orbit desktop app."
+                  : terminalShared
+                    ? "This bot can read its own terminal screen when you ask. Terminal input still needs your confirmation."
+                    : "Keep this bot from seeing its Orbit terminal until you turn sharing on."}
+              </div>
+            </div>
+            <button
+              role="switch"
+              aria-checked={terminalShared}
+              aria-label="Share terminal with chat"
+              disabled={!terminalShared && !desktopTerminal}
+              onClick={() => patch({ shareTerminalWithChat: !terminalShared })}
+              className={cn(
+                "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+                terminalShared ? "bg-accent" : "bg-control",
+              )}
+            >
+              <span
+                className={cn(
+                  "absolute top-[3px] size-5 rounded-full bg-white transition-all",
+                  terminalShared ? "left-[21px]" : "left-[3px]",
                 )}
               />
             </button>

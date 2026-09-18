@@ -223,6 +223,9 @@ export interface SendTurnInput {
     /** dweb network daemon: an MCP proxy exposing dweb status, repo, and
      * opencode model access as tools. url is the dweb HTTP base. */
     dweb?: { url: string };
+    /** Optional read-only bridge to this bot's Orbit terminal. The proxy
+     * binds the bot id from its launch environment and exposes no writes. */
+    terminal?: { command: string; args: string[]; env: Record<string, string> };
   };
   cwd?: string;
 }

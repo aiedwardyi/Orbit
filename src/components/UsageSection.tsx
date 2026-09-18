@@ -4,7 +4,7 @@
 // summed here; nothing is fetched. Plan usage sits above the table: how full
 // each engine's subscription window is, straight from the engine's own
 // report from its last turn or refresh, so nobody has to guess from a token count.
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, RefreshCw } from "lucide-react";
 import { api, useStore, type InstanceInfo } from "@/state/store";
 import { MausAvatar } from "./Avatar";
@@ -130,9 +130,12 @@ function PlanUsage() {
   const refreshingRef = useRef(false);
   const [confirmed, setConfirmed] = useState(false);
   const [refreshErrors, setRefreshErrors] = useState<Record<string, string>>({});
-  const engines = splitFriendsEngines(state.instances).friends.filter((instance) => PLAN_USAGE_DRIVERS.has(instance.driverKind));
-  const refreshable = engines.filter(canRefresh);
-  const refresh = async (instance: InstanceInfo): Promise<RefreshResult> => {
+  const engines = useMemo(
+    () => splitFriendsEngines(state.instances).friends.filter((instance) => PLAN_USAGE_DRIVERS.has(instance.driverKind)),
+    [state.instances],
+  );
+  const refreshable = useMemo(() => engines.filter(canRefresh), [engines]);
+  const refresh = useCallback(async (instance: InstanceInfo): Promise<RefreshResult> => {
     try {
       const result = await api(`/api/usage/refresh/${instance.instanceId}`, { method: "POST" });
       if (result.report) dispatch({ type: "rateLimits", instanceId: instance.instanceId, report: result.report });
@@ -143,12 +146,12 @@ function PlanUsage() {
       setRefreshErrors((current) => ({ ...current, [instance.instanceId]: message }));
       return { error: message, status: "transport_error" };
     }
-  };
+  }, [dispatch]);
   // The section's only refresh control: one tap refreshes every engine that
   // answers a refresh POST (Claude, Codex, Grok, Muse),
   // never just one of them. A clean run leaves an explicit confirmation
   // behind; the next run clears it.
-  const refreshAll = async () => {
+  const refreshAll = useCallback(async () => {
     if (refreshingRef.current || refreshable.length === 0) return;
     refreshingRef.current = true;
     setRefreshing(true);
@@ -160,19 +163,36 @@ function PlanUsage() {
       refreshingRef.current = false;
       setRefreshing(false);
     }
-  };
+  }, [refresh, refreshable]);
+
+  const missingMuseInstanceIds = refreshable
+    .filter((instance) => instance.driverKind === "museAgent" && !instance.rateLimits)
+    .map((instance) => instance.instanceId);
+  const initialMuseRefreshes = useRef(new Set<string>());
+  // Muse can expose a cached subscription snapshot without a turn. An empty
+  // response remains pending, so this never fabricates a zero-percent report.
+  useEffect(() => {
+    for (const instanceId of missingMuseInstanceIds) {
+      if (initialMuseRefreshes.current.has(instanceId)) continue;
+      const instance = refreshable.find((candidate) => candidate.instanceId === instanceId);
+      if (!instance) continue;
+      initialMuseRefreshes.current.add(instanceId);
+      void refresh(instance);
+    }
+  }, [missingMuseInstanceIds, refresh, refreshable]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.repeat || event.isComposing || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.code !== "KeyR") return;
+      const refreshKey = event.code === "KeyR" || event.key.toLowerCase() === "r";
+      if (event.defaultPrevented || event.repeat || event.isComposing || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !refreshKey) return;
       const active = event.target instanceof Element ? event.target : document.activeElement;
-      if (document.querySelector('[data-model-picker-content], .orbit-terminal-overlay[data-open="true"]') || active?.closest('[data-orbit-composer], .orbit-terminal-overlay, [data-terminal], [data-orbit-terminal]')) return;
+      if (document.querySelector('[data-model-picker-content], .orbit-terminal-overlay[data-open="true"]') || active?.closest('[data-orbit-composer], .orbit-terminal-overlay, [data-terminal], [data-orbit-terminal], input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
       if (refreshable.length === 0) return;
       event.preventDefault();
       void refreshAll();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [refreshAll, refreshable.length]);
 
   return (

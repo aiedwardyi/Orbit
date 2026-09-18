@@ -3,7 +3,7 @@
 // is the stuff shared by every bot: who you are, your keys, and the
 // machine your bots can borrow.
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Coins, Keyboard, KeyRound, Monitor, Palette, Search, Smartphone, Terminal, User, X } from "lucide-react";
+import { ChevronDown, Cloud, Coins, Keyboard, KeyRound, Monitor, Palette, Search, Smartphone, Terminal, User, X } from "lucide-react";
 import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
 import { builtInBrowserEnabled, showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
 import {
@@ -36,6 +36,7 @@ import { phoneSettingsAvailable } from "@/lib/phone-availability";
 import { RoomTurnTimeoutSettings } from "./RoomTurnTimeoutSettings";
 import { TranscriptionSettings } from "./TranscriptionSettings";
 import { cn } from "@/lib/cn";
+import { SyncPanel } from "./SyncPanel";
 
 const SECTIONS: Array<{
   id: AppSettingsSection;
@@ -44,6 +45,7 @@ const SECTIONS: Array<{
 }> = [
   { id: "general", icon: User },
   { id: "connections", icon: KeyRound },
+  { id: "sync", icon: Cloud },
   { id: "shortcuts", icon: Keyboard },
   { id: "engines", icon: Terminal },
   { id: "companion", icon: Smartphone },
@@ -61,6 +63,7 @@ const SECTION_KEY = {
   companion: "settings.section.companion",
   computer: "settings.section.computer",
   usage: "settings.section.usage",
+  sync: "settings.section.sync",
 } as const;
 
 function sectionNavVisible(
@@ -536,6 +539,8 @@ export function SettingsModal({
                 </div>
               </Card>
             )}
+
+            {section === "sync" && <SyncPanel />}
 
             {section === "themes" && (
               <Card title={t("settings.skin.title")} subtitle={t("settings.skin.subtitle")}>

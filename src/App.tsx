@@ -224,6 +224,9 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
           ? { botId: target.botId, sessionId: target.terminalSessionId }
           : terminalAttentionForBot(current.terminalAttention, target.botId);
         if (attention) requestTerminalAcknowledgement(attention);
+      } else {
+        // A chat toast must not inherit the bot's last terminal view.
+        setTerminalViews((views) => ({ ...views, [target.botId]: false }));
       }
     });
   }, [dispatch]);

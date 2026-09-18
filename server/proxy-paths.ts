@@ -43,6 +43,7 @@ export const SPAWNED_PROXIES = {
   connectors: resolveProxy("connector-proxy"),
   phone: resolveProxy("drivers/phone-proxy"),
   browser: resolveProxy("drivers/browser-proxy"),
+  terminal: resolveProxy("drivers/terminal-proxy"),
   // Loaded by the external `pi` process via `-e`, not by this server — but
   // resolved through the same single source of truth so the packaged layout
   // check can assert it ships.

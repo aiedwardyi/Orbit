@@ -160,6 +160,7 @@ export function readAntigravityModelCatalog(env: Record<string, string | undefin
 // preserved, and a malformed file starts from a fresh object instead of
 // failing the turn (the ensureOpenCodeInjectModel discipline).
 export const ANTIGRAVITY_COMPUTER_MCP_KEY = "openmausbot-computer";
+export const ANTIGRAVITY_TERMINAL_MCP_KEY = "openmausbot-terminal";
 
 export interface AntigravityComputerMcpServer {
   command: string;
@@ -223,6 +224,13 @@ export function antigravityComputerMcpServer(
   return null;
 }
 
+export function antigravityTerminalMcpServer(
+  integration: { command: string; args: string[]; env: Record<string, string> } | null | undefined,
+): AntigravityComputerMcpServer | null {
+  if (!integration) return null;
+  return { command: integration.command, args: integration.args, env: { ...integration.env } };
+}
+
 /** Upsert (server) or remove (null) the openmausbot-computer entry in the
  * global mcp_config.json. Only that one key is ever written; a turn without
  * a computer removes it so a previous turn's mount cannot leak tools — or
@@ -230,6 +238,7 @@ export function antigravityComputerMcpServer(
 export function ensureAntigravityComputerMcp(
   server: AntigravityComputerMcpServer | null,
   env: Record<string, string | undefined> = process.env,
+  terminal: AntigravityComputerMcpServer | null = null,
 ): () => void {
   const home = env.HOME || env.USERPROFILE || homedir();
   const path = join(home, ".gemini", "config", "mcp_config.json");
@@ -245,11 +254,16 @@ export function ensureAntigravityComputerMcp(
   const servers = { ...config.mcpServers };
   // Nothing to remove and nothing to add: leave the user's file untouched
   // (don't create or reformat it on every computer-less turn).
-  if (!server && !(ANTIGRAVITY_COMPUTER_MCP_KEY in servers)) return () => {};
+  if (!server && !terminal && !(ANTIGRAVITY_COMPUTER_MCP_KEY in servers) && !(ANTIGRAVITY_TERMINAL_MCP_KEY in servers)) return () => {};
   if (server) {
     servers[ANTIGRAVITY_COMPUTER_MCP_KEY] = { command: server.command, args: server.args, env: server.env };
   } else {
     delete servers[ANTIGRAVITY_COMPUTER_MCP_KEY];
+  }
+  if (terminal) {
+    servers[ANTIGRAVITY_TERMINAL_MCP_KEY] = { command: terminal.command, args: terminal.args, env: terminal.env };
+  } else {
+    delete servers[ANTIGRAVITY_TERMINAL_MCP_KEY];
   }
   const directory = dirname(path);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -261,6 +275,8 @@ export function ensureAntigravityComputerMcp(
 
   const hadOriginalEntry = ANTIGRAVITY_COMPUTER_MCP_KEY in (config.mcpServers ?? {});
   const originalEntry = config.mcpServers?.[ANTIGRAVITY_COMPUTER_MCP_KEY];
+  const hadOriginalTerminalEntry = ANTIGRAVITY_TERMINAL_MCP_KEY in (config.mcpServers ?? {});
+  const originalTerminalEntry = config.mcpServers?.[ANTIGRAVITY_TERMINAL_MCP_KEY];
 
   // Restore exactly what was present before this turn when nobody else touched
   // the file. A user's own agy process is outside our module-wide lease, so if
@@ -301,6 +317,8 @@ export function ensureAntigravityComputerMcp(
     const currentServers = { ...currentConfig.mcpServers };
     if (hadOriginalEntry) currentServers[ANTIGRAVITY_COMPUTER_MCP_KEY] = originalEntry;
     else delete currentServers[ANTIGRAVITY_COMPUTER_MCP_KEY];
+    if (hadOriginalTerminalEntry) currentServers[ANTIGRAVITY_TERMINAL_MCP_KEY] = originalTerminalEntry;
+    else delete currentServers[ANTIGRAVITY_TERMINAL_MCP_KEY];
     writeFileSync(
       path,
       `${JSON.stringify({ ...currentConfig, mcpServers: currentServers }, null, 2)}\n`,
@@ -548,7 +566,11 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
       }
       let restoreMcp = () => {};
       try {
-        restoreMcp = ensureAntigravityComputerMcp(antigravityComputerMcpServer(turn.integrations), env);
+        restoreMcp = ensureAntigravityComputerMcp(
+          antigravityComputerMcpServer(turn.integrations),
+          env,
+          antigravityTerminalMcpServer(turn.integrations?.terminal),
+        );
       } catch (error) {
         releaseMcpLease();
         pending.delete(threadId);

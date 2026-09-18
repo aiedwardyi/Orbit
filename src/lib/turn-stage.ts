@@ -77,13 +77,30 @@ export function rememberStreamTail(tails: Record<string, string>, threadId: stri
   return { ...tails, [threadId]: messageId };
 }
 
-/** Live provider turn id per thread, from lifecycle events. */
+const DISPATCH_PENDING = "\u0000dispatch-pending:";
+type PendingDispatch = { previous: string | null; dispatchedAt: number };
+
+function pendingDispatch(value: string | undefined): PendingDispatch | null {
+  if (!value?.startsWith(DISPATCH_PENDING)) return null;
+  try {
+    const parsed = JSON.parse(value.slice(DISPATCH_PENDING.length)) as Partial<PendingDispatch>;
+    return typeof parsed.dispatchedAt === "number" && Number.isFinite(parsed.dispatchedAt)
+      ? { previous: typeof parsed.previous === "string" ? parsed.previous : null, dispatchedAt: parsed.dispatchedAt }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Live provider turn id per thread; dispatch pending uses a private marker. */
 export function liveTurnIdAfter(
   live: Record<string, string>,
   threadId: string,
   event: { type: string; turnId?: string },
 ) {
   if ((event.type === "turn.started" || event.type === "turn.retrying") && event.turnId) {
+    const current = live[threadId];
+    if (pendingDispatch(current)?.previous === event.turnId) return live;
     return live[threadId] === event.turnId ? live : { ...live, [threadId]: event.turnId };
   }
   if (event.type === "turn.completed") {
@@ -95,15 +112,53 @@ export function liveTurnIdAfter(
   return live;
 }
 
+/** Invalidate the provider turn until the replacement announces its id. */
+export function liveTurnIdAfterDispatch(live: Record<string, string>, threadId: string, dispatchedAt?: string | number) {
+  const current = live[threadId];
+  if (pendingDispatch(current)) return live;
+  const timestamp = typeof dispatchedAt === "number" ? dispatchedAt : dispatchedAt ? Date.parse(dispatchedAt) : Date.now();
+  return {
+    ...live,
+    [threadId]: `${DISPATCH_PENDING}${JSON.stringify({ previous: current ?? null, dispatchedAt: Number.isFinite(timestamp) ? timestamp : Date.now() })}`,
+  };
+}
+
+/** False when an old start/retry frame arrives before the replacement starts. */
+export function isReplacementTurnStart(
+  live: Record<string, string>,
+  threadId: string,
+  eventTurnId?: string,
+  eventCreatedAt?: string,
+): boolean {
+  const current = live[threadId];
+  const pending = pendingDispatch(current);
+  if (!pending) return true;
+  if (!eventTurnId || eventTurnId === pending.previous) return false;
+  const eventTimestamp = eventCreatedAt ? Date.parse(eventCreatedAt) : NaN;
+  if (pending.previous === null) return Number.isFinite(eventTimestamp) && eventTimestamp >= pending.dispatchedAt;
+  return !Number.isFinite(eventTimestamp) || eventTimestamp >= pending.dispatchedAt;
+}
+
+/** False when a runtime event belongs to an invalidated or older turn. */
+export function isCurrentTurnEvent(
+  live: Record<string, string>,
+  threadId: string,
+  eventTurnId?: string,
+): boolean {
+  const current = live[threadId];
+  if (!(threadId in live)) return true;
+  if (!eventTurnId) return !current.startsWith(DISPATCH_PENDING);
+  if (current.startsWith(DISPATCH_PENDING)) return false;
+  return current === eventTurnId;
+}
+
 /** False when a stopped turn reports completion after a newer one is live. */
 export function isCurrentTurnCompletion(
   live: Record<string, string>,
   threadId: string,
   eventTurnId?: string,
 ): boolean {
-  const current = live[threadId];
-  if (!eventTurnId || !current) return true;
-  return current === eventTurnId;
+  return isCurrentTurnEvent(live, threadId, eventTurnId);
 }
 
 /** Key present = that stream kind arrived; the payload may be "" while redaction holds it. */

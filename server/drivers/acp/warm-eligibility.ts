@@ -96,6 +96,11 @@ export function warmToolsKey(integrations: SendTurnIntegrations | undefined): st
       `browser:${integrations.browser.command}|${stableArgsKey(integrations.browser.args)}|${stableEnvKey(integrations.browser.env)}`,
     );
   }
+  if (integrations.terminal) {
+    parts.push(
+      `terminal:${integrations.terminal.command}|${stableArgsKey(integrations.terminal.args)}|${stableEnvKey(integrations.terminal.env)}`,
+    );
+  }
   if (integrations.dweb) {
     parts.push(`dweb:${integrations.dweb.url}`);
   }
@@ -108,6 +113,7 @@ export function warmToolsKey(integrations: SendTurnIntegrations | undefined): st
     agents: integrations.agents,
     phone: integrations.phone,
     browser: integrations.browser,
+    terminal: integrations.terminal,
     dweb: integrations.dweb,
   } satisfies AssertCovered<Record<keyof SendTurnIntegrations, unknown>>;
   void _covered;

@@ -144,6 +144,57 @@ function lastChoiceLabel(phrase: string): string {
   return words[words.length - 1]!;
 }
 
+function splitTopLevelCommas(text: string): string[] | null {
+  const stack: string[] = [];
+  const parts: string[] = [];
+  let start = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]!;
+    if (OPEN_TO_CLOSE[ch]) {
+      stack.push(ch);
+      continue;
+    }
+    const expectedOpen = CLOSE_TO_OPEN[ch];
+    if (expectedOpen) {
+      if (stack.pop() !== expectedOpen) return null;
+      continue;
+    }
+    if (ch === "," && stack.length === 0) {
+      parts.push(text.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  if (stack.length !== 0) return null;
+  parts.push(text.slice(start).trim());
+  return parts;
+}
+
+function trailingEnumerationChoices(text: string): ChatOptionsDetection | null {
+  const candidate = text.trim();
+  const lineMatch = candidate.match(/^(?:[\s\S]*\n)?(.+)\?\s*$/);
+  if (!lineMatch) return null;
+  const line = lineMatch[1]!.trim();
+  const orIdx = lastTopLevelOrIndex(line);
+  if (orIdx === null || orIdx < 0) return null;
+  const left = line.slice(0, orIdx).trim();
+  const right = optionLabel(line.slice(orIdx + 2).replace(/[?.!]+$/, ""));
+  if (!left || !right) return null;
+  const markerAt = Math.max(left.lastIndexOf("\u2014"), left.lastIndexOf(":"));
+  if (markerAt < 0) return null;
+  const prompt = left.slice(0, markerAt).trim();
+  const rawItems = splitTopLevelCommas(left.slice(markerAt + 1).trim().replace(/,\s*$/, ""))?.map((item) => optionLabel(item));
+  if (!rawItems) return null;
+  if (!prompt || rawItems.length < MIN_OPTIONS - 1 || rawItems.some((item) => item === null)) return null;
+  const items = [...rawItems, right] as string[];
+  if (items.length > MAX_OPTIONS || items.some((item) => /\bor\b/i.test(item))) return null;
+  const unique = new Set(items.map((item) => item.toLowerCase()));
+  if (unique.size !== items.length) return null;
+  const promptMatch = prompt.match(/^(.*[.!])\s+(.+)$/s);
+  const question = `${promptMatch?.[2] ?? prompt}?`;
+  const messagePrefix = promptMatch?.[1]?.trim() || null;
+  return { options: items, question, messagePrefix };
+}
+
 /**
  * Split a trailing A-or-B question into two choices.
  * Incidental parens/brackets on a label are OK; reject when the splitting
@@ -194,6 +245,8 @@ export function detectChatOptions(text: string): ChatOptionsDetection | null {
       messagePrefix,
     };
   }
+  const enumeratedItems = trailingEnumerationChoices(body);
+  if (enumeratedItems) return enumeratedItems;
   const orItems = orChoices(body);
   if (!orItems) return null;
   // A-or-B wording is abbreviated — do not invent a card heading or strip prose.

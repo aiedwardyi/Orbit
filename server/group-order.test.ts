@@ -50,6 +50,7 @@ async function start() {
       OMB_PORT: String(port),
       OMB_WEBHOOK_PORT: String(port + 1),
     },
+    windowsHide: true,
   });
   child.stderr?.on("data", (chunk) => {
     stderr += chunk;

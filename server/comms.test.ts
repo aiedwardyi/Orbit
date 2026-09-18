@@ -194,6 +194,7 @@ describe("comms e2e (fake ACP fleet)", () => {
       cwd: join(SERVER_DIR, ".."),
       env,
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     });
     child.stderr!.on("data", (c) => (stderr += c));
 

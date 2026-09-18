@@ -659,6 +659,7 @@ describe("context compaction e2e", () => {
       cwd: ROOT,
       env,
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     });
     child.stderr!.on("data", (chunk) => (stderr += chunk));
 
@@ -800,30 +801,30 @@ describe("context compaction e2e", () => {
     expect(prompt).toMatch(/history 0|Orbit durable context summary/);
   }, 30_000);
 
-  it("rejects another turn while generated compaction is preparing", async () => {
+  it("queues another turn while generated compaction is preparing", async () => {
     rmSync(claudeDumpPath, { force: true });
     const first = api("POST", `/api/bots/${CLAUDE_BOT_ID}/messages`, { text: "Start final QA" });
     await expect.poll(() => existsSync(claudeDumpPath), { timeout: 10_000 }).toBe(true);
 
     const second = await api("POST", `/api/bots/${CLAUDE_BOT_ID}/messages`, { text: "Start packaging too" });
-    expect(second.status).toBe(409);
-    expect(second.body.error).toContain("already working");
+    expect(second.status).toBe(202);
+    expect(second.body.queued).toBe(true);
     await expect(first).resolves.toMatchObject({ status: 202 });
 
     await waitFor(async () => {
       const bot = (await api("GET", "/api/bots")).body.bots.find(
         (candidate: { id: string }) => candidate.id === CLAUDE_BOT_ID,
       );
-      return bot?.busy === false;
+      return bot?.busy === false && bot.messages.some((message: { text?: string }) => message.text === "Start packaging too");
     });
     const bot = (await api("GET", "/api/bots")).body.bots.find(
       (candidate: { id: string }) => candidate.id === CLAUDE_BOT_ID,
     );
     expect(bot.messages.filter((message: { text?: string }) => message.text === "Start final QA")).toHaveLength(1);
-    expect(bot.messages.some((message: { text?: string }) => message.text === "Start packaging too")).toBe(false);
+    expect(bot.messages.filter((message: { text?: string }) => message.text === "Start packaging too")).toHaveLength(1);
   }, 30_000);
 
-  it("rejects a 1:1 turn while the same bot is preparing room context", async () => {
+  it("queues a 1:1 turn while the same bot is preparing room context", async () => {
     rmSync(claudeDumpPath, { force: true });
     const room = await api("POST", `/api/groups/${ROOM_FIRST.groupId}/messages`, { text: "Start room QA" });
     expect(room.status).toBe(202);
@@ -834,14 +835,15 @@ describe("context compaction e2e", () => {
       const state = (await api("GET", "/api/bots")).body;
       const bot = state.bots.find((candidate: { id: string }) => candidate.id === ROOM_FIRST.botId);
       const group = state.groups.find((candidate: { id: string }) => candidate.id === ROOM_FIRST.groupId);
-      return bot?.busy === false && group?.working === false;
+      return bot?.busy === false && group?.working === false
+        && bot.messages.some((message: { text?: string }) => message.text === "Start direct QA too");
     });
 
-    expect(direct.status).toBe(409);
-    expect(direct.body.error).toContain("already working");
+    expect(direct.status).toBe(202);
+    expect(direct.body.queued).toBe(true);
     const state = (await api("GET", "/api/bots")).body;
     const bot = state.bots.find((candidate: { id: string }) => candidate.id === ROOM_FIRST.botId);
-    expect(bot.messages.some((message: { text?: string }) => message.text === "Start direct QA too")).toBe(false);
+    expect(bot.messages.filter((message: { text?: string }) => message.text === "Start direct QA too")).toHaveLength(1);
     expect(storedTaskPacket(ROOM_FIRST.roomThreadId)).toMatchObject({
       threadId: ROOM_FIRST.roomThreadId,
       botId: ROOM_FIRST.botId,
