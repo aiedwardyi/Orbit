@@ -65,11 +65,17 @@
     border-left-color: var(--color-accent-border);
   }
 
+  [data-orbit-message="user"] [data-orbit-message-body] {
+    padding-bottom: 2rem;
+  }
+
   [data-orbit-message="user"] [data-message-hover-actions] {
-    top: 0;
-    right: 0;
+    top: auto;
+    right: auto;
+    bottom: 0;
+    left: 0;
     transform: none;
-    background: var(--color-app);
+    background: transparent;
   }
 }
 
