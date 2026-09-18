@@ -1356,6 +1356,19 @@
   }
 }
 
+@scope (:root[data-shape="boxy"]) {
+  :is(
+    [data-skin="precision"],
+    [data-skin="notebook"],
+    [data-skin="messenger"],
+    [data-skin="community"],
+    [data-skin="code-review"],
+    [data-skin="blueprint"]
+  ) [data-orbit-message="bot"] [data-orbit-message-content] {
+    padding-left: 12px;
+  }
+}
+
 /* ── Precision ─────────────────────────────────────────────────────────────
    Linear-inspired charcoal with a cool periwinkle signal. The transcript is
    compact and rule-led: assistant prose stays open while user turns sit in a

@@ -97,6 +97,16 @@ describe("skins", () => {
     expect(claude).toContain("padding: 0;");
   });
 
+  it("insets all six added bot replies when Boxy geometry is active", () => {
+    const boxy = css.match(
+      /@scope \(:root\[data-shape="boxy"\]\)\s*\{\s*:is\(([\s\S]*?)\)\s*\[data-orbit-message="bot"\][^{]+\{([^}]*)\}/,
+    )?.[0] ?? "";
+    for (const id of ["precision", "notebook", "messenger", "community", "code-review", "blueprint"]) {
+      expect(boxy).toContain(`[data-skin="${id}"]`);
+    }
+    expect(boxy).toContain("padding-left: 12px;");
+  });
+
   it("gives every registered skin a stylesheet block", () => {
     for (const id of SKIN_IDS) expect(blocks).toContain(id);
   });
