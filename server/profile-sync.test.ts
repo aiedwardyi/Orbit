@@ -19,6 +19,7 @@ import {
   serializeSyncOperation,
   syncOperationFileName,
   unresolvedSyncConflicts,
+  seenCheckpointAfterSave,
   writeSyncOperation,
 } from "./profile-sync.ts";
 
@@ -99,6 +100,32 @@ describe("profile sync operations", () => {
     expect(state.bots["bot-1"]?.name).toBe("Python Tutor");
     expect(state.conflicts).toHaveLength(1);
     expect(state.conflicts[0]?.variants.map((variant) => variant.value)).toEqual(["Tutor", "Python Tutor"]);
+  });
+
+  it("keeps a concurrent conflict after a later save that only saw this device's own op", () => {
+    const first = operation({ operationId: "op-a1", deviceId: "device-a", changes: { name: "Tutor" } });
+    const second = operation({
+      operationId: "op-b1",
+      deviceId: "device-b",
+      sequence: 2,
+      recordedAt: 1_700_000_000_001,
+      changes: { name: "Python Tutor" },
+    });
+    const conflicted = applySyncOperations(emptyProfileSyncState(), [first, second]);
+    expect(conflicted.conflicts).toHaveLength(1);
+    const conflictId = conflicted.conflicts[0]?.id;
+    const seenCheckpoint = seenCheckpointAfterSave("");
+    const save = operation({
+      operationId: "op-b2",
+      deviceId: "device-b",
+      sequence: 3,
+      recordedAt: 1_700_000_000_002,
+      ...(seenCheckpoint ? { baseCheckpoint: seenCheckpoint } : {}),
+      changes: { name: "Python Tutor" },
+    });
+    const afterSave = applySyncOperations(conflicted, [save]);
+    expect(afterSave.conflicts).toHaveLength(1);
+    expect(afterSave.conflicts[0]?.id).toBe(conflictId);
   });
 
   it("drops a resolved field conflict after a later save that saw both variants", () => {

@@ -241,6 +241,7 @@ import {
   readSyncOperations,
   resolveSyncConflictValue,
   saveProfileSyncSettings,
+  seenCheckpointAfterSave,
   profileSyncRevision,
   unresolvedSyncConflicts,
   validateSyncFolder,
@@ -1221,7 +1222,7 @@ function publishProfileSync(): { written: number; status: ReturnType<typeof prof
   }));
   for (const operation of operations) writeSyncOperation(profileSyncSettings.folder, operation);
   profileSyncLastSyncAt = Date.now();
-  profileSyncSettings.seenCheckpoint = operations.at(-1)?.operationId ?? profileSyncSettings.seenCheckpoint;
+  profileSyncSettings.seenCheckpoint = seenCheckpointAfterSave(profileSyncSettings.seenCheckpoint);
   profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
   return { written: operations.length, status: profileSyncStatus() };
 }

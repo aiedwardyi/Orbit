@@ -189,6 +189,10 @@ export function unresolvedSyncConflicts<T extends { id: string; variants: readon
   return conflicts.filter((conflict) => !conflict.variants.some((variant) => variant.operationId === reviewed[conflict.id]));
 }
 
+export function seenCheckpointAfterSave(seenCheckpoint: string): string {
+  return seenCheckpoint;
+}
+
 const workspaceSchema = z.object({
   format: z.literal(PROFILE_SYNC_FORMAT),
   version: z.literal(PROFILE_SYNC_VERSION),
