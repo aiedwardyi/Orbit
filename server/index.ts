@@ -2,7 +2,7 @@
 // (upstream rule): the React app dispatches typed commands over HTTP and
 // folds one SSE event stream; every provider process runs here.
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, statSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { currentEarlyListen } from "./early-listen.ts";
 import { isIP } from "node:net";
@@ -43,7 +43,7 @@ import {
   projectPathsFromRecords,
   userProjectTexts,
 } from "./project-folder.ts";
-import { attachmentExists, extensionForMime, IMAGE_MAX_BYTES, readAttachment, saveImage, type SavedAttachment } from "./attachments.ts";
+import { attachmentExists, ATTACHMENTS_DIR, ensureAttachmentsDir, extensionForMime, IMAGE_MAX_BYTES, readAttachment, saveImage, type SavedAttachment } from "./attachments.ts";
 import {
   avatarGenerationRequestSchema,
   avatarGenerationStateMatches,
@@ -234,10 +234,12 @@ import {
   createSyncOperation,
   emptyProfileSyncState,
   flattenReviewedResolutions,
+  findUnmappedLocalBotForImport,
   loadOrCreateSyncWorkspace,
   loadProfileSyncSettings,
   bindSyncId,
   localIdForSyncId,
+  readSyncAvatarAsset,
   readSyncOperations,
   resolveSyncConflictValue,
   saveProfileSyncSettings,
@@ -245,6 +247,7 @@ import {
   profileSyncRevision,
   unresolvedSyncConflicts,
   validateSyncFolder,
+  writeSyncAvatarAsset,
   writeSyncOperation,
   type ProfileSyncOperation,
   type ProfileSyncSettings,
@@ -1079,7 +1082,36 @@ function nextProfileSyncOperation(
   return operation;
 }
 
-function portableSyncChanges(bot: BotRecord): Record<string, unknown> {
+function syncAvatarAssetForBot(bot: BotRecord, folder: string): string | null {
+  if (!bot.avatarUrl) return null;
+  const match = bot.avatarUrl.match(/^\/api\/attachments\/([A-Za-z0-9-]+\.(png|jpg|gif|webp))$/);
+  if (!match) return null;
+  const attachment = readAttachment(match[1]!);
+  if (!attachment) return null;
+  try {
+    return writeSyncAvatarAsset(folder, attachment.bytes, match[1]!.split(".").pop() ?? "");
+  } catch {
+    return null;
+  }
+}
+
+function importSyncAvatar(folder: string, avatarAsset: unknown): string | null {
+  const asset = readSyncAvatarAsset(folder, avatarAsset);
+  if (!asset) return null;
+  ensureAttachmentsDir();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const name = `${randomUUID()}.${asset.ext}`;
+    try {
+      writeFileSync(join(ATTACHMENTS_DIR, name), asset.bytes, { mode: 0o600, flag: "wx" });
+      return `/api/attachments/${name}`;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== "EEXIST" || attempt > 0) return null;
+    }
+  }
+  return null;
+}
+
+function portableSyncChanges(bot: BotRecord, folder: string): Record<string, unknown> {
   return {
     name: bot.name,
     title: bot.title,
@@ -1087,6 +1119,7 @@ function portableSyncChanges(bot: BotRecord): Record<string, unknown> {
     color: bot.color,
     mascotExpression: bot.mascotExpression ?? null,
     mascotStyle: bot.mascotStyle ?? null,
+    avatarAsset: syncAvatarAssetForBot(bot, folder),
     sectionId: syncSectionId(bot.section),
     pinned: Boolean(bot.pinned),
     chiefOfStaff: Boolean(bot.chiefOfStaff),
@@ -1138,9 +1171,16 @@ function profileSyncRemoteState() {
 
 function profileSyncPreview() {
   const remote = profileSyncRemoteState();
+  const previewSectionNames = new Map(Object.values(remote.state.sections).map((section) => [section.id, String(section.name ?? "")]));
   const botChanges = Object.values(remote.state.bots).map((bot) => {
-    const localId = localBotIdForGlobal(bot.id);
-    return { id: bot.id, name: String(bot.name ?? "Unnamed bot"), action: localId && store.bot(localId) ? "update" : "add" };
+    const name = String(bot.name ?? "Unnamed bot");
+    const previewSectionId = typeof bot.sectionId === "string" ? bot.sectionId : null;
+    const previewSection = previewSectionId ? previewSectionNames.get(previewSectionId) : undefined;
+    const mappedId = localBotIdForGlobal(bot.id);
+    const localId = mappedId && store.bot(mappedId)
+      ? mappedId
+      : findUnmappedLocalBotForImport(store.bots, profileSyncSettings.botMap, name, previewSection);
+    return { id: bot.id, name, action: localId && store.bot(localId) ? "update" : "add" };
   });
   const deleted = Object.keys(remote.state.tombstones).filter((key) => key.startsWith("bot:")).map((key) => {
     const globalId = key.slice("bot:".length);
@@ -1191,7 +1231,7 @@ function publishProfileSync(): { written: number; status: ReturnType<typeof prof
   const operations: ProfileSyncOperation[] = [];
   for (const bot of store.bots) {
     const globalId = syncBotId(bot.id);
-    operations.push(record({ entity: "bot", entityId: globalId, changes: portableSyncChanges(bot) }));
+    operations.push(record({ entity: "bot", entityId: globalId, changes: portableSyncChanges(bot, profileSyncSettings.folder) }));
   }
   const liveBotIds = new Set(store.bots.map((bot) => bot.id));
   for (const [localId, globalId] of Object.entries(profileSyncSettings.botMap)) {
@@ -1229,6 +1269,8 @@ function publishProfileSync(): { written: number; status: ReturnType<typeof prof
 
 function importProfileSync(input: { previewRevision?: string; localRevision?: string; resolutions?: Record<string, string> } = {}): { imported: number; archived: number; conflicts: number; status: ReturnType<typeof profileSyncStatus> } {
   const remote = profileSyncRemoteState();
+  const folder = profileSyncSettings.folder;
+  if (!folder) throw Object.assign(new Error("Choose a Google Drive folder first"), { status: 409 });
   const revision = profileSyncRevision(remote.operations);
   if (input.previewRevision !== revision || input.localRevision !== profileSyncLocalRevision()) {
     throw Object.assign(new Error("The sync preview is out of date. Preview again before importing."), { status: 409 });
@@ -1282,6 +1324,13 @@ function importProfileSync(input: { previewRevision?: string; localRevision?: st
       section: typeof sectionId === "string" ? sectionNames.get(sectionId) : undefined,
     };
     if (!bot) {
+      const matchId = findUnmappedLocalBotForImport(store.bots, profileSyncSettings.botMap, profile.name, profile.section);
+      if (matchId && store.bot(matchId)) {
+        bot = store.bot(matchId);
+        localId = matchId;
+      }
+    }
+    if (!bot) {
       bot = store.createBot(profile, { seedMessages: false });
       localId = bot.id;
     } else {
@@ -1300,6 +1349,19 @@ function importProfileSync(input: { previewRevision?: string; localRevision?: st
     const pinned = field("pinned", synced.pinned);
     const chiefOfStaff = field("chiefOfStaff", synced.chiefOfStaff);
     store.patchBot(bot.id, { pinned: pinned === true, chiefOfStaff: chiefOfStaff === true, modelSelection: model });
+    const importedAvatar = field("avatarAsset", synced.avatarAsset);
+    if (importedAvatar !== undefined) {
+      if (importedAvatar === null) {
+        store.patchBot(bot.id, { avatarUrl: undefined, avatarCrop: "mascot" });
+      } else {
+        const avatarUrl = importSyncAvatar(folder, importedAvatar);
+        if (avatarUrl) {
+          const current = store.bot(bot.id);
+          const avatarCrop = current?.avatarCrop && current.avatarCrop !== "mascot" ? current.avatarCrop : "circle";
+          store.patchBot(bot.id, { avatarUrl, avatarCrop });
+        }
+      }
+    }
     imported++;
   }
   let archived = 0;

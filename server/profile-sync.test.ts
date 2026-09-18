@@ -9,10 +9,13 @@ import {
   bindSyncId,
   createSyncOperation,
   emptyProfileSyncState,
+  findUnmappedLocalBotForImport,
   loadProfileSyncSettings,
   localIdForSyncId,
   parseSyncOperationText,
+  readSyncAvatarAsset,
   readSyncOperations,
+  resolveSyncAvatarPath,
   resolveSyncConflictValue,
   profileSyncRevision,
   saveProfileSyncSettings,
@@ -20,6 +23,7 @@ import {
   syncOperationFileName,
   unresolvedSyncConflicts,
   seenCheckpointAfterSave,
+  writeSyncAvatarAsset,
   writeSyncOperation,
 } from "./profile-sync.ts";
 
@@ -245,5 +249,75 @@ describe("profile sync operations", () => {
     expect(result.operations).toEqual([record]);
     expect(result.invalidFiles).toEqual([]);
     expect(result.truncated).toBe(false);
+  });
+
+  it("carries a custom avatar asset through a bot operation", () => {
+    const record = operation({ operationId: "avatar-op", changes: { name: "Tutor", avatarAsset: "assets/abc123.png" } });
+    expect(record.changes).toMatchObject({ avatarAsset: "assets/abc123.png" });
+    const cleared = operation({ operationId: "avatar-clear", changes: { name: "Tutor", avatarAsset: null } });
+    expect(cleared.changes).toMatchObject({ avatarAsset: null });
+  });
+});
+
+describe("sync import matching", () => {
+  it("binds an unmapped same-named bot instead of duplicating it", () => {
+    const locals = [
+      { id: "local-1", name: "Python Tutor", section: "Study" },
+      { id: "local-2", name: "Sous Chef", section: undefined },
+    ];
+    expect(findUnmappedLocalBotForImport(locals, {}, "Python Tutor", "Study")).toBe("local-1");
+    expect(findUnmappedLocalBotForImport(locals, {}, "Sous Chef", undefined)).toBe("local-2");
+  });
+
+  it("skips hidden and already-mapped bots", () => {
+    const locals = [
+      { id: "local-1", name: "Python Tutor", hidden: true },
+      { id: "local-2", name: "Python Tutor" },
+    ];
+    expect(findUnmappedLocalBotForImport(locals, {}, "Python Tutor", undefined)).toBe("local-2");
+    expect(findUnmappedLocalBotForImport(locals, { "local-2": "remote-9" }, "Python Tutor", undefined)).toBeUndefined();
+  });
+
+  it("creates only when there is no unambiguous match", () => {
+    const ambiguous = [
+      { id: "local-1", name: "Python Tutor" },
+      { id: "local-2", name: "Python Tutor" },
+    ];
+    expect(findUnmappedLocalBotForImport(ambiguous, {}, "Python Tutor", undefined)).toBeUndefined();
+    expect(findUnmappedLocalBotForImport([{ id: "local-1", name: "Python Tutor", section: "Study" }], {}, "Python Tutor", "Work")).toBeUndefined();
+    expect(findUnmappedLocalBotForImport([{ id: "local-1", name: "Other Bot" }], {}, "Python Tutor", undefined)).toBeUndefined();
+  });
+});
+
+describe("sync avatar assets", () => {
+  it("round trips avatar bytes through save and import", () => {
+    const root = mkdtempSync(join(tmpdir(), "orbit-profile-sync-avatar-"));
+    roots.push(root);
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x02]);
+    const name = writeSyncAvatarAsset(root, bytes, "png");
+    expect(name).toMatch(/^assets\/[0-9a-f]{64}\.png$/);
+    expect(writeSyncAvatarAsset(root, bytes, "png")).toBe(name);
+    const back = readSyncAvatarAsset(root, name);
+    expect(back?.ext).toBe("png");
+    expect(back?.bytes.equals(bytes)).toBe(true);
+  });
+
+  it("rejects paths that escape the sync folder", () => {
+    const root = mkdtempSync(join(tmpdir(), "orbit-profile-sync-avatar-evil-"));
+    roots.push(root);
+    for (const evil of ["../evil.png", "assets/../../evil.png", "/etc/passwd", "assets/evil.svg", "assets/.png", 42, null]) {
+      expect(resolveSyncAvatarPath(root, evil)).toBeNull();
+      expect(readSyncAvatarAsset(root, evil)).toBeNull();
+    }
+    expect(resolveSyncAvatarPath(root, "assets/missing.png")).toBeNull();
+  });
+
+  it("caps avatar file size", () => {
+    const root = mkdtempSync(join(tmpdir(), "orbit-profile-sync-avatar-cap-"));
+    roots.push(root);
+    expect(() => writeSyncAvatarAsset(root, Buffer.alloc(16), "png", 8)).toThrow();
+    const name = writeSyncAvatarAsset(root, Buffer.alloc(8), "png", 8);
+    expect(resolveSyncAvatarPath(root, name, 4)).toBeNull();
+    expect(() => writeSyncAvatarAsset(root, Buffer.from([1]), "svg")).toThrow();
   });
 });

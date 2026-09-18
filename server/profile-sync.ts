@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
-import { basename, join } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import { z } from "zod";
 
 import { writeFileAtomic } from "./atomic.ts";
@@ -486,4 +486,107 @@ export function validateSyncFolder(folder: string): string {
   if (!candidate) throw new Error("Choose a Google Drive folder first");
   if (!existsSync(candidate) || !statSync(candidate).isDirectory()) throw new Error("The selected sync folder is unavailable");
   return realpathSync(candidate);
+}
+
+export const PROFILE_SYNC_ASSETS_DIR = "assets";
+export const PROFILE_SYNC_MAX_AVATAR_BYTES = 10 * 1024 * 1024;
+
+const SYNC_AVATAR_EXTS = ["png", "jpg", "gif", "webp"] as const;
+const SYNC_AVATAR_NAME = /^assets\/[A-Za-z0-9_-]{1,128}\.(png|jpg|jpeg|gif|webp)$/;
+
+export interface SyncBotMatchCandidate {
+  id: string;
+  name: string;
+  section?: string | null;
+  hidden?: boolean;
+}
+
+// Sections persist as trimmed display labels; blank means unsectioned.
+const syncSectionKey = (section?: string | null): string => section?.trim() || "";
+
+// A first import onto a device that already has these bots leaves botMap
+// empty, so a blind create duplicates every bot. Bind an existing unmapped
+// visible bot instead, but only on an unambiguous name + section match.
+export function findUnmappedLocalBotForImport(
+  candidates: readonly SyncBotMatchCandidate[],
+  botMap: Record<string, string>,
+  name: string,
+  section?: string | null,
+): string | undefined {
+  const mapped = new Set(Object.keys(botMap));
+  const wantName = name.trim();
+  const wantSection = syncSectionKey(section);
+  const matches = candidates.filter(
+    (candidate) =>
+      !candidate.hidden &&
+      !mapped.has(candidate.id) &&
+      candidate.name.trim() === wantName &&
+      syncSectionKey(candidate.section) === wantSection,
+  );
+  return matches.length === 1 ? matches[0]!.id : undefined;
+}
+
+function normalizeSyncAvatarExt(ext: string): string | null {
+  const lower = ext.toLowerCase();
+  const normalized = lower === "jpeg" ? "jpg" : lower;
+  return (SYNC_AVATAR_EXTS as readonly string[]).includes(normalized) ? normalized : null;
+}
+
+// Custom avatars are attachment files; copy the bytes into the sync folder
+// under a content hash so both devices converge on one filename per image.
+export function writeSyncAvatarAsset(
+  folder: string,
+  bytes: Buffer,
+  ext: string,
+  maxBytes = PROFILE_SYNC_MAX_AVATAR_BYTES,
+): string {
+  const normalized = normalizeSyncAvatarExt(ext);
+  if (!normalized) throw new Error("Unsupported sync avatar type");
+  if (bytes.byteLength === 0) throw new Error("Empty sync avatar");
+  if (bytes.byteLength > maxBytes) throw new Error("Sync avatar exceeds the size limit");
+  const name = `${PROFILE_SYNC_ASSETS_DIR}/${createHash("sha256").update(bytes).digest("hex")}.${normalized}`;
+  mkdirSync(join(folder, PROFILE_SYNC_ASSETS_DIR), { recursive: true });
+  const path = join(folder, PROFILE_SYNC_ASSETS_DIR, basename(name));
+  try {
+    if (statSync(path).isFile()) return name;
+  } catch {}
+  writeFileSync(path, bytes, { mode: 0o600 });
+  return name;
+}
+
+export function resolveSyncAvatarPath(
+  folder: string,
+  avatarAsset: unknown,
+  maxBytes = PROFILE_SYNC_MAX_AVATAR_BYTES,
+): string | null {
+  if (typeof avatarAsset !== "string" || !SYNC_AVATAR_NAME.test(avatarAsset)) return null;
+  const base = resolve(folder);
+  const target = resolve(base, avatarAsset);
+  const rel = relative(base, target);
+  if (!rel || rel === ".." || rel.startsWith("../") || rel.startsWith("..\\")) return null;
+  try {
+    const stat = statSync(target);
+    if (!stat.isFile() || stat.size > maxBytes) return null;
+  } catch {
+    return null;
+  }
+  return target;
+}
+
+export function readSyncAvatarAsset(
+  folder: string,
+  avatarAsset: unknown,
+  maxBytes = PROFILE_SYNC_MAX_AVATAR_BYTES,
+): { bytes: Buffer; ext: string } | null {
+  const path = resolveSyncAvatarPath(folder, avatarAsset, maxBytes);
+  if (!path) return null;
+  try {
+    const bytes = readFileSync(path);
+    if (bytes.byteLength === 0 || bytes.byteLength > maxBytes) return null;
+    const ext = normalizeSyncAvatarExt(path.split(".").pop() ?? "");
+    if (!ext) return null;
+    return { bytes, ext };
+  } catch {
+    return null;
+  }
 }
