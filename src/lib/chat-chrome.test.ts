@@ -72,7 +72,9 @@ describe("assistant message action bar", () => {
   });
 
   it("reserves its band so it cannot cover the timestamp or the reaction chips", () => {
-    expect(bubbleFn).toContain('cn("relative w-fit max-w-[min(42rem,78%)]", !user && "pb-8")');
+    // both rows dock under the bubble since the copy-buttons fix, so the
+    // band is unconditional, not bot-only
+    expect(bubbleFn).toContain('cn("relative w-fit max-w-[min(42rem,78%)] pb-8")');
     expect(bubbleFn).not.toContain("top-full");
   });
 });
