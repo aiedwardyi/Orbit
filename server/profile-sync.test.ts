@@ -18,6 +18,7 @@ import {
   saveProfileSyncSettings,
   serializeSyncOperation,
   syncOperationFileName,
+  unresolvedSyncConflicts,
   writeSyncOperation,
 } from "./profile-sync.ts";
 
@@ -61,6 +62,94 @@ describe("profile sync operations", () => {
     expect(state.conflicts[0]?.variants.map((variant) => variant.value)).toEqual(["Tutor", "Python Tutor"]);
   });
 
+  it("does not conflict when a later device save is based on the earlier device's operation", () => {
+    const first = operation({ operationId: "op-a", deviceId: "device-a", changes: { name: "Tutor" } });
+    const second = operation({
+      operationId: "op-b",
+      deviceId: "device-b",
+      sequence: 2,
+      recordedAt: 1_700_000_000_001,
+      baseCheckpoint: "op-a",
+      changes: { name: "Python Tutor" },
+    });
+    const state = applySyncOperations(emptyProfileSyncState(), [first, second]);
+    expect(state.bots["bot-1"]?.name).toBe("Python Tutor");
+    expect(state.conflicts).toEqual([]);
+  });
+
+  it("still conflicts when neither device based its save on the other", () => {
+    const shared = operation({ operationId: "op-0", deviceId: "device-a", changes: { name: "Seed" } });
+    const first = operation({
+      operationId: "op-a",
+      deviceId: "device-a",
+      sequence: 2,
+      recordedAt: 1_700_000_000_001,
+      baseCheckpoint: "op-0",
+      changes: { name: "Tutor" },
+    });
+    const second = operation({
+      operationId: "op-b",
+      deviceId: "device-b",
+      sequence: 2,
+      recordedAt: 1_700_000_000_002,
+      baseCheckpoint: "op-0",
+      changes: { name: "Python Tutor" },
+    });
+    const state = applySyncOperations(emptyProfileSyncState(), [shared, first, second]);
+    expect(state.bots["bot-1"]?.name).toBe("Python Tutor");
+    expect(state.conflicts).toHaveLength(1);
+    expect(state.conflicts[0]?.variants.map((variant) => variant.value)).toEqual(["Tutor", "Python Tutor"]);
+  });
+
+  it("drops a resolved field conflict after a later save that saw both variants", () => {
+    const first = operation({ operationId: "op-a", deviceId: "device-a", changes: { name: "Tutor" } });
+    const second = operation({
+      operationId: "op-b",
+      deviceId: "device-b",
+      sequence: 2,
+      recordedAt: 1_700_000_000_001,
+      changes: { name: "Python Tutor" },
+    });
+    const resolved = applySyncOperations(emptyProfileSyncState(), [first, second]);
+    expect(resolved.conflicts).toHaveLength(1);
+    const save = operation({
+      operationId: "op-c",
+      deviceId: "device-b",
+      sequence: 3,
+      recordedAt: 1_700_000_000_002,
+      baseCheckpoint: "op-b",
+      changes: { name: "Tutor" },
+    });
+    const afterSave = applySyncOperations(resolved, [save]);
+    expect(afterSave.bots["bot-1"]?.name).toBe("Tutor");
+    expect(afterSave.conflicts).toEqual([]);
+  });
+
+  it("keeps a reviewed resolution after later operations change the revision hash", () => {
+    const first = operation({ operationId: "op-a", deviceId: "device-a", changes: { name: "Tutor" } });
+    const second = operation({
+      operationId: "op-b",
+      deviceId: "device-b",
+      recordedAt: 1_700_000_000_001,
+      changes: { name: "Python Tutor" },
+    });
+    const conflicted = applySyncOperations(emptyProfileSyncState(), [first, second]);
+    const conflict = conflicted.conflicts[0]!;
+    const oldRevision = profileSyncRevision([first, second]);
+    const later = operation({
+      operationId: "op-c",
+      deviceId: "device-a",
+      sequence: 3,
+      recordedAt: 1_700_000_000_002,
+      changes: { title: "Teacher" },
+    });
+    const afterSave = applySyncOperations(conflicted, [later]);
+    expect(profileSyncRevision([first, second, later])).not.toBe(oldRevision);
+    expect(afterSave.conflicts).toHaveLength(1);
+    const reviewed = { [oldRevision]: { [conflict.id]: conflict.chosenOperationId } };
+    expect(unresolvedSyncConflicts(afterSave.conflicts, reviewed)).toEqual([]);
+  });
+
   it("binds the local-to-remote map without leaving a stale reverse alias", () => {
     const map = { localA: "remote-1", stale: "remote-1", localB: "remote-2" };
     expect(localIdForSyncId(map, "remote-1")).toBe("localA");
@@ -87,6 +176,15 @@ describe("profile sync operations", () => {
     initial.reviewedResolutions = { revision: { conflict: "variant-null" } };
     saveProfileSyncSettings(root, initial);
     expect(loadProfileSyncSettings(root).reviewedResolutions).toEqual(initial.reviewedResolutions);
+  });
+
+  it("saves sectionMap keys that include spaces", () => {
+    const root = mkdtempSync(join(tmpdir(), "orbit-profile-sync-section-"));
+    roots.push(root);
+    const initial = loadProfileSyncSettings(root);
+    initial.sectionMap = { "area 1": "section-1" };
+    saveProfileSyncSettings(root, initial);
+    expect(loadProfileSyncSettings(root).sectionMap).toEqual({ "area 1": "section-1" });
   });
 
   it("keeps a delete tombstone from being undone by delayed offline edits", () => {

@@ -233,6 +233,7 @@ import {
   applySyncOperations,
   createSyncOperation,
   emptyProfileSyncState,
+  flattenReviewedResolutions,
   loadOrCreateSyncWorkspace,
   loadProfileSyncSettings,
   bindSyncId,
@@ -241,6 +242,7 @@ import {
   resolveSyncConflictValue,
   saveProfileSyncSettings,
   profileSyncRevision,
+  unresolvedSyncConflicts,
   validateSyncFolder,
   writeSyncOperation,
   type ProfileSyncOperation,
@@ -1050,6 +1052,7 @@ function ensureProfileSyncWorkspace(folder: string): void {
     botMap: {},
     sectionMap: {},
     reviewedResolutions: {},
+    seenCheckpoint: "",
   };
 }
 
@@ -1107,11 +1110,7 @@ function profileSyncStatus() {
   ensureProfileSyncWorkspace(folder);
   const remote = readSyncOperations(folder);
   const remoteState = applySyncOperations(emptyProfileSyncState(), remote.operations);
-  const revision = profileSyncRevision(remote.operations);
-  const reviewed = profileSyncSettings.reviewedResolutions[revision] ?? {};
-  const conflicts = remoteState.conflicts.filter((conflict) =>
-    !conflict.variants.some((variant) => variant.operationId === reviewed[conflict.id]),
-  ).length;
+  const conflicts = unresolvedSyncConflicts(remoteState.conflicts, profileSyncSettings.reviewedResolutions).length;
   const status = remote.invalidFiles.length > 0 || conflicts > 0
     ? "needs-review"
     : remote.operations.length > 0
@@ -1136,14 +1135,6 @@ function profileSyncRemoteState() {
   return { ...remote, state };
 }
 
-function unresolvedProfileSyncConflicts(
-  conflicts: readonly { id: string; variants: readonly { operationId: string }[] }[],
-  revision: string,
-) {
-  const reviewed = profileSyncSettings.reviewedResolutions[revision] ?? {};
-  return conflicts.filter((conflict) => !conflict.variants.some((variant) => variant.operationId === reviewed[conflict.id]));
-}
-
 function profileSyncPreview() {
   const remote = profileSyncRemoteState();
   const botChanges = Object.values(remote.state.bots).map((bot) => {
@@ -1157,7 +1148,7 @@ function profileSyncPreview() {
   });
   return {
     bots: [...botChanges, ...deleted],
-    conflicts: unresolvedProfileSyncConflicts(remote.state.conflicts, profileSyncRevision(remote.operations)),
+    conflicts: unresolvedSyncConflicts(remote.state.conflicts, profileSyncSettings.reviewedResolutions),
     invalidFiles: remote.invalidFiles,
     operations: remote.operations.length,
     revision: profileSyncRevision(remote.operations),
@@ -1192,15 +1183,19 @@ function publishProfileSync(): { written: number; status: ReturnType<typeof prof
   if (!profileSyncSettings.folder) throw Object.assign(new Error("Choose a Google Drive folder first"), { status: 409 });
   pruneProfileSyncSectionAliases();
   const now = Date.now();
+  const baseCheckpoint = profileSyncSettings.seenCheckpoint || undefined;
+  const record = (
+    input: Omit<ProfileSyncOperation, "format" | "version" | "operationId" | "deviceId" | "sequence" | "recordedAt">,
+  ) => nextProfileSyncOperation(baseCheckpoint ? { ...input, baseCheckpoint } : input, now);
   const operations: ProfileSyncOperation[] = [];
   for (const bot of store.bots) {
     const globalId = syncBotId(bot.id);
-    operations.push(nextProfileSyncOperation({ entity: "bot", entityId: globalId, changes: portableSyncChanges(bot) }, now));
+    operations.push(record({ entity: "bot", entityId: globalId, changes: portableSyncChanges(bot) }));
   }
   const liveBotIds = new Set(store.bots.map((bot) => bot.id));
   for (const [localId, globalId] of Object.entries(profileSyncSettings.botMap)) {
     if (!liveBotIds.has(localId)) {
-      operations.push(nextProfileSyncOperation({ entity: "bot", entityId: globalId, deleted: true }, now));
+      operations.push(record({ entity: "bot", entityId: globalId, deleted: true }));
       delete profileSyncSettings.botMap[localId];
     }
   }
@@ -1209,24 +1204,24 @@ function publishProfileSync(): { written: number; status: ReturnType<typeof prof
     const id = syncSectionId(bot.section);
     if (!id || seenSections.has(id)) continue;
     seenSections.add(id);
-    operations.push(nextProfileSyncOperation({ entity: "section", entityId: id, changes: { name: bot.section, order: seenSections.size - 1 } }, now));
+    operations.push(record({ entity: "section", entityId: id, changes: { name: bot.section, order: seenSections.size - 1 } }));
   }
   const itemOrder: Record<string, string[]> = {};
   for (const bot of store.bots) {
     const sectionId = syncSectionId(bot.section) ?? "";
     (itemOrder[sectionId] ??= []).push(syncBotId(bot.id));
   }
-  operations.push(nextProfileSyncOperation({
+  operations.push(record({
     entity: "order",
     entityId: profileSyncSettings.workspaceId,
     changes: {
       sectionOrder: [...seenSections],
       itemOrder,
     },
-  }, now));
+  }));
   for (const operation of operations) writeSyncOperation(profileSyncSettings.folder, operation);
   profileSyncLastSyncAt = Date.now();
-  profileSyncSettings.reviewedResolutions = {};
+  profileSyncSettings.seenCheckpoint = operations.at(-1)?.operationId ?? profileSyncSettings.seenCheckpoint;
   profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
   return { written: operations.length, status: profileSyncStatus() };
 }
@@ -1246,7 +1241,7 @@ function importProfileSync(input: { previewRevision?: string; localRevision?: st
       throw Object.assign(new Error("The sync conflict resolution is not part of this preview."), { status: 409 });
     }
   }
-  const resolutions = { ...(profileSyncSettings.reviewedResolutions[revision] ?? {}), ...(input.resolutions ?? {}) };
+  const resolutions = { ...flattenReviewedResolutions(profileSyncSettings.reviewedResolutions), ...(input.resolutions ?? {}) };
   const unresolved = remote.state.conflicts.filter((conflict) => {
     const selected = resolutions[conflict.id];
     return !selected || !conflict.variants.some((variant) => variant.operationId === selected);
@@ -1370,6 +1365,7 @@ function importProfileSync(input: { previewRevision?: string; localRevision?: st
   profileSyncSettings.reviewedResolutions[revision] = Object.fromEntries(
     [...conflictsById.keys()].map((conflictId) => [conflictId, resolutions[conflictId]!]),
   );
+  profileSyncSettings.seenCheckpoint = remote.state.checkpoint;
   profileSyncLastSyncAt = Date.now();
   profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
   return { imported, archived, conflicts: 0, status: profileSyncStatus() };
@@ -6289,7 +6285,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!body || typeof body.folder !== "string") return json(res, 400, { error: "folder must be a path" });
       try {
         const folder = validateSyncFolder(body.folder);
-        if (profileSyncSettings.folder !== folder) profileSyncSettings.reviewedResolutions = {};
+        if (profileSyncSettings.folder !== folder) {
+          profileSyncSettings.reviewedResolutions = {};
+          profileSyncSettings.seenCheckpoint = "";
+        }
         ensureProfileSyncWorkspace(folder);
         profileSyncSettings.folder = folder;
         profileSyncLastConflictCount = 0;

@@ -130,6 +130,7 @@ export interface ProfileSyncSettings {
   sectionMap: Record<string, string>;
   reviewedResolutions: Record<string, Record<string, string>>;
   nextSequence: number;
+  seenCheckpoint: string;
 }
 
 function canonicalJson(value: unknown): string {
@@ -172,6 +173,22 @@ export function resolveSyncConflictValue(
   return variant ? clone(variant.value) : fallback;
 }
 
+export function flattenReviewedResolutions(
+  reviewed: Record<string, Record<string, string>>,
+): Record<string, string> {
+  const flat: Record<string, string> = {};
+  for (const group of Object.values(reviewed)) Object.assign(flat, group);
+  return flat;
+}
+
+export function unresolvedSyncConflicts<T extends { id: string; variants: readonly { operationId: string }[] }>(
+  conflicts: readonly T[],
+  reviewedResolutions: Record<string, Record<string, string>>,
+): T[] {
+  const reviewed = flattenReviewedResolutions(reviewedResolutions);
+  return conflicts.filter((conflict) => !conflict.variants.some((variant) => variant.operationId === reviewed[conflict.id]));
+}
+
 const workspaceSchema = z.object({
   format: z.literal(PROFILE_SYNC_FORMAT),
   version: z.literal(PROFILE_SYNC_VERSION),
@@ -183,9 +200,10 @@ const settingsSchema = z.object({
   deviceId: ID,
   folder: z.string().trim().max(1_000).nullable(),
   botMap: z.record(ID, ID).default({}),
-  sectionMap: z.record(ID, ID).default({}),
+  sectionMap: z.record(z.string().trim().min(1).max(100), ID).default({}),
   reviewedResolutions: z.record(z.string().trim().min(1).max(512), z.record(z.string().trim().min(1).max(240), ID)).default({}),
   nextSequence: z.number().int().positive().max(2_000_000_000).default(1),
+  seenCheckpoint: z.string().trim().max(160).default(""),
 }).strict();
 
 function versionStamp(version: Pick<FieldVersion, "recordedAt" | "deviceId" | "sequence" | "operationId">): string {
@@ -250,10 +268,30 @@ export function emptyProfileSyncState(): ProfileSyncState {
   };
 }
 
-function setField(state: ProfileSyncState, operation: ProfileSyncOperation, field: string, value: unknown): void {
+function operationSawPrior(
+  operation: ProfileSyncOperation,
+  previous: FieldVersion,
+  appliedOrder: Map<string, number>,
+): boolean {
+  const base = operation.baseCheckpoint;
+  if (!base) return false;
+  const baseIndex = appliedOrder.get(base);
+  const previousIndex = appliedOrder.get(previous.operationId);
+  if (baseIndex === undefined || previousIndex === undefined) return false;
+  return previousIndex <= baseIndex;
+}
+
+function setField(
+  state: ProfileSyncState,
+  operation: ProfileSyncOperation,
+  field: string,
+  value: unknown,
+  appliedOrder: Map<string, number>,
+): void {
   const key = fieldKey(operation, field);
   const previous = state.fieldVersions[key];
-  if (previous && !valueEqual(previous.value, value) && previous.deviceId !== operation.deviceId) {
+  const sawPrior = previous ? operationSawPrior(operation, previous, appliedOrder) : false;
+  if (previous && !valueEqual(previous.value, value) && previous.deviceId !== operation.deviceId && !sawPrior) {
     const conflictId = `${key}:${previous.operationId}:${operation.operationId}`;
     if (!state.conflicts.some((conflict) => conflict.id === conflictId || conflict.id === `${key}:${operation.operationId}:${previous.operationId}`)) {
       const versions = [previous, { value, operationId: operation.operationId, deviceId: operation.deviceId, recordedAt: operation.recordedAt, sequence: operation.sequence }];
@@ -268,6 +306,11 @@ function setField(state: ProfileSyncState, operation: ProfileSyncOperation, fiel
         chosenOperationId: chosen.operationId,
       });
     }
+  }
+  if (sawPrior) {
+    state.conflicts = state.conflicts.filter((conflict) =>
+      !(conflict.entity === operation.entity && conflict.entityId === operation.entityId && conflict.field === field),
+    );
   }
   const current = state.fieldVersions[key];
   const nextVersion: FieldVersion = {
@@ -302,6 +345,11 @@ export function applySyncOperations(
   const state = clone(initial);
   const sorted = [...operations].map(parseSyncOperation).sort((left, right) => stamp(left).localeCompare(stamp(right)));
   const appliedOperationIds = new Set(state.appliedOperationIds);
+  const appliedOrder = new Map(state.appliedOperationIds.map((id, index) => [id, index]));
+  const markApplied = (operationId: string) => {
+    appliedOperationIds.add(operationId);
+    if (!appliedOrder.has(operationId)) appliedOrder.set(operationId, appliedOrder.size);
+  };
   for (const operation of sorted) {
     if (appliedOperationIds.has(operation.operationId)) continue;
     const tombstone = state.tombstones[entityKey(operation)];
@@ -311,16 +359,16 @@ export function applySyncOperations(
         if (operation.entity === "bot") delete state.bots[operation.entityId];
         if (operation.entity === "section") delete state.sections[operation.entityId];
       }
-      appliedOperationIds.add(operation.operationId);
+      markApplied(operation.operationId);
       continue;
     }
     if (tombstone) {
-      appliedOperationIds.add(operation.operationId);
+      markApplied(operation.operationId);
       continue;
     }
     const changes = validateChanges(operation) ?? {};
-    for (const [field, value] of Object.entries(changes)) setField(state, operation, field, value);
-    appliedOperationIds.add(operation.operationId);
+    for (const [field, value] of Object.entries(changes)) setField(state, operation, field, value, appliedOrder);
+    markApplied(operation.operationId);
   }
   state.appliedOperationIds = [...appliedOperationIds].slice(-10_000);
   state.checkpoint = state.appliedOperationIds.at(-1) ?? state.checkpoint;
@@ -418,6 +466,7 @@ export function loadProfileSyncSettings(dataDir: string): ProfileSyncSettings {
     sectionMap: {},
     reviewedResolutions: {},
     nextSequence: 1,
+    seenCheckpoint: "",
   };
 }
 
