@@ -206,6 +206,51 @@ describe("MSP turns (fake host)", () => {
     );
   });
 
+  it("carries the terminal MCP server through resume and fresh recovery", async () => {
+    const dump = join(scratch, "muse-resume-terminal.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    process.env.FAKE_MSP_RPC_DUMP = join(scratch, "muse-resume-terminal-rpc.json");
+    await create("resume-fails");
+    const terminal = {
+      command: "node",
+      args: ["terminal-proxy.mjs"],
+      env: { OMB_TERMINAL_TOKEN: "test-token" },
+    };
+    await instance.adapter.sendTurn({
+      threadId: "t-resume-terminal",
+      text: "again",
+      resumeCursor: "old-session",
+      resumeFallback: { text: "fallback hi" },
+      integrations: { terminal },
+    });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    const calls = JSON.parse(readFileSync(`${dump}.config.json`, "utf8"));
+    expect(calls).toContainEqual({ method: "session/start", modelId: null, mcpServers: { terminal } });
+  });
+
+  it("passes the terminal MCP server to remembered sessions", async () => {
+    const dump = join(scratch, "muse-resume-terminal-live.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    await create();
+    const terminal = {
+      command: "node",
+      args: ["terminal-proxy.mjs"],
+      env: { OMB_TERMINAL_TOKEN: "test-token" },
+    };
+    await instance.adapter.sendTurn({
+      threadId: "t-resume-terminal-live",
+      text: "again",
+      resumeCursor: "old-session",
+      integrations: { terminal },
+    });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    const calls = JSON.parse(readFileSync(`${dump}.config.json`, "utf8"));
+    expect(calls).toContainEqual({
+      method: "session/resume",
+      params: expect.objectContaining({ mcpServers: { terminal } }),
+    });
+  });
+
   it("settles a hung turn as cancelled on interrupt", async () => {
     const rpcDump = join(scratch, "muse-interrupt-rpc.json");
     process.env.FAKE_MSP_RPC_DUMP = rpcDump;

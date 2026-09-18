@@ -234,7 +234,11 @@ function handle(msg: any) {
       break;
     }
     case "session/start": {
-      recordConfig({ method: "session/start", modelId: msg.params?.modelId ?? null });
+      recordConfig({
+        method: "session/start",
+        modelId: msg.params?.modelId ?? null,
+        ...(msg.params?.mcpServers ? { mcpServers: msg.params.mcpServers } : {}),
+      });
       const modelId = typeof msg.params?.modelId === "string" ? msg.params.modelId : "fake-msp-default";
       const models = readModels();
       models[SESSION_ID] = modelId;
@@ -245,6 +249,7 @@ function handle(msg: any) {
       break;
     }
     case "session/resume": {
+      recordConfig({ method: "session/resume", params: msg.params ?? null });
       if (mode === "resume-fails") {
         out({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "method not found" } });
         break;

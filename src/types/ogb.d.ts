@@ -126,10 +126,31 @@ type SkillRecordingPayload = {
     code?: "load-failed" | "renderer-gone";
   }
 
+  interface TerminalBotSnapshot {
+    botId: string;
+    state?: "no-terminal";
+    sessionId?: string;
+    generation?: number;
+    cwd?: string;
+    seq: number;
+    capturedAt: number;
+    exitCode: number | null;
+    exited: boolean;
+    screenText: string;
+    recentText: string;
+    truncated: boolean;
+    cols?: number;
+    rows?: number;
+    alternate?: boolean;
+    cursor?: { x: number; y: number; visible: boolean };
+  }
+
   interface Window {
     ogb?: {
       platform: NodeJS.Platform;
       terminal?: {
+        readBot?(botId: string): Promise<TerminalBotSnapshot>;
+        sendBot?(botId: string, input: { sessionId: string; generation: number; text: string }): Promise<TerminalBotSnapshot>;
         appearance(): Promise<{ profileName: string; fontFamily?: string; fontSize?: number; theme: Record<string, string> } | null>;
         open(input: { botId: string; cols: number; rows: number; restart?: boolean; cwd?: string; projectCwd?: string | null }): Promise<
           | { id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number; launchProject?: string | null }

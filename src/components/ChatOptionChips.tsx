@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
+import { focusComposerOnActivation } from "@/lib/focus-composer";
 import { QuestionChoiceCard } from "./QuestionChoiceCard";
 
 /** Focus the docked composer without touching its draft. */
 export function focusOrbitComposer(): void {
-  const input = document.querySelector<HTMLTextAreaElement>("[data-orbit-composer]");
-  input?.focus();
+  focusComposerOnActivation();
 }
 
 export function ChatOptionChips({

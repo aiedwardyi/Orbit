@@ -318,6 +318,8 @@ export interface Bot {
   /** Named browser profile id (config.browserProfiles); absent/null = the
    * bot's own session (null is how a clear travels over PATCH). */
   browserProfile?: string | null;
+  /** Allow this bot's provider to read its own Orbit terminal screen. */
+  shareTerminalWithChat?: boolean;
   messages: Message[];
   /** leaf of the visible conversation branch (see visibleMessages) */
   activeLeafId?: string | null;
@@ -357,12 +359,26 @@ export function visibleMessages(bot: Pick<Bot, "messages" | "activeLeafId">): Me
   const byId = new Map(bot.messages.map((m) => [m.id, m]));
   if (!byId.has(leafId)) return bot.messages;
   const path: Message[] = [];
+  const seen = new Set<string>();
   let cur = byId.get(leafId);
-  while (cur) {
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
     path.push(cur);
     cur = cur.parentId ? byId.get(cur.parentId) : undefined;
   }
   return path.reverse();
+}
+
+function messageIsAncestor(messages: readonly Message[], childId: string, ancestorId: string): boolean {
+  const byId = new Map(messages.map((message) => [message.id, message]));
+  const seen = new Set<string>();
+  let current = byId.get(childId);
+  while (current?.parentId && !seen.has(current.id)) {
+    seen.add(current.id);
+    if (current.parentId === ancestorId) return true;
+    current = byId.get(current.parentId);
+  }
+  return false;
 }
 
 /** All versions of a user message (itself + the forks that replaced it),
@@ -499,7 +515,8 @@ export type AppSettingsSection =
   | "engines"
   | "companion"
   | "computer"
-  | "usage";
+  | "usage"
+  | "sync";
 
 export interface AppState {
   bots: Bot[];
@@ -1213,7 +1230,6 @@ export function reducer(state: AppState, action: Action): AppState {
       // order. A repeated message is already folded; moving the active leaf
       // back to it can hide a newer assistant reply that won the race.
       if (bot.messages.some((message) => message.id === action.message.id)) return state;
-      // every server-side append chains onto (and becomes) the active leaf
       const next = updateBot(state, bot.id, (b) => {
         let messages = [...b.messages, action.message];
         // base64 screen frames are big; a long computer-use session would
@@ -1227,7 +1243,18 @@ export function reducer(state: AppState, action: Action): AppState {
             messages = messages.map((m) => (dropIds.has(m.id) ? { ...m, png: undefined } : m));
           }
         }
-        return { ...b, messages, activeLeafId: action.message.id };
+        const currentLeaf = b.activeLeafId ? b.messages.find((message) => message.id === b.activeLeafId) : undefined;
+        const parentId = action.message.parentId ?? null;
+        const currentLeafId = b.activeLeafId ?? null;
+        const isLateArtifact = action.message.kind === "screen" && parentId !== currentLeafId;
+        const keepCurrentLeaf = Boolean(
+          currentLeaf && (
+            isLateArtifact ||
+            messageIsAncestor(messages, currentLeaf.id, action.message.id) ||
+            (action.message.at < currentLeaf.at && parentId !== currentLeafId)
+          ),
+        );
+        return { ...b, messages, activeLeafId: keepCurrentLeaf ? b.activeLeafId : action.message.id };
       });
       const motion =
         action.message.kind === "options"

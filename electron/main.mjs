@@ -17,6 +17,7 @@ import {
 } from "./skill-recorder.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
 import { createTerminalHost, trustedTerminalSender } from "./terminal-host.mjs";
+import { createTerminalBridge } from "./terminal-bridge.mjs";
 import { spawnTerminalPty } from "./terminal-pty.mjs";
 import { readTerminalAppearance } from "./terminal-appearance.mjs";
 import { applyPendingUpdateInstall, consumePendingUpdateInstall, registerUpdaterIpc, startUpdater } from "./updater.mjs";
@@ -277,11 +278,23 @@ const terminalHost = createTerminalHost({
     return response.json();
   },
 });
+const terminalBridge = createTerminalBridge({ host: terminalHost });
+let terminalBridgeAccess = null;
 ipcMain.handle("terminal:open", (event, input) => terminalHost.open(event, input));
 ipcMain.handle("terminal:cancel-open", (event, botId) => terminalHost.cancelOpen(event, botId));
 ipcMain.handle("terminal:write", (event, id, data) => terminalHost.write(event, id, data));
 ipcMain.handle("terminal:acknowledge", (event, id) => terminalHost.acknowledge(event, id));
 ipcMain.handle("terminal:resize", (event, id, cols, rows) => terminalHost.resize(event, id, cols, rows));
+ipcMain.handle("terminal:read-bot", (event, botId) => {
+  const origin = app.isPackaged ? `http://127.0.0.1:${SERVER_PORT}` : new URL(DEV_URL).origin;
+  if (!trustedTerminalSender(event, mainWindow?.webContents, origin)) throw new Error("Untrusted terminal caller");
+  return terminalHost.readBot(botId);
+});
+ipcMain.handle("terminal:send-bot", (event, botId, input) => {
+  const origin = app.isPackaged ? `http://127.0.0.1:${SERVER_PORT}` : new URL(DEV_URL).origin;
+  if (!trustedTerminalSender(event, mainWindow?.webContents, origin)) throw new Error("Untrusted terminal caller");
+  return terminalHost.sendBot(botId, input);
+});
 ipcMain.handle("terminal:appearance", (event) => {
   const origin = app.isPackaged ? `http://127.0.0.1:${SERVER_PORT}` : new URL(DEV_URL).origin;
   if (!trustedTerminalSender(event, mainWindow?.webContents, origin)) throw new Error("Untrusted terminal caller");
@@ -832,6 +845,12 @@ async function startServerOn(port) {
     // the server prefers these over config.json, whose plaintext fields
     // the boot migration has deleted
     ...workspaceCredentialEnv(childEnvCredentials),
+    ...(terminalBridgeAccess
+      ? {
+          OMB_TERMINAL_URL: terminalBridgeAccess.url,
+          OMB_TERMINAL_TOKEN: terminalBridgeAccess.token,
+        }
+      : {}),
   });
   slog(`fork ${entry} port=${port}`);
   const proc = utilityProcess.fork(entry, [], {
@@ -2048,6 +2067,12 @@ app.whenReady().then(async () => {
         })
       : Promise.resolve({ mode: "unavailable", reason: "unsupported-platform" });
   if (app.isPackaged) {
+    try {
+      terminalBridgeAccess = await terminalBridge.start();
+    } catch (error) {
+      terminalBridgeAccess = null;
+      slog(`terminal bridge unavailable: ${error?.message ?? error}`);
+    }
     serverReady = await startServerPackaged();
     slog(`harness ${serverReady ? "ready" : "failed"} port=${SERVER_PORT} uptime=${process.uptime().toFixed(2)}s`);
     revealPackagedApp(win);
@@ -2139,6 +2164,7 @@ app.on("before-quit", (e) => {
         }),
       stopCua().catch(() => {}),
       browserHost?.stop().catch(() => {}) ?? Promise.resolve(),
+      terminalBridge.close().catch(() => {}),
       // Both listeners reachable from outside the app are owned children.
       // Shut the connector down first, then the sidecar, without changing the
       // remembered toggle the next launch will restore.

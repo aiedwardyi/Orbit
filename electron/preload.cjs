@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld("ogb", {
     write: (id, data) => ipcRenderer.invoke("terminal:write", id, data),
     acknowledge: (id) => ipcRenderer.invoke("terminal:acknowledge", id),
     resize: (id, cols, rows) => ipcRenderer.invoke("terminal:resize", id, cols, rows),
+    readBot: (botId) => ipcRenderer.invoke("terminal:read-bot", botId),
+    sendBot: (botId, input) => ipcRenderer.invoke("terminal:send-bot", botId, input),
     onData: (cb) => {
       const handler = (_event, value) => cb(value);
       ipcRenderer.on("terminal:data", handler);

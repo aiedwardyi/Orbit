@@ -486,6 +486,8 @@ export interface BotRecord {
   /** Id of a named browser profile from config.browserProfiles; absent = the
    * bot's own private session. */
   browserProfile?: string;
+  /** Allow this bot's provider to read its own Orbit terminal screen. */
+  shareTerminalWithChat?: boolean;
   /** Public, package-authored playbooks installed for this bot. They carry
    * process guidance only—never executable code, credentials, or grants. */
   playbooks?: InstalledPlaybook[];

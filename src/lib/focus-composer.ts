@@ -60,7 +60,8 @@ export function isSidebarNavigationActive(doc: Document, activatedElement?: Elem
 }
 
 export function focusComposer(doc: Document = document): boolean {
-  const composer = doc.querySelector<HTMLTextAreaElement>("[data-orbit-composer]:not(:disabled)");
+  const composers = [...doc.querySelectorAll<HTMLTextAreaElement>("[data-orbit-composer]:not(:disabled)")];
+  const composer = composers.find((candidate) => candidate.getClientRects().length > 0) ?? composers[0];
   if (!composer) return false;
   if (doc.activeElement === composer) return true;
 
@@ -70,6 +71,7 @@ export function focusComposer(doc: Document = document): boolean {
   if (typeof start === "number" && typeof end === "number") {
     composer.setSelectionRange(start, end);
   }
+  composer.scrollIntoView?.({ block: "nearest" });
   return true;
 }
 

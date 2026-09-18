@@ -1,7 +1,7 @@
 // OpenMausBot server — the harness host. Clients hold no transports
 // (upstream rule): the React app dispatches typed commands over HTTP and
 // folds one SSE event stream; every provider process runs here.
-import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, realpathSync, statSync, unlinkSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { currentEarlyListen } from "./early-listen.ts";
@@ -228,6 +228,19 @@ import * as vps from "./vps-computer.ts";
 import { RoutineManager, routineTriggerIsUnattended, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
 import { browserScreenshot, readBrowserConnection } from "./browser-connection.ts";
 import { RoutineRequestService } from "./routine-requests.ts";
+import {
+  applySyncOperations,
+  createSyncOperation,
+  emptyProfileSyncState,
+  loadOrCreateSyncWorkspace,
+  loadProfileSyncSettings,
+  readSyncOperations,
+  saveProfileSyncSettings,
+  validateSyncFolder,
+  writeSyncOperation,
+  type ProfileSyncOperation,
+  type ProfileSyncSettings,
+} from "./profile-sync.ts";
 import { fetchBotDirectory, matchDirectoryBots, type MatchedDirectoryBot } from "./bot-directory.ts";
 import { scoutProject, suggestTeam } from "./project-scout.ts";
 import { fetchGithubTeam, fetchLibraryTeam, fetchTeamCatalog } from "./team-library.ts";
@@ -266,6 +279,10 @@ if (sweepLegacyOpencodeKey() === "failed") {
   console.warn(`config: could not remove the legacy OpenCode section from ${join(DATA_DIR, "config.json")}; delete the opencodeGo key manually`);
 }
 const cfg = loadConfig();
+let profileSyncSettings: ProfileSyncSettings = loadProfileSyncSettings(DATA_DIR);
+if (!existsSync(join(DATA_DIR, "profile-sync.json"))) {
+  profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
+}
 const registry = new ProviderRegistry(BUILT_IN_DRIVERS);
 await registry.load(instanceConfigs(cfg));
 const bundledSkills = loadBundledSkills();
@@ -334,8 +351,10 @@ const createGroupTaskRequestSchema = z.object({ title: z.string().optional() });
 // there is exactly one way proxies are located.
 const agentsProxyPath = SPAWNED_PROXIES.agents;
 const phoneProxyPath = SPAWNED_PROXIES.phone;
+const terminalProxyPath = SPAWNED_PROXIES.terminal;
 // in the packaged app process.execPath is Electron — run the proxy as node
 const AGENTS_NODE_FLAG = { ELECTRON_RUN_AS_NODE: "1" };
+const TERMINAL_GRANT_PREFIX = "orbit-terminal-read-v1";
 
 function agentsIntegration(botId: string, threadId: string, depth: number) {
   return {
@@ -388,6 +407,23 @@ function phoneIntegration() {
   if (process.env.OMB_RESOURCES_PATH) env.OMB_RESOURCES_PATH = process.env.OMB_RESOURCES_PATH;
   if (process.env.PH_ANDROID_SERIAL) env.PH_ANDROID_SERIAL = process.env.PH_ANDROID_SERIAL;
   return { command: process.execPath, args: [phoneProxyPath], env };
+}
+
+function terminalIntegration(botId: string) {
+  const url = process.env.OMB_TERMINAL_URL?.trim();
+  const token = process.env.OMB_TERMINAL_TOKEN?.trim();
+  if (!url || !token) return null;
+  const grant = createHmac("sha256", token).update(`${TERMINAL_GRANT_PREFIX}:${botId}`).digest("base64url");
+  return {
+    command: process.execPath,
+    args: [terminalProxyPath],
+    env: {
+      ...AGENTS_NODE_FLAG,
+      OMB_TERMINAL_URL: url,
+      OMB_TERMINAL_TOKEN: grant,
+      OMB_BOT_ID: botId,
+    },
+  };
 }
 
 function connectedAppsIntegration(botId: string, threadId: string) {
@@ -755,6 +791,157 @@ function checkedMemberIds(value: unknown): { ok: true; memberIds: string[] } | {
 let bootSelection = { instanceId: "", model: "" };
 const store = new Store(() => bootSelection);
 const sendSequencer = new SendSequencer();
+
+type ChatLatencyStage =
+  | "post.received"
+  | "queue.decided"
+  | "queue.drained"
+  | "turn.dispatch"
+  | "prepare.completed"
+  | "provider.started"
+  | "first.delta"
+  | "assistant.persisted"
+  | "assistant.sse"
+  | "turn.completed"
+  | "post.receipt";
+
+type ChatLatencySample = {
+  key: string;
+  sendId?: string;
+  threadId: string;
+  userMessageId?: string;
+  queueId?: string;
+  turnId?: string;
+  assistantMessageId?: string;
+  stages: Partial<Record<ChatLatencyStage, number>>;
+};
+
+// Disabled by default. Set OMB_CHAT_LATENCY=1 for bounded, prompt-free
+// stage timing in the server log while reproducing a send race.
+const chatLatencyDebug = process.env.OMB_CHAT_LATENCY === "1";
+const chatLatencySamples = new Map<string, ChatLatencySample>();
+const chatLatencyBySend = new Map<string, string>();
+const chatLatencyByUserMessage = new Map<string, string>();
+const chatLatencyByTurn = new Map<string, string>();
+const chatLatencyByThread = new Map<string, string[]>();
+const CHAT_LATENCY_MAX = 256;
+
+function chatLatencyNow(): number {
+  return performance.now();
+}
+
+function pendingChatLatencyForThread(threadId: string, unclaimedOnly = false): ChatLatencySample | null {
+  const keys = chatLatencyByThread.get(threadId);
+  if (!keys) return null;
+  const remaining: string[] = [];
+  for (const key of keys) {
+    const sample = chatLatencySamples.get(key);
+    if (!sample) continue;
+    remaining.push(key);
+    if (!unclaimedOnly || !sample.turnId) return sample;
+  }
+  if (remaining.length) chatLatencyByThread.set(threadId, remaining);
+  else chatLatencyByThread.delete(threadId);
+  return null;
+}
+
+function removeChatLatency(sample: ChatLatencySample): void {
+  chatLatencySamples.delete(sample.key);
+  if (sample.sendId && chatLatencyBySend.get(sample.sendId) === sample.key) chatLatencyBySend.delete(sample.sendId);
+  if (sample.userMessageId && chatLatencyByUserMessage.get(sample.userMessageId) === sample.key) chatLatencyByUserMessage.delete(sample.userMessageId);
+  if (sample.turnId && chatLatencyByTurn.get(sample.turnId) === sample.key) chatLatencyByTurn.delete(sample.turnId);
+  const threadKeys = chatLatencyByThread.get(sample.threadId);
+  if (threadKeys) {
+    const remaining = threadKeys.filter((key) => key !== sample.key);
+    if (remaining.length) chatLatencyByThread.set(sample.threadId, remaining);
+    else chatLatencyByThread.delete(sample.threadId);
+  }
+}
+
+function ensureChatLatency(input: { sendId?: string; threadId: string; userMessageId?: string; turnId?: string }): ChatLatencySample | null {
+  if (!chatLatencyDebug) return null;
+  const key = input.sendId ?? input.userMessageId ?? `${input.threadId}:${chatLatencyNow()}`;
+  const existing = (input.turnId ? chatLatencySamples.get(chatLatencyByTurn.get(input.turnId) ?? "") : null)
+    ?? (input.sendId ? chatLatencySamples.get(chatLatencyBySend.get(input.sendId) ?? "") : null)
+    ?? (input.userMessageId ? chatLatencySamples.get(chatLatencyByUserMessage.get(input.userMessageId) ?? "") : null)
+    ?? (!input.sendId ? pendingChatLatencyForThread(input.threadId, Boolean(input.turnId)) : null)
+    ?? chatLatencySamples.get(key);
+  if (existing) {
+    existing.userMessageId ??= input.userMessageId;
+    existing.turnId ??= input.turnId;
+    if (input.userMessageId) chatLatencyByUserMessage.set(input.userMessageId, existing.key);
+    if (input.turnId) chatLatencyByTurn.set(input.turnId, existing.key);
+    if (input.sendId) chatLatencyBySend.set(input.sendId, existing.key);
+    return existing;
+  }
+  const sample: ChatLatencySample = {
+    key,
+    sendId: input.sendId,
+    threadId: input.threadId,
+    userMessageId: input.userMessageId,
+    stages: {},
+  };
+  chatLatencySamples.set(key, sample);
+  if (input.sendId) chatLatencyBySend.set(input.sendId, key);
+  if (input.userMessageId) chatLatencyByUserMessage.set(input.userMessageId, key);
+  if (input.turnId) chatLatencyByTurn.set(input.turnId, key);
+  const threadKeys = chatLatencyByThread.get(input.threadId) ?? [];
+  threadKeys.push(key);
+  chatLatencyByThread.set(input.threadId, threadKeys);
+  while (chatLatencySamples.size > CHAT_LATENCY_MAX) {
+    const oldest = chatLatencySamples.keys().next().value;
+    if (!oldest) break;
+    const sample = chatLatencySamples.get(oldest);
+    if (sample) removeChatLatency(sample);
+  }
+  return sample;
+}
+
+function chatLatencySampleFor(input: { sendId?: string; threadId?: string; userMessageId?: string; turnId?: string }): ChatLatencySample | null {
+  if (input.turnId) {
+    const key = chatLatencyByTurn.get(input.turnId);
+    if (key) return chatLatencySamples.get(key) ?? null;
+  }
+  if (input.sendId) {
+    const key = chatLatencyBySend.get(input.sendId);
+    if (key) return chatLatencySamples.get(key) ?? null;
+  }
+  if (input.userMessageId) {
+    const key = chatLatencyByUserMessage.get(input.userMessageId);
+    if (key) return chatLatencySamples.get(key) ?? null;
+  }
+  return input.threadId ? pendingChatLatencyForThread(input.threadId, Boolean(input.turnId)) : null;
+}
+
+function markChatLatency(
+  input: { sendId?: string; threadId: string; userMessageId?: string; turnId?: string },
+  stage: ChatLatencyStage,
+  ids: { queueId?: string; turnId?: string; assistantMessageId?: string } = {},
+): void {
+  if (!chatLatencyDebug) return;
+  const sample = chatLatencySampleFor(input) ?? ensureChatLatency(input);
+  if (!sample) return;
+  sample.stages[stage] ??= chatLatencyNow();
+  sample.queueId ??= ids.queueId;
+  sample.turnId ??= ids.turnId;
+  sample.assistantMessageId ??= ids.assistantMessageId;
+  if (sample.turnId) chatLatencyByTurn.set(sample.turnId, sample.key);
+  if (stage !== "turn.completed" || !chatLatencyDebug) return;
+  const started = sample.stages["post.received"] ?? sample.stages["turn.dispatch"] ?? sample.stages[stage]!;
+  const durations = Object.fromEntries(
+    Object.entries(sample.stages).map(([name, at]) => [name, Math.round((at! - started) * 100) / 100]),
+  );
+  console.info(`[chat-latency] ${JSON.stringify({
+    sendId: sample.sendId,
+    threadId: sample.threadId,
+    userMessageId: sample.userMessageId,
+    queueId: sample.queueId,
+    turnId: sample.turnId,
+    assistantMessageId: sample.assistantMessageId,
+    durations,
+  })}`);
+  removeChatLatency(sample);
+}
 // Engine describe() walks PATH and refreshModels for every instance. First
 // chat paint only needs Store + /api/bots; existing bots already carry a
 // selection. Do not start that scan until after listen / early attach.
@@ -822,6 +1009,298 @@ const publicBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => ({
   ...publicBotRecord(bot),
   messages: store.messagesFor(bot.threadId).map(clientMessage),
 });
+
+let profileSyncLastSyncAt: number | null = null;
+let profileSyncLastConflictCount = 0;
+let profileSyncReviewedRevision: string | null = null;
+
+function syncSectionId(section: string | undefined): string | null {
+  const key = sectionKey(section);
+  if (!key) return null;
+  const existing = profileSyncSettings.sectionMap[key];
+  if (existing) return existing;
+  const id = randomUUID();
+  profileSyncSettings.sectionMap[key] = id;
+  return id;
+}
+
+function localBotIdForGlobal(globalId: string): string | undefined {
+  return Object.entries(profileSyncSettings.botMap).find(([, mapped]) => mapped === globalId)?.[0];
+}
+
+function ensureProfileSyncWorkspace(folder: string): void {
+  const workspaceId = loadOrCreateSyncWorkspace(folder, profileSyncSettings.workspaceId);
+  if (workspaceId === profileSyncSettings.workspaceId) return;
+  profileSyncSettings = {
+    ...profileSyncSettings,
+    workspaceId,
+    botMap: {},
+    sectionMap: {},
+  };
+}
+
+function syncBotId(localId: string): string {
+  const existing = profileSyncSettings.botMap[localId];
+  if (existing) return existing;
+  const id = randomUUID();
+  profileSyncSettings.botMap[localId] = id;
+  return id;
+}
+
+function nextProfileSyncOperation(
+  input: Omit<ProfileSyncOperation, "format" | "version" | "operationId" | "deviceId" | "sequence" | "recordedAt">,
+  now: number,
+): ProfileSyncOperation {
+  const operation = createSyncOperation({
+    ...input,
+    operationId: randomUUID(),
+    deviceId: profileSyncSettings.deviceId,
+    sequence: profileSyncSettings.nextSequence++,
+    recordedAt: now,
+  });
+  return operation;
+}
+
+function portableSyncChanges(bot: BotRecord): Record<string, unknown> {
+  return {
+    name: bot.name,
+    title: bot.title,
+    description: bot.description,
+    color: bot.color,
+    mascotExpression: bot.mascotExpression ?? null,
+    mascotStyle: bot.mascotStyle ?? null,
+    avatarAsset: bot.avatarUrl?.startsWith("/api/attachments/") ? bot.avatarUrl.slice("/api/attachments/".length) : null,
+    sectionId: syncSectionId(bot.section),
+    pinned: Boolean(bot.pinned),
+    chiefOfStaff: Boolean(bot.chiefOfStaff),
+    instanceId: bot.modelSelection.instanceId,
+    model: bot.modelSelection.model,
+  };
+}
+
+function profileSyncRevision(operations: ProfileSyncOperation[]): string {
+  return operations.map((operation) => operation.operationId).sort().join("\n");
+}
+
+function profileSyncStatus() {
+  const folder = profileSyncSettings.folder;
+  if (!folder) {
+    return {
+      configured: false,
+      folder: null,
+      status: "disconnected" as const,
+      operations: 0,
+      invalidFiles: [],
+      conflicts: profileSyncLastConflictCount,
+      lastSyncAt: profileSyncLastSyncAt,
+    };
+  }
+  ensureProfileSyncWorkspace(folder);
+  const remote = readSyncOperations(folder);
+  const remoteState = applySyncOperations(emptyProfileSyncState(), remote.operations);
+  const revision = profileSyncRevision(remote.operations);
+  const conflicts = profileSyncReviewedRevision === revision ? profileSyncLastConflictCount : remoteState.conflicts.length;
+  const status = remote.invalidFiles.length > 0 || conflicts > 0
+    ? "needs-review"
+    : remote.operations.length > 0
+      ? "up-to-date"
+      : "waiting";
+  return {
+    configured: true,
+    folder,
+    status: status as "needs-review" | "up-to-date" | "waiting",
+    operations: remote.operations.length,
+    invalidFiles: remote.invalidFiles,
+    conflicts,
+    lastSyncAt: profileSyncLastSyncAt,
+  };
+}
+
+function profileSyncRemoteState() {
+  if (!profileSyncSettings.folder) throw Object.assign(new Error("Choose a Google Drive folder first"), { status: 409 });
+  ensureProfileSyncWorkspace(profileSyncSettings.folder);
+  const remote = readSyncOperations(profileSyncSettings.folder);
+  const state = applySyncOperations(emptyProfileSyncState(), remote.operations);
+  return { ...remote, state };
+}
+
+function profileSyncPreview() {
+  const remote = profileSyncRemoteState();
+  const botChanges = Object.values(remote.state.bots).map((bot) => {
+    const localId = localBotIdForGlobal(bot.id);
+    return { id: bot.id, name: String(bot.name ?? "Unnamed bot"), action: localId && store.bot(localId) ? "update" : "add" };
+  });
+  const deleted = Object.keys(remote.state.tombstones).filter((key) => key.startsWith("bot:")).map((key) => {
+    const globalId = key.slice("bot:".length);
+    const localId = localBotIdForGlobal(globalId);
+    return { id: globalId, name: localId ? store.bot(localId)?.name ?? globalId : globalId, action: "archive" as const };
+  });
+  return {
+    bots: [...botChanges, ...deleted],
+    conflicts: remote.state.conflicts,
+    invalidFiles: remote.invalidFiles,
+    operations: remote.operations.length,
+    revision: profileSyncRevision(remote.operations),
+    localRevision: profileSyncLocalRevision(),
+  };
+}
+
+function profileSyncLocalRevision(): string {
+  return JSON.stringify({
+    bots: store.bots.map((bot) => ({
+      id: bot.id,
+      name: bot.name,
+      title: bot.title,
+      description: bot.description,
+      color: bot.color,
+      mascotExpression: bot.mascotExpression ?? null,
+      mascotStyle: bot.mascotStyle ?? null,
+      avatarUrl: bot.avatarUrl ?? null,
+      section: bot.section ?? null,
+      pinned: Boolean(bot.pinned),
+      chiefOfStaff: Boolean(bot.chiefOfStaff),
+      instanceId: bot.modelSelection.instanceId,
+      model: bot.modelSelection.model,
+    })),
+    workspaceId: profileSyncSettings.workspaceId,
+    botMap: profileSyncSettings.botMap,
+    sectionMap: profileSyncSettings.sectionMap,
+  });
+}
+
+function publishProfileSync(): { written: number; status: ReturnType<typeof profileSyncStatus> } {
+  if (!profileSyncSettings.folder) throw Object.assign(new Error("Choose a Google Drive folder first"), { status: 409 });
+  const now = Date.now();
+  const operations: ProfileSyncOperation[] = [];
+  for (const bot of store.bots) {
+    const globalId = syncBotId(bot.id);
+    operations.push(nextProfileSyncOperation({ entity: "bot", entityId: globalId, changes: portableSyncChanges(bot) }, now));
+  }
+  const liveBotIds = new Set(store.bots.map((bot) => bot.id));
+  for (const [localId, globalId] of Object.entries(profileSyncSettings.botMap)) {
+    if (!liveBotIds.has(localId)) {
+      operations.push(nextProfileSyncOperation({ entity: "bot", entityId: globalId, deleted: true }, now));
+    }
+  }
+  const seenSections = new Set<string>();
+  for (const bot of store.bots) {
+    const id = syncSectionId(bot.section);
+    if (!id || seenSections.has(id)) continue;
+    seenSections.add(id);
+    operations.push(nextProfileSyncOperation({ entity: "section", entityId: id, changes: { name: bot.section, order: seenSections.size - 1 } }, now));
+  }
+  operations.push(nextProfileSyncOperation({
+    entity: "order",
+    entityId: profileSyncSettings.workspaceId,
+    changes: {
+      sectionOrder: [...seenSections],
+      itemOrder: { [profileSyncSettings.workspaceId]: store.bots.map((bot) => syncBotId(bot.id)) },
+    },
+  }, now));
+  for (const operation of operations) writeSyncOperation(profileSyncSettings.folder, operation);
+  profileSyncLastSyncAt = Date.now();
+  profileSyncReviewedRevision = null;
+  profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
+  return { written: operations.length, status: profileSyncStatus() };
+}
+
+function importProfileSync(input: { previewRevision?: string; localRevision?: string; resolutions?: Record<string, string> } = {}): { imported: number; archived: number; conflicts: number; status: ReturnType<typeof profileSyncStatus> } {
+  const remote = profileSyncRemoteState();
+  const revision = profileSyncRevision(remote.operations);
+  if (input.previewRevision !== revision || input.localRevision !== profileSyncLocalRevision()) {
+    throw Object.assign(new Error("The sync preview is out of date. Preview again before importing."), { status: 409 });
+  }
+  const conflictsById = new Map(remote.state.conflicts.map((conflict) => [conflict.id, conflict]));
+  const unresolved = remote.state.conflicts.filter((conflict) => {
+    const selected = input.resolutions?.[conflict.id];
+    return !selected || !conflict.variants.some((variant) => variant.operationId === selected);
+  });
+  if (unresolved.length) {
+    throw Object.assign(new Error("Resolve the sync conflicts in the preview before importing."), { status: 409 });
+  }
+  for (const conflictId of Object.keys(input.resolutions ?? {})) {
+    if (!conflictsById.has(conflictId)) {
+      throw Object.assign(new Error("The sync conflict resolution is not part of this preview."), { status: 409 });
+    }
+  }
+  const resolvedField = (entity: ProfileSyncOperation["entity"], entityId: string, field: string): unknown => {
+    const conflict = remote.state.conflicts.find((candidate) => candidate.entity === entity && candidate.entityId === entityId && candidate.field === field);
+    const selected = conflict ? input.resolutions?.[conflict.id] : undefined;
+    return conflict?.variants.find((variant) => variant.operationId === selected)?.value;
+  };
+  profileSyncLastConflictCount = 0;
+  profileSyncReviewedRevision = revision;
+  for (const section of Object.values(remote.state.sections)) {
+    const name = resolvedField("section", section.id, "name") ?? section.name;
+    if (typeof name === "string" && name) profileSyncSettings.sectionMap[name] = section.id;
+  }
+  const sectionNames = new Map(Object.values(remote.state.sections).map((section) => [
+    section.id,
+    String(resolvedField("section", section.id, "name") ?? section.name ?? ""),
+  ]));
+  let imported = 0;
+  for (const synced of Object.values(remote.state.bots)) {
+    let localId = localBotIdForGlobal(synced.id);
+    let bot = localId ? store.bot(localId) : null;
+    const profile = {
+      name: String(resolvedField("bot", synced.id, "name") ?? synced.name ?? "Imported bot"),
+      title: String(resolvedField("bot", synced.id, "title") ?? synced.title ?? ""),
+      description: String(resolvedField("bot", synced.id, "description") ?? synced.description ?? ""),
+      color: (resolvedField("bot", synced.id, "color") ?? synced.color) as BotRecord["color"],
+      mascotExpression: (resolvedField("bot", synced.id, "mascotExpression") ?? synced.mascotExpression) as BotRecord["mascotExpression"],
+      mascotStyle: (resolvedField("bot", synced.id, "mascotStyle") ?? synced.mascotStyle) as BotRecord["mascotStyle"],
+      section: typeof synced.sectionId === "string" ? sectionNames.get(String(resolvedField("bot", synced.id, "sectionId") ?? synced.sectionId)) : undefined,
+    };
+    if (!bot) {
+      bot = store.createBot(profile, { seedMessages: false });
+      localId = bot.id;
+      profileSyncSettings.botMap[localId] = synced.id;
+    } else {
+      store.patchBot(bot.id, profile);
+    }
+    const importedInstanceId = resolvedField("bot", synced.id, "instanceId") ?? synced.instanceId;
+    const importedModel = resolvedField("bot", synced.id, "model") ?? synced.model;
+    let model = bot.modelSelection;
+    if (typeof importedModel === "string" && importedModel) {
+      const instanceId = typeof importedInstanceId === "string" && importedInstanceId ? importedInstanceId : bot.modelSelection.instanceId;
+      const instance = registry.get(instanceId);
+      const offered = instance && (importedModel === instance.models.default || instance.models.options.some((option) => option.id === importedModel));
+      if (offered) model = { ...bot.modelSelection, instanceId, model: importedModel };
+    }
+    const pinned = resolvedField("bot", synced.id, "pinned") ?? synced.pinned;
+    const chiefOfStaff = resolvedField("bot", synced.id, "chiefOfStaff") ?? synced.chiefOfStaff;
+    store.patchBot(bot.id, { pinned: pinned === true, chiefOfStaff: chiefOfStaff === true, modelSelection: model });
+    imported++;
+  }
+  let archived = 0;
+  for (const key of Object.keys(remote.state.tombstones).filter((value) => value.startsWith("bot:"))) {
+    const localId = localBotIdForGlobal(key.slice("bot:".length));
+    if (!localId || !store.bot(localId)) continue;
+    store.patchBot(localId, { hidden: true, chiefOfStaff: false });
+    archived++;
+  }
+  const sectionOrder = remote.state.order.sectionOrder.flatMap((sectionId) => {
+    const sectionName = sectionNames.get(sectionId);
+    return sectionName ? store.bots.filter((bot) => bot.section === sectionName).map((bot) => bot.id) : [];
+  });
+  const itemOrder = remote.state.order.itemOrder[profileSyncSettings.workspaceId] ?? [];
+  const desired = [...new Set([...sectionOrder, ...itemOrder
+    .map((globalId) => localBotIdForGlobal(globalId))])]
+    .filter((id): id is string => {
+      if (!id) return false;
+      return Boolean(store.bot(id));
+    });
+  const rest = store.bots.map((bot) => bot.id).filter((id) => !desired.includes(id));
+  if (desired.length + rest.length === store.bots.length) store.reorderBots([...desired, ...rest]);
+  for (const bot of Object.values(remote.state.bots).filter((candidate) => candidate.chiefOfStaff === true)) {
+    const localId = localBotIdForGlobal(bot.id);
+    const local = localId ? store.bot(localId) : null;
+    if (local) store.setChiefOfStaff(local.id, local.section);
+  }
+  profileSyncLastSyncAt = Date.now();
+  profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
+  return { imported, archived, conflicts: profileSyncLastConflictCount, status: profileSyncStatus() };
+}
 
 type GroupTurnOperation = {
   id: string;
@@ -1673,6 +2152,13 @@ bus.subscribe((event: RuntimeEvent) => {
     releaseLocalVmThread(event.threadId);
   }
   broadcast({ kind: "runtime", event });
+  if (event.type === "turn.started") {
+    markChatLatency({ threadId: event.threadId, turnId: event.turnId }, "provider.started", { turnId: event.turnId });
+  } else if (event.type === "content.delta") {
+    markChatLatency({ threadId: event.threadId, turnId: event.turnId }, "first.delta", { turnId: event.turnId });
+  } else if (event.type === "turn.completed") {
+    markChatLatency({ threadId: event.threadId, turnId: event.turnId }, "turn.completed", { turnId: event.turnId });
+  }
   if (event.type === "account.rate-limits.updated" && event.providerInstanceId) {
     const observedAt = event.observedAt ?? event.createdAt;
     const current = rateLimitsByInstance.get(event.providerInstanceId);
@@ -1711,6 +2197,10 @@ bus.subscribe((event: RuntimeEvent) => {
     case "item.completed":
       if (event.itemType === "assistant_text") {
         const message = pushMessage({ role: "bot", kind: "text", text: event.text });
+        markChatLatency({ threadId: event.threadId, turnId: event.turnId }, "assistant.persisted", {
+          turnId: event.turnId,
+          assistantMessageId: message.id,
+        });
         // kept so "finished" can say what it finished with, rather than
         // just that something ended
         lastReply.set(event.threadId, { text: event.text, messageId: message.id });
@@ -2364,6 +2854,13 @@ function drainQueuedSends() {
     // from duplicating it, and excludeIds drops it from the
     // transcript-replay so it is not also in `prompt`. Later queued
     // sends wait for the next settle.
+    if (userMessage) {
+      markChatLatency(
+        { sendId: userMessage.sendId, threadId, userMessageId: userMessage.id },
+        "queue.drained",
+        { queueId: userMessage.queueId },
+      );
+    }
     startTurn(botId, prompt, {
       threadId,
       userMessage: userMessage ?? undefined,
@@ -2595,6 +3092,9 @@ async function startTurn(botId: string, text: string, opts?: StartTurnOptions) {
     return await startClaimedTurn(botId, text, opts);
   } finally {
     turnStartClaims.delete(botId);
+    // Preparation can fail before a provider turn exists, so no
+    // turn.completed event will arrive to wake the next queued send.
+    queueMicrotask(() => continueQueuedDrainIfIdle(store, botId, drainQueuedSends, botHasActiveTurn));
   }
 }
 
@@ -2626,8 +3126,11 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   else if (opts?.automationSource === undefined && !opts?.commsDepth && !opts?.cardContinuation) clearUnattended(bot.id);
   const task = store.taskByThread(bot.id, threadId);
   if (!task) throw Object.assign(new Error("no such task"), { status: 404 });
+  const latencySendId = opts?.sendId ?? opts?.userMessage?.sendId;
+  if (latencySendId) ensureChatLatency({ sendId: latencySendId, threadId });
   // Accepted: ownership and the task exist. Announce here so a busy peer
   // (askBotAndWait) never clears a live wait that is not being replaced.
+  markChatLatency({ sendId: latencySendId, threadId }, "turn.dispatch");
   broadcast({ kind: "turn.dispatch", threadId });
   const commsDepth = opts?.commsDepth ?? 0;
   // a task takes its name from the first thing the user asked it to do —
@@ -2782,6 +3285,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       return startedTurn(userMessage, { dispatchFailed: true, error: detail });
     }
   }
+  ensureChatLatency({ sendId: latencySendId, threadId, userMessageId: userMessage.id });
+  markChatLatency({ sendId: latencySendId, threadId, userMessageId: userMessage.id }, "prepare.completed");
   const transcript = prepared.transcript;
   const contextCompacted = prepared.compacted;
 
@@ -2903,6 +3408,10 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     if (currentTurnEpoch(bot.id) !== epoch) return;
     try {
       const integrations: NonNullable<Parameters<typeof instance.adapter.sendTurn>[0]["integrations"]> = {};
+      if (bot.shareTerminalWithChat) {
+        const terminal = terminalIntegration(bot.id);
+        if (terminal) integrations.terminal = terminal;
+      }
       const selectedSkills = selectBundledSkills(
         text,
         instance.adapter.capabilities.phoneMcp === true ? ["phoneMcp"] : [],
@@ -3809,6 +4318,7 @@ async function runGroupMemberTurn(
     );
   } finally {
     releaseTurnStart();
+    queueMicrotask(() => continueQueuedDrainIfIdle(store, botId, drainQueuedSends, botHasActiveTurn));
   }
 }
 
@@ -3938,6 +4448,10 @@ async function runClaimedGroupMemberTurn(
   // processes, interleaved token spend, and an interrupt that only ever
   // reached one of them.
   const integrations: NonNullable<Parameters<typeof instance.adapter.sendTurn>[0]["integrations"]> = {};
+  if (bot.shareTerminalWithChat) {
+    const terminal = terminalIntegration(bot.id);
+    if (terminal) integrations.terminal = terminal;
+  }
   if (hop < MAX_COMMS_DEPTH && instance.adapter.capabilities.agentsMcp === true) {
     integrations.agents = agentsIntegration(bot.id, threadId, hop);
   }
@@ -5659,6 +6173,65 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return;
     }
 
+    // ── shared bot profile sync ───────────────────────────────────────
+    if (method === "GET" && path === "/api/profile-sync") {
+      return json(res, 200, profileSyncStatus());
+    }
+    if (method === "PUT" && path === "/api/profile-sync") {
+      const body = await readBody(req);
+      if (!body || typeof body.folder !== "string") return json(res, 400, { error: "folder must be a path" });
+      try {
+        const folder = validateSyncFolder(body.folder);
+        ensureProfileSyncWorkspace(folder);
+        profileSyncSettings.folder = folder;
+        profileSyncLastConflictCount = 0;
+        profileSyncReviewedRevision = null;
+        profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
+        return json(res, 200, profileSyncStatus());
+      } catch (error) {
+        return json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    if (method === "DELETE" && path === "/api/profile-sync") {
+      profileSyncSettings.folder = null;
+      profileSyncLastConflictCount = 0;
+      profileSyncReviewedRevision = null;
+      profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
+      return json(res, 200, profileSyncStatus());
+    }
+    if (method === "GET" && path === "/api/profile-sync/preview") {
+      try {
+        return json(res, 200, profileSyncPreview());
+      } catch (error) {
+        const status = typeof (error as { status?: unknown }).status === "number" ? (error as { status: number }).status : 400;
+        return json(res, status, { error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    if (method === "POST" && path === "/api/profile-sync/publish") {
+      try {
+        return json(res, 200, publishProfileSync());
+      } catch (error) {
+        const status = typeof (error as { status?: unknown }).status === "number" ? (error as { status: number }).status : 400;
+        return json(res, status, { error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    if (method === "POST" && path === "/api/profile-sync/import") {
+      const body = await readBody(req);
+      if (body?.confirm !== true || typeof body.previewRevision !== "string" || typeof body.localRevision !== "string") {
+        return json(res, 400, { error: "confirm the current sync preview before importing" });
+      }
+      try {
+        return json(res, 200, importProfileSync({
+          previewRevision: body.previewRevision,
+          localRevision: body.localRevision,
+          resolutions: body.resolutions && typeof body.resolutions === "object" ? body.resolutions as Record<string, string> : undefined,
+        }));
+      } catch (error) {
+        const status = typeof (error as { status?: unknown }).status === "number" ? (error as { status: number }).status : 400;
+        return json(res, status, { error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+
     // ── bots ──
     // There is deliberately no GET /api/groups list endpoint: groups ride
     // along on this response (the sidebar's group-order refetch reads them
@@ -6821,6 +7394,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           patch.browserProfile = body.browserProfile;
         } else return json(res, 400, { error: "browserProfile must name an existing browser profile" });
       }
+      if (body.shareTerminalWithChat !== undefined) {
+        if (typeof body.shareTerminalWithChat !== "boolean") return json(res, 400, { error: "shareTerminalWithChat must be true or false" });
+        patch.shareTerminalWithChat = body.shareTerminalWithChat;
+      }
       if (
         body.computer !== undefined &&
         !["cloud", "vm", "local", "off"].includes(String(body.computer))
@@ -7192,6 +7769,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 409, { error: "the bot switched tasks before it could receive the message" });
       }
       const sendId = parseSendId(body.sendId);
+      if (sendId) {
+        ensureChatLatency({ sendId, threadId });
+        markChatLatency({ sendId, threadId }, "post.received");
+      }
       const replyTo = resolveReplyTarget(threadId, body.replyToId);
       const receipt = await sendSequencer.run(
         sendId ? `bot:${bot.id}:${threadId}:${sendId}` : undefined,
@@ -7236,13 +7817,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             });
           }
 
-          // Claude can accept the message inside its live turn. If the write
-          // loses a race with turn settlement, or the engine cannot steer, the
-          // existing server-side queue records it atomically for the next turn.
-          if (currentAtStart.busy) {
+          // Claude can accept the message inside its live turn. A turn-start
+          // claim also counts as active while prepareModelContext is running:
+          // busy flips only after preparation, so without this check rapid
+          // sends race the claim and receive a false busy rejection.
+          if (currentAtStart.busy || botHasActiveTurn(bot.id, threadId)) {
             const instance = registry.get(currentAtStart.modelSelection.instanceId);
             let steered = false;
-            if (instance?.adapter.capabilities.queueing && instance.adapter.steer) {
+            if (currentAtStart.busy && instance?.adapter.capabilities.queueing && instance.adapter.steer) {
               steered = await instance.adapter
                 .steer(threadId, composeUserTurnPrompt(text, {
                   replyTo,
@@ -7283,9 +7865,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                 sendId,
                 steered: true,
               });
+              markChatLatency({ sendId, threadId, userMessageId: message.id }, "queue.decided");
               return { ok: true as const, steered: true as const, threadId, message };
             }
-            if (!current.busy) {
+            if (!current.busy && !botHasActiveTurn(bot.id, threadId)) {
               const started = await startTurn(bot.id, text, { threadId, replyTo, sendId });
               return sendPostReceipt(started, threadId);
             }
@@ -7298,6 +7881,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             if (queued.skipped) {
               return { ok: true as const, cancelled: true as const, threadId };
             }
+            markChatLatency({ sendId, threadId }, "queue.decided", { queueId: queued.id });
             return { ok: true as const, queued: true as const, queueId: queued.id, threadId };
           }
           // Stop cleared `busy`, but the driver holds the thread for up to
@@ -7307,19 +7891,21 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           // telling the client "busy" is the inconsistency. Check and enqueue
           // are synchronous, so a settle cannot land between them and strand
           // the message; the drain on turn.completed takes it from there.
-          if (botHasLiveTurn(bot.id, threadId)) {
+          if (botHasActiveTurn(bot.id, threadId)) {
             const held = queueSteeredMessage(bot.id, threadId, text, {
               replyToId: replyTo?.id,
               sendId,
               prompt: promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"),
             });
             if (held.skipped) return { ok: true as const, cancelled: true as const, threadId };
+            markChatLatency({ sendId, threadId }, "queue.decided", { queueId: held.id });
             return { ok: true as const, queued: true as const, queueId: held.id, threadId };
           }
           const started = await startTurn(bot.id, text, { threadId, replyTo, sendId });
           return sendPostReceipt(started, threadId);
         },
       );
+      markChatLatency({ sendId, threadId }, "post.receipt");
       return json(res, 202, receipt);
     }
 

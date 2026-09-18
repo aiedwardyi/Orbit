@@ -121,6 +121,14 @@ describe("detectChatOptions", () => {
       messagePrefix: null,
     });
   });
+
+  it("splits an em-dash enumeration into clean choices", () => {
+    expect(detectChatOptions("You can start right now! What do you want to do — Set 11, a review rep, or something new?")).toEqual({
+      options: ["Set 11", "a review rep", "something new"],
+      question: "What do you want to do?",
+      messagePrefix: "You can start right now!",
+    });
+  });
 });
 
 describe("laterUserAnswer", () => {

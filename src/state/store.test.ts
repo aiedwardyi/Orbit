@@ -15,6 +15,7 @@ import {
   terminalAttentionKey,
   shouldClearSelectedUnread,
   visibleNotificationThread,
+  visibleMessages,
   type Bot,
   type Group,
   type InstanceInfo,
@@ -932,6 +933,96 @@ describe("canonical message races", () => {
     expect(next).toBe(state);
     expect(next.bots[0]?.activeLeafId).toBe(reply.id);
     expect(next.bots[0]?.messages).toEqual([sent, reply]);
+  });
+
+  it("keeps an assistant reply visible when its SSE frame beats the user frame", () => {
+    const user = {
+      id: "late-user",
+      role: "user",
+      kind: "text",
+      text: "hello",
+      at: 1,
+      parentId: null,
+    } satisfies Message;
+    const reply = {
+      id: "late-reply",
+      role: "bot",
+      kind: "text",
+      text: "Hi there",
+      at: 2,
+      parentId: user.id,
+    } satisfies Message;
+    const bot = {
+      id: "late-bot",
+      threadId: "late-thread",
+      name: "Late",
+      title: "",
+      description: "",
+      notifications: true,
+      color: "green",
+      unread: false,
+      modelSelection: { instanceId: "codex", model: "default" },
+      messages: [],
+      activeLeafId: null,
+    } satisfies Bot;
+    const state = { ...initialState, bots: [bot] };
+
+    const afterReply = reducer(state, { type: "messageAdded", threadId: bot.threadId, message: reply });
+    const afterUser = reducer(afterReply, { type: "messageAdded", threadId: bot.threadId, message: user });
+
+    expect(afterUser.bots[0]?.activeLeafId).toBe(reply.id);
+    expect(afterUser.bots[0]?.messages).toEqual([reply, user]);
+  });
+
+  it("folds rapid user and assistant frames back into one canonical path", () => {
+    const messages = [
+      { id: "u1", role: "user", kind: "text", text: "one", at: 1, parentId: null },
+      { id: "a1", role: "bot", kind: "text", text: "reply one", at: 2, parentId: "u1" },
+      { id: "u2", role: "user", kind: "text", text: "two", at: 3, parentId: "a1" },
+      { id: "a2", role: "bot", kind: "text", text: "reply two", at: 4, parentId: "u2" },
+    ] satisfies Message[];
+    const bot: Bot = {
+      id: "rapid-bot",
+      threadId: "rapid-thread",
+      name: "Rapid",
+      title: "",
+      description: "",
+      notifications: true,
+      color: "green",
+      unread: false,
+      modelSelection: { instanceId: "codex", model: "default" },
+      messages: [],
+      activeLeafId: null,
+    } satisfies Bot;
+    const state = { ...initialState, bots: [bot] };
+    const arrivalOrder: Message[] = [messages[1]!, messages[0]!, messages[3]!, messages[2]!];
+    const folded = arrivalOrder.reduce(
+      (next, message) => reducer(next, { type: "messageAdded", threadId: bot.threadId, message }),
+      state,
+    );
+
+    expect(folded.bots[0]?.activeLeafId).toBe("a2");
+    expect(folded.bots[0] && visibleMessages(folded.bots[0]).map((message) => message.id)).toEqual([
+      "u1",
+      "a1",
+      "u2",
+      "a2",
+    ]);
+  });
+
+  it("bounds visible ancestry when a malformed frame contains a parent cycle", () => {
+    expect(
+      visibleMessages({
+        activeLeafId: "cycle-a",
+        messages: [
+          { id: "cycle-u", role: "user", kind: "text", text: "one", at: 1, parentId: "cycle-a" },
+          { id: "cycle-a", role: "bot", kind: "text", text: "two", at: 2, parentId: "cycle-u" },
+        ],
+      }),
+    ).toEqual([
+      expect.objectContaining({ id: "cycle-u" }),
+      expect.objectContaining({ id: "cycle-a" }),
+    ]);
   });
 });
 

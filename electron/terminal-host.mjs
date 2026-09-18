@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import { spawnTerminalPty } from "./terminal-pty.mjs";
+import { createTerminalScreen } from "./terminal-screen.mjs";
 
 const require = createRequire(import.meta.url);
 const OUTPUT_LIMIT = 256 * 1024;
@@ -12,6 +13,7 @@ const SHUTDOWN_TIMEOUT_MS = 500;
 export const TERMINAL_ACTIVITY_COALESCE_MS = 750;
 export const TERMINAL_ACTIVITY_ACK_COOLDOWN_MS = 3_000;
 const INPUT_ECHO_LIMIT = 4_096;
+const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 
 const stringControl = new Set(["P", "^", "_", "X"]);
 
@@ -120,6 +122,7 @@ export function trustedTerminalSender(event, owner, origin) {
 export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform), activityCoalesceMs = TERMINAL_ACTIVITY_COALESCE_MS, attentionCooldownMs = TERMINAL_ACTIVITY_ACK_COOLDOWN_MS, now = () => Date.now() }) {
   const sessions = new Map();
   const active = new Map();
+  const generations = new Map();
   const pending = new Map();
   let disposed = false;
   const dimensions = (cols, rows) => {
@@ -139,7 +142,17 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
     return session ?? null;
   };
   const snapshot = (session) => {
-    const result = { id: session.id, cwd: session.cwd, shell: session.shell, output: session.output, exitCode: session.exitCode, seq: session.seq };
+    const result = {
+      id: session.id,
+      sessionId: session.id,
+      generation: session.generation,
+      cwd: session.cwd,
+      shell: session.shell,
+      output: session.output,
+      exitCode: session.exitCode,
+      seq: session.seq,
+      ...session.screen.snapshot(),
+    };
     if (session.launchProject !== undefined) result.launchProject = session.launchProject;
     return result;
   };
@@ -163,6 +176,7 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
   const reportAttention = (session, reason) => {
     if (session.retired || session.attentionReported) return;
     session.attentionReported = true;
+    session.activityArmed = false;
     emit(session, "terminal:attention", { id: session.id, botId: session.botId, reason });
   };
   const scheduleActivity = (session) => {
@@ -222,6 +236,7 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
     void retire(session, forceKill).catch(() => {});
   };
   const reportExit = (session, exitCode) => {
+    if (session.retired) return;
     if (session.exitCode === null) session.exitCode = exitCode;
     clearActivityTimer(session);
     session.activityArmed = false;
@@ -246,11 +261,18 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
   };
   const attach = (session) => {
     session.pty.onData((data) => {
+      if (session.retired) return;
       session.output = (session.output + data).slice(-OUTPUT_LIMIT);
-      const parsed = session.outputParser.consume(data);
+      let parsed = { text: "", bell: false };
+      try {
+        parsed = session.outputParser.consume(data);
+      } catch {}
+      try {
+        session.screen.consume(data);
+      } catch {}
       const echo = consumeInputEcho(parsed.text, session.pendingInputEcho);
       session.pendingInputEcho = echo.pending;
-      if (parsed.bell) reportAttention(session, "bell");
+      if (parsed.bell && session.activityArmed) reportAttention(session, "bell");
       if (!parsed.bell && echo.text.trim()) scheduleActivity(session);
       emit(session, "terminal:data", { id: session.id, data, seq: ++session.seq });
     });
@@ -275,8 +297,10 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       id: randomUUID(), key, botId: input.botId, owner: event.sender, cwd, shell, pty, output: "", exitCode: null, seq: 0,
       launchProject: launchProject(input, folder, cwd), retired: false, exitReported: false, errorReported: false,
       failure: null, attentionReported: false, activityArmed: false, activityCooldownUntil: 0, activityTimer: null,
-      outputParser: createTerminalOutputParser(), pendingInputEcho: "",
+      outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), pendingInputEcho: "",
     };
+    session.generation = (generations.get(key) ?? 0) + 1;
+    generations.set(key, session.generation);
     sessions.set(session.id, session);
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Electron sender mocks may omit lifecycle events.
     if (typeof event.sender.once === "function") {
@@ -387,7 +411,7 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       if (session.exitCode !== null) throw new Error("Terminal has exited");
       clearActivityTimer(session);
       const echo = inputEchoText(data);
-      if (echo || /[\r\n]/.test(data)) session.activityArmed = true;
+      if (/[\r\n]/.test(data)) session.activityArmed = true;
       if (echo) session.pendingInputEcho = `${session.pendingInputEcho}${echo}`.slice(-INPUT_ECHO_LIMIT);
       // A shell can emit a bell more than once; arm the next command after Enter.
       if (/[\r\n]/.test(data)) {
@@ -407,6 +431,7 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       const session = owned(event, id);
       clearActivityTimer(session);
       session.attentionReported = false;
+      session.activityArmed = false;
       session.activityCooldownUntil = now() + attentionCooldownMs;
     },
     resize(event, id, cols, rows) {
@@ -415,8 +440,83 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       if (session.exitCode !== null) return undefined;
       try {
         const result = session.pty.resize(cols, rows);
+        session.screen.resize(cols, rows);
         // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may acknowledge operations synchronously or asynchronously.
         return result && typeof result.then === "function" ? result.catch((cause) => { fail(session, cause); throw cause; }) : result;
+      } catch (cause) {
+        fail(session, cause);
+        throw cause;
+      }
+    },
+    read(event, id, options = {}) {
+      const session = owned(event, id);
+      const maxScreenChars = Number.isInteger(options.maxScreenChars) ? Math.max(1, Math.min(options.maxScreenChars, 64 * 1024)) : 64 * 1024;
+      const maxScrollbackChars = Number.isInteger(options.maxScrollbackChars) ? Math.max(0, Math.min(options.maxScrollbackChars, 16 * 1024)) : 16 * 1024;
+      const screen = session.screen.snapshot({ maxScreenChars, maxScrollbackChars });
+      return {
+        botId: session.botId,
+        sessionId: session.id,
+        generation: session.generation,
+        cwd: session.cwd,
+        seq: session.seq,
+        capturedAt: now(),
+        exitCode: session.exitCode,
+        exited: session.exitCode !== null,
+        ...screen,
+      };
+    },
+    readBot(botId, options = {}) {
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Bot ids cross the local proxy boundary.
+      if (typeof botId !== "string" || !BOT_ID_RE.test(botId)) throw new Error("Invalid bot");
+      let session = null;
+      for (const candidate of sessions.values()) {
+        if (candidate.botId === botId && !candidate.retired && active.get(candidate.key) === candidate.id) {
+          session = candidate;
+          break;
+        }
+      }
+      if (!session) return { botId, state: "no-terminal", screenText: "", recentText: "", seq: 0, capturedAt: now(), exitCode: null, exited: false, truncated: false };
+      const maxScreenChars = Number.isInteger(options.maxScreenChars) ? Math.max(1, Math.min(options.maxScreenChars, 64 * 1024)) : 64 * 1024;
+      const maxScrollbackChars = Number.isInteger(options.maxScrollbackChars) ? Math.max(0, Math.min(options.maxScrollbackChars, 16 * 1024)) : 16 * 1024;
+      return {
+        botId,
+        sessionId: session.id,
+        generation: session.generation,
+        cwd: session.cwd,
+        seq: session.seq,
+        capturedAt: now(),
+        exitCode: session.exitCode,
+        exited: session.exitCode !== null,
+        ...session.screen.snapshot({ maxScreenChars, maxScrollbackChars }),
+      };
+    },
+    sendBot(botId, input) {
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Bot ids cross the local proxy boundary.
+      if (typeof botId !== "string" || !BOT_ID_RE.test(botId)) throw new Error("Invalid bot");
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Confirmed send payloads cross the local IPC boundary.
+      if (!input || typeof input !== "object") throw new Error("Invalid terminal send");
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Validate every field before using the untyped IPC payload.
+      if (typeof input.sessionId !== "string" || typeof input.generation !== "number" || !Number.isInteger(input.generation) || typeof input.text !== "string" || input.text.length > 64 * 1024) {
+        throw new Error("Invalid terminal send");
+      }
+      let session = null;
+      for (const candidate of sessions.values()) {
+        if (candidate.botId === botId && !candidate.retired && active.get(candidate.key) === candidate.id) {
+          session = candidate;
+          break;
+        }
+      }
+      if (!session) throw new Error("No active terminal for this bot");
+      if (session.id !== input.sessionId || session.generation !== input.generation) throw new Error("Terminal session is stale; take a fresh snapshot");
+      if (session.exitCode !== null) throw new Error("Terminal has exited");
+      if (input.text.includes("\x03")) throw new Error("Ctrl+C is not allowed in a confirmed terminal send");
+      const echo = inputEchoText(input.text);
+      if (/[\r\n]/.test(input.text)) session.activityArmed = true;
+      if (echo) session.pendingInputEcho = `${session.pendingInputEcho}${echo}`.slice(-INPUT_ECHO_LIMIT);
+      try {
+        const result = session.pty.write(input.text);
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may acknowledge writes synchronously or asynchronously.
+        return result && typeof result.then === "function" ? result.then(() => snapshot(session)) : snapshot(session);
       } catch (cause) {
         fail(session, cause);
         throw cause;
