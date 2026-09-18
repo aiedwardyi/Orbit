@@ -453,6 +453,35 @@ describe("MSP turns (fake host)", () => {
     expect(lastStarted).toMatchObject({ sessionId: "fake-msp-session", model: "muse-spark-1.3-contributor" });
   });
 
+  it("recovers Contributor 1.3 when resumed reasoning is not issued to the caller", async () => {
+    const dump = join(scratch, "muse-contributor-encrypted.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    process.env.FAKE_MSP_STATE = join(scratch, "muse-contributor-encrypted-state.json");
+    await create("resume-encrypted-poisoned");
+    await instance.adapter.sendTurn({ threadId: "t-contributor-encrypted", text: "hey", model: "muse-spark-1.3" });
+    const first = await recorder.until((e) => e.type === "turn.completed");
+    expect(first).toMatchObject({ ok: true });
+
+    const second = await instance.adapter.sendTurn({
+      threadId: "t-contributor-encrypted",
+      text: "hey",
+      resumeCursor: "fake-msp-session",
+      resumeFallback: { text: "hey" },
+      model: "muse-spark-1.3-contributor",
+    });
+    expect(
+      await recorder.until((e) => e.type === "turn.completed" && (e as { turnId?: string }).turnId === second.turnId),
+    ).toMatchObject({ ok: true });
+    expect(recorder.events).not.toContainEqual(
+      expect.objectContaining({ type: "runtime.error", message: expect.stringContaining("encrypted_content") }),
+    );
+    expect(JSON.parse(readFileSync(`${dump}.config.json`, "utf8"))).toContainEqual({
+      method: "session/start",
+      modelId: "muse-spark-1.3-contributor",
+    });
+    expect(JSON.parse(readFileSync(`${dump}.turn.json`, "utf8"))).toEqual([{ type: "text", text: "hey" }]);
+  });
+
   it("skips setModel when the session already runs the model", async () => {
     const dump = join(scratch, "muse-samemodel.json");
     process.env.FAKE_MSP_DUMP = dump;

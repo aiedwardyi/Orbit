@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { mascotStyleSchema, type MascotStyle } from "../shared/bot-avatar.ts";
+import { botAvatarChoiceSchema, type BotAvatarChoice } from "../shared/bot-avatar.ts";
 import { schemaIssue, type JsonValue } from "./schema.ts";
 import type { MausColor } from "./store.ts";
 
@@ -51,7 +51,7 @@ const memberSchema = z.object({
   appearance: z.object({
     color: z.enum(COLORS, { error: "is not supported" }),
     mascotExpression: optionalText(80),
-    mascotStyle: mascotStyleSchema.optional(),
+    mascotStyle: botAvatarChoiceSchema.optional(),
   }),
 });
 
@@ -94,7 +94,7 @@ export interface TeamManifestMember {
   appearance: {
     color: MausColor;
     mascotExpression?: string;
-    mascotStyle?: MascotStyle;
+    mascotStyle?: BotAvatarChoice;
   };
 }
 
@@ -140,7 +140,7 @@ interface ExportableBot {
   description: string;
   color: MausColor;
   mascotExpression?: string | null;
-  mascotStyle?: MascotStyle;
+  mascotStyle?: BotAvatarChoice;
 }
 
 interface ExportableTeam {
@@ -209,7 +209,7 @@ export interface ImportedMemberProfile {
   description: string;
   color: MausColor;
   mascotExpression?: string;
-  mascotStyle?: MascotStyle;
+  mascotStyle?: BotAvatarChoice;
 }
 
 const MAX_MEMBER_NAME = 100;

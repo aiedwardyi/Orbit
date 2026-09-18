@@ -7,15 +7,16 @@ const html = renderToStaticMarkup(createElement(OrbitMark, { size: 96 }));
 const lower = html.toLowerCase();
 
 describe("OrbitMark", () => {
-  it("renders the new slate/cream/green artwork", () => {
+  it("renders the Peach Warm artwork", () => {
     expect(html).toContain("<svg");
-    expect(lower).toContain("#303446");
-    expect(lower).toContain("#a6d189");
+    expect(lower).toContain("#2b1d1a");
+    expect(lower).toContain("#ff9e64");
+    expect(lower).toContain("#f8e8d0");
     expect(lower).toContain('aria-label="orbit"');
   });
 
   it("keeps the two-dot face with no mouth", () => {
-    expect(html.match(/<circle[^>]*fill="#2b2e36"/g)?.length).toBe(2);
+    expect(lower.match(/<circle[^>]*fill="#2b1d1a"/g)?.length).toBe(2);
     expect(lower).not.toContain("smile");
   });
 

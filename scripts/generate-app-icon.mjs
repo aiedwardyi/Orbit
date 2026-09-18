@@ -3,13 +3,13 @@
 //   node scripts/generate-app-icon.mjs --source <path-to-1024-master>
 //   node scripts/generate-app-icon.mjs --check
 //
-// The master must be a non-interlaced 8-bit RGBA PNG whose surround outside
-// the rounded square is OPAQUE WHITE: the white corners are flood-filled to
-// transparent from the borders (with the anti-aliased edge unblended from
-// white), then every shipped size is area-averaged down from the cleaned
-// 1024 with premultiplied alpha. ICO/ICNS containers are rebuilt from those
-// same renders, including the 16/32 1x icp4/icp5 entries. PNG encode/decode
-// lives in scripts/png-codec.mjs (shared with the asset test). No image
+// The master must be a non-interlaced 8-bit RGBA PNG. Transparent corners are
+// preserved; legacy masters with an opaque-white surround are flood-filled to
+// transparent from the borders with the anti-aliased edge unblended from
+// white. Every shipped size is area-averaged down from the cleaned 1024 with
+// premultiplied alpha. ICO/ICNS containers are rebuilt from those same
+// renders, including the 16/32 1x icp4/icp5 entries. PNG encode/decode lives
+// in scripts/png-codec.mjs (shared with the asset test). No image
 // dependencies. --source is required: the master is author-provided and
 // lives outside the repo, so there is no in-repo default.
 //

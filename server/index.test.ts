@@ -1519,7 +1519,7 @@ describe("harness HTTP API", () => {
     expect(cleared.body.bot.avatarCrop).toBe("mascot");
   });
 
-  it("persists the cute mascot styles and rejects the old arrow-head id", async () => {
+  it("persists built-in avatar choices and rejects the old arrow-head id", async () => {
     const created = await api("POST", "/api/bots");
     const bot = created.body.bot;
 
@@ -1530,6 +1530,10 @@ describe("harness HTTP API", () => {
     const simple = await api("PATCH", `/api/bots/${bot.id}`, { mascotStyle: "pill" });
     expect(simple.status).toBe(200);
     expect(simple.body.bot).toMatchObject({ mascotStyle: "pill" });
+
+    const pack = await api("PATCH", `/api/bots/${bot.id}`, { mascotStyle: "icon-11", color: "red" });
+    expect(pack.status).toBe(200);
+    expect(pack.body.bot).toMatchObject({ mascotStyle: "icon-11", color: "red" });
 
     expect((await api("PATCH", `/api/bots/${bot.id}`, { mascotStyle: "arrow-head" })).status).toBe(400);
     expect((await api("PATCH", `/api/bots/${bot.id}`, { mascotStyle: "cursor" })).status).toBe(400);

@@ -15,8 +15,11 @@ import {
 import { type MausColor, type MausMotion, type MausState } from "@/lib/mascot";
 import { mascotSvgMarkup, scopeMascotSvgIds } from "@/lib/mascot-art";
 import {
+  botAvatarAssetPath,
   botAvatarProfile,
+  isBotAvatarId,
   resolveMascotStyle,
+  type BotAvatarChoice,
   type BotAvatarCrop,
   type MascotStyle,
 } from "../../shared/bot-avatar";
@@ -137,7 +140,7 @@ export type BotAvatarProps = Omit<MausAvatarProps, "color" | "mascotStyle"> & {
   bot: {
     name?: string;
     color: MausColor;
-    mascotStyle?: MascotStyle | string | null;
+    mascotStyle?: BotAvatarChoice | string | null;
     avatarUrl?: string | null;
     avatarCrop?: BotAvatarCrop;
   };
@@ -152,14 +155,29 @@ export function BotAvatar({ bot, size = 44, label, ...mascotProps }: BotAvatarPr
   const profile = botAvatarProfile(bot);
   const [imageFailed, setImageFailed] = useState(false);
 
-  useEffect(() => setImageFailed(false), [profile.avatarUrl]);
+  useEffect(() => setImageFailed(false), [profile.avatarUrl, profile.mascotStyle]);
+
+  if (profile.avatarCrop === "mascot" && isBotAvatarId(profile.mascotStyle) && !imageFailed) {
+    return (
+      <img
+        src={botAvatarAssetPath(profile.mascotStyle)}
+        alt={label ?? (bot.name ? `${bot.name} avatar` : "Bot avatar")}
+        width={size}
+        height={size}
+        draggable={false}
+        onError={() => setImageFailed(true)}
+        className="block shrink-0"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
 
   if (profile.avatarCrop === "mascot" || !profile.avatarUrl || imageFailed) {
     return (
       <MausAvatar
         {...mascotProps}
         color={bot.color}
-        mascotStyle={bot.mascotStyle}
+        mascotStyle={resolveMascotStyle(profile.mascotStyle, bot.color)}
         size={size}
         label={label ?? bot.name}
       />

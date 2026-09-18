@@ -3,11 +3,28 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { MASCOT_STYLE_ASSETS, MASCOT_STYLES } from "../../shared/bot-avatar";
+import {
+  BOT_AVATAR_ASSETS,
+  BOT_AVATAR_IDS,
+  MASCOT_STYLE_ASSETS,
+  MASCOT_STYLES,
+} from "../../shared/bot-avatar";
 import { MAUS_COLORS } from "./mascot";
 import { mascotSvgMarkup, scopeMascotSvgIds } from "./mascot-art";
 
 const assetsDir = join(dirname(fileURLToPath(import.meta.url)), "../assets/mascots");
+const botAvatarDir = join(dirname(fileURLToPath(import.meta.url)), "../../public/avatars");
+
+describe("fixed bot avatar art pack", () => {
+  it("ships a readable PNG for every stable icon id", () => {
+    const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    for (const id of BOT_AVATAR_IDS) {
+      const path = join(botAvatarDir, BOT_AVATAR_ASSETS[id]);
+      const bytes = readFileSync(path);
+      expect(bytes.subarray(0, pngSignature.length).equals(pngSignature), path).toBe(true);
+    }
+  });
+});
 
 describe("cute mascot art pack", () => {
   it("ships a bundled SVG for every style id", () => {

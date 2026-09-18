@@ -59,18 +59,22 @@ describe("cute mascot renderer", () => {
     expect(sources["Avatar.tsx"]).toContain("mascot-avatar");
   });
 
-  it("offers styles A–D on the avatar editor instead of expression swatches", () => {
-    expect(sources["BotProfileAvatarCard.tsx"]).toContain("MASCOT_STYLES");
+  it("offers fixed pack avatars and legacy styles instead of expression swatches", () => {
+    expect(sources["BotProfileAvatarCard.tsx"]).toContain("BOT_AVATAR_PICKER_ORDER");
     expect(sources["BotProfileAvatarCard.tsx"]).toContain("mascotStyle");
-    expect(sources["BotProfileAvatarCard.tsx"]).toContain("resolvedStyle");
+    expect(sources["BotProfileAvatarCard.tsx"]).toContain("resolveBotAvatarChoice");
+    expect(sources["BotProfileAvatarCard.tsx"]).toContain("max-h-[280px]");
+    expect(sources["BotProfileAvatarCard.tsx"]).toContain("scrollIntoView");
     expect(sources["BotProfileAvatarCard.tsx"]).not.toContain("PICKABLE_STATES");
     expect(sources["BotProfileAvatarCard.tsx"]).toContain('color === "white" ? "border-hairline/70" : "border-transparent"');
   });
 
   it("types Bot.mascotStyle as the style union and does not animate style-only edits", () => {
-    expect(sources["store.tsx"]).toContain("mascotStyle?: MascotStyle | null");
+    expect(sources["store.tsx"]).toContain("mascotStyle?: BotAvatarChoice | null");
     expect(sources["store.tsx"]).not.toContain('hasOwnProperty.call(action.patch, "mascotStyle")');
     expect(sources["Avatar.tsx"]).toContain("scopeMascotSvgIds");
+    expect(sources["Avatar.tsx"]).toContain("botAvatarAssetPath");
+    expect(sources["Avatar.tsx"]).toContain("isBotAvatarId");
   });
 
   it("ships blink + soft idle eye motion and parks it under reduced motion", () => {

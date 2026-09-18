@@ -126,7 +126,7 @@ describe("friends chrome call sites keep the feature code", () => {
     expect(avatarCard).toContain("BOT_AVATAR_CROPS");
     expect(avatarCard).toContain("Upload image");
     expect(avatarCard).toContain("MAUS_COLOR_NAMES");
-    expect(avatarCard).toContain("MASCOT_STYLES");
+    expect(avatarCard).toContain("BOT_AVATAR_PICKER_ORDER");
     expect(avatarCard).toContain("mascotStyle");
   });
 

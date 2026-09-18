@@ -37,9 +37,10 @@ const DENY_TIMEOUT_NOTE =
   "OpenMausBot: nobody answered this permission request in time. Skip this action and finish what you can without it.";
 
 /** Resumed-session poison: provider-private history the active route cannot
- * replay (tool-call turns). A fresh session recovers; anything else fails
- * exactly as before. */
-const INCOMPATIBLE_HISTORY = /provider-private history is incompatible/;
+ * replay, including encrypted reasoning from a switched model. A fresh
+ * session recovers; anything else fails exactly as before. */
+const INCOMPATIBLE_HISTORY =
+  /provider-private history is incompatible|reasoning\s+[`'"]?encrypted_content[`'"]?\s+was not issued to this caller/i;
 
 export interface MspMuseConfig {
   cli: string;

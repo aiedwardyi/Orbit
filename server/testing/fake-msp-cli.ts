@@ -22,6 +22,9 @@
 //                   | resume-poisoned-rpc (same trigger, but turn/start
 //                     itself returns the poison as a JSON-RPC error;
 //                     afterwards happy)
+//                   | resume-encrypted-poisoned (switching to Contributor
+//                     1.3 fails once with the provider's encrypted reasoning
+//                     replay error; afterwards happy)
 //                   | usage-auth (usage/read returns an auth error)
 //                   | usage-transport (usage/read exits before a result)
 //   FAKE_MSP_STATE  path to a JSON file holding per-session models across
@@ -133,6 +136,8 @@ let awaitingAnswer = false;
 let poisonSpent = false;
 const POISON_MESSAGE =
   "provider-private history is incompatible with the active route: reasoning replay `rs_aaa:rs_bbb` has no provider mapping";
+const ENCRYPTED_POISON_MESSAGE =
+  "API 400: reasoning `encrypted_content` was not issued to this caller (invalid_request_error)";
 const completeTurn = () =>
   out({
     jsonrpc: "2.0",
@@ -261,15 +266,18 @@ function handle(msg: any) {
           JSON.stringify(msg.params ?? null, null, 2),
         );
       }
-      if (
-        !poisonSpent &&
-        (mode === "resume-poisoned" || mode === "resume-poisoned-rpc") &&
-        typeof msg.params?.sessionId === "string" &&
-        msg.params.sessionId !== SESSION_ID
-      ) {
+      const isPoisonedResume =
+        ((mode === "resume-poisoned" || mode === "resume-poisoned-rpc") &&
+          typeof msg.params?.sessionId === "string" &&
+          msg.params.sessionId !== SESSION_ID) ||
+        (mode === "resume-encrypted-poisoned" &&
+          typeof msg.params?.sessionId === "string" &&
+          readModels()[msg.params.sessionId] === "muse-spark-1.3-contributor");
+      if (!poisonSpent && isPoisonedResume) {
         poisonSpent = true;
+        const poisonMessage = mode === "resume-encrypted-poisoned" ? ENCRYPTED_POISON_MESSAGE : POISON_MESSAGE;
         if (mode === "resume-poisoned-rpc") {
-          out({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: POISON_MESSAGE } });
+          out({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: poisonMessage } });
           break;
         }
         result(msg.id, {
@@ -286,7 +294,7 @@ function handle(msg: any) {
             sessionId: msg.params.sessionId,
             turnId: TURN_ID,
             terminal: "failed",
-            error: { message: POISON_MESSAGE },
+            error: { message: poisonMessage },
             viewCursor: "v:5",
           },
         });

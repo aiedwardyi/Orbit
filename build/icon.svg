@@ -1,11 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
-  <title id="title">Orbit</title>
-  <rect x="61" y="43" width="900" height="910" rx="191" fill="#090a0c"/>
-  <ellipse cx="511" cy="499" rx="413" ry="171" transform="rotate(-20 511 499)" fill="none" stroke="#8da77d" stroke-width="72"/>
-  <g transform="rotate(-8 510 505)">
-    <rect x="188" y="204" width="644" height="602" rx="196" fill="#fdf6e4"/>
-    <circle cx="405" cy="449" r="34" fill="#2b2e36"/>
-    <circle cx="619" cy="449" r="34" fill="#2b2e36"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+  <title id="title">Orbit Peach Warm</title>
+  <rect x="26" y="26" width="972" height="972" rx="214" ry="214" fill="#2B1D1A"/>
+  <ellipse cx="512.0" cy="512.0" rx="427.7" ry="179.8" transform="rotate(-20 512.0 512.0)" fill="none" stroke="#FF9E64" stroke-width="75.8"/>
+  <g transform="rotate(-8 512.0 512.0)">
+    <rect x="103.8" y="142.1" width="816.5" height="759.3" rx="244.9" ry="244.9" fill="#F8E8D0"/>
+    <circle cx="373.2" cy="496.8" r="35.0" fill="#2B1D1A"/>
+    <circle cx="650.8" cy="496.8" r="35.0" fill="#2B1D1A"/>
   </g>
-  <path d="M 895.8 421.2 A 413 171 -20 0 1 569.5 659.8 A 413 171 -20 0 1 166.3 686.7" fill="none" stroke="#8da77d" stroke-width="72" stroke-linecap="round"/>
+  <path d="M 918.3 449.1 A 427.7 179.8 -20 0 1 276.8 673.8" fill="none" stroke="#FF9E64" stroke-width="75.8" stroke-linecap="round"/>
 </svg>

@@ -217,6 +217,12 @@ describe("Store", () => {
     expect(bot).toMatchObject({ color: "purple", mascotStyle: "lavender" });
   });
 
+  it("persists a fixed pack avatar across reload", () => {
+    const store = new Store(selection);
+    const bot = store.createBot({ mascotStyle: "icon-11" });
+    expect(new Store(selection).bot(bot.id)?.mascotStyle).toBe("icon-11");
+  });
+
   it("does not rotate colors across created bots", () => {
     const store = new Store(selection);
     const colors = Array.from({ length: 14 }, () => store.createBot().color);

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
-import { mascotStyleSchema } from "../shared/bot-avatar.ts";
+import { botAvatarChoiceSchema } from "../shared/bot-avatar.ts";
 import { schemaIssue, type JsonValue } from "./schema.ts";
 import type { MausColor } from "./store.ts";
 import type { TeamManifestMember } from "./team-manifest.ts";
@@ -74,7 +74,7 @@ const packageSchema = z.object({
       appearance: z.object({
         color: z.enum(COLORS, { error: "is not supported" }),
         mascotExpression: optionalText(80),
-        mascotStyle: mascotStyleSchema.optional(),
+        mascotStyle: botAvatarChoiceSchema.optional(),
       }),
       playbooks: z.array(key).max(40).optional(),
     })).min(1).max(200),

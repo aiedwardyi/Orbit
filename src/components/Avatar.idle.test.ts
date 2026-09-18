@@ -79,6 +79,21 @@ describe("mascot idle motion mount", () => {
     expect(host.querySelectorAll(".mascot-idle .mascot-blink").length).toBe(3);
   });
 
+  it("renders fixed pack artwork without mascot recoloring", async () => {
+    const { host } = await renderInto(
+      createElement(BotAvatar, {
+        bot: { name: "Peach", color: "red", mascotStyle: "icon-11" },
+        size: 48,
+        label: "Peach",
+      }),
+    );
+
+    const image = host.querySelector("img");
+    expect(image?.getAttribute("src")).toBe("/avatars/icon-11-peach-warm.png");
+    expect(image?.getAttribute("alt")).toBe("Peach");
+    expect(host.querySelector(".mascot-avatar")).toBeNull();
+  });
+
   it("clears a forced blink class if animationend never fires", async () => {
     const handle = createRef<MausAvatarHandle>();
     const { host } = await renderInto(

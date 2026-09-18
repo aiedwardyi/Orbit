@@ -9,7 +9,11 @@ import { isIP } from "node:net";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 
 import { z } from "zod";
-import { botAvatarUrlFromStoredPath, MASCOT_STYLES, mascotStyleSchema } from "../shared/bot-avatar.ts";
+import {
+  botAvatarChoiceSchema,
+  botAvatarUrlFromStoredPath,
+  BOT_AVATAR_PICKER_ORDER,
+} from "../shared/bot-avatar.ts";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
 import { defaultModelEffort, isEffortOffered } from "../shared/model-effort.ts";
 import { canDeleteWhileWorking, canSwitchWhileWorking, workingThreadId } from "../shared/working-thread.ts";
@@ -6607,12 +6611,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         "gray",
       ] as const satisfies readonly BotRecord["color"][];
       const color = palette.find((name) => name === body.color);
-      let mascotStyle: z.infer<typeof mascotStyleSchema> | undefined;
+      let mascotStyle: z.infer<typeof botAvatarChoiceSchema> | undefined;
       if (body.mascotStyle !== undefined) {
-        const parsedStyle = mascotStyleSchema.safeParse(body.mascotStyle);
+        const parsedStyle = botAvatarChoiceSchema.safeParse(body.mascotStyle);
         if (!parsedStyle.success) {
           return json(res, 400, {
-            error: `mascotStyle must be ${MASCOT_STYLES.slice(0, -1).join(", ")}, or ${MASCOT_STYLES[MASCOT_STYLES.length - 1]}`,
+            error: `mascotStyle must be one of ${BOT_AVATAR_PICKER_ORDER.join(", ")}`,
           });
         }
         mascotStyle = parsedStyle.data;
@@ -6776,10 +6780,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (body.mascotStyle === null || body.mascotStyle === "") {
           patch.mascotStyle = undefined;
         } else {
-          const parsedStyle = mascotStyleSchema.safeParse(body.mascotStyle);
+          const parsedStyle = botAvatarChoiceSchema.safeParse(body.mascotStyle);
           if (!parsedStyle.success) {
             return json(res, 400, {
-              error: `mascotStyle must be ${MASCOT_STYLES.slice(0, -1).join(", ")}, or ${MASCOT_STYLES[MASCOT_STYLES.length - 1]}`,
+              error: `mascotStyle must be one of ${BOT_AVATAR_PICKER_ORDER.join(", ")}`,
             });
           }
           patch.mascotStyle = parsedStyle.data;

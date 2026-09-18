@@ -21,7 +21,13 @@ import {
   type TaskResumePacket,
 } from "./task-state.ts";
 import { lastUserInstruction, packetAfterInterruption } from "./task-recovery-flush.ts";
-import { botAvatarProfile, DEFAULT_MASCOT_STYLE, mascotStyleSchema, type BotAvatarCrop, type MascotStyle } from "../shared/bot-avatar.ts";
+import {
+  botAvatarChoiceSchema,
+  botAvatarProfile,
+  DEFAULT_MASCOT_STYLE,
+  type BotAvatarChoice,
+  type BotAvatarCrop,
+} from "../shared/bot-avatar.ts";
 import type { RoutineRequestCardData } from "../shared/routine-request.ts";
 import type { RoutineRunCardData } from "../shared/routine-run.ts";
 import { readContextCompaction, type ContextCompactionV1 } from "../shared/context-compaction.ts";
@@ -401,8 +407,8 @@ export interface BotRecord {
   notifications: boolean;
   color: MausColor;
   mascotExpression?: MausExpression | null;
-  /** One of the four static cute faces; missing values color-map at render. */
-  mascotStyle?: MascotStyle;
+  /** A legacy recolorable face or a fixed built-in pack icon. */
+  mascotStyle?: BotAvatarChoice;
   /** App-owned attachment served as this bot's custom profile image. */
   avatarUrl?: string;
   /** Mascot, or the crop applied to avatarUrl. */
@@ -662,7 +668,7 @@ export class Store {
         delete b.avatarCrop;
         botsMigrated = true;
       }
-      if (b.mascotStyle !== undefined && !mascotStyleSchema.safeParse(b.mascotStyle).success) {
+      if (b.mascotStyle !== undefined && !botAvatarChoiceSchema.safeParse(b.mascotStyle).success) {
         delete b.mascotStyle;
         botsMigrated = true;
       }

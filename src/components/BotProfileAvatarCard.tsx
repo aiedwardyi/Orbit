@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, ImagePlus, Loader2, Sparkles, Trash2 } from "lucide-react";
 
 import { api, useStore, type Bot, type ConfigStatus } from "@/state/store";
@@ -14,14 +14,17 @@ import {
 import { showAvatarImageGenerate, showAvatarShapeOptions } from "@/lib/friends-chrome";
 import {
   BOT_AVATAR_CROPS,
+  BOT_AVATAR_LABELS,
+  BOT_AVATAR_PICKER_ORDER,
   DEFAULT_MASCOT_STYLE,
   MASCOT_STYLE_LABELS,
-  MASCOT_STYLES,
   botAvatarUrlFromStoredPath,
-  resolveMascotStyle,
+  isBotAvatarId,
+  resolveBotAvatarChoice,
+  type BotAvatarChoice,
   type BotAvatarCrop,
 } from "../../shared/bot-avatar";
-import { BotAvatar, MausAvatar } from "./Avatar";
+import { BotAvatar } from "./Avatar";
 
 type AvatarPatch = Partial<
   Pick<Bot, "avatarCrop" | "avatarUrl" | "color" | "mascotExpression" | "mascotStyle">
@@ -54,9 +57,16 @@ export function BotProfileAvatarCard({
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const crop = bot.avatarCrop ?? "mascot";
+  const selectedAvatar = resolveBotAvatarChoice(bot.mascotStyle, bot.color);
+  const pickerButtonRefs = useRef<Partial<Record<BotAvatarChoice, HTMLButtonElement | null>>>({});
   const cropRef = useRef(crop);
   cropRef.current = crop;
   const imageConfigured = state.config?.imageGen?.configured === true;
+
+  useEffect(() => {
+    const button = pickerButtonRefs.current[selectedAvatar];
+    button?.scrollIntoView?.({ block: "nearest" });
+  }, [selectedAvatar]);
 
   const upload = async (file: File | undefined) => {
     if (!file) return;
@@ -223,49 +233,65 @@ export function BotProfileAvatarCard({
             <div className="mb-2 mt-4 text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
               Style
             </div>
-            <div className="grid grid-cols-4 gap-2">
-              {MASCOT_STYLES.map((style) => {
-                const resolvedStyle = resolveMascotStyle(bot.mascotStyle, bot.color);
-                return (
-                  <button
-                    key={style}
-                    type="button"
-                    aria-pressed={resolvedStyle === style}
-                    onClick={() => onPatch({ mascotStyle: style })}
-                    className={cn(
-                      "flex h-[70px] items-center justify-center rounded-xl bg-inset transition-colors hover:bg-control",
-                      resolvedStyle === style && "ring-2 ring-accent-border",
-                    )}
-                    title={MASCOT_STYLE_LABELS[style]}
-                    aria-label={`Use ${MASCOT_STYLE_LABELS[style]} mascot`}
-                  >
-                    <MausAvatar color={bot.color} mascotStyle={style} size={52} animated={false} />
-                  </button>
-                );
-              })}
+            <div className="max-h-[280px] overflow-y-auto rounded-lg border border-hairline/40 bg-inset p-2">
+              <div className="grid grid-cols-4 gap-2">
+                {BOT_AVATAR_PICKER_ORDER.map((choice) => {
+                  const label = isBotAvatarId(choice) ? BOT_AVATAR_LABELS[choice] : MASCOT_STYLE_LABELS[choice];
+                  return (
+                    <button
+                      key={choice}
+                      type="button"
+                      ref={(element) => {
+                        pickerButtonRefs.current[choice] = element;
+                      }}
+                      aria-pressed={selectedAvatar === choice}
+                      onClick={() => onPatch({ mascotStyle: choice })}
+                      className={cn(
+                        "flex h-[68px] min-w-0 items-center justify-center rounded-lg bg-card transition-colors hover:bg-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-border",
+                        selectedAvatar === choice && "ring-2 ring-accent-border",
+                      )}
+                      title={label}
+                      aria-label={`Use ${label} avatar`}
+                    >
+                      <BotAvatar
+                        bot={{ name: label, color: bot.color, mascotStyle: choice, avatarCrop: "mascot" }}
+                        size={52}
+                        animated={false}
+                        label={label}
+                      />
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            <div className="mb-2 mt-4 text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
-              Color
-            </div>
-            <div className="flex flex-wrap gap-2.5">
-              {MAUS_COLOR_NAMES.map((color) => (
-                <button
-                  key={color}
-                  type="button"
-                  aria-pressed={bot.color === color}
-                  onClick={() => onPatch({ color })}
-                  className={cn(
-                    "size-10 rounded-full border-2 transition-transform hover:scale-110",
-                    color === "white" ? "border-hairline/70" : "border-transparent",
-                    bot.color === color && "ring-2 ring-accent-border ring-offset-2 ring-offset-card",
-                  )}
-                  style={{ backgroundColor: MAUS_COLORS[color] }}
-                  title={color}
-                  aria-label={`Use ${color} mascot color`}
-                />
-              ))}
-            </div>
+            {isBotAvatarId(selectedAvatar) ? (
+              <div className="mt-3 text-[11.5px] text-ink-secondary">Pack avatars keep their original colors.</div>
+            ) : (
+              <>
+                <div className="mb-2 mt-4 text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
+                  Color
+                </div>
+                <div className="flex flex-wrap gap-2.5">
+                  {MAUS_COLOR_NAMES.map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      aria-pressed={bot.color === color}
+                      onClick={() => onPatch({ color })}
+                      className={cn(
+                        "size-10 rounded-full border-2 transition-transform hover:scale-110",
+                        color === "white" ? "border-hairline/70" : "border-transparent",
+                        bot.color === color && "ring-2 ring-accent-border ring-offset-2 ring-offset-card",
+                      )}
+                      style={{ backgroundColor: MAUS_COLORS[color] }}
+                      title={color}
+                      aria-label={`Use ${color} mascot color`}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
           </>
         )}
 

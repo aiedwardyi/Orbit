@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BOT_AVATAR_ASSETS,
+  BOT_AVATAR_IDS,
+  BOT_AVATAR_LABELS,
+  BOT_AVATAR_PICKER_ORDER,
+  botAvatarAssetPath,
+  botAvatarChoiceSchema,
   botAvatarProfile,
   botAvatarCropSchema,
   botAvatarUrlFromStoredPath,
@@ -10,6 +16,7 @@ import {
   MASCOT_STYLES,
   mascotStyleFromColor,
   mascotStyleSchema,
+  resolveBotAvatarChoice,
   resolveMascotStyle,
 } from "../shared/bot-avatar.ts";
 
@@ -69,6 +76,34 @@ describe("mascot style ids", () => {
     }
     expect(mascotStyleSchema.safeParse("arrow-head").success).toBe(false);
     expect(mascotStyleSchema.safeParse("cursor").success).toBe(false);
+  });
+
+  it("keeps thirty stable fixed artwork ids and the approved picker order", () => {
+    expect(BOT_AVATAR_IDS).toEqual(Array.from({ length: 30 }, (_, index) => `icon-${String(index + 1).padStart(2, "0")}`));
+    expect(BOT_AVATAR_PICKER_ORDER.slice(0, 6)).toEqual([
+      "icon-05",
+      "icon-06",
+      "icon-12",
+      "icon-13",
+      "icon-21",
+      "icon-26",
+    ]);
+    expect(BOT_AVATAR_PICKER_ORDER.slice(-7)).toEqual(MASCOT_STYLES);
+    expect(new Set(BOT_AVATAR_PICKER_ORDER).size).toBe(37);
+    for (const id of BOT_AVATAR_IDS) {
+      expect(botAvatarChoiceSchema.parse(id)).toBe(id);
+      expect(BOT_AVATAR_ASSETS[id]).toMatch(new RegExp(`^${id}-`));
+      expect(BOT_AVATAR_LABELS[id]).toBeTruthy();
+      expect(botAvatarAssetPath(id)).toBe(`/avatars/${BOT_AVATAR_ASSETS[id]}`);
+    }
+  });
+
+  it("preserves fixed artwork through profile resolution", () => {
+    expect(resolveBotAvatarChoice("icon-11", "red")).toBe("icon-11");
+    expect(botAvatarProfile({ mascotStyle: "icon-11", color: "red" })).toEqual({
+      avatarCrop: "mascot",
+      mascotStyle: "icon-11",
+    });
   });
 
   it("maps existing arrow-head colors onto a cute style without rewriting the profile", () => {
