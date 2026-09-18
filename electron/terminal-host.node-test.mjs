@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import os from "node:os";
-import { createTerminalHost, terminalEnvironment, terminalReadyTimeoutMs, trustedTerminalSender } from "./terminal-host.mjs";
+import { createTerminalHost, createTerminalOutputParser, terminalEnvironment, terminalReadyTimeoutMs, trustedTerminalSender } from "./terminal-host.mjs";
 
-function fixture() {
+function fixture(options = {}) {
   const events = [];
   const owner = { id: 1, mainFrame: { url: "http://127.0.0.1:8799/" }, getURL: () => "http://127.0.0.1:8799/", isDestroyed: () => false, send: (...args) => events.push(args) };
   const event = { sender: owner, senderFrame: owner.mainFrame };
@@ -18,8 +18,13 @@ function fixture() {
       children.push(child);
       return child;
     } }),
+    ...options,
   });
   return { host, event, owner, children, events, input: { botId: "bot-1", cols: 80, rows: 24 } };
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 test("rejects iframe, foreign window and navigated renderer on every action", async () => {
@@ -255,6 +260,96 @@ test("rearms terminal attention after a new command", async () => {
       ["terminal:attention", { id: session.id, botId: "bot-1", reason: "bell" }],
     ],
   );
+});
+
+test("keeps OSC title terminators and split ANSI sequences out of attention", async () => {
+  const f = fixture({ activityCoalesceMs: 5 });
+  const session = await f.host.open(f.event, f.input);
+  f.children[0].data("\x1b]0;Orbit");
+  f.children[0].data(" terminal\x07\x1b[31");
+  f.children[0].data("m\x1b[?25l");
+  await wait(15);
+  assert.equal(f.events.some(([channel]) => channel === "terminal:attention"), false);
+  f.host.write(f.event, session.id, "claude\r");
+  f.children[0].data("response without a bell");
+  await wait(15);
+  assert.equal(f.events.filter(([channel]) => channel === "terminal:attention").at(-1)?.[1].reason, "activity");
+  f.host.dispose();
+});
+
+test("does not notify for an initial prompt, replay, or resize before a command", async () => {
+  const f = fixture({ activityCoalesceMs: 5 });
+  const session = await f.host.open(f.event, f.input);
+  f.children[0].data("PS C:\\workspace> ");
+  await wait(15);
+  f.host.resize(f.event, session.id, 100, 30);
+  const replay = await f.host.open(f.event, f.input);
+  assert.equal(replay.id, session.id);
+  await wait(15);
+  assert.equal(f.events.some(([channel]) => channel === "terminal:attention"), false);
+  f.host.dispose();
+});
+
+test("reports delayed ordinary text without requiring a BEL or a new Enter", async () => {
+  const f = fixture({ activityCoalesceMs: 5 });
+  const session = await f.host.open(f.event, f.input);
+  f.host.write(f.event, session.id, "claude\r");
+  f.children[0].data("delayed response");
+  await wait(15);
+  assert.deepEqual(f.events.filter(([channel]) => channel === "terminal:attention").map(([, value]) => value), [
+    { id: session.id, botId: "bot-1", reason: "activity" },
+  ]);
+  f.host.dispose();
+});
+
+test("coalesces output, suppresses input echo and rearms after acknowledgement cooldown", async () => {
+  let clock = 1_000;
+  const f = fixture({ activityCoalesceMs: 5, attentionCooldownMs: 3_000, now: () => clock });
+  const session = await f.host.open(f.event, f.input);
+  f.host.write(f.event, session.id, "ls\r");
+  f.children[0].data("ls\r\n");
+  await wait(15);
+  assert.equal(f.events.some(([channel]) => channel === "terminal:attention"), false);
+  f.children[0].data("first");
+  f.children[0].data(" second");
+  await wait(15);
+  assert.equal(f.events.filter(([channel]) => channel === "terminal:attention").length, 1);
+  f.host.acknowledge(f.event, session.id);
+  f.children[0].data("during cooldown");
+  await wait(15);
+  assert.equal(f.events.filter(([channel]) => channel === "terminal:attention").length, 1);
+  clock += 3_001;
+  f.children[0].data("later output");
+  await wait(15);
+  assert.equal(f.events.filter(([channel]) => channel === "terminal:attention").length, 2);
+  assert.equal(f.events.at(-1)?.[1].reason, "activity");
+  f.host.resize(f.event, session.id, 100, 30);
+  const replay = await f.host.open(f.event, f.input);
+  assert.equal(replay.id, session.id);
+  assert.equal(f.events.filter(([channel]) => channel === "terminal:attention").length, 2);
+  f.host.dispose();
+});
+
+test("exposes the ANSI parser as a stateful split-stream fixture", () => {
+  const parser = createTerminalOutputParser();
+  assert.deepEqual(parser.consume("\x1b]0;title"), { text: "", bell: false });
+  assert.deepEqual(parser.consume("\x07answer"), { text: "answer", bell: false });
+  assert.deepEqual(parser.consume("\x07"), { text: "", bell: true });
+  assert.deepEqual(parser.consume("\x1b]0;split"), { text: "", bell: false });
+  assert.deepEqual(parser.consume("\x1b"), { text: "", bell: false });
+  assert.deepEqual(parser.consume("\\response"), { text: "response", bell: false });
+});
+
+test("treats pane output forwarded through the owning PTY as provider-neutral activity", async () => {
+  const f = fixture({ activityCoalesceMs: 5 });
+  const session = await f.host.open(f.event, f.input);
+  f.host.write(f.event, session.id, "tmux -CC\r");
+  f.children[0].data("%output %1 pane response\r\n");
+  await wait(15);
+  assert.deepEqual(f.events.filter(([channel]) => channel === "terminal:attention").map(([, value]) => value), [
+    { id: session.id, botId: "bot-1", reason: "activity" },
+  ]);
+  f.host.dispose();
 });
 
 test("returns the replacement before the old worker shutdown acknowledgement", async () => {

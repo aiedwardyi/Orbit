@@ -42,6 +42,10 @@ describe("settings section search", () => {
     expect(settingsSectionMatches("themes", "discord")).toBe(true);
     expect(settingsSectionMatches("themes", "github light")).toBe(true);
     expect(settingsSectionMatches("themes", "technical drawing")).toBe(true);
+    expect(settingsSectionMatches("themes", "blueprint gray")).toBe(true);
+    expect(settingsSectionMatches("themes", "blueprint charcoal")).toBe(true);
+    expect(settingsSectionMatches("themes", "중간 회색")).toBe(true);
+    expect(settingsSectionMatches("themes", "깊은 차콜")).toBe(true);
     expect(settingsSectionMatches("themes", "테마")).toBe(true);
     expect(settingsSectionMatches("general", "skin")).toBe(false);
     expect(settingsSectionMatches("general", "kanagawa")).toBe(false);

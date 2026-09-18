@@ -34,7 +34,7 @@ export function desktopNotificationHint(canNotify: boolean): string {
     : "Desktop alerts aren't available on this computer";
 }
 
-export type TerminalAttentionReason = "bell" | "exit" | "error";
+export type TerminalAttentionReason = "bell" | "activity" | "exit" | "error";
 
 export interface TerminalAttentionCopy {
   label: string;
@@ -48,10 +48,12 @@ export function terminalAttentionCopy(
 ): TerminalAttentionCopy {
   if (locale === "ko") {
     if (reason === "bell") return { label: "대기 중", tooltip: "터미널이 입력을 기다리고 있습니다.", tone: "accent" };
+    if (reason === "activity") return { label: "활동", tooltip: "터미널에 새 활동이 있습니다.", tone: "accent" };
     if (reason === "exit") return { label: "완료", tooltip: "터미널 프로세스가 끝났습니다.", tone: "success" };
     return { label: "오류", tooltip: "터미널에서 오류를 보고했습니다.", tone: "danger" };
   }
   if (reason === "bell") return { label: "Waiting", tooltip: "The terminal is waiting for input.", tone: "accent" };
+  if (reason === "activity") return { label: "Activity", tooltip: "New terminal activity.", tone: "accent" };
   if (reason === "exit") return { label: "Finished", tooltip: "The terminal process finished.", tone: "success" };
   return { label: "Error", tooltip: "The terminal reported an error.", tone: "danger" };
 }
@@ -63,15 +65,18 @@ export function buildTerminalNotification(
 ): NotifyFrame | null {
   if (bot.notifications === false) return null;
   const finished = reason === "exit";
+  const activity = reason === "activity";
   const frame: NotifyFrame = {
     kind: finished ? "done" : "takeover",
     botId: bot.id,
     botName: bot.name,
     threadId: bot.threadId,
-    title: finished ? `${bot.name} terminal finished` : `${bot.name} terminal needs attention`,
+    title: finished ? `${bot.name} terminal finished` : activity ? `${bot.name} terminal activity` : `${bot.name} terminal needs attention`,
     body:
       reason === "bell"
         ? "The terminal is waiting for you."
+        : activity
+          ? "New terminal activity."
         : reason === "error"
           ? "The terminal reported an error."
           : "The terminal process finished.",

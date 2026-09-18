@@ -137,11 +137,12 @@ type SkillRecordingPayload = {
         >;
         cancelOpen?(botId: string): Promise<boolean>;
         write(id: string, data: string): Promise<void>;
+        acknowledge?(id: string): Promise<void>;
         resize(id: string, cols: number, rows: number): Promise<void>;
         onData(cb: (event: { id: string; data: string; seq: number }) => void): () => void;
         onExit(cb: (event: { id: string; exitCode: number }) => void): () => void;
         onError?: (cb: (event: { id: string; message: string }) => void) => () => void;
-        onAttention?: (cb: (event: { id: string; botId: string; reason: "bell" | "exit" | "error" }) => void) => () => void;
+        onAttention?: (cb: (event: { id: string; botId: string; reason: "bell" | "activity" | "exit" | "error" }) => void) => () => void;
       };
       getCapabilities(): Promise<DesktopCapabilities>;
       onCapabilitiesChanged(cb: (capabilities: DesktopCapabilities) => void): () => void;

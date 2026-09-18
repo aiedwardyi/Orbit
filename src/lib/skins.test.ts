@@ -91,20 +91,27 @@ function skinToken(id: string, name: string): string {
 describe("skins", () => {
   it("insets Claude bot replies only when Boxy geometry is active", () => {
     expect(css).toMatch(
-      /@scope \(:root\[data-shape="boxy"\]\)\s*\{\s*\[data-skin="claude"\] \[data-orbit-message="bot"\] \[data-orbit-message-content\]\s*\{\s*padding-left:\s*12px;/,
+      /:root\[data-shape="boxy"\]\[data-skin="claude"\]\s+\[data-orbit-message="bot"\] \[data-orbit-message-content\]\s*\{\s*padding-left:\s*12px;/,
     );
     const claude = css.match(/\[data-skin="claude"\] \[data-orbit-message="bot"\] \[data-orbit-message-content\]\s*\{([^}]*)\}/)?.[1] ?? "";
     expect(claude).toContain("padding: 0;");
   });
 
-  it("insets all six added bot replies when Boxy geometry is active", () => {
+  it("insets all added bot replies when Boxy geometry is active", () => {
     const boxy = css.match(
-      /@scope \(:root\[data-shape="boxy"\]\)\s*\{\s*:is\(([\s\S]*?)\)\s*\[data-orbit-message="bot"\][^{]+\{([^}]*)\}/,
+      /:root\[data-shape="boxy"\]:is\(([\s\S]*?)\)\s*\[data-orbit-message="bot"\][^{]+\{([^}]*)\}/,
     )?.[0] ?? "";
-    for (const id of ["precision", "notebook", "messenger", "community", "code-review", "blueprint"]) {
+    const ids = ["precision", "notebook", "messenger", "community", "code-review", "blueprint", "blueprint-gray", "blueprint-charcoal"];
+    for (const id of ids) {
       expect(boxy).toContain(`[data-skin="${id}"]`);
     }
     expect(boxy).toContain("padding-left: 12px;");
+
+    const boxyIndex = css.indexOf("/* Keep the rail-to-glyph gap after skin-specific bot padding rules. */");
+    expect(boxyIndex).toBeGreaterThan(-1);
+    for (const id of ids) {
+      expect(boxyIndex).toBeGreaterThan(css.indexOf(`[data-skin="${id}"]`));
+    }
   });
 
   it("gives every registered skin a stylesheet block", () => {
@@ -370,6 +377,61 @@ describe("Claude skin", () => {
     expect(css).toMatch(/\[data-skin="claude"\]\s*\[data-orbit-message="bot"\][\s\S]*?background:\s*transparent/);
     expect(css).toMatch(/\[data-skin="claude"\]\s*\[data-orbit-message="bot"\][\s\S]*?Anthropic Serif/);
     expect(css).toMatch(/\[data-skin="claude"\]\s*\[data-orbit-message="user"\][\s\S]*?border:\s*1px solid var\(--color-hairline\)/);
+  });
+});
+
+const BLUEPRINT_DARK_SKINS = [
+  {
+    id: "blueprint-gray",
+    name: "Blueprint Gray",
+    tokens: {
+      "--color-app": "#3a414a",
+      "--color-panel": "#414952",
+      "--color-raised": "#4d5661",
+      "--color-inset": "#30373f",
+      "--color-ink": "#f1f5f9",
+      "--color-ink-secondary": "#d8e0e8",
+      "--color-accent": "#8db9e8",
+    },
+  },
+  {
+    id: "blueprint-charcoal",
+    name: "Blueprint Charcoal",
+    tokens: {
+      "--color-app": "#1f252c",
+      "--color-panel": "#282f37",
+      "--color-raised": "#343c46",
+      "--color-inset": "#181e24",
+      "--color-ink": "#eef3f8",
+      "--color-ink-secondary": "#b7c4d0",
+      "--color-accent": "#82b5e6",
+    },
+  },
+] as const;
+
+describe("dark Blueprint skins", () => {
+  it("registers each with a distinct dark drafting palette", () => {
+    for (const skin of BLUEPRINT_DARK_SKINS) {
+      expect(SKIN_IDS).toContain(skin.id);
+      expect(SKINS.some((entry) => entry.id === skin.id && entry.name === skin.name)).toBe(true);
+      for (const [token, value] of Object.entries(skin.tokens)) {
+        expect(cssToken(skin.id, token)).toBe(value);
+      }
+      const body = css.match(new RegExp(`\\[data-skin="${skin.id}"\\]\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+      expect(body).toMatch(/color-scheme:\s*dark/);
+      expect(body).toContain('"Bahnschrift"');
+    }
+    expect(cssToken("blueprint-gray", "--color-app")).not.toBe(cssToken("blueprint-charcoal", "--color-app"));
+  });
+
+  it("keeps Blueprint message rules and monospace code treatment", () => {
+    for (const id of ["blueprint-gray", "blueprint-charcoal"]) {
+      expect(css).toMatch(new RegExp(`\\[data-skin="${id}"\\][\\s\\S]*?\\[data-orbit-message-content\\]`));
+      expect(css).toContain(`[data-skin="${id}"]`);
+    }
+    expect(css).toContain("[data-orbit-message=\"bot\"] [data-orbit-message-content]");
+    expect(css).toContain(".chat-md :is(code, pre)");
+    expect(css).toContain('"Cascadia Mono", "Consolas", "Malgun Gothic", monospace');
   });
 });
 

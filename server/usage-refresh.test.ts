@@ -76,6 +76,31 @@ describe("usage refresh route result", () => {
     expect(JSON.stringify(result)).not.toContain("access-secret");
   });
 
+  it("accepts zero Grok usage as a real observation", async () => {
+    const refresh = createUsageRefresh({
+      platform: "linux",
+      billing: async () => ({
+        config: { creditUsagePercent: 0, currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", end: reset } },
+      }),
+    });
+    const result = await refresh("grokAgent", { instanceId: "grok" });
+    expect(result.error).toBeUndefined();
+    expect(result.report?.windows).toEqual([
+      { id: "seven_day", usedPercent: 0, resetsAt: Date.parse(reset), windowMinutes: 10_080 },
+    ]);
+  });
+
+  it.each([
+    ["empty", {}],
+    ["malformed", { config: { creditUsagePercent: "0", currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", end: reset } } }],
+  ] as const)("retains prior Grok data after an %s billing payload", async (_kind, payload) => {
+    const refresh = createUsageRefresh({ platform: "linux", billing: async () => payload });
+    const previous = { windows: [{ id: "seven_day", usedPercent: 42, resetsAt: Date.parse(reset), windowMinutes: 10_080 }], observedAt: reset };
+    const result = await refresh("grokAgent", { instanceId: "grok" }, previous);
+    expect(result.report).toEqual(previous);
+    expect(result.error).toBe("Could not refresh Grok limits");
+  });
+
   it("uses Grok's launcher, cached-token auth, and billing method contract", async () => {
     const scratch = mkdtempSync(join(tmpdir(), "omb-grok-refresh-"));
     const argsDump = join(scratch, "args.json");

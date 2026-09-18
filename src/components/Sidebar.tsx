@@ -87,11 +87,15 @@ import {
 } from "@/lib/sidebar-preferences";
 import {
   moveSidebarItem,
+  moveSidebarItemWithinTier,
   normalizeSidebarOrder,
   orderedSidebarItems,
+  partitionSidebarItemKeys,
+  sidebarPriorityFor,
   sameSidebarOrder,
   sidebarItemKey,
   UNASSIGNED_SECTION_ID,
+  type SidebarPriority,
   type SidebarItemKind,
   type SidebarItemOrder,
   type SidebarOrder,
@@ -1608,12 +1612,33 @@ export function Sidebar({
     ...matchingBots.map((bot) => sidebarItemKey("bot", bot.id)),
     ...visibleGroups.map((group) => sidebarItemKey("group", group.id)),
   ]);
-  const orderedItemsBySection = new Map<string, SidebarItem[]>();
+  const orderedKeysBySection: Record<string, string[]> = {};
   for (const id of allSectionIds) {
     const keys = orderedSidebarItems(naturalItemsBySection[id] ?? [], currentSidebarOrder.itemOrder[id] ?? []);
-    orderedItemsBySection.set(id, keys.map((key) => itemByKey.get(key)).filter((item): item is SidebarItem => Boolean(item && matchingKeys.has(item.key))));
+    orderedKeysBySection[id] = keys.filter((key) => matchingKeys.has(key));
   }
-  const showEmptyUnassignedDropTarget = q.length === 0 && Boolean(drag);
+  const priorityByKey: Record<string, SidebarPriority | null> = {};
+  for (const item of items) {
+    priorityByKey[item.key] = item.kind === "bot" ? sidebarPriorityFor(item.bot!) : null;
+  }
+  const priorityPartition = partitionSidebarItemKeys(sectionOrder, orderedKeysBySection, priorityByKey);
+  const priorityItemsByTier: Record<SidebarPriority, SidebarItem[]> = {
+    chief: priorityPartition.chief.map((key) => itemByKey.get(key)).filter((item): item is SidebarItem => Boolean(item)),
+    pinned: priorityPartition.pinned.map((key) => itemByKey.get(key)).filter((item): item is SidebarItem => Boolean(item)),
+  };
+  const orderedItemsBySection = new Map<string, SidebarItem[]>();
+  for (const id of allSectionIds) {
+    orderedItemsBySection.set(
+      id,
+      (priorityPartition.regular[id] ?? [])
+        .map((key) => itemByKey.get(key))
+        .filter((item): item is SidebarItem => Boolean(item)),
+    );
+  }
+  const draggingItem = drag ? itemByKey.get(drag.from) : undefined;
+  const showEmptyUnassignedDropTarget = q.length === 0 && Boolean(drag) && !(
+    draggingItem?.kind === "bot" && sidebarPriorityFor(draggingItem.bot!)
+  );
   const sectionIds = sectionOrder.filter((id) =>
     (orderedItemsBySection.get(id)?.length ?? 0) > 0 ||
     (id === UNASSIGNED_SECTION_ID && showEmptyUnassignedDropTarget),
@@ -1689,13 +1714,28 @@ export function Sidebar({
     const from = itemByKey.get(drag.from);
     const to = itemByKey.get(toKey);
     if (!from || !to || from.key === to.key) return null;
+    const fromPriority = from.kind === "bot" ? sidebarPriorityFor(from.bot!) : null;
+    const toPriority = to.kind === "bot" ? sidebarPriorityFor(to.bot!) : null;
+    if (fromPriority !== toPriority || (fromPriority && from.sectionId !== to.sectionId)) return null;
     const itemOrder = currentItemOrder();
     const targetKeys = itemOrder[to.sectionId] ?? [];
     const targetIndex = targetKeys.indexOf(to.key);
     if (targetIndex < 0) return null;
     const sourceIndex = targetKeys.indexOf(from.key);
     const place = from.sectionId === to.sectionId && sourceIndex >= 0 && sourceIndex < targetIndex ? "after" : "before";
-    const nextItemOrder = moveSidebarItem(itemOrder, from.sectionId, to.sectionId, from.key, to.key, place);
+    const nextItemOrder = fromPriority
+      ? moveSidebarItemWithinTier(
+          itemOrder,
+          from.sectionId,
+          from.key,
+          to.key,
+          targetKeys.filter((key) => {
+            const candidate = itemByKey.get(key);
+            return candidate?.kind === "bot" && sidebarPriorityFor(candidate.bot!) === fromPriority;
+          }),
+          place,
+        )
+      : moveSidebarItem(itemOrder, from.sectionId, to.sectionId, from.key, to.key, place);
     const nextTarget = nextItemOrder[to.sectionId] ?? [];
     return {
       from,
@@ -1729,7 +1769,7 @@ export function Sidebar({
   const updateItemSectionDropTarget = (event: React.DragEvent<HTMLDivElement>, id: string) => {
     if (!rowsReorderable || !drag) return false;
     const from = itemByKey.get(drag.from);
-    if (!from || from.sectionId === id) return false;
+    if (!from || from.sectionId === id || (from.kind === "bot" && sidebarPriorityFor(from.bot!))) return false;
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
     if (itemSectionDropTarget !== id) setItemSectionDropTarget(id);
@@ -1743,7 +1783,7 @@ export function Sidebar({
       return;
     }
     const from = itemByKey.get(drag.from);
-    if (!from || from.sectionId === id) {
+    if (!from || from.sectionId === id || (from.kind === "bot" && sidebarPriorityFor(from.bot!))) {
       resetRowDrag();
       return;
     }
@@ -1775,7 +1815,12 @@ export function Sidebar({
     const item = itemByKey.get(key);
     if (!item) return;
     const itemOrder = currentItemOrder();
-    const keys = itemOrder[item.sectionId] ?? [];
+    const priority = item.kind === "bot" ? sidebarPriorityFor(item.bot!) : null;
+    const keys = (itemOrder[item.sectionId] ?? []).filter((candidateKey) => {
+      if (!priority) return true;
+      const candidate = itemByKey.get(candidateKey);
+      return candidate?.kind === "bot" && sidebarPriorityFor(candidate.bot!) === priority;
+    });
     const index = keys.indexOf(key);
     if (index < 0) return;
     if ((direction < 0 && index > 0) || (direction > 0 && index < keys.length - 1)) {
@@ -1784,11 +1829,14 @@ export function Sidebar({
       applyItemDrop({
         from: item,
         to: itemByKey.get(targetKey),
-        itemOrder: moveSidebarItem(itemOrder, item.sectionId, item.sectionId, key, targetKey, place),
+        itemOrder: priority
+          ? moveSidebarItemWithinTier(itemOrder, item.sectionId, key, targetKey, keys, place)
+          : moveSidebarItem(itemOrder, item.sectionId, item.sectionId, key, targetKey, place),
         targetSectionId: item.sectionId,
       }, key);
       return;
     }
+    if (priority) return;
     const sectionIndex = sectionIds.indexOf(item.sectionId);
     const targetSectionId = sectionIds[sectionIndex + direction];
     if (!targetSectionId) return;
@@ -2054,6 +2102,26 @@ export function Sidebar({
           {matchingBots.length === 0 && visibleGroups.length === 0 && q && q.length < MIN_QUERY && (
             <div className="px-3 py-6 text-center text-[13px] text-ink-secondary">{t("palette.noMatch", { query })}</div>
           )}
+          {(["chief", "pinned"] as const).map((tier) => {
+            const priorityItems = priorityItemsByTier[tier];
+            if (priorityItems.length === 0) return null;
+            return (
+              <div key={tier} data-sidebar-priority-tier={tier} className="flex flex-col gap-0.5">
+                {priorityItems.map((item) => (
+                  <BotListItem
+                    key={item.key}
+                    bot={item.bot!}
+                    density={density}
+                    onMenu={setMenu}
+                    onArchive={(candidate) => void archiveBot(candidate)}
+                    archiveDisabled={Boolean(item.bot!.chiefOfStaff) || activeBotCount <= 1}
+                    drag={rowsReorderable ? rowDrag(item) : undefined}
+                    onTerminalAttention={onTerminalAttention}
+                  />
+                ))}
+              </div>
+            );
+          })}
           {sectionIds.map((id) => {
             const name = sectionLabel(id);
             const sectionItems = orderedItemsBySection.get(id) ?? [];

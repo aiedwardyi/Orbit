@@ -202,6 +202,11 @@ describe("terminal notifications", () => {
     });
     expect(buildTerminalNotification(bot, "error")?.body).toBe("The terminal reported an error.");
     expect(buildTerminalNotification(bot, "exit")?.title).toBe("Maus terminal finished");
+    expect(buildTerminalNotification(bot, "activity")).toMatchObject({
+      title: "Maus terminal activity",
+      body: "New terminal activity.",
+      openTerminal: true,
+    });
   });
 
   it("carries the terminal session through the open target", () => {
@@ -223,6 +228,11 @@ describe("terminal notifications", () => {
       tone: "success",
     });
     expect(terminalAttentionCopy("error", "ko").tone).toBe("danger");
+    expect(terminalAttentionCopy("activity", "ko")).toEqual({
+      label: "활동",
+      tooltip: "터미널에 새 활동이 있습니다.",
+      tone: "accent",
+    });
   });
 
   it("honors the bot notification toggle", () => {

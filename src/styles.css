@@ -1350,23 +1350,8 @@
   border: 1px solid var(--color-hairline);
 }
 
-@scope (:root[data-shape="boxy"]) {
-  [data-skin="claude"] [data-orbit-message="bot"] [data-orbit-message-content] {
-    padding-left: 12px;
-  }
-}
-
-@scope (:root[data-shape="boxy"]) {
-  :is(
-    [data-skin="precision"],
-    [data-skin="notebook"],
-    [data-skin="messenger"],
-    [data-skin="community"],
-    [data-skin="code-review"],
-    [data-skin="blueprint"]
-  ) [data-orbit-message="bot"] [data-orbit-message-content] {
-    padding-left: 12px;
-  }
+:root[data-shape="boxy"][data-skin="claude"] [data-orbit-message="bot"] [data-orbit-message-content] {
+  padding-left: 12px;
 }
 
 /* ── Precision ─────────────────────────────────────────────────────────────
@@ -1805,6 +1790,123 @@
 
 [data-skin="blueprint"] .chat-md :is(code, pre) {
   font-family: "Cascadia Mono", "Consolas", "Malgun Gothic", monospace;
+}
+
+/* ── Blueprint Gray ────────────────────────────────────────────────────────
+   Mid-gray technical drawing surfaces with the same blue rules and system
+   typography as Blueprint, tuned for a dark workspace.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="blueprint-gray"] {
+  color-scheme: dark;
+  --color-app: #3a414a;
+  --color-panel: #414952;
+  --color-raised: #4d5661;
+  --color-raised-hover: #58636f;
+  --color-card: #4a535e;
+  --color-inset: #30373f;
+  --color-control: #535d68;
+  --color-hairline: #65717e;
+
+  --color-ink: #f1f5f9;
+  --color-ink-secondary: #d8e0e8;
+
+  --color-accent: #8db9e8;
+  --color-accent-border: #a8c8ec;
+  --color-accent-text: #b5d0ef;
+  --color-focus: #b5d0ef;
+  --color-accent-ink: #3a414a;
+  --color-bubble-user: #454e58;
+
+  --color-success: #86dfae;
+  --color-danger: #ffb2b8;
+  --color-danger-ink: #3a414a;
+  --color-warning: #f0c674;
+  --color-scrollbar: #65717e;
+  --color-maus-line: #d8e0e8;
+
+  --font-sans: "Bahnschrift", "Segoe UI", -apple-system, BlinkMacSystemFont,
+    "Malgun Gothic", system-ui, sans-serif;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+}
+
+/* ── Blueprint Charcoal ─────────────────────────────────────────────────────
+   Deeper charcoal drafting surfaces keep Blueprint's blue annotations while
+   giving the transcript a lower-light, higher-contrast register.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="blueprint-charcoal"] {
+  color-scheme: dark;
+  --color-app: #1f252c;
+  --color-panel: #282f37;
+  --color-raised: #343c46;
+  --color-raised-hover: #3f4853;
+  --color-card: #323a44;
+  --color-inset: #181e24;
+  --color-control: #3a444f;
+  --color-hairline: #4f5c69;
+
+  --color-ink: #eef3f8;
+  --color-ink-secondary: #b7c4d0;
+
+  --color-accent: #82b5e6;
+  --color-accent-border: #9fc6ec;
+  --color-accent-text: #a8c9ed;
+  --color-focus: #a8c9ed;
+  --color-accent-ink: #1f252c;
+  --color-bubble-user: #2b333c;
+
+  --color-success: #78d4a2;
+  --color-danger: #ff929b;
+  --color-danger-ink: #1f252c;
+  --color-warning: #edc36b;
+  --color-scrollbar: #4f5c69;
+  --color-maus-line: #b7c4d0;
+
+  --font-sans: "Bahnschrift", "Segoe UI", -apple-system, BlinkMacSystemFont,
+    "Malgun Gothic", system-ui, sans-serif;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+}
+
+:is([data-skin="blueprint-gray"], [data-skin="blueprint-charcoal"]) [data-orbit-message-content] {
+  border: 1px solid color-mix(in srgb, var(--color-accent) 26%, transparent);
+}
+
+:is([data-skin="blueprint-gray"], [data-skin="blueprint-charcoal"]) [data-orbit-message="bot"] [data-orbit-message-content] {
+  background: var(--color-card);
+}
+
+:is([data-skin="blueprint-gray"], [data-skin="blueprint-charcoal"]) .chat-md > div[class*="font-semibold"] {
+  color: var(--color-accent-text);
+  border-bottom: 1px solid var(--color-hairline);
+  padding-bottom: 3px;
+  font-family: "Bahnschrift", "Segoe UI", "Malgun Gothic", sans-serif;
+  letter-spacing: 0.01em;
+}
+
+:is([data-skin="blueprint-gray"], [data-skin="blueprint-charcoal"]) .chat-md blockquote {
+  border-left: 3px solid var(--color-accent);
+  background: var(--color-panel);
+  padding: 8px 12px;
+  color: var(--color-ink-secondary);
+}
+
+:is([data-skin="blueprint-gray"], [data-skin="blueprint-charcoal"]) .chat-md :is(code, pre) {
+  font-family: "Cascadia Mono", "Consolas", "Malgun Gothic", monospace;
+}
+
+/* Keep the rail-to-glyph gap after skin-specific bot padding rules. */
+:root[data-shape="boxy"]:is(
+  [data-skin="precision"],
+  [data-skin="notebook"],
+  [data-skin="messenger"],
+  [data-skin="community"],
+  [data-skin="code-review"],
+  [data-skin="blueprint"],
+  [data-skin="blueprint-gray"],
+  [data-skin="blueprint-charcoal"]
+) [data-orbit-message="bot"] [data-orbit-message-content] {
+  padding-left: 12px;
 }
 
 html,

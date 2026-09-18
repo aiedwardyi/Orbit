@@ -57,6 +57,8 @@ describe("terminal attention routing", () => {
     expect(app).toContain("if (!terminalOpen || !bot || !document.hasFocus()) return;");
     expect(app).toContain('window.addEventListener("focus", acknowledgeVisible)');
     expect(app).toContain('type: "ackTerminalAttention"');
+    expect(app).toContain("const acknowledge = window.ogb?.terminal?.acknowledge");
+    expect(app).toContain("acknowledge(attention.sessionId)");
   });
 
   it("keeps targeted acknowledgements scoped by bot while a notification click settles", () => {

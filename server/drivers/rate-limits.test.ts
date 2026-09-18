@@ -113,6 +113,19 @@ describe("grokRateLimitWindows", () => {
     ).toEqual([{ id: "seven_day", usedPercent: 12, resetsAt: null, windowMinutes: 10_080 }]);
   });
 
+  it("keeps zero usage as a valid weekly observation", () => {
+    expect(
+      grokRateLimitWindows({
+        config: {
+          creditUsagePercent: 0,
+          currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", end: "2026-09-15T12:00:00Z" },
+        },
+      }),
+    ).toEqual([
+      { id: "seven_day", usedPercent: 0, resetsAt: Date.parse("2026-09-15T12:00:00Z"), windowMinutes: 10_080 },
+    ]);
+  });
+
   /** Display rounding must not invent an exhausted week out of 99.96%. */
   it("keeps a nearly-full week short of spent", () => {
     const windows = grokRateLimitWindows({
@@ -142,6 +155,7 @@ describe("grokRateLimitWindows", () => {
       }),
     ).toEqual([]);
     expect(grokRateLimitWindows({ config: { creditUsagePercent: "42" } })).toEqual([]);
+    expect(grokRateLimitWindows({})).toEqual([]);
     expect(grokRateLimitWindows(null)).toEqual([]);
     expect(grokRateLimitWindows("42%")).toEqual([]);
   });

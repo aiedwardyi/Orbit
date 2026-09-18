@@ -80,6 +80,7 @@ describe("Windows toast identity", () => {
     expect(preload).toContain("desktop:notify");
     expect(preload).toContain("desktop:taskbar-busy");
     expect(preload).toContain("desktop:notification-click");
+    expect(preload).toContain('terminal:acknowledge');
   });
 });
 

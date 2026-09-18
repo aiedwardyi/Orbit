@@ -39,6 +39,8 @@ export const SKIN_IDS = [
   "community",
   "code-review",
   "blueprint",
+  "blueprint-gray",
+  "blueprint-charcoal",
 ] as const;
 export type SkinId = (typeof SKIN_IDS)[number];
 
@@ -84,6 +86,8 @@ export const SKINS: readonly Skin[] = [
   { id: "community", name: "Community", tagline: "Sender-first shared space, slate dark." },
   { id: "code-review", name: "Code Review", tagline: "Light review threads, crisp code." },
   { id: "blueprint", name: "Blueprint", tagline: "Technical paper, fine blue rules." },
+  { id: "blueprint-gray", name: "Blueprint Gray", tagline: "Mid-gray drafting board, blue rules." },
+  { id: "blueprint-charcoal", name: "Blueprint Charcoal", tagline: "Deep charcoal drafting board, blue rules." },
 ];
 
 export const DEFAULT_SKIN: SkinId = "ledger";

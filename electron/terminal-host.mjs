@@ -9,6 +9,92 @@ const OUTPUT_LIMIT = 256 * 1024;
 const READY_TIMEOUT_MS = 5_000;
 const WINDOWS_READY_TIMEOUT_MS = 15_000;
 const SHUTDOWN_TIMEOUT_MS = 500;
+export const TERMINAL_ACTIVITY_COALESCE_MS = 750;
+export const TERMINAL_ACTIVITY_ACK_COOLDOWN_MS = 3_000;
+const INPUT_ECHO_LIMIT = 4_096;
+
+const stringControl = new Set(["P", "^", "_", "X"]);
+
+function isPrintable(char) {
+  const code = char.charCodeAt(0);
+  return code >= 0x20 && code !== 0x7f;
+}
+
+export function createTerminalOutputParser() {
+  let state = "normal";
+  return {
+    consume(data) {
+      let text = "";
+      let bell = false;
+      for (const char of data) {
+        if (state === "normal") {
+          if (char === "\x1b") state = "escape";
+          else if (char === "\x9b") state = "csi";
+          else if (char === "\x9d") state = "osc";
+          else if (char === "\x07") bell = true;
+          else if (isPrintable(char) || char === "\r" || char === "\n" || char === "\t") text += char;
+          continue;
+        }
+        if (state === "escape") {
+          if (char === "[") state = "csi";
+          else if (char === "]") state = "osc";
+          else if (stringControl.has(char)) state = "string";
+          else state = "normal";
+          continue;
+        }
+        if (state === "csi") {
+          const code = char.charCodeAt(0);
+          if (code >= 0x40 && code <= 0x7e) state = "normal";
+          continue;
+        }
+        if (state === "osc") {
+          if (char === "\x07") state = "normal";
+          else if (char === "\x1b") state = "osc-escape";
+          continue;
+        }
+        if (state === "osc-escape") {
+          state = char === "\\" ? "normal" : char === "\x07" ? "normal" : "osc";
+          continue;
+        }
+        if (state === "string") {
+          if (char === "\x1b") state = "string-escape";
+          continue;
+        }
+        state = char === "\\" ? "normal" : "string";
+      }
+      return { text, bell };
+    },
+  };
+}
+
+function inputEchoText(data) {
+  const parsed = createTerminalOutputParser().consume(data);
+  return parsed.text.replace(/[\r\n\t]/g, "").slice(0, INPUT_ECHO_LIMIT);
+}
+
+function consumeInputEcho(text, pending) {
+  if (!pending || !text.replace(/[\r\n\t]/g, "")) return { text, pending };
+  let consumed = 0;
+  let mismatch = false;
+  const rest = [];
+  for (const char of text) {
+    if (consumed < pending.length && /[\r\n\t]/.test(char)) {
+      rest.push(char);
+      continue;
+    }
+    if (consumed < pending.length) {
+      if (char !== pending[consumed]) mismatch = true;
+      else {
+        consumed += 1;
+        continue;
+      }
+    }
+    rest.push(char);
+  }
+  if (mismatch) return { text, pending: "" };
+  if (consumed < pending.length) return { text: "", pending: pending.slice(consumed) };
+  return { text: rest.join(""), pending: "" };
+}
 
 export function terminalReadyTimeoutMs(platform = process.platform) {
   return platform === "win32" ? WINDOWS_READY_TIMEOUT_MS : READY_TIMEOUT_MS;
@@ -31,7 +117,7 @@ export function trustedTerminalSender(event, owner, origin) {
   }
 }
 
-export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform) }) {
+export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform), activityCoalesceMs = TERMINAL_ACTIVITY_COALESCE_MS, attentionCooldownMs = TERMINAL_ACTIVITY_ACK_COOLDOWN_MS, now = () => Date.now() }) {
   const sessions = new Map();
   const active = new Map();
   const pending = new Map();
@@ -69,10 +155,24 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       session.owner.send(channel, value);
     } catch {}
   };
+  const clearActivityTimer = (session) => {
+    if (!session.activityTimer) return;
+    clearTimeout(session.activityTimer);
+    session.activityTimer = null;
+  };
   const reportAttention = (session, reason) => {
     if (session.retired || session.attentionReported) return;
     session.attentionReported = true;
     emit(session, "terminal:attention", { id: session.id, botId: session.botId, reason });
+  };
+  const scheduleActivity = (session) => {
+    if (!session.activityArmed || session.retired || session.attentionReported || now() < session.activityCooldownUntil || session.activityTimer) return;
+    session.activityTimer = setTimeout(() => {
+      session.activityTimer = null;
+      if (session.retired || session.attentionReported || !session.activityArmed || now() < session.activityCooldownUntil) return;
+      reportAttention(session, "activity");
+    }, activityCoalesceMs);
+    session.activityTimer.unref?.();
   };
   const resolveFolder = async (input, event) => {
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Optional session-only override from an explicit folder pick.
@@ -102,6 +202,7 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
   const retire = async (session, forceKill = false) => {
     if (session.retired && session.stopPromise) return session.stopPromise;
     session.retired = true;
+    clearActivityTimer(session);
     if (active.get(session.key) === session.id) active.delete(session.key);
     session.stopPromise = (async () => {
       if (forceKill || session.exitCode === null) {
@@ -122,6 +223,8 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
   };
   const reportExit = (session, exitCode) => {
     if (session.exitCode === null) session.exitCode = exitCode;
+    clearActivityTimer(session);
+    session.activityArmed = false;
     reportAttention(session, exitCode === 0 ? "exit" : "error");
     if (!session.exitReported) {
       session.exitReported = true;
@@ -144,7 +247,11 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
   const attach = (session) => {
     session.pty.onData((data) => {
       session.output = (session.output + data).slice(-OUTPUT_LIMIT);
-      if (data.includes("\x07")) reportAttention(session, "bell");
+      const parsed = session.outputParser.consume(data);
+      const echo = consumeInputEcho(parsed.text, session.pendingInputEcho);
+      session.pendingInputEcho = echo.pending;
+      if (parsed.bell) reportAttention(session, "bell");
+      if (!parsed.bell && echo.text.trim()) scheduleActivity(session);
       emit(session, "terminal:data", { id: session.id, data, seq: ++session.seq });
     });
     session.pty.onExit(({ exitCode }) => reportExit(session, exitCode));
@@ -167,7 +274,8 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
     const session = {
       id: randomUUID(), key, botId: input.botId, owner: event.sender, cwd, shell, pty, output: "", exitCode: null, seq: 0,
       launchProject: launchProject(input, folder, cwd), retired: false, exitReported: false, errorReported: false,
-      failure: null, attentionReported: false,
+      failure: null, attentionReported: false, activityArmed: false, activityCooldownUntil: 0, activityTimer: null,
+      outputParser: createTerminalOutputParser(), pendingInputEcho: "",
     };
     sessions.set(session.id, session);
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Electron sender mocks may omit lifecycle events.
@@ -277,8 +385,15 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Reject non-text IPC payloads before passing them to the PTY.
       if (typeof data !== "string" || data.length > 64 * 1024) throw new Error("Invalid terminal input");
       if (session.exitCode !== null) throw new Error("Terminal has exited");
+      clearActivityTimer(session);
+      const echo = inputEchoText(data);
+      if (echo || /[\r\n]/.test(data)) session.activityArmed = true;
+      if (echo) session.pendingInputEcho = `${session.pendingInputEcho}${echo}`.slice(-INPUT_ECHO_LIMIT);
       // A shell can emit a bell more than once; arm the next command after Enter.
-      if (/[\r\n]/.test(data)) session.attentionReported = false;
+      if (/[\r\n]/.test(data)) {
+        session.attentionReported = false;
+        session.activityCooldownUntil = 0;
+      }
       try {
         const result = session.pty.write(data);
         // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may acknowledge operations synchronously or asynchronously.
@@ -287,6 +402,12 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
         fail(session, cause);
         throw cause;
       }
+    },
+    acknowledge(event, id) {
+      const session = owned(event, id);
+      clearActivityTimer(session);
+      session.attentionReported = false;
+      session.activityCooldownUntil = now() + attentionCooldownMs;
     },
     resize(event, id, cols, rows) {
       const session = owned(event, id);

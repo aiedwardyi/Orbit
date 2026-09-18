@@ -87,6 +87,8 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     sessions?.delete(attention.sessionId);
     if (sessions?.size === 0) pendingTerminalAcknowledgements.current.delete(attention.botId);
     handledTerminalAttention.current.delete(key);
+    const acknowledge = window.ogb?.terminal?.acknowledge;
+    if (acknowledge) void acknowledge(attention.sessionId).catch(() => {});
     dispatch({ type: "ackTerminalAttention", botId: attention.botId, sessionId: attention.sessionId });
   };
   const requestTerminalAcknowledgement = (attention: Pick<TerminalAttention, "botId" | "sessionId">) => {

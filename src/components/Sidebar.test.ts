@@ -252,6 +252,144 @@ describe("Sidebar row time", () => {
   });
 });
 
+describe("Sidebar priority ordering", () => {
+  it("promotes and demotes Pin and Chief without losing the saved section slot", async () => {
+    const initialBots = [
+      { ...bot("regular"), section: "Work", modelSelection: { instanceId: "", model: "" } },
+      { ...bot("pinned"), section: "Work", pinned: true, modelSelection: { instanceId: "", model: "" } },
+      { ...bot("chief"), section: "Personal", chiefOfStaff: true, modelSelection: { instanceId: "", model: "" } },
+      { ...bot("both"), section: "Other", chiefOfStaff: true, pinned: true, modelSelection: { instanceId: "", model: "" } },
+      { ...bot("other"), section: "Other", modelSelection: { instanceId: "", model: "" } },
+    ];
+    let serverBots = initialBots;
+    const patches: Array<{ id: string; patch: Record<string, unknown> }> = [];
+    window.localStorage.setItem(SIDEBAR_ORDER_KEY, JSON.stringify({
+      sectionOrder: ["section:Work", "section:Personal", "section:Other", "unassigned"],
+      itemOrder: {
+        "section:Work": ["bot:regular", "bot:pinned"],
+        "section:Personal": ["bot:chief"],
+        "section:Other": ["bot:both", "bot:other"],
+      },
+    }));
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string, init?: RequestInit) => {
+        if (path === "/api/bots") return new Response(JSON.stringify({ bots: serverBots, groups: [] }));
+        if (path.startsWith("/api/bots/") && init?.method === "PATCH") {
+          const id = path.slice("/api/bots/".length);
+          const patch = JSON.parse(String(init.body)) as Record<string, unknown>;
+          patches.push({ id, patch });
+          serverBots = serverBots.map((candidate) => candidate.id === id ? { ...candidate, ...patch } : candidate);
+          return new Response(JSON.stringify({ bot: serverBots.find((candidate) => candidate.id === id) }));
+        }
+        return new Response(JSON.stringify({ error: "not in this test" }), { status: 404 });
+      }),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    const rowIds = () => [...host.querySelectorAll("[data-sidebar-row]")].map((row) => row.getAttribute("data-sidebar-row-id"));
+    const menuButton = (label: string) =>
+      [...document.body.querySelectorAll("[data-bot-menu] button")].find((button) => button.textContent === label);
+    const choose = async (id: string, label: string) => {
+      const row = host.querySelector(`[data-sidebar-row-id="${id}"]`)!;
+      await act(async () => row.querySelector('[role="button"]')?.dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }),
+      ));
+      const button = menuButton(label);
+      expect(button).not.toBeUndefined();
+      await act(async () => button?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    };
+    try {
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))));
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      await vi.waitFor(() => expect(rowIds()).toEqual(["chief", "both", "pinned", "regular", "other"]));
+      expect(host.querySelectorAll('[data-sidebar-row-id="both"]')).toHaveLength(1);
+      expect(host.querySelector('[data-sidebar-section-id="section:Other"]')?.textContent).toContain("other");
+      expect(host.querySelector('[data-sidebar-section-id="section:Other"]')?.textContent).not.toContain("both");
+
+      await choose("regular", "Pin");
+      expect(rowIds()).toEqual(["chief", "both", "regular", "pinned", "other"]);
+      expect(host.querySelector('[data-sidebar-priority-tier="pinned"]')?.textContent).toContain("regular");
+
+      await choose("regular", "Make Chief of Staff");
+      expect(rowIds()).toEqual(["regular", "chief", "both", "pinned", "other"]);
+      expect(host.querySelector('[data-sidebar-priority-tier="chief"]')?.textContent).toContain("regular");
+
+      await choose("regular", "Remove Chief of Staff");
+      expect(rowIds()).toEqual(["chief", "both", "regular", "pinned", "other"]);
+      await choose("regular", "Unpin");
+      expect(rowIds()).toEqual(["chief", "both", "pinned", "regular", "other"]);
+      expect(host.querySelector('[data-sidebar-section-id="section:Work"]')?.textContent).toContain("regular");
+      await vi.waitFor(() => expect(serverBots.find((candidate) => candidate.id === "regular")).toMatchObject({
+        pinned: false,
+        chiefOfStaff: false,
+      }));
+      expect(patches.some(({ id }) => id === "regular")).toBe(true);
+      expect(JSON.parse(window.localStorage.getItem(SIDEBAR_ORDER_KEY) ?? "{}").itemOrder).toMatchObject({
+        "section:Work": ["bot:regular", "bot:pinned"],
+      });
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("keeps priority flags above regular rows during valid and invalid drags", async () => {
+    const pinnedOne = { ...bot("pinned-one"), section: "Work", pinned: true, modelSelection: { instanceId: "", model: "" } };
+    const regular = { ...bot("regular"), section: "Work", modelSelection: { instanceId: "", model: "" } };
+    const pinnedTwo = { ...bot("pinned-two"), section: "Work", pinned: true, modelSelection: { instanceId: "", model: "" } };
+    window.localStorage.setItem(SIDEBAR_ORDER_KEY, JSON.stringify({
+      sectionOrder: ["section:Work", "unassigned"],
+      itemOrder: { "section:Work": ["bot:pinned-one", "bot:regular", "bot:pinned-two"] },
+    }));
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string) => path === "/api/bots"
+        ? new Response(JSON.stringify({ bots: [pinnedOne, regular, pinnedTwo], groups: [] }))
+        : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    const rows = () => [...host.querySelectorAll("[data-sidebar-row]")];
+    const rowIds = () => rows().map((row) => row.getAttribute("data-sidebar-row-id"));
+    const dropMarker = () => host.querySelector("[data-sidebar-row-drop-marker]");
+    try {
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))));
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      await vi.waitFor(() => expect(rowIds()).toEqual(["pinned-one", "pinned-two", "regular"]));
+      await act(async () => fire(rows()[0]!, "dragstart"));
+      await act(async () => fire(rows()[2]!, "dragover"));
+      expect(dropMarker()).toBeNull();
+      await act(async () => fire(rows()[2]!, "drop"));
+      await act(async () => fire(rows()[0]!, "dragend"));
+      expect(rowIds()).toEqual(["pinned-one", "pinned-two", "regular"]);
+
+      await act(async () => fire(rows()[0]!, "dragstart"));
+      await act(async () => fire(rows()[1]!, "dragover"));
+      expect(dropMarker()).not.toBeNull();
+      await act(async () => fire(rows()[1]!, "drop"));
+      await act(async () => fire(rows()[0]!, "dragend"));
+      expect(rowIds()).toEqual(["pinned-two", "pinned-one", "regular"]);
+      expect(JSON.parse(window.localStorage.getItem(SIDEBAR_ORDER_KEY) ?? "{}").itemOrder).toMatchObject({
+        "section:Work": ["bot:pinned-two", "bot:regular", "bot:pinned-one"],
+      });
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});
+
 describe("Sidebar layout controls", () => {
   it("toggles the persisted icon rail while restoring the saved labeled width", async () => {
     window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "0");

@@ -6,7 +6,21 @@ export type SidebarOrder = {
   itemOrder: SidebarItemOrder;
 };
 
+export type SidebarPriority = "chief" | "pinned";
+
+export type SidebarPriorityPartition = {
+  chief: string[];
+  pinned: string[];
+  regular: SidebarItemOrder;
+};
+
 export const UNASSIGNED_SECTION_ID = "unassigned";
+
+export function sidebarPriorityFor(value: { chiefOfStaff?: boolean; pinned?: boolean }): SidebarPriority | null {
+  if (value.chiefOfStaff) return "chief";
+  if (value.pinned) return "pinned";
+  return null;
+}
 
 export function sidebarItemKey(kind: SidebarItemKind, id: string): string {
   return `${kind}:${id}`;
@@ -24,6 +38,27 @@ export function orderedSidebarItems(present: readonly string[], saved: readonly 
     if (!result.includes(key)) result.push(key);
   }
   return result;
+}
+
+export function partitionSidebarItemKeys(
+  sectionOrder: readonly string[],
+  itemOrder: Readonly<SidebarItemOrder>,
+  priorityByKey: Readonly<Record<string, SidebarPriority | null | undefined>>,
+): SidebarPriorityPartition {
+  const partition: SidebarPriorityPartition = { chief: [], pinned: [], regular: {} };
+  const seen = new Set<string>();
+  const sections = [...new Set([...sectionOrder, ...Object.keys(itemOrder)])];
+  for (const sectionId of sections) {
+    const regular = (partition.regular[sectionId] ??= []);
+    for (const key of itemOrder[sectionId] ?? []) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const priority = priorityByKey[key];
+      if (priority) partition[priority].push(key);
+      else regular.push(key);
+    }
+  }
+  return partition;
 }
 
 export function normalizeSidebarOrder(
@@ -77,6 +112,29 @@ export function moveSidebarItem(
   }
   const targetIndex = target.indexOf(targetKey);
   target.splice(targetIndex < 0 ? target.length : targetIndex + (place === "after" ? 1 : 0), 0, fromKey);
+  return next;
+}
+
+export function moveSidebarItemWithinTier(
+  itemOrder: SidebarItemOrder,
+  sectionId: string,
+  fromKey: string,
+  targetKey: string,
+  tierKeys: readonly string[],
+  place: Exclude<SidebarItemDropPlace, "end"> = "before",
+): SidebarItemOrder {
+  const next: SidebarItemOrder = Object.fromEntries(
+    Object.entries(itemOrder).map(([id, keys]) => [id, unique(keys)]),
+  );
+  const keys = next[sectionId] ?? [];
+  const slots = keys.flatMap((key, index) => (tierKeys.includes(key) ? [index] : []));
+  const tier = slots.map((index) => keys[index]!);
+  const fromIndex = tier.indexOf(fromKey);
+  const targetIndex = tier.indexOf(targetKey);
+  if (fromIndex < 0 || targetIndex < 0 || fromIndex === targetIndex) return next;
+  tier.splice(fromIndex, 1);
+  tier.splice(targetIndex + (place === "after" ? 1 : 0), 0, fromKey);
+  for (const [index, slot] of slots.entries()) keys[slot] = tier[index]!;
   return next;
 }
 

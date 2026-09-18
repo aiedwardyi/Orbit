@@ -5,7 +5,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import type { Bot } from "@/state/store";
 import { api, useStore } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
-import { readTerminalMatch, TERMINAL_APPEARANCE_EVENT } from "@/lib/terminal-appearance";
+import { readTerminalMatch, terminalTheme, TERMINAL_APPEARANCE_EVENT } from "@/lib/terminal-appearance";
 import { ConfirmDialog } from "./ConfirmDialog";
 import "@xterm/xterm/css/xterm.css";
 
@@ -126,12 +126,7 @@ export function TerminalWorkspace({
       const color = (name: string) => css.getPropertyValue(`--color-${name}`).trim();
       terminal.options.fontFamily = imported?.fontFamily ? `${JSON.stringify(imported.fontFamily)}, monospace` : defaultFont;
       terminal.options.fontSize = imported?.fontSize ?? 13;
-      terminal.options.theme = {
-        background: color("inset"), foreground: color("ink"),
-        cursor: color("accent-text"), cursorAccent: color("inset"),
-        selectionBackground: color("raised-hover"),
-        ...imported?.theme,
-      };
+      terminal.options.theme = { ...terminalTheme(color), ...imported?.theme };
       if (host.parentElement) host.parentElement.style.backgroundColor = imported?.theme.background ?? "";
       fit.fit();
       if (id) {
