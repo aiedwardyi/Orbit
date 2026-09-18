@@ -23,6 +23,7 @@ const CACHE_MAX = 200;
 // tokenize on it — long enough to skip per-token churn mid-fence, short
 // enough that the highlight lands before the stream settles
 const STREAM_SETTLE_MS = 250;
+const TALL_CODE_LINES = 15;
 const hash = (s: string) => {
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
@@ -109,6 +110,7 @@ function CodeBlock({ code, lang, streaming }: { code: string; lang: string; stre
     setCopied(true);
     setTimeout(() => setCopied(false), 1200);
   };
+  const tall = code.split("\n").length > TALL_CODE_LINES;
 
   return (
     <div className="my-2 overflow-hidden rounded-lg border border-hairline/40 bg-inset">
@@ -129,6 +131,17 @@ function CodeBlock({ code, lang, streaming }: { code: string; lang: string; stre
         />
       ) : (
         <pre className="overflow-x-auto p-3 text-[13px] leading-relaxed text-ink">{code}</pre>
+      )}
+      {tall && (
+        <div className="flex justify-end border-t border-hairline/30 px-3 py-1">
+          <button
+            onClick={copy}
+            className="rounded p-1 text-ink-secondary hover:bg-raised hover:text-ink"
+            title="Copy code"
+          >
+            {copied ? <Check size={13} className="text-success" /> : <Copy size={13} />}
+          </button>
+        </div>
       )}
     </div>
   );

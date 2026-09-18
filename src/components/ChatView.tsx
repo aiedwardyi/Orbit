@@ -469,14 +469,14 @@ function Bubble({
       className={cn("group flex w-full flex-col outline-none", user ? "animate-msg-in items-end" : "items-start")}
       tabIndex={-1}
     >
-      {/* padded for bot messages so the docked action row below the bubble
+      {/* padded so the docked action row below the bubble
           keeps out of the timestamp and reaction chips that follow it */}
-      <div data-orbit-message-body className={cn("relative w-fit max-w-[min(42rem,78%)]", !user && "pb-8")}>
+      <div data-orbit-message-body className={cn("relative w-fit max-w-[min(42rem,78%)] pb-8")}>
         <div className="orbit-message-speaker hidden">{user ? t("chat.you") : bot.name}</div>
         {user && !message.placeholder && (
           <div
             data-message-hover-actions
-            className="pointer-events-none absolute top-1/2 right-full z-20 mr-0.5 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+            className="pointer-events-none absolute right-0 bottom-0 z-20 flex items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
           >
             {/* editing rewinds the thread, so it waits for the turn to end —
                 same rule as the version switcher below */}
