@@ -142,16 +142,18 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
     return session ?? null;
   };
   const snapshot = (session) => {
+    const screen = session.screen.snapshot();
     const result = {
       id: session.id,
       sessionId: session.id,
       generation: session.generation,
       cwd: session.cwd,
       shell: session.shell,
-      output: session.output,
+      // Trimmed history can drop a full-screen app's alt-screen switch.
+      output: session.truncated && screen.alternate ? `\x1b[?1049h${session.output}` : session.output,
       exitCode: session.exitCode,
       seq: session.seq,
-      ...session.screen.snapshot(),
+      ...screen,
     };
     if (session.launchProject !== undefined) result.launchProject = session.launchProject;
     return result;
@@ -180,7 +182,9 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
     emit(session, "terminal:attention", { id: session.id, botId: session.botId, reason });
   };
   const scheduleActivity = (session) => {
-    if (!session.activityArmed || session.retired || session.attentionReported || now() < session.activityCooldownUntil || session.activityTimer) return;
+    if (!session.activityArmed || session.retired || session.attentionReported || now() < session.activityCooldownUntil) return;
+    // Settle-based so a redrawing TUI reports when it goes quiet, not on its first frame.
+    clearActivityTimer(session);
     session.activityTimer = setTimeout(() => {
       session.activityTimer = null;
       if (session.retired || session.attentionReported || !session.activityArmed || now() < session.activityCooldownUntil) return;
@@ -262,7 +266,11 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
   const attach = (session) => {
     session.pty.onData((data) => {
       if (session.retired) return;
-      session.output = (session.output + data).slice(-OUTPUT_LIMIT);
+      session.output += data;
+      if (session.output.length > OUTPUT_LIMIT) {
+        session.output = session.output.slice(-OUTPUT_LIMIT);
+        session.truncated = true;
+      }
       let parsed = { text: "", bell: false };
       try {
         parsed = session.outputParser.consume(data);
@@ -297,7 +305,7 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       id: randomUUID(), key, botId: input.botId, owner: event.sender, cwd, shell, pty, output: "", exitCode: null, seq: 0,
       launchProject: launchProject(input, folder, cwd), retired: false, exitReported: false, errorReported: false,
       failure: null, attentionReported: false, activityArmed: false, activityCooldownUntil: 0, activityTimer: null,
-      outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), pendingInputEcho: "",
+      outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), pendingInputEcho: "", truncated: false,
     };
     session.generation = (generations.get(key) ?? 0) + 1;
     generations.set(key, session.generation);
@@ -370,7 +378,17 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
         return inFlight.promise;
       }
       const existing = current(key);
-      if (existing && input.restart !== true) return snapshot(existing);
+      if (existing && input.restart !== true) {
+        const { cols, rows, alternate } = existing.screen.snapshot();
+        // Diff-rendering TUIs cannot be rebuilt from trimmed history; a size bounce forces a full repaint.
+        if (existing.truncated && alternate && existing.exitCode === null && rows > 1) {
+          try {
+            void Promise.resolve(existing.pty.resize(cols, rows - 1)).catch(() => {});
+            void Promise.resolve(existing.pty.resize(cols, rows)).catch(() => {});
+          } catch {}
+        }
+        return snapshot(existing);
+      }
       if (!existing && active.size >= 16) {
         for (const [id, session] of sessions) {
           if (session.exitCode !== null || session.owner.isDestroyed?.()) {
@@ -409,8 +427,9 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Reject non-text IPC payloads before passing them to the PTY.
       if (typeof data !== "string" || data.length > 64 * 1024) throw new Error("Invalid terminal input");
       if (session.exitCode !== null) throw new Error("Terminal has exited");
-      clearActivityTimer(session);
       const echo = inputEchoText(data);
+      // Mouse and focus reports from a TUI are not the user taking over.
+      if (echo || /[\r\n]/.test(data)) clearActivityTimer(session);
       if (/[\r\n]/.test(data)) session.activityArmed = true;
       if (echo) session.pendingInputEcho = `${session.pendingInputEcho}${echo}`.slice(-INPUT_ECHO_LIMIT);
       // A shell can emit a bell more than once; arm the next command after Enter.

@@ -375,6 +375,36 @@ test("coalesces output, suppresses input echo and rearms after acknowledgement c
   f.host.dispose();
 });
 
+test("waits for a redrawing full-screen app to go quiet before reporting activity", async () => {
+  const f = fixture({ activityCoalesceMs: 20 });
+  const session = await f.host.open(f.event, f.input);
+  f.host.write(f.event, session.id, "\r");
+  for (let frame = 0; frame < 5; frame += 1) {
+    f.children[0].data(`\x1b[?2026h\x1b[5;1Hworking ${frame}\x1b[?2026l`);
+    f.host.write(f.event, session.id, "\x1b[<35;10;5M");
+    await wait(10);
+  }
+  assert.equal(f.events.some(([channel]) => channel === "terminal:attention"), false);
+  await wait(40);
+  assert.deepEqual(f.events.filter(([channel]) => channel === "terminal:attention").map(([, value]) => value.reason), ["activity"]);
+  f.host.dispose();
+});
+
+test("reattaching a trimmed full-screen session restores the alt screen and forces a repaint", async () => {
+  const f = fixture();
+  const session = await f.host.open(f.event, f.input);
+  f.children[0].data("\x1b[?1049h");
+  f.children[0].data("x".repeat(300000));
+  const replay = await f.host.open(f.event, f.input);
+  assert.equal(replay.id, session.id);
+  assert.ok(replay.output.startsWith("\x1b[?1049h"));
+  assert.deepEqual(f.children[0].sizes, [[80, 23], [80, 24]]);
+  f.children[0].data("\x1b[?1049l");
+  const inline = await f.host.open(f.event, f.input);
+  assert.ok(!inline.output.startsWith("\x1b[?1049h"));
+  assert.equal(f.children[0].sizes.length, 2);
+});
+
 test("does not notify for a typed echo before command submission", async () => {
   const f = fixture({ activityCoalesceMs: 5 });
   const session = await f.host.open(f.event, f.input);
