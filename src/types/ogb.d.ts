@@ -216,6 +216,12 @@ type SkillRecordingPayload = {
       /** Absolute path of a dropped File ("" when the drag carried no
        * file on disk). Absent in older builds of the shell. */
       getPathForFile?(file: File): string;
+      /** Native clipboard channel; absent in current shells, so the terminal
+       * prefers navigator.clipboard and treats this as a fallback. */
+      clipboard?: {
+        readText(): Promise<string>;
+        writeText(text: string): Promise<void>;
+      };
       /** {mic} TCC status: granted|denied|not-determined|unknown. Screen
        * status is deliberately absent — macOS 15+ caches it per-process,
        * so it lies for the whole session after a grant. */

@@ -177,6 +177,62 @@ export function TerminalWorkspace({
     forwardInputRef.current = forwardInput;
     const input = terminal.onData(forwardInput);
     const inputBinary = terminal.onBinary(forwardInput);
+    // Windows Terminal copy/paste. xterm maps Ctrl+C/V to raw control bytes
+    // (^C/^V) and leaves Shift+Insert dead, so claim them here. False claims.
+    const copySelection = (text: string) => {
+      const finish = () => {
+        if (alive) terminal.clearSelection();
+      };
+      void Promise.resolve()
+        .then(() => navigator.clipboard.writeText(text))
+        .catch(() => window.ogb?.clipboard?.writeText(text))
+        .then(finish, finish);
+    };
+    const readClipboardText = async (): Promise<string> => {
+      try {
+        return await navigator.clipboard.readText();
+      } catch {
+        // Renderer clipboard is unreadable; try the native bridge next.
+      }
+      try {
+        return (await window.ogb?.clipboard?.readText()) ?? "";
+      } catch {
+        return "";
+      }
+    };
+    const pasteClipboard = () => {
+      void readClipboardText().then((text) => {
+        if (!alive || !text) return;
+        if (terminal.options.disableStdin) return;
+        terminal.paste(text);
+      });
+    };
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (event.type !== "keydown") return true;
+      if (event.metaKey || event.altKey) return true;
+      if (terminal.options.disableStdin || (id !== null && exits.has(id))) return true;
+      const key = (event.key ?? "").toLowerCase();
+      const isCopyKey = key === "c" || event.keyCode === 67;
+      const isPasteKey = key === "v" || event.keyCode === 86;
+      const isInsertKey = key === "insert" || event.keyCode === 45;
+      if (event.ctrlKey && isCopyKey) {
+        // Bare Ctrl+C with no selection keeps today's ^C (interrupt/close).
+        if (!event.shiftKey && !terminal.hasSelection()) return true;
+        const selected = terminal.getSelection();
+        if (selected) copySelection(selected);
+        else terminal.clearSelection();
+        return false;
+      }
+      if (event.ctrlKey && isPasteKey) {
+        pasteClipboard();
+        return false;
+      }
+      if (event.shiftKey && !event.ctrlKey && isInsertKey) {
+        pasteClipboard();
+        return false;
+      }
+      return true;
+    });
     const resize = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {

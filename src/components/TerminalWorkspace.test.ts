@@ -6,6 +6,7 @@ import { afterEach, expect, it, vi } from "vitest";
 const terminal = vi.hoisted(() => {
   let onDataCb: ((data: string) => void) | null = null;
   let onBinaryCb: ((data: string) => void) | null = null;
+  let keyHandler: ((event: KeyboardEvent) => boolean) | null = null;
   return {
     options: { disableStdin: true } as { disableStdin: boolean; fontFamily?: string; fontSize?: number; theme?: unknown },
     cols: 80,
@@ -22,6 +23,13 @@ const terminal = vi.hoisted(() => {
     refresh: vi.fn(),
     open: vi.fn(),
     loadAddon: vi.fn(),
+    attachCustomKeyEventHandler: vi.fn((cb: (event: KeyboardEvent) => boolean) => {
+      keyHandler = cb;
+    }),
+    hasSelection: vi.fn(() => false),
+    getSelection: vi.fn(() => ""),
+    clearSelection: vi.fn(),
+    paste: vi.fn(),
     onData: vi.fn((cb: (data: string) => void) => {
       onDataCb = cb;
       return { dispose: vi.fn() };
@@ -32,6 +40,7 @@ const terminal = vi.hoisted(() => {
     }),
     __emitData(data: string) { onDataCb?.(data); },
     __emitBinary(data: string) { onBinaryCb?.(data); },
+    __emitKey(event: KeyboardEvent) { return keyHandler?.(event); },
   };
 });
 // oxlint-disable-next-line anti-slop/no-module-mocking -- The DOM harness has no canvas; the bridge event ordering remains under test.
@@ -990,4 +999,147 @@ it("does not submit Enter while IME composition is active", async () => {
   await act(async () => { pane.dispatchEvent(new Event("compositionend", { bubbles: true })); });
   await act(async () => { pane.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); });
   expect(write).toHaveBeenCalledWith("session-ime", "\r");
+});
+
+function copyKeyEvent(type: string, init: { key?: string; ctrlKey?: boolean; shiftKey?: boolean; keyCode?: number }) {
+  const { keyCode, ...rest } = init;
+  const event = new KeyboardEvent(type, { bubbles: true, cancelable: true, ...rest });
+  if (keyCode !== undefined) {
+    Object.defineProperties(event, { keyCode: { value: keyCode }, which: { value: keyCode } });
+  }
+  return event;
+}
+
+function stubClipboard(readText: () => Promise<string>, writeText: (text: string) => Promise<void>) {
+  const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { readText, writeText } });
+  return () => {
+    if (original) Object.defineProperty(navigator, "clipboard", original);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  };
+}
+
+async function mountLiveSession(sessionId: string, botId: string, write: TerminalBridge["write"]) {
+  const open = vi.fn(async () => ({
+    id: sessionId,
+    cwd: "C:\\work",
+    shell: "pwsh.exe",
+    output: "prompt",
+    seq: 1,
+    exitCode: null as number | null,
+  }));
+  const bot = mountBridge({
+    appearance: vi.fn(async () => null),
+    open,
+    write,
+    resize: vi.fn(async () => {}),
+    onData: () => vi.fn(),
+    onExit: () => vi.fn(),
+  }, { id: botId, name: "Copy", cwd: "C:\\work" });
+  await act(async () => root.render(createElement(TerminalWorkspace, {
+    bot, visible: true, focusBlocked: false, onClose: vi.fn(),
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(terminal.options.disableStdin).toBe(false);
+  expect(terminal.attachCustomKeyEventHandler).toHaveBeenCalled();
+}
+
+it("copies the selection on Ctrl+C and sends nothing to the PTY", async () => {
+  const write = vi.fn(async () => {});
+  await mountLiveSession("session-copy", "bot-copy", write);
+  vi.mocked(terminal.hasSelection).mockReturnValue(true);
+  vi.mocked(terminal.getSelection).mockReturnValue("sel-text");
+  const writeText = vi.fn(async (_text: string) => {});
+  const restore = stubClipboard(async () => "", writeText);
+  try {
+    const handled = await act(async () => terminal.__emitKey(copyKeyEvent("keydown", { key: "c", ctrlKey: true, keyCode: 67 })));
+    expect(handled).toBe(false);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(writeText).toHaveBeenCalledWith("sel-text");
+    expect(terminal.clearSelection).toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+  } finally {
+    restore();
+  }
+});
+
+it("lets bare Ctrl+C reach the PTY as ^C when nothing is selected", async () => {
+  const write = vi.fn(async () => {});
+  await mountLiveSession("session-plain-c", "bot-plain-c", write);
+  vi.mocked(terminal.hasSelection).mockReturnValue(false);
+  vi.mocked(terminal.getSelection).mockReturnValue("");
+  const handled = await act(async () => terminal.__emitKey(copyKeyEvent("keydown", { key: "c", ctrlKey: true, keyCode: 67 })));
+  expect(handled).toBe(true);
+  await act(async () => { terminal.__emitData("\x03"); });
+  expect(write).toHaveBeenCalledWith("session-plain-c", "\x03");
+});
+
+it("copies on Ctrl+Shift+C and pastes on Ctrl+Shift+V", async () => {
+  const write = vi.fn(async () => {});
+  await mountLiveSession("session-shift", "bot-shift", write);
+  vi.mocked(terminal.hasSelection).mockReturnValue(true);
+  vi.mocked(terminal.getSelection).mockReturnValue("shift-sel");
+  const writeText = vi.fn(async (_text: string) => {});
+  const readText = vi.fn(async () => "shift-paste");
+  const restore = stubClipboard(readText, writeText);
+  try {
+    const copyHandled = await act(async () => terminal.__emitKey(copyKeyEvent("keydown", { key: "C", ctrlKey: true, shiftKey: true, keyCode: 67 })));
+    expect(copyHandled).toBe(false);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(writeText).toHaveBeenCalledWith("shift-sel");
+    const pasteHandled = await act(async () => terminal.__emitKey(copyKeyEvent("keydown", { key: "V", ctrlKey: true, shiftKey: true, keyCode: 86 })));
+    expect(pasteHandled).toBe(false);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(terminal.paste).toHaveBeenCalledWith("shift-paste");
+    expect(write).not.toHaveBeenCalled();
+  } finally {
+    restore();
+  }
+});
+
+it("pastes clipboard text on Ctrl+V and Shift+Insert", async () => {
+  const write = vi.fn(async () => {});
+  await mountLiveSession("session-paste", "bot-paste", write);
+  vi.mocked(terminal.hasSelection).mockReturnValue(false);
+  vi.mocked(terminal.getSelection).mockReturnValue("");
+  const writeText = vi.fn(async (_text: string) => {});
+  const readText = vi.fn(async () => "pasted");
+  const restore = stubClipboard(readText, writeText);
+  try {
+    const ctrlHandled = await act(async () => terminal.__emitKey(copyKeyEvent("keydown", { key: "v", ctrlKey: true, keyCode: 86 })));
+    expect(ctrlHandled).toBe(false);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(terminal.paste).toHaveBeenCalledWith("pasted");
+    readText.mockResolvedValue("inserted");
+    const insertHandled = await act(async () => terminal.__emitKey(copyKeyEvent("keydown", { key: "Insert", shiftKey: true, keyCode: 45 })));
+    expect(insertHandled).toBe(false);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(terminal.paste).toHaveBeenCalledWith("inserted");
+    expect(write).not.toHaveBeenCalled();
+  } finally {
+    restore();
+  }
+});
+
+it("ignores keyup and dead sessions for copy/paste keys", async () => {
+  const write = vi.fn(async () => {});
+  await mountLiveSession("session-dead", "bot-dead", write);
+  vi.mocked(terminal.hasSelection).mockReturnValue(true);
+  vi.mocked(terminal.getSelection).mockReturnValue("sel-text");
+  const writeText = vi.fn(async (_text: string) => {});
+  const restore = stubClipboard(async () => "pasted", writeText);
+  try {
+    const keyup = await act(async () => terminal.__emitKey(copyKeyEvent("keyup", { key: "c", ctrlKey: true, keyCode: 67 })));
+    expect(keyup).toBe(true);
+    terminal.options.disableStdin = true;
+    const dead = await act(async () => terminal.__emitKey(copyKeyEvent("keydown", { key: "c", ctrlKey: true, keyCode: 67 })));
+    expect(dead).toBe(true);
+    terminal.options.disableStdin = false;
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(writeText).not.toHaveBeenCalled();
+    expect(terminal.paste).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+  } finally {
+    restore();
+  }
 });
