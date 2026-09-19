@@ -828,4 +828,37 @@ describe("UsageSection friends plan card", () => {
       mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
     }
   });
+
+  it("re-reads stale Muse usage on open and on a 60s background timer", async () => {
+    vi.useFakeTimers();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const muse = mockState.instances.find((instance) => instance.instanceId === "muse");
+    if (!muse) throw new Error("muse fixture missing");
+    const original = muse.rateLimits;
+    mockApi.mockReset();
+    mockApi.mockImplementation(async () => ({ status: "fresh" }));
+    muse.rateLimits = {
+      observedAt: new Date(Date.now() - 10 * 60_000).toISOString(),
+      windows: [{ id: "five_hour", usedPercent: 22, resetsAt: Date.now() + 3_600_000 }],
+    };
+    try {
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      await act(async () => { await Promise.resolve(); });
+      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/muse", { method: "POST" });
+      const afterOpen = mockApi.mock.calls.length;
+      await act(async () => { vi.advanceTimersByTime(60_000); });
+      await act(async () => { await Promise.resolve(); });
+      expect(mockApi.mock.calls.length).toBeGreaterThan(afterOpen);
+      expect(mockApi).toHaveBeenLastCalledWith("/api/usage/refresh/muse", { method: "POST" });
+    } finally {
+      muse.rateLimits = original;
+      vi.useRealTimers();
+      await act(async () => root.unmount());
+      host.remove();
+      mockApi.mockReset();
+      mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
+    }
+  });
 });

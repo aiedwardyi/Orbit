@@ -41,6 +41,14 @@ function windowRank(id: string, windowMinutes?: number): number {
 // engines that never report stay off the refresh path entirely.
 const PLAN_USAGE_DRIVERS = new Set(["claudeAgent", "codex", "grokAgent", "museAgent"]);
 const canRefresh = (instance: InstanceInfo) => PLAN_USAGE_DRIVERS.has(instance.driverKind);
+const MUSE_POLL_MS = 60_000;
+// A Muse report older than one poll interval no longer describes quota:
+// terminal CLI use lands server-side, so a stale snapshot hides it.
+function museReportStale(instance: InstanceInfo, now = Date.now()): boolean {
+  if (!instance.rateLimits) return true;
+  const at = Date.parse(instance.rateLimits.observedAt);
+  return !Number.isFinite(at) || now - at >= MUSE_POLL_MS;
+}
 type RefreshResult = { error?: string; status?: string };
 
 // One shared row for every engine in the plan card: the label sits left and
@@ -165,21 +173,35 @@ function PlanUsage() {
     }
   }, [refresh, refreshable]);
 
-  const missingMuseInstanceIds = refreshable
-    .filter((instance) => instance.driverKind === "museAgent" && !instance.rateLimits)
-    .map((instance) => instance.instanceId);
+  const museInstances = useMemo(
+    () => refreshable.filter((instance) => instance.driverKind === "museAgent"),
+    [refreshable],
+  );
+  const museInstancesRef = useRef(museInstances);
+  museInstancesRef.current = museInstances;
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
   const initialMuseRefreshes = useRef(new Set<string>());
-  // Muse can expose a cached subscription snapshot without a turn. An empty
-  // response remains pending, so this never fabricates a zero-percent report.
+  // Muse quota lives server-side, so terminal CLI use only appears when
+  // something re-reads the cached snapshot: missing or stale (>60s) reports
+  // refresh once when Usage opens, then every 60s while it stays open. An
+  // empty response remains pending, so this never fabricates a report.
   useEffect(() => {
-    for (const instanceId of missingMuseInstanceIds) {
-      if (initialMuseRefreshes.current.has(instanceId)) continue;
-      const instance = refreshable.find((candidate) => candidate.instanceId === instanceId);
-      if (!instance) continue;
-      initialMuseRefreshes.current.add(instanceId);
+    for (const instance of museInstances) {
+      if (!museReportStale(instance) || initialMuseRefreshes.current.has(instance.instanceId)) continue;
+      initialMuseRefreshes.current.add(instance.instanceId);
       void refresh(instance);
     }
-  }, [missingMuseInstanceIds, refresh, refreshable]);
+  }, [museInstances, refresh]);
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (document.hidden || refreshingRef.current) return;
+      for (const instance of museInstancesRef.current) {
+        if (museReportStale(instance)) void refreshRef.current(instance);
+      }
+    }, MUSE_POLL_MS);
+    return () => window.clearInterval(id);
+  }, []);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
