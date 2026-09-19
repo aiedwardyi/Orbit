@@ -56,6 +56,7 @@ const KEY_PREFIXES: RegExp[] = [
   /\b[sr]k_(?:live_|test_)?[A-Za-z0-9]{24,}/g, // elevenlabs / stripe
   /\bak_[A-Za-z0-9_-]{16,}/g, // composio
   /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, // jwt
+  /\b[a-f0-9]{8}\.[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/g, // mailbox pane grant
 ];
 const BEARER = /(\bBearer\s+)([A-Za-z0-9._~+/=-]{12,})/gi;
 const PEM_BLOCK = /(-----BEGIN [A-Z ]*PRIVATE KEY-----)([\s\S]*?)(-----END [A-Z ]*PRIVATE KEY-----)/g;

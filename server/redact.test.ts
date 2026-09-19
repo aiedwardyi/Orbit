@@ -169,6 +169,7 @@ describe("redactSecrets", () => {
 });
 
 import { endsContentStream, redactSecretsInText } from "./redact.ts";
+import { mailboxGrant } from "./mailbox.ts";
 
 // Content-shaped secrets: what a bot's own reply, a tool title, or a
 // permission card can carry. High precision on purpose — a false positive
@@ -202,6 +203,13 @@ describe("redactSecretsInText", () => {
   it("masks a bare Google OAuth token in prose", () => {
     const token = `${"ya29" + "."}abcdefghijklmnop_0123456789-ABCD`;
     expect(redactSecretsInText(`received ${token} from upstream`)).toBe(`received «redacted ${token.length} chars» from upstream`);
+  });
+
+  it("masks a bare mailbox grant but leaves a git SHA alone", () => {
+    const grant = mailboxGrant("c".repeat(48), "pane-1", "bot-1", "teacher-1");
+    expect(redactSecretsInText(`pasted ${grant} by accident`)).toBe(`pasted «redacted ${grant.length} chars» by accident`);
+    const sha = "3f2a9c1e7b4d5a6f8e9c0b1a2d3e4f5a6b7c8d9e";
+    expect(redactSecretsInText(`git commit ${sha}`)).toBe(`git commit ${sha}`);
   });
 
   it("masks lowercase bearer tokens in prose", () => {
