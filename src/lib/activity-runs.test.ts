@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { activityVisibleInChat, describeRun, groupActivityRuns } from "./activity-runs";
+import { activityRunVisible, activityVisibleInChat, describeRun, groupActivityRuns } from "./activity-runs";
 import type { Message } from "@/state/store";
 
 let seq = 0;
@@ -104,9 +104,19 @@ describe("groupActivityRuns", () => {
 });
 
 describe("activityVisibleInChat", () => {
-  it("keeps failed tool chips visible while tool calls are hidden", () => {
-    expect(activityVisibleInChat(tool("Bash", false), false)).toBe(true);
+  it("hides plain failed tool chips while tool calls are hidden", () => {
+    expect(activityVisibleInChat(tool("Bash", false), false)).toBe(false);
     expect(activityVisibleInChat(tool("Bash", false), true)).toBe(true);
+  });
+
+  it("hides failed folded runs while tool calls are hidden", () => {
+    const steps = [tool("Read"), tool("Bash", false), tool("Write")];
+    expect(activityRunVisible(steps, false)).toBe(false);
+    expect(activityRunVisible(steps, true)).toBe(true);
+  });
+
+  it("keeps the failure count in the run summary for the tool-calls-on view", () => {
+    expect(describeRun([tool("Edit"), tool("Bash", false)])).toBe("2 steps · Edit, Bash · 1 failed");
   });
 
   it("keeps turn-level errors visible while tool calls are hidden", () => {
@@ -163,7 +173,7 @@ describe("describeRun", () => {
     );
   });
 
-  it("says how many steps failed, because that is the reason to open it", () => {
+  it("keeps the failure count as muted summary text", () => {
     expect(describeRun([tool("Edit"), tool("Bash", false)])).toBe("2 steps · Edit, Bash · 1 failed");
   });
 

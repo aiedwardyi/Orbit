@@ -11,8 +11,9 @@ export type TranscriptItem =
   | { kind: "message"; message: Message }
   | { kind: "run"; id: string; messages: Message[] };
 
-/** Default-off hides successful named tool pills. Failed chips, bot⇄bot
- * chips, and `error:` turn failures stay — those are why you look. */
+/** Default-off hides named tool pills, success or fail: the bot usually
+ * retries past a miss. Bot⇄bot chips, `error:` turn failures, and
+ * memory.save stay. */
 export function activityVisibleInChat(message: Message, showToolCalls: boolean): boolean {
   const tool = message.tool;
   return Boolean(
@@ -21,8 +22,7 @@ export function activityVisibleInChat(message: Message, showToolCalls: boolean):
       (showToolCalls ||
         message.comm ||
         tool.name.startsWith("error:") ||
-        tool.name === "memory.save" ||
-        tool.ok === false),
+        tool.name === "memory.save"),
   );
 }
 
@@ -38,10 +38,9 @@ function foldable(message: Message): boolean {
   return true;
 }
 
-/** A folded run shows when tool calls are on, or when it holds a failure
- * (quiet default-off still surfaces the miss, as one row not a yellow tower). */
-export function activityRunVisible(messages: Message[], showToolCalls: boolean): boolean {
-  return showToolCalls || messages.some((message) => message.tool?.ok === false);
+/** A folded run shows only when tool calls are on, failures included. */
+export function activityRunVisible(_messages: Message[], showToolCalls: boolean): boolean {
+  return showToolCalls;
 }
 
 export function groupActivityRuns(messages: Message[]): TranscriptItem[] {
@@ -77,8 +76,8 @@ export function groupActivityRuns(messages: Message[]): TranscriptItem[] {
 const MAX_NAMES = 3;
 
 /** The one line a folded run has to earn its place with: how much work it
- * was, which tools did it, and whether anything failed — the last being the
- * only reason you would open it. */
+ * was and which tools did it. A failure count stays in the summary as muted
+ * text, not a reason to go red. */
 export function describeRun(messages: Message[]): string {
   const counts = new Map<string, number>();
   for (const message of messages) {

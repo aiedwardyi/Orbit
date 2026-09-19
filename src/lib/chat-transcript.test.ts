@@ -63,26 +63,31 @@ describe("chatTranscriptRows", () => {
     expect(result.map((row) => row.newDay)).toEqual([true, true, false]);
   });
 
-  it("folds a failed webfetch storm into one visible run while tool calls are hidden", () => {
-    const result = rows([
+  it("hides a failed webfetch storm while tool calls are hidden", () => {
+    const messages = [
       say("Searching."),
       step("webfetch", false),
       step("webfetch", false),
       step("webfetch", true),
       say("Here is what I found."),
-    ]);
-    expect(result.map((row) => row.visible)).toEqual([true, true, true]);
+    ];
+    expect(rows(messages).map((row) => row.visible)).toEqual([true, false, true]);
+    expect(rows(messages, true).map((row) => row.visible)).toEqual([true, true, true]);
   });
 
-  it("keeps a failed tool step visible while tool calls are hidden", () => {
-    const result = rows([
+  it("hides a plain failed tool step while tool calls are hidden", () => {
+    const messages = [
       say("Late.", at(1, 23)),
       step("Bash", false, at(2, 0)),
       say("That failed.", at(2, 0)),
-    ]);
-    expect(result.map((row) => row.visible)).toEqual([true, true, true]);
-    expect(result[1].newDay).toBe(true);
-    expect(result[2].newDay).toBe(false);
+    ];
+    const hidden = rows(messages);
+    expect(hidden.map((row) => row.visible)).toEqual([true, false, true]);
+    expect(hidden[2].newDay).toBe(true);
+    const shown = rows(messages, true);
+    expect(shown.map((row) => row.visible)).toEqual([true, true, true]);
+    expect(shown[1].newDay).toBe(true);
+    expect(shown[2].newDay).toBe(false);
   });
 
   it("lets a turn-level error own the divider while tool calls are hidden", () => {

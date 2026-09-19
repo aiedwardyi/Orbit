@@ -168,7 +168,9 @@ export function RoomToolChip({
         <div
           className={cn(
             "flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px]",
-            tool.ok === false ? "text-danger" : "text-ink-secondary",
+            // Only turn-level `error:` rows go red; a plain failed step the
+            // bot retried past renders like any other.
+            tool.name.startsWith("error:") ? "text-danger" : "text-ink-secondary",
           )}
         >
           <span

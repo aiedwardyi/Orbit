@@ -28,9 +28,9 @@ const COMPOSER_COLUMN = 'ref={composerDockRef} className={cn("relative z-[2] w-f
 describe("failed tool chip", () => {
   const chip = chatView.slice(chatView.indexOf("function ActivityChip"), chatView.indexOf("function ScreenFrame"));
 
-  it("reads as a stalled step, not an alarm", () => {
-    expect(chip).toContain('failed ? "text-warning" : "text-ink-secondary"');
-    expect(chip).not.toMatch(/failed \? "text-danger"/);
+  it("reads as a quiet step, not an alarm", () => {
+    expect(chip).not.toMatch(/text-warning|text-danger/);
+    expect(chip).toContain("text-ink-secondary");
     expect(chip).toContain("<X size={13} strokeWidth={1.5} />");
   });
 

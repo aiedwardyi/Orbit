@@ -671,7 +671,8 @@ function Bubble({
   );
 }
 
-/** A tool run: spinner while live, check/cross once settled. */
+/** A tool run: spinner while live, check/cross once settled. A failed step
+ * stays neutral; only turn-level `error:` rows go red. */
 function ActivityChip({ message }: { message: Message }) {
   const { dispatch, state } = useStore();
   const { t } = useI18n();
@@ -701,10 +702,7 @@ function ActivityChip({ message }: { message: Message }) {
     <div className="flex justify-start">
       <div
         title={failed ? t("chat.stepDidNotComplete") : undefined}
-        className={cn(
-          "flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px]",
-          failed ? "text-warning" : "text-ink-secondary",
-        )}
+        className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary"
       >
         {tool.ok === undefined ? (
           <Loader2 size={13} className="animate-spin" />

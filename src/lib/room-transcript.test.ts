@@ -62,15 +62,16 @@ describe("roomTranscriptRows", () => {
     expect(result[2].cluster).toBe(true);
   });
 
-  it("folds a failed webfetch storm into one visible run while tool calls are hidden", () => {
-    const result = rows([
+  it("hides a failed webfetch storm while tool calls are hidden", () => {
+    const messages = [
       say("challenge", "Searching."),
       step("challenge", "webfetch", false),
       step("challenge", "webfetch", false),
       step("challenge", "webfetch", true),
       say("challenge", "Here is what I found."),
-    ]);
-    expect(result.map((row) => row.visible)).toEqual([true, true, true]);
+    ];
+    expect(rows(messages).map((row) => row.visible)).toEqual([true, false, true]);
+    expect(rows(messages, true).map((row) => row.visible)).toEqual([true, true, true]);
   });
 
   it("labels a bot whose first visible line follows its own hidden run", () => {
@@ -162,15 +163,19 @@ describe("roomTranscriptRows", () => {
     expect(shown.map((row) => row.visible)).toEqual([true, true, true]);
   });
 
-  it("keeps a failed tool step visible while tool calls are hidden", () => {
-    const result = rows([
+  it("hides a plain failed tool step while tool calls are hidden", () => {
+    const messages = [
       say("defense", "Here is the argument."),
       step("challenge", "Bash", false),
       say("challenge", "That failed."),
-    ]);
-    expect(result.map((row) => row.visible)).toEqual([true, true, true]);
-    expect(result[1].cluster).toBe(true);
-    expect(result[2].cluster).toBe(false);
+    ];
+    const hidden = rows(messages);
+    expect(hidden.map((row) => row.visible)).toEqual([true, false, true]);
+    expect(hidden[2].cluster).toBe(true);
+    const shown = rows(messages, true);
+    expect(shown.map((row) => row.visible)).toEqual([true, true, true]);
+    expect(shown[1].cluster).toBe(true);
+    expect(shown[2].cluster).toBe(false);
   });
 
   it("keeps a turn-level error visible and labelled while tool calls are hidden", () => {
