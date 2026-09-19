@@ -390,6 +390,30 @@ test("waits for a redrawing full-screen app to go quiet before reporting activit
   f.host.dispose();
 });
 
+test("a later submit still reaches the PTY after a full-screen settle and acknowledgement", async () => {
+  let clock = 1_000;
+  const f = fixture({ activityCoalesceMs: 5, attentionCooldownMs: 3_000, now: () => clock });
+  const session = await f.host.open(f.event, f.input);
+  f.host.write(f.event, session.id, "first\r");
+  f.children[0].data("\x1b[?1049h\x1b[?2026hdone\x1b[?2026l");
+  await wait(15);
+  assert.equal(f.events.filter(([channel]) => channel === "terminal:attention").length, 1);
+  f.host.acknowledge(f.event, session.id);
+  f.host.write(f.event, session.id, "second");
+  f.host.write(f.event, session.id, "\r");
+  f.host.write(f.event, session.id, "\n");
+  assert.deepEqual(f.children[0].writes, ["first\r", "second", "\r", "\n"]);
+  f.children[0].data("during cooldown after submit");
+  await wait(15);
+  assert.equal(f.events.filter(([channel]) => channel === "terminal:attention").length, 2);
+  f.host.acknowledge(f.event, session.id);
+  f.host.write(f.event, session.id, "\x1b[13u");
+  f.children[0].data("kitty submit");
+  await wait(15);
+  assert.equal(f.events.filter(([channel]) => channel === "terminal:attention").length, 3);
+  f.host.dispose();
+});
+
 test("reattaching a trimmed full-screen session restores the alt screen and forces a repaint", async () => {
   const f = fixture();
   const session = await f.host.open(f.event, f.input);

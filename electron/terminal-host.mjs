@@ -74,6 +74,10 @@ function inputEchoText(data) {
   return parsed.text.replace(/[\r\n\t]/g, "").slice(0, INPUT_ECHO_LIMIT);
 }
 
+function isSubmitInput(data) {
+  return /[\r\n]/.test(data) || data === "\x1bOM" || data === "\x1b[27;13~" || /^\x1b\[13(?:;\d+)?u$/.test(data);
+}
+
 function consumeInputEcho(text, pending) {
   if (!pending || !text.replace(/[\r\n\t]/g, "")) return { text, pending };
   let consumed = 0;
@@ -428,12 +432,13 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       if (typeof data !== "string" || data.length > 64 * 1024) throw new Error("Invalid terminal input");
       if (session.exitCode !== null) throw new Error("Terminal has exited");
       const echo = inputEchoText(data);
+      const submit = isSubmitInput(data);
       // Mouse and focus reports from a TUI are not the user taking over.
-      if (echo || /[\r\n]/.test(data)) clearActivityTimer(session);
-      if (/[\r\n]/.test(data)) session.activityArmed = true;
+      if (echo || submit) clearActivityTimer(session);
+      if (submit) session.activityArmed = true;
       if (echo) session.pendingInputEcho = `${session.pendingInputEcho}${echo}`.slice(-INPUT_ECHO_LIMIT);
       // A shell can emit a bell more than once; arm the next command after Enter.
-      if (/[\r\n]/.test(data)) {
+      if (submit) {
         session.attentionReported = false;
         session.activityCooldownUntil = 0;
       }
@@ -531,8 +536,9 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       if (input.text.includes("\x03")) throw new Error("Ctrl+C is not allowed in a confirmed terminal send");
       clearActivityTimer(session);
       const echo = inputEchoText(input.text);
-      if (/[\r\n]/.test(input.text)) session.activityArmed = true;
-      if (/[\r\n]/.test(input.text)) {
+      const submit = isSubmitInput(input.text);
+      if (submit) session.activityArmed = true;
+      if (submit) {
         session.attentionReported = false;
         session.activityCooldownUntil = 0;
       }

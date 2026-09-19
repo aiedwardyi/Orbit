@@ -189,6 +189,47 @@ it("does not write device-attribute replies from historical replay to the PTY", 
   expect(write).toHaveBeenCalledWith("session-da", "\x1b[?1;2c");
 });
 
+it("forwards Enter to the PTY after a full-screen turn settles", async () => {
+  let receive!: (event: { id: string; data: string; seq: number }) => void;
+  const write = vi.fn(async () => {});
+  const open = vi.fn(async () => ({
+    id: "session-tui",
+    cwd: "C:\\work",
+    shell: "pwsh.exe",
+    output: "\x1b[?1049hprompt",
+    seq: 1,
+    exitCode: null as number | null,
+  }));
+  const bot = mountBridge({
+    appearance: vi.fn(async () => null),
+    open,
+    write,
+    resize: vi.fn(async () => {}),
+    onData: (cb) => { receive = cb; return vi.fn(); },
+    onExit: () => vi.fn(),
+  });
+  await act(async () => root.render(createElement(TerminalWorkspace, {
+    bot, visible: true, focusBlocked: false, onClose: vi.fn(),
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(terminal.options.disableStdin).toBe(false);
+  await act(async () => { terminal.__emitData("first\r"); });
+  expect(write).toHaveBeenCalledWith("session-tui", "first\r");
+  write.mockClear();
+  await act(async () => {
+    receive({ id: "session-tui", data: "\x1b[?2026h\x1b[5;1Hdone\x1b[?2026l", seq: 2 });
+  });
+  expect(terminal.options.disableStdin).toBe(false);
+  const pane = host.querySelector<HTMLElement>("[data-orbit-terminal]");
+  if (!pane) throw new Error("terminal pane did not render");
+  await act(async () => {
+    pane.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  });
+  expect(write).toHaveBeenCalledWith("session-tui", "\r");
+  await act(async () => { terminal.__emitData("second\r"); });
+  expect(write).toHaveBeenCalledWith("session-tui", "second\r");
+});
+
 it("queues live output until historical replay finishes and preserves seq order", async () => {
   vi.stubGlobal("localStorage", window.localStorage);
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });

@@ -52,6 +52,7 @@ export function TerminalWorkspace({
   const openShellRef = useRef<((restart: boolean) => void) | null>(null);
   const resizeRef = useRef<(() => void) | null>(null);
   const replacingRef = useRef(false);
+  const forwardInputRef = useRef<(data: string) => void>(() => {});
   useLayoutEffect(() => {
     blockedRef.current = focusBlocked || !visible;
     visibleRef.current = visible;
@@ -163,12 +164,16 @@ export function TerminalWorkspace({
       }
     });
     // Forward keystrokes and emulator replies only after historical replay finishes.
-    const input = terminal.onData((data) => {
-      if (id && replayComplete && !terminal.options.disableStdin && !exits.has(id)) {
-        const sessionId = id;
-        void Promise.resolve().then(() => bridge.write(sessionId, data)).catch(report);
-      }
-    });
+    const forwardInput = (data: string) => {
+      if (!id || !replayComplete || terminal.options.disableStdin || exits.has(id)) return;
+      const sessionId = id;
+      const send = () => Promise.resolve(bridge.write(sessionId, data)).catch(report);
+      // Submit keys skip the microtask queue so they cannot stall behind DA/mouse replies.
+      if (/[\r\n]/.test(data)) void send();
+      else void Promise.resolve().then(send);
+    };
+    forwardInputRef.current = forwardInput;
+    const input = terminal.onData(forwardInput);
     const resize = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
@@ -339,6 +344,7 @@ export function TerminalWorkspace({
       offExit();
       offError?.();
       input.dispose();
+      forwardInputRef.current = () => {};
       terminal.dispose();
       terminalRef.current = null;
       fitRef.current = null;
@@ -475,7 +481,26 @@ export function TerminalWorkspace({
           <button type="button" onClick={() => setGeneration((value) => value + 1)} disabled={replacing} className="shrink-0 underline disabled:opacity-60">{t("terminal.retry")}</button>
         </div>
       )}
-      <div data-orbit-terminal className="min-h-0 flex-1 p-4" onKeyDown={(event) => event.stopPropagation()} onWheelCapture={onTerminalWheel}>
+      <div
+        data-orbit-terminal
+        className="min-h-0 flex-1 p-4"
+        onKeyDownCapture={(event) => {
+          if (
+            event.key !== "Enter" ||
+            event.shiftKey ||
+            event.altKey ||
+            event.ctrlKey ||
+            event.metaKey ||
+            event.nativeEvent.isComposing ||
+            event.repeat
+          ) return;
+          event.preventDefault();
+          event.stopPropagation();
+          forwardInputRef.current("\r");
+        }}
+        onKeyDown={(event) => event.stopPropagation()}
+        onWheelCapture={onTerminalWheel}
+      >
         <div ref={hostRef} className="h-full w-full" />
       </div>
       <footer className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-hairline bg-panel px-5 py-2 text-[11px] text-ink-secondary">
