@@ -1,14 +1,36 @@
 import "./ProfileFields.test-dom.ts";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi, type Mock } from "vitest";
+
+type MockTermLink = { text: string; activate: (event: MouseEvent, text: string) => void };
+type MockLinksOptions = {
+  hover?: (event: MouseEvent, text: string, location?: unknown) => void;
+  leave?: (event: MouseEvent, text: string) => void;
+};
+type MockLinksAddon = {
+  handler?: (event: MouseEvent, url: string) => void;
+  options?: MockLinksOptions;
+  dispose: Mock;
+};
 
 const terminal = vi.hoisted(() => {
   let onDataCb: ((data: string) => void) | null = null;
   let onBinaryCb: ((data: string) => void) | null = null;
   let keyHandler: ((event: KeyboardEvent) => boolean) | null = null;
+  let linkProvider: { provideLinks: (line: number, cb: (links: MockTermLink[]) => void) => void } | null = null;
   return {
-    options: { disableStdin: true } as { disableStdin: boolean; fontFamily?: string; fontSize?: number; theme?: unknown },
+    options: { disableStdin: true } as {
+      disableStdin: boolean;
+      fontFamily?: string;
+      fontSize?: number;
+      theme?: unknown;
+      linkHandler?: {
+        activate: (event: MouseEvent, text: string, range: unknown) => void;
+        hover?: (event: MouseEvent, text: string) => void;
+        leave?: (event: MouseEvent, text: string) => void;
+      } | null;
+    },
     cols: 80,
     rows: 24,
     write: vi.fn((data: string, cb?: () => void) => {
@@ -22,7 +44,13 @@ const terminal = vi.hoisted(() => {
     dispose: vi.fn(),
     refresh: vi.fn(),
     open: vi.fn(),
-    loadAddon: vi.fn(),
+    loadAddon: vi.fn((addon: { activate?: (host: object) => void }) => {
+      addon.activate?.(terminal);
+    }),
+    registerLinkProvider: vi.fn((provider: { provideLinks: (line: number, cb: (links: MockTermLink[]) => void) => void }) => {
+      linkProvider = provider;
+      return { dispose: vi.fn() };
+    }),
     attachCustomKeyEventHandler: vi.fn((cb: (event: KeyboardEvent) => boolean) => {
       keyHandler = cb;
     }),
@@ -41,12 +69,44 @@ const terminal = vi.hoisted(() => {
     __emitData(data: string) { onDataCb?.(data); },
     __emitBinary(data: string) { onBinaryCb?.(data); },
     __emitKey(event: KeyboardEvent) { return keyHandler?.(event); },
+    __provideLinks(line: number, cb: (links: MockTermLink[]) => void) { linkProvider?.provideLinks(line, cb); },
   };
 });
 // oxlint-disable-next-line anti-slop/no-module-mocking -- The DOM harness has no canvas; the bridge event ordering remains under test.
 vi.mock("@xterm/xterm", () => ({ Terminal: class { constructor() { return terminal; } } }));
 // oxlint-disable-next-line anti-slop/no-module-mocking -- Terminal sizing needs a real browser and is covered by packaged QA.
 vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit() {} } }));
+const webLinks = vi.hoisted(() => ({ instances: [] as MockLinksAddon[] }));
+// oxlint-disable-next-line anti-slop/no-module-mocking -- The harness has no canvas; capture the handler and re-list written http(s) links.
+vi.mock("@xterm/addon-web-links", () => ({
+  WebLinksAddon: class {
+    handler: ((event: MouseEvent, url: string) => void) | undefined;
+    options: MockLinksOptions | undefined;
+    dispose: Mock = vi.fn();
+    constructor(handler?: (event: MouseEvent, url: string) => void, options?: MockLinksOptions) {
+      this.handler = handler;
+      this.options = options;
+      webLinks.instances.push(this);
+    }
+    activate(host: typeof terminal) {
+      host.registerLinkProvider({
+        provideLinks: (_line: number, cb: (links: MockTermLink[]) => void) => {
+          const seen = new Set<string>();
+          const links: MockTermLink[] = [];
+          for (const [text] of host.write.mock.calls) {
+            for (const url of String(text).match(/https?:\/\/[^\s"'<>]+/g) ?? []) {
+              if (seen.has(url)) continue;
+              seen.add(url);
+              const handler = this.handler;
+              links.push({ text: url, activate: (event) => handler?.(event, url) });
+            }
+          }
+          cb(links);
+        },
+      });
+    }
+  },
+}));
 // oxlint-disable-next-line anti-slop/no-module-mocking -- Folder persist uses the shared store; keep this harness free of SSE.
 vi.mock("@/state/store", async () => {
   const actual = await vi.importActual<typeof import("@/state/store")>("@/state/store");
@@ -70,6 +130,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   delete window.ogb;
   vi.clearAllMocks();
+  webLinks.instances.length = 0;
   window.localStorage.removeItem("omb-terminal-match-profile");
 });
 
@@ -1142,4 +1203,63 @@ it("ignores keyup and dead sessions for copy/paste keys", async () => {
   } finally {
     restore();
   }
+});
+
+it("opens Ctrl+clicked http(s) links via openExternal and ignores other schemes", async () => {
+  const openExternal = vi.fn(async () => true);
+  const open = vi.fn(async () => ({
+    id: "session-links",
+    cwd: "C:\\work",
+    shell: "pwsh.exe",
+    output: "see https://example.com/docs plus file:///etc/hosts and javascript:alert(1)",
+    seq: 1,
+    exitCode: null as number | null,
+  }));
+  const bridge: TerminalBridge = { appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() };
+  Object.defineProperty(window, "ogb", { configurable: true, value: { platform: "win32", terminal: bridge, openExternal } });
+  vi.stubGlobal("localStorage", window.localStorage);
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => root.render(createElement(TerminalWorkspace, {
+    bot: { id: "bot-links", name: "Links", cwd: "C:\\work" },
+    visible: true,
+    focusBlocked: false,
+    onClose: vi.fn(),
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(terminal.loadAddon).toHaveBeenCalledTimes(2);
+  expect(webLinks.instances).toHaveLength(1);
+  const addon = webLinks.instances[0];
+  expect(terminal.loadAddon.mock.calls[0][0]).not.toBe(addon);
+  expect(terminal.loadAddon.mock.calls[1][0]).toBe(addon);
+  let found: MockTermLink[] = [];
+  await act(async () => { terminal.__provideLinks(1, (links) => { found = links; }); });
+  expect(found.map((link) => link.text)).toEqual(["https://example.com/docs"]);
+  await act(async () => { found[0].activate(new MouseEvent("mouseup", { bubbles: true }), found[0].text); });
+  expect(openExternal).not.toHaveBeenCalled();
+  await act(async () => { found[0].activate(new MouseEvent("mouseup", { bubbles: true, ctrlKey: true }), found[0].text); });
+  expect(openExternal).toHaveBeenCalledWith("https://example.com/docs");
+  const osc = terminal.options.linkHandler;
+  expect(osc).toBeTruthy();
+  const range = { start: { x: 1, y: 1 }, end: { x: 2, y: 1 } };
+  await act(async () => {
+    osc!.activate(new MouseEvent("mouseup", { bubbles: true, ctrlKey: true }), "file:///etc/hosts", range);
+    osc!.activate(new MouseEvent("mouseup", { bubbles: true, ctrlKey: true }), "javascript:alert(1)", range);
+    osc!.activate(new MouseEvent("mouseup", { bubbles: true }), "https://example.org/", range);
+  });
+  expect(openExternal).toHaveBeenCalledTimes(1);
+  await act(async () => { osc!.activate(new MouseEvent("mouseup", { bubbles: true, ctrlKey: true }), "https://example.org/", range); });
+  expect(openExternal).toHaveBeenCalledWith("https://example.org/");
+  const pane = host.querySelector<HTMLElement>("[data-orbit-terminal]");
+  const tip = pane?.firstElementChild as HTMLElement | null;
+  expect(tip?.title).toBe("");
+  await act(async () => { addon.options?.hover?.(new MouseEvent("mousemove", { bubbles: true }), "https://example.com/docs"); });
+  expect(tip?.title).toBe("https://example.com/docs");
+  await act(async () => { addon.options?.leave?.(new MouseEvent("mouseout", { bubbles: true }), "https://example.com/docs"); });
+  expect(tip?.title).toBe("");
+  await act(async () => root.unmount());
+  root = undefined as unknown as ReturnType<typeof createRoot>;
+  expect(addon.dispose).toHaveBeenCalled();
 });

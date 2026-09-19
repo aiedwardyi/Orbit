@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type WheelEvent } from "r
 import { ArrowLeft, ChevronDown, FolderOpen, RotateCcw, TerminalSquare, X } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import type { Bot } from "@/state/store";
 import { api, useStore } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
@@ -117,6 +118,27 @@ export function TerminalWorkspace({
     const fit = new FitAddon();
     fitRef.current = fit;
     terminal.loadAddon(fit);
+    // Ctrl+click follows links: xterm reports mousedown bytes before the linkifier
+    // activates, so plain-click links would also click through to mouse-mode TUIs.
+    const openLink = (event: MouseEvent, url: string) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      if (!/^https?:\/\//i.test(url)) return;
+      void window.ogb?.openExternal?.(url);
+    };
+    const showLink = (url: string | null) => {
+      if (url) host.title = url;
+      else host.removeAttribute("title");
+    };
+    const links = new WebLinksAddon(openLink, {
+      hover: (_event, text) => showLink(text),
+      leave: () => showLink(null),
+    });
+    terminal.loadAddon(links);
+    terminal.options.linkHandler = {
+      activate: openLink,
+      hover: (_event, text) => showLink(text),
+      leave: () => showLink(null),
+    };
     terminal.open(host);
     const report = (cause: unknown) => { if (alive) setError(cause instanceof Error ? cause.message : String(cause)); };
     const defaultFont = terminal.options.fontFamily;
@@ -429,6 +451,8 @@ export function TerminalWorkspace({
       offError?.();
       input.dispose();
       inputBinary.dispose();
+      links.dispose();
+      host.removeAttribute("title");
       forwardInputRef.current = () => {};
       terminal.dispose();
       terminalRef.current = null;
