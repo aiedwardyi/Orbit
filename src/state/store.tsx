@@ -835,9 +835,9 @@ export function openNotificationTarget(
     }
     return;
   }
-  dispatch({ type: "select", id: target.botId });
   const bot = state.bots.find((candidate) => candidate.id === target.botId);
   if (!bot) return;
+  dispatch({ type: "select", id: target.botId });
   const known =
     bot.threadId === target.threadId ||
     (bot.tasks ?? []).some((task) => task.threadId === target.threadId);
