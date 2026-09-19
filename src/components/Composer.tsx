@@ -50,6 +50,7 @@ import {
 } from "@/lib/composer-busy";
 import { composerIsBusy } from "@/lib/send-accept";
 import { composerEnterIntent, isComposerEnterKey } from "@/lib/composer-enter";
+import { fitComposerHeight } from "@/lib/composer-dock";
 import { useI18n } from "@/lib/i18n";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -449,14 +450,9 @@ export function Composer({
 
   useEffect(() => setHighlight(0), [mention?.start, mention?.query]);
 
-  // one line at rest, then grow with the draft — hard cap at six lines
   useEffect(() => {
     const el = inputRef.current;
-    if (!el) return;
-    const line = parseFloat(getComputedStyle(el).lineHeight) || 24;
-    const cap = line * 6;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, cap)}px`;
+    if (el) fitComposerHeight(el, parseFloat(getComputedStyle(el).lineHeight) || 24);
   }, [text]);
 
   const pickMention = (peer: MentionChoice) => {

@@ -30,3 +30,19 @@ export function useComposerDockPad(ref: RefObject<HTMLElement | null>) {
   const measured = height > 0 ? height : FALLBACK_COMPOSER_PX;
   return { pad: transcriptEndPad(measured), height: measured };
 }
+
+type Sized = { style: { height: string } };
+
+/** Holds the frame while the textarea collapses to measure - a transient
+ * dock shrink clamps the transcript's scrollTop off the bottom. */
+export function fitComposerHeight(
+  el: Sized & { scrollHeight: number; parentElement: (Sized & { getBoundingClientRect(): { height: number } }) | null },
+  line: number,
+) {
+  const frame = el.parentElement;
+  const held = frame?.style.height ?? "";
+  if (frame) frame.style.height = `${frame.getBoundingClientRect().height}px`;
+  el.style.height = "auto";
+  el.style.height = `${Math.min(el.scrollHeight, line * 6)}px`;
+  if (frame) frame.style.height = held;
+}

@@ -1163,6 +1163,8 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
       previousScrollTop.current = el.scrollTop;
     });
     observer.observe(content);
+    // a growing composer shrinks the viewport; re-pin before paint
+    if (scrollRef.current) observer.observe(scrollRef.current);
     return () => observer.disconnect();
   }, []);
 

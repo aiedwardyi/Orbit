@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { TRANSCRIPT_GAP, transcriptEndPad } from "./composer-dock";
+import { TRANSCRIPT_GAP, fitComposerHeight, transcriptEndPad } from "./composer-dock";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const chatView = readFileSync(join(here, "../components/ChatView.tsx"), "utf8");
@@ -77,5 +77,50 @@ describe("window floor overlay layer", () => {
         expect(boxesOverlap(composer, lastMessage)).toBe(false);
       }
     }
+  });
+});
+
+describe("fitComposerHeight", () => {
+  // Frame = textarea + 16px chrome, unless its height is pinned inline.
+  function composerModel(contentPx: number, renderedPx: number) {
+    const readFrameHeights: number[] = [];
+    const frame = { style: { height: "" }, getBoundingClientRect: () => ({ height: frameHeight() }) };
+    const textarea = {
+      parentElement: frame,
+      style: { height: `${renderedPx}px` },
+      get scrollHeight() {
+        readFrameHeights.push(frameHeight());
+        return contentPx;
+      },
+    };
+    function frameHeight(): number {
+      if (frame.style.height) return parseFloat(frame.style.height);
+      const own = textarea.style.height === "auto" ? 32 : parseFloat(textarea.style.height);
+      return own + 16;
+    }
+    return { textarea, frameHeight, readFrameHeights };
+  }
+
+  it("never collapses the dock while measuring a multi-line draft", () => {
+    const { textarea, frameHeight, readFrameHeights } = composerModel(80, 80);
+    fitComposerHeight(textarea, 24);
+    expect(readFrameHeights).toEqual([96]);
+    expect(textarea.style.height).toBe("80px");
+    expect(frameHeight()).toBe(96);
+  });
+
+  it("still grows and shrinks with the draft, capped at six lines", () => {
+    const grow = composerModel(80, 32);
+    fitComposerHeight(grow.textarea, 24);
+    expect(grow.textarea.style.height).toBe("80px");
+    expect(grow.frameHeight()).toBe(96);
+
+    const shrink = composerModel(32, 80);
+    fitComposerHeight(shrink.textarea, 24);
+    expect(shrink.textarea.style.height).toBe("32px");
+
+    const cap = composerModel(400, 144);
+    fitComposerHeight(cap.textarea, 24);
+    expect(cap.textarea.style.height).toBe("144px");
   });
 });
