@@ -3308,6 +3308,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // a cloud routine borrows the instance default model, so it borrows no
   // per-bot effort either
   const effort = opts?.runOn === "cloud" ? undefined : selection.effort;
+  const leanStartup = opts?.runOn === "cloud" ? undefined : (bot.leanStartup === true ? true : undefined);
   // A selection can be persisted while its engine is offline. Re-check when
   // the engine returns so an old or unsupported value never reaches a CLI.
   // Model-aware like the save path: a 4.6 xhigh carried onto 4.5 stops here.
@@ -3885,6 +3886,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         text: turnText,
         model,
         effort,
+        leanStartup,
         // a rewound, Orbit-compacted, or pre-compact fat thread never
         // resumes the abandoned provider session. the active task's own
         // session — another task's cursor would resume the wrong
@@ -4769,7 +4771,7 @@ async function runClaimedGroupMemberTurn(
         approval: bot.autoApprove ? "auto" : "ask",
         cwd,
         integrations,
-        ...memberTurnSelection(selection),
+        ...memberTurnSelection(selection, bot.leanStartup),
       }))
       .then((started) => {
         bindInterruptedTurn(threadId, started.turnId);
@@ -7565,6 +7567,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (body.shareTerminalWithChat !== undefined) {
         if (typeof body.shareTerminalWithChat !== "boolean") return json(res, 400, { error: "shareTerminalWithChat must be true or false" });
         patch.shareTerminalWithChat = body.shareTerminalWithChat;
+      }
+      if (body.leanStartup !== undefined) {
+        if (typeof body.leanStartup !== "boolean") return json(res, 400, { error: "leanStartup must be true or false" });
+        patch.leanStartup = body.leanStartup;
       }
       if (
         body.computer !== undefined &&

@@ -1338,6 +1338,33 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.argv).not.toContain("--effort");
   });
 
+  it("passes --setting-sources project when leanStartup is true", async () => {
+    await create();
+    const dump = join(scratch, "lean.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+
+    await instance.adapter.sendTurn({ threadId: "t-lean", text: "hi", leanStartup: true });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.argv[seen.argv.indexOf("--setting-sources") + 1]).toBe("project");
+    expect(seen.argv.filter((a: string) => a === "--setting-sources")).toHaveLength(1);
+    expect(seen.argv).not.toContain("--bare");
+  });
+
+  it("adds no setting-sources flag when leanStartup is off", async () => {
+    await create();
+    const dump = join(scratch, "lean-off.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+
+    await instance.adapter.sendTurn({ threadId: "t-lean-off", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.argv).not.toContain("--setting-sources");
+    expect(seen.argv).not.toContain("--bare");
+  });
+
   it("strips workspace credentials from generateText helper children", async () => {
     const instanceConfigDir = join(scratch, "instance-claude-config");
     await create(undefined, { CLAUDE_CONFIG_DIR: instanceConfigDir });

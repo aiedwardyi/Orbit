@@ -593,6 +593,8 @@ export const en = {
   "bot.workingFolderPinnedHome": "New tasks start here. This task is pinned to the home folder — start a new task to use the new folder.",
   "bot.rememberedFolderNextTask": "“{folder}” is remembered for the next task. This task stays in {current}.",
   "bot.rememberedFolderNextTaskHome": "“{folder}” is remembered for the next task. This task stays in the private workspace.",
+  "bot.leanStartup": "Lean startup (skip user skills and plugins)",
+  "bot.leanStartupHelp": "Starts Claude with project settings only, skipping user skills and plugins.",
 
   "room.setupTitle": "Group settings: {name}",
   "room.setupBody": "Change who replies, add instructions, or choose a shared folder.",
@@ -1592,6 +1594,8 @@ export const ko = {
   "bot.workingFolderPinnedHome": "새 작업은 여기에서 시작합니다. 이 작업은 홈 폴더에 고정되어 있습니다 — 새 폴더를 쓰려면 새 작업을 시작하세요.",
   "bot.rememberedFolderNextTask": "다음 작업에 쓸 폴더: “{folder}”. 이 작업은 {current}에 남습니다.",
   "bot.rememberedFolderNextTaskHome": "다음 작업에 쓸 폴더: “{folder}”. 이 작업은 비공개 작업 공간에 남습니다.",
+  "bot.leanStartup": "Lean startup (사용자 스킬과 플러그인 건너뛰기)",
+  "bot.leanStartupHelp": "프로젝트 설정만으로 Claude를 시작하고 사용자 스킬과 플러그인을 건너뜁니다.",
 
   "room.setupTitle": "{name} 그룹 설정",
   "room.setupBody": "누가 답할지 정하고, 지침을 추가하거나, 공유 폴더를 고르세요.",

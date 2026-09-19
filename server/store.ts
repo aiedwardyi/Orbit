@@ -415,6 +415,8 @@ export interface BotRecord {
   avatarCrop?: BotAvatarCrop;
   unread: boolean;
   modelSelection: ModelSelection;
+  /** Skip user skills, plugins and plugin MCP servers at startup. Off unless on. */
+  leanStartup?: boolean;
   /** provider-native continuation per instance (e.g. claude session id) */
   resumeCursors: Record<string, unknown>;
   /** which computer the bot acts on: its cloud box, Local VM, this machine

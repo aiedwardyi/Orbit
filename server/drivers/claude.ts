@@ -641,6 +641,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const injected = applyClaudeInject({ ...turnEnvironment }, turnModel);
       if (injected.model) args.push("--model", injected.model);
       if (turn.effort) args.push("--effort", turn.effort);
+      if (turn.leanStartup === true) args.push("--setting-sources", "project");
       if (turn.system) args.push("--append-system-prompt", turn.system);
 
       // integrations → MCP servers; pre-allow their tools (a headless

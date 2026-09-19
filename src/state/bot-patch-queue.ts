@@ -29,6 +29,7 @@ export type BotUpdatePatch = Partial<
     | "browser"
     | "browserProfile"
     | "shareTerminalWithChat"
+    | "leanStartup"
     | "modelSelection"
   >
 > & {

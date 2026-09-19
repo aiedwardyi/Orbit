@@ -173,6 +173,8 @@ export interface SendTurnInput {
   text: string;
   model?: string;
   effort?: EffortLevel;
+  /** Claude only: launch with --setting-sources project. */
+  leanStartup?: boolean;
   resumeCursor?: unknown;
   /** Portable prompt used only when a remembered provider session cannot load. */
   resumeFallback?: { text: string };
