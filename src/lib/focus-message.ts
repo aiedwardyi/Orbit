@@ -31,12 +31,17 @@ export function restoreChatChrome(
   if (doc.body) doc.body.scrollTop = 0;
 }
 
+// Rapid landings race: only the latest click may replace the transcript.
+let landGeneration = 0;
+
 /** Select and prepare the exact conversation represented by a search hit. */
 export async function landOnSearchHit(
   hit: SearchHit,
   state: Pick<AppState, "bots" | "groups">,
   dispatch: React.Dispatch<Action>,
 ): Promise<void> {
+  const generation = ++landGeneration;
+  const stale = () => generation !== landGeneration;
   const ownerId = hit.botId ?? hit.groupId;
   const bot = hit.botId ? state.bots.find((candidate) => candidate.id === hit.botId) : undefined;
   const group = hit.groupId ? state.groups.find((candidate) => candidate.id === hit.groupId) : undefined;
@@ -45,10 +50,12 @@ export async function landOnSearchHit(
   dispatch({ type: "select", id: ownerId });
   if (bot && bot.threadId !== hit.threadId) {
     const result = await api(`/api/bots/${bot.id}/tasks/${hit.threadId}`, { method: "POST" });
+    if (stale()) return;
     if (result?.bot) dispatch({ type: "taskSwitched", bot: result.bot });
   }
   if (group && group.threadId !== hit.threadId) {
     const result = await api(`/api/groups/${group.id}/tasks/${hit.threadId}`, { method: "POST" });
+    if (stale()) return;
     if (result?.group) dispatch({ type: "groupPatched", group: result.group });
   }
   if (bot && !hit.onActivePath) {
@@ -56,10 +63,12 @@ export async function landOnSearchHit(
       method: "POST",
       body: JSON.stringify({ messageId: hit.messageId }),
     });
+    if (stale()) return;
     if (branch?.activeLeafId) {
       dispatch({ type: "threadActive", threadId: hit.threadId, activeLeafId: branch.activeLeafId });
     }
   }
+  if (stale()) return;
   dispatch({ type: "focusMessage", threadId: hit.threadId, messageId: hit.messageId });
 }
 
