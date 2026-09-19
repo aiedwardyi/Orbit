@@ -158,7 +158,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   // first /api/instances response has not arrived yet.
   const noEngines = state.connected && isEmptyEngineLaunch(state.instances);
 
-  // App-wide shortcuts: Alt+T Themes · Alt+U Usage. Esc still closes panels.
+  // App-wide shortcuts: Alt+T Themes · Alt+U Usage · Alt/Ctrl+1..9 Nth bot. Esc still closes panels.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
@@ -181,6 +181,8 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
           });
           return;
         }
+      }
+      if (!e.shiftKey && ((e.altKey && !mod) || (e.ctrlKey && !e.metaKey && !e.altKey))) {
         const n: number | null =
           e.code === "Digit1" || e.code === "Numpad1" ? 1
           : e.code === "Digit2" || e.code === "Numpad2" ? 2

@@ -45,6 +45,19 @@ describe("bot number shortcuts", () => {
     expect(handler()).toContain("Digit9");
   });
 
+  it("also jumps with Ctrl+1..Ctrl+9, never with Shift or Ctrl+Alt", () => {
+    expect(handler()).toContain("e.ctrlKey && !e.metaKey && !e.altKey");
+    expect(handler()).toContain("!e.shiftKey && (");
+  });
+
+  it("leaves Ctrl+0 zoom reset and the other Ctrl shortcuts alone", () => {
+    const start = app.indexOf("const onKey = (e: KeyboardEvent)");
+    const tight = app.slice(start, app.indexOf('window.addEventListener("keydown", onKey, true)', start));
+    for (const code of ["Digit0", "Numpad0", "Backquote", "KeyK", "KeyF", "KeyZ"]) {
+      expect(tight).not.toContain(code);
+    }
+  });
+
   it("uses capture so a focused terminal does not swallow Alt+digit", () => {
     expect(app).toContain('window.addEventListener("keydown", onKey, true)');
     expect(handler()).toContain("preventDefault");
