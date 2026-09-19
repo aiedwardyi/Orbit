@@ -27,45 +27,52 @@ export function terminalPaneEnv(base, { pane, bot, teacher = bot, mailbox = null
 }
 
 // Exit 1, never 2: a Claude Code Stop hook treats exit 2 as "keep working".
+// No .cmd shim: cmd.exe re-parses its command line, so args could run commands.
 const ORBIT_MSG_PS1 = String.raw`$ErrorActionPreference = 'Stop'
-$hook = $args.Count -ge 2 -and $args[0] -eq '--hook'
+$mode = if ($args.Count -ge 2 -and ($args[0] -eq '--hook' -or $args[0] -eq '--notify')) { $args[0] }
 if (-not $env:ORBIT_PANE -or -not $env:ORBIT_URL -or -not $env:ORBIT_MSG_TOKEN) {
-  if ($hook) { exit 0 }
+  if ($mode) { exit 0 }
   [Console]::Error.WriteLine('orbit-msg: not inside an Orbit terminal pane')
   exit 1
 }
-try { [Console]::InputEncoding = [Text.Encoding]::UTF8 } catch {}
-if ($hook) {
-  $raw = if ($args.Count -ge 3) { $args[2..($args.Count - 1)] -join ' ' } else { [Console]::In.ReadToEnd() }
-  $text = [string](($raw | ConvertFrom-Json).($args[1]))
+if ([Console]::IsInputRedirected) { try { [Console]::InputEncoding = [Text.Encoding]::UTF8 } catch {} }
+if ($mode -eq '--hook') {
+  $text = [string](([Console]::In.ReadToEnd() | ConvertFrom-Json).($args[1]))
+} elseif ($mode) {
+  # Codex notify appends its JSON as one argv and spawns us directly, so no shell re-parses it.
+  $text = [string](($args[$args.Count - 1] | ConvertFrom-Json).($args[1]))
 } elseif ($args.Count) {
   $text = $args -join ' '
-} elseif ([Console]::IsInputRedirected) {
-  $text = [Console]::In.ReadToEnd()
 } else {
-  $text = ''
+  # Get-Variable, not a literal $input: that makes powershell -File swallow stdin first.
+  $text = (Get-Variable -Name input -ValueOnly | ForEach-Object { $_ }) -join "` + "`" + String.raw`n"
+  if (-not $text -and [Console]::IsInputRedirected) { $text = [Console]::In.ReadToEnd() }
 }
 if (-not $text.Trim()) {
-  if ($hook) { exit 0 }
+  if ($mode) { exit 0 }
   [Console]::Error.WriteLine('usage: orbit-msg "text"')
   exit 1
 }
-$body = @{ pane = $env:ORBIT_PANE; bot = $env:ORBIT_BOT; teacher = $env:ORBIT_TEACHER; text = $text } | ConvertTo-Json -Compress
+$max = 8000
+do {
+  $clip = if ($text.Length -gt $max) { $text.Substring(0, $max) + "` + "`" + String.raw`n[truncated]" } else { $text }
+  $body = [Text.Encoding]::UTF8.GetBytes((@{ text = $clip } | ConvertTo-Json -Compress))
+  $max = [int]($max / 2)
+} while ($body.Length -gt 16000)
+$headers = @{ Authorization = "Bearer $env:ORBIT_MSG_TOKEN"; 'X-Orbit-Pane' = $env:ORBIT_PANE; 'X-Orbit-Bot' = $env:ORBIT_BOT; 'X-Orbit-Teacher' = $env:ORBIT_TEACHER }
 try {
-  Invoke-RestMethod -Method Post -Uri "$env:ORBIT_URL/api/mailbox" -Headers @{ Authorization = "Bearer $env:ORBIT_MSG_TOKEN" } -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body)) | Out-Null
+  Invoke-RestMethod -Method Post -Uri "$env:ORBIT_URL/api/mailbox" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $body | Out-Null
 } catch {
   [Console]::Error.WriteLine("orbit-msg: $($_.Exception.Message)")
   exit 1
 }
 `;
 
-const ORBIT_MSG_CMD = `@echo off\r\npowershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0orbit-mailbox.ps1" %*\r\nexit /b %ERRORLEVEL%\r\n`;
-
 /** Writes orbit-msg into `dir`; Windows only, returns null elsewhere. */
 export async function installOrbitMsg(dir, platform = process.platform) {
   if (platform !== "win32") return null;
   await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, "orbit-mailbox.ps1"), ORBIT_MSG_PS1.replace(/\r?\n/g, "\r\n"));
-  await fs.writeFile(path.join(dir, "orbit-msg.cmd"), ORBIT_MSG_CMD);
+  await fs.writeFile(path.join(dir, "orbit-msg.ps1"), ORBIT_MSG_PS1.replace(/\r?\n/g, "\r\n"));
+  await Promise.all(["orbit-msg.cmd", "orbit-mailbox.ps1"].map((stale) => fs.rm(path.join(dir, stale), { force: true })));
   return dir;
 }

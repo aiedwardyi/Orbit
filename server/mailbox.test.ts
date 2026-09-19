@@ -1,13 +1,14 @@
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { installOrbitMsg, terminalPaneEnv } from "../electron/terminal-mailbox.mjs";
-import { mailboxGrant, mailboxNoteText, MAILBOX_NOTE_MAX_CHARS } from "./mailbox.ts";
+import { mailboxGrant, mailboxNoteText, MAILBOX_NOTE_MAX_CHARS, readMailboxBody } from "./mailbox.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -16,13 +17,45 @@ const PANE = "0f3c9a1e-7b2d-4c55-9e10-3a4b5c6d7e8f";
 let child: ChildProcess;
 let base: string;
 let home: string;
+const SCOPE = { pane: PANE, bot: "worker", teacher: "teacher" };
+const GRANT = mailboxGrant(TOKEN, PANE, "worker", "teacher");
 
-function post(body: unknown, grant = mailboxGrant(TOKEN, PANE, "worker", "teacher")) {
+function scopeHeaders(scope: typeof SCOPE, grant: string) {
+  return { authorization: `Bearer ${grant}`, "x-orbit-pane": scope.pane, "x-orbit-bot": scope.bot, "x-orbit-teacher": scope.teacher };
+}
+
+function post(body: unknown, scope = SCOPE, grant = GRANT) {
   return fetch(`${base}/api/mailbox`, {
     method: "POST",
-    headers: { authorization: `Bearer ${grant}`, "content-type": "application/json" },
+    headers: { ...scopeHeaders(scope, grant), "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+/** Sends the request head and promises a body that never arrives. */
+function headOnly(url: string, headers: Record<string, string>, partial = "") {
+  const { hostname, port } = new URL(url);
+  const socket = connect(Number(port), hostname);
+  const lines = Object.entries({ host: `${hostname}:${port}`, "content-type": "application/json", "content-length": "1000", ...headers }).map(([k, v]) => `${k}: ${v}`);
+  socket.write(`POST /api/mailbox HTTP/1.1\r\n${lines.join("\r\n")}\r\n\r\n${partial}`);
+  return socket;
+}
+
+// Async on purpose: a blocked event loop lets keep-alive sockets go stale under fetch.
+function powershell(env: NodeJS.ProcessEnv, args: string[], input = "") {
+  return new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) => {
+    const child = execFile("powershell", ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", ...args], { env, encoding: "utf8", windowsHide: true },
+      (_error, stdout, stderr) => resolve({ status: child.exitCode, stdout, stderr }));
+    child.stdin!.end(input);
+  });
+}
+
+function paneShell(env: NodeJS.ProcessEnv, command: string) {
+  return powershell(env, ["-EncodedCommand", Buffer.from(`$ProgressPreference = 'SilentlyContinue'; ${command}; exit $LASTEXITCODE`, "utf16le").toString("base64")]);
+}
+
+function orbitMsgFile(env: NodeJS.ProcessEnv, bin: string, args: string[], input?: string) {
+  return powershell(env, ["-File", join(bin, "orbit-msg.ps1"), ...args], input);
 }
 
 async function transcript(threadId: string) {
@@ -94,7 +127,7 @@ describe("mailbox note text", () => {
 
 describe("POST /api/mailbox", () => {
   it("adds a plain note to the teacher chat without starting a turn", async () => {
-    const response = await post({ pane: PANE, bot: "worker", teacher: "teacher", text: "report: <b>tests</b> pass" });
+    const response = await post({ text: "report: <b>tests</b> pass" });
     expect(response.status).toBe(200);
     expect(await transcript("teacher-thread")).toMatchObject([
       { role: "bot", kind: "note", text: "[pane 0f3c9a1e] report: <b>tests</b> pass" },
@@ -105,46 +138,105 @@ describe("POST /api/mailbox", () => {
   });
 
   it("rejects the comms token, a missing grant and a grant for another pane or teacher", async () => {
-    const body = { pane: PANE, bot: "worker", teacher: "teacher", text: "hi" };
-    expect((await post(body, TOKEN)).status).toBe(401);
-    expect((await post(body, "")).status).toBe(401);
-    expect((await post({ ...body, pane: "other-pane" })).status).toBe(401);
-    expect((await post({ ...body, teacher: "worker" })).status).toBe(401);
-    expect((await post({ ...body, text: 7 })).status).toBe(400);
-    expect((await post({ ...body, text: "\x1b[0m" })).status).toBe(400);
+    const body = { text: "hi" };
+    expect((await post(body, SCOPE, TOKEN)).status).toBe(401);
+    expect((await post(body, SCOPE, "")).status).toBe(401);
+    expect((await post(body, { ...SCOPE, pane: "other-pane" })).status).toBe(401);
+    expect((await post(body, { ...SCOPE, teacher: "worker" })).status).toBe(401);
+    expect((await post({ text: 7 })).status).toBe(400);
+    expect((await post({ text: "\x1b[0m" })).status).toBe(400);
   });
 
   it("404s an unknown teacher", async () => {
-    const grant = mailboxGrant(TOKEN, PANE, "worker", "ghost");
-    expect((await post({ pane: PANE, bot: "worker", teacher: "ghost", text: "hi" }, grant)).status).toBe(404);
+    const scope = { ...SCOPE, teacher: "ghost" };
+    expect((await post({ text: "hi" }, scope, mailboxGrant(TOKEN, PANE, "worker", "ghost"))).status).toBe(404);
+  });
+
+  it("rejects a bad or missing grant before reading any body byte", async () => {
+    for (const headers of [scopeHeaders(SCOPE, "nope"), {}]) {
+      const socket = headOnly(base, headers);
+      const reply = await new Promise<string>((resolve, reject) => socket.once("data", (chunk) => resolve(String(chunk))).once("error", reject));
+      socket.destroy();
+      expect(reply).toMatch(/^HTTP\/1\.1 401/);
+    }
+  });
+
+  it("rejects an oversized body", async () => {
+    expect((await post({ text: "x".repeat(20_000) })).status).toBe(413);
+  });
+
+  it("drops a stalled body at the deadline", async () => {
+    const results: unknown[] = [];
+    const server = createServer(async (req, res) => {
+      results.push(await readMailboxBody(req, 16 * 1024, 200));
+      res.end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("no test port");
+    const started = Date.now();
+    const socket = headOnly(`http://127.0.0.1:${address.port}`, {}, '{"text":');
+    await new Promise((resolve) => socket.once("close", resolve).once("error", resolve).resume());
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(results).toEqual([{ ok: false, status: 408, error: "body timeout" }]);
+    await new Promise((resolve) => server.close(resolve));
   });
 
   it.runIf(process.platform === "win32")("orbit-msg posts from pane env and fails clearly outside a pane", async () => {
-    const bin = await installOrbitMsg(join(home, "bin"));
+    mkdirSync(join(home, "bin"), { recursive: true });
+    writeFileSync(join(home, "bin", "orbit-msg.cmd"), "@echo stale");
+    const bin = (await installOrbitMsg(join(home, "bin")))!;
+    expect(existsSync(join(bin, "orbit-msg.cmd"))).toBe(false);
     const paneEnv = terminalPaneEnv({ SystemRoot: process.env.SystemRoot, PATH: process.env.PATH }, {
       pane: PANE, bot: "worker", teacher: "teacher", mailbox: { url: base, token: TOKEN, binDir: bin },
     });
-    const sent = spawnSync("cmd.exe", ["/d", "/c", "orbit-msg", "from", "the pane"], { env: paneEnv, encoding: "utf8", windowsHide: true });
+    const sent = await paneShell(paneEnv, "orbit-msg from 'the pane'; 'piped' | orbit-msg");
     expect(sent.stderr).toBe("");
     expect(sent.status).toBe(0);
-    const hook = spawnSync("cmd.exe", ["/d", "/c", "orbit-msg", "--hook", "last_assistant_message"], {
-      env: paneEnv, input: JSON.stringify({ last_assistant_message: "hook report 완료" }), encoding: "utf8", windowsHide: true,
-    });
+    const hook = await orbitMsgFile(paneEnv, bin, ["--hook", "last_assistant_message"], JSON.stringify({ last_assistant_message: "hook report 완료" }));
     expect(hook.status).toBe(0);
-    const codex = spawnSync("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", join(bin!, "orbit-mailbox.ps1"), "--hook", "last-assistant-message",
-      JSON.stringify({ type: "agent-turn-complete", "last-assistant-message": "codex \"done\" & more" })], { env: paneEnv, encoding: "utf8", windowsHide: true });
+    const codex = await orbitMsgFile(paneEnv, bin, ["--notify", "last-assistant-message",
+      JSON.stringify({ type: "agent-turn-complete", "last-assistant-message": "codex \"done\" & more" })]);
     expect(codex.stderr).toBe("");
     expect(codex.status).toBe(0);
-    expect((await transcript("teacher-thread")).slice(-3).map((message) => message.text)).toEqual([
+    expect((await transcript("teacher-thread")).slice(-4).map((message) => message.text)).toEqual([
       "[pane 0f3c9a1e] from the pane",
+      "[pane 0f3c9a1e] piped",
       "[pane 0f3c9a1e] hook report 완료",
       "[pane 0f3c9a1e] codex \"done\" & more",
     ]);
     const bare = { SystemRoot: process.env.SystemRoot, PATH: process.env.PATH };
-    const outside = spawnSync("cmd.exe", ["/d", "/c", join(bin!, "orbit-msg.cmd"), "hi"], { env: bare, encoding: "utf8", windowsHide: true });
+    const outside = await orbitMsgFile(bare, bin, ["hi"]);
     expect(outside.status).toBe(1);
     expect(outside.stderr).toContain("not inside an Orbit terminal pane");
-    const quietHook = spawnSync("cmd.exe", ["/d", "/c", join(bin!, "orbit-msg.cmd"), "--hook", "message"], { env: bare, input: "{}", encoding: "utf8", windowsHide: true });
-    expect(quietHook.status).toBe(0);
+    expect((await orbitMsgFile(bare, bin, ["--hook", "message"], "{}")).status).toBe(0);
   }, 30_000);
+
+  it.runIf(process.platform === "win32")("orbit-msg posts shell metacharacters and quotes literally", async () => {
+    const bin = (await installOrbitMsg(join(home, "bin")))!;
+    const paneEnv = terminalPaneEnv({ SystemRoot: process.env.SystemRoot, PATH: process.env.PATH }, {
+      pane: PANE, bot: "worker", teacher: "teacher", mailbox: { url: base, token: TOKEN, binDir: bin },
+    });
+    const texts = [
+      'A " & echo PWNED & rem "',
+      'A " & exit /b 2 & rem "',
+      "%ORBIT_MSG_TOKEN%",
+      "$env:ORBIT_MSG_TOKEN",
+      `she said "hi" and it's fine`,
+    ];
+    const launches = [
+      ...texts.map((text) => () => paneShell(paneEnv, `orbit-msg '${text.replaceAll("'", "''")}'`)),
+      ...texts.map((text) => () => orbitMsgFile(paneEnv, bin, ["--hook", "last_assistant_message"], JSON.stringify({ last_assistant_message: text }))),
+      ...texts.map((text) => () => orbitMsgFile(paneEnv, bin, ["--notify", "last-assistant-message", JSON.stringify({ "last-assistant-message": text })])),
+    ];
+    for (const launch of launches) {
+      const run = await launch();
+      expect(run.status).toBe(0);
+      expect(run.stdout).not.toContain("PWNED");
+      expect(run.stderr).toBe("");
+    }
+    const posted = (await transcript("teacher-thread")).slice(-launches.length).map((message) => message.text);
+    expect(posted).toEqual([...texts, ...texts, ...texts].map((text) => `[pane 0f3c9a1e] ${text}`));
+    expect(posted.join("\n")).not.toContain(paneEnv.ORBIT_MSG_TOKEN);
+  }, 60_000);
 });

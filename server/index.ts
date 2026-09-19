@@ -189,7 +189,7 @@ import {
 import { providerReloadErrorActivity, stallErrorActivity } from "./room-error-attribution.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
-import { mailboxGrantMatches, mailboxNoteText, mailboxPostSchema } from "./mailbox.ts";
+import { mailboxNoteText, mailboxPostSchema, mailboxScope, readMailboxBody } from "./mailbox.ts";
 import {
   ensureWorkspace,
   listMemoryTopics,
@@ -5573,15 +5573,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // Terminal panes hold a per-pane grant, never the comms token. A note
     // only: it must not start a turn.
     if (method === "POST" && path === "/api/mailbox") {
-      const parsed = mailboxPostSchema.safeParse(await readBody(req));
+      const scope = mailboxScope(req.headers, COMMS_TOKEN);
+      if (!scope) return json(res, 401, { error: "unauthorized" });
+      const body = await readMailboxBody(req);
+      if (!body.ok) return json(res, body.status, { error: body.error });
+      const parsed = mailboxPostSchema.safeParse(body.value);
       if (!parsed.success) return json(res, 400, { error: "invalid mailbox message" });
-      const { pane, bot, teacher, text } = parsed.data;
-      if (!mailboxGrantMatches(req.headers.authorization, COMMS_TOKEN, pane, bot, teacher)) {
-        return json(res, 401, { error: "unauthorized" });
-      }
-      const target = store.bot(teacher);
+      const target = store.bot(scope.teacher);
       if (!target) return json(res, 404, { error: "no such bot" });
-      const note = mailboxNoteText(pane, text);
+      const note = mailboxNoteText(scope.pane, parsed.data.text);
       if (!note) return json(res, 400, { error: "empty message" });
       const message = store.appendMessage(target.threadId, { role: "bot", kind: "note", text: note });
       return json(res, 200, { ok: true, id: message.id });
