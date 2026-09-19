@@ -17,7 +17,7 @@ import {
 } from "./skill-recorder.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
 import { createTerminalHost, trustedTerminalSender } from "./terminal-host.mjs";
-import { installOrbitMsg } from "./terminal-mailbox.mjs";
+import { installOrbitMsg, readMailboxSecret } from "./terminal-mailbox.mjs";
 import { createTerminalBridge } from "./terminal-bridge.mjs";
 import { spawnTerminalPty } from "./terminal-pty.mjs";
 import { readTerminalAppearance } from "./terminal-appearance.mjs";
@@ -277,10 +277,12 @@ const terminalHost = createTerminalHost({
     if (!trustedTerminalSender(event, mainWindow?.webContents, origin)) throw new Error("Untrusted terminal caller");
   },
   async mailbox() {
-    if (!serverToken) return null;
+    // Packaged grants come from the persisted key, so a server restart does not strand panes.
+    const token = app.isPackaged ? await readMailboxSecret(app.getPath("userData")) : serverToken;
+    if (!token) return null;
     const port = app.isPackaged ? SERVER_PORT : Number(process.env.OMB_PORT || process.env.OGB_PORT || SERVER_PORT);
     const binDir = await installOrbitMsg(path.join(app.getPath("home"), ".orbit", "bin")).catch(() => null);
-    return { url: `http://127.0.0.1:${port}`, token: serverToken, binDir };
+    return { url: `http://127.0.0.1:${port}`, token, binDir };
   },
   loadPty: () => ({ spawn: (shell, args, options) => spawnTerminalPty(
     require.resolve(app.isPackaged ? path.join(process.resourcesPath, "terminal", "node-pty") : "node-pty"), shell, args, options,

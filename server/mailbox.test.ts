@@ -1,5 +1,5 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -8,7 +8,9 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { installOrbitMsg, terminalPaneEnv } from "../electron/terminal-mailbox.mjs";
-import { mailboxGrant, mailboxNoteText, MAILBOX_NOTE_MAX_CHARS, readMailboxBody } from "./mailbox.ts";
+import {
+  loadMailboxSecret, mailboxGrant, mailboxNoteText, mailboxScope, MAILBOX_NOTE_MAX_CHARS, MAILBOX_SECRET_FILE, MAILBOX_STALE_GRANT, readMailboxBody,
+} from "./mailbox.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -125,6 +127,19 @@ describe("mailbox note text", () => {
   });
 });
 
+describe("mailbox secret", () => {
+  it("keeps an issued grant valid after the secret reloads from disk", () => {
+    const dir = join(home, "user-data");
+    const grant = mailboxGrant(loadMailboxSecret(dir), PANE, "worker", "teacher");
+    const reloaded = loadMailboxSecret(dir);
+    expect(mailboxScope(scopeHeaders(SCOPE, grant), reloaded)).toEqual({ ok: true, ...SCOPE });
+    expect(readFileSync(join(dir, MAILBOX_SECRET_FILE), "utf8")).toBe(reloaded);
+    if (process.platform !== "win32") expect(statSync(join(dir, MAILBOX_SECRET_FILE)).mode & 0o777).toBe(0o600);
+    writeFileSync(join(dir, MAILBOX_SECRET_FILE), "corrupt");
+    expect(mailboxScope(scopeHeaders(SCOPE, grant), loadMailboxSecret(dir))).toEqual({ ok: false, error: MAILBOX_STALE_GRANT });
+  });
+});
+
 describe("POST /api/mailbox", () => {
   it("adds a plain note to the teacher chat without starting a turn", async () => {
     const response = await post({ text: "report: <b>tests</b> pass" });
@@ -146,6 +161,22 @@ describe("POST /api/mailbox", () => {
     expect((await post({ text: 7 })).status).toBe(400);
     expect((await post({ text: "\x1b[0m" })).status).toBe(400);
   });
+
+  it("tells a stale grant from a bad one", async () => {
+    const stale = mailboxGrant("b".repeat(48), PANE, "worker", "teacher");
+    const response = await post({ text: "hi" }, SCOPE, stale);
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: MAILBOX_STALE_GRANT });
+    expect(await (await post({ text: "hi" }, SCOPE, "nope")).json()).toEqual({ error: "unauthorized" });
+    if (process.platform !== "win32") return;
+    const bin = (await installOrbitMsg(join(home, "bin")))!;
+    const paneEnv = terminalPaneEnv({ SystemRoot: process.env.SystemRoot, PATH: process.env.PATH }, {
+      pane: PANE, bot: "worker", teacher: "teacher", mailbox: { url: base, token: "b".repeat(48), binDir: bin },
+    });
+    const sent = await orbitMsgFile(paneEnv, bin, ["hi"]);
+    expect(sent.status).toBe(1);
+    expect(sent.stderr).toContain(MAILBOX_STALE_GRANT);
+  }, 30_000);
 
   it("404s an unknown teacher", async () => {
     const scope = { ...SCOPE, teacher: "ghost" };

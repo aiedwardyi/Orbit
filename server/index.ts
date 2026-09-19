@@ -189,7 +189,7 @@ import {
 import { providerReloadErrorActivity, stallErrorActivity } from "./room-error-attribution.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
-import { mailboxNoteText, mailboxPostSchema, mailboxScope, readMailboxBody } from "./mailbox.ts";
+import { loadMailboxSecret, mailboxNoteText, mailboxPostSchema, mailboxScope, readMailboxBody } from "./mailbox.ts";
 import {
   ensureWorkspace,
   listMemoryTopics,
@@ -343,6 +343,16 @@ const appTokenMessage = { type: "orbit:api-token", token: COMMS_TOKEN };
 // harmless once waitForAppToken has resolved. Dev/Node still needs this path.
 utilityParentPort?.postMessage(appTokenMessage);
 process.send?.(appTokenMessage);
+// Dev has no userData and restarts panes with the server, so grants ride the boot token there.
+const MAILBOX_SECRET = (() => {
+  if (!process.env.OMB_USER_DATA) return COMMS_TOKEN;
+  try {
+    return loadMailboxSecret(process.env.OMB_USER_DATA);
+  } catch (error) {
+    console.warn(`mailbox: could not persist the pane key; grants reset on restart: ${error instanceof Error ? error.message : String(error)}`);
+    return COMMS_TOKEN;
+  }
+})();
 
 /** Constant-time bearer check for the internal comms endpoints. The token
  * is high-entropy and loopback-only, so a timing oracle is a long shot —
@@ -5573,8 +5583,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // Terminal panes hold a per-pane grant, never the comms token. A note
     // only: it must not start a turn.
     if (method === "POST" && path === "/api/mailbox") {
-      const scope = mailboxScope(req.headers, COMMS_TOKEN);
-      if (!scope) return json(res, 401, { error: "unauthorized" });
+      const scope = mailboxScope(req.headers, MAILBOX_SECRET);
+      if (!scope.ok) return json(res, 401, { error: scope.error });
       const body = await readMailboxBody(req);
       if (!body.ok) return json(res, body.status, { error: body.error });
       const parsed = mailboxPostSchema.safeParse(body.value);

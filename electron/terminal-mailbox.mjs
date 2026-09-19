@@ -1,9 +1,16 @@
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
 const ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 const GRANT_PREFIX = "orbit-mailbox-v1";
+const SECRET_RE = /^[a-f0-9]{64}$/;
+
+/** The server writes it at boot; null until then so the pane opens without orbit-msg. */
+export async function readMailboxSecret(dir) {
+  const secret = (await fs.readFile(path.join(dir, "mailbox-secret"), "utf8").catch(() => "")).trim();
+  return SECRET_RE.test(secret) ? secret : null;
+}
 
 /** Scoped to one pane/bot/teacher triple so a pane can only post as itself. */
 export function mailboxGrant(token, pane, bot, teacher) {
@@ -11,7 +18,8 @@ export function mailboxGrant(token, pane, bot, teacher) {
   if (typeof token !== "string" || !token || ![pane, bot, teacher].every((id) => typeof id === "string" && ID_RE.test(id))) {
     throw new Error("Invalid mailbox grant");
   }
-  return createHmac("sha256", token).update(`${GRANT_PREFIX}:${pane}:${bot}:${teacher}`).digest("base64url");
+  const keyId = createHash("sha256").update(`${GRANT_PREFIX}:key:${token}`).digest("hex").slice(0, 8);
+  return `${keyId}.${createHmac("sha256", token).update(`${GRANT_PREFIX}:${pane}:${bot}:${teacher}`).digest("base64url")}`;
 }
 
 export function terminalPaneEnv(base, { pane, bot, teacher = bot, mailbox = null }) {
@@ -63,7 +71,12 @@ $headers = @{ Authorization = "Bearer $env:ORBIT_MSG_TOKEN"; 'X-Orbit-Pane' = $e
 try {
   Invoke-RestMethod -Method Post -Uri "$env:ORBIT_URL/api/mailbox" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $body | Out-Null
 } catch {
-  [Console]::Error.WriteLine("orbit-msg: $($_.Exception.Message)")
+  $failure = $_
+  # Windows PowerShell leaves ErrorDetails empty; the server's reason is still on the response stream.
+  $detail = $failure.ErrorDetails.Message
+  if (-not $detail) { $detail = try { (New-Object IO.StreamReader($failure.Exception.Response.GetResponseStream())).ReadToEnd() } catch { $null } }
+  $reason = try { ($detail | ConvertFrom-Json).error } catch { $null }
+  [Console]::Error.WriteLine("orbit-msg: $(if ($reason) { $reason } else { $failure.Exception.Message })")
   exit 1
 }
 `;
