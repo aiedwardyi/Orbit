@@ -1079,6 +1079,17 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   });
   const wasWaiting = useRef(false);
   const [popping, setPopping] = useState<{ id: string; text: string } | null>(null);
+  // A bot or task switch must not paint the old thread's presence into the
+  // new transcript's first frame: the stale row pins the scroller, then
+  // unmounts a frame later and leaves scrollTop short by its height. Reset
+  // during render (same pattern as transcriptWindow above) so the commit
+  // never contains it; the effect below stays as a backstop.
+  const presenceThread = useRef(transcriptKey);
+  if (presenceThread.current !== transcriptKey) {
+    presenceThread.current = transcriptKey;
+    wasWaiting.current = false;
+    if (popping !== null) setPopping(null);
+  }
   useEffect(() => {
     wasWaiting.current = false;
     setPopping(null);
@@ -1455,7 +1466,9 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
               </div>
             </div>
           )}
+          {/* Keyed by thread: the exit fade must not linger into the next transcript. */}
           <TurnPresence
+            key={bot.threadId}
             avatar={
               <BotAvatar
                 bot={bot}
