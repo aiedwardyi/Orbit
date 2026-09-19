@@ -31,6 +31,7 @@ import { migrateWorkspaceCredentials, workspaceCredentialEnv } from "./workspace
 import { activateExistingWindow } from "./single-instance.mjs";
 import {
   handleDesktopNotify,
+  parseNotificationTargetFromCommandLine,
   taskbarBusyIndicator,
   windowsAppUserModelId,
   withToastCapability,
@@ -120,6 +121,14 @@ const browserConnectionStore = createDescriptorStore({
   fileName: "browser-connection.json",
 });
 let pendingPackageInstallUrl = packageUrlFromCommandLine(process.argv);
+let pendingNotificationTarget = parseNotificationTargetFromCommandLine(process.argv);
+
+function deliverNotificationTarget(win, target = pendingNotificationTarget) {
+  if (!target || !win || win.isDestroyed()) return;
+  if (win.webContents.isLoadingMainFrame()) return;
+  win.webContents.send("desktop:notification-click", target);
+  if (target === pendingNotificationTarget) pendingNotificationTarget = null;
+}
 let mainWindow = null;
 let unreadCount = 0;
 let unreadOverlayIcon = null;
@@ -201,9 +210,11 @@ if (process.platform === "linux") {
 
 // Windows toasts are silent without an AppUserModelID that matches the
 // Start Menu shortcut electron-builder writes (appId). Set it before any
-// window exists — after ready is too late.
+// window exists — after ready is too late. Dev runs take a separate ID so
+// they cannot steal the installed app's toast activator; the packaged build
+// reclaims its own ID on every startup.
 if (process.platform === "win32") {
-  app.setAppUserModelId(windowsAppUserModelId());
+  app.setAppUserModelId(windowsAppUserModelId({ packaged: app.isPackaged }));
 }
 
 // One instance per user: without this lock a second launch forks a second
@@ -241,9 +252,12 @@ app.on("open-url", (event, url) => {
 app.on("second-instance", (_event, commandLine) => {
   const packageUrl = packageUrlFromCommandLine(commandLine);
   if (packageUrl) pendingPackageInstallUrl = packageUrl;
+  const notifyTarget = parseNotificationTargetFromCommandLine(commandLine);
+  if (notifyTarget) pendingNotificationTarget = notifyTarget;
   activateExistingWindow(BrowserWindow.getAllWindows());
   const target = BrowserWindow.getAllWindows().find((win) => !win.isDestroyed());
   deliverPackageInstall(target);
+  deliverNotificationTarget(target, notifyTarget ?? pendingNotificationTarget);
 });
 
 // Packaged: the harness server ships in Resources (compiled JS, zero deps)
@@ -1408,7 +1422,10 @@ function createWindow() {
     if (open) void shell.openExternal(open);
     return { action: "deny" };
   });
-  win.webContents.on("did-finish-load", () => deliverPackageInstall(win));
+  win.webContents.on("did-finish-load", () => {
+    deliverPackageInstall(win);
+    deliverNotificationTarget(win);
+  });
 
   win.webContents.on("before-input-event", (event, input) => {
     if (applyZoomShortcut(win.webContents, input)) event.preventDefault();

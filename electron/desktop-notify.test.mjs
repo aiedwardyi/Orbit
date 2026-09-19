@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  DEV_WINDOWS_APP_USER_MODEL_ID,
   WINDOWS_APP_USER_MODEL_ID,
   canClaimDesktopToasts,
   handleDesktopNotify,
@@ -65,13 +66,16 @@ describe("Windows toast identity", () => {
     const builder = readFileSync(path.join(root, "electron-builder.yml"), "utf8");
     expect(WINDOWS_APP_USER_MODEL_ID).toBe("com.orbit.agentdesk");
     expect(windowsAppUserModelId()).toBe("com.orbit.agentdesk");
+    expect(windowsAppUserModelId({ packaged: true })).toBe("com.orbit.agentdesk");
+    expect(DEV_WINDOWS_APP_USER_MODEL_ID).toBe("com.orbit.agentdesk.dev");
+    expect(windowsAppUserModelId({ packaged: false })).toBe("com.orbit.agentdesk.dev");
     expect(builder).toMatch(/^appId: com\.orbit\.agentdesk$/m);
   });
 
   it("sets that AppUserModelID in main before any window can exist", () => {
     const main = readFileSync(path.join(root, "electron/main.mjs"), "utf8");
     const preload = readFileSync(path.join(root, "electron/preload.cjs"), "utf8");
-    const aumidAt = main.indexOf("setAppUserModelId(windowsAppUserModelId())");
+    const aumidAt = main.indexOf("setAppUserModelId(windowsAppUserModelId({ packaged: app.isPackaged }))");
     const readyAt = main.indexOf("app.whenReady()");
     expect(aumidAt).toBeGreaterThan(-1);
     expect(readyAt).toBeGreaterThan(aumidAt);
