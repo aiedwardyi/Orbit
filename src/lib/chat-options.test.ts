@@ -16,59 +16,6 @@ describe("chatOptionChoices", () => {
     expect(chatOptionChoices("Which one?\n- pnpm\n- npm\n- bun")).toEqual(["pnpm", "npm", "bun"]);
   });
 
-  it("splits a short trailing A-or-B question", () => {
-    expect(chatOptionChoices("pnpm or npm?")).toEqual(["pnpm", "npm"]);
-    expect(chatOptionChoices("Should I use pnpm or npm?")).toEqual(["pnpm", "npm"]);
-  });
-
-  it("keeps incidental parentheses on a choice label", () => {
-    // or is outside the group — "pnpm (v9)" is one label, not a reject signal
-    expect(chatOptionChoices("pnpm (v9) or npm?")).toEqual(["pnpm (v9)", "npm"]);
-    expect(chatOptionChoices("Should I use pnpm (v9) or npm?")).toEqual(["pnpm (v9)", "npm"]);
-  });
-
-  it("rejects mismatched delimiters instead of creating malformed choices", () => {
-    expect(chatOptionChoices("pnpm (v9] or npm?")).toBeNull();
-  });
-
-  it("does not turn parenthetical policy prose into choices", () => {
-    // <=20 words so word cutoff cannot reject; depth must reject or-inside-group
-    expect(chatOptionChoices("Use (A or B)?")).toBeNull();
-  });
-
-  it("rejects top-level or when left still contains a nested or", () => {
-    // depth picks the outer or; \bor\b on left catches nested "or" -> null
-    expect(chatOptionChoices("Use (A or B) or npm?")).toBeNull();
-  });
-
-  it("conservatively rejects nested or in parenthetical options", () => {
-    expect(chatOptionChoices("npm (v8 or later) or yarn?")).toBeNull();
-    expect(chatOptionChoices("pnpm or npm (v8 or later)?")).toBeNull();
-  });
-
-  it("keeps a longer direct A-or-B without parentheses as choices", () => {
-    // 13 words — still under the soft >20 cutoff
-    expect(
-      chatOptionChoices("Should I ship the hotfix tonight or wait until Monday morning after standup?"),
-    ).toEqual(["tonight", "wait until Monday morning after standup"]);
-  });
-
-  it("keeps a clause intact when the split follows sentence punctuation", () => {
-    expect(
-      chatOptionChoices("Ready for one more rep to solidify it, or want to walk through another part of this?"),
-    ).toEqual(["Ready for one more rep to solidify it", "want to walk through another part of this"]);
-  });
-
-  it("keeps final-line choices after a long preamble", () => {
-    const preamble =
-      "There are several factors to weigh when choosing a runtime for this project and configuring dependencies across team environments. We need to decide soon.";
-    expect(chatOptionChoices(`${preamble}\n\nNode or Bun?`)).toEqual(["Node", "Bun"]);
-    expect(chatOptionChoices(`${preamble}\n\nShould I use pnpm (v9) or npm?`)).toEqual([
-      "pnpm (v9)",
-      "npm",
-    ]);
-  });
-
   it("ignores a bulleted list that is not a question", () => {
     expect(
       chatOptionChoices("Here's the plan:\n- fix the tests\n- ship the build\n- write the docs"),
@@ -114,44 +61,28 @@ describe("detectChatOptions", () => {
     });
   });
 
-  it("does not invent a heading or strip prose for A-or-B", () => {
-    expect(detectChatOptions("Should I use pnpm or npm?")).toEqual({
-      options: ["pnpm", "npm"],
-      question: null,
-      messagePrefix: null,
+  it("ignores formatted prose that resembles a choice card", () => {
+    expect(
+      detectChatOptions(
+        '- **Your turn**: Try running `"PyThOn".lower()` in your head or in python - what does it become?',
+      ),
+    ).toBeNull();
+  });
+
+  it("reads a short bullet list after an explicit question", () => {
+    expect(detectChatOptions("Which one?\n- Red\n- Blue")).toEqual({
+      options: ["Red", "Blue"],
+      question: "Which one?",
+      messagePrefix: "",
     });
   });
 
-  it("splits an em-dash enumeration into clean choices", () => {
-    expect(detectChatOptions("You can start right now! What do you want to do — Set 11, a review rep, or something new?")).toEqual({
-      options: ["Set 11", "a review rep", "something new"],
-      question: "What do you want to do?",
-      messagePrefix: "You can start right now!",
-    });
+  it("rejects formatted list items", () => {
+    expect(detectChatOptions("Pick:\n- **Bold** item\n- other")).toBeNull();
   });
 
-  it("keeps commas inside a parenthetical choice together", () => {
-    expect(detectChatOptions("You can use: Node.js (LTS, recommended), Bun, or Deno?")).toEqual({
-      options: ["Node.js (LTS, recommended)", "Bun", "Deno"],
-      question: "You can use?",
-      messagePrefix: null,
-    });
-  });
-
-  it("keeps commas inside nested delimiters together", () => {
-    expect(detectChatOptions("Choose a runtime: Node.js ([LTS, recommended]), Bun, or Deno?")).toEqual({
-      options: ["Node.js ([LTS, recommended])", "Bun", "Deno"],
-      question: "Choose a runtime?",
-      messagePrefix: null,
-    });
-  });
-
-  it("rejects malformed delimiters in an enumeration", () => {
-    expect(chatOptionChoices("Choose a runtime: Node.js (LTS, recommended], Bun, or Deno?")).toBeNull();
-  });
-
-  it("leaves Korean prose without an English choice marker alone", () => {
-    expect(chatOptionChoices("무엇을 할까요? 검토, 수정, 또는 새로 시작할까요?")).toBeNull();
+  it("does not split an ordinary or question", () => {
+    expect(detectChatOptions("Do you want tea or coffee?")).toBeNull();
   });
 });
 
