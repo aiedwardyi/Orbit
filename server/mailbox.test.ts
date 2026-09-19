@@ -121,6 +121,8 @@ describe("mailbox note text", () => {
   it("strips escapes and controls, caps length and tags the pane", () => {
     expect(mailboxNoteText(PANE, "\x1b[31mdone\x1b[0m\r\n**ok**\x07")).toBe("[pane 0f3c9a1e] done\n**ok**");
     expect(mailboxNoteText(PANE, " \x1b[2J\n ")).toBeNull();
+    expect(mailboxNoteText(PANE, "ok\u202eSPOOF\u2066\x9b31m")).toBe("[pane 0f3c9a1e] okSPOOF31m");
+    expect(mailboxNoteText(PANE, "a\tb\nc")).toBe("[pane 0f3c9a1e] a\tb\nc");
     const long = mailboxNoteText(PANE, "x".repeat(MAILBOX_NOTE_MAX_CHARS + 50))!;
     expect(long.endsWith("x\n[truncated]")).toBe(true);
     expect(long.length).toBe("[pane 0f3c9a1e] ".length + MAILBOX_NOTE_MAX_CHARS + "\n[truncated]".length);

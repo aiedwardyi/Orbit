@@ -96,7 +96,7 @@ export function mailboxNoteText(pane: string, text: string): string | null {
     // oxlint-disable-next-line no-control-regex -- terminal output carries ANSI escapes
     .replace(/\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[@-_])/g, "")
     // oxlint-disable-next-line no-control-regex -- keep only tab and newline
-    .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "")
+    .replace(/[\x00-\x08\x0b-\x1f\x7f\u0080-\u009F\u200E-\u200F\u202A-\u202E\u2066-\u2069]/g, "")
     .trim();
   if (!clean) return null;
   const capped = clean.length > MAILBOX_NOTE_MAX_CHARS ? `${clean.slice(0, MAILBOX_NOTE_MAX_CHARS)}\n[truncated]` : clean;
