@@ -20,6 +20,7 @@ import { isEmptyEngineLaunch } from "@/lib/engine-rail";
 import { showComputerPanelChrome } from "@/lib/friends-chrome";
 import { I18nProvider, useI18n } from "@/lib/i18n";
 import { buildTerminalNotification, showNotification, type NotificationTarget } from "@/lib/notify";
+import { focusComposerOnActivation } from "@/lib/focus-composer";
 
 const Onboarding = lazy(() => import("@/components/Onboarding").then((m) => ({ default: m.Onboarding })));
 const SettingsPanel = lazy(() => import("@/components/SettingsPanel").then((m) => ({ default: m.SettingsPanel })));
@@ -180,11 +181,32 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
           });
           return;
         }
+        const n: number | null =
+          e.code === "Digit1" || e.code === "Numpad1" ? 1
+          : e.code === "Digit2" || e.code === "Numpad2" ? 2
+          : e.code === "Digit3" || e.code === "Numpad3" ? 3
+          : e.code === "Digit4" || e.code === "Numpad4" ? 4
+          : e.code === "Digit5" || e.code === "Numpad5" ? 5
+          : e.code === "Digit6" || e.code === "Numpad6" ? 6
+          : e.code === "Digit7" || e.code === "Numpad7" ? 7
+          : e.code === "Digit8" || e.code === "Numpad8" ? 8
+          : e.code === "Digit9" || e.code === "Numpad9" ? 9
+          : null;
+        if (n !== null) {
+          const rows = document.querySelectorAll('[data-sidebar-row-kind="bot"]');
+          const id = rows[n - 1]?.getAttribute("data-sidebar-row-id");
+          if (!id) return;
+          e.preventDefault();
+          e.stopPropagation();
+          dispatch({ type: "select", id });
+          focusComposerOnActivation({ settingsOpen: state.appSettingsOpen || state.settingsOpen });
+          return;
+        }
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [state.appSettingsOpen, state.appSettingsSection, dispatch]);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [state.appSettingsOpen, state.appSettingsSection, state.settingsOpen, dispatch]);
 
   useEffect(() => {
     window.ogb?.setUnreadCount?.(unreadCount);

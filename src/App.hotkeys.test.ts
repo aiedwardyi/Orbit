@@ -23,13 +23,38 @@ describe("settings section shortcuts", () => {
   });
 });
 
-describe("retired bot switch shortcuts", () => {
-  it("keeps bot navigation out of the app-wide shortcut handler", () => {
+describe("bot switch shortcuts", () => {
+  it("keeps bracket navigation out of the app-wide shortcut handler", () => {
     const handler = app.slice(app.indexOf("const onKey = (e: KeyboardEvent)"), app.indexOf("window.addEventListener(\"keydown\", onKey)"));
     expect(handler).not.toContain('type: "newBot"');
-    expect(handler).not.toContain('type: "select"');
     expect(handler).not.toContain("BracketLeft");
     expect(handler).not.toContain("BracketRight");
+  });
+});
+
+describe("bot number shortcuts", () => {
+  const handler = () =>
+    app.slice(app.indexOf("const onKey = (e: KeyboardEvent)"), app.indexOf("window.addEventListener(\"keydown\", onKey)"));
+
+  it("jumps to the Nth visible bot with Alt+1..Alt+9 in sidebar display order", () => {
+    expect(handler()).toContain('e.altKey && !mod && !e.shiftKey');
+    expect(handler()).toContain('data-sidebar-row-kind');
+    expect(handler()).toContain('data-sidebar-row-id');
+    expect(handler()).toContain('type: "select"');
+    expect(handler()).toContain("Digit1");
+    expect(handler()).toContain("Digit9");
+  });
+
+  it("uses capture so a focused terminal does not swallow Alt+digit", () => {
+    expect(app).toContain('window.addEventListener("keydown", onKey, true)');
+    expect(handler()).toContain("preventDefault");
+    expect(handler()).toContain("stopPropagation");
+  });
+
+  it("no-ops past the end with no last-item magic for Alt+9", () => {
+    expect(handler()).toMatch(/\[n - 1\]|\[digit - 1\]/);
+    expect(handler()).toMatch(/if \(!id\) return/);
+    expect(handler()).not.toContain("length - 1");
   });
 });
 
