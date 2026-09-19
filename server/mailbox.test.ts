@@ -215,6 +215,25 @@ describe("POST /api/mailbox", () => {
     await new Promise((resolve) => server.close(resolve));
   });
 
+  it.runIf(process.platform === "win32")("orbit-msg gives up after 10s on a server that never answers", async () => {
+    const stub = createServer(() => {});
+    await new Promise<void>((resolve) => stub.listen(0, "127.0.0.1", resolve));
+    const address = stub.address();
+    if (!address || typeof address === "string") throw new Error("no test port");
+    const bin = (await installOrbitMsg(join(home, "bin-timeout")))!;
+    const paneEnv = terminalPaneEnv({ SystemRoot: process.env.SystemRoot, PATH: process.env.PATH }, {
+      pane: PANE, bot: "worker", teacher: "teacher", mailbox: { url: `http://127.0.0.1:${address.port}`, token: TOKEN, binDir: bin },
+    });
+    const started = Date.now();
+    const hung = await orbitMsgFile(paneEnv, bin, ["hi"]);
+    const waited = Date.now() - started;
+    expect(hung.status).toBe(1);
+    expect(hung.stderr).toContain("orbit-msg: Orbit did not answer in 10s");
+    expect(waited).toBeGreaterThanOrEqual(9000);
+    expect(waited).toBeLessThan(30000);
+    await new Promise((resolve) => stub.close(resolve));
+  }, 60_000);
+
   it.runIf(process.platform === "win32")("orbit-msg posts from pane env and fails clearly outside a pane", async () => {
     mkdirSync(join(home, "bin"), { recursive: true });
     writeFileSync(join(home, "bin", "orbit-msg.cmd"), "@echo stale");

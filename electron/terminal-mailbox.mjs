@@ -69,9 +69,13 @@ do {
 } while ($body.Length -gt 16000)
 $headers = @{ Authorization = "Bearer $env:ORBIT_MSG_TOKEN"; 'X-Orbit-Pane' = $env:ORBIT_PANE; 'X-Orbit-Bot' = $env:ORBIT_BOT; 'X-Orbit-Teacher' = $env:ORBIT_TEACHER }
 try {
-  Invoke-RestMethod -Method Post -Uri "$env:ORBIT_URL/api/mailbox" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $body | Out-Null
+  Invoke-RestMethod -Method Post -Uri "$env:ORBIT_URL/api/mailbox" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $body -TimeoutSec 10 | Out-Null
 } catch {
   $failure = $_
+  if ($failure.Exception.Message -match 'timed out') {
+    [Console]::Error.WriteLine('orbit-msg: Orbit did not answer in 10s')
+    exit 1
+  }
   # Windows PowerShell leaves ErrorDetails empty; the server's reason is still on the response stream.
   $detail = $failure.ErrorDetails.Message
   if (-not $detail) { $detail = try { (New-Object IO.StreamReader($failure.Exception.Response.GetResponseStream())).ReadToEnd() } catch { $null } }
