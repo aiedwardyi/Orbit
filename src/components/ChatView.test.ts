@@ -6,6 +6,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { StoreProvider, type Bot, type Message } from "@/state/store";
 
 import { ChatView } from "./ChatView";
+import type { TurnStreamState } from "@/lib/turn-stage";
+
+const live = vi.hoisted(() => ({ current: { streaming: {}, reasoning: {}, signal: {}, gen: {}, turn: {} } as TurnStreamState }));
+vi.mock("@/state/store", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/state/store")>(),
+  useStreaming: () => live.current,
+}));
+vi.mock("shiki", () => ({ codeToHtml: async (code: string) => `<pre><code>${code}</code></pre>` }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -58,9 +66,84 @@ function Harness() {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 afterEach(() => {
+  live.current = { streaming: {}, reasoning: {}, signal: {}, gen: {}, turn: {} };
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   localStorage.clear();
+});
+
+describe("ChatView reply settle", () => {
+  it.each(["user", "tools", "legacy"])("keeps the reply row and code card after a %s tail", async (tail) => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const text = "```js\nconsole.log('stable');\n```";
+    const messages: Message[] = tail === "tools" ? [
+      ...botA.messages,
+      { id: "tool-1", parentId: "ua", at: 1, role: "bot", kind: "activity", tool: { name: "Read", ok: true } },
+      { id: "tool-2", parentId: "tool-1", at: 1, role: "bot", kind: "activity", tool: { name: "Read", ok: true } },
+    ] : botA.messages;
+    const current = { ...botA, messages };
+    const parentId = messages.at(-1)!.id;
+    const reply: Message = { id: "reply-a", parentId: tail === "legacy" ? undefined : parentId, at: 2, role: "bot", kind: "text", text };
+    const completed = { ...current, messages: [...messages, reply], activeLeafId: tail === "legacy" ? undefined : reply.id };
+    const render = async (bot: Bot) => {
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot }))));
+    };
+    try {
+      live.current = { streaming: { "thread-a": text }, reasoning: {}, signal: {}, turn: { "thread-a": `0:${parentId}` } };
+      await render(current);
+      await act(async () => { await sleep(300); });
+      const user = host.querySelector('[data-orbit-message="user"]');
+      const row = host.querySelector('[data-orbit-message="bot"]');
+      const body = row?.querySelector("[data-orbit-message-body]");
+      const content = row?.querySelector("[data-orbit-message-content]");
+      const markdown = row?.querySelector(".chat-md");
+      const card = markdown?.firstElementChild;
+      const copy = card?.querySelector("button");
+      const code = card?.querySelector("pre");
+      expect.soft(body).not.toBeNull();
+      expect(copy).toBeTruthy();
+      const widths = [row?.className, body?.className, content?.className];
+      await render(completed);
+      expect.soft(host.querySelectorAll('[data-orbit-message="bot"]')).toHaveLength(1);
+      expect.soft(host.querySelector('[data-orbit-message="bot"]')).toBe(row);
+      expect.soft(host.querySelector(".chat-md")).toBe(markdown);
+      expect.soft(host.querySelector('.chat-md button')).toBe(copy);
+      live.current = { streaming: {}, reasoning: {}, signal: {}, turn: {} };
+      await render({ ...completed, busy: false, activity: "idle" });
+      await act(async () => { await sleep(600); });
+      const settled = host.querySelector('[data-orbit-message="bot"]');
+      expect.soft(settled).toBe(row);
+      expect.soft(settled?.querySelector("[data-orbit-message-body]")).toBe(body);
+      expect.soft(settled?.querySelector("[data-orbit-message-content]")).toBe(content);
+      expect.soft(settled?.querySelector(".chat-md")?.firstElementChild).toBe(card);
+      expect.soft(settled?.querySelector("pre")).toBe(code);
+      expect.soft(host.querySelector('[data-orbit-message="user"]')).toBe(user);
+      expect.soft([
+        settled?.className,
+        settled?.querySelector("[data-orbit-message-body]")?.className,
+        settled?.querySelector("[data-orbit-message-content]")?.className,
+      ]).toEqual(widths);
+      const followup = { ...userMsg("followup", "Next question"), parentId: reply.id, at: 3 };
+      live.current = { streaming: { "thread-a": "Second reply" }, reasoning: {}, signal: {}, turn: { "thread-a": "0:followup" } };
+      await render({ ...completed, messages: [...completed.messages, followup], activeLeafId: tail === "legacy" ? undefined : followup.id });
+      expect(host.querySelectorAll('[data-orbit-message="bot"]')).toHaveLength(2);
+      expect(host.querySelector('[data-orbit-message="bot"]')).toBe(row);
+      expect(row?.querySelector("pre")).toBe(code);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
 });
 
 describe("ChatView bot switch while busy", () => {

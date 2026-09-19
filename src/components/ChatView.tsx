@@ -37,7 +37,7 @@ import {
 } from "@/state/store";
 import { EngineSetup, OpenConnectionsCta, setupErrorAction } from "./EngineSetup";
 import { BotAvatar } from "./Avatar";
-import { MessageBoundary, PresenceAnswer, TurnPresence } from "./TurnPresence";
+import { MessageBoundary, TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { showBotNewTaskControl, showComputerPanelChrome } from "@/lib/friends-chrome";
 import { stateForBot } from "@/lib/mascot";
@@ -327,7 +327,7 @@ function BubbleEditor({
  *  under the body so the transcript's overflow-x-hidden cannot clip it, and so
  *  the date stays out of the transcript's live region: otherwise every
  *  arriving message would be read out with its own datestamp. */
-function TimestampLabel({ at }: { at: number }) {
+function TimestampLabel({ at, hidden = false }: { at: number; hidden?: boolean }) {
   const { locale } = useI18n();
   const tag = localeTag(locale);
   const full = useMemo(() => formatDateTime(at, tag), [at, tag]);
@@ -381,7 +381,7 @@ function TimestampLabel({ at }: { at: number }) {
         onPointerLeave={() => setOpen(false)}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
-        className="mt-0.5 cursor-default rounded text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+        className={cn("mt-0.5 cursor-default rounded text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100", hidden && "invisible")}
       >
         {formatTime(at, tag)}
       </button>
@@ -410,6 +410,7 @@ function Bubble({
   transcript,
   editing,
   isLastBotText,
+  streaming = false,
   onStartEdit,
   onCancelEdit,
   onSubmitEdit,
@@ -423,6 +424,7 @@ function Bubble({
   transcript: Message[];
   editing: boolean;
   isLastBotText: boolean;
+  streaming?: boolean;
   onStartEdit: () => void;
   onCancelEdit: () => void;
   onSubmitEdit: (text: string) => void;
@@ -436,7 +438,7 @@ function Bubble({
   const user = message.role === "user";
   const [expanded, setExpanded] = useState(false);
   const text = message.text ?? "";
-  const detectedOptions = !user && message.kind === "text" ? detectChatOptions(text) : null;
+  const detectedOptions = !user && !streaming && message.kind === "text" ? detectChatOptions(text) : null;
   const answeredChoice = detectedOptions ? laterUserAnswer(transcript, message.id) : null;
   const optionChoices =
     detectedOptions && (answeredChoice != null || isLastBotText) ? detectedOptions : null;
@@ -582,11 +584,11 @@ function Bubble({
             </>
           ) : markdownText.trim() ? (
             <MessageBoundary fallbackText={markdownText}>
-              <ChatMarkdown text={markdownText} />
+              <ChatMarkdown text={markdownText} streaming={streaming} />
             </MessageBoundary>
           ) : null}
         </div>
-        {!user && (
+        {!user && !streaming && (
           <div
             data-message-hover-actions
             // left, not right: the row is wider than a short bot bubble, and
@@ -642,7 +644,7 @@ function Bubble({
           onWriteOwn={onFocusComposer}
         />
       )}
-      <TimestampLabel at={message.at} />
+      <TimestampLabel at={message.at} hidden={streaming} />
       {!message.placeholder && <ReactionChips threadId={bot.threadId} message={message} align={user ? "right" : "left"} />}
       {!message.placeholder && versions.length > 1 && (
         <div className="mt-1 flex items-center gap-0.5 pr-1 text-[12px] text-ink-secondary">
@@ -732,12 +734,7 @@ function ScreenFrame({ png, mime }: { png: string; mime?: string }) {
   );
 }
 
-/** The settled transcript, memoized as one unit: during streaming every
- * frame re-renders ChatView, but all of these props keep their identity
- * (bot/messages only change on real message events), so the whole list —
- * every markdown tree, every code block — bails out of React work and only
- * the streaming tail below it commits. This is the t3code structural-sharing
- * idea at component granularity. */
+// Keep the live reply in its transcript slot when the canonical message arrives.
 const MessagesList = memo(function MessagesList({
   bot,
   messages,
@@ -745,7 +742,7 @@ const MessagesList = memo(function MessagesList({
   editingId,
   lastBotTextId,
   canonicalLastMessageId,
-  emergingId,
+  streamingMessage,
   canRetryLast,
   engine,
   onStartEdit,
@@ -762,7 +759,7 @@ const MessagesList = memo(function MessagesList({
   editingId: string | null;
   lastBotTextId: string | undefined;
   canonicalLastMessageId: string | undefined;
-  emergingId?: string | null;
+  streamingMessage: Message | null;
   canRetryLast: boolean;
   /** This bot's engine, for rendering setup help on a `setup` error. */
   engine: InstanceInfo | undefined;
@@ -778,10 +775,13 @@ const MessagesList = memo(function MessagesList({
   const showToolCalls = showToolCallsEnabled(state.config);
   // Fold finished tool chips into runs, so a stretch of them cannot bury
   // what the bot actually said. Hidden unless Settings → Tool calls is on.
-  const items = useMemo(() => groupActivityRuns(messages), [messages]);
+  const items = useMemo(
+    () => groupActivityRuns(streamingMessage ? [...messages, streamingMessage] : messages),
+    [messages, streamingMessage],
+  );
   const rows = useMemo(
-    () => chatTranscriptRows(items, { showToolCalls, emergingId, transcript }),
-    [items, showToolCalls, emergingId, transcript],
+    () => chatTranscriptRows(items, { showToolCalls, transcript }),
+    [items, showToolCalls, transcript],
   );
   // A search hit inside a folded run has to open it: the fold keeps the
   // row out of the DOM, and there is nothing for the scroll to land on.
@@ -890,6 +890,7 @@ const MessagesList = memo(function MessagesList({
                   transcript={transcript}
                   editing={editingId === m.id}
                   isLastBotText={m.id === lastBotTextId}
+                  streaming={m === streamingMessage}
                   onStartEdit={() => onStartEdit(m.id)}
                   onCancelEdit={onCancelEdit}
                   onSubmitEdit={(text) => onSubmitEdit(m.id, text)}
@@ -902,9 +903,12 @@ const MessagesList = memo(function MessagesList({
           }
         })();
         if (!row) return null;
-        // sendId survives the placeholder -> server row swap; keying on id remounts and replays msg-in
+        // The parent identifies a reply slot before the server assigns its message id.
+        const key = m.role === "bot" && m.kind === "text"
+          ? `reply:${bot.threadId}:${m.parentId ?? transcript[transcript.indexOf(m) - 1]?.id ?? ""}`
+          : m.sendId ?? m.id;
         return (
-          <div key={m.sendId ?? m.id} className="contents" data-mid={m.id}>
+          <div key={key} className="contents" data-mid={m.id}>
             {newDay && <DaySeparator at={m.at} />}
             {row}
           </div>
@@ -1063,11 +1067,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
     [canonicalMessages],
   );
 
-  // Mascot while the turn works, with the reply growing above it: partial
-  // text paints incrementally as deltas arrive, and the settled pop-in takes
-  // over on completion. Empty buffers paint nothing — the label still says
-  // Responding from the first delta. Placeholders never become the tail:
-  // stream buffers key off the last canonical message.
+  // Stream buffers belong to the canonical tail, never an optimistic send.
   const lastMessage = canonicalMessages.at(-1);
   const live = buffersForTurn(stream, bot.threadId, lastMessage?.id);
   const streaming = live.streaming;
@@ -1087,38 +1087,15 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
     lastMessage,
     accepted: state.acceptedSends[bot.threadId],
   });
-  const wasWaiting = useRef(false);
-  const [popping, setPopping] = useState<{ id: string; text: string } | null>(null);
-  // A bot or task switch must not paint the old thread's presence into the
-  // new transcript's first frame: the stale row pins the scroller, then
-  // unmounts a frame later and leaves scrollTop short by its height. Reset
-  // during render (same pattern as transcriptWindow above) so the commit
-  // never contains it; the effect below stays as a backstop.
-  const presenceThread = useRef(transcriptKey);
-  if (presenceThread.current !== transcriptKey) {
-    presenceThread.current = transcriptKey;
-    wasWaiting.current = false;
-    if (popping !== null) setPopping(null);
-  }
-  useEffect(() => {
-    wasWaiting.current = false;
-    setPopping(null);
-  }, [bot.id]);
-  useEffect(() => {
-    if (waiting) wasWaiting.current = true;
-  }, [waiting]);
-  useEffect(() => {
-    if (lastMessage?.role !== "bot" || lastMessage.kind !== "text" || !wasWaiting.current) return;
-    wasWaiting.current = false;
-    setPopping({ id: lastMessage.id, text: lastMessage.text ?? "" });
-    const timer = setTimeout(() => setPopping(null), 520);
-    return () => clearTimeout(timer);
-  }, [lastMessage?.id, lastMessage?.role, lastMessage?.kind, lastMessage?.text]);
-  const presenceVisible = waiting || popping !== null;
-  // Settled pop-in wins; while the turn works, the live partial paints
-  // above the still-shimmering wait label.
-  const partialText = !popping && waiting && streaming ? streaming : null;
-  const answerText = popping?.text ?? partialText;
+  const streamingMessage = useMemo<Message | null>(() => waiting && streaming ? {
+    id: `stream:${bot.threadId}:${lastMessage?.id ?? ""}`,
+    parentId: lastMessage?.id,
+    role: "bot",
+    kind: "text",
+    text: streaming,
+    at: lastMessage?.at ?? 0,
+    placeholder: true,
+  } : null, [waiting, streaming, bot.threadId, lastMessage?.id, lastMessage?.at]);
 
   // regenerate = fork the last user message with the same text — reuses the
   // existing branch machinery, so the old answer stays reachable via ‹ ›
@@ -1172,7 +1149,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
     if (!el || !followRef.current) return;
     el.scrollTo({ top: el.scrollHeight });
     previousScrollTop.current = el.scrollTop;
-  }, [bot.id, messages.length, streaming, reasoning, turnSignal, bot.busy, composerDock.pad, popping]);
+  }, [bot.id, messages.length, streaming, reasoning, turnSignal, bot.busy, composerDock.pad]);
 
   useEffect(() => {
     const content = contentRef.current;
@@ -1448,7 +1425,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
             editingId={editingId}
             lastBotTextId={lastBotTextId}
             canonicalLastMessageId={lastMessage?.id}
-            emergingId={popping?.id}
+            streamingMessage={laterCount === 0 ? streamingMessage : null}
             canRetryLast={!bot.busy && Boolean(lastUserMessage)}
             engine={engine}
             onStartEdit={startEdit}
@@ -1489,17 +1466,9 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
                 trackPointer={false}
               />
             }
-            visible={presenceVisible}
+            visible={waiting}
             label={activityLabel}
-            answering={popping !== null}
-            streaming={partialText !== null}
-          >
-            {answerText ? (
-              <MessageBoundary fallbackText={answerText}>
-                <PresenceAnswer text={answerText} />
-              </MessageBoundary>
-            ) : null}
-          </TurnPresence>
+          />
         </div>
       </div>
 
