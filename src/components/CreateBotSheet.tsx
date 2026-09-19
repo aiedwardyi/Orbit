@@ -190,7 +190,6 @@ export function CreateBotSheet({
                 </button>
               )}
             </div>
-            <div className="mt-1.5 text-[12.5px] leading-relaxed text-ink-secondary">{t("bot.workingFolderHelp")}</div>
           </div>
           {error && <div role="alert" className="mt-2 text-[12.5px] text-danger">{error}</div>}
           <div className="mt-5 flex items-center justify-end gap-2.5">

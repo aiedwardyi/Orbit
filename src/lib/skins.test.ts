@@ -197,8 +197,8 @@ describe("skins", () => {
     expect(check).not.toContain("SYNTAX_ROLES");
   });
 
-  it("defaults a fresh install to Ledger and does not rename Atelier", () => {
-    expect(DEFAULT_SKIN).toBe("ledger");
+  it("defaults a fresh install to Precision and does not rename Atelier", () => {
+    expect(DEFAULT_SKIN).toBe("precision");
     expect(SKINS.some((s) => s.id === "atelier" && s.name === "Atelier")).toBe(true);
     expect(SKIN_IDS).not.toContain("letelier");
   });
@@ -939,13 +939,18 @@ describe("skin persistence", () => {
     expect(readSkin()).toBe("ledger");
   });
 
-  it("falls back to Ledger for an unknown stored value", () => {
+  it("falls back to Precision for an unknown stored value", () => {
     store.set("omb-skin", "graphite");
-    expect(readSkin()).toBe("ledger");
+    expect(readSkin()).toBe("precision");
     expect(readSkin()).toBe(DEFAULT_SKIN);
   });
 
-  it("keeps a stored Midnight skin on upgrade instead of migrating it to Ledger", () => {
+  it("uses Precision when nothing is saved", () => {
+    expect(readSkin()).toBe("precision");
+    expect(readSkin()).toBe(DEFAULT_SKIN);
+  });
+
+  it("keeps a stored Midnight skin on upgrade instead of migrating it to Precision", () => {
     store.set("omb-skin", "midnight");
     expect(readSkin()).toBe("midnight");
     expect(readSkin()).not.toBe(DEFAULT_SKIN);

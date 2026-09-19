@@ -139,8 +139,8 @@ describe("catalogs", () => {
       ["settings.noMatch", "“{query}” 검색 결과가 없습니다"],
       ["palette.noMatch", "“{query}” 검색 결과가 없습니다"],
       ["search.noMatch", "“{query}” 검색 결과에 메시지가 없습니다"],
-      ["bot.rememberedFolderNextTask", "다음 작업에 쓸 폴더: “{folder}”. 이 작업은 {current}에 남습니다."],
-      ["bot.rememberedFolderNextTaskHome", "다음 작업에 쓸 폴더: “{folder}”. 이 작업은 비공개 작업 공간에 남습니다."],
+      ["bot.rememberedFolderNextTask", "다음 작업 폴더: {folder}"],
+      ["bot.rememberedFolderNextTaskHome", "다음 작업 폴더: {folder}"],
       ["approval.spoken", "{name}의 도구 실행 요청입니다. 도구: {tool}. {detail}. 허용할까요?"],
       ["update.available", "사용 가능한 Orbit 버전: {version}"],
       ["update.ready", "업데이트 준비 완료: {version}"],
@@ -307,20 +307,16 @@ describe("complete phrases", () => {
     expect(translate("ko", "chrome.sidebarWidthPixels", { width: 320 })).toBe("320픽셀");
   });
 
-  it("frames a bot project folder as optional private workspace", () => {
-    expect(en["bot.workingFolder"]).toBe("Project folder (optional)");
-    expect(ko["bot.workingFolder"]).toBe("프로젝트 폴더 (선택)");
-    expect(en["bot.workingFolderHelp"]).toMatch(/Leave empty for a private workspace/i);
-    expect(en["bot.workingFolderHelp"]).toMatch(/tools and shell/i);
-    expect(en["bot.workingFolderHelp"]).not.toMatch(/you must configure where tools run/i);
-    expect(ko["bot.workingFolderHelp"]).toMatch(/비워 두면 비공개 작업 공간/);
-    expect(ko["bot.workingFolderHelp"]).toMatch(/셸과 파일 도구/);
-    expect(ko["bot.workingFolderHelp"]).not.toMatch(/Where this bot runs/i);
+  it("frames a bot project folder as a short private-workspace title", () => {
+    expect(en["bot.workingFolder"]).toBe("Project folder");
+    expect(ko["bot.workingFolder"]).toBe("프로젝트 폴더");
+    expect(Object.hasOwn(en, "bot.workingFolderHelp")).toBe(false);
+    expect(Object.hasOwn(ko, "bot.workingFolderHelp")).toBe(false);
     expect(en["bot.workingFolderEmpty"]).toBe("Private bot workspace");
     expect(ko["bot.workingFolderEmpty"]).toBe("비공개 봇 작업 공간");
     expect(en["bot.rememberedFolderNextTask"]).toMatch(/next task/i);
     expect(en["bot.rememberedFolderNextTask"]).toMatch(/\{folder\}/);
-    expect(en["bot.rememberedFolderNextTask"]).toMatch(/\{current\}/);
+    expect(en["bot.rememberedFolderNextTask"]).not.toMatch(/\{current\}/);
     expect(ko["bot.rememberedFolderNextTask"]).toMatch(/다음 작업/);
     expect(ko["bot.rememberedFolderNextTask"]).not.toMatch(/next task/i);
     expect(en["packaged.chooseFolder"]).toBe("Choose a folder");
@@ -329,7 +325,7 @@ describe("complete phrases", () => {
 
   it("wires Bot details folder copy through i18n instead of hardcoded English", () => {
     expect(settingsPanel).toContain('t("bot.workingFolder")');
-    expect(settingsPanel).toContain('t("bot.workingFolderHelp")');
+    expect(settingsPanel).not.toContain('t("bot.workingFolderHelp")');
     expect(settingsPanel).toContain('t("bot.workingFolderEmpty")');
     expect(settingsPanel).toContain('type: "botPatched"');
     expect(settingsPanel).toContain('t("bot.rememberedFolderNextTask"');
@@ -663,13 +659,14 @@ describe("create-bot sheet", () => {
     expect(en["createBot.title"]).toBe("What should this bot handle?");
     expect(ko["createBot.title"]).toBe("이 봇은 어떤 일을 맡을까요?");
     expect(ko["createBot.title"]).not.toMatch(/What should this bot handle/i);
-    expect(en["createBot.help"]).toContain("ongoing job");
+    expect(en["createBot.help"]).toBe("Give it a role, like a teammate.");
+    expect(ko["createBot.help"]).toBe("팀원처럼 역할을 정해 주세요.");
     expect(ko["createBot.help"]).not.toMatch(/Describe one ongoing job/i);
     expect(ko["createBot.help"]).not.toMatch(/Start chatting/i);
     expect(en["createBot.jobLabel"]).toBe("Bot job");
     expect(ko["createBot.jobLabel"]).toBe("봇이 맡을 일");
-    expect(en["createBot.placeholder"]).toContain("For example");
-    expect(ko["createBot.placeholder"]).toContain("예:");
+    expect(en["createBot.placeholder"]).toBe("You are my chief of staff for development. Keep my projects moving.");
+    expect(ko["createBot.placeholder"]).toBe("개발 치프오브스태프가 되어 주세요. 프로젝트를 계속 움직여 주세요.");
     expect(ko["createBot.placeholder"]).not.toMatch(/Keep a weekly competitor brief/i);
     expect(en["createBot.cancel"]).toBe("Cancel");
     expect(ko["createBot.cancel"]).toBe("취소");
@@ -692,8 +689,8 @@ describe("create-bot sheet", () => {
     expect(createBotSheet).toContain('t("createBot.start")');
     expect(createBotSheet).toContain('t("createBot.adding")');
     expect(createBotSheet).not.toMatch(/What should this bot handle\?/);
-    expect(createBotSheet).not.toMatch(/Describe one ongoing job/);
-    expect(createBotSheet).not.toMatch(/Keep a weekly competitor brief/);
+    expect(createBotSheet).not.toMatch(/Give it a role, like a teammate/);
+    expect(createBotSheet).not.toMatch(/You are my chief of staff for development/);
     expect(createBotSheet).not.toMatch(/Start chatting/);
     expect(createBotSheet).not.toMatch(/>Bot job</);
     expect(createBotSheet).not.toMatch(/t\(job/);

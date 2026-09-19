@@ -8,7 +8,7 @@ import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
 import { builtInBrowserEnabled } from "@/lib/feature-flags";
 import { showBotDetailsAdvanced } from "@/lib/friends-chrome";
-import { requestNotificationPermission, canClaimGetNotified, desktopNotificationHint } from "@/lib/notify";
+import { requestNotificationPermission } from "@/lib/notify";
 import { botUsage, costCaption, formatTokens, formatUsd, hasFiniteCost } from "@/lib/usage";
 import { shortPath } from "@/lib/short-path";
 import { instanceSupportsLocalComputer, localComputerDisabledReason, localComputerSelectable } from "@/lib/local-computer";
@@ -134,7 +134,6 @@ function WorkingFolder({ bot }: { bot: Bot }) {
   return (
     <div className="rounded-xl bg-card p-4">
       <div className="text-[15px] font-medium text-ink">{t("bot.workingFolder")}</div>
-      <div className="mt-0.5 text-[13px] text-ink-secondary">{t("bot.workingFolderHelp")}</div>
       {canPick ? (
         <div className="mt-3 flex items-center gap-2">
           <div className="min-w-0 flex-1 truncate rounded-lg border border-hairline/40 bg-inset px-3 py-2 font-mono text-[12.5px] text-ink" title={bot.cwd ?? undefined}>
@@ -277,9 +276,6 @@ function MemoryCard({ bot }: { bot: Bot }) {
       >
         <div>
           <div className="text-[15px] font-medium text-ink">Memory</div>
-          <div className="mt-0.5 text-[13px] text-ink-secondary">
-            Notes this bot keeps between tasks — plain files you can edit.
-          </div>
         </div>
         <ChevronDown size={16} className={cn("shrink-0 text-ink-secondary transition-transform", open && "rotate-180")} />
       </button>
@@ -308,7 +304,7 @@ function MemoryCard({ bot }: { bot: Bot }) {
           <textarea
             className={cn(inputCls, "min-h-[160px] resize-y font-mono text-[12.5px] leading-relaxed")}
             value={text}
-            placeholder="Nothing remembered yet. The bot writes durable notes here — or add your own."
+            placeholder="Nothing remembered yet."
             aria-label="Bot memory"
             onChange={(e) => {
               setText(e.target.value);
@@ -325,7 +321,7 @@ function MemoryCard({ bot }: { bot: Bot }) {
             </button>
             {truncated && (
               <span className="text-[11.5px] text-ink-secondary">
-                Over the budget — only the top of this file loads each turn.
+                Only the top loads each turn.
               </span>
             )}
           </div>
@@ -375,10 +371,6 @@ export function SettingsPanel({
   const localSelectable = localComputerSelectable({ capabilities, providerSupportsLocal });
   const [localAutoWarning, setLocalAutoWarning] = useState<"auto" | "local" | null>(null);
   const localDisabledReason = localComputerDisabledReason({ capabilities, providerSupportsLocal });
-  const canNotify = canClaimGetNotified({
-    toastsAvailable: capabilities.toasts?.available,
-    html5: typeof Notification !== "undefined",
-  });
   const patch = (
     p: Partial<
       Pick<
@@ -422,11 +414,6 @@ export function SettingsPanel({
   const browserEnabled = bot.browser !== false;
   const terminalShared = bot.shareTerminalWithChat === true;
   const sectionName = bot.section?.trim() || "General";
-  const currentChief = state.bots.find(
-    (candidate) =>
-      candidate.chiefOfStaff &&
-      (candidate.section?.trim() || "") === (bot.section?.trim() || ""),
-  );
   const closeSettings = () => {
     restoreFocusOnUnmount.current = true;
     dispatch({ type: "toggleSettings", open: false });
@@ -498,9 +485,6 @@ export function SettingsPanel({
               />
               <div className="min-w-0 flex-1">
                 <div className="text-[15px] font-medium text-ink">Avatar</div>
-                <div className="mt-0.5 text-[12px] text-ink-secondary">
-                  Keep the Orbit mascot or add your own image.
-                </div>
               </div>
               <button
                 type="button"
@@ -544,7 +528,7 @@ export function SettingsPanel({
             <textarea
               className={cn(inputCls, "min-h-[96px] resize-none")}
               maxLength={BOT_PROFILE_LIMITS.description}
-              placeholder="How this bot should work, and what it must ask before doing"
+              placeholder="How it should work"
               value={bot.description}
               onChange={(e) => patch({ description: e.target.value })}
             />
@@ -554,22 +538,21 @@ export function SettingsPanel({
             <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
               <div>
                 <div className="text-[15px] font-medium text-ink">{t("bot.leanStartup")}</div>
-                <div className="mt-0.5 text-[13px] text-ink-secondary">{t("bot.leanStartupHelp")}</div>
               </div>
               <button
                 role="switch"
-                aria-checked={bot.leanStartup === true}
+                aria-checked={bot.leanStartup !== true}
                 aria-label={t("bot.leanStartup")}
                 onClick={() => patch({ leanStartup: !(bot.leanStartup === true) })}
                 className={cn(
                   "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors",
-                  bot.leanStartup === true ? "bg-accent" : "bg-control",
+                  bot.leanStartup !== true ? "bg-accent" : "bg-control",
                 )}
               >
                 <span
                   className={cn(
                     "absolute top-[3px] size-5 rounded-full bg-white transition-all",
-                    bot.leanStartup === true ? "left-[21px]" : "left-[3px]",
+                    bot.leanStartup !== true ? "left-[21px]" : "left-[3px]",
                   )}
                 />
               </button>
@@ -582,9 +565,6 @@ export function SettingsPanel({
           <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
             <div>
               <div className="text-[15px] font-medium text-ink">Notifications</div>
-              <div className="mt-0.5 text-[13px] text-ink-secondary">
-                {desktopNotificationHint(canNotify)}
-              </div>
             </div>
             <button
               role="switch"
@@ -619,9 +599,6 @@ export function SettingsPanel({
           >
             <span>
               <span className="block text-[14px] font-medium text-ink">Advanced</span>
-              <span className="mt-0.5 block text-[12px] text-ink-secondary">
-                Computer, coordination, browser, approvals, voice, and usage
-              </span>
             </span>
             <ChevronDown
               size={16}
@@ -663,15 +640,11 @@ export function SettingsPanel({
                 />
               </button>
             </div>
-            <div className="mt-3 text-[13px] leading-relaxed text-ink-secondary">
-              {!canCoordinate
-                ? t("chrome.cannotContactTeammates")
-                : bot.chiefOfStaff
-                  ? `This is the primary contact for ${sectionName}. It can create and coordinate specialists in this section, then combine their work into one answer.`
-                  : currentChief
-                    ? `Make this bot the ${sectionName} Chief and hand the role over from ${currentChief.name}.`
-                    : `Make this bot the primary contact for the ${sectionName} section.`}
-            </div>
+            {!canCoordinate && (
+              <div className="mt-3 text-[13px] leading-relaxed text-ink-secondary">
+                {t("chrome.cannotContactTeammates")}
+              </div>
+            )}
             </div>
           )}
 
@@ -680,13 +653,6 @@ export function SettingsPanel({
             <div>
               <div className="text-[15px] font-medium text-ink">
                 Ask me before contacting other bots
-              </div>
-              <div className="mt-0.5 text-[13px] text-ink-secondary">
-                {!canCoordinate
-                  ? t("chrome.cannotContactTeammates")
-                  : bot.approvePeerComms
-                    ? "This bot will stop and ask before it reaches out to another bot."
-                    : "Let this bot talk to teammates on its own, without a confirmation step."}
               </div>
             </div>
             <button
@@ -713,17 +679,6 @@ export function SettingsPanel({
             <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
             <div>
               <div className="text-[15px] font-medium text-ink">Browser</div>
-              <div className="mt-0.5 text-[13px] text-ink-secondary">
-                {!desktopBrowser
-                  ? "The built-in browser needs the Orbit desktop app."
-                  : !browserFeature
-                    ? "The built-in browser is switched off under App Settings → Experimental features."
-                    : !canUseBrowser
-                      ? "This bot's current engine cannot use the built-in browser."
-                      : browserEnabled
-                        ? "This bot has its own browser tab in the computer panel — its own logins, watchable and takeable at any time."
-                        : "Keep the built-in browser unavailable to this bot."}
-              </div>
             </div>
             <button
               role="switch"
@@ -750,13 +705,6 @@ export function SettingsPanel({
             <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
             <div>
               <div className="text-[15px] font-medium text-ink">Share terminal with chat</div>
-              <div className="mt-0.5 text-[13px] text-ink-secondary">
-                {!desktopTerminal
-                  ? "Terminal sharing needs the Orbit desktop app."
-                  : terminalShared
-                    ? "This bot can read its own terminal screen when you ask. Terminal input still needs your confirmation."
-                    : "Keep this bot from seeing its Orbit terminal until you turn sharing on."}
-              </div>
             </div>
             <button
               role="switch"
@@ -782,9 +730,6 @@ export function SettingsPanel({
           {advancedOpen && (
             <div className="rounded-xl bg-card p-4">
             <div className="text-[15px] font-medium text-ink">Computer</div>
-            <div className="mt-0.5 text-[13px] text-ink-secondary">
-              Where this bot's computer runs{bot.computer ? "" : " (currently: auto)"}
-            </div>
             <div className="mt-3 flex overflow-hidden rounded-lg border border-hairline/40">
               {([
                 ["cloud", "Cloud"],
@@ -825,9 +770,6 @@ export function SettingsPanel({
                   <div className="mt-3 flex items-center justify-between gap-4 rounded-lg bg-inset px-3 py-2.5">
                     <div className="min-w-0">
                       <div className="text-[13px] text-ink">Start VPS automatically</div>
-                      <div className="mt-0.5 text-[11.5px] text-ink-secondary">
-                        Allow Auto to create or wake this bot's managed container when needed.
-                      </div>
                     </div>
                     <button
                       role="switch"
@@ -859,15 +801,6 @@ export function SettingsPanel({
             <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
             <div>
               <div className="text-[15px] font-medium text-ink">Auto mode</div>
-              <div className="mt-0.5 text-[13px] text-ink-secondary">
-                {bot.computer === "local"
-                  ? bot.autoApprove
-                    ? "Keeps going on this computer — you'll still be asked about anything destructive, and about questions it asks you."
-                    : "Approve each action on this computer yourself. Turn on to let this bot keep working without stopping to ask."
-                  : bot.autoApprove
-                  ? "Keeps going on its own — you'll still be asked about anything destructive, and about questions it asks you."
-                  : "Approve each action yourself. Turn on to let this bot keep working without stopping to ask."}
-              </div>
             </div>
             <button
               role="switch"
@@ -895,11 +828,6 @@ export function SettingsPanel({
           {advancedOpen && (
             <div className="rounded-xl bg-card p-4">
             <div className="text-[15px] font-medium text-ink">Review routine approvals</div>
-            <div className="mt-0.5 text-[13px] text-ink-secondary">
-              {canAutoReview
-                ? "The same engine reviews ordinary approval cards. Existing safety rules, unattended turns, local-computer access, and questions still wait for you."
-                : "This engine cannot run an isolated review safely, so approval cards continue to wait for you."}
-            </div>
             <div className="mt-3 flex gap-1 rounded-lg bg-inset p-0.5">
               {(
                 [

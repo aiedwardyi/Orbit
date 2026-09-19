@@ -90,7 +90,7 @@ export const SKINS: readonly Skin[] = [
   { id: "blueprint-charcoal", name: "Blueprint Charcoal", tagline: "Deep charcoal drafting board, blue rules." },
 ];
 
-export const DEFAULT_SKIN: SkinId = "ledger";
+export const DEFAULT_SKIN: SkinId = "precision";
 
 const KEY = "omb-skin";
 

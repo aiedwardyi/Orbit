@@ -6,6 +6,8 @@ import type { Bot } from "@/state/store";
 
 const chrome = vi.hoisted(() => ({ botDetailsAdvanced: false }));
 
+const storeMock = vi.hoisted(() => ({ dispatch: vi.fn() }));
+
 vi.hoisted(() => {
   Object.defineProperty(globalThis, "window", {
     value: { ogb: undefined },
@@ -37,12 +39,20 @@ vi.mock("@/state/store", async (importOriginal) => {
             models: { default: "grok-4.6", options: [{ id: "grok-4.6", label: "Grok 4.6" }] },
             capabilities: { effortLevels: ["low", "medium", "high"] },
           },
+          {
+            instanceId: "claude",
+            driverKind: "claudeAgent",
+            displayName: "Claude",
+            snapshot: { state: "available", authenticated: true, version: "1.0.13" },
+            models: { default: "claude-3-5-sonnet", options: [{ id: "claude-3-5-sonnet", label: "Claude 3.5 Sonnet" }] },
+            capabilities: {},
+          },
         ],
         bots: [],
         config: {},
         mascotMotion: null,
       },
-      dispatch: () => undefined,
+      dispatch: storeMock.dispatch,
       refreshInstances: async () => undefined,
     }),
   };
@@ -142,7 +152,8 @@ describe("SettingsPanel friends effort", () => {
     const html = renderToStaticMarkup(
       createElement(I18nProvider, null, createElement(SettingsPanel, { bot: homePinned, defaultAdvancedOpen: true })),
     );
-    expect(html).toContain("This task stays in the private workspace");
+    expect(html).toContain("Next task uses");
+    expect(html).toContain("private workspace");
     expect(html).not.toContain("This task stays in /work/orbit");
   });
 
@@ -183,7 +194,7 @@ describe("SettingsPanel Korean bot details", () => {
     expect(html).toContain("봇 세부 정보");
     expect(html).toContain("aria-label=\"봇 세부 정보 접기\"");
     expect(html).toContain("aria-label=\"봇 세부 정보 닫기\"");
-    expect(html).toContain(">프로젝트 폴더 (선택)<");
+    expect(html).toContain(">프로젝트 폴더<");
     expect(html).toContain(">Memory<");
     expect(html).toContain(">Notifications<");
     expect(html).not.toContain(">연결 앱<");
@@ -193,5 +204,46 @@ describe("SettingsPanel Korean bot details", () => {
     expect(html).not.toContain("Collapse bot details");
     expect(html).not.toContain("Close bot details");
     expect(html).not.toMatch(/>Connected apps</);
+  });
+});
+
+describe("SettingsPanel lean startup", () => {
+  const claudeBot = {
+    ...bot,
+    modelSelection: { instanceId: "claude", model: "claude-3-5-sonnet", mode: "automatic" },
+  } as Bot;
+
+  beforeEach(() => {
+    storeMock.dispatch.mockClear();
+  });
+
+  it("shows Load skills and plugins on by default with no hint", async () => {
+    const { SettingsPanel } = await import("./SettingsPanel");
+    const { I18nProvider } = await import("@/lib/i18n");
+    const html = renderToStaticMarkup(
+      createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot })),
+    );
+    expect(html).toContain("Load skills &amp; plugins");
+    expect(html).toContain('aria-label="Load skills &amp; plugins"');
+    expect(html).toContain('aria-checked="true"');
+    expect(html).not.toContain("Lean startup");
+    expect(html).not.toContain("project settings only");
+    expect(html).not.toContain("user skills");
+  });
+
+  it("shows off when leanStartup is true", async () => {
+    const { SettingsPanel } = await import("./SettingsPanel");
+    const { I18nProvider } = await import("@/lib/i18n");
+    const html = renderToStaticMarkup(
+      createElement(
+        I18nProvider,
+        null,
+        createElement(SettingsPanel, { bot: { ...claudeBot, leanStartup: true } as Bot }),
+      ),
+    );
+    const labelAt = html.indexOf('aria-label="Load skills');
+    const buttonStart = html.lastIndexOf("<button", labelAt);
+    const buttonTag = html.slice(buttonStart, html.indexOf(">", labelAt));
+    expect(buttonTag).toContain('aria-checked="false"');
   });
 });

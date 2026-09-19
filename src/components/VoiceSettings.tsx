@@ -94,14 +94,6 @@ export function VoiceSettings({
   return (
     <div className="rounded-xl bg-card p-4">
       <div className="text-[15px] font-medium text-ink">Voice</div>
-      <div className="mt-0.5 text-[13px] text-ink-secondary">
-        Give this agent a voice for calls and spoken replies. The voice choice belongs to this agent;
-        {provider === "system"
-          ? systemVoicesAvailable
-            ? " the voices are the ones already installed on this Mac."
-            : " built-in Mac voices are unavailable here. Switch to ElevenLabs to keep using voice."
-          : " the ElevenLabs key is shared by the workspace."}
-      </div>
 
       {(systemVoicesAvailable || provider === "system") && (
         <div className="mt-4">
@@ -144,7 +136,7 @@ export function VoiceSettings({
             value={key}
             onChange={(e) => setKey(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && key.trim() && void saveKey()}
-            placeholder={configured ? "••••••••  (paste to replace)" : "Paste your ElevenLabs API key"}
+            placeholder={configured ? "••••••••" : "Paste your ElevenLabs API key"}
             aria-label="ElevenLabs key"
             autoComplete="off"
             className="w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[13px] text-ink placeholder:text-ink-secondary focus:border-hairline focus:outline-none"
@@ -193,7 +185,7 @@ export function VoiceSettings({
               {voices.map((v) => (
                 <option key={v.id} value={v.id}>
                   {v.label}
-                  {v.description ? ` — ${v.description}` : ""}
+                  {v.description ? ` - ${v.description}` : ""}
                 </option>
               ))}
             </select>
@@ -213,9 +205,6 @@ export function VoiceSettings({
       <div className="mt-4 flex items-center justify-between gap-4 border-t border-hairline/40 pt-4">
         <div>
           <div className="text-[13px] font-medium text-ink">Read replies aloud</div>
-          <div className="mt-0.5 text-[11.5px] leading-relaxed text-ink-secondary">
-            Speak this agent's answers as they arrive, even from another chat.
-          </div>
         </div>
         <button
           role="switch"
