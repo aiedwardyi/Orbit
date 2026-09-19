@@ -247,6 +247,41 @@ describe("POST /api/mailbox", () => {
     expect(readFileSync(target, "utf8")).toContain("ORBIT_MSG_TOKEN");
   });
 
+  it.runIf(process.platform === "win32")("orbit-msg retries 18799 then 28799 on connection refused", async () => {
+    const bin = (await installOrbitMsg(join(home, "bin-fallback")))!;
+    const paneEnvFor = (url: string) => terminalPaneEnv({ SystemRoot: process.env.SystemRoot, PATH: process.env.PATH }, {
+      pane: PANE, bot: "worker", teacher: "teacher", mailbox: { url, token: TOKEN, binDir: bin },
+    });
+    const seen: string[] = [];
+    const stub = createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      req.on("end", () => { seen.push(`${req.url} ${body}`); res.end("{}"); });
+    });
+    const probe = createServer();
+    await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
+    const probeAddress = probe.address();
+    if (!probeAddress || typeof probeAddress === "string") throw new Error("no test port");
+    await new Promise((resolve) => probe.close(resolve));
+    const closed = `http://127.0.0.1:${probeAddress.port}`;
+
+    await new Promise<void>((resolve) => stub.listen(18799, "127.0.0.1", resolve));
+    expect((await orbitMsgFile(paneEnvFor(closed), bin, ["hi"])).status).toBe(0);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("/api/mailbox");
+    await new Promise((resolve) => stub.close(resolve));
+
+    seen.length = 0;
+    await new Promise<void>((resolve) => stub.listen(28799, "127.0.0.1", resolve));
+    expect((await orbitMsgFile(paneEnvFor("http://127.0.0.1:18799"), bin, ["hi"])).status).toBe(0);
+    expect(seen).toHaveLength(1);
+    await new Promise((resolve) => stub.close(resolve));
+
+    const refused = await orbitMsgFile(paneEnvFor(closed), bin, ["hi"]);
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toMatch(/Unable to connect|refused/);
+  }, 60_000);
+
   it.runIf(process.platform === "win32")("orbit-msg posts from pane env and fails clearly outside a pane", async () => {
     mkdirSync(join(home, "bin"), { recursive: true });
     writeFileSync(join(home, "bin", "orbit-msg.cmd"), "@echo stale");

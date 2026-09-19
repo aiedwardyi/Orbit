@@ -68,10 +68,23 @@ do {
   $max = [int]($max / 2)
 } while ($body.Length -gt 16000)
 $headers = @{ Authorization = "Bearer $env:ORBIT_MSG_TOKEN"; 'X-Orbit-Pane' = $env:ORBIT_PANE; 'X-Orbit-Bot' = $env:ORBIT_BOT; 'X-Orbit-Teacher' = $env:ORBIT_TEACHER }
-try {
-  Invoke-RestMethod -Method Post -Uri "$env:ORBIT_URL/api/mailbox" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $body -TimeoutSec 10 | Out-Null
-} catch {
-  $failure = $_
+$uris = @("$env:ORBIT_URL/api/mailbox")
+if ($env:ORBIT_URL -match '^http://127\.0\.0\.1:\d+$') {
+  $uris += 'http://127.0.0.1:18799/api/mailbox', 'http://127.0.0.1:28799/api/mailbox'
+}
+$uris = $uris | Select-Object -Unique
+$failure = $null
+foreach ($uri in $uris) {
+  $failure = $null
+  try {
+    Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $body -TimeoutSec 10 | Out-Null
+    break
+  } catch {
+    $failure = $_
+    if ($failure.Exception.Message -notmatch 'Unable to connect|refused') { break }
+  }
+}
+if ($failure) {
   if ($failure.Exception.Message -match 'timed out') {
     [Console]::Error.WriteLine('orbit-msg: Orbit did not answer in 10s')
     exit 1
