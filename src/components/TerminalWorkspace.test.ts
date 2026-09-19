@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 
 const terminal = vi.hoisted(() => {
   let onDataCb: ((data: string) => void) | null = null;
+  let onBinaryCb: ((data: string) => void) | null = null;
   return {
     options: { disableStdin: true } as { disableStdin: boolean; fontFamily?: string; fontSize?: number; theme?: unknown },
     cols: 80,
@@ -18,13 +19,19 @@ const terminal = vi.hoisted(() => {
     }),
     focus: vi.fn(),
     dispose: vi.fn(),
+    refresh: vi.fn(),
     open: vi.fn(),
     loadAddon: vi.fn(),
     onData: vi.fn((cb: (data: string) => void) => {
       onDataCb = cb;
       return { dispose: vi.fn() };
     }),
+    onBinary: vi.fn((cb: (data: string) => void) => {
+      onBinaryCb = cb;
+      return { dispose: vi.fn() };
+    }),
     __emitData(data: string) { onDataCb?.(data); },
+    __emitBinary(data: string) { onBinaryCb?.(data); },
   };
 });
 // oxlint-disable-next-line anti-slop/no-module-mocking -- The DOM harness has no canvas; the bridge event ordering remains under test.
@@ -833,6 +840,58 @@ it("never revives an exited session when openShell restart rejects", async () =>
   expect(terminal.options.disableStdin).toBe(true);
   await act(async () => { terminal.__emitData("dir\r"); });
   expect(write).not.toHaveBeenCalled();
+});
+
+it("forwards binary mouse reports to the PTY", async () => {
+  const write = vi.fn(async () => {});
+  const open = vi.fn(async () => ({ id: "session-bin", cwd: "C:\\work", shell: "pwsh.exe", output: "", seq: 0, exitCode: null }));
+  const bridge: TerminalBridge = { appearance: vi.fn(async () => null), open, write, resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() };
+  const bot = mountBridge(bridge, { id: "bot-bin", name: "Bin", cwd: "C:\\work" });
+  await act(async () => root.render(createElement(TerminalWorkspace, { bot, visible: true, focusBlocked: false, onClose: vi.fn() })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  // X10 wheel report (non-UTF8 bytes) arrives via onBinary, not onData.
+  await act(async () => { terminal.__emitBinary("\x1b[M\x60\x21\x10"); });
+  expect(write).toHaveBeenCalledWith("session-bin", "\x1b[M\x60\x21\x10");
+});
+
+it("forces an app repaint after attaching an alt-screen snapshot", async () => {
+  const resize = vi.fn(async () => {});
+  const open = vi.fn(async () => ({ id: "session-alt", cwd: "C:\\work", shell: "pwsh.exe", output: "TUI", seq: 1, exitCode: null, alternate: true }));
+  const bridge: TerminalBridge = { appearance: vi.fn(async () => null), open, write: vi.fn(async () => {}), resize, onData: () => vi.fn(), onExit: () => vi.fn() };
+  const bot = mountBridge(bridge, { id: "bot-alt", name: "Alt", cwd: "C:\\work" });
+  await act(async () => root.render(createElement(TerminalWorkspace, { bot, visible: true, focusBlocked: false, onClose: vi.fn() })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+  // Size bounce (rows - 1, then rows) makes a diff-rendering TUI repaint from live state.
+  expect(resize.mock.calls).toEqual([["session-alt", 80, 23], ["session-alt", 80, 24]]);
+});
+
+it("re-runs fit, refresh, and PTY sync when the terminal becomes visible again", async () => {
+  vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => { cb(0); return 0; });
+  vi.stubGlobal("cancelAnimationFrame", () => {});
+  const widthDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
+  const heightDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, value: 800 });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, value: 600 });
+  try {
+    const resize = vi.fn(async () => {});
+    const open = vi.fn(async () => ({ id: "session-vis", cwd: "C:\\work", shell: "pwsh.exe", output: "", seq: 0, exitCode: null }));
+    const bridge: TerminalBridge = { appearance: vi.fn(async () => null), open, write: vi.fn(async () => {}), resize, onData: () => vi.fn(), onExit: () => vi.fn() };
+    const bot = mountBridge(bridge, { id: "bot-vis", name: "Vis", cwd: "C:\\work" });
+    const render = (visible: boolean) => root.render(createElement(TerminalWorkspace, { bot, visible, focusBlocked: false, onClose: vi.fn() }));
+    await act(async () => render(true));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    resize.mockClear();
+    terminal.refresh.mockClear();
+    await act(async () => render(false));
+    expect(resize).not.toHaveBeenCalled();
+    await act(async () => render(true));
+    // Overlay keeps layout size while hidden, so this path replaces the missing ResizeObserver event.
+    expect(terminal.refresh).toHaveBeenCalledWith(0, 23);
+    expect(resize.mock.calls).toEqual([["session-vis", 80, 24]]);
+  } finally {
+    if (widthDesc) Object.defineProperty(HTMLElement.prototype, "clientWidth", widthDesc);
+    if (heightDesc) Object.defineProperty(HTMLElement.prototype, "clientHeight", heightDesc);
+  }
 });
 
 it("preserves exit received during a rejected restart attempt", async () => {

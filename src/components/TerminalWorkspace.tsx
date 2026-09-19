@@ -11,7 +11,7 @@ import "@xterm/xterm/css/xterm.css";
 
 type SessionInfo = { cwd: string; shell: string };
 type OutputEvent = { id: string; data: string; seq: number };
-type TerminalSnapshot = { id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number; launchProject?: string | null };
+type TerminalSnapshot = { id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number; launchProject?: string | null; cols?: number; rows?: number; alternate?: boolean };
 const TERMINAL_FONT_MIN = 8;
 const TERMINAL_FONT_MAX = 128;
 
@@ -164,6 +164,7 @@ export function TerminalWorkspace({
       }
     });
     // Forward keystrokes and emulator replies only after historical replay finishes.
+    // onBinary carries non-UTF8 mouse reports (wheel in X10/RXVT mode); without it the wheel is dropped.
     const forwardInput = (data: string) => {
       if (!id || !replayComplete || terminal.options.disableStdin || exits.has(id)) return;
       const sessionId = id;
@@ -174,11 +175,13 @@ export function TerminalWorkspace({
     };
     forwardInputRef.current = forwardInput;
     const input = terminal.onData(forwardInput);
+    const inputBinary = terminal.onBinary(forwardInput);
     const resize = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         if (!alive || !host.clientWidth || !host.clientHeight) return;
         fit.fit();
+        terminal.refresh(0, Math.max(0, terminal.rows - 1));
         if (id) {
           const sessionId = id;
           void Promise.resolve().then(() => bridge.resize(sessionId, terminal.cols, terminal.rows)).catch(report);
@@ -218,6 +221,17 @@ export function TerminalWorkspace({
       setReplacing(false);
       replacingRef.current = false;
       resize();
+      // Diff-rendering TUIs cannot be rebuilt from replayed history alone; a size
+      // bounce forces the app to repaint from live state (same trio a manual resize runs).
+      if (snapshot.alternate === true && code === null && terminal.rows > 1) {
+        const repaintId = snapshot.id;
+        const repaintCols = terminal.cols;
+        const repaintRows = terminal.rows;
+        void Promise.resolve()
+          .then(() => bridge.resize(repaintId, repaintCols, repaintRows - 1))
+          .then(() => bridge.resize(repaintId, repaintCols, repaintRows))
+          .catch(report);
+      }
       if (!blockedRef.current) terminal.focus();
     };
 
@@ -344,6 +358,7 @@ export function TerminalWorkspace({
       offExit();
       offError?.();
       input.dispose();
+      inputBinary.dispose();
       forwardInputRef.current = () => {};
       terminal.dispose();
       terminalRef.current = null;
@@ -355,7 +370,12 @@ export function TerminalWorkspace({
 
   // Hidden remount stays quiet; becoming visible opens or resumes once.
   useEffect(() => {
-    if (visible) openShellRef.current?.(false);
+    if (visible) {
+      openShellRef.current?.(false);
+      // The overlay keeps layout size while hidden, so no ResizeObserver fires on
+      // return; run the resize trio (fit + refresh + PTY sync) explicitly.
+      resizeRef.current?.();
+    }
   }, [visible]);
 
   useEffect(() => {
