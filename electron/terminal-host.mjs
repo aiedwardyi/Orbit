@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
+import { terminalPaneEnv } from "./terminal-mailbox.mjs";
 import { spawnTerminalPty } from "./terminal-pty.mjs";
 import { createTerminalScreen } from "./terminal-screen.mjs";
 
@@ -130,7 +131,7 @@ export function trustedTerminalSender(event, owner, origin) {
   }
 }
 
-export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform), activityCoalesceMs = TERMINAL_ACTIVITY_COALESCE_MS, attentionCooldownMs = TERMINAL_ACTIVITY_ACK_COOLDOWN_MS, now = () => Date.now() }) {
+export function createTerminalHost({ authorize, resolveCwd, mailbox = async () => null, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform), activityCoalesceMs = TERMINAL_ACTIVITY_COALESCE_MS, attentionCooldownMs = TERMINAL_ACTIVITY_ACK_COOLDOWN_MS, now = () => Date.now() }) {
   const sessions = new Map();
   const active = new Map();
   const generations = new Map();
@@ -312,16 +313,19 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       ? [path.join(env.ProgramFiles || "C:\\Program Files", "PowerShell", "7", "pwsh.exe"), path.join(env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")].find((file) => fs.existsSync(file))
       : (env.SHELL || "/bin/sh");
     if (!shell) throw new Error("No terminal shell is available");
+    const id = randomUUID();
+    // A pane without orbit-msg beats no pane at all.
+    const mail = await Promise.resolve().then(mailbox).catch(() => null);
     let pty;
     try {
       pty = await loadPty().spawn(shell, platform === "win32" ? ["-NoLogo"] : [], {
-        name: "xterm-256color", cols: input.cols, rows: input.rows, cwd, env: terminalEnvironment(env), useConptyDll: platform === "win32",
+        name: "xterm-256color", cols: input.cols, rows: input.rows, cwd, env: terminalPaneEnv(terminalEnvironment(env), { pane: id, bot: input.botId, mailbox: mail }), useConptyDll: platform === "win32",
       });
     } catch (cause) {
       throw errorValue(cause);
     }
     const session = {
-      id: randomUUID(), key, botId: input.botId, owner: event.sender, cwd, shell, pty, output: "", exitCode: null, seq: 0,
+      id, key, botId: input.botId, owner: event.sender, cwd, shell, pty, output: "", exitCode: null, seq: 0,
       launchProject: launchProject(input, folder, cwd), retired: false, exitReported: false, errorReported: false,
       failure: null, attentionReported: false, activityArmed: false, activityCooldownUntil: 0, activityTimer: null,
       outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), pendingInputEcho: "", truncated: false,

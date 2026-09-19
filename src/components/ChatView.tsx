@@ -872,6 +872,13 @@ const MessagesList = memo(function MessagesList({
             }
             case "screen":
               return m.png ? <ScreenFrame png={m.png} mime={m.mime} /> : null;
+            case "note":
+              // pane text is untrusted; plain text only, never markdown
+              return (
+                <div data-orbit-note className="w-full max-w-2xl whitespace-pre-wrap break-words rounded-lg border border-hairline/30 bg-inset/25 px-3 py-2 text-[12.5px] leading-relaxed text-ink-secondary">
+                  {m.text}
+                </div>
+              );
             default:
               return (
                 <Bubble

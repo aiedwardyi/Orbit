@@ -106,7 +106,7 @@ export interface SecretRequestCardData {
 export interface Message {
   id: string;
   role: "bot" | "user";
-  kind: "text" | "options" | "activity" | "screen" | "connector" | "secret" | "routine.run" | "compaction";
+  kind: "text" | "options" | "activity" | "screen" | "connector" | "secret" | "routine.run" | "compaction" | "note";
   text?: string;
   /** Versioned model-context state. Unknown versions stay intact on disk. */
   compaction?: unknown;
