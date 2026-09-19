@@ -39,8 +39,11 @@ export class MessageBoundary extends Component<{ children: ReactNode; fallbackTe
 export function PresenceAnswer({ text }: { text: string | null }) {
   if (!text) return null;
   return (
-    <div className="w-fit max-w-[min(42rem,78%)] rounded-2xl bg-card px-4 py-2.5 text-[15px] leading-relaxed text-ink">
-      <ChatMarkdown text={text} />
+    // Skin hooks: open-transcript skins drop the card on settled bot rows, so the pop-in must too.
+    <div data-orbit-message="bot" className="contents">
+      <div data-orbit-message-content className="w-fit max-w-[min(42rem,78%)] rounded-2xl bg-card px-4 py-2.5 text-[15px] leading-relaxed text-ink">
+        <ChatMarkdown text={text} />
+      </div>
     </div>
   );
 }

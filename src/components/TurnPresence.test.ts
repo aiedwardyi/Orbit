@@ -41,6 +41,13 @@ describe("presence answer streaming", () => {
     expect(presence(null, false)).not.toContain("turn-answer");
   });
 
+  it("carries the skin hooks of a settled bot row so skins restyle it the same", () => {
+    const markup = renderToStaticMarkup(createElement(PresenceAnswer, { text: "Reply" }));
+    const row = markup.indexOf('data-orbit-message="bot"');
+    expect(row).toBeGreaterThanOrEqual(0);
+    expect(markup.indexOf("data-orbit-message-content")).toBeGreaterThan(row);
+  });
+
   it("keeps the wait label while no text has arrived", () => {
     expect(presence(null, false)).toContain("Responding");
   });
