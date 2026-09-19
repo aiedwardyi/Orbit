@@ -570,3 +570,39 @@ test("turns an asynchronous PTY write failure into an exited terminal", async ()
   ]);
   assert.equal(child.killed, true);
 });
+
+test("writes X10 mouse reports past column 95 as raw bytes", async () => {
+  const f = fixture();
+  const session = await f.host.open(f.event, f.input);
+  const x10 = `\x1b[M ${String.fromCharCode(132, 133)}`;
+  f.host.write(f.event, session.id, x10);
+  assert.equal(f.children[0].writes.length, 1);
+  const payload = f.children[0].writes[0];
+  assert.ok(Buffer.isBuffer(payload), "X10 report must reach the PTY as raw bytes, not a UTF-8 string");
+  assert.equal(payload.toString("hex"), Buffer.from(x10, "binary").toString("hex"));
+  f.host.dispose();
+});
+
+test("X10 mouse reports do not cancel a pending activity timer", async () => {
+  const f = fixture({ activityCoalesceMs: 20 });
+  const session = await f.host.open(f.event, f.input);
+  f.host.write(f.event, session.id, "cmd\r");
+  f.children[0].data("working");
+  f.host.write(f.event, session.id, `\x1b[M ${String.fromCharCode(132, 133)}`);
+  await wait(40);
+  const reasons = f.events.filter(([channel]) => channel === "terminal:attention").map(([, value]) => value.reason);
+  assert.ok(reasons.includes("activity"), "mouse report cancelled the pending activity timer");
+  f.host.dispose();
+});
+
+test("X10 mouse reports do not pollute the echo buffer", async () => {
+  const f = fixture({ activityCoalesceMs: 10 });
+  const session = await f.host.open(f.event, f.input);
+  f.host.write(f.event, session.id, "\r");
+  f.host.write(f.event, session.id, "\x1b[MXYZ");
+  f.children[0].data("XYZ");
+  await wait(25);
+  const reasons = f.events.filter(([channel]) => channel === "terminal:attention").map(([, value]) => value.reason);
+  assert.ok(reasons.includes("activity"), "mouse echo suppressed real output");
+  f.host.dispose();
+});

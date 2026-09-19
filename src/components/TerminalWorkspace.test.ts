@@ -948,3 +948,25 @@ it("preserves exit received during a rejected restart attempt", async () => {
   await act(async () => { terminal.__emitData("dir\r"); });
   expect(write).not.toHaveBeenCalled();
 });
+
+it("does not submit Enter while IME composition is active", async () => {
+  const write = vi.fn(async () => {});
+  const open = vi.fn(async () => ({ id: "session-ime", cwd: "C:\\work", shell: "pwsh.exe", output: "", seq: 0, exitCode: null }));
+  const bridge: TerminalBridge = { appearance: vi.fn(async () => null), open, write, resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() };
+  const bot = mountBridge(bridge, { id: "bot-ime", name: "IME", cwd: "C:\\work" });
+  await act(async () => root.render(createElement(TerminalWorkspace, { bot, visible: true, focusBlocked: false, onClose: vi.fn() })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  const pane = host.querySelector<HTMLElement>("[data-orbit-terminal]");
+  if (!pane) throw new Error("terminal pane did not render");
+  const composingEnter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+  Object.defineProperties(composingEnter, { keyCode: { value: 229 }, which: { value: 229 } });
+  await act(async () => { pane.dispatchEvent(composingEnter); });
+  expect(write).not.toHaveBeenCalled();
+  await act(async () => { pane.dispatchEvent(new Event("compositionstart", { bubbles: true })); });
+  const afterStart = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+  await act(async () => { pane.dispatchEvent(afterStart); });
+  expect(write).not.toHaveBeenCalled();
+  await act(async () => { pane.dispatchEvent(new Event("compositionend", { bubbles: true })); });
+  await act(async () => { pane.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); });
+  expect(write).toHaveBeenCalledWith("session-ime", "\r");
+});

@@ -42,12 +42,13 @@ function windowRank(id: string, windowMinutes?: number): number {
 const PLAN_USAGE_DRIVERS = new Set(["claudeAgent", "codex", "grokAgent", "museAgent"]);
 const canRefresh = (instance: InstanceInfo) => PLAN_USAGE_DRIVERS.has(instance.driverKind);
 const MUSE_POLL_MS = 60_000;
-// A Muse report older than one poll interval no longer describes quota:
-// terminal CLI use lands server-side, so a stale snapshot hides it.
+// Stale cutoff stays under the poll interval so a report fetched on open
+// is already stale at the first tick; otherwise the refresh slips to ~2min.
+const MUSE_STALE_MS = 30_000;
 function museReportStale(instance: InstanceInfo, now = Date.now()): boolean {
   if (!instance.rateLimits) return true;
   const at = Date.parse(instance.rateLimits.observedAt);
-  return !Number.isFinite(at) || now - at >= MUSE_POLL_MS;
+  return !Number.isFinite(at) || now - at >= MUSE_STALE_MS;
 }
 type RefreshResult = { error?: string; status?: string };
 
@@ -183,7 +184,7 @@ function PlanUsage() {
   refreshRef.current = refresh;
   const initialMuseRefreshes = useRef(new Set<string>());
   // Muse quota lives server-side, so terminal CLI use only appears when
-  // something re-reads the cached snapshot: missing or stale (>60s) reports
+  // something re-reads the cached snapshot: missing or stale (>30s) reports
   // refresh once when Usage opens, then every 60s while it stays open. An
   // empty response remains pending, so this never fabricates a report.
   useEffect(() => {

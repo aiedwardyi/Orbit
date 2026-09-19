@@ -78,6 +78,13 @@ function isSubmitInput(data) {
   return /[\r\n]/.test(data) || data === "\x1bOM" || data === "\x1b[27;13~" || /^\x1b\[13(?:;\d+)?u$/.test(data);
 }
 
+// X10/RXVT (ESC [ M + 3 bytes), SGR (ESC [ < ... M/m), focus (ESC [ I/O).
+// X10 trailing bytes bypass the CSI parser as printable text, so without
+// this they would read as typed input.
+function isMouseReport(data) {
+  return /^(?:\x1b\[M[\s\S]{3}|\x1b\[<[0-9;]*[mM]|\x1b\[[IO])+$/.test(data);
+}
+
 function consumeInputEcho(text, pending) {
   if (!pending || !text.replace(/[\r\n\t]/g, "")) return { text, pending };
   let consumed = 0;
@@ -431,8 +438,9 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Reject non-text IPC payloads before passing them to the PTY.
       if (typeof data !== "string" || data.length > 64 * 1024) throw new Error("Invalid terminal input");
       if (session.exitCode !== null) throw new Error("Terminal has exited");
-      const echo = inputEchoText(data);
-      const submit = isSubmitInput(data);
+      const mouse = isMouseReport(data);
+      const echo = mouse ? "" : inputEchoText(data);
+      const submit = mouse ? false : isSubmitInput(data);
       // Mouse and focus reports from a TUI are not the user taking over.
       if (echo || submit) clearActivityTimer(session);
       if (submit) session.activityArmed = true;
@@ -442,8 +450,11 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
         session.attentionReported = false;
         session.activityCooldownUntil = 0;
       }
+      // X10 bytes past column/row 95 exceed 0x7F; a UTF-8 string write
+      // would expand them to two bytes, so send the raw binary instead.
+      const payload = mouse && data.includes("\x1b[M") ? Buffer.from(data, "binary") : data;
       try {
-        const result = session.pty.write(data);
+        const result = session.pty.write(payload);
         // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may acknowledge operations synchronously or asynchronously.
         return result && typeof result.then === "function" ? result.catch((cause) => { fail(session, cause); throw cause; }) : result;
       } catch (cause) {

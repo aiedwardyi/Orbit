@@ -53,6 +53,7 @@ export function TerminalWorkspace({
   const resizeRef = useRef<(() => void) | null>(null);
   const replacingRef = useRef(false);
   const forwardInputRef = useRef<(data: string) => void>(() => {});
+  const composingRef = useRef(false);
   useLayoutEffect(() => {
     blockedRef.current = focusBlocked || !visible;
     visibleRef.current = visible;
@@ -512,6 +513,10 @@ export function TerminalWorkspace({
             event.ctrlKey ||
             event.metaKey ||
             event.nativeEvent.isComposing ||
+            event.isComposing ||
+            composingRef.current ||
+            event.keyCode === 229 ||
+            event.nativeEvent.keyCode === 229 ||
             event.repeat
           ) return;
           event.preventDefault();
@@ -519,6 +524,8 @@ export function TerminalWorkspace({
           forwardInputRef.current("\r");
         }}
         onKeyDown={(event) => event.stopPropagation()}
+        onCompositionStart={() => { composingRef.current = true; }}
+        onCompositionEnd={() => { composingRef.current = false; }}
         onWheelCapture={onTerminalWheel}
       >
         <div ref={hostRef} className="h-full w-full" />
