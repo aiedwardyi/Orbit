@@ -1,5 +1,5 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -233,6 +233,19 @@ describe("POST /api/mailbox", () => {
     expect(waited).toBeLessThan(30000);
     await new Promise((resolve) => stub.close(resolve));
   }, 60_000);
+
+  it("installOrbitMsg skips the write when the script is byte-identical", async () => {
+    const dir = join(home, "bin-identical");
+    const installed = (await installOrbitMsg(dir, "win32"))!;
+    const target = join(installed, "orbit-msg.ps1");
+    const past = new Date("2020-01-01T00:00:00Z");
+    utimesSync(target, past, past);
+    await installOrbitMsg(dir, "win32");
+    expect(statSync(target).mtimeMs).toBe(past.getTime());
+    writeFileSync(target, "stale");
+    await installOrbitMsg(dir, "win32");
+    expect(readFileSync(target, "utf8")).toContain("ORBIT_MSG_TOKEN");
+  });
 
   it.runIf(process.platform === "win32")("orbit-msg posts from pane env and fails clearly outside a pane", async () => {
     mkdirSync(join(home, "bin"), { recursive: true });

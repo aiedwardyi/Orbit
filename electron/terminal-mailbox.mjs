@@ -89,7 +89,13 @@ try {
 export async function installOrbitMsg(dir, platform = process.platform) {
   if (platform !== "win32") return null;
   await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, "orbit-msg.ps1"), ORBIT_MSG_PS1.replace(/\r?\n/g, "\r\n"));
+  const target = path.join(dir, "orbit-msg.ps1");
+  const content = ORBIT_MSG_PS1.replace(/\r?\n/g, "\r\n");
+  if ((await fs.readFile(target, "utf8").catch(() => null)) !== content) {
+    const tmp = `${target}.${process.pid}.tmp`;
+    await fs.writeFile(tmp, content);
+    await fs.rename(tmp, target);
+  }
   await Promise.all(["orbit-msg.cmd", "orbit-mailbox.ps1"].map((stale) => fs.rm(path.join(dir, stale), { force: true })));
   return dir;
 }
