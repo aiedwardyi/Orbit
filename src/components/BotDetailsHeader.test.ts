@@ -220,8 +220,8 @@ describe("SettingsPanel still owns folder and usage", () => {
         createElement(SettingsPanel, { bot: botWithUsage, defaultAdvancedOpen: true }),
       ),
     );
-    expect(html).toContain("Project folder (optional)");
-    expect(html).toMatch(/Where this bot works/i);
+    expect(html).toContain("Project folder");
+    expect(html).toContain("This task uses");
     expect(html).not.toContain("Working folder");
     expect(html).not.toContain("Where this bot runs its shell and file tools.");
     expect(html).not.toContain("All bots");
@@ -238,7 +238,7 @@ describe("SettingsPanel still owns folder and usage", () => {
         createElement(SettingsPanel, { bot: botWithUsage }),
       ),
     );
-    expect(html).toContain("New tasks start here");
+    expect(html).toContain("This task uses");
     expect(html).toMatch(/<span class="font-mono">\/tmp\/friend<\/span>/);
   });
 
@@ -253,9 +253,9 @@ describe("SettingsPanel still owns folder and usage", () => {
         createElement(SettingsPanel, { bot: botWithoutCwd }),
       ),
     );
-    expect(html).toContain("Project folder (optional)");
-    expect(html).toContain("Private bot workspace");
-    expect(html).toMatch(/Where this bot works/i);
+    expect(html).toContain("Project folder");
+    expect(html).toContain("Leave empty for a private workspace");
+    expect(html).toContain("This task uses");
     expect(html).not.toMatch(/you must configure where tools run/i);
     expect(html).not.toContain("Where this bot runs its shell and file tools.");
   });
