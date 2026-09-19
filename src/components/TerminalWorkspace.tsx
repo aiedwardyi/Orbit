@@ -513,7 +513,6 @@ export function TerminalWorkspace({
             event.ctrlKey ||
             event.metaKey ||
             event.nativeEvent.isComposing ||
-            event.isComposing ||
             composingRef.current ||
             event.keyCode === 229 ||
             event.nativeEvent.keyCode === 229 ||
