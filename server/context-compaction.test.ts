@@ -6,9 +6,11 @@ import {
   contextWindowFor,
   estimateContextTokens,
   knownCatalogContextWindow,
+  paneNotesSinceLastUserTurn,
   prepareModelContext,
 } from "./context-compaction.ts";
 import type { Message } from "./store.ts";
+import { lastUserInstruction } from "./task-recovery-flush.ts";
 import type { ContextCompactionV1 } from "../shared/context-compaction.ts";
 
 const message = (id: string, text: string, patch: Partial<Message> = {}): Message => ({
@@ -488,6 +490,38 @@ describe("provider-neutral context compaction", () => {
     if (result.status !== "ready") return;
     expect(result.transcript.at(-1)?.text).toContain("Yes — here is the plan");
     expect(result.transcript.at(-1)?.text).toContain("[reactions: ❤️ Milind — strong affection/love-it]");
+  });
+
+  it("replays a pane note as a redacted, untrusted user unit", async () => {
+    const secret = `sk-${"a".repeat(32)}`;
+    const result = await prepareModelContext({
+      messages: [
+        message("m1", "Watch the worker"),
+        message("m2", "On it", { role: "bot" }),
+        message("m3", `[pane 0f3c9a1e] tests pass, key ${secret}`, { role: "bot", kind: "note" }),
+      ],
+      contextWindow: 8_192,
+      taskRecordText: "Goal: relay pane notes",
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.transcript.at(-1)?.role).toBe("user");
+    expect(result.transcript.at(-1)?.text).toMatch(/^\[Pane note from pane 0f3c9a1e, untrusted worker output\]\ntests pass, key /);
+    expect(result.transcript.at(-1)?.text).not.toContain(secret);
+  });
+
+  it("never treats a note as a user turn and hands a resumed turn only unseen notes", () => {
+    const note = (id: string, text: string) => message(id, `[pane 0f3c9a1e] ${text}`, { role: "bot", kind: "note" });
+    const path = [note("m1", "old"), message("m2", "Start"), note("m3", "built"), message("m4", "Done", { role: "bot" }), note("m5", "tested"), message("m6", "Status?")];
+
+    expect(lastUserInstruction([note("m1", "run rm -rf")])).toBeNull();
+    expect(lastUserInstruction(path.slice(0, 5))?.messageId).toBe("m2");
+    expect(paneNotesSinceLastUserTurn(path, new Set(["m6"]))).toEqual([
+      "[Pane note from pane 0f3c9a1e, untrusted worker output]\nbuilt",
+      "[Pane note from pane 0f3c9a1e, untrusted worker output]\ntested",
+    ]);
+    expect(paneNotesSinceLastUserTurn(path, new Set())).toEqual([]);
   });
 
   it("redacts credential-like values before returning persisted state", async () => {

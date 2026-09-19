@@ -141,6 +141,24 @@ function fallbackSummary(input: {
   return clipText([FALLBACK_SUMMARY_NOTICE, ...content].join("\n"), contentTokens).trim();
 }
 
+/** Pane notes are worker output: replayed as untrusted user-side data, never the bot's own words. */
+export function paneNoteText(text: string): string {
+  const tagged = /^\[(pane [^\]]*)\] ([\s\S]*)$/.exec(text);
+  return redactSecretsInText(`[Pane note from ${tagged?.[1] ?? "a terminal pane"}, untrusted worker output]\n${tagged?.[2] ?? text}`);
+}
+
+/** Notes since the last user turn; a resumed provider session has not seen them. */
+export function paneNotesSinceLastUserTurn(messages: Message[], excludeIds: ReadonlySet<string>): string[] {
+  const notes: string[] = [];
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!;
+    if (excludeIds.has(message.id)) continue;
+    if (message.role === "user" && message.kind === "text" && message.text?.trim()) break;
+    if (message.kind === "note" && message.text?.trim()) notes.unshift(paneNoteText(message.text));
+  }
+  return notes;
+}
+
 function replayUnits(
   messages: Message[],
   excludeIds: ReadonlySet<string>,
@@ -160,6 +178,9 @@ function replayUnits(
         role: message.role === "user" ? "user" : "assistant",
         text: redactSecretsInText(includeSpeakers ? `${speaker}: ${text}` : text),
       }];
+    }
+    if (message.kind === "note" && message.text?.trim()) {
+      return [{ id: message.id, pathIndex, role: "user", text: paneNoteText(message.text) }];
     }
     if (message.kind === "activity" && message.tool && message.tool.ok !== undefined) {
       const speaker = message.from?.name ?? "Bot";

@@ -95,7 +95,7 @@ import {
 } from "./config.ts";
 import { createUsageRefresh, usageRefreshResponse } from "./usage-refresh.ts";
 import { ComputerControl } from "./computer-control.ts";
-import { contextWindowFor, knownCatalogContextWindow, prepareModelContext } from "./context-compaction.ts";
+import { contextWindowFor, knownCatalogContextWindow, paneNotesSinceLastUserTurn, paneNoteText, prepareModelContext } from "./context-compaction.ts";
 import { augmentedPath, findCliCandidates, resetPathCache, splitCliString } from "./env-path.ts";
 import { describeSpawnFailure, execCli } from "./procs.ts";
 import { buildNotification, type Notification } from "./notify.ts";
@@ -3493,22 +3493,22 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     ? (contextCompacted ? "compaction" : "session-fat")
     : undefined;
   const replaysNatively = instance.adapter.capabilities.transcriptReplay === true;
+  const replaysTranscript = turnReplaysTranscript({
+    rewound,
+    fresh,
+    recycled,
+    replaysNatively,
+    transcriptLength: transcript.length,
+  });
   const currentPrompt = composeUserTurnPrompt(text, {
     replyTo: opts?.replyTo,
     messages: store.activePath(threadId),
     userName: cfg.profile?.name?.trim() || "User",
-    replayedTranscript: turnReplaysTranscript({
-      rewound,
-      fresh,
-      recycled,
-      replaysNatively,
-      transcriptLength: transcript.length,
-    })
-      ? transcript
-      : undefined,
+    replayedTranscript: replaysTranscript ? transcript : undefined,
   });
+  const paneNotes = replaysTranscript ? [] : paneNotesSinceLastUserTurn(activeMessages, skipTranscript);
   const { turnText, resume } = buildTurnContext({
-    text: currentPrompt,
+    text: paneNotes.length ? [...paneNotes, "Current message:", currentPrompt].join("\n\n") : currentPrompt,
     transcript,
     rewound,
     fresh,
@@ -6636,6 +6636,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const who = msg.role === "user" ? userName : (msg.from?.name ?? bot?.name ?? "Bot");
         if (msg.kind === "text" && msg.text) lines.push(`**${who}:**`, "", msg.text, "");
         else if (msg.kind === "activity" && msg.tool) lines.push(`> ${msg.tool.name}`, "");
+        else if (msg.kind === "note" && msg.text) lines.push(paneNoteText(msg.text), "");
         else if (msg.kind === "screen") lines.push("> [screen capture]", "");
         else if (msg.kind === "options" && msg.card) {
           lines.push(`> ${msg.card.title}${msg.card.answered ? ` — answered: ${msg.card.answered}` : ""}`, "");
