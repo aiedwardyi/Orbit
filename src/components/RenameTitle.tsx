@@ -11,6 +11,7 @@ import { useI18n } from "@/lib/i18n";
 export function RenameTitle({
   value,
   onCommit,
+  editing: controlledEditing,
   onEditingChange,
   onActivate,
   showEditButton = false,
@@ -19,6 +20,8 @@ export function RenameTitle({
 }: {
   value: string;
   onCommit: (next: string) => void;
+  /** Parent-owned editing state; survives a remount when the parent swaps wrappers. */
+  editing?: boolean;
   onEditingChange?: (editing: boolean) => void;
   /** Optional single-click action for locations where the title opens a profile. */
   onActivate?: () => void;
@@ -28,7 +31,8 @@ export function RenameTitle({
   inputClassName?: string;
 }) {
   const { t } = useI18n();
-  const [editing, setEditing] = useState(false);
+  const [localEditing, setEditing] = useState(false);
+  const editing = controlledEditing ?? localEditing;
   const [draft, setDraft] = useState(value);
 
   useEffect(() => {

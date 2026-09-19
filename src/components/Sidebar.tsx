@@ -906,6 +906,7 @@ function BotListItem({
               key={iconOnly ? "icons" : "expanded"}
               value={bot.name}
               onCommit={(name) => dispatch({ type: "updateBot", botId: bot.id, patch: { name } })}
+              editing={renaming}
               onEditingChange={setRenaming}
               className="min-w-0 flex-1 truncate"
               inputClassName="w-full rounded bg-inset px-1 py-0.5 text-[15px] font-semibold"

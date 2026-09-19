@@ -960,6 +960,42 @@ describe("Sidebar bot second line", () => {
   });
 });
 
+describe("Sidebar bot rename", () => {
+  it("shows the input on double-click and restores the row after Escape", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async (path: string) =>
+      path === "/api/bots"
+        ? new Response(JSON.stringify({ bots: [bot("a")], groups: [] }))
+        : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    const input = () => host.querySelector<HTMLInputElement>(`input[aria-label="Rename"]`);
+    try {
+      await act(async () =>
+        root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+      );
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      await vi.waitFor(() => expect(host.querySelector('[aria-label="Rename a"]')).not.toBeNull());
+      await act(async () =>
+        host.querySelector('[aria-label="Rename a"]')!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true })));
+      expect(input()).not.toBeNull();
+      expect(input()!.value).toBe("a");
+      await act(async () =>
+        input()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+      expect(input()).toBeNull();
+      expect(host.querySelector('[aria-label="Rename a"]')).not.toBeNull();
+      expect(host.querySelector('[data-sidebar-row-id="a"] [role="button"]')).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});
+
 describe("Sidebar model labels", () => {
   it("shortens the Contributor suffix without changing other labels", () => {
     expect(compactSidebarModelLabel("Meta Muse 1.3 Contributor")).toBe("Meta Muse 1.3 Cont.");
