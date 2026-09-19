@@ -430,6 +430,21 @@ test("reattaching a trimmed full-screen session restores the alt screen and forc
   assert.equal(f.children[0].sizes.length, 2);
 });
 
+test("snapshots active DEC private modes and clears reset modes", async () => {
+  const f = fixture();
+  const session = await f.host.open(f.event, f.input);
+  f.children[0].data("\x1b[?1049h\x1b[?1000h\x1b[?1006h" + "x".repeat(300000));
+  const active = await f.host.open(f.event, f.input);
+  assert.equal(active.id, session.id);
+  assert.ok(active.output.startsWith("\x1b[?1049h"));
+  assert.deepEqual(active.modes, [1000, 1006, 1049]);
+
+  f.children[0].data("\x1b[?1000l");
+  const cleared = await f.host.open(f.event, f.input);
+  assert.deepEqual(cleared.modes, [1006, 1049]);
+  assert.deepEqual(cleared.resetModes, [1000]);
+});
+
 test("does not notify for a typed echo before command submission", async () => {
   const f = fixture({ activityCoalesceMs: 5 });
   const session = await f.host.open(f.event, f.input);

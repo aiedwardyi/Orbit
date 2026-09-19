@@ -80,6 +80,8 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
   let scrollBottom = height - 1;
   let wrapPending = false;
   let insertMode = false;
+  const privateModes = new Set();
+  const resetPrivateModes = new Set();
   let parserState = "normal";
   let csi = "";
   let osc = "";
@@ -220,9 +222,15 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
     if (parsed.privateMode && (final === "h" || final === "l")) {
       const enabled = final === "h";
       for (const mode of parsed.values) {
+        if (enabled) {
+          privateModes.add(mode);
+          resetPrivateModes.delete(mode);
+        } else {
+          privateModes.delete(mode);
+          resetPrivateModes.add(mode);
+        }
         if (mode === 47 || mode === 1047) switchAlternate(enabled, mode === 1047);
         if (mode === 1049) switchAlternate(enabled, true);
-        if (mode === 25) continue;
       }
       return;
     }
@@ -318,7 +326,7 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
         else if (char === "D") { lineFeed(); parserState = "normal"; }
         else if (char === "E") { carriageReturn(); lineFeed(); parserState = "normal"; }
         else if (char === "M") { if (cursorY === scrollTop) scrollDown(); else cursorY -= 1; parserState = "normal"; }
-        else if (char === "c") { main = makeBuffer(); alternate = makeBuffer(); active = alternateMode ? alternate : main; cursorX = 0; cursorY = 0; savedCursor = { x: 0, y: 0 }; alternateRestoreCursor = { x: 0, y: 0 }; scrollTop = 0; scrollBottom = height - 1; scrollbackLines = []; parserState = "normal"; }
+        else if (char === "c") { main = makeBuffer(); alternate = makeBuffer(); active = alternateMode ? alternate : main; cursorX = 0; cursorY = 0; savedCursor = { x: 0, y: 0 }; alternateRestoreCursor = { x: 0, y: 0 }; scrollTop = 0; scrollBottom = height - 1; scrollbackLines = []; privateModes.clear(); resetPrivateModes.clear(); parserState = "normal"; }
         else { parserState = "normal"; }
         continue;
       }
@@ -377,6 +385,8 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
       screenText: limitedScreen.text,
       recentText: limitedRecent.text,
       alternate: alternateMode,
+      modes: [...privateModes].sort((a, b) => a - b),
+      resetModes: [...resetPrivateModes].sort((a, b) => a - b),
       cursor: { col: cursorX, row: cursorY },
       truncated: limitedScreen.truncated || limitedRecent.truncated,
     };

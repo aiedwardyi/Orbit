@@ -11,7 +11,7 @@ import "@xterm/xterm/css/xterm.css";
 
 type SessionInfo = { cwd: string; shell: string };
 type OutputEvent = { id: string; data: string; seq: number };
-type TerminalSnapshot = { id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number; launchProject?: string | null; cols?: number; rows?: number; alternate?: boolean };
+type TerminalSnapshot = { id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number; launchProject?: string | null; cols?: number; rows?: number; alternate?: boolean; modes?: number[]; resetModes?: number[] };
 const TERMINAL_FONT_MIN = 8;
 const TERMINAL_FONT_MAX = 128;
 
@@ -198,8 +198,21 @@ export function TerminalWorkspace({
     appearance.observe(document.documentElement, { attributes: true, attributeFilter: ["data-skin", "data-shape"] });
 
     let attachedLaunchProject: string | null = null;
-    const finishAttach = (snapshot: TerminalSnapshot, launchedProject: string | null) => {
+    const finishAttach = (snapshot: TerminalSnapshot, launchedProject: string | null, modesRestored = false) => {
       if (!alive) return;
+      if (!modesRestored) {
+        const restoreModes = [
+          ...(snapshot.resetModes ?? []).map((mode) => `\x1b[?${mode}l`),
+          ...(snapshot.modes ?? [])
+            .filter((mode) => mode !== 47 && mode !== 1047 && mode !== 1049)
+            .map((mode) => `\x1b[?${mode}h`),
+        ]
+          .join("");
+        if (restoreModes) {
+          terminal.write(restoreModes, () => finishAttach(snapshot, launchedProject, true));
+          return;
+        }
+      }
       // Use lastSeq (not snapshot.seq): same-id fallback never advances lastSeq to
       // resumed.seq, so IPC-gap events in (lastSeq, snapshot.seq] stay drainable.
       const queued = [...liveQueue]

@@ -237,6 +237,27 @@ it("forwards Enter to the PTY after a full-screen turn settles", async () => {
   expect(write).toHaveBeenCalledWith("session-tui", "second\r");
 });
 
+it("reapplies active DEC modes after historical replay", async () => {
+  const output = "\x1b[?1049hscreen";
+  const open = vi.fn(async () => ({
+    id: "session-modes",
+    cwd: "C:\\work",
+    shell: "pwsh.exe",
+    output,
+    modes: [1, 25, 1000, 1002, 1004, 1006, 1015, 2004, 1049],
+    seq: 1,
+    exitCode: null as number | null,
+  }));
+  const bridge: TerminalBridge = { appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() };
+  const bot = mountBridge(bridge, { id: "bot-modes", name: "Modes", cwd: "C:\\work" });
+  await act(async () => root.render(createElement(TerminalWorkspace, { bot, visible: true, focusBlocked: false, onClose: vi.fn() })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual([
+    output,
+    "\x1b[?1h\x1b[?25h\x1b[?1000h\x1b[?1002h\x1b[?1004h\x1b[?1006h\x1b[?1015h\x1b[?2004h",
+  ]);
+});
+
 it("queues live output until historical replay finishes and preserves seq order", async () => {
   vi.stubGlobal("localStorage", window.localStorage);
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });

@@ -142,6 +142,8 @@ type SkillRecordingPayload = {
     cols?: number;
     rows?: number;
     alternate?: boolean;
+    modes?: number[];
+    resetModes?: number[];
     cursor?: { x: number; y: number; visible: boolean };
   }
 
@@ -153,7 +155,7 @@ type SkillRecordingPayload = {
         sendBot?(botId: string, input: { sessionId: string; generation: number; text: string }): Promise<TerminalBotSnapshot>;
         appearance(): Promise<{ profileName: string; fontFamily?: string; fontSize?: number; theme: Record<string, string> } | null>;
         open(input: { botId: string; cols: number; rows: number; restart?: boolean; cwd?: string; projectCwd?: string | null }): Promise<
-          | { id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number; launchProject?: string | null }
+          | { id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number; launchProject?: string | null; cols?: number; rows?: number; alternate?: boolean; modes?: number[]; resetModes?: number[] }
           | { needsFolder: true; reason?: string }
         >;
         cancelOpen?(botId: string): Promise<boolean>;
