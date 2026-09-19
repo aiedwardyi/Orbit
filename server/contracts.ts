@@ -108,9 +108,9 @@ export type RuntimeEvent = RuntimeEventBase &
          * delta, a thread total, a per-step figure) and must never be summed. */
         usage?: { input: number; output: number; cachedInput?: number };
       }
-    | { type: "item.started"; itemType: "tool" | "reasoning"; title?: string }
+    | { type: "item.started"; itemType: "tool" | "reasoning"; title?: string; summary?: string }
     | { type: "item.updated"; itemType: "tool" | "reasoning"; tokens?: number | null }
-    | { type: "item.completed"; itemType: "tool"; ok: boolean }
+    | { type: "item.completed"; itemType: "tool"; ok: boolean; summary?: string; durationMs?: number }
     | { type: "item.completed"; itemType: "assistant_text"; text: string }
     | { type: "content.delta"; streamKind: "assistant_text" | "reasoning_text"; delta: string }
     | {

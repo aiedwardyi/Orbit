@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ensureDirs, PROVIDER_CREDENTIAL_ENV, WORKSPACE_CREDENTIAL_ENV } from "../config.ts";
 import type { ProviderInstance } from "../contracts.ts";
 import { recordEvents, type EventRecorder } from "../testing/events.ts";
-import { ClaudeDriver, permissionSocketPath, type ClaudeConfig } from "./claude.ts";
+import { ClaudeDriver, claudeToolSummary, permissionSocketPath, type ClaudeConfig } from "./claude.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-claude-cli.ts");
@@ -81,6 +81,49 @@ function answerQueue(conn: ReturnType<typeof connect>) {
   });
   return () => new Promise<any>((resolve) => waiters.push(resolve));
 }
+
+describe("claudeToolSummary", () => {
+  const cwd = join(tmpdir(), "bot");
+
+  it("names a Read by its path relative to the bot folder, else its basename", () => {
+    expect(claudeToolSummary("Read", { file_path: join(cwd, "src", "app.ts") }, cwd)).toBe("src/app.ts");
+    expect(claudeToolSummary("Read", { file_path: join(tmpdir(), "elsewhere", "notes.md") }, cwd)).toBe("notes.md");
+  });
+
+  it("counts an Edit's added and removed lines without carrying the text", () => {
+    const summary = claudeToolSummary(
+      "Edit",
+      { file_path: join(cwd, "package.json"), old_string: "a\nb\n", new_string: "a\nb\nc\nd" },
+      cwd,
+    );
+    expect(summary).toBe("package.json +4 -2");
+  });
+
+  it("clips a Bash command to 60 chars and adds a nonzero exit", () => {
+    const command = `echo ${"x".repeat(80)}`;
+    expect(claudeToolSummary("Bash", { command }, cwd)).toBe(command.slice(0, 60));
+    expect(claudeToolSummary("Bash", { command: "pnpm  lint\n--fix" }, cwd, "Exit code 2\nlint failed")).toBe(
+      "pnpm lint --fix · exit 2",
+    );
+  });
+
+  it("masks a secret in a Bash command", () => {
+    expect(claudeToolSummary("Bash", { command: "curl -H 'x-api-key: sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789'" }, cwd)).not.toContain(
+      "abcdefghijklmnopqrstuvwxyz",
+    );
+  });
+
+  it("names a Grep by its pattern, plus the path when given", () => {
+    expect(claudeToolSummary("Grep", { pattern: "xterm" }, cwd)).toBe("xterm");
+    expect(claudeToolSummary("Grep", { pattern: "xterm", path: cwd }, cwd)).toBe("xterm");
+    expect(claudeToolSummary("Grep", { pattern: "xterm", path: join(cwd, "src") }, cwd)).toBe("xterm in src");
+  });
+
+  it("caps an unknown tool's first string field at 120 chars", () => {
+    const summary = claudeToolSummary("Agent", { description: "y".repeat(200), count: 3 }, cwd);
+    expect(summary).toHaveLength(120);
+  });
+});
 
 describe("ClaudeDriver.decodeConfig", () => {
   it("defaults to the claude binary with acceptEdits", () => {

@@ -19,7 +19,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer as createNetServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
-import { join, dirname } from "node:path";
+import { basename, dirname, isAbsolute, join, relative } from "node:path";
 
 import { applyCredentialAllowlist, DATA_DIR } from "../config.ts";
 import { augmentedPath } from "../env-path.ts";
@@ -54,6 +54,7 @@ import {
 import { appendNative, finishNative } from "./native.ts";
 import { claudeRateLimitWindows } from "./rate-limits.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
+import { redactSecretsInText } from "../redact.ts";
 
 /** Whether `claude` has been signed in.
  *
@@ -455,6 +456,70 @@ function firstText(content: unknown): string {
       .join("");
   }
   return "";
+}
+
+const SUMMARY_MAX = 120;
+
+function displayPath(path: string, cwd: string): string {
+  if (!isAbsolute(path)) return path;
+  const rel = relative(cwd, path);
+  if (!rel) return "";
+  return !rel.startsWith("..") && !isAbsolute(rel) ? rel.replace(/\\/g, "/") : basename(path);
+}
+
+const lineCount = (text: string) => (text ? text.replace(/\n$/, "").split("\n").length : 0);
+
+/** What a tool call targeted, for its chip. Never the tool's output or a file's contents. */
+export function claudeToolSummary(name: string, input: unknown, cwd: string, result?: string): string | undefined {
+  const o = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+  const str = (key: string) => (typeof o[key] === "string" && o[key] ? (o[key] as string) : undefined);
+  let out: string | undefined;
+  switch (name) {
+    case "Read":
+    case "Write":
+    case "Edit":
+    case "NotebookEdit": {
+      const path = str("file_path") ?? str("notebook_path");
+      if (!path) break;
+      out = displayPath(path, cwd);
+      if (name === "Edit" && typeof o.new_string === "string" && typeof o.old_string === "string") {
+        out += ` +${lineCount(o.new_string)} -${lineCount(o.old_string)}`;
+      } else if (name === "Write" && typeof o.content === "string") out += ` +${lineCount(o.content)}`;
+      break;
+    }
+    case "Bash": {
+      const command = str("command");
+      if (!command) break;
+      out = redactSecretsInText(command.replace(/\s+/g, " ").trim()).slice(0, 60);
+      const exit = result?.match(/^Exit code (\d+)/);
+      if (exit) out += ` · exit ${exit[1]}`;
+      break;
+    }
+    case "Grep":
+    case "Glob": {
+      const pattern = str("pattern");
+      const path = str("path");
+      out = [pattern, path && displayPath(path, cwd)].filter(Boolean).join(" in ") || undefined;
+      break;
+    }
+    case "WebFetch": {
+      const url = str("url");
+      try {
+        out = url ? new URL(url).host : undefined;
+      } catch {
+        out = undefined;
+      }
+      break;
+    }
+    case "WebSearch":
+      out = str("query");
+      break;
+    default:
+      out = Object.values(o).find((value): value is string => typeof value === "string" && value.trim() !== "");
+  }
+  if (!out) return undefined;
+  const text = redactSecretsInText(out.replace(/\s+/g, " ").trim());
+  return text.length > SUMMARY_MAX ? `${text.slice(0, SUMMARY_MAX - 1)}…` : text;
 }
 
 export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
@@ -892,6 +957,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       };
       session.settleTurn = settle;
       const currentTurnId = () => session.turn?.turnId ?? turnId;
+      const toolCalls = new Map<string, { at: number; name: string; input: unknown; summary?: string }>();
 
       const handleLine = (line: string) => {
         let o: any;
@@ -938,7 +1004,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             }
             for (const b of Array.isArray(msg.content) ? msg.content : []) {
               if (b.type === "tool_use") {
-                emit({ ...base(threadId, currentTurnId()), type: "item.started", itemType: "tool", itemId: b.id, title: b.name });
+                const summary = claudeToolSummary(b.name, b.input, cwd);
+                toolCalls.set(b.id, { at: Date.now(), name: b.name, input: b.input, summary });
+                emit({
+                  ...base(threadId, currentTurnId()),
+                  type: "item.started",
+                  itemType: "tool",
+                  itemId: b.id,
+                  title: b.name,
+                  ...(summary ? { summary } : {}),
+                });
               }
             }
             if (msg.usage) {
@@ -957,7 +1032,18 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           case "user":
             for (const b of Array.isArray(o.message?.content) ? o.message.content : []) {
               if (b.type === "tool_result") {
-                emit({ ...base(threadId, currentTurnId()), type: "item.completed", itemType: "tool", itemId: b.tool_use_id, ok: !b.is_error });
+                const call = toolCalls.get(b.tool_use_id);
+                toolCalls.delete(b.tool_use_id);
+                const summary = call?.name === "Bash" ? claudeToolSummary(call.name, call.input, cwd, firstText(b.content).slice(0, 40)) : undefined;
+                emit({
+                  ...base(threadId, currentTurnId()),
+                  type: "item.completed",
+                  itemType: "tool",
+                  itemId: b.tool_use_id,
+                  ok: !b.is_error,
+                  ...(summary && summary !== call?.summary ? { summary } : {}),
+                  ...(call ? { durationMs: Date.now() - call.at } : {}),
+                });
               }
             }
             break;

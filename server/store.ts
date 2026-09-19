@@ -122,7 +122,15 @@ export interface Message {
    * for chips not worth interrupting the ear for. */
   /** `setup` marks an error the user fixes by installing or configuring
    * something — the UI offers setup instead of a retry that cannot work. */
-  tool?: { name: string; ok?: boolean; spoken?: string; setup?: boolean; usageLimit?: { resetsAt: number | null } };
+  tool?: {
+    name: string;
+    ok?: boolean;
+    spoken?: string;
+    summary?: string;
+    durationMs?: number;
+    setup?: boolean;
+    usageLimit?: { resetsAt: number | null };
+  };
   /** user messages sent INTO a running turn (capabilities.queueing): the
    * model saw it mid-turn, so the transcript marks it — a reader should
    * know the reply above it may already account for this line */
@@ -290,6 +298,7 @@ export function redactBotAuthored<T extends Omit<Message, "id" | "at"> & { at?: 
       // Scrub them too — the bus no longer pre-redacts titles, and hydrate
       // / voice read this field from disk, not from the live SSE frame.
       ...(typeof out.tool.spoken === "string" ? { spoken: redactSecretsInText(out.tool.spoken) } : {}),
+      ...(typeof out.tool.summary === "string" ? { summary: redactSecretsInText(out.tool.summary) } : {}),
     };
   }
   if (out.routineRun) {

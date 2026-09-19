@@ -2374,8 +2374,15 @@ bus.subscribe((event: RuntimeEvent) => {
           // dropping it here would silently un-narrate every completed tool
           const existing = store.messagesFor(event.threadId).find((m) => m.id === messageId)?.tool;
           toolName = existing?.name ?? "tool";
+          const summary = event.summary ?? existing?.summary;
           store.patchMessage(event.threadId, messageId, {
-            tool: { name: toolName, ok: event.ok, spoken: existing?.spoken },
+            tool: {
+              name: toolName,
+              ok: event.ok,
+              spoken: existing?.spoken,
+              ...(summary ? { summary } : {}),
+              ...(typeof event.durationMs === "number" ? { durationMs: event.durationMs } : {}),
+            },
           });
           toolMessageByItem.delete(itemKey);
         }
@@ -2425,7 +2432,7 @@ bus.subscribe((event: RuntimeEvent) => {
         const message = pushMessage({
           role: "bot",
           kind: "activity",
-          tool: { name, spoken: narrateTool(name) ?? undefined },
+          tool: { name, spoken: narrateTool(name) ?? undefined, ...(event.summary ? { summary: event.summary } : {}) },
         });
         if (event.itemId) toolMessageByItem.set(`${event.threadId}:${event.itemId}`, { messageId: message.id, turnId: event.turnId });
       }

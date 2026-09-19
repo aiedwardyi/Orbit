@@ -26,14 +26,13 @@ export function activityVisibleInChat(message: Message, showToolCalls: boolean):
   );
 }
 
-/** A finished named tool, success or fail. Running steps stay out so live
- * progress is never hidden behind a fold. Turn-level `error:` chips and
- * memory-save stay out too — those are not a work run. */
+/** A named tool, running or settled. A running step joins the run so it
+ * settles in place; the fold's header carries its spinner. Turn-level
+ * `error:` chips and memory-save stay out — those are not a work run. */
 function foldable(message: Message): boolean {
   const tool = message.tool;
   if (message.kind !== "activity" || !tool) return false;
   if (message.comm) return false;
-  if (tool.ok !== true && tool.ok !== false) return false;
   if (tool.name.startsWith("error:") || tool.name === "memory.save") return false;
   return true;
 }
@@ -73,25 +72,17 @@ export function groupActivityRuns(messages: Message[]): TranscriptItem[] {
   return items;
 }
 
-const MAX_NAMES = 3;
+const EDIT_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
 
 /** The one line a folded run has to earn its place with: how much work it
- * was and which tools did it. A failure count stays in the summary as muted
- * text, not a reason to go red. */
+ * was and how many files it touched. Status is the icon beside it. */
 export function describeRun(messages: Message[]): string {
-  const counts = new Map<string, number>();
+  const edited = new Set<string>();
   for (const message of messages) {
-    const name = message.tool?.name ?? "";
-    counts.set(name, (counts.get(name) ?? 0) + 1);
+    const tool = message.tool;
+    // the summary leads with the path; "+N -M" trails it
+    if (tool && EDIT_TOOLS.has(tool.name) && tool.summary) edited.add(tool.summary.replace(/ \+\d+( -\d+)?$/, ""));
   }
-  const names = [...counts].map(([name, count]) => (count > 1 ? `${name} ×${count}` : name));
-  const shown = names.slice(0, MAX_NAMES).join(", ");
-  const rest = names.length > MAX_NAMES ? ` +${names.length - MAX_NAMES} more` : "";
-  const failed = messages.filter((message) => message.tool?.ok === false).length;
-  const failBit = failed ? ` · ${failed} failed` : "";
-  if (counts.size === 1) {
-    const [name, count] = [...counts][0]!;
-    return `${count} ${name}${failBit}`;
-  }
-  return `${messages.length} steps · ${shown}${rest}${failBit}`;
+  const files = edited.size ? ` · ${edited.size} ${edited.size === 1 ? "file" : "files"} edited` : "";
+  return `${messages.length} steps${files}`;
 }

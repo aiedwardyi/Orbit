@@ -71,7 +71,7 @@ import { detectChatOptions, laterUserAnswer } from "@/lib/chat-options";
 import { focusComposerOnActivation } from "@/lib/focus-composer";
 import { ChatOptionChips } from "./ChatOptionChips";
 import { MemorySaveChip } from "./MemorySaveChip";
-import { ActivityRun } from "./ActivityRun";
+import { ActivityRun, ActivityStep } from "./ActivityRun";
 import { webhookMessageView } from "@/lib/webhook-message";
 import { splitAttachedImages } from "@/lib/composer-attachments";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow } from "@/lib/bottom-follow";
@@ -711,7 +711,10 @@ function ActivityChip({ message }: { message: Message }) {
         ) : (
           <Check size={13} className="text-success" />
         )}
-        <span className="max-w-[480px] truncate font-mono">{tool.name}</span>
+        <span className="max-w-[480px] truncate font-mono">
+          {tool.name}
+          {tool.summary && ` ${tool.summary}`}
+        </span>
       </div>
     </div>
   );
@@ -813,7 +816,7 @@ const MessagesList = memo(function MessagesList({
                   .filter((step) => showToolCalls || step.tool?.ok === false)
                   .map((step) => (
                   <div key={step.id} className="contents" data-mid={step.id}>
-                    <ActivityChip message={step} />
+                    <ActivityStep message={step} />
                   </div>
                 ))}
               </ActivityRun>

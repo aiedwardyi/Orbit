@@ -30,10 +30,12 @@ describe("groupActivityRuns", () => {
     expect(items.map((i) => i.kind)).toEqual(["message", "message", "message"]);
   });
 
-  it("keeps a step that is still running out of the run, so live progress stays visible", () => {
-    const items = groupActivityRuns([tool("Edit"), tool("Edit"), running("Bash")]);
-    expect(items.map((i) => i.kind)).toEqual(["run", "message"]);
-    expect(items[1].kind === "message" && items[1].message.tool?.name).toBe("Bash");
+  it("folds a running step into the run, so it settles in place", () => {
+    const steps = [tool("Edit"), tool("Edit"), running("Bash")];
+    const items = groupActivityRuns(steps);
+    expect(items.map((i) => i.kind)).toEqual(["run"]);
+    expect(items[0].kind === "run" && items[0].id).toBe(`run:${steps[0].id}`);
+    expect(items[0].kind === "run" && items[0].messages.at(-1)?.tool?.name).toBe("Bash");
   });
 
   it("never folds a failed turn, which renders as an error not a tool run", () => {
@@ -115,10 +117,6 @@ describe("activityVisibleInChat", () => {
     expect(activityRunVisible(steps, true)).toBe(true);
   });
 
-  it("keeps the failure count in the run summary for the tool-calls-on view", () => {
-    expect(describeRun([tool("Edit"), tool("Bash", false)])).toBe("2 steps · Edit, Bash · 1 failed");
-  });
-
   it("keeps turn-level errors visible while tool calls are hidden", () => {
     expect(activityVisibleInChat(tool("error: the CLI exited", false), false)).toBe(true);
   });
@@ -159,27 +157,17 @@ describe("memory save stays out of a folded run", () => {
 });
 
 describe("describeRun", () => {
-  it("counts repeats and names the tools in order of first use", () => {
-    expect(describeRun([tool("Edit"), tool("Bash"), tool("Edit"), tool("Edit")])).toBe("4 steps · Edit ×3, Bash");
-  });
-
-  it("names a single repeat without a multiplier", () => {
-    expect(describeRun([tool("Edit"), tool("Bash")])).toBe("2 steps · Edit, Bash");
-  });
-
-  it("trims a long tail of tool names rather than running off the row", () => {
-    expect(describeRun([tool("Edit"), tool("Bash"), tool("Write"), tool("Grep"), tool("Read")])).toBe(
-      "5 steps · Edit, Bash, Write +2 more",
-    );
-  });
-
-  it("keeps the failure count as muted summary text", () => {
-    expect(describeRun([tool("Edit"), tool("Bash", false)])).toBe("2 steps · Edit, Bash · 1 failed");
-  });
-
-  it("drops the steps prefix when every chip is the same tool", () => {
-    expect(describeRun([tool("webfetch"), tool("webfetch", false), tool("webfetch", false)])).toBe(
-      "3 webfetch · 2 failed",
-    );
+  it("heads a run with its step count and distinct edited files", () => {
+    const step = (name: string, summary: string): Message => ({ ...tool(name), tool: { name, ok: true, summary } });
+    expect(describeRun([step("Read", "package.json"), step("Grep", "xterm")])).toBe("2 steps");
+    expect(
+      describeRun([
+        step("Edit", "src/a.ts +2 -1"),
+        step("Edit", "src/a.ts +1 -1"),
+        step("Write", "src/b.ts +40"),
+        tool("Bash", false),
+      ]),
+    ).toBe("4 steps · 2 files edited");
+    expect(describeRun([step("Edit", "a.ts +1 -0"), running("Bash")])).toBe("2 steps · 1 file edited");
   });
 });
