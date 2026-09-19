@@ -22,6 +22,7 @@ import { spawnTerminalPty } from "./terminal-pty.mjs";
 import { readTerminalAppearance } from "./terminal-appearance.mjs";
 import { applyPendingUpdateInstall, consumePendingUpdateInstall, registerUpdaterIpc, startUpdater } from "./updater.mjs";
 import { completeQuitAfterCleanup } from "./app-quit.mjs";
+import { installMainCrashLogging } from "./crash-log.mjs";
 import { companionParkedOnDesktop } from "./companion-policy.mjs";
 import { createAppAuthorization, waitForAppToken } from "./local-api-auth.mjs";
 import { stopUtilityChild } from "./utility-child.mjs";
@@ -534,6 +535,8 @@ function slog(line) {
     /* logging must never break startup */
   }
 }
+
+installMainCrashLogging({ process, app, log: slog });
 
 // ── managed companion connection ───────────────────────────────────────
 // Account onboarding provisions one remote Cloudflare Tunnel per desktop,

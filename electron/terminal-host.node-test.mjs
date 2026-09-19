@@ -179,10 +179,11 @@ test("retires a worker when its open is cancelled during readiness", async () =>
   await spawned;
   assert.equal(host.cancelOpen(event, "readiness-cancel"), true);
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(child.killed, true);
-  assert.equal(events.some(([channel]) => channel === "terminal:attention"), false);
+  assert.equal(child.killed, false);
   releaseReady();
   await cancelled;
+  assert.equal(child.killed, true);
+  assert.equal(events.some(([channel]) => channel === "terminal:attention"), false);
 });
 
 test("shutdown during folder resolution cannot spawn a shell", async () => {
@@ -605,4 +606,73 @@ test("X10 mouse reports do not pollute the echo buffer", async () => {
   const reasons = f.events.filter(([channel]) => channel === "terminal:attention").map(([, value]) => value.reason);
   assert.ok(reasons.includes("activity"), "mouse echo suppressed real output");
   f.host.dispose();
+});
+
+test("does not kill a pty before it is ready when open is cancelled", async () => {
+  let releaseReady;
+  const ready = new Promise((resolve) => { releaseReady = resolve; });
+  let spawnedResolve;
+  const spawned = new Promise((resolve) => { spawnedResolve = resolve; });
+  const events = [];
+  const owner = { id: 1, mainFrame: {}, send: (...args) => events.push(args) };
+  const event = { sender: owner, senderFrame: owner.mainFrame };
+  const child = { onData() {}, onExit() {}, ready, write() {}, resize() {}, killed: false, kill() { this.killed = true; } };
+  const host = createTerminalHost({
+    authorize() {},
+    resolveCwd: async () => os.tmpdir(),
+    platform: "linux",
+    env: { SHELL: "/bin/sh" },
+    loadPty: () => ({ spawn: () => { spawnedResolve(); return child; } }),
+  });
+  const opening = host.open(event, { botId: "readiness-hold", cols: 80, rows: 24 });
+  const cancelled = assert.rejects(opening, /cancelled/);
+  await spawned;
+  assert.equal(host.cancelOpen(event, "readiness-hold"), true);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(child.killed, false);
+  releaseReady();
+  await cancelled;
+  assert.equal(child.killed, true);
+});
+
+test("reopening after a cancelled spawn waits for the first worker to retire", async () => {
+  let releaseReady;
+  const ready = new Promise((resolve) => { releaseReady = resolve; });
+  const children = [];
+  const owner = { id: 1, mainFrame: {}, send() {} };
+  const event = { sender: owner, senderFrame: owner.mainFrame };
+  const host = createTerminalHost({
+    authorize() {},
+    resolveCwd: async () => os.tmpdir(),
+    platform: "linux",
+    env: { SHELL: "/bin/sh" },
+    loadPty: () => ({ spawn: () => {
+      const child = {
+        onData() {},
+        onExit() {},
+        ready: children.length === 0 ? ready : Promise.resolve(),
+        write() {},
+        resize() {},
+        killed: false,
+        kill() { this.killed = true; },
+      };
+      children.push(child);
+      return child;
+    } }),
+  });
+  const opening = host.open(event, { botId: "reopen-cancel", cols: 80, rows: 24 });
+  const cancelled = assert.rejects(opening, /cancelled/);
+  while (children.length === 0) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(host.cancelOpen(event, "reopen-cancel"), true);
+  const reopening = host.open(event, { botId: "reopen-cancel", cols: 80, rows: 24 });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(children.length, 1);
+  assert.equal(children[0].killed, false);
+  releaseReady();
+  await cancelled;
+  const session = await reopening;
+  assert.equal(children.length, 2);
+  assert.equal(children[0].killed, true);
+  assert.equal(children[1].killed, false);
+  assert.ok(session.id);
 });

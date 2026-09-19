@@ -236,6 +236,14 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
     session.stopPromise = (async () => {
       if (forceKill || session.exitCode === null) {
         try {
+          if (!session.workerReady) {
+            // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may expose readiness only when worker-backed.
+            const ptyReady = session.pty.ready;
+            if (ptyReady && typeof ptyReady.then === "function") {
+              try { await timeout(ptyReady, readyTimeoutMs, "Terminal worker did not become ready"); } catch {}
+            }
+            session.workerReady = true;
+          }
           const result = session.pty.kill();
           // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may acknowledge operations synchronously or asynchronously.
           if (result && typeof result.then === "function") await timeout(result, SHUTDOWN_TIMEOUT_MS, "Terminal shutdown timed out");
@@ -317,6 +325,7 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       launchProject: launchProject(input, folder, cwd), retired: false, exitReported: false, errorReported: false,
       failure: null, attentionReported: false, activityArmed: false, activityCooldownUntil: 0, activityTimer: null,
       outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), pendingInputEcho: "", truncated: false,
+      workerReady: false,
     };
     session.generation = (generations.get(key) ?? 0) + 1;
     generations.set(key, session.generation);
@@ -331,11 +340,17 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       const ready = pty.ready && typeof pty.ready.then === "function"
         ? timeout(pty.ready, readyTimeoutMs, "Terminal worker did not become ready")
         : Promise.resolve();
-      await Promise.race([
-        ready,
-        cancelPromise.then(() => { throw new Error("Terminal open cancelled"); }),
-      ]);
+      // ConPTY aborts the whole process if we kill/terminate the worker during
+      // spawn. Always wait for ready (or ready failure) before retiring.
+      await ready;
+      session.workerReady = true;
       if (session.failure) throw session.failure;
+      let cancelled = false;
+      await Promise.race([
+        cancelPromise.then(() => { cancelled = true; }),
+        Promise.resolve(),
+      ]);
+      if (cancelled) throw new Error("Terminal open cancelled");
       return session;
     } catch (cause) {
       await retire(session, true);
@@ -381,8 +396,13 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       if (!input || typeof input.botId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(input.botId)) throw new Error("Invalid bot");
       dimensions(input.cols, input.rows);
       const key = `${event.sender.id}:${input.botId}`;
-      const inFlight = pending.get(key);
-      if (inFlight) {
+      while (true) {
+        const inFlight = pending.get(key);
+        if (!inFlight) break;
+        if (inFlight.cancelled) {
+          try { await inFlight.promise; } catch {}
+          continue;
+        }
         if (input.restart === true) {
           inFlight.restartInput = input;
         }
@@ -430,7 +450,6 @@ export function createTerminalHost({ authorize, resolveCwd, loadPty = () => ({ s
       if (!operation) return false;
       operation.cancelled = true;
       operation.cancelResolve();
-      if (pending.get(key) === operation) pending.delete(key);
       return true;
     },
     write(event, id, data) {
