@@ -578,7 +578,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       /** the CLI's session id from `init`, what --resume takes later */
       sessionId: string | null;
       /** the running turn, or null between turns */
-      turn: { turnId: string; settled: boolean; sawStreamDelta: boolean } | null;
+      turn: { turnId: string; settled: boolean; sawStreamDelta: boolean; timer: ReturnType<typeof startTurnTimer> } | null;
       idleTimer: ReturnType<typeof setTimeout> | null;
       closing: boolean;
       stderr: string;
@@ -821,7 +821,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const live = sessions.get(threadId);
       if (live && !live.turn && !live.closing && live.child.exitCode === null && live.argsKey === argsKey && sessionId !== null && sessionId === live.sessionId) {
         if (live.idleTimer) clearTimeout(live.idleTimer);
-        live.turn = { turnId, settled: false, sawStreamDelta: false };
+        turnTimer.mark("spawnOrReuse");
+        turnTimer.mark("cliReady");
+        live.turn = { turnId, settled: false, sawStreamDelta: false, timer: turnTimer };
         active.set(threadId, {
           stop: () => {
             retry.cancelled = true;
@@ -918,13 +920,14 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         env,
         stdio: ["pipe", "pipe", "pipe"],
       });
+      turnTimer.mark("cliReady");
       const session: Session = {
         child,
         broker,
         mcpConfigPath,
         argsKey,
         sessionId: sessionId ?? newSessionId,
-        turn: { turnId, settled: false, sawStreamDelta: false },
+        turn: { turnId, settled: false, sawStreamDelta: false, timer: turnTimer },
         idleTimer: null,
         closing: false,
         stderr: "",
@@ -961,6 +964,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         // A settled turn owns no retry budget. Retained CLI sessions may run
         // many later turns on this thread, and each must start fresh.
         retryState.delete(threadId);
+        t.timer.mark("turnDone");
+        t.timer.finish();
         emit({ ...base(threadId, t.turnId), type: "turn.completed", ok, stopReason, cost, ...(usage ? { usage } : {}) });
         if (session.child.exitCode === null && !session.closing) armIdle(threadId);
       };
@@ -994,6 +999,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             const d = ev.delta ?? {};
             if (d.type === "text_delta" && typeof d.text === "string" && d.text) {
               if (session.turn) session.turn.sawStreamDelta = true;
+              session.turn?.timer.mark("firstVisible");
               emit({ ...base(threadId, currentTurnId()), type: "content.delta", streamKind: "assistant_text", delta: d.text });
             } else if (d.type === "thinking_delta" && typeof d.thinking === "string" && d.thinking) {
               emit({ ...base(threadId, currentTurnId()), type: "content.delta", streamKind: "reasoning_text", delta: d.thinking });
@@ -1006,6 +1012,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             if (text.trim()) {
               // fallback delta for CLIs/paths that never streamed the block
               if (!session.turn?.sawStreamDelta) {
+                session.turn?.timer.mark("firstVisible");
                 emit({ ...base(threadId, currentTurnId()), type: "content.delta", streamKind: "assistant_text", delta: text });
               }
               if (session.turn) session.turn.sawStreamDelta = false;
