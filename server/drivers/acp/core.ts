@@ -385,6 +385,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         timer?: ReturnType<typeof setTimeout>;
       };
       let handshakeWarm: HandshakeWarm | null = null;
+      let handshakePrewarm: Promise<void> | null = null;
       let disposed = false;
       const warmIdleMs = support.warmIdleMs ?? 60_000;
       const discardIdle = (entry: WarmIdle | null = idleWarm) => {
@@ -399,7 +400,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         clearTimeout(entry.timer);
         killCliTree(entry.connection.child);
       };
-      const beginHandshakePrewarm = async () => {
+      const runHandshakePrewarm = async () => {
         if (disposed || handshakeWarm) return;
         const env = childEnv(LOCAL_HOST_KEY_ENVS);
         let probed: { cli: string; version: string } | null = null;
@@ -488,6 +489,10 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           }
         })();
         await entry.ready.catch(() => {});
+      };
+      const beginHandshakePrewarm = () => {
+        handshakePrewarm ??= runHandshakePrewarm().finally(() => { handshakePrewarm = null; });
+        return handshakePrewarm;
       };
       if (input.enabled && config.prewarm === true) void beginHandshakePrewarm().catch(() => {});
 
@@ -1383,6 +1388,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           for (const { stop } of active.values()) stop();
           for (const stop of billingStops) stop();
           listeners.clear();
+          await handshakePrewarm;
         },
       };
     },

@@ -1950,7 +1950,8 @@ describe("ACP create-time handshake prewarm", () => {
     await recorder.until((e) => e.type === "turn.completed");
     recorder.stop();
 
-    const afterTurn = JSON.parse(readFileSync(rpcDump, "utf8")) as string[];
+    let afterTurn: string[] = [];
+    await expect.poll(() => (afterTurn = JSON.parse(readFileSync(rpcDump, "utf8")))).toContain("session/prompt");
     expect(afterTurn.filter((m) => m === "initialize")).toHaveLength(1);
     expect(afterTurn).toContain("session/new");
     expect(afterTurn).toContain("session/prompt");
@@ -2067,6 +2068,76 @@ describe("ACP create-time handshake prewarm", () => {
     await expect.poll(() => JSON.parse(readFileSync(rpcDump, "utf8"))).toContain("initialize");
     expect(spawn.mock.calls.length).toBe(1);
     expect(JSON.parse(readFileSync(rpcDump, "utf8"))).not.toContain("session/new");
+  });
+
+  it.each(["happy", "initialize-hang"])("deduplicates 8 concurrent prepares and disposes every child (%s)", async (mode) => {
+    const spawn = vi.spyOn(procs, "spawnCli");
+    process.env.FAKE_ACP_MODE = mode;
+    instance = await GrokAgentDriver.create({
+      instanceId: "acp-hs-prepare-concurrent",
+      displayName: "ACP Handshake Concurrent",
+      environment: {},
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: true, workspace: scratch },
+    });
+    let settled = 0;
+    const prepares = Array.from({ length: 8 }, () => instance.prepare!().finally(() => settled++));
+    try {
+      await expect.poll(() => spawn.mock.results.length).toBeGreaterThan(0);
+      if (mode === "happy") await Promise.all(prepares);
+      await instance.dispose();
+      expect(settled).toBe(8);
+      await expect.poll(() => spawn.mock.results.filter(({ value }) => value.exitCode === null && value.signalCode === null)).toHaveLength(0);
+      expect(spawn).toHaveBeenCalledTimes(1);
+    } finally {
+      for (const { value } of spawn.mock.results) procs.killCliTree(value);
+      await Promise.all(prepares);
+    }
+  });
+
+  it("awaits pending authentication on dispose without spawning", async () => {
+    let release!: (authenticated: boolean) => void;
+    const authenticated = new Promise<boolean>((resolve) => { release = resolve; });
+    const auth = vi.fn(() => authenticated);
+    const spawn = vi.spyOn(procs, "spawnCli");
+    const Driver = createAcpDriver({ ...grokSupport, requireAuthenticationBeforeSpawn: true, isAuthenticated: auth });
+    instance = await Driver.create({
+      instanceId: "acp-hs-prepare-auth",
+      displayName: "ACP Handshake Auth",
+      environment: {},
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: true, workspace: scratch },
+    });
+    const prepares = Array.from({ length: 8 }, () => instance.prepare!());
+    await expect.poll(() => auth.mock.calls.length).toBeGreaterThan(0);
+    let disposed = false;
+    const disposing = instance.dispose().then(() => { disposed = true; });
+    try {
+      await Promise.resolve();
+      expect(disposed).toBe(false);
+      expect(auth).toHaveBeenCalledTimes(1);
+    } finally {
+      release(true);
+      await Promise.all([...prepares, disposing]);
+    }
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("prepare() warms again after the idle child expires", async () => {
+    const spawn = vi.spyOn(procs, "spawnCli");
+    const Driver = createAcpDriver({ ...grokSupport, warmIdleMs: 500 });
+    instance = await Driver.create({
+      instanceId: "acp-hs-prepare-expired",
+      displayName: "ACP Handshake Expired",
+      environment: {},
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: true, workspace: scratch },
+    });
+    await instance.prepare!();
+    const child = spawn.mock.results[0].value;
+    await expect.poll(() => child.exitCode !== null || child.signalCode !== null).toBe(true);
+    await instance.prepare!();
+    expect(spawn).toHaveBeenCalledTimes(2);
   });
 
   it("prepare() is a no-op when a handshake child is already warm", async () => {

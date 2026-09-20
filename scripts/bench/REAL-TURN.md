@@ -45,16 +45,11 @@ Raw run: `scripts/bench/results/claude-real-20260920-111411/` (gitignored).
 
 \*First warm after colds still paid a full spawn (`cliReady` 25) before session reuse kicked in on turns 7–10.
 
-## Orbit vs provider
+## Timing limits
 
-| Segment | Owner | Cold | Warm (reuse) | Notes |
-|---|---|---:|---:|---|
-| `dispatch` | Orbit | ~0 | ~0 | In-process |
-| `spawnOrReuse` + `cliReady` | Orbit | ~21 | **0** | Spawn/handshake vs retained stdin write |
-| `cliReady` → `firstVisible` | **Provider** | ~2900 | ~1540 | Model TTFT + stream |
-| `firstVisible` → `turnDone` | Mixed | ~160 | ~100 | Short reply; mostly provider flush |
+Claude's cold `cliReady` mark records `spawnCli()` returning, before CLI startup or readiness. The warm mark records selection of the retained process. Neither mark isolates provider latency.
 
-**Conclusion:** After focused-bot prewarm / session reuse, **remaining latency to first token is almost entirely provider-bound**. Orbit-owned spawn/ready is ~20ms cold and ~0ms on warm reuse. Do not chase provider TTFT in Orbit code.
+The measured TTFT includes CLI startup, request handling, network, and model latency. These runs show lower TTFT with session reuse, but cannot attribute the remaining delay to the provider. No benchmark rerun was performed for this correction.
 
 ## Orbit fixes landed with this measurement
 
@@ -64,6 +59,6 @@ Raw run: `scripts/bench/results/claude-real-20260920-111411/` (gitignored).
 ## Honesty
 
 - Live Claude Code CLI (subscription), not fake-acp.
-- Short ping prompt — good for overhead split, not for long-generation totals.
+- Short ping prompt: measures end-to-end TTFT, not an Orbit/provider overhead split or long-generation totals.
 - Headless driver bench ≠ full UI keypress→paint; use chat-latency env for the IPC/UI head.
 

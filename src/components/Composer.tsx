@@ -376,13 +376,9 @@ export function Composer({
   // IME composition: native isComposing can stay true after Hangul
   // commits, which used to make Enter insert a newline instead of send.
   const composingRef = useRef(false);
-  const prewarmRequestedRef = useRef<string | null>(null);
   const requestBotPrewarm = useCallback((botId: string | undefined) => {
-    if (!botId || prewarmRequestedRef.current === botId) return;
-    prewarmRequestedRef.current = botId;
-    void api(`/api/bots/${botId}/prewarm`, { method: "POST" }).catch(() => {
-      if (prewarmRequestedRef.current === botId) prewarmRequestedRef.current = null;
-    });
+    if (!botId) return;
+    void api(`/api/bots/${botId}/prewarm`, { method: "POST" }).catch(() => {});
   }, []);
 
   const compositionEndedAtRef = useRef(0);

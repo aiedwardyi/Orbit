@@ -7,6 +7,7 @@ vi.mock("@/state/store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/state/store")>();
   return {
     ...actual,
+    api: vi.fn(async () => ({})),
     useStore: () => ({
       state: {
         acceptedSends: {},
@@ -21,7 +22,7 @@ vi.mock("@/state/store", async (importOriginal) => {
 });
 
 import { Composer } from "./Composer";
-import type { Message } from "@/state/store";
+import { api, type Bot, type Message } from "@/state/store";
 
 const replyMessage: Message = { id: "m1", role: "bot", kind: "text", text: "hi", at: 0 };
 
@@ -33,6 +34,7 @@ afterEach(async () => {
   host?.remove();
   root = null;
   host = null;
+  vi.clearAllMocks();
 });
 
 async function mount(replyTo: Message | null, focusBlocked = false, locked = false) {
@@ -50,6 +52,26 @@ async function mount(replyTo: Message | null, focusBlocked = false, locked = fal
 }
 
 describe("composer reply focus", () => {
+  it("requests prewarm again on later focus and typing", async () => {
+    const textarea = await mount(null);
+    const bot: Bot = {
+      id: "prewarm", threadId: "prewarm-thread", name: "Prewarm", title: "", description: "",
+      notifications: false, color: "blue", unread: false, messages: [],
+      modelSelection: { instanceId: "grok", model: "grok" },
+    };
+    await act(async () => root!.render(createElement(Composer, { bot })));
+    await act(async () => textarea.focus());
+    expect(api).toHaveBeenCalledWith("/api/bots/prewarm/prewarm", { method: "POST" });
+    vi.mocked(api).mockClear();
+    await act(async () => { textarea.blur(); textarea.focus(); });
+    expect(api).toHaveBeenCalledTimes(1);
+    await act(async () => textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true })));
+    expect(api).toHaveBeenCalledTimes(2);
+    await act(async () => root!.render(createElement(Composer, { bot: { ...bot, id: "other" } })));
+    await act(async () => textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "b", bubbles: true })));
+    expect(api).toHaveBeenLastCalledWith("/api/bots/other/prewarm", { method: "POST" });
+  });
+
   it("focuses the input when a reply target is selected", async () => {
     const textarea = await mount(null);
     expect(document.activeElement).not.toBe(textarea);

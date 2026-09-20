@@ -124,6 +124,7 @@ describe("CursorAgentDriver", () => {
     expect(CursorAgentDriver.decodeConfig(undefined)).toEqual({
       cli: "cursor-agent",
       fullAuto: false,
+      prewarm: false,
       workspace: undefined,
     });
     expect(CursorAgentDriver.driverKind).toBe("cursorAgent");
