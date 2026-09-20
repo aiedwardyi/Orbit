@@ -83,6 +83,10 @@ export function UpdatesRow() {
   const { t } = useI18n();
   const s = useUpdaterState();
   const { acknowledged, check } = useManualCheck(s?.status ?? "idle");
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  useEffect(() => {
+    void window.ogb?.getAppVersion?.().then(setAppVersion, () => {});
+  }, []);
   if (!window.ogb?.updater) return null;
   const updater = window.ogb.updater;
   const label =
@@ -103,21 +107,24 @@ export function UpdatesRow() {
                 : t("settings.updates.latest");
   return (
     <Card title={t("settings.updates.title")} subtitle={label}>
-      <button
-        onClick={() => {
-          if (s?.status === "available") return void updater.download();
-          if (s?.status === "downloaded") return void updater.install();
-          check();
-        }}
-        disabled={s?.status === "checking" || s?.status === "downloading"}
-        className="rounded-lg border border-hairline/40 px-3 py-1.5 text-[13px] text-ink hover:bg-control disabled:opacity-40"
-      >
-        {s?.status === "available"
-          ? t("settings.updates.download")
-          : s?.status === "downloaded"
-            ? t("settings.updates.restart")
-            : t("settings.updates.check")}
-      </button>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => {
+            if (s?.status === "available") return void updater.download();
+            if (s?.status === "downloaded") return void updater.install();
+            check();
+          }}
+          disabled={s?.status === "checking" || s?.status === "downloading"}
+          className="rounded-lg border border-hairline/40 px-3 py-1.5 text-[13px] text-ink hover:bg-control disabled:opacity-40"
+        >
+          {s?.status === "available"
+            ? t("settings.updates.download")
+            : s?.status === "downloaded"
+              ? t("settings.updates.restart")
+              : t("settings.updates.check")}
+        </button>
+        {appVersion ? <span className="text-[12px] text-ink-secondary">v{appVersion}</span> : null}
+      </div>
     </Card>
   );
 }
