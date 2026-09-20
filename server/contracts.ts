@@ -244,6 +244,11 @@ export interface ProviderAdapter {
     transcriptReplay?: boolean;
     /** False when session.started IDs cannot resume later turns. */
     resumeCursor?: boolean;
+    /** True when turn.completed `usage.input` is the final prompt size, so it
+     * can be compared against the model window. Opt-in: an agentic CLI reports
+     * the invocation total instead (every tool round's cache read summed),
+     * which reads as many times the window on a session nowhere near full. */
+    turnInputIsPromptSize?: boolean;
     /** True when the driver mounts turn.integrations.agents as MCP tools —
      * the harness only offers agents tooling (and prompts about it) to
      * drivers that can actually hand it to the agent. */

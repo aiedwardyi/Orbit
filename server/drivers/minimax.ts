@@ -309,7 +309,8 @@ export const MinimaxDriver: ProviderDriver<MinimaxConfig> = {
       snapshot,
       adapter: {
         provider: DRIVER_KIND,
-        capabilities: { sessionModelSwitch: "in-session", transcriptReplay: true },
+        // One chat completion per turn, so prompt_tokens is the prompt size.
+        capabilities: { sessionModelSwitch: "in-session", transcriptReplay: true, turnInputIsPromptSize: true },
         sendTurn,
         interruptTurn: async (threadId) => active.get(threadId)?.abort.abort(),
         respondToRequest: async (): Promise<"unavailable"> => "unavailable",

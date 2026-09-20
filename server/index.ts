@@ -2056,9 +2056,17 @@ const repeats = new RepeatDetector({ thresholds: [5, 10, 20], maxKeysPerThread: 
 // activity-based, so an hour-long turn that keeps streaming is never
 // touched, and turns parked on a human approval are exempt.
 const TURN_STALL_MS = Math.max(60_000, Number(process.env.OMB_TURN_STALL_MS) || 20 * 60_000);
+// A tool that is still running keeps the turn alive past TURN_STALL_MS - a long
+// build emits nothing between item.started and item.completed. This is the
+// ceiling on that exemption, for a tool that never returns at all.
+const TURN_TOOL_CAP_MS = Math.max(
+  TURN_STALL_MS,
+  Number(process.env.OMB_TURN_TOOL_CAP_MS) || 60 * 60_000,
+);
 const roomStallCompletions = new RoomTurnStallRegistry();
 const watchdog = new TurnWatchdog({
   stallMs: TURN_STALL_MS,
+  toolCapMs: TURN_TOOL_CAP_MS,
   checkMs: 60_000,
   onStall: (turn) => {
     repeats.settle(turn.threadId);
@@ -2191,7 +2199,14 @@ bus.subscribe((event: RuntimeEvent) => {
   if (event.type === "request.opened") watchdog.setWaitingOnHuman(event.threadId, true);
   else if (event.type === "request.resolved") watchdog.setWaitingOnHuman(event.threadId, false);
   else if (event.type === "turn.completed") watchdog.settle(event.threadId);
-  else watchdog.touch(event.threadId);
+  else {
+    if (event.type === "item.started" && event.itemType === "tool" && event.itemId) {
+      watchdog.toolStarted(event.threadId, event.itemId);
+    } else if (event.type === "item.completed" && event.itemType === "tool" && event.itemId) {
+      watchdog.toolCompleted(event.threadId, event.itemId);
+    }
+    watchdog.touch(event.threadId);
+  }
 });
 
 // Bots currently working with nobody at the keyboard — a webhook turn, or a
@@ -3485,7 +3500,12 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     skipTranscript,
     task.providerSessionBoundId,
   );
-  const knownWindow = knownCatalogContextWindow(instance.models, model);
+  // Needs both a real window and an `input` figure that means prompt size.
+  // Claude's is the invocation total, so a healthy 30k-context turn with ten
+  // tool rounds reads as ~300k and would recycle a barely-used session.
+  const knownWindow = instance.adapter.capabilities.turnInputIsPromptSize
+    ? knownCatalogContextWindow(instance.models, model)
+    : null;
   const recycled = shouldRecycleProviderSession({
     compacted: contextCompacted,
     rewound,
@@ -3493,8 +3513,6 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     lastTurnToolRounds,
     sessionToolRounds,
     lastTurnInputTokens: task.usage?.lastInput,
-    // Claude/Codex catalogs often omit contextWindow; half of the 16k
-    // compaction fallback is the wrong unit for native prompt size.
     nativeTokenBudget: knownWindow ? nativeSessionTokenBudget(knownWindow) : 0,
   });
   // Transcript-replay engines never `--resume`; clearing an already-empty

@@ -8,17 +8,25 @@
 // an app restart. This watchdog watches ACTIVITY, not duration: a turn may
 // legitimately run for an hour while events keep flowing, but a turn whose
 // thread has emitted nothing at all for `stallMs` is wedged. Turns parked
-// on a human approval are exempt — waiting on a person is not a stall.
+// on a human approval are exempt — waiting on a person is not a stall. So is
+// a turn with a tool still in flight: a long build or test run emits nothing
+// between item.started and item.completed, and killing it mid-call loses the
+// whole turn. `toolCapMs` bounds that exemption so a tool that never returns
+// still trips.
 export interface WatchedTurn {
   threadId: string;
   botId: string;
   startedAt: number;
   lastEventAt: number;
   waitingOnHuman: boolean;
+  /** Tool item ids started and not yet completed on this turn. */
+  toolsInFlight: Set<string>;
 }
 
 export interface TurnWatchdogOptions {
   stallMs: number;
+  /** Silence ceiling that applies even with a tool in flight. */
+  toolCapMs: number;
   checkMs: number;
   /** Called once per stalled turn, after the entry is removed. */
   onStall: (turn: WatchedTurn) => void;
@@ -56,7 +64,14 @@ export class TurnWatchdog {
   /** A turn was dispatched on this thread. */
   watch(threadId: string, botId: string): void {
     const at = this.now();
-    this.turns.set(threadId, { threadId, botId, startedAt: at, lastEventAt: at, waitingOnHuman: false });
+    this.turns.set(threadId, {
+      threadId,
+      botId,
+      startedAt: at,
+      lastEventAt: at,
+      waitingOnHuman: false,
+      toolsInFlight: new Set(),
+    });
   }
 
   /** Any provider event for the thread proves the turn is alive. */
@@ -74,6 +89,16 @@ export class TurnWatchdog {
     turn.lastEventAt = this.now();
   }
 
+  /** A tool call opened; it holds the stall clock until it completes or the
+   * turn settles. Untracked when the driver emits no item id. */
+  toolStarted(threadId: string, itemId: string): void {
+    this.turns.get(threadId)?.toolsInFlight.add(itemId);
+  }
+
+  toolCompleted(threadId: string, itemId: string): void {
+    this.turns.get(threadId)?.toolsInFlight.delete(itemId);
+  }
+
   /** The turn settled normally — stop watching it. */
   settle(threadId: string): void {
     this.turns.delete(threadId);
@@ -88,7 +113,9 @@ export class TurnWatchdog {
     const at = this.now();
     for (const turn of this.turns.values()) {
       if (turn.waitingOnHuman) continue;
-      if (at - turn.lastEventAt < this.opts.stallMs) continue;
+      const silent = at - turn.lastEventAt;
+      if (silent < this.opts.stallMs) continue;
+      if (turn.toolsInFlight.size > 0 && silent < this.opts.toolCapMs) continue;
       this.turns.delete(turn.threadId);
       this.opts.onStall(turn);
     }

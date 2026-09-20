@@ -5,12 +5,14 @@ import { describe, expect, it } from "vitest";
 import { TurnWatchdog, type WatchedTurn } from "./turn-watchdog.ts";
 
 const STALL = 10_000;
+const TOOL_CAP = 30_000;
 
 function rig() {
   let now = 0;
   const stalls: WatchedTurn[] = [];
   const dog = new TurnWatchdog({
     stallMs: STALL,
+    toolCapMs: TOOL_CAP,
     checkMs: 60_000,
     onStall: (turn) => stalls.push(turn),
     now: () => now,
@@ -57,6 +59,32 @@ describe("TurnWatchdog", () => {
     dog.sweep();
     expect(stalls).toHaveLength(0);
     tick(2);
+    dog.sweep();
+    expect(stalls).toHaveLength(1);
+  });
+
+  it("holds the clock for a tool in flight, up to the absolute cap", () => {
+    const { dog, stalls, tick } = rig();
+    dog.watch("t1", "bot1");
+    dog.toolStarted("t1", "call-1");
+    tick(STALL * 2);
+    dog.sweep();
+    expect(stalls).toHaveLength(0);
+    tick(TOOL_CAP);
+    dog.sweep();
+    expect(stalls).toEqual([expect.objectContaining({ threadId: "t1" })]);
+  });
+
+  it("stalls a silent turn once its tool completes", () => {
+    const { dog, stalls, tick } = rig();
+    dog.watch("t1", "bot1");
+    dog.toolStarted("t1", "call-1");
+    tick(STALL * 2);
+    dog.sweep();
+    expect(stalls).toHaveLength(0);
+    dog.toolCompleted("t1", "call-1");
+    dog.touch("t1");
+    tick(STALL + 1);
     dog.sweep();
     expect(stalls).toHaveLength(1);
   });

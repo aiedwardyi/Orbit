@@ -16,11 +16,16 @@ describe("readClaudeModelCatalog", () => {
     expect(readClaudeModelCatalog({ HOME: join(tmpdir(), "omb-claude-missing-home") })).toEqual(STATIC_CLAUDE_MODELS);
     expect(STATIC_CLAUDE_MODELS.options).toEqual(
       expect.arrayContaining([
-        { id: "claude-fable-5-1", label: "Claude Fable 5.1" },
-        { id: "claude-fable-5", label: "Claude Fable 5" },
+        { id: "claude-fable-5-1", label: "Claude Fable 5.1", contextWindow: 200_000 },
+        { id: "claude-fable-5", label: "Claude Fable 5", contextWindow: 200_000 },
       ]),
     );
-    expect(STATIC_CLAUDE_MODELS.options[0]).toEqual({ id: "claude-fable-5-1", label: "Claude Fable 5.1" });
+    expect(STATIC_CLAUDE_MODELS.options[0]).toEqual({
+      id: "claude-fable-5-1",
+      label: "Claude Fable 5.1",
+      contextWindow: 200_000,
+    });
+    expect(STATIC_CLAUDE_MODELS.options.every((option) => option.contextWindow === 200_000)).toBe(true);
   });
 
   it("tags extra settings models as custom and leaves official rows untagged", () => {

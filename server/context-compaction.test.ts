@@ -279,6 +279,38 @@ describe("provider-neutral context compaction", () => {
     expect(knownCatalogContextWindow({ default: "x", options: [{ id: "x", label: "X" }] }, "x")).toBeNull();
   });
 
+  it("compacts three large pastes on the 16k fallback but not on a 200k window", async () => {
+    const pastes = [
+      message("m1", "paste one: " + "x".repeat(30_000)),
+      message("m2", "paste two: " + "y".repeat(30_000)),
+      message("m3", "paste three: " + "z".repeat(30_000)),
+    ];
+    const summarize = async () => "pasted three large files";
+
+    const wide = await prepareModelContext({
+      messages: pastes,
+      contextWindow: 200_000,
+      taskRecordText: "Goal: review the pastes",
+      summarize,
+    });
+    expect(wide.status).toBe("ready");
+    if (wide.status !== "ready") return;
+    expect(wide.compacted).toBe(false);
+    expect(wide.compaction).toBeUndefined();
+    expect(wide.budgetTokens).toBe(100_000);
+    expect(wide.transcript).toHaveLength(3);
+
+    const narrow = await prepareModelContext({
+      messages: pastes,
+      contextWindow: MODEL_CONTEXT_FALLBACK,
+      taskRecordText: "Goal: review the pastes",
+      summarize,
+    });
+    expect(narrow.status).toBe("ready");
+    if (narrow.status !== "ready") return;
+    expect(narrow.compaction?.summary).toContain("pasted three large files");
+  });
+
   it("keeps small-window context within its deterministic budget", async () => {
     const result = await prepareModelContext({
       messages: longHistory(180),

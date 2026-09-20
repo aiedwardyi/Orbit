@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { DATA_DIR } from "./config.ts";
 import { knownCatalogContextWindow, prepareModelContext } from "./context-compaction.ts";
+import { STATIC_CLAUDE_MODELS } from "./drivers/claude.ts";
 import { closeMessageDb } from "./message-db.ts";
 import { Store } from "./store.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
@@ -258,17 +259,22 @@ describe("provider session recycle after Orbit compaction", () => {
     expect(store.taskByThread(bot.id, bot.threadId)?.resumeCursors.claude).toBe("fat-soak-session");
   });
 
-  it("does not recycle a short Claude turn from lastInput against the 16k catalog fallback", () => {
-    const catalog = { default: "claude-sonnet-5", options: [{ id: "claude-sonnet-5", label: "Sonnet" }] };
-    const knownWindow = knownCatalogContextWindow(catalog, "claude-sonnet-5");
-    expect(knownWindow).toBeNull();
-    expect(shouldRecycleProviderSession({
-      compacted: false,
-      lastTurnToolRounds: 2,
-      sessionToolRounds: 2,
-      lastTurnInputTokens: 20_000,
-      nativeTokenBudget: knownWindow ? nativeSessionTokenBudget(knownWindow) : 0,
-    })).toBe(false);
+  it("leaves the native budget off for a driver whose input is an invocation total", () => {
+    // Claude's catalog now states 200k, but its turn `input` sums every tool
+    // round's cache read, so the window comparison stays gated off.
+    const knownWindow = knownCatalogContextWindow(STATIC_CLAUDE_MODELS, "claude-sonnet-5");
+    expect(knownWindow).toBe(200_000);
+    const gated = (turnInputIsPromptSize: boolean) =>
+      shouldRecycleProviderSession({
+        compacted: false,
+        lastTurnToolRounds: 2,
+        sessionToolRounds: 2,
+        lastTurnInputTokens: 300_000,
+        nativeTokenBudget:
+          turnInputIsPromptSize && knownWindow ? nativeSessionTokenBudget(knownWindow) : 0,
+      });
+    expect(gated(false)).toBe(false);
+    expect(gated(true)).toBe(true);
   });
 
   it("resumes a slim follow-up after a session-fat recycle watermark", async () => {

@@ -118,14 +118,17 @@ export interface ClaudeConfig {
 }
 
 // model catalog ported from upstream packages/contracts/src/model.ts
+// Every current Claude model ships a 200k window. Stated here because an
+// option without `contextWindow` falls back to MODEL_CONTEXT_FALLBACK (16k),
+// which compacts a healthy Claude thread after a couple of large pastes.
 export const STATIC_CLAUDE_MODELS: ModelCatalog = {
   default: "claude-sonnet-5",
   options: [
-    { id: "claude-fable-5-1", label: "Claude Fable 5.1" },
-    { id: "claude-fable-5", label: "Claude Fable 5" },
-    { id: "claude-opus-5", label: "Claude Opus 5" },
-    { id: "claude-sonnet-5", label: "Claude Sonnet 5" },
-    { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+    { id: "claude-fable-5-1", label: "Claude Fable 5.1", contextWindow: 200_000 },
+    { id: "claude-fable-5", label: "Claude Fable 5", contextWindow: 200_000 },
+    { id: "claude-opus-5", label: "Claude Opus 5", contextWindow: 200_000 },
+    { id: "claude-sonnet-5", label: "Claude Sonnet 5", contextWindow: 200_000 },
+    { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", contextWindow: 200_000 },
   ],
 };
 
