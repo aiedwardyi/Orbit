@@ -24,6 +24,7 @@ import { newEventId, newId } from "../../contracts.ts";
 import { applyCredentialAllowlist } from "../../config.ts";
 import { augmentedPath, toWslPath } from "../../env-path.ts";
 import { execCli, killCliTree, spawnCli } from "../../procs.ts";
+import { isWslCommand, withWslProbeReason, wslBlockedReason, wslProbeAllowed } from "../../wsl-gate.ts";
 import { startTurnTimer } from "../../turn-timing.ts";
 import { finishNative } from "../native.ts";
 import { museUsageReport } from "../rate-limits.ts";
@@ -169,10 +170,14 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
       const { instanceId, config } = input;
       const baseCli = config.cli || support.defaultCli;
       let wslCli: string | null = null;
+      // Last real answer, replayed while the WSL gate is shut so a sleeping
+      // WSL engine does not flap to "not found" on every passive refresh.
+      let lastSnapshot: ProviderSnapshot | null = null;
       const effectiveCli = () => wslCli ?? baseCli;
       const isWslCli = () => /^\s*wsl(\.exe)?(\s|$)/i.test(effectiveCli());
       const probe = (target: string, probeEnv: NodeJS.ProcessEnv): Promise<string | null> =>
         new Promise((resolve) => {
+          if (isWslCommand(target) && !wslProbeAllowed()) return resolve(null);
           execCli(target, ["--version"], { timeout: 8000, env: probeEnv }, (err, stdout) =>
             resolve(err ? null : stdout.trim()),
           );
@@ -194,6 +199,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
               return true;
             }
           }
+          if (!wslProbeAllowed()) return false;
           const resolved = await support.wslResolveCli?.(baseCli, probeEnv);
           if (resolved && !tried.has(resolved) && (await probe(resolved, probeEnv))) {
             wslCli = resolved;
@@ -250,7 +256,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
         const asks = new Map<string, Ask>();
         active.set(threadId, { turnId, interrupt: () => {}, asks });
         try {
-          if (support.requireAuthenticationBeforeSpawn && !(await support.isAuthenticated(env, config))) {
+          if (support.requireAuthenticationBeforeSpawn && !(await withWslProbeReason("turn", () => support.isAuthenticated(env, config)))) {
             emit({ ...base(threadId, turnId), type: "turn.started" });
             emit({ ...base(threadId, turnId), type: "runtime.error", message: support.loginNote, setup: true });
             turnTimer.mark("turnDone");
@@ -258,12 +264,12 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
     emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "auth_required" });
             return { turnId };
           }
-          if (!(await resolveCli(env))) {
+          if (!(await withWslProbeReason("turn", () => resolveCli(env)))) {
             emit({ ...base(threadId, turnId), type: "turn.started" });
             emit({
               ...base(threadId, turnId),
               type: "runtime.error",
-              message: `\`${effectiveCli()}\` CLI not found`,
+              message: wslProbeAllowed("turn") ? `\`${effectiveCli()}\` CLI not found` : wslBlockedReason(support.displayName),
               setup: true,
             });
             turnTimer.mark("turnDone");
@@ -878,17 +884,22 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
             };
           },
         },
-        snapshot: async (): Promise<ProviderSnapshot> => {
-          const env = childEnv();
-          if (!(await resolveCli(env))) {
-            return { state: "unavailable", reason: `\`${effectiveCli()}\` CLI not found` };
-          }
-          return {
-            state: "available",
-            version: await probe(effectiveCli(), env),
-            authenticated: await support.isAuthenticated(env, config),
-          };
-        },
+        snapshot: (opts?: { rescan?: boolean }): Promise<ProviderSnapshot> =>
+          withWslProbeReason(opts?.rescan ? "rescan" : "passive", async (): Promise<ProviderSnapshot> => {
+            const env = childEnv();
+            const gated = support.wslProbeWrapper !== undefined && !wslProbeAllowed();
+            if (!(await resolveCli(env))) {
+              if (gated) return lastSnapshot ?? { state: "unavailable", reason: wslBlockedReason(support.displayName) };
+              return { state: "unavailable", reason: `\`${effectiveCli()}\` CLI not found` };
+            }
+            const ready: ProviderSnapshot = {
+              state: "available",
+              version: await probe(effectiveCli(), env),
+              authenticated: await support.isAuthenticated(env, config),
+            };
+            if (!gated) lastSnapshot = ready;
+            return ready;
+          }),
         dispose: async () => {
           for (const child of [...children]) {
             try {

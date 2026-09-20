@@ -387,7 +387,9 @@ export interface ProviderInstance {
   /** Refresh a live catalog without recreating the provider instance. */
   readonly refreshModels?: () => Promise<void>;
   readonly adapter: ProviderAdapter;
-  snapshot(): Promise<ProviderSnapshot>;
+  /** `rescan` = the user asked (Check again, saved a CLI): probes that
+   * would start WSL are allowed to, where a passive refresh may not. */
+  snapshot(opts?: { rescan?: boolean }): Promise<ProviderSnapshot>;
   /** Cheap one-shot text call (upstream TextGeneration) — titles, summaries. */
   generateText?(prompt: string): Promise<string>;
   /** Isolated, tool-free permission review on this same provider. Kept

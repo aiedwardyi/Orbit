@@ -9,6 +9,7 @@ import { join } from "node:path";
 
 import type { ModelCatalog, ProviderErrorCode } from "../../contracts.ts";
 import { augmentedPath, resolveCliSpawn } from "../../env-path.ts";
+import { wslProbeAllowed } from "../../wsl-gate.ts";
 import { createAcpDriver, type AcpSupport } from "./core.ts";
 
 export const STATIC_MUSE_MODELS: ModelCatalog = {
@@ -122,10 +123,13 @@ function wslExePath(): string {
  * sync-invoked and the snapshot path already awaits it; the 10s bound caps
  * a cold WSL boot. */
 export function probeWslMuseAuth(env: NodeJS.ProcessEnv = { ...process.env, PATH: augmentedPath() }): boolean {
+  // A passive probe must not boot WSL just to read a file inside it.
+  if (!wslProbeAllowed()) return false;
   try {
     execFileSync(wslExePath(), ["sh", "-c", 'test -f "${XDG_CONFIG_HOME:-$HOME/.config}/muse/auth.json"'], {
       stdio: "ignore",
       timeout: 10_000,
+      windowsHide: true,
       env,
     });
     return true;

@@ -683,9 +683,9 @@ let describeInFlight: ReturnType<typeof registry.describe> | null = null;
 
 /** One PATH/catalog walk at a time. Boot, create-bot, and GET /api/instances
  * share the in-flight promise so first chat does not start a second scan. */
-function describeInstances() {
-  if (!describeInFlight) {
-    const pending = registry.describe();
+function describeInstances(rescan = false) {
+  if (!describeInFlight || rescan) {
+    const pending = registry.describe({ rescan });
     describeInFlight = pending;
     void pending.finally(() => {
       if (describeInFlight === pending) describeInFlight = null;
@@ -8638,7 +8638,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // Windows never pushes PATH changes into a live process, so without
       // this the answer is frozen at boot and "check again" is a no-op.
       resetPathCache();
-      const instances = withRateLimits(await describeInstances());
+      const instances = withRateLimits(await describeInstances(url.searchParams.get("rescan") === "1"));
       rememberAutomaticAvailability(instances);
       return json(res, 200, { instances });
     }
@@ -8704,7 +8704,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         // from the memoized PATH, so resetting after would answer this request
         // with the pre-reset cache
         resetPathCache();
-        return json(res, 200, { instances: withRateLimits(await registry.describe()) });
+        return json(res, 200, { instances: withRateLimits(await registry.describe({ rescan: true })) });
       } finally {
         providerConfigBusy = false;
       }

@@ -25,7 +25,7 @@ export function NoEngines() {
   const recheck = async () => {
     setRechecking(true);
     try {
-      await refreshInstances();
+      await refreshInstances(true);
     } finally {
       setRechecking(false);
     }

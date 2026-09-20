@@ -24,6 +24,7 @@ const LOCAL_HOST_KEY_ENVS = [
   ...new Set(LOCAL_HOSTS.map((host) => host.apiKeyEnv).filter((key): key is string => Boolean(key))),
 ];
 import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../../procs.ts";
+import { isWslCommand, withWslProbeReason, wslBlockedReason, wslProbeAllowed } from "../../wsl-gate.ts";
 import { startTurnTimer } from "../../turn-timing.ts";
 import { exhaustedWindow, grokRateLimitWindows, isConfirmedNonUsage, usageLimitFromError } from "../rate-limits.ts";
 
@@ -310,6 +311,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
       const effectiveCli = () => wslCli ?? config.cli;
       const probe = (target: string, probeEnv: NodeJS.ProcessEnv): Promise<string | null> =>
         new Promise((resolve) => {
+          if (isWslCommand(target) && !wslProbeAllowed()) return resolve(null);
           execCli(target, ["--version"], { timeout: 8000, env: probeEnv }, (err, stdout) =>
             resolve(err ? null : stdout.trim()),
           );
@@ -334,8 +336,10 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
       // snapshot still launches the working wrapper. snapshot() always
       // probes fresh and refreshes the memo; turns reuse the memo.
       let cliProbe: Promise<{ cli: string; version: string } | null> | null = null;
+      let cliProbeSawWsl = true;
       const resolveCli = (probeEnv: NodeJS.ProcessEnv) => {
-        const started = probeCliVersion(config.cli, probeEnv, process.platform, support.wslProbeWrapper, probe, support.wslResolveCli).then(
+        const allowWsl = support.wslProbeWrapper === undefined || wslProbeAllowed();
+        const started = probeCliVersion(config.cli, probeEnv, process.platform, support.wslProbeWrapper, probe, allowWsl ? support.wslResolveCli : undefined).then(
           (probed) => {
             // Side-effect, not a pure read: steers effectiveCli() for all
             // later spawns until the next rescan clears or replaces it.
@@ -344,10 +348,17 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           },
         );
         cliProbe = started;
+        cliProbeSawWsl = allowWsl;
         return started;
       };
-      const ensureCli = (probeEnv: NodeJS.ProcessEnv): Promise<{ cli: string; version: string } | null> =>
-        cliProbe ?? (cliProbe = resolveCli(probeEnv));
+      // A miss recorded while the WSL gate was shut is not "not installed":
+      // re-probe once the caller is allowed to start WSL.
+      const ensureCli = async (probeEnv: NodeJS.ProcessEnv): Promise<{ cli: string; version: string } | null> => {
+        const pending = cliProbe;
+        if (!pending) return resolveCli(probeEnv);
+        if (cliProbeSawWsl || !wslProbeAllowed()) return pending;
+        return (await pending) ?? resolveCli(probeEnv);
+      };
 
       await refreshModels();
       const listeners = new Set<RuntimeEventListener>();
@@ -605,7 +616,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             if (
               support.requireAuthenticationBeforeSpawn
               && !skipSubscriptionAuthForLocalInject(turn.model)
-              && !(await support.isAuthenticated(env, config))
+              && !(await withWslProbeReason("turn", () => support.isAuthenticated(env, config)))
             ) {
               emit({ ...base(threadId, turnId), type: "turn.started" });
               emit({ ...base(threadId, turnId), type: "runtime.error", message: support.loginNote, setup: true });
@@ -637,7 +648,15 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             // turns), and the auth gate above never probes — without this the
             // first such turn on win32 would spawn the bare CLI that only
             // exists inside WSL.
-            await ensureCli(env);
+            const cliReady = await withWslProbeReason("turn", () => ensureCli(env));
+            if (!cliReady && support.wslProbeWrapper && !wslProbeAllowed("turn")) {
+              emit({ ...base(threadId, turnId), type: "turn.started" });
+              emit({ ...base(threadId, turnId), type: "runtime.error", message: wslBlockedReason(support.displayName), setup: true });
+              turnTimer.mark("turnDone");
+              turnTimer.finish();
+              emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "unavailable", cost: null });
+              return { early: true as const };
+            }
             turnTimer.mark("cliProbed");
             return { early: false as const, cliTurn, sessionCwd: sessionPaths.cwd, mcpServers: sessionPaths.servers };
           } finally {
@@ -1318,12 +1337,20 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         return { turnId };
       };
 
-      const snapshot = async (): Promise<ProviderSnapshot> => {
-        const env = childEnv();
-        const probed = await resolveCli(env);
-        if (!probed) return { state: "unavailable", reason: `\`${effectiveCli()}\` CLI not found` };
-        return { state: "available", version: probed.version, authenticated: await support.isAuthenticated(env, config) };
-      };
+      // Last real answer, replayed while the WSL gate is shut so a sleeping
+      // WSL engine does not flap to "not found" on every passive refresh.
+      let lastSnapshot: ProviderSnapshot | null = null;
+      const snapshot = async (opts?: { rescan?: boolean }): Promise<ProviderSnapshot> =>
+        withWslProbeReason(opts?.rescan ? "rescan" : "passive", async () => {
+          const env = childEnv();
+          const gated = support.wslProbeWrapper !== undefined && !wslProbeAllowed();
+          const probed = await resolveCli(env);
+          if (!probed && gated) return lastSnapshot ?? { state: "unavailable", reason: wslBlockedReason(support.displayName) };
+          if (!probed) return { state: "unavailable", reason: `\`${effectiveCli()}\` CLI not found` };
+          const ready: ProviderSnapshot = { state: "available", version: probed.version, authenticated: await support.isAuthenticated(env, config) };
+          if (!gated) lastSnapshot = ready;
+          return ready;
+        });
 
       return {
         instanceId,

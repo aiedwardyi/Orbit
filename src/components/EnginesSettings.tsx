@@ -309,7 +309,7 @@ function EngineRow({ instance }: { instance: InstanceInfo }) {
           instance={instance}
           cliDefault={instance.cliDefault}
           onClose={() => setOpen(false)}
-          onSaved={refreshInstances}
+          onSaved={() => refreshInstances(true)}
         />
       )}
     </div>

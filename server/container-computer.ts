@@ -200,6 +200,7 @@ LABEL ${MANAGED_LABEL}="1" \\
 async function sh(cmd: string, args: string[], timeout = 8000): Promise<{ stdout: string }> {
   const { stdout } = await run(cmd, args, {
     timeout,
+    windowsHide: true,
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,
     env: { ...process.env, PATH: augmentedPath() },

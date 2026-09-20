@@ -1795,8 +1795,9 @@ const StoreContext = createContext<{
   dispatch: React.Dispatch<Action>;
   /** Commit any debounced profile edits before an operation reads the bot. */
   flushBotPatches: (botId: string) => Promise<void>;
-  /** Re-fetch engine availability — after an install, without a restart. */
-  refreshInstances: () => Promise<void>;
+  /** Re-fetch engine availability — after an install, without a restart.
+   * `rescan` marks a user-driven recheck, which may start WSL. */
+  refreshInstances: (rescan?: boolean) => Promise<void>;
 } | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
@@ -2896,10 +2897,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // Re-probe the engines on demand. A CLI installed while the app is running
   // is invisible until something asks again — the setup screens expose this
   // as "Check again" so the user isn't told to restart when a refresh will do.
-  const refreshInstances = useCallback(async () => {
+  const refreshInstances = useCallback(async (rescan = false) => {
     const generation = ++refreshGeneration.current;
     try {
-      const { instances } = await api("/api/instances");
+      const { instances } = await api(rescan ? "/api/instances?rescan=1" : "/api/instances");
       if (generation !== refreshGeneration.current) return;
       rawDispatch({ type: "instances", instances, preserveRateLimits: true });
     } catch {

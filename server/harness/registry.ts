@@ -164,7 +164,7 @@ export class ProviderRegistry {
   }
 
   /** instance snapshots for the model picker: id, driver, models, health */
-  async describe() {
+  async describe(opts?: { rescan?: boolean }) {
     // Multiple instances may share a driver. Scan each default binary once
     // per response instead of repeating filesystem work for every row.
     const candidatesByName = new Map<string, string[]>();
@@ -225,7 +225,7 @@ export class ProviderRegistry {
               }
             }
           }
-          snapshot = await inst.snapshot();
+          snapshot = await inst.snapshot(opts);
         } catch (e) {
           snapshot = { state: "unavailable", reason: e instanceof Error ? e.message : String(e) };
         }
