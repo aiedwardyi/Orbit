@@ -451,7 +451,8 @@ describe("wiring", () => {
         ?.slice(1)
         .find(Boolean);
     expect(streamBinding).toBeDefined();
-    expect(chatView).not.toMatch(new RegExp(`\\{\\s*${streamBinding}\\s*\\}`));
-    expect(chatView).not.toMatch(/\{\s*[\w.?]+\.streaming\s*\}/);
+    // `prop={streaming}` passes the flag down; only a bare child `{streaming}` renders text
+    expect(chatView).not.toMatch(new RegExp(`(?<!=)\\{\\s*${streamBinding}\\s*\\}`));
+    expect(chatView).not.toMatch(/(?<!=)\{\s*[\w.?]+\.streaming\s*\}/);
   });
 });
