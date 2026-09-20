@@ -380,7 +380,7 @@ export function Composer({
   const requestBotPrewarm = useCallback((botId: string | undefined) => {
     if (!botId || prewarmRequestedRef.current === botId) return;
     prewarmRequestedRef.current = botId;
-    void api(/api/bots//prewarm, { method: "POST" }).catch(() => {
+    void api(`/api/bots/${botId}/prewarm`, { method: "POST" }).catch(() => {
       if (prewarmRequestedRef.current === botId) prewarmRequestedRef.current = null;
     });
   }, []);
