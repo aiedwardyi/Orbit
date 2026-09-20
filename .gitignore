@@ -26,3 +26,6 @@ cloudflare/control-plane/worker-configuration.d.ts
 .claude/worktrees/
 .vercel/
 .pi/
+scripts/bench/results/
+.orbit-data/native/
+.orbit-data/turn-timing.jsonl
