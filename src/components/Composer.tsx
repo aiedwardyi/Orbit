@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { ArrowUp, Check, Clock, Hand, Mic, Paperclip, ShieldCheck, Square, TerminalSquare, Users, X } from "lucide-react";
 import { showComposerPermissionChip } from "@/lib/conversation-preview";
-import { useStore, visibleMessages, type Bot, type Group, type Message } from "@/state/store";
+import { useStore, visibleMessages, type Bot, type Group, type Message, api } from "@/state/store";
 import { cn } from "@/lib/cn";
 import {
   draftRevision,
@@ -376,6 +376,15 @@ export function Composer({
   // IME composition: native isComposing can stay true after Hangul
   // commits, which used to make Enter insert a newline instead of send.
   const composingRef = useRef(false);
+  const prewarmRequestedRef = useRef<string | null>(null);
+  const requestBotPrewarm = useCallback((botId: string | undefined) => {
+    if (!botId || prewarmRequestedRef.current === botId) return;
+    prewarmRequestedRef.current = botId;
+    void api(/api/bots//prewarm, { method: "POST" }).catch(() => {
+      if (prewarmRequestedRef.current === botId) prewarmRequestedRef.current = null;
+    });
+  }, []);
+
   const compositionEndedAtRef = useRef(0);
   // what was typed before the mic went on — partials append after it
   const baseText = useRef("");
@@ -387,8 +396,9 @@ export function Composer({
     const input = inputRef.current;
     if (!input || input.disabled) return;
     input.focus();
+    requestBotPrewarm(bot.id);
     dispatch({ type: "composerFocused", botId: bot.id });
-  }, [bot, dispatch, focusBlocked, locked, approval, state.composerFocusBotId]);
+  }, [bot, dispatch, focusBlocked, locked, approval, requestBotPrewarm, state.composerFocusBotId]);
 
   // Reply chip alone leaves the cursor wherever it was, so a reply looks
   // picked but the user still has to click the box before typing. A failed
@@ -1020,7 +1030,14 @@ export function Composer({
             composingRef.current = false;
             compositionEndedAtRef.current = 0;
           }}
+          onFocus={() => {
+            if (bot?.id) requestBotPrewarm(bot.id);
+          }}
           onKeyDown={(e) => {
+            if (bot?.id && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+              requestBotPrewarm(bot.id);
+            }
+
             if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && !e.shiftKey && !e.altKey && undoPasteDisplay()) {
               e.preventDefault();
               return;

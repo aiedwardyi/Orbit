@@ -394,6 +394,8 @@ export interface ProviderInstance {
    * separate from generateText so the UI never infers a security capability
    * from a generic helper that may expose prompts in argv or lack approvals. */
   reviewPermission?(prompt: string, signal?: AbortSignal): Promise<string>;
+  /** Opt-in handshake/CLI prepare for the focused bot only. Not used at boot. */
+  prepare?(): Promise<void>;
   dispose(): Promise<void>;
 }
 

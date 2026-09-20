@@ -2044,6 +2044,51 @@ describe("ACP create-time handshake prewarm", () => {
     expect(child.signalCode).toBeNull();
     expect(child.killed).toBe(false);
   });
+
+  it("prepare() prewarms one CLI after a cold create without config.prewarm", async () => {
+    const spawn = vi.spyOn(procs, "spawnCli");
+    const exec = vi.spyOn(procs, "execCli");
+    const rpcDump = join(scratch, "rpc-prepare.json");
+    writeFileSync(rpcDump, "[]");
+    process.env.FAKE_ACP_RPC_DUMP = rpcDump;
+    process.env.FAKE_ACP_MODE = "happy";
+
+    instance = await GrokAgentDriver.create({
+      instanceId: "acp-hs-prepare",
+      displayName: "ACP Handshake Prepare",
+      environment: {},
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: true, workspace: scratch },
+    });
+
+    expect([exec.mock.calls.length, spawn.mock.calls.length]).toEqual([0, 0]);
+    expect(instance.prepare).toBeTypeOf("function");
+    await instance.prepare!();
+    await expect.poll(() => JSON.parse(readFileSync(rpcDump, "utf8"))).toContain("initialize");
+    expect(spawn.mock.calls.length).toBe(1);
+    expect(JSON.parse(readFileSync(rpcDump, "utf8"))).not.toContain("session/new");
+  });
+
+  it("prepare() is a no-op when a handshake child is already warm", async () => {
+    const spawn = vi.spyOn(procs, "spawnCli");
+    const rpcDump = join(scratch, "rpc-prepare-once.json");
+    writeFileSync(rpcDump, "[]");
+    process.env.FAKE_ACP_RPC_DUMP = rpcDump;
+    process.env.FAKE_ACP_MODE = "happy";
+
+    instance = await GrokAgentDriver.create({
+      instanceId: "acp-hs-prepare-once",
+      displayName: "ACP Handshake Prepare Once",
+      environment: {},
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: true, workspace: scratch, prewarm: true },
+    });
+    await expect.poll(() => JSON.parse(readFileSync(rpcDump, "utf8"))).toContain("initialize");
+    const afterCreate = spawn.mock.calls.length;
+    await instance.prepare!();
+    await instance.prepare!();
+    expect(spawn.mock.calls.length).toBe(afterCreate);
+  });
 });
 
 describe("probeCliVersion", () => {

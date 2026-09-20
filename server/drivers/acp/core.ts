@@ -400,7 +400,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         killCliTree(entry.connection.child);
       };
       const beginHandshakePrewarm = async () => {
-        if (disposed) return;
+        if (disposed || handshakeWarm) return;
         const env = childEnv(LOCAL_HOST_KEY_ENVS);
         let probed: { cli: string; version: string } | null = null;
         try {
@@ -1371,6 +1371,10 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             listeners.add(listener);
             return () => listeners.delete(listener);
           },
+        },
+        prepare: async () => {
+          if (!input.enabled || disposed) return;
+          await beginHandshakePrewarm();
         },
         dispose: async () => {
           disposed = true;

@@ -8251,6 +8251,18 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const outcome = await answerRequest(threadId, owner?.modelSelection.instanceId ?? "", requestId, behavior, body.message, owner ? { id: owner.id, name: owner.name } : undefined);
       return json(res, 200, { ok: true, outcome });
     }
+    m = path.match(/^\/api\/bots\/([\w-]+)\/prewarm$/);
+    if (m && method === "POST") {
+      const bot = store.bot(m[1]);
+      if (!bot) return json(res, 404, { error: "no such bot" });
+      const instance = registry.get(bot.modelSelection.instanceId);
+      if (!instance) return json(res, 404, { error: "no such provider instance" });
+      if (typeof instance.prepare !== "function") {
+        return json(res, 200, { ok: true, prepared: false, reason: "driver has no prepare" });
+      }
+      void instance.prepare().catch(() => {});
+      return json(res, 200, { ok: true, prepared: true });
+    }
     m = path.match(/^\/api\/bots\/([\w-]+)\/interrupt$/);
     if (m && method === "POST") {
       const bot = store.bot(m[1]);
