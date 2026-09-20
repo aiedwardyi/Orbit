@@ -404,7 +404,7 @@ function TimestampLabel({ at, hidden = false }: { at: number; hidden?: boolean }
   );
 }
 
-function Bubble({
+const Bubble = memo(function Bubble({
   bot,
   message,
   transcript,
@@ -425,12 +425,12 @@ function Bubble({
   editing: boolean;
   isLastBotText: boolean;
   streaming?: boolean;
-  onStartEdit: () => void;
+  onStartEdit: (id: string) => void;
   onCancelEdit: () => void;
-  onSubmitEdit: (text: string) => void;
+  onSubmitEdit: (id: string, text: string) => void;
   onRegenerate?: () => void;
   replyTarget?: Message;
-  onReply: () => void;
+  onReply: (message: Message) => void;
   onFocusComposer: () => void;
 }) {
   const { t } = useI18n();
@@ -453,7 +453,7 @@ function Bubble({
   if (user && editing && !webhookView) {
     return (
       <div className="flex w-full justify-end">
-        <BubbleEditor initial={text} onCancel={onCancelEdit} onSubmit={onSubmitEdit} />
+        <BubbleEditor initial={text} onCancel={onCancelEdit} onSubmit={(text) => onSubmitEdit(message.id, text)} />
       </div>
     );
   }
@@ -484,7 +484,7 @@ function Bubble({
                 same rule as the version switcher below */}
             {message.kind === "text" && !webhookView && !bot.busy && (
               <button
-                onClick={onStartEdit}
+                onClick={() => onStartEdit(message.id)}
                 aria-label={t("chat.editMessage")}
                 className="rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink"
                 title={t("chat.editMessage")}
@@ -495,7 +495,7 @@ function Bubble({
             <CopyButton text={visibleText} className="opacity-100" />
             <button
               type="button"
-              onClick={onReply}
+              onClick={() => onReply(message)}
               aria-label={t("chat.replyToMessage")}
               className="rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink"
               title={t("chat.replyToMessage")}
@@ -609,7 +609,7 @@ function Bubble({
             )}
             <button
               type="button"
-              onClick={onReply}
+              onClick={() => onReply(message)}
               aria-label={t("chat.replyToMessage")}
               className="rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink"
               title={t("chat.replyToMessage")}
@@ -671,7 +671,7 @@ function Bubble({
       )}
     </div>
   );
-}
+});
 
 /** A tool run: spinner while live, check/cross once settled. A failed step
  * stays neutral; only turn-level `error:` rows go red. */
@@ -891,12 +891,12 @@ const MessagesList = memo(function MessagesList({
                   editing={editingId === m.id}
                   isLastBotText={m.id === lastBotTextId}
                   streaming={m === streamingMessage}
-                  onStartEdit={() => onStartEdit(m.id)}
+                  onStartEdit={onStartEdit}
                   onCancelEdit={onCancelEdit}
-                  onSubmitEdit={(text) => onSubmitEdit(m.id, text)}
+                  onSubmitEdit={onSubmitEdit}
                   onRegenerate={onRegenerate}
                   replyTarget={m.replyToId ? bot.messages.find((candidate) => candidate.id === m.replyToId) : undefined}
-                  onReply={() => onReply(m)}
+                  onReply={onReply}
                   onFocusComposer={onFocusComposer}
                 />
               );

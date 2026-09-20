@@ -1761,6 +1761,7 @@ ipcMain.handle("desktop:locale-preference", (_event, preference) => {
   writeLocalePreference(app.getPath("userData"), preference);
   return true;
 });
+ipcMain.handle("desktop:app-version", () => app.getVersion());
 
 // Renderer skin -> nativeTheme + window ground + Windows titleBarOverlay.
 ipcMain.handle("desktop:skin", (event, skin) => {
