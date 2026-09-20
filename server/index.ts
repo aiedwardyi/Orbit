@@ -93,6 +93,7 @@ import {
   EVENTS_DIR,
   NATIVE_DIR,
 } from "./config.ts";
+import { loadRateLimits, scheduleSaveRateLimits } from "./rate-limits-store.ts";
 import { createUsageRefresh, usageRefreshResponse } from "./usage-refresh.ts";
 import { ComputerControl } from "./computer-control.ts";
 import { contextWindowFor, knownCatalogContextWindow, paneNotesSinceLastUserTurn, paneNoteText, prepareModelContext } from "./context-compaction.ts";
@@ -103,7 +104,6 @@ import {
   isEffortLevel,
   type ModelSelection,
   type ProviderInstance,
-  type RateLimitWindow,
   type RequestOutcome,
   type RuntimeEvent,
 } from "./contracts.ts";
@@ -2033,8 +2033,8 @@ const turnUsage = new Map<string, { input: number; output: number; cachedInput?:
 
 // The newest subscription-window report per engine instance. Per account,
 // not per turn, so it lives here and rides /api/instances rather than being
-// banked on a task. A restart forgets it until the next turn reports again.
-const rateLimitsByInstance = new Map<string, { windows: RateLimitWindow[]; observedAt: string }>();
+// banked on a task. Persisted so a restart keeps the last report until a turn or refresh replaces it.
+const rateLimitsByInstance = loadRateLimits(DATA_DIR);
 const refreshUsage = createUsageRefresh();
 
 function withRateLimits<T extends { instanceId: string }>(instances: T[]) {
@@ -2337,6 +2337,7 @@ bus.subscribe((event: RuntimeEvent) => {
     const current = rateLimitsByInstance.get(event.providerInstanceId);
     if (!current || Date.parse(observedAt) >= Date.parse(current.observedAt)) {
       rateLimitsByInstance.set(event.providerInstanceId, { windows: event.windows, observedAt });
+      scheduleSaveRateLimits(rateLimitsByInstance, DATA_DIR);
     }
   }
   const routineRun = routines?.handleRuntimeEvent(event) ?? null;
@@ -8639,6 +8640,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const current = rateLimitsByInstance.get(instanceId);
         if (!current || Date.parse(result.report.observedAt) >= Date.parse(current.observedAt)) {
           rateLimitsByInstance.set(instanceId, result.report);
+          scheduleSaveRateLimits(rateLimitsByInstance, DATA_DIR);
         }
       }
       const newest = rateLimitsByInstance.get(instanceId);
