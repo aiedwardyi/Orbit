@@ -3,8 +3,8 @@
 // Every boot and every GET /api/instances probed the WSL-backed engines up
 // to three times (`wsl muse --version`, `wsl bash -lc command -v muse`,
 // `wsl sh -c test -f ...`). Each one restarts vmmemWSL and steals keyboard
-// focus. A probe is allowed when the user asked for it — a turn, or an
-// explicit rescan — or when WSL is already up; otherwise it is refused and
+// focus. A probe is allowed when the user asked for it - a turn, or an
+// explicit rescan - or when WSL is already up; otherwise it is refused and
 // the engine reads as asleep until the user wakes it.
 import { AsyncLocalStorage } from "node:async_hooks";
 import { execFileSync } from "node:child_process";
@@ -14,7 +14,7 @@ export type WslProbeReason = "turn" | "rescan" | "passive";
 
 const reasons = new AsyncLocalStorage<WslProbeReason>();
 
-/** Every wsl.exe spawn under `fn` — probe, resolve, auth, turn — reads this. */
+/** Every wsl.exe spawn under `fn` - probe, resolve, auth, turn - reads this. */
 export function withWslProbeReason<T>(reason: WslProbeReason, fn: () => T): T {
   return reasons.run(reason, fn);
 }
@@ -24,7 +24,7 @@ export function isWslCommand(cli: string): boolean {
 }
 
 /** Verified on Windows 11 with WSL shut down: this starts wslservice.exe
- * only — no vmmem process appears. wsl.exe answers in UTF-16LE. */
+ * only - no vmmem process appears. wsl.exe answers in UTF-16LE. */
 function listRunningDistros(): string {
   const exe = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "wsl.exe");
   const out = execFileSync(exe, ["--list", "--running", "--quiet"], {
@@ -41,7 +41,7 @@ let gate = live;
 let runningAt = 0;
 let running = false;
 
-/** Test hook — the gate reads the real platform and the real wsl.exe otherwise. */
+/** Test hook - the gate reads the real platform and the real wsl.exe otherwise. */
 export function setWslGateForTests(overrides: Partial<Gate> | null): void {
   gate = overrides ? { ...live, ...overrides } : live;
   runningAt = 0;

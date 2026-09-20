@@ -1,4 +1,4 @@
-// The win32 WSL gate. A passive probe — boot, app-load, alt-tab refresh —
+// The win32 WSL gate. A passive probe - boot, app-load, alt-tab refresh -
 // must never spawn wsl.exe on a cold WSL, because that reboots the VM and
 // steals keyboard focus. A turn or an explicit rescan still may.
 //
@@ -172,7 +172,7 @@ describe("turns under the gate", () => {
     const inst = await createInstance();
     await inst.snapshot();
     expect(execCalls.filter(isWsl)).toEqual([]);
-    // The turn dies at the spawn — the probe it had to run first is the point.
+    // The turn dies at the spawn - the probe it had to run first is the point.
     vi.spyOn(procs, "spawnCli").mockImplementation(() => {
       throw new Error("spawn gate-test-cli ENOENT");
     });
