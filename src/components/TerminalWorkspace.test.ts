@@ -1135,7 +1135,7 @@ it("lets bare Ctrl+C reach the PTY as ^C when nothing is selected", async () => 
   expect(write).toHaveBeenCalledWith("session-plain-c", "\x03");
 });
 
-it("copies on Ctrl+Shift+C and pastes on Ctrl+Shift+V", async () => {
+it("copies on Ctrl+Shift+C and leaves Ctrl+Shift+V to native paste", async () => {
   const write = vi.fn(async () => {});
   await mountLiveSession("session-shift", "bot-shift", write);
   vi.mocked(terminal.hasSelection).mockReturnValue(true);
@@ -1151,14 +1151,15 @@ it("copies on Ctrl+Shift+C and pastes on Ctrl+Shift+V", async () => {
     const pasteHandled = await act(async () => terminal.__emitKey(copyKeyEvent("keydown", { key: "V", ctrlKey: true, shiftKey: true, keyCode: 86 })));
     expect(pasteHandled).toBe(false);
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    expect(terminal.paste).toHaveBeenCalledWith("shift-paste");
+    expect(terminal.paste).not.toHaveBeenCalled();
+    expect(readText).not.toHaveBeenCalled();
     expect(write).not.toHaveBeenCalled();
   } finally {
     restore();
   }
 });
 
-it("pastes clipboard text on Ctrl+V and Shift+Insert", async () => {
+it("leaves Ctrl+V to native paste and pastes once on Shift+Insert", async () => {
   const write = vi.fn(async () => {});
   await mountLiveSession("session-paste", "bot-paste", write);
   vi.mocked(terminal.hasSelection).mockReturnValue(false);
@@ -1170,11 +1171,16 @@ it("pastes clipboard text on Ctrl+V and Shift+Insert", async () => {
     const ctrlHandled = await act(async () => terminal.__emitKey(copyKeyEvent("keydown", { key: "v", ctrlKey: true, keyCode: 86 })));
     expect(ctrlHandled).toBe(false);
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    expect(terminal.paste).toHaveBeenCalledWith("pasted");
+    expect(terminal.paste).not.toHaveBeenCalled();
+    expect(readText).not.toHaveBeenCalled();
     readText.mockResolvedValue("inserted");
-    const insertHandled = await act(async () => terminal.__emitKey(copyKeyEvent("keydown", { key: "Insert", shiftKey: true, keyCode: 45 })));
+    const insertEvent = copyKeyEvent("keydown", { key: "Insert", shiftKey: true, keyCode: 45 });
+    const preventDefault = vi.spyOn(insertEvent, "preventDefault");
+    const insertHandled = await act(async () => terminal.__emitKey(insertEvent));
     expect(insertHandled).toBe(false);
+    expect(preventDefault).toHaveBeenCalled();
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(terminal.paste).toHaveBeenCalledTimes(1);
     expect(terminal.paste).toHaveBeenCalledWith("inserted");
     expect(write).not.toHaveBeenCalled();
   } finally {

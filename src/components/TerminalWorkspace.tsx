@@ -246,10 +246,12 @@ export function TerminalWorkspace({
         return false;
       }
       if (event.ctrlKey && isPasteKey) {
-        pasteClipboard();
+        // Native paste owns this: false skips xterm's ^V mapping without
+        // canceling the keydown, so Chromium fires one paste on the textarea.
         return false;
       }
       if (event.shiftKey && !event.ctrlKey && isInsertKey) {
+        event.preventDefault();
         pasteClipboard();
         return false;
       }
