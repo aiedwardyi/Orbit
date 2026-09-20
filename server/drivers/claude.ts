@@ -24,6 +24,7 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { applyCredentialAllowlist, DATA_DIR } from "../config.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, spawnCli } from "../procs.ts";
+import { startTurnTimer } from "../turn-timing.ts";
 
 import type {
   DriverCreateInput,
@@ -672,6 +673,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         throw new Error("local computer control requires the interactive approval broker");
       }
       const turnId = newId();
+    const turnTimer = startTurnTimer({
+      engine: "claude",
+      model: turn.model,
+      effort: turn.effort ?? null,
+      systemPromptChars: typeof turn.system === "string" ? turn.system.length : 0,
+    });
+    turnTimer.mark("dispatch");
       const retryAbort = new AbortController();
       const retry = retryState.get(threadId) ?? { attempt: 0, cancelled: false };
       retry.cancelled = false;
@@ -904,6 +912,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (sessionId) args.push("--resume", sessionId);
       else args.push("--session-id", newSessionId!);
 
+      turnTimer.mark("spawnOrReuse");
       const child = spawnCli(config.cli, args, {
         cwd,
         env,
@@ -1140,9 +1149,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 type: "runtime.error",
                 message: error instanceof Error ? error.message : String(error),
               });
-              emit({
-                ...base(threadId, turnId),
-                type: "turn.completed",
+              turnTimer.mark("turnDone");
+      turnTimer.finish();
+      emit({ ...base(threadId, turnId), type: "turn.completed",
                 ok: false,
                 stopReason: "resume_fallback_failed",
                 cost: null,
@@ -1191,9 +1200,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               if (retry.cancelled) {
                 active.delete(threadId);
                 retryState.delete(threadId);
-                emit({
-                  ...base(threadId, turnId),
-                  type: "turn.completed",
+                turnTimer.mark("turnDone");
+      turnTimer.finish();
+      emit({ ...base(threadId, turnId), type: "turn.completed",
                   ok: false,
                   stopReason: "interrupted",
                   cost: null,
@@ -1213,9 +1222,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                   type: "runtime.error",
                   message: e instanceof Error ? e.message : String(e),
                 });
-                emit({
-                  ...base(threadId, turnId),
-                  type: "turn.completed",
+                turnTimer.mark("turnDone");
+      turnTimer.finish();
+      emit({ ...base(threadId, turnId), type: "turn.completed",
                   ok: false,
                   stopReason: "exit_before_result",
                   cost: null,

@@ -24,6 +24,7 @@ const LOCAL_HOST_KEY_ENVS = [
   ...new Set(LOCAL_HOSTS.map((host) => host.apiKeyEnv).filter((key): key is string => Boolean(key))),
 ];
 import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../../procs.ts";
+import { startTurnTimer } from "../../turn-timing.ts";
 import { exhaustedWindow, grokRateLimitWindows, isConfirmedNonUsage, usageLimitFromError } from "../rate-limits.ts";
 
 /**
@@ -442,6 +443,15 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         const turnId = newId();
         const cwd = turn.cwd ?? config.workspace ?? homedir();
         const env = childEnv(LOCAL_HOST_KEY_ENVS);
+        const spawnArgs = support.spawnArgs(config, turn);
+        const turnTimer = startTurnTimer({
+          engine: DRIVER_KIND,
+          model: turn.model,
+          effort: turn.effort ?? null,
+          systemPromptChars: typeof turn.system === "string" ? turn.system.length : 0,
+          argsLength: spawnArgs.join(" ").length,
+        });
+        turnTimer.mark("dispatch");
         // Reserve before the first await: two concurrent first turns would
         // both pass the guard, spawn twice, and the second active.set would
         // orphan the first turn's controls. The real entry after spawn
@@ -461,7 +471,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             ) {
               emit({ ...base(threadId, turnId), type: "turn.started" });
               emit({ ...base(threadId, turnId), type: "runtime.error", message: support.loginNote, setup: true });
-              emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "auth_required", cost: null });
+              turnTimer.mark("turnDone");
+        turnTimer.finish();
+        emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "auth_required", cost: null });
               return { early: true as const };
             }
             const resolvedModel = support.resolveTurnModel?.(turn.model, env);
@@ -488,6 +500,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             // first such turn on win32 would spawn the bare CLI that only
             // exists inside WSL.
             await ensureCli(env);
+            turnTimer.mark("cliProbed");
             return { early: false as const, cliTurn, sessionCwd: sessionPaths.cwd, mcpServers: sessionPaths.servers };
           } finally {
             if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
@@ -538,6 +551,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             reused = candidate;
           }
         }
+        turnTimer.mark("spawnOrReuse");
+        turnTimer.setMeta({ reusedSession: !!reused });
         if (reused) {
           const warmChild = reused.connection.child;
           active.set(threadId, {
@@ -563,7 +578,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             // Canceled while awaiting billing readiness: settle once without
             // recursively retrying sendTurn (that would run the canceled prompt).
             emit({ ...base(threadId, turnId), type: "turn.started" });
-            emit({ ...base(threadId, turnId), type: "turn.completed", ok: true, stopReason: "cancelled", cost: null });
+            turnTimer.mark("turnDone");
+        turnTimer.finish();
+        emit({ ...base(threadId, turnId), type: "turn.completed", ok: true, stopReason: "cancelled", cost: null });
             return { turnId };
           }
           if (!reused.connection.healthy) {
@@ -575,7 +592,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
           if (disposed) throw new Error("provider disposed");
           emit({ ...base(threadId, turnId), type: "turn.started" });
-          emit({ ...base(threadId, turnId), type: "turn.completed", ok: true, stopReason: "cancelled", cost: null });
+          turnTimer.mark("turnDone");
+        turnTimer.finish();
+        emit({ ...base(threadId, turnId), type: "turn.completed", ok: true, stopReason: "cancelled", cost: null });
           return { turnId };
         }
         let connection: ReturnType<typeof acpConnection>;
@@ -711,7 +730,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           }
           active.delete(threadId);
           flushAssistantText();
-          emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason, cost: null });
+          turnTimer.mark("turnDone");
+        turnTimer.finish();
+        emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason, cost: null });
         };
 
         // Whether this turn could have spent a subscription window at all.
@@ -835,6 +856,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               const delta = u.content?.text;
               if (typeof delta === "string" && delta) {
                 state.text += delta;
+                turnTimer.mark("firstVisible");
                 emit({ ...base(threadId, turnId), type: "content.delta", streamKind: "assistant_text", delta });
               }
               break;
@@ -911,7 +933,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           else killCliTree(child);
           if (disposed) throw new Error("provider disposed");
           emit({ ...base(threadId, turnId), type: "turn.started" });
-          emit({ ...base(threadId, turnId), type: "turn.completed", ok: true, stopReason: "cancelled", cost: null });
+          turnTimer.mark("turnDone");
+        turnTimer.finish();
+        emit({ ...base(threadId, turnId), type: "turn.completed", ok: true, stopReason: "cancelled", cost: null });
           return { turnId };
         }
         emit({ ...base(threadId, turnId), type: "turn.started" });
@@ -1034,6 +1058,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               throw error;
             }
             emitSessionStarted();
+            // Handshake + session config done (or warm reuse); CLI ready to prompt.
+            turnTimer.mark("cliReady");
             state.promptSent = true;
             const promptTurn = resumeFailed && turn.resumeFallback
               ? { ...cliTurn, text: turn.resumeFallback.text }

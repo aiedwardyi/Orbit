@@ -24,6 +24,7 @@ import { newEventId, newId } from "../../contracts.ts";
 import { applyCredentialAllowlist } from "../../config.ts";
 import { augmentedPath, toWslPath } from "../../env-path.ts";
 import { execCli, killCliTree, spawnCli } from "../../procs.ts";
+import { startTurnTimer } from "../../turn-timing.ts";
 import { finishNative } from "../native.ts";
 import { museUsageReport } from "../rate-limits.ts";
 import { createMspChannel, uuidv7 } from "./protocol.ts";
@@ -237,6 +238,13 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
         const { threadId } = turn;
         if (active.has(threadId)) throw new Error("a turn is already running on this thread");
         const turnId = newId();
+  const turnTimer = startTurnTimer({
+    engine: support.driverKind ?? "msp",
+    model: turn.model,
+    effort: turn.effort ?? null,
+    systemPromptChars: typeof turn.system === "string" ? turn.system.length : 0,
+  });
+  turnTimer.mark("dispatch");
         const cwd = turn.cwd ?? config.workspace ?? homedir();
         const env = childEnv();
         const asks = new Map<string, Ask>();
@@ -245,7 +253,9 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
           if (support.requireAuthenticationBeforeSpawn && !(await support.isAuthenticated(env, config))) {
             emit({ ...base(threadId, turnId), type: "turn.started" });
             emit({ ...base(threadId, turnId), type: "runtime.error", message: support.loginNote, setup: true });
-            emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "auth_required" });
+            turnTimer.mark("turnDone");
+    turnTimer.finish();
+    emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "auth_required" });
             return { turnId };
           }
           if (!(await resolveCli(env))) {
@@ -256,7 +266,9 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
               message: `\`${effectiveCli()}\` CLI not found`,
               setup: true,
             });
-            emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "unavailable" });
+            turnTimer.mark("turnDone");
+    turnTimer.finish();
+    emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "unavailable" });
             return { turnId };
           }
         } catch (err) {
@@ -319,7 +331,9 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
           // event must see a free thread (adapter contract).
           active.delete(threadId);
           flushText();
-          emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason });
+          turnTimer.mark("turnDone");
+    turnTimer.finish();
+    emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason });
           stop();
         };
         const fail = (message: string, setup = false, stopReason: string | null = "rpc_error") => {
