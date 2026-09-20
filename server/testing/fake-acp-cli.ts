@@ -52,7 +52,7 @@
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
 import { spawn } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const mode = process.env.FAKE_ACP_MODE ?? "happy";
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -141,6 +141,15 @@ if (process.env.FAKE_ACP_DUMP) {
   writeFileSync(process.env.FAKE_ACP_DUMP, JSON.stringify({ argv, env: dumpEnv }, null, 2));
 }
 if (argv.includes("--version")) {
+  const countPath = process.env.FAKE_ACP_VERSION_COUNT_FILE;
+  if (countPath) {
+    try {
+      const n = Number(readFileSync(countPath, "utf8") || "0") + 1;
+      writeFileSync(countPath, String(n));
+    } catch {
+      /* count is test-only; never break the probe */
+    }
+  }
   console.log("fake-acp 1.0.0");
   process.exit(0);
 }
@@ -343,6 +352,7 @@ function handle(msg: any) {
 
   switch (msg.method) {
     case "initialize": {
+      if (mode === "initialize-hang") return;
       if (mode === "exit-early") {
         process.stderr.write("fake-acp: simulated crash before result\n");
         process.exit(3);

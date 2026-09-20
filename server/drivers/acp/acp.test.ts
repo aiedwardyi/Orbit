@@ -10,7 +10,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ensureDirs, PROVIDER_CREDENTIAL_ENV, WORKSPACE_CREDENTIAL_ENV } from "../../config.ts";
 import type { ProviderDriver, ProviderInstance } from "../../contracts.ts";
@@ -25,6 +25,8 @@ import { CursorAgentDriver } from "./cursor.ts";
 import { MuseAgentDriver } from "./muse.ts";
 import { readGrokBillingRpc } from "../../usage-refresh.ts";
 import { removeTempDir } from "../../testing/cleanup.ts";
+import { ProviderRegistry } from "../../harness/registry.ts";
+import * as procs from "../../procs.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "testing", "fake-acp-cli.ts");
 
@@ -596,6 +598,10 @@ describe("SPEED4 warm session reuse (fake CLI)", () => {
 
 
 describe("ACP decodeConfig", () => {
+  it("requires an explicit boolean to opt into prewarm", () => {
+    expect(GrokAgentDriver.decodeConfig({ prewarm: true }).prewarm).toBe(true);
+    expect(GrokAgentDriver.decodeConfig({ prewarm: "true" }).prewarm).toBe(false);
+  });
   it("resolves a dynamic model catalog when a support provides one", async () => {
     const support: AcpSupport = {
       driverKind: "dynamic-test",
@@ -628,7 +634,7 @@ describe("ACP decodeConfig", () => {
     await instance.dispose();
   });
   it("grok defaults to the grok binary", () => {
-    expect(GrokAgentDriver.decodeConfig({})).toEqual({ cli: "grok", fullAuto: false, workspace: undefined });
+    expect(GrokAgentDriver.decodeConfig({})).toEqual({ cli: "grok", fullAuto: false, prewarm: false, workspace: undefined });
   });
   it("grok declares official installers including Windows PowerShell", () => {
     expect(GrokAgentDriver.install?.command).toEqual({
@@ -640,10 +646,10 @@ describe("ACP decodeConfig", () => {
     expect(GrokAgentDriver.install?.signInCommand).toBe("grok login");
   });
   it("gemini defaults to the gemini binary", () => {
-    expect(GeminiAgentDriver.decodeConfig(undefined)).toEqual({ cli: "gemini", fullAuto: false, workspace: undefined });
+    expect(GeminiAgentDriver.decodeConfig(undefined)).toEqual({ cli: "gemini", fullAuto: false, prewarm: false, workspace: undefined });
   });
   it("kimi defaults to the kimi binary and declares cross-platform setup", () => {
-    expect(KimiAgentDriver.decodeConfig(undefined)).toEqual({ cli: "kimi", fullAuto: false, workspace: undefined });
+    expect(KimiAgentDriver.decodeConfig(undefined)).toEqual({ cli: "kimi", fullAuto: false, prewarm: false, workspace: undefined });
     expect(KimiAgentDriver.install?.command).toMatchObject({
       darwin: expect.stringContaining("install.sh"),
       linux: expect.stringContaining("install.sh"),
@@ -652,7 +658,7 @@ describe("ACP decodeConfig", () => {
     expect(KimiAgentDriver.install?.signInCommand).toBe("kimi login");
   });
   it("droid defaults to the droid binary and declares cross-platform setup", () => {
-    expect(DroidAgentDriver.decodeConfig(undefined)).toEqual({ cli: "droid", fullAuto: false, workspace: undefined });
+    expect(DroidAgentDriver.decodeConfig(undefined)).toEqual({ cli: "droid", fullAuto: false, prewarm: false, workspace: undefined });
     expect(DroidAgentDriver.install?.command).toMatchObject({
       darwin: expect.stringContaining("factory.ai/cli"),
       linux: expect.stringContaining("factory.ai/cli"),
@@ -664,6 +670,7 @@ describe("ACP decodeConfig", () => {
     expect(CursorAgentDriver.decodeConfig(undefined)).toEqual({
       cli: "cursor-agent",
       fullAuto: false,
+      prewarm: false,
       workspace: undefined,
     });
     expect(CursorAgentDriver.install?.command).toMatchObject({
@@ -1835,6 +1842,207 @@ describe("ACP turns (fake CLI)", () => {
     });
     expect(fullAuto.adapter.capabilities.askApproval).toBe(false);
     await fullAuto.dispose();
+  });
+});
+
+describe("ACP create-time CLI probe prefetch", () => {
+  let instance: ProviderInstance;
+  let scratch: string;
+
+  beforeEach(() => {
+    ensureDirs();
+    chmodSync(FAKE_CLI, 0o755);
+    scratch = mkdtempSync(join(tmpdir(), "omb-acp-prefetch-"));
+  });
+
+  afterEach(async () => {
+    delete process.env.FAKE_ACP_MODE;
+    delete process.env.FAKE_ACP_VERSION_COUNT_FILE;
+    await instance?.dispose();
+    await removeTempDir(scratch);
+  });
+
+  it("opted-in prewarm caches --version for the first sendTurn", async () => {
+    const countFile = join(scratch, "version-count.txt");
+    writeFileSync(countFile, "0");
+    process.env.FAKE_ACP_VERSION_COUNT_FILE = countFile;
+    process.env.FAKE_ACP_MODE = "happy";
+
+    instance = await GrokAgentDriver.create({
+      instanceId: "acp-prefetch",
+      displayName: "ACP Prefetch",
+      environment: {},
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: true, prewarm: true },
+    });
+
+    await expect.poll(() => Number(readFileSync(countFile, "utf8"))).toBeGreaterThanOrEqual(1);
+    const afterCreate = Number(readFileSync(countFile, "utf8"));
+    expect(afterCreate).toBeGreaterThanOrEqual(1);
+
+    const recorder = recordEvents(instance.adapter);
+    await instance.adapter.sendTurn({ threadId: "t-prefetch", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+    recorder.stop();
+
+    const afterTurn = Number(readFileSync(countFile, "utf8"));
+    expect(afterTurn).toBe(afterCreate);
+  });
+});
+
+describe("ACP create-time handshake prewarm", () => {
+  let instance: ProviderInstance;
+  let scratch: string;
+
+  beforeEach(() => {
+    ensureDirs();
+    chmodSync(FAKE_CLI, 0o755);
+    scratch = mkdtempSync(join(tmpdir(), "omb-acp-hs-prewarm-"));
+  });
+
+  afterEach(async () => {
+    delete process.env.FAKE_ACP_MODE;
+    delete process.env.FAKE_ACP_RPC_DUMP;
+    await instance?.dispose();
+    vi.restoreAllMocks();
+    await removeTempDir(scratch);
+  });
+
+  it("does not spawn CLIs when the registry loads instances without prewarm opt-in", async () => {
+    const spawn = vi.spyOn(procs, "spawnCli");
+    const exec = vi.spyOn(procs, "execCli");
+    const registry = new ProviderRegistry([GrokAgentDriver, GeminiAgentDriver]);
+    try {
+      await registry.load({
+        grok: { driver: GrokAgentDriver.driverKind, config: { cli: FAKE_CLI } },
+        gemini: { driver: GeminiAgentDriver.driverKind, config: { cli: FAKE_CLI } },
+        disabled: { driver: GrokAgentDriver.driverKind, enabled: false, config: { cli: FAKE_CLI, prewarm: true } },
+      });
+      expect(registry.instances()).toHaveLength(3);
+      expect([exec.mock.calls.length, spawn.mock.calls.length]).toEqual([0, 0]);
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+
+  it("reuses an opted-in background handshake on the first turn", async () => {
+    const rpcDump = join(scratch, "rpc.json");
+    writeFileSync(rpcDump, "[]");
+    process.env.FAKE_ACP_RPC_DUMP = rpcDump;
+    process.env.FAKE_ACP_MODE = "happy";
+
+    instance = await GrokAgentDriver.create({
+      instanceId: "acp-hs-prewarm",
+      displayName: "ACP Handshake Prewarm",
+      environment: {},
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: true, workspace: scratch, prewarm: true },
+    });
+
+    await expect.poll(() => JSON.parse(readFileSync(rpcDump, "utf8"))).toContain("authenticate");
+    const afterCreate = JSON.parse(readFileSync(rpcDump, "utf8")) as string[];
+    expect(afterCreate).toContain("initialize");
+    expect(afterCreate.filter((m) => m === "initialize")).toHaveLength(1);
+    expect(afterCreate).not.toContain("session/new");
+
+    const recorder = recordEvents(instance.adapter);
+    await instance.adapter.sendTurn({ threadId: "t-hs-prewarm", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+    recorder.stop();
+
+    const afterTurn = JSON.parse(readFileSync(rpcDump, "utf8")) as string[];
+    expect(afterTurn.filter((m) => m === "initialize")).toHaveLength(1);
+    expect(afterTurn).toContain("session/new");
+    expect(afterTurn).toContain("session/prompt");
+  });
+
+  it("returns from create while the opted-in handshake is blocked", async () => {
+    const rpcDump = join(scratch, "rpc.json");
+    writeFileSync(rpcDump, "[]");
+    process.env.FAKE_ACP_RPC_DUMP = rpcDump;
+    process.env.FAKE_ACP_MODE = "initialize-hang";
+    instance = await GrokAgentDriver.create({
+      instanceId: "acp-hs-blocked",
+      displayName: "ACP Handshake Blocked",
+      environment: {},
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: true, workspace: scratch, prewarm: true },
+    });
+    await expect.poll(() => JSON.parse(readFileSync(rpcDump, "utf8"))).toEqual(["initialize"]);
+  });
+
+  it("does not discard a handshake already borrowed by a concurrent turn", async () => {
+    const spawn = vi.spyOn(procs, "spawnCli");
+    const rpcDump = join(scratch, "rpc.json");
+    writeFileSync(rpcDump, "[]");
+    process.env.FAKE_ACP_RPC_DUMP = rpcDump;
+    const otherCwd = join(scratch, "other");
+    mkdirSync(otherCwd);
+    instance = await GrokAgentDriver.create({
+      instanceId: "acp-hs-concurrent",
+      displayName: "ACP Handshake Concurrent",
+      environment: {},
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: true, workspace: scratch, prewarm: true },
+    });
+    await expect.poll(() => JSON.parse(readFileSync(rpcDump, "utf8"))).toContain("authenticate");
+    const recorder = recordEvents(instance.adapter);
+    const turns = await Promise.all([
+      instance.adapter.sendTurn({ threadId: "t-hs-first", text: "one" }),
+      instance.adapter.sendTurn({ threadId: "t-hs-second", text: "two", cwd: otherCwd }),
+    ]);
+    for (const turn of turns) {
+      await recorder.until((e) => e.type === "turn.completed" && e.turnId === turn.turnId);
+      expect(recorder.events.find((e) => e.type === "turn.completed" && e.turnId === turn.turnId)).toMatchObject({ ok: true });
+    }
+    recorder.stop();
+    expect(spawn.mock.calls.length).toBe(2);
+  });
+
+  it("expires an unclaimed prewarm child and cold-spawns the next turn", async () => {
+    const spawn = vi.spyOn(procs, "spawnCli");
+    const Driver = createAcpDriver({ ...grokSupport, warmIdleMs: 500 });
+    instance = await Driver.create({
+      instanceId: "acp-hs-idle",
+      displayName: "ACP Handshake Idle",
+      environment: {},
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: true, workspace: scratch, prewarm: true },
+    });
+    await expect.poll(() => spawn.mock.results.length).toBe(1);
+    const child = spawn.mock.results[0].value;
+    await expect.poll(() => child.exitCode !== null || child.signalCode !== null).toBe(true);
+
+    const recorder = recordEvents(instance.adapter);
+    await instance.adapter.sendTurn({ threadId: "t-hs-expired", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+    recorder.stop();
+    expect(spawn.mock.calls.length).toBe(2);
+  });
+
+  it("clears the prewarm timer when a turn borrows the child", async () => {
+    const spawn = vi.spyOn(procs, "spawnCli");
+    const rpcDump = join(scratch, "rpc.json");
+    writeFileSync(rpcDump, "[]");
+    process.env.FAKE_ACP_RPC_DUMP = rpcDump;
+    process.env.FAKE_ACP_MODE = "hang";
+    const Driver = createAcpDriver({ ...grokSupport, warmIdleMs: 500 });
+    instance = await Driver.create({
+      instanceId: "acp-hs-borrowed",
+      displayName: "ACP Handshake Borrowed",
+      environment: {},
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: true, workspace: scratch, prewarm: true },
+    });
+    await expect.poll(() => JSON.parse(readFileSync(rpcDump, "utf8"))).toContain("authenticate");
+    await instance.adapter.sendTurn({ threadId: "t-hs-borrowed", text: "hi" });
+    await expect.poll(() => JSON.parse(readFileSync(rpcDump, "utf8"))).toContain("session/prompt");
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(spawn.mock.calls.length).toBe(1);
+    const child = spawn.mock.results[0].value;
+    expect(child.exitCode).toBeNull();
+    expect(child.signalCode).toBeNull();
+    expect(child.killed).toBe(false);
   });
 });
 

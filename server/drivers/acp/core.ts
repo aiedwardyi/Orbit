@@ -82,6 +82,8 @@ import { SPAWNED_PROXIES } from "../../proxy-paths.ts";
 export interface AcpConfig {
   cli: string;
   fullAuto: boolean;
+  /** Opt in to background CLI probing and handshake at create time. */
+  prewarm?: boolean;
   /** Optional home for this instance's sessions. */
   workspace?: string;
 }
@@ -263,6 +265,7 @@ function decodeAcpConfig(defaultCli: string) {
     return {
       cli: typeof o.cli === "string" ? o.cli : defaultCli,
       fullAuto: o.fullAuto === true,
+      prewarm: o.prewarm === true,
       workspace: typeof o.workspace === "string" ? o.workspace : undefined,
     };
   };
@@ -326,6 +329,26 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           // Keep the last usable catalog when an optional discovery source is down.
         }
       };
+      // Shared by snapshot() and the pre-spawn path: resolves (and
+      // remembers) the WSL fallback, so a first turn that never saw a
+      // snapshot still launches the working wrapper. snapshot() always
+      // probes fresh and refreshes the memo; turns reuse the memo.
+      let cliProbe: Promise<{ cli: string; version: string } | null> | null = null;
+      const resolveCli = (probeEnv: NodeJS.ProcessEnv) => {
+        const started = probeCliVersion(config.cli, probeEnv, process.platform, support.wslProbeWrapper, probe, support.wslResolveCli).then(
+          (probed) => {
+            // Side-effect, not a pure read: steers effectiveCli() for all
+            // later spawns until the next rescan clears or replaces it.
+            wslCli = probed && probed.cli !== config.cli ? probed.cli : null;
+            return probed;
+          },
+        );
+        cliProbe = started;
+        return started;
+      };
+      const ensureCli = (probeEnv: NodeJS.ProcessEnv): Promise<{ cli: string; version: string } | null> =>
+        cliProbe ?? (cliProbe = resolveCli(probeEnv));
+
       await refreshModels();
       const listeners = new Set<RuntimeEventListener>();
       interface Turn {
@@ -350,6 +373,18 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         ready: Promise<void>;
       };
       let idleWarm: WarmIdle | null = null;
+      // Prewarm has no session yet; reuse still requires matching cli/args/cwd.
+      type HandshakeWarm = {
+        connection: ReturnType<typeof acpConnection>;
+        cli: string;
+        argsKey: string;
+        spawnCwd: string;
+        init: any;
+        ready: Promise<void>;
+        failed: boolean;
+        timer?: ReturnType<typeof setTimeout>;
+      };
+      let handshakeWarm: HandshakeWarm | null = null;
       let disposed = false;
       const warmIdleMs = support.warmIdleMs ?? 60_000;
       const discardIdle = (entry: WarmIdle | null = idleWarm) => {
@@ -358,6 +393,104 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         clearTimeout(entry.timer);
         killCliTree(entry.connection.child);
       };
+      const discardHandshakeWarm = (entry: HandshakeWarm | null = handshakeWarm) => {
+        if (!entry) return;
+        if (handshakeWarm === entry) handshakeWarm = null;
+        clearTimeout(entry.timer);
+        killCliTree(entry.connection.child);
+      };
+      const beginHandshakePrewarm = async () => {
+        if (disposed) return;
+        const env = childEnv(LOCAL_HOST_KEY_ENVS);
+        let probed: { cli: string; version: string } | null = null;
+        try {
+          probed = await ensureCli(env);
+        } catch {
+          return;
+        }
+        if (!probed || disposed) return;
+        try {
+          if (
+            support.requireAuthenticationBeforeSpawn
+            && !(await support.isAuthenticated(env, config))
+          ) {
+            return;
+          }
+        } catch {
+          return;
+        }
+        if (disposed || active.size > 0) return;
+        // No session is created until a real turn supplies its context.
+        const stubTurn = { threadId: "__prewarm__", text: "" } as SendTurnInput;
+        const spawnArgv = support.spawnArgs(config, stubTurn);
+        const argsKey = spawnArgv.join("\0");
+        const spawnCwd = config.workspace ?? homedir();
+        const cli = effectiveCli();
+        let connection: ReturnType<typeof acpConnection>;
+        try {
+          connection = acpConnection(
+            spawnCli(cli, spawnArgv, {
+              cwd: spawnCwd,
+              env,
+              stdio: ["pipe", "pipe", "pipe"],
+            }),
+            (dir, msg) => appendNative("__prewarm__", { dir, source: SOURCE, msg }),
+          );
+        } catch {
+          return;
+        }
+        const entry: HandshakeWarm = {
+          connection,
+          cli,
+          argsKey,
+          spawnCwd,
+          init: null,
+          ready: Promise.resolve(),
+          failed: false,
+        };
+        handshakeWarm = entry;
+        entry.timer = setTimeout(() => {
+          if (handshakeWarm === entry) discardHandshakeWarm(entry);
+        }, warmIdleMs);
+        entry.timer.unref?.();
+        entry.ready = (async () => {
+          try {
+            if (disposed || handshakeWarm !== entry) {
+              discardHandshakeWarm(entry);
+              return;
+            }
+            const { request } = connection;
+            entry.init = await request(
+              "initialize",
+              { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } } },
+              INIT_TIMEOUT,
+            );
+            const methods: Array<{ id?: string }> = Array.isArray(entry.init?.authMethods)
+              ? entry.init.authMethods
+              : [];
+            const methodId = support.pickAuthMethod(methods);
+            // No turn model yet, so only subscription auth applies.
+            if (methodId) {
+              try {
+                await request("authenticate", { methodId }, INIT_TIMEOUT);
+              } catch {
+                if (support.authFailure === "fail") throw new Error(support.loginNote);
+              }
+            } else if (support.authFailure === "fail") {
+              throw new Error(support.loginNote);
+            }
+            if (disposed || handshakeWarm !== entry || !connection.healthy) {
+              discardHandshakeWarm(entry);
+            }
+          } catch {
+            entry.failed = true;
+            discardHandshakeWarm(entry);
+          }
+        })();
+        await entry.ready.catch(() => {});
+      };
+      if (input.enabled && config.prewarm === true) void beginHandshakePrewarm().catch(() => {});
+
       const stashIdle = (entry: Omit<WarmIdle, "timer">) => {
         if (idleWarm && idleWarm.connection !== entry.connection) discardIdle(idleWarm);
         const stored: WarmIdle = { ...entry };
@@ -551,8 +684,50 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             reused = candidate;
           }
         }
+        let handshakeReuse: HandshakeWarm | undefined;
+        if (!reused && handshakeWarm) {
+          const candidate = handshakeWarm;
+          await candidate.ready.catch(() => {});
+          const argsKey = support.spawnArgs(config, cliTurn).join("\0");
+          // applyTurnEnv can inject per-turn credentials/model overlays the
+          // create-time stub never saw (droid/kimi). Refuse reuse then.
+          const envWouldDiverge = Boolean(
+            support.applyTurnEnv
+            && (cliTurn.model || turn.effort || turn.approval),
+          );
+          const eligible =
+            handshakeWarm === candidate
+            && !candidate.failed
+            && !envWouldDiverge
+            && candidate.connection.healthy
+            && candidate.cli === effectiveCli()
+            && candidate.argsKey === argsKey
+            && candidate.spawnCwd === cwd
+            && !disposed;
+          if (!eligible) {
+            // Keep a healthy stub handshake for a later matching turn when the
+            // only mismatch is applyTurnEnv divergence on this turn.
+            if (
+              handshakeWarm === candidate
+              && (
+                candidate.failed
+                || !candidate.connection.healthy
+                || candidate.cli !== effectiveCli()
+                || candidate.argsKey !== argsKey
+                || candidate.spawnCwd !== cwd
+                || disposed
+              )
+            ) {
+              discardHandshakeWarm(candidate);
+            }
+          } else {
+            handshakeWarm = null;
+            clearTimeout(candidate.timer);
+            handshakeReuse = candidate;
+          }
+        }
         turnTimer.mark("spawnOrReuse");
-        turnTimer.setMeta({ reusedSession: !!reused });
+        turnTimer.setMeta({ reusedSession: !!reused, reusedHandshake: !!handshakeReuse });
         if (reused) {
           const warmChild = reused.connection.child;
           active.set(threadId, {
@@ -590,6 +765,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         }
         if (canceledBeforePrompt || disposed) {
           if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
+          if (handshakeReuse) killCliTree(handshakeReuse.connection.child);
           if (disposed) throw new Error("provider disposed");
           emit({ ...base(threadId, turnId), type: "turn.started" });
           turnTimer.mark("turnDone");
@@ -599,7 +775,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         }
         let connection: ReturnType<typeof acpConnection>;
         try {
-          connection = reused?.connection ?? acpConnection(spawnCli(effectiveCli(), support.spawnArgs(config, cliTurn), {
+          connection = reused?.connection ?? handshakeReuse?.connection ?? acpConnection(spawnCli(effectiveCli(), support.spawnArgs(config, cliTurn), {
             cwd, env, stdio: ["pipe", "pipe", "pipe"],
           }), (dir, msg) => appendNative(threadId, { dir, source: SOURCE, msg }));
         } catch (error) {
@@ -950,6 +1126,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             let resumeFailed = false;
             let sessionResult: any = null;
             if (!reused) {
+            if (handshakeReuse) {
+              init = handshakeReuse.init;
+            } else {
             init = await request(
               "initialize",
               { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } } },
@@ -968,6 +1147,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               } else if (support.authFailure === "fail") {
                 throw new Error(support.loginNote);
               }
+            }
             }
 
             // After Orbit compaction the harness omits resumeCursor so this
@@ -1133,27 +1313,6 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         return { turnId };
       };
 
-      // Shared by snapshot() and the pre-spawn path: resolves (and
-      // remembers) the WSL fallback, so a first turn that never saw a
-      // snapshot still launches the working wrapper. snapshot() always
-      // probes fresh and refreshes the memo; turns reuse the memo and only
-      // the first pre-snapshot turn pays for a probe.
-      let cliProbe: Promise<{ cli: string; version: string } | null> | null = null;
-      const resolveCli = (probeEnv: NodeJS.ProcessEnv) => {
-        const started = probeCliVersion(config.cli, probeEnv, process.platform, support.wslProbeWrapper, probe, support.wslResolveCli).then(
-          (probed) => {
-            // Side-effect, not a pure read: steers effectiveCli() for all
-            // later spawns until the next rescan clears or replaces it.
-            wslCli = probed && probed.cli !== config.cli ? probed.cli : null;
-            return probed;
-          },
-        );
-        cliProbe = started;
-        return started;
-      };
-      const ensureCli = (probeEnv: NodeJS.ProcessEnv): Promise<{ cli: string; version: string } | null> =>
-        cliProbe ?? (cliProbe = resolveCli(probeEnv));
-
       const snapshot = async (): Promise<ProviderSnapshot> => {
         const env = childEnv();
         const probed = await resolveCli(env);
@@ -1205,6 +1364,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           stopAll: async () => {
             for (const { stop } of active.values()) stop();
             for (const stop of billingStops) stop();
+            discardHandshakeWarm();
             discardIdle();
           },
           onEvent: (listener) => {
@@ -1214,6 +1374,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         },
         dispose: async () => {
           disposed = true;
+          discardHandshakeWarm();
           discardIdle();
           for (const { stop } of active.values()) stop();
           for (const stop of billingStops) stop();
