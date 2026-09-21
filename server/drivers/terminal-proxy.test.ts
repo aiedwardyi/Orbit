@@ -13,6 +13,7 @@ describe("terminal proxy", () => {
     expect(TOOLS[0].inputSchema.properties).toEqual({});
     expect(TOOLS[1]).toMatchObject({ annotations: { readOnlyHint: false, destructiveHint: true }, inputSchema: { required: ["text", "sessionId", "generation"] } });
     expect(Object.keys(TOOLS[1].inputSchema.properties)).not.toContain("botId");
+    expect(TOOLS[1].description).toContain("End with a newline to submit the line.");
     expect(TOOLS[1].description).toContain("Ctrl+C is refused");
   });
 
@@ -32,6 +33,22 @@ describe("terminal proxy", () => {
     expect(init?.method).toBe("POST");
     expect(JSON.parse(String(init?.body))).toEqual({ sessionId: "s1", generation: 2, text: "echo ok\r" });
     expect(new Headers(init?.headers).get("authorization")).toBe("Bearer grant");
+  });
+
+  it.each([
+    ["LF submits", "echo ok\n", "echo ok\r"],
+    ["CRLF does not double-submit", "echo ok\r\n", "echo ok\r"],
+    ["plain text stays unchanged", "echo ok", "echo ok"],
+  ])("normalizes terminal_send text: %s", async (_label, text, expected) => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ screenText: "ok" }), { status: 200 }));
+    await callTool(
+      "terminal_send",
+      fetchImpl,
+      { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" },
+      { text, sessionId: "s1", generation: 2 },
+    );
+    const [, init] = fetchImpl.mock.calls[0];
+    expect(JSON.parse(String(init?.body)).text).toBe(expected);
   });
 
   it("prints the capture time the send route returns", async () => {

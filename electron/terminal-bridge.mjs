@@ -48,6 +48,10 @@ function readJson(req) {
   });
 }
 
+function normalizeTerminalText(text) {
+  return text.replace(/\r\n/g, "\r").replace(/\n/g, "\r");
+}
+
 /** Private loopback bridge between the Electron terminal host and a scoped MCP proxy. */
 export function createTerminalBridge({ host, token = randomBytes(24).toString("hex"), port = 0 } = {}) {
   // oxlint-disable-next-line anti-slop/no-runtime-typeof -- The host is supplied by the Electron main process.
@@ -69,7 +73,9 @@ export function createTerminalBridge({ host, token = randomBytes(24).toString("h
       try {
         if (req.method === "GET" && !match[2]) return json(res, 200, host.readBot(botId));
         if (req.method === "POST" && match[2]) {
-          await host.sendBot(botId, await readJson(req));
+          const input = await readJson(req);
+          if (input && typeof input === "object" && typeof input.text === "string") input.text = normalizeTerminalText(input.text);
+          await host.sendBot(botId, input);
           return json(res, 200, host.readBot(botId));
         }
         return json(res, 405, { error: "Method not allowed" });

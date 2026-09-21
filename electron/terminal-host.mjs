@@ -79,6 +79,10 @@ function isSubmitInput(data) {
   return /[\r\n]/.test(data) || data === "\x1bOM" || data === "\x1b[27;13~" || /^\x1b\[13(?:;\d+)?u$/.test(data);
 }
 
+function normalizeTerminalText(text) {
+  return text.replace(/\r\n/g, "\r").replace(/\n/g, "\r");
+}
+
 // X10/RXVT (ESC [ M + 3 bytes), SGR (ESC [ < ... M/m), focus (ESC [ I/O).
 // X10 trailing bytes bypass the CSI parser as printable text, so without
 // this they would read as typed input.
@@ -570,9 +574,10 @@ export function createTerminalHost({ authorize, resolveCwd, mailbox = async () =
       if (session.id !== input.sessionId || session.generation !== input.generation) throw new Error("Terminal session is stale; take a fresh snapshot");
       if (session.exitCode !== null) throw new Error("Terminal has exited");
       if (input.text.includes("\x03")) throw new Error("Ctrl+C is not allowed in a confirmed terminal send");
+      const text = normalizeTerminalText(input.text);
       clearActivityTimer(session);
-      const echo = inputEchoText(input.text);
-      const submit = isSubmitInput(input.text);
+      const echo = inputEchoText(text);
+      const submit = isSubmitInput(text);
       if (submit) session.activityArmed = true;
       if (submit) {
         session.attentionReported = false;
@@ -580,7 +585,7 @@ export function createTerminalHost({ authorize, resolveCwd, mailbox = async () =
       }
       if (echo) session.pendingInputEcho = `${session.pendingInputEcho}${echo}`.slice(-INPUT_ECHO_LIMIT);
       try {
-        const result = session.pty.write(input.text);
+        const result = session.pty.write(text);
         // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may acknowledge writes synchronously or asynchronously.
         return result && typeof result.then === "function" ? result.then(() => snapshot(session)) : snapshot(session);
       } catch (cause) {
