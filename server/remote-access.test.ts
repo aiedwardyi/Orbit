@@ -9,10 +9,10 @@ import {
   apiRequestAuthorized,
   buildRemoteSetCookie,
   hostMatchesRemote,
+  initRemoteAccess,
   loadOrCreateRemoteKey,
   originAllowedByRemote,
   remoteCookieAuthorized,
-  remoteHandshakeUrl,
   remoteKeyMatches,
   resolveRemoteHost,
 } from "./remote-access.ts";
@@ -70,7 +70,16 @@ describe("remote access", () => {
     expect(hostMatchesRemote(`evil-${HOST}`, HOST)).toBe(false);
     expect(hostMatchesRemote(undefined, HOST)).toBe(false);
     expect(originAllowedByRemote(`https://${HOST}`, HOST)).toBe(true);
+    expect(originAllowedByRemote(`HTTPS://${HOST.toUpperCase()}`, HOST)).toBe(true);
     expect(originAllowedByRemote("https://evil.example.com", HOST)).toBe(false);
+  });
+
+  it("accepts only a bare https origin", () => {
+    expect(originAllowedByRemote(`http://${HOST}`, HOST)).toBe(false);
+    expect(originAllowedByRemote(`https://${HOST}:443`, HOST)).toBe(false);
+    expect(originAllowedByRemote(`https://${HOST}:8443`, HOST)).toBe(false);
+    expect(originAllowedByRemote(`https://${HOST}/`, HOST)).toBe(false);
+    expect(originAllowedByRemote(`https://user@${HOST}`, HOST)).toBe(false);
   });
 
   it("persists one stable key per data dir", () => {
@@ -82,7 +91,33 @@ describe("remote access", () => {
     expect(loadOrCreateRemoteKey(freshDir())).not.toBe(first);
   });
 
-  it("builds the handshake URL for the boot log", () => {
-    expect(remoteHandshakeUrl(HOST, "k")).toBe(`https://${HOST}/remote?key=k`);
+  it("never passes the key to the boot logger", () => {
+    const dir = freshDir();
+    const lines: string[] = [];
+    const { host, key } = initRemoteAccess({ ORBIT_REMOTE_HOST: HOST }, dir, (l) => lines.push(l));
+    expect(host).toBe(HOST);
+    expect(key).toMatch(/^[a-f0-9]{64}$/);
+    expect(lines).toEqual([
+      `Remote mode on: https://${HOST}/remote?key=<redacted> (key in ${join(dir, "remote-key.json")})`,
+    ]);
+    expect(lines.some((l) => l.includes(key!))).toBe(false);
+  });
+
+  it("logs nothing and mints no key when off", () => {
+    const lines: string[] = [];
+    expect(initRemoteAccess({}, freshDir(), (l) => lines.push(l))).toEqual({ host: undefined, key: undefined });
+    expect(lines).toEqual([]);
+  });
+
+  it("regenerates the key when ORBIT_REMOTE_ROTATE_KEY is truthy", () => {
+    const dir = freshDir();
+    const quiet = () => {};
+    const first = initRemoteAccess({ ORBIT_REMOTE_HOST: HOST }, dir, quiet).key;
+    expect(initRemoteAccess({ ORBIT_REMOTE_HOST: HOST, ORBIT_REMOTE_ROTATE_KEY: "0" }, dir, quiet).key).toBe(first);
+    const rotated = initRemoteAccess({ ORBIT_REMOTE_HOST: HOST, ORBIT_REMOTE_ROTATE_KEY: "1" }, dir, quiet).key;
+    expect(rotated).toMatch(/^[a-f0-9]{64}$/);
+    expect(rotated).not.toBe(first);
+    expect(remoteCookieAuthorized(`orbit_remote=${first}`, rotated)).toBe(false);
+    expect(loadOrCreateRemoteKey(dir)).toBe(rotated);
   });
 });
