@@ -190,6 +190,7 @@ import { providerReloadErrorActivity, stallErrorActivity } from "./room-error-at
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import { foldContinuationStart } from "./continuation-turn.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
+import { terminalSnapshotResponse } from "./terminal-snapshot.ts";
 import { mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
 import {
   ensureWorkspace,
@@ -7912,6 +7913,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
       return json(res, 200, { ...resolveBotTerminalFolder(bot), teacherId: resolveMailboxTeacher(store.bots, bot.id) });
+    }
+    m = path.match(/^\/api\/bots\/([\w-]+)\/terminal$/);
+    if (m && method === "GET") {
+      const bot = store.bot(m[1]);
+      if (!bot) return json(res, 404, { error: "no such bot" });
+      const snapshot = await terminalSnapshotResponse(terminalBridgeAccess, bot.id);
+      return json(res, snapshot.status, snapshot.body);
     }
     // ── bot memory: MEMORY.md + memory/ topic files ─────────────────────
     // The files already belong to the user (plain markdown in the bot's
