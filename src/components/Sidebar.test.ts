@@ -365,7 +365,7 @@ describe("Sidebar priority ordering", () => {
       }));
       await vi.waitFor(() => expect(rows()).toHaveLength(7));
       expect(rows().map((row) => row.getAttribute("data-sidebar-row-id"))).toEqual(["c", "f", "a", "b", "d", "e", "g"]);
-      expect(rows().map(avatarWidth)).toEqual(["48px", "48px", "40px", "40px", "40px", "40px", "40px"]);
+      expect(rows().map(avatarWidth)).toEqual(["48px", "48px", "32px", "32px", "32px", "32px", "32px"]);
     } finally {
       await act(async () => root.unmount());
       host.remove();
@@ -477,7 +477,7 @@ describe("Sidebar layout controls", () => {
     expect(footer).toContain("overflow-x-hidden");
     expect(footer).not.toContain("border-t");
     expect(footer).not.toContain('t("chrome.teamMap")');
-    expect(source).toContain("density === \"compact\" ? 40 : 48");
+    expect(source).toContain("density === \"compact\" ? 32 : 48");
     expect(source).toContain("gap-2 px-3 py-1.5 pr-12");
     expect(source).toContain("min-w-0 flex-1 overflow-x-hidden overflow-y-auto");
   });
