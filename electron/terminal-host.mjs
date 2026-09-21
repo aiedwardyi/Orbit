@@ -15,6 +15,8 @@ export const TERMINAL_ACTIVITY_COALESCE_MS = 750;
 export const TERMINAL_ACTIVITY_ACK_COOLDOWN_MS = 3_000;
 const INPUT_ECHO_LIMIT = 4_096;
 const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
+const BOT_PANE_LIMIT = 8;
+const LABEL_LIMIT = 40;
 
 const stringControl = new Set(["P", "^", "_", "X"]);
 
@@ -135,7 +137,14 @@ export function trustedTerminalSender(event, owner, origin) {
   }
 }
 
-export function createTerminalHost({ authorize, resolveCwd, mailbox = async () => null, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform), activityCoalesceMs = TERMINAL_ACTIVITY_COALESCE_MS, attentionCooldownMs = TERMINAL_ACTIVITY_ACK_COOLDOWN_MS, now = () => Date.now() }) {
+function paneLabel(value) {
+  if (value === undefined || value === null) return undefined;
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Labels cross the local proxy and IPC boundaries.
+  if (typeof value !== "string") throw new Error("Invalid terminal label");
+  return value.replace(/[\x00-\x1f\x7f]/g, "").trim().slice(0, LABEL_LIMIT) || undefined;
+}
+
+export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = () => null, mailbox = async () => null, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform), activityCoalesceMs = TERMINAL_ACTIVITY_COALESCE_MS, attentionCooldownMs = TERMINAL_ACTIVITY_ACK_COOLDOWN_MS, now = () => Date.now() }) {
   const sessions = new Map();
   const active = new Map();
   const generations = new Map();
@@ -172,8 +181,11 @@ export function createTerminalHost({ authorize, resolveCwd, mailbox = async () =
       ...screen,
     };
     if (session.launchProject !== undefined) result.launchProject = session.launchProject;
+    if (session.label) result.label = session.label;
     return result;
   };
+  const botSessions = (botId) => [...sessions.values()].filter((candidate) => candidate.botId === botId && !candidate.retired && active.get(candidate.key) === candidate.id);
+  const paneSummary = (session) => ({ sessionId: session.id, generation: session.generation, label: session.label ?? null, cwd: session.cwd, main: !session.botPane, exited: session.exitCode !== null });
   const owned = (event, id) => {
     authorize(event);
     const session = sessions.get(id);
@@ -367,6 +379,24 @@ export function createTerminalHost({ authorize, resolveCwd, mailbox = async () =
       throw errorValue(cause);
     }
   };
+  const botWrite = (session, raw) => {
+    const text = normalizeTerminalText(raw);
+    clearActivityTimer(session);
+    const echo = inputEchoText(text);
+    const submit = isSubmitInput(text);
+    if (submit) session.activityArmed = true;
+    if (submit) {
+      session.attentionReported = false;
+      session.activityCooldownUntil = 0;
+    }
+    if (echo) session.pendingInputEcho = `${session.pendingInputEcho}${echo}`.slice(-INPUT_ECHO_LIMIT);
+    try {
+      return session.pty.write(text);
+    } catch (cause) {
+      fail(session, cause);
+      throw cause;
+    }
+  };
   const runOpen = async (operation) => {
     let input = operation.input;
     let folder = await resolveFolder(input, operation.event);
@@ -405,6 +435,11 @@ export function createTerminalHost({ authorize, resolveCwd, mailbox = async () =
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- IPC input must be validated before resolving a shell folder.
       if (!input || typeof input.botId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(input.botId)) throw new Error("Invalid bot");
       dimensions(input.cols, input.rows);
+      if (input.sessionId !== undefined) {
+        const session = sessions.get(input.sessionId);
+        if (!session?.botPane || session.botId !== input.botId || session.owner !== event.sender || session.retired || active.get(session.key) !== session.id) throw new Error("Unknown terminal");
+        return snapshot(session);
+      }
       const key = `${event.sender.id}:${input.botId}`;
       while (true) {
         const inFlight = pending.get(key);
@@ -532,26 +567,24 @@ export function createTerminalHost({ authorize, resolveCwd, mailbox = async () =
     readBot(botId, options = {}) {
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Bot ids cross the local proxy boundary.
       if (typeof botId !== "string" || !BOT_ID_RE.test(botId)) throw new Error("Invalid bot");
-      let session = null;
-      for (const candidate of sessions.values()) {
-        if (candidate.botId === botId && !candidate.retired && active.get(candidate.key) === candidate.id) {
-          session = candidate;
-          break;
-        }
-      }
-      if (!session) return { botId, state: "no-terminal", screenText: "", recentText: "", seq: 0, capturedAt: now(), exitCode: null, exited: false, truncated: false };
+      const live = botSessions(botId);
+      const session = options.sessionId ? live.find((candidate) => candidate.id === options.sessionId) : live.find((candidate) => !candidate.botPane) ?? live[0];
+      if (options.sessionId && !session) throw new Error("Unknown terminal");
+      if (!session) return { botId, state: "no-terminal", screenText: "", recentText: "", seq: 0, capturedAt: now(), exitCode: null, exited: false, truncated: false, panes: [] };
       const maxScreenChars = Number.isInteger(options.maxScreenChars) ? Math.max(1, Math.min(options.maxScreenChars, 64 * 1024)) : 64 * 1024;
       const maxScrollbackChars = Number.isInteger(options.maxScrollbackChars) ? Math.max(0, Math.min(options.maxScrollbackChars, 16 * 1024)) : 16 * 1024;
       return {
         botId,
         sessionId: session.id,
         generation: session.generation,
+        label: session.label ?? null,
         cwd: session.cwd,
         seq: session.seq,
         capturedAt: now(),
         exitCode: session.exitCode,
         exited: session.exitCode !== null,
         ...session.screen.snapshot({ maxScreenChars, maxScrollbackChars }),
+        panes: live.map(paneSummary),
       };
     },
     sendBot(botId, input) {
@@ -563,35 +596,61 @@ export function createTerminalHost({ authorize, resolveCwd, mailbox = async () =
       if (typeof input.sessionId !== "string" || typeof input.generation !== "number" || !Number.isInteger(input.generation) || typeof input.text !== "string" || input.text.length > 64 * 1024) {
         throw new Error("Invalid terminal send");
       }
-      let session = null;
-      for (const candidate of sessions.values()) {
-        if (candidate.botId === botId && !candidate.retired && active.get(candidate.key) === candidate.id) {
-          session = candidate;
-          break;
-        }
-      }
-      if (!session) throw new Error("No active terminal for this bot");
-      if (session.id !== input.sessionId || session.generation !== input.generation) throw new Error("Terminal session is stale; take a fresh snapshot");
+      const live = botSessions(botId);
+      if (!live.length) throw new Error("No active terminal for this bot");
+      const session = live.find((candidate) => candidate.id === input.sessionId);
+      if (!session || session.generation !== input.generation) throw new Error("Terminal session is stale; take a fresh snapshot");
       if (session.exitCode !== null) throw new Error("Terminal has exited");
       if (input.text.includes("\x03")) throw new Error("Ctrl+C is not allowed in a confirmed terminal send");
-      const text = normalizeTerminalText(input.text);
-      clearActivityTimer(session);
-      const echo = inputEchoText(text);
-      const submit = isSubmitInput(text);
-      if (submit) session.activityArmed = true;
-      if (submit) {
-        session.attentionReported = false;
-        session.activityCooldownUntil = 0;
+      const result = botWrite(session, input.text);
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may acknowledge writes synchronously or asynchronously.
+      return result && typeof result.then === "function" ? result.then(() => snapshot(session)) : snapshot(session);
+    },
+    async openForBot(botId, input = {}) {
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Bot ids cross the local proxy boundary.
+      if (typeof botId !== "string" || !BOT_ID_RE.test(botId)) throw new Error("Invalid bot");
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Spawn requests cross the local proxy boundary.
+      if (!input || typeof input !== "object") throw new Error("Invalid terminal open");
+      const label = paneLabel(input.label);
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Validate the optional first command before spawning.
+      if (input.command !== undefined && (typeof input.command !== "string" || input.command.length > 64 * 1024 || input.command.includes("\x03"))) throw new Error("Invalid terminal command");
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Validate the optional folder before resolving it.
+      if (input.cwd !== undefined && typeof input.cwd !== "string") throw new Error("Invalid terminal folder");
+      if (disposed) throw new Error("Terminal host is shutting down");
+      const sender = paneOwner();
+      if (!sender || sender.isDestroyed?.()) throw new Error("Orbit window is not available");
+      if (botSessions(botId).filter((session) => session.botPane && session.exitCode === null).length >= BOT_PANE_LIMIT) throw new Error(`Too many bot terminals (limit ${BOT_PANE_LIMIT})`);
+      if (active.size >= 16) throw new Error("Too many terminal sessions");
+      const folder = await resolveFolder({ botId, cwd: input.cwd });
+      if (folder.needsFolder) throw new Error("Terminal folder is unavailable");
+      const cwd = folder.cwd;
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Validate the API or requested folder before spawning.
+      if (typeof cwd !== "string" || !path.isAbsolute(cwd) || !(await fs.promises.stat(cwd).then((s) => s.isDirectory()).catch(() => false))) {
+        throw new Error("Terminal folder is unavailable");
       }
-      if (echo) session.pendingInputEcho = `${session.pendingInputEcho}${echo}`.slice(-INPUT_ECHO_LIMIT);
-      try {
-        const result = session.pty.write(text);
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may acknowledge writes synchronously or asynchronously.
-        return result && typeof result.then === "function" ? result.then(() => snapshot(session)) : snapshot(session);
-      } catch (cause) {
-        fail(session, cause);
-        throw cause;
+      if (disposed) throw new Error("Terminal host is shutting down");
+      const key = `${sender.id}:${botId}:pane:${randomUUID()}`;
+      const session = await start({ key, event: { sender }, input: { botId, cols: 120, rows: 30 }, folder, cwd, cancelPromise: new Promise(() => {}) });
+      if (disposed) {
+        await retire(session, true);
+        throw new Error("Terminal host is shutting down");
       }
+      session.botPane = true;
+      session.label = label;
+      active.set(key, session.id);
+      emit(session, "terminal:opened", { id: session.id, botId, label: label ?? null, generation: session.generation });
+      if (input.command) await botWrite(session, `${input.command}\r`);
+      return { sessionId: session.id, generation: session.generation };
+    },
+    setLabel(event, id, label) {
+      const session = owned(event, id);
+      session.label = paneLabel(label);
+      return session.label ?? null;
+    },
+    close(event, id) {
+      const session = owned(event, id);
+      if (!session.botPane) throw new Error("Only bot terminals can be closed");
+      return retire(session, true);
     },
     dispose() {
       disposed = true;

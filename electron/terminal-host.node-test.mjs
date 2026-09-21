@@ -691,3 +691,64 @@ test("reopening after a cancelled spawn waits for the first worker to retire", a
   assert.equal(children[1].killed, false);
   assert.ok(session.id);
 });
+
+test("openForBot spawns a labeled pane in the bot folder and submits its command", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  const pane = await f.host.openForBot("bot-1", { label: "Opus 5 | high | ORCH", command: "claude" });
+  assert.equal(pane.generation, 1);
+  assert.equal(f.children.length, 1);
+  assert.deepEqual(f.children[0].writes, ["claude\r"]);
+  assert.deepEqual(f.events.find(([channel]) => channel === "terminal:opened"), ["terminal:opened", { id: pane.sessionId, botId: "bot-1", label: "Opus 5 | high | ORCH", generation: 1 }]);
+  const attached = await f.host.open(f.event, { ...f.input, sessionId: pane.sessionId });
+  assert.equal(attached.id, pane.sessionId);
+  assert.equal(attached.label, "Opus 5 | high | ORCH");
+  assert.equal(attached.cwd, os.tmpdir());
+});
+
+test("readBot lists every pane and sendBot targets a pane by session id", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  const main = await f.host.open(f.event, f.input);
+  const pane = await f.host.openForBot("bot-1", { label: "worker" });
+  const read = f.host.readBot("bot-1");
+  assert.equal(read.sessionId, main.id);
+  assert.deepEqual(read.panes.map(({ sessionId, label, main: isMain }) => [sessionId, label, isMain]), [[main.id, null, true], [pane.sessionId, "worker", false]]);
+  assert.equal(f.host.readBot("bot-1", { sessionId: pane.sessionId }).label, "worker");
+  assert.throws(() => f.host.readBot("bot-1", { sessionId: "missing" }), /Unknown terminal/);
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "ls\r" });
+  assert.deepEqual(f.children[1].writes, ["ls\r"]);
+  assert.deepEqual(f.children[0].writes, []);
+});
+
+test("openForBot caps live panes per bot and rejects bad input", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  await assert.rejects(f.host.openForBot("bot-1", { label: "x" }), /window is not available/);
+  owner = f.owner;
+  for (let i = 0; i < 8; i += 1) await f.host.openForBot("bot-1", { label: `w${i}` });
+  await assert.rejects(f.host.openForBot("bot-1", { label: "w8" }), /Too many bot terminals/);
+  await f.host.openForBot("bot-2", { label: "other" });
+  await assert.rejects(f.host.openForBot("bot/1", { label: "x" }), /Invalid bot/);
+  await assert.rejects(f.host.openForBot("bot-2", { command: "stop\x03" }), /Invalid terminal command/);
+  await assert.rejects(f.host.openForBot("bot-2", { label: 7 }), /Invalid terminal label/);
+  await assert.rejects(f.host.openForBot("bot-2", { cwd: "relative/dir" }), /unavailable/);
+});
+
+test("a pane is reachable only from its own bot and closes on request", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  const pane = await f.host.openForBot("bot-1", { label: "worker" });
+  await assert.rejects(f.host.open(f.event, { botId: "bot-2", cols: 80, rows: 24, sessionId: pane.sessionId }), /Unknown terminal/);
+  assert.throws(() => f.host.sendBot("bot-2", { sessionId: pane.sessionId, generation: 1, text: "x" }), /No active terminal/);
+  assert.equal(f.host.setLabel(f.event, pane.sessionId, "  renamed\x07 "), "renamed");
+  assert.equal(f.host.readBot("bot-1").label, "renamed");
+  await f.host.close(f.event, pane.sessionId);
+  assert.equal(f.children[0].killed, true);
+  assert.equal(f.host.readBot("bot-1").state, "no-terminal");
+  const main = await f.host.open(f.event, f.input);
+  assert.throws(() => f.host.close(f.event, main.id), /Only bot terminals/);
+});

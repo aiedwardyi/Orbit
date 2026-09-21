@@ -12,7 +12,8 @@ import "@xterm/xterm/css/xterm.css";
 
 type SessionInfo = { cwd: string; shell: string };
 type OutputEvent = { id: string; data: string; seq: number };
-type TerminalSnapshot = { id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number; launchProject?: string | null; cols?: number; rows?: number; alternate?: boolean; modes?: number[]; resetModes?: number[] };
+type TerminalSnapshot = { id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number; launchProject?: string | null; label?: string; cols?: number; rows?: number; alternate?: boolean; modes?: number[]; resetModes?: number[] };
+type BotPane = { id: string; label: string | null };
 const TERMINAL_FONT_MIN = 8;
 const TERMINAL_FONT_MAX = 128;
 
@@ -107,6 +108,9 @@ export function TerminalWorkspace({
   const [paneLabel, setPaneLabel] = useState(() => readPaneLabel(bot.id));
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelDraft, setLabelDraft] = useState("");
+  const [panes, setPanes] = useState<BotPane[]>([]);
+  const [pane, setPane] = useState<string | null>(null);
+  const activeLabel = pane ? panes.find((item) => item.id === pane)?.label ?? "" : paneLabel;
 
   const projectMismatch = Boolean(session && !samePath(bot.cwd ?? null, launchProject));
   const showProjectBanner = projectMismatch && !bannerDismissed;
@@ -121,6 +125,32 @@ export function TerminalWorkspace({
     setPaneLabel(readPaneLabel(bot.id));
     setEditingLabel(false);
   }, [bot.id]);
+
+  // Bot-spawned panes: seeded once, then pushed by the host on open.
+  useEffect(() => {
+    const bridge = window.ogb?.terminal;
+    setPanes([]);
+    setPane(null);
+    if (!bridge) return;
+    let alive = true;
+    void Promise.resolve().then(() => bridge.readBot?.(bot.id)).then((snapshot) => {
+      if (!alive || !snapshot?.panes) return;
+      const seeded = snapshot.panes.filter((item) => !item.main).map((item) => ({ id: item.sessionId, label: item.label }));
+      setPanes((list) => [...seeded, ...list.filter((item) => !seeded.some((seed) => seed.id === item.id))]);
+    }).catch(() => {});
+    const offOpened = bridge.onOpened?.((event) => {
+      if (event.botId !== bot.id) return;
+      setPanes((list) => list.some((item) => item.id === event.id) ? list : [...list, { id: event.id, label: event.label }]);
+    });
+    return () => {
+      alive = false;
+      offOpened?.();
+    };
+  }, [bot.id]);
+
+  useEffect(() => {
+    setEditingLabel(false);
+  }, [pane]);
 
   // xterm + bridge listeners for this bot. Shell open waits until visible.
   useEffect(() => {
@@ -341,6 +371,13 @@ export function TerminalWorkspace({
       liveQueue.length = 0;
       replayComplete = true;
       for (const event of queued) receive(event);
+      if (!pane && snapshot.label) {
+        setPaneLabel(snapshot.label);
+        writePaneLabel(bot.id, snapshot.label);
+      } else if (!pane) {
+        const stored = readPaneLabel(bot.id);
+        if (stored) void Promise.resolve().then(() => bridge.setLabel?.(snapshot.id, stored)).catch(() => {});
+      }
       const code = exits.get(snapshot.id) ?? snapshot.exitCode;
       if (code !== null) exits.set(snapshot.id, code);
       setExitCode(code);
@@ -403,7 +440,9 @@ export function TerminalWorkspace({
       liveQueue.length = 0;
       replayComplete = false;
       terminal.options.disableStdin = true;
-      void Promise.resolve().then(() => bridge.open({ botId: expectedBotId, cols: terminal.cols, rows: terminal.rows, restart, projectCwd: expectedProject })).then(async (result) => {
+      const openInput: Parameters<typeof bridge.open>[0] = { botId: expectedBotId, cols: terminal.cols, rows: terminal.rows, restart, projectCwd: expectedProject };
+      if (pane) openInput.sessionId = pane;
+      void Promise.resolve().then(() => bridge.open(openInput)).then(async (result) => {
         opening = false;
         if (!alive) return;
         if (botIdRef.current !== expectedBotId) {
@@ -502,7 +541,7 @@ export function TerminalWorkspace({
       resizeRef.current = null;
       sessionIdRef.current = null;
     };
-  }, [bot.id, generation]);
+  }, [bot.id, generation, pane]);
 
   // Hidden remount stays quiet; becoming visible opens or resumes once.
   useEffect(() => {
@@ -567,17 +606,28 @@ export function TerminalWorkspace({
 
   const startLabelEdit = () => {
     labelCancelRef.current = false;
-    setLabelDraft(paneLabel);
+    setLabelDraft(activeLabel);
     setEditingLabel(true);
   };
 
   const finishLabelEdit = (save: boolean) => {
     if (save) {
       const next = labelDraft.trim().slice(0, 40);
-      setPaneLabel(next);
-      writePaneLabel(bot.id, next);
+      const id = pane ?? sessionIdRef.current;
+      if (pane) setPanes((list) => list.map((item) => item.id === pane ? { ...item, label: next || null } : item));
+      else {
+        setPaneLabel(next);
+        writePaneLabel(bot.id, next);
+      }
+      if (id) void Promise.resolve().then(() => window.ogb?.terminal?.setLabel?.(id, next)).catch(() => {});
     }
     setEditingLabel(false);
+  };
+
+  const closePane = (id: string) => {
+    setPanes((list) => list.filter((item) => item.id !== id));
+    if (pane === id) setPane(null);
+    void Promise.resolve().then(() => window.ogb?.terminal?.close?.(id)).catch(() => {});
   };
 
   // Escape unmounts the input, which can fire blur after cancel.
@@ -617,7 +667,7 @@ export function TerminalWorkspace({
                 autoFocus
                 value={labelDraft}
                 maxLength={40}
-                aria-label={paneLabel ? t("terminal.editLabel") : t("terminal.addLabel")}
+                aria-label={activeLabel ? t("terminal.editLabel") : t("terminal.addLabel")}
                 onFocus={(event) => event.currentTarget.select()}
                 onChange={(event) => setLabelDraft(event.target.value.slice(0, 40))}
                 onBlur={blurLabelEdit}
@@ -636,15 +686,15 @@ export function TerminalWorkspace({
                 }}
                 className="w-36 shrink-0 rounded-md border border-hairline bg-inset px-1.5 py-0.5 font-mono text-[11px] text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text"
               />
-            ) : paneLabel ? (
+            ) : activeLabel ? (
               <button
                 type="button"
                 onClick={startLabelEdit}
                 aria-label={t("terminal.editLabel")}
-                title={paneLabel}
+                title={activeLabel}
                 className="inline-flex min-w-0 max-w-[180px] shrink-0 items-center rounded-md border border-hairline bg-raised px-1.5 py-0.5 font-mono text-[11px] text-ink-secondary hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text"
               >
-                <span className="truncate">{paneLabel}</span>
+                <span className="truncate">{activeLabel}</span>
               </button>
             ) : (
               <button
@@ -660,12 +710,28 @@ export function TerminalWorkspace({
               <span className="shrink-0 text-[11px] text-ink-secondary" title={launchProject ?? undefined}>· {t("terminal.differentProject")}</span>
             ) : null}
           </div>
+          {panes.length > 0 && (
+            <div role="tablist" className="mt-1 flex min-w-0 items-center gap-1 overflow-x-auto">
+              {[{ id: null, label: paneLabel || t("terminal.title") }, ...panes.map((item) => ({ id: item.id, label: item.label || item.id.slice(0, 8) }))].map((tab) => (
+                <div key={tab.id ?? "main"} className={`inline-flex max-w-[220px] shrink-0 items-center rounded-md border font-mono text-[11px] ${pane === tab.id ? "border-accent-text text-ink" : "border-hairline text-ink-secondary hover:text-ink"}`}>
+                  <button type="button" role="tab" aria-selected={pane === tab.id} onClick={() => setPane(tab.id)} title={tab.label} className="min-w-0 truncate px-1.5 py-0.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text">
+                    {tab.label}
+                  </button>
+                  {tab.id && (
+                    <button type="button" onClick={() => closePane(tab.id)} aria-label={t("terminal.close")} className="shrink-0 rounded p-0.5 hover:bg-raised">
+                      <X size={11} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         {bot.busy && <span className="shrink-0 text-[11px] text-accent-text" role="status">{t("terminal.agentWorking")}</span>}
         <button
           type="button"
           onClick={requestRestartHere}
-          disabled={replacing || choosing}
+          disabled={replacing || choosing || pane !== null}
           className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-[12px] text-ink-secondary hover:bg-raised hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text disabled:opacity-60"
         >
           <RotateCcw size={13} className={replacing ? "animate-spin" : undefined} />

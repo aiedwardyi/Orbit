@@ -7,14 +7,53 @@ describe("terminal proxy", () => {
     expect(() => terminalReadGrant("bridge-secret", "bot/2")).toThrow(/grant/);
   });
 
-  it("exposes a read-only read tool and a destructive send tool, both bot-scoped", () => {
-    expect(TOOLS.map((tool) => tool.name)).toEqual(["terminal_read", "terminal_send"]);
+  it("exposes a read-only read tool and destructive send and spawn tools, all bot-scoped", () => {
+    expect(TOOLS.map((tool) => tool.name)).toEqual(["terminal_read", "terminal_send", "terminal_spawn"]);
     expect(TOOLS[0]).toMatchObject({ annotations: { readOnlyHint: true, destructiveHint: false } });
-    expect(TOOLS[0].inputSchema.properties).toEqual({});
+    expect(Object.keys(TOOLS[0].inputSchema.properties)).toEqual(["sessionId"]);
     expect(TOOLS[1]).toMatchObject({ annotations: { readOnlyHint: false, destructiveHint: true }, inputSchema: { required: ["text", "sessionId", "generation"] } });
     expect(Object.keys(TOOLS[1].inputSchema.properties)).not.toContain("botId");
     expect(TOOLS[1].description).toContain("End with a newline to submit the line.");
     expect(TOOLS[1].description).toContain("Ctrl+C is refused");
+    expect(TOOLS[2]).toMatchObject({ annotations: { readOnlyHint: false, destructiveHint: true }, inputSchema: { required: ["label"], additionalProperties: false } });
+    expect(Object.keys(TOOLS[2].inputSchema.properties)).toEqual(["label", "cwd", "command"]);
+  });
+
+  it("maps terminal_spawn args to a POST on the bot's open route", async () => {
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
+      new Response(JSON.stringify({ sessionId: "p1", generation: 1 }), { status: 200 }));
+    const result = await callTool("terminal_spawn", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { label: "Opus 5 | high | ORCH", command: "claude" });
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0].text).toContain("sessionId p1 (generation 1)");
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe("http://127.0.0.1:1/v1/bots/bot-1/terminal/open");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({ label: "Opus 5 | high | ORCH", command: "claude" });
+  });
+
+  it("rejects terminal_spawn without a label before fetching", async () => {
+    const fetchImpl = vi.fn();
+    const result = await callTool("terminal_spawn", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { command: "ls" });
+    expect(result.isError).toBe(true);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("reads one pane by session id and lists every pane with its label", async () => {
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({
+      sessionId: "p1",
+      generation: 1,
+      label: "worker",
+      screenText: "ok",
+      panes: [
+        { sessionId: "m1", generation: 3, label: null, main: true, exited: false },
+        { sessionId: "p1", generation: 1, label: "worker", main: false, exited: false },
+      ],
+    }), { status: 200 }));
+    const result = await callTool("terminal_read", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { sessionId: "p1" });
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:1/v1/bots/bot-1/terminal?sessionId=p1");
+    expect(result.content[0].text).toContain("Label: worker");
+    expect(result.content[0].text).toContain("- main: sessionId m1 (generation 3), main");
+    expect(result.content[0].text).toContain("- worker: sessionId p1 (generation 1)");
   });
 
   it("maps terminal_send args to a POST on the bot's send route", async () => {
