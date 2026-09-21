@@ -1,0 +1,66 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+
+import { terminalReadGrant } from "./terminal-grant.ts";
+import { terminalSnapshotResponse } from "./terminal-snapshot.ts";
+
+const ACCESS = { url: "http://127.0.0.1:52150", token: "bridge-secret" };
+const server = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8");
+const remoteAccess = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "remote-access.ts"), "utf8");
+
+describe("terminal snapshot relay", () => {
+  it("answers 503 when the desktop bridge is absent", async () => {
+    const fetchImpl = (async () => { throw new Error("must not fetch"); }) as typeof fetch;
+    await expect(terminalSnapshotResponse(null, "bot-1", fetchImpl)).resolves.toEqual({
+      status: 503,
+      body: { error: "terminal bridge unavailable" },
+    });
+  });
+
+  it("reads with the per-bot grant and relays only the snapshot fields", async () => {
+    const calls: Array<{ url: string; auth: string | null }> = [];
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), auth: new Headers(init?.headers).get("authorization") });
+      return new Response(JSON.stringify({
+        botId: "bot-1",
+        sessionId: "s1",
+        generation: 2,
+        cwd: "C:\work",
+        exited: false,
+        screenText: "$ ls",
+        recentText: "done",
+        seq: 9,
+        modes: [1],
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    await expect(terminalSnapshotResponse(ACCESS, "bot-1", fetchImpl)).resolves.toEqual({
+      status: 200,
+      body: { screenText: "$ ls", recentText: "done", sessionId: "s1", generation: 2, cwd: "C:\work", exited: false },
+    });
+    expect(calls).toEqual([
+      { url: "http://127.0.0.1:52150/v1/bots/bot-1/terminal", auth: `Bearer ${terminalReadGrant(ACCESS.token, "bot-1")}` },
+    ]);
+  });
+
+  it("passes the no-terminal state through", async () => {
+    const fetchImpl = (async () => new Response(JSON.stringify({ botId: "bot-1", state: "no-terminal", screenText: "", recentText: "" }))) as typeof fetch;
+    await expect(terminalSnapshotResponse(ACCESS, "bot-1", fetchImpl)).resolves.toMatchObject({ status: 200, body: { state: "no-terminal" } });
+  });
+
+  it("maps bridge failures to 502", async () => {
+    const failing = (async () => new Response("{}", { status: 401 })) as typeof fetch;
+    await expect(terminalSnapshotResponse(ACCESS, "bot-1", failing)).resolves.toMatchObject({ status: 502 });
+    const down = (async () => { throw new TypeError("fetch failed"); }) as typeof fetch;
+    await expect(terminalSnapshotResponse(ACCESS, "bot-1", down)).resolves.toMatchObject({ status: 502 });
+  });
+
+  it("routes GET /api/bots/:id/terminal through the bot lookup and normal /api auth", () => {
+    const route = server.slice(server.indexOf("/terminal$/);"), server.indexOf("/terminal$/);") + 400);
+    expect(route).toContain('method === "GET"');
+    expect(route).toContain('json(res, 404, { error: "no such bot" })');
+    expect(route).toContain("terminalSnapshotResponse(terminalBridgeAccess, bot.id)");
+    expect(remoteAccess).not.toMatch(/BEARER_ONLY_PATHS = new Set\([^)]*\/terminal"/);
+  });
+});

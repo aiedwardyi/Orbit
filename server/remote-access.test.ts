@@ -67,6 +67,13 @@ describe("remote access", () => {
     expect(apiRequestAuthorized(false, `orbit_remote=${key}`, key, "/api/internal/agents")).toBe(true);
   });
 
+  it("lets the remote cookie read a bot terminal snapshot", () => {
+    const key = loadOrCreateRemoteKey(freshDir());
+    expect(apiRequestAuthorized(false, `orbit_remote=${key}`, key, "/api/bots/bot-1/terminal")).toBe(true);
+    expect(apiRequestAuthorized(true, undefined, key, "/api/bots/bot-1/terminal")).toBe(true);
+    expect(apiRequestAuthorized(false, undefined, key, "/api/bots/bot-1/terminal")).toBe(false);
+  });
+
   it("rejects unrelated hostnames when remote mode is on", () => {
     expect(resolveRemoteHost({ ORBIT_REMOTE_HOST: HOST })).toBe(HOST);
     expect(hostMatchesRemote(HOST, HOST)).toBe(true);

@@ -37,6 +37,7 @@ const SkillRecorderPage = lazy(() => import("@/components/SkillRecorderPage").th
 const TeamMapPage = lazy(() => import("@/components/TeamMapPage").then((m) => ({ default: m.TeamMapPage })));
 const CreateBotSheet = lazy(() => import("@/components/CreateBotSheet").then((m) => ({ default: m.CreateBotSheet })));
 const TerminalWorkspace = lazy(() => import("@/components/TerminalWorkspace").then((m) => ({ default: m.TerminalWorkspace })));
+const RemoteTerminalView = lazy(() => import("@/components/RemoteTerminalView").then((m) => ({ default: m.RemoteTerminalView })));
 
 function BootFallback({
   label,
@@ -454,13 +455,17 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
             <ChatView
               bot={bot}
               focusComposerBlocked={paletteOpen || terminalOpen}
-              onOpenTerminal={window.ogb?.terminal ? openTerminal : undefined}
+              onOpenTerminal={openTerminal}
             />
           </div>
           {terminalViews[bot.id] !== undefined && (
             <div className="orbit-terminal-overlay absolute inset-0 z-20 flex" data-open={terminalOpen} inert={!terminalOpen} aria-hidden={!terminalOpen}>
               <Suspense fallback={<BootFallback label={t("terminal.connecting")} />}>
-                <TerminalWorkspace key={bot.id} bot={bot} visible={terminalOpen} focusBlocked={nativeViewOverlayOpen} onClose={closeTerminal} />
+                {window.ogb?.terminal ? (
+                  <TerminalWorkspace key={bot.id} bot={bot} visible={terminalOpen} focusBlocked={nativeViewOverlayOpen} onClose={closeTerminal} />
+                ) : (
+                  <RemoteTerminalView key={bot.id} bot={bot} visible={terminalOpen} onClose={closeTerminal} />
+                )}
               </Suspense>
             </div>
           )}
