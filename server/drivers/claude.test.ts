@@ -774,6 +774,31 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     conn.end();
   });
 
+  it("opens a continuation turn when a retained process wakes after result", async () => {
+    await create("late-wake");
+    const first = await instance.adapter.sendTurn({ threadId: "t-late-wake", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId);
+
+    const started = await recorder.until((e) => e.type === "turn.started" && e.turnId !== first.turnId);
+    expect(instance.adapter.hasSession("t-late-wake")).toBe(true);
+    const opened = await recorder.until((e) => e.type === "request.opened" && e.turnId === started.turnId);
+    expect(opened).toMatchObject({ tool: "Bash" });
+    await expect(instance.adapter.steer!("t-late-wake", "queue me")).resolves.toBe(false);
+    await expect(
+      instance.adapter.respondToRequest("t-late-wake", (opened as { requestId: string }).requestId, { behavior: "allow" }),
+    ).resolves.toBe("allowed-once");
+
+    const done = await recorder.until((e) => e.type === "turn.completed" && e.turnId === started.turnId);
+    expect(done).toMatchObject({ ok: true });
+    expect(recorder.events).toContainEqual(
+      expect.objectContaining({ type: "item.completed", itemType: "tool", itemId: "tu-late", ok: true, turnId: started.turnId }),
+    );
+    expect(recorder.events).toContainEqual(
+      expect.objectContaining({ type: "item.completed", itemType: "assistant_text", text: "background allow", turnId: started.turnId }),
+    );
+    expect(instance.adapter.hasSession("t-late-wake")).toBe(false);
+  });
+
   it("rebinds the permission broker when a fresh session replaces a live one", async () => {
     // Rooms omit resumeCursor, so the next spawn re-listens the same pipe.
     // Occupying that name is the Windows EADDRINUSE leftover after teardown.

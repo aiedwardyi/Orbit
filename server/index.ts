@@ -188,6 +188,7 @@ import {
 } from "./turn-context.ts";
 import { providerReloadErrorActivity, stallErrorActivity } from "./room-error-attribution.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
+import { foldContinuationStart } from "./continuation-turn.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
 import { loadMailboxSecret, mailboxNoteText, mailboxPostSchema, mailboxScope, readMailboxBody } from "./mailbox.ts";
 import {
@@ -2222,6 +2223,25 @@ bus.subscribe((event: RuntimeEvent) => {
   }
 });
 
+// Continuation turns carry the provider's own turnId. Disowned ones settle
+// without touching the bot, which is busy on another thread.
+const disownedTurnIds = new Set<string>();
+bus.subscribe((event: RuntimeEvent) => {
+  if (event.type !== "turn.started") return;
+  foldContinuationStart(event, {
+    botByThread: (threadId) => store.botByThread(threadId),
+    claimed: (botId) => turnStartClaims.has(botId),
+    adopt: (botId, threadId, turnId) => {
+      store.setActivity(botId, "working", threadId);
+      dispatchedThreads.set(botId, threadId);
+      liveTurnIdByThread.set(threadId, turnId);
+      turnDispatchedAt.set(threadId, tickTurnClock());
+      watchdog.watch(threadId, botId);
+    },
+    disown: (turnId) => disownedTurnIds.add(turnId),
+  });
+});
+
 // Bots currently working with nobody at the keyboard — a webhook turn, or a
 // turn a webhook-driven bot handed to a teammate. Auto mode is a decision
 // someone made for turns they were present for, so these don't inherit it:
@@ -2787,7 +2807,8 @@ bus.subscribe((event: RuntimeEvent) => {
         if (!event.turnId || liveTurnIdByThread.get(event.threadId) === event.turnId) {
           liveTurnIdByThread.delete(event.threadId);
         }
-        if (!superseded) {
+        const disowned = Boolean(event.turnId && disownedTurnIds.delete(event.turnId));
+        if (!superseded && !disowned) {
           const packet = taskPacketForWrite(event.threadId);
           if (packet) {
             persistTaskPacket(recordTaskCompletion(packet, {

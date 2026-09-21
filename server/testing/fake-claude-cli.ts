@@ -10,6 +10,7 @@
 //                        whole-message frame, plus subagent noise to drop)
 //                      | edit (a Write then a Bash, gated like the real CLI)
 //                      | bench-quiet (text only, no tool_use — latency floor)
+//                      | late-wake (wakes after `result` and asks for a Bash)
 //   FAKE_CLAUDE_USER_ALLOW  tools the user's own settings.json allows, e.g.
 //                      "Write,Bash" — only `edit` reads it
 //   FAKE_CLAUDE_DUMP   path to write {argv, env, prompt, mcpConfig} as JSON,
@@ -180,6 +181,22 @@ const playEdits = async () => {
   finishIfDone();
 };
 
+// `late-wake`: after the first turn's result the process wakes on its own,
+// the way a finished background Bash task restarts the real CLI, and asks
+// the broker for another Bash call before settling again.
+let lateWakeScheduled = false;
+const playLateWake = async (socketPath: string) => {
+  turnRunning = true;
+  out({ type: "system", subtype: "init", session_id: `${sessionId}-woken`, model });
+  out({ type: "assistant", message: { content: [{ type: "tool_use", id: "tu-late", name: "Bash", input: { command: "echo late" } }] } });
+  const behavior = await askBroker(socketPath, "Bash", { command: "echo late" });
+  out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-late", is_error: behavior !== "allow" }] } });
+  out({ type: "assistant", message: { content: [{ type: "text", text: `background ${behavior}` }] } });
+  out({ type: "result", is_error: false, stop_reason: "end_turn", total_cost_usd: 0.01, usage: { input_tokens: 10, output_tokens: 5 } });
+  turnRunning = false;
+  finishIfDone();
+};
+
 const playTurn = (prompt: JsonValue) => {
   turnRunning = true;
   steered = [];
@@ -305,6 +322,11 @@ const playTurn = (prompt: JsonValue) => {
     });
   }
 
+  if (mode === "late-wake" && !lateWakeScheduled) {
+    lateWakeScheduled = true;
+    const socketPath = String(JSON.parse(readFileSync(argAfter("--mcp-config") ?? "", "utf8")).mcpServers.ogb.args[1]);
+    setTimeout(() => void playLateWake(socketPath), 200);
+  }
   const finish = () => {
     out({ type: "result", is_error: false, stop_reason: "end_turn", total_cost_usd: 0.01, usage: { input_tokens: 10, cache_read_input_tokens: 2, output_tokens: 5 } });
     turnRunning = false;

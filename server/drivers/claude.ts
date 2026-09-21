@@ -581,7 +581,14 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       /** the CLI's session id from `init`, what --resume takes later */
       sessionId: string | null;
       /** the running turn, or null between turns */
-      turn: { turnId: string; settled: boolean; sawStreamDelta: boolean; timer: ReturnType<typeof startTurnTimer> } | null;
+      turn: {
+        turnId: string;
+        settled: boolean;
+        sawStreamDelta: boolean;
+        /** opened by the CLI waking on its own after `result`; never retried */
+        continuation?: boolean;
+        timer: ReturnType<typeof startTurnTimer>;
+      } | null;
       idleTimer: ReturnType<typeof setTimeout> | null;
       closing: boolean;
       stderr: string;
@@ -973,6 +980,28 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (session.child.exitCode === null && !session.closing) armIdle(threadId);
       };
       session.settleTurn = settle;
+      // A retained process can wake after `result` on its own: a background
+      // Bash task's notification restarts the agent loop. That is real work,
+      // so it gets a turn of its own instead of every ask being denied.
+      const openContinuation = () => {
+        if (session.turn || session.closing || session.child.exitCode !== null) return;
+        if (sessions.get(threadId) !== session || active.has(threadId)) return;
+        if (session.idleTimer) clearTimeout(session.idleTimer);
+        session.idleTimer = null;
+        const continuationId = newId();
+        const timer = startTurnTimer({ engine: "claude", model: turn.model, effort: turn.effort ?? null });
+        session.turn = { turnId: continuationId, settled: false, sawStreamDelta: false, continuation: true, timer };
+        active.set(threadId, {
+          stop: () => {
+            killCliTree(session.child);
+            beginClose(threadId, "interrupted");
+            settle(false, "exit_before_result");
+          },
+          turnId: continuationId,
+          broker: session.broker,
+        });
+        emit({ ...base(threadId, continuationId), type: "turn.started" });
+      };
       const currentTurnId = () => session.turn?.turnId ?? turnId;
       const toolCalls = new Map<string, { at: number; name: string; input: unknown; summary?: string }>();
 
@@ -984,6 +1013,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           return;
         }
         appendNative(threadId, { dir: "in", source: "claude.sdk.message", msg: o });
+        if (
+          !session.turn &&
+          ((o.type === "system" && o.subtype === "init") || o.type === "stream_event" || o.type === "assistant" || o.type === "user")
+        ) {
+          openContinuation();
+        }
         switch (o.type) {
           case "system":
             if (o.subtype === "init") {
@@ -1129,6 +1164,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (session.turn && !session.turn.settled) {
           const message = `claude exited ${code} before result${session.stderr ? `: ${session.stderr.trim().slice(-300)}` : ""}`;
           const resumeRejected = Boolean(
+            !session.turn.continuation &&
             sessionId &&
             turn.resumeFallback &&
             !session.turn.sawStreamDelta &&
@@ -1172,6 +1208,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           const verdict = classifyError({ exitCode: code, stderr: message });
           if (
             !retry.cancelled &&
+            !session.turn.continuation &&
             code !== 0 &&
             verdict.transient &&
             !session.turn.sawStreamDelta &&
@@ -1291,7 +1328,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
      * next model call. False when nothing is running here to steer. */
     const steer = async (threadId: string, text: string): Promise<boolean> => {
       const s = sessions.get(threadId);
-      if (!s || !s.turn || s.turn.settled || s.closing || s.child.exitCode !== null) return false;
+      // a continuation is the CLI's own work; the user's words queue behind it
+      if (!s || !s.turn || s.turn.settled || s.turn.continuation || s.closing || s.child.exitCode !== null) return false;
       return writeUser(s, threadId, text);
     };
 
