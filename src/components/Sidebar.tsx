@@ -788,7 +788,7 @@ type SidebarRowDrag = {
 
 function BotListItem({
   bot,
-  density,
+  density: listDensity,
   onMenu,
   onArchive,
   archiveDisabled,
@@ -806,6 +806,7 @@ function BotListItem({
   const { t, locale } = useI18n();
   const { state, dispatch } = useStore();
   const [renaming, setRenaming] = useState(false);
+  const density: SidebarDensity = listDensity === "comfortable" && !sidebarPriorityFor(bot) ? "compact" : listDensity;
   const selected = state.activeView === "chat" && state.selectedId === bot.id;
   const mascotMotion = selected && state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
   const iconOnly = density === "icons";
