@@ -60,6 +60,13 @@ describe("remote access", () => {
     expect(apiRequestAuthorized(false, undefined, key)).toBe(false);
   });
 
+  it("refuses the cookie alone on the terminal bridge route", () => {
+    const key = loadOrCreateRemoteKey(freshDir());
+    expect(apiRequestAuthorized(false, `orbit_remote=${key}`, key, "/api/internal/terminal-bridge")).toBe(false);
+    expect(apiRequestAuthorized(true, `orbit_remote=${key}`, key, "/api/internal/terminal-bridge")).toBe(true);
+    expect(apiRequestAuthorized(false, `orbit_remote=${key}`, key, "/api/internal/agents")).toBe(true);
+  });
+
   it("rejects unrelated hostnames when remote mode is on", () => {
     expect(resolveRemoteHost({ ORBIT_REMOTE_HOST: HOST })).toBe(HOST);
     expect(hostMatchesRemote(HOST, HOST)).toBe(true);

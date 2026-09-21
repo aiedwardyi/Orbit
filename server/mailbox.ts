@@ -32,6 +32,17 @@ export function loadMailboxSecret(dir: string): string {
   return secret;
 }
 
+/** Never the comms token: a leaked pane grant key must not also be API auth. */
+export function mailboxSecretFor(userData: string | undefined, warn: (line: string) => void = console.warn): string {
+  if (!userData) return randomBytes(32).toString("hex");
+  try {
+    return loadMailboxSecret(userData);
+  } catch (error) {
+    warn(`mailbox: could not persist the pane key; grants reset on restart: ${error instanceof Error ? error.message : String(error)}`);
+    return randomBytes(32).toString("hex");
+  }
+}
+
 /** Leads the grant so a key change reads as "stale", not "forged". */
 export function mailboxKeyId(secret: string): string {
   return createHash("sha256").update(`${MAILBOX_GRANT_PREFIX}:key:${secret}`).digest("hex").slice(0, 8);
@@ -92,9 +103,11 @@ export function readMailboxBody(req: IncomingMessage, maxBytes = MAILBOX_BODY_MA
 /** Roster row for mailbox teacher routing. */
 export type MailboxRosterBot = { id: string; section?: string | null; hidden?: boolean; chiefOfStaff?: boolean };
 
+// oxlint-disable-next-line no-control-regex -- keeps tab and newline; the name folds them to spaces
+const UNSAFE_CONTROLS = /[\x00-\x08\x0b-\x1f\x7f\u0080-\u009F\u200E-\u200F\u202A-\u202E\u2066-\u2069]/g;
+
 function sanitizeMailboxName(from: string): string {
-  // oxlint-disable-next-line no-control-regex -- the source name stays on the tag line
-  const flat = from.replace(/[\x00-\x1f\x7f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+  const flat = from.replace(UNSAFE_CONTROLS, " ").replace(/\s+/g, " ").trim().slice(0, 80);
   return flat || "unknown";
 }
 
@@ -107,16 +120,15 @@ export function resolveMailboxTeacher(bots: readonly MailboxRosterBot[], botId: 
 }
 
 /** Pane text is untrusted: strip escapes and controls, cap it, tag it. Null when nothing is left. */
-export function mailboxNoteText(pane: string, from: string, text: string): string | null {
+export function mailboxNoteText(pane: string, from: string, botId: string, text: string): string | null {
   const clean = text
     .replace(/\r\n?/g, "\n")
     // oxlint-disable-next-line no-control-regex -- terminal output carries ANSI escapes
     .replace(/\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[@-_])/g, "")
-    // oxlint-disable-next-line no-control-regex -- keep only tab and newline
-    .replace(/[\x00-\x08\x0b-\x1f\x7f\u0080-\u009F\u200E-\u200F\u202A-\u202E\u2066-\u2069]/g, "")
+    .replace(UNSAFE_CONTROLS, "")
     .trim();
   if (!clean) return null;
   const capped = clean.length > MAILBOX_NOTE_MAX_CHARS ? `${clean.slice(0, MAILBOX_NOTE_MAX_CHARS)}\n[truncated]` : clean;
   const who = sanitizeMailboxName(from);
-  return `[pane ${pane.slice(0, 8)}] from ${who}: ${capped}`;
+  return `[pane ${pane.slice(0, 8)}] from ${who} (${botId}): ${capped}`;
 }

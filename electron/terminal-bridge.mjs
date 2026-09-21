@@ -68,7 +68,10 @@ export function createTerminalBridge({ host, token = randomBytes(24).toString("h
       if (!bearerMatches(req.headers.authorization, token, botId)) return json(res, 401, { error: "Unauthorized" });
       try {
         if (req.method === "GET" && !match[2]) return json(res, 200, host.readBot(botId));
-        if (req.method === "POST" && match[2]) return json(res, 200, await host.sendBot(botId, await readJson(req)));
+        if (req.method === "POST" && match[2]) {
+          await host.sendBot(botId, await readJson(req));
+          return json(res, 200, host.readBot(botId));
+        }
         return json(res, 405, { error: "Method not allowed" });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

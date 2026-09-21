@@ -9,18 +9,19 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { installOrbitMsg, terminalPaneEnv } from "../electron/terminal-mailbox.mjs";
 import {
-  loadMailboxSecret, mailboxGrant, mailboxNoteText, mailboxScope, MAILBOX_NOTE_MAX_CHARS, MAILBOX_SECRET_FILE, MAILBOX_STALE_GRANT, readMailboxBody,
+  loadMailboxSecret, mailboxGrant, mailboxNoteText, mailboxScope, mailboxSecretFor, MAILBOX_NOTE_MAX_CHARS, MAILBOX_SECRET_FILE, MAILBOX_STALE_GRANT, readMailboxBody,
 } from "./mailbox.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const TOKEN = "a".repeat(48);
+const MAILBOX_KEY = "b".repeat(64);
 const PANE = "0f3c9a1e-7b2d-4c55-9e10-3a4b5c6d7e8f";
 let child: ChildProcess;
 let base: string;
 let home: string;
 const SCOPE = { pane: PANE, bot: "worker", teacher: "teacher" };
-const GRANT = mailboxGrant(TOKEN, PANE, "worker", "teacher");
+const GRANT = mailboxGrant(MAILBOX_KEY, PANE, "worker", "teacher");
 
 function scopeHeaders(scope: typeof SCOPE, grant: string) {
   return { authorization: `Bearer ${grant}`, "x-orbit-pane": scope.pane, "x-orbit-bot": scope.bot, "x-orbit-teacher": scope.teacher };
@@ -71,6 +72,9 @@ beforeAll(async () => {
   mkdirSync(scratch, { recursive: true });
   home = mkdtempSync(join(scratch, "mailbox-"));
   const data = join(home, "data");
+  const userData = join(home, "server-user-data");
+  mkdirSync(userData);
+  writeFileSync(join(userData, MAILBOX_SECRET_FILE), MAILBOX_KEY);
   mkdirSync(data);
   writeFileSync(join(data, "config.json"), JSON.stringify({
     instances: { ghost: { driver: "not-a-real-driver", displayName: "Ghost" } },
@@ -94,7 +98,7 @@ beforeAll(async () => {
       ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
       ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
       HOME: home, USERPROFILE: home, OMB_DATA_DIR: data,
-      OMB_PORT: String(port), OMB_WEBHOOK_PORT: "0", OMB_COMMS_TOKEN: TOKEN,
+      OMB_PORT: String(port), OMB_WEBHOOK_PORT: "0", OMB_COMMS_TOKEN: TOKEN, OMB_USER_DATA: userData,
     },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
@@ -119,15 +123,33 @@ afterAll(async () => {
 
 describe("mailbox note text", () => {
   it("strips escapes and controls, caps length and names the pane and source", () => {
-    expect(mailboxNoteText(PANE, "worker", "\x1b[31mdone\x1b[0m\r\n**ok**\x07")).toBe("[pane 0f3c9a1e] from worker: done\n**ok**");
-    expect(mailboxNoteText(PANE, "worker", " \x1b[2J\n ")).toBeNull();
-    expect(mailboxNoteText(PANE, "worker", "ok\u202eSPOOF\u2066\x9b31m")).toBe("[pane 0f3c9a1e] from worker: okSPOOF31m");
-    expect(mailboxNoteText(PANE, "worker", "a\tb\nc")).toBe("[pane 0f3c9a1e] from worker: a\tb\nc");
-    const long = mailboxNoteText(PANE, "worker", "x".repeat(MAILBOX_NOTE_MAX_CHARS + 50))!;
+    expect(mailboxNoteText(PANE, "worker", "w1", "\x1b[31mdone\x1b[0m\r\n**ok**\x07")).toBe("[pane 0f3c9a1e] from worker (w1): done\n**ok**");
+    expect(mailboxNoteText(PANE, "worker", "w1", " \x1b[2J\n ")).toBeNull();
+    expect(mailboxNoteText(PANE, "worker", "w1", "ok\u202eSPOOF\u2066\x9b31m")).toBe("[pane 0f3c9a1e] from worker (w1): okSPOOF31m");
+    expect(mailboxNoteText(PANE, "worker", "w1", "a\tb\nc")).toBe("[pane 0f3c9a1e] from worker (w1): a\tb\nc");
+    const long = mailboxNoteText(PANE, "worker", "w1", "x".repeat(MAILBOX_NOTE_MAX_CHARS + 50))!;
     expect(long.endsWith("x\n[truncated]")).toBe(true);
-    expect(long.length).toBe("[pane 0f3c9a1e] from worker: ".length + MAILBOX_NOTE_MAX_CHARS + "\n[truncated]".length);
-    expect(mailboxNoteText(PANE, "Luna\nBCC: x", "hi")).toBe("[pane 0f3c9a1e] from Luna BCC: x: hi");
-    expect(mailboxNoteText(PANE, "  ", "hi")).toBe("[pane 0f3c9a1e] from unknown: hi");
+    expect(long.length).toBe("[pane 0f3c9a1e] from worker (w1): ".length + MAILBOX_NOTE_MAX_CHARS + "\n[truncated]".length);
+    expect(mailboxNoteText(PANE, "Luna\nBCC: x", "w1", "hi")).toBe("[pane 0f3c9a1e] from Luna BCC: x (w1): hi");
+    expect(mailboxNoteText(PANE, "  ", "w1", "hi")).toBe("[pane 0f3c9a1e] from unknown (w1): hi");
+  });
+
+  it("strips C1 and bidi controls from the source name and tags the bot id", () => {
+    expect(mailboxNoteText(PANE, "Luna\u202e\u2066ssorc\x9b31m\u200f", "w1", "hi")).toBe("[pane 0f3c9a1e] from Luna ssorc 31m (w1): hi");
+  });
+});
+
+describe("mailbox secret", () => {
+  it("never falls back to a shared key when the pane key cannot persist", () => {
+    const warnings: string[] = [];
+    const blocked = join(home, "blocked-user-data");
+    writeFileSync(blocked, "a file, not a folder");
+    const dev = [mailboxSecretFor(undefined), mailboxSecretFor(undefined)];
+    const failed = mailboxSecretFor(blocked, (line) => warnings.push(line));
+    for (const secret of [...dev, failed]) expect(secret).toMatch(/^[a-f0-9]{64}$/);
+    expect(new Set([...dev, failed]).size).toBe(3);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("could not persist the pane key");
   });
 });
 
@@ -149,7 +171,7 @@ describe("POST /api/mailbox", () => {
     const response = await post({ text: "report: <b>tests</b> pass" });
     expect(response.status).toBe(200);
     expect(await transcript("teacher-thread")).toMatchObject([
-      { role: "bot", kind: "note", text: "[pane 0f3c9a1e] from worker: report: <b>tests</b> pass" },
+      { role: "bot", kind: "note", text: "[pane 0f3c9a1e] from worker (worker): report: <b>tests</b> pass" },
     ]);
     const { bots } = await (await fetch(`${base}/api/bots`, { headers: { authorization: `Bearer ${TOKEN}` } })).json() as { bots: Array<{ id: string; busy?: boolean }> };
     expect(bots.find((bot) => bot.id === "teacher")?.busy).toBe(false);
@@ -158,17 +180,17 @@ describe("POST /api/mailbox", () => {
 
   it("routes a self-addressed note to the section chief", async () => {
     const scope = { ...SCOPE, teacher: "worker" };
-    const response = await post({ text: "worker report" }, scope, mailboxGrant(TOKEN, PANE, "worker", "worker"));
+    const response = await post({ text: "worker report" }, scope, mailboxGrant(MAILBOX_KEY, PANE, "worker", "worker"));
     expect(response.status).toBe(200);
-    expect((await transcript("teacher-thread")).slice(-1)).toMatchObject([{ role: "bot", kind: "note", text: "[pane 0f3c9a1e] from worker: worker report" }]);
+    expect((await transcript("teacher-thread")).slice(-1)).toMatchObject([{ role: "bot", kind: "note", text: "[pane 0f3c9a1e] from worker (worker): worker report" }]);
     expect(await transcript("worker-thread")).toEqual([]);
   });
 
   it("keeps a self-addressed note when the section has no chief", async () => {
     const scope = { pane: PANE, bot: "solo", teacher: "solo" };
-    const response = await post({ text: "solo report" }, scope, mailboxGrant(TOKEN, PANE, "solo", "solo"));
+    const response = await post({ text: "solo report" }, scope, mailboxGrant(MAILBOX_KEY, PANE, "solo", "solo"));
     expect(response.status).toBe(200);
-    expect((await transcript("solo-thread")).slice(-1)).toMatchObject([{ role: "bot", kind: "note", text: "[pane 0f3c9a1e] from solo: solo report" }]);
+    expect((await transcript("solo-thread")).slice(-1)).toMatchObject([{ role: "bot", kind: "note", text: "[pane 0f3c9a1e] from solo (solo): solo report" }]);
   });
 
   it("tells the pane-open service the section chief", async () => {
@@ -211,7 +233,7 @@ describe("POST /api/mailbox", () => {
 
   it("404s an unknown teacher", async () => {
     const scope = { ...SCOPE, teacher: "ghost" };
-    expect((await post({ text: "hi" }, scope, mailboxGrant(TOKEN, PANE, "worker", "ghost"))).status).toBe(404);
+    expect((await post({ text: "hi" }, scope, mailboxGrant(MAILBOX_KEY, PANE, "worker", "ghost"))).status).toBe(404);
   });
 
   it("rejects a bad or missing grant before reading any body byte", async () => {
@@ -251,7 +273,7 @@ describe("POST /api/mailbox", () => {
     if (!address || typeof address === "string") throw new Error("no test port");
     const bin = (await installOrbitMsg(join(home, "bin-timeout")))!;
     const paneEnv = terminalPaneEnv({ SystemRoot: process.env.SystemRoot, PATH: process.env.PATH }, {
-      pane: PANE, bot: "worker", teacher: "teacher", mailbox: { url: `http://127.0.0.1:${address.port}`, token: TOKEN, binDir: bin },
+      pane: PANE, bot: "worker", teacher: "teacher", mailbox: { url: `http://127.0.0.1:${address.port}`, token: MAILBOX_KEY, binDir: bin },
     });
     const started = Date.now();
     const hung = await orbitMsgFile(paneEnv, bin, ["hi"]);
@@ -279,7 +301,7 @@ describe("POST /api/mailbox", () => {
   it.runIf(process.platform === "win32")("orbit-msg retries 18799 then 28799 on connection refused", async () => {
     const bin = (await installOrbitMsg(join(home, "bin-fallback")))!;
     const paneEnvFor = (url: string) => terminalPaneEnv({ SystemRoot: process.env.SystemRoot, PATH: process.env.PATH }, {
-      pane: PANE, bot: "worker", teacher: "teacher", mailbox: { url, token: TOKEN, binDir: bin },
+      pane: PANE, bot: "worker", teacher: "teacher", mailbox: { url, token: MAILBOX_KEY, binDir: bin },
     });
     const seen: string[] = [];
     const stub = createServer((req, res) => {
@@ -317,7 +339,7 @@ describe("POST /api/mailbox", () => {
     const bin = (await installOrbitMsg(join(home, "bin")))!;
     expect(existsSync(join(bin, "orbit-msg.cmd"))).toBe(false);
     const paneEnv = terminalPaneEnv({ SystemRoot: process.env.SystemRoot, PATH: process.env.PATH }, {
-      pane: PANE, bot: "worker", teacher: "teacher", mailbox: { url: base, token: TOKEN, binDir: bin },
+      pane: PANE, bot: "worker", teacher: "teacher", mailbox: { url: base, token: MAILBOX_KEY, binDir: bin },
     });
     const sent = await paneShell(paneEnv, "orbit-msg from 'the pane'; 'piped' | orbit-msg");
     expect(sent.stderr).toBe("");
@@ -329,10 +351,10 @@ describe("POST /api/mailbox", () => {
     expect(codex.stderr).toBe("");
     expect(codex.status).toBe(0);
     expect((await transcript("teacher-thread")).slice(-4).map((message) => message.text)).toEqual([
-      "[pane 0f3c9a1e] from worker: from the pane",
-      "[pane 0f3c9a1e] from worker: piped",
-      "[pane 0f3c9a1e] from worker: hook report 완료",
-      "[pane 0f3c9a1e] from worker: codex \"done\" & more",
+      "[pane 0f3c9a1e] from worker (worker): from the pane",
+      "[pane 0f3c9a1e] from worker (worker): piped",
+      "[pane 0f3c9a1e] from worker (worker): hook report 완료",
+      "[pane 0f3c9a1e] from worker (worker): codex \"done\" & more",
     ]);
     const bare = { SystemRoot: process.env.SystemRoot, PATH: process.env.PATH };
     const outside = await orbitMsgFile(bare, bin, ["hi"]);
@@ -344,7 +366,7 @@ describe("POST /api/mailbox", () => {
   it.runIf(process.platform === "win32")("orbit-msg posts shell metacharacters and quotes literally", async () => {
     const bin = (await installOrbitMsg(join(home, "bin")))!;
     const paneEnv = terminalPaneEnv({ SystemRoot: process.env.SystemRoot, PATH: process.env.PATH }, {
-      pane: PANE, bot: "worker", teacher: "teacher", mailbox: { url: base, token: TOKEN, binDir: bin },
+      pane: PANE, bot: "worker", teacher: "teacher", mailbox: { url: base, token: MAILBOX_KEY, binDir: bin },
     });
     const texts = [
       'A " & echo PWNED & rem "',
@@ -365,7 +387,7 @@ describe("POST /api/mailbox", () => {
       expect(run.stderr).toBe("");
     }
     const posted = (await transcript("teacher-thread")).slice(-launches.length).map((message) => message.text);
-    expect(posted).toEqual([...texts, ...texts, ...texts].map((text) => `[pane 0f3c9a1e] from worker: ${text}`));
+    expect(posted).toEqual([...texts, ...texts, ...texts].map((text) => `[pane 0f3c9a1e] from worker (worker): ${text}`));
     expect(posted.join("\n")).not.toContain(paneEnv.ORBIT_MSG_TOKEN);
   }, 60_000);
 });

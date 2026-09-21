@@ -190,7 +190,7 @@ import { providerReloadErrorActivity, stallErrorActivity } from "./room-error-at
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import { foldContinuationStart } from "./continuation-turn.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
-import { loadMailboxSecret, mailboxNoteText, mailboxPostSchema, mailboxScope, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
+import { mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
 import {
   ensureWorkspace,
   listMemoryTopics,
@@ -352,16 +352,8 @@ const appTokenMessage = { type: "orbit:api-token", token: COMMS_TOKEN };
 // harmless once waitForAppToken has resolved. Dev/Node still needs this path.
 utilityParentPort?.postMessage(appTokenMessage);
 process.send?.(appTokenMessage);
-// Dev has no userData and restarts panes with the server, so grants ride the boot token there.
-const MAILBOX_SECRET = (() => {
-  if (!process.env.OMB_USER_DATA) return COMMS_TOKEN;
-  try {
-    return loadMailboxSecret(process.env.OMB_USER_DATA);
-  } catch (error) {
-    console.warn(`mailbox: could not persist the pane key; grants reset on restart: ${error instanceof Error ? error.message : String(error)}`);
-    return COMMS_TOKEN;
-  }
-})();
+// Dev has no userData and restarts panes with the server, so grants ride a per-boot key there.
+const MAILBOX_SECRET = mailboxSecretFor(process.env.OMB_USER_DATA);
 
 // Opt-in phone access over the Tailscale tailnet. ORBIT_REMOTE_HOST binds
 // the Host/Origin gates and /api/* cookie auth to one tailnet hostname;
@@ -5656,13 +5648,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const teacher = scope.teacher === scope.bot
         ? store.bot(resolveMailboxTeacher(store.bots, scope.bot)) ?? source
         : target;
-      const note = mailboxNoteText(scope.pane, source.name || source.id, parsed.data.text);
+      const note = mailboxNoteText(scope.pane, source.name || source.id, source.id, parsed.data.text);
       if (!note) return json(res, 400, { error: "empty message" });
       const message = store.appendMessage(teacher.threadId, { role: "bot", kind: "note", text: note });
       return json(res, 200, { ok: true, id: message.id });
     }
     if (path.startsWith("/api/") && !(method === "GET" && path === "/api/health") &&
-        !apiRequestAuthorized(authorizedComms(req.headers.authorization), req.headers.cookie, REMOTE_KEY)) {
+        !apiRequestAuthorized(authorizedComms(req.headers.authorization), req.headers.cookie, REMOTE_KEY, path)) {
       return json(res, 401, { error: "unauthorized" });
     }
     // One-time remote handshake: a valid key mints the cookie /api/* accepts.

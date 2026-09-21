@@ -102,13 +102,16 @@ export function remoteCookieAuthorized(cookieHeader: string | undefined, remoteK
   return remoteKeyMatches(remoteCookieValue(cookieHeader), remoteKey);
 }
 
-/** /api/* accepts the boot token or, when remote mode is on, the cookie. */
+const BEARER_ONLY_PATHS = new Set(["/api/internal/terminal-bridge"]);
+
+/** /api/* accepts the boot token or, when remote mode is on, the cookie; bearer-only paths refuse the cookie. */
 export function apiRequestAuthorized(
   bearerOk: boolean,
   cookieHeader: string | undefined,
   remoteKey: string | undefined,
+  path = "",
 ): boolean {
-  return bearerOk || remoteCookieAuthorized(cookieHeader, remoteKey);
+  return bearerOk || (!BEARER_ONLY_PATHS.has(path) && remoteCookieAuthorized(cookieHeader, remoteKey));
 }
 
 const FALSY_FLAG = new Set(["", "0", "false", "no", "off"]);

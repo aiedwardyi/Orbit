@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -93,18 +93,16 @@ describe("mailbox teacher routing", () => {
   });
 });
 
+// cmd splits argv on "=", so the -c pairs are matched on the raw line.
 const FAKE_GIT_CMD = [
   "@echo off",
+  'set "ARGS=%*"',
+  'if defined ORBIT_FAKE_GIT_LOG >>"%ORBIT_FAKE_GIT_LOG%" echo %ARGS%',
+  'if defined ORBIT_FAKE_GIT_LOG for %%v in (ORBIT_PANE ORBIT_BOT ORBIT_TEACHER ORBIT_URL ORBIT_MSG_TOKEN) do if defined %%v >>"%ORBIT_FAKE_GIT_LOG%" echo leaked %%v',
   'if "%ORBIT_FAKE_GIT%"=="norepo" exit /b 128',
-  'if "%~1"=="rev-parse" (',
-  '  if "%~2"=="--abbrev-ref" echo feat/widget',
-  '  if "%~2"=="--short" echo abc1234',
-  "  exit /b 0",
-  ")",
-  'if "%~1"=="status" (',
-  '  if "%ORBIT_FAKE_GIT%"=="dirty" echo M dirty.txt',
-  "  exit /b 0",
-  ")",
+  'if not "%ARGS:--abbrev-ref=%"=="%ARGS%" echo feat/widget& exit /b 0',
+  'if not "%ARGS:--short=%"=="%ARGS%" echo abc1234& exit /b 0',
+  'if not "%ARGS: status =%"=="%ARGS%" if "%ORBIT_FAKE_GIT%"=="dirty" echo M dirty.txt',
   "exit /b 0",
   "",
 ].join("\r\n");
@@ -196,6 +194,23 @@ describe.runIf(process.platform === "win32")("orbit-msg --report", () => {
     }
   }, 30_000);
 
+  it("hides the pane grant from git and disables its hooks and fsmonitor", async () => {
+    const f = await reportFixture();
+    try {
+      await withMailboxStub(async (url, posts) => {
+        const env = { ...reportEnv(url, f.fakebin, "dirty"), ORBIT_FAKE_GIT_LOG: path.join(f.dir, "git.log") };
+        const run = await runOrbitMsg(env, f.bin, ["--report", "DONE", "WIDGET"]);
+        expect(run.status).toBe(0);
+        expect(posts[0].text).toBe("DONE WIDGET branch=feat/widget sha=abc1234 dirty=yes");
+        const calls = readFileSync(env.ORBIT_FAKE_GIT_LOG, "utf8").trim().split(/\r?\n/);
+        expect(calls).toHaveLength(3);
+        for (const call of calls) expect(call).toMatch(/^-c core\.fsmonitor=false -c core\.hooksPath=NUL (rev-parse|status) /);
+      });
+    } finally {
+      await removeTempDir(f.dir);
+    }
+  }, 30_000);
+
   it("rejects a bad status or missing nick", async () => {
     const f = await reportFixture();
     try {
@@ -211,6 +226,19 @@ describe.runIf(process.platform === "win32")("orbit-msg --report", () => {
       await removeTempDir(f.dir);
     }
   }, 30_000);
+});
+
+describe("installOrbitMsg", () => {
+  it("removes its temp file when the rename fails", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "orbit-install-"));
+    try {
+      mkdirSync(path.join(dir, "orbit-msg.ps1", "blocker"), { recursive: true });
+      await expect(installOrbitMsg(dir, "win32")).rejects.toThrow();
+      expect(readdirSync(dir)).toEqual(["orbit-msg.ps1"]);
+    } finally {
+      await removeTempDir(dir);
+    }
+  });
 });
 
 describe("mailbox grant", () => {

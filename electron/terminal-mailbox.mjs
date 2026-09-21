@@ -1,4 +1,4 @@
-import { createHash, createHmac } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -60,15 +60,21 @@ if ($report) {
     if (-not $text -and [Console]::IsInputRedirected) { $text = [Console]::In.ReadToEnd() }
   }
   $branch = 'none'; $sha = 'none'; $dirty = 'unknown'
+  # Repo config can run fsmonitor or hooks; neither may see the pane grant.
+  $paneVars = @('ORBIT_PANE', 'ORBIT_BOT', 'ORBIT_TEACHER', 'ORBIT_URL', 'ORBIT_MSG_TOKEN')
+  $saved = @{}
+  foreach ($name in $paneVars) { $saved[$name] = [Environment]::GetEnvironmentVariable($name); [Environment]::SetEnvironmentVariable($name, $null) }
   try {
-    $b = git rev-parse --abbrev-ref HEAD 2>$null | Select-Object -First 1
-    $s = git rev-parse --short HEAD 2>$null | Select-Object -First 1
+    $b = git -c core.fsmonitor=false -c core.hooksPath=NUL rev-parse --abbrev-ref HEAD 2>$null | Select-Object -First 1
+    $s = git -c core.fsmonitor=false -c core.hooksPath=NUL rev-parse --short HEAD 2>$null | Select-Object -First 1
     if ($b -and $s) {
       $branch = ([string]$b).Trim() -replace '\s+', '_'
       $sha = ([string]$s).Trim() -replace '\s+', '_'
-      $dirty = if (git status --porcelain 2>$null | Select-Object -First 1) { 'yes' } else { 'no' }
+      $dirty = if (git -c core.fsmonitor=false -c core.hooksPath=NUL status --porcelain 2>$null | Select-Object -First 1) { 'yes' } else { 'no' }
     }
-  } catch {}
+  } catch {} finally {
+    foreach ($name in $paneVars) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
+  }
   $header = "$($report.status) $($report.nick) branch=$branch sha=$sha dirty=$dirty"
   $text = if ($text.Trim()) { "$header` + "`" + String.raw`n$text" } else { $header }
 } elseif ($mode -eq '--hook') {
@@ -132,9 +138,14 @@ export async function installOrbitMsg(dir, platform = process.platform) {
   const target = path.join(dir, "orbit-msg.ps1");
   const content = ORBIT_MSG_PS1.replace(/\r?\n/g, "\r\n");
   if ((await fs.readFile(target, "utf8").catch(() => null)) !== content) {
-    const tmp = `${target}.${process.pid}.tmp`;
+    const tmp = `${target}.${process.pid}.${randomUUID()}.tmp`;
     await fs.writeFile(tmp, content);
-    await fs.rename(tmp, target);
+    try {
+      await fs.rename(tmp, target);
+    } catch (error) {
+      await fs.rm(tmp, { force: true });
+      throw error;
+    }
   }
   await Promise.all(["orbit-msg.cmd", "orbit-mailbox.ps1"].map((stale) => fs.rm(path.join(dir, stale), { force: true })));
   return dir;

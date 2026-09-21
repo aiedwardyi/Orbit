@@ -34,6 +34,14 @@ describe("terminal proxy", () => {
     expect(new Headers(init?.headers).get("authorization")).toBe("Bearer grant");
   });
 
+  it("prints the capture time the send route returns", async () => {
+    const capturedAt = Date.parse("2026-09-21T01:02:03.000Z");
+    const fetchImpl = async () => new Response(JSON.stringify({ botId: "bot-1", sessionId: "s1", generation: 2, capturedAt, exited: false, screenText: "ok" }), { status: 200 });
+    const result = await callTool("terminal_send", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { text: "x", sessionId: "s1", generation: 2 });
+    expect(result.content[0].text).toContain("Captured at: 2026-09-21T01:02:03.000Z");
+    expect(result.content[0].text).toContain("State: running");
+  });
+
   it("surfaces bridge send errors as tool errors", async () => {
     const fetchImpl = async () => new Response(JSON.stringify({ error: "Terminal session is stale; take a fresh snapshot" }), { status: 409 });
     const result = await callTool("terminal_send", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { text: "x", sessionId: "s1", generation: 1 });

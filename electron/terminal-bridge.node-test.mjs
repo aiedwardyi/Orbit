@@ -34,11 +34,11 @@ function sendFixture() {
   const bridge = createTerminalBridge({
     token: "bridge-secret",
     host: {
-      readBot: () => ({ botId: "bot-1", state: "no-terminal" }),
+      readBot: (botId) => ({ botId, sessionId: "s1", generation: 2, screenText: "echo exact", seq: 5, capturedAt: 7, exited: false, truncated: false }),
       async sendBot(botId, input) {
         calls.push([botId, input]);
         if (input.generation !== 2) throw new Error("Terminal session is stale; take a fresh snapshot");
-        return { botId, sessionId: input.sessionId, generation: 2, screenText: "echo exact", seq: 5, truncated: false };
+        return { id: input.sessionId, output: "raw" };
       },
     },
   });
@@ -51,12 +51,12 @@ const sendRequest = (connection, init = {}) => fetch(`${connection.url}/v1/bots/
   ...init,
 });
 
-test("sends text to the bot's own terminal and returns the fresh snapshot", async () => {
+test("sends text to the bot's own terminal and returns the read-shaped snapshot", async () => {
   const { bridge, calls } = sendFixture();
   const connection = await bridge.start();
   const response = await sendRequest(connection, { body: JSON.stringify({ sessionId: "s1", generation: 2, text: "echo exact\r" }) });
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { botId: "bot-1", sessionId: "s1", generation: 2, screenText: "echo exact", seq: 5, truncated: false });
+  assert.deepEqual(await response.json(), { botId: "bot-1", sessionId: "s1", generation: 2, screenText: "echo exact", seq: 5, capturedAt: 7, exited: false, truncated: false });
   assert.deepEqual(calls, [["bot-1", { sessionId: "s1", generation: 2, text: "echo exact\r" }]]);
   await bridge.close();
 });
