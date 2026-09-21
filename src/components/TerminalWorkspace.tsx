@@ -29,6 +29,37 @@ export function folderBasename(cwd: string): string {
   return base || cwd;
 }
 
+function paneLabelKey(botId: string): string {
+  return `orbit.paneLabel.${botId}`;
+}
+
+function paneLabelStore() {
+  try {
+    return typeof localStorage === "undefined" ? undefined : localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+function readPaneLabel(botId: string): string {
+  try {
+    return paneLabelStore()?.getItem(paneLabelKey(botId)) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writePaneLabel(botId: string, value: string): void {
+  try {
+    const store = paneLabelStore();
+    if (!store) return;
+    if (value) store.setItem(paneLabelKey(botId), value);
+    else store.removeItem(paneLabelKey(botId));
+  } catch {
+    // quota / private mode - the label just doesn't outlive the mount
+  }
+}
+
 export function TerminalWorkspace({
   bot,
   onClose,
@@ -55,6 +86,7 @@ export function TerminalWorkspace({
   const replacingRef = useRef(false);
   const forwardInputRef = useRef<(data: string) => void>(() => {});
   const composingRef = useRef(false);
+  const labelCancelRef = useRef(false);
   useLayoutEffect(() => {
     blockedRef.current = focusBlocked || !visible;
     visibleRef.current = visible;
@@ -72,6 +104,9 @@ export function TerminalWorkspace({
   const [replacing, setReplacing] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [confirmRestart, setConfirmRestart] = useState(false);
+  const [paneLabel, setPaneLabel] = useState(() => readPaneLabel(bot.id));
+  const [editingLabel, setEditingLabel] = useState(false);
+  const [labelDraft, setLabelDraft] = useState("");
 
   const projectMismatch = Boolean(session && !samePath(bot.cwd ?? null, launchProject));
   const showProjectBanner = projectMismatch && !bannerDismissed;
@@ -81,6 +116,11 @@ export function TerminalWorkspace({
   useEffect(() => {
     setBannerDismissed(false);
   }, [bot.cwd]);
+
+  useEffect(() => {
+    setPaneLabel(readPaneLabel(bot.id));
+    setEditingLabel(false);
+  }, [bot.id]);
 
   // xterm + bridge listeners for this bot. Shell open waits until visible.
   useEffect(() => {
@@ -525,6 +565,30 @@ export function TerminalWorkspace({
     }
   };
 
+  const startLabelEdit = () => {
+    labelCancelRef.current = false;
+    setLabelDraft(paneLabel);
+    setEditingLabel(true);
+  };
+
+  const finishLabelEdit = (save: boolean) => {
+    if (save) {
+      const next = labelDraft.trim().slice(0, 40);
+      setPaneLabel(next);
+      writePaneLabel(bot.id, next);
+    }
+    setEditingLabel(false);
+  };
+
+  // Escape unmounts the input, which can fire blur after cancel.
+  const blurLabelEdit = () => {
+    if (labelCancelRef.current) {
+      labelCancelRef.current = false;
+      return;
+    }
+    finishLabelEdit(true);
+  };
+
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-inset text-ink" aria-label={t("terminal.title")}>
       <header className="flex min-h-[60px] shrink-0 items-center gap-3 border-b border-hairline bg-panel py-3 pl-11 pr-5 md:pl-5">
@@ -548,6 +612,50 @@ export function TerminalWorkspace({
               <span className="min-w-0 truncate font-mono">{folderLabel}</span>
               <ChevronDown size={11} className="shrink-0 opacity-70" />
             </button>
+            {editingLabel ? (
+              <input
+                autoFocus
+                value={labelDraft}
+                maxLength={40}
+                aria-label={paneLabel ? t("terminal.editLabel") : t("terminal.addLabel")}
+                onFocus={(event) => event.currentTarget.select()}
+                onChange={(event) => setLabelDraft(event.target.value.slice(0, 40))}
+                onBlur={blurLabelEdit}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    finishLabelEdit(true);
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    labelCancelRef.current = true;
+                    finishLabelEdit(false);
+                  }
+                }}
+                className="w-36 shrink-0 rounded-md border border-hairline bg-inset px-1.5 py-0.5 font-mono text-[11px] text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text"
+              />
+            ) : paneLabel ? (
+              <button
+                type="button"
+                onClick={startLabelEdit}
+                aria-label={t("terminal.editLabel")}
+                title={paneLabel}
+                className="inline-flex min-w-0 max-w-[180px] shrink-0 items-center rounded-md border border-hairline bg-raised px-1.5 py-0.5 font-mono text-[11px] text-ink-secondary hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text"
+              >
+                <span className="truncate">{paneLabel}</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={startLabelEdit}
+                aria-label={t("terminal.addLabel")}
+                className="inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-[11px] text-ink-secondary/70 hover:bg-raised hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text"
+              >
+                {t("terminal.addLabel")}
+              </button>
+            )}
             {projectMismatch && bannerDismissed ? (
               <span className="shrink-0 text-[11px] text-ink-secondary" title={launchProject ?? undefined}>· {t("terminal.differentProject")}</span>
             ) : null}
