@@ -95,3 +95,32 @@ test("rejects oversized and malformed send bodies before the host", async () => 
   assert.deepEqual(calls, []);
   await bridge.close();
 });
+
+test("opens a pane only for the grant's own bot", async () => {
+  const calls = [];
+  const bridge = createTerminalBridge({
+    token: "bridge-secret",
+    host: {
+      readBot: (botId) => ({ botId }),
+      sendBot: () => ({}),
+      async openForBot(botId, input) {
+        calls.push([botId, input]);
+        if (input.label === "full") throw new Error("Too many bot terminals (limit 8)");
+        return { sessionId: "p1", generation: 1 };
+      },
+    },
+  });
+  const connection = await bridge.start();
+  const open = (botId, body) => fetch(`${connection.url}/v1/bots/${botId}/terminal/open`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${terminalReadGrant(connection.token, "bot-1")}`, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const response = await open("bot-1", { label: "worker", command: "ls" });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { sessionId: "p1", generation: 1 });
+  assert.equal((await open("bot-2", { label: "worker" })).status, 401);
+  assert.equal((await open("bot-1", { label: "full" })).status, 429);
+  assert.deepEqual(calls.map(([botId, input]) => [botId, input.label]), [["bot-1", "worker"], ["bot-1", "full"]]);
+  await bridge.close();
+});

@@ -1118,7 +1118,8 @@ export function Composer({
         )}
         {hasContent && !locked && (
           <>
-          {canShareTerminal && !busy && (
+          {/* Hidden while sharing is on: the bot types into its own panes. */}
+          {canShareTerminal && !bot?.shareTerminalWithChat && !busy && (
             <button
               type="button"
               onClick={() => void previewTerminalSend()}

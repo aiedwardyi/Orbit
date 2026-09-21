@@ -22,6 +22,9 @@ contextBridge.exposeInMainWorld("ogb", {
     resize: (id, cols, rows) => ipcRenderer.invoke("terminal:resize", id, cols, rows),
     readBot: (botId) => ipcRenderer.invoke("terminal:read-bot", botId),
     sendBot: (botId, input) => ipcRenderer.invoke("terminal:send-bot", botId, input),
+    openBot: (botId, input) => ipcRenderer.invoke("terminal:open-bot", botId, input),
+    setLabel: (id, label) => ipcRenderer.invoke("terminal:set-label", id, label),
+    close: (id) => ipcRenderer.invoke("terminal:close", id),
     onData: (cb) => {
       const handler = (_event, value) => cb(value);
       ipcRenderer.on("terminal:data", handler);
@@ -41,6 +44,11 @@ contextBridge.exposeInMainWorld("ogb", {
       const handler = (_event, value) => cb(value);
       ipcRenderer.on("terminal:attention", handler);
       return () => ipcRenderer.removeListener("terminal:attention", handler);
+    },
+    onOpened: (cb) => {
+      const handler = (_event, value) => cb(value);
+      ipcRenderer.on("terminal:opened", handler);
+      return () => ipcRenderer.removeListener("terminal:opened", handler);
     },
   },
   getCapabilities: () => ipcRenderer.invoke("desktop:capabilities"),
