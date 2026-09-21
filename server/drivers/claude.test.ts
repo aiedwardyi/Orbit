@@ -470,6 +470,25 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(allowed).toContain("mcp__agents");
   });
 
+  it("pre-allows terminal_read but leaves terminal_send to the permission prompt", async () => {
+    await create();
+    const dump = join(scratch, "dump.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+
+    await instance.adapter.sendTurn({
+      threadId: "t-terminal-send",
+      text: "hi",
+      integrations: { terminal: { command: process.execPath, args: ["/fake/terminal-proxy.js"], env: { OMB_BOT_ID: "b1" } } },
+    });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    const allowed: string[] = seen.argv[seen.argv.indexOf("--allowedTools") + 1].split(",");
+    expect(allowed).toContain("mcp__terminal__terminal_read");
+    expect(allowed).not.toContain("mcp__terminal");
+    expect(allowed).not.toContain("mcp__terminal__terminal_send");
+  });
+
   it("passes normalized available and denied built-in tool sets to Claude", async () => {
     await create(undefined, {}, {
       tools: ["Read", "WebFetch"],
