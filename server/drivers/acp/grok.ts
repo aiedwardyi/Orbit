@@ -323,13 +323,9 @@ export const grokSupport: AcpSupport = {
     "stdio",
   ],
 
-  // -m on argv is necessary but not sufficient: session/new still starts on
-  // [models].default. Pin the slug over the wire, same as Hermes/Droid.
-  // argv --reasoning-effort alone does not stick either (LIVE-verified
-  // 1.0.30): the effort must be set explicitly AFTER the model, over the
-  // same session/set_config_option shape core uses for its model pin.
+  // argv -m pins the model on current grok; set_model is the fallback when session/new reports something else.
   async configureSession({ request, sessionId, turn, sessionResult }) {
-    if (turn.model) {
+    if (turn.model && configOptionValue(sessionResult, "model") !== turn.model) {
       try {
         await request("session/set_model", { sessionId, modelId: turn.model });
       } catch (e) {

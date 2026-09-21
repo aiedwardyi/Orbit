@@ -284,6 +284,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
 
         const child = spawnCli(effectiveCli(), ["serve"], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
         children.add(child);
+        turnTimer.mark("spawnOrReuse");
         const channel = createMspChannel(child);
         const state = {
           settled: false,
@@ -817,6 +818,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
               state.model = model;
             }
             emit({ ...base(threadId, turnId), type: "session.started", sessionId, model: state.model ?? model ?? null });
+            turnTimer.mark("cliReady");
             const text = turn.system ? `${turn.system}\n\n${promptText}` : promptText;
             if (!sessionId) throw new Error("session/start returned no sessionId");
             await startTurnOn(sessionId, text);

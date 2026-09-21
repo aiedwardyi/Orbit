@@ -63,6 +63,41 @@ describe("grok configureSession effort pin", () => {
     expect(calls[1]!.params).toMatchObject({ sessionId: "session-1", configId: "reasoning_effort", value: "xhigh" });
   });
 
+  it("skips set_model when session/new already reports the requested model", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const request = async (method: string, params: unknown) => {
+      calls.push({ method, params });
+      if (method === "session/set_config_option") {
+        const value = (params as { value: unknown }).value;
+        return { configOptions: [{ id: "reasoning_effort", currentValue: value }] };
+      }
+      throw new Error(`unexpected ${method}`);
+    };
+    await grokSupport.configureSession!({
+      request, sessionId: "session-1", config, turn: turn({ effort: "xhigh" }), sessionModels: [],
+      sessionResult: {
+        configOptions: [
+          { id: "model", currentValue: "grok-4.6" },
+          { id: "reasoning_effort", currentValue: "high" },
+        ],
+      },
+    });
+    expect(calls.map((call) => call.method)).toEqual(["session/set_config_option"]);
+  });
+
+  it("falls back to set_model when session/new reports a different model", async () => {
+    const calls: string[] = [];
+    await grokSupport.configureSession!({
+      request: async (method: string) => {
+        calls.push(method);
+        return {};
+      },
+      sessionId: "session-1", config, turn: turn(), sessionModels: [],
+      sessionResult: { configOptions: [{ id: "model", currentValue: "grok-4.5" }] },
+    });
+    expect(calls).toEqual(["session/set_model"]);
+  });
+
   it("skips the wire entirely when no effort is requested", async () => {
     let calls = 0;
     await grokSupport.configureSession!({
