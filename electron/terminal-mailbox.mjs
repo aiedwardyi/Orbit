@@ -35,7 +35,7 @@ export function terminalPaneEnv(base, { pane, bot, teacher = bot, mailbox = null
 }
 
 // Exit 1, never 2: a Claude Code Stop hook treats exit 2 as "keep working".
-// No .cmd shim: cmd.exe re-parses its command line, so args could run commands.
+// The .cmd and extensionless shims forward argv here; this script holds the only logic.
 const ORBIT_MSG_PS1 = String.raw`$ErrorActionPreference = 'Stop'
 $mode = if ($args.Count -ge 2 -and ($args[0] -eq '--hook' -or $args[0] -eq '--notify')) { $args[0] }
 if (-not $env:ORBIT_PANE -or -not $env:ORBIT_URL -or -not $env:ORBIT_MSG_TOKEN) {
@@ -131,22 +131,45 @@ if ($failure) {
 }
 `;
 
+const ORBIT_MSG_CMD = String.raw`@echo off
+where pwsh >nul 2>nul
+if errorlevel 1 (
+  powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0orbit-msg.ps1" %*
+) else (
+  pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0orbit-msg.ps1" %*
+)
+`;
+
+const ORBIT_MSG_SH = String.raw`#!/bin/sh
+if command -v pwsh.exe >/dev/null 2>&1; then
+  exec pwsh.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$(dirname "$0")/orbit-msg.ps1" "$@"
+else
+  exec powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$(dirname "$0")/orbit-msg.ps1" "$@"
+fi
+`;
+
 /** Writes orbit-msg into `dir`; Windows only, returns null elsewhere. */
 export async function installOrbitMsg(dir, platform = process.platform) {
   if (platform !== "win32") return null;
   await fs.mkdir(dir, { recursive: true });
-  const target = path.join(dir, "orbit-msg.ps1");
-  const content = ORBIT_MSG_PS1.replace(/\r?\n/g, "\r\n");
-  if ((await fs.readFile(target, "utf8").catch(() => null)) !== content) {
-    const tmp = `${target}.${process.pid}.${randomUUID()}.tmp`;
-    await fs.writeFile(tmp, content);
-    try {
-      await fs.rename(tmp, target);
-    } catch (error) {
-      await fs.rm(tmp, { force: true });
-      throw error;
+  const files = [
+    ["orbit-msg.ps1", ORBIT_MSG_PS1.replace(/\r?\n/g, "\r\n")],
+    ["orbit-msg.cmd", ORBIT_MSG_CMD.replace(/\r?\n/g, "\r\n")],
+    ["orbit-msg", ORBIT_MSG_SH],
+  ];
+  for (const [name, content] of files) {
+    const target = path.join(dir, name);
+    if ((await fs.readFile(target, "utf8").catch(() => null)) !== content) {
+      const tmp = `${target}.${process.pid}.${randomUUID()}.tmp`;
+      await fs.writeFile(tmp, content);
+      try {
+        await fs.rename(tmp, target);
+      } catch (error) {
+        await fs.rm(tmp, { force: true });
+        throw error;
+      }
     }
   }
-  await Promise.all(["orbit-msg.cmd", "orbit-mailbox.ps1"].map((stale) => fs.rm(path.join(dir, stale), { force: true })));
+  await fs.rm(path.join(dir, "orbit-mailbox.ps1"), { force: true });
   return dir;
 }

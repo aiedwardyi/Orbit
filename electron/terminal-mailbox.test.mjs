@@ -239,6 +239,24 @@ describe("installOrbitMsg", () => {
       await removeTempDir(dir);
     }
   });
+
+  it("writes the ps1 plus cmd and sh wrappers", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "orbit-install-"));
+    try {
+      const bin = await installOrbitMsg(path.join(dir, "orbit-bin"), "win32");
+      expect(readdirSync(bin).sort()).toEqual(["orbit-msg", "orbit-msg.cmd", "orbit-msg.ps1"]);
+      const cmd = readFileSync(path.join(bin, "orbit-msg.cmd"), "utf8");
+      expect(cmd).toContain("orbit-msg.ps1");
+      expect(cmd).toMatch(/\r\n/);
+      expect(cmd).not.toMatch(/[^\r]\n/);
+      const sh = readFileSync(path.join(bin, "orbit-msg"), "utf8");
+      expect(sh).toMatch(/^#!\/bin\/sh\n/);
+      expect(sh).toContain("orbit-msg.ps1");
+      expect(sh).not.toContain("\r");
+    } finally {
+      await removeTempDir(dir);
+    }
+  });
 });
 
 describe("mailbox grant", () => {
