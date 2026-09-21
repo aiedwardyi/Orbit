@@ -339,6 +339,39 @@ describe("Sidebar priority ordering", () => {
     }
   });
 
+  it("renders pinned rows full size and first, unpinned rows compact", async () => {
+    const bots = ["a", "b", "c", "d", "e", "f", "g"].map((id) => ({
+      ...bot(id),
+      pinned: id === "c" || id === "f",
+      modelSelection: { instanceId: "", model: "" },
+    }));
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async (path: string) =>
+      path === "/api/bots"
+        ? new Response(JSON.stringify({ bots, groups: [] }))
+        : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 }),
+    ));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    const rows = () => [...host.querySelectorAll("[data-sidebar-row]")];
+    const avatarWidth = (row: Element) =>
+      (row.querySelector("span.relative.shrink-0")!.firstElementChild as HTMLElement).style.width;
+    try {
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))));
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      await vi.waitFor(() => expect(rows()).toHaveLength(7));
+      expect(rows().map((row) => row.getAttribute("data-sidebar-row-id"))).toEqual(["c", "f", "a", "b", "d", "e", "g"]);
+      expect(rows().map(avatarWidth)).toEqual(["48px", "48px", "40px", "40px", "40px", "40px", "40px"]);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
   it("keeps priority flags above regular rows during valid and invalid drags", async () => {
     const pinnedOne = { ...bot("pinned-one"), section: "Work", pinned: true, modelSelection: { instanceId: "", model: "" } };
     const regular = { ...bot("regular"), section: "Work", modelSelection: { instanceId: "", model: "" } };
