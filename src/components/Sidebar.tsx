@@ -207,8 +207,8 @@ interface MenuState {
 /** Room avatar: 2–3 overlapping mauses in the same 48px slot a bot gets. */
 function StackedMauses({ members, density }: { members: Bot[]; density: SidebarDensity }) {
   const iconOnly = density === "icons";
-  const slotSize = iconOnly ? "size-12" : density === "compact" ? "size-10" : "size-12";
-  const singleSize = iconOnly ? 44 : density === "compact" ? 40 : 48;
+  const slotSize = iconOnly ? "size-12" : density === "compact" ? "size-8" : "size-12";
+  const singleSize = iconOnly ? 44 : density === "compact" ? 32 : 48;
   if (members.length <= 1) {
     const b = members[0];
     return (
@@ -376,7 +376,12 @@ function GroupListItem({
             )}
           </div>
           <div className="flex items-center justify-between gap-2">
-            <span className="truncate text-[13px] text-ink-secondary">
+            <span
+              className={cn(
+                "truncate text-ink-secondary",
+                density === "compact" ? "text-xs leading-tight" : "text-[13px]",
+              )}
+            >
               {roomConversationPreview(group, state.bots, showToolCalls)}
             </span>
             {group.unread && <span className="size-2 shrink-0 rounded-full bg-accent" />}
@@ -813,7 +818,7 @@ function BotListItem({
   useEffect(() => {
     if (iconOnly) setRenaming(false);
   }, [iconOnly]);
-  const avatarSize = iconOnly ? 44 : density === "compact" ? 40 : 48;
+  const avatarSize = iconOnly ? 44 : density === "compact" ? 32 : 48;
   // the visible branch, so a version switch changes the row with the chat
   const visible = visibleMessages(bot);
   const last = visible.at(-1);
@@ -829,7 +834,7 @@ function BotListItem({
     iconOnly
       ? "justify-center px-1 py-1.5"
       : density === "compact"
-        ? "gap-2 px-2 py-1.5 pr-12"
+        ? "gap-2 px-2 py-1 pr-10"
         : "gap-2 px-3 py-1.5 pr-12",
     sidebarConversationRowTone(selected),
   );
@@ -901,7 +906,12 @@ function BotListItem({
       </span>
       <div className={cn("min-w-0 flex-1", iconOnly && "hidden")}>
         <div className="flex min-w-0 items-baseline gap-2 overflow-hidden">
-          <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-semibold text-ink">
+          <span
+            className={cn(
+              "flex min-w-0 flex-1 items-center gap-1.5 text-ink",
+              density === "compact" ? "text-[13px] font-medium" : "text-[15px] font-semibold",
+            )}
+          >
             {bot.pinned && <Pin size={12} className="shrink-0 text-ink-secondary" />}
             <RenameTitle
               key={iconOnly ? "icons" : "expanded"}
@@ -910,7 +920,10 @@ function BotListItem({
               editing={renaming}
               onEditingChange={setRenaming}
               className="min-w-0 flex-1 truncate"
-              inputClassName="w-full rounded bg-inset px-1 py-0.5 text-[15px] font-semibold"
+              inputClassName={cn(
+                "w-full rounded bg-inset px-1 py-0.5",
+                density === "compact" ? "text-[13px] font-medium" : "text-[15px] font-semibold",
+              )}
             />
           </span>
           {last && !renaming && (
@@ -932,7 +945,13 @@ function BotListItem({
               </div>
             )}
             {(expandedModelLabel || bot.busy) && (
-              <div data-sidebar-model-row className="flex min-w-0 items-center gap-1.5 truncate text-[13px] text-ink-secondary">
+              <div
+                data-sidebar-model-row
+                className={cn(
+                  "flex min-w-0 items-center gap-1.5 truncate text-ink-secondary",
+                  density === "compact" ? "text-xs leading-tight" : "text-[13px]",
+                )}
+              >
                 {expandedModelLabel && <span data-sidebar-model-label className="min-w-0 flex-1 truncate">{expandedModelLabel}</span>}
                 {bot.busy && expandedModelLabel && <span className="shrink-0 text-ink-secondary/60">·</span>}
                 {bot.busy && <span className="shrink-0 truncate">{t("chrome.working")}</span>}
