@@ -2288,6 +2288,9 @@ export function Sidebar({
           body={t("chrome.deleteBotBody", { name: deleteTarget.name })}
           confirmLabel={t("chrome.delete")}
           onConfirm={() => {
+            try {
+              localStorage.removeItem(`orbit.paneLabel.${deleteTarget.id}`);
+            } catch {}
             dispatch({ type: "deleteBot", botId: deleteTarget.id });
             setDeleteTarget(null);
           }}

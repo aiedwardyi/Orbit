@@ -1,5 +1,6 @@
 import { fork, spawn } from "node:child_process";
 import { createRequire } from "node:module";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { waitForAppToken } from "../electron/local-api-auth.mjs";
@@ -7,6 +8,7 @@ import { waitForAppToken } from "../electron/local-api-auth.mjs";
 const require = createRequire(import.meta.url);
 const root = fileURLToPath(new URL("../", import.meta.url));
 const port = process.env.OMB_PORT || process.env.OGB_PORT || "8799";
+const userData = process.env.OMB_USER_DATA || join(process.env.APPDATA || process.env.XDG_CONFIG_HOME || join(process.env.HOME || root, ".config"), "orbit-desktop");
 const children = new Set();
 let stopping = false;
 function stop() {
@@ -28,7 +30,7 @@ process.once("SIGTERM", stop);
 try {
   const harness = own(fork(fileURLToPath(new URL("../server/index.ts", import.meta.url)), [], {
     cwd: root,
-    env: { ...process.env, OMB_PORT: port },
+    env: { ...process.env, OMB_PORT: port, OMB_USER_DATA: userData },
     stdio: ["ignore", "inherit", "inherit", "ipc"],
   }));
   const token = await waitForAppToken(harness, 60_000);
@@ -46,7 +48,7 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
-  const env = { ...process.env, OMB_PORT: port, OMB_COMMS_TOKEN: token };
+  const env = { ...process.env, OMB_PORT: port, OMB_COMMS_TOKEN: token, OMB_USER_DATA: userData };
   const vite = own(spawn(process.execPath, [fileURLToPath(new URL("../node_modules/vite/bin/vite.js", import.meta.url)), "--strictPort"], {
     cwd: root, env, stdio: "inherit",
   }));

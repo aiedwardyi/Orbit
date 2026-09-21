@@ -83,7 +83,10 @@ beforeAll(async () => {
     id, threadId: `${id}-thread`, name: id, title: "", description: "", notifications: false, color: "purple", unread: false,
     modelSelection: { instanceId: "ghost", model: "ghost" }, resumeCursors: {}, computer: "off", ...extra,
   });
-  writeFileSync(join(data, "bots.json"), JSON.stringify([bot("teacher", { section: "Team", chiefOfStaff: true }), bot("worker", { section: "Team" }), bot("solo", { section: "Solo" })]));
+  writeFileSync(join(data, "bots.json"), JSON.stringify([
+    bot("teacher", { section: "Team", chiefOfStaff: true }), bot("worker", { section: "Team" }), bot("solo", { section: "Solo" }),
+    bot("stale-teacher", { section: "Stale", chiefOfStaff: true }), bot("stale-worker", { section: "Stale" }),
+  ]));
 
   const listener = createServer();
   await new Promise<void>((resolve) => listener.listen(0, "127.0.0.1", resolve));
@@ -231,9 +234,14 @@ describe("POST /api/mailbox", () => {
     expect(sent.stderr).toContain(MAILBOX_STALE_GRANT);
   }, 30_000);
 
-  it("404s an unknown teacher", async () => {
-    const scope = { ...SCOPE, teacher: "ghost" };
-    expect((await post({ text: "hi" }, scope, mailboxGrant(MAILBOX_KEY, PANE, "worker", "ghost"))).status).toBe(404);
+  it("delivers to the live teacher after the granted teacher is deleted", async () => {
+    const scope = { pane: PANE, bot: "stale-worker", teacher: "stale-teacher" };
+    const grant = mailboxGrant(MAILBOX_KEY, PANE, scope.bot, scope.teacher);
+    expect((await fetch(`${base}/api/bots/stale-teacher`, { method: "DELETE", headers: { authorization: `Bearer ${TOKEN}` } })).status).toBe(200);
+    expect((await post({ text: "live teacher" }, scope, grant)).status).toBe(200);
+    expect((await transcript("stale-worker-thread")).slice(-1)).toMatchObject([
+      { role: "bot", kind: "note", text: "[pane 0f3c9a1e] from stale-worker (stale-worker): live teacher" },
+    ]);
   });
 
   it("rejects a bad or missing grant before reading any body byte", async () => {

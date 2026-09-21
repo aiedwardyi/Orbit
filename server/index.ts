@@ -5643,11 +5643,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!parsed.success) return json(res, 400, { error: "invalid mailbox message" });
       const source = store.bot(scope.bot);
       if (!source) return json(res, 404, { error: "no such bot" });
-      const target = store.bot(scope.teacher);
-      if (!target) return json(res, 404, { error: "no such bot" });
-      const teacher = scope.teacher === scope.bot
-        ? store.bot(resolveMailboxTeacher(store.bots, scope.bot)) ?? source
-        : target;
+      const teacher = store.bot(resolveMailboxTeacher(store.bots, scope.bot)) ?? source;
       const note = mailboxNoteText(scope.pane, source.name || source.id, source.id, parsed.data.text);
       if (!note) return json(res, 400, { error: "empty message" });
       const message = store.appendMessage(teacher.threadId, { role: "bot", kind: "note", text: note });

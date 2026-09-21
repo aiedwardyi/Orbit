@@ -750,11 +750,13 @@ describe("Sidebar bot delete confirm", () => {
       expect(deletes).toHaveLength(0);
 
       // Confirm deletes the bot and persists the delete.
+      window.localStorage.setItem("orbit.paneLabel.a", "AUDIT-FIX-1046");
       await act(async () => contextmenu(rows()[0]!));
       await act(async () => fire(menuDelete()!, "click"));
       await act(async () => fire(dialogButton("Delete")!, "click"));
       expect(rows()).toHaveLength(1);
       expect(deletes).toEqual(["/api/bots/a"]);
+      expect(window.localStorage.getItem("orbit.paneLabel.a")).toBeNull();
     } finally {
       await act(async () => root.unmount());
       host.remove();

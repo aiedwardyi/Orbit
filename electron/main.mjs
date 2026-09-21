@@ -105,6 +105,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 127.0.0.1 explicitly — vite binds IPv4; a bare "localhost" here can
 // resolve to ::1 and paint a black window
 const DEV_URL = process.env.ELECTRON_START_URL ?? "http://127.0.0.1:5199";
+if (!app.isPackaged && process.env.OMB_USER_DATA) app.setPath("userData", process.env.OMB_USER_DATA);
 let SERVER_PORT = 8799;
 const APP_ICON = path.join(__dirname, "resources/app-icon.png");
 let desktopViewerWindow = null;
@@ -277,8 +278,8 @@ const terminalHost = createTerminalHost({
     if (!trustedTerminalSender(event, mainWindow?.webContents, origin)) throw new Error("Untrusted terminal caller");
   },
   async mailbox() {
-    // Packaged grants come from the persisted key, so a server restart does not strand panes.
-    const token = app.isPackaged ? await readMailboxSecret(app.getPath("userData")) : serverToken;
+    // Grants come from the persisted key, so a server restart does not strand panes.
+    const token = await readMailboxSecret(app.getPath("userData"));
     if (!token) return null;
     const port = app.isPackaged ? SERVER_PORT : Number(process.env.OMB_PORT || process.env.OGB_PORT || SERVER_PORT);
     const binDir = await installOrbitMsg(path.join(app.getPath("home"), ".orbit", "bin")).catch(() => null);
