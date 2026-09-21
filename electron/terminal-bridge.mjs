@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 
 const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 const GRANT_PREFIX = "orbit-terminal-read-v1";
+const MAX_SEND_BODY = 16 * 1024;
 
 export function terminalReadGrant(token, botId) {
   // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Grant inputs cross the Electron/server process boundary.
@@ -26,10 +27,31 @@ function json(res, status, value) {
   res.end(body);
 }
 
+function readJson(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on("data", (chunk) => {
+      if (size > MAX_SEND_BODY) return;
+      size += chunk.length;
+      if (size > MAX_SEND_BODY) return reject(Object.assign(new Error("Terminal send body too large"), { status: 413 }));
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+      } catch {
+        reject(new Error("Invalid terminal send"));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
 /** Private loopback bridge between the Electron terminal host and a scoped MCP proxy. */
 export function createTerminalBridge({ host, token = randomBytes(24).toString("hex"), port = 0 } = {}) {
   // oxlint-disable-next-line anti-slop/no-runtime-typeof -- The host is supplied by the Electron main process.
-  if (!host || typeof host.readBot !== "function") throw new Error("Terminal host is required");
+  if (!host || typeof host.readBot !== "function" || typeof host.sendBot !== "function") throw new Error("Terminal host is required");
   let server;
   let address;
   const start = () => new Promise((resolve, reject) => {
@@ -46,9 +68,11 @@ export function createTerminalBridge({ host, token = randomBytes(24).toString("h
       if (!bearerMatches(req.headers.authorization, token, botId)) return json(res, 401, { error: "Unauthorized" });
       try {
         if (req.method === "GET" && !match[2]) return json(res, 200, host.readBot(botId));
+        if (req.method === "POST" && match[2]) return json(res, 200, await host.sendBot(botId, await readJson(req)));
         return json(res, 405, { error: "Method not allowed" });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        if (error?.status === 413) return json(res, 413, { error: message });
         const status = /stale|No active|exited|Unknown terminal/i.test(message) ? 409 : /Invalid/i.test(message) ? 400 : 500;
         return json(res, status, { error: message });
       }

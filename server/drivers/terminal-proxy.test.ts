@@ -7,10 +7,45 @@ describe("terminal proxy", () => {
     expect(() => terminalReadGrant("bridge-secret", "bot/2")).toThrow(/grant/);
   });
 
-  it("exposes only a read-only scoped tool", () => {
-    expect(TOOLS).toHaveLength(1);
-    expect(TOOLS[0]).toMatchObject({ name: "terminal_read", annotations: { readOnlyHint: true, destructiveHint: false } });
+  it("exposes a read-only read tool and a destructive send tool, both bot-scoped", () => {
+    expect(TOOLS.map((tool) => tool.name)).toEqual(["terminal_read", "terminal_send"]);
+    expect(TOOLS[0]).toMatchObject({ annotations: { readOnlyHint: true, destructiveHint: false } });
     expect(TOOLS[0].inputSchema.properties).toEqual({});
+    expect(TOOLS[1]).toMatchObject({ annotations: { readOnlyHint: false, destructiveHint: true }, inputSchema: { required: ["text", "sessionId", "generation"] } });
+    expect(Object.keys(TOOLS[1].inputSchema.properties)).not.toContain("botId");
+    expect(TOOLS[1].description).toContain("Ctrl+C is refused");
+  });
+
+  it("maps terminal_send args to a POST on the bot's send route", async () => {
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
+      new Response(JSON.stringify({ sessionId: "s1", generation: 2, screenText: "echo ok", seq: 3 }), { status: 200 }));
+    const result = await callTool(
+      "terminal_send",
+      fetchImpl,
+      { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" },
+      { text: "echo ok\r", sessionId: "s1", generation: 2 },
+    );
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0].text).toContain("echo ok");
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe("http://127.0.0.1:1/v1/bots/bot-1/terminal/send");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({ sessionId: "s1", generation: 2, text: "echo ok\r" });
+    expect(new Headers(init?.headers).get("authorization")).toBe("Bearer grant");
+  });
+
+  it("surfaces bridge send errors as tool errors", async () => {
+    const fetchImpl = async () => new Response(JSON.stringify({ error: "Terminal session is stale; take a fresh snapshot" }), { status: 409 });
+    const result = await callTool("terminal_send", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { text: "x", sessionId: "s1", generation: 1 });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("stale");
+  });
+
+  it("rejects terminal_send without a session pair before fetching", async () => {
+    const fetchImpl = vi.fn();
+    const result = await callTool("terminal_send", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { text: "x" });
+    expect(result.isError).toBe(true);
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("formats session identity, screen, and truncation metadata", () => {
