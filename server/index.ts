@@ -226,6 +226,16 @@ import { LocalVmIdleTimer } from "./local-vm-idle.ts";
 import { LocalVmLease, LocalVmLeasePool } from "./local-vm-lease.ts";
 import { RepeatDetector, callKey } from "./repeat-detector.ts";
 import { endsContentStream, redactSecrets, redactSecretsInText, StreamSecretMasker } from "./redact.ts";
+import {
+  apiRequestAuthorized,
+  buildRemoteSetCookie,
+  hostMatchesRemote,
+  loadOrCreateRemoteKey,
+  originAllowedByRemote,
+  remoteHandshakeUrl,
+  remoteKeyMatches,
+  resolveRemoteHost,
+} from "./remote-access.ts";
 import * as vps from "./vps-computer.ts";
 import { RoutineManager, routineTriggerIsUnattended, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
 import { browserScreenshot, readBrowserConnection } from "./browser-connection.ts";
@@ -353,6 +363,15 @@ const MAILBOX_SECRET = (() => {
     return COMMS_TOKEN;
   }
 })();
+
+// Opt-in phone access over the Tailscale tailnet. ORBIT_REMOTE_HOST binds
+// the Host/Origin gates and /api/* cookie auth to one tailnet hostname;
+// unset means loopback-only, exactly as before.
+const REMOTE_HOST = resolveRemoteHost(process.env);
+const REMOTE_KEY = REMOTE_HOST === undefined ? undefined : loadOrCreateRemoteKey(DATA_DIR);
+if (REMOTE_HOST !== undefined && REMOTE_KEY !== undefined) {
+  console.log(`orbit remote access: ${remoteHandshakeUrl(REMOTE_HOST, REMOTE_KEY)}`);
+}
 
 /** Constant-time bearer check for the internal comms endpoints. The token
  * is high-entropy and loopback-only, so a timing oracle is a long shot —
@@ -5599,11 +5618,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
   let m: RegExpMatchArray | null = null;
   try {
     // loopback-host + loopback-origin gate before any route (DNS rebinding / CSRF)
-    if (!isLoopbackHost(req.headers.host)) {
+    if (!isLoopbackHost(req.headers.host) && !hostMatchesRemote(req.headers.host, REMOTE_HOST)) {
       return json(res, 403, { error: "forbidden: loopback host required" });
     }
     const origin = req.headers.origin;
-    if (origin && !isAllowedOrigin(origin)) {
+    if (origin && !isAllowedOrigin(origin) && !originAllowedByRemote(origin, REMOTE_HOST)) {
       return json(res, 403, { error: "forbidden: cross-origin request" });
     }
     // Terminal panes hold a per-pane grant, never the comms token. A note
@@ -5623,8 +5642,17 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, 200, { ok: true, id: message.id });
     }
     if (path.startsWith("/api/") && !(method === "GET" && path === "/api/health") &&
-        !authorizedComms(req.headers.authorization)) {
+        !apiRequestAuthorized(authorizedComms(req.headers.authorization), req.headers.cookie, REMOTE_KEY)) {
       return json(res, 401, { error: "unauthorized" });
+    }
+    // One-time remote handshake: a valid key mints the cookie /api/* accepts.
+    if (method === "GET" && path === "/remote") {
+      const provided = url.searchParams.get("key");
+      if (REMOTE_KEY === undefined || !remoteKeyMatches(provided, REMOTE_KEY)) {
+        return json(res, 401, { error: "unauthorized" });
+      }
+      res.writeHead(302, { location: "/", "set-cookie": buildRemoteSetCookie(REMOTE_KEY) });
+      return res.end();
     }
     // ── internal peer-agent comms (localhost + shared token only) ──────
     // The agents-proxy (spawned inside a bot's agent process) calls these to
