@@ -589,6 +589,30 @@ export function SettingsPanel({
             </button>
           </div>
 
+          <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
+            <div>
+              <div className="text-[15px] font-medium text-ink">Share terminal with chat</div>
+            </div>
+            <button
+              role="switch"
+              aria-checked={terminalShared}
+              aria-label="Share terminal with chat"
+              disabled={!terminalShared && !desktopTerminal}
+              onClick={() => patch({ shareTerminalWithChat: !terminalShared })}
+              className={cn(
+                "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+                terminalShared ? "bg-accent" : "bg-control",
+              )}
+            >
+              <span
+                className={cn(
+                  "absolute top-[3px] size-5 rounded-full bg-white transition-all",
+                  terminalShared ? "left-[21px]" : "left-[3px]",
+                )}
+              />
+            </button>
+          </div>
+
           {showBotDetailsAdvanced() && (
             <>
           <button
@@ -695,32 +719,6 @@ export function SettingsPanel({
                 className={cn(
                   "absolute top-[3px] size-5 rounded-full bg-white transition-all",
                   browserEnabled ? "left-[21px]" : "left-[3px]",
-                )}
-              />
-            </button>
-            </div>
-          )}
-
-          {advancedOpen && (
-            <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
-            <div>
-              <div className="text-[15px] font-medium text-ink">Share terminal with chat</div>
-            </div>
-            <button
-              role="switch"
-              aria-checked={terminalShared}
-              aria-label="Share terminal with chat"
-              disabled={!terminalShared && !desktopTerminal}
-              onClick={() => patch({ shareTerminalWithChat: !terminalShared })}
-              className={cn(
-                "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-                terminalShared ? "bg-accent" : "bg-control",
-              )}
-            >
-              <span
-                className={cn(
-                  "absolute top-[3px] size-5 rounded-full bg-white transition-all",
-                  terminalShared ? "left-[21px]" : "left-[3px]",
                 )}
               />
             </button>
