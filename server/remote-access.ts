@@ -6,11 +6,11 @@
 // widens exactly three checks to that one hostname: the Host gate, the
 // Origin gate, and /api/* auth, which also accepts a cookie minted by a
 // one-time GET /remote?key=<remote key> handshake. The key is generated
-// once, kept in DATA_DIR/remote-key.json, and never logged outside the
-// boot-time handshake URL.
+// once, kept in DATA_DIR/remote-key.json, and never logged; setting
+// ORBIT_REMOTE_ROTATE_KEY at boot regenerates it, invalidating old cookies.
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 import { z } from "zod";
 
@@ -46,15 +46,10 @@ export function hostMatchesRemote(host: string | undefined, remoteHost: string |
   return stripPort(host.trim().toLowerCase()) === remoteHost;
 }
 
-/** Exact tailnet-hostname match on an Origin URL. */
+/** Origin must be exactly https://<tailnet host>: cookies ignore ports, so no http or explicit port. */
 export function originAllowedByRemote(origin: string | undefined | null, remoteHost: string | undefined): boolean {
   if (!origin || !remoteHost) return false;
-  try {
-    const o = new URL(origin);
-    return (o.protocol === "http:" || o.protocol === "https:") && o.hostname === remoteHost;
-  } catch {
-    return false;
-  }
+  return origin.trim().toLowerCase() === `https://${remoteHost}`;
 }
 
 function storedKey(value: JsonValue): string | undefined {
@@ -116,7 +111,19 @@ export function apiRequestAuthorized(
   return bearerOk || remoteCookieAuthorized(cookieHeader, remoteKey);
 }
 
-/** Boot-logged handshake URL; Tailscale Serve terminates TLS on 443. */
-export function remoteHandshakeUrl(remoteHost: string, key: string): string {
-  return `https://${remoteHost}/remote?key=${key}`;
+const FALSY_FLAG = new Set(["", "0", "false", "no", "off"]);
+
+/** Resolves remote mode at boot, rotating the key on request; the log line never carries the key. */
+export function initRemoteAccess(
+  env: NodeJS.ProcessEnv,
+  dataDir: string,
+  log: (line: string) => void = console.log,
+): { host: string | undefined; key: string | undefined } {
+  const host = resolveRemoteHost(env);
+  if (host === undefined) return { host, key: undefined };
+  const path = resolve(dataDir, REMOTE_KEY_FILE);
+  if (!FALSY_FLAG.has(env.ORBIT_REMOTE_ROTATE_KEY?.trim().toLowerCase() ?? "")) rmSync(path, { force: true });
+  const key = loadOrCreateRemoteKey(dataDir);
+  log(`Remote mode on: https://${host}/remote?key=<redacted> (key in ${path})`);
+  return { host, key };
 }

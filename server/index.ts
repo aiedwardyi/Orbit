@@ -229,11 +229,9 @@ import {
   apiRequestAuthorized,
   buildRemoteSetCookie,
   hostMatchesRemote,
-  loadOrCreateRemoteKey,
+  initRemoteAccess,
   originAllowedByRemote,
-  remoteHandshakeUrl,
   remoteKeyMatches,
-  resolveRemoteHost,
 } from "./remote-access.ts";
 import * as vps from "./vps-computer.ts";
 import { RoutineManager, routineTriggerIsUnattended, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
@@ -350,11 +348,7 @@ process.send?.(appTokenMessage);
 // Opt-in phone access over the Tailscale tailnet. ORBIT_REMOTE_HOST binds
 // the Host/Origin gates and /api/* cookie auth to one tailnet hostname;
 // unset means loopback-only, exactly as before.
-const REMOTE_HOST = resolveRemoteHost(process.env);
-const REMOTE_KEY = REMOTE_HOST === undefined ? undefined : loadOrCreateRemoteKey(DATA_DIR);
-if (REMOTE_HOST !== undefined && REMOTE_KEY !== undefined) {
-  console.log(`orbit remote access: ${remoteHandshakeUrl(REMOTE_HOST, REMOTE_KEY)}`);
-}
+const { host: REMOTE_HOST, key: REMOTE_KEY } = initRemoteAccess(process.env, DATA_DIR);
 
 /** Constant-time bearer check for the internal comms endpoints. The token
  * is high-entropy and loopback-only, so a timing oracle is a long shot —
