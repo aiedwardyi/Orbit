@@ -89,8 +89,25 @@ export function readMailboxBody(req: IncomingMessage, maxBytes = MAILBOX_BODY_MA
   });
 }
 
+/** Roster row for mailbox teacher routing. */
+export type MailboxRosterBot = { id: string; section?: string | null; hidden?: boolean; chiefOfStaff?: boolean };
+
+function sanitizeMailboxName(from: string): string {
+  // oxlint-disable-next-line no-control-regex -- the source name stays on the tag line
+  const flat = from.replace(/[\x00-\x1f\x7f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+  return flat || "unknown";
+}
+
+/** A pane's notes land in its section chief's thread; a chief keeps its own. */
+export function resolveMailboxTeacher(bots: readonly MailboxRosterBot[], botId: string): string {
+  const self = bots.find((bot) => bot.id === botId);
+  if (!self) return botId;
+  const key = self.section?.trim() || "";
+  return bots.find((bot) => bot.chiefOfStaff && !bot.hidden && (bot.section?.trim() || "") === key)?.id ?? botId;
+}
+
 /** Pane text is untrusted: strip escapes and controls, cap it, tag it. Null when nothing is left. */
-export function mailboxNoteText(pane: string, text: string): string | null {
+export function mailboxNoteText(pane: string, from: string, text: string): string | null {
   const clean = text
     .replace(/\r\n?/g, "\n")
     // oxlint-disable-next-line no-control-regex -- terminal output carries ANSI escapes
@@ -100,5 +117,6 @@ export function mailboxNoteText(pane: string, text: string): string | null {
     .trim();
   if (!clean) return null;
   const capped = clean.length > MAILBOX_NOTE_MAX_CHARS ? `${clean.slice(0, MAILBOX_NOTE_MAX_CHARS)}\n[truncated]` : clean;
-  return `[pane ${pane.slice(0, 8)}] ${capped}`;
+  const who = sanitizeMailboxName(from);
+  return `[pane ${pane.slice(0, 8)}] from ${who}: ${capped}`;
 }

@@ -43,8 +43,35 @@ if (-not $env:ORBIT_PANE -or -not $env:ORBIT_URL -or -not $env:ORBIT_MSG_TOKEN) 
   [Console]::Error.WriteLine('orbit-msg: not inside an Orbit terminal pane')
   exit 1
 }
+$report = $null
+if ($args.Count -ge 1 -and $args[0] -eq '--report') {
+  if ($args.Count -lt 3 -or @('DONE','FAIL','BLOCKED') -notcontains $args[1] -or [string]::IsNullOrWhiteSpace($args[2])) {
+    [Console]::Error.WriteLine('usage: orbit-msg --report <DONE|FAIL|BLOCKED> <TASK-NICK> [text]')
+    exit 1
+  }
+  $report = @{ status = $args[1]; nick = ($args[2] -replace '\s+', '_') }
+}
 if ([Console]::IsInputRedirected) { try { [Console]::InputEncoding = [Text.Encoding]::UTF8 } catch {} }
-if ($mode -eq '--hook') {
+if ($report) {
+  if ($args.Count -gt 3) {
+    $text = $args[3..($args.Count - 1)] -join ' '
+  } else {
+    $text = (Get-Variable -Name input -ValueOnly | ForEach-Object { $_ }) -join "` + "`" + String.raw`n"
+    if (-not $text -and [Console]::IsInputRedirected) { $text = [Console]::In.ReadToEnd() }
+  }
+  $branch = 'none'; $sha = 'none'; $dirty = 'unknown'
+  try {
+    $b = git rev-parse --abbrev-ref HEAD 2>$null | Select-Object -First 1
+    $s = git rev-parse --short HEAD 2>$null | Select-Object -First 1
+    if ($b -and $s) {
+      $branch = ([string]$b).Trim() -replace '\s+', '_'
+      $sha = ([string]$s).Trim() -replace '\s+', '_'
+      $dirty = if (git status --porcelain 2>$null | Select-Object -First 1) { 'yes' } else { 'no' }
+    }
+  } catch {}
+  $header = "$($report.status) $($report.nick) branch=$branch sha=$sha dirty=$dirty"
+  $text = if ($text.Trim()) { "$header` + "`" + String.raw`n$text" } else { $header }
+} elseif ($mode -eq '--hook') {
   $text = [string](([Console]::In.ReadToEnd() | ConvertFrom-Json).($args[1]))
 } elseif ($mode) {
   # Codex notify appends its JSON as one argv and spawns us directly, so no shell re-parses it.

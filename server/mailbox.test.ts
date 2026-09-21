@@ -75,11 +75,11 @@ beforeAll(async () => {
   writeFileSync(join(data, "config.json"), JSON.stringify({
     instances: { ghost: { driver: "not-a-real-driver", displayName: "Ghost" } },
   }));
-  const bot = (id: string) => ({
+  const bot = (id: string, extra: { section?: string; chiefOfStaff?: boolean } = {}) => ({
     id, threadId: `${id}-thread`, name: id, title: "", description: "", notifications: false, color: "purple", unread: false,
-    modelSelection: { instanceId: "ghost", model: "ghost" }, resumeCursors: {}, computer: "off",
+    modelSelection: { instanceId: "ghost", model: "ghost" }, resumeCursors: {}, computer: "off", ...extra,
   });
-  writeFileSync(join(data, "bots.json"), JSON.stringify([bot("teacher"), bot("worker")]));
+  writeFileSync(join(data, "bots.json"), JSON.stringify([bot("teacher", { section: "Team", chiefOfStaff: true }), bot("worker", { section: "Team" }), bot("solo", { section: "Solo" })]));
 
   const listener = createServer();
   await new Promise<void>((resolve) => listener.listen(0, "127.0.0.1", resolve));
@@ -118,14 +118,16 @@ afterAll(async () => {
 });
 
 describe("mailbox note text", () => {
-  it("strips escapes and controls, caps length and tags the pane", () => {
-    expect(mailboxNoteText(PANE, "\x1b[31mdone\x1b[0m\r\n**ok**\x07")).toBe("[pane 0f3c9a1e] done\n**ok**");
-    expect(mailboxNoteText(PANE, " \x1b[2J\n ")).toBeNull();
-    expect(mailboxNoteText(PANE, "ok\u202eSPOOF\u2066\x9b31m")).toBe("[pane 0f3c9a1e] okSPOOF31m");
-    expect(mailboxNoteText(PANE, "a\tb\nc")).toBe("[pane 0f3c9a1e] a\tb\nc");
-    const long = mailboxNoteText(PANE, "x".repeat(MAILBOX_NOTE_MAX_CHARS + 50))!;
+  it("strips escapes and controls, caps length and names the pane and source", () => {
+    expect(mailboxNoteText(PANE, "worker", "\x1b[31mdone\x1b[0m\r\n**ok**\x07")).toBe("[pane 0f3c9a1e] from worker: done\n**ok**");
+    expect(mailboxNoteText(PANE, "worker", " \x1b[2J\n ")).toBeNull();
+    expect(mailboxNoteText(PANE, "worker", "ok\u202eSPOOF\u2066\x9b31m")).toBe("[pane 0f3c9a1e] from worker: okSPOOF31m");
+    expect(mailboxNoteText(PANE, "worker", "a\tb\nc")).toBe("[pane 0f3c9a1e] from worker: a\tb\nc");
+    const long = mailboxNoteText(PANE, "worker", "x".repeat(MAILBOX_NOTE_MAX_CHARS + 50))!;
     expect(long.endsWith("x\n[truncated]")).toBe(true);
-    expect(long.length).toBe("[pane 0f3c9a1e] ".length + MAILBOX_NOTE_MAX_CHARS + "\n[truncated]".length);
+    expect(long.length).toBe("[pane 0f3c9a1e] from worker: ".length + MAILBOX_NOTE_MAX_CHARS + "\n[truncated]".length);
+    expect(mailboxNoteText(PANE, "Luna\nBCC: x", "hi")).toBe("[pane 0f3c9a1e] from Luna BCC: x: hi");
+    expect(mailboxNoteText(PANE, "  ", "hi")).toBe("[pane 0f3c9a1e] from unknown: hi");
   });
 });
 
@@ -147,11 +149,38 @@ describe("POST /api/mailbox", () => {
     const response = await post({ text: "report: <b>tests</b> pass" });
     expect(response.status).toBe(200);
     expect(await transcript("teacher-thread")).toMatchObject([
-      { role: "bot", kind: "note", text: "[pane 0f3c9a1e] report: <b>tests</b> pass" },
+      { role: "bot", kind: "note", text: "[pane 0f3c9a1e] from worker: report: <b>tests</b> pass" },
     ]);
     const { bots } = await (await fetch(`${base}/api/bots`, { headers: { authorization: `Bearer ${TOKEN}` } })).json() as { bots: Array<{ id: string; busy?: boolean }> };
     expect(bots.find((bot) => bot.id === "teacher")?.busy).toBe(false);
     expect(await transcript("worker-thread")).toEqual([]);
+  });
+
+  it("routes a self-addressed note to the section chief", async () => {
+    const scope = { ...SCOPE, teacher: "worker" };
+    const response = await post({ text: "worker report" }, scope, mailboxGrant(TOKEN, PANE, "worker", "worker"));
+    expect(response.status).toBe(200);
+    expect((await transcript("teacher-thread")).slice(-1)).toMatchObject([{ role: "bot", kind: "note", text: "[pane 0f3c9a1e] from worker: worker report" }]);
+    expect(await transcript("worker-thread")).toEqual([]);
+  });
+
+  it("keeps a self-addressed note when the section has no chief", async () => {
+    const scope = { pane: PANE, bot: "solo", teacher: "solo" };
+    const response = await post({ text: "solo report" }, scope, mailboxGrant(TOKEN, PANE, "solo", "solo"));
+    expect(response.status).toBe(200);
+    expect((await transcript("solo-thread")).slice(-1)).toMatchObject([{ role: "bot", kind: "note", text: "[pane 0f3c9a1e] from solo: solo report" }]);
+  });
+
+  it("tells the pane-open service the section chief", async () => {
+    const teacherOf = async (id: string) => {
+      const response = await fetch(`${base}/api/bots/${id}/terminal-cwd`, { headers: { authorization: `Bearer ${TOKEN}` } });
+      expect(response.status).toBe(200);
+      // SAFETY: the terminal-cwd route always includes the resolved teacher id.
+      return ((await response.json()) as { teacherId: string }).teacherId;
+    };
+    expect(await teacherOf("worker")).toBe("teacher");
+    expect(await teacherOf("teacher")).toBe("teacher");
+    expect(await teacherOf("solo")).toBe("solo");
   });
 
   it("rejects the comms token, a missing grant and a grant for another pane or teacher", async () => {
@@ -300,10 +329,10 @@ describe("POST /api/mailbox", () => {
     expect(codex.stderr).toBe("");
     expect(codex.status).toBe(0);
     expect((await transcript("teacher-thread")).slice(-4).map((message) => message.text)).toEqual([
-      "[pane 0f3c9a1e] from the pane",
-      "[pane 0f3c9a1e] piped",
-      "[pane 0f3c9a1e] hook report 완료",
-      "[pane 0f3c9a1e] codex \"done\" & more",
+      "[pane 0f3c9a1e] from worker: from the pane",
+      "[pane 0f3c9a1e] from worker: piped",
+      "[pane 0f3c9a1e] from worker: hook report 완료",
+      "[pane 0f3c9a1e] from worker: codex \"done\" & more",
     ]);
     const bare = { SystemRoot: process.env.SystemRoot, PATH: process.env.PATH };
     const outside = await orbitMsgFile(bare, bin, ["hi"]);
@@ -336,7 +365,7 @@ describe("POST /api/mailbox", () => {
       expect(run.stderr).toBe("");
     }
     const posted = (await transcript("teacher-thread")).slice(-launches.length).map((message) => message.text);
-    expect(posted).toEqual([...texts, ...texts, ...texts].map((text) => `[pane 0f3c9a1e] ${text}`));
+    expect(posted).toEqual([...texts, ...texts, ...texts].map((text) => `[pane 0f3c9a1e] from worker: ${text}`));
     expect(posted.join("\n")).not.toContain(paneEnv.ORBIT_MSG_TOKEN);
   }, 60_000);
 });

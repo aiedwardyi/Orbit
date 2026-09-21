@@ -190,7 +190,7 @@ import { providerReloadErrorActivity, stallErrorActivity } from "./room-error-at
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import { foldContinuationStart } from "./continuation-turn.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
-import { loadMailboxSecret, mailboxNoteText, mailboxPostSchema, mailboxScope, readMailboxBody } from "./mailbox.ts";
+import { loadMailboxSecret, mailboxNoteText, mailboxPostSchema, mailboxScope, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
 import {
   ensureWorkspace,
   listMemoryTopics,
@@ -5649,11 +5649,16 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!body.ok) return json(res, body.status, { error: body.error });
       const parsed = mailboxPostSchema.safeParse(body.value);
       if (!parsed.success) return json(res, 400, { error: "invalid mailbox message" });
+      const source = store.bot(scope.bot);
+      if (!source) return json(res, 404, { error: "no such bot" });
       const target = store.bot(scope.teacher);
       if (!target) return json(res, 404, { error: "no such bot" });
-      const note = mailboxNoteText(scope.pane, parsed.data.text);
+      const teacher = scope.teacher === scope.bot
+        ? store.bot(resolveMailboxTeacher(store.bots, scope.bot)) ?? source
+        : target;
+      const note = mailboxNoteText(scope.pane, source.name || source.id, parsed.data.text);
       if (!note) return json(res, 400, { error: "empty message" });
-      const message = store.appendMessage(target.threadId, { role: "bot", kind: "note", text: note });
+      const message = store.appendMessage(teacher.threadId, { role: "bot", kind: "note", text: note });
       return json(res, 200, { ok: true, id: message.id });
     }
     if (path.startsWith("/api/") && !(method === "GET" && path === "/api/health") &&
@@ -7914,7 +7919,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (m && method === "GET") {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
-      return json(res, 200, resolveBotTerminalFolder(bot));
+      return json(res, 200, { ...resolveBotTerminalFolder(bot), teacherId: resolveMailboxTeacher(store.bots, bot.id) });
     }
     // ── bot memory: MEMORY.md + memory/ topic files ─────────────────────
     // The files already belong to the user (plain markdown in the bot's

@@ -218,7 +218,9 @@ export function createTerminalHost({ authorize, resolveCwd, mailbox = async () =
     const cwd = typeof resolved === "string" ? resolved : resolved?.cwd;
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Preserve the server's project/workspace distinction as metadata.
     const source = resolved && typeof resolved === "object" ? resolved.source : undefined;
-    return { cwd, source };
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- The mailbox teacher rides the folder resolution.
+    const teacher = resolved && typeof resolved === "object" && typeof resolved.teacherId === "string" && BOT_ID_RE.test(resolved.teacherId) ? resolved.teacherId : undefined;
+    return { cwd, source, teacher };
   };
   const launchProject = (input, folder, cwd) => {
     if (Object.prototype.hasOwnProperty.call(input, "projectCwd")) {
@@ -319,7 +321,7 @@ export function createTerminalHost({ authorize, resolveCwd, mailbox = async () =
     let pty;
     try {
       pty = await loadPty().spawn(shell, platform === "win32" ? ["-NoLogo"] : [], {
-        name: "xterm-256color", cols: input.cols, rows: input.rows, cwd, env: terminalPaneEnv(terminalEnvironment(env), { pane: id, bot: input.botId, mailbox: mail }), useConptyDll: platform === "win32",
+        name: "xterm-256color", cols: input.cols, rows: input.rows, cwd, env: terminalPaneEnv(terminalEnvironment(env), { pane: id, bot: input.botId, teacher: folder.teacher, mailbox: mail }), useConptyDll: platform === "win32",
       });
     } catch (cause) {
       throw errorValue(cause);
