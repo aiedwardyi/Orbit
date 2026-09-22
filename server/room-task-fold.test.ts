@@ -181,7 +181,7 @@ describe("room task-state fold", () => {
     // oversized so prepareModelContext summarises; generateText is delayed,
     // which is the window the second POST has to land inside
     expect((await api("POST", `/api/groups/${group.id}/messages`, {
-      text: `first instruction\n${"x".repeat(40_000)}`,
+      text: `first instruction\n${"x".repeat(400_000)}`,
     })).status).toBe(202);
     await expect.poll(() => existsSync(setupDump), { timeout: 20_000 }).toBe(true);
 
