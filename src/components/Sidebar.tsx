@@ -953,7 +953,6 @@ function BotListItem({
                 )}
               >
                 {expandedModelLabel && <span data-sidebar-model-label className="min-w-0 flex-1 truncate">{expandedModelLabel}</span>}
-                {bot.busy && expandedModelLabel && <span className="shrink-0 text-ink-secondary/60">·</span>}
                 {bot.busy && <span className="shrink-0 truncate">{t("chrome.working")}</span>}
               </div>
             )}
