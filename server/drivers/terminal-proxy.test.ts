@@ -79,7 +79,7 @@ describe("terminal proxy", () => {
     ["CRLF does not double-submit", "echo ok\r\n", "echo ok\r"],
     ["plain text stays unchanged", "echo ok", "echo ok"],
   ])("normalizes terminal_send text: %s", async (_label, text, expected) => {
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ screenText: "ok" }), { status: 200 }));
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({ screenText: "ok" }), { status: 200 }));
     await callTool(
       "terminal_send",
       fetchImpl,
