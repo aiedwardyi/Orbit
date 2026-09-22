@@ -47,6 +47,18 @@ async function key(key: string) {
   });
 }
 
+async function touch(type: string, x = 0, y = 0) {
+  const event = new window.Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "touches", { value: type === "touchend" ? [] : [{ clientX: x, clientY: y }] });
+  await act(async () => document.querySelector(".model-cross-stage")!.dispatchEvent(event));
+}
+
+async function swipe(dx: number, dy: number) {
+  await touch("touchstart", 200, 300);
+  for (const t of [0.25, 0.5, 0.75, 1]) await touch("touchmove", 200 + dx * t, 300 + dy * t);
+  await touch("touchend");
+}
+
 async function nextFrame() {
   await act(async () => {
     await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
@@ -94,6 +106,31 @@ describe("ModelPicker cross navigation", () => {
     expect(mock.dispatch.mock.calls[0]?.[0].selection).toEqual({
       instanceId: "claude", model: deltaY > 0 ? "claude-opus-5" : "claude-fable-5-1", mode: "pinned", effort: "medium",
     });
+  });
+
+  it.each([[-80, "claude-opus-5"], [80, "claude-fable-5-1"]])("moves one model per vertical flick %s", async (dy, model) => {
+    mock.instances = [engine("claude", "claudeAgent", ["claude-fable-5-1", "claude-fable-5", "claude-opus-5"], ["low", "medium", "high"])];
+    await mount({ instanceId: "claude", model: "claude-fable-5", mode: "pinned", effort: "medium" });
+    await swipe(0, dy);
+    await key("Enter");
+    expect(mock.dispatch.mock.calls[0]?.[0].selection).toEqual({ instanceId: "claude", model, mode: "pinned", effort: "medium" });
+  });
+
+  it.each([[-80, "high"], [80, "low"]])("moves one effort per horizontal flick %s", async (dx, effort) => {
+    mock.instances = [engine("claude", "claudeAgent", ["claude-fable-5-1", "claude-fable-5"], ["low", "medium", "high"])];
+    await mount({ instanceId: "claude", model: "claude-fable-5", mode: "pinned", effort: "medium" });
+    await swipe(dx, 20);
+    await key("Enter");
+    expect(mock.dispatch.mock.calls[0]?.[0].selection).toEqual({ instanceId: "claude", model: "claude-fable-5", mode: "pinned", effort });
+  });
+
+  it("steps once for a long vertical drag", async () => {
+    mock.instances = [engine("claude", "claudeAgent", ["claude-fable-5-1", "claude-fable-5", "claude-opus-5", "claude-sonnet-5"], ["low", "medium", "high"])];
+    await mount({ instanceId: "claude", model: "claude-fable-5-1", mode: "pinned", effort: "medium" });
+    await swipe(0, -400);
+    await swipe(10, -30);
+    await key("Enter");
+    expect(mock.dispatch.mock.calls[0]?.[0].selection).toEqual({ instanceId: "claude", model: "claude-fable-5", mode: "pinned", effort: "medium" });
   });
 
   it("labels Alt+M Open/Close and cancels the draft", async () => {

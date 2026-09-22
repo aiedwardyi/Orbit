@@ -51,7 +51,7 @@ export function ModelPickerControl({
   const focusComposerAfterCloseRef = useRef(false);
   const openedWithShortcutRef = useRef(false);
   const stageRef = useRef<HTMLDivElement>(null);
-  const touchStartYRef = useRef(0);
+  const touchStartRef = useRef({ x: 0, y: 0, stepped: true });
   const [stageWidth, setStageWidth] = useState(0);
   const bindingsId = useId();
   const rows = pickerRows(state.instances, selection, draft);
@@ -155,28 +155,29 @@ export function ModelPickerControl({
   }, [open, rows, state.instances]);
 
   // Touch equivalent of the wheel handler above: the stage isn't a scroll
-  // container (it's a spatial grid moved by discrete steps), so a plain
-  // touchmove does nothing — only tap worked before this. A drag past the
-  // threshold steps once, like a wheel tick, then rebases for the next step.
+  // container, so a plain touchmove does nothing. One gesture steps once,
+  // on the dominant axis, when it first crosses the threshold.
   useEffect(() => {
     if (!open) return;
     const stage = stageRef.current!;
-    const THRESHOLD = 24;
+    const THRESHOLD = 40;
     const onTouchStart = (event: TouchEvent) => {
-      touchStartYRef.current = event.touches[0]!.clientY;
+      if (event.touches.length !== 1) return;
+      touchStartRef.current = { x: event.touches[0]!.clientX, y: event.touches[0]!.clientY, stepped: false };
     };
     const onTouchMove = (event: TouchEvent) => {
       // A ref, not a closure local: `rows` changes identity on every step
-      // (setDraft below), which tears down and re-subscribes this effect
-      // mid-gesture — a plain local would silently reset to 0 there.
-      const y = event.touches[0]!.clientY;
-      const delta = touchStartYRef.current - y;
-      if (Math.abs(delta) < THRESHOLD) return;
+      // (setDraft below), which re-subscribes this effect mid-gesture.
+      const start = touchStartRef.current;
       event.preventDefault();
-      const direction = delta > 0 ? "ArrowDown" : "ArrowUp";
+      if (start.stepped) return;
+      const dx = start.x - event.touches[0]!.clientX;
+      const dy = start.y - event.touches[0]!.clientY;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < THRESHOLD) return;
+      const direction = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "ArrowRight" : "ArrowLeft") : (dy > 0 ? "ArrowDown" : "ArrowUp");
       setDraft((current) => movePicker(rows, withPickerEffort(state.instances.find((item) => item.instanceId === current.instanceId), current), direction));
       setCustomOpen(false);
-      touchStartYRef.current = y;
+      start.stepped = true;
     };
     stage.addEventListener("touchstart", onTouchStart, { passive: true });
     stage.addEventListener("touchmove", onTouchMove, { passive: false });

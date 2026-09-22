@@ -213,6 +213,12 @@ button.model-cross-binding:disabled { opacity: 0.4; }
 
 @media (max-width: 600px) {
   .model-cross-footer { column-gap: 12px; row-gap: 8px; }
+  .model-cross-left,
+  .model-cross-right { background: none; box-shadow: none; }
+  .model-cross-stage::before,
+  .model-cross-stage::after { content: ""; position: absolute; z-index: 2; top: 0; bottom: 0; width: 64px; pointer-events: none; }
+  .model-cross-stage::before { left: 0; background: linear-gradient(90deg, #030407, transparent); }
+  .model-cross-stage::after { right: 0; background: linear-gradient(270deg, #030407, transparent); }
 }
 
 @media (prefers-reduced-motion: reduce) {
