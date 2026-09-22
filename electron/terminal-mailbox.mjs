@@ -131,12 +131,19 @@ if ($failure) {
 }
 `;
 
+// Captured with expansion off, forwarded with it on: !VAR! inserts after cmd's
+// parse phase, so note metachars never re-split (AUDIT-1047). The ps1 parses
+// argv exactly as before, so quotes, flags and stdin are unchanged.
 const ORBIT_MSG_CMD = String.raw`@echo off
+setlocal DisableDelayedExpansion
+set "ORBIT_MSG_ARGS=%*"
+set "ORBIT_MSG_PS1=%~dp0orbit-msg.ps1"
+setlocal EnableDelayedExpansion
 where pwsh >nul 2>nul
 if errorlevel 1 (
-  powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0orbit-msg.ps1" %*
+  powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "!ORBIT_MSG_PS1!" !ORBIT_MSG_ARGS!
 ) else (
-  pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0orbit-msg.ps1" %*
+  pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "!ORBIT_MSG_PS1!" !ORBIT_MSG_ARGS!
 )
 `;
 
