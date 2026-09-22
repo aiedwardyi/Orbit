@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { terminalReadGrant } from "./terminal-grant.ts";
-import { terminalSnapshotResponse } from "./terminal-snapshot.ts";
+import { raisePaneAttention, terminalSnapshotResponse } from "./terminal-snapshot.ts";
 
 const ACCESS = { url: "http://127.0.0.1:52150", token: "bridge-secret" };
 const server = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8");
@@ -62,5 +62,27 @@ describe("terminal snapshot relay", () => {
     expect(route).toContain('json(res, 404, { error: "no such bot" })');
     expect(route).toContain("terminalSnapshotResponse(terminalBridgeAccess, bot.id)");
     expect(remoteAccess).not.toMatch(/BEARER_ONLY_PATHS = new Set\([^)]*\/terminal"/);
+  });
+});
+
+describe("pane attention relay", () => {
+  it("posts the pane to the bridge with the per-bot grant and swallows failures", async () => {
+    const calls: Array<{ url: string; auth: string | null; body: unknown }> = [];
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), auth: new Headers(init?.headers).get("authorization"), body: JSON.parse(String(init?.body)) });
+      return new Response("{}");
+    }) as typeof fetch;
+    await raisePaneAttention(null, "bot-1", "pane-1", fetchImpl);
+    await raisePaneAttention(ACCESS, "bot-1", "pane-1", fetchImpl);
+    expect(calls).toEqual([
+      { url: "http://127.0.0.1:52150/v1/bots/bot-1/terminal/attention", auth: `Bearer ${terminalReadGrant(ACCESS.token, "bot-1")}`, body: { sessionId: "pane-1" } },
+    ]);
+    const down = (async () => { throw new TypeError("fetch failed"); }) as typeof fetch;
+    await expect(raisePaneAttention(ACCESS, "bot-1", "pane-1", down)).resolves.toBeUndefined();
+  });
+
+  it("raises attention after the mailbox stores a pane note", () => {
+    const route = server.slice(server.indexOf('path === "/api/mailbox"'), server.indexOf('path === "/api/mailbox"') + 1200);
+    expect(route).toContain("raisePaneAttention(terminalBridgeAccess, scope.bot, scope.pane)");
   });
 });

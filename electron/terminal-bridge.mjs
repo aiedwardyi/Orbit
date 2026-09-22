@@ -66,7 +66,7 @@ export function createTerminalBridge({ host, token = randomBytes(24).toString("h
       } catch {
         return json(res, 400, { error: "Invalid terminal request" });
       }
-      const match = parsed.pathname.match(/^\/v1\/bots\/([a-zA-Z0-9_-]{1,128})\/terminal(?:\/(send|open))?$/);
+      const match = parsed.pathname.match(/^\/v1\/bots\/([a-zA-Z0-9_-]{1,128})\/terminal(?:\/(send|open|attention))?$/);
       if (!match || !BOT_ID_RE.test(match[1])) return json(res, 404, { error: "Unknown terminal route" });
       const botId = match[1];
       if (!bearerMatches(req.headers.authorization, token, botId)) return json(res, 401, { error: "Unauthorized" });
@@ -74,6 +74,7 @@ export function createTerminalBridge({ host, token = randomBytes(24).toString("h
         const sessionId = parsed.searchParams.get("sessionId");
         if (req.method === "GET" && !match[2]) return json(res, 200, host.readBot(botId, sessionId ? { sessionId } : undefined));
         if (req.method === "POST" && match[2] === "open") return json(res, 200, await host.openForBot(botId, await readJson(req)));
+        if (req.method === "POST" && match[2] === "attention") return json(res, 200, { raised: host.attendBot(botId, (await readJson(req))?.sessionId) });
         if (req.method === "POST" && match[2]) {
           const input = await readJson(req);
           if (input && typeof input === "object" && typeof input.text === "string") input.text = normalizeTerminalText(input.text);
