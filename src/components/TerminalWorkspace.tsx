@@ -35,11 +35,13 @@ export function TerminalWorkspace({
   onClose,
   focusBlocked,
   visible,
+  paneHotkey,
 }: {
   bot: Pick<Bot, "id" | "name" | "busy" | "cwd">;
   onClose: () => void;
   focusBlocked: boolean;
   visible: boolean;
+  paneHotkey?: { n: number } | null;
 }) {
   const { t } = useI18n();
   const { dispatch } = useStore();
@@ -76,6 +78,9 @@ export function TerminalWorkspace({
   const [panes, setPanes] = useState<BotPane[]>([]);
   const [pane, setPane] = useState<string | null>(null);
   const activeLabel = pane ? panes.find((item) => item.id === pane)?.label ?? "" : "";
+  const tablistRef = useRef<HTMLDivElement>(null);
+  const panesRef = useRef(panes);
+  panesRef.current = panes;
 
   const projectMismatch = Boolean(session && !samePath(bot.cwd ?? null, launchProject));
   const showProjectBanner = projectMismatch && !bannerDismissed;
@@ -512,6 +517,20 @@ export function TerminalWorkspace({
     if (visible && !focusBlocked) terminalRef.current?.focus();
   }, [visible, focusBlocked]);
 
+  useEffect(() => {
+    if (!paneHotkey) return;
+    if (paneHotkey.n === 1) setPane(null);
+    else {
+      const target = panesRef.current[paneHotkey.n - 2];
+      if (target) setPane(target.id);
+    }
+  }, [paneHotkey]);
+
+  useEffect(() => {
+    const active = tablistRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    active?.scrollIntoView?.({ inline: "nearest", block: "nearest" });
+  }, [pane]);
+
   const onTerminalWheel = (event: WheelEvent<HTMLDivElement>) => {
     if (!(event.ctrlKey || event.metaKey) || event.deltaY === 0) return;
     const terminal = terminalRef.current;
@@ -601,10 +620,10 @@ export function TerminalWorkspace({
             ) : null}
           </div>
           {panes.length > 0 && (
-            <div role="tablist" className="mt-1 flex min-w-0 items-center gap-1 overflow-x-auto">
-              {[{ id: null, label: t("terminal.title") }, ...panes.map((item) => ({ id: item.id, label: item.label || item.id.slice(0, 8) }))].map((tab) => (
-                <div key={tab.id ?? "main"} className={`inline-flex max-w-[220px] shrink-0 items-center rounded-md border font-mono text-[11px] ${pane === tab.id ? "border-accent-text text-ink" : "border-hairline text-ink-secondary hover:text-ink"}`}>
-                  <button type="button" role="tab" aria-selected={pane === tab.id} onClick={() => setPane(tab.id)} title={tab.label} className="min-w-0 truncate px-1.5 py-0.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text">
+            <div ref={tablistRef} role="tablist" className="mt-1 flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {[{ id: null, label: t("terminal.title") }, ...panes.map((item) => ({ id: item.id, label: item.label || item.id.slice(0, 8) }))].map((tab, index) => (
+                <div key={tab.id ?? "main"} className={`inline-flex min-w-[56px] max-w-[220px] flex-1 basis-0 items-center rounded-md border font-mono text-[11px] ${pane === tab.id ? "border-accent-text text-ink" : "border-hairline text-ink-secondary hover:text-ink"}`}>
+                  <button type="button" role="tab" aria-selected={pane === tab.id} onClick={() => setPane(tab.id)} title={`${tab.label} (Alt+${index + 1})`} className="min-w-0 flex-1 truncate text-left px-1.5 py-0.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text">
                     {tab.label}
                   </button>
                   {tab.id && (

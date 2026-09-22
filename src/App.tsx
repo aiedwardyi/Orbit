@@ -73,6 +73,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [terminalViews, setTerminalViews] = useState<Record<string, boolean>>({});
+  const [paneHotkey, setPaneHotkey] = useState<{ n: number } | null>(null);
   const [localVmWorkspaceBotId, setLocalVmWorkspaceBotId] = useState<string | null>(null);
   // the Browser tab, expanded into the main column (the small preview in
   // the panel hands off to this and back)
@@ -159,7 +160,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   // first /api/instances response has not arrived yet.
   const noEngines = state.connected && isEmptyEngineLaunch(state.instances);
 
-  // App-wide shortcuts: Alt+T Themes · Alt+U Usage · Alt/Ctrl+1..9 Nth bot. Esc still closes panels.
+  // App-wide shortcuts: Alt+T Themes · Alt+U Usage · Ctrl+1..9 Nth bot · Alt+1..9 Nth pane while the terminal is open, else Nth bot. Esc still closes panels.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
@@ -195,6 +196,12 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
           : e.code === "Digit8" || e.code === "Numpad8" ? 8
           : e.code === "Digit9" || e.code === "Numpad9" ? 9
           : null;
+        if (n !== null && e.altKey && terminalOpen) {
+          e.preventDefault();
+          e.stopPropagation();
+          setPaneHotkey({ n });
+          return;
+        }
         if (n !== null) {
           const rows = document.querySelectorAll('[data-sidebar-row-kind="bot"]');
           const id = rows[n - 1]?.getAttribute("data-sidebar-row-id");
@@ -209,7 +216,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [state.appSettingsOpen, state.appSettingsSection, state.settingsOpen, dispatch]);
+  }, [state.appSettingsOpen, state.appSettingsSection, state.settingsOpen, terminalOpen, dispatch]);
 
   useEffect(() => {
     window.ogb?.setUnreadCount?.(unreadCount);
@@ -462,7 +469,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
             <div className="orbit-terminal-overlay absolute inset-0 z-20 flex" data-open={terminalOpen} inert={!terminalOpen} aria-hidden={!terminalOpen}>
               <Suspense fallback={<BootFallback label={t("terminal.connecting")} />}>
                 {window.ogb?.terminal ? (
-                  <TerminalWorkspace key={bot.id} bot={bot} visible={terminalOpen} focusBlocked={nativeViewOverlayOpen} onClose={closeTerminal} />
+                  <TerminalWorkspace key={bot.id} bot={bot} visible={terminalOpen} focusBlocked={nativeViewOverlayOpen} paneHotkey={paneHotkey} onClose={closeTerminal} />
                 ) : (
                   <RemoteTerminalView key={bot.id} bot={bot} visible={terminalOpen} onClose={closeTerminal} />
                 )}
