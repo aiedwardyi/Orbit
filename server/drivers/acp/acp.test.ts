@@ -462,7 +462,7 @@ describe("SPEED4 warm session reuse (fake CLI)", () => {
       expect(follow).toBeTruthy();
       const t2 = await follow!;
       await recorder.until((e) => e.type === "turn.completed" && e.turnId === t2.turnId);
-      const rpc = rpcMethods();
+      const rpc = await waitForRpc((m) => m.filter((x) => x === "session/prompt").length >= 2);
       expect(rpc.filter((m) => m === "session/prompt").length).toBeGreaterThanOrEqual(2);
       expect(rpc.filter((m) => m === "initialize").length).toBe(1);
     } finally {
