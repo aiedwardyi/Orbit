@@ -171,6 +171,7 @@ type SkillRecordingPayload = {
         onExit(cb: (event: { id: string; exitCode: number }) => void): () => void;
         onError?: (cb: (event: { id: string; message: string }) => void) => () => void;
         onOpened?: (cb: (event: { id: string; botId: string; label: string | null; generation: number }) => void) => () => void;
+        onClosed?: (cb: (event: { id: string; botId: string }) => void) => () => void;
         onAttention?: (cb: (event: { id: string; botId: string; reason: "bell" | "activity" | "exit" | "error" }) => void) => () => void;
       };
       getCapabilities(): Promise<DesktopCapabilities>;
