@@ -779,6 +779,28 @@ test("openForBot submits a command with exactly one Enter", async () => {
   assert.deepEqual(f.children.map((child) => child.writes), [["echo ok\r"], ["echo ok\r"], ["echo ok\r"], ["echo ok\r"]]);
 });
 
+test("a mailbox note raises attention on an acknowledged pane", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner, activityCoalesceMs: 5, attentionCooldownMs: 0 });
+  owner = f.owner;
+  const pane = await f.host.openForBot("bot-1", { label: "worker", command: "claude" });
+  f.children[0].data("working");
+  await wait(15);
+  f.host.acknowledge(f.event, pane.sessionId);
+  f.children[0].data("done");
+  await wait(15);
+  const attention = () => f.events.filter(([channel]) => channel === "terminal:attention").map(([, value]) => value);
+  assert.equal(attention().length, 1);
+  assert.equal(f.host.attendBot("bot-1", pane.sessionId), true);
+  assert.deepEqual(attention().at(-1), { id: pane.sessionId, botId: "bot-1", reason: "activity" });
+  assert.equal(f.host.attendBot("bot-2", pane.sessionId), false);
+  f.host.acknowledge(f.event, pane.sessionId);
+  f.children[0].exit({ exitCode: 0 });
+  f.host.acknowledge(f.event, pane.sessionId);
+  assert.equal(f.host.attendBot("bot-1", pane.sessionId), false);
+  assert.equal(attention().length, 3);
+});
+
 test("exited panes do not hold global slots and reclaiming them emits terminal:closed", async () => {
   let owner;
   const f = fixture({ owner: () => owner });

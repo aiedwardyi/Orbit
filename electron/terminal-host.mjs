@@ -613,6 +613,15 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may acknowledge writes synchronously or asynchronously.
       return result && typeof result.then === "function" ? result.then(() => snapshot(session)) : snapshot(session);
     },
+    attendBot(botId, sessionId) {
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Bot ids cross the local proxy boundary.
+      if (typeof botId !== "string" || !BOT_ID_RE.test(botId)) throw new Error("Invalid bot");
+      const session = botSessions(botId).find((candidate) => candidate.id === sessionId);
+      if (!session || session.exitCode !== null || session.attentionReported) return false;
+      clearActivityTimer(session);
+      reportAttention(session, "activity");
+      return true;
+    },
     async openForBot(botId, input = {}) {
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Bot ids cross the local proxy boundary.
       if (typeof botId !== "string" || !BOT_ID_RE.test(botId)) throw new Error("Invalid bot");

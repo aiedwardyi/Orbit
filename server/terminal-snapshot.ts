@@ -26,3 +26,20 @@ export async function terminalSnapshotResponse(
   for (const key of SNAPSHOT_FIELDS) if (snapshot[key] !== undefined) body[key] = snapshot[key];
   return { status: 200, body };
 }
+
+export async function raisePaneAttention(
+  access: TerminalBridgeAccess | null,
+  botId: string,
+  sessionId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  if (!access) return;
+  try {
+    await fetchImpl(`${access.url}/v1/bots/${encodeURIComponent(botId)}/terminal/attention`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${terminalReadGrant(access.token, botId)}`, "content-type": "application/json" },
+      body: JSON.stringify({ sessionId }),
+      signal: AbortSignal.timeout(5_000),
+    });
+  } catch {}
+}
