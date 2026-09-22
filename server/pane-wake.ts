@@ -23,8 +23,11 @@ interface Pending {
 export class PaneWakeScheduler {
   private readonly pending = new Map<string, Pending>();
   private readonly wakes = new Map<string, number[]>();
+  private readonly deps: PaneWakeDeps;
 
-  constructor(private readonly deps: PaneWakeDeps) {}
+  constructor(deps: PaneWakeDeps) {
+    this.deps = deps;
+  }
 
   noteArrived(botId: string, threadId: string): void {
     if (!this.deps.enabled(botId)) return;
