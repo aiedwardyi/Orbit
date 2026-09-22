@@ -6,6 +6,7 @@ import {
   normalizeSidebarOrder,
   orderedSidebarItems,
   partitionSidebarItemKeys,
+  preferredStartupSelectionId,
   sidebarPriorityFor,
   sameSidebarOrder,
   sidebarItemKey,
@@ -109,5 +110,43 @@ describe("sidebar item order", () => {
     );
     expect(next).toEqual({ [UNASSIGNED_SECTION_ID]: [], "section:Work": ["bot:b1", "group:g1"] });
     expect(sameSidebarOrder({ sectionOrder: [], itemOrder: next }, { sectionOrder: [], itemOrder: next })).toBe(true);
+  });
+});
+
+describe("preferredStartupSelectionId", () => {
+  const EMPTY_ORDER = { sectionOrder: [], itemOrder: {} };
+
+  it("picks the chief of staff bot over server creation order", () => {
+    const bots = [{ id: "b1" }, { id: "chief", chiefOfStaff: true }, { id: "b2" }];
+    expect(preferredStartupSelectionId(bots, [], EMPTY_ORDER)).toBe("chief");
+  });
+
+  it("falls back to the first ordered item when there is no chief", () => {
+    const bots = [{ id: "a" }, { id: "b" }];
+    const order = {
+      sectionOrder: [UNASSIGNED_SECTION_ID],
+      itemOrder: { [UNASSIGNED_SECTION_ID]: ["bot:b", "bot:a"] },
+    };
+    expect(preferredStartupSelectionId(bots, [], order)).toBe("b");
+  });
+
+  it("falls back to a first ordered group when it leads a pinless, chiefless sidebar", () => {
+    const bots = [{ id: "a" }];
+    const groups = [{ id: "g1" }];
+    const order = {
+      sectionOrder: [UNASSIGNED_SECTION_ID],
+      itemOrder: { [UNASSIGNED_SECTION_ID]: ["group:g1", "bot:a"] },
+    };
+    expect(preferredStartupSelectionId(bots, groups, order)).toBe("g1");
+  });
+
+  it("falls back to bots[0] with no saved order and no chief", () => {
+    const bots = [{ id: "a" }, { id: "b" }];
+    expect(preferredStartupSelectionId(bots, [], EMPTY_ORDER)).toBe("a");
+  });
+
+  it("skips hidden bots when picking the first item", () => {
+    const bots = [{ id: "a", hidden: true }, { id: "b" }];
+    expect(preferredStartupSelectionId(bots, [], EMPTY_ORDER)).toBe("b");
   });
 });

@@ -8,9 +8,13 @@ import {
   terminalAttentionKey,
   useStore,
   visibleNotificationThread,
+  type Bot,
+  type Group,
   type TerminalAttention,
 } from "@/state/store";
 import { unreadConversationCount } from "@/lib/unread";
+import { preferredStartupSelectionId } from "@/lib/sidebar-order";
+import { loadSidebarOrder } from "@/lib/sidebar-preferences";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatView } from "@/components/ChatView";
 import { GroupView } from "@/components/GroupView";
@@ -55,6 +59,13 @@ function BootFallback({
   );
 }
 
+/** Selecting a bot that no longer exists falls back to the sidebar's own
+ * first item, never raw server creation order. */
+function fallbackStartupBot(bots: Bot[], groups: Group[]): Bot | undefined {
+  const id = preferredStartupSelectionId(bots, groups, loadSidebarOrder());
+  return bots.find((b) => b.id === id) ?? bots[0];
+}
+
 function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
@@ -81,7 +92,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const group = state.groups.find((g) => g.id === state.selectedId);
-  const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? state.bots[0]);
+  const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? fallbackStartupBot(state.bots, state.groups));
   const terminalOpen = Boolean(bot && terminalViews[bot.id] && state.activeView === "chat" && !browserWorkspaceBotId && !localVmWorkspaceBotId);
   const openTerminal = () => { if (bot) setTerminalViews((views) => ({ ...views, [bot.id]: true })); };
   const acknowledgeTerminalAttention = (attention: Pick<TerminalAttention, "botId" | "sessionId">) => {

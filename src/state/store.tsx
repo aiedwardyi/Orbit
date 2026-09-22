@@ -23,6 +23,8 @@ import type { WebhookAttempt, WebhookIngressStatus, WebhookTrigger } from "@/lib
 import { currentCall } from "@/lib/call";
 import { showNotification, type NotificationTarget, type TerminalAttentionReason } from "@/lib/notify";
 import { speaker } from "@/lib/tts";
+import { preferredStartupSelectionId, type SidebarOrder } from "@/lib/sidebar-order";
+import { loadSidebarOrder } from "@/lib/sidebar-preferences";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import { firstChatPeripherals, scheduleDeferredInstancesLoad } from "./first-chat-snapshot";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
@@ -648,6 +650,7 @@ export type Action =
       bots: Bot[];
       groups: Group[];
       computerControl: Record<string, { held: boolean; helpReason: string | null }>;
+      sidebarOrder: SidebarOrder;
     }
   | { type: "showRoutines" }
   | { type: "showTeamMap" }
@@ -912,7 +915,9 @@ export function reducer(state: AppState, action: Action): AppState {
     case "hydrate": {
       const known = (id: string) => action.bots.some((b) => b.id === id) || action.groups.some((g) => g.id === id);
       const selectedId =
-        state.selectedId && known(state.selectedId) ? state.selectedId : (action.bots[0]?.id ?? "");
+        state.selectedId && known(state.selectedId)
+          ? state.selectedId
+          : preferredStartupSelectionId(action.bots, action.groups, action.sidebarOrder);
       const hydrated = reconcileSnapshotQueues(
         {
           ...state,
@@ -2572,6 +2577,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             bots,
             groups: groups ?? [],
             computerControl: computerControl ?? {},
+            sidebarOrder: loadSidebarOrder(),
           });
           // Snapshot has busy, not StreamState.signal. Without SSE replay a
           // dispatched turn would otherwise read Preparing for the whole wait.

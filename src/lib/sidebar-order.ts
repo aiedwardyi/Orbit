@@ -1,3 +1,5 @@
+import { userSectionId } from "./sidebar-layout";
+
 export type SidebarItemKind = "bot" | "group";
 export type SidebarItemOrder = Record<string, string[]>;
 
@@ -136,6 +138,62 @@ export function moveSidebarItemWithinTier(
   tier.splice(targetIndex + (place === "after" ? 1 : 0), 0, fromKey);
   for (const [index, slot] of slots.entries()) keys[slot] = tier[index]!;
   return next;
+}
+
+export type SidebarStartupBot = {
+  id: string;
+  section?: string;
+  hidden?: boolean;
+  chiefOfStaff?: boolean;
+  pinned?: boolean;
+};
+
+export type SidebarStartupGroup = {
+  id: string;
+  section?: string;
+};
+
+/** The id the sidebar renders first: chief tier, then pinned tier, then the
+ * first regular item in section order. Mirrors Sidebar.tsx's render order. */
+export function preferredStartupSelectionId(
+  bots: readonly SidebarStartupBot[],
+  groups: readonly SidebarStartupGroup[],
+  order: SidebarOrder,
+): string {
+  const sectionIdFor = (section?: string) => (section?.trim() ? userSectionId(section.trim()) : UNASSIGNED_SECTION_ID);
+  const items = [
+    ...groups.map((group) => ({
+      key: sidebarItemKey("group", group.id),
+      id: group.id,
+      sectionId: sectionIdFor(group.section),
+      priority: null as SidebarPriority | null,
+    })),
+    ...bots
+      .filter((bot) => !bot.hidden)
+      .map((bot) => ({
+        key: sidebarItemKey("bot", bot.id),
+        id: bot.id,
+        sectionId: sectionIdFor(bot.section),
+        priority: sidebarPriorityFor(bot),
+      })),
+  ];
+  const itemByKey = new Map(items.map((item) => [item.key, item]));
+  const itemsBySection: SidebarItemOrder = {};
+  for (const item of items) (itemsBySection[item.sectionId] ??= []).push(item.key);
+  const sections = [UNASSIGNED_SECTION_ID, ...Object.keys(itemsBySection).filter((id) => id !== UNASSIGNED_SECTION_ID)];
+  const normalized = normalizeSidebarOrder(order, sections, itemsBySection);
+  const priorityByKey = Object.fromEntries(items.map((item) => [item.key, item.priority]));
+  const partition = partitionSidebarItemKeys(normalized.sectionOrder, normalized.itemOrder, priorityByKey);
+  const orderedKeys = [
+    ...partition.chief,
+    ...partition.pinned,
+    ...normalized.sectionOrder.flatMap((id) => partition.regular[id] ?? []),
+  ];
+  for (const key of orderedKeys) {
+    const id = itemByKey.get(key)?.id;
+    if (id) return id;
+  }
+  return bots[0]?.id ?? "";
 }
 
 export function sameSidebarOrder(a: SidebarOrder, b: SidebarOrder): boolean {

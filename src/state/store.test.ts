@@ -756,6 +756,7 @@ describe("task recovery state", () => {
       bots: [bot],
       groups: [],
       computerControl: {},
+      sidebarOrder: { sectionOrder: [], itemOrder: {} },
     });
     expect(hydrated.dismissedTaskRecovery["t1"]).toEqual({
       updatedAt: 200,
@@ -1081,6 +1082,80 @@ describe("section Chiefs", () => {
   });
 });
 
+describe("hydrate startup selection", () => {
+  const bot = (id: string, chiefOfStaff = false) => ({
+    id,
+    threadId: `thread-${id}`,
+    name: id,
+    title: "",
+    description: "",
+    notifications: true,
+    color: "green" as const,
+    unread: false,
+    modelSelection: { instanceId: "codex", model: "default" },
+    chiefOfStaff,
+    messages: [],
+  });
+
+  it("opens the chief of staff bot over server creation order", () => {
+    const regular = bot("regular");
+    const chief = bot("chief", true);
+    const hydrated = reducer(initialState, {
+      type: "hydrate",
+      bots: [regular, chief],
+      groups: [],
+      computerControl: {},
+      sidebarOrder: { sectionOrder: [], itemOrder: {} },
+    });
+    expect(hydrated.selectedId).toBe("chief");
+  });
+
+  it("falls back to the first item in saved sidebar order when there is no chief", () => {
+    const a = bot("a");
+    const b = bot("b");
+    const hydrated = reducer(initialState, {
+      type: "hydrate",
+      bots: [a, b],
+      groups: [],
+      computerControl: {},
+      sidebarOrder: {
+        sectionOrder: ["unassigned"],
+        itemOrder: { unassigned: ["bot:b", "bot:a"] },
+      },
+    });
+    expect(hydrated.selectedId).toBe("b");
+  });
+
+  it("falls back to bots[0] with no saved order and no chief", () => {
+    const a = bot("a");
+    const b = bot("b");
+    const hydrated = reducer(initialState, {
+      type: "hydrate",
+      bots: [a, b],
+      groups: [],
+      computerControl: {},
+      sidebarOrder: { sectionOrder: [], itemOrder: {} },
+    });
+    expect(hydrated.selectedId).toBe("a");
+  });
+
+  it("keeps a previously selected bot that still exists", () => {
+    const a = bot("a");
+    const chief = bot("chief", true);
+    const hydrated = reducer(
+      { ...initialState, selectedId: "a" },
+      {
+        type: "hydrate",
+        bots: [a, chief],
+        groups: [],
+        computerControl: {},
+        sidebarOrder: { sectionOrder: [], itemOrder: {} },
+      },
+    );
+    expect(hydrated.selectedId).toBe("a");
+  });
+});
+
 describe("bot details folder after Clear", () => {
   it("applies a null cwd from a complete bot frame so the field is private", () => {
     const bot = {
@@ -1242,6 +1317,7 @@ describe("pending queued chip", () => {
       bots: [{ ...bot, messages: [canonical] }],
       groups: [],
       computerControl: {},
+      sidebarOrder: { sectionOrder: [], itemOrder: {} },
     });
 
     expect(hydrated.pendingQueued).toEqual({});
@@ -1426,6 +1502,7 @@ describe("accepted send chrome", () => {
       bots: [idleBot],
       groups: [],
       computerControl: {},
+      sidebarOrder: { sectionOrder: [], itemOrder: {} },
     });
     expect(hydrated.acceptedSends[idleBot.threadId]).toBeUndefined();
     expect(hydrated.bots[0]?.busy).toBeFalsy();
