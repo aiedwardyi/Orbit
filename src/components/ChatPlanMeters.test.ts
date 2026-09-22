@@ -1,6 +1,8 @@
-import { createElement } from "react";
+import "./ProfileFields.test-dom.ts";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { applyLocale } from "@/lib/i18n";
 import { setUsageMode } from "@/lib/usage-preferences";
@@ -14,7 +16,7 @@ afterEach(() => setUsageMode("remaining"));
 
 function render(windows: RateLimitWindow[] | undefined, usage?: TaskUsage) {
   applyLocale("en");
-  return renderToStaticMarkup(createElement(ChatPlanMeters, { windows, usage, now }));
+  return renderToStaticMarkup(createElement(ChatPlanMeters, { windows, usage, now, onOpenUsage: () => {} }));
 }
 
 describe("ChatPlanMeters", () => {
@@ -101,5 +103,29 @@ describe("ChatPlanMeters", () => {
     expect(html).toContain("↑52.4k ↓4.1k");
     expect(html).toContain("5h");
     expect(html).toContain("7d");
+  });
+
+  it("dispatches the usage action when the strip is clicked", async () => {
+    applyLocale("en");
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const onOpenUsage = vi.fn();
+    try {
+      await act(async () => {
+        root.render(createElement(ChatPlanMeters, {
+          windows: [{ id: "five_hour", usedPercent: 10, resetsAt: now + 115 * 60_000 }],
+          now,
+          onOpenUsage,
+        }));
+      });
+      const button = host.querySelector("button");
+      expect(button).not.toBeNull();
+      await act(async () => button?.click());
+      expect(onOpenUsage).toHaveBeenCalledOnce();
+    } finally {
+      root.unmount();
+      host.remove();
+    }
   });
 });

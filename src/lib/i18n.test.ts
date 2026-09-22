@@ -970,7 +970,7 @@ describe("plan usage", () => {
     expect(usageSection).not.toMatch(/% used/);
     expect(usageSection).not.toMatch(/does not report/);
     expect(usageSection).not.toMatch(/not available at the moment/);
-    expect(chatPlanMeters).toContain('t("usage.limits.title")');
+    expect(chatPlanMeters).toContain('t("usage.limits.openAria")');
     expect(chatPlanMeters).not.toMatch(/Resets in/);
     expect(chatView).toContain("<ChatPlanMeters");
     expect(chatView).toContain("engine?.rateLimits?.windows");

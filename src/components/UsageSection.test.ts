@@ -101,7 +101,7 @@ describe("UsageSection friends plan card", () => {
     const windows = [{ id: "five_hour", usedPercent: 90, resetsAt: Date.now() + 3_600_000 }];
     try {
       await act(async () => root.render(createElement(I18nProvider, null,
-        createElement(UsageSection), createElement(ChatPlanMeters, { windows }))));
+        createElement(UsageSection), createElement(ChatPlanMeters, { windows, onOpenUsage: () => {} }))));
       const down = [...host.querySelectorAll("button")].find((button) => button.textContent === "Count down (remaining)");
       const up = [...host.querySelectorAll("button")].find((button) => button.textContent === "Count up (used)");
       expect(down).toBeDefined();
@@ -524,6 +524,7 @@ describe("UsageSection friends plan card", () => {
       createElement(ChatPlanMeters, {
         windows: [{ id: "five_hour", usedPercent: 10, resetsAt: Date.now() + 3_600_000 }],
         usage: { input: 10, output: 4, costUsd: 0.01, turns: 2 },
+        onOpenUsage: () => {},
       })));
     expect(chat).toContain(tokenSpan);
   });

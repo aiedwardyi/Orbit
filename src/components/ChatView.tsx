@@ -1518,7 +1518,11 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
           packet={activeTask?.taskState}
           turns={activeTask?.usage?.turns ?? 0}
         />
-        <ChatPlanMeters windows={engine?.rateLimits?.windows} usage={activeTask?.usage} />
+        <ChatPlanMeters
+          windows={engine?.rateLimits?.windows}
+          usage={activeTask?.usage}
+          onOpenUsage={() => dispatch({ type: "toggleAppSettings", open: true, section: "usage" })}
+        />
         <Composer
           key={bot.threadId}
           bot={bot}

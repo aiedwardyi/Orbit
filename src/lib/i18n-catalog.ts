@@ -1000,6 +1000,7 @@ export const en = {
   "usage.limits.compactHm": "{hours}h{minutes}m",
   "usage.limits.compactH": "{hours}h",
   "usage.limits.compactM": "{minutes}m",
+  "usage.limits.openAria": "Open usage settings",
   "usage.detail.withCached": "{input} in ({cached} cached) · {output} out",
   "usage.detail.plain": "{input} in · {output} out",
 } as const;
@@ -2004,6 +2005,7 @@ export const ko = {
   "usage.limits.compactHm": "{hours}시간 {minutes}분",
   "usage.limits.compactH": "{hours}시간",
   "usage.limits.compactM": "{minutes}분",
+  "usage.limits.openAria": "사용량 설정 열기",
   "usage.detail.withCached": "입력 {input}(캐시 {cached}) · 출력 {output}",
   "usage.detail.plain": "입력 {input} · 출력 {output}",
 } satisfies { [K in MessageKey]: string };

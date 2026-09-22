@@ -22,25 +22,29 @@ export function ChatPlanMeters({
   windows,
   usage,
   now,
+  onOpenUsage,
 }: {
   windows: RateLimitWindow[] | undefined;
   usage?: TaskUsage;
   now?: number;
+  onOpenUsage: () => void;
 }) {
   // Decide visibility without starting the minute tick; chats without
   // windows never mount a timer for a strip they will not show.
   if (planMeterWindows(windows, now ?? Date.now()).length === 0) return null;
-  return <ChatPlanMetersLive windows={windows} usage={usage} now={now} />;
+  return <ChatPlanMetersLive windows={windows} usage={usage} now={now} onOpenUsage={onOpenUsage} />;
 }
 
 function ChatPlanMetersLive({
   windows,
   usage,
   now,
+  onOpenUsage,
 }: {
   windows: RateLimitWindow[] | undefined;
   usage?: TaskUsage;
   now?: number;
+  onOpenUsage: () => void;
 }) {
   const { t } = useI18n();
   const tick = useNow();
@@ -53,7 +57,12 @@ function ChatPlanMetersLive({
   const detail = spent && usageDetail(spent);
   if (visible.length === 0) return null;
   return (
-    <div className="px-5 pb-1" role="group" aria-label={t("usage.limits.title")}>
+    <button
+      type="button"
+      onClick={onOpenUsage}
+      className="w-full cursor-pointer px-5 pb-1 text-left"
+      aria-label={t("usage.limits.openAria")}
+    >
       {/* Content-sized and centred: two 50% tracks left the pair flush left with all the slack on the right. */}
       <div className={cn("mx-auto grid w-fit items-center gap-x-6", GRID_COLS[visible.length + (spent ? 1 : 0)])}>
         {visible.map((window) => (
@@ -65,6 +74,6 @@ function ChatPlanMetersLive({
           </span>
         )}
       </div>
-    </div>
+    </button>
   );
 }
