@@ -51,6 +51,7 @@ export function ModelPickerControl({
   const focusComposerAfterCloseRef = useRef(false);
   const openedWithShortcutRef = useRef(false);
   const stageRef = useRef<HTMLDivElement>(null);
+  const touchStartYRef = useRef(0);
   const [stageWidth, setStageWidth] = useState(0);
   const bindingsId = useId();
   const rows = pickerRows(state.instances, selection, draft);
@@ -151,6 +152,38 @@ export function ModelPickerControl({
     };
     stage.addEventListener("wheel", onWheel, { passive: false });
     return () => stage.removeEventListener("wheel", onWheel);
+  }, [open, rows, state.instances]);
+
+  // Touch equivalent of the wheel handler above: the stage isn't a scroll
+  // container (it's a spatial grid moved by discrete steps), so a plain
+  // touchmove does nothing — only tap worked before this. A drag past the
+  // threshold steps once, like a wheel tick, then rebases for the next step.
+  useEffect(() => {
+    if (!open) return;
+    const stage = stageRef.current!;
+    const THRESHOLD = 24;
+    const onTouchStart = (event: TouchEvent) => {
+      touchStartYRef.current = event.touches[0]!.clientY;
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      // A ref, not a closure local: `rows` changes identity on every step
+      // (setDraft below), which tears down and re-subscribes this effect
+      // mid-gesture — a plain local would silently reset to 0 there.
+      const y = event.touches[0]!.clientY;
+      const delta = touchStartYRef.current - y;
+      if (Math.abs(delta) < THRESHOLD) return;
+      event.preventDefault();
+      const direction = delta > 0 ? "ArrowDown" : "ArrowUp";
+      setDraft((current) => movePicker(rows, withPickerEffort(state.instances.find((item) => item.instanceId === current.instanceId), current), direction));
+      setCustomOpen(false);
+      touchStartYRef.current = y;
+    };
+    stage.addEventListener("touchstart", onTouchStart, { passive: true });
+    stage.addEventListener("touchmove", onTouchMove, { passive: false });
+    return () => {
+      stage.removeEventListener("touchstart", onTouchStart);
+      stage.removeEventListener("touchmove", onTouchMove);
+    };
   }, [open, rows, state.instances]);
 
   useEffect(() => {

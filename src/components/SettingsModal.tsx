@@ -392,11 +392,13 @@ export function SettingsModal({
         tabIndex={-1}
         // h-* alone overflows the 600x480 window floor above and below; max-h-full
         // hands the excess to the content pane, which is the only thing that scrolls.
-        className="flex h-[560px] max-h-full w-full max-w-[860px] overflow-hidden rounded-2xl border border-hairline/50 bg-panel shadow-2xl outline-none"
+        // Below md the nav collapses to a horizontal icon strip above the content —
+        // side by side at 190px fixed left the content pane too narrow to fit a card.
+        className="flex h-[560px] max-h-full w-full max-w-[860px] overflow-hidden rounded-2xl border border-hairline/50 bg-panel shadow-2xl outline-none max-md:flex-col"
       >
         {/* section nav */}
-        <nav className="flex w-[190px] shrink-0 flex-col gap-0.5 border-r border-hairline/40 p-3">
-          <div id="app-settings-title" className="px-2 pb-2 pt-1 text-[15px] font-semibold text-ink">
+        <nav className="flex w-[190px] shrink-0 flex-col gap-0.5 border-r border-hairline/40 p-3 max-md:w-full max-md:border-r-0 max-md:border-b max-md:p-2">
+          <div id="app-settings-title" className="px-2 pb-2 pt-1 text-[15px] font-semibold text-ink max-md:hidden">
             {t("settings.title")}
           </div>
           {showSettingsSearch() && (
@@ -422,29 +424,33 @@ export function SettingsModal({
               {t("settings.noMatch", { query: query.trim() })}
             </div>
           )}
-          {visibleSections.map(({ id, icon: Icon, shortcut }) => (
-            <button
-              key={id}
-              onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: id })}
-              aria-current={section === id ? "page" : undefined}
-              aria-keyshortcuts={shortcut}
-              className={cn(
-                "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[14px]",
-                section === id ? "bg-control text-ink" : "text-ink-secondary hover:bg-control/50 hover:text-ink",
-              )}
-            >
-              <Icon size={15} />
-              <span className="min-w-0 flex-1 truncate">{t(SECTION_KEY[id])}</span>
-              {shortcut && (
-                <kbd className="ml-auto shrink-0 font-mono text-[10px] tracking-wide text-ink-secondary/55">
-                  {shortcut}
-                </kbd>
-              )}
-            </button>
-          ))}
+          <div className="flex flex-col gap-0.5 max-md:flex-row max-md:gap-1 max-md:overflow-x-auto">
+            {visibleSections.map(({ id, icon: Icon, shortcut }) => (
+              <button
+                key={id}
+                onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: id })}
+                aria-current={section === id ? "page" : undefined}
+                aria-keyshortcuts={shortcut}
+                aria-label={t(SECTION_KEY[id])}
+                title={t(SECTION_KEY[id])}
+                className={cn(
+                  "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[14px] max-md:shrink-0",
+                  section === id ? "bg-control text-ink" : "text-ink-secondary hover:bg-control/50 hover:text-ink",
+                )}
+              >
+                <Icon size={15} />
+                <span className="min-w-0 flex-1 truncate max-md:hidden">{t(SECTION_KEY[id])}</span>
+                {shortcut && (
+                  <kbd className="ml-auto shrink-0 font-mono text-[10px] tracking-wide text-ink-secondary/55 max-md:hidden">
+                    {shortcut}
+                  </kbd>
+                )}
+              </button>
+            ))}
+          </div>
         </nav>
 
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-w-0 flex-1 flex-col max-md:min-h-0">
           <div className="flex shrink-0 items-center justify-between px-5 py-3 gap-3">
             <span className="text-[15px] font-semibold text-ink">
               {t(SECTION_KEY[section])}

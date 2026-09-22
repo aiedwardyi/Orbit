@@ -38,6 +38,7 @@
   flex: 1;
   min-height: 180px;
   overflow: hidden;
+  touch-action: none;
   mask-image: linear-gradient(transparent, #000 8%, #000 92%, transparent);
 }
 

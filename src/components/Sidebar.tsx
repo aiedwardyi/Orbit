@@ -1395,6 +1395,9 @@ export function Sidebar({
   useEffect(() => {
     if (sidebarCollapsed || !focusSearchAfterExpand.current) return;
     focusSearchAfterExpand.current = false;
+    // A touch device pops its virtual keyboard on focus, fighting the
+    // expand animation. Only autofocus where a keyboard is already up.
+    if (window.matchMedia?.("(pointer: coarse)").matches) return;
     searchInputRef.current?.focus();
   }, [sidebarCollapsed]);
 
@@ -1902,7 +1905,10 @@ export function Sidebar({
       aria-label={t("chrome.navAria")}
       className={cn(
         "relative flex h-full min-w-0 shrink-0 flex-col border-r border-hairline/40 bg-panel",
-        !resizing && "transition-[width] duration-200",
+        // md and up only: below md, width is a layout property fighting the
+        // translate-based drawer slide (both animating the same frame) — that
+        // pane leaves width alone and animates transform only, see below.
+        !resizing && "md:transition-[width] md:duration-200",
         // Below md only: the sidebar leaves the flow and slides in over the chat.
         // Scoped with max-md: rather than cancelled with md: on purpose — Tailwind
         // v4 emits the native `translate` property, and any value other than
