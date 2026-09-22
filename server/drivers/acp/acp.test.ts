@@ -492,7 +492,9 @@ describe("SPEED4 warm session reuse (fake CLI)", () => {
     await recorder.until((e) => e.type === "turn.completed" && e.turnId === t1.turnId);
     const sessionId = sessionIdFor(t1.turnId);
     const promptsAfterT1 = rpcMethods().filter((m) => m === "session/prompt").length;
-    await new Promise((r) => setTimeout(r, 200));
+    // 80ms TTL needs real margin here: under CI scheduler contention the eviction
+    // setTimeout can fire late, so a short wait races it and flakes.
+    await new Promise((r) => setTimeout(r, 800));
     const t2 = await instance.adapter.sendTurn({ threadId: "t-ttl", text: "two", resumeCursor: sessionId });
     await recorder.until((e) => e.type === "turn.completed" && e.turnId === t2.turnId);
     const after = await waitForRpc((m) => m.includes("initialize") || m.includes("session/load") || m.includes("session/new"));
