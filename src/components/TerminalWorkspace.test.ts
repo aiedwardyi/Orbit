@@ -1305,3 +1305,141 @@ it("shares tab width, hides the strip scrollbar, and switches panes on the Alt+d
   expect(tabs[0].getAttribute("aria-selected")).toBe("true");
   Reflect.deleteProperty(Element.prototype, "scrollIntoView");
 });
+
+function paneFixture() {
+  let receive!: Parameters<TerminalBridge["onData"]>[0];
+  let exit!: Parameters<TerminalBridge["onExit"]>[0];
+  let closed!: Parameters<NonNullable<TerminalBridge["onClosed"]>>[0];
+  let opened!: Parameters<NonNullable<TerminalBridge["onOpened"]>>[0];
+  const panes = ["one", "two"].map((label) => ({ sessionId: `pane-${label}`, generation: 1, label, cwd: "C:\\work", main: false, exited: false }));
+  const snapshot = { botId: "bot-1", seq: 0, capturedAt: 0, exitCode: null, exited: false, screenText: "", recentText: "", truncated: false, panes };
+  const open = vi.fn<TerminalBridge["open"]>(async (input) => ({ id: input.sessionId ?? `main-${input.botId}`, cwd: "C:\\work", launchProject: "C:\\work", shell: "pwsh.exe", output: "snapshot", seq: 0, exitCode: null }));
+  const readBot = vi.fn(async () => snapshot);
+  const close = vi.fn(async () => {});
+  const write = vi.fn(async () => {});
+  const bot = mountBridge({
+    open, readBot, close, write, appearance: vi.fn(async () => null), resize: vi.fn(async () => {}),
+    onData: (cb) => { receive = cb; return vi.fn(); },
+    onExit: (cb) => { exit = cb; return vi.fn(); },
+    onClosed: (cb) => { closed = cb; return vi.fn(); },
+    onOpened: (cb) => { opened = cb; return vi.fn(); },
+  });
+  const props = { bot, visible: true, focusBlocked: false, onClose: vi.fn() };
+  const render = (next = props) => act(async () => root.render(createElement(TerminalWorkspace, next)));
+  const tabs = () => [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+  const select = (index: number) => act(async () => { tabs()[index].click(); });
+  return { props, render, tabs, select, open, readBot, close, write, snapshot,
+    receive: (event: Parameters<typeof receive>[0]) => receive(event),
+    exit: (event: Parameters<typeof exit>[0]) => exit(event),
+    closed: (event: Parameters<typeof closed>[0]) => closed(event),
+    opened: (event: Parameters<typeof opened>[0]) => opened(event),
+  };
+}
+
+it("switches clicked tabs and sends input only to the selected pane", async () => {
+  const f = paneFixture();
+  await f.render();
+  for (const [index, id] of [[1, "pane-one"], [2, "pane-two"], [0, "main-bot-1"]] as const) {
+    await f.select(index);
+    expect(f.tabs()[index].getAttribute("aria-selected")).toBe("true");
+    expect(f.open).toHaveBeenLastCalledWith(expect.objectContaining({ restart: false, ...(index ? { sessionId: id } : {}) }));
+    await act(async () => { terminal.__emitData("hello\r"); });
+    expect(f.write).toHaveBeenLastCalledWith(id, "hello\r");
+  }
+});
+
+it("closes the active and last spawned tabs while ignoring late worker output", async () => {
+  const f = paneFixture();
+  await f.render();
+  await f.select(1);
+  await act(async () => { f.receive({ id: "pane-one", data: "working", seq: 1 }); });
+  expect(terminal.write).toHaveBeenLastCalledWith("working");
+  await act(async () => { f.tabs()[1].parentElement!.querySelectorAll("button")[1].click(); });
+  expect(f.close).toHaveBeenLastCalledWith("pane-one");
+  expect(f.tabs().map((tab) => tab.textContent)).toEqual(["Terminal", "two"]);
+  expect(f.tabs()[0].getAttribute("aria-selected")).toBe("true");
+  terminal.write.mockClear();
+  await act(async () => { f.receive({ id: "pane-one", data: "late", seq: 2 }); });
+  expect(terminal.write).not.toHaveBeenCalled();
+  await f.select(1);
+  await act(async () => { f.tabs()[1].parentElement!.querySelectorAll("button")[1].click(); });
+  expect(f.close).toHaveBeenLastCalledWith("pane-two");
+  expect(f.tabs()).toHaveLength(0);
+  expect(f.open.mock.calls.at(-1)?.[0].sessionId).toBeUndefined();
+});
+
+it("removes host-closed panes and ignores events for other bots", async () => {
+  const f = paneFixture();
+  await f.render();
+  await f.select(1);
+  await act(async () => { f.closed({ botId: "bot-2", id: "pane-one" }); });
+  expect(f.tabs()).toHaveLength(3);
+  await act(async () => { f.closed({ botId: "bot-1", id: "pane-two" }); });
+  expect(f.tabs()[1].getAttribute("aria-selected")).toBe("true");
+  await act(async () => { f.closed({ botId: "bot-1", id: "pane-one" }); });
+  expect(f.tabs()).toHaveLength(0);
+  expect(f.open.mock.calls.at(-1)?.[0].sessionId).toBeUndefined();
+  expect(f.close).not.toHaveBeenCalled();
+});
+
+it("does not resurrect a host-closed pane from a delayed initial snapshot", async () => {
+  const f = paneFixture();
+  let resolve!: (snapshot: typeof f.snapshot) => void;
+  f.readBot.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+  await f.render();
+  await act(async () => { f.closed({ botId: "bot-1", id: "pane-one" }); });
+  await act(async () => { resolve(f.snapshot); });
+  expect(f.tabs().map((tab) => tab.textContent)).toEqual(["Terminal", "two"]);
+});
+
+it.each([null, 0])("gates every visible Restart entry point on a spawned pane with exit %s", async (exitCode) => {
+  const f = paneFixture();
+  await f.render();
+  await f.select(1);
+  await f.render({ ...f.props, bot: { ...f.props.bot, cwd: "C:\\other" } });
+  if (exitCode !== null) await act(async () => { f.exit({ id: "pane-one", exitCode }); });
+  const buttons = [...host.querySelectorAll<HTMLButtonElement>("button")].filter((button) => /^(Restart|Open terminal here|New shell)$/.test(button.textContent?.trim() ?? ""));
+  expect(buttons).toHaveLength(exitCode === null ? 2 : 3);
+  f.open.mockClear();
+  for (const button of buttons) {
+    expect(button.disabled).toBe(true);
+    await act(async () => { button.click(); });
+  }
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(f.open).not.toHaveBeenCalled();
+});
+
+it.each([false, true])("persists a folder without reattaching a spawned pane when attachment is pending: %s", async (pending) => {
+  const f = paneFixture();
+  await f.render();
+  let resolve!: (snapshot: TerminalSnapshot) => void;
+  if (pending) f.open.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+  await f.select(1);
+  const pickFolder = vi.fn(async () => "C:\\other");
+  Object.assign(window.ogb!, { pickFolder });
+  vi.mocked(api).mockResolvedValueOnce({ bot: { ...f.props.bot, cwd: "C:\\other" } });
+  f.open.mockClear();
+  await act(async () => { [...host.querySelectorAll("button")].find((button) => button.title === "C:\\work")!.click(); });
+  expect(api).toHaveBeenCalledWith("/api/bots/bot-1", { method: "PATCH", body: JSON.stringify({ cwd: "C:\\other" }) });
+  expect(f.open).not.toHaveBeenCalled();
+  expect(f.close).not.toHaveBeenCalled();
+  expect(f.write).not.toHaveBeenCalled();
+  if (pending) await act(async () => { resolve({ id: "pane-one", cwd: "C:\\work", shell: "pwsh.exe", output: "", seq: 0, exitCode: null }); });
+});
+
+it("keeps snapshot labels isolated across panes and bot remounts", async () => {
+  const f = paneFixture();
+  await f.render();
+  await f.select(1);
+  expect(host.querySelector('span[title="one"]')).not.toBeNull();
+  await f.select(2);
+  expect(host.querySelector('span[title="one"]')).toBeNull();
+  expect(host.querySelector('span[title="two"]')).not.toBeNull();
+  f.readBot.mockResolvedValueOnce({ ...f.snapshot, botId: "bot-2", panes: [{ ...f.snapshot.panes[0], sessionId: "foreign", label: "other bot" }] });
+  await act(async () => root.render(createElement(TerminalWorkspace, { ...f.props, key: "bot-2", bot: { ...f.props.bot, id: "bot-2" } })));
+  expect(f.tabs().map((tab) => tab.textContent)).toEqual(["Terminal", "other bot"]);
+  await act(async () => { f.opened({ botId: "bot-1", id: "ignored", label: "wrong bot", generation: 1 }); });
+  expect(f.tabs()).toHaveLength(2);
+  await act(async () => root.render(createElement(TerminalWorkspace, { ...f.props, key: "bot-1" })));
+  expect(f.tabs().map((tab) => tab.textContent)).toEqual(["Terminal", "one", "two"]);
+});

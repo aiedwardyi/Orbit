@@ -191,6 +191,7 @@ import { TurnWatchdog } from "./turn-watchdog.ts";
 import { foldContinuationStart } from "./continuation-turn.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
 import { paneLabel, raisePaneAttention, terminalSnapshotResponse } from "./terminal-snapshot.ts";
+import { closeBotPanes } from "./terminal-cleanup.ts";
 import { mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
 import { PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
 import {
@@ -1549,6 +1550,7 @@ store.onChange((change) => {
     }
     case "bot.deleted":
       turnEpochByBot.delete(change.botId);
+      void closeBotPanes(terminalBridgeAccess, change.botId).catch((error) => console.error("terminal cleanup failed", error));
       broadcast({ kind: "bot.deleted", botId: change.botId });
       break;
     case "bots.order":

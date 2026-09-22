@@ -111,7 +111,7 @@ describe("terminal pane shortcuts", () => {
     app.slice(app.indexOf("const onKey = (e: KeyboardEvent)"), app.indexOf("window.addEventListener(\"keydown\", onKey)"));
 
   it("routes Alt+digit to the Nth pane while the terminal is open and swallows it", () => {
-    const pane = handler().slice(handler().indexOf("if (n !== null && e.altKey && terminalOpen)"), handler().indexOf('data-sidebar-row-kind'));
+    const pane = handler().slice(handler().indexOf("if (n !== null && e.altKey && terminalOpen && window.ogb?.terminal)"), handler().indexOf('data-sidebar-row-kind'));
     expect(pane).toContain("e.preventDefault()");
     expect(pane).toContain("e.stopPropagation()");
     expect(pane).toContain("setPaneHotkey({ n })");

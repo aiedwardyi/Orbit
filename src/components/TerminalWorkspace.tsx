@@ -98,9 +98,10 @@ export function TerminalWorkspace({
     setPane(null);
     if (!bridge) return;
     let alive = true;
+    const closed = new Set<string>();
     void Promise.resolve().then(() => bridge.readBot?.(bot.id)).then((snapshot) => {
       if (!alive || !snapshot?.panes) return;
-      const seeded = snapshot.panes.filter((item) => !item.main).map((item) => ({ id: item.sessionId, label: item.label }));
+      const seeded = snapshot.panes.filter((item) => !item.main && !closed.has(item.sessionId)).map((item) => ({ id: item.sessionId, label: item.label }));
       setPanes((list) => [...seeded, ...list.filter((item) => !seeded.some((seed) => seed.id === item.id))]);
     }).catch(() => {});
     const offOpened = bridge.onOpened?.((event) => {
@@ -109,6 +110,7 @@ export function TerminalWorkspace({
     });
     const offClosed = bridge.onClosed?.((event) => {
       if (event.botId !== bot.id) return;
+      closed.add(event.id);
       setPanes((list) => list.filter((item) => item.id !== event.id));
       setPane((current) => current === event.id ? null : current);
     });
@@ -559,7 +561,7 @@ export function TerminalWorkspace({
       setNeedsFolder(false);
       setFolderReason(null);
       // Persist only - never inject cd or kill a live session from folder pick.
-      if (!sessionIdRef.current) setGeneration((value) => value + 1);
+      if (pane === null && !sessionIdRef.current) setGeneration((value) => value + 1);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -568,7 +570,7 @@ export function TerminalWorkspace({
   };
 
   const requestRestartHere = () => {
-    if (replacing || replacingRef.current) return;
+    if (pane !== null || replacing || replacingRef.current) return;
     if (exitCode === null && sessionIdRef.current) setConfirmRestart(true);
     else {
       setBannerDismissed(false);
@@ -653,7 +655,7 @@ export function TerminalWorkspace({
             {t("terminal.projectChanged")}
             {launchProject ? <span className="ml-2 font-mono text-[11px] text-ink-secondary">{launchProject}</span> : null}
           </span>
-          <button type="button" onClick={requestRestartHere} disabled={replacing} className="shrink-0 text-accent-text underline disabled:opacity-60">
+          <button type="button" onClick={requestRestartHere} disabled={replacing || pane !== null} className="shrink-0 text-accent-text underline disabled:opacity-60">
             {t("terminal.restartHere")}
           </button>
           <button type="button" onClick={() => setBannerDismissed(true)} className="shrink-0 rounded p-0.5 text-ink-secondary hover:bg-raised hover:text-ink" aria-label={t("terminal.dismissBanner")}>
@@ -714,7 +716,7 @@ export function TerminalWorkspace({
             : t("terminal.exited", { code: exitCode })}
         </span>
         {exitCode !== null ? (
-          <button type="button" onClick={requestRestartHere} disabled={replacing} className="text-accent-text underline disabled:opacity-60">{t("terminal.restart")}</button>
+          <button type="button" onClick={requestRestartHere} disabled={replacing || pane !== null} className="text-accent-text underline disabled:opacity-60">{t("terminal.restart")}</button>
         ) : (
           <span>{t("terminal.lifetime")}</span>
         )}

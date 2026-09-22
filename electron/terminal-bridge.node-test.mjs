@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import os from "node:os";
 import { createTerminalBridge, terminalReadGrant } from "./terminal-bridge.mjs";
+import { createTerminalHost } from "./terminal-host.mjs";
+import { closeBotPanes } from "../server/terminal-cleanup.ts";
 
 test("requires the private bearer and scopes reads to the requested bot", async () => {
   const calls = [];
@@ -163,4 +166,35 @@ test("closes a pane for the granted bot only", async () => {
   assert.equal((await close("bot-2")).status, 401);
   assert.deepEqual(calls, [["bot-1", "p1"]]);
   await bridge.close();
+});
+
+test("deleted bot cleanup retires its spawned panes through the bridge", async () => {
+  const events = [];
+  const children = [];
+  const owner = { id: 1, isDestroyed: () => false, send: (...args) => events.push(args) };
+  const host = createTerminalHost({
+    authorize: () => {}, owner: () => owner, resolveCwd: async () => os.tmpdir(),
+    platform: "linux", env: { SHELL: "/bin/sh" },
+    loadPty: () => ({ spawn: () => {
+      const child = { killed: false, onData() {}, onExit() {}, write() {}, resize() {}, kill() { this.killed = true; } };
+      children.push(child);
+      return child;
+    } }),
+  });
+  const bridge = createTerminalBridge({ host });
+  try {
+    const access = await bridge.start();
+    const main = await host.open({ sender: owner }, { botId: "bot-1", cols: 80, rows: 24 });
+    const one = await host.openForBot("bot-1", { label: "one" });
+    const two = await host.openForBot("bot-1", { label: "two" });
+    const foreign = await host.openForBot("bot-2", { label: "foreign" });
+    await closeBotPanes(access, "bot-1");
+    assert.deepEqual(children.map((child) => child.killed), [false, true, true, false]);
+    assert.deepEqual(host.readBot("bot-1").panes.map((pane) => pane.sessionId), [main.id]);
+    assert.equal(host.readBot("bot-2").panes[0].sessionId, foreign.sessionId);
+    assert.deepEqual(events.filter(([channel]) => channel === "terminal:closed").map(([, event]) => event.id), [one.sessionId, two.sessionId]);
+  } finally {
+    await bridge.close();
+    host.dispose();
+  }
 });

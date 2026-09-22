@@ -752,6 +752,40 @@ test("a pane is reachable only from its own bot and closes on request", async ()
   assert.throws(() => f.host.close(f.event, main.id), /Only bot terminals/);
 });
 
+test("attaching a pane ignores restart and preserves its command, label and output", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  const pane = await f.host.openForBot("bot-1", { label: "worker", command: "worker-cli" });
+  f.children[0].data("working");
+  for (const exitCode of [null, 0]) {
+    if (exitCode !== null) f.children[0].exit({ exitCode });
+    const attached = await f.host.open(f.event, { ...f.input, sessionId: pane.sessionId, restart: true });
+    assert.equal(attached.id, pane.sessionId);
+    assert.equal(attached.label, "worker");
+    assert.equal(attached.output, "working");
+    assert.equal(attached.exitCode, exitCode);
+    assert.equal(f.children.length, 1);
+    assert.equal(f.children[0].killed, false);
+    assert.deepEqual(f.children[0].writes, ["worker-cli\r"]);
+  }
+});
+
+test("closing a pane emits one removal and ignores subsequent output and exit", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  const pane = await f.host.openForBot("bot-1", { label: "worker" });
+  f.children[0].data("working");
+  await f.host.close(f.event, pane.sessionId);
+  const before = f.events.length;
+  f.children[0].data("late");
+  f.children[0].exit({ exitCode: 0 });
+  assert.equal(f.events.length, before);
+  assert.deepEqual(f.events.filter(([channel]) => channel === "terminal:closed"), [["terminal:closed", { id: pane.sessionId, botId: "bot-1" }]]);
+  assert.deepEqual(f.host.readBot("bot-1").panes, []);
+});
+
 test("closeForBot retires a bot pane, frees its slot and refuses main or foreign panes", async () => {
   let owner;
   const f = fixture({ owner: () => owner });
