@@ -46,7 +46,7 @@ describe("remote access", () => {
     expect(remoteKeyMatches(key, key)).toBe(true);
     const setCookie = buildRemoteSetCookie(key);
     expect(setCookie).toContain(`orbit_remote=${key}`);
-    for (const attr of ["Path=/", "HttpOnly", "Secure", "SameSite=Lax"]) {
+    for (const attr of ["Path=/", "Max-Age=2592000", "HttpOnly", "Secure", "SameSite=Lax"]) {
       expect(setCookie).toContain(attr);
     }
     expect(remoteCookieAuthorized(`theme=dark; orbit_remote=${key}`, key)).toBe(true);

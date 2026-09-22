@@ -91,9 +91,11 @@ export function remoteCookieValue(cookieHeader: string | undefined): string | un
   return undefined;
 }
 
-/** Set-Cookie value minting remote access. */
+export const REMOTE_COOKIE_MAX_AGE_S = 30 * 24 * 60 * 60;
+
+/** Set-Cookie value minting remote access. Max-Age so it outlives the phone browser. */
 export function buildRemoteSetCookie(key: string): string {
-  return `${REMOTE_COOKIE}=${key}; Path=/; HttpOnly; Secure; SameSite=Lax`;
+  return `${REMOTE_COOKIE}=${key}; Path=/; Max-Age=${REMOTE_COOKIE_MAX_AGE_S}; HttpOnly; Secure; SameSite=Lax`;
 }
 
 /** True when the request carries the remote cookie with the current key. */
