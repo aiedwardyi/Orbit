@@ -97,6 +97,8 @@ import { ContextCompactionDivider, TaskRecoveryCard } from "./TaskRecoveryCard";
 const USER_COLLAPSE_CHARS = 600;
 const USER_COLLAPSE_LINES = 8;
 
+const NOTE_HEADER = /^\[pane ([0-9a-f]{1,8})\](?: \[([^\]]+)\])?/;
+
 /** "Today" / "Yesterday" / "Mon, Aug 11" — real dates, not a hardcoded label. */
 function dayLabel(at: number, t: (key: import("@/lib/i18n").MessageKey) => string, locale: import("@/lib/i18n").LocaleId): string {
   const d = new Date(at);
@@ -734,6 +736,32 @@ function ScreenFrame({ png, mime }: { png: string; mime?: string }) {
   );
 }
 
+function NoteMessage({ message }: { message: Message }) {
+  const [open, setOpen] = useState(false);
+  const text = message.text ?? "";
+  const match = NOTE_HEADER.exec(text);
+  const label = match ? (match[2] ?? `pane ${match[1]}`) : null;
+  return (
+    <div className="flex w-full flex-col items-start gap-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex items-center gap-1 rounded-lg border border-hairline/30 bg-inset/25 px-3 py-1.5 text-[12.5px] text-ink-secondary hover:text-ink"
+      >
+        <ChevronRight size={12} className={cn("transition-transform", open && "rotate-90")} />
+        {label ? `Note from ${label}` : "Note"}
+      </button>
+      {open && (
+        // pane text is untrusted; plain text only, never markdown
+        <div data-orbit-note className="w-full max-w-2xl whitespace-pre-wrap break-words rounded-lg border border-hairline/30 bg-inset/25 px-3 py-2 text-[12.5px] leading-relaxed text-ink-secondary">
+          {text}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Keep the live reply in its transcript slot when the canonical message arrives.
 const MessagesList = memo(function MessagesList({
   bot,
@@ -876,12 +904,7 @@ const MessagesList = memo(function MessagesList({
             case "screen":
               return m.png ? <ScreenFrame png={m.png} mime={m.mime} /> : null;
             case "note":
-              // pane text is untrusted; plain text only, never markdown
-              return (
-                <div data-orbit-note className="w-full max-w-2xl whitespace-pre-wrap break-words rounded-lg border border-hairline/30 bg-inset/25 px-3 py-2 text-[12.5px] leading-relaxed text-ink-secondary">
-                  {m.text}
-                </div>
-              );
+              return <NoteMessage message={m} />;
             default:
               return (
                 <Bubble

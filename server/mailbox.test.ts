@@ -140,6 +140,12 @@ describe("mailbox note text", () => {
   it("strips C1 and bidi controls from the source name and tags the bot id", () => {
     expect(mailboxNoteText(PANE, "Luna\u202e\u2066ssorc\x9b31m\u200f", "w1", "hi")).toBe("[pane 0f3c9a1e] from Luna ssorc 31m (w1): hi");
   });
+
+  it("embeds a known pane label as its own tag, closing stray brackets so parsing stays intact", () => {
+    expect(mailboxNoteText(PANE, "worker", "w1", "done", "OPUS | MED")).toBe("[pane 0f3c9a1e] [OPUS | MED] from worker (w1): done");
+    expect(mailboxNoteText(PANE, "worker", "w1", "done", "weird]label")).toBe("[pane 0f3c9a1e] [weird)label] from worker (w1): done");
+    expect(mailboxNoteText(PANE, "worker", "w1", "done", null)).toBe("[pane 0f3c9a1e] from worker (w1): done");
+  });
 });
 
 describe("mailbox secret", () => {
