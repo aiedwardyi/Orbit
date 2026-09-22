@@ -190,7 +190,7 @@ import { providerReloadErrorActivity, stallErrorActivity } from "./room-error-at
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import { foldContinuationStart } from "./continuation-turn.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
-import { raisePaneAttention, terminalSnapshotResponse } from "./terminal-snapshot.ts";
+import { paneLabel, raisePaneAttention, terminalSnapshotResponse } from "./terminal-snapshot.ts";
 import { mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
 import {
   ensureWorkspace,
@@ -5645,7 +5645,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const source = store.bot(scope.bot);
       if (!source) return json(res, 404, { error: "no such bot" });
       const teacher = store.bot(resolveMailboxTeacher(store.bots, scope.bot)) ?? source;
-      const note = mailboxNoteText(scope.pane, source.name || source.id, source.id, parsed.data.text);
+      const label = await paneLabel(terminalBridgeAccess, scope.bot, scope.pane);
+      const note = mailboxNoteText(scope.pane, source.name || source.id, source.id, parsed.data.text, label);
       if (!note) return json(res, 400, { error: "empty message" });
       const message = store.appendMessage(teacher.threadId, { role: "bot", kind: "note", text: note });
       void raisePaneAttention(terminalBridgeAccess, scope.bot, scope.pane);

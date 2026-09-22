@@ -120,7 +120,7 @@ export function resolveMailboxTeacher(bots: readonly MailboxRosterBot[], botId: 
 }
 
 /** Pane text is untrusted: strip escapes and controls, cap it, tag it. Null when nothing is left. */
-export function mailboxNoteText(pane: string, from: string, botId: string, text: string): string | null {
+export function mailboxNoteText(pane: string, from: string, botId: string, text: string, label?: string | null): string | null {
   const clean = text
     .replace(/\r\n?/g, "\n")
     // oxlint-disable-next-line no-control-regex -- terminal output carries ANSI escapes
@@ -130,5 +130,7 @@ export function mailboxNoteText(pane: string, from: string, botId: string, text:
   if (!clean) return null;
   const capped = clean.length > MAILBOX_NOTE_MAX_CHARS ? `${clean.slice(0, MAILBOX_NOTE_MAX_CHARS)}\n[truncated]` : clean;
   const who = sanitizeMailboxName(from);
-  return `[pane ${pane.slice(0, 8)}] from ${who} (${botId}): ${capped}`;
+  const pane8 = `[pane ${pane.slice(0, 8)}]`;
+  const tag = label ? `${pane8} [${sanitizeMailboxName(label).replace(/\]/g, ")")}]` : pane8;
+  return `${tag} from ${who} (${botId}): ${capped}`;
 }

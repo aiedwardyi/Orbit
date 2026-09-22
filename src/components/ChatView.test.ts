@@ -146,6 +146,38 @@ describe("ChatView reply settle", () => {
   });
 });
 
+describe("ChatView note collapse", () => {
+  it("collapses a note to its header and expands the full text on click", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const labeled: Message = { id: "note-1", at: 1, role: "bot", kind: "note", text: "[pane 0f3c9a1e] [OPUS | MED] from worker (w1): tests pass" };
+    const unlabeled: Message = { id: "note-2", at: 2, role: "bot", kind: "note", text: "[pane 0f3c9a1e] from worker (w1): still running" };
+    const current = { ...botA, messages: [userMsg("ua", "go"), labeled, unlabeled] } as Bot;
+    try {
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot: current }))));
+      const buttons = Array.from(host.querySelectorAll("button")).filter((b) => b.textContent?.startsWith("Note from"));
+      expect(buttons.map((b) => b.textContent)).toEqual(["Note from OPUS | MED", "Note from pane 0f3c9a1e"]);
+      expect(host.querySelector("[data-orbit-note]")).toBeNull();
+      await act(async () => { buttons[0]!.click(); });
+      expect(host.querySelector("[data-orbit-note]")?.textContent).toBe("[pane 0f3c9a1e] [OPUS | MED] from worker (w1): tests pass");
+      await act(async () => { buttons[0]!.click(); });
+      expect(host.querySelector("[data-orbit-note]")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});
+
 describe("ChatView bot switch while busy", () => {
   it("lands pinned with no stale presence row and no second shift", async () => {
     vi.stubGlobal("EventSource", FakeEventSource);

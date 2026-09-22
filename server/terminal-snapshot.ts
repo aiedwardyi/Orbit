@@ -27,6 +27,27 @@ export async function terminalSnapshotResponse(
   return { status: 200, body };
 }
 
+/** A pane's terminal label, if the desktop bridge knows one. */
+export async function paneLabel(
+  access: TerminalBridgeAccess | null,
+  botId: string,
+  paneId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string | null> {
+  if (!access) return null;
+  try {
+    const res = await fetchImpl(`${access.url}/v1/bots/${encodeURIComponent(botId)}/terminal`, {
+      headers: { authorization: `Bearer ${terminalReadGrant(access.token, botId)}` },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => ({}))) as { panes?: Array<{ sessionId?: string; label?: string | null }> };
+    return body.panes?.find((pane) => pane.sessionId === paneId)?.label ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function raisePaneAttention(
   access: TerminalBridgeAccess | null,
   botId: string,
