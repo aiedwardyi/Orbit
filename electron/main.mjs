@@ -311,7 +311,6 @@ ipcMain.handle("terminal:cancel-open", (event, botId) => terminalHost.cancelOpen
 ipcMain.handle("terminal:write", (event, id, data) => terminalHost.write(event, id, data));
 ipcMain.handle("terminal:acknowledge", (event, id) => terminalHost.acknowledge(event, id));
 ipcMain.handle("terminal:resize", (event, id, cols, rows) => terminalHost.resize(event, id, cols, rows));
-ipcMain.handle("terminal:set-label", (event, id, label) => terminalHost.setLabel(event, id, label));
 ipcMain.handle("terminal:close", (event, id) => terminalHost.close(event, id));
 ipcMain.handle("terminal:read-bot", (event, botId) => {
   const origin = app.isPackaged ? `http://127.0.0.1:${SERVER_PORT}` : new URL(DEV_URL).origin;

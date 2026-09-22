@@ -23,7 +23,6 @@ contextBridge.exposeInMainWorld("ogb", {
     readBot: (botId) => ipcRenderer.invoke("terminal:read-bot", botId),
     sendBot: (botId, input) => ipcRenderer.invoke("terminal:send-bot", botId, input),
     openBot: (botId, input) => ipcRenderer.invoke("terminal:open-bot", botId, input),
-    setLabel: (id, label) => ipcRenderer.invoke("terminal:set-label", id, label),
     close: (id) => ipcRenderer.invoke("terminal:close", id),
     onData: (cb) => {
       const handler = (_event, value) => cb(value);
