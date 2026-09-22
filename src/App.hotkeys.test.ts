@@ -105,3 +105,26 @@ describe("terminal attention routing", () => {
     expect(app).toContain("if (targeted.size === 0) pendingTerminalAcknowledgements.current.delete(bot.id)");
   });
 });
+
+describe("terminal pane shortcuts", () => {
+  const handler = () =>
+    app.slice(app.indexOf("const onKey = (e: KeyboardEvent)"), app.indexOf("window.addEventListener(\"keydown\", onKey)"));
+
+  it("routes Alt+digit to the Nth pane while the terminal is open and swallows it", () => {
+    const pane = handler().slice(handler().indexOf("if (n !== null && e.altKey && terminalOpen)"), handler().indexOf('data-sidebar-row-kind'));
+    expect(pane).toContain("e.preventDefault()");
+    expect(pane).toContain("e.stopPropagation()");
+    expect(pane).toContain("setPaneHotkey({ n })");
+    expect(pane).toContain("return;");
+    expect(app).toContain("paneHotkey={paneHotkey}");
+    expect(app).toContain("terminalOpen, dispatch]);");
+  });
+
+  it("keeps Alt+digit on bots with the terminal closed and Ctrl+digit on bots everywhere", () => {
+    const h = handler();
+    expect(h.indexOf("e.altKey && terminalOpen")).toBeLessThan(h.indexOf('type: "select"'));
+    expect(h).not.toMatch(/e\.ctrlKey && terminalOpen/);
+    expect(h).toContain("e.ctrlKey && !e.metaKey && !e.altKey");
+    expect(h).toContain('type: "select", id');
+  });
+});

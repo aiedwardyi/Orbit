@@ -1270,3 +1270,38 @@ it("opens Ctrl+clicked http(s) links via openExternal and ignores other schemes"
   expect(addon.dispose).toHaveBeenCalled();
 });
 
+
+it("shares tab width, hides the strip scrollbar, and switches panes on the Alt+digit hotkey", async () => {
+  const open = vi.fn(async (input: { sessionId?: string }) => ({ id: input.sessionId ?? "session-main", cwd: "C:\\work", shell: "pwsh.exe", output: "", seq: 0, exitCode: null }));
+  const scrollIntoView = vi.fn();
+  Element.prototype.scrollIntoView = scrollIntoView;
+  const panes = ["worker-one-with-a-long-label", "worker-two-with-a-long-label"].map((label, index) => ({ sessionId: `pane-${index + 1}`, generation: 1, label, cwd: "C:\\work", main: false, exited: false }));
+  const readBot = vi.fn(async () => ({ botId: "bot-1", seq: 0, capturedAt: 0, exitCode: null, exited: false, screenText: "", recentText: "", truncated: false, panes }));
+  const bot = mountBridge({ appearance: vi.fn(async () => null), open, readBot, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() });
+  const props = { bot, visible: true, focusBlocked: false, onClose: vi.fn() };
+  await act(async () => root.render(createElement(TerminalWorkspace, props)));
+  await act(async () => { await Promise.resolve(); });
+
+  const tablist = host.querySelector<HTMLElement>('[role="tablist"]');
+  expect(tablist?.className).toContain("overflow-x-auto");
+  expect(tablist?.className).toContain("[scrollbar-width:none]");
+  expect(tablist?.className).toContain("[&::-webkit-scrollbar]:hidden");
+  const tabs = [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+  expect(tabs).toHaveLength(3);
+  for (const tab of tabs) {
+    expect(tab.parentElement?.className).toMatch(/\bflex-1\b/);
+    expect(tab.parentElement?.className).toContain("basis-0");
+    expect(tab.parentElement?.className).toContain("min-w-[56px]");
+    expect(tab.parentElement?.className).not.toMatch(/\bshrink-0\b/);
+  }
+  expect(tabs.map((tab) => tab.title)).toEqual(["Terminal (Alt+1)", "worker-one-with-a-long-label (Alt+2)", "worker-two-with-a-long-label (Alt+3)"]);
+
+  await act(async () => root.render(createElement(TerminalWorkspace, { ...props, paneHotkey: { n: 3 } })));
+  expect(tabs[2].getAttribute("aria-selected")).toBe("true");
+  expect(scrollIntoView).toHaveBeenCalledWith({ inline: "nearest", block: "nearest" });
+  await act(async () => root.render(createElement(TerminalWorkspace, { ...props, paneHotkey: { n: 9 } })));
+  expect(tabs[2].getAttribute("aria-selected")).toBe("true");
+  await act(async () => root.render(createElement(TerminalWorkspace, { ...props, paneHotkey: { n: 1 } })));
+  expect(tabs[0].getAttribute("aria-selected")).toBe("true");
+  Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+});
