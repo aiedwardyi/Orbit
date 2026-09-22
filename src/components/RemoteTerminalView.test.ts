@@ -134,6 +134,69 @@ describe("RemoteTerminalView", () => {
     await act(async () => root.unmount());
   });
 
+  it("ignores a previous pane's response after switching tabs", async () => {
+    const panes = [
+      { sessionId: "main", main: true },
+      { sessionId: "worker", main: false },
+    ];
+    let resolve!: (value: { screenText: string; panes: typeof panes }) => void;
+    const pending = new Promise<{ screenText: string; panes: typeof panes }>((done) => { resolve = done; });
+    store.api.mockResolvedValueOnce({ screenText: "main", panes }).mockReturnValueOnce(pending)
+      .mockResolvedValue({ screenText: "worker", panes });
+    const { host, root } = await renderView();
+    try {
+      await act(async () => click(button(host, "Refresh")));
+      await act(async () => click(host.querySelectorAll('[role="tab"]')[1]!));
+      expect(host.querySelector("pre")?.textContent).toBe("worker");
+      await act(async () => resolve({ screenText: "stale main", panes }));
+      expect(host.querySelector("pre")?.textContent).toBe("worker");
+      expect(host.querySelectorAll('[role="tab"]')[1]?.getAttribute("aria-selected")).toBe("true");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("ignores a closed pane's late error after selecting another pane", async () => {
+    const panes = [
+      { sessionId: "main", main: true },
+      { sessionId: "one", main: false },
+      { sessionId: "two", main: false },
+    ];
+    let reject!: (error: Error) => void;
+    const pending = new Promise<never>((_resolve, fail) => { reject = fail; });
+    store.api.mockImplementation(async (path: string) => {
+      if (path.includes("sessionId=one")) return pending;
+      return { screenText: path.includes("sessionId=two") ? "two" : "main", panes };
+    });
+    const { host, root } = await renderView();
+    try {
+      await act(async () => click(host.querySelectorAll('[role="tab"]')[1]!));
+      await act(async () => click(host.querySelectorAll('[role="tab"]')[2]!));
+      expect(host.querySelector("pre")?.textContent).toBe("two");
+      await act(async () => reject(new Error("Unknown terminal")));
+      expect(host.querySelector("pre")?.textContent).toBe("two");
+      expect(host.querySelectorAll('[role="tab"]')[2]?.getAttribute("aria-selected")).toBe("true");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("renders a slow poll while the next refresh is still pending", async () => {
+    vi.useFakeTimers();
+    let resolve!: (value: { screenText: string }) => void;
+    const pending = new Promise<{ screenText: string }>((done) => { resolve = done; });
+    store.api.mockReturnValueOnce(pending).mockReturnValue(new Promise(() => {}));
+    const { host, root } = await renderView();
+    try {
+      await act(async () => vi.advanceTimersByTime(3_000));
+      expect(store.api).toHaveBeenCalledTimes(2);
+      await act(async () => resolve({ screenText: "slow response" }));
+      expect(host.querySelector("pre")?.textContent).toBe("slow response");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
   it("dims an exited pane's tab", async () => {
     store.api.mockResolvedValue({
       screenText: "$ ls",

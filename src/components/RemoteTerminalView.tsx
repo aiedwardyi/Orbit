@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy, RotateCcw, TerminalSquare, X } from "lucide-react";
 import type { Bot } from "@/state/store";
 import { api } from "@/state/store";
@@ -50,13 +50,21 @@ export function RemoteTerminalView({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [selectedPane, setSelectedPane] = useState<string | null>(null);
+  const requestRef = useRef(0);
+  const appliedRequestRef = useRef(0);
 
   const refresh = useCallback(async () => {
+    const request = ++requestRef.current;
     try {
       const qs = selectedPane ? `?sessionId=${encodeURIComponent(selectedPane)}` : "";
-      setSnapshot(await api(`/api/bots/${encodeURIComponent(bot.id)}/terminal${qs}`));
+      const next = await api(`/api/bots/${encodeURIComponent(bot.id)}/terminal${qs}`);
+      if (request < appliedRequestRef.current) return;
+      appliedRequestRef.current = request;
+      setSnapshot(next);
       setError(null);
     } catch (cause) {
+      if (request < appliedRequestRef.current) return;
+      appliedRequestRef.current = request;
       const message = cause instanceof Error ? cause.message : String(cause);
       if (selectedPane && /unknown terminal/i.test(message)) {
         setSelectedPane(null);
@@ -70,7 +78,10 @@ export function RemoteTerminalView({
     if (!visible) return;
     void refresh();
     const timer = window.setInterval(() => void refresh(), REFRESH_MS);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      appliedRequestRef.current = ++requestRef.current;
+    };
   }, [visible, refresh]);
 
   useEffect(() => {
