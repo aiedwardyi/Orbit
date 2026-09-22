@@ -3056,13 +3056,14 @@ bus.subscribe((event: RuntimeEvent) => {
 });
 
 // A pane note wakes its teacher with a control-plane turn: cardContinuation
-// keeps it from reading as the user's words or ending the unattended window.
+// keeps it from reading as the user's words; unattended because the turn was
+// started by worker output nobody vetted, so auto mode must not grant for it.
 const paneWake = new PaneWakeScheduler({
   enabled: (botId) => store.bot(botId)?.shareTerminalWithChat === true,
   busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
   hasNotes: (threadId) => paneNotesSinceLastUserTurn(store.activePath(threadId), new Set()).length > 0,
   wake: (botId, threadId) => {
-    startTurn(botId, PANE_WAKE_PROMPT, { threadId, cardContinuation: true }).then(() => undefined).catch((err) => {
+    startTurn(botId, PANE_WAKE_PROMPT, { threadId, cardContinuation: true, unattended: true }).then(() => undefined).catch((err) => {
       if (isBusyRejection(err)) paneWake.noteArrived(botId, threadId);
       else console.warn("pane wake failed:", err instanceof Error ? err.message : String(err));
     });
@@ -7829,6 +7830,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // thread instead, so they outlive the bot record unless dropped by owner
       discardDelegationsFrom(commsBus, bot.id);
       computerControl.forget(bot.id);
+      paneWake.forgetBot(bot.id);
       const target = perBotLocalVmTarget(bot.id);
       localVmIdles.get(target.key)?.cancel();
       localVmIdles.delete(target.key);

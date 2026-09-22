@@ -39,6 +39,15 @@ export class PaneWakeScheduler {
     for (const [key, entry] of this.pending) this.arm(key, entry);
   }
 
+  forgetBot(botId: string): void {
+    for (const [key, entry] of this.pending) {
+      if (entry.botId !== botId) continue;
+      if (entry.timer) clearTimeout(entry.timer);
+      this.pending.delete(key);
+    }
+    this.wakes.delete(botId);
+  }
+
   private arm(key: string, entry: Pending): void {
     if (entry.timer) return;
     entry.timer = setTimeout(() => this.fire(key, entry), PANE_WAKE_DEBOUNCE_MS);

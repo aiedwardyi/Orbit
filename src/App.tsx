@@ -196,7 +196,8 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
           : e.code === "Digit8" || e.code === "Numpad8" ? 8
           : e.code === "Digit9" || e.code === "Numpad9" ? 9
           : null;
-        if (n !== null && e.altKey && terminalOpen) {
+        // only the desktop workspace has panes to pick; remote keeps bot switching
+        if (n !== null && e.altKey && terminalOpen && window.ogb?.terminal) {
           e.preventDefault();
           e.stopPropagation();
           setPaneHotkey({ n });

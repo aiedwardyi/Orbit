@@ -90,4 +90,21 @@ describe("PaneWakeScheduler", () => {
     await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
     expect(wake).toHaveBeenCalledTimes(PANE_WAKE_HOURLY_CAP + 1);
   });
+
+  it("forgetBot drops a pending wake and the hourly tally", async () => {
+    const { wake, warn, scheduler } = harness();
+    for (let i = 0; i < PANE_WAKE_HOURLY_CAP; i++) {
+      scheduler.noteArrived("teacher", "t1");
+      await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    }
+    scheduler.noteArrived("teacher", "t1");
+    scheduler.forgetBot("teacher");
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(wake).toHaveBeenCalledTimes(PANE_WAKE_HOURLY_CAP);
+
+    scheduler.noteArrived("teacher", "t1");
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(wake).toHaveBeenCalledTimes(PANE_WAKE_HOURLY_CAP + 1);
+    expect(warn).not.toHaveBeenCalled();
+  });
 });
