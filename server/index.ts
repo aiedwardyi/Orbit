@@ -192,6 +192,7 @@ import { foldContinuationStart } from "./continuation-turn.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
 import { paneLabel, raisePaneAttention, terminalSnapshotResponse } from "./terminal-snapshot.ts";
 import { mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
+import { PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
 import {
   ensureWorkspace,
   listMemoryTopics,
@@ -3051,6 +3052,22 @@ bus.subscribe((event: RuntimeEvent) => {
 bus.subscribe((event: RuntimeEvent) => {
   if (event.type !== "turn.completed") return;
   drainQueuedSends();
+  paneWake.settled();
+});
+
+// A pane note wakes its teacher with a control-plane turn: cardContinuation
+// keeps it from reading as the user's words or ending the unattended window.
+const paneWake = new PaneWakeScheduler({
+  enabled: (botId) => store.bot(botId)?.shareTerminalWithChat === true,
+  busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
+  hasNotes: (threadId) => paneNotesSinceLastUserTurn(store.activePath(threadId), new Set()).length > 0,
+  wake: (botId, threadId) => {
+    startTurn(botId, PANE_WAKE_PROMPT, { threadId, cardContinuation: true }).then(() => undefined).catch((err) => {
+      if (isBusyRejection(err)) paneWake.noteArrived(botId, threadId);
+      else console.warn("pane wake failed:", err instanceof Error ? err.message : String(err));
+    });
+  },
+  warn: (line) => console.warn(line),
 });
 
 function drainQueuedSends() {
@@ -5633,8 +5650,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (origin && !isAllowedOrigin(origin) && !originAllowedByRemote(origin, REMOTE_HOST)) {
       return json(res, 403, { error: "forbidden: cross-origin request" });
     }
-    // Terminal panes hold a per-pane grant, never the comms token. A note
-    // only: it must not start a turn.
+    // Terminal panes hold a per-pane grant, never the comms token. The note
+    // itself never starts a turn; paneWake may, once the teacher is idle.
     if (method === "POST" && path === "/api/mailbox") {
       const scope = mailboxScope(req.headers, MAILBOX_SECRET);
       if (!scope.ok) return json(res, 401, { error: scope.error });
@@ -5650,6 +5667,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!note) return json(res, 400, { error: "empty message" });
       const message = store.appendMessage(teacher.threadId, { role: "bot", kind: "note", text: note });
       void raisePaneAttention(terminalBridgeAccess, scope.bot, scope.pane);
+      paneWake.noteArrived(teacher.id, teacher.threadId);
       return json(res, 200, { ok: true, id: message.id });
     }
     if (path.startsWith("/api/") && !(method === "GET" && path === "/api/health") &&
