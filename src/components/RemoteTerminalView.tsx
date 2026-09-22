@@ -4,6 +4,14 @@ import type { Bot } from "@/state/store";
 import { api } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
 
+type RemoteTerminalPane = {
+  sessionId: string;
+  label?: string | null;
+  cwd?: string;
+  main: boolean;
+  exited?: boolean;
+};
+
 type RemoteTerminalSnapshot = {
   screenText?: string;
   recentText?: string;
@@ -13,12 +21,19 @@ type RemoteTerminalSnapshot = {
   cwd?: string;
   exited?: boolean;
   exitCode?: number | null;
+  label?: string | null;
+  panes?: RemoteTerminalPane[];
 };
 
 const REFRESH_MS = 3_000;
 
 export function snapshotText(snapshot: RemoteTerminalSnapshot): string {
   return [snapshot.screenText, snapshot.recentText].filter(Boolean).join("\n\n");
+}
+
+function folderName(cwd: string): string {
+  const trimmed = cwd.replace(/[\\/]+$/, "");
+  return trimmed.split(/[\\/]/).pop() || cwd;
 }
 
 export function RemoteTerminalView({
@@ -34,15 +49,22 @@ export function RemoteTerminalView({
   const [snapshot, setSnapshot] = useState<RemoteTerminalSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [selectedPane, setSelectedPane] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      setSnapshot(await api(`/api/bots/${encodeURIComponent(bot.id)}/terminal`));
+      const qs = selectedPane ? `?sessionId=${encodeURIComponent(selectedPane)}` : "";
+      setSnapshot(await api(`/api/bots/${encodeURIComponent(bot.id)}/terminal${qs}`));
       setError(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const message = cause instanceof Error ? cause.message : String(cause);
+      if (selectedPane && /unknown terminal/i.test(message)) {
+        setSelectedPane(null);
+        return;
+      }
+      setError(message);
     }
-  }, [bot.id]);
+  }, [bot.id, selectedPane]);
 
   useEffect(() => {
     if (!visible) return;
@@ -69,6 +91,9 @@ export function RemoteTerminalView({
   };
   const buttonClass =
     "flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-md px-3 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text disabled:opacity-50";
+  const panes = snapshot?.panes ?? [];
+  const activePaneId = selectedPane ?? panes.find((pane) => pane.main)?.sessionId;
+  const paneLabel = (pane: RemoteTerminalPane) => pane.label ?? (pane.main ? t("terminal.main") : pane.cwd ? folderName(pane.cwd) : pane.sessionId);
 
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-inset text-ink" aria-label={t("terminal.title")}>
@@ -79,6 +104,25 @@ export function RemoteTerminalView({
           <p className="truncate font-mono text-[11px] text-ink-secondary">
             {[snapshot?.cwd, noTerminal ? t("terminal.noSession") : snapshot?.exited ? t("terminal.exited", { code: snapshot.exitCode ?? "?" }) : ""].filter(Boolean).join(" · ")}
           </p>
+          {panes.length > 1 && (
+            <div role="tablist" className="mt-1 flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {panes.map((pane) => (
+                <button
+                  key={pane.sessionId}
+                  type="button"
+                  role="tab"
+                  aria-selected={activePaneId === pane.sessionId}
+                  onClick={() => setSelectedPane(pane.main ? null : pane.sessionId)}
+                  title={paneLabel(pane)}
+                  className={`min-w-[56px] max-w-[160px] shrink-0 truncate rounded-md border px-1.5 py-0.5 font-mono text-[11px] ${
+                    activePaneId === pane.sessionId ? "border-accent-text text-ink" : "border-hairline text-ink-secondary hover:text-ink"
+                  } ${pane.exited ? "opacity-50" : ""}`}
+                >
+                  {paneLabel(pane)}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <button type="button" onClick={() => void refresh()} aria-label={t("terminal.refresh")} className={buttonClass}>
           <RotateCcw size={16} /> <span className="max-sm:sr-only">{t("terminal.refresh")}</span>

@@ -47,7 +47,7 @@ describe("deleted bot pane cleanup", () => {
 describe("terminal snapshot relay", () => {
   it("answers 503 when the desktop bridge is absent", async () => {
     const fetchImpl = (async () => { throw new Error("must not fetch"); }) as typeof fetch;
-    await expect(terminalSnapshotResponse(null, "bot-1", fetchImpl)).resolves.toEqual({
+    await expect(terminalSnapshotResponse(null, "bot-1", undefined, fetchImpl)).resolves.toEqual({
       status: 503,
       body: { error: "terminal bridge unavailable" },
     });
@@ -69,7 +69,7 @@ describe("terminal snapshot relay", () => {
         modes: [1],
       }), { status: 200, headers: { "content-type": "application/json" } });
     }) as typeof fetch;
-    await expect(terminalSnapshotResponse(ACCESS, "bot-1", fetchImpl)).resolves.toEqual({
+    await expect(terminalSnapshotResponse(ACCESS, "bot-1", undefined, fetchImpl)).resolves.toEqual({
       status: 200,
       body: { screenText: "$ ls", recentText: "done", sessionId: "s1", generation: 2, cwd: "C:\work", exited: false },
     });
@@ -80,21 +80,65 @@ describe("terminal snapshot relay", () => {
 
   it("passes the no-terminal state through", async () => {
     const fetchImpl = (async () => new Response(JSON.stringify({ botId: "bot-1", state: "no-terminal", screenText: "", recentText: "" }))) as typeof fetch;
-    await expect(terminalSnapshotResponse(ACCESS, "bot-1", fetchImpl)).resolves.toMatchObject({ status: 200, body: { state: "no-terminal" } });
+    await expect(terminalSnapshotResponse(ACCESS, "bot-1", undefined, fetchImpl)).resolves.toMatchObject({ status: 200, body: { state: "no-terminal" } });
+  });
+
+  it("passes sessionId through as a query param and relays panes and label", async () => {
+    const calls: Array<{ url: string }> = [];
+    const fetchImpl = (async (url: string | URL | Request) => {
+      calls.push({ url: String(url) });
+      return new Response(JSON.stringify({
+        botId: "bot-1",
+        sessionId: "worker",
+        label: "build",
+        cwd: "C:\work",
+        exited: false,
+        screenText: "$ build",
+        recentText: "",
+        panes: [
+          { sessionId: "main", generation: 1, label: null, cwd: "C:\work", main: true, exited: false },
+          { sessionId: "worker", generation: 1, label: "build", cwd: "C:\work\worker", main: false, exited: false },
+        ],
+      }));
+    }) as typeof fetch;
+    await expect(terminalSnapshotResponse(ACCESS, "bot-1", "worker", fetchImpl)).resolves.toMatchObject({
+      status: 200,
+      body: {
+        label: "build",
+        panes: [
+          { sessionId: "main", generation: 1, label: null, cwd: "C:\work", main: true, exited: false },
+          { sessionId: "worker", generation: 1, label: "build", cwd: "C:\work\worker", main: false, exited: false },
+        ],
+      },
+    });
+    expect(calls).toEqual([{ url: "http://127.0.0.1:52150/v1/bots/bot-1/terminal?sessionId=worker" }]);
+  });
+
+  it("answers a clean 404 for an unknown or closed pane instead of a 502", async () => {
+    const notFound = (async () => new Response(JSON.stringify({ error: "Unknown terminal route" }), { status: 404 })) as typeof fetch;
+    await expect(terminalSnapshotResponse(ACCESS, "bot-1", "gone", notFound)).resolves.toEqual({
+      status: 404,
+      body: { error: "Unknown terminal" },
+    });
+    const unknownPane = (async () => new Response(JSON.stringify({ error: "Unknown terminal" }), { status: 409 })) as typeof fetch;
+    await expect(terminalSnapshotResponse(ACCESS, "bot-1", "gone", unknownPane)).resolves.toEqual({
+      status: 404,
+      body: { error: "Unknown terminal" },
+    });
   });
 
   it("maps bridge failures to 502", async () => {
     const failing = (async () => new Response("{}", { status: 401 })) as typeof fetch;
-    await expect(terminalSnapshotResponse(ACCESS, "bot-1", failing)).resolves.toMatchObject({ status: 502 });
+    await expect(terminalSnapshotResponse(ACCESS, "bot-1", undefined, failing)).resolves.toMatchObject({ status: 502 });
     const down = (async () => { throw new TypeError("fetch failed"); }) as typeof fetch;
-    await expect(terminalSnapshotResponse(ACCESS, "bot-1", down)).resolves.toMatchObject({ status: 502 });
+    await expect(terminalSnapshotResponse(ACCESS, "bot-1", undefined, down)).resolves.toMatchObject({ status: 502 });
   });
 
   it("routes GET /api/bots/:id/terminal through the bot lookup and normal /api auth", () => {
     const route = server.slice(server.indexOf("/terminal$/);"), server.indexOf("/terminal$/);") + 400);
     expect(route).toContain('method === "GET"');
     expect(route).toContain('json(res, 404, { error: "no such bot" })');
-    expect(route).toContain("terminalSnapshotResponse(terminalBridgeAccess, bot.id)");
+    expect(route).toContain("terminalSnapshotResponse(terminalBridgeAccess, bot.id, url.searchParams.get(\"sessionId\"))");
     expect(remoteAccess).not.toMatch(/BEARER_ONLY_PATHS = new Set\([^)]*\/terminal"/);
   });
 });

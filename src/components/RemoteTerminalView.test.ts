@@ -89,6 +89,85 @@ describe("RemoteTerminalView", () => {
     await act(async () => root.unmount());
   });
 
+  it("renders a tab strip with labels for each pane", async () => {
+    store.api.mockResolvedValue({
+      screenText: "$ ls",
+      cwd: "C:\\main",
+      panes: [
+        { sessionId: "main", label: null, cwd: "C:\\main", main: true, exited: false },
+        { sessionId: "worker", label: null, cwd: "C:\\work\\build", main: false, exited: false },
+      ],
+    });
+    const { host, root } = await renderView();
+    const tabs = host.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+    expect(tabs).toHaveLength(2);
+    expect(tabs[0].textContent).toBe("Main");
+    expect(tabs[1].textContent).toBe("build");
+    await act(async () => root.unmount());
+  });
+
+  it("does not render a tab strip with only a main pane", async () => {
+    store.api.mockResolvedValue({
+      screenText: "$ ls",
+      panes: [{ sessionId: "main", label: null, main: true, exited: false }],
+    });
+    const { host, root } = await renderView();
+    expect(host.querySelectorAll('[role="tab"]')).toHaveLength(0);
+    await act(async () => root.unmount());
+  });
+
+  it("switches the fetched URL and rendered text when a tab is selected", async () => {
+    const panes = [
+      { sessionId: "main", label: null, main: true, exited: false },
+      { sessionId: "worker", label: "build", main: false, exited: false },
+    ];
+    store.api.mockImplementation(async (path: string) => ({
+      screenText: path.includes("sessionId=worker") ? "$ npm run build" : "$ ls",
+      panes,
+    }));
+    const { host, root } = await renderView();
+    expect(host.querySelector("pre")?.textContent).toBe("$ ls");
+    const worker = host.querySelectorAll<HTMLButtonElement>('[role="tab"]')[1];
+    await act(async () => click(worker));
+    expect(store.api).toHaveBeenLastCalledWith("/api/bots/bot-1/terminal?sessionId=worker");
+    expect(host.querySelector("pre")?.textContent).toBe("$ npm run build");
+    await act(async () => root.unmount());
+  });
+
+  it("dims an exited pane's tab", async () => {
+    store.api.mockResolvedValue({
+      screenText: "$ ls",
+      panes: [
+        { sessionId: "main", label: null, main: true, exited: false },
+        { sessionId: "worker", label: "build", main: false, exited: true },
+      ],
+    });
+    const { host, root } = await renderView();
+    const tabs = host.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+    expect(tabs[0].className).not.toContain("opacity-50");
+    expect(tabs[1].className).toContain("opacity-50");
+    await act(async () => root.unmount());
+  });
+
+  it("falls back to the main pane when the selected pane closes", async () => {
+    store.api.mockImplementation(async (path: string) => {
+      if (path.includes("sessionId=worker")) throw new Error("Unknown terminal");
+      return {
+        screenText: "$ ls",
+        panes: [
+          { sessionId: "main", label: null, main: true, exited: false },
+          { sessionId: "worker", label: "build", main: false, exited: false },
+        ],
+      };
+    });
+    const { host, root } = await renderView();
+    const worker = host.querySelectorAll<HTMLButtonElement>('[role="tab"]')[1];
+    await act(async () => click(worker));
+    await act(async () => {});
+    expect(store.api).toHaveBeenLastCalledWith("/api/bots/bot-1/terminal");
+    await act(async () => root.unmount());
+  });
+
   it("joins only the parts that have text", () => {
     expect(snapshotText({ screenText: "a" })).toBe("a");
     expect(snapshotText({ recentText: "b" })).toBe("b");
