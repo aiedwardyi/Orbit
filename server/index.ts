@@ -3062,14 +3062,15 @@ bus.subscribe((event: RuntimeEvent) => {
 const deliveredPaneNotes = new Map<string, string>();
 
 // A pane note wakes its teacher with a control-plane turn: cardContinuation
-// keeps it from reading as the user's words; unattended because the turn was
-// started by worker output nobody vetted, so auto mode must not grant for it.
+// keeps it from reading as the user's words. Not unattended: the wake only
+// fires for a bot whose owner turned on share-terminal, and its auto mode is
+// the whole point of acting on worker reports; destructive/sensitive still card.
 const paneWake = new PaneWakeScheduler({
   enabled: (botId) => store.bot(botId)?.shareTerminalWithChat === true,
   busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
   hasNotes: (threadId) => paneNotesSinceLastUserTurn(store.activePath(threadId), new Set(), deliveredPaneNotes.get(threadId)).length > 0,
   wake: (botId, threadId) => {
-    startTurn(botId, PANE_WAKE_PROMPT, { threadId, cardContinuation: true, unattended: true }).then(() => undefined).catch((err) => {
+    startTurn(botId, PANE_WAKE_PROMPT, { threadId, cardContinuation: true }).then(() => undefined).catch((err) => {
       if (isBusyRejection(err)) paneWake.noteArrived(botId, threadId);
       else console.warn("pane wake failed:", err instanceof Error ? err.message : String(err));
     });

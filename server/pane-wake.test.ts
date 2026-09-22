@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PANE_WAKE_DEBOUNCE_MS, PANE_WAKE_HOURLY_CAP, PaneWakeScheduler } from "./pane-wake.ts";
@@ -118,5 +121,14 @@ describe("PaneWakeScheduler", () => {
     await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
     expect(wake).toHaveBeenCalledTimes(PANE_WAKE_HOURLY_CAP + 1);
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("pane wake wiring", () => {
+  it("starts an attended card turn so auto mode can act on worker reports", () => {
+    const index = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8");
+    const call = index.slice(index.indexOf("startTurn(botId, PANE_WAKE_PROMPT,"), index.indexOf(".then(", index.indexOf("startTurn(botId, PANE_WAKE_PROMPT,")));
+    expect(call).toContain("cardContinuation: true");
+    expect(call).not.toContain("unattended");
   });
 });
