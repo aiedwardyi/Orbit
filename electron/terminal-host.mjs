@@ -622,6 +622,14 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       reportAttention(session, "activity");
       return true;
     },
+    closeForBot(botId, sessionId) {
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Bot ids cross the local proxy boundary.
+      if (typeof botId !== "string" || !BOT_ID_RE.test(botId)) throw new Error("Invalid bot");
+      const session = botSessions(botId).find((candidate) => candidate.id === sessionId);
+      if (!session) throw new Error("Unknown terminal");
+      if (!session.botPane) throw new Error("Only bot terminals can be closed");
+      return retire(session, true);
+    },
     async openForBot(botId, input = {}) {
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Bot ids cross the local proxy boundary.
       if (typeof botId !== "string" || !BOT_ID_RE.test(botId)) throw new Error("Invalid bot");

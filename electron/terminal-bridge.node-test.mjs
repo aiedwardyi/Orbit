@@ -144,3 +144,23 @@ test("raises pane attention for the granted bot only", async () => {
   assert.deepEqual(calls, [["bot-1", "p1"]]);
   await bridge.close();
 });
+
+test("closes a pane for the granted bot only", async () => {
+  const calls = [];
+  const bridge = createTerminalBridge({
+    token: "bridge-secret",
+    host: { readBot: () => ({}), sendBot: () => ({}), closeForBot: async (botId, sessionId) => { calls.push([botId, sessionId]); } },
+  });
+  const connection = await bridge.start();
+  const close = (botId) => fetch(`${connection.url}/v1/bots/${botId}/terminal/close`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${terminalReadGrant(connection.token, "bot-1")}`, "content-type": "application/json" },
+    body: JSON.stringify({ sessionId: "p1" }),
+  });
+  const response = await close("bot-1");
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { closed: true });
+  assert.equal((await close("bot-2")).status, 401);
+  assert.deepEqual(calls, [["bot-1", "p1"]]);
+  await bridge.close();
+});

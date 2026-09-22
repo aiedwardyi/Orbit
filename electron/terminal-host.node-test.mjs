@@ -753,6 +753,24 @@ test("a pane is reachable only from its own bot and closes on request", async ()
   assert.throws(() => f.host.close(f.event, main.id), /Only bot terminals/);
 });
 
+test("closeForBot retires a bot pane, frees its slot and refuses main or foreign panes", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  const main = await f.host.open(f.event, f.input);
+  const panes = [];
+  for (let i = 0; i < 8; i += 1) panes.push(await f.host.openForBot("bot-1", { label: `w${i}` }));
+  await assert.rejects(f.host.openForBot("bot-1", { label: "w8" }), /Too many bot terminals/);
+  const other = await f.host.openForBot("bot-2", { label: "other" });
+  assert.throws(() => f.host.closeForBot("bot-1", other.sessionId), /Unknown terminal/);
+  assert.throws(() => f.host.closeForBot("bot-1", main.id), /Only bot terminals/);
+  await f.host.closeForBot("bot-1", panes[0].sessionId);
+  assert.deepEqual(f.events.find(([channel, value]) => channel === "terminal:closed" && value.id === panes[0].sessionId), ["terminal:closed", { id: panes[0].sessionId, botId: "bot-1" }]);
+  assert.equal(f.children[1].killed, true);
+  assert.throws(() => f.host.closeForBot("bot-1", panes[0].sessionId), /Unknown terminal/);
+  await f.host.openForBot("bot-1", { label: "w8" });
+});
+
 test("openForBot reserves pane slots before resolving the folder", async () => {
   let owner;
   let release;

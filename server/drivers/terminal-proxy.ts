@@ -56,6 +56,18 @@ export const TOOLS = [
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   },
+  {
+    name: "terminal_close",
+    description:
+      "Close one of this bot's own spawned Orbit terminal panes and kill the shell in it. Never closes the main terminal. Pass the pane's sessionId from terminal_read or terminal_spawn.",
+    inputSchema: {
+      type: "object",
+      properties: { sessionId: { type: "string", description: "Pane session id from terminal_read or terminal_spawn." } },
+      required: ["sessionId"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+  },
 ] as const;
 
 type TerminalConfig = { host?: string; token?: string; botId?: string };
@@ -104,14 +116,14 @@ export function terminalSnapshotText(snapshot: Snapshot): string {
   return lines.join("\n");
 }
 
-async function terminalRequest<T = Snapshot>(fetchImpl: typeof fetch, config: TerminalConfig, route: { send?: SendInput; spawn?: SpawnInput; sessionId?: string } = {}): Promise<T> {
+async function terminalRequest<T = Snapshot>(fetchImpl: typeof fetch, config: TerminalConfig, route: { send?: SendInput; spawn?: SpawnInput; close?: { sessionId: string }; sessionId?: string } = {}): Promise<T> {
   const host = config.host ?? HOST;
   const token = config.token ?? TOKEN;
   const botId = config.botId ?? BOT_ID;
   if (!host || !token || !botId) throw new Error("the shared terminal is not enabled for this bot");
   const url = `${host}/v1/bots/${encodeURIComponent(botId)}/terminal`;
   const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
-  const post = route.send ? { path: "send", body: route.send } : route.spawn ? { path: "open", body: route.spawn } : null;
+  const post = route.send ? { path: "send", body: route.send } : route.spawn ? { path: "open", body: route.spawn } : route.close ? { path: "close", body: route.close } : null;
   const response = post
     ? await fetchImpl(`${url}/${post.path}`, {
       method: "POST",
@@ -148,6 +160,14 @@ export function spawnTerminalPane(args: Record<string, unknown>, fetchImpl: type
 }
 
 // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Tool arguments are untyped JSON-RPC input validated here.
+export function closeTerminalPane(args: Record<string, unknown>, fetchImpl: typeof fetch = fetch, config: TerminalConfig = {}): Promise<{ closed: boolean }> {
+  const { sessionId } = args;
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Tool arguments are untyped model input.
+  if (typeof sessionId !== "string" || !sessionId) return Promise.reject(new Error("terminal_close needs a sessionId from terminal_read or terminal_spawn"));
+  return terminalRequest(fetchImpl, config, { close: { sessionId } });
+}
+
+// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Tool arguments are untyped JSON-RPC input validated here.
 export function sendTerminalText(args: Record<string, unknown>, fetchImpl: typeof fetch = fetch, config: TerminalConfig = {}): Promise<Snapshot> {
   const { text, sessionId, generation } = args;
   // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Tool arguments are untyped model input.
@@ -171,6 +191,10 @@ export async function callTool(
     if (name === "terminal_spawn") {
       const pane = await spawnTerminalPane(args, fetchImpl, config);
       return { content: [{ type: "text", text: `Opened pane "${String(args.label).trim()}": sessionId ${pane.sessionId} (generation ${pane.generation}). Use terminal_read and terminal_send with this sessionId.` }] };
+    }
+    if (name === "terminal_close") {
+      await closeTerminalPane(args, fetchImpl, config);
+      return { content: [{ type: "text", text: `Closed pane ${String(args.sessionId)}` }] };
     }
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Tool arguments are untyped model input.
     const sessionId = typeof args.sessionId === "string" && args.sessionId ? args.sessionId : undefined;

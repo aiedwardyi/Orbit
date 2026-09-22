@@ -7,8 +7,8 @@ describe("terminal proxy", () => {
     expect(() => terminalReadGrant("bridge-secret", "bot/2")).toThrow(/grant/);
   });
 
-  it("exposes a read-only read tool and destructive send and spawn tools, all bot-scoped", () => {
-    expect(TOOLS.map((tool) => tool.name)).toEqual(["terminal_read", "terminal_send", "terminal_spawn"]);
+  it("exposes a read-only read tool and destructive send, spawn and close tools, all bot-scoped", () => {
+    expect(TOOLS.map((tool) => tool.name)).toEqual(["terminal_read", "terminal_send", "terminal_spawn", "terminal_close"]);
     expect(TOOLS[0]).toMatchObject({ annotations: { readOnlyHint: true, destructiveHint: false } });
     expect(Object.keys(TOOLS[0].inputSchema.properties)).toEqual(["sessionId"]);
     expect(TOOLS[1]).toMatchObject({ annotations: { readOnlyHint: false, destructiveHint: true }, inputSchema: { required: ["text", "sessionId", "generation"] } });
@@ -17,6 +17,7 @@ describe("terminal proxy", () => {
     expect(TOOLS[1].description).toContain("Ctrl+C is refused");
     expect(TOOLS[2]).toMatchObject({ annotations: { readOnlyHint: false, destructiveHint: true }, inputSchema: { required: ["label"], additionalProperties: false } });
     expect(Object.keys(TOOLS[2].inputSchema.properties)).toEqual(["label", "cwd", "command"]);
+    expect(TOOLS[3]).toMatchObject({ annotations: { readOnlyHint: false, destructiveHint: true }, inputSchema: { required: ["sessionId"], additionalProperties: false } });
   });
 
   it("maps terminal_spawn args to a POST on the bot's open route", async () => {
@@ -34,6 +35,24 @@ describe("terminal proxy", () => {
   it("rejects terminal_spawn without a label before fetching", async () => {
     const fetchImpl = vi.fn();
     const result = await callTool("terminal_spawn", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { command: "ls" });
+    expect(result.isError).toBe(true);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("maps terminal_close to a POST on the bot's close route", async () => {
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({ closed: true }), { status: 200 }));
+    const result = await callTool("terminal_close", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { sessionId: "p1" });
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0].text).toBe("Closed pane p1");
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe("http://127.0.0.1:1/v1/bots/bot-1/terminal/close");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({ sessionId: "p1" });
+  });
+
+  it("rejects terminal_close without a sessionId before fetching", async () => {
+    const fetchImpl = vi.fn();
+    const result = await callTool("terminal_close", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, {});
     expect(result.isError).toBe(true);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
