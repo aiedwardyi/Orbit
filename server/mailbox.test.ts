@@ -1,5 +1,5 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -345,7 +345,7 @@ describe("POST /api/mailbox", () => {
     mkdirSync(join(home, "bin"), { recursive: true });
     writeFileSync(join(home, "bin", "orbit-msg.cmd"), "@echo stale");
     const bin = (await installOrbitMsg(join(home, "bin")))!;
-    expect(existsSync(join(bin, "orbit-msg.cmd"))).toBe(false);
+    expect(readFileSync(join(bin, "orbit-msg.cmd"), "utf8")).toContain("orbit-msg.ps1");
     const paneEnv = terminalPaneEnv({ SystemRoot: process.env.SystemRoot, PATH: process.env.PATH }, {
       pane: PANE, bot: "worker", teacher: "teacher", mailbox: { url: base, token: MAILBOX_KEY, binDir: bin },
     });
