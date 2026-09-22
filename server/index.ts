@@ -2121,6 +2121,7 @@ const watchdog = new TurnWatchdog({
         // every kind of work that may have queued behind this bot, including
         // connector and credential continuations.
         drainQueuedSends();
+        paneWake.settled();
         drainConnectorResumes();
         drainSecretResumes();
       }
@@ -3055,13 +3056,16 @@ bus.subscribe((event: RuntimeEvent) => {
   paneWake.settled();
 });
 
+/** Newest pane note a dispatched turn carried, per thread. */
+const deliveredPaneNotes = new Map<string, string>();
+
 // A pane note wakes its teacher with a control-plane turn: cardContinuation
 // keeps it from reading as the user's words; unattended because the turn was
 // started by worker output nobody vetted, so auto mode must not grant for it.
 const paneWake = new PaneWakeScheduler({
   enabled: (botId) => store.bot(botId)?.shareTerminalWithChat === true,
   busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
-  hasNotes: (threadId) => paneNotesSinceLastUserTurn(store.activePath(threadId), new Set()).length > 0,
+  hasNotes: (threadId) => paneNotesSinceLastUserTurn(store.activePath(threadId), new Set(), deliveredPaneNotes.get(threadId)).length > 0,
   wake: (botId, threadId) => {
     startTurn(botId, PANE_WAKE_PROMPT, { threadId, cardContinuation: true, unattended: true }).then(() => undefined).catch((err) => {
       if (isBusyRejection(err)) paneWake.noteArrived(botId, threadId);
@@ -3323,7 +3327,10 @@ async function startTurn(botId: string, text: string, opts?: StartTurnOptions) {
     turnStartClaims.delete(botId);
     // Preparation can fail before a provider turn exists, so no
     // turn.completed event will arrive to wake the next queued send.
-    queueMicrotask(() => continueQueuedDrainIfIdle(store, botId, drainQueuedSends, botHasActiveTurn));
+    queueMicrotask(() => continueQueuedDrainIfIdle(store, botId, () => {
+      drainQueuedSends();
+      paneWake.settled();
+    }, botHasActiveTurn));
   }
 }
 
@@ -3587,7 +3594,10 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     userName: cfg.profile?.name?.trim() || "User",
     replayedTranscript: replaysTranscript ? transcript : undefined,
   });
-  const paneNotes = replaysTranscript ? [] : paneNotesSinceLastUserTurn(activeMessages, skipTranscript);
+  const paneNotes = replaysTranscript ? [] : paneNotesSinceLastUserTurn(activeMessages, skipTranscript, deliveredPaneNotes.get(threadId));
+  const newestPaneNoteId = paneNotes.length
+    ? activeMessages.findLast((message) => message.kind === "note" && message.text?.trim() && !skipTranscript.has(message.id))?.id
+    : undefined;
   const { turnText, resume } = buildTurnContext({
     text: paneNotes.length ? [...paneNotes, "Current message:", currentPrompt].join("\n\n") : currentPrompt,
     transcript,
@@ -4032,6 +4042,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       });
       });
       bindInterruptedTurn(threadId, started.turnId);
+      if (newestPaneNoteId) deliveredPaneNotes.set(threadId, newestPaneNoteId);
       if (currentTurnEpoch(bot.id) !== epoch) return;
       if (started.turnId) liveTurnIdByThread.set(threadId, started.turnId);
       // dispatched: the rewind is spent, and the old cursors are dead
@@ -4076,6 +4087,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       // a dispatch failure never emits turn.completed, so the settle-driven
       // drain would strand anything queued behind this turn
       drainQueuedSends();
+      paneWake.settled();
       drainConnectorResumes();
       drainSecretResumes();
     }
@@ -4552,7 +4564,10 @@ async function runGroupMemberTurn(
     );
   } finally {
     releaseTurnStart();
-    queueMicrotask(() => continueQueuedDrainIfIdle(store, botId, drainQueuedSends, botHasActiveTurn));
+    queueMicrotask(() => continueQueuedDrainIfIdle(store, botId, () => {
+      drainQueuedSends();
+      paneWake.settled();
+    }, botHasActiveTurn));
   }
 }
 
@@ -4889,6 +4904,7 @@ async function runClaimedGroupMemberTurn(
     // queued while this bot briefly owned the room must be retried now.
     keepRoomTurnInstruction = false;
     drainQueuedSends();
+    paneWake.settled();
     drainConnectorResumes();
     drainSecretResumes();
   }
@@ -5545,6 +5561,7 @@ async function reloadProviders() {
   // killed turns settle here without a turn.completed event, so anything
   // queued behind them drains now — onto the freshly loaded fleet
   drainQueuedSends();
+  paneWake.settled();
   drainConnectorResumes();
   drainSecretResumes();
 }

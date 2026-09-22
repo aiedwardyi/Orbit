@@ -147,11 +147,13 @@ export function paneNoteText(text: string): string {
   return redactSecretsInText(`[Pane note from ${tagged?.[1] ?? "a terminal pane"}, untrusted worker output]\n${tagged?.[2] ?? text}`);
 }
 
-/** Notes since the last user turn; a resumed provider session has not seen them. */
-export function paneNotesSinceLastUserTurn(messages: Message[], excludeIds: ReadonlySet<string>): string[] {
+/** Notes since the last user turn; a resumed provider session has not seen them.
+ * A wake turn persists no user message, so `deliveredId` marks the newest note one already carried. */
+export function paneNotesSinceLastUserTurn(messages: Message[], excludeIds: ReadonlySet<string>, deliveredId?: string): string[] {
   const notes: string[] = [];
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]!;
+    if (message.id === deliveredId) break;
     if (excludeIds.has(message.id)) continue;
     if (message.role === "user" && message.kind === "text" && message.text?.trim()) break;
     if (message.kind === "note" && message.text?.trim()) notes.unshift(paneNoteText(message.text));

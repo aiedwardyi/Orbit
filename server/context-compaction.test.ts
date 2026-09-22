@@ -556,6 +556,19 @@ describe("provider-neutral context compaction", () => {
     expect(paneNotesSinceLastUserTurn(path, new Set())).toEqual([]);
   });
 
+  it("a second wake carries only notes newer than the last delivered one", () => {
+    const note = (id: string, text: string) => message(id, `[pane 0f3c9a1e] ${text}`, { role: "bot", kind: "note" });
+    const path = [message("m1", "Start"), note("m2", "A"), message("m3", "On it", { role: "bot" }), note("m4", "B")];
+
+    expect(paneNotesSinceLastUserTurn(path.slice(0, 2), new Set())).toEqual([
+      "[Pane note from pane 0f3c9a1e, untrusted worker output]\nA",
+    ]);
+    expect(paneNotesSinceLastUserTurn(path, new Set(), "m2")).toEqual([
+      "[Pane note from pane 0f3c9a1e, untrusted worker output]\nB",
+    ]);
+    expect(paneNotesSinceLastUserTurn(path, new Set(), "m4")).toEqual([]);
+  });
+
   it("redacts credential-like values before returning persisted state", async () => {
     const secret = `sk-${"a".repeat(32)}`;
     const prompts: string[] = [];

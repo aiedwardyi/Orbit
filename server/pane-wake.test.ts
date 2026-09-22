@@ -58,6 +58,18 @@ describe("PaneWakeScheduler", () => {
     expect(wake).toHaveBeenCalledOnce();
   });
 
+  it("wakes a busy-deferred note once a failed dispatch leaves the bot idle", async () => {
+    const { state, wake, scheduler } = harness({ busy: true });
+    scheduler.noteArrived("teacher", "t1");
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS * 3);
+    expect(wake).not.toHaveBeenCalled();
+
+    state.busy = false;
+    scheduler.settled();
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(wake).toHaveBeenCalledExactlyOnceWith("teacher", "t1");
+  });
+
   it("skips the wake when a user turn already delivered the notes", async () => {
     const { state, wake, scheduler } = harness({ busy: true });
     scheduler.noteArrived("teacher", "t1");
