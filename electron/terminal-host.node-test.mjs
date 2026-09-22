@@ -744,8 +744,7 @@ test("a pane is reachable only from its own bot and closes on request", async ()
   const pane = await f.host.openForBot("bot-1", { label: "worker" });
   await assert.rejects(f.host.open(f.event, { botId: "bot-2", cols: 80, rows: 24, sessionId: pane.sessionId }), /Unknown terminal/);
   assert.throws(() => f.host.sendBot("bot-2", { sessionId: pane.sessionId, generation: 1, text: "x" }), /No active terminal/);
-  assert.equal(f.host.setLabel(f.event, pane.sessionId, "  renamed\x07 "), "renamed");
-  assert.equal(f.host.readBot("bot-1").label, "renamed");
+  assert.equal(f.host.readBot("bot-1").label, "worker");
   await f.host.close(f.event, pane.sessionId);
   assert.equal(f.children[0].killed, true);
   assert.equal(f.host.readBot("bot-1").state, "no-terminal");

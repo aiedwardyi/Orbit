@@ -682,11 +682,6 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       }
       return { sessionId: session.id, generation: session.generation };
     },
-    setLabel(event, id, label) {
-      const session = owned(event, id);
-      session.label = paneLabel(label);
-      return session.label ?? null;
-    },
     close(event, id) {
       const session = owned(event, id);
       if (!session.botPane) throw new Error("Only bot terminals can be closed");
