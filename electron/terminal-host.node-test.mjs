@@ -565,7 +565,7 @@ test("turns a synchronous EBADF write failure into an exited terminal", async ()
   const session = await host.open(event, { botId: "ebadf", cols: 80, rows: 24 });
   assert.throws(() => host.write(event, session.id, "x"), /EBADF/);
   assert.deepEqual(events.map(([channel, value]) => [channel, value.message ?? value.exitCode ?? value.reason]), [
-    ["terminal:attention", "error"], ["terminal:error", "EBADF"], ["terminal:exit", 1],
+    ["terminal:attention", "error"], ["terminal:error", "EBADF"], ["terminal:exit", 1], ["terminal:closed", undefined],
   ]);
   assert.equal(child.killed, true);
 });
@@ -582,7 +582,7 @@ test("turns an asynchronous PTY write failure into an exited terminal", async ()
   const session = await host.open(event, { botId: "async-ebadf", cols: 80, rows: 24 });
   await assert.rejects(host.write(event, session.id, "x"), /EBADF/);
   assert.deepEqual(events.map(([channel, value]) => [channel, value.message ?? value.exitCode ?? value.reason]), [
-    ["terminal:attention", "error"], ["terminal:error", "EBADF"], ["terminal:exit", 1],
+    ["terminal:attention", "error"], ["terminal:error", "EBADF"], ["terminal:exit", 1], ["terminal:closed", undefined],
   ]);
   assert.equal(child.killed, true);
 });
@@ -751,4 +751,46 @@ test("a pane is reachable only from its own bot and closes on request", async ()
   assert.equal(f.host.readBot("bot-1").state, "no-terminal");
   const main = await f.host.open(f.event, f.input);
   assert.throws(() => f.host.close(f.event, main.id), /Only bot terminals/);
+});
+
+test("openForBot reserves pane slots before resolving the folder", async () => {
+  let owner;
+  let release;
+  const held = new Promise((resolve) => { release = () => resolve(os.tmpdir()); });
+  const f = fixture({ owner: () => owner, resolveCwd: () => held });
+  owner = f.owner;
+  const one = Promise.allSettled(Array.from({ length: 24 }, (_, i) => f.host.openForBot("bot-1", { label: `w${i}` })));
+  const many = Promise.allSettled(["bot-2", "bot-3", "bot-4"].flatMap((botId) => Array.from({ length: 8 }, () => f.host.openForBot(botId, {}))));
+  release();
+  const perBot = await one;
+  assert.equal(perBot.filter((result) => result.status === "fulfilled").length, 8);
+  assert.ok(perBot.filter((result) => result.status === "rejected").every((result) => /Too many bot terminals/.test(result.reason.message)));
+  const global = await many;
+  assert.equal(global.filter((result) => result.status === "fulfilled").length, 8);
+  assert.ok(global.filter((result) => result.status === "rejected").every((result) => /Too many terminal sessions/.test(result.reason.message)));
+  assert.equal(f.children.length, 16);
+});
+
+test("openForBot submits a command with exactly one Enter", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  for (const command of ["echo ok", "echo ok\n", "echo ok\r\n", "echo ok\r"]) await f.host.openForBot("bot-1", { command });
+  assert.deepEqual(f.children.map((child) => child.writes), [["echo ok\r"], ["echo ok\r"], ["echo ok\r"], ["echo ok\r"]]);
+});
+
+test("exited panes do not hold global slots and reclaiming them emits terminal:closed", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  const exited = [];
+  for (let i = 0; i < 16; i += 1) {
+    exited.push((await f.host.openForBot("bot-1", {})).sessionId);
+    f.children[i].exit({ exitCode: 0 });
+  }
+  const next = await f.host.openForBot("bot-1", {});
+  assert.ok(next.sessionId);
+  const closed = f.events.filter(([channel]) => channel === "terminal:closed").map(([, value]) => value);
+  assert.deepEqual(closed, exited.map((id) => ({ id, botId: "bot-1" })));
+  await assert.rejects(f.host.open(f.event, { ...f.input, sessionId: exited[0] }), /Unknown terminal/);
 });

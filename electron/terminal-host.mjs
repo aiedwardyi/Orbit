@@ -16,6 +16,7 @@ export const TERMINAL_ACTIVITY_ACK_COOLDOWN_MS = 3_000;
 const INPUT_ECHO_LIMIT = 4_096;
 const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 const BOT_PANE_LIMIT = 8;
+const SESSION_LIMIT = 16;
 const LABEL_LIMIT = 40;
 
 const stringControl = new Set(["P", "^", "_", "X"]);
@@ -149,6 +150,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
   const active = new Map();
   const generations = new Map();
   const pending = new Map();
+  const paneReservations = new Map();
+  let reservedPanes = 0;
   let disposed = false;
   const dimensions = (cols, rows) => {
     if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || cols > 500 || rows < 1 || rows > 300) {
@@ -249,9 +252,11 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
   };
   const retire = async (session, forceKill = false) => {
     if (session.retired && session.stopPromise) return session.stopPromise;
+    const wasRetired = session.retired;
     session.retired = true;
     clearActivityTimer(session);
     if (active.get(session.key) === session.id) active.delete(session.key);
+    if (!wasRetired) emit(session, "terminal:closed", { id: session.id, botId: session.botId });
     session.stopPromise = (async () => {
       if (forceKill || session.exitCode === null) {
         try {
@@ -277,6 +282,16 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
   const retireQuietly = (session, forceKill = false) => {
     void retire(session, forceKill).catch(() => {});
   };
+  const reclaimExited = () => {
+    for (const [id, session] of sessions) {
+      if (session.exitCode !== null || session.owner.isDestroyed?.()) {
+        active.delete(session.key);
+        sessions.delete(id);
+        retireQuietly(session, true);
+      }
+    }
+  };
+  const liveSessions = () => [...active.values()].filter((id) => sessions.get(id)?.exitCode === null).length;
   const reportExit = (session, exitCode) => {
     if (session.retired) return;
     if (session.exitCode === null) session.exitCode = exitCode;
@@ -465,16 +480,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         }
         return snapshot(existing);
       }
-      if (!existing && active.size >= 16) {
-        for (const [id, session] of sessions) {
-          if (session.exitCode !== null || session.owner.isDestroyed?.()) {
-            active.delete(session.key);
-            sessions.delete(id);
-            retireQuietly(session, true);
-          }
-        }
-      }
-      if (!existing && active.size >= 16) throw new Error("Too many terminal sessions");
+      if (!existing && active.size + reservedPanes >= SESSION_LIMIT) reclaimExited();
+      if (!existing && active.size + reservedPanes >= SESSION_LIMIT) throw new Error("Too many terminal sessions");
       let cancelResolve;
       const cancelPromise = new Promise((resolve) => { cancelResolve = resolve; });
       const operation = { key, event, input, existing, restartInput: input.restart === true ? input : null, cancelled: false, cancelPromise, cancelResolve, promise: null };
@@ -619,27 +626,43 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       if (disposed) throw new Error("Terminal host is shutting down");
       const sender = paneOwner();
       if (!sender || sender.isDestroyed?.()) throw new Error("Orbit window is not available");
-      if (botSessions(botId).filter((session) => session.botPane && session.exitCode === null).length >= BOT_PANE_LIMIT) throw new Error(`Too many bot terminals (limit ${BOT_PANE_LIMIT})`);
-      if (active.size >= 16) throw new Error("Too many terminal sessions");
-      const folder = await resolveFolder({ botId, cwd: input.cwd });
-      if (folder.needsFolder) throw new Error("Terminal folder is unavailable");
-      const cwd = folder.cwd;
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Validate the API or requested folder before spawning.
-      if (typeof cwd !== "string" || !path.isAbsolute(cwd) || !(await fs.promises.stat(cwd).then((s) => s.isDirectory()).catch(() => false))) {
-        throw new Error("Terminal folder is unavailable");
+      // Reserved before the first await so concurrent opens cannot overshoot the caps.
+      const botReserved = paneReservations.get(botId) ?? 0;
+      if (botSessions(botId).filter((session) => session.botPane && session.exitCode === null).length + botReserved >= BOT_PANE_LIMIT) throw new Error(`Too many bot terminals (limit ${BOT_PANE_LIMIT})`);
+      if (active.size + reservedPanes >= SESSION_LIMIT) reclaimExited();
+      if (liveSessions() + reservedPanes >= SESSION_LIMIT) throw new Error("Too many terminal sessions");
+      paneReservations.set(botId, botReserved + 1);
+      reservedPanes += 1;
+      let session;
+      try {
+        const folder = await resolveFolder({ botId, cwd: input.cwd });
+        if (folder.needsFolder) throw new Error("Terminal folder is unavailable");
+        const cwd = folder.cwd;
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Validate the API or requested folder before spawning.
+        if (typeof cwd !== "string" || !path.isAbsolute(cwd) || !(await fs.promises.stat(cwd).then((s) => s.isDirectory()).catch(() => false))) {
+          throw new Error("Terminal folder is unavailable");
+        }
+        if (disposed) throw new Error("Terminal host is shutting down");
+        const key = `${sender.id}:${botId}:pane:${randomUUID()}`;
+        session = await start({ key, event: { sender }, input: { botId, cols: 120, rows: 30 }, folder, cwd, cancelPromise: new Promise(() => {}) });
+        if (disposed) {
+          await retire(session, true);
+          throw new Error("Terminal host is shutting down");
+        }
+        session.botPane = true;
+        session.label = label;
+        active.set(key, session.id);
+      } finally {
+        reservedPanes -= 1;
+        const left = paneReservations.get(botId) - 1;
+        if (left) paneReservations.set(botId, left);
+        else paneReservations.delete(botId);
       }
-      if (disposed) throw new Error("Terminal host is shutting down");
-      const key = `${sender.id}:${botId}:pane:${randomUUID()}`;
-      const session = await start({ key, event: { sender }, input: { botId, cols: 120, rows: 30 }, folder, cwd, cancelPromise: new Promise(() => {}) });
-      if (disposed) {
-        await retire(session, true);
-        throw new Error("Terminal host is shutting down");
-      }
-      session.botPane = true;
-      session.label = label;
-      active.set(key, session.id);
       emit(session, "terminal:opened", { id: session.id, botId, label: label ?? null, generation: session.generation });
-      if (input.command) await botWrite(session, `${input.command}\r`);
+      if (input.command) {
+        const command = normalizeTerminalText(input.command);
+        await botWrite(session, command.endsWith("\r") ? command : `${command}\r`);
+      }
       return { sessionId: session.id, generation: session.generation };
     },
     setLabel(event, id, label) {

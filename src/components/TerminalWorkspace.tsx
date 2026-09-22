@@ -142,9 +142,15 @@ export function TerminalWorkspace({
       if (event.botId !== bot.id) return;
       setPanes((list) => list.some((item) => item.id === event.id) ? list : [...list, { id: event.id, label: event.label }]);
     });
+    const offClosed = bridge.onClosed?.((event) => {
+      if (event.botId !== bot.id) return;
+      setPanes((list) => list.filter((item) => item.id !== event.id));
+      setPane((current) => current === event.id ? null : current);
+    });
     return () => {
       alive = false;
       offOpened?.();
+      offClosed?.();
     };
   }, [bot.id]);
 
