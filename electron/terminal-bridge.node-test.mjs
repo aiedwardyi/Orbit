@@ -188,6 +188,13 @@ test("deleted bot cleanup retires its spawned panes through the bridge", async (
     const one = await host.openForBot("bot-1", { label: "one" });
     const two = await host.openForBot("bot-1", { label: "two" });
     const foreign = await host.openForBot("bot-2", { label: "foreign" });
+    const unauthorized = await fetch(`${access.url}/v1/bots/bot-1/terminal`, { method: "DELETE" });
+    assert.equal(unauthorized.status, 401);
+    const crossBot = await fetch(`${access.url}/v1/bots/bot-1/terminal`, {
+      method: "DELETE", headers: { authorization: `Bearer ${terminalReadGrant(access.token, "bot-2")}` },
+    });
+    assert.equal(crossBot.status, 401);
+    await closeBotPanes(access, "bot-1");
     await closeBotPanes(access, "bot-1");
     assert.deepEqual(children.map((child) => child.killed), [false, true, true, false]);
     assert.deepEqual(host.readBot("bot-1").panes.map((pane) => pane.sessionId), [main.id]);
@@ -198,3 +205,48 @@ test("deleted bot cleanup retires its spawned panes through the bridge", async (
     host.dispose();
   }
 });
+
+for (const stage of ["folder", "ready"]) {
+  test(`deleted bot cleanup rejects a pane pending ${stage}`, async () => {
+    let release;
+    let entered;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const waiting = new Promise((resolve) => { entered = resolve; });
+    const children = [];
+    const events = [];
+    const owner = { id: 1, isDestroyed: () => false, send: (...args) => events.push(args) };
+    const host = createTerminalHost({
+      authorize: () => {}, owner: () => owner,
+      resolveCwd: async () => {
+        if (stage === "folder") { entered(); await gate; }
+        return os.tmpdir();
+      },
+      platform: "linux", env: { SHELL: "/bin/sh" },
+      loadPty: () => ({ spawn: () => {
+        const child = { killed: false, writes: [], ready: stage === "ready" ? gate : Promise.resolve(), onData() {}, onExit() {}, write(text) { this.writes.push(text); }, resize() {}, kill() { this.killed = true; } };
+        children.push(child);
+        if (stage === "ready") entered();
+        return child;
+      } }),
+    });
+    const bridge = createTerminalBridge({ host });
+    try {
+      const access = await bridge.start();
+      const opening = host.openForBot("bot-1", { label: "pending", command: "worker-cli" });
+      const rejected = assert.rejects(opening, /deleted/);
+      await waiting;
+      await closeBotPanes(access, "bot-1");
+      assert.equal(children.some((child) => child.killed), false);
+      release();
+      await rejected;
+      assert.deepEqual(host.readBot("bot-1").panes, []);
+      assert.ok(children.every((child) => child.killed && child.writes.length === 0));
+      assert.equal(events.some(([channel]) => channel === "terminal:opened"), false);
+      await assert.rejects(host.openForBot("bot-1"), /deleted/);
+    } finally {
+      release();
+      await bridge.close();
+      host.dispose();
+    }
+  });
+}

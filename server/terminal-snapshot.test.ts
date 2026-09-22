@@ -12,11 +12,11 @@ const server = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index
 const remoteAccess = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "remote-access.ts"), "utf8");
 
 describe("deleted bot pane cleanup", () => {
-  it("closes spawned panes with the deleted bot's grant and leaves the main pane alone", async () => {
-    const calls: Array<{ url: string; auth: string | null; body: unknown }> = [];
+  it("retires spawned panes with the deleted bot's grant", async () => {
+    const calls: Array<{ url: string; auth: string | null; method: string | undefined }> = [];
     const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
-      calls.push({ url: String(url), auth: new Headers(init?.headers).get("authorization"), body: init?.body ? JSON.parse(String(init.body)) : null });
-      return new Response(JSON.stringify({ panes: [{ sessionId: "main", main: true }, { sessionId: "worker", main: false }, { sessionId: "exited", main: false }] }));
+      calls.push({ url: String(url), auth: new Headers(init?.headers).get("authorization"), method: init?.method });
+      return new Response("{}");
     }) as typeof fetch;
     await closeBotPanes(null, "bot-1", fetchImpl);
     expect(calls).toEqual([]);
@@ -24,35 +24,18 @@ describe("deleted bot pane cleanup", () => {
     const url = `${ACCESS.url}/v1/bots/bot-1/terminal`;
     const auth = `Bearer ${terminalReadGrant(ACCESS.token, "bot-1")}`;
     expect(calls).toEqual([
-      { url, auth, body: null },
-      { url: `${url}/close`, auth, body: { sessionId: "worker" } },
-      { url: `${url}/close`, auth, body: { sessionId: "exited" } },
+      { url, auth, method: "DELETE" },
     ]);
   });
 
-  it("still closes the remaining panes when one close fails", async () => {
-    const closed: string[] = [];
-    const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
-      if (!init?.body) return new Response(JSON.stringify({ panes: [{ sessionId: "one", main: false }, { sessionId: "two", main: false }] }));
-      const { sessionId } = JSON.parse(String(init.body));
-      closed.push(sessionId);
-      if (sessionId === "one") throw new Error("bridge disconnected");
-      return new Response("{}");
-    }) as typeof fetch;
+  it("reports a disconnected bridge", async () => {
+    const fetchImpl = (async () => { throw new Error("bridge disconnected"); }) as typeof fetch;
     await expect(closeBotPanes(ACCESS, "bot-1", fetchImpl)).rejects.toThrow("bridge disconnected");
-    expect(closed).toEqual(["one", "two"]);
   });
 
-  it("reports bridge failure but accepts an already closed pane", async () => {
+  it("reports bridge failure", async () => {
     const down = (async () => new Response("{}", { status: 503 })) as typeof fetch;
     await expect(closeBotPanes(ACCESS, "bot-1", down)).rejects.toThrow("503");
-    for (const status of [409, 500]) {
-      const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => init?.body
-        ? new Response("{}", { status })
-        : new Response(JSON.stringify({ panes: [{ sessionId: "worker", main: false }] }))) as typeof fetch;
-      if (status === 409) await expect(closeBotPanes(ACCESS, "bot-1", fetchImpl)).resolves.toBeUndefined();
-      else await expect(closeBotPanes(ACCESS, "bot-1", fetchImpl)).rejects.toThrow("500");
-    }
   });
 
   it("runs cleanup for every persisted bot deletion", () => {

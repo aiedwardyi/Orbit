@@ -12,6 +12,7 @@
 
 const DESTRUCTIVE = [
   /\brm\s+(-[a-z]*\s+)*-[a-z]*[rf]/i, // rm -rf, rm -fr, rm -r -f
+  /\bRemove-Item\b[^\r\n|;&]*-(?:Recurse|Force)\b/i,
   /\bmkfs\b|\bdiskutil\s+erase|\bdd\s+[^|]*\bof=\/dev\//i,
   /:\(\)\s*\{.*\}\s*;?\s*:/, // fork bomb
   /\bgit\s+push\s+[^|]*--force(-with-lease)?\b|\bgit\s+reset\s+--hard\b/i,

@@ -73,6 +73,10 @@ export function createTerminalBridge({ host, token = randomBytes(24).toString("h
       try {
         const sessionId = parsed.searchParams.get("sessionId");
         if (req.method === "GET" && !match[2]) return json(res, 200, host.readBot(botId, sessionId ? { sessionId } : undefined));
+        if (req.method === "DELETE" && !match[2]) {
+          await host.closeBotPanes(botId);
+          return json(res, 200, { closed: true });
+        }
         if (req.method === "POST" && match[2] === "open") return json(res, 200, await host.openForBot(botId, await readJson(req)));
         if (req.method === "POST" && match[2] === "close") {
           await host.closeForBot(botId, (await readJson(req))?.sessionId);

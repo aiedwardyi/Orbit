@@ -11,6 +11,9 @@ describe("looksDestructive", () => {
   const dangerous = [
     "rm -rf /Users/milind/project",
     "rm -fr node_modules",
+    "Remove-Item -Recurse -Force C:\\work\\project",
+    "remove-item C:\\work\\project -recurse",
+    "Remove-Item -LiteralPath C:\\work\\project -Force",
     "sudo rm /etc/hosts",
     "dd if=/dev/zero of=/dev/disk2",
     "mkfs.ext4 /dev/sda1",
@@ -37,6 +40,7 @@ describe("looksDestructive", () => {
 
   const ordinary = [
     "rm build/output.js",
+    "Remove-Item build/output.js",
     "ls -la src",
     "git push origin feature/rooms",
     "npm install lucide-react",
@@ -199,6 +203,17 @@ describe("autoDecision", () => {
 
   it("still stops for a destructive command in auto mode", () => {
     expect(autoDecision({ autoApprove: true }, "Bash", "rm -rf /")).toBeNull();
+  });
+
+  it("cards recursive PowerShell deletion on attended pane wake turns", () => {
+    const summary = "Remove-Item -Recurse -Force C:\\work\\project";
+    for (const bot of [{ autoApprove: true }, { alwaysAllow: ["PowerShell:Remove-Item"] }]) {
+      expect(autoVerdict(bot, "PowerShell", summary)).toMatchObject({
+        approve: null,
+        source: "destructive-guard",
+      });
+    }
+    expect(autoDecision({ autoApprove: true }, "PowerShell", "Get-ChildItem C:\\work")).toBeTruthy();
   });
 
   it("cards a token= assignment that hides a sensitive path, which redaction would miss", () => {

@@ -151,6 +151,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
   const generations = new Map();
   const pending = new Map();
   const paneReservations = new Map();
+  const deletedBots = new Set();
   let reservedPanes = 0;
   let disposed = false;
   const dimensions = (cols, rows) => {
@@ -622,6 +623,12 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       reportAttention(session, "activity");
       return true;
     },
+    closeBotPanes(botId) {
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Bot ids cross the local proxy boundary.
+      if (typeof botId !== "string" || !BOT_ID_RE.test(botId)) throw new Error("Invalid bot");
+      deletedBots.add(botId);
+      return Promise.all(botSessions(botId).filter((session) => session.botPane).map((session) => retire(session, true)));
+    },
     closeForBot(botId, sessionId) {
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Bot ids cross the local proxy boundary.
       if (typeof botId !== "string" || !BOT_ID_RE.test(botId)) throw new Error("Invalid bot");
@@ -633,6 +640,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     async openForBot(botId, input = {}) {
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Bot ids cross the local proxy boundary.
       if (typeof botId !== "string" || !BOT_ID_RE.test(botId)) throw new Error("Invalid bot");
+      if (deletedBots.has(botId)) throw new Error("Terminal bot was deleted");
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Spawn requests cross the local proxy boundary.
       if (!input || typeof input !== "object") throw new Error("Invalid terminal open");
       const label = paneLabel(input.label);
@@ -660,11 +668,16 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
           throw new Error("Terminal folder is unavailable");
         }
         if (disposed) throw new Error("Terminal host is shutting down");
+        if (deletedBots.has(botId)) throw new Error("Terminal bot was deleted");
         const key = `${sender.id}:${botId}:pane:${randomUUID()}`;
         session = await start({ key, event: { sender }, input: { botId, cols: 120, rows: 30 }, folder, cwd, cancelPromise: new Promise(() => {}) });
         if (disposed) {
           await retire(session, true);
           throw new Error("Terminal host is shutting down");
+        }
+        if (deletedBots.has(botId)) {
+          await retire(session, true);
+          throw new Error("Terminal bot was deleted");
         }
         session.botPane = true;
         session.label = label;
