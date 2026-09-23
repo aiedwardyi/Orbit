@@ -725,6 +725,22 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await expect(instance.adapter.steer!("t-steer", "late")).resolves.toBe(false);
   });
 
+  it("holds the turn open for a steer that missed the final request", async () => {
+    await create("late-steer");
+    const { turnId } = await instance.adapter.sendTurn({ threadId: "t-late-steer", text: "first" });
+    await recorder.until((e) => e.type === "content.delta");
+    await expect(instance.adapter.steer!("t-late-steer", "and also this")).resolves.toBe(true);
+    const done = await recorder.until((e) => e.type === "turn.completed");
+    // settling on the first `result` would free the thread before the CLI
+    // answers the steer, and a queued send would race it for the thread
+    expect(recorder.events).toContainEqual(
+      expect.objectContaining({ type: "item.completed", itemType: "assistant_text", text: "reply to: and also this", turnId }),
+    );
+    expect(done).toMatchObject({ turnId, ok: true, cost: 0.02 });
+    expect(recorder.events.filter((e) => e.type === "turn.started")).toHaveLength(1);
+    expect(instance.adapter.hasSession("t-late-steer")).toBe(false);
+  });
+
   it("reuses the live process for the next compatible turn", async () => {
     await create();
     const dump = join(scratch, "dump.json");

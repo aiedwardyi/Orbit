@@ -587,6 +587,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         sawStreamDelta: boolean;
         /** opened by the CLI waking on its own after `result`; never retried */
         continuation?: boolean;
+        /** steers written since the CLI last sent a model request */
+        unsentSteers?: number;
+        /** cost of a `result` held open for those steers */
+        carriedCost?: number;
         timer: ReturnType<typeof startTurnTimer>;
       } | null;
       idleTimer: ReturnType<typeof setTimeout> | null;
@@ -1026,6 +1030,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               emit({ ...base(threadId, currentTurnId()), type: "session.started", sessionId: o.session_id, model: o.model });
             } else if (o.subtype === "thinking_tokens") {
               emit({ ...base(threadId, currentTurnId()), type: "item.updated", itemType: "reasoning", tokens: o.estimated_tokens });
+            } else if (o.subtype === "status" && o.status === "requesting" && session.turn) {
+              session.turn.unsentSteers = 0;
             }
             break;
           case "stream_event": {
@@ -1110,6 +1116,14 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             break;
           }
           case "result":
+            // A steer that missed the last request is answered as its own
+            // query right after this `result`. Settling here frees the thread
+            // under it, so a queued send races the CLI and lands out of order.
+            if (o.is_error !== true && session.turn?.unsentSteers) {
+              session.turn.unsentSteers = 0;
+              session.turn.carriedCost = (session.turn.carriedCost ?? 0) + (o.total_cost_usd ?? 0);
+              break;
+            }
             // result.usage is this invocation's total — one process per turn,
             // so it is the turn's figure. cache reads count as input: they
             // are billed (at the cache rate) and they fill the window — but
@@ -1118,7 +1132,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             settle(
               o.is_error !== true,
               o.stop_reason ?? o.terminal_reason ?? null,
-              o.total_cost_usd ?? null,
+              session.turn?.carriedCost ? session.turn.carriedCost + (o.total_cost_usd ?? 0) : (o.total_cost_usd ?? null),
               o.usage
                 ? {
                     input: (o.usage.input_tokens || 0) + (o.usage.cache_read_input_tokens || 0) + (o.usage.cache_creation_input_tokens || 0),
@@ -1330,7 +1344,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const s = sessions.get(threadId);
       // a continuation is the CLI's own work; the user's words queue behind it
       if (!s || !s.turn || s.turn.settled || s.turn.continuation || s.closing || s.child.exitCode !== null) return false;
-      return writeUser(s, threadId, text);
+      const turn = s.turn;
+      turn.unsentSteers = (turn.unsentSteers ?? 0) + 1;
+      const written = await writeUser(s, threadId, text);
+      if (!written && turn.unsentSteers) turn.unsentSteers -= 1;
+      return written;
     };
 
     const snapshot = async (): Promise<ProviderSnapshot> => {

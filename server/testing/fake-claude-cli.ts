@@ -11,6 +11,8 @@
 //                      | edit (a Write then a Bash, gated like the real CLI)
 //                      | bench-quiet (text only, no tool_use — latency floor)
 //                      | late-wake (wakes after `result` and asks for a Bash)
+//                      | late-steer (a steer that misses the final request is
+//                        answered as its own query after `result`)
 //   FAKE_CLAUDE_USER_ALLOW  tools the user's own settings.json allows, e.g.
 //                      "Write,Bash" — only `edit` reads it
 //   FAKE_CLAUDE_DUMP   path to write {argv, env, prompt, mcpConfig} as JSON,
@@ -332,11 +334,23 @@ const playTurn = (prompt: JsonValue) => {
     turnRunning = false;
     finishIfDone();
   };
-  if (mode === "slow") {
+  if (mode === "late-steer") {
+    // the final request is already out, so a steer landing now waits for
+    // its own query, the way the real CLI runs it after `result`
+    out({ type: "system", subtype: "status", status: "requesting" });
+    out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "reply" } } });
+    setTimeout(() => {
+      out({ type: "assistant", message: { content: [{ type: "text", text: `reply to: ${promptText(prompt)}` }] } });
+      const late = steered;
+      finish();
+      if (late.length) playTurn({ type: "user", message: { role: "user", content: late.join(" | ") } });
+    }, 800);
+  } else if (mode === "slow") {
     // a gap a test can steer into; the closing reply carries anything that
     // was folded in, the way the real CLI includes a mid-turn message in
     // the same turn's next model call
     setTimeout(() => {
+      out({ type: "system", subtype: "status", status: "requesting" });
       const tail = steered.length ? ` + steered: ${steered.join(" | ")}` : "";
       out({ type: "assistant", message: { content: [{ type: "text", text: `reply to: ${promptText(prompt)}${tail}` }] } });
       finish();
