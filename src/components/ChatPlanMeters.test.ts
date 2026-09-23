@@ -128,4 +128,39 @@ describe("ChatPlanMeters", () => {
       host.remove();
     }
   });
+
+  // Guards the phone remote view: same wiring ChatView uses
+  // (onOpenUsage -> dispatch toggleAppSettings/usage), exercised at a phone
+  // viewport width so a narrow layout regression would fail this test.
+  it("dispatches toggleAppSettings for usage when tapped at a phone viewport width", async () => {
+    applyLocale("en");
+    const previousWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    window.dispatchEvent(new Event("resize"));
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const dispatch = vi.fn();
+    const onOpenUsage = () => dispatch({ type: "toggleAppSettings", open: true, section: "usage" });
+    try {
+      await act(async () => {
+        root.render(createElement(ChatPlanMeters, {
+          windows: [{ id: "five_hour", usedPercent: 10, resetsAt: now + 115 * 60_000 }],
+          now,
+          onOpenUsage,
+        }));
+      });
+      const button = host.querySelector("button");
+      expect(button).not.toBeNull();
+      expect(button?.className).toContain("w-full");
+      await act(async () => button?.click());
+      expect(dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "usage" });
+    } finally {
+      root.unmount();
+      host.remove();
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: previousWidth });
+      window.dispatchEvent(new Event("resize"));
+    }
+  });
 });

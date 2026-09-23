@@ -815,6 +815,29 @@ describe("instance snapshot usage reports", () => {
 
     expect(next.instances[0]?.rateLimits).toBeUndefined();
   });
+
+  // Remote (phone-over-Tailscale) clients hydrate the same way a fresh tab
+  // does: a plain GET /api/instances with no preserveRateLimits flag. This
+  // proves that path keeps whatever rateLimits the server snapshot sent,
+  // which is what the chat strip needs to render and be tappable.
+  it("keeps rateLimits from a fresh /api/instances hydrate with no prior state", () => {
+    const report = {
+      observedAt: "2026-09-17T10:00:00.000Z",
+      windows: [{ id: "five_hour", usedPercent: 12, resetsAt: Date.parse("2026-09-17T15:00:00.000Z") }],
+    };
+    const grok = {
+      instanceId: "grok",
+      driverKind: "grokAgent",
+      displayName: "Grok",
+      snapshot: { state: "available" as const },
+      models: { default: "grok-4.6", options: [] },
+      rateLimits: report,
+    } satisfies InstanceInfo;
+
+    const next = reducer(initialState, { type: "instances", instances: [grok] });
+
+    expect(next.instances[0]?.rateLimits).toEqual(report);
+  });
 });
 
 describe("job-first bot creation", () => {
