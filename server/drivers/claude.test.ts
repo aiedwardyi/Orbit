@@ -736,9 +736,23 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(recorder.events).toContainEqual(
       expect.objectContaining({ type: "item.completed", itemType: "assistant_text", text: "reply to: and also this", turnId }),
     );
-    expect(done).toMatchObject({ turnId, ok: true, cost: 0.02 });
+    expect(done).toMatchObject({ turnId, ok: true, cost: 0.02, usage: { input: 24, output: 10, cachedInput: 4 } });
     expect(recorder.events.filter((e) => e.type === "turn.started")).toHaveLength(1);
     expect(instance.adapter.hasSession("t-late-steer")).toBe(false);
+  });
+
+  it("keeps a held result's cost when the follow-up is interrupted", async () => {
+    await create("late-steer");
+    const { turnId } = await instance.adapter.sendTurn({ threadId: "t-late-int", text: "first" });
+    await recorder.until((e) => e.type === "content.delta");
+    await expect(instance.adapter.steer!("t-late-int", "and also this")).resolves.toBe(true);
+    await recorder.until((e) => e.type === "item.completed" && e.itemType === "assistant_text" && e.text === "reply to: first");
+    // the next delta is the CLI answering the steer, after its first `result`
+    const seen = recorder.events.filter((e) => e.type === "content.delta").length;
+    await recorder.until(() => recorder.events.filter((e) => e.type === "content.delta").length > seen);
+    await instance.adapter.interruptTurn("t-late-int");
+    const done = await recorder.until((e) => e.type === "turn.completed");
+    expect(done).toMatchObject({ turnId, ok: false, stopReason: "exit_before_result", cost: 0.01, usage: { input: 12, output: 5, cachedInput: 2 } });
   });
 
   it("reuses the live process for the next compatible turn", async () => {

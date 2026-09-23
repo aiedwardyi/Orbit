@@ -462,6 +462,26 @@ function firstText(content: unknown): string {
   return "";
 }
 
+type TurnUsage = { input: number; output: number; cachedInput?: number };
+
+// cache reads count as input: billed (at the cache rate) and they fill the
+// window. Reported separately too, so the UI can show how much of the figure
+// was context re-read rather than new text.
+function claudeUsage(usage: any): TurnUsage | undefined {
+  if (!usage) return undefined;
+  return {
+    input: (usage.input_tokens || 0) + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0),
+    output: usage.output_tokens || 0,
+    ...(typeof usage.cache_read_input_tokens === "number" ? { cachedInput: usage.cache_read_input_tokens } : {}),
+  };
+}
+
+function addUsage(a: TurnUsage, b?: TurnUsage): TurnUsage {
+  if (!b) return a;
+  const cached = a.cachedInput !== undefined || b.cachedInput !== undefined ? { cachedInput: (a.cachedInput ?? 0) + (b.cachedInput ?? 0) } : {};
+  return { input: a.input + b.input, output: a.output + b.output, ...cached };
+}
+
 const SUMMARY_MAX = 120;
 
 function displayPath(path: string, cwd: string): string {
@@ -589,8 +609,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         continuation?: boolean;
         /** steers written since the CLI last sent a model request */
         unsentSteers?: number;
-        /** cost of a `result` held open for those steers */
-        carriedCost?: number;
+        /** accounting of a `result` held open for those steers */
+        carried?: { cost: number; usage?: TurnUsage };
         timer: ReturnType<typeof startTurnTimer>;
       } | null;
       idleTimer: ReturnType<typeof setTimeout> | null;
@@ -954,11 +974,17 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         ok: boolean,
         stopReason: string | null,
         cost: number | null = null,
-        usage?: { input: number; output: number; cachedInput?: number },
+        usage?: TurnUsage,
       ) => {
         const t = session.turn;
         if (!t || t.settled) return;
         t.settled = true;
+        // a held `result` already spent; keep it even when this turn ends
+        // without one (interrupt, exit)
+        if (t.carried) {
+          cost = t.carried.cost + (cost ?? 0);
+          usage = t.carried.usage ? addUsage(t.carried.usage, usage) : usage;
+        }
         // Resolve any ask still open for this turn, but keep the broker
         // listening for the next turn on the retained process. Between turns
         // isActive() rejects late background asks without creating cards.
@@ -1120,29 +1146,18 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             // query right after this `result`. Settling here frees the thread
             // under it, so a queued send races the CLI and lands out of order.
             if (o.is_error !== true && session.turn?.unsentSteers) {
-              session.turn.unsentSteers = 0;
-              session.turn.carriedCost = (session.turn.carriedCost ?? 0) + (o.total_cost_usd ?? 0);
+              const t = session.turn;
+              t.unsentSteers = 0;
+              const usage = claudeUsage(o.usage);
+              t.carried = {
+                cost: (t.carried?.cost ?? 0) + (o.total_cost_usd ?? 0),
+                usage: t.carried?.usage ? addUsage(t.carried.usage, usage) : usage,
+              };
               break;
             }
             // result.usage is this invocation's total — one process per turn,
-            // so it is the turn's figure. cache reads count as input: they
-            // are billed (at the cache rate) and they fill the window — but
-            // they are reported separately too, so the UI can show how much
-            // of the figure was context re-read rather than new text.
-            settle(
-              o.is_error !== true,
-              o.stop_reason ?? o.terminal_reason ?? null,
-              session.turn?.carriedCost ? session.turn.carriedCost + (o.total_cost_usd ?? 0) : (o.total_cost_usd ?? null),
-              o.usage
-                ? {
-                    input: (o.usage.input_tokens || 0) + (o.usage.cache_read_input_tokens || 0) + (o.usage.cache_creation_input_tokens || 0),
-                    output: o.usage.output_tokens || 0,
-                    ...(typeof o.usage.cache_read_input_tokens === "number"
-                      ? { cachedInput: o.usage.cache_read_input_tokens }
-                      : {}),
-                  }
-                : undefined,
-            );
+            // so it is the turn's figure (settle adds any held result).
+            settle(o.is_error !== true, o.stop_reason ?? o.terminal_reason ?? null, o.total_cost_usd ?? null, claudeUsage(o.usage));
             break;
         }
       };
