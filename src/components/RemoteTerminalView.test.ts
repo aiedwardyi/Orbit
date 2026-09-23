@@ -225,6 +225,69 @@ describe("RemoteTerminalView", () => {
     await act(async () => root.unmount());
   });
 
+  function paneServer(initial: Array<{ sessionId: string; main: boolean }>) {
+    const server = { panes: initial };
+    store.api.mockImplementation(async (path: string) => {
+      const id = new URLSearchParams(path.split("?")[1] ?? "").get("sessionId");
+      if (id && !server.panes.some((pane) => pane.sessionId === id)) throw new Error("Unknown terminal");
+      const pane = id ?? server.panes.find((candidate) => candidate.main)?.sessionId;
+      return pane ? { screenText: `$ ${pane}`, panes: server.panes } : { state: "no-terminal", panes: server.panes };
+    });
+    return server;
+  }
+
+  it("recovers to the remaining pane when the fallback pane closes", async () => {
+    vi.useFakeTimers();
+    const server = paneServer([{ sessionId: "one", main: false }, { sessionId: "two", main: false }]);
+    const { host, root } = await renderView();
+    try {
+      expect(host.querySelector("pre")?.textContent).toBe("$ one");
+      server.panes = [{ sessionId: "two", main: false }];
+      await act(async () => vi.advanceTimersByTime(3_000));
+      expect(store.api).toHaveBeenLastCalledWith("/api/bots/bot-1/terminal?sessionId=two");
+      expect(host.querySelector("pre")?.textContent).toBe("$ two");
+      expect(host.querySelector('[role="alert"]')).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("shows the no-terminal state when the fallback pane was the last one", async () => {
+    vi.useFakeTimers();
+    const server = paneServer([{ sessionId: "one", main: false }]);
+    const { host, root } = await renderView();
+    try {
+      expect(host.querySelector("pre")?.textContent).toBe("$ one");
+      server.panes = [];
+      await act(async () => vi.advanceTimersByTime(3_000));
+      expect(host.textContent).toContain("No active terminal");
+      expect(host.querySelector("pre")).toBeNull();
+      expect(host.querySelector('[role="alert"]')).toBeNull();
+      await act(async () => vi.advanceTimersByTime(3_000));
+      expect(store.api).toHaveBeenLastCalledWith("/api/bots/bot-1/terminal");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("switches to a Main pane that appears after the fallback pane closes", async () => {
+    vi.useFakeTimers();
+    const server = paneServer([{ sessionId: "one", main: false }]);
+    const { host, root } = await renderView();
+    try {
+      server.panes = [];
+      await act(async () => vi.advanceTimersByTime(3_000));
+      expect(host.textContent).toContain("No active terminal");
+      server.panes = [{ sessionId: "main", main: true }];
+      await act(async () => vi.advanceTimersByTime(3_000));
+      expect(store.api).toHaveBeenLastCalledWith("/api/bots/bot-1/terminal");
+      expect(host.querySelector("pre")?.textContent).toBe("$ main");
+      expect(host.querySelector('[role="alert"]')).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
   it("falls back to the main pane when the selected pane closes", async () => {
     store.api.mockImplementation(async (path: string) => {
       if (path.includes("sessionId=worker")) throw new Error("Unknown terminal");

@@ -60,10 +60,11 @@ export function RemoteTerminalView({
 
   const refresh = useCallback(async () => {
     const request = ++requestRef.current;
+    const path = `/api/bots/${encodeURIComponent(bot.id)}/terminal`;
+    const targetPane = selectedPane ?? fallbackPane;
     try {
-      const targetPane = selectedPane ?? fallbackPane;
       const qs = targetPane ? `?sessionId=${encodeURIComponent(targetPane)}` : "";
-      const next = await api(`/api/bots/${encodeURIComponent(bot.id)}/terminal${qs}`);
+      const next = await api(`${path}${qs}`);
       if (request < appliedRequestRef.current) return;
       appliedRequestRef.current = request;
       setSnapshot(next);
@@ -72,8 +73,18 @@ export function RemoteTerminalView({
       if (request < appliedRequestRef.current) return;
       appliedRequestRef.current = request;
       const message = cause instanceof Error ? cause.message : String(cause);
-      if (selectedPane && /unknown terminal/i.test(message)) {
+      if (targetPane && /unknown terminal/i.test(message)) {
         setSelectedPane(null);
+        // The roster still lists the closed pane, so re-read it or the fallback keeps targeting it.
+        try {
+          const roster = await api(path);
+          if (request < appliedRequestRef.current) return;
+          setSnapshot(roster);
+          setError(null);
+        } catch (retry) {
+          if (request < appliedRequestRef.current) return;
+          setError(retry instanceof Error ? retry.message : String(retry));
+        }
         return;
       }
       setError(message);
