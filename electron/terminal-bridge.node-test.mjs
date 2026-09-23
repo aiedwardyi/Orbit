@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { subscribe, unsubscribe } from "node:diagnostics_channel";
 import os from "node:os";
 import { createTerminalBridge, terminalReadGrant, updateGrant } from "./terminal-bridge.mjs";
 import { createTerminalHost } from "./terminal-host.mjs";
@@ -290,9 +291,32 @@ test("serves the updater behind its own grant", async () => {
   const check = await fetch(`${connection.url}/v1/update/check`, { method: "POST", headers: auth });
   assert.equal((await check.json()).status, "idle");
   const install = await fetch(`${connection.url}/v1/update/install`, { method: "POST", headers: auth });
-  assert.equal((await install.json()).status, "installing");
+  assert.equal((await install.json()).status, "idle");
+  await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(calls, ["download", "check", "install"]);
   await bridge.close();
+});
+
+test("acks install before the updater quits the app", async () => {
+  let response;
+  const onRequest = (message) => (response = message.response);
+  subscribe("http.server.request.start", onRequest);
+  const acked = [];
+  const bridge = createTerminalBridge({
+    token: "bridge-secret",
+    host: { readBot() {}, sendBot() {} },
+    updater: { state: () => ({ status: "downloaded" }), install: () => acked.push(response.writableFinished) },
+  });
+  try {
+    const connection = await bridge.start();
+    const install = await fetch(`${connection.url}/v1/update/install`, { method: "POST", headers: { authorization: `Bearer ${updateGrant(connection.token)}` } });
+    assert.deepEqual(await install.json(), { status: "downloaded" });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(acked, [true]);
+  } finally {
+    unsubscribe("http.server.request.start", onRequest);
+    await bridge.close();
+  }
 });
 
 test("reports the updater missing when the bridge has none", async () => {

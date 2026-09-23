@@ -31,16 +31,19 @@ export function watchRemoteUpdater(
 ): () => void {
   let alive = true;
   let pushed = 0;
+  let loads = 0;
   const refresh = async () => {
     const seen = pushed;
+    const generation = ++loads;
     try {
       const s = await load();
-      // a pushed frame that landed during the load is newer than it
-      if (alive && pushed === seen) onState(s.status === "unavailable" ? null : s);
+      // a pushed frame or a later load that landed meanwhile is newer than it
+      if (alive && generation === loads && pushed === seen) onState(s.status === "unavailable" ? null : s);
+      return true;
     } catch {
-      // the desktop may be mid-restart; keep the last state
+      // the desktop may be mid-restart; keep the last state and retry the stream
+      return false;
     }
-    return true;
   };
   const stop = openLiveEvents(
     {

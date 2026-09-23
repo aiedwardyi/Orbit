@@ -68,7 +68,12 @@ async function handleUpdate(req, res, updater, token, action) {
   if (!grantMatches(req.headers.authorization, updateGrant(token))) return json(res, 401, { error: "Unauthorized" });
   if (req.method === "GET" && action === "state") return json(res, 200, updater.state());
   if (req.method !== "POST" || action === "state") return json(res, 405, { error: "Method not allowed" });
-  // Only a check is awaited; a download outlives the request and install quits the app.
+  if (action === "install") {
+    // install quits the app, so it waits for the ack to leave
+    res.once("finish", () => void Promise.resolve().then(() => updater.install()).catch(() => {}));
+    return json(res, 200, updater.state());
+  }
+  // Only a check is awaited; a download outlives the request.
   const pending = Promise.resolve(updater[action]()).catch(() => {});
   if (action === "check") await pending;
   return json(res, 200, updater.state());
