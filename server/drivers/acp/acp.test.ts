@@ -1136,7 +1136,7 @@ describe("ACP turns (fake CLI)", () => {
     // own endpoint) must never be what the session silently runs on.
     expect(JSON.parse(readFileSync(`${dump}.config.json`, "utf8"))).toEqual([
       { method: "session/set_mode", params: { sessionId: "fake-acp-session", modeId: "normal" } },
-      { method: "session/set_model", params: { sessionId: "fake-acp-session", modelId: "claude-opus-5" } },
+      { method: "session/set_model", params: { sessionId: "fake-acp-session", modelId: "claude-opus-5-5" } },
     ]);
   });
 
@@ -2391,7 +2391,7 @@ describe("ACP snapshot", () => {
         { id: "custom:Azure-Opus-0", label: "Azure Opus", custom: true },
         { id: "custom:LMStudio-Qwen-0", label: "Qwen (local)", custom: true },
       ]);
-      expect(instance.models.options.some((o) => o.id === "claude-opus-5")).toBe(true);
+      expect(instance.models.options.some((o) => o.id === "claude-opus-5-5")).toBe(true);
       expect(instance.models.default).toBe("custom:LMStudio-Qwen-0");
     } finally {
       await instance.dispose();
@@ -2412,7 +2412,7 @@ describe("ACP snapshot", () => {
       config: { cli: FAKE_CLI, fullAuto: false },
     });
     try {
-      expect(instance.models.default).toBe("claude-opus-5");
+      expect(instance.models.default).toBe("claude-opus-5-5");
       expect(instance.models.options.every((o) => !o.id.startsWith("custom:"))).toBe(true);
     } finally {
       await instance.dispose();

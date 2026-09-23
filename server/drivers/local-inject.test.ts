@@ -43,7 +43,7 @@ describe("inject ids", () => {
 
   it("rejects official cloud slugs", () => {
     expect(decodeInjectId("claude-sonnet-5")).toBeNull();
-    expect(decodeInjectId("gpt-5.6-sol")).toBeNull();
+    expect(decodeInjectId("gpt-6-sol")).toBeNull();
   });
 });
 
@@ -805,7 +805,7 @@ describe("applyDroidLocalAuthEnv", () => {
     applyDroidLocalAuthEnv(kept, "ollama::ornith:35b-bf16");
     expect(kept.FACTORY_API_KEY).toBe("fk-real");
     const cloud: Record<string, string | undefined> = {};
-    applyDroidLocalAuthEnv(cloud, "claude-opus-5");
+    applyDroidLocalAuthEnv(cloud, "claude-opus-5-5");
     applyDroidLocalAuthEnv(cloud, undefined);
     expect(cloud.FACTORY_API_KEY).toBeUndefined();
   });
@@ -845,7 +845,7 @@ describe("applyDroidLocalAuthEnv", () => {
       await instance.adapter.sendTurn({
         threadId: "t-cloud",
         text: "hi",
-        model: "claude-opus-5",
+        model: "claude-opus-5-5",
       });
       await recorder.until((e) => e.type === "turn.completed" && e.threadId === "t-cloud");
       expect(JSON.parse(readFileSync(dump, "utf8")).env.FACTORY_API_KEY).not.toBe(

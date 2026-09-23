@@ -696,14 +696,14 @@ test("openForBot spawns a labeled pane in the bot folder and submits its command
   let owner;
   const f = fixture({ owner: () => owner });
   owner = f.owner;
-  const pane = await f.host.openForBot("bot-1", { label: "Opus 5 | high | ORCH", command: "claude" });
+  const pane = await f.host.openForBot("bot-1", { label: "Opus 5.5 | high | ORCH", command: "claude" });
   assert.equal(pane.generation, 1);
   assert.equal(f.children.length, 1);
   assert.deepEqual(f.children[0].writes, ["claude\r"]);
-  assert.deepEqual(f.events.find(([channel]) => channel === "terminal:opened"), ["terminal:opened", { id: pane.sessionId, botId: "bot-1", label: "Opus 5 | high | ORCH", generation: 1 }]);
+  assert.deepEqual(f.events.find(([channel]) => channel === "terminal:opened"), ["terminal:opened", { id: pane.sessionId, botId: "bot-1", label: "Opus 5.5 | high | ORCH", generation: 1 }]);
   const attached = await f.host.open(f.event, { ...f.input, sessionId: pane.sessionId });
   assert.equal(attached.id, pane.sessionId);
-  assert.equal(attached.label, "Opus 5 | high | ORCH");
+  assert.equal(attached.label, "Opus 5.5 | high | ORCH");
   assert.equal(attached.cwd, os.tmpdir());
 });
 

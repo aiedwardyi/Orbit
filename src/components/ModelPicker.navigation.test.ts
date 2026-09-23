@@ -97,19 +97,19 @@ describe("ModelPicker cross navigation", () => {
   });
 
   it.each([120, -120])("moves one model per wheel notch %s and keeps effort", async (deltaY) => {
-    mock.instances = [engine("claude", "claudeAgent", ["claude-fable-5-1", "claude-fable-5", "claude-opus-5"], ["low", "medium", "high", "xhigh", "max"])];
+    mock.instances = [engine("claude", "claudeAgent", ["claude-fable-5-1", "claude-fable-5", "claude-opus-5-5"], ["low", "medium", "high", "xhigh", "max"])];
     await mount({ instanceId: "claude", model: "claude-fable-5", mode: "pinned", effort: "medium" });
     const event = new window.WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true });
     await act(async () => document.querySelector(".model-cross-stage")!.dispatchEvent(event));
     expect(event.defaultPrevented).toBe(true);
     await key("Enter");
     expect(mock.dispatch.mock.calls[0]?.[0].selection).toEqual({
-      instanceId: "claude", model: deltaY > 0 ? "claude-opus-5" : "claude-fable-5-1", mode: "pinned", effort: "medium",
+      instanceId: "claude", model: deltaY > 0 ? "claude-opus-5-5" : "claude-fable-5-1", mode: "pinned", effort: "medium",
     });
   });
 
-  it.each([[-80, "claude-opus-5"], [80, "claude-fable-5-1"]])("moves one model per vertical flick %s", async (dy, model) => {
-    mock.instances = [engine("claude", "claudeAgent", ["claude-fable-5-1", "claude-fable-5", "claude-opus-5"], ["low", "medium", "high"])];
+  it.each([[-80, "claude-opus-5-5"], [80, "claude-fable-5-1"]])("moves one model per vertical flick %s", async (dy, model) => {
+    mock.instances = [engine("claude", "claudeAgent", ["claude-fable-5-1", "claude-fable-5", "claude-opus-5-5"], ["low", "medium", "high"])];
     await mount({ instanceId: "claude", model: "claude-fable-5", mode: "pinned", effort: "medium" });
     await swipe(0, dy);
     await key("Enter");
@@ -125,7 +125,7 @@ describe("ModelPicker cross navigation", () => {
   });
 
   it("steps once for a long vertical drag", async () => {
-    mock.instances = [engine("claude", "claudeAgent", ["claude-fable-5-1", "claude-fable-5", "claude-opus-5", "claude-sonnet-5"], ["low", "medium", "high"])];
+    mock.instances = [engine("claude", "claudeAgent", ["claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-sonnet-5"], ["low", "medium", "high"])];
     await mount({ instanceId: "claude", model: "claude-fable-5-1", mode: "pinned", effort: "medium" });
     await swipe(0, -400);
     await swipe(10, -30);
@@ -144,7 +144,7 @@ describe("ModelPicker cross navigation", () => {
   });
 
   it("counts wheel notches delivered before the next render", async () => {
-    mock.instances = [engine("claude", "claudeAgent", ["claude-fable-5-1", "claude-fable-5", "claude-opus-5"], ["low", "medium", "high"])];
+    mock.instances = [engine("claude", "claudeAgent", ["claude-fable-5-1", "claude-fable-5", "claude-opus-5-5"], ["low", "medium", "high"])];
     await mount({ instanceId: "claude", model: "claude-fable-5-1", mode: "pinned", effort: "medium" });
     await act(async () => {
       for (let notch = 0; notch < 2; notch++) {
@@ -152,15 +152,15 @@ describe("ModelPicker cross navigation", () => {
       }
     });
     await key("Enter");
-    expect(mock.dispatch.mock.calls[0]?.[0].selection).toEqual({ instanceId: "claude", model: "claude-opus-5", mode: "pinned", effort: "medium" });
+    expect(mock.dispatch.mock.calls[0]?.[0].selection).toEqual({ instanceId: "claude", model: "claude-opus-5-5", mode: "pinned", effort: "medium" });
   });
 
   it.each([
     ["claudeAgent", "claude-fable-5-1", "high"],
     ["codex", "gpt-6-astra", "low"],
-    ["codex", "gpt-5.6-sol", "low"],
+    ["codex", "gpt-6-sol", "low"],
     ["codex", "gpt-5.6-terra", "medium"],
-    ["codex", "gpt-5.6-luna", "medium"],
+    ["codex", "gpt-6-luna", "medium"],
     ["grokAgent", "grok-4.6", "high"],
   ])("opens and saves %s %s with its real default %s", async (driverKind, model, effort) => {
     mock.instances = [engine("engine", driverKind, [model], ["low", "medium", "high", "xhigh", "max"])];
@@ -174,14 +174,14 @@ describe("ModelPicker cross navigation", () => {
   it.each([
     ["grokAgent", "console-sol-2", "grok"],
     ["grokAgent", "nebula-opus", "grok"],
-    ["grokAgent", "gpt-5.6-sol", "grok"],
-    ["museAgent", "claude-opus-5", "metamuse"],
-    ["museAgent", "gpt-5.6-sol", "metamuse"],
+    ["grokAgent", "gpt-6-sol", "grok"],
+    ["museAgent", "claude-opus-5-5", "metamuse"],
+    ["museAgent", "gpt-6-sol", "metamuse"],
     ["geminiAgent", "gemini-3.8-pro", "gemini"],
     ["antigravityAgent", "gemini-3.8-flash-low", "gemini"],
     ["codex", "nebula-opus", "gpt"],
     ["claudeAgent", "console-sol-2", "claude"],
-    ["unknown", "claude-opus-5", "grok"],
+    ["unknown", "claude-opus-5-5", "grok"],
   ])("uses the %s engine family for %s", async (driverKind, model, family) => {
     mock.instances = [engine("engine", driverKind, [model])];
     await mount({ instanceId: "engine", model, mode: "pinned" });
@@ -245,8 +245,8 @@ describe("ModelPicker cross navigation", () => {
     vi.stubGlobal("localStorage", window.localStorage);
     try {
       persistPreference(locale);
-      mock.instances = [engine("claude", "claudeAgent", ["claude-opus-5"], ["none", "low", "medium", "high", "xhigh", "max"])];
-      await mount({ instanceId: "claude", model: "claude-opus-5", mode: "pinned", effort: "high" });
+      mock.instances = [engine("claude", "claudeAgent", ["claude-opus-5-5"], ["none", "low", "medium", "high", "xhigh", "max"])];
+      await mount({ instanceId: "claude", model: "claude-opus-5-5", mode: "pinned", effort: "high" });
       expect(Array.from(document.querySelectorAll("[data-effort-axis] button"), (button) => button.textContent)).toEqual(labels);
       expect(document.querySelector('[aria-live="polite"]')?.textContent).toContain(status);
     } finally {
@@ -257,13 +257,13 @@ describe("ModelPicker cross navigation", () => {
 
   it("moves vertically through every model before crossing engine boundaries", async () => {
     mock.instances = [
-      engine("codex", "codex", ["gpt-6-astra", "gpt-5.6-sol"]),
+      engine("codex", "codex", ["gpt-6-astra", "gpt-6-sol"]),
       engine("grok", "grokAgent", ["grok-4.6"]),
     ];
     await mount({ instanceId: "codex", model: "gpt-6-astra", mode: "pinned" });
     await key("ArrowDown");
     await key("Enter");
-    expect(mock.dispatch.mock.calls[0]?.[0].selection).toEqual({ instanceId: "codex", model: "gpt-5.6-sol", mode: "pinned" });
+    expect(mock.dispatch.mock.calls[0]?.[0].selection).toEqual({ instanceId: "codex", model: "gpt-6-sol", mode: "pinned" });
   });
 
   it.each([
@@ -349,7 +349,7 @@ describe("ModelPicker cross navigation", () => {
   ] as const)("commits the draft on Enter from a focused %s button", async (control, label) => {
     const instance = control === "tier"
       ? engine("antigravity", "antigravityAgent", ["gemini-3.8-flash-high", "gemini-3.8-flash-low"])
-      : engine("codex", "codex", ["gpt-5.6-sol"], ["low", "high"]);
+      : engine("codex", "codex", ["gpt-6-sol"], ["low", "high"]);
     instance.models.options.push({ id: "provider::custom-model", label: "Custom model", custom: true });
     mock.instances = [instance];
     await mount({ instanceId: instance.instanceId, model: instance.models.default, mode: "pinned" });
@@ -361,7 +361,7 @@ describe("ModelPicker cross navigation", () => {
     expect(event.defaultPrevented).toBe(true);
     const expected: ModelSelection = {
       instanceId: instance.instanceId,
-      model: control === "tier" ? "gemini-3.8-flash-high" : "gpt-5.6-sol",
+      model: control === "tier" ? "gemini-3.8-flash-high" : "gpt-6-sol",
       mode: "pinned",
     };
     if (control !== "tier") expected.effort = "low";
@@ -373,10 +373,10 @@ describe("ModelPicker cross navigation", () => {
     // Custom options sit outside the arrow-key grid, so Tab+Enter is their
     // only keyboard path: one Enter must commit the focused option itself,
     // not the previous draft. (.focus() stands in for keyboard focus.)
-    const instance = engine("codex", "codex", ["gpt-5.6-sol"], ["low", "high"]);
+    const instance = engine("codex", "codex", ["gpt-6-sol"], ["low", "high"]);
     instance.models.options.push({ id: "provider::custom-model", label: "Custom model", custom: true });
     mock.instances = [instance];
-    await mount({ instanceId: "codex", model: "gpt-5.6-sol", mode: "pinned" });
+    await mount({ instanceId: "codex", model: "gpt-6-sol", mode: "pinned" });
     await act(async () => Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("Use a local model"))!.click());
     const button = Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Custom model")!;
     const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
@@ -448,7 +448,7 @@ describe("ModelPicker cross navigation", () => {
   });
 
   it("round-trips a bare Codex id without encoding or replacing it", async () => {
-    mock.instances = [engine("codex", "codex", ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"])];
+    mock.instances = [engine("codex", "codex", ["gpt-6-astra", "gpt-6-sol", "gpt-5.6-terra", "gpt-6-luna"])];
     const selection: ModelSelection = { instanceId: "codex", model: "gpt-5.6-terra", mode: "pinned" };
     await mount(selection);
     await key("Enter");
@@ -457,7 +457,7 @@ describe("ModelPicker cross navigation", () => {
 
   it("crosses from the final model into the next engine and clears unsupported effort", async () => {
     mock.instances = [
-      engine("codex", "codex", ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]),
+      engine("codex", "codex", ["gpt-6-astra", "gpt-6-sol", "gpt-5.6-terra", "gpt-6-luna"]),
       engine("grok", "grokAgent", ["grok-4.6", "grok-4.5"], ["low", "medium", "high"]),
     ];
     await mount({ instanceId: "codex", model: "gpt-5.6-terra", mode: "pinned", effort: "xhigh" });
@@ -491,10 +491,10 @@ describe("ModelPicker cross navigation", () => {
   });
 
   it("keeps a custom encoded selection intact after choosing its row", async () => {
-    const codex = engine("codex", "codex", ["gpt-5.6-sol"]);
+    const codex = engine("codex", "codex", ["gpt-6-sol"]);
     codex.models.options.push({ id: "provider::custom-model", label: "Custom model", custom: true });
     mock.instances = [codex];
-    await mount({ instanceId: "codex", model: "gpt-5.6-sol", mode: "pinned" });
+    await mount({ instanceId: "codex", model: "gpt-6-sol", mode: "pinned" });
     await act(async () => Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("Use a local model"))!.click());
     await act(async () => Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Custom model")!.click());
     expect(document.querySelector('[data-model-cell="provider::custom-model"][aria-pressed="true"]')).not.toBeNull();

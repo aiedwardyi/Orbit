@@ -212,7 +212,7 @@ describe("CodexDriver turns (fake app-server)", () => {
       threadId: "t-happy",
       text: "list files",
       system: "You are Testy.",
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
     });
     await recorder.until((e) => e.type === "turn.completed");
 
@@ -257,7 +257,7 @@ describe("CodexDriver turns (fake app-server)", () => {
     const turnStart = seen.calls.at(-1);
     expect(turnStart.params.input[0].text).toBe("You are Testy.\n\nlist files");
     const threadStart = seen.calls.find((c: { method: string }) => c.method === "thread/start");
-    expect(threadStart.params).toMatchObject({ model: "gpt-5.6-sol", modelProvider: "openai" });
+    expect(threadStart.params).toMatchObject({ model: "gpt-6-sol", modelProvider: "openai" });
   });
 
   it("turns on live web search for the app-server spawn and thread/start", async () => {

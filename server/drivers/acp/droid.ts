@@ -202,13 +202,13 @@ const MODE_FULL_AUTO = "auto-high";
 // `custom:` prefix, so they can't be enumerated statically; a bot can still be
 // switched onto one through the model picker (PATCH /api/bots/:id).
 const MODELS = {
-  default: "claude-opus-5",
+  default: "claude-opus-5-5",
   options: [
     { id: "auto", label: "Auto (Factory picks)" },
-    { id: "claude-opus-5", label: "Claude Opus 5" },
+    { id: "claude-opus-5-5", label: "Claude Opus 5.5" },
     { id: "claude-sonnet-5", label: "Claude Sonnet 5" },
     { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
-    { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
+    { id: "gpt-6-sol", label: "GPT-6 Sol" },
     { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
     { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
     { id: "glm-5.2", label: "GLM 5.2" },

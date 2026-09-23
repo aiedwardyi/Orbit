@@ -29,14 +29,14 @@ describe("grok xhigh model gate", () => {
 
   it("leaves non-Grok drivers untouched", () => {
     const levels: readonly EffortLevel[] = ["low", "medium", "high", "xhigh", "max"];
-    expect(isEffortOffered("claudeAgent", "claude-opus-5", "xhigh", levels)).toBe(true);
-    expect(isEffortOffered("codex", "gpt-5.6-sol", "low", levels)).toBe(true);
+    expect(isEffortOffered("claudeAgent", "claude-opus-5-5", "xhigh", levels)).toBe(true);
+    expect(isEffortOffered("codex", "gpt-6-sol", "low", levels)).toBe(true);
     expect(isEffortOffered("museAgent", "muse-spark-1.3", "xhigh", [])).toBe(false);
   });
 
   it("filters declared levels per model for picker options", () => {
     expect(offeredEffortLevels("grokAgent", "grok-4.6", GROK_LEVELS)).toEqual(["low", "medium", "high", "xhigh"]);
     expect(offeredEffortLevels("grokAgent", "grok-4.5", GROK_LEVELS)).toEqual(["low", "medium", "high"]);
-    expect(offeredEffortLevels("claudeAgent", "claude-opus-5", GROK_LEVELS)).toEqual(["low", "medium", "high", "xhigh"]);
+    expect(offeredEffortLevels("claudeAgent", "claude-opus-5-5", GROK_LEVELS)).toEqual(["low", "medium", "high", "xhigh"]);
   });
 });

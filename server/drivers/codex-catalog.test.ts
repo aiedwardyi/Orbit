@@ -36,8 +36,8 @@ function scratchHome(files: Record<string, string>): string {
 
 describe("decodeCodexSelection", () => {
   it("forces official rows onto the ChatGPT provider", () => {
-    expect(decodeCodexSelection("gpt-5.6-sol")).toEqual({
-      model: "gpt-5.6-sol",
+    expect(decodeCodexSelection("gpt-6-sol")).toEqual({
+      model: "gpt-6-sol",
       modelProvider: OFFICIAL_CODEX_PROVIDER,
     });
   });
@@ -60,7 +60,7 @@ describe("decodeCodexSelection", () => {
 describe("STATIC_CODEX_MODELS", () => {
   it("includes GPT-6 Astra in the suggested official rows", () => {
     expect(STATIC_CODEX_MODELS.options[0]).toEqual({ id: "gpt-6-astra", label: "GPT-6 Astra" });
-    expect(STATIC_CODEX_MODELS.default).toBe("gpt-5.6-sol");
+    expect(STATIC_CODEX_MODELS.default).toBe("gpt-6-sol");
   });
 
   it("prepends Astra when a live catalog omitted it", () => {
@@ -219,7 +219,7 @@ name = "oMLX"
 `,
     });
     const catalog = await readCodexModelCatalog({ HOME: home });
-    expect(catalog.default).toBe("gpt-5.6-sol");
+    expect(catalog.default).toBe("gpt-6-sol");
     expect(catalog.options.every((option) => !option.custom)).toBe(true);
   });
 });

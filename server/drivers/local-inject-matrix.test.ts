@@ -63,12 +63,12 @@ const LIVE_MODEL_IDS = [
 
 const OFFICIAL_SLUGS = [
   "claude-sonnet-5",
-  "claude-opus-5",
+  "claude-opus-5-5",
   "grok-4.6",
   "grok-4.5",
   "kimi-code/k3",
   "kimi-code/kimi-for-coding",
-  "gpt-5.6-sol",
+  "gpt-6-sol",
   "muse-spark-1.3",
   "gemini-3.1-pro-high",
   "auto",

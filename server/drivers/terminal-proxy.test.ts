@@ -23,13 +23,13 @@ describe("terminal proxy", () => {
   it("maps terminal_spawn args to a POST on the bot's open route", async () => {
     const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
       new Response(JSON.stringify({ sessionId: "p1", generation: 1 }), { status: 200 }));
-    const result = await callTool("terminal_spawn", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { label: "Opus 5 | high | ORCH", command: "claude" });
+    const result = await callTool("terminal_spawn", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { label: "Opus 5.5 | high | ORCH", command: "claude" });
     expect(result.isError).toBeUndefined();
     expect(result.content[0].text).toContain("sessionId p1 (generation 1)");
     const [url, init] = fetchImpl.mock.calls[0];
     expect(url).toBe("http://127.0.0.1:1/v1/bots/bot-1/terminal/open");
     expect(init?.method).toBe("POST");
-    expect(JSON.parse(String(init?.body))).toEqual({ label: "Opus 5 | high | ORCH", command: "claude" });
+    expect(JSON.parse(String(init?.body))).toEqual({ label: "Opus 5.5 | high | ORCH", command: "claude" });
   });
 
   it("rejects terminal_spawn without a label before fetching", async () => {

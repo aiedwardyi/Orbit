@@ -37,11 +37,11 @@ describe("picker catalogs", () => {
   it("orders the model column frontier-first without changing the catalog default", () => {
     const instance: InstanceInfo = {
       instanceId: "claude", driverKind: "claudeAgent", displayName: "Claude", snapshot: { state: "available" },
-      models: { default: "claude-sonnet-5", options: ["claude-sonnet-5", "claude-opus-5", "claude-fable-5", "claude-fable-5-1"].map((id) => ({ id, label: id })) },
+      models: { default: "claude-sonnet-5", options: ["claude-sonnet-5", "claude-opus-5-5", "claude-fable-5", "claude-fable-5-1"].map((id) => ({ id, label: id })) },
     };
     const before = JSON.stringify(instance.models);
-    const rows = pickerRows([instance], { instanceId: "claude", model: "claude-opus-5", mode: "pinned" });
-    expect(rows[0]!.cells.map((cell) => cell.options[0]!.id)).toEqual(["claude-fable-5-1", "claude-fable-5", "claude-opus-5", "claude-sonnet-5"]);
+    const rows = pickerRows([instance], { instanceId: "claude", model: "claude-opus-5-5", mode: "pinned" });
+    expect(rows[0]!.cells.map((cell) => cell.options[0]!.id)).toEqual(["claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-sonnet-5"]);
     expect(JSON.stringify(instance.models)).toBe(before);
   });
 
@@ -72,11 +72,11 @@ describe("picker catalogs", () => {
   it("leaves the full driver catalog intact while keeping only the requested models", () => {
     const instance: InstanceInfo = {
       instanceId: "codex", driverKind: "codex", displayName: "OpenAI", snapshot: { state: "available" },
-      models: { default: "other-model", options: ["other-model", "gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"].map((id) => ({ id, label: id })) },
+      models: { default: "other-model", options: ["other-model", "gpt-6-astra", "gpt-6-sol", "gpt-5.6-terra", "gpt-6-luna"].map((id) => ({ id, label: id })) },
     };
     const before = JSON.stringify(instance.models);
     const rows = pickerRows([instance], { instanceId: "codex", model: "gpt-6-astra" });
-    expect(rows[0]!.cells.map((cell) => cell.options[0]!.id)).toEqual(["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]);
+    expect(rows[0]!.cells.map((cell) => cell.options[0]!.id)).toEqual(["gpt-6-astra", "gpt-6-sol", "gpt-5.6-terra", "gpt-6-luna"]);
     expect(JSON.stringify(instance.models)).toBe(before);
   });
 

@@ -12,15 +12,15 @@ import { killCliTree, spawnCli } from "../procs.ts";
 import { mergeLocalInject } from "./local-inject.ts";
 
 export const STATIC_CODEX_MODELS: ModelCatalog = {
-  default: "gpt-5.6-sol",
+  default: "gpt-6-sol",
   options: [
     // Official ChatGPT / Codex slug from the 2026-09-03 Codex 0.153 catalog
     // and OpenAI model docs (`codex -m gpt-6-astra`). Kept first so the
     // compact picker suggested list includes it. Default stays Sol.
     { id: "gpt-6-astra", label: "GPT-6 Astra" },
-    { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
+    { id: "gpt-6-sol", label: "GPT-6 Sol" },
     { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
-    { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
+    { id: "gpt-6-luna", label: "GPT-6 Luna" },
     { id: "gpt-5.5", label: "GPT-5.5" },
     { id: "gpt-5.4", label: "GPT-5.4" },
     { id: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
