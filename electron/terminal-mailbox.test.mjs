@@ -143,7 +143,7 @@ async function reportFixture() {
 }
 
 function reportEnv(url, fakebin, mode) {
-  const env = terminalPaneEnv({ SystemRoot: process.env.SystemRoot, PATH: `${fakebin}${path.delimiter}${process.env.PATH}`, PATHEXT: process.env.PATHEXT, COMSPEC: process.env.COMSPEC }, {
+  const env = terminalPaneEnv({ SystemRoot: process.env.SystemRoot, PATH: `${fakebin}${path.delimiter}${process.env.PATH}`, PATHEXT: process.env.PATHEXT, COMSPEC: process.env.COMSPEC, PSModulePath: process.env.PSModulePath }, {
     pane: "pane-1", bot: "worker-1", teacher: "chief-1", mailbox: { url, token: "test-token", binDir: null },
   });
   if (mode) env.ORBIT_FAKE_GIT = mode;

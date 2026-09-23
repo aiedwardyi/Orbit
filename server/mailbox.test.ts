@@ -22,6 +22,8 @@ let base: string;
 let home: string;
 const SCOPE = { pane: PANE, bot: "worker", teacher: "teacher" };
 const GRANT = mailboxGrant(MAILBOX_KEY, PANE, "worker", "teacher");
+// Without PSModulePath, Windows PowerShell rescans every module on the first cmdlet (~19s per spawn on CI).
+const PANE_BASE = { SystemRoot: process.env.SystemRoot, PATH: process.env.PATH, PSModulePath: process.env.PSModulePath };
 
 function scopeHeaders(scope: typeof SCOPE, grant: string) {
   return { authorization: `Bearer ${grant}`, "x-orbit-pane": scope.pane, "x-orbit-bot": scope.bot, "x-orbit-teacher": scope.teacher };
@@ -232,7 +234,7 @@ describe("POST /api/mailbox", () => {
     expect(await (await post({ text: "hi" }, SCOPE, "nope")).json()).toEqual({ error: "unauthorized" });
     if (process.platform !== "win32") return;
     const bin = (await installOrbitMsg(join(home, "bin")))!;
-    const paneEnv = terminalPaneEnv({ SystemRoot: process.env.SystemRoot, PATH: process.env.PATH }, {
+    const paneEnv = terminalPaneEnv(PANE_BASE, {
       pane: PANE, bot: "worker", teacher: "teacher", mailbox: { url: base, token: "b".repeat(48), binDir: bin },
     });
     const sent = await orbitMsgFile(paneEnv, bin, ["hi"]);
@@ -286,7 +288,7 @@ describe("POST /api/mailbox", () => {
     const address = stub.address();
     if (!address || typeof address === "string") throw new Error("no test port");
     const bin = (await installOrbitMsg(join(home, "bin-timeout")))!;
-    const paneEnv = terminalPaneEnv({ SystemRoot: process.env.SystemRoot, PATH: process.env.PATH }, {
+    const paneEnv = terminalPaneEnv(PANE_BASE, {
       pane: PANE, bot: "worker", teacher: "teacher", mailbox: { url: `http://127.0.0.1:${address.port}`, token: MAILBOX_KEY, binDir: bin },
     });
     const started = Date.now();
@@ -314,7 +316,7 @@ describe("POST /api/mailbox", () => {
 
   it.runIf(process.platform === "win32")("orbit-msg retries 18799 then 28799 on connection refused", async () => {
     const bin = (await installOrbitMsg(join(home, "bin-fallback")))!;
-    const paneEnvFor = (url: string) => terminalPaneEnv({ SystemRoot: process.env.SystemRoot, PATH: process.env.PATH }, {
+    const paneEnvFor = (url: string) => terminalPaneEnv(PANE_BASE, {
       pane: PANE, bot: "worker", teacher: "teacher", mailbox: { url, token: MAILBOX_KEY, binDir: bin },
     });
     const seen: string[] = [];
@@ -352,7 +354,7 @@ describe("POST /api/mailbox", () => {
     writeFileSync(join(home, "bin", "orbit-msg.cmd"), "@echo stale");
     const bin = (await installOrbitMsg(join(home, "bin")))!;
     expect(readFileSync(join(bin, "orbit-msg.cmd"), "utf8")).toContain("orbit-msg.ps1");
-    const paneEnv = terminalPaneEnv({ SystemRoot: process.env.SystemRoot, PATH: process.env.PATH }, {
+    const paneEnv = terminalPaneEnv(PANE_BASE, {
       pane: PANE, bot: "worker", teacher: "teacher", mailbox: { url: base, token: MAILBOX_KEY, binDir: bin },
     });
     const sent = await paneShell(paneEnv, "orbit-msg from 'the pane'; 'piped' | orbit-msg");
@@ -370,16 +372,15 @@ describe("POST /api/mailbox", () => {
       "[pane 0f3c9a1e] from worker (worker): hook report 완료",
       "[pane 0f3c9a1e] from worker (worker): codex \"done\" & more",
     ]);
-    const bare = { SystemRoot: process.env.SystemRoot, PATH: process.env.PATH };
-    const outside = await orbitMsgFile(bare, bin, ["hi"]);
+    const outside = await orbitMsgFile(PANE_BASE, bin, ["hi"]);
     expect(outside.status).toBe(1);
     expect(outside.stderr).toContain("not inside an Orbit terminal pane");
-    expect((await orbitMsgFile(bare, bin, ["--hook", "message"], "{}")).status).toBe(0);
+    expect((await orbitMsgFile(PANE_BASE, bin, ["--hook", "message"], "{}")).status).toBe(0);
   }, 30_000);
 
   it.runIf(process.platform === "win32")("orbit-msg posts shell metacharacters and quotes literally", async () => {
     const bin = (await installOrbitMsg(join(home, "bin")))!;
-    const paneEnv = terminalPaneEnv({ SystemRoot: process.env.SystemRoot, PATH: process.env.PATH }, {
+    const paneEnv = terminalPaneEnv(PANE_BASE, {
       pane: PANE, bot: "worker", teacher: "teacher", mailbox: { url: base, token: MAILBOX_KEY, binDir: bin },
     });
     const texts = [
