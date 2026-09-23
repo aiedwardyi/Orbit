@@ -17,4 +17,4 @@ jobs:
         with:
           node-version: 24
       - run: netsh winhttp show proxy
-      - run: node diag/ps-time.mjs
+      - run: node diag/env-vars.mjs
