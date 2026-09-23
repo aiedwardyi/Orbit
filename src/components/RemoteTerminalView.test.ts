@@ -212,6 +212,19 @@ describe("RemoteTerminalView", () => {
     await act(async () => root.unmount());
   });
 
+  it("selects the first pane when the roster has no Main pane", async () => {
+    const panes = [
+      { sessionId: "one", label: "one", main: false, exited: false },
+      { sessionId: "two", label: "two", main: false, exited: false },
+    ];
+    store.api.mockResolvedValue({ screenText: "$ ls", panes });
+    const { host, root } = await renderView();
+    const tabs = host.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+    expect(tabs[0].getAttribute("aria-selected")).toBe("true");
+    expect(store.api).toHaveBeenLastCalledWith("/api/bots/bot-1/terminal?sessionId=one");
+    await act(async () => root.unmount());
+  });
+
   it("falls back to the main pane when the selected pane closes", async () => {
     store.api.mockImplementation(async (path: string) => {
       if (path.includes("sessionId=worker")) throw new Error("Unknown terminal");

@@ -1431,10 +1431,12 @@ it("keeps snapshot labels isolated across panes and bot remounts", async () => {
   const f = paneFixture();
   await f.render();
   await f.select(1);
-  expect(host.querySelector('span[title="one"]')).not.toBeNull();
+  expect(f.tabs()[1].getAttribute("aria-selected")).toBe("true");
+  expect(f.tabs()[1].textContent).toBe("one");
   await f.select(2);
-  expect(host.querySelector('span[title="one"]')).toBeNull();
-  expect(host.querySelector('span[title="two"]')).not.toBeNull();
+  expect(f.tabs()[1].getAttribute("aria-selected")).toBe("false");
+  expect(f.tabs()[2].getAttribute("aria-selected")).toBe("true");
+  expect(f.tabs()[2].textContent).toBe("two");
   f.readBot.mockResolvedValueOnce({ ...f.snapshot, botId: "bot-2", panes: [{ ...f.snapshot.panes[0], sessionId: "foreign", label: "other bot" }] });
   await act(async () => root.render(createElement(TerminalWorkspace, { ...f.props, key: "bot-2", bot: { ...f.props.bot, id: "bot-2" } })));
   expect(f.tabs().map((tab) => tab.textContent)).toEqual(["Terminal", "other bot"]);

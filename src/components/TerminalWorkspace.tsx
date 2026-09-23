@@ -77,7 +77,6 @@ export function TerminalWorkspace({
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [panes, setPanes] = useState<BotPane[]>([]);
   const [pane, setPane] = useState<string | null>(null);
-  const activeLabel = pane ? panes.find((item) => item.id === pane)?.label ?? "" : "";
   const tablistRef = useRef<HTMLDivElement>(null);
   const panesRef = useRef(panes);
   panesRef.current = panes;
@@ -609,14 +608,6 @@ export function TerminalWorkspace({
               <span className="min-w-0 truncate font-mono">{folderLabel}</span>
               <ChevronDown size={11} className="shrink-0 opacity-70" />
             </button>
-            {activeLabel ? (
-              <span
-                title={activeLabel}
-                className="inline-flex min-w-0 max-w-[180px] shrink-0 items-center rounded-md border border-hairline bg-raised px-1.5 py-0.5 font-mono text-[11px] text-ink-secondary"
-              >
-                <span className="truncate">{activeLabel}</span>
-              </span>
-            ) : null}
             {projectMismatch && bannerDismissed ? (
               <span className="shrink-0 text-[11px] text-ink-secondary" title={launchProject ?? undefined}>· {t("terminal.differentProject")}</span>
             ) : null}

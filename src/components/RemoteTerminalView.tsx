@@ -53,10 +53,16 @@ export function RemoteTerminalView({
   const requestRef = useRef(0);
   const appliedRequestRef = useRef(0);
 
+  const panes = snapshot?.panes ?? [];
+  const mainPane = panes.find((pane) => pane.main);
+  const fallbackPane = mainPane ? undefined : panes[0]?.sessionId;
+  const activePaneId = selectedPane ?? mainPane?.sessionId ?? fallbackPane;
+
   const refresh = useCallback(async () => {
     const request = ++requestRef.current;
     try {
-      const qs = selectedPane ? `?sessionId=${encodeURIComponent(selectedPane)}` : "";
+      const targetPane = selectedPane ?? fallbackPane;
+      const qs = targetPane ? `?sessionId=${encodeURIComponent(targetPane)}` : "";
       const next = await api(`/api/bots/${encodeURIComponent(bot.id)}/terminal${qs}`);
       if (request < appliedRequestRef.current) return;
       appliedRequestRef.current = request;
@@ -72,7 +78,7 @@ export function RemoteTerminalView({
       }
       setError(message);
     }
-  }, [bot.id, selectedPane]);
+  }, [bot.id, selectedPane, fallbackPane]);
 
   useEffect(() => {
     if (!visible) return;
@@ -102,8 +108,6 @@ export function RemoteTerminalView({
   };
   const buttonClass =
     "flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-md px-3 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text disabled:opacity-50";
-  const panes = snapshot?.panes ?? [];
-  const activePaneId = selectedPane ?? panes.find((pane) => pane.main)?.sessionId;
   const paneLabel = (pane: RemoteTerminalPane) => pane.label ?? (pane.main ? t("terminal.main") : pane.cwd ? folderName(pane.cwd) : pane.sessionId);
 
   return (
