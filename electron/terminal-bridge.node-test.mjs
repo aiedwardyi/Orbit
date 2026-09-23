@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import os from "node:os";
-import { createTerminalBridge, terminalReadGrant } from "./terminal-bridge.mjs";
+import { createTerminalBridge, terminalReadGrant, updateGrant } from "./terminal-bridge.mjs";
 import { createTerminalHost } from "./terminal-host.mjs";
 import { closeBotPanes } from "../server/terminal-cleanup.ts";
+import { updateGrant as serverUpdateGrant } from "../server/terminal-grant.ts";
 
 test("requires the private bearer and scopes reads to the requested bot", async () => {
   const calls = [];
@@ -250,3 +251,58 @@ for (const stage of ["folder", "ready"]) {
     }
   });
 }
+
+function updaterFixture() {
+  const calls = [];
+  let state = { status: "available", version: "1.0.53", appVersion: "1.0.52" };
+  const updater = {
+    state: () => state,
+    check: async () => {
+      calls.push("check");
+      state = { ...state, status: "idle" };
+    },
+    download: () => {
+      calls.push("download");
+      state = { ...state, status: "downloading" };
+      return new Promise(() => {});
+    },
+    install: () => {
+      calls.push("install");
+      state = { ...state, status: "installing" };
+    },
+  };
+  return { calls, bridge: createTerminalBridge({ token: "bridge-secret", host: { readBot() {}, sendBot() {} }, updater }) };
+}
+
+test("serves the updater behind its own grant", async () => {
+  const { bridge, calls } = updaterFixture();
+  const connection = await bridge.start();
+  const auth = { authorization: `Bearer ${updateGrant(connection.token)}` };
+  assert.equal((await fetch(`${connection.url}/v1/update/state`)).status, 401);
+  const botGrant = { authorization: `Bearer ${terminalReadGrant(connection.token, "update")}` };
+  assert.equal((await fetch(`${connection.url}/v1/update/state`, { headers: botGrant })).status, 401);
+  const state = await fetch(`${connection.url}/v1/update/state`, { headers: auth });
+  assert.deepEqual(await state.json(), { status: "available", version: "1.0.53", appVersion: "1.0.52" });
+  assert.equal((await fetch(`${connection.url}/v1/update/state`, { method: "POST", headers: auth })).status, 405);
+  assert.equal((await fetch(`${connection.url}/v1/update/install`, { headers: auth })).status, 405);
+  const download = await fetch(`${connection.url}/v1/update/download`, { method: "POST", headers: auth });
+  assert.equal((await download.json()).status, "downloading");
+  const check = await fetch(`${connection.url}/v1/update/check`, { method: "POST", headers: auth });
+  assert.equal((await check.json()).status, "idle");
+  const install = await fetch(`${connection.url}/v1/update/install`, { method: "POST", headers: auth });
+  assert.equal((await install.json()).status, "installing");
+  assert.deepEqual(calls, ["download", "check", "install"]);
+  await bridge.close();
+});
+
+test("reports the updater missing when the bridge has none", async () => {
+  const bridge = createTerminalBridge({ token: "bridge-secret", host: { readBot() {}, sendBot() {} } });
+  const connection = await bridge.start();
+  const response = await fetch(`${connection.url}/v1/update/state`, { headers: { authorization: `Bearer ${updateGrant(connection.token)}` } });
+  assert.equal(response.status, 404);
+  await bridge.close();
+});
+
+test("update grant matches the server's", () => {
+  assert.equal(updateGrant("bridge-secret"), serverUpdateGrant("bridge-secret"));
+});

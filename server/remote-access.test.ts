@@ -67,6 +67,15 @@ describe("remote access", () => {
     expect(apiRequestAuthorized(false, `orbit_remote=${key}`, key, "/api/internal/agents")).toBe(true);
   });
 
+  it("lets the remote cookie drive the desktop updater", () => {
+    const key = loadOrCreateRemoteKey(freshDir());
+    for (const path of ["/api/update/state", "/api/update/check", "/api/update/download", "/api/update/install"]) {
+      expect(apiRequestAuthorized(false, `orbit_remote=${key}`, key, path)).toBe(true);
+      expect(apiRequestAuthorized(false, "orbit_remote=wrong", key, path)).toBe(false);
+      expect(apiRequestAuthorized(false, undefined, key, path)).toBe(false);
+    }
+  });
+
   it("lets the remote cookie read a bot terminal snapshot", () => {
     const key = loadOrCreateRemoteKey(freshDir());
     expect(apiRequestAuthorized(false, `orbit_remote=${key}`, key, "/api/bots/bot-1/terminal")).toBe(true);

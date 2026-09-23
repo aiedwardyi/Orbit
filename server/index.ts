@@ -190,6 +190,7 @@ import { providerReloadErrorActivity, stallErrorActivity } from "./room-error-at
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import { foldContinuationStart } from "./continuation-turn.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
+import { updateBridgeResponse, updateStateFromMessage } from "./update-proxy.ts";
 import { paneLabel, raisePaneAttention, terminalSnapshotResponse } from "./terminal-snapshot.ts";
 import { closeBotPanes } from "./terminal-cleanup.ts";
 import { mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
@@ -327,6 +328,11 @@ utilityParentPort?.on("message", (event) => {
   const message = event?.data;
   if (isUtilityShutdownMessage(message)) {
     hostShutdown();
+    return;
+  }
+  const updateState = updateStateFromMessage(message);
+  if (updateState) {
+    broadcast({ kind: "update.state", state: updateState });
     return;
   }
   try {
@@ -7946,6 +7952,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
 
 
+    if (method === "GET" && path === "/api/update/state") {
+      const update = await updateBridgeResponse(terminalBridgeAccess, "state");
+      return json(res, update.status, update.body);
+    }
+    m = path.match(/^\/api\/update\/(check|download|install)$/);
+    if (m && method === "POST") {
+      const update = await updateBridgeResponse(terminalBridgeAccess, m[1] as "check" | "download" | "install");
+      return json(res, update.status, update.body);
+    }
     m = path.match(/^\/api\/bots\/([\w-]+)\/terminal-cwd$/);
     if (m && method === "GET") {
       const bot = store.bot(m[1]);

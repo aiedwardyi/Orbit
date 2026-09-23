@@ -21,6 +21,7 @@ let win = null;
 let state = { status: "idle" };
 let updaterCoordinator = null;
 let pendingUpdateInstall = false;
+let stateListener = null;
 
 export function consumePendingUpdateInstall() {
   const pending = pendingUpdateInstall;
@@ -57,7 +58,24 @@ function setState(patch) {
   } catch {
     /* window gone */
   }
+  try {
+    stateListener?.(updaterBridge.state());
+  } catch {
+    /* server gone */
+  }
 }
+
+export function onUpdaterState(listener) {
+  stateListener = listener;
+}
+
+/** The updater as the loopback bridge serves it to remote clients. */
+export const updaterBridge = {
+  state: () => ({ ...state, appVersion: app.getVersion() }),
+  check: () => updaterCoordinator?.check(true),
+  download: () => updaterCoordinator?.download(),
+  install: () => updaterCoordinator?.install(),
+};
 
 export function registerUpdaterIpc() {
   ipcMain.handle("update:get-state", () => state);

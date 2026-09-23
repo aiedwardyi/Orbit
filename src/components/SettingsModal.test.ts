@@ -383,3 +383,20 @@ describe("updater missing app-update.yml fallback", () => {
     expect(html).not.toContain("app-update.yml");
   });
 });
+
+describe("updates card on the phone remote view", () => {
+  it("renders from the proxied state without the preload bridge", () => {
+    Object.defineProperty(window, "ogb", { value: undefined, configurable: true, writable: true });
+    mock.updaterState = { status: "installing", appVersion: "1.0.52" };
+    const html = markup("general");
+    expect(html).toContain("Restarting to update");
+    expect(html).toContain("v1.0.52");
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Check for updates/);
+  });
+
+  it("stays hidden when the desktop updater is unavailable", () => {
+    Object.defineProperty(window, "ogb", { value: undefined, configurable: true, writable: true });
+    mock.updaterState = null;
+    expect(markup("general")).not.toContain("Check for updates");
+  });
+});

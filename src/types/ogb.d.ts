@@ -370,6 +370,8 @@ export interface UpdaterState {
   version?: string;
   percent?: number;
   message?: string;
+  /** Running app version; only the remote proxy sends it. */
+  appVersion?: string;
 }
 
 export interface CompanionAccountState {

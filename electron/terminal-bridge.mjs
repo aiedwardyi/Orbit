@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 
 const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 const GRANT_PREFIX = "orbit-terminal-read-v1";
+const UPDATE_GRANT_PREFIX = "orbit-update-v1";
 const MAX_SEND_BODY = 16 * 1024;
 
 export function terminalReadGrant(token, botId) {
@@ -13,12 +14,22 @@ export function terminalReadGrant(token, botId) {
   return createHmac("sha256", token).update(`${GRANT_PREFIX}:${botId}`).digest("base64url");
 }
 
-function bearerMatches(header, token, botId) {
+export function updateGrant(token) {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Grant inputs cross the Electron/server process boundary.
+  if (typeof token !== "string" || !token) throw new Error("Invalid update grant");
+  return createHmac("sha256", token).update(UPDATE_GRANT_PREFIX).digest("base64url");
+}
+
+function grantMatches(header, grant) {
   // oxlint-disable-next-line anti-slop/no-runtime-typeof -- HTTP authorization is untyped request input.
   if (typeof header !== "string" || !header.startsWith("Bearer ")) return false;
   const received = Buffer.from(header.slice(7));
-  const expected = Buffer.from(terminalReadGrant(token, botId));
+  const expected = Buffer.from(grant);
   return received.length === expected.length && timingSafeEqual(received, expected);
+}
+
+function bearerMatches(header, token, botId) {
+  return grantMatches(header, terminalReadGrant(token, botId));
 }
 
 function json(res, status, value) {
@@ -52,8 +63,19 @@ function normalizeTerminalText(text) {
   return text.replace(/\r\n/g, "\r").replace(/\n/g, "\r");
 }
 
+async function handleUpdate(req, res, updater, token, action) {
+  if (!updater) return json(res, 404, { error: "Updater unavailable" });
+  if (!grantMatches(req.headers.authorization, updateGrant(token))) return json(res, 401, { error: "Unauthorized" });
+  if (req.method === "GET" && action === "state") return json(res, 200, updater.state());
+  if (req.method !== "POST" || action === "state") return json(res, 405, { error: "Method not allowed" });
+  // Only a check is awaited; a download outlives the request and install quits the app.
+  const pending = Promise.resolve(updater[action]()).catch(() => {});
+  if (action === "check") await pending;
+  return json(res, 200, updater.state());
+}
+
 /** Private loopback bridge between the Electron terminal host and a scoped MCP proxy. */
-export function createTerminalBridge({ host, token = randomBytes(24).toString("hex"), port = 0 } = {}) {
+export function createTerminalBridge({ host, updater, token = randomBytes(24).toString("hex"), port = 0 } = {}) {
   // oxlint-disable-next-line anti-slop/no-runtime-typeof -- The host is supplied by the Electron main process.
   if (!host || typeof host.readBot !== "function" || typeof host.sendBot !== "function") throw new Error("Terminal host is required");
   let server;
@@ -66,6 +88,8 @@ export function createTerminalBridge({ host, token = randomBytes(24).toString("h
       } catch {
         return json(res, 400, { error: "Invalid terminal request" });
       }
+      const update = parsed.pathname.match(/^\/v1\/update\/(state|check|download|install)$/);
+      if (update) return handleUpdate(req, res, updater, token, update[1]);
       const match = parsed.pathname.match(/^\/v1\/bots\/([a-zA-Z0-9_-]{1,128})\/terminal(?:\/(send|open|attention|close))?$/);
       if (!match || !BOT_ID_RE.test(match[1])) return json(res, 404, { error: "Unknown terminal route" });
       const botId = match[1];

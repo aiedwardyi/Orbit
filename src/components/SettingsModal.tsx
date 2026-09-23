@@ -19,7 +19,7 @@ import {
   showSettingsMoreServices,
 } from "@/lib/settings-chrome";
 import { ApiKeyRow, VpsConnection } from "./ApiKeys";
-import { useManualCheck, useUpdaterState } from "@/lib/updater";
+import { updaterActions, useManualCheck, useUpdaterState } from "@/lib/updater";
 import { EnginesSettings } from "./EnginesSettings";
 import { LocalComputerSection } from "./LocalComputerSection";
 import { ProfileFields } from "./ProfileFields";
@@ -81,14 +81,15 @@ function isMissingUpdateConfig(message?: string): boolean {
 
 export function UpdatesRow() {
   const { t } = useI18n();
-  const s = useUpdaterState();
+  const s = useUpdaterState(true);
   const { acknowledged, check } = useManualCheck(s?.status ?? "idle");
   const [appVersion, setAppVersion] = useState<string | null>(null);
   useEffect(() => {
     void window.ogb?.getAppVersion?.().then(setAppVersion, () => {});
   }, []);
-  if (!window.ogb?.updater) return null;
-  const updater = window.ogb.updater;
+  if (!window.ogb?.updater && !s) return null;
+  const updater = updaterActions();
+  const version = appVersion ?? s?.appVersion;
   const label =
     s?.status === "checking"
       ? t("settings.updates.checking")
@@ -98,23 +99,25 @@ export function UpdatesRow() {
           ? t("settings.updates.downloading", { percent: Math.round(s.percent ?? 0) })
           : s?.status === "downloaded"
             ? t("settings.updates.ready", { version: s.version ?? "" })
-            : s?.status === "error"
-              ? isMissingUpdateConfig(s.message)
-                ? t("settings.updates.unavailable")
-                : t("settings.updates.error", { message: s.message ?? t("settings.updates.unknownError") })
-              : acknowledged
-                ? t("update.upToDate")
-                : t("settings.updates.latest");
+            : s?.status === "installing"
+              ? t("update.restarting")
+              : s?.status === "error"
+                ? isMissingUpdateConfig(s.message)
+                  ? t("settings.updates.unavailable")
+                  : t("settings.updates.error", { message: s.message ?? t("settings.updates.unknownError") })
+                : acknowledged
+                  ? t("update.upToDate")
+                  : t("settings.updates.latest");
   return (
     <Card title={t("settings.updates.title")} subtitle={label}>
       <div className="flex items-center gap-3">
         <button
           onClick={() => {
-            if (s?.status === "available") return void updater.download();
-            if (s?.status === "downloaded") return void updater.install();
+            if (s?.status === "available") return void updater.download().catch(() => {});
+            if (s?.status === "downloaded") return void updater.install().catch(() => {});
             check();
           }}
-          disabled={s?.status === "checking" || s?.status === "downloading"}
+          disabled={s?.status === "checking" || s?.status === "downloading" || s?.status === "installing"}
           className="rounded-lg border border-hairline/40 px-3 py-1.5 text-[13px] text-ink hover:bg-control disabled:opacity-40"
         >
           {s?.status === "available"
@@ -123,7 +126,7 @@ export function UpdatesRow() {
               ? t("settings.updates.restart")
               : t("settings.updates.check")}
         </button>
-        {appVersion ? <span className="text-[12px] text-ink-secondary">v{appVersion}</span> : null}
+        {version ? <span className="text-[12px] text-ink-secondary">v{version}</span> : null}
       </div>
     </Card>
   );

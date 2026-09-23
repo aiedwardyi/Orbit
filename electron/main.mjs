@@ -21,7 +21,7 @@ import { installOrbitMsg, readMailboxSecret } from "./terminal-mailbox.mjs";
 import { createTerminalBridge } from "./terminal-bridge.mjs";
 import { spawnTerminalPty } from "./terminal-pty.mjs";
 import { readTerminalAppearance } from "./terminal-appearance.mjs";
-import { applyPendingUpdateInstall, consumePendingUpdateInstall, registerUpdaterIpc, startUpdater } from "./updater.mjs";
+import { applyPendingUpdateInstall, consumePendingUpdateInstall, onUpdaterState, registerUpdaterIpc, startUpdater, updaterBridge } from "./updater.mjs";
 import { completeQuitAfterCleanup } from "./app-quit.mjs";
 import { installMainCrashLogging } from "./crash-log.mjs";
 import { companionParkedOnDesktop } from "./companion-policy.mjs";
@@ -304,7 +304,7 @@ const terminalHost = createTerminalHost({
     return response.json();
   },
 });
-const terminalBridge = createTerminalBridge({ host: terminalHost });
+const terminalBridge = createTerminalBridge({ host: terminalHost, updater: app.isPackaged ? updaterBridge : undefined });
 let terminalBridgeAccess = null;
 ipcMain.handle("terminal:open", (event, input) => terminalHost.open(event, input));
 ipcMain.handle("terminal:cancel-open", (event, botId) => terminalHost.cancelOpen(event, botId));
@@ -984,6 +984,14 @@ async function syncDevTerminalBridge() {
     slog(`development terminal bridge sync failed: ${error?.message ?? error}`);
   }
 }
+
+onUpdaterState((state) => {
+  try {
+    serverProc?.postMessage({ type: "openmausbot:update-state", state });
+  } catch (error) {
+    slog(`update state sync failed: ${error?.message ?? error}`);
+  }
+});
 
 function syncManagedComposioCredentials() {
   if (!serverProc) return;
