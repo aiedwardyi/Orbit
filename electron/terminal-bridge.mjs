@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 
 const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 const GRANT_PREFIX = "orbit-terminal-read-v1";
+const SEND_GRANT_PREFIX = "orbit-terminal-send-v1";
 const UPDATE_GRANT_PREFIX = "orbit-update-v1";
 const MAX_SEND_BODY = 16 * 1024;
 
@@ -12,6 +13,14 @@ export function terminalReadGrant(token, botId) {
     throw new Error("Invalid terminal read grant");
   }
   return createHmac("sha256", token).update(`${GRANT_PREFIX}:${botId}`).digest("base64url");
+}
+
+export function terminalSendGrant(token, botId) {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Grant inputs cross the Electron/server process boundary.
+  if (typeof token !== "string" || !token || typeof botId !== "string" || !BOT_ID_RE.test(botId)) {
+    throw new Error("Invalid terminal send grant");
+  }
+  return createHmac("sha256", token).update(`${SEND_GRANT_PREFIX}:${botId}`).digest("base64url");
 }
 
 export function updateGrant(token) {
@@ -98,7 +107,8 @@ export function createTerminalBridge({ host, updater, token = randomBytes(24).to
       const match = parsed.pathname.match(/^\/v1\/bots\/([a-zA-Z0-9_-]{1,128})\/terminal(?:\/(send|open|attention|close))?$/);
       if (!match || !BOT_ID_RE.test(match[1])) return json(res, 404, { error: "Unknown terminal route" });
       const botId = match[1];
-      if (!bearerMatches(req.headers.authorization, token, botId)) return json(res, 401, { error: "Unauthorized" });
+      const sendOnly = match[2] === "send" && grantMatches(req.headers.authorization, terminalSendGrant(token, botId));
+      if (!sendOnly && !bearerMatches(req.headers.authorization, token, botId)) return json(res, 401, { error: "Unauthorized" });
       try {
         const sessionId = parsed.searchParams.get("sessionId");
         if (req.method === "GET" && !match[2]) return json(res, 200, host.readBot(botId, sessionId ? { sessionId } : undefined));

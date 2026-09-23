@@ -3,8 +3,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { terminalReadGrant } from "./terminal-grant.ts";
-import { raisePaneAttention, terminalSnapshotResponse } from "./terminal-snapshot.ts";
+import { terminalReadGrant, terminalSendGrant } from "./terminal-grant.ts";
+import { raisePaneAttention, terminalSendResponse, terminalSnapshotResponse } from "./terminal-snapshot.ts";
 import { closeBotPanes } from "./terminal-cleanup.ts";
 
 const ACCESS = { url: "http://127.0.0.1:52150", token: "bridge-secret" };
@@ -140,6 +140,67 @@ describe("terminal snapshot relay", () => {
     expect(route).toContain('json(res, 404, { error: "no such bot" })');
     expect(route).toContain("terminalSnapshotResponse(terminalBridgeAccess, bot.id, url.searchParams.get(\"sessionId\"))");
     expect(remoteAccess).not.toMatch(/BEARER_ONLY_PATHS = new Set\([^)]*\/terminal"/);
+  });
+});
+
+describe("terminal send relay", () => {
+  const input = { sessionId: "s1", generation: 2, text: "ls\n" };
+  const mustNotFetch = (async () => { throw new Error("must not fetch"); }) as typeof fetch;
+
+  it("rejects bad input, oversized text and Ctrl+C before the bridge", async () => {
+    await expect(terminalSendResponse(ACCESS, "bot-1", { sessionId: "s1", text: "ls\n" }, mustNotFetch)).resolves.toMatchObject({ status: 400 });
+    await expect(terminalSendResponse(ACCESS, "bot-1", { ...input, text: "x".repeat(4 * 1024 + 1) }, mustNotFetch)).resolves.toEqual({
+      status: 400,
+      body: { error: "terminal input is capped at 4KB" },
+    });
+    await expect(terminalSendResponse(ACCESS, "bot-1", { ...input, text: "\x03" }, mustNotFetch)).resolves.toEqual({
+      status: 400,
+      body: { error: "Ctrl+C is not allowed" },
+    });
+    await expect(terminalSendResponse(null, "bot-1", input, mustNotFetch)).resolves.toEqual({
+      status: 503,
+      body: { error: "terminal bridge unavailable" },
+    });
+  });
+
+  it("posts with the send grant and relays only the snapshot fields", async () => {
+    const calls: Array<{ url: string; auth: string | null; method: string | undefined; body: unknown }> = [];
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), auth: new Headers(init?.headers).get("authorization"), method: init?.method, body: JSON.parse(String(init?.body)) });
+      return new Response(JSON.stringify({ botId: "bot-1", sessionId: "s1", generation: 2, screenText: "$ ls", seq: 9, modes: [1], panes: [] }));
+    }) as typeof fetch;
+    await expect(terminalSendResponse(ACCESS, "bot-1", { ...input, extra: true }, fetchImpl)).resolves.toEqual({
+      status: 200,
+      body: { sessionId: "s1", generation: 2, screenText: "$ ls", panes: [] },
+    });
+    expect(calls).toEqual([{
+      url: "http://127.0.0.1:52150/v1/bots/bot-1/terminal/send",
+      auth: `Bearer ${terminalSendGrant(ACCESS.token, "bot-1")}`,
+      method: "POST",
+      body: input,
+    }]);
+    expect(terminalSendGrant(ACCESS.token, "bot-1")).not.toBe(terminalReadGrant(ACCESS.token, "bot-1"));
+  });
+
+  it("maps bridge errors", async () => {
+    const reply = (status: number, error?: string) => (async () => new Response(JSON.stringify(error ? { error } : {}), { status })) as typeof fetch;
+    await expect(terminalSendResponse(ACCESS, "bot-1", input, reply(404, "Unknown terminal route"))).resolves.toEqual({ status: 404, body: { error: "Unknown terminal" } });
+    await expect(terminalSendResponse(ACCESS, "bot-1", input, reply(409, "Unknown terminal"))).resolves.toEqual({ status: 404, body: { error: "Unknown terminal" } });
+    await expect(terminalSendResponse(ACCESS, "bot-1", input, reply(409, "Terminal session is stale; take a fresh snapshot"))).resolves.toEqual({
+      status: 409,
+      body: { error: "Terminal session is stale; take a fresh snapshot" },
+    });
+    await expect(terminalSendResponse(ACCESS, "bot-1", input, reply(401))).resolves.toEqual({ status: 502, body: { error: "terminal bridge: HTTP 401" } });
+    const down = (async () => { throw new TypeError("fetch failed"); }) as typeof fetch;
+    await expect(terminalSendResponse(ACCESS, "bot-1", input, down)).resolves.toEqual({ status: 502, body: { error: "terminal bridge unreachable" } });
+  });
+
+  it("routes POST /api/bots/:id/terminal/send through the bot lookup and normal /api auth", () => {
+    const route = server.slice(server.indexOf("/terminal\\/send$/);"), server.indexOf("/terminal\\/send$/);") + 400);
+    expect(route).toContain('method === "POST"');
+    expect(route).toContain('json(res, 404, { error: "no such bot" })');
+    expect(route).toContain("terminalSendResponse(terminalBridgeAccess, bot.id, await readBody(req))");
+    expect(remoteAccess).not.toMatch(/BEARER_ONLY_PATHS = new Set\([^)]*\/terminal\/send"/);
   });
 });
 

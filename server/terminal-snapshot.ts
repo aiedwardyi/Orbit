@@ -1,8 +1,18 @@
-import { terminalReadGrant } from "./terminal-grant.ts";
+import { z } from "zod";
+import { terminalReadGrant, terminalSendGrant } from "./terminal-grant.ts";
 
 export type TerminalBridgeAccess = { url: string; token: string };
 
 const SNAPSHOT_FIELDS = ["screenText", "recentText", "state", "sessionId", "generation", "cwd", "exited", "exitCode", "label", "panes"] as const;
+export const TERMINAL_SEND_MAX_BYTES = 4 * 1024;
+
+const terminalSendSchema = z.object({ sessionId: z.string().min(1), generation: z.number().int(), text: z.string() });
+
+function snapshotBody(snapshot: Record<string, unknown>): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  for (const key of SNAPSHOT_FIELDS) if (snapshot[key] !== undefined) body[key] = snapshot[key];
+  return body;
+}
 
 /** Read-only terminal snapshot for clients without the Electron preload (remote browsers). */
 export async function terminalSnapshotResponse(
@@ -29,10 +39,43 @@ export async function terminalSnapshotResponse(
     }
     return { status: 502, body: { error: `terminal bridge: HTTP ${res.status}` } };
   }
-  const snapshot = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  const body: Record<string, unknown> = {};
-  for (const key of SNAPSHOT_FIELDS) if (snapshot[key] !== undefined) body[key] = snapshot[key];
-  return { status: 200, body };
+  return { status: 200, body: snapshotBody((await res.json().catch(() => ({}))) as Record<string, unknown>) };
+}
+
+/** Sends a line from a remote browser with a send-only grant; answers the post-send snapshot. */
+export async function terminalSendResponse(
+  access: TerminalBridgeAccess | null,
+  botId: string,
+  input: unknown,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const parsed = terminalSendSchema.safeParse(input);
+  if (!parsed.success) return { status: 400, body: { error: "sessionId, generation and text are required" } };
+  if (Buffer.byteLength(parsed.data.text, "utf8") > TERMINAL_SEND_MAX_BYTES) {
+    return { status: 400, body: { error: `terminal input is capped at ${TERMINAL_SEND_MAX_BYTES / 1024}KB` } };
+  }
+  if (parsed.data.text.includes("\x03")) return { status: 400, body: { error: "Ctrl+C is not allowed" } };
+  if (!access) return { status: 503, body: { error: "terminal bridge unavailable" } };
+  let res: Response;
+  try {
+    res = await fetchImpl(`${access.url}/v1/bots/${encodeURIComponent(botId)}/terminal/send`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${terminalSendGrant(access.token, botId)}`, "content-type": "application/json" },
+      body: JSON.stringify(parsed.data),
+      signal: AbortSignal.timeout(5_000),
+    });
+  } catch {
+    return { status: 502, body: { error: "terminal bridge unreachable" } };
+  }
+  if (!res.ok) {
+    const errorBody = (await res.json().catch(() => ({}))) as { error?: string };
+    if (res.status === 404 || /unknown terminal/i.test(errorBody.error ?? "")) {
+      return { status: 404, body: { error: "Unknown terminal" } };
+    }
+    if (res.status === 409) return { status: 409, body: { error: errorBody.error ?? "Terminal session is stale" } };
+    return { status: 502, body: { error: `terminal bridge: HTTP ${res.status}` } };
+  }
+  return { status: 200, body: snapshotBody((await res.json().catch(() => ({}))) as Record<string, unknown>) };
 }
 
 /** A pane's terminal label, if the desktop bridge knows one. */

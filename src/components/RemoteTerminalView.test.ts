@@ -34,6 +34,12 @@ async function renderView(visible = true) {
 
 const button = (host: HTMLElement, label: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
 const click = (target: Element) => target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+const composer = (host: HTMLElement) => host.querySelector<HTMLInputElement>('input[aria-label="Type a command"]');
+
+function typeLine(input: HTMLInputElement, value: string) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
 
 describe("RemoteTerminalView", () => {
   it("renders the screen then recent text with the cwd", async () => {
@@ -305,6 +311,104 @@ describe("RemoteTerminalView", () => {
     await act(async () => {});
     expect(store.api).toHaveBeenLastCalledWith("/api/bots/bot-1/terminal");
     await act(async () => root.unmount());
+  });
+
+  it("sends a line with a trailing newline and replaces the snapshot", async () => {
+    store.api.mockImplementation(async (path: string) =>
+      path.endsWith("/send") ? { screenText: "$ ls\nREADME.md", sessionId: "s1", generation: 2 } : { screenText: "$", sessionId: "s1", generation: 2 });
+    const { host, root } = await renderView();
+    try {
+      const input = composer(host)!;
+      input.focus();
+      await act(async () => typeLine(input, "ls"));
+      await act(async () => click(button(host, "Send")));
+      expect(store.api).toHaveBeenLastCalledWith("/api/bots/bot-1/terminal/send", {
+        method: "POST",
+        body: JSON.stringify({ sessionId: "s1", generation: 2, text: "ls\n" }),
+      });
+      expect(host.querySelector("pre")?.textContent).toBe("$ ls\nREADME.md");
+      expect(input.value).toBe("");
+      expect(document.activeElement).toBe(input);
+      expect(input.autofocus).toBe(false);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("refreshes and retries once on a stale generation", async () => {
+    const sends: unknown[] = [];
+    let generation = 2;
+    store.api.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (!path.endsWith("/send")) return { screenText: "$", sessionId: "s1", generation };
+      const body = JSON.parse(String(init?.body));
+      sends.push(body);
+      if (body.generation !== 3) {
+        generation = 3;
+        throw new Error("Terminal session is stale; take a fresh snapshot");
+      }
+      return { screenText: "$ pwd", sessionId: "s1", generation: 3 };
+    });
+    const { host, root } = await renderView();
+    try {
+      await act(async () => typeLine(composer(host)!, "pwd"));
+      await act(async () => composer(host)!.form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+      expect(sends).toEqual([
+        { sessionId: "s1", generation: 2, text: "pwd\n" },
+        { sessionId: "s1", generation: 3, text: "pwd\n" },
+      ]);
+      expect(store.api).toHaveBeenCalledWith("/api/bots/bot-1/terminal?sessionId=s1");
+      expect(host.querySelector("pre")?.textContent).toBe("$ pwd");
+      expect(composer(host)!.value).toBe("");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("shows the error and keeps the line after a second stale generation", async () => {
+    store.api.mockImplementation(async (path: string) => {
+      if (path.endsWith("/send")) throw new Error("Terminal session is stale; take a fresh snapshot");
+      return { screenText: "$", sessionId: "s1", generation: 2 };
+    });
+    const { host, root } = await renderView();
+    try {
+      await act(async () => typeLine(composer(host)!, "pwd"));
+      await act(async () => click(button(host, "Send")));
+      expect(store.api.mock.calls.filter(([path]) => String(path).endsWith("/send"))).toHaveLength(2);
+      expect(host.querySelector('[role="status"]')?.textContent).toBe("Not sent: Terminal session is stale; take a fresh snapshot");
+      expect(host.querySelector('[role="alert"]')).toBeNull();
+      expect(composer(host)!.value).toBe("pwd");
+      expect(button(host, "Send").disabled).toBe(false);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("disables Send while a line is in flight", async () => {
+    let resolve!: (value: { screenText: string; sessionId: string; generation: number }) => void;
+    const pending = new Promise<{ screenText: string; sessionId: string; generation: number }>((done) => { resolve = done; });
+    store.api.mockImplementation(async (path: string) => (path.endsWith("/send") ? pending : { screenText: "$", sessionId: "s1", generation: 2 }));
+    const { host, root } = await renderView();
+    try {
+      await act(async () => click(button(host, "Send")));
+      expect(button(host, "Send").disabled).toBe(true);
+      await act(async () => click(button(host, "Send")));
+      expect(store.api.mock.calls.filter(([path]) => String(path).endsWith("/send"))).toHaveLength(1);
+      await act(async () => resolve({ screenText: "$ ", sessionId: "s1", generation: 2 }));
+      expect(button(host, "Send").disabled).toBe(false);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("hides the composer with no terminal or an exited pane", async () => {
+    store.api.mockResolvedValue({ state: "no-terminal", screenText: "", recentText: "" });
+    const first = await renderView();
+    expect(composer(first.host)).toBeNull();
+    await act(async () => first.root.unmount());
+    store.api.mockResolvedValue({ screenText: "bye", sessionId: "s1", generation: 2, exited: true, exitCode: 0 });
+    const second = await renderView();
+    expect(composer(second.host)).toBeNull();
+    await act(async () => second.root.unmount());
   });
 
   it("joins only the parts that have text", () => {

@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { subscribe, unsubscribe } from "node:diagnostics_channel";
 import os from "node:os";
-import { createTerminalBridge, terminalReadGrant, updateGrant } from "./terminal-bridge.mjs";
+import { createTerminalBridge, terminalReadGrant, terminalSendGrant, updateGrant } from "./terminal-bridge.mjs";
 import { createTerminalHost } from "./terminal-host.mjs";
 import { closeBotPanes } from "../server/terminal-cleanup.ts";
-import { updateGrant as serverUpdateGrant } from "../server/terminal-grant.ts";
+import { terminalSendGrant as serverTerminalSendGrant, updateGrant as serverUpdateGrant } from "../server/terminal-grant.ts";
 
 test("requires the private bearer and scopes reads to the requested bot", async () => {
   const calls = [];
@@ -99,6 +99,30 @@ test("rejects oversized and malformed send bodies before the host", async () => 
   assert.equal(crossBot.status, 401);
   assert.deepEqual(calls, []);
   await bridge.close();
+});
+
+test("accepts the send grant on the send route only", async () => {
+  const { bridge, calls } = sendFixture();
+  const connection = await bridge.start();
+  const auth = { authorization: `Bearer ${terminalSendGrant(connection.token, "bot-1")}`, "content-type": "application/json" };
+  const body = JSON.stringify({ sessionId: "s1", generation: 2, text: "ls\n" });
+  const sent = await fetch(`${connection.url}/v1/bots/bot-1/terminal/send`, { method: "POST", headers: auth, body });
+  assert.equal(sent.status, 200);
+  assert.equal((await sent.json()).screenText, "echo exact");
+  assert.deepEqual(calls, [["bot-1", { sessionId: "s1", generation: 2, text: "ls\r" }]]);
+  assert.equal((await fetch(`${connection.url}/v1/bots/bot-2/terminal/send`, { method: "POST", headers: auth, body })).status, 401);
+  assert.equal((await fetch(`${connection.url}/v1/bots/bot-1/terminal`, { headers: auth })).status, 401);
+  assert.equal((await fetch(`${connection.url}/v1/bots/bot-1/terminal`, { method: "DELETE", headers: auth })).status, 401);
+  for (const route of ["open", "attention", "close"]) {
+    assert.equal((await fetch(`${connection.url}/v1/bots/bot-1/terminal/${route}`, { method: "POST", headers: auth, body: "{}" })).status, 401);
+  }
+  assert.equal(calls.length, 1);
+  await bridge.close();
+});
+
+test("send grant matches the server's", () => {
+  assert.equal(terminalSendGrant("bridge-secret", "bot-1"), serverTerminalSendGrant("bridge-secret", "bot-1"));
+  assert.notEqual(terminalSendGrant("bridge-secret", "bot-1"), terminalReadGrant("bridge-secret", "bot-1"));
 });
 
 test("opens a pane only for the grant's own bot", async () => {

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Copy, RotateCcw, TerminalSquare, X } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { Check, Copy, CornerDownLeft, RotateCcw, TerminalSquare, X } from "lucide-react";
 import type { Bot } from "@/state/store";
 import { api } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
@@ -50,8 +50,13 @@ export function RemoteTerminalView({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [selectedPane, setSelectedPane] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const requestRef = useRef(0);
   const appliedRequestRef = useRef(0);
+  const outputRef = useRef<HTMLPreElement>(null);
+  const pinnedRef = useRef(true);
 
   const panes = snapshot?.panes ?? [];
   const mainPane = panes.find((pane) => pane.main);
@@ -109,6 +114,53 @@ export function RemoteTerminalView({
 
   const noTerminal = snapshot?.state === "no-terminal";
   const text = snapshot && !noTerminal ? snapshotText(snapshot) : "";
+  const canType = !!snapshot?.sessionId && snapshot.generation !== undefined && !noTerminal && !snapshot.exited;
+
+  useLayoutEffect(() => {
+    const el = outputRef.current;
+    if (el && pinnedRef.current) el.scrollTop = el.scrollHeight;
+  }, [text]);
+
+  useEffect(() => {
+    const el = outputRef.current;
+    if (!el) return;
+    // the phone keyboard shrinks the output; keep the prompt line in view
+    const observer = new ResizeObserver(() => {
+      if (pinnedRef.current) el.scrollTop = el.scrollHeight;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [noTerminal]);
+
+  const send = async (event: FormEvent) => {
+    event.preventDefault();
+    if (sending || !snapshot?.sessionId || snapshot.generation === undefined) return;
+    const path = `/api/bots/${encodeURIComponent(bot.id)}/terminal`;
+    const post = (target: RemoteTerminalSnapshot): Promise<RemoteTerminalSnapshot> =>
+      api(`${path}/send`, { method: "POST", body: JSON.stringify({ sessionId: target.sessionId, generation: target.generation, text: `${draft}\n` }) });
+    setSending(true);
+    setSendError(null);
+    try {
+      let next: RemoteTerminalSnapshot;
+      try {
+        next = await post(snapshot);
+      } catch (cause) {
+        if (!(cause instanceof Error && /stale/i.test(cause.message))) throw cause;
+        const fresh: RemoteTerminalSnapshot = await api(`${path}?sessionId=${encodeURIComponent(snapshot.sessionId)}`);
+        appliedRequestRef.current = ++requestRef.current;
+        setSnapshot(fresh);
+        next = await post(fresh);
+      }
+      appliedRequestRef.current = ++requestRef.current;
+      pinnedRef.current = true;
+      setSnapshot(next);
+      setDraft("");
+    } catch (cause) {
+      setSendError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSending(false);
+    }
+  };
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(text);
@@ -164,7 +216,44 @@ export function RemoteTerminalView({
       {noTerminal ? (
         <p className="flex flex-1 items-center justify-center p-6 text-center text-[13px] text-ink-secondary">{t("terminal.noSession")}</p>
       ) : (
-        <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-[12px] leading-relaxed select-text">{text}</pre>
+        <pre
+          ref={outputRef}
+          onScroll={(event) => {
+            const el = event.currentTarget;
+            pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
+          }}
+          className="min-h-0 flex-1 overflow-auto overscroll-contain whitespace-pre-wrap break-words p-4 font-mono text-[12px] leading-relaxed select-text"
+        >
+          {text}
+        </pre>
+      )}
+      {canType && (
+        <form onSubmit={(event) => void send(event)} aria-busy={sending} className="shrink-0 border-t border-hairline bg-panel px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          <div className="flex items-center gap-2">
+            <input
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder={t("terminal.inputPlaceholder")}
+              aria-label={t("terminal.inputPlaceholder")}
+              enterKeyHint="send"
+              autoCapitalize="off"
+              autoCorrect="off"
+              autoComplete="off"
+              spellCheck={false}
+              className="min-h-11 min-w-0 flex-1 rounded-full border border-hairline bg-inset px-4 font-mono text-[16px] text-ink placeholder:font-sans placeholder:text-ink-secondary focus:border-accent-text focus:outline-none"
+            />
+            <button
+              type="submit"
+              disabled={sending}
+              aria-label={t("terminal.send")}
+              onMouseDown={(event) => event.preventDefault()}
+              className="flex size-11 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink hover:brightness-110 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text disabled:opacity-50"
+            >
+              <CornerDownLeft size={18} />
+            </button>
+          </div>
+          {sendError && <p role="status" className="truncate px-4 pt-1.5 text-[12px] text-ink-secondary">{t("terminal.sendFailed")}: {sendError}</p>}
+        </form>
       )}
     </main>
   );
