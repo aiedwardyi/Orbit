@@ -126,12 +126,12 @@ export function threadSyncDir(folder: string, botSyncId: string): string {
 
 const readCache = new Map<string, { mtimeMs: number; size: number; file: SyncedThreadFile | null }>();
 
-/** Cached by mtime and size; callers must not mutate the result. */
-export function readSyncedThread(path: string): SyncedThreadFile | null {
+/** Cached by mtime and size unless `fresh`; callers must not mutate the result. */
+export function readSyncedThread(path: string, fresh = false): SyncedThreadFile | null {
   try {
     const { mtimeMs, size } = statSync(path);
     const cached = readCache.get(path);
-    if (cached && cached.mtimeMs === mtimeMs && cached.size === size) return cached.file;
+    if (!fresh && cached && cached.mtimeMs === mtimeMs && cached.size === size) return cached.file;
     const parsed = fileSchema.safeParse(JSON.parse(readFileSync(path, "utf8")));
     const file = parsed.success ? parsed.data as SyncedThreadFile : null;
     readCache.set(path, { mtimeMs, size, file });
@@ -152,15 +152,28 @@ function isForeign(entry: ThreadSyncEntry | undefined, remote: SyncedThreadFile)
 /** A turn is live or starting on THIS thread; a bot busy elsewhere must not block its other threads. */
 export function threadTurnRunning(
   threadId: string,
-  turn: { live: boolean; starting: boolean; busy: boolean; activeThreadId: string | undefined },
+  turn: { live: boolean; startingThreadId: string | undefined; busy: boolean; activeThreadId: string | undefined },
 ): boolean {
-  return turn.live || ((turn.starting || turn.busy) && turn.activeThreadId === threadId);
+  return turn.live || turn.startingThreadId === threadId || (turn.busy && turn.activeThreadId === threadId);
 }
 
 function isDirty(host: ThreadSyncHost, threadId: string, local: LocalThread | null): boolean {
   const entry = host.ledger[threadId];
   if (!local) return false;
   return entry ? entry.dirty : local.messages.length > 0;
+}
+
+/** Every local message is in the remote or a parked conflict copy; a higher revision alone does not prove ancestry. */
+function preserved(dir: string, threadId: string, local: LocalThread, remote: SyncedThreadFile): boolean {
+  const remoteIds = new Set(remote.messages.map((message) => message.id));
+  let missing = local.messages.filter((message) => !remoteIds.has(message.id));
+  for (const name of missing.length ? readdirSync(dir) : []) {
+    if (!name.startsWith(`${threadId}.conflict-`)) continue;
+    const parked = new Set(readSyncedThread(join(dir, name))?.messages.map((message) => message.id));
+    missing = missing.filter((message) => !parked.has(message.id));
+    if (!missing.length) break;
+  }
+  return !missing.length;
 }
 
 function toFile(host: ThreadSyncHost, threadId: string, local: LocalThread, revision: number): SyncedThreadFile {
@@ -204,7 +217,7 @@ export function uploadThread(host: ThreadSyncHost, botSyncId: string, threadId: 
   const dir = threadSyncDir(host.folder, botSyncId);
   const path = join(dir, `${threadId}.json`);
   const exists = existsSync(path);
-  const remote = exists ? readSyncedThread(path) : null;
+  const remote = exists ? readSyncedThread(path, true) : null;
   // a half-synced Drive file reads as garbage; retry later rather than clobber it
   if (exists && !remote) return "skipped";
   if (remote && isForeign(host.ledger[threadId], remote)) return keepConflict(host, dir, threadId, remote);
@@ -227,7 +240,9 @@ export function pullThread(host: ThreadSyncHost, botId: string, botSyncId: strin
   const local = host.local(threadId);
   // an equal revision here is a sibling of our own copy, so even a clean thread holds unsynced messages
   const diverged = remote.revision === entry?.syncedRevision;
-  if (local && (diverged || isDirty(host, threadId, local))) return keepConflict(host, dir, threadId, remote);
+  if (local && (diverged || isDirty(host, threadId, local) || !preserved(dir, threadId, local, remote))) {
+    return keepConflict(host, dir, threadId, remote);
+  }
   host.adopt(botId, structuredClone(remote));
   host.ledger[threadId] = { syncedRevision: remote.revision, syncedWriter: remote.writerDeviceId, dirty: false };
   host.saveLedger();

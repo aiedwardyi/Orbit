@@ -261,6 +261,66 @@ describe("thread sync", () => {
     expect(pullThread(legacy.a.host, "bot-a", BOT_SYNC_ID, "t1")).toBe("current");
   });
 
+  it("keeps local messages a higher remote revision never saw", () => {
+    const folder = temp("thread-sync-folder-");
+    const a = pc("device-a", folder);
+    const b = pc("device-b", folder);
+    const path = remotePath(folder, "t1");
+    a.say("t1", "m1", "hello");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1");
+    const rev1 = readFileSync(path, "utf8");
+    a.say("t1", "onlyA", "offline on a");
+    expect(uploadThread(a.host, BOT_SYNC_ID, "t1")).toBe("written");
+    writeFileSync(path, rev1);
+    b.say("t1", "b2", "from b");
+    expect(uploadThread(b.host, BOT_SYNC_ID, "t1")).toBe("written");
+    b.say("t1", "b3", "b again");
+    expect(uploadThread(b.host, BOT_SYNC_ID, "t1")).toBe("written");
+
+    expect(pullThread(a.host, "bot-a", BOT_SYNC_ID, "t1")).toBe("conflict");
+    expect(a.threads.get("t1")?.messages.map((m) => m.id)).toEqual(["m1", "onlyA"]);
+    expect(conflictMessages(folder, "device-b")).toEqual([["m1", "b2", "b3"]]);
+    // b's copy is parked on Drive, so b adopts instead of conflicting back
+    expect(uploadThread(a.host, BOT_SYNC_ID, "t1")).toBe("written");
+    expect(pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1")).toBe("imported");
+    expect(b.threads.get("t1")?.messages.map((m) => m.id)).toEqual(["m1", "onlyA"]);
+    expect(b.notices).toEqual([]);
+  });
+
+  it("keeps a committed message whose dirty flag never saved", () => {
+    const folder = temp("thread-sync-folder-");
+    const a = pc("device-a", folder);
+    const b = pc("device-b", folder);
+    a.say("t1", "m1", "hello");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1");
+    b.threads.get("t1")!.messages.push(msg("m2", "crashed before dirty", "m1"));
+    a.say("t1", "m3", "from a");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+
+    expect(pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1")).toBe("conflict");
+    expect(b.threads.get("t1")?.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
+    expect(conflictMessages(folder, "device-a")).toEqual([["m1", "m3"]]);
+  });
+
+  it("archives a changed remote on upload even when size and mtime match the cache", () => {
+    const folder = temp("thread-sync-folder-");
+    const a = pc("device-a", folder);
+    const path = remotePath(folder, "t1");
+    a.say("t1", "m1", "hello");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    const stamp = 1_700_000_000;
+    utimesSync(path, stamp, stamp);
+    expect(readSyncedThread(path)).toMatchObject({ revision: 1, writerDeviceId: "device-a" });
+    writeFileSync(path, readFileSync(path, "utf8").replace('"revision":1', '"revision":2').replace("device-a", "device-b"));
+    utimesSync(path, stamp, stamp);
+
+    a.say("t1", "m2", "more");
+    expect(uploadThread(a.host, BOT_SYNC_ID, "t1")).toBe("conflict");
+    expect(conflictMessages(folder, "device-b")).toEqual([["m1"]]);
+  });
+
   it("keeps the valid ledger entries when one is malformed", () => {
     const dataDir = temp("thread-sync-ledger-");
     writeFileSync(join(dataDir, "thread-sync.json"), JSON.stringify({
@@ -288,17 +348,22 @@ describe("thread sync", () => {
     writeFileSync(path, readFileSync(path, "utf8").replace("Plan trip", "Plan TRIP"));
     utimesSync(path, stamp, stamp);
     expect(readSyncedThread(path)?.task.title).toBe("Plan trip");
+    expect(readSyncedThread(path, true)?.task.title).toBe("Plan TRIP");
 
+    writeFileSync(path, readFileSync(path, "utf8").replace("Plan TRIP", "Plan TRIp"));
     utimesSync(path, stamp, stamp + 5);
-    expect(readSyncedThread(path)?.task.title).toBe("Plan TRIP");
+    expect(readSyncedThread(path)?.task.title).toBe("Plan TRIp");
   });
 
   it("counts a turn as running only on its own thread", () => {
-    const idle = { live: false, starting: false, busy: false, activeThreadId: "t1" };
+    const idle = { live: false, startingThreadId: undefined, busy: false, activeThreadId: "t1" };
     expect(threadTurnRunning("t2", { ...idle, busy: true })).toBe(false);
-    expect(threadTurnRunning("t2", { ...idle, starting: true })).toBe(false);
+    expect(threadTurnRunning("t2", { ...idle, startingThreadId: "t1" })).toBe(false);
     expect(threadTurnRunning("t1", { ...idle, busy: true })).toBe(true);
-    expect(threadTurnRunning("t1", { ...idle, starting: true })).toBe(true);
+    expect(threadTurnRunning("t1", { ...idle, startingThreadId: "t1" })).toBe(true);
+    // a claimed start on a background thread, before activeThreadId moves to it
+    expect(threadTurnRunning("t2", { ...idle, startingThreadId: "t2" })).toBe(true);
+    expect(threadTurnRunning("t1", { ...idle, startingThreadId: "t2" })).toBe(false);
     expect(threadTurnRunning("t2", { ...idle, live: true })).toBe(true);
     expect(threadTurnRunning("t1", idle)).toBe(false);
   });

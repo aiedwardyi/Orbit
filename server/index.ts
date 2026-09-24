@@ -1624,9 +1624,8 @@ function threadSyncHost(folder: string): ThreadSyncHost {
       const bot = store.botByThread(threadId);
       return threadTurnRunning(threadId, {
         live: threadHasLiveTurn(threadId),
-        starting: Boolean(bot && turnStartClaims.has(bot.id)),
+        startingThreadId: bot ? turnStartClaims.get(bot.id) : undefined,
         busy: Boolean(bot?.busy),
-        // a claim is taken before activeThreadId is set, and most starts land on bot.threadId
         activeThreadId: bot ? bot.activeThreadId ?? bot.threadId : undefined,
       });
     },
@@ -3385,7 +3384,8 @@ type StartTurnOptions = {
 const CORPUS_SEARCH_INSTRUCTIONS =
   " When you search a corpus, a document set, or any body of files, match case-insensitively. Scanned and OCR'd records are routinely written in capitals, so a case-sensitive query misses text that is plainly there. Before concluding that something is absent, try at least one different search strategy or tool class: an empty result is evidence about your query first and about the corpus second. Never state an unqualified absence. If you still report not finding something, say what you searched and how you searched it, so the user can tell a true negative from an unlucky query.";
 
-const turnStartClaims = new Set<string>();
+/** Bot id to the thread its claimed start targets; activeThreadId is only set after preparation. */
+const turnStartClaims = new Map<string, string | undefined>();
 
 /** A driver still owns this thread's turn, so its sendTurn would throw.
  * Stop clears `busy` and the turn-start claim synchronously, but the driver
@@ -3421,9 +3421,9 @@ function botHasLiveTurn(botId: string, threadId?: string): boolean {
   return false;
 }
 
-function tryClaimTurnStart(botId: string): boolean {
+function tryClaimTurnStart(botId: string, threadId: string | undefined): boolean {
   if (turnStartClaims.has(botId)) return false;
-  turnStartClaims.add(botId);
+  turnStartClaims.set(botId, threadId);
   return true;
 }
 
@@ -3443,7 +3443,7 @@ const busyRejection = (message: string) => Object.assign(new Error(message), { s
 const isBusyRejection = (error: unknown) => (error as { code?: unknown } | null)?.code === BOT_BUSY;
 
 async function startTurn(botId: string, text: string, opts?: StartTurnOptions) {
-  if (!tryClaimTurnStart(botId)) {
+  if (!tryClaimTurnStart(botId, opts?.threadId ?? store.bot(botId)?.threadId)) {
     throw busyRejection("the bot is already working - interrupt it first");
   }
   try {
@@ -4665,7 +4665,7 @@ async function runGroupMemberTurn(
     ? group.threadId === threadId
     : Boolean(group && store.groupTaskByThread(group.id, threadId));
   if (!group || !bot || !ownsThread) return false;
-  if (botHasActiveTurn(botId, threadId) || !tryClaimTurnStart(botId)) {
+  if (botHasActiveTurn(botId, threadId) || !tryClaimTurnStart(botId, threadId)) {
     return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError, instructionId);
   }
   let claimHeld = true;
