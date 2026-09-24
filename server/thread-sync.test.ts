@@ -507,6 +507,22 @@ describe("thread sync", () => {
     expect(uploadThread(b.host, BOT_SYNC_ID, "t1")).toBe("skipped");
     expect(readFileSync(join(dir, "t1.json"), "utf8")).toBe("{not json");
   });
+
+  it("warns again when a removed file comes back broken", () => {
+    const path = join(temp("thread-sync-folder-"), "t1.json");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    writeFileSync(path, "{not json");
+    readSyncedThread(path);
+    readSyncedThread(path);
+    rmSync(path);
+    readSyncedThread(path);
+    writeFileSync(path, "{still not json");
+    readSyncedThread(path, true);
+    expect(warn.mock.calls.map(([line]) => line)).toEqual([
+      `chat sync: cannot read ${path} (EPARSE)`,
+      `chat sync: cannot read ${path} (EPARSE)`,
+    ]);
+  });
 });
 
 describe("thread sync poll", () => {
@@ -558,6 +574,24 @@ describe("thread sync poll", () => {
     vi.advanceTimersByTime(THREAD_SYNC_POLL_MS);
     expect(b.threads.get("t1")?.messages.map((m) => m.text)).toEqual(["hello"]);
     expect(log).toHaveBeenCalledTimes(1);
+    sync.stop();
+  });
+
+  it("logs a lost thread dir once until it comes back", () => {
+    const { a, sync, log } = poll();
+    a.say("t1", "m1", "hello");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    sync.start();
+    log.mockClear();
+    const dir = threadSyncDir(a.host.folder, BOT_SYNC_ID);
+    rmSync(dir, { recursive: true });
+    vi.advanceTimersByTime(THREAD_SYNC_POLL_MS * 2);
+    expect(log.mock.calls).toEqual([[`chat sync: ${BOT_SYNC_ID} no thread dir (ENOENT)`]]);
+    mkdirSync(dir, { recursive: true });
+    vi.advanceTimersByTime(THREAD_SYNC_POLL_MS);
+    rmSync(dir, { recursive: true });
+    vi.advanceTimersByTime(THREAD_SYNC_POLL_MS);
+    expect(log).toHaveBeenCalledTimes(2);
     sync.stop();
   });
 

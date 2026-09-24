@@ -129,7 +129,11 @@ const unreadable = new Set<string>();
 
 // a Drive placeholder or half-synced file fails every retry; one line per failure streak, none for a thread never uploaded
 function warnUnreadable(path: string, code: string): void {
-  if (code === "ENOENT" || unreadable.has(path)) return;
+  if (code === "ENOENT") {
+    unreadable.delete(path);
+    return;
+  }
+  if (unreadable.has(path)) return;
   unreadable.add(path);
   console.warn(`chat sync: cannot read ${path} (${code})`);
 }
@@ -304,16 +308,25 @@ export interface ThreadSyncTargets {
 type FileStat = { mtimeMs: number; size: number };
 
 /** Pulls files whose size or mtime moved since `seen`; a skipped or running file stays unrecorded so the next scan retries it. */
-function scanBotThreads(host: ThreadSyncHost, botId: string, botSyncId: string, seen: Map<string, FileStat>, full: boolean): void {
+function scanBotThreads(
+  host: ThreadSyncHost,
+  botId: string,
+  botSyncId: string,
+  seen: Map<string, FileStat>,
+  missing: Set<string>,
+  full: boolean,
+): void {
   let dir: string;
   let names: string[];
   try {
     dir = threadSyncDir(host.folder, botSyncId);
     names = readdirSync(dir);
   } catch (error) {
-    if (full) console.log(`chat sync: ${botSyncId} no thread dir (${errorCode(error)})`);
+    if (full || !missing.has(botSyncId)) console.log(`chat sync: ${botSyncId} no thread dir (${errorCode(error)})`);
+    missing.add(botSyncId);
     return;
   }
+  missing.delete(botSyncId);
   const counts = { imported: 0, current: 0, conflict: 0 };
   const skipped: string[] = [];
   for (const name of names.sort()) {
@@ -352,10 +365,11 @@ function scanBotThreads(host: ThreadSyncHost, botId: string, botSyncId: string, 
 /** Rescans Drive while chat sync is on; `start` runs a full, logged scan first. */
 export function createThreadSyncPoll(targets: () => ThreadSyncTargets | null, intervalMs = THREAD_SYNC_POLL_MS) {
   const seen = new Map<string, FileStat>();
+  const missing = new Set<string>();
   let timer: ReturnType<typeof setInterval> | undefined;
   const scan = (full: boolean) => {
     const target = targets();
-    for (const bot of target?.bots ?? []) scanBotThreads(target!.host, bot.botId, bot.botSyncId, seen, full);
+    for (const bot of target?.bots ?? []) scanBotThreads(target!.host, bot.botId, bot.botSyncId, seen, missing, full);
   };
   return {
     start(): void {

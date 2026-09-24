@@ -6626,6 +6626,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         profileSyncSettings.folder = folder;
         profileSyncLastConflictCount = 0;
         profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
+        syncAllThreads();
         return json(res, 200, profileSyncStatus());
       } catch (error) {
         return json(res, 400, { error: error instanceof Error ? error.message : String(error) });

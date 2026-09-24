@@ -118,6 +118,32 @@ describe("RemoteTerminalView", () => {
     await act(async () => root.unmount());
   });
 
+  it("stops spinning after 5s when the refresh hangs", async () => {
+    vi.useFakeTimers();
+    store.api.mockResolvedValueOnce({ screenText: "one" }).mockReturnValue(new Promise(() => {}));
+    const { host, root } = await renderView();
+    try {
+      await act(async () => click(button(host, "Refresh")));
+      await act(async () => vi.advanceTimersByTime(4_900));
+      expect(button(host, "Refresh").disabled).toBe(true);
+      await act(async () => vi.advanceTimersByTime(100));
+      expect(button(host, "Refresh").disabled).toBe(false);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("scrolls to the bottom on refresh even when the text is unchanged", async () => {
+    store.api.mockResolvedValue({ screenText: "one" });
+    const { host, root } = await renderView();
+    const pre = host.querySelector("pre")!;
+    Object.defineProperty(pre, "scrollHeight", { configurable: true, value: 800 });
+    pre.scrollTop = 0;
+    await act(async () => click(button(host, "Refresh")));
+    expect(pre.scrollTop).toBe(800);
+    await act(async () => root.unmount());
+  });
+
   it("polls every 1s only while visible", async () => {
     vi.useFakeTimers();
     store.api.mockResolvedValue({ screenText: "one" });

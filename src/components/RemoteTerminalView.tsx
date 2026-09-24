@@ -29,6 +29,7 @@ type RemoteTerminalSnapshot = {
 
 const REFRESH_MS = 1_000;
 const SPIN_MS = 500;
+const REFRESH_TIMEOUT_MS = 5_000;
 const SEND_MAY_HAVE_RUN = "Send may have run. Check the screen before resending.";
 
 // A dropped fetch, a timeout or a bridge 5xx can fail a send the pty already ran.
@@ -124,8 +125,10 @@ export function RemoteTerminalView({
     setRefreshing(true);
     setError(null);
     pinnedRef.current = true;
+    if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
     const spin = new Promise<void>((done) => window.setTimeout(done, SPIN_MS));
-    await refresh();
+    // api() has no timeout, so a dropped connection would pin the spinner until TCP gives up
+    await Promise.race([refresh(), new Promise<void>((done) => window.setTimeout(done, REFRESH_TIMEOUT_MS))]);
     await spin;
     setRefreshing(false);
   }, [refresh]);
