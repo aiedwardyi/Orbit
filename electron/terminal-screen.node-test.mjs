@@ -104,3 +104,24 @@ test("truncation keeps screenRuns aligned with screenText", () => {
   assert.deepEqual(snapshot.screenRuns.map((row) => row.map((run) => run.t).join("")), lines);
   assert.deepEqual(snapshot.screenRuns[0], [{ t: "o22", fg: 2 }]);
 });
+
+test("consumes SGR 58 underline color and ignores 59", () => {
+  const screen = createTerminalScreen({ cols: 10, rows: 1 });
+  screen.consume("\x1b[58;5;31ma\x1b[58;2;41;42;43;4mb\x1b[59;32mc\x1b[58:2::1:2:3md");
+  assert.deepEqual(runs(screen), [{ t: "a" }, { t: "b", u: 1 }, { t: "cd", fg: 2, u: 1 }]);
+});
+
+test("reads colon sub-params as one group", () => {
+  const screen = createTerminalScreen({ cols: 10, rows: 1 });
+  screen.consume("\x1b[38:2::255:0:16ma\x1b[4:3mb\x1b[4:0;48:5:9mc");
+  assert.deepEqual(runs(screen), [{ t: "a", fg: "#ff0010" }, { t: "b", fg: "#ff0010", u: 1 }, { t: "c", fg: "#ff0010", bg: 9 }]);
+});
+
+test("omits screenRuns past the run cap but keeps screenText", () => {
+  const screen = createTerminalScreen({ cols: 10, rows: 2 });
+  screen.consume("\x1b[31ma\x1b[32mb\x1b[33mc\r\n\x1b[34md");
+  assert.equal(screen.snapshot({ maxScreenRuns: 4 }).screenRuns.length, 2);
+  const capped = screen.snapshot({ maxScreenRuns: 3 });
+  assert.equal(capped.screenRuns, undefined);
+  assert.equal(capped.screenText, "abc\nd");
+});

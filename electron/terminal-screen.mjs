@@ -3,6 +3,7 @@ const DEFAULT_ROWS = 24;
 const MAX_ROWS = 300;
 const MAX_COLS = 500;
 const MAX_CELL_TEXT = 256;
+const MAX_SCREEN_RUNS = 4000;
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -26,17 +27,25 @@ function hexColor(r, g, b) {
   return `#${[r, g, b].map((value) => clamp(value ?? 0, 0, 255).toString(16).padStart(2, "0")).join("")}`;
 }
 
+// Colon groups may carry a colorspace id before r:g:b (38:2::r:g:b).
+function sgrColor(sub, colon) {
+  if (sub[0] === 5 && sub.length > 1) return { color: clamp(sub[1], 0, 255), used: 2 };
+  if (sub[0] === 2 && sub.length > 3) return { color: hexColor(...(colon && sub.length > 4 ? sub.slice(2) : sub.slice(1))), used: 4 };
+  return null;
+}
+
 // Pens are replaced, never mutated, so cells share them by reference.
-function applySgr(pen, values) {
-  const params = values.length ? values : [0];
+function applySgr(pen, groups) {
+  const params = groups.length ? groups.map((group) => group[0]) : [0];
   const next = { ...pen };
   for (let i = 0; i < params.length; i += 1) {
     const p = params[i];
+    const sub = groups[i]?.slice(1) ?? [];
     if (p === 0) for (const key of Object.keys(next)) delete next[key];
     else if (p === 1) next.b = 1;
     else if (p === 2) next.d = 1;
     else if (p === 3) next.i = 1;
-    else if (p === 4) next.u = 1;
+    else if (p === 4) { if (sub[0] === 0) delete next.u; else next.u = 1; }
     else if (p === 7) next.inv = 1;
     else if (p === 9) next.s = 1;
     else if (p === 22) { delete next.b; delete next.d; }
@@ -50,15 +59,14 @@ function applySgr(pen, values) {
     else if (p === 49) delete next.bg;
     else if (p >= 90 && p <= 97) next.fg = p - 82;
     else if (p >= 100 && p <= 107) next.bg = p - 92;
-    else if (p === 38 || p === 48) {
-      const key = p === 38 ? "fg" : "bg";
-      if (params[i + 1] === 5 && i + 2 < params.length) {
-        next[key] = clamp(params[i + 2], 0, 255);
-        i += 2;
-      } else if (params[i + 1] === 2 && i + 4 < params.length) {
-        next[key] = hexColor(params[i + 2], params[i + 3], params[i + 4]);
-        i += 4;
-      } else break;
+    else if (p === 38 || p === 48 || p === 58) {
+      const colon = sub.length > 0;
+      const found = sgrColor(colon ? sub : params.slice(i + 1), colon);
+      if (found) {
+        // 58 is underline color, which runs do not carry.
+        if (p !== 58) next[p === 38 ? "fg" : "bg"] = found.color;
+        if (!colon) i += found.used;
+      } else if (!colon) break;
     }
   }
   return Object.keys(next).length ? next : null;
@@ -140,11 +148,11 @@ function charWidth(char) {
 function parseParams(raw) {
   const privateMode = raw.startsWith("?");
   const normalized = raw.replace(/^[?>!]/, "");
-  const values = normalized === "" ? [] : normalized.split(/[;:]/).map((value) => {
+  const groups = normalized === "" ? [] : normalized.split(";").map((group) => group.split(":").map((value) => {
     const parsed = Number.parseInt(value, 10);
     return Number.isFinite(parsed) ? parsed : 0;
-  });
-  return { privateMode, values };
+  }));
+  return { privateMode, values: groups.map((group) => group[0]), groups };
 }
 
 function positive(value, maximum, fallback = 1) {
@@ -399,7 +407,7 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
       case "u": cursorX = savedCursor.x; cursorY = savedCursor.y; wrapPending = false; break;
       case "h": if (a === 4) insertMode = true; break;
       case "l": if (a === 4) insertMode = false; break;
-      case "m": if (!/^[?>!=<]/.test(raw)) pen = applySgr(pen, parsed.values); break;
+      case "m": if (!/^[?>!=<]/.test(raw)) pen = applySgr(pen, parsed.groups); break;
       default: break;
     }
   }
@@ -479,7 +487,7 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
     normalizeCursor();
   }
 
-  function snapshot({ maxScreenChars = 64 * 1024, maxScrollbackChars = 16 * 1024 } = {}) {
+  function snapshot({ maxScreenChars = 64 * 1024, maxScrollbackChars = 16 * 1024, maxScreenRuns = MAX_SCREEN_RUNS } = {}) {
     const lines = active.rows.map((line) => line.chars.join("").replace(/\s+$/u, ""));
     const screen = lines.join("\n");
     const recent = scrollbackLines.join("\n");
@@ -494,11 +502,13 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
     };
     const screenRuns = active.rows.slice(firstKept).map((line) => rowRuns(line, styleOf));
     if (limitedScreen.truncated) dropLeading(screenRuns[0], lines[firstKept].length - keptLines[0].length);
+    const runCount = screenRuns.reduce((total, runs) => total + runs.length, 0);
     return {
       cols: width,
       rows: height,
       screenText: limitedScreen.text,
-      screenRuns,
+      // Past the cap, clients fall back to plain screenText.
+      screenRuns: runCount > maxScreenRuns ? undefined : screenRuns,
       recentText: limitedRecent.text,
       alternate: alternateMode,
       modes: [...privateModes].sort((a, b) => a - b),
