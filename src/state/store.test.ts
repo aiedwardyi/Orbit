@@ -1157,6 +1157,23 @@ describe("hydrate startup selection", () => {
   });
 });
 
+describe("hydrated flag", () => {
+  it("is false until the first hydrate action", () => {
+    expect(initialState.hydrated).toBe(false);
+  });
+
+  it("flips true after hydrate", () => {
+    const hydrated = reducer(initialState, {
+      type: "hydrate",
+      bots: [],
+      groups: [],
+      computerControl: {},
+      sidebarOrder: { sectionOrder: [], itemOrder: {} },
+    });
+    expect(hydrated.hydrated).toBe(true);
+  });
+});
+
 describe("bot details folder after Clear", () => {
   it("applies a null cwd from a complete bot frame so the field is private", () => {
     const bot = {

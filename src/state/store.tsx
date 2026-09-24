@@ -569,6 +569,8 @@ export interface AppState {
    * same message be focused twice in a row */
   focusMessage: { threadId: string; messageId: string; nonce: number; consumed: boolean } | null;
   connected: boolean;
+  /** true once the first `hydrate` action has landed and state.bots reflects the real snapshot */
+  hydrated: boolean;
   error: string | null;
   mascotMotion: {
     botId: string;
@@ -949,6 +951,7 @@ export function reducer(state: AppState, action: Action): AppState {
       ];
       return {
         ...hydrated,
+        hydrated: true,
         acceptedSends,
         bots: applyOptimisticBusy(hydrated.bots, acceptedSends),
         dismissedTaskRecovery: {
@@ -1740,6 +1743,7 @@ export const initialState: AppState = {
   computerControl: {},
   focusMessage: null,
   connected: false,
+  hydrated: false,
   error: null,
   mascotMotion: null,
   pendingQueued: {},

@@ -550,7 +550,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
         </div>
       ) : (
         <BootFallback
-          label={state.connected ? t("chrome.noBots") : t("chrome.connecting")}
+          label={state.connected && state.hydrated ? t("chrome.noBots") : t("chrome.connecting")}
           hint={
             !state.connected ? (
               <>
@@ -585,7 +585,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
           <PluginsPanel />
         </Suspense>
       )}
-      {!onboardingOpen && !noEngines && state.connected && (state.createBotOpen || state.bots.length === 0) && (
+      {!onboardingOpen && !noEngines && state.connected && state.hydrated && (state.createBotOpen || state.bots.length === 0) && (
         <Suspense fallback={null}>
           <CreateBotSheet required={state.bots.length === 0} />
         </Suspense>
