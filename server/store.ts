@@ -383,7 +383,7 @@ export type BotActivity = "working" | "waiting-on-you" | "idle" | "no-signal" | 
 export const ACTIVITY_BUSY: ReadonlySet<BotActivity> = new Set(["working", "waiting-on-you", "no-signal"]);
 
 export type StoreChange =
-  | { type: "message"; threadId: string; message: Message }
+  | { type: "message"; threadId: string; message: Message; imported?: true }
   | { type: "message.patch"; threadId: string; message: Message }
   | { type: "thread"; threadId: string; activeLeafId: string }
   | { type: "thread.deleted"; threadId: string }
@@ -1703,7 +1703,7 @@ export class Store {
     this.saveBots();
     for (const message of messages) {
       const prior = before.get(message.id);
-      if (prior === undefined) this.emit({ type: "message", threadId, message });
+      if (prior === undefined) this.emit({ type: "message", threadId, message, imported: true });
       else if (prior !== JSON.stringify(message)) this.emit({ type: "message.patch", threadId, message });
     }
     if (t.activeLeafId) this.emit({ type: "thread", threadId, activeLeafId: t.activeLeafId });

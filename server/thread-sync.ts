@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 
@@ -37,12 +37,11 @@ const fileSchema = z.object({
   messages: z.array(messageSchema),
 }).strict();
 
-const ledgerSchema = z.record(THREAD_ID, z.object({
+const ledgerEntrySchema = z.object({
   syncedRevision: z.number().int().nonnegative(),
+  syncedWriter: ID.optional(),
   dirty: z.boolean(),
-  conflictRevision: z.number().int().positive().optional(),
-  conflictFile: z.string().max(260).optional(),
-}).strict());
+}).strict();
 
 export interface SyncedThreadFile {
   format: typeof THREAD_SYNC_FORMAT;
@@ -57,9 +56,9 @@ export interface SyncedThreadFile {
 
 export interface ThreadSyncEntry {
   syncedRevision: number;
+  /** Writer of the copy this PC last wrote or imported; equal revisions from another writer diverged. */
+  syncedWriter?: string;
   dirty: boolean;
-  conflictRevision?: number;
-  conflictFile?: string;
 }
 
 export type ThreadSyncLedger = Record<string, ThreadSyncEntry>;
@@ -85,14 +84,19 @@ export interface ThreadSyncHost {
 
 export type ThreadSyncResult = "written" | "imported" | "current" | "conflict" | "running" | "skipped";
 
-export const CONFLICT_NOTICE = "This chat also changed on another PC. Your copy was saved as a conflict file.";
+export const CONFLICT_NOTICE = "This chat also changed on another PC. The other PC's copy was saved as a conflict file.";
 
 export function loadThreadSyncLedger(dataDir: string): ThreadSyncLedger {
+  const ledger: ThreadSyncLedger = {};
   try {
-    const parsed = ledgerSchema.safeParse(JSON.parse(readFileSync(join(dataDir, LEDGER_FILE), "utf8")));
-    if (parsed.success) return parsed.data;
+    const raw: unknown = JSON.parse(readFileSync(join(dataDir, LEDGER_FILE), "utf8"));
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return ledger;
+    for (const [threadId, value] of Object.entries(raw)) {
+      const entry = ledgerEntrySchema.safeParse(value);
+      if (THREAD_ID.safeParse(threadId).success && entry.success) ledger[threadId] = entry.data;
+    }
   } catch {}
-  return {};
+  return ledger;
 }
 
 export function saveThreadSyncLedger(dataDir: string, ledger: ThreadSyncLedger): void {
@@ -120,13 +124,37 @@ export function threadSyncDir(folder: string, botSyncId: string): string {
   return join(folder, THREAD_SYNC_DIR, ID.parse(botSyncId));
 }
 
+const readCache = new Map<string, { mtimeMs: number; size: number; file: SyncedThreadFile | null }>();
+
+/** Cached by mtime and size; callers must not mutate the result. */
 export function readSyncedThread(path: string): SyncedThreadFile | null {
   try {
+    const { mtimeMs, size } = statSync(path);
+    const cached = readCache.get(path);
+    if (cached && cached.mtimeMs === mtimeMs && cached.size === size) return cached.file;
     const parsed = fileSchema.safeParse(JSON.parse(readFileSync(path, "utf8")));
-    return parsed.success ? parsed.data as SyncedThreadFile : null;
+    const file = parsed.success ? parsed.data as SyncedThreadFile : null;
+    readCache.set(path, { mtimeMs, size, file });
+    return file;
   } catch {
+    readCache.delete(path);
     return null;
   }
+}
+
+/** Newer, or the same revision from a writer this PC never synced with. */
+function isForeign(entry: ThreadSyncEntry | undefined, remote: SyncedThreadFile): boolean {
+  const synced = entry?.syncedRevision ?? 0;
+  if (remote.revision !== synced) return remote.revision > synced;
+  return entry?.syncedWriter !== undefined && remote.writerDeviceId !== entry.syncedWriter;
+}
+
+/** A turn is live or starting on THIS thread; a bot busy elsewhere must not block its other threads. */
+export function threadTurnRunning(
+  threadId: string,
+  turn: { live: boolean; starting: boolean; busy: boolean; activeThreadId: string | undefined },
+): boolean {
+  return turn.live || ((turn.starting || turn.busy) && turn.activeThreadId === threadId);
 }
 
 function isDirty(host: ThreadSyncHost, threadId: string, local: LocalThread | null): boolean {
@@ -157,22 +185,13 @@ function writeThreadFile(path: string, file: SyncedThreadFile): void {
   writeFileAtomic(path, `${JSON.stringify(file)}\n`, { mode: 0o600 });
 }
 
-function keepConflict(
-  host: ThreadSyncHost,
-  dir: string,
-  threadId: string,
-  local: LocalThread,
-  remote: SyncedThreadFile,
-): ThreadSyncResult {
-  const entry = host.ledger[threadId] ?? { syncedRevision: 0, dirty: true };
-  const repeat = entry.conflictRevision === remote.revision && Boolean(entry.conflictFile);
-  const name = repeat
-    ? entry.conflictFile!
-    : `${threadId}.conflict-${host.deviceId.replace(/[^A-Za-z0-9_-]/g, "_")}-${host.now?.() ?? Date.now()}.json`;
-  writeThreadFile(join(dir, name), toFile(host, threadId, local, entry.syncedRevision + 1));
-  host.ledger[threadId] = { ...entry, dirty: true, conflictRevision: remote.revision, conflictFile: name };
+/** Parks the remote copy beside the thread file, then rebases on it so the next upload publishes ours. */
+function keepConflict(host: ThreadSyncHost, dir: string, threadId: string, remote: SyncedThreadFile): ThreadSyncResult {
+  const name = `${threadId}.conflict-${remote.writerDeviceId.replace(/[^A-Za-z0-9_-]/g, "_")}-${host.now?.() ?? Date.now()}.json`;
+  writeThreadFile(join(dir, name), remote);
+  host.conflicted(threadId);
+  host.ledger[threadId] = { syncedRevision: remote.revision, syncedWriter: remote.writerDeviceId, dirty: true };
   host.saveLedger();
-  if (!repeat) host.conflicted(threadId);
   return "conflict";
 }
 
@@ -188,12 +207,11 @@ export function uploadThread(host: ThreadSyncHost, botSyncId: string, threadId: 
   const remote = exists ? readSyncedThread(path) : null;
   // a half-synced Drive file reads as garbage; retry later rather than clobber it
   if (exists && !remote) return "skipped";
-  const synced = host.ledger[threadId]?.syncedRevision ?? 0;
-  if (remote && remote.revision > synced) return keepConflict(host, dir, threadId, local, remote);
-  const revision = Math.max(synced, remote?.revision ?? 0) + 1;
+  if (remote && isForeign(host.ledger[threadId], remote)) return keepConflict(host, dir, threadId, remote);
+  const revision = Math.max(host.ledger[threadId]?.syncedRevision ?? 0, remote?.revision ?? 0) + 1;
   mkdirSync(dir, { recursive: true });
   writeThreadFile(path, toFile(host, threadId, local, revision));
-  host.ledger[threadId] = { syncedRevision: revision, dirty: false };
+  host.ledger[threadId] = { syncedRevision: revision, syncedWriter: host.deviceId, dirty: false };
   host.saveLedger();
   return "written";
 }
@@ -203,12 +221,15 @@ export function pullThread(host: ThreadSyncHost, botId: string, botSyncId: strin
   const dir = threadSyncDir(host.folder, botSyncId);
   const remote = readSyncedThread(join(dir, `${threadId}.json`));
   if (!remote || remote.task.threadId !== threadId) return "skipped";
-  if (remote.revision <= (host.ledger[threadId]?.syncedRevision ?? 0)) return "current";
+  const entry = host.ledger[threadId];
+  if (!isForeign(entry, remote)) return "current";
   if (host.running(threadId)) return "running";
   const local = host.local(threadId);
-  if (isDirty(host, threadId, local)) return keepConflict(host, dir, threadId, local!, remote);
-  host.adopt(botId, remote);
-  host.ledger[threadId] = { syncedRevision: remote.revision, dirty: false };
+  // an equal revision here is a sibling of our own copy, so even a clean thread holds unsynced messages
+  const diverged = remote.revision === entry?.syncedRevision;
+  if (local && (diverged || isDirty(host, threadId, local))) return keepConflict(host, dir, threadId, remote);
+  host.adopt(botId, structuredClone(remote));
+  host.ledger[threadId] = { syncedRevision: remote.revision, syncedWriter: remote.writerDeviceId, dirty: false };
   host.saveLedger();
   return "imported";
 }

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { isTaskRecoveryVisible } from "@/lib/task-recovery";
 import { turnPresenceWaiting, visibleSteerEntries } from "@/lib/send-accept";
 import {
+  autoSpeaks,
   configStatusFromFrame,
   formatDateTime,
   formatTime,
@@ -1615,6 +1616,14 @@ describe("sendGroup reject onError", () => {
     const thenBlock = sendGroupCase.slice(0, sendGroupCase.indexOf(".catch("));
     expect(thenBlock).toMatch(/receiptRejectsAcceptedSend\(body\)[\s\S]*?action\.onError\?\.\(\)/);
     expect(thenBlock).toMatch(/cancelledSendsRef\.current\.has\(sendId\)[\s\S]*?action\.onError\?\.\(\)/);
+  });
+});
+
+describe("auto-speak", () => {
+  it("skips replies imported from another PC", () => {
+    expect(autoSpeaks({ message: { text: "hello" } })).toBe(true);
+    expect(autoSpeaks({ imported: true, message: { text: "hello" } })).toBe(false);
+    expect(autoSpeaks({ message: { text: "  " } })).toBe(false);
   });
 });
 

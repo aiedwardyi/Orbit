@@ -818,6 +818,11 @@ export function visibleNotificationThread(
   );
 }
 
+/** A reply pulled from another PC is history, not a fresh answer. */
+export function autoSpeaks(frame: { imported?: boolean; message?: { text?: string } }): boolean {
+  return !frame.imported && Boolean(frame.message?.text?.trim());
+}
+
 export function shouldClearSelectedUnread(
   state: Pick<AppState, "activeView" | "selectedId" | "workspaceOpen">,
   owner: { id: string; unread?: boolean },
@@ -2714,7 +2719,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             // Auto-speak is disabled during any call. Call mode owns both the
             // singleton speaker and microphone ordering for its whole lifetime.
             const owner = stateRef.current.bots.find((b) => b.threadId === frame.threadId);
-            if (owner?.speakReplies && currentCall() === null && frame.message.text?.trim()) {
+            if (owner?.speakReplies && currentCall() === null && autoSpeaks(frame)) {
               void speaker.speak(frame.message.text, {
                 botId: owner.id,
                 messageId: frame.message.id,

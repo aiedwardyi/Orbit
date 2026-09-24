@@ -274,6 +274,7 @@ import {
   pullBotThreads,
   pullThread,
   saveThreadSyncLedger,
+  threadTurnRunning,
   uploadThread,
   type ThreadSyncHost,
 } from "./thread-sync.ts";
@@ -1545,7 +1546,7 @@ const groupWithThread = (group: GroupRecord) => ({
 store.onChange((change) => {
   switch (change.type) {
     case "message":
-      broadcast({ kind: "message", threadId: change.threadId, message: change.message });
+      broadcast({ kind: "message", threadId: change.threadId, message: change.message, ...(change.imported ? { imported: true } : {}) });
       break;
     case "message.patch":
       broadcast({ kind: "message.patch", threadId: change.threadId, message: change.message });
@@ -1621,7 +1622,13 @@ function threadSyncHost(folder: string): ThreadSyncHost {
     },
     running: (threadId) => {
       const bot = store.botByThread(threadId);
-      return Boolean(bot && botHasActiveTurn(bot.id, threadId));
+      return threadTurnRunning(threadId, {
+        live: threadHasLiveTurn(threadId),
+        starting: Boolean(bot && turnStartClaims.has(bot.id)),
+        busy: Boolean(bot?.busy),
+        // a claim is taken before activeThreadId is set, and most starts land on bot.threadId
+        activeThreadId: bot ? bot.activeThreadId ?? bot.threadId : undefined,
+      });
     },
     adopt: (botId, file) => {
       store.adoptSyncedTask(botId, file.task, file.messages, file.activeLeafId);
