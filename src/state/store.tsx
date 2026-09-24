@@ -1755,6 +1755,19 @@ export async function api(path: string, init?: RequestInit): Promise<any> {
   return body;
 }
 
+/** Phone browsers fail in-flight fetches when the tab backgrounds, even ones the server already accepted. */
+async function acceptedSend(state: AppState, threadId: string, sendId: string, text: string): Promise<Message | null> {
+  const isSend = (message: Message) =>
+    message.role === "user" && message.sendId === sendId && message.text === text.trim();
+  const held = (
+    state.bots.find((bot) => bot.threadId === threadId)?.messages ??
+    state.groups.find((group) => group.threadId === threadId)?.messages
+  )?.find(isSend);
+  if (held) return held;
+  const page = await api(`/api/threads/${threadId}/messages?limit=200`).catch(() => null);
+  return (page?.messages as Message[] | undefined)?.find(isSend) ?? null;
+}
+
 export interface PeripheralSnapshotLoad<Key extends string = string> {
   key: Key;
   load: () => Promise<void>;
@@ -2081,8 +2094,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 rawDispatch({ type: "sendSettled", threadId: settledThread, sendId });
               }
             })
-            .catch((error) => {
+            .catch(async (error) => {
               cancelledSendsRef.current.delete(sendId);
+              const accepted =
+                typeof threadId === "string" ? await acceptedSend(stateRef.current, threadId, sendId, action.text) : null;
+              if (accepted && typeof threadId === "string") {
+                rawDispatch({ type: "messageAdded", threadId, message: accepted });
+                rawDispatch({ type: "sendSettled", threadId, sendId });
+                return;
+              }
               if (typeof threadId === "string") {
                 rawDispatch({ type: "sendRejected", botId: action.botId, threadId, sendId });
               }
@@ -2329,8 +2349,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 rawDispatch({ type: "sendSettled", threadId: settledThread, sendId });
               }
             })
-            .catch((error) => {
+            .catch(async (error) => {
               cancelledSendsRef.current.delete(sendId);
+              const accepted =
+                typeof threadId === "string" ? await acceptedSend(stateRef.current, threadId, sendId, action.text) : null;
+              if (accepted && typeof threadId === "string") {
+                rawDispatch({ type: "messageAdded", threadId, message: accepted });
+                rawDispatch({ type: "sendSettled", threadId, sendId });
+                return;
+              }
               if (typeof threadId === "string") {
                 rawDispatch({ type: "sendRejected", threadId, sendId });
               }
