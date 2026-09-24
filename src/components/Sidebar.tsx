@@ -904,7 +904,13 @@ function BotListItem({
           </button>
         )}
       </span>
-      <div className={cn("min-w-0 flex-1", iconOnly && "hidden")}>
+      <div
+        className={cn(
+          "min-w-0 flex-1",
+          iconOnly && "hidden",
+          density === "compact" && "group-hover:pr-2 group-focus-within:pr-2 max-md:pr-2",
+        )}
+      >
         <div className="flex min-w-0 items-baseline gap-2 overflow-hidden">
           <span
             className={cn(
