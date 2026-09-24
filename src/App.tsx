@@ -25,6 +25,7 @@ import { showComputerPanelChrome } from "@/lib/friends-chrome";
 import { I18nProvider, useI18n } from "@/lib/i18n";
 import { buildTerminalNotification, showNotification, type NotificationTarget } from "@/lib/notify";
 import { focusComposerOnActivation } from "@/lib/focus-composer";
+import { BackNavigation, type BackLayer } from "@/lib/back-navigation";
 
 const Onboarding = lazy(() => import("@/components/Onboarding").then((m) => ({ default: m.Onboarding })));
 const SettingsPanel = lazy(() => import("@/components/SettingsPanel").then((m) => ({ default: m.SettingsPanel })));
@@ -83,6 +84,9 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   // Sidebar.tsx's className comment).
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [sidebarOverlay, setSidebarOverlay] = useState<string | null>(null);
+  const modelPickerIds = useRef(new Set<string>());
   const [terminalViews, setTerminalViews] = useState<Record<string, boolean>>({});
   const [paneHotkey, setPaneHotkey] = useState<{ n: number } | null>(null);
   const [localVmWorkspaceBotId, setLocalVmWorkspaceBotId] = useState<string | null>(null);
@@ -365,6 +369,60 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     requestAnimationFrame(() => conversationRef.current?.querySelector<HTMLTextAreaElement>("[data-orbit-composer]")?.focus());
   };
 
+  const backNavigation = useRef<BackNavigation | null>(null);
+  const selectionTrail = useRef<string[]>([]);
+  useLayoutEffect(() => {
+    if (window.ogb) return;
+    const navigation = new BackNavigation(window.history);
+    backNavigation.current = navigation;
+    const onPop = () => navigation.pop();
+    const onPicker = (event: Event) => {
+      const { id, open } = (event as CustomEvent<{ id: string; open: boolean }>).detail;
+      if (open) modelPickerIds.current.add(id);
+      else modelPickerIds.current.delete(id);
+      setModelPickerOpen(modelPickerIds.current.size > 0);
+    };
+    window.addEventListener("popstate", onPop);
+    window.addEventListener("orbit:model-picker", onPicker);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      window.removeEventListener("orbit:model-picker", onPicker);
+      backNavigation.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!backNavigation.current || !state.bots.length) return;
+    const root = state.bots.find((candidate) => candidate.chiefOfStaff)?.id ?? state.bots[0].id;
+    const trail = selectionTrail.current;
+    if (!trail.length) trail.push(root);
+    if (state.selectedId && trail.at(-1) !== state.selectedId) {
+      const previous = trail.indexOf(state.selectedId);
+      if (previous >= 0) trail.splice(previous + 1);
+      else trail.push(state.selectedId);
+    }
+    const layers: BackLayer[] = trail.slice(1).map((id, index) => ({
+      key: `chat:${id}`,
+      close: () => dispatch({ type: "select", id: trail[index] }),
+    }));
+    const add = (open: boolean, key: string, close: () => void) => { if (open) layers.push({ key, close }); };
+    add(state.activeView !== "chat", `view:${state.activeView}`, () => dispatch({ type: "select", id: state.selectedId }));
+    add(Boolean(browserWorkspaceBotId), `browser:${browserWorkspaceBotId}`, () => setBrowserWorkspaceBotId(null));
+    add(Boolean(localVmWorkspaceBotId), `vm:${localVmWorkspaceBotId}`, () => setLocalVmWorkspaceBotId(null));
+    add(terminalOpen, `terminal:${bot?.id}`, closeTerminal);
+    add(drawerOpen, "drawer", () => setDrawerOpen(false));
+    add(Boolean(sidebarOverlay), `sidebar:${sidebarOverlay}`, () => window.dispatchEvent(new Event("orbit:close-sidebar-overlay")));
+    add(state.settingsOpen, "settings", () => dispatch({ type: "toggleSettings", open: false }));
+    add(state.computerOpen, "computer", () => dispatch({ type: "toggleComputer", open: false }));
+    add(state.inspectorOpen, "inspector", () => dispatch({ type: "toggleInspector", open: false }));
+    add(state.appSettingsOpen, "app-settings", () => dispatch({ type: "toggleAppSettings", open: false }));
+    add(state.pluginsOpen, "plugins", () => dispatch({ type: "togglePlugins", open: false }));
+    add(state.createBotOpen, "create-bot", () => dispatch({ type: "closeCreateBot" }));
+    add(paletteOpen, "palette", () => window.dispatchEvent(new Event("orbit:close-palette")));
+    add(modelPickerOpen, "model-picker", () => window.dispatchEvent(new Event("orbit:close-model-picker")));
+    backNavigation.current.sync(layers);
+  });
+
   useEffect(() => {
     const toggleTerminal = (event: KeyboardEvent) => {
       if (event.repeat || event.isComposing) return;
@@ -431,6 +489,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       )}
       <Sidebar
         open={drawerOpen}
+        onOverlayChange={setSidebarOverlay}
         onClose={() => {
           setDrawerOpen(false);
           menuButtonRef.current?.focus();

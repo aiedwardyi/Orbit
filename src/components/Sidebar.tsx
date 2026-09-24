@@ -1221,10 +1221,12 @@ function ArchivedBotsPanel({
 export function Sidebar({
   open,
   onClose,
+  onOverlayChange,
   onTerminalAttention,
 }: {
   open: boolean;
   onClose: () => void;
+  onOverlayChange?: (key: string | null) => void;
   onTerminalAttention?: (attention: TerminalAttention) => void;
 }) {
   const { t } = useI18n();
@@ -1272,6 +1274,28 @@ export function Sidebar({
     return saved === "icons" ? "comfortable" : saved;
   });
   const [densityOpen, setDensityOpen] = useState(false);
+  const backOverlay = deleteTarget ? "delete" : sectionPicker ? "section" : roomSectionPicker ? "room-section"
+    : menu ? "menu" : roomMenu ? "room-menu" : wizard ? "wizard" : archivedBotsOpen ? "archived"
+    : teamLibraryOpen ? "team-library" : plusOpen ? "plus" : densityOpen ? "density" : null;
+  useEffect(() => {
+    onOverlayChange?.(backOverlay);
+  }, [backOverlay, onOverlayChange]);
+  useEffect(() => {
+    const close = () => {
+      if (deleteTarget) setDeleteTarget(null);
+      else if (sectionPicker) setSectionPicker(null);
+      else if (roomSectionPicker) setRoomSectionPicker(null);
+      else if (menu) setMenu(null);
+      else if (roomMenu) setRoomMenu(null);
+      else if (wizard) setWizard(false);
+      else if (archivedBotsOpen) setArchivedBotsOpen(false);
+      else if (teamLibraryOpen) { setTeamLibraryOpen(false); setTeamInstallUrl(null); }
+      else if (plusOpen) setPlusOpen(false);
+      else setDensityOpen(false);
+    };
+    window.addEventListener("orbit:close-sidebar-overlay", close);
+    return () => window.removeEventListener("orbit:close-sidebar-overlay", close);
+  }, [backOverlay]);
   const [sidebarWidth, setSidebarWidth] = useState(() => loadSidebarWidth());
   const sidebarWidthRef = useRef(sidebarWidth);
   const sidebarCollapsedRef = useRef(sidebarCollapsed);

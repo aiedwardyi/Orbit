@@ -58,6 +58,13 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
     onOpenChange?.(open);
   }, [onOpenChange, open]);
 
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener("orbit:close-palette", close);
+    return () => window.removeEventListener("orbit:close-palette", close);
+  }, [open]);
+
   const q = query.trim().toLowerCase();
 
   // Same debounce pattern as the sidebar search: names answer instantly

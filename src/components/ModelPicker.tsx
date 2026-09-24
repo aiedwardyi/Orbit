@@ -98,6 +98,14 @@ export function ModelPickerControl({
     setOpen(true);
   };
   const close = () => setOpen(false);
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("orbit:model-picker", { detail: { id: bindingsId, open } }));
+    if (open) window.addEventListener("orbit:close-model-picker", close);
+    return () => {
+      window.removeEventListener("orbit:close-model-picker", close);
+      if (open) window.dispatchEvent(new CustomEvent("orbit:model-picker", { detail: { id: bindingsId, open: false } }));
+    };
+  }, [bindingsId, open]);
   const save = (candidate: ModelSelection = draft, fromKeyboard = false) => {
     if (!canCommit(candidate)) return;
     focusComposerAfterCloseRef.current = fromKeyboard && openedWithShortcutRef.current && !contained;
