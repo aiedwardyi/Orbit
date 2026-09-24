@@ -14,16 +14,16 @@ describe("ProviderMark", () => {
     expect(markup).not.toContain(">G</span>");
   });
 
-  it("renders the Muse mark cropped to the glyph so the header chip has no excess side padding", () => {
+  it("renders the Muse mark with a thin margin so it sits level with the other marks", () => {
     const markup = renderToStaticMarkup(createElement(MuseMark, { size: 14 }));
     expect(markup).toContain("<svg");
-    expect(markup).toContain("viewBox=\"4 4 16 16\"");
+    expect(markup).toContain("viewBox=\"2.5 2.5 19 19\"");
     expect(markup).toContain("M4 20V4h3.2");
   });
 
-  it("serves the cropped Muse mark for museAgent", () => {
+  it("serves the padded Muse mark for museAgent", () => {
     const markup = renderToStaticMarkup(createElement(ProviderMark, { driverKind: "museAgent", size: 14 }));
-    expect(markup).toContain("viewBox=\"4 4 16 16\"");
+    expect(markup).toContain("viewBox=\"2.5 2.5 19 19\"");
   });
 
   it.each([

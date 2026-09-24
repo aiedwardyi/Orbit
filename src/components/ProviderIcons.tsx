@@ -111,12 +111,11 @@ export function AntigravityMark({ size = 16, className }: IconProps) {
 /** Meta Muse mark — simple filled M using the existing ink token so it
  * reads in light and dark without new hues, gradients, or emoji. */
 export function MuseMark({ size = 16, className }: IconProps) {
-  // Cropped to the M glyph's exact bounds (4..20 in both axes, no padding):
-  // the full 24px box left the mark swimming in transparent padding, which
-  // read as excess left spacing on the chat-header chip next to full-bleed
-  // engine marks.
+  // Glyph spans 4..20; the full 24px box read as excess left spacing on the
+  // chat-header chip, but an exact crop made the solid M loom over the other
+  // marks in the usage list. 1.5 units of padding matches their inner margin.
   return (
-    <svg width={size} height={size} viewBox="4 4 16 16" className={cn("shrink-0 fill-[var(--color-ink)]", className)} aria-hidden>
+    <svg width={size} height={size} viewBox="2.5 2.5 19 19" className={cn("shrink-0 fill-[var(--color-ink)]", className)} aria-hidden>
       <path fillRule="evenodd" d="M4 20V4h3.2l4.8 8.6L16.8 4H20v16h-3.1V9.4l-2.2 3.9H9.3l-2.2-3.9V20H4z" />
     </svg>
   );
