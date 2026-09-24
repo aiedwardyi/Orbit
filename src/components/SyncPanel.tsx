@@ -13,6 +13,7 @@ type SyncStatus = {
   invalidFiles: string[];
   conflicts: number;
   lastSyncAt: number | null;
+  syncChats: boolean;
 };
 
 type Preview = {
@@ -46,7 +47,7 @@ export function SyncPanel() {
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [conflictChoices, setConflictChoices] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState<"choose" | "publish" | "preview" | "import" | "disconnect" | null>(null);
+  const [busy, setBusy] = useState<"choose" | "publish" | "preview" | "import" | "disconnect" | "chats" | null>(null);
   const [error, setError] = useState("");
 
   const refresh = async () => {
@@ -85,6 +86,19 @@ export function SyncPanel() {
       setStatus((await api("/api/profile-sync", { method: "DELETE" })) as SyncStatus);
       setPreview(null);
       setConflictChoices({});
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t("settings.sync.saveError"));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const toggleChats = async () => {
+    if (busy || !status?.configured) return;
+    setBusy("chats");
+    setError("");
+    try {
+      setStatus((await api("/api/profile-sync/chats", { method: "PUT", body: JSON.stringify({ enabled: !status.syncChats }) })) as SyncStatus);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("settings.sync.saveError"));
     } finally {
@@ -134,6 +148,7 @@ export function SyncPanel() {
     invalidFiles: [],
     conflicts: 0,
     lastSyncAt: null,
+    syncChats: false,
   };
   const busyLabel = useMemo(() => busy === "preview" ? t("settings.sync.preview") : busy === "import" ? t("settings.sync.import") : "", [busy, t]);
   const conflictsResolved = Boolean(preview) && preview!.conflicts.every((conflict) => Boolean(conflictChoices[conflict.id]));
@@ -153,7 +168,24 @@ export function SyncPanel() {
         </div>
 
         <p className="text-[12px] leading-relaxed text-ink-secondary">{t("settings.sync.folderHelp")}</p>
-        <p className="text-[12px] leading-relaxed text-ink-secondary">{t("settings.sync.localChats")}</p>
+        {state.syncChats ? null : <p className="text-[12px] leading-relaxed text-ink-secondary">{t("settings.sync.localChats")}</p>}
+
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <div className="text-[13px] text-ink">{t("settings.sync.chats")}</div>
+            <div className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">{t("settings.sync.chatsHelp")}</div>
+          </div>
+          <button
+            role="switch"
+            aria-checked={state.syncChats}
+            aria-label={t("settings.sync.chats")}
+            disabled={busy !== null || !state.configured}
+            onClick={() => void toggleChats()}
+            className={`${cnSwitch(state.syncChats)} disabled:opacity-40`}
+          >
+            <span className={cnKnob(state.syncChats)} />
+          </button>
+        </div>
 
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => void chooseFolder()} disabled={busy !== null || !window.ogb?.pickFolder} className="flex items-center gap-1.5 rounded-lg bg-control px-3 py-2 text-[12px] font-medium text-ink hover:bg-raised disabled:opacity-40">
@@ -207,3 +239,8 @@ export function SyncPanel() {
     </Card>
   );
 }
+
+const cnSwitch = (on: boolean) =>
+  `relative h-6 w-11 shrink-0 rounded-full transition-colors ${on ? "bg-accent" : "bg-control"}`;
+const cnKnob = (on: boolean) =>
+  `absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white transition-all ${on ? "left-[21px]" : "left-[3px]"}`;

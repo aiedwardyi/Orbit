@@ -162,6 +162,21 @@ export function setActiveLeaf(threadId: string, leafId: string | null): void {
     .run(threadId, leafId);
 }
 
+/** Swap a thread's whole transcript and branch head in one transaction. */
+export function replaceThread(threadId: string, messages: Message[], activeLeafId: string | null): void {
+  const database = db();
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    database.prepare("DELETE FROM messages WHERE thread_id = ?").run(threadId);
+    for (const message of messages) insertMessage(threadId, message);
+    setActiveLeaf(threadId, activeLeafId);
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 export function deleteThread(threadId: string): void {
   db().prepare("DELETE FROM messages WHERE thread_id = ?").run(threadId);
   db().prepare("DELETE FROM thread_state WHERE thread_id = ?").run(threadId);

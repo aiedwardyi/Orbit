@@ -1670,6 +1670,47 @@ export class Store {
     return task;
   }
 
+  /** Take a task's transcript from another device. Provider sessions are
+   * per device, so the next turn replays the transcript instead. */
+  adoptSyncedTask(
+    botId: string,
+    task: Pick<TaskRecord, "threadId" | "title" | "createdAt">,
+    messages: Message[],
+    activeLeafId: string | null,
+  ): TaskRecord | null {
+    const bot = this.bot(botId);
+    if (!bot) return null;
+    const { threadId } = task;
+    const t = this.thread(threadId);
+    const before = new Map(t.messages.map((m) => [m.id, JSON.stringify(m)]));
+    mdb.replaceThread(threadId, messages, activeLeafId);
+    t.messages = messages;
+    t.activeLeafId = activeLeafId ?? messages.at(-1)?.id ?? null;
+    let record = this.taskByThread(botId, threadId);
+    if (record) {
+      record.title = task.title;
+      record.resumeCursors = {};
+      delete record.lastInstanceId;
+      delete record.providerSessionBoundId;
+    } else {
+      record = { threadId, title: task.title, createdAt: task.createdAt, resumeCursors: {} };
+      const tasks = bot.tasks ?? [];
+      const at = tasks.findIndex((candidate) => candidate.createdAt < task.createdAt);
+      tasks.splice(at < 0 ? tasks.length : at, 0, record);
+      bot.tasks = tasks;
+    }
+    if (bot.threadId === threadId) bot.resumeCursors = {};
+    this.saveBots();
+    for (const message of messages) {
+      const prior = before.get(message.id);
+      if (prior === undefined) this.emit({ type: "message", threadId, message });
+      else if (prior !== JSON.stringify(message)) this.emit({ type: "message.patch", threadId, message });
+    }
+    if (t.activeLeafId) this.emit({ type: "thread", threadId, activeLeafId: t.activeLeafId });
+    this.emit({ type: "bot", botId });
+    return record;
+  }
+
   switchTask(botId: string, threadId: string): BotRecord | null {
     const bot = this.bot(botId);
     const task = bot?.tasks?.find((t) => t.threadId === threadId);

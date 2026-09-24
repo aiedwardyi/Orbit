@@ -131,6 +131,7 @@ export interface ProfileSyncSettings {
   reviewedResolutions: Record<string, Record<string, string>>;
   nextSequence: number;
   seenCheckpoint: string;
+  syncChats: boolean;
 }
 
 function canonicalJson(value: unknown): string {
@@ -208,6 +209,7 @@ const settingsSchema = z.object({
   reviewedResolutions: z.record(z.string().trim().min(1).max(512), z.record(z.string().trim().min(1).max(240), ID)).default({}),
   nextSequence: z.number().int().positive().max(2_000_000_000).default(1),
   seenCheckpoint: z.string().trim().max(160).default(""),
+  syncChats: z.boolean().default(false),
 }).strict();
 
 function versionStamp(version: Pick<FieldVersion, "recordedAt" | "deviceId" | "sequence" | "operationId">): string {
@@ -471,6 +473,7 @@ export function loadProfileSyncSettings(dataDir: string): ProfileSyncSettings {
     reviewedResolutions: {},
     nextSequence: 1,
     seenCheckpoint: "",
+    syncChats: false,
   };
 }
 

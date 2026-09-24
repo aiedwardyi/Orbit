@@ -266,6 +266,17 @@ import {
   type ProfileSyncOperation,
   type ProfileSyncSettings,
 } from "./profile-sync.ts";
+import {
+  CONFLICT_NOTICE,
+  chatSyncBotId,
+  loadThreadSyncLedger,
+  markThreadDirty,
+  pullBotThreads,
+  pullThread,
+  saveThreadSyncLedger,
+  uploadThread,
+  type ThreadSyncHost,
+} from "./thread-sync.ts";
 import { fetchBotDirectory, matchDirectoryBots, type MatchedDirectoryBot } from "./bot-directory.ts";
 import { scoutProject, suggestTeam } from "./project-scout.ts";
 import { fetchGithubTeam, fetchLibraryTeam, fetchTeamCatalog } from "./team-library.ts";
@@ -1165,6 +1176,7 @@ function profileSyncStatus() {
       invalidFiles: [],
       conflicts: profileSyncLastConflictCount,
       lastSyncAt: profileSyncLastSyncAt,
+      syncChats: profileSyncSettings.syncChats,
     };
   }
   ensureProfileSyncWorkspace(folder);
@@ -1184,6 +1196,7 @@ function profileSyncStatus() {
     invalidFiles: remote.invalidFiles,
     conflicts,
     lastSyncAt: profileSyncLastSyncAt,
+    syncChats: profileSyncSettings.syncChats,
   };
 }
 
@@ -1457,6 +1470,7 @@ function importProfileSync(input: { previewRevision?: string; localRevision?: st
   profileSyncSettings.seenCheckpoint = remote.state.checkpoint;
   profileSyncLastSyncAt = Date.now();
   profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
+  syncAllThreads();
   return { imported, archived, conflicts: 0, status: profileSyncStatus() };
 }
 
@@ -1574,6 +1588,101 @@ store.onChange((change) => {
       broadcast({ kind: "group.deleted", groupId: change.groupId });
       break;
   }
+});
+
+// ── chat sync ──────────────────────────────────────────────────────────
+const threadSyncLedger = loadThreadSyncLedger(DATA_DIR);
+const threadSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const THREAD_SYNC_DELAY_MS = 3_000;
+
+function threadSyncTarget(threadId: string): { botId: string; botSyncId: string } | null {
+  const bot = store.botByThread(threadId);
+  if (!bot || !store.taskByThread(bot.id, threadId) || store.groupByThread(threadId)) return null;
+  const botSyncId = chatSyncBotId(profileSyncSettings, bot.id);
+  return botSyncId ? { botId: bot.id, botSyncId } : null;
+}
+
+function threadSyncHost(folder: string): ThreadSyncHost {
+  return {
+    folder,
+    deviceId: profileSyncSettings.deviceId,
+    ledger: threadSyncLedger,
+    saveLedger: () => saveThreadSyncLedger(DATA_DIR, threadSyncLedger),
+    local: (threadId) => {
+      const bot = store.botByThread(threadId);
+      const task = bot ? store.taskByThread(bot.id, threadId) : undefined;
+      if (!task) return null;
+      return {
+        title: task.title,
+        createdAt: task.createdAt,
+        messages: store.messagesFor(threadId).map(clientMessage),
+        activeLeafId: store.activeLeaf(threadId),
+      };
+    },
+    running: (threadId) => {
+      const bot = store.botByThread(threadId);
+      return Boolean(bot && botHasActiveTurn(bot.id, threadId));
+    },
+    adopt: (botId, file) => {
+      store.adoptSyncedTask(botId, file.task, file.messages, file.activeLeafId);
+    },
+    conflicted: (threadId) => {
+      store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: `error: ${CONFLICT_NOTICE}`, ok: false } });
+    },
+  };
+}
+
+function scheduleThreadUpload(threadId: string): void {
+  if (threadSyncTimers.has(threadId)) return;
+  const timer = setTimeout(() => {
+    threadSyncTimers.delete(threadId);
+    const target = threadSyncTarget(threadId);
+    if (!target) return;
+    try {
+      if (uploadThread(threadSyncHost(profileSyncSettings.folder!), target.botSyncId, threadId) === "running") {
+        scheduleThreadUpload(threadId);
+      }
+    } catch (error) {
+      console.warn("chat sync: upload failed", error);
+    }
+  }, THREAD_SYNC_DELAY_MS);
+  timer.unref?.();
+  threadSyncTimers.set(threadId, timer);
+}
+
+/** Runs before a route answers, so the user never types on a stale copy. */
+function pullSyncedThread(threadId: string): void {
+  const target = threadSyncTarget(threadId);
+  if (!target) return;
+  try {
+    pullThread(threadSyncHost(profileSyncSettings.folder!), target.botId, target.botSyncId, threadId);
+  } catch (error) {
+    console.warn("chat sync: pull failed", error);
+  }
+}
+
+function syncAllThreads(): void {
+  if (!profileSyncSettings.syncChats || !profileSyncSettings.folder) return;
+  const host = threadSyncHost(profileSyncSettings.folder);
+  for (const bot of store.bots) {
+    const botSyncId = chatSyncBotId(profileSyncSettings, bot.id);
+    if (!botSyncId) continue;
+    try {
+      pullBotThreads(host, bot.id, botSyncId);
+    } catch (error) {
+      console.warn("chat sync: pull failed", error);
+    }
+    // other never-synced tasks upload on their next change; loading every transcript here would pin them all in memory
+    for (const task of store.tasks(bot.id)) {
+      if (task.threadId === bot.threadId || threadSyncLedger[task.threadId]?.dirty) scheduleThreadUpload(task.threadId);
+    }
+  }
+}
+
+store.onChange((change) => {
+  if (change.type !== "message" && change.type !== "message.patch" && change.type !== "thread") return;
+  if (markThreadDirty(threadSyncLedger, change.threadId)) saveThreadSyncLedger(DATA_DIR, threadSyncLedger);
+  if (threadSyncTarget(change.threadId)) scheduleThreadUpload(change.threadId);
 });
 
 // ── message pages ──────────────────────────────────────────────────────
@@ -6506,6 +6615,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
       return json(res, 200, profileSyncStatus());
     }
+    if (method === "PUT" && path === "/api/profile-sync/chats") {
+      const body = await readBody(req);
+      if (typeof body?.enabled !== "boolean") return json(res, 400, { error: "enabled must be a boolean" });
+      if (body.enabled && !profileSyncSettings.folder) return json(res, 409, { error: "Choose a Google Drive folder first" });
+      profileSyncSettings.syncChats = body.enabled;
+      profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
+      syncAllThreads();
+      return json(res, 200, profileSyncStatus());
+    }
     if (method === "GET" && path === "/api/profile-sync/preview") {
       try {
         return json(res, 200, profileSyncPreview());
@@ -6581,6 +6699,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const limit = pageSize(url.searchParams.get("limit"));
       if (limit === null) return json(res, 400, { error: "limit must be a non-negative whole number" });
+      pullSyncedThread(threadId);
       const before = url.searchParams.get("before");
       const around = url.searchParams.get("around");
       if (before && around) return json(res, 400, { error: "before and around cannot be combined" });
@@ -8104,6 +8223,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!store.taskByThread(bot.id, threadId)) {
         return json(res, 409, { error: "the bot switched tasks before it could receive the message" });
       }
+      pullSyncedThread(threadId);
       const sendId = parseSendId(body.sendId);
       if (sendId) {
         ensureChatLatency({ sendId, threadId });
@@ -8537,6 +8657,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!canSwitchWhileWorking(m[2], working)) {
         return json(res, 409, { error: "this bot is working — stop it before switching tasks" });
       }
+      pullSyncedThread(m[2]);
       const switched = store.switchTask(bot.id, m[2]);
       if (!switched) return json(res, 404, { error: "no such task" });
       const fresh = botWithThread(switched);
@@ -9267,6 +9388,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
   }
 };
 
+syncAllThreads();
 const early = currentEarlyListen();
 if (early) {
   early.setHandler(handleRequest);
