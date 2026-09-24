@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { Check, Copy, CornerDownLeft, RotateCcw, TerminalSquare, X } from "lucide-react";
 import type { Bot } from "@/state/store";
 import { api } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
+import { ansiColor } from "@/lib/ansi-palette";
 
 type RemoteTerminalPane = {
   sessionId: string;
@@ -14,6 +15,7 @@ type RemoteTerminalPane = {
 
 type RemoteTerminalSnapshot = {
   screenText?: string;
+  screenRuns?: TerminalRun[][];
   recentText?: string;
   state?: "no-terminal";
   sessionId?: string;
@@ -37,6 +39,18 @@ function sendMayHaveRun(cause: unknown): boolean {
 
 export function snapshotText(snapshot: RemoteTerminalSnapshot): string {
   return [snapshot.recentText, snapshot.screenText].filter(Boolean).join("\n\n");
+}
+
+function runStyle(run: TerminalRun): CSSProperties {
+  const decoration = [run.u && "underline", run.s && "line-through"].filter(Boolean).join(" ");
+  return {
+    color: ansiColor(run.fg),
+    backgroundColor: ansiColor(run.bg),
+    fontWeight: run.b ? 600 : undefined,
+    opacity: run.d ? 0.6 : undefined,
+    fontStyle: run.i ? "italic" : undefined,
+    textDecoration: decoration || undefined,
+  };
 }
 
 function folderName(cwd: string): string {
@@ -237,9 +251,25 @@ export function RemoteTerminalView({
             const el = event.currentTarget;
             pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
           }}
-          className="min-h-0 flex-1 overflow-auto overscroll-contain whitespace-pre-wrap break-words p-4 font-mono text-[12px] leading-relaxed select-text"
+          className="orbit-remote-terminal min-h-0 flex-1 overflow-auto overscroll-contain whitespace-pre-wrap break-words p-4 text-[12px] leading-relaxed select-text"
         >
-          {text}
+          {snapshot?.screenRuns ? (
+            <>
+              {snapshot.recentText && `${snapshot.recentText}\n\n`}
+              {snapshot.screenRuns.map((row, y) => (
+                <Fragment key={y}>
+                  {y > 0 && "\n"}
+                  {row.map((run, x) => (
+                    <span key={x} style={runStyle(run)}>
+                      {run.t}
+                    </span>
+                  ))}
+                </Fragment>
+              ))}
+            </>
+          ) : (
+            text
+          )}
         </pre>
       )}
       {canType && (

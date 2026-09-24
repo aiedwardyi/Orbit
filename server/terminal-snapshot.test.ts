@@ -64,6 +64,7 @@ describe("terminal snapshot relay", () => {
         cwd: "C:\work",
         exited: false,
         screenText: "$ ls",
+        screenRuns: [[{ t: "$", fg: 2 }, { t: " ls" }]],
         recentText: "done",
         seq: 9,
         modes: [1],
@@ -71,7 +72,7 @@ describe("terminal snapshot relay", () => {
     }) as typeof fetch;
     await expect(terminalSnapshotResponse(ACCESS, "bot-1", undefined, fetchImpl)).resolves.toEqual({
       status: 200,
-      body: { screenText: "$ ls", recentText: "done", sessionId: "s1", generation: 2, cwd: "C:\work", exited: false },
+      body: { screenText: "$ ls", screenRuns: [[{ t: "$", fg: 2 }, { t: " ls" }]], recentText: "done", sessionId: "s1", generation: 2, cwd: "C:\work", exited: false },
     });
     expect(calls).toEqual([
       { url: "http://127.0.0.1:52150/v1/bots/bot-1/terminal", auth: `Bearer ${terminalReadGrant(ACCESS.token, "bot-1")}` },
@@ -182,11 +183,11 @@ describe("terminal send relay", () => {
     const calls: Array<{ url: string; auth: string | null; method: string | undefined; body: unknown }> = [];
     const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
       calls.push({ url: String(url), auth: new Headers(init?.headers).get("authorization"), method: init?.method, body: JSON.parse(String(init?.body)) });
-      return new Response(JSON.stringify({ botId: "bot-1", sessionId: "s1", generation: 2, screenText: "$ ls", seq: 9, modes: [1], panes: [] }));
+      return new Response(JSON.stringify({ botId: "bot-1", sessionId: "s1", generation: 2, screenText: "$ ls", screenRuns: [[{ t: "$ ls" }]], seq: 9, modes: [1], panes: [] }));
     }) as typeof fetch;
     await expect(terminalSendResponse(ACCESS, "bot-1", { ...input, extra: true }, fetchImpl)).resolves.toEqual({
       status: 200,
-      body: { sessionId: "s1", generation: 2, screenText: "$ ls", panes: [] },
+      body: { sessionId: "s1", generation: 2, screenText: "$ ls", screenRuns: [[{ t: "$ ls" }]], panes: [] },
     });
     expect(calls).toEqual([{
       url: "http://127.0.0.1:52150/v1/bots/bot-1/terminal/send",

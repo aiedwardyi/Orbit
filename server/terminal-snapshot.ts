@@ -3,7 +3,7 @@ import { terminalReadGrant, terminalSendGrant } from "./terminal-grant.ts";
 
 export type TerminalBridgeAccess = { url: string; token: string };
 
-const SNAPSHOT_FIELDS = ["screenText", "recentText", "state", "sessionId", "generation", "cwd", "exited", "exitCode", "label", "panes"] as const;
+const SNAPSHOT_FIELDS = ["screenText", "screenRuns", "recentText", "state", "sessionId", "generation", "cwd", "exited", "exitCode", "label", "panes"] as const;
 export const TERMINAL_SEND_MAX_BYTES = 4 * 1024;
 // ESC covers kitty-mode keys like \x1b[99;5u (Ctrl+C); tab and newlines stay allowed.
 const CONTROL_BYTES = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/;

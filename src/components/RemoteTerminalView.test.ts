@@ -51,6 +51,31 @@ describe("RemoteTerminalView", () => {
     await act(async () => root.unmount());
   });
 
+  it("renders styled screen runs with palette colors", async () => {
+    store.api.mockResolvedValue({
+      screenText: "ok bar\n$",
+      screenRuns: [[{ t: "ok", fg: 2, b: 1 }, { t: " " }, { t: "bar", bg: "#010203", u: 1, s: 1 }], [{ t: "$" }]],
+      recentText: "done",
+    });
+    const { host, root } = await renderView();
+    const pre = host.querySelector("pre")!;
+    expect(pre.textContent).toBe("done\n\nok bar\n$");
+    const [ok, , bar] = [...pre.querySelectorAll("span")];
+    expect(ok.style.color).toMatch(/#4e9a06|rgb\(78, 154, 6\)/);
+    expect(ok.style.fontWeight).toBe("600");
+    expect(bar.style.backgroundColor).toMatch(/#010203|rgb\(1, 2, 3\)/);
+    expect(bar.style.textDecoration).toBe("underline line-through");
+    await act(async () => root.unmount());
+  });
+
+  it("renders plain text when the desktop sends no screen runs", async () => {
+    store.api.mockResolvedValue({ screenText: "$ ls", recentText: "done" });
+    const { host, root } = await renderView();
+    expect(host.querySelector("pre")?.textContent).toBe("done\n\n$ ls");
+    expect(host.querySelector("pre span")).toBeNull();
+    await act(async () => root.unmount());
+  });
+
   it("copies the full text to the clipboard", async () => {
     store.api.mockResolvedValue({ screenText: "$ ls", recentText: "done" });
     const writeText = vi.fn(async () => {});

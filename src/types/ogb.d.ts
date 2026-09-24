@@ -126,6 +126,17 @@ type SkillRecordingPayload = {
     code?: "load-failed" | "renderer-gone";
   }
 
+  interface TerminalRun {
+    t: string;
+    fg?: number | string;
+    bg?: number | string;
+    b?: 1;
+    d?: 1;
+    i?: 1;
+    u?: 1;
+    s?: 1;
+  }
+
   interface TerminalBotSnapshot {
     botId: string;
     state?: "no-terminal";
@@ -138,6 +149,7 @@ type SkillRecordingPayload = {
     exitCode: number | null;
     exited: boolean;
     screenText: string;
+    screenRuns?: TerminalRun[][];
     recentText: string;
     truncated: boolean;
     cols?: number;

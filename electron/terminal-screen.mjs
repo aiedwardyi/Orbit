@@ -9,7 +9,100 @@ function clamp(value, min, max) {
 }
 
 function blankRow(cols) {
-  return Array.from({ length: cols }, () => " ");
+  return { chars: Array.from({ length: cols }, () => " "), styles: Array(cols).fill(null) };
+}
+
+function spliceBlank(line, start, deleteCount, insertCount) {
+  line.chars.splice(start, deleteCount, ...Array(insertCount).fill(" "));
+  line.styles.splice(start, deleteCount, ...Array(insertCount).fill(null));
+}
+
+function truncateRow(line, cols) {
+  line.chars.length = cols;
+  line.styles.length = cols;
+}
+
+function hexColor(r, g, b) {
+  return `#${[r, g, b].map((value) => clamp(value ?? 0, 0, 255).toString(16).padStart(2, "0")).join("")}`;
+}
+
+// Pens are replaced, never mutated, so cells share them by reference.
+function applySgr(pen, values) {
+  const params = values.length ? values : [0];
+  const next = { ...pen };
+  for (let i = 0; i < params.length; i += 1) {
+    const p = params[i];
+    if (p === 0) for (const key of Object.keys(next)) delete next[key];
+    else if (p === 1) next.b = 1;
+    else if (p === 2) next.d = 1;
+    else if (p === 3) next.i = 1;
+    else if (p === 4) next.u = 1;
+    else if (p === 7) next.inv = 1;
+    else if (p === 9) next.s = 1;
+    else if (p === 22) { delete next.b; delete next.d; }
+    else if (p === 23) delete next.i;
+    else if (p === 24) delete next.u;
+    else if (p === 27) delete next.inv;
+    else if (p === 29) delete next.s;
+    else if (p >= 30 && p <= 37) next.fg = p - 30;
+    else if (p === 39) delete next.fg;
+    else if (p >= 40 && p <= 47) next.bg = p - 40;
+    else if (p === 49) delete next.bg;
+    else if (p >= 90 && p <= 97) next.fg = p - 82;
+    else if (p >= 100 && p <= 107) next.bg = p - 92;
+    else if (p === 38 || p === 48) {
+      const key = p === 38 ? "fg" : "bg";
+      if (params[i + 1] === 5 && i + 2 < params.length) {
+        next[key] = clamp(params[i + 2], 0, 255);
+        i += 2;
+      } else if (params[i + 1] === 2 && i + 4 < params.length) {
+        next[key] = hexColor(params[i + 2], params[i + 3], params[i + 4]);
+        i += 4;
+      } else break;
+    }
+  }
+  return Object.keys(next).length ? next : null;
+}
+
+function runStyle(pen) {
+  if (!pen) return { key: "", attrs: {} };
+  const fg = pen.inv ? pen.bg ?? 0 : pen.fg;
+  const bg = pen.inv ? pen.fg ?? 7 : pen.bg;
+  const attrs = {};
+  if (fg !== undefined) attrs.fg = fg;
+  if (bg !== undefined) attrs.bg = bg;
+  for (const flag of ["b", "d", "i", "u", "s"]) if (pen[flag]) attrs[flag] = 1;
+  return { key: JSON.stringify(attrs), attrs };
+}
+
+function rowRuns(line, styleOf) {
+  let end = line.chars.length;
+  while (end > 0 && !line.styles[end - 1] && line.chars[end - 1].trim() === "") end -= 1;
+  const runs = [];
+  let last = null;
+  let lastKey = null;
+  for (let x = 0; x < end; x += 1) {
+    const { key, attrs } = styleOf(line.styles[x]);
+    if (last && key === lastKey) last.t += line.chars[x];
+    else {
+      last = { t: line.chars[x], ...attrs };
+      lastKey = key;
+      runs.push(last);
+    }
+  }
+  return runs;
+}
+
+function dropLeading(runs, count) {
+  let remaining = count;
+  while (remaining > 0 && runs.length) {
+    if (runs[0].t.length <= remaining) remaining -= runs.shift().t.length;
+    else {
+      runs[0].t = runs[0].t.slice(remaining);
+      remaining = 0;
+    }
+  }
+  return runs;
 }
 
 function blankBuffer(cols, rows) {
@@ -86,6 +179,7 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
   let csi = "";
   let osc = "";
   let scrollbackLines = [];
+  let pen = null;
 
   function makeBuffer() {
     return { rows: blankBuffer(width, height) };
@@ -103,7 +197,7 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
 
   function addScrollback(line) {
     if (alternateMode || scrollbackLimit === 0) return;
-    scrollbackLines.push(line.join("").replace(/\s+$/u, ""));
+    scrollbackLines.push(line.chars.join("").replace(/\s+$/u, ""));
     if (scrollbackLines.length > scrollbackLimit) scrollbackLines = scrollbackLines.slice(-scrollbackLimit);
   }
 
@@ -137,7 +231,10 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
 
   function eraseLine(start, end) {
     const current = row(cursorY);
-    for (let x = clamp(start, 0, width); x < clamp(end, 0, width); x += 1) current[x] = " ";
+    for (let x = clamp(start, 0, width); x < clamp(end, 0, width); x += 1) {
+      current.chars[x] = " ";
+      current.styles[x] = null;
+    }
   }
 
   function eraseDisplay(mode) {
@@ -189,9 +286,8 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
   function writeChar(char) {
     const widthOfChar = charWidth(char);
     if (widthOfChar === 0) {
-      if (cursorX > 0 && active.rows[cursorY][cursorX - 1].length < MAX_CELL_TEXT) {
-        active.rows[cursorY][cursorX - 1] += char;
-      }
+      const { chars } = active.rows[cursorY];
+      if (cursorX > 0 && chars[cursorX - 1].length < MAX_CELL_TEXT) chars[cursorX - 1] += char;
       return;
     }
     if (wrapPending) {
@@ -203,10 +299,15 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
       carriageReturn();
       lineFeed();
     }
-    if (insertMode) active.rows[cursorY].splice(cursorX, 0, ...Array.from({ length: widthOfChar }, () => " "));
-    active.rows[cursorY][cursorX] = char;
-    if (widthOfChar === 2 && cursorX + 1 < width) active.rows[cursorY][cursorX + 1] = " ";
-    if (insertMode) active.rows[cursorY].length = width;
+    const line = active.rows[cursorY];
+    if (insertMode) spliceBlank(line, cursorX, 0, widthOfChar);
+    line.chars[cursorX] = char;
+    line.styles[cursorX] = pen;
+    if (widthOfChar === 2 && cursorX + 1 < width) {
+      line.chars[cursorX + 1] = " ";
+      line.styles[cursorX + 1] = pen;
+    }
+    if (insertMode) truncateRow(line, width);
     cursorX += widthOfChar;
     if (cursorX >= width) {
       cursorX = width - 1;
@@ -273,15 +374,15 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
       case "P": {
         const amount = first(width - cursorX);
         const current = active.rows[cursorY];
-        current.splice(cursorX, amount);
-        current.push(...Array.from({ length: amount }, () => " "));
-        current.length = width;
+        spliceBlank(current, cursorX, amount, 0);
+        spliceBlank(current, current.chars.length, 0, amount);
+        truncateRow(current, width);
         break;
       }
       case "@": {
         const amount = first(width - cursorX);
-        active.rows[cursorY].splice(cursorX, 0, ...Array.from({ length: amount }, () => " "));
-        active.rows[cursorY].length = width;
+        spliceBlank(active.rows[cursorY], cursorX, 0, amount);
+        truncateRow(active.rows[cursorY], width);
         break;
       }
       case "X": eraseLine(cursorX, cursorX + first(width - cursorX)); break;
@@ -298,6 +399,7 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
       case "u": cursorX = savedCursor.x; cursorY = savedCursor.y; wrapPending = false; break;
       case "h": if (a === 4) insertMode = true; break;
       case "l": if (a === 4) insertMode = false; break;
+      case "m": if (!/^[?>!=<]/.test(raw)) pen = applySgr(pen, parsed.values); break;
       default: break;
     }
   }
@@ -326,7 +428,7 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
         else if (char === "D") { lineFeed(); parserState = "normal"; }
         else if (char === "E") { carriageReturn(); lineFeed(); parserState = "normal"; }
         else if (char === "M") { if (cursorY === scrollTop) scrollDown(); else cursorY -= 1; parserState = "normal"; }
-        else if (char === "c") { main = makeBuffer(); alternate = makeBuffer(); active = alternateMode ? alternate : main; cursorX = 0; cursorY = 0; savedCursor = { x: 0, y: 0 }; alternateRestoreCursor = { x: 0, y: 0 }; scrollTop = 0; scrollBottom = height - 1; scrollbackLines = []; privateModes.clear(); resetPrivateModes.clear(); parserState = "normal"; }
+        else if (char === "c") { main = makeBuffer(); alternate = makeBuffer(); active = alternateMode ? alternate : main; cursorX = 0; cursorY = 0; savedCursor = { x: 0, y: 0 }; alternateRestoreCursor = { x: 0, y: 0 }; scrollTop = 0; scrollBottom = height - 1; scrollbackLines = []; pen = null; privateModes.clear(); resetPrivateModes.clear(); parserState = "normal"; }
         else { parserState = "normal"; }
         continue;
       }
@@ -360,7 +462,10 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
     const newHeight = clamp(Number.isInteger(nextRows) ? nextRows : height, 1, MAX_ROWS);
     if (newWidth === width && newHeight === height) return;
     const resizeBuffer = (buffer) => {
-      const rows = buffer.rows.slice(0, newHeight).map((line) => [...line.slice(0, newWidth), ...Array(Math.max(0, newWidth - line.length)).fill(" ")]);
+      const rows = buffer.rows.slice(0, newHeight).map((line) => {
+        const pad = Math.max(0, newWidth - line.chars.length);
+        return { chars: [...line.chars.slice(0, newWidth), ...Array(pad).fill(" ")], styles: [...line.styles.slice(0, newWidth), ...Array(pad).fill(null)] };
+      });
       while (rows.length < newHeight) rows.push(blankRow(newWidth));
       return { rows };
     };
@@ -375,14 +480,25 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
   }
 
   function snapshot({ maxScreenChars = 64 * 1024, maxScrollbackChars = 16 * 1024 } = {}) {
-    const screen = active.rows.map((line) => line.join("").replace(/\s+$/u, "")).join("\n");
+    const lines = active.rows.map((line) => line.chars.join("").replace(/\s+$/u, ""));
+    const screen = lines.join("\n");
     const recent = scrollbackLines.join("\n");
     const limitedScreen = limitText(screen, maxScreenChars);
     const limitedRecent = limitText(recent, maxScrollbackChars);
+    const keptLines = limitedScreen.text.split("\n");
+    const firstKept = lines.length - keptLines.length;
+    const styles = new Map();
+    const styleOf = (style) => {
+      if (!styles.has(style)) styles.set(style, runStyle(style));
+      return styles.get(style);
+    };
+    const screenRuns = active.rows.slice(firstKept).map((line) => rowRuns(line, styleOf));
+    if (limitedScreen.truncated) dropLeading(screenRuns[0], lines[firstKept].length - keptLines[0].length);
     return {
       cols: width,
       rows: height,
       screenText: limitedScreen.text,
+      screenRuns,
       recentText: limitedRecent.text,
       alternate: alternateMode,
       modes: [...privateModes].sort((a, b) => a - b),
