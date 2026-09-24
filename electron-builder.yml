@@ -78,6 +78,8 @@ extraResources:
     to: companion
   - from: skills
     to: skills
+  - from: docs/harness-playbook.md
+    to: docs/harness-playbook.md
   - from: dist-native/android-platform-tools
     to: android-platform-tools
 

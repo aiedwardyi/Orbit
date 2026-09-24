@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { TOOLS, callTool, readTerminalSnapshot, terminalReadGrant, terminalSnapshotText } from "./terminal-proxy.ts";
 
@@ -18,6 +20,16 @@ describe("terminal proxy", () => {
     expect(TOOLS[2]).toMatchObject({ annotations: { readOnlyHint: false, destructiveHint: true }, inputSchema: { required: ["label"], additionalProperties: false } });
     expect(Object.keys(TOOLS[2].inputSchema.properties)).toEqual(["label", "cwd", "command"]);
     expect(TOOLS[3]).toMatchObject({ annotations: { readOnlyHint: false, destructiveHint: true }, inputSchema: { required: ["sessionId"], additionalProperties: false } });
+  });
+
+  it("carries the worker spawn recipe in the tool descriptions", () => {
+    const orbitMsg = join(homedir(), ".orbit", "bin", "orbit-msg.ps1").replace(/\\/g, "/");
+    expect(TOOLS[2].description).toContain("claude --model <model-id> --dangerously-skip-permissions 'Read <card path> and do it.'");
+    expect(TOOLS[2].description).toContain(`codex --model <model-id> -c model_reasoning_effort=<effort> -a never -s workspace-write -c 'notify=["powershell.exe","-NoProfile","-ExecutionPolicy","Bypass","-File","${orbitMsg}","--notify","last-assistant-message"]' '<prompt>'`);
+    expect(TOOLS[2].description).toContain("MODEL | EFFORT | NICKNAME");
+    expect(TOOLS[2].description).toContain("git worktree");
+    expect(TOOLS[0].description).toContain("pane note");
+    expect(TOOLS[1].description).toContain("/effort high");
   });
 
   it("maps terminal_spawn args to a POST on the bot's open route", async () => {
