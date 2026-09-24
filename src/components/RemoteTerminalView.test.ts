@@ -42,11 +42,11 @@ function typeLine(input: HTMLInputElement, value: string) {
 }
 
 describe("RemoteTerminalView", () => {
-  it("renders the screen then recent text with the cwd", async () => {
+  it("renders recent text then the live screen with the cwd", async () => {
     store.api.mockResolvedValue({ screenText: "$ ls", recentText: "done", cwd: "C:\work", exited: false });
     const { host, root } = await renderView();
     expect(store.api).toHaveBeenCalledWith("/api/bots/bot-1/terminal");
-    expect(host.querySelector("pre")?.textContent).toBe("$ ls\n\ndone");
+    expect(host.querySelector("pre")?.textContent).toBe("done\n\n$ ls");
     expect(host.textContent).toContain("C:\work");
     await act(async () => root.unmount());
   });
@@ -57,7 +57,7 @@ describe("RemoteTerminalView", () => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     const { host, root } = await renderView();
     await act(async () => click(button(host, "Copy")));
-    expect(writeText).toHaveBeenCalledWith("$ ls\n\ndone");
+    expect(writeText).toHaveBeenCalledWith("done\n\n$ ls");
     await act(async () => root.unmount());
   });
 
@@ -80,17 +80,17 @@ describe("RemoteTerminalView", () => {
     await act(async () => root.unmount());
   });
 
-  it("polls every 3s only while visible", async () => {
+  it("polls every 1s only while visible", async () => {
     vi.useFakeTimers();
     store.api.mockResolvedValue({ screenText: "one" });
     const { root } = await renderView(false);
-    await act(async () => vi.advanceTimersByTime(9_000));
+    await act(async () => vi.advanceTimersByTime(1_000));
     expect(store.api).not.toHaveBeenCalled();
     await act(async () =>
       root.render(createElement(I18nProvider, null, createElement(RemoteTerminalView, { bot: { id: "bot-1", name: "Ada" }, visible: true, onClose: () => {} }))),
     );
     expect(store.api).toHaveBeenCalledTimes(1);
-    await act(async () => vi.advanceTimersByTime(3_000));
+    await act(async () => vi.advanceTimersByTime(1_000));
     expect(store.api).toHaveBeenCalledTimes(2);
     await act(async () => root.unmount());
   });
@@ -194,7 +194,7 @@ describe("RemoteTerminalView", () => {
     store.api.mockReturnValueOnce(pending).mockReturnValue(new Promise(() => {}));
     const { host, root } = await renderView();
     try {
-      await act(async () => vi.advanceTimersByTime(3_000));
+      await act(async () => vi.advanceTimersByTime(1_000));
       expect(store.api).toHaveBeenCalledTimes(2);
       await act(async () => resolve({ screenText: "slow response" }));
       expect(host.querySelector("pre")?.textContent).toBe("slow response");
@@ -249,7 +249,7 @@ describe("RemoteTerminalView", () => {
     try {
       expect(host.querySelector("pre")?.textContent).toBe("$ one");
       server.panes = [{ sessionId: "two", main: false }];
-      await act(async () => vi.advanceTimersByTime(3_000));
+      await act(async () => vi.advanceTimersByTime(1_000));
       expect(store.api).toHaveBeenLastCalledWith("/api/bots/bot-1/terminal?sessionId=two");
       expect(host.querySelector("pre")?.textContent).toBe("$ two");
       expect(host.querySelector('[role="alert"]')).toBeNull();
@@ -265,11 +265,11 @@ describe("RemoteTerminalView", () => {
     try {
       expect(host.querySelector("pre")?.textContent).toBe("$ one");
       server.panes = [];
-      await act(async () => vi.advanceTimersByTime(3_000));
+      await act(async () => vi.advanceTimersByTime(1_000));
       expect(host.textContent).toContain("No active terminal");
       expect(host.querySelector("pre")).toBeNull();
       expect(host.querySelector('[role="alert"]')).toBeNull();
-      await act(async () => vi.advanceTimersByTime(3_000));
+      await act(async () => vi.advanceTimersByTime(1_000));
       expect(store.api).toHaveBeenLastCalledWith("/api/bots/bot-1/terminal");
     } finally {
       await act(async () => root.unmount());
@@ -282,10 +282,10 @@ describe("RemoteTerminalView", () => {
     const { host, root } = await renderView();
     try {
       server.panes = [];
-      await act(async () => vi.advanceTimersByTime(3_000));
+      await act(async () => vi.advanceTimersByTime(1_000));
       expect(host.textContent).toContain("No active terminal");
       server.panes = [{ sessionId: "main", main: true }];
-      await act(async () => vi.advanceTimersByTime(3_000));
+      await act(async () => vi.advanceTimersByTime(1_000));
       expect(store.api).toHaveBeenLastCalledWith("/api/bots/bot-1/terminal");
       expect(host.querySelector("pre")?.textContent).toBe("$ main");
       expect(host.querySelector('[role="alert"]')).toBeNull();

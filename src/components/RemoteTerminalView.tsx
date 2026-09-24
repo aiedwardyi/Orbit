@@ -25,7 +25,7 @@ type RemoteTerminalSnapshot = {
   panes?: RemoteTerminalPane[];
 };
 
-const REFRESH_MS = 3_000;
+const REFRESH_MS = 1_000;
 const SEND_MAY_HAVE_RUN = "Send may have run. Check the screen before resending.";
 
 // A dropped fetch, a timeout or a bridge 5xx can fail a send the pty already ran.
@@ -35,7 +35,7 @@ function sendMayHaveRun(cause: unknown): boolean {
 }
 
 export function snapshotText(snapshot: RemoteTerminalSnapshot): string {
-  return [snapshot.screenText, snapshot.recentText].filter(Boolean).join("\n\n");
+  return [snapshot.recentText, snapshot.screenText].filter(Boolean).join("\n\n");
 }
 
 function folderName(cwd: string): string {
