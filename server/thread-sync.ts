@@ -125,6 +125,18 @@ export function threadSyncDir(folder: string, botSyncId: string): string {
 }
 
 const readCache = new Map<string, { mtimeMs: number; size: number; file: SyncedThreadFile | null }>();
+const unreadable = new Set<string>();
+
+// a Drive placeholder or half-synced file fails every retry; one line per failure streak, none for a thread never uploaded
+function warnUnreadable(path: string, code: string): void {
+  if (code === "ENOENT" || unreadable.has(path)) return;
+  unreadable.add(path);
+  console.warn(`chat sync: cannot read ${path} (${code})`);
+}
+
+function errorCode(error: unknown): string {
+  return (error as NodeJS.ErrnoException)?.code ?? (error instanceof SyntaxError ? "EPARSE" : String(error));
+}
 
 /** Cached by mtime and size unless `fresh`; callers must not mutate the result. */
 export function readSyncedThread(path: string, fresh = false): SyncedThreadFile | null {
@@ -135,9 +147,12 @@ export function readSyncedThread(path: string, fresh = false): SyncedThreadFile 
     const parsed = fileSchema.safeParse(JSON.parse(readFileSync(path, "utf8")));
     const file = parsed.success ? parsed.data as SyncedThreadFile : null;
     readCache.set(path, { mtimeMs, size, file });
+    if (file) unreadable.delete(path);
+    else warnUnreadable(path, "ESCHEMA");
     return file;
-  } catch {
+  } catch (error) {
     readCache.delete(path);
+    warnUnreadable(path, errorCode(error));
     return null;
   }
 }
@@ -277,4 +292,82 @@ export function pullBotThreads(host: ThreadSyncHost, botId: string, botSyncId: s
     if (threadId) results[threadId] = pullThread(host, botId, botSyncId, threadId);
   }
   return results;
+}
+
+export const THREAD_SYNC_POLL_MS = 30_000;
+
+export interface ThreadSyncTargets {
+  host: ThreadSyncHost;
+  bots: { botId: string; botSyncId: string }[];
+}
+
+type FileStat = { mtimeMs: number; size: number };
+
+/** Pulls files whose size or mtime moved since `seen`; a skipped or running file stays unrecorded so the next scan retries it. */
+function scanBotThreads(host: ThreadSyncHost, botId: string, botSyncId: string, seen: Map<string, FileStat>, full: boolean): void {
+  let dir: string;
+  let names: string[];
+  try {
+    dir = threadSyncDir(host.folder, botSyncId);
+    names = readdirSync(dir);
+  } catch (error) {
+    if (full) console.log(`chat sync: ${botSyncId} no thread dir (${errorCode(error)})`);
+    return;
+  }
+  const counts = { imported: 0, current: 0, conflict: 0 };
+  const skipped: string[] = [];
+  for (const name of names.sort()) {
+    const threadId = THREAD_FILE.exec(name)?.[1];
+    if (!threadId) continue;
+    const path = join(dir, name);
+    let stat: FileStat;
+    try {
+      const { mtimeMs, size } = statSync(path);
+      stat = { mtimeMs, size };
+    } catch (error) {
+      warnUnreadable(path, errorCode(error));
+      skipped.push(name);
+      continue;
+    }
+    const last = seen.get(path);
+    if (last && last.mtimeMs === stat.mtimeMs && last.size === stat.size) continue;
+    let result: ThreadSyncResult = "skipped";
+    try {
+      result = pullThread(host, botId, botSyncId, threadId);
+    } catch (error) {
+      console.warn("chat sync: pull failed", error);
+    }
+    if (result === "imported" || result === "current" || result === "conflict") {
+      seen.set(path, stat);
+      counts[result]++;
+    } else {
+      skipped.push(name);
+    }
+  }
+  if (!full) return;
+  const conflicts = counts.conflict ? ` conflict ${counts.conflict}` : "";
+  console.log(`chat sync: ${botSyncId} imported ${counts.imported} current ${counts.current}${conflicts} skipped [${skipped.join(", ")}]`);
+}
+
+/** Rescans Drive while chat sync is on; `start` runs a full, logged scan first. */
+export function createThreadSyncPoll(targets: () => ThreadSyncTargets | null, intervalMs = THREAD_SYNC_POLL_MS) {
+  const seen = new Map<string, FileStat>();
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const scan = (full: boolean) => {
+    const target = targets();
+    for (const bot of target?.bots ?? []) scanBotThreads(target!.host, bot.botId, bot.botSyncId, seen, full);
+  };
+  return {
+    start(): void {
+      seen.clear();
+      scan(true);
+      if (timer) return;
+      timer = setInterval(() => scan(false), intervalMs);
+      timer.unref?.();
+    },
+    stop(): void {
+      clearInterval(timer);
+      timer = undefined;
+    },
+  };
 }

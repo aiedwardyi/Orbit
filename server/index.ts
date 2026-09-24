@@ -271,9 +271,9 @@ import {
 import {
   CONFLICT_NOTICE,
   chatSyncBotId,
+  createThreadSyncPoll,
   loadThreadSyncLedger,
   markThreadDirty,
-  pullBotThreads,
   pullThread,
   saveThreadSyncLedger,
   threadTurnRunning,
@@ -1673,17 +1673,22 @@ function pullSyncedThread(threadId: string): void {
   }
 }
 
+const threadSyncPoll = createThreadSyncPoll(() => {
+  if (!profileSyncSettings.syncChats || !profileSyncSettings.folder) return null;
+  return {
+    host: threadSyncHost(profileSyncSettings.folder),
+    bots: store.bots.flatMap((bot) => {
+      const botSyncId = chatSyncBotId(profileSyncSettings, bot.id);
+      return botSyncId ? [{ botId: bot.id, botSyncId }] : [];
+    }),
+  };
+});
+
 function syncAllThreads(): void {
-  if (!profileSyncSettings.syncChats || !profileSyncSettings.folder) return;
-  const host = threadSyncHost(profileSyncSettings.folder);
+  if (!profileSyncSettings.syncChats || !profileSyncSettings.folder) return threadSyncPoll.stop();
+  threadSyncPoll.start();
   for (const bot of store.bots) {
-    const botSyncId = chatSyncBotId(profileSyncSettings, bot.id);
-    if (!botSyncId) continue;
-    try {
-      pullBotThreads(host, bot.id, botSyncId);
-    } catch (error) {
-      console.warn("chat sync: pull failed", error);
-    }
+    if (!chatSyncBotId(profileSyncSettings, bot.id)) continue;
     // other never-synced tasks upload on their next change; loading every transcript here would pin them all in memory
     for (const task of store.tasks(bot.id)) {
       if (task.threadId === bot.threadId || threadSyncLedger[task.threadId]?.dirty) scheduleThreadUpload(task.threadId);
@@ -6627,6 +6632,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
     }
     if (method === "DELETE" && path === "/api/profile-sync") {
+      threadSyncPoll.stop();
       profileSyncSettings.folder = null;
       profileSyncLastConflictCount = 0;
       profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);

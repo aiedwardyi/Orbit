@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DATA_DIR } from "./config.ts";
 import { closeMessageDb, readThread } from "./message-db.ts";
@@ -11,7 +11,9 @@ import type { ModelSelection } from "./contracts.ts";
 import {
   CONFLICT_NOTICE,
   THREAD_SYNC_FORMAT,
+  THREAD_SYNC_POLL_MS,
   chatSyncBotId,
+  createThreadSyncPoll,
   loadThreadSyncLedger,
   markThreadDirty,
   pullBotThreads,
@@ -30,6 +32,8 @@ const BOT_SYNC_ID = "sync-bot-1";
 const roots: string[] = [];
 
 afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -490,12 +494,81 @@ describe("thread sync", () => {
       activeLeafId: null,
       messages: [],
     }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     expect(() => pullBotThreads(b.host, "bot-b", BOT_SYNC_ID)).not.toThrow();
     expect(pullBotThreads(b.host, "bot-b", BOT_SYNC_ID)).toEqual({ t1: "skipped", t2: "skipped", t3: "skipped" });
+    expect(warn.mock.calls.map(([line]) => line)).toEqual([
+      `chat sync: cannot read ${join(dir, "t1.json")} (EPARSE)`,
+      `chat sync: cannot read ${join(dir, "t2.json")} (ESCHEMA)`,
+    ]);
     expect(b.threads.size).toBe(0);
 
     b.say("t1", "m1", "local");
     expect(uploadThread(b.host, BOT_SYNC_ID, "t1")).toBe("skipped");
     expect(readFileSync(join(dir, "t1.json"), "utf8")).toBe("{not json");
+  });
+});
+
+describe("thread sync poll", () => {
+  function poll() {
+    vi.useFakeTimers();
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const folder = temp("thread-sync-folder-");
+    const a = pc("device-a", folder);
+    const b = pc("device-b", folder);
+    const sync = createThreadSyncPoll(() => ({ host: b.host, bots: [{ botId: "bot-b", botSyncId: BOT_SYNC_ID }] }));
+    return { a, b, sync, log };
+  }
+
+  it("adopts a file that appears after start within one tick", () => {
+    const { a, b, sync, log } = poll();
+    sync.start();
+    expect(log).toHaveBeenCalledWith(`chat sync: ${BOT_SYNC_ID} no thread dir (ENOENT)`);
+    a.say("t1", "m1", "hello");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    vi.advanceTimersByTime(THREAD_SYNC_POLL_MS);
+    expect(b.threads.get("t1")?.messages.map((m) => m.text)).toEqual(["hello"]);
+    sync.stop();
+  });
+
+  it("does not pull an unchanged file again", () => {
+    const { a, b, sync } = poll();
+    a.say("t1", "m1", "hello");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    sync.start();
+    expect(b.threads.has("t1")).toBe(true);
+    // a pull now would re-adopt it
+    b.threads.delete("t1");
+    delete b.host.ledger.t1;
+    vi.advanceTimersByTime(THREAD_SYNC_POLL_MS);
+    expect(b.threads.has("t1")).toBe(false);
+    sync.stop();
+  });
+
+  it("retries a running thread on the next tick", () => {
+    const { a, b, sync, log } = poll();
+    a.say("t1", "m1", "hello");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    b.running.add("t1");
+    sync.start();
+    expect(log).toHaveBeenCalledWith(`chat sync: ${BOT_SYNC_ID} imported 0 current 0 skipped [t1.json]`);
+    vi.advanceTimersByTime(THREAD_SYNC_POLL_MS);
+    expect(b.threads.has("t1")).toBe(false);
+    b.running.delete("t1");
+    vi.advanceTimersByTime(THREAD_SYNC_POLL_MS);
+    expect(b.threads.get("t1")?.messages.map((m) => m.text)).toEqual(["hello"]);
+    expect(log).toHaveBeenCalledTimes(1);
+    sync.stop();
+  });
+
+  it("stops polling when chat sync turns off", () => {
+    const { a, b, sync } = poll();
+    sync.start();
+    sync.stop();
+    expect(vi.getTimerCount()).toBe(0);
+    a.say("t1", "m1", "hello");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    vi.advanceTimersByTime(THREAD_SYNC_POLL_MS * 2);
+    expect(b.threads.has("t1")).toBe(false);
   });
 });
