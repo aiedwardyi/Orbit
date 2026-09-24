@@ -17,8 +17,9 @@ export function showComputerPanelChrome(): boolean {
   return false;
 }
 
+// Threads synced from another PC land here; without the picker they are unreachable.
 export function showBotNewTaskControl(): boolean {
-  return false;
+  return true;
 }
 
 export function showChannelNewTaskControl(): boolean {

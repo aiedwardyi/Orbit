@@ -50,7 +50,6 @@ describe("friends chrome flags", () => {
     expect(showSettingsAdvancedSection()).toBe(false);
     expect(showBotDetailsAdvanced()).toBe(false);
     expect(showComputerPanelChrome()).toBe(false);
-    expect(showBotNewTaskControl()).toBe(false);
     expect(showChannelNewTaskControl()).toBe(false);
     expect(showChannelCallControl()).toBe(false);
     expect(showSidebarTeachSkill()).toBe(false);
@@ -94,6 +93,10 @@ describe("friends chrome call sites keep the feature code", () => {
     expect(usage).toContain("Turns");
     expect(usage).toContain("Tokens");
     expect(usage).toContain("Cost");
+  });
+
+  it("keeps the bot thread picker on so synced threads stay reachable", () => {
+    expect(showBotNewTaskControl()).toBe(true);
   });
 
   it("gates the Computer panel and bot new-task control in chat chrome", () => {
