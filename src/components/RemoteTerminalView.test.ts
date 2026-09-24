@@ -80,6 +80,19 @@ describe("RemoteTerminalView", () => {
     await act(async () => root.unmount());
   });
 
+  it("spins the refresh icon briefly on tap so the button reads as live", async () => {
+    vi.useFakeTimers();
+    store.api.mockResolvedValue({ screenText: "one" });
+    const { host, root } = await renderView();
+    await act(async () => click(button(host, "Refresh")));
+    expect(button(host, "Refresh").disabled).toBe(true);
+    expect(button(host, "Refresh").querySelector("svg")?.getAttribute("class")).toContain("animate-spin");
+    await act(async () => vi.advanceTimersByTime(500));
+    expect(button(host, "Refresh").disabled).toBe(false);
+    expect(button(host, "Refresh").querySelector("svg")?.getAttribute("class")).not.toContain("animate-spin");
+    await act(async () => root.unmount());
+  });
+
   it("polls every 1s only while visible", async () => {
     vi.useFakeTimers();
     store.api.mockResolvedValue({ screenText: "one" });

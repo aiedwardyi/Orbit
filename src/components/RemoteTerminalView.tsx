@@ -26,6 +26,7 @@ type RemoteTerminalSnapshot = {
 };
 
 const REFRESH_MS = 1_000;
+const SPIN_MS = 500;
 const SEND_MAY_HAVE_RUN = "Send may have run. Check the screen before resending.";
 
 // A dropped fetch, a timeout or a bridge 5xx can fail a send the pty already ran.
@@ -60,6 +61,7 @@ export function RemoteTerminalView({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const requestRef = useRef(0);
   const appliedRequestRef = useRef(0);
   const outputRef = useRef<HTMLPreElement>(null);
@@ -102,6 +104,17 @@ export function RemoteTerminalView({
       setError(message);
     }
   }, [bot.id, selectedPane, fallbackPane]);
+
+  // The 1s poll usually beats a tap, so the button spins briefly or it reads as a dud.
+  const refreshNow = useCallback(async () => {
+    setRefreshing(true);
+    setError(null);
+    pinnedRef.current = true;
+    const spin = new Promise<void>((done) => window.setTimeout(done, SPIN_MS));
+    await refresh();
+    await spin;
+    setRefreshing(false);
+  }, [refresh]);
 
   useEffect(() => {
     if (!visible) return;
@@ -204,8 +217,8 @@ export function RemoteTerminalView({
             </div>
           )}
         </div>
-        <button type="button" onClick={() => void refresh()} aria-label={t("terminal.refresh")} className={buttonClass}>
-          <RotateCcw size={16} /> <span className="max-sm:sr-only">{t("terminal.refresh")}</span>
+        <button type="button" onClick={() => void refreshNow()} disabled={refreshing} aria-label={t("terminal.refresh")} className={buttonClass}>
+          <RotateCcw size={16} className={refreshing ? "animate-spin motion-reduce:animate-none" : undefined} /> <span className="max-sm:sr-only">{t("terminal.refresh")}</span>
         </button>
         <button type="button" onClick={() => void copy()} disabled={!text} aria-label={t("terminal.copy")} className={buttonClass}>
           {copied ? <Check size={16} /> : <Copy size={16} />} <span className="max-sm:sr-only">{t("terminal.copy")}</span>
