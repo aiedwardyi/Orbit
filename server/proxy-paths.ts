@@ -49,3 +49,10 @@ export const SPAWNED_PROXIES = {
   // check can assert it ships.
   piMcpExtension: resolveProxy("drivers/pi-mcp-extension"),
 } as const;
+
+/** Non-code files read from beside the server dir: docs/ is a sibling of
+ * server/ in dev and of Resources/server once packaged. The smoke test asserts
+ * these ship too. */
+export const PACKAGED_FILES = {
+  harnessPlaybook: join(SERVER_ROOT, "..", "docs", "harness-playbook.md"),
+} as const;

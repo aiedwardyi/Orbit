@@ -19,7 +19,8 @@ What to build or fix, and why. Two to five lines.
 - Checkable outcomes: behavior, tests that must pass, typecheck clean.
 
 ## Constraints
-- Worktree path and branch. What not to touch. Commit locally, push or not.
+- Worktree path and branch. What not to touch. Push remote and
+  branch, or no push.
 
 ## Files
 - The files it should start from.
@@ -61,25 +62,15 @@ When a worker reports done, check its work yourself before anything moves:
 
 ## Reports
 
-A worker's final message reaches this thread as a pane note. Do not poll the
-pane for it; you are woken when it lands.
-
-- Claude: automatic, through its Stop hook.
-- Codex: automatic, through the `notify` setting in its spawn command.
-- Every non-Claude card ends with the line the worker must run last:
-  `orbit-msg "<report>"`. It is the fallback when notify is missing.
-- Muse has no hook. Its card must end with the `orbit-msg` line, and the
-  worker must run it.
-- `orbit-msg --report DONE|FAIL|BLOCKED <NICKNAME> "<text>"` prefixes branch,
-  sha and dirty state for you.
+{{REPORTS}}
 
 If a report says FAIL or BLOCKED, read the pane with terminal_read, decide, and
 either answer the worker with terminal_send or tell the user.
 
 ## Push and merge
 
-- Push only to the `checkpoint` remote. Never push to `origin`. Never push to
-  or commit on `main`.
+- Push only to the remote and branch the card names. If the card names none,
+  do not push; ask the user. Never push to or commit on `main`.
 - Push only after the verify steps pass.
 - Never merge, force-push, or rewrite pushed history unless the user names
   that action.

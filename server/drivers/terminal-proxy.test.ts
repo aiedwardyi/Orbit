@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { TOOLS, callTool, readTerminalSnapshot, terminalReadGrant, terminalSnapshotText } from "./terminal-proxy.ts";
+import { TOOLS, callTool, readTerminalSnapshot, terminalReadGrant, terminalSnapshotText, workerReportText } from "./terminal-proxy.ts";
 
 describe("terminal proxy", () => {
   it("derives distinct bot-bound read grants", () => {
@@ -23,13 +23,25 @@ describe("terminal proxy", () => {
   });
 
   it("carries the worker spawn recipe in the tool descriptions", () => {
-    const orbitMsg = join(homedir(), ".orbit", "bin", "orbit-msg.ps1").replace(/\\/g, "/");
     expect(TOOLS[2].description).toContain("claude --model <model-id> --dangerously-skip-permissions 'Read <card path> and do it.'");
-    expect(TOOLS[2].description).toContain(`codex --model <model-id> -c model_reasoning_effort=<effort> -a never -s workspace-write -c 'notify=["powershell.exe","-NoProfile","-ExecutionPolicy","Bypass","-File","${orbitMsg}","--notify","last-assistant-message"]' '<prompt>'`);
+    expect(TOOLS[2].description).toContain(`-s workspace-write ${workerReportText(process.platform).notify}'<prompt>'`);
+    expect(TOOLS[2].description).toContain(workerReportText(process.platform).spawn);
+    expect(TOOLS[0].description).toContain(workerReportText(process.platform).read);
     expect(TOOLS[2].description).toContain("MODEL | EFFORT | NICKNAME");
     expect(TOOLS[2].description).toContain("git worktree");
-    expect(TOOLS[0].description).toContain("pane note");
-    expect(TOOLS[1].description).toContain("/effort high");
+    expect(TOOLS[1].description).toContain("terminal_read until the Claude prompt is visible, then send \"/effort <level>\\n\"");
+  });
+
+  it("adds Codex notify and orbit-msg reports on Windows only", () => {
+    const orbitMsg = join(homedir(), ".orbit", "bin", "orbit-msg.ps1").replace(/\\/g, "/");
+    const win = workerReportText("win32");
+    expect(win.notify).toBe(`-c 'notify=["powershell.exe","-NoProfile","-ExecutionPolicy","Bypass","-File","${orbitMsg}","--notify","last-assistant-message"]' `);
+    expect(win.spawn).toContain("orbit-msg --report DONE|FAIL|BLOCKED <NICKNAME>");
+    expect(win.read).toContain("pane note");
+    const linux = workerReportText("linux");
+    expect(linux.notify).toBe("");
+    expect(linux.spawn).toContain("orbit-msg is not installed on this platform");
+    expect(linux.read).not.toContain("pane note");
   });
 
   it("maps terminal_spawn args to a POST on the bot's open route", async () => {

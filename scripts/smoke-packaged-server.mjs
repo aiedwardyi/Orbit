@@ -26,7 +26,10 @@ const port = 21000 + Math.floor(Math.random() * 9000);
 
 // OMB_SMOKE_DIST lets the release workflow aim this at a packaged app's
 // Resources/server tree instead of the repo build.
-cpSync(process.env.OMB_SMOKE_DIST ?? join(root, "dist-server"), join(staging, "server"), { recursive: true });
+const dist = process.env.OMB_SMOKE_DIST ?? join(root, "dist-server");
+cpSync(dist, join(staging, "server"), { recursive: true });
+// docs/ sits beside the server dir in both the repo and Resources.
+cpSync(join(dist, "..", "docs", "harness-playbook.md"), join(staging, "docs", "harness-playbook.md"));
 
 const child = spawn(process.execPath, [join(staging, "server", "packaged-boot.js")], {
   cwd: staging,
@@ -108,9 +111,10 @@ writeFileSync(
   probe,
   [
     'import { existsSync } from "node:fs";',
-    'import { SPAWNED_PROXIES } from "./proxy-paths.js";',
-    "const missing = Object.entries(SPAWNED_PROXIES).filter(([, p]) => !existsSync(p));",
-    "console.log(JSON.stringify({ resolved: SPAWNED_PROXIES, missing }));",
+    'import { PACKAGED_FILES, SPAWNED_PROXIES } from "./proxy-paths.js";',
+    "const resolved = { ...SPAWNED_PROXIES, ...PACKAGED_FILES };",
+    "const missing = Object.entries(resolved).filter(([, p]) => !existsSync(p));",
+    "console.log(JSON.stringify({ resolved, missing }));",
   ].join("\n"),
 );
 
