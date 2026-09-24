@@ -25,7 +25,7 @@ import { showComputerPanelChrome } from "@/lib/friends-chrome";
 import { I18nProvider, useI18n } from "@/lib/i18n";
 import { buildTerminalNotification, showNotification, type NotificationTarget } from "@/lib/notify";
 import { focusComposerOnActivation } from "@/lib/focus-composer";
-import { BackNavigation, type BackLayer } from "@/lib/back-navigation";
+import { BackNavigation, backDepth, followSelection, trailTarget, type BackLayer } from "@/lib/back-navigation";
 
 const Onboarding = lazy(() => import("@/components/Onboarding").then((m) => ({ default: m.Onboarding })));
 const SettingsPanel = lazy(() => import("@/components/SettingsPanel").then((m) => ({ default: m.SettingsPanel })));
@@ -375,7 +375,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     if (window.ogb) return;
     const navigation = new BackNavigation(window.history);
     backNavigation.current = navigation;
-    const onPop = () => navigation.pop();
+    const onPop = (event: PopStateEvent) => navigation.pop(backDepth(event.state));
     const onPicker = (event: Event) => {
       const { id, open } = (event as CustomEvent<{ id: string; open: boolean }>).detail;
       if (open) modelPickerIds.current.add(id);
@@ -395,15 +395,15 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     if (!backNavigation.current || !state.bots.length) return;
     const root = state.bots.find((candidate) => candidate.chiefOfStaff)?.id ?? state.bots[0].id;
     const trail = selectionTrail.current;
-    if (!trail.length) trail.push(root);
-    if (state.selectedId && trail.at(-1) !== state.selectedId) {
-      const previous = trail.indexOf(state.selectedId);
-      if (previous >= 0) trail.splice(previous + 1);
-      else trail.push(state.selectedId);
-    }
+    const exists = (id: string) =>
+      latestState.current.bots.some((candidate) => candidate.id === id) || latestState.current.groups.some((candidate) => candidate.id === id);
+    followSelection(trail, root, state.selectedId, exists);
     const layers: BackLayer[] = trail.slice(1).map((id, index) => ({
       key: `chat:${id}`,
-      close: () => dispatch({ type: "select", id: trail[index] }),
+      close: () => {
+        const target = trailTarget(trail, index, exists);
+        if (target) dispatch({ type: "select", id: target });
+      },
     }));
     const add = (open: boolean, key: string, close: () => void) => { if (open) layers.push({ key, close }); };
     add(state.activeView !== "chat", `view:${state.activeView}`, () => dispatch({ type: "select", id: state.selectedId }));

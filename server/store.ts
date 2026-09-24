@@ -630,6 +630,7 @@ export class Store {
   private taskPackets = new Map<string, TaskResumePacket | null>();
   private defaultSelection: () => ModelSelection;
   private listeners = new Set<(change: StoreChange) => void>();
+  private writeListeners = new Set<(threadId: string) => void>();
 
   constructor(defaultSelection: () => ModelSelection) {
     this.defaultSelection = defaultSelection;
@@ -820,6 +821,22 @@ export class Store {
   onChange(listener: (change: StoreChange) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** Runs before a message or leaf write reaches SQLite, so a crash never leaves a durable write unannounced. */
+  onBeforeWrite(listener: (threadId: string) => void): () => void {
+    this.writeListeners.add(listener);
+    return () => this.writeListeners.delete(listener);
+  }
+
+  private beforeWrite(threadId: string) {
+    for (const listener of [...this.writeListeners]) {
+      try {
+        listener(threadId);
+      } catch (error) {
+        console.error("store: write listener threw", error);
+      }
+    }
   }
 
   private emit(change: StoreChange) {
@@ -1070,6 +1087,7 @@ export class Store {
     const full: Message = { id: newId(), at: Date.now(), parentId: t.activeLeafId, ...redactBotAuthored(message) };
     t.messages.push(full);
     t.activeLeafId = full.id;
+    this.beforeWrite(threadId);
     mdb.appendMessage(threadId, full);
     if (full.kind === "screen") {
       for (const pruned of this.pruneScreenFrames(t)) {
@@ -1148,6 +1166,7 @@ export class Store {
     };
     t.messages.push(full);
     t.activeLeafId = full.id;
+    this.beforeWrite(threadId);
     mdb.appendMessage(threadId, full);
     this.emit({ type: "message", threadId, message: full });
     return full;
@@ -1165,6 +1184,7 @@ export class Store {
       cur = children.reduce((a, b) => (b.at >= a.at ? b : a)).id;
     }
     t.activeLeafId = cur;
+    this.beforeWrite(threadId);
     mdb.setActiveLeaf(threadId, cur);
     this.emit({ type: "thread", threadId, activeLeafId: cur });
     return cur;
@@ -1178,6 +1198,7 @@ export class Store {
     // hydrate that GET /api/bots serves reads the patched record, not the
     // frame the UI already saw.
     t.messages[idx] = redactBotAuthored({ ...t.messages[idx], ...patch, card: patch.card ?? t.messages[idx].card });
+    this.beforeWrite(threadId);
     mdb.updateMessage(threadId, t.messages[idx]);
     this.emit({ type: "message.patch", threadId, message: t.messages[idx] });
     return t.messages[idx];

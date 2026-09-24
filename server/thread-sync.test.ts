@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { DATA_DIR } from "./config.ts";
-import { closeMessageDb } from "./message-db.ts";
+import { closeMessageDb, readThread } from "./message-db.ts";
 import { Store, type Message } from "./store.ts";
 import type { ModelSelection } from "./contracts.ts";
 import {
@@ -23,6 +23,7 @@ import {
   uploadThread,
   type LocalThread,
   type ThreadSyncHost,
+  type ThreadSyncLedger,
 } from "./thread-sync.ts";
 
 const BOT_SYNC_ID = "sync-bot-1";
@@ -302,6 +303,85 @@ describe("thread sync", () => {
     expect(pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1")).toBe("conflict");
     expect(b.threads.get("t1")?.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
     expect(conflictMessages(folder, "device-a")).toEqual([["m1", "m3"]]);
+  });
+
+  it("keeps an edited message whose old content is only in a stale archive", () => {
+    const folder = temp("thread-sync-folder-");
+    const a = pc("device-a", folder);
+    const b = pc("device-b", folder);
+    const path = remotePath(folder, "t1");
+    a.say("t1", "m1", "hello");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1");
+    b.say("t1", "b2", "old");
+    expect(uploadThread(b.host, BOT_SYNC_ID, "t1")).toBe("written");
+    writeFileSync(join(threadSyncDir(folder, BOT_SYNC_ID), "t1.conflict-device-b-1.json"), readFileSync(path, "utf8"));
+    const sibling = JSON.parse(readFileSync(path, "utf8"));
+    writeFileSync(path, JSON.stringify({
+      ...sibling,
+      revision: 3,
+      writerDeviceId: "device-a",
+      activeLeafId: "a2",
+      messages: [sibling.messages[0], msg("a2", "from a", "m1")],
+    }));
+    // edited in place after the archive, and the dirty flag never saved
+    b.threads.get("t1")!.messages[1].text = "new";
+
+    expect(pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1")).toBe("conflict");
+    expect(b.threads.get("t1")?.messages.map((m) => m.text)).toEqual(["hello", "new"]);
+  });
+
+  it("rebases a pull only onto the live file when the cache matches its size and mtime", () => {
+    const folder = temp("thread-sync-folder-");
+    const a = pc("device-a", folder);
+    const b = pc("device-b", folder);
+    const c = pc("device-c", folder);
+    const path = remotePath(folder, "t1");
+    a.say("t1", "m1", "hello");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1");
+    pullThread(c.host, "bot-c", BOT_SYNC_ID, "t1");
+    c.say("t1", "c2", "cccc");
+    expect(uploadThread(c.host, BOT_SYNC_ID, "t1")).toBe("written");
+    const live = readFileSync(path, "utf8");
+    const stamp = 1_700_000_000;
+    writeFileSync(path, live.replace('"revision":2', '"revision":3').replace("cccc", "dddd"));
+    utimesSync(path, stamp, stamp);
+    expect(readSyncedThread(path)?.revision).toBe(3);
+    writeFileSync(path, live);
+    utimesSync(path, stamp, stamp);
+    b.say("t1", "b2", "from b");
+
+    expect(pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1")).toBe("conflict");
+    expect(b.host.ledger.t1).toEqual({ syncedRevision: 2, syncedWriter: "device-c", dirty: true });
+    const dir = threadSyncDir(folder, BOT_SYNC_ID);
+    const parked = readdirSync(dir).filter((name) => name.startsWith("t1.conflict-"));
+    expect(parked.map((name) => readSyncedThread(join(dir, name), true)?.messages.map((m) => m.text))).toEqual([["hello", "cccc"]]);
+  });
+
+  it("marks the ledger dirty before a message write reaches SQLite", () => {
+    closeMessageDb();
+    rmSync(DATA_DIR, { recursive: true, force: true });
+    mkdirSync(DATA_DIR, { recursive: true });
+    const store = new Store((): ModelSelection => ({ instanceId: "claude", model: "claude-sonnet-5" }));
+    const { threadId } = store.createBot();
+    const ledger: ThreadSyncLedger = { [threadId]: { syncedRevision: 1, dirty: false } };
+    const stored: string[] = [];
+    store.onBeforeWrite((id) => {
+      markThreadDirty(ledger, id);
+      stored.push(readThread(id, join(DATA_DIR, "missing.json")).messages.map((m) => m.text ?? "").join("|"));
+    });
+
+    const message = store.appendMessage(threadId, { role: "user", kind: "text", text: "first" });
+    expect(ledger[threadId].dirty).toBe(true);
+    expect(stored[0]).not.toContain("first");
+    ledger[threadId].dirty = false;
+    stored.length = 0;
+    store.patchMessage(threadId, message.id, { text: "second" });
+    expect(ledger[threadId].dirty).toBe(true);
+    expect(stored[0]).toContain("first");
+    expect(stored[0]).not.toContain("second");
+    closeMessageDb();
   });
 
   it("archives a changed remote on upload even when size and mtime match the cache", () => {

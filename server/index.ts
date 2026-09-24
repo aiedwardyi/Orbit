@@ -1685,6 +1685,10 @@ function syncAllThreads(): void {
   }
 }
 
+store.onBeforeWrite((threadId) => {
+  if (markThreadDirty(threadSyncLedger, threadId)) saveThreadSyncLedger(DATA_DIR, threadSyncLedger);
+});
+
 store.onChange((change) => {
   if (change.type !== "message" && change.type !== "message.patch" && change.type !== "thread") return;
   if (markThreadDirty(threadSyncLedger, change.threadId)) saveThreadSyncLedger(DATA_DIR, threadSyncLedger);

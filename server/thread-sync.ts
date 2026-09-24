@@ -163,14 +163,29 @@ function isDirty(host: ThreadSyncHost, threadId: string, local: LocalThread | nu
   return entry ? entry.dirty : local.messages.length > 0;
 }
 
-/** Every local message is in the remote or a parked conflict copy; a higher revision alone does not prove ancestry. */
+// screen pixels are attachments in all but name; message JSON only
+function persisted(message: Message): Message {
+  if (message.kind !== "screen" || !message.png) return message;
+  const { png: _png, mime: _mime, ...rest } = message;
+  return rest;
+}
+
+/** Key order differs between parsed files and in-memory messages. */
+function canonical(message: Message): string {
+  return JSON.stringify(message, (_key, value: unknown) =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => (a < b ? -1 : 1)))
+      : value);
+}
+
+/** Every local message, content included, is in the remote or a parked conflict copy; a higher revision alone does not prove ancestry. */
 function preserved(dir: string, threadId: string, local: LocalThread, remote: SyncedThreadFile): boolean {
-  const remoteIds = new Set(remote.messages.map((message) => message.id));
-  let missing = local.messages.filter((message) => !remoteIds.has(message.id));
+  const kept = new Set(remote.messages.map(canonical));
+  let missing = local.messages.map((message) => canonical(persisted(message))).filter((key) => !kept.has(key));
   for (const name of missing.length ? readdirSync(dir) : []) {
     if (!name.startsWith(`${threadId}.conflict-`)) continue;
-    const parked = new Set(readSyncedThread(join(dir, name))?.messages.map((message) => message.id));
-    missing = missing.filter((message) => !parked.has(message.id));
+    const parked = new Set(readSyncedThread(join(dir, name), true)?.messages.map(canonical));
+    missing = missing.filter((key) => !parked.has(key));
     if (!missing.length) break;
   }
   return !missing.length;
@@ -185,12 +200,7 @@ function toFile(host: ThreadSyncHost, threadId: string, local: LocalThread, revi
     updatedAt: host.now?.() ?? Date.now(),
     task: { threadId, title: local.title, createdAt: local.createdAt },
     activeLeafId: local.activeLeafId,
-    // screen pixels are attachments in all but name; message JSON only
-    messages: local.messages.map((message) => {
-      if (message.kind !== "screen" || !message.png) return message;
-      const { png: _png, mime: _mime, ...rest } = message;
-      return rest;
-    }),
+    messages: local.messages.map(persisted),
   };
 }
 
@@ -232,11 +242,16 @@ export function uploadThread(host: ThreadSyncHost, botSyncId: string, threadId: 
 export function pullThread(host: ThreadSyncHost, botId: string, botSyncId: string, threadId: string): ThreadSyncResult {
   if (!THREAD_ID.safeParse(threadId).success) return "skipped";
   const dir = threadSyncDir(host.folder, botSyncId);
-  const remote = readSyncedThread(join(dir, `${threadId}.json`));
+  const path = join(dir, `${threadId}.json`);
+  const cached = readSyncedThread(path);
+  if (!cached || cached.task.threadId !== threadId) return "skipped";
+  if (!isForeign(host.ledger[threadId], cached)) return "current";
+  if (host.running(threadId)) return "running";
+  // Drive can swap in another revision at the same size and mtime; act only on bytes read now
+  const remote = readSyncedThread(path, true);
   if (!remote || remote.task.threadId !== threadId) return "skipped";
   const entry = host.ledger[threadId];
   if (!isForeign(entry, remote)) return "current";
-  if (host.running(threadId)) return "running";
   const local = host.local(threadId);
   // an equal revision here is a sibling of our own copy, so even a clean thread holds unsynced messages
   const diverged = remote.revision === entry?.syncedRevision;
