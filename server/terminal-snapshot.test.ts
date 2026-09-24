@@ -163,6 +163,21 @@ describe("terminal send relay", () => {
     });
   });
 
+  it.each(["\x1c", "\x1a", "\x04", "\x1b[99;5u", "\x00", "\x7f"])("refuses control bytes like %j before the bridge", async (text) => {
+    await expect(terminalSendResponse(ACCESS, "bot-1", { ...input, text: `ls${text}\n` }, mustNotFetch)).resolves.toEqual({
+      status: 400,
+      body: { error: "control characters are not allowed" },
+    });
+  });
+
+  it.each(["\t", "\n", "\r", "echo hi"])("passes %j through to the bridge", async (text) => {
+    const fetchImpl = (async () => Response.json({ screenText: "$" })) as typeof fetch;
+    await expect(terminalSendResponse(ACCESS, "bot-1", { ...input, text }, fetchImpl)).resolves.toEqual({
+      status: 200,
+      body: { screenText: "$" },
+    });
+  });
+
   it("posts with the send grant and relays only the snapshot fields", async () => {
     const calls: Array<{ url: string; auth: string | null; method: string | undefined; body: unknown }> = [];
     const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {

@@ -26,6 +26,13 @@ type RemoteTerminalSnapshot = {
 };
 
 const REFRESH_MS = 3_000;
+const SEND_MAY_HAVE_RUN = "Send may have run. Check the screen before resending.";
+
+// A dropped fetch, a timeout or a bridge 5xx can fail a send the pty already ran.
+function sendMayHaveRun(cause: unknown): boolean {
+  if (!(cause instanceof Error) || cause.name !== "Error") return true;
+  return /unreachable|terminal bridge: HTTP|^50[24] /i.test(cause.message);
+}
 
 export function snapshotText(snapshot: RemoteTerminalSnapshot): string {
   return [snapshot.screenText, snapshot.recentText].filter(Boolean).join("\n\n");
@@ -135,28 +142,23 @@ export function RemoteTerminalView({
   const send = async (event: FormEvent) => {
     event.preventDefault();
     if (sending || !snapshot?.sessionId || snapshot.generation === undefined) return;
-    const path = `/api/bots/${encodeURIComponent(bot.id)}/terminal`;
-    const post = (target: RemoteTerminalSnapshot): Promise<RemoteTerminalSnapshot> =>
-      api(`${path}/send`, { method: "POST", body: JSON.stringify({ sessionId: target.sessionId, generation: target.generation, text: `${draft}\n` }) });
+    const line = draft;
     setSending(true);
     setSendError(null);
     try {
-      let next: RemoteTerminalSnapshot;
-      try {
-        next = await post(snapshot);
-      } catch (cause) {
-        if (!(cause instanceof Error && /stale/i.test(cause.message))) throw cause;
-        const fresh: RemoteTerminalSnapshot = await api(`${path}?sessionId=${encodeURIComponent(snapshot.sessionId)}`);
-        appliedRequestRef.current = ++requestRef.current;
-        setSnapshot(fresh);
-        next = await post(fresh);
-      }
+      const next: RemoteTerminalSnapshot = await api(`/api/bots/${encodeURIComponent(bot.id)}/terminal/send`, {
+        method: "POST",
+        body: JSON.stringify({ sessionId: snapshot.sessionId, generation: snapshot.generation, text: `${line}\n` }),
+      });
       appliedRequestRef.current = ++requestRef.current;
       pinnedRef.current = true;
       setSnapshot(next);
-      setDraft("");
+      setDraft((current) => (current === line ? "" : current));
     } catch (cause) {
-      setSendError(cause instanceof Error ? cause.message : String(cause));
+      const message = cause instanceof Error ? cause.message : String(cause);
+      const mayHaveRun = sendMayHaveRun(cause);
+      setSendError(mayHaveRun ? SEND_MAY_HAVE_RUN : message);
+      if (mayHaveRun || /stale/i.test(message)) void refresh();
     } finally {
       setSending(false);
     }
@@ -252,7 +254,7 @@ export function RemoteTerminalView({
               <CornerDownLeft size={18} />
             </button>
           </div>
-          {sendError && <p role="status" className="truncate px-4 pt-1.5 text-[12px] text-ink-secondary">{t("terminal.sendFailed")}: {sendError}</p>}
+          {sendError && <p role="status" className="truncate px-4 pt-1.5 text-[12px] text-ink-secondary">{sendError === SEND_MAY_HAVE_RUN ? sendError : `${t("terminal.sendFailed")}: ${sendError}`}</p>}
         </form>
       )}
     </main>

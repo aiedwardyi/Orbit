@@ -335,49 +335,78 @@ describe("RemoteTerminalView", () => {
     }
   });
 
-  it("refreshes and retries once on a stale generation", async () => {
-    const sends: unknown[] = [];
+  it("refreshes without resending on a stale generation", async () => {
     let generation = 2;
-    store.api.mockImplementation(async (path: string, init?: RequestInit) => {
-      if (!path.endsWith("/send")) return { screenText: "$", sessionId: "s1", generation };
-      const body = JSON.parse(String(init?.body));
-      sends.push(body);
-      if (body.generation !== 3) {
-        generation = 3;
-        throw new Error("Terminal session is stale; take a fresh snapshot");
-      }
-      return { screenText: "$ pwd", sessionId: "s1", generation: 3 };
+    store.api.mockImplementation(async (path: string) => {
+      if (!path.endsWith("/send")) return { screenText: `$ gen ${generation}`, sessionId: "s1", generation };
+      generation = 3;
+      throw new Error("Terminal session is stale; take a fresh snapshot");
     });
     const { host, root } = await renderView();
     try {
       await act(async () => typeLine(composer(host)!, "pwd"));
       await act(async () => composer(host)!.form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-      expect(sends).toEqual([
-        { sessionId: "s1", generation: 2, text: "pwd\n" },
-        { sessionId: "s1", generation: 3, text: "pwd\n" },
-      ]);
-      expect(store.api).toHaveBeenCalledWith("/api/bots/bot-1/terminal?sessionId=s1");
-      expect(host.querySelector("pre")?.textContent).toBe("$ pwd");
-      expect(composer(host)!.value).toBe("");
+      expect(store.api.mock.calls.filter(([path]) => String(path).endsWith("/send"))).toHaveLength(1);
+      expect(store.api).toHaveBeenLastCalledWith("/api/bots/bot-1/terminal");
+      expect(host.querySelector("pre")?.textContent).toBe("$ gen 3");
+      expect(host.querySelector('[role="status"]')?.textContent).toBe("Not sent: Terminal session is stale; take a fresh snapshot");
+      expect(host.querySelector('[role="alert"]')).toBeNull();
+      expect(composer(host)!.value).toBe("pwd");
+      expect(button(host, "Send").disabled).toBe(false);
     } finally {
       await act(async () => root.unmount());
     }
   });
 
-  it("shows the error and keeps the line after a second stale generation", async () => {
+  it.each([new TypeError("Load failed"), new Error("terminal bridge unreachable")])("warns the line may have run after %s", async (failure) => {
+    let ran = false;
     store.api.mockImplementation(async (path: string) => {
-      if (path.endsWith("/send")) throw new Error("Terminal session is stale; take a fresh snapshot");
+      if (!path.endsWith("/send")) return { screenText: ran ? "$ make deploy" : "$", sessionId: "s1", generation: 2 };
+      ran = true;
+      throw failure;
+    });
+    const { host, root } = await renderView();
+    try {
+      await act(async () => typeLine(composer(host)!, "make deploy"));
+      await act(async () => click(button(host, "Send")));
+      expect(store.api.mock.calls.filter(([path]) => String(path).endsWith("/send"))).toHaveLength(1);
+      expect(store.api).toHaveBeenLastCalledWith("/api/bots/bot-1/terminal");
+      expect(host.querySelector("pre")?.textContent).toBe("$ make deploy");
+      expect(host.querySelector('[role="status"]')?.textContent).toBe("Send may have run. Check the screen before resending.");
+      expect(composer(host)!.value).toBe("make deploy");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("keeps the server's reason for a rejected line", async () => {
+    store.api.mockImplementation(async (path: string) => {
+      if (path.endsWith("/send")) throw new Error("control characters are not allowed");
       return { screenText: "$", sessionId: "s1", generation: 2 };
     });
     const { host, root } = await renderView();
     try {
-      await act(async () => typeLine(composer(host)!, "pwd"));
+      await act(async () => typeLine(composer(host)!, "ls"));
       await act(async () => click(button(host, "Send")));
-      expect(store.api.mock.calls.filter(([path]) => String(path).endsWith("/send"))).toHaveLength(2);
-      expect(host.querySelector('[role="status"]')?.textContent).toBe("Not sent: Terminal session is stale; take a fresh snapshot");
-      expect(host.querySelector('[role="alert"]')).toBeNull();
+      expect(host.querySelector('[role="status"]')?.textContent).toBe("Not sent: control characters are not allowed");
+      expect(store.api.mock.calls.filter(([path]) => !String(path).endsWith("/send"))).toHaveLength(1);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("keeps a line typed while the previous one was in flight", async () => {
+    let resolve!: (value: { screenText: string; sessionId: string; generation: number }) => void;
+    const pending = new Promise<{ screenText: string; sessionId: string; generation: number }>((done) => { resolve = done; });
+    store.api.mockImplementation(async (path: string) => (path.endsWith("/send") ? pending : { screenText: "$", sessionId: "s1", generation: 2 }));
+    const { host, root } = await renderView();
+    try {
+      await act(async () => typeLine(composer(host)!, "ls"));
+      await act(async () => click(button(host, "Send")));
+      await act(async () => typeLine(composer(host)!, "pwd"));
+      await act(async () => resolve({ screenText: "$ ls", sessionId: "s1", generation: 2 }));
+      expect(host.querySelector("pre")?.textContent).toBe("$ ls");
       expect(composer(host)!.value).toBe("pwd");
-      expect(button(host, "Send").disabled).toBe(false);
     } finally {
       await act(async () => root.unmount());
     }

@@ -1764,8 +1764,8 @@ async function acceptedSend(state: AppState, threadId: string, sendId: string, t
     state.groups.find((group) => group.threadId === threadId)?.messages
   )?.find(isSend);
   if (held) return held;
-  const page = await api(`/api/threads/${threadId}/messages?limit=200`).catch(() => null);
-  return (page?.messages as Message[] | undefined)?.find(isSend) ?? null;
+  const page = await api(`/api/threads/${threadId}/messages?limit=200`, { signal: AbortSignal.timeout(5_000) }).catch(() => null);
+  return Array.isArray(page?.messages) ? ((page.messages as Message[]).find(isSend) ?? null) : null;
 }
 
 export interface PeripheralSnapshotLoad<Key extends string = string> {

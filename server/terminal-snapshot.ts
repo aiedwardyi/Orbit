@@ -5,6 +5,8 @@ export type TerminalBridgeAccess = { url: string; token: string };
 
 const SNAPSHOT_FIELDS = ["screenText", "recentText", "state", "sessionId", "generation", "cwd", "exited", "exitCode", "label", "panes"] as const;
 export const TERMINAL_SEND_MAX_BYTES = 4 * 1024;
+// ESC covers kitty-mode keys like \x1b[99;5u (Ctrl+C); tab and newlines stay allowed.
+const CONTROL_BYTES = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/;
 
 const terminalSendSchema = z.object({ sessionId: z.string().min(1), generation: z.number().int(), text: z.string() });
 
@@ -55,6 +57,7 @@ export async function terminalSendResponse(
     return { status: 400, body: { error: `terminal input is capped at ${TERMINAL_SEND_MAX_BYTES / 1024}KB` } };
   }
   if (parsed.data.text.includes("\x03")) return { status: 400, body: { error: "Ctrl+C is not allowed" } };
+  if (CONTROL_BYTES.test(parsed.data.text)) return { status: 400, body: { error: "control characters are not allowed" } };
   if (!access) return { status: 503, body: { error: "terminal bridge unavailable" } };
   let res: Response;
   try {

@@ -51,13 +51,18 @@ afterEach(async () => {
   localStorage.clear();
 });
 
-async function mount(threadPage: (threadId: string) => Response) {
+async function mount(
+  threadPage: (threadId: string, init?: RequestInit) => Response | Promise<Response>,
+  post: () => Promise<Response> = async () => {
+    throw new TypeError("Load failed");
+  },
+) {
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     const path = String(url);
     if (path === "/api/bots") return Response.json({ bots: [bot], groups: [group], computerControl: {} });
-    if (init?.method === "POST" && path.endsWith("/messages")) throw new TypeError("Load failed");
+    if (init?.method === "POST" && path.endsWith("/messages")) return post();
     const page = path.match(/^\/api\/threads\/([\w-]+)\/messages\?/);
-    if (page) return threadPage(page[1]!);
+    if (page) return threadPage(page[1]!, init);
     return Response.json({ error: "not in this test" }, { status: 404 });
   });
   vi.stubGlobal("fetch", fetch);
@@ -111,5 +116,86 @@ describe("send reject after the server accepted", () => {
     expect(store.state.acceptedSends[threadId]).toBeUndefined();
     expect(store.state.error).toBe("Load failed");
     expect(messagesOf(threadId)).toEqual([]);
+  });
+
+  it.each(sends)("$name restores the draft when the same sendId carries other text", async ({ threadId, action }) => {
+    await mount((thread) => Response.json({ messages: [{ ...accepted(thread), text: "other" }], hasMore: false }));
+    const onError = vi.fn();
+    await act(async () => store.dispatch(action(onError) as never));
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+    expect(messagesOf(threadId)).toEqual([]);
+  });
+
+  it.each(sends)("$name settles from local state without a lookup", async ({ threadId, action }) => {
+    let reject!: (cause: Error) => void;
+    const fetch = await mount(
+      () => Response.json({ messages: [], hasMore: false }),
+      () => new Promise<Response>((_, fail) => { reject = fail; }),
+    );
+    const onError = vi.fn();
+    await act(async () => store.dispatch(action(onError) as never));
+    await act(async () => {
+      FakeEventSource.last!.onmessage!({ data: JSON.stringify({ kind: "message", threadId, message: accepted(threadId) }), lastEventId: "e2" });
+    });
+    await act(async () => reject(new TypeError("Load failed")));
+    await vi.waitFor(() => expect(store.state.acceptedSends[threadId]).toBeUndefined());
+    expect(fetch).not.toHaveBeenCalledWith(`/api/threads/${threadId}/messages?limit=200`, expect.anything());
+    expect(messagesOf(threadId)).toEqual([accepted(threadId)]);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it.each(sends)("$name restores the draft when the lookup lacks the message", async ({ threadId, action }) => {
+    await mount(() => Response.json({ messages: [], hasMore: false }));
+    const onError = vi.fn();
+    await act(async () => store.dispatch(action(onError) as never));
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+    expect(messagesOf(threadId)).toEqual([]);
+  });
+
+  it.each(sends)("$name adds the message once when SSE and the lookup both deliver it", async ({ threadId, action }) => {
+    let answer!: () => void;
+    let asked = false;
+    await mount(
+      (thread) =>
+        new Promise<Response>((done) => {
+          asked = true;
+          answer = () => done(Response.json({ messages: [accepted(thread)], hasMore: false }));
+        }),
+    );
+    const onError = vi.fn();
+    await act(async () => store.dispatch(action(onError) as never));
+    await vi.waitFor(() => expect(asked).toBe(true));
+    await act(async () => {
+      FakeEventSource.last!.onmessage!({ data: JSON.stringify({ kind: "message", threadId, message: accepted(threadId) }), lastEventId: "e2" });
+    });
+    await act(async () => answer());
+    await vi.waitFor(() => expect(store.state.acceptedSends[threadId]).toBeUndefined());
+    expect(messagesOf(threadId)).toEqual([accepted(threadId)]);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it.each(sends)("$name restores the draft when the lookup hangs past the timeout", async ({ threadId, action }) => {
+    await mount(
+      (_, init) =>
+        new Promise<Response>((_, fail) => init?.signal?.addEventListener("abort", () => fail(init.signal!.reason))),
+    );
+    vi.useFakeTimers();
+    // Native AbortSignal.timeout ignores fake timers.
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new DOMException("timed out", "TimeoutError")), ms);
+      return controller.signal;
+    });
+    try {
+      const onError = vi.fn();
+      await act(async () => store.dispatch(action(onError) as never));
+      await act(async () => vi.advanceTimersByTimeAsync(4_999));
+      expect(onError).not.toHaveBeenCalled();
+      await act(async () => vi.advanceTimersByTimeAsync(1));
+      expect(onError).toHaveBeenCalledOnce();
+      expect(messagesOf(threadId)).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
