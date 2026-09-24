@@ -4,7 +4,7 @@ import { basename, join, relative, resolve } from "node:path";
 import { z } from "zod";
 
 import { writeFileAtomic } from "./atomic.ts";
-import { botAvatarChoiceSchema } from "../shared/bot-avatar.ts";
+import { botAvatarChoiceSchema, botAvatarCropSchema, type BotAvatarCrop } from "../shared/bot-avatar.ts";
 
 export const PROFILE_SYNC_FORMAT = "orbit.profile-sync" as const;
 export const PROFILE_SYNC_VERSION = 1 as const;
@@ -24,6 +24,7 @@ const portableBotChanges = z.object({
   mascotExpression: z.string().trim().max(80).nullable().optional(),
   mascotStyle: botAvatarChoiceSchema.nullable().optional(),
   avatarAsset: z.string().trim().max(240).nullable().optional(),
+  avatarCrop: botAvatarCropSchema.optional(),
   sectionId: ID.nullable().optional(),
   pinned: z.boolean().optional(),
   chiefOfStaff: z.boolean().optional(),
@@ -592,4 +593,18 @@ export function readSyncAvatarAsset(
   } catch {
     return null;
   }
+}
+
+// Ops saved before avatarCrop synced carry none; a photo import then needs a photo crop.
+export function importedSyncAvatarCrop(synced: unknown, current: BotAvatarCrop | undefined): BotAvatarCrop {
+  const parsed = botAvatarCropSchema.safeParse(synced);
+  if (parsed.success) return parsed.data;
+  return current && current !== "mascot" ? current : "circle";
+}
+
+export function syncAvatarMatches(folder: string, avatarAsset: unknown, bytes: Buffer): boolean {
+  const asset = readSyncAvatarAsset(folder, avatarAsset);
+  if (!asset) return false;
+  const digest = (value: Buffer) => createHash("sha256").update(value).digest("hex");
+  return digest(asset.bytes) === digest(bytes);
 }

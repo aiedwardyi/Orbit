@@ -10,6 +10,7 @@ import {
   createSyncOperation,
   emptyProfileSyncState,
   findUnmappedLocalBotForImport,
+  importedSyncAvatarCrop,
   loadProfileSyncSettings,
   localIdForSyncId,
   parseSyncOperationText,
@@ -20,6 +21,7 @@ import {
   profileSyncRevision,
   saveProfileSyncSettings,
   serializeSyncOperation,
+  syncAvatarMatches,
   syncOperationFileName,
   unresolvedSyncConflicts,
   seenCheckpointAfterSave,
@@ -319,5 +321,40 @@ describe("sync avatar assets", () => {
     const name = writeSyncAvatarAsset(root, Buffer.alloc(8), "png", 8);
     expect(resolveSyncAvatarPath(root, name, 4)).toBeNull();
     expect(() => writeSyncAvatarAsset(root, Buffer.from([1]), "svg")).toThrow();
+  });
+
+  it("keeps a mascot icon through save and import on a fresh state", () => {
+    const root = mkdtempSync(join(tmpdir(), "orbit-profile-sync-avatar-crop-"));
+    roots.push(root);
+    const avatarAsset = writeSyncAvatarAsset(root, Buffer.from([1, 2, 3]), "png");
+    writeSyncOperation(root, operation({
+      operationId: "crop-op",
+      changes: { name: "Tutor", mascotStyle: "icon-05", avatarAsset, avatarCrop: "mascot" },
+    }));
+    const bot = applySyncOperations(emptyProfileSyncState(), readSyncOperations(root).operations).bots["bot-1"]!;
+    expect(bot.mascotStyle).toBe("icon-05");
+    expect(bot.avatarAsset).toBe(avatarAsset);
+    expect(importedSyncAvatarCrop(bot.avatarCrop, undefined)).toBe("mascot");
+    expect(importedSyncAvatarCrop(bot.avatarCrop, "square")).toBe("mascot");
+  });
+
+  it("imports an op without avatarCrop with the old photo crop", () => {
+    const bot = applySyncOperations(emptyProfileSyncState(), [
+      operation({ changes: { name: "Tutor", avatarAsset: "assets/abc123.png" } }),
+    ]).bots["bot-1"]!;
+    expect(bot.avatarCrop).toBeUndefined();
+    expect(importedSyncAvatarCrop(bot.avatarCrop, undefined)).toBe("circle");
+    expect(importedSyncAvatarCrop(bot.avatarCrop, "mascot")).toBe("circle");
+    expect(importedSyncAvatarCrop(bot.avatarCrop, "rounded")).toBe("rounded");
+  });
+
+  it("matches identical avatar bytes so a second import keeps the attachment", () => {
+    const root = mkdtempSync(join(tmpdir(), "orbit-profile-sync-avatar-match-"));
+    roots.push(root);
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x09]);
+    const name = writeSyncAvatarAsset(root, bytes, "png");
+    expect(syncAvatarMatches(root, name, Buffer.from(bytes))).toBe(true);
+    expect(syncAvatarMatches(root, name, Buffer.from([0x89, 0x50]))).toBe(false);
+    expect(syncAvatarMatches(root, "assets/missing.png", bytes)).toBe(false);
   });
 });

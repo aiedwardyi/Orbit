@@ -253,9 +253,11 @@ import {
   loadProfileSyncSettings,
   bindSyncId,
   localIdForSyncId,
+  importedSyncAvatarCrop,
   readSyncAvatarAsset,
   readSyncOperations,
   resolveSyncConflictValue,
+  syncAvatarMatches,
   saveProfileSyncSettings,
   seenCheckpointAfterSave,
   profileSyncRevision,
@@ -1158,6 +1160,7 @@ function portableSyncChanges(bot: BotRecord, folder: string): Record<string, unk
     mascotExpression: bot.mascotExpression ?? null,
     mascotStyle: bot.mascotStyle ?? null,
     avatarAsset: syncAvatarAssetForBot(bot, folder),
+    ...(bot.avatarCrop ? { avatarCrop: bot.avatarCrop } : {}),
     sectionId: syncSectionId(bot.section),
     pinned: Boolean(bot.pinned),
     chiefOfStaff: Boolean(bot.chiefOfStaff),
@@ -1248,6 +1251,7 @@ function profileSyncLocalRevision(): string {
       mascotExpression: bot.mascotExpression ?? null,
       mascotStyle: bot.mascotStyle ?? null,
       avatarUrl: bot.avatarUrl ?? null,
+      avatarCrop: bot.avatarCrop ?? null,
       section: bot.section ?? null,
       pinned: Boolean(bot.pinned),
       chiefOfStaff: Boolean(bot.chiefOfStaff),
@@ -1394,12 +1398,14 @@ function importProfileSync(input: { previewRevision?: string; localRevision?: st
       if (importedAvatar === null) {
         store.patchBot(bot.id, { avatarUrl: undefined, avatarCrop: "mascot" });
       } else {
-        const avatarUrl = importSyncAvatar(folder, importedAvatar);
-        if (avatarUrl) {
-          const current = store.bot(bot.id);
-          const avatarCrop = current?.avatarCrop && current.avatarCrop !== "mascot" ? current.avatarCrop : "circle";
-          store.patchBot(bot.id, { avatarUrl, avatarCrop });
-        }
+        const current = store.bot(bot.id);
+        const avatarCrop = importedSyncAvatarCrop(field("avatarCrop", synced.avatarCrop), current?.avatarCrop);
+        const currentMatch = current?.avatarUrl?.match(/^\/api\/attachments\/([A-Za-z0-9-]+\.(png|jpg|gif|webp))$/);
+        const currentBytes = currentMatch ? readAttachment(currentMatch[1]!)?.bytes : undefined;
+        const avatarUrl = currentBytes && syncAvatarMatches(folder, importedAvatar, currentBytes)
+          ? current!.avatarUrl
+          : importSyncAvatar(folder, importedAvatar);
+        if (avatarUrl) store.patchBot(bot.id, { avatarUrl, avatarCrop });
       }
     }
     imported++;
