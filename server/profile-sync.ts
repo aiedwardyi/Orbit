@@ -30,6 +30,9 @@ const portableBotChanges = z.object({
   chiefOfStaff: z.boolean().optional(),
   instanceId: z.string().trim().max(160).nullable().optional(),
   model: z.string().trim().max(160).nullable().optional(),
+  effort: z.string().trim().max(40).nullable().optional(),
+  modelMode: z.enum(["automatic", "pinned"]).nullable().optional(),
+  approvePeerComms: z.boolean().optional(),
   memoryDocument: z.string().trim().max(240).nullable().optional(),
 }).strict();
 const sectionChanges = z.object({
@@ -133,6 +136,8 @@ export interface ProfileSyncSettings {
   nextSequence: number;
   seenCheckpoint: string;
   syncChats: boolean;
+  /** `entity:id:field` -> hash of the value this device and the folder last agreed on. */
+  syncedHashes: Record<string, string>;
 }
 
 function canonicalJson(value: unknown): string {
@@ -211,6 +216,7 @@ const settingsSchema = z.object({
   nextSequence: z.number().int().positive().max(2_000_000_000).default(1),
   seenCheckpoint: z.string().trim().max(160).default(""),
   syncChats: z.boolean().default(false),
+  syncedHashes: z.record(z.string().max(240), z.string().max(64)).default({}),
 }).strict();
 
 function versionStamp(version: Pick<FieldVersion, "recordedAt" | "deviceId" | "sequence" | "operationId">): string {
@@ -475,6 +481,7 @@ export function loadProfileSyncSettings(dataDir: string): ProfileSyncSettings {
     nextSequence: 1,
     seenCheckpoint: "",
     syncChats: false,
+    syncedHashes: {},
   };
 }
 
@@ -607,4 +614,136 @@ export function syncAvatarMatches(folder: string, avatarAsset: unknown, bytes: B
   if (!asset) return false;
   const digest = (value: Buffer) => createHash("sha256").update(value).digest("hex");
   return digest(asset.bytes) === digest(bytes);
+}
+
+// Change files are never rewritten in place, so their names alone say whether the log moved.
+export function syncOperationsSignature(folder: string): string {
+  let names: string[];
+  try {
+    names = readdirSync(join(folder, PROFILE_SYNC_CHANGES_DIR));
+  } catch {
+    return "";
+  }
+  return createHash("sha256").update(names.filter((name) => name.endsWith(".json")).sort().join("\n")).digest("hex");
+}
+
+export interface SyncEntityValues {
+  entity: SyncEntity;
+  entityId: string;
+  changes: Record<string, unknown>;
+}
+
+const syncedKey = (entity: SyncEntity, entityId: string, field: string) => `${entity}:${entityId}:${field}`;
+
+export function syncValueHash(value: unknown): string {
+  return createHash("sha256").update(canonicalJson(value ?? null)).digest("hex").slice(0, 32);
+}
+
+/** Only fields that moved since the last sync; unchanged entities drop out. */
+export function unsyncedChanges(synced: Record<string, string>, local: readonly SyncEntityValues[]): SyncEntityValues[] {
+  return local.flatMap((item) => {
+    const changes = Object.fromEntries(Object.entries(item.changes).filter(([field, value]) =>
+      synced[syncedKey(item.entity, item.entityId, field)] !== syncValueHash(value)));
+    return Object.keys(changes).length ? [{ ...item, changes }] : [];
+  });
+}
+
+export function markSynced(synced: Record<string, string>, item: SyncEntityValues): void {
+  for (const [field, value] of Object.entries(item.changes)) synced[syncedKey(item.entity, item.entityId, field)] = syncValueHash(value);
+}
+
+export function forgetSynced(synced: Record<string, string>, entity: SyncEntity, entityId: string): void {
+  const prefix = `${entity}:${entityId}:`;
+  for (const key of Object.keys(synced)) if (key.startsWith(prefix)) delete synced[key];
+}
+
+/** Newest remote values another device wrote since the last sync; a field also edited here keeps the local edit. */
+export function remoteFieldsToApply(
+  state: ProfileSyncState,
+  deviceId: string,
+  synced: Record<string, string>,
+  entity: SyncEntity,
+  entityId: string,
+  remote: Record<string, unknown>,
+  local: Record<string, unknown> | null,
+): Record<string, unknown> {
+  const apply: Record<string, unknown> = {};
+  for (const [field, value] of Object.entries(remote)) {
+    const key = syncedKey(entity, entityId, field);
+    if (field === "id" || state.fieldVersions[key]?.deviceId === deviceId) continue;
+    const base = synced[key];
+    if (syncValueHash(value) === base) continue;
+    if (local && base !== undefined && syncValueHash(local[field]) !== base) continue;
+    apply[field] = value;
+  }
+  return apply;
+}
+
+/** Applied fields, and fields both sides already agree on, take the local value as the new base so nothing echoes back. */
+export function markImported(
+  synced: Record<string, string>,
+  entity: SyncEntity,
+  entityId: string,
+  remote: Record<string, unknown>,
+  applied: Record<string, unknown>,
+  local: Record<string, unknown>,
+): void {
+  for (const [field, value] of Object.entries(remote)) {
+    if (field === "id") continue;
+    const localHash = syncValueHash(local[field]);
+    if (field in applied || localHash === syncValueHash(value)) synced[syncedKey(entity, entityId, field)] = localHash;
+  }
+}
+
+export interface LocalSyncBot extends SyncBotMatchCandidate {
+  changes: Record<string, unknown>;
+}
+
+export interface ProfileImportPlan {
+  /** localId null means create. */
+  bots: Array<{ globalId: string; localId: string | null; apply: Record<string, unknown> }>;
+  hide: Array<{ globalId: string; localId: string; tombstoneId: string }>;
+  order: Record<string, unknown>;
+}
+
+export function planProfileImport(input: {
+  state: ProfileSyncState;
+  deviceId: string;
+  workspaceId: string;
+  synced: Record<string, string>;
+  botMap: Record<string, string>;
+  local: readonly LocalSyncBot[];
+  localOrder: Record<string, unknown>;
+}): ProfileImportPlan {
+  const { state, deviceId, synced } = input;
+  const botMap = { ...input.botMap };
+  const byId = new Map(input.local.map((bot) => [bot.id, bot]));
+  const sectionNames = new Map(Object.values(state.sections).map((section) => [section.id, String(section.name ?? "")]));
+  const plan: ProfileImportPlan = { bots: [], hide: [], order: {} };
+  for (const remote of Object.values(state.bots)) {
+    let localId = localIdForSyncId(botMap, remote.id) ?? null;
+    // deleted here; its tombstone goes out on the next publish
+    if (localId && !byId.has(localId)) continue;
+    if (!localId) {
+      const section = typeof remote.sectionId === "string" ? sectionNames.get(remote.sectionId) : undefined;
+      localId = findUnmappedLocalBotForImport(input.local, botMap, String(remote.name ?? ""), section) ?? null;
+      if (localId) bindSyncId(botMap, localId, remote.id);
+    }
+    const apply = remoteFieldsToApply(state, deviceId, synced, "bot", remote.id, remote, localId ? byId.get(localId)!.changes : null);
+    plan.bots.push({ globalId: remote.id, localId, apply });
+  }
+  for (const [key, tombstone] of Object.entries(state.tombstones)) {
+    if (!key.startsWith("bot:")) continue;
+    const globalId = key.slice("bot:".length);
+    const localId = localIdForSyncId(botMap, globalId);
+    if (!localId || !byId.has(localId)) continue;
+    // hidden once per tombstone, so a bot unhidden here stays recovered
+    if (synced[syncedKey("bot", globalId, "deleted")] === syncValueHash(tombstone.operationId)) continue;
+    plan.hide.push({ globalId, localId, tombstoneId: tombstone.operationId });
+  }
+  const remoteOrder = Object.fromEntries((["sectionOrder", "itemOrder"] as const)
+    .filter((field) => state.fieldVersions[syncedKey("order", input.workspaceId, field)])
+    .map((field) => [field, state.order[field]]));
+  plan.order = remoteFieldsToApply(state, deviceId, synced, "order", input.workspaceId, remoteOrder, input.localOrder);
+  return plan;
 }

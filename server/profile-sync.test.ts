@@ -13,6 +13,11 @@ import {
   importedSyncAvatarCrop,
   loadProfileSyncSettings,
   localIdForSyncId,
+  markImported,
+  markSynced,
+  planProfileImport,
+  forgetSynced,
+  unsyncedChanges,
   parseSyncOperationText,
   readSyncAvatarAsset,
   readSyncOperations,
@@ -27,6 +32,7 @@ import {
   seenCheckpointAfterSave,
   writeSyncAvatarAsset,
   writeSyncOperation,
+  type ProfileSyncOperation,
 } from "./profile-sync.ts";
 
 const roots: string[] = [];
@@ -356,5 +362,139 @@ describe("sync avatar assets", () => {
     expect(syncAvatarMatches(root, name, Buffer.from(bytes))).toBe(true);
     expect(syncAvatarMatches(root, name, Buffer.from([0x89, 0x50]))).toBe(false);
     expect(syncAvatarMatches(root, "assets/missing.png", bytes)).toBe(false);
+  });
+});
+
+describe("automatic bot sync", () => {
+  type Device = {
+    id: string;
+    bots: Map<string, { name: string; hidden?: boolean; changes: Record<string, unknown> }>;
+    botMap: Record<string, string>;
+    synced: Record<string, string>;
+    sequence: number;
+    created: number;
+  };
+  const device = (id: string): Device => ({ id, bots: new Map(), botMap: {}, synced: {}, sequence: 1, created: 0 });
+  const log: ProfileSyncOperation[] = [];
+  let clock = 1_700_000_000_000;
+
+  function publish(host: Device): ProfileSyncOperation[] {
+    const record = (input: Omit<Parameters<typeof createSyncOperation>[0], "operationId" | "deviceId" | "sequence" | "recordedAt">) => {
+      const sequence = host.sequence++;
+      return createSyncOperation({ ...input, operationId: `${host.id}-${sequence}`, deviceId: host.id, sequence, recordedAt: clock++ });
+    };
+    const changed = unsyncedChanges(host.synced, [...host.bots].map(([localId, bot]) => ({
+      entity: "bot" as const,
+      entityId: (host.botMap[localId] ??= `g-${host.id}-${localId}`),
+      changes: bot.changes,
+    })));
+    const operations = changed.map((item) => {
+      markSynced(host.synced, item);
+      return record(item);
+    });
+    for (const [localId, globalId] of Object.entries(host.botMap)) {
+      if (host.bots.has(localId)) continue;
+      operations.push(record({ entity: "bot", entityId: globalId, deleted: true }));
+      delete host.botMap[localId];
+      forgetSynced(host.synced, "bot", globalId);
+    }
+    log.push(...operations);
+    return operations;
+  }
+
+  function importInto(host: Device) {
+    const state = applySyncOperations(emptyProfileSyncState(), log);
+    const plan = planProfileImport({
+      state,
+      deviceId: host.id,
+      workspaceId: "workspace",
+      synced: host.synced,
+      botMap: host.botMap,
+      local: [...host.bots].map(([id, bot]) => ({ id, name: String(bot.changes.name), hidden: bot.hidden, changes: bot.changes })),
+      localOrder: {},
+    });
+    for (const item of plan.bots) {
+      const localId = item.localId ?? `${host.id}-bot-${++host.created}`;
+      const bot = host.bots.get(localId) ?? { name: "", changes: {} };
+      const { id: _id, ...applied } = item.apply;
+      Object.assign(bot.changes, applied);
+      host.bots.set(localId, bot);
+      bindSyncId(host.botMap, localId, item.globalId);
+      markImported(host.synced, "bot", item.globalId, state.bots[item.globalId]!, item.apply, bot.changes);
+    }
+    for (const item of plan.hide) {
+      const bot = host.bots.get(item.localId)!;
+      bot.hidden = true;
+      bot.changes.chiefOfStaff = false;
+      markSynced(host.synced, { entity: "bot", entityId: item.globalId, changes: { ...bot.changes, deleted: item.tombstoneId } });
+    }
+    return plan;
+  }
+
+  afterEach(() => {
+    log.length = 0;
+  });
+
+  it("publishes only the bots and fields that changed", () => {
+    const a = device("a");
+    a.bots.set("tutor", { name: "Tutor", changes: { name: "Tutor", title: "Teacher", color: "blue" } });
+    a.bots.set("coder", { name: "Coder", changes: { name: "Coder", title: "Engineer", color: "green" } });
+    expect(publish(a)).toHaveLength(2);
+    expect(publish(a)).toEqual([]);
+    a.bots.get("coder")!.changes.title = "Staff engineer";
+    const operations = publish(a);
+    expect(operations).toHaveLength(1);
+    expect(operations[0]).toMatchObject({ entityId: "g-a-coder", changes: { title: "Staff engineer" } });
+  });
+
+  it("imports a new bot without echoing it back or re-applying its own ops", () => {
+    const a = device("a");
+    const b = device("b");
+    a.bots.set("tutor", { name: "Tutor", changes: { name: "Tutor", description: "Teaches Python", color: "blue", model: "opus" } });
+    publish(a);
+    importInto(b);
+    expect([...b.bots.values()][0]!.changes).toEqual({ name: "Tutor", description: "Teaches Python", color: "blue", model: "opus" });
+    expect(publish(b)).toEqual([]);
+    expect(importInto(a).bots[0]!.apply).toEqual({});
+    expect(importInto(b).bots[0]!.apply).toEqual({});
+  });
+
+  it("keeps a local edit that has not published yet over an older remote value", () => {
+    const a = device("a");
+    const b = device("b");
+    a.bots.set("tutor", { name: "Tutor", changes: { name: "Tutor", color: "blue" } });
+    publish(a);
+    importInto(b);
+    a.bots.get("tutor")!.changes.color = "red";
+    publish(a);
+    const local = [...b.bots.values()][0]!;
+    local.changes.color = "green";
+    expect(importInto(b).bots[0]!.apply).toEqual({});
+    expect(local.changes.color).toBe("green");
+    expect(publish(b)[0]).toMatchObject({ changes: { color: "green" } });
+    expect(importInto(a).bots[0]!.apply).toEqual({ color: "green" });
+  });
+
+  it("hides a bot deleted on another device once and never brings it back", () => {
+    const a = device("a");
+    const b = device("b");
+    a.bots.set("tutor", { name: "Tutor", changes: { name: "Tutor", chiefOfStaff: true } });
+    publish(a);
+    importInto(b);
+    const [[bLocalId, bBot]] = [...b.bots];
+    bBot!.changes.name = "Tutor 2";
+    a.bots.delete("tutor");
+    // a has not published the delete yet: b's edit must not recreate it
+    publish(b);
+    expect(importInto(a).bots).toEqual([]);
+    expect(a.bots.size).toBe(0);
+    expect(publish(a)).toMatchObject([{ entityId: "g-a-tutor", deleted: true }]);
+    expect(importInto(a).bots).toEqual([]);
+    expect(importInto(b).hide).toEqual([{ globalId: "g-a-tutor", localId: bLocalId, tombstoneId: "a-2" }]);
+    expect(bBot!.hidden).toBe(true);
+    expect(publish(b)).toEqual([]);
+    bBot!.hidden = false;
+    expect(importInto(b).hide).toEqual([]);
+    expect(applySyncOperations(emptyProfileSyncState(), log).bots).toEqual({});
   });
 });

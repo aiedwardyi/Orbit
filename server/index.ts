@@ -197,6 +197,7 @@ import { mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, rea
 import { PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
 import {
   ensureWorkspace,
+  workspaceDir,
   listMemoryTopics,
   isMemoryTopicName,
   memorySystemPrompt,
@@ -247,27 +248,30 @@ import {
   applySyncOperations,
   createSyncOperation,
   emptyProfileSyncState,
-  flattenReviewedResolutions,
-  findUnmappedLocalBotForImport,
+  forgetSynced,
   loadOrCreateSyncWorkspace,
   loadProfileSyncSettings,
   bindSyncId,
   localIdForSyncId,
   importedSyncAvatarCrop,
+  markImported,
+  markSynced,
+  planProfileImport,
   readSyncAvatarAsset,
   readSyncOperations,
-  resolveSyncConflictValue,
   syncAvatarMatches,
   saveProfileSyncSettings,
-  seenCheckpointAfterSave,
-  profileSyncRevision,
-  unresolvedSyncConflicts,
+  syncOperationsSignature,
+  unsyncedChanges,
   validateSyncFolder,
   writeSyncAvatarAsset,
   writeSyncOperation,
   type ProfileSyncOperation,
   type ProfileSyncSettings,
+  type SyncedBot,
+  type SyncEntityValues,
 } from "./profile-sync.ts";
+import { loadMemorySyncLedger, saveMemorySyncLedger, syncBotMemory } from "./memory-sync.ts";
 import {
   CONFLICT_NOTICE,
   chatSyncBotId,
@@ -1065,7 +1069,8 @@ const publicBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => ({
 });
 
 let profileSyncLastSyncAt: number | null = null;
-let profileSyncLastConflictCount = 0;
+let profileSyncSeen = { signature: "", invalid: false };
+const syncAvatarAssets = new Map<string, string>();
 
 function syncSectionId(section: string | undefined): string | null {
   const key = sectionKey(section);
@@ -1099,6 +1104,7 @@ function ensureProfileSyncWorkspace(folder: string): void {
     sectionMap: {},
     reviewedResolutions: {},
     seenCheckpoint: "",
+    syncedHashes: {},
   };
 }
 
@@ -1128,10 +1134,16 @@ function syncAvatarAssetForBot(bot: BotRecord, folder: string): string | null {
   if (!bot.avatarUrl) return null;
   const match = bot.avatarUrl.match(/^\/api\/attachments\/([A-Za-z0-9-]+\.(png|jpg|gif|webp))$/);
   if (!match) return null;
+  // attachments never change under their name, and every publish and import pass asks again
+  const cacheKey = `${folder}\n${bot.avatarUrl}`;
+  const cached = syncAvatarAssets.get(cacheKey);
+  if (cached) return cached;
   const attachment = readAttachment(match[1]!);
   if (!attachment) return null;
   try {
-    return writeSyncAvatarAsset(folder, attachment.bytes, match[1]!.split(".").pop() ?? "");
+    const asset = writeSyncAvatarAsset(folder, attachment.bytes, match[1]!.split(".").pop() ?? "");
+    syncAvatarAssets.set(cacheKey, asset);
+    return asset;
   } catch {
     return null;
   }
@@ -1168,7 +1180,33 @@ function portableSyncChanges(bot: BotRecord, folder: string): Record<string, unk
     chiefOfStaff: Boolean(bot.chiefOfStaff),
     instanceId: bot.modelSelection.instanceId,
     model: bot.modelSelection.model,
+    effort: bot.modelSelection.effort ?? null,
+    modelMode: bot.modelSelection.mode ?? null,
+    approvePeerComms: Boolean(bot.approvePeerComms),
   };
+}
+
+function localSectionChanges(): SyncEntityValues[] {
+  const sections: SyncEntityValues[] = [];
+  for (const bot of store.bots) {
+    const id = syncSectionId(bot.section);
+    if (!id || sections.some((section) => section.entityId === id)) continue;
+    sections.push({ entity: "section", entityId: id, changes: { name: bot.section, order: sections.length } });
+  }
+  return sections;
+}
+
+/** `assign` false leaves unpublished bots out instead of minting their sync ids, so an import can still match them by name. */
+function localOrderChanges(assign: boolean): Record<string, unknown> {
+  const sectionOrder: string[] = [];
+  const itemOrder: Record<string, string[]> = {};
+  for (const bot of store.bots) {
+    const sectionId = syncSectionId(bot.section);
+    if (sectionId && !sectionOrder.includes(sectionId)) sectionOrder.push(sectionId);
+    const globalId = assign ? syncBotId(bot.id) : profileSyncSettings.botMap[bot.id];
+    if (globalId) (itemOrder[sectionId ?? ""] ??= []).push(globalId);
+  }
+  return { sectionOrder, itemOrder };
 }
 
 function profileSyncStatus() {
@@ -1180,16 +1218,13 @@ function profileSyncStatus() {
       status: "disconnected" as const,
       operations: 0,
       invalidFiles: [],
-      conflicts: profileSyncLastConflictCount,
       lastSyncAt: profileSyncLastSyncAt,
       syncChats: profileSyncSettings.syncChats,
     };
   }
   ensureProfileSyncWorkspace(folder);
   const remote = readSyncOperations(folder);
-  const remoteState = applySyncOperations(emptyProfileSyncState(), remote.operations);
-  const conflicts = unresolvedSyncConflicts(remoteState.conflicts, profileSyncSettings.reviewedResolutions).length;
-  const status = remote.invalidFiles.length > 0 || conflicts > 0
+  const status = remote.invalidFiles.length > 0
     ? "needs-review"
     : remote.operations.length > 0
       ? "up-to-date"
@@ -1200,287 +1235,221 @@ function profileSyncStatus() {
     status: status as "needs-review" | "up-to-date" | "waiting",
     operations: remote.operations.length,
     invalidFiles: remote.invalidFiles,
-    conflicts,
     lastSyncAt: profileSyncLastSyncAt,
     syncChats: profileSyncSettings.syncChats,
   };
 }
 
-function profileSyncRemoteState() {
-  if (!profileSyncSettings.folder) throw Object.assign(new Error("Choose a Google Drive folder first"), { status: 409 });
-  ensureProfileSyncWorkspace(profileSyncSettings.folder);
-  const remote = readSyncOperations(profileSyncSettings.folder);
-  const state = applySyncOperations(emptyProfileSyncState(), remote.operations);
-  return { ...remote, state };
-}
-
-function profileSyncPreview() {
-  const remote = profileSyncRemoteState();
-  const previewSectionNames = new Map(Object.values(remote.state.sections).map((section) => [section.id, String(section.name ?? "")]));
-  const botChanges = Object.values(remote.state.bots).map((bot) => {
-    const name = String(bot.name ?? "Unnamed bot");
-    const previewSectionId = typeof bot.sectionId === "string" ? bot.sectionId : null;
-    const previewSection = previewSectionId ? previewSectionNames.get(previewSectionId) : undefined;
-    const mappedId = localBotIdForGlobal(bot.id);
-    const localId = mappedId && store.bot(mappedId)
-      ? mappedId
-      : findUnmappedLocalBotForImport(store.bots, profileSyncSettings.botMap, name, previewSection);
-    return { id: bot.id, name, action: localId && store.bot(localId) ? "update" : "add" };
-  });
-  const deleted = Object.keys(remote.state.tombstones).filter((key) => key.startsWith("bot:")).map((key) => {
-    const globalId = key.slice("bot:".length);
-    const localId = localBotIdForGlobal(globalId);
-    return { id: globalId, name: localId ? store.bot(localId)?.name ?? globalId : globalId, action: "archive" as const };
-  });
-  return {
-    bots: [...botChanges, ...deleted],
-    conflicts: unresolvedSyncConflicts(remote.state.conflicts, profileSyncSettings.reviewedResolutions),
-    invalidFiles: remote.invalidFiles,
-    operations: remote.operations.length,
-    revision: profileSyncRevision(remote.operations),
-    localRevision: profileSyncLocalRevision(),
-  };
-}
-
-function profileSyncLocalRevision(): string {
-  return JSON.stringify({
-    bots: store.bots.map((bot) => ({
-      id: bot.id,
-      name: bot.name,
-      title: bot.title,
-      description: bot.description,
-      color: bot.color,
-      mascotExpression: bot.mascotExpression ?? null,
-      mascotStyle: bot.mascotStyle ?? null,
-      avatarUrl: bot.avatarUrl ?? null,
-      avatarCrop: bot.avatarCrop ?? null,
-      section: bot.section ?? null,
-      pinned: Boolean(bot.pinned),
-      chiefOfStaff: Boolean(bot.chiefOfStaff),
-      instanceId: bot.modelSelection.instanceId,
-      model: bot.modelSelection.model,
-    })),
-    workspaceId: profileSyncSettings.workspaceId,
-    botMap: profileSyncSettings.botMap,
-    sectionMap: profileSyncSettings.sectionMap,
-  });
-}
-
-function publishProfileSync(): { written: number; status: ReturnType<typeof profileSyncStatus> } {
-  if (!profileSyncSettings.folder) throw Object.assign(new Error("Choose a Google Drive folder first"), { status: 409 });
+/** Writes ops only for bots, sections and order that changed since the last sync. */
+function publishProfileChanges(): number {
+  const folder = profileSyncSettings.folder;
+  if (!profileSyncSettings.syncChats || !folder) return 0;
+  ensureProfileSyncWorkspace(folder);
   pruneProfileSyncSectionAliases();
   const now = Date.now();
   const baseCheckpoint = profileSyncSettings.seenCheckpoint || undefined;
+  const synced = profileSyncSettings.syncedHashes;
+  const changed = unsyncedChanges(synced, [
+    ...store.bots.map((bot) => ({ entity: "bot" as const, entityId: syncBotId(bot.id), changes: portableSyncChanges(bot, folder) })),
+    ...localSectionChanges(),
+    { entity: "order", entityId: profileSyncSettings.workspaceId, changes: localOrderChanges(true) },
+  ]);
+  const liveBotIds = new Set(store.bots.map((bot) => bot.id));
+  const deleted = Object.entries(profileSyncSettings.botMap).filter(([localId]) => !liveBotIds.has(localId));
+  if (!changed.length && !deleted.length) return 0;
   const record = (
     input: Omit<ProfileSyncOperation, "format" | "version" | "operationId" | "deviceId" | "sequence" | "recordedAt">,
   ) => nextProfileSyncOperation(baseCheckpoint ? { ...input, baseCheckpoint } : input, now);
-  const operations: ProfileSyncOperation[] = [];
-  for (const bot of store.bots) {
-    const globalId = syncBotId(bot.id);
-    operations.push(record({ entity: "bot", entityId: globalId, changes: portableSyncChanges(bot, profileSyncSettings.folder) }));
-  }
-  const liveBotIds = new Set(store.bots.map((bot) => bot.id));
-  for (const [localId, globalId] of Object.entries(profileSyncSettings.botMap)) {
-    if (!liveBotIds.has(localId)) {
-      operations.push(record({ entity: "bot", entityId: globalId, deleted: true }));
-      delete profileSyncSettings.botMap[localId];
+  let written = 0;
+  for (const item of changed) {
+    try {
+      writeSyncOperation(folder, record(item));
+    } catch (error) {
+      console.warn(`bot sync: skipped ${item.entity} ${item.entityId}`, error);
+      continue;
     }
+    markSynced(synced, item);
+    written++;
   }
-  const seenSections = new Set<string>();
-  for (const bot of store.bots) {
-    const id = syncSectionId(bot.section);
-    if (!id || seenSections.has(id)) continue;
-    seenSections.add(id);
-    operations.push(record({ entity: "section", entityId: id, changes: { name: bot.section, order: seenSections.size - 1 } }));
+  for (const [localId, globalId] of deleted) {
+    writeSyncOperation(folder, record({ entity: "bot", entityId: globalId, deleted: true }));
+    delete profileSyncSettings.botMap[localId];
+    forgetSynced(synced, "bot", globalId);
+    written++;
   }
-  const itemOrder: Record<string, string[]> = {};
-  for (const bot of store.bots) {
-    const sectionId = syncSectionId(bot.section) ?? "";
-    (itemOrder[sectionId] ??= []).push(syncBotId(bot.id));
-  }
-  operations.push(record({
-    entity: "order",
-    entityId: profileSyncSettings.workspaceId,
-    changes: {
-      sectionOrder: [...seenSections],
-      itemOrder,
-    },
-  }));
-  for (const operation of operations) writeSyncOperation(profileSyncSettings.folder, operation);
   profileSyncLastSyncAt = Date.now();
-  profileSyncSettings.seenCheckpoint = seenCheckpointAfterSave(profileSyncSettings.seenCheckpoint);
   profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
-  return { written: operations.length, status: profileSyncStatus() };
+  return written;
 }
 
-function importProfileSync(input: { previewRevision?: string; localRevision?: string; resolutions?: Record<string, string> } = {}): { imported: number; archived: number; conflicts: number; status: ReturnType<typeof profileSyncStatus> } {
-  const remote = profileSyncRemoteState();
+function syncedModelSelection(bot: BotRecord, synced: SyncedBot): ModelSelection {
+  const importedModel = synced.model;
+  if (typeof importedModel !== "string" || !importedModel) return bot.modelSelection;
+  const instanceId = typeof synced.instanceId === "string" && synced.instanceId ? synced.instanceId : bot.modelSelection.instanceId;
+  const instance = registry.get(instanceId);
+  const offered = instance && (importedModel === instance.models.default || instance.models.options.some((option) => option.id === importedModel));
+  if (!offered) return bot.modelSelection;
+  const model: ModelSelection = { ...bot.modelSelection, instanceId, model: importedModel };
+  if ("effort" in synced) {
+    if (isEffortLevel(synced.effort)) model.effort = synced.effort;
+    else delete model.effort;
+  }
+  if ("modelMode" in synced) {
+    const mode = modelSelectionModeSchema.safeParse(synced.modelMode ?? undefined);
+    if (mode.success && mode.data) model.mode = mode.data;
+    else delete model.mode;
+  }
+  return model;
+}
+
+function applySyncedBotFields(
+  bot: BotRecord,
+  synced: SyncedBot,
+  apply: Record<string, unknown>,
+  sectionNames: Map<string, string>,
+  folder: string,
+): void {
+  const patch: Partial<BotRecord> = {};
+  if ("name" in apply) patch.name = String(apply.name ?? "Imported bot");
+  if ("title" in apply) patch.title = String(apply.title ?? "");
+  if ("description" in apply) patch.description = String(apply.description ?? "");
+  if ("color" in apply) patch.color = apply.color as BotRecord["color"];
+  if ("mascotExpression" in apply) patch.mascotExpression = apply.mascotExpression as BotRecord["mascotExpression"];
+  if ("mascotStyle" in apply) patch.mascotStyle = apply.mascotStyle as BotRecord["mascotStyle"];
+  if ("sectionId" in apply) patch.section = typeof apply.sectionId === "string" ? sectionNames.get(apply.sectionId) : undefined;
+  if ("pinned" in apply) patch.pinned = apply.pinned === true;
+  if ("chiefOfStaff" in apply) patch.chiefOfStaff = apply.chiefOfStaff === true;
+  if ("approvePeerComms" in apply) patch.approvePeerComms = apply.approvePeerComms === true;
+  if (["instanceId", "model", "effort", "modelMode"].some((field) => field in apply)) {
+    patch.modelSelection = syncedModelSelection(bot, synced);
+  }
+  if (Object.keys(patch).length) store.patchBot(bot.id, patch);
+  if (!("avatarAsset" in apply || "avatarCrop" in apply)) return;
+  const importedAvatar = synced.avatarAsset;
+  if (importedAvatar === undefined) return;
+  if (importedAvatar === null) {
+    store.patchBot(bot.id, { avatarUrl: undefined, avatarCrop: "mascot" });
+    return;
+  }
+  const current = store.bot(bot.id);
+  const avatarCrop = importedSyncAvatarCrop(synced.avatarCrop, current?.avatarCrop);
+  const currentMatch = current?.avatarUrl?.match(/^\/api\/attachments\/([A-Za-z0-9-]+\.(png|jpg|gif|webp))$/);
+  const currentBytes = currentMatch ? readAttachment(currentMatch[1]!)?.bytes : undefined;
+  const avatarUrl = currentBytes && syncAvatarMatches(folder, importedAvatar, currentBytes)
+    ? current!.avatarUrl
+    : importSyncAvatar(folder, importedAvatar);
+  if (avatarUrl) store.patchBot(bot.id, { avatarUrl, avatarCrop });
+}
+
+/** Applies what other devices published since the last pass: newest recordedAt wins, a local edit waiting to publish is kept. */
+function importProfileChanges(): void {
   const folder = profileSyncSettings.folder;
-  if (!folder) throw Object.assign(new Error("Choose a Google Drive folder first"), { status: 409 });
-  const revision = profileSyncRevision(remote.operations);
-  if (input.previewRevision !== revision || input.localRevision !== profileSyncLocalRevision()) {
-    throw Object.assign(new Error("The sync preview is out of date. Preview again before importing."), { status: 409 });
+  if (!profileSyncSettings.syncChats || !folder) return;
+  ensureProfileSyncWorkspace(folder);
+  const signature = `${folder}\n${syncOperationsSignature(folder)}`;
+  if (signature === profileSyncSeen.signature && !profileSyncSeen.invalid) return;
+  const remote = readSyncOperations(folder);
+  if (remote.invalidFiles.length && signature !== profileSyncSeen.signature) {
+    console.warn(`bot sync: skipped unreadable files [${remote.invalidFiles.slice(0, 5).join(", ")}]`);
   }
-  if (remote.invalidFiles.length > 0) {
-    throw Object.assign(new Error("Fix invalid sync files before importing."), { status: 409 });
+  const state = applySyncOperations(emptyProfileSyncState(), remote.operations);
+  for (const section of Object.values(state.sections)) {
+    if (typeof section.name === "string" && section.name) bindSyncId(profileSyncSettings.sectionMap, section.name, section.id);
   }
-  const conflictsById = new Map(remote.state.conflicts.map((conflict) => [conflict.id, conflict]));
-  for (const conflictId of Object.keys(input.resolutions ?? {})) {
-    if (!conflictsById.has(conflictId)) {
-      throw Object.assign(new Error("The sync conflict resolution is not part of this preview."), { status: 409 });
-    }
-  }
-  const resolutions = { ...flattenReviewedResolutions(profileSyncSettings.reviewedResolutions), ...(input.resolutions ?? {}) };
-  const unresolved = remote.state.conflicts.filter((conflict) => {
-    const selected = resolutions[conflict.id];
-    return !selected || !conflict.variants.some((variant) => variant.operationId === selected);
+  const sectionNames = new Map(Object.values(state.sections).map((section) => [section.id, String(section.name ?? "")]));
+  const synced = profileSyncSettings.syncedHashes;
+  const plan = planProfileImport({
+    state,
+    deviceId: profileSyncSettings.deviceId,
+    workspaceId: profileSyncSettings.workspaceId,
+    synced,
+    botMap: profileSyncSettings.botMap,
+    local: store.bots.map((bot) => ({ id: bot.id, name: bot.name, section: bot.section, hidden: bot.hidden, changes: portableSyncChanges(bot, folder) })),
+    localOrder: localOrderChanges(false),
   });
-  if (unresolved.length) {
-    throw Object.assign(new Error("Resolve the sync conflicts in the preview before importing."), { status: 409 });
-  }
-  const resolvedField = (entity: ProfileSyncOperation["entity"], entityId: string, field: string): unknown => {
-    return resolveSyncConflictValue(remote.state.conflicts, entity, entityId, field, resolutions, undefined);
-  };
-  profileSyncLastConflictCount = 0;
-  for (const section of Object.values(remote.state.sections)) {
-    const resolvedName = resolvedField("section", section.id, "name");
-    const name = resolvedName === undefined ? section.name : resolvedName;
-    if (typeof name === "string" && name) bindSyncId(profileSyncSettings.sectionMap, name, section.id);
-  }
-  const sectionNames = new Map(Object.values(remote.state.sections).map((section) => [
-    section.id,
-    String(resolvedField("section", section.id, "name") ?? section.name ?? ""),
-  ]));
-  let imported = 0;
-  for (const synced of Object.values(remote.state.bots)) {
-    let localId = localBotIdForGlobal(synced.id);
-    let bot = localId ? store.bot(localId) : null;
-    const field = (name: string, fallback: unknown) => {
-      const resolved = resolvedField("bot", synced.id, name);
-      return resolved === undefined ? fallback : resolved;
-    };
-    const sectionId = field("sectionId", synced.sectionId);
-    const profile = {
-      name: String(field("name", synced.name ?? "Imported bot")),
-      title: String(field("title", synced.title ?? "")),
-      description: String(field("description", synced.description ?? "")),
-      color: field("color", synced.color) as BotRecord["color"],
-      mascotExpression: field("mascotExpression", synced.mascotExpression) as BotRecord["mascotExpression"],
-      mascotStyle: field("mascotStyle", synced.mascotStyle) as BotRecord["mascotStyle"],
-      section: typeof sectionId === "string" ? sectionNames.get(sectionId) : undefined,
-    };
+  const chiefs: string[] = [];
+  for (const item of plan.bots) {
+    const remoteBot = state.bots[item.globalId]!;
+    let bot = item.localId ? store.bot(item.localId) : null;
     if (!bot) {
-      const matchId = findUnmappedLocalBotForImport(store.bots, profileSyncSettings.botMap, profile.name, profile.section);
-      if (matchId && store.bot(matchId)) {
-        bot = store.bot(matchId);
-        localId = matchId;
-      }
+      bot = store.createBot({
+        name: String(remoteBot.name ?? "Imported bot"),
+        title: String(remoteBot.title ?? ""),
+        description: String(remoteBot.description ?? ""),
+        color: remoteBot.color as BotRecord["color"],
+        mascotExpression: remoteBot.mascotExpression as BotRecord["mascotExpression"],
+        mascotStyle: remoteBot.mascotStyle as BotRecord["mascotStyle"],
+        section: typeof remoteBot.sectionId === "string" ? sectionNames.get(remoteBot.sectionId) : undefined,
+      }, { seedMessages: false });
     }
-    if (!bot) {
-      bot = store.createBot(profile, { seedMessages: false });
-      localId = bot.id;
-    } else {
-      store.patchBot(bot.id, profile);
+    bindSyncId(profileSyncSettings.botMap, bot.id, item.globalId);
+    applySyncedBotFields(bot, remoteBot, item.apply, sectionNames, folder);
+    if (item.apply.chiefOfStaff === true) chiefs.push(bot.id);
+    const local = portableSyncChanges(store.bot(bot.id)!, folder);
+    markImported(synced, "bot", item.globalId, remoteBot, item.apply, local);
+    // fields the remote never set took their value from this import: a new bot's defaults, or the crop a cleared avatar resets
+    if (!item.localId || "avatarAsset" in item.apply) {
+      markSynced(synced, { entity: "bot", entityId: item.globalId, changes: Object.fromEntries(Object.entries(local).filter(([field]) => !(field in remoteBot))) });
     }
-    if (localId) bindSyncId(profileSyncSettings.botMap, localId, synced.id);
-    const importedInstanceId = field("instanceId", synced.instanceId);
-    const importedModel = field("model", synced.model);
-    let model = bot.modelSelection;
-    if (typeof importedModel === "string" && importedModel) {
-      const instanceId = typeof importedInstanceId === "string" && importedInstanceId ? importedInstanceId : bot.modelSelection.instanceId;
-      const instance = registry.get(instanceId);
-      const offered = instance && (importedModel === instance.models.default || instance.models.options.some((option) => option.id === importedModel));
-      if (offered) model = { ...bot.modelSelection, instanceId, model: importedModel };
-    }
-    const pinned = field("pinned", synced.pinned);
-    const chiefOfStaff = field("chiefOfStaff", synced.chiefOfStaff);
-    store.patchBot(bot.id, { pinned: pinned === true, chiefOfStaff: chiefOfStaff === true, modelSelection: model });
-    const importedAvatar = field("avatarAsset", synced.avatarAsset);
-    if (importedAvatar !== undefined) {
-      if (importedAvatar === null) {
-        store.patchBot(bot.id, { avatarUrl: undefined, avatarCrop: "mascot" });
-      } else {
-        const current = store.bot(bot.id);
-        const avatarCrop = importedSyncAvatarCrop(field("avatarCrop", synced.avatarCrop), current?.avatarCrop);
-        const currentMatch = current?.avatarUrl?.match(/^\/api\/attachments\/([A-Za-z0-9-]+\.(png|jpg|gif|webp))$/);
-        const currentBytes = currentMatch ? readAttachment(currentMatch[1]!)?.bytes : undefined;
-        const avatarUrl = currentBytes && syncAvatarMatches(folder, importedAvatar, currentBytes)
-          ? current!.avatarUrl
-          : importSyncAvatar(folder, importedAvatar);
-        if (avatarUrl) store.patchBot(bot.id, { avatarUrl, avatarCrop });
-      }
-    }
-    imported++;
   }
-  let archived = 0;
-  for (const key of Object.keys(remote.state.tombstones).filter((value) => value.startsWith("bot:"))) {
+  for (const item of plan.hide) {
+    const bot = store.patchBot(item.localId, { hidden: true, chiefOfStaff: false });
+    if (!bot) continue;
+    markSynced(synced, { entity: "bot", entityId: item.globalId, changes: { ...portableSyncChanges(bot, folder), deleted: item.tombstoneId } });
+  }
+  for (const key of Object.keys(state.tombstones).filter((value) => value.startsWith("bot:"))) {
     const globalId = key.slice("bot:".length);
-    const mappedLocalIds = Object.entries(profileSyncSettings.botMap)
-      .filter(([, mappedGlobalId]) => mappedGlobalId === globalId)
-      .map(([localId]) => localId);
-    const localId = mappedLocalIds.find((candidate) => Boolean(store.bot(candidate)));
-    for (const staleLocalId of mappedLocalIds) {
-      if (staleLocalId !== localId && !store.bot(staleLocalId)) delete profileSyncSettings.botMap[staleLocalId];
+    for (const [localId, mappedGlobalId] of Object.entries(profileSyncSettings.botMap)) {
+      if (mappedGlobalId === globalId && !store.bot(localId)) delete profileSyncSettings.botMap[localId];
     }
-    if (!localId) continue;
-    store.patchBot(localId, { hidden: true, chiefOfStaff: false });
-    archived++;
   }
-  const selectedSectionOrder = resolvedField("order", profileSyncSettings.workspaceId, "sectionOrder");
-  const sectionOrder = Array.isArray(selectedSectionOrder) ? selectedSectionOrder : remote.state.order.sectionOrder;
-  const selectedItemOrder = resolvedField("order", profileSyncSettings.workspaceId, "itemOrder");
-  const itemOrder = selectedItemOrder && typeof selectedItemOrder === "object" && !Array.isArray(selectedItemOrder)
-    ? selectedItemOrder as Record<string, string[]>
-    : remote.state.order.itemOrder;
-  const remoteBotIds = Object.keys(remote.state.bots);
-  const sectionFor = (globalId: string): string | null => {
-    const synced = remote.state.bots[globalId];
-    if (!synced) return null;
-    const sectionId = resolvedField("bot", globalId, "sectionId");
-    const value = sectionId === undefined ? synced.sectionId : sectionId;
-    return typeof value === "string" ? value : null;
-  };
-  const orderedSectionIds = [...new Set([
-    ...sectionOrder.filter((id) => Boolean(remote.state.sections[id])),
-    ...Object.entries(remote.state.sections)
-      .sort(([, left], [, right]) => Number(left.order ?? Number.MAX_SAFE_INTEGER) - Number(right.order ?? Number.MAX_SAFE_INTEGER))
-      .map(([id]) => id),
-  ])];
-  const desired: string[] = [];
-  const seenDesired = new Set<string>();
-  const appendSection = (sectionId: string | null) => {
-    const listed = itemOrder[sectionId ?? ""] ?? itemOrder[profileSyncSettings.workspaceId] ?? [];
-    for (const globalId of [...listed, ...remoteBotIds]) {
-      if (sectionFor(globalId) !== sectionId) continue;
-      const localId = localBotIdForGlobal(globalId);
-      if (!localId || seenDesired.has(localId) || !store.bot(localId)) continue;
-      seenDesired.add(localId);
-      desired.push(localId);
+  if (Object.keys(plan.order).length) {
+    const { sectionOrder, itemOrder } = state.order;
+    const remoteBotIds = Object.keys(state.bots);
+    const sectionFor = (globalId: string): string | null => {
+      const value = state.bots[globalId]?.sectionId;
+      return typeof value === "string" ? value : null;
+    };
+    const orderedSectionIds = [...new Set([
+      ...sectionOrder.filter((id) => Boolean(state.sections[id])),
+      ...Object.entries(state.sections)
+        .sort(([, left], [, right]) => Number(left.order ?? Number.MAX_SAFE_INTEGER) - Number(right.order ?? Number.MAX_SAFE_INTEGER))
+        .map(([id]) => id),
+    ])];
+    const desired: string[] = [];
+    const seenDesired = new Set<string>();
+    const appendSection = (sectionId: string | null) => {
+      const listed = itemOrder[sectionId ?? ""] ?? itemOrder[profileSyncSettings.workspaceId] ?? [];
+      for (const globalId of [...listed, ...remoteBotIds]) {
+        if (sectionFor(globalId) !== sectionId) continue;
+        const localId = localBotIdForGlobal(globalId);
+        if (!localId || seenDesired.has(localId) || !store.bot(localId)) continue;
+        seenDesired.add(localId);
+        desired.push(localId);
+      }
+    };
+    for (const sectionId of orderedSectionIds) appendSection(sectionId);
+    appendSection(null);
+    for (const sectionId of [...new Set(remoteBotIds.map(sectionFor).filter((id): id is string => id !== null && !orderedSectionIds.includes(id)))]) {
+      appendSection(sectionId);
     }
-  };
-  for (const sectionId of orderedSectionIds) appendSection(sectionId);
-  appendSection(null);
-  for (const sectionId of [...new Set(remoteBotIds.map(sectionFor).filter((id): id is string => id !== null && !orderedSectionIds.includes(id)))]) {
-    appendSection(sectionId);
+    const rest = store.bots.map((bot) => bot.id).filter((id) => !desired.includes(id));
+    if (desired.length + rest.length === store.bots.length) store.reorderBots([...desired, ...rest]);
+    markImported(synced, "order", profileSyncSettings.workspaceId, plan.order, plan.order, localOrderChanges(false));
   }
-  const rest = store.bots.map((bot) => bot.id).filter((id) => !desired.includes(id));
-  if (desired.length + rest.length === store.bots.length) store.reorderBots([...desired, ...rest]);
-  for (const bot of Object.values(remote.state.bots)) {
-    const chiefOfStaff = resolvedField("bot", bot.id, "chiefOfStaff");
-    if ((chiefOfStaff === undefined ? bot.chiefOfStaff : chiefOfStaff) !== true) continue;
-    const localId = localBotIdForGlobal(bot.id);
-    const local = localId ? store.bot(localId) : null;
-    if (local) store.setChiefOfStaff(local.id, local.section);
+  for (const id of chiefs) {
+    const local = store.bot(id);
+    if (local?.chiefOfStaff) store.setChiefOfStaff(local.id, local.section);
+  }
+  for (const section of localSectionChanges()) {
+    const remoteSection = state.sections[section.entityId];
+    if (remoteSection) markImported(synced, "section", section.entityId, remoteSection, {}, section.changes);
   }
   pruneProfileSyncSectionAliases();
-  profileSyncSettings.reviewedResolutions[revision] = Object.fromEntries(
-    [...conflictsById.keys()].map((conflictId) => [conflictId, resolutions[conflictId]!]),
-  );
-  profileSyncSettings.seenCheckpoint = remote.state.checkpoint;
+  profileSyncSettings.seenCheckpoint = state.checkpoint;
   profileSyncLastSyncAt = Date.now();
   profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
-  syncAllThreads();
-  return { imported, archived, conflicts: 0, status: profileSyncStatus() };
+  profileSyncSeen = { signature, invalid: remote.invalidFiles.length > 0 };
 }
 
 type GroupTurnOperation = {
@@ -1698,6 +1667,7 @@ function pullSyncedThread(threadId: string): void {
 
 const threadSyncPoll = createThreadSyncPoll(() => {
   if (!profileSyncSettings.syncChats || !profileSyncSettings.folder) return null;
+  syncProfiles();
   return {
     host: threadSyncHost(profileSyncSettings.folder),
     bots: store.bots.flatMap((bot) => {
@@ -1718,6 +1688,57 @@ function syncAllThreads(): void {
     }
   }
 }
+
+const PROFILE_SYNC_DELAY_MS = 10_000;
+let profilePublishTimer: ReturnType<typeof setTimeout> | undefined;
+const memorySyncLedger = loadMemorySyncLedger(DATA_DIR);
+
+function publishProfileChangesSafely(): void {
+  try {
+    publishProfileChanges();
+  } catch (error) {
+    console.warn("bot sync: publish failed", error);
+  }
+}
+
+function scheduleProfilePublish(): void {
+  if (profilePublishTimer || !profileSyncSettings.syncChats || !profileSyncSettings.folder) return;
+  profilePublishTimer = setTimeout(() => {
+    profilePublishTimer = undefined;
+    publishProfileChangesSafely();
+  }, PROFILE_SYNC_DELAY_MS);
+  profilePublishTimer.unref?.();
+}
+
+function syncMemory(botId: string): void {
+  const folder = profileSyncSettings.folder;
+  const botSyncId = chatSyncBotId(profileSyncSettings, botId);
+  if (!folder || !botSyncId || !existsSync(folder)) return;
+  const before = JSON.stringify(memorySyncLedger);
+  try {
+    syncBotMemory(folder, botSyncId, workspaceDir(botId), memorySyncLedger);
+  } catch (error) {
+    console.warn("memory sync: failed", error);
+  }
+  if (JSON.stringify(memorySyncLedger) !== before) saveMemorySyncLedger(DATA_DIR, memorySyncLedger);
+}
+
+/** Bots and their memory ride the chat poll: remote bot ops first so a pending local edit is kept, then ours. */
+function syncProfiles(): void {
+  try {
+    importProfileChanges();
+  } catch (error) {
+    console.warn("bot sync: import failed", error);
+  }
+  publishProfileChangesSafely();
+  for (const bot of store.bots) {
+    if (!botHasActiveTurn(bot.id)) syncMemory(bot.id);
+  }
+}
+
+store.onChange((change) => {
+  if (change.type === "bot" || change.type === "bot.deleted" || change.type === "bots.order") scheduleProfilePublish();
+});
 
 store.onBeforeWrite((threadId) => {
   if (markThreadDirty(threadSyncLedger, threadId)) saveThreadSyncLedger(DATA_DIR, threadSyncLedger);
@@ -3216,6 +3237,8 @@ bus.subscribe((event: RuntimeEvent) => {
   drainQueuedSends();
   paneWake.settled();
   followPendingSyncImports();
+  const settledBot = store.botByThread(event.threadId);
+  if (settledBot) syncMemory(settledBot.id);
 });
 
 /** Newest pane note a dispatched turn carried, per thread. */
@@ -6655,7 +6678,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         ensureProfileSyncWorkspace(folder);
         profileSyncSettings.folder = folder;
-        profileSyncLastConflictCount = 0;
         profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
         syncAllThreads();
         return json(res, 200, profileSyncStatus());
@@ -6666,7 +6688,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (method === "DELETE" && path === "/api/profile-sync") {
       threadSyncPoll.stop();
       profileSyncSettings.folder = null;
-      profileSyncLastConflictCount = 0;
       profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
       return json(res, 200, profileSyncStatus());
     }
@@ -6678,38 +6699,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
       syncAllThreads();
       return json(res, 200, profileSyncStatus());
-    }
-    if (method === "GET" && path === "/api/profile-sync/preview") {
-      try {
-        return json(res, 200, profileSyncPreview());
-      } catch (error) {
-        const status = typeof (error as { status?: unknown }).status === "number" ? (error as { status: number }).status : 400;
-        return json(res, status, { error: error instanceof Error ? error.message : String(error) });
-      }
-    }
-    if (method === "POST" && path === "/api/profile-sync/publish") {
-      try {
-        return json(res, 200, publishProfileSync());
-      } catch (error) {
-        const status = typeof (error as { status?: unknown }).status === "number" ? (error as { status: number }).status : 400;
-        return json(res, status, { error: error instanceof Error ? error.message : String(error) });
-      }
-    }
-    if (method === "POST" && path === "/api/profile-sync/import") {
-      const body = await readBody(req);
-      if (body?.confirm !== true || typeof body.previewRevision !== "string" || typeof body.localRevision !== "string") {
-        return json(res, 400, { error: "confirm the current sync preview before importing" });
-      }
-      try {
-        return json(res, 200, importProfileSync({
-          previewRevision: body.previewRevision,
-          localRevision: body.localRevision,
-          resolutions: body.resolutions && typeof body.resolutions === "object" ? body.resolutions as Record<string, string> : undefined,
-        }));
-      } catch (error) {
-        const status = typeof (error as { status?: unknown }).status === "number" ? (error as { status: number }).status : 400;
-        return json(res, status, { error: error instanceof Error ? error.message : String(error) });
-      }
     }
 
     // ── bots ──
