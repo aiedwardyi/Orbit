@@ -9,8 +9,9 @@ export const MEMORY_SYNC_DIR = "memory";
 const LEDGER_FILE = "memory-sync.json";
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;
 const MEMORY_FILE = "MEMORY.md";
+const ANCESTRY_DIR = ".ancestry";
 
-/** `<botSyncId>/<file>` -> hash of the copy this PC and the folder last agreed on. */
+/** `<botSyncId>/<file>` -> hash of the copy this PC and the folder last agreed on; `~<botSyncId>/<file>` -> the newest other-PC copy ours builds on. */
 export type MemorySyncLedger = Record<string, string>;
 
 export type MemorySyncResult = "pushed" | "pulled" | "conflict" | "current" | "skipped";
@@ -65,6 +66,20 @@ function memoryFiles(root: string): string[] | undefined {
   }
 }
 
+// Drive delivers a file and its sidecar separately, so the sidecar names the hash it vouches for
+function readAncestry(remoteRoot: string, file: string): { hash: string | null; seen?: string } | undefined {
+  try {
+    return JSON.parse(readFileSync(join(remoteRoot, ANCESTRY_DIR, `${file}.json`), "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+function publish(remoteRoot: string, file: string, text: string | null, seen: string | null | undefined): void {
+  writeText(join(remoteRoot, file), text);
+  writeText(join(remoteRoot, ANCESTRY_DIR, `${file}.json`), `${JSON.stringify({ hash: hash(text), seen: seen ?? undefined })}\n`);
+}
+
 function conflictName(file: string, remoteHash: string): string {
   const stem = file === MEMORY_FILE ? "MEMORY" : file.slice("memory/".length, -".md".length);
   return `memory/${stem.slice(0, 170)}.conflict-${remoteHash.slice(0, 8)}.md`;
@@ -80,7 +95,7 @@ export function syncBotMemory(
   const remoteRoot = memorySyncDir(folder, botSyncId);
   const prefix = `${botSyncId}/`;
   if (!existsSync(remoteRoot) || !existsSync(workspace)) {
-    for (const key of Object.keys(ledger)) if (key.startsWith(prefix)) delete ledger[key];
+    for (const key of Object.keys(ledger)) if (key.startsWith(prefix) || key.startsWith(`~${prefix}`)) delete ledger[key];
   }
   const localFiles = memoryFiles(workspace);
   const remoteFiles = memoryFiles(remoteRoot);
@@ -93,8 +108,13 @@ export function syncBotMemory(
   const results: Record<string, MemorySyncResult> = {};
   const agree = (file: string, text: string | null) => {
     const value = hash(text);
-    if (value === null) delete ledger[prefix + file];
-    else ledger[prefix + file] = value;
+    if (value === null) {
+      delete ledger[prefix + file];
+      delete ledger[`~${prefix}${file}`];
+    } else ledger[prefix + file] = value;
+  };
+  const see = (file: string, value: string | null) => {
+    if (value !== null) ledger[`~${prefix}${file}`] = value;
   };
   for (const file of files) {
     const local = readText(join(workspace, file), file);
@@ -104,23 +124,30 @@ export function syncBotMemory(
       continue;
     }
     const base = ledger[prefix + file] ?? null;
+    const seen = ledger[`~${prefix}${file}`] ?? null;
     const localHash = hash(local);
     const remoteHash = hash(remote);
+    // our own push stays unconfirmed until another PC's copy names it as its base; our Drive replica holding it proves nothing
+    const ancestry = readAncestry(remoteRoot, file);
+    const confirmed = base === seen || (ancestry?.hash === remoteHash && ancestry.seen === base);
     if (localHash === remoteHash) {
       results[file] = "current";
-    } else if (localHash === base || (local === null && remoteHash !== base)) {
+    } else if ((localHash === base && confirmed) || (local === null && remoteHash !== base)) {
       writeText(join(workspace, file), remote);
+      see(file, remoteHash);
       results[file] = "pulled";
     } else if (remoteHash === base || remote === null) {
-      writeText(join(remoteRoot, file), local);
+      publish(remoteRoot, file, local, seen ?? base);
+      see(file, seen ?? base);
       results[file] = "pushed";
     } else {
       // changed on both PCs: local stays the file, the other copy becomes a topic file on both sides
       const parked = conflictName(file, remoteHash!);
       writeText(join(workspace, parked), remote);
-      writeText(join(remoteRoot, parked), remote);
+      publish(remoteRoot, parked, remote, null);
       agree(parked, remote);
-      writeText(join(remoteRoot, file), local);
+      publish(remoteRoot, file, local, remoteHash);
+      see(file, remoteHash);
       console.warn(`memory sync: ${botSyncId}/${file} changed on two PCs; kept the other copy as ${parked}`);
       results[file] = "conflict";
     }
