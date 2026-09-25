@@ -122,17 +122,29 @@ describe("pingForMailbox", () => {
 });
 
 describe("createPingLimiter", () => {
-  it("drops a repeat title per bot within 10 s", () => {
+  it("drops a repeat title+message per bot within 10 s", () => {
     let now = 0;
     const allow = createPingLimiter(10_000, () => now);
-    expect(allow("bot-1", "Scout finished")).toBe(true);
-    expect(allow("bot-1", "Scout finished")).toBe(false);
-    expect(allow("bot-1", "Scout has a question")).toBe(true);
-    expect(allow("bot-2", "Scout finished")).toBe(true);
+    expect(allow("bot-1", "Scout finished", "done")).toBe(true);
+    expect(allow("bot-1", "Scout finished", "done")).toBe(false);
+    expect(allow("bot-1", "Scout has a question", "done")).toBe(true);
+    expect(allow("bot-2", "Scout finished", "done")).toBe(true);
     now = 9_999;
-    expect(allow("bot-1", "Scout finished")).toBe(false);
+    expect(allow("bot-1", "Scout finished", "done")).toBe(false);
     now = 10_000;
-    expect(allow("bot-1", "Scout finished")).toBe(true);
+    expect(allow("bot-1", "Scout finished", "done")).toBe(true);
+  });
+
+  it("lets two distinct FAIL reports through but drops an exact repeat", () => {
+    let now = 0;
+    const allow = createPingLimiter(10_000, () => now);
+    const cardA = pingForMailbox("Scout", "FAIL CARD-A branch=x sha=abc dirty=no\ndetail")!;
+    const cardB = pingForMailbox("Scout", "FAIL CARD-B branch=x sha=abc dirty=no\ndetail")!;
+    expect(allow("bot-1", cardA.title, cardA.message)).toBe(true);
+    now = 1_000;
+    expect(allow("bot-1", cardB.title, cardB.message)).toBe(true);
+    now = 2_000;
+    expect(allow("bot-1", cardA.title, cardA.message)).toBe(false);
   });
 });
 
@@ -173,6 +185,15 @@ describe("sendPhonePing", () => {
       error: "ntfy answered 429",
     });
     expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("redacts a secret out of the title and message before publishing", async () => {
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response("{}", { status: 200 }));
+    const token = `ghp_${"a".repeat(36)}`;
+    await sendPhonePing(target, { title: `leaked ${token}`, message: `token=${token}` }, fetchImpl);
+    const body = String(fetchImpl.mock.calls[0]![1]?.body);
+    expect(body).not.toContain(token);
+    expect(JSON.parse(body)).toMatchObject({ title: "leaked «redacted 40 chars»" });
   });
 
   it("gives up on a hung server at the timeout", async () => {

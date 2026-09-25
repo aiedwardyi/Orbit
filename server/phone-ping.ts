@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { writeFileAtomic } from "./atomic.ts";
 import { summarize, type Notification } from "./notify.ts";
+import { redactSecretsInText } from "./redact.ts";
 
 export const PHONE_PING_FILE = "phone-ping.json";
 export const PHONE_PING_TIMEOUT_MS = 5_000;
@@ -68,20 +69,23 @@ export function pingForMailbox(botName: string, text: string): PhonePing | null 
   return { title: `${botName}: worker ${status}`, message: summarize(first), tags: ["warning"] };
 }
 
-/** True when this bot/title pair has not pinged within the window. */
+/** True when this bot/title/message triple has not pinged within the window,
+ * so distinct events (two different FAIL reports) both get through while an
+ * exact repeat still collapses. */
 export function createPingLimiter(windowMs = PHONE_PING_REPEAT_MS, now: () => number = Date.now) {
   const last = new Map<string, number>();
-  return (botId: string, title: string): boolean => {
+  return (botId: string, title: string, message: string): boolean => {
     const at = now();
     for (const [key, sent] of last) if (at - sent >= windowMs) last.delete(key);
-    const key = `${botId}\n${title}`;
+    const key = `${botId}\n${title}\n${message}`;
     if (last.has(key)) return false;
     last.set(key, at);
     return true;
   };
 }
 
-/** JSON publish so UTF-8 titles survive. Never throws. */
+/** JSON publish so UTF-8 titles survive. Never throws. Redacts title/message
+ * here so every caller's credentials are scrubbed before they leave the process. */
 export async function sendPhonePing(
   target: PhonePingTarget,
   ping: PhonePing,
@@ -89,10 +93,11 @@ export async function sendPhonePing(
   warn: (line: string) => void = console.warn,
 ): Promise<PhonePingResult> {
   try {
+    const safe = { ...ping, title: redactSecretsInText(ping.title), message: redactSecretsInText(ping.message) };
     const res = await fetchImpl(target.base, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ topic: target.topic, ...ping }),
+      body: JSON.stringify({ topic: target.topic, ...safe }),
       signal: AbortSignal.timeout(PHONE_PING_TIMEOUT_MS),
     });
     if (res.ok) return { ok: true };

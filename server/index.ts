@@ -2231,7 +2231,7 @@ const phonePingAllowed = createPingLimiter();
 
 function phonePing(botId: string, ping: PhonePing | null) {
   const parsed = parsePhonePingTopic(phonePingTopic);
-  if (!ping || !parsed.ok || !parsed.target || !phonePingAllowed(botId, ping.title)) return;
+  if (!ping || !parsed.ok || !parsed.target || !phonePingAllowed(botId, ping.title, ping.message)) return;
   void sendPhonePing(parsed.target, ping);
 }
 
