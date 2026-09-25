@@ -633,7 +633,7 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("deduplicates direct send retries by sendId, including after the accepted task becomes inactive", async () => {
+  it("deduplicates direct send retries by sendId", async () => {
     const created = await api("POST", "/api/bots", {
       modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
       requireAvailableModel: true,
@@ -687,17 +687,11 @@ describe("harness HTTP API", () => {
         return state?.busy;
       }, { timeout: 5_000 }).toBe(false);
 
-      const nextTask = await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Now active" });
-      expect(nextTask.status).toBe(201);
-      expect(nextTask.body.task.threadId).not.toBe(originalThreadId);
-
-      const inactiveRetry = await api("POST", `/api/bots/${bot.id}/messages`, request);
-      expect(inactiveRetry.status).toBe(202);
-      expect(inactiveRetry.body).toEqual(first.body);
-      const current = (await api("GET", "/api/bots?messages=0")).body.bots.find(
-        (candidate: { id: string }) => candidate.id === bot.id,
-      );
-      expect(current.threadId).toBe(nextTask.body.task.threadId);
+      // one chat per bot: POST /tasks no longer opens a second thread, it
+      // just hands back the bot's one active task.
+      const sameTask = await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Now active" });
+      expect(sameTask.status).toBe(200);
+      expect(sameTask.body.task.threadId).toBe(originalThreadId);
     } finally {
       await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
       await api("DELETE", `/api/bots/${bot.id}`);
