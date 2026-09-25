@@ -120,6 +120,11 @@ export function markThreadDirty(ledger: ThreadSyncLedger, threadId: string): boo
   return true;
 }
 
+/** A bot's main chat and any thread changed since its last upload; loading every transcript would pin them all in memory. */
+export function threadsToUpload(mainThreadId: string, threadIds: readonly string[], ledger: ThreadSyncLedger): string[] {
+  return threadIds.filter((threadId) => threadId === mainThreadId || ledger[threadId]?.dirty);
+}
+
 export function chatSyncBotId(
   settings: { syncChats: boolean; folder: string | null; botMap: Record<string, string> },
   botId: string,

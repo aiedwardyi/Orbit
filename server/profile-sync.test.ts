@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,15 +7,17 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   applySyncOperations,
   bindSyncId,
+  compatibleSyncChanges,
   createSyncOperation,
   emptyProfileSyncState,
-  findUnmappedLocalBotForImport,
   importedSyncAvatarCrop,
   loadProfileSyncSettings,
   localIdForSyncId,
   markImported,
   markSynced,
+  mergeSyncedModelSelection,
   planProfileImport,
+  profileImportDue,
   forgetSynced,
   unsyncedChanges,
   parseSyncOperationText,
@@ -267,36 +269,6 @@ describe("profile sync operations", () => {
   });
 });
 
-describe("sync import matching", () => {
-  it("binds an unmapped same-named bot instead of duplicating it", () => {
-    const locals = [
-      { id: "local-1", name: "Python Tutor", section: "Study" },
-      { id: "local-2", name: "Sous Chef", section: undefined },
-    ];
-    expect(findUnmappedLocalBotForImport(locals, {}, "Python Tutor", "Study")).toBe("local-1");
-    expect(findUnmappedLocalBotForImport(locals, {}, "Sous Chef", undefined)).toBe("local-2");
-  });
-
-  it("skips hidden and already-mapped bots", () => {
-    const locals = [
-      { id: "local-1", name: "Python Tutor", hidden: true },
-      { id: "local-2", name: "Python Tutor" },
-    ];
-    expect(findUnmappedLocalBotForImport(locals, {}, "Python Tutor", undefined)).toBe("local-2");
-    expect(findUnmappedLocalBotForImport(locals, { "local-2": "remote-9" }, "Python Tutor", undefined)).toBeUndefined();
-  });
-
-  it("creates only when there is no unambiguous match", () => {
-    const ambiguous = [
-      { id: "local-1", name: "Python Tutor" },
-      { id: "local-2", name: "Python Tutor" },
-    ];
-    expect(findUnmappedLocalBotForImport(ambiguous, {}, "Python Tutor", undefined)).toBeUndefined();
-    expect(findUnmappedLocalBotForImport([{ id: "local-1", name: "Python Tutor", section: "Study" }], {}, "Python Tutor", "Work")).toBeUndefined();
-    expect(findUnmappedLocalBotForImport([{ id: "local-1", name: "Other Bot" }], {}, "Python Tutor", undefined)).toBeUndefined();
-  });
-});
-
 describe("sync avatar assets", () => {
   it("round trips avatar bytes through save and import", () => {
     const root = mkdtempSync(join(tmpdir(), "orbit-profile-sync-avatar-"));
@@ -388,9 +360,11 @@ describe("automatic bot sync", () => {
       entityId: (host.botMap[localId] ??= `g-${host.id}-${localId}`),
       changes: bot.changes,
     })));
-    const operations = changed.map((item) => {
+    const operations = changed.flatMap((unsynced) => {
+      const item = compatibleSyncChanges(host.synced, unsynced);
+      if (!Object.keys(item.changes).length) return [];
       markSynced(host.synced, item);
-      return record(item);
+      return [record(item)];
     });
     for (const [localId, globalId] of Object.entries(host.botMap)) {
       if (host.bots.has(localId)) continue;
@@ -402,7 +376,7 @@ describe("automatic bot sync", () => {
     return operations;
   }
 
-  function importInto(host: Device) {
+  function planFor(host: Device) {
     const state = applySyncOperations(emptyProfileSyncState(), log);
     const plan = planProfileImport({
       state,
@@ -413,6 +387,11 @@ describe("automatic bot sync", () => {
       local: [...host.bots].map(([id, bot]) => ({ id, name: String(bot.changes.name), hidden: bot.hidden, changes: bot.changes })),
       localOrder: {},
     });
+    return { state, plan };
+  }
+
+  function importInto(host: Device) {
+    const { state, plan } = planFor(host);
     for (const item of plan.bots) {
       const localId = item.localId ?? `${host.id}-bot-${++host.created}`;
       const bot = host.bots.get(localId) ?? { name: "", changes: {} };
@@ -496,5 +475,92 @@ describe("automatic bot sync", () => {
     bBot!.hidden = false;
     expect(importInto(b).hide).toEqual([]);
     expect(applySyncOperations(emptyProfileSyncState(), log).bots).toEqual({});
+  });
+
+  it("keeps and publishes a differing local value on a mapping made before auto sync", () => {
+    const a = device("a");
+    const b = device("b");
+    a.bots.set("tutor", { name: "Tutor", changes: { name: "Tutor", description: "old remote" } });
+    publish(a);
+    // mapped by a manual sync, upgraded with no baseline
+    b.bots.set("tutor", { name: "Tutor", changes: { name: "Tutor", description: "new unsaved" } });
+    b.botMap.tutor = "g-a-tutor";
+    expect(importInto(b).bots[0]!.apply).toEqual({});
+    expect(b.bots.get("tutor")!.changes.description).toBe("new unsaved");
+    expect(publish(b)).toMatchObject([{ entityId: "g-a-tutor", changes: { description: "new unsaved" } }]);
+    expect(importInto(a).bots[0]!.apply).toEqual({ description: "new unsaved" });
+  });
+
+  it("applies a remote effort change without reverting a pending local model edit", () => {
+    const a = device("a");
+    const b = device("b");
+    a.bots.set("tutor", { name: "Tutor", changes: { name: "Tutor", instanceId: "claude", model: "old-model", effort: null } });
+    publish(a);
+    importInto(b);
+    a.bots.get("tutor")!.changes.effort = "high";
+    publish(a);
+    b.bots.get("b-bot-1")!.changes.model = "new-local-model";
+    const { apply } = planFor(b).plan.bots[0]!;
+    expect(apply).toEqual({ effort: "high" });
+    const current = { instanceId: "claude", model: "new-local-model" };
+    expect(mergeSyncedModelSelection(current, apply, () => true)).toEqual({ ...current, effort: "high" });
+    expect(mergeSyncedModelSelection(current, { model: "unknown" }, (_instance, model) => model !== "unknown")).toBe(current);
+  });
+
+  it("leaves default effort, mode and peer approval out of ops so 1.0.60 can read them", () => {
+    const a = device("a");
+    const tutor = { name: "Tutor", changes: { name: "Tutor", model: "opus", effort: null, modelMode: null, approvePeerComms: false } as Record<string, unknown> };
+    a.bots.set("tutor", tutor);
+    expect(publish(a)[0]!.changes).toEqual({ name: "Tutor", model: "opus" });
+    expect(publish(a)).toEqual([]);
+    tutor.changes.effort = "high";
+    expect(publish(a)[0]!.changes).toEqual({ effort: "high" });
+    tutor.changes.effort = null;
+    expect(publish(a)[0]!.changes).toEqual({ effort: null });
+  });
+
+  it("retries an avatar whose asset lands after its op and keeps the local base until then", () => {
+    const folder = mkdtempSync(join(tmpdir(), "orbit-profile-sync-avatar-late-"));
+    roots.push(folder);
+    const a = device("a");
+    const b = device("b");
+    a.bots.set("tutor", { name: "Tutor", changes: { name: "Tutor", avatarAsset: null } });
+    publish(a);
+    importInto(b);
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x07]);
+    const avatarAsset = writeSyncAvatarAsset(folder, bytes, "png");
+    unlinkSync(join(folder, avatarAsset));
+    a.bots.get("tutor")!.changes.avatarAsset = avatarAsset;
+    publish(a);
+    const local = b.bots.get("b-bot-1")!;
+    const importAvatar = () => {
+      const { state, plan } = planFor(b);
+      const { apply } = plan.bots[0]!;
+      const asset = "avatarAsset" in apply ? readSyncAvatarAsset(folder, apply.avatarAsset) : null;
+      if (asset) local.changes.avatarAsset = apply.avatarAsset;
+      markImported(b.synced, "bot", "g-a-tutor", state.bots["g-a-tutor"]!, apply, local.changes);
+      return asset ? [] : [avatarAsset];
+    };
+    const seen = { signature: "log", invalid: false, missingAssets: importAvatar() };
+    expect(local.changes.avatarAsset).toBeNull();
+    expect(publish(b)).toEqual([]);
+    expect(profileImportDue(seen, "log", folder)).toBe(false);
+    writeSyncAvatarAsset(folder, bytes, "png");
+    expect(profileImportDue(seen, "log", folder)).toBe(true);
+    expect(importAvatar()).toEqual([]);
+    expect(local.changes.avatarAsset).toBe(avatarAsset);
+    expect(publish(b)).toEqual([]);
+  });
+
+  it("keeps an independently made same-named bot separate from a remote one", () => {
+    const a = device("a");
+    const b = device("b");
+    a.bots.set("tutor", { name: "Tutor", changes: { name: "Tutor", description: "Python" } });
+    b.bots.set("tutor", { name: "Tutor", changes: { name: "Tutor", description: "Spanish" } });
+    publish(a);
+    expect(importInto(b).bots).toMatchObject([{ globalId: "g-a-tutor", localId: null }]);
+    expect(b.bots.get("tutor")!.changes.description).toBe("Spanish");
+    expect(b.bots.size).toBe(2);
+    expect(publish(b)).toMatchObject([{ entityId: "g-b-tutor", changes: { description: "Spanish" } }]);
   });
 });

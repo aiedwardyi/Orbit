@@ -4,6 +4,7 @@ import { basename, join, relative, resolve } from "node:path";
 import { z } from "zod";
 
 import { writeFileAtomic } from "./atomic.ts";
+import { isEffortLevel, type ModelSelection } from "./contracts.ts";
 import { botAvatarChoiceSchema, botAvatarCropSchema, type BotAvatarCrop } from "../shared/bot-avatar.ts";
 
 export const PROFILE_SYNC_FORMAT = "orbit.profile-sync" as const;
@@ -512,31 +513,6 @@ export interface SyncBotMatchCandidate {
   hidden?: boolean;
 }
 
-// Sections persist as trimmed display labels; blank means unsectioned.
-const syncSectionKey = (section?: string | null): string => section?.trim() || "";
-
-// A first import onto a device that already has these bots leaves botMap
-// empty, so a blind create duplicates every bot. Bind an existing unmapped
-// visible bot instead, but only on an unambiguous name + section match.
-export function findUnmappedLocalBotForImport(
-  candidates: readonly SyncBotMatchCandidate[],
-  botMap: Record<string, string>,
-  name: string,
-  section?: string | null,
-): string | undefined {
-  const mapped = new Set(Object.keys(botMap));
-  const wantName = name.trim();
-  const wantSection = syncSectionKey(section);
-  const matches = candidates.filter(
-    (candidate) =>
-      !candidate.hidden &&
-      !mapped.has(candidate.id) &&
-      candidate.name.trim() === wantName &&
-      syncSectionKey(candidate.section) === wantSection,
-  );
-  return matches.length === 1 ? matches[0]!.id : undefined;
-}
-
 function normalizeSyncAvatarExt(ext: string): string | null {
   const lower = ext.toLowerCase();
   const normalized = lower === "jpeg" ? "jpg" : lower;
@@ -648,6 +624,56 @@ export function unsyncedChanges(synced: Record<string, string>, local: readonly 
   });
 }
 
+// 1.0.60 rejects a bot op carrying any of these keys
+const LATER_BOT_DEFAULTS: Record<string, unknown> = { effort: null, modelMode: null, approvePeerComms: false };
+
+/** Leaves never-synced defaults of LATER_BOT_DEFAULTS out of the op, marking them synced so a later change still publishes. */
+export function compatibleSyncChanges(synced: Record<string, string>, item: SyncEntityValues): SyncEntityValues {
+  if (item.entity !== "bot") return item;
+  const changes = { ...item.changes };
+  for (const [field, fallback] of Object.entries(LATER_BOT_DEFAULTS)) {
+    const key = syncedKey("bot", item.entityId, field);
+    if (!(field in changes) || synced[key] !== undefined || !valueEqual(changes[field], fallback)) continue;
+    synced[key] = syncValueHash(fallback);
+    delete changes[field];
+  }
+  return { ...item, changes };
+}
+
+/** Only the model fields the import plan allows move; the merged selection must still be one the instance offers. */
+export function mergeSyncedModelSelection(
+  current: ModelSelection,
+  apply: Record<string, unknown>,
+  offers: (instanceId: string, model: string) => boolean,
+): ModelSelection {
+  const model = "model" in apply ? apply.model : current.model;
+  if (typeof model !== "string" || !model) return current;
+  const instanceId = typeof apply.instanceId === "string" && apply.instanceId ? apply.instanceId : current.instanceId;
+  if (!offers(instanceId, model)) return current;
+  const merged: ModelSelection = { ...current, instanceId, model };
+  if ("effort" in apply) {
+    if (isEffortLevel(apply.effort)) merged.effort = apply.effort;
+    else delete merged.effort;
+  }
+  if ("modelMode" in apply) {
+    if (apply.modelMode === "automatic" || apply.modelMode === "pinned") merged.mode = apply.modelMode;
+    else delete merged.mode;
+  }
+  return merged;
+}
+
+export interface ProfileImportSeen {
+  signature: string;
+  invalid: boolean;
+  /** Avatar assets an op named before Drive delivered them. */
+  missingAssets: string[];
+}
+
+export function profileImportDue(seen: ProfileImportSeen, signature: string, folder: string): boolean {
+  if (signature !== seen.signature || seen.invalid) return true;
+  return seen.missingAssets.some((asset) => resolveSyncAvatarPath(folder, asset) !== null);
+}
+
 export function markSynced(synced: Record<string, string>, item: SyncEntityValues): void {
   for (const [field, value] of Object.entries(item.changes)) synced[syncedKey(item.entity, item.entityId, field)] = syncValueHash(value);
 }
@@ -657,7 +683,7 @@ export function forgetSynced(synced: Record<string, string>, entity: SyncEntity,
   for (const key of Object.keys(synced)) if (key.startsWith(prefix)) delete synced[key];
 }
 
-/** Newest remote values another device wrote since the last sync; a field also edited here keeps the local edit. */
+/** Newest remote values another device wrote since the last sync; a field also edited here, or never synced, keeps the local value. */
 export function remoteFieldsToApply(
   state: ProfileSyncState,
   deviceId: string,
@@ -674,6 +700,8 @@ export function remoteFieldsToApply(
     const base = synced[key];
     if (syncValueHash(value) === base) continue;
     if (local && base !== undefined && syncValueHash(local[field]) !== base) continue;
+    // no base on a mapped bot (a pre-auto-sync mapping): its own value wins and publishes
+    if (local && base === undefined && entity === "bot" && field in local) continue;
     apply[field] = value;
   }
   return apply;
@@ -718,17 +746,12 @@ export function planProfileImport(input: {
   const { state, deviceId, synced } = input;
   const botMap = { ...input.botMap };
   const byId = new Map(input.local.map((bot) => [bot.id, bot]));
-  const sectionNames = new Map(Object.values(state.sections).map((section) => [section.id, String(section.name ?? "")]));
   const plan: ProfileImportPlan = { bots: [], hide: [], order: {} };
   for (const remote of Object.values(state.bots)) {
-    let localId = localIdForSyncId(botMap, remote.id) ?? null;
+    // a same-named unmapped bot was made separately; binding it by name would merge two bots
+    const localId = localIdForSyncId(botMap, remote.id) ?? null;
     // deleted here; its tombstone goes out on the next publish
     if (localId && !byId.has(localId)) continue;
-    if (!localId) {
-      const section = typeof remote.sectionId === "string" ? sectionNames.get(remote.sectionId) : undefined;
-      localId = findUnmappedLocalBotForImport(input.local, botMap, String(remote.name ?? ""), section) ?? null;
-      if (localId) bindSyncId(botMap, localId, remote.id);
-    }
     const apply = remoteFieldsToApply(state, deviceId, synced, "bot", remote.id, remote, localId ? byId.get(localId)!.changes : null);
     plan.bots.push({ globalId: remote.id, localId, apply });
   }

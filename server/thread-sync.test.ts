@@ -23,6 +23,7 @@ import {
   saveThreadSyncLedger,
   threadSyncDir,
   threadTurnRunning,
+  threadsToUpload,
   uploadThread,
   type LocalThread,
   type ThreadSyncHost,
@@ -479,6 +480,22 @@ describe("thread sync", () => {
     expect(chatSyncBotId(settings, "bot-b")).toBeNull();
     expect(chatSyncBotId({ ...settings, syncChats: false }, "bot-a")).toBeNull();
     expect(chatSyncBotId({ ...settings, folder: null }, "bot-a")).toBeNull();
+  });
+
+  it("uploads a new bot's chat written before it had a sync id", () => {
+    const folder = temp("thread-sync-folder-");
+    const a = pc("device-a", folder);
+    const settings = { syncChats: true, folder, botMap: {} as Record<string, string> };
+    a.say("t1", "m1", "hello");
+    a.say("t1", "m2", "world");
+    a.say("t2", "m3", "side chat");
+    expect(chatSyncBotId(settings, "bot-a")).toBeNull();
+    expect(a.host.ledger).toEqual({});
+    settings.botMap["bot-a"] = BOT_SYNC_ID;
+    const queued = threadsToUpload("t1", ["t1", "t2"], a.host.ledger);
+    expect(queued).toEqual(["t1"]);
+    expect(uploadThread(a.host, chatSyncBotId(settings, "bot-a")!, "t1")).toBe("written");
+    expect(readSyncedThread(remotePath(folder, "t1"))?.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
   });
 
   it("ignores malformed and wrong-format files", () => {
