@@ -1592,7 +1592,6 @@ export function Sidebar({
   };
 
   const macInset = capabilities.windowChrome === "mac-inset";
-  const browser = capabilities.host.label === "Browser";
   // SAFETY: Electron's documented -webkit-app-region CSS property is not in
   // React's CSSProperties type, but the renderer accepts it as an inline style.
   const windowDragStyle = macInset
@@ -1975,12 +1974,6 @@ export function Sidebar({
       >
         {macInset ? (
           <div className={density === "icons" ? "h-5 w-full" : "w-14"} />
-        ) : browser ? (
-          <div className="flex items-center gap-2">
-            <span className="size-3 rounded-full bg-[#ff5f57]" />
-            <span className="size-3 rounded-full bg-[#febc2e]" />
-            <span className="size-3 rounded-full bg-[#28c840]" />
-          </div>
         ) : <div />}
         <div
           className={cn("relative flex items-center", density === "icons" ? "flex-col gap-1" : "gap-1")}
