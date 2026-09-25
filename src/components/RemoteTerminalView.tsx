@@ -1,9 +1,10 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react";
 import { Check, Copy, CornerDownLeft, RotateCcw, TerminalSquare, X } from "lucide-react";
 import type { Bot } from "@/state/store";
 import { api } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
 import { ansiColor } from "@/lib/ansi-palette";
+import { composerEnterIntent } from "@/lib/composer-enter";
 
 type RemoteTerminalPane = {
   sessionId: string;
@@ -36,6 +37,11 @@ const SEND_MAY_HAVE_RUN = "Send may have run. Check the screen before resending.
 function sendMayHaveRun(cause: unknown): boolean {
   if (!(cause instanceof Error) || cause.name !== "Error") return true;
   return /unreachable|terminal bridge: HTTP|^50[24] /i.test(cause.message);
+}
+
+// TUIs submit on a bare newline, so a multi-line draft goes in as one bracketed paste.
+export function terminalSendText(line: string): string {
+  return line.includes("\n") ? `\x1b[200~${line}\x1b[201~\n` : `${line}\n`;
 }
 
 export function snapshotText(snapshot: RemoteTerminalSnapshot): string {
@@ -80,6 +86,7 @@ export function RemoteTerminalView({
   const requestRef = useRef(0);
   const appliedRequestRef = useRef(0);
   const outputRef = useRef<HTMLPreElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const pinnedRef = useRef(true);
 
   const panes = snapshot?.panes ?? [];
@@ -169,6 +176,20 @@ export function RemoteTerminalView({
     return () => observer.disconnect();
   }, [noTerminal]);
 
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+  }, [draft, canType]);
+
+  const onInputKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    const touch = window.matchMedia?.("(pointer: coarse)").matches;
+    if (composerEnterIntent(event, { composing: false, justEnded: false, touch }) !== "send") return;
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
+  };
+
   const send = async (event: FormEvent) => {
     event.preventDefault();
     if (sending || !snapshot?.sessionId || snapshot.generation === undefined) return;
@@ -178,7 +199,7 @@ export function RemoteTerminalView({
     try {
       const next: RemoteTerminalSnapshot = await api(`/api/bots/${encodeURIComponent(bot.id)}/terminal/send`, {
         method: "POST",
-        body: JSON.stringify({ sessionId: snapshot.sessionId, generation: snapshot.generation, text: `${line}\n` }),
+        body: JSON.stringify({ sessionId: snapshot.sessionId, generation: snapshot.generation, text: terminalSendText(line) }),
       });
       appliedRequestRef.current = ++requestRef.current;
       pinnedRef.current = true;
@@ -277,18 +298,21 @@ export function RemoteTerminalView({
       )}
       {canType && (
         <form onSubmit={(event) => void send(event)} aria-busy={sending} className="shrink-0 border-t border-hairline bg-panel px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          <div className="flex items-center gap-2">
-            <input
+          <div className="flex items-end gap-2">
+            <textarea
+              ref={inputRef}
+              rows={1}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder={t("terminal.inputPlaceholder")}
               aria-label={t("terminal.inputPlaceholder")}
-              enterKeyHint="send"
+              onKeyDown={onInputKeyDown}
+              enterKeyHint="enter"
               autoCapitalize="off"
               autoCorrect="off"
               autoComplete="off"
               spellCheck={false}
-              className="min-h-11 min-w-0 flex-1 rounded-full border border-hairline bg-inset px-4 font-mono text-[16px] text-ink placeholder:font-sans placeholder:text-ink-secondary focus:border-accent-text focus:outline-none"
+              className="max-h-[140px] min-h-11 min-w-0 flex-1 resize-none overflow-y-auto rounded-[22px] border border-hairline bg-inset px-4 py-[9px] font-mono text-[16px] leading-6 text-ink placeholder:font-sans placeholder:text-ink-secondary focus:border-accent-text focus:outline-none"
             />
             <button
               type="submit"

@@ -17,6 +17,7 @@ const app = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "Ap
 afterEach(() => {
   store.api.mockReset();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
   document.body.innerHTML = "";
 });
@@ -34,12 +35,26 @@ async function renderView(visible = true) {
 
 const button = (host: HTMLElement, label: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
 const click = (target: Element) => target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-const composer = (host: HTMLElement) => host.querySelector<HTMLInputElement>('input[aria-label="Type a command"]');
+const composer = (host: HTMLElement) => host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Type a command"]');
+const sends = () => store.api.mock.calls.filter(([path]) => String(path).endsWith("/send"));
 
-function typeLine(input: HTMLInputElement, value: string) {
-  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+function typeLine(input: HTMLTextAreaElement, value: string) {
+  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, value);
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
+
+function pressEnter(input: HTMLTextAreaElement, shiftKey = false) {
+  const event = new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, shiftKey, bubbles: true, cancelable: true });
+  input.dispatchEvent(event);
+  return event;
+}
+
+function pointer(coarse: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({ matches: coarse && query === "(pointer: coarse)" }));
+}
+
+const typingSnapshot = async (path: string) =>
+  path.endsWith("/send") ? { screenText: "$ sent", sessionId: "s1", generation: 2 } : { screenText: "$", sessionId: "s1", generation: 2 };
 
 describe("RemoteTerminalView", () => {
   it("renders recent text then the live screen with the cwd", async () => {
@@ -403,6 +418,61 @@ describe("RemoteTerminalView", () => {
       expect(input.value).toBe("");
       expect(document.activeElement).toBe(input);
       expect(input.autofocus).toBe(false);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("keeps Enter and Shift+Enter as newlines on a phone", async () => {
+    pointer(true);
+    store.api.mockImplementation(typingSnapshot);
+    const { host, root } = await renderView();
+    try {
+      const input = composer(host)!;
+      expect(input.enterKeyHint).not.toBe("send");
+      await act(async () => typeLine(input, "first"));
+      await act(async () => expect(pressEnter(input).defaultPrevented).toBe(false));
+      await act(async () => expect(pressEnter(input, true).defaultPrevented).toBe(false));
+      expect(sends()).toHaveLength(0);
+      expect(input.value).toBe("first");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("sends a multi-line draft as one bracketed paste on the Send tap", async () => {
+    pointer(true);
+    store.api.mockImplementation(typingSnapshot);
+    const { host, root } = await renderView();
+    try {
+      await act(async () => typeLine(composer(host)!, "fix the bug\nthen run tests"));
+      await act(async () => click(button(host, "Send")));
+      expect(sends()).toHaveLength(1);
+      expect(store.api).toHaveBeenLastCalledWith("/api/bots/bot-1/terminal/send", {
+        method: "POST",
+        body: JSON.stringify({ sessionId: "s1", generation: 2, text: "\x1b[200~fix the bug\nthen run tests\x1b[201~\n" }),
+      });
+      expect(composer(host)!.value).toBe("");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("sends on Enter and keeps Shift+Enter as a newline on desktop", async () => {
+    pointer(false);
+    store.api.mockImplementation(typingSnapshot);
+    const { host, root } = await renderView();
+    try {
+      const input = composer(host)!;
+      await act(async () => typeLine(input, "ls"));
+      await act(async () => expect(pressEnter(input, true).defaultPrevented).toBe(false));
+      expect(sends()).toHaveLength(0);
+      await act(async () => expect(pressEnter(input).defaultPrevented).toBe(true));
+      expect(sends()).toHaveLength(1);
+      expect(store.api).toHaveBeenLastCalledWith("/api/bots/bot-1/terminal/send", {
+        method: "POST",
+        body: JSON.stringify({ sessionId: "s1", generation: 2, text: "ls\n" }),
+      });
     } finally {
       await act(async () => root.unmount());
     }
