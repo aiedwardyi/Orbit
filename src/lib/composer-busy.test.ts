@@ -141,10 +141,10 @@ describe("Composer wiring", () => {
     expect(composer).not.toMatch(/composer\.queuedUntil", \{ name:/);
   });
 
-  it("shows the image-support notice when a pasted image is demoted", () => {
+  it("demotes a pasted image to a file without the image-support notice", () => {
     const paste = composer.slice(composer.indexOf("onPaste="), composer.indexOf("onKeyUp="));
     expect(paste).toContain("pasteImageAttachment");
-    expect(paste).toContain("showImageSupportNotice");
+    expect(paste).not.toContain("showImageSupportNotice");
   });
 });
 
