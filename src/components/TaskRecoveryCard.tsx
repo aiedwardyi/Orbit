@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, X } from "lucide-react";
+import { X } from "lucide-react";
 
 import { isCompletedTaskRecord, isTaskRecoveryVisible, shouldDismissCompletedReopen } from "@/lib/task-recovery";
 import { useI18n } from "@/lib/i18n";
@@ -164,23 +164,11 @@ export function TaskRecoveryCard({
 export function ContextCompactionDivider({ message }: { message: Message }) {
   const { t } = useI18n();
   const parsed = readContextCompaction({ value: message.compaction });
-  if (parsed.status === "invalid") return null;
-  if (parsed.status === "unsupported") {
-    return (
-      <div className="py-2 text-center text-[12px] text-ink-secondary">
-        {t("chat.compactionUnsupported")}
-      </div>
-    );
-  }
+  // A routine summary is model bookkeeping; only a blocking version gap is shown.
+  if (parsed.status !== "unsupported") return null;
   return (
-    <details className="group w-full py-2 text-center text-[12px] text-ink-secondary">
-      <summary className="mx-auto flex w-full max-w-2xl cursor-pointer list-none select-none items-center justify-center gap-1 hover:text-ink">
-        <ChevronDown size={13} className="transition-transform group-open:rotate-180" aria-hidden="true" />
-        {t("chat.compactionSummarized")}
-      </summary>
-      <div className="mx-auto mt-2 max-w-2xl whitespace-pre-wrap rounded-lg border border-hairline/30 bg-inset/25 px-3 py-2 text-left leading-relaxed">
-        {parsed.value.summary}
-      </div>
-    </details>
+    <div className="py-2 text-center text-[12px] text-ink-secondary">
+      {t("chat.compactionUnsupported")}
+    </div>
   );
 }

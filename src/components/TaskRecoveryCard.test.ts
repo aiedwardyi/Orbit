@@ -155,7 +155,7 @@ describe("TaskRecoveryStrip", () => {
 });
 
 describe("ContextCompactionDivider", () => {
-  it("makes the existing disclosure obvious without changing summary payload", () => {
+  it("renders nothing for a routine summary", () => {
     applyLocale("en");
     const html = renderToStaticMarkup(
       createElement(ContextCompactionDivider, {
@@ -176,12 +176,6 @@ describe("ContextCompactionDivider", () => {
         },
       }),
     );
-    expect(html).toContain("Earlier messages summarized");
-    expect(html).toContain("Full chat kept");
-    expect(html).toContain("<details");
-    expect(html).toContain("Kept the signing plan and the last test failure.");
-    expect(html).toContain("<svg");
-    expect(source).toContain("group-open:rotate");
-    expect(source).not.toContain("Older context was summarized");
+    expect(html).toBe("");
   });
 });
