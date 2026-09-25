@@ -1693,7 +1693,8 @@ export class Store {
 
   /** Take a task's transcript from another device. Provider sessions are
    * per device, so the next turn replays the transcript instead. `follow`
-   * makes it the active task when it is newer; the caller vouches no turn is starting. */
+   * makes it the active task when it is newer or the active one is empty, which
+   * is then dropped; the caller vouches no turn is starting. */
   adoptSyncedTask(
     botId: string,
     task: Pick<TaskRecord, "threadId" | "title" | "createdAt">,
@@ -1705,8 +1706,10 @@ export class Store {
     if (!bot) return null;
     const { threadId } = task;
     const newest = (list: Message[], floor: number) => list.reduce((max, m) => Math.max(max, m.at), floor);
-    const followed = follow && !bot.busy && bot.threadId !== threadId
-      && newest(messages, -Infinity) > newest(this.messagesFor(bot.threadId), this.activeTask(botId)?.createdAt ?? 0);
+    const current = bot.threadId;
+    const empty = this.messagesFor(current).length === 0;
+    const followed = follow && !bot.busy && current !== threadId
+      && (empty || newest(messages, -Infinity) > newest(this.messagesFor(current), this.activeTask(botId)?.createdAt ?? 0));
     const t = this.thread(threadId);
     const before = new Map(t.messages.map((m) => [m.id, JSON.stringify(m)]));
     mdb.replaceThread(threadId, messages, activeLeafId);
@@ -1727,6 +1730,10 @@ export class Store {
     }
     if (followed) bot.threadId = threadId;
     if (bot.threadId === threadId) bot.resumeCursors = {};
+    if (followed && empty) {
+      bot.tasks = bot.tasks!.filter((candidate) => candidate.threadId !== current);
+      this.deleteThreadRecord(current);
+    }
     this.saveBots();
     for (const message of messages) {
       const prior = before.get(message.id);
@@ -1781,6 +1788,25 @@ export class Store {
     this.saveBots();
     this.emit({ type: "bot", botId });
     return bot;
+  }
+
+  /** Drop a task another device deleted; a bot left with none gets a fresh one. */
+  removeSyncedTask(botId: string, threadId: string): boolean {
+    const bot = this.bot(botId);
+    if (!bot?.tasks?.some((t) => t.threadId === threadId)) return false;
+    if (bot.tasks.length === 1) {
+      bot.tasks.unshift({ threadId: newId(), title: UNTITLED_TASK, createdAt: Date.now(), resumeCursors: {} });
+    }
+    bot.tasks = bot.tasks.filter((t) => t.threadId !== threadId);
+    this.deleteThreadRecord(threadId);
+    const switched = bot.threadId === threadId;
+    if (switched) {
+      bot.threadId = bot.tasks[0]!.threadId;
+      bot.resumeCursors = { ...bot.tasks[0]!.resumeCursors };
+    }
+    this.saveBots();
+    this.emit(switched ? { type: "bot", botId, switched: true } : { type: "bot", botId });
+    return true;
   }
 
   /** First-run seed: one bot so the app never opens empty — it gets a

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 
@@ -14,6 +14,7 @@ const ID = z.string().trim().min(1).max(96).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/
 // No dots, so `<threadId>.conflict-...json` can never parse as a thread file.
 const THREAD_ID = z.string().min(1).max(96).regex(/^[A-Za-z0-9_-]+$/);
 const THREAD_FILE = /^([A-Za-z0-9_-]{1,96})\.json$/;
+const TOMBSTONE_FILE = /^([A-Za-z0-9_-]{1,96})\.deleted\.json$/;
 
 const messageSchema = z.object({
   id: z.string().min(1).max(200),
@@ -78,11 +79,12 @@ export interface ThreadSyncHost {
   local(threadId: string): LocalThread | null;
   running(threadId: string): boolean;
   adopt(botId: string, file: SyncedThreadFile): void;
+  remove(botId: string, threadId: string): void;
   conflicted(threadId: string): void;
   now?(): number;
 }
 
-export type ThreadSyncResult = "written" | "imported" | "current" | "conflict" | "running" | "skipped";
+export type ThreadSyncResult = "written" | "imported" | "current" | "conflict" | "running" | "skipped" | "deleted";
 
 export const CONFLICT_NOTICE = "This chat also changed on another PC. The other PC's copy was saved as a conflict file.";
 
@@ -237,8 +239,34 @@ function keepConflict(host: ThreadSyncHost, dir: string, threadId: string, remot
   return "conflict";
 }
 
+const tombstonePath = (dir: string, threadId: string) => join(dir, `${threadId}.deleted.json`);
+
+/** Deleting a synced thread leaves a tombstone so other PCs delete it too instead of re-importing it. */
+export function deleteSyncedThread(host: ThreadSyncHost, botSyncId: string, threadId: string): void {
+  if (!THREAD_ID.safeParse(threadId).success) return;
+  const dir = threadSyncDir(host.folder, botSyncId);
+  mkdirSync(dir, { recursive: true });
+  const tombstone = { format: THREAD_SYNC_FORMAT, threadId, deletedAt: host.now?.() ?? Date.now(), writerDeviceId: host.deviceId };
+  writeFileAtomic(tombstonePath(dir, threadId), `${JSON.stringify(tombstone)}\n`, { mode: 0o600 });
+  rmSync(join(dir, `${threadId}.json`), { force: true });
+  delete host.ledger[threadId];
+  host.saveLedger();
+}
+
+/** Deletes the local copy of a tombstoned thread once no turn runs on it. */
+export function applyTombstone(host: ThreadSyncHost, botId: string, threadId: string): ThreadSyncResult {
+  if (!THREAD_ID.safeParse(threadId).success) return "skipped";
+  if (!host.local(threadId)) return "current";
+  if (host.running(threadId)) return "running";
+  host.remove(botId, threadId);
+  delete host.ledger[threadId];
+  host.saveLedger();
+  return "deleted";
+}
+
 export function uploadThread(host: ThreadSyncHost, botSyncId: string, threadId: string): ThreadSyncResult {
   if (!THREAD_ID.safeParse(threadId).success) return "skipped";
+  if (existsSync(tombstonePath(threadSyncDir(host.folder, botSyncId), threadId))) return "skipped";
   if (host.running(threadId)) return "running";
   const local = host.local(threadId);
   if (!local || local.messages.length === 0) return "skipped";
@@ -261,6 +289,7 @@ export function uploadThread(host: ThreadSyncHost, botSyncId: string, threadId: 
 export function pullThread(host: ThreadSyncHost, botId: string, botSyncId: string, threadId: string): ThreadSyncResult {
   if (!THREAD_ID.safeParse(threadId).success) return "skipped";
   const dir = threadSyncDir(host.folder, botSyncId);
+  if (existsSync(tombstonePath(dir, threadId))) return "skipped";
   const path = join(dir, `${threadId}.json`);
   const cached = readSyncedThread(path);
   if (!cached || cached.task.threadId !== threadId) return "skipped";
@@ -291,9 +320,12 @@ export function pullBotThreads(host: ThreadSyncHost, botId: string, botSyncId: s
     return {};
   }
   const results: Record<string, ThreadSyncResult> = {};
+  // `<id>.deleted.json` sorts before `<id>.json`, so a tombstone's result wins
   for (const name of names.sort()) {
-    const threadId = THREAD_FILE.exec(name)?.[1];
-    if (threadId) results[threadId] = pullThread(host, botId, botSyncId, threadId);
+    const deleted = TOMBSTONE_FILE.exec(name)?.[1];
+    const threadId = deleted ?? THREAD_FILE.exec(name)?.[1];
+    if (!threadId || results[threadId]) continue;
+    results[threadId] = deleted ? applyTombstone(host, botId, threadId) : pullThread(host, botId, botSyncId, threadId);
   }
   return results;
 }
@@ -327,10 +359,11 @@ function scanBotThreads(
     return;
   }
   missing.delete(botSyncId);
-  const counts = { imported: 0, current: 0, conflict: 0 };
+  const counts = { imported: 0, current: 0, conflict: 0, deleted: 0 };
   const skipped: string[] = [];
   for (const name of names.sort()) {
-    const threadId = THREAD_FILE.exec(name)?.[1];
+    const deleted = TOMBSTONE_FILE.exec(name)?.[1];
+    const threadId = deleted ?? THREAD_FILE.exec(name)?.[1];
     if (!threadId) continue;
     const path = join(dir, name);
     let stat: FileStat;
@@ -346,11 +379,11 @@ function scanBotThreads(
     if (last && last.mtimeMs === stat.mtimeMs && last.size === stat.size) continue;
     let result: ThreadSyncResult = "skipped";
     try {
-      result = pullThread(host, botId, botSyncId, threadId);
+      result = deleted ? applyTombstone(host, botId, threadId) : pullThread(host, botId, botSyncId, threadId);
     } catch (error) {
       console.warn("chat sync: pull failed", error);
     }
-    if (result === "imported" || result === "current" || result === "conflict") {
+    if (result === "imported" || result === "current" || result === "conflict" || result === "deleted") {
       seen.set(path, stat);
       counts[result]++;
     } else {
@@ -359,7 +392,8 @@ function scanBotThreads(
   }
   if (!full) return;
   const conflicts = counts.conflict ? ` conflict ${counts.conflict}` : "";
-  console.log(`chat sync: ${botSyncId} imported ${counts.imported} current ${counts.current}${conflicts} skipped [${skipped.join(", ")}]`);
+  const deletes = counts.deleted ? ` deleted ${counts.deleted}` : "";
+  console.log(`chat sync: ${botSyncId} imported ${counts.imported} current ${counts.current}${conflicts}${deletes} skipped [${skipped.join(", ")}]`);
 }
 
 /** Rescans Drive while chat sync is on; `start` runs a full, logged scan first. */

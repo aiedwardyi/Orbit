@@ -272,6 +272,7 @@ import {
   CONFLICT_NOTICE,
   chatSyncBotId,
   createThreadSyncPoll,
+  deleteSyncedThread,
   loadThreadSyncLedger,
   markThreadDirty,
   pullThread,
@@ -1641,6 +1642,7 @@ function threadSyncHost(folder: string): ThreadSyncHost {
       const follow = !botHasActiveTurn(botId, store.bot(botId)?.threadId);
       store.adoptSyncedTask(botId, file.task, file.messages, file.activeLeafId, follow);
     },
+    remove: (botId, threadId) => void store.removeSyncedTask(botId, threadId),
     conflicted: (threadId) => {
       store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: `error: ${CONFLICT_NOTICE}`, ok: false } });
     },
@@ -8716,8 +8718,16 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, 409, { error: "this task is running — stop it first" });
         }
       }
+      const syncTarget = threadSyncTarget(m[2]);
       const updated = store.deleteTask(m[1], m[2]);
       if (!updated) return json(res, 400, { error: "a bot keeps at least one task" });
+      if (syncTarget) {
+        try {
+          deleteSyncedThread(threadSyncHost(profileSyncSettings.folder!), syncTarget.botSyncId, m[2]);
+        } catch (error) {
+          console.warn("chat sync: delete failed", error);
+        }
+      }
       const fresh = botWithThread(updated);
       broadcast({ kind: "bot", bot: fresh });
       return json(res, 200, { bot: fresh });

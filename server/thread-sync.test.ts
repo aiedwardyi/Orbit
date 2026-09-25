@@ -18,6 +18,7 @@ import {
   markThreadDirty,
   pullBotThreads,
   pullThread,
+  deleteSyncedThread,
   readSyncedThread,
   saveThreadSyncLedger,
   threadSyncDir,
@@ -73,6 +74,7 @@ function pc(deviceId: string, folder: string) {
         activeLeafId: file.activeLeafId,
       });
     },
+    remove: (_botId, threadId) => void threads.delete(threadId),
     conflicted: (threadId) => notices.push(threadId),
     now: () => 1_700_000_000_500,
   };
@@ -87,6 +89,7 @@ function pc(deviceId: string, folder: string) {
 }
 
 const remotePath = (folder: string, threadId: string) => join(threadSyncDir(folder, BOT_SYNC_ID), `${threadId}.json`);
+const tombstonePath = (folder: string, threadId: string) => join(threadSyncDir(folder, BOT_SYNC_ID), `${threadId}.deleted.json`);
 
 function conflictMessages(folder: string, writer: string): string[][] {
   const dir = threadSyncDir(folder, BOT_SYNC_ID);
@@ -123,6 +126,7 @@ describe("thread sync", () => {
       },
       running: () => false,
       adopt: (botId, file) => void store.adoptSyncedTask(botId, file.task, file.messages, file.activeLeafId),
+      remove: () => {},
       conflicted: () => {},
     };
     const frames: unknown[] = [];
@@ -560,6 +564,24 @@ describe("thread sync follow", () => {
     expect(switched).toEqual([undefined]);
   });
 
+  it("yields an empty active thread to an import and removes it", () => {
+    const { store, id, adopt } = setup();
+    const empty = store.createTask(id)!.threadId;
+    adopt(1);
+    expect(store.bot(id)?.threadId).toBe("remote");
+    expect(store.taskByThread(id, empty)).toBeUndefined();
+    expect(store.tasks(id)).toHaveLength(2);
+  });
+
+  it("never removes a thread with messages", () => {
+    const { store, id, local, adopt } = setup();
+    adopt(1);
+    adopt(Date.now() + 60_000);
+    expect(store.bot(id)?.threadId).toBe("remote");
+    expect(store.messagesFor(local).map((m) => m.text)).toContain("local");
+    expect(store.tasks(id).map((t) => t.threadId).sort()).toEqual([local, "remote"].sort());
+  });
+
   it("never switches while the bot is busy or a turn is starting", () => {
     const { store, id, local, adopt } = setup();
     store.setActivity(id, "working", local);
@@ -568,6 +590,115 @@ describe("thread sync follow", () => {
     store.setActivity(id, "idle");
     adopt(Date.now() + 60_000, false);
     expect(store.bot(id)?.threadId).toBe(local);
+  });
+});
+
+describe("thread sync delete", () => {
+  function setup() {
+    closeMessageDb();
+    rmSync(DATA_DIR, { recursive: true, force: true });
+    mkdirSync(DATA_DIR, { recursive: true });
+    const folder = temp("thread-sync-folder-");
+    const a = pc("device-a", folder);
+    const store = new Store((): ModelSelection => ({ instanceId: "claude", model: "claude-sonnet-5" }));
+    const bot = store.createBot({}, { seedMessages: false });
+    const ledgerDir = temp("thread-sync-device-b-");
+    const b: ThreadSyncHost = {
+      folder,
+      deviceId: "device-b",
+      ledger: loadThreadSyncLedger(ledgerDir),
+      saveLedger: () => saveThreadSyncLedger(ledgerDir, b.ledger),
+      local: (threadId) => {
+        const task = store.taskByThread(bot.id, threadId);
+        return task
+          ? { title: task.title, createdAt: task.createdAt, messages: store.messagesFor(threadId), activeLeafId: store.activeLeaf(threadId) }
+          : null;
+      },
+      running: () => false,
+      adopt: (botId, file) => void store.adoptSyncedTask(botId, file.task, file.messages, file.activeLeafId, true),
+      remove: (botId, threadId) => void store.removeSyncedTask(botId, threadId),
+      conflicted: () => {},
+    };
+    const switched: unknown[] = [];
+    store.onChange((change) => {
+      if (change.type === "bot") switched.push(change.switched);
+    });
+    return { folder, a, b, store, botId: bot.id, switched };
+  }
+
+  afterEach(() => closeMessageDb());
+
+  it("writes a tombstone and removes the thread file", () => {
+    const folder = temp("thread-sync-folder-");
+    const a = pc("device-a", folder);
+    a.say("t1", "m1", "hello");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    deleteSyncedThread(a.host, BOT_SYNC_ID, "t1");
+    expect(existsSync(remotePath(folder, "t1"))).toBe(false);
+    expect(JSON.parse(readFileSync(tombstonePath(folder, "t1"), "utf8"))).toEqual({
+      format: THREAD_SYNC_FORMAT,
+      threadId: "t1",
+      deletedAt: 1_700_000_000_500,
+      writerDeviceId: "device-a",
+    });
+    expect(a.host.ledger.t1).toBeUndefined();
+    expect(loadThreadSyncLedger(a.dataDir).t1).toBeUndefined();
+  });
+
+  it("deletes a tombstoned thread and switches off it when active", () => {
+    const { a, b, store, botId, switched } = setup();
+    a.say("t1", "m1", "hello");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    a.say("t2", "m2", "other");
+    uploadThread(a.host, BOT_SYNC_ID, "t2");
+    pullBotThreads(b, botId, BOT_SYNC_ID);
+    store.switchTask(botId, "t1");
+    switched.length = 0;
+    deleteSyncedThread(a.host, BOT_SYNC_ID, "t1");
+    expect(pullBotThreads(b, botId, BOT_SYNC_ID)).toEqual({ t1: "deleted", t2: "current" });
+    expect(store.taskByThread(botId, "t1")).toBeUndefined();
+    expect(store.messagesFor("t1")).toEqual([]);
+    expect(store.bot(botId)?.threadId).toBe("t2");
+    expect(switched).toEqual([true]);
+    expect(b.ledger.t1).toBeUndefined();
+  });
+
+  it("leaves one fresh empty task when the last task is tombstoned", () => {
+    const { a, b, store, botId, switched } = setup();
+    a.say("t1", "m1", "hello");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    pullBotThreads(b, botId, BOT_SYNC_ID);
+    expect(store.tasks(botId).map((t) => t.threadId)).toEqual(["t1"]);
+    switched.length = 0;
+    deleteSyncedThread(a.host, BOT_SYNC_ID, "t1");
+    pullBotThreads(b, botId, BOT_SYNC_ID);
+    const tasks = store.tasks(botId);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]!.threadId).not.toBe("t1");
+    expect(store.bot(botId)?.threadId).toBe(tasks[0]!.threadId);
+    expect(store.messagesFor(tasks[0]!.threadId)).toEqual([]);
+    expect(switched).toEqual([true]);
+  });
+
+  it("never re-imports or re-uploads a tombstoned thread", () => {
+    const folder = temp("thread-sync-folder-");
+    const a = pc("device-a", folder);
+    const b = pc("device-b", folder);
+    const c = pc("device-c", folder);
+    a.say("t1", "m1", "hello");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1");
+    const copy = readFileSync(remotePath(folder, "t1"));
+    deleteSyncedThread(b.host, BOT_SYNC_ID, "t1");
+    b.threads.delete("t1");
+    a.say("t1", "m2", "late");
+    expect(uploadThread(a.host, BOT_SYNC_ID, "t1")).toBe("skipped");
+    expect(existsSync(remotePath(folder, "t1"))).toBe(false);
+    // Drive restores a stale copy after the tombstone landed
+    writeFileSync(remotePath(folder, "t1"), copy);
+    expect(pullBotThreads(c.host, "bot-c", BOT_SYNC_ID)).toEqual({ t1: "current" });
+    expect(pullThread(c.host, "bot-c", BOT_SYNC_ID, "t1")).toBe("skipped");
+    expect(c.threads.has("t1")).toBe(false);
   });
 });
 
@@ -620,6 +751,24 @@ describe("thread sync poll", () => {
     vi.advanceTimersByTime(THREAD_SYNC_POLL_MS);
     expect(b.threads.get("t1")?.messages.map((m) => m.text)).toEqual(["hello"]);
     expect(log).toHaveBeenCalledTimes(1);
+    sync.stop();
+  });
+
+  it("applies a tombstone only once no turn runs on the thread", () => {
+    const { a, b, sync, log } = poll();
+    a.say("t1", "m1", "hello");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1");
+    deleteSyncedThread(a.host, BOT_SYNC_ID, "t1");
+    b.running.add("t1");
+    sync.start();
+    expect(log).toHaveBeenCalledWith(`chat sync: ${BOT_SYNC_ID} imported 0 current 0 skipped [t1.deleted.json]`);
+    vi.advanceTimersByTime(THREAD_SYNC_POLL_MS);
+    expect(b.threads.has("t1")).toBe(true);
+    b.running.delete("t1");
+    vi.advanceTimersByTime(THREAD_SYNC_POLL_MS);
+    expect(b.threads.has("t1")).toBe(false);
+    expect(b.host.ledger.t1).toBeUndefined();
     sync.stop();
   });
 
