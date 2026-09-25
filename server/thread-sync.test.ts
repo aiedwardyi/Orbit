@@ -591,6 +591,16 @@ describe("thread sync follow", () => {
     adopt(Date.now() + 60_000, false);
     expect(store.bot(id)?.threadId).toBe(local);
   });
+
+  it("follows an import that landed mid-turn once the bot settles", () => {
+    const { store, id, local, adopt } = setup();
+    store.setActivity(id, "working", local);
+    adopt(Date.now() + 60_000, false);
+    expect(store.followNewestTask(id)).toBe(false);
+    store.setActivity(id, "idle");
+    expect(store.followNewestTask(id)).toBe(true);
+    expect(store.bot(id)?.threadId).toBe("remote");
+  });
 });
 
 describe("one chat per bot", () => {
@@ -686,13 +696,15 @@ describe("thread sync delete", () => {
       threadId: "t1",
       deletedAt: 1_700_000_000_500,
       writerDeviceId: "device-a",
+      syncedRevision: 1,
+      syncedWriter: "device-a",
     });
     expect(a.host.ledger.t1).toBeUndefined();
     expect(loadThreadSyncLedger(a.dataDir).t1).toBeUndefined();
   });
 
   it("deletes a tombstoned thread and switches off it when active", () => {
-    const { a, b, store, botId, switched } = setup();
+    const { folder, a, b, store, botId, switched } = setup();
     a.say("t1", "m1", "hello");
     uploadThread(a.host, BOT_SYNC_ID, "t1");
     a.say("t2", "m2", "other");
@@ -707,6 +719,23 @@ describe("thread sync delete", () => {
     expect(store.bot(botId)?.threadId).toBe("t2");
     expect(switched).toEqual([true]);
     expect(b.ledger.t1).toBeUndefined();
+    expect(readdirSync(threadSyncDir(folder, BOT_SYNC_ID)).filter((name) => name.includes(".conflict-"))).toEqual([]);
+  });
+
+  it("parks a copy the deleting PC never saw before deleting it", () => {
+    const { folder, a, b, store, botId } = setup();
+    a.say("t1", "m1", "hello");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    pullBotThreads(b, botId, BOT_SYNC_ID);
+    store.appendMessage("t1", { role: "user", kind: "text", text: "from b" });
+    b.ledger.t1!.dirty = true;
+    expect(uploadThread(b, BOT_SYNC_ID, "t1")).toBe("written");
+    deleteSyncedThread(a.host, BOT_SYNC_ID, "t1");
+    expect(pullBotThreads(b, botId, BOT_SYNC_ID)).toEqual({ t1: "deleted" });
+    expect(store.taskByThread(botId, "t1")).toBeUndefined();
+    const [parked] = conflictMessages(folder, "device-b");
+    expect(parked).toHaveLength(2);
+    expect(parked![0]).toBe("m1");
   });
 
   it("leaves one fresh empty task when the last task is tombstoned", () => {
@@ -815,6 +844,22 @@ describe("thread sync poll", () => {
     vi.advanceTimersByTime(THREAD_SYNC_POLL_MS);
     expect(b.threads.has("t1")).toBe(false);
     expect(b.host.ledger.t1).toBeUndefined();
+    sync.stop();
+  });
+
+  it("keeps work added during the running turn when a tombstone lands", () => {
+    const { a, b, sync } = poll();
+    a.say("t1", "m1", "hello");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1");
+    deleteSyncedThread(a.host, BOT_SYNC_ID, "t1");
+    b.running.add("t1");
+    sync.start();
+    b.say("t1", "m2", "UNSYNCED WORK");
+    b.running.delete("t1");
+    vi.advanceTimersByTime(THREAD_SYNC_POLL_MS);
+    expect(b.threads.has("t1")).toBe(false);
+    expect(conflictMessages(a.host.folder, "device-b")).toEqual([["m1", "m2"]]);
     sync.stop();
   });
 

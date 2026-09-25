@@ -44,6 +44,12 @@ const ledgerEntrySchema = z.object({
   dirty: z.boolean(),
 }).strict();
 
+// the base copy the deleting PC last synced; tombstones from before this field read as base 0
+const tombstoneSchema = z.object({
+  syncedRevision: z.number().int().nonnegative().optional(),
+  syncedWriter: ID.optional(),
+});
+
 export interface SyncedThreadFile {
   format: typeof THREAD_SYNC_FORMAT;
   version: typeof THREAD_SYNC_VERSION;
@@ -229,10 +235,14 @@ function writeThreadFile(path: string, file: SyncedThreadFile): void {
   writeFileAtomic(path, `${JSON.stringify(file)}\n`, { mode: 0o600 });
 }
 
+function parkConflict(host: ThreadSyncHost, dir: string, threadId: string, file: SyncedThreadFile): void {
+  const name = `${threadId}.conflict-${file.writerDeviceId.replace(/[^A-Za-z0-9_-]/g, "_")}-${host.now?.() ?? Date.now()}.json`;
+  writeThreadFile(join(dir, name), file);
+}
+
 /** Parks the remote copy beside the thread file, then rebases on it so the next upload publishes ours. */
 function keepConflict(host: ThreadSyncHost, dir: string, threadId: string, remote: SyncedThreadFile): ThreadSyncResult {
-  const name = `${threadId}.conflict-${remote.writerDeviceId.replace(/[^A-Za-z0-9_-]/g, "_")}-${host.now?.() ?? Date.now()}.json`;
-  writeThreadFile(join(dir, name), remote);
+  parkConflict(host, dir, threadId, remote);
   host.conflicted(threadId);
   host.ledger[threadId] = { syncedRevision: remote.revision, syncedWriter: remote.writerDeviceId, dirty: true };
   host.saveLedger();
@@ -246,18 +256,35 @@ export function deleteSyncedThread(host: ThreadSyncHost, botSyncId: string, thre
   if (!THREAD_ID.safeParse(threadId).success) return;
   const dir = threadSyncDir(host.folder, botSyncId);
   mkdirSync(dir, { recursive: true });
-  const tombstone = { format: THREAD_SYNC_FORMAT, threadId, deletedAt: host.now?.() ?? Date.now(), writerDeviceId: host.deviceId };
+  const { syncedRevision = 0, syncedWriter } = host.ledger[threadId] ?? {};
+  const tombstone = { format: THREAD_SYNC_FORMAT, threadId, deletedAt: host.now?.() ?? Date.now(), writerDeviceId: host.deviceId, syncedRevision, syncedWriter };
   writeFileAtomic(tombstonePath(dir, threadId), `${JSON.stringify(tombstone)}\n`, { mode: 0o600 });
   rmSync(join(dir, `${threadId}.json`), { force: true });
   delete host.ledger[threadId];
   host.saveLedger();
 }
 
-/** Deletes the local copy of a tombstoned thread once no turn runs on it. */
-export function applyTombstone(host: ThreadSyncHost, botId: string, threadId: string): ThreadSyncResult {
+/** Deletes the local copy of a tombstoned thread once no turn runs on it; work the deleting PC never saw is parked as a conflict file first. */
+export function applyTombstone(host: ThreadSyncHost, botId: string, botSyncId: string, threadId: string): ThreadSyncResult {
   if (!THREAD_ID.safeParse(threadId).success) return "skipped";
-  if (!host.local(threadId)) return "current";
+  const local = host.local(threadId);
+  if (!local) return "current";
   if (host.running(threadId)) return "running";
+  const dir = threadSyncDir(host.folder, botSyncId);
+  let base: z.infer<typeof tombstoneSchema>;
+  try {
+    base = tombstoneSchema.parse(JSON.parse(readFileSync(tombstonePath(dir, threadId), "utf8")));
+  } catch (error) {
+    warnUnreadable(tombstonePath(dir, threadId), errorCode(error));
+    return "skipped";
+  }
+  const entry = host.ledger[threadId];
+  const baseRevision = base.syncedRevision ?? 0;
+  const unseen = entry !== undefined && (entry.syncedRevision > baseRevision
+    || (entry.syncedRevision === baseRevision && base.syncedWriter !== undefined && entry.syncedWriter !== base.syncedWriter));
+  if (local.messages.length && (unseen || isDirty(host, threadId, local))) {
+    parkConflict(host, dir, threadId, toFile(host, threadId, local, (entry?.syncedRevision ?? 0) + 1));
+  }
   host.remove(botId, threadId);
   delete host.ledger[threadId];
   host.saveLedger();
@@ -325,7 +352,7 @@ export function pullBotThreads(host: ThreadSyncHost, botId: string, botSyncId: s
     const deleted = TOMBSTONE_FILE.exec(name)?.[1];
     const threadId = deleted ?? THREAD_FILE.exec(name)?.[1];
     if (!threadId || results[threadId]) continue;
-    results[threadId] = deleted ? applyTombstone(host, botId, threadId) : pullThread(host, botId, botSyncId, threadId);
+    results[threadId] = deleted ? applyTombstone(host, botId, botSyncId, threadId) : pullThread(host, botId, botSyncId, threadId);
   }
   return results;
 }
@@ -379,7 +406,7 @@ function scanBotThreads(
     if (last && last.mtimeMs === stat.mtimeMs && last.size === stat.size) continue;
     let result: ThreadSyncResult = "skipped";
     try {
-      result = deleted ? applyTombstone(host, botId, threadId) : pullThread(host, botId, botSyncId, threadId);
+      result = deleted ? applyTombstone(host, botId, botSyncId, threadId) : pullThread(host, botId, botSyncId, threadId);
     } catch (error) {
       console.warn("chat sync: pull failed", error);
     }

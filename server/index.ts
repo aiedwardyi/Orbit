@@ -1609,7 +1609,24 @@ function threadSyncTarget(threadId: string): { botId: string; botSyncId: string 
   const bot = store.botByThread(threadId);
   if (!bot || !store.taskByThread(bot.id, threadId) || store.groupByThread(threadId)) return null;
   const botSyncId = chatSyncBotId(profileSyncSettings, bot.id);
-  return botSyncId ? { botId: bot.id, botSyncId } : null;
+  // a routine run is not the user chat; synced, another PC would follow it
+  if (!botSyncId || routineThreadIds().has(threadId)) return null;
+  return { botId: bot.id, botSyncId };
+}
+
+function routineThreadIds(): Set<string> {
+  return new Set(routines?.listRuns().flatMap((run) => (run.threadId ? [run.threadId] : [])));
+}
+
+const pendingSyncFollows = new Set<string>();
+
+/** An import that landed mid-turn is followed once its bot settles. */
+function followPendingSyncImports(): void {
+  for (const botId of pendingSyncFollows) {
+    if (botHasActiveTurn(botId)) continue;
+    pendingSyncFollows.delete(botId);
+    store.followNewestTask(botId, routineThreadIds());
+  }
 }
 
 function threadSyncHost(folder: string): ThreadSyncHost {
@@ -1641,6 +1658,7 @@ function threadSyncHost(folder: string): ThreadSyncHost {
     adopt: (botId, file) => {
       const follow = !botHasActiveTurn(botId, store.bot(botId)?.threadId);
       store.adoptSyncedTask(botId, file.task, file.messages, file.activeLeafId, follow);
+      if (!follow) pendingSyncFollows.add(botId);
     },
     remove: (botId, threadId) => void store.removeSyncedTask(botId, threadId),
     conflicted: (threadId) => {
@@ -3197,6 +3215,7 @@ bus.subscribe((event: RuntimeEvent) => {
   if (event.type !== "turn.completed") return;
   drainQueuedSends();
   paneWake.settled();
+  followPendingSyncImports();
 });
 
 /** Newest pane note a dispatched turn carried, per thread. */
@@ -4379,7 +4398,7 @@ if (recoveryOwners.length > 0) {
   );
 }
 // One chat per bot: open each idle bot on its newest user chat, never a routine run.
-const routineThreads = new Set(routines.listRuns().flatMap((run) => (run.threadId ? [run.threadId] : [])));
+const routineThreads = routineThreadIds();
 for (const bot of store.bots) {
   if (!botHasActiveTurn(bot.id)) store.followNewestTask(bot.id, routineThreads);
 }
@@ -8672,12 +8691,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (botHasActiveTurn(bot.id)) {
         return json(res, 409, { error: "this bot is working — let it finish before starting a task" });
       }
-      const body = await readBody(req);
-      const task = store.createTask(bot.id, typeof body.title === "string" ? body.title : undefined);
-      if (!task) return json(res, 500, { error: "couldn't create that task" });
-      const fresh = botWithThread(store.bot(bot.id)!);
-      broadcast({ kind: "bot", bot: fresh });
-      return json(res, 201, { bot: fresh, task: wireTask(task) });
+      // one chat per bot: native clients and MCP create_task get the chat it already has
+      const task = store.activeTask(bot.id);
+      if (!task) return json(res, 500, { error: "this bot has no chat" });
+      return json(res, 200, { bot: botWithThread(bot), task: wireTask(task) });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/tasks\/([\w-]+)$/);
     if (m && method === "POST") {
