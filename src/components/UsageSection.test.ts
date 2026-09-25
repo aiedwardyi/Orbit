@@ -102,7 +102,7 @@ describe("UsageSection friends plan card", () => {
     try {
       await act(async () => root.render(createElement(I18nProvider, null,
         createElement(UsageSection), createElement(ChatPlanMeters, { windows, onOpenUsage: () => {} }))));
-      const down = [...host.querySelectorAll("button")].find((button) => button.textContent === "Left");
+      const down = [...host.querySelectorAll("button")].find((button) => button.textContent === "Remaining");
       const up = [...host.querySelectorAll("button")].find((button) => button.textContent === "Used");
       expect(down).toBeDefined();
       expect(down?.getAttribute("aria-pressed")).toBe("true");
@@ -119,7 +119,7 @@ describe("UsageSection friends plan card", () => {
       await act(async () => root.unmount());
       root = createRoot(host);
       await act(async () => root.render(createElement(UsageSection)));
-      expect(host.querySelector('[aria-pressed="true"]')?.textContent).toBe("Left");
+      expect(host.querySelector('[aria-pressed="true"]')?.textContent).toBe("Remaining");
     } finally {
       await act(async () => root.unmount());
       await act(async () => setUsageMode("remaining"));

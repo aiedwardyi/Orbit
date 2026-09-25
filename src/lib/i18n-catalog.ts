@@ -974,7 +974,7 @@ export const en = {
   "usage.limits.percentUsed": "{percent}%",
   "usage.limits.direction": "Usage display mode",
   "usage.limits.countUp": "Used",
-  "usage.limits.countDown": "Left",
+  "usage.limits.countDown": "Remaining",
   "usage.limits.used": "{percent}% used",
   "usage.limits.remaining": "{percent}% remaining",
   "usage.limits.refresh": "Refresh",
