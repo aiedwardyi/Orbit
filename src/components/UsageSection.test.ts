@@ -534,20 +534,17 @@ describe("UsageSection friends plan card", () => {
     }
   });
 
-  it("keeps the token readout in the chat strip only", () => {
+  it("never shows a token readout in settings or the chat strip", () => {
     persistPreference("en");
     const settings = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-    const tokenSpan = '<span class="shrink-0 tabular-nums text-[12.5px] text-ink-secondary" title="10 in · 4 out">↑10 ↓4</span>';
-    expect(settings).not.toContain(tokenSpan);
     expect(settings).not.toContain("↑10 ↓4");
-    // the same spend still renders its readout above the composer
     const chat = renderToStaticMarkup(createElement(I18nProvider, null,
       createElement(ChatPlanMeters, {
         windows: [{ id: "five_hour", usedPercent: 10, resetsAt: Date.now() + 3_600_000 }],
-        usage: { input: 10, output: 4, costUsd: 0.01, turns: 2 },
         onOpenUsage: () => {},
       })));
-    expect(chat).toContain(tokenSpan);
+    expect(chat).not.toContain("↑");
+    expect(chat).not.toContain("↓");
   });
 
   it("orders windows session-first like the chat strip without dropping any", () => {

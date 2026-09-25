@@ -1,48 +1,32 @@
 // Compact 5-hour + weekly plan strip above the composer. Hidden when the
 // active engine has no live windows.
 import type { RateLimitWindow } from "../../server/contracts.ts";
-import type { TaskUsage } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
-import { formatTokens, planMeterWindows, usageDetail } from "@/lib/usage";
+import { planMeterWindows } from "@/lib/usage";
 import { PlanWindowMeter, useNow } from "./PlanUsageBar";
-
-// Indexed by cell count so Tailwind sees each template as a literal. The
-// chat strip caps at two windows, so with the spend readout it peaks at
-// three cells; index 4 is unused headroom for wider rows.
-export const GRID_COLS = [
-  "grid-cols-1",
-  "grid-cols-1",
-  "grid-cols-[auto_auto]",
-  "grid-cols-[auto_auto_auto]",
-  "grid-cols-[auto_auto_auto_auto]",
-] as const;
 
 export function ChatPlanMeters({
   windows,
-  usage,
   now,
   onOpenUsage,
 }: {
   windows: RateLimitWindow[] | undefined;
-  usage?: TaskUsage;
   now?: number;
   onOpenUsage: () => void;
 }) {
   // Decide visibility without starting the minute tick; chats without
   // windows never mount a timer for a strip they will not show.
   if (planMeterWindows(windows, now ?? Date.now()).length === 0) return null;
-  return <ChatPlanMetersLive windows={windows} usage={usage} now={now} onOpenUsage={onOpenUsage} />;
+  return <ChatPlanMetersLive windows={windows} now={now} onOpenUsage={onOpenUsage} />;
 }
 
 function ChatPlanMetersLive({
   windows,
-  usage,
   now,
   onOpenUsage,
 }: {
   windows: RateLimitWindow[] | undefined;
-  usage?: TaskUsage;
   now?: number;
   onOpenUsage: () => void;
 }) {
@@ -50,11 +34,6 @@ function ChatPlanMetersLive({
   const tick = useNow();
   const clock = now ?? tick;
   const visible = planMeterWindows(windows, clock);
-  // Driven by what was actually banked, never by which engine it is: acp
-  // only emits usage when the wrapped agent reports it, so any allowlist
-  // would be wrong for the drivers that share it.
-  const spent = usage && usage.input + usage.output > 0 ? usage : undefined;
-  const detail = spent && usageDetail(spent);
   if (visible.length === 0) return null;
   return (
     <button
@@ -63,16 +42,10 @@ function ChatPlanMetersLive({
       className="w-full cursor-pointer px-5 pb-1 text-left"
       aria-label={t("usage.limits.openAria")}
     >
-      {/* Content-sized and centred: two 50% tracks left the pair flush left with all the slack on the right. */}
-      <div className={cn("mx-auto grid w-fit items-center gap-x-6", GRID_COLS[visible.length + (spent ? 1 : 0)])}>
+      <div className={cn("grid w-full items-center gap-x-6", visible.length > 1 ? "grid-cols-2" : "grid-cols-1")}>
         {visible.map((window) => (
           <PlanWindowMeter key={window.id} window={window} now={clock} compact />
         ))}
-        {spent && detail && (
-          <span className="shrink-0 tabular-nums text-[12.5px] text-ink-secondary" title={t(detail.key, detail.vars)}>
-            {`↑${formatTokens(spent.input)} ↓${formatTokens(spent.output)}`}
-          </span>
-        )}
       </div>
     </button>
   );

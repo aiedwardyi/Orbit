@@ -1520,7 +1520,6 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
         />
         <ChatPlanMeters
           windows={engine?.rateLimits?.windows}
-          usage={activeTask?.usage}
           onOpenUsage={() => dispatch({ type: "toggleAppSettings", open: true, section: "usage" })}
         />
         <Composer
