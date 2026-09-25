@@ -79,7 +79,7 @@ export function PhonePingSettings() {
           onKeyDown={(event) => {
             if (event.key === "Enter") event.currentTarget.blur();
           }}
-          className={`min-w-0 flex-1 rounded-lg border bg-inset px-3 py-2 font-mono text-[13px] text-ink focus:outline-none ${
+          className={`min-w-0 flex-1 basis-full sm:basis-0 rounded-lg border bg-inset px-3 py-2 font-mono text-[13px] text-ink focus:outline-none ${
             error ? "border-danger/60" : "border-hairline/40 focus:border-hairline"
           }`}
         />
