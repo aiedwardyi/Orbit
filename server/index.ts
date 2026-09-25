@@ -3742,6 +3742,9 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   markChatLatency({ sendId: latencySendId, threadId, userMessageId: userMessage.id }, "prepare.completed");
   const transcript = prepared.transcript;
   const contextCompacted = prepared.compacted;
+  // `compacted` stays true for every turn after the first summary; only a new
+  // summary should drop the session, or no later turn can ever resume.
+  const compactedThisTurn = Boolean(prepared.compaction);
 
   // A fresh engine has no current session here, even if it owns an older
   // cursor. It gets the same portable replay as a rewound branch.
@@ -3776,7 +3779,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     ? knownCatalogContextWindow(instance.models, model)
     : null;
   const recycled = shouldRecycleProviderSession({
-    compacted: contextCompacted,
+    compacted: compactedThisTurn,
     rewound,
     recovering,
     lastTurnToolRounds,
@@ -3794,7 +3797,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     store.markProviderSessionBound(bot.id, threadId, userMessage.id);
   }
   const recycleReason = recycled
-    ? (contextCompacted ? "compaction" : "session-fat")
+    ? (compactedThisTurn ? "compaction" : "session-fat")
     : undefined;
   const replaysNatively = instance.adapter.capabilities.transcriptReplay === true;
   const replaysTranscript = turnReplaysTranscript({

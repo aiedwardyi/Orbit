@@ -688,6 +688,7 @@ describe("provider-neutral context compaction", () => {
         { role: "user", text: "three" },
       ],
     });
+    if (result.status === "ready") expect(result.compaction).toBeUndefined();
     expect(path).toEqual(before);
   });
 
