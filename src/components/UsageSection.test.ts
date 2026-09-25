@@ -102,8 +102,8 @@ describe("UsageSection friends plan card", () => {
     try {
       await act(async () => root.render(createElement(I18nProvider, null,
         createElement(UsageSection), createElement(ChatPlanMeters, { windows, onOpenUsage: () => {} }))));
-      const down = [...host.querySelectorAll("button")].find((button) => button.textContent === "Count down (remaining)");
-      const up = [...host.querySelectorAll("button")].find((button) => button.textContent === "Count up (used)");
+      const down = [...host.querySelectorAll("button")].find((button) => button.textContent === "Left");
+      const up = [...host.querySelectorAll("button")].find((button) => button.textContent === "Used");
       expect(down).toBeDefined();
       expect(down?.getAttribute("aria-pressed")).toBe("true");
       await act(async () => up?.click());
@@ -119,7 +119,7 @@ describe("UsageSection friends plan card", () => {
       await act(async () => root.unmount());
       root = createRoot(host);
       await act(async () => root.render(createElement(UsageSection)));
-      expect(host.querySelector('[aria-pressed="true"]')?.textContent).toBe("Count down (remaining)");
+      expect(host.querySelector('[aria-pressed="true"]')?.textContent).toBe("Left");
     } finally {
       await act(async () => root.unmount());
       await act(async () => setUsageMode("remaining"));
@@ -156,6 +156,27 @@ describe("UsageSection friends plan card", () => {
     expect(codex).toBeGreaterThan(claude);
     expect(grok).toBeGreaterThan(codex);
     expect(muse).toBeGreaterThan(grok);
+  });
+
+  it("keeps the toggle group and refresh button on one unwrapped row", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      persistPreference("en");
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      const group = host.querySelector('[role="group"]');
+      const refreshAll = [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all");
+      expect(group).not.toBeNull();
+      expect(refreshAll).toBeDefined();
+      const row = group?.parentElement;
+      expect(row?.contains(refreshAll ?? null)).toBe(true);
+      expect(row?.className).not.toContain("flex-wrap");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      persistPreference("en");
+    }
   });
 
   it("shows Meta Muse 5-hour and 7-day windows", () => {

@@ -220,7 +220,7 @@ function PlanUsage() {
 
   return (
     <Card title={t("usage.limits.title")} subtitle={t("usage.limits.subtitle")}>
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <div className="mb-4 flex flex-nowrap items-center gap-2">
         <div className="flex flex-wrap gap-1" role="group" aria-label={t("usage.limits.direction")}>
           {(["used", "remaining"] as const).map((value) => (
             <button key={value} type="button" aria-pressed={mode === value} onClick={() => setUsageMode(value)}
@@ -230,7 +230,7 @@ function PlanUsage() {
           ))}
         </div>
         {refreshable.length > 0 && (
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             {confirmed && !refreshing && (
               <span role="status" className="flex items-center gap-1 text-[12px] text-ink-secondary">
                 <Check size={12} className="text-success" />
