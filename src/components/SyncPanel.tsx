@@ -168,7 +168,7 @@ export function SyncPanel() {
         </div>
 
         <p className="text-[12px] leading-relaxed text-ink-secondary">{t("settings.sync.folderHelp")}</p>
-        {state.syncChats ? null : <p className="text-[12px] leading-relaxed text-ink-secondary">{t("settings.sync.localChats")}</p>}
+        {!status || state.syncChats ? null : <p className="text-[12px] leading-relaxed text-ink-secondary">{t("settings.sync.localChats")}</p>}
 
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
@@ -181,7 +181,7 @@ export function SyncPanel() {
             aria-label={t("settings.sync.chats")}
             disabled={busy !== null || !state.configured}
             onClick={() => void toggleChats()}
-            className={`${cnSwitch(state.syncChats)} disabled:opacity-40`}
+            className={`${cnSwitch(state.syncChats)} disabled:opacity-40${status ? "" : " invisible"}`}
           >
             <span className={cnKnob(state.syncChats)} />
           </button>
