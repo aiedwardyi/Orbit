@@ -34,6 +34,8 @@ export const SECTION_PHRASE_KEYS = {
     "settings.toolCalls.title",
     "settings.toolCalls.help",
     "settings.toolCalls.toggle",
+    "settings.phonePing.title",
+    "settings.phonePing.help",
     "settings.experimental.title",
     "settings.experimental.skill",
     "settings.experimental.browser",

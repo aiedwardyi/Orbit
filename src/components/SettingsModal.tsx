@@ -33,6 +33,7 @@ import { LanguagePicker } from "./LanguagePicker";
 import { useI18n } from "@/lib/i18n";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { phoneSettingsAvailable } from "@/lib/phone-availability";
+import { PhonePingSettings } from "./PhonePingSettings";
 import { RoomTurnTimeoutSettings } from "./RoomTurnTimeoutSettings";
 import { TranscriptionSettings } from "./TranscriptionSettings";
 import { cn } from "@/lib/cn";
@@ -478,6 +479,7 @@ export function SettingsModal({
                   <ProfileFields />
                 </Card>
                 <ToolCallsRow />
+                <PhonePingSettings />
                 <TerminalAppearanceRow />
                 <UpdatesRow />
                 {showSettingsAdvancedSection() && (

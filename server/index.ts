@@ -101,6 +101,17 @@ import { augmentedPath, findCliCandidates, resetPathCache, splitCliString } from
 import { describeSpawnFailure, execCli } from "./procs.ts";
 import { buildNotification, type Notification } from "./notify.ts";
 import {
+  createPingLimiter,
+  loadPhonePingTopic,
+  parsePhonePingTopic,
+  phonePingBodySchema,
+  pingForMailbox,
+  pingForNotification,
+  savePhonePingTopic,
+  sendPhonePing,
+  type PhonePing,
+} from "./phone-ping.ts";
+import {
   isEffortLevel,
   type ModelSelection,
   type ProviderInstance,
@@ -2091,6 +2102,7 @@ function queueTaskPacket(packet: TaskResumePacket): void {
 
 let turnClock = 0;
 const turnDispatchedAt = new Map<string, number>();
+const turnStartedAtMs = new Map<string, number>();
 const turnInterruptedAt = new Map<string, number>();
 const turnEpochByBot = new Map<string, number>();
 const liveTurnIdByThread = new Map<string, string>();
@@ -2156,6 +2168,7 @@ function forgetTurnThread(threadId: string) {
   if (live) interruptedTurnIds.delete(live);
   liveTurnIdByThread.delete(threadId);
   turnDispatchedAt.delete(threadId);
+  turnStartedAtMs.delete(threadId);
   turnInterruptedAt.delete(threadId);
   pendingInterruptThreads.delete(threadId);
   adapterTurnByThread.delete(threadId);
@@ -2205,10 +2218,21 @@ function releaseInterruptedBot(botId: string, threadId: string) {
 
 /** Put a notification on the wire. Clients decide what to do with it — a
  * desktop notification now, a push to a paired phone later. */
-function notify(notification: Notification | null) {
+function notify(notification: Notification | null, turnMs?: number) {
+  if (!notification) return;
   // nested rather than spread — the frame's own `kind` names the frame,
   // exactly like {kind:"message", message} and {kind:"bot", bot}
-  if (notification) broadcast({ kind: "notify", notification });
+  broadcast({ kind: "notify", notification });
+  phonePing(notification.botId, pingForNotification(notification, turnMs));
+}
+
+let phonePingTopic = loadPhonePingTopic(DATA_DIR);
+const phonePingAllowed = createPingLimiter();
+
+function phonePing(botId: string, ping: PhonePing | null) {
+  const parsed = parsePhonePingTopic(phonePingTopic);
+  if (!ping || !parsed.ok || !parsed.target || !phonePingAllowed(botId, ping.title)) return;
+  void sendPhonePing(parsed.target, ping);
 }
 
 // Group threads: the fold needs to know WHO is talking — the turn engine
@@ -2413,6 +2437,7 @@ bus.subscribe((event: RuntimeEvent) => {
       dispatchedThreads.set(botId, threadId);
       liveTurnIdByThread.set(threadId, turnId);
       turnDispatchedAt.set(threadId, tickTurnClock());
+      turnStartedAtMs.set(threadId, Date.now());
       watchdog.watch(threadId, botId);
     },
     disown: (turnId) => disownedTurnIds.add(turnId),
@@ -3013,7 +3038,11 @@ bus.subscribe((event: RuntimeEvent) => {
           const completionDetail = routineRun
             ? reply || routineRun.output || routineRun.routineName
             : reply;
-          notify(buildNotification("done", bot, routineReportThread ?? event.threadId, completionDetail, { avatarUrl: bot.avatarUrl }));
+          const startedAt = turnStartedAtMs.get(event.threadId);
+          notify(
+            buildNotification("done", bot, routineReportThread ?? event.threadId, completionDetail, { avatarUrl: bot.avatarUrl }),
+            startedAt === undefined ? undefined : Date.now() - startedAt,
+          );
         }
         if (screenPollers.has(bot.id)) {
           // the last live frame becomes a settled inline screen message —
@@ -3833,6 +3862,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   store.patchBot(bot.id, { unread: false });
   turnUsage.delete(threadId);
   turnDispatchedAt.set(threadId, tickTurnClock());
+  turnStartedAtMs.set(threadId, Date.now());
 
   void (async () => {
     if (currentTurnEpoch(bot.id) !== epoch) return;
@@ -5878,6 +5908,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const note = mailboxNoteText(scope.pane, source.name || source.id, source.id, parsed.data.text, label);
       if (!note) return json(res, 400, { error: "empty message" });
       const message = store.appendMessage(teacher.threadId, { role: "bot", kind: "note", text: note });
+      if (source.notifications !== false) phonePing(source.id, pingForMailbox(source.name || source.id, parsed.data.text));
       void raisePaneAttention(terminalBridgeAccess, scope.bot, scope.pane);
       paneWake.noteArrived(teacher.id, teacher.threadId);
       return json(res, 200, { ok: true, id: message.id });
@@ -6699,6 +6730,28 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
       syncAllThreads();
       return json(res, 200, profileSyncStatus());
+    }
+
+    // ── phone ping (local to this PC, never synced) ──
+    if (method === "GET" && path === "/api/phone-ping") {
+      return json(res, 200, { topic: phonePingTopic });
+    }
+    if (method === "PUT" && path === "/api/phone-ping") {
+      const body = phonePingBodySchema.safeParse(await readBody(req));
+      if (!body.success) return json(res, 400, { error: "topic must be a string" });
+      const parsed = parsePhonePingTopic(body.data.topic);
+      if (!parsed.ok) return json(res, 400, { error: parsed.error });
+      savePhonePingTopic(DATA_DIR, body.data.topic);
+      phonePingTopic = body.data.topic.trim();
+      return json(res, 200, { topic: phonePingTopic });
+    }
+    if (method === "POST" && path === "/api/phone-ping/test") {
+      const body = phonePingBodySchema.safeParse(await readBody(req));
+      const parsed = parsePhonePingTopic(body.success ? body.data.topic : phonePingTopic);
+      if (!parsed.ok) return json(res, 400, { error: parsed.error });
+      if (!parsed.target) return json(res, 400, { error: "Set a topic first" });
+      const result = await sendPhonePing(parsed.target, { title: "Orbit", message: "Test ping. Your phone is set up." });
+      return result.ok ? json(res, 200, { ok: true }) : json(res, 502, { error: result.error });
     }
 
     // ── bots ──
