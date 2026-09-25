@@ -76,6 +76,15 @@ describe("RemoteTerminalView", () => {
     await act(async () => root.unmount());
   });
 
+  it("keeps pty-width rows unwrapped and scrolls sideways", async () => {
+    store.api.mockResolvedValue({ screenText: "─".repeat(120), screenRuns: [[{ t: "─".repeat(120) }]] });
+    const { host, root } = await renderView();
+    const pre = host.querySelector("pre")!;
+    expect(pre.className.split(" ")).toEqual(expect.arrayContaining(["whitespace-pre", "overflow-auto"]));
+    expect(pre.className).not.toMatch(/pre-wrap|break-words/);
+    await act(async () => root.unmount());
+  });
+
   it("copies the full text to the clipboard", async () => {
     store.api.mockResolvedValue({ screenText: "$ ls", recentText: "done" });
     const writeText = vi.fn(async () => {});

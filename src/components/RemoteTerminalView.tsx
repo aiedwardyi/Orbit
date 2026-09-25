@@ -254,7 +254,7 @@ export function RemoteTerminalView({
             const el = event.currentTarget;
             pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
           }}
-          className="orbit-remote-terminal min-h-0 flex-1 overflow-auto overscroll-contain whitespace-pre-wrap break-words p-4 text-[12px] leading-relaxed select-text"
+          className="orbit-remote-terminal min-h-0 flex-1 overflow-auto overscroll-contain whitespace-pre p-4 text-[12px] leading-relaxed select-text"
         >
           {snapshot?.screenRuns ? (
             <>
