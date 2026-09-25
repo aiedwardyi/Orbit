@@ -9,6 +9,7 @@ const DEFAULTS = new Map<string, EffortLevel>([
   ["codex:gpt-6-sol", "low"],
   ["codex:gpt-5.6-terra", "medium"],
   ["codex:gpt-6-luna", "medium"],
+  ["grokAgent:grok-4.7", "high"],
   ["grokAgent:grok-4.6", "high"],
   ["grokAgent:grok-4.5", "high"],
 ]);
@@ -18,11 +19,12 @@ export function defaultModelEffort(driverKind: string, model: string, levels: re
   return effort && levels.includes(effort) ? effort : undefined;
 }
 
-/** Grok xhigh is model-gated (LIVE-verified CLI 1.0.30): the 4.6 family
- * takes low–xhigh; 4.5 takes low–high and rejects xhigh/max. Anything
- * outside the 4.6 family (custom slugs included) never gets xhigh. */
+/** Grok xhigh is model-gated (LIVE-verified CLI 1.0.41): the 4.6 and 4.7
+ * families take low–xhigh; 4.5 takes low–high and rejects xhigh/max. Anything
+ * else (custom slugs included) never gets xhigh. */
 export function grokModelTakesXhigh(model: string): boolean {
-  return model.toLowerCase().startsWith("grok-4.6");
+  const id = model.toLowerCase();
+  return id.startsWith("grok-4.6") || id.startsWith("grok-4.7");
 }
 
 /** Model-aware effort gate. Instance capability lists are per-engine, but

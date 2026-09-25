@@ -16,7 +16,7 @@ const ENGINES = [
 const MODELS = new Map<string, string[]>(Object.entries({
   claudeAgent: ["claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-sonnet-5"],
   codex: ["gpt-6-astra", "gpt-6-sol", "gpt-5.6-terra", "gpt-6-luna"],
-  grokAgent: ["grok-4.6", "grok-4.5"],
+  grokAgent: ["grok-4.7", "grok-4.6"],
   museAgent: ["muse-spark-1.3", "muse-spark-1.3-contributor"],
 }));
 const RETIRED_ENGINE_KINDS = new Set(["geminiAgent"]);

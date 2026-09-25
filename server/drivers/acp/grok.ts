@@ -15,8 +15,8 @@ import { createAcpDriver, type AcpSupport } from "./core.ts";
 export const STATIC_GROK_MODELS: ModelCatalog = {
   default: "grok-4.6",
   options: [
+    { id: "grok-4.7", label: "Grok 4.7" },
     { id: "grok-4.6", label: "Grok 4.6" },
-    { id: "grok-4.5", label: "Grok 4.5" },
   ],
 };
 
@@ -280,8 +280,8 @@ export const grokSupport: AcpSupport = {
   images: false,
   models: STATIC_GROK_MODELS,
   resolveModels: (env) => mergeLocalInject(readGrokModelCatalog(env), env),
-  // Grok's accepted levels vary by model (LIVE-verified CLI 1.0.30): 4.6
-  // takes low–xhigh, 4.5 takes low–high and rejects xhigh/max. The declared
+  // Grok's accepted levels vary by model (LIVE-verified CLI 1.0.41): 4.6/4.7
+  // take low–xhigh, 4.5 takes low–high and rejects xhigh/max. The declared
   // list is the union; the per-model gate in shared/model-effort.ts
   // (isEffortOffered/offeredEffortLevels) enforces eligibility at every
   // offer and validation site, so 4.5 is never offered xhigh.

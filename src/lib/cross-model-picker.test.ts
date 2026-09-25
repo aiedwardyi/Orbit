@@ -48,13 +48,13 @@ describe("picker catalogs", () => {
   it.each(["ArrowUp", "ArrowDown"])("wraps past the boundary with %s and skips empty rows", (key) => {
     const instances: InstanceInfo[] = ["empty-first", "first", "empty-middle", "last", "empty-last"].map((instanceId) => ({
       instanceId, driverKind: "grokAgent", displayName: instanceId, snapshot: { state: "available" },
-      models: { default: "grok-4.6", options: (instanceId.startsWith("empty") ? [] : ["grok-4.6", "grok-4.5"]).map((id) => ({ id, label: id })) },
+      models: { default: "grok-4.7", options: (instanceId.startsWith("empty") ? [] : ["grok-4.7", "grok-4.6"]).map((id) => ({ id, label: id })) },
     }));
-    const current = { instanceId: key === "ArrowDown" ? "last" : "first", model: key === "ArrowDown" ? "grok-4.5" : "grok-4.6", mode: "pinned" as const };
+    const current = { instanceId: key === "ArrowDown" ? "last" : "first", model: key === "ArrowDown" ? "grok-4.6" : "grok-4.7", mode: "pinned" as const };
     const rows = pickerRows(instances, current);
     expect(movePicker(rows, current, key)).toEqual({
       instanceId: key === "ArrowUp" ? "last" : "first",
-      model: key === "ArrowUp" ? "grok-4.5" : "grok-4.6", mode: "pinned",
+      model: key === "ArrowUp" ? "grok-4.6" : "grok-4.7", mode: "pinned",
     });
   });
 
@@ -187,21 +187,20 @@ describe("picker catalogs", () => {
     ]);
   });
 
-  it("offers xhigh on the 4.6 cell and never on the 4.5 cell", () => {
+  it("lists 4.7 above 4.6 and offers xhigh on both", () => {
     const instance: InstanceInfo = {
       instanceId: "grok", driverKind: "grokAgent", displayName: "Grok", snapshot: { state: "available" },
       models: {
         default: "grok-4.6",
-        options: [{ id: "grok-4.6", label: "Grok 4.6" }, { id: "grok-4.5", label: "Grok 4.5" }],
+        options: [{ id: "grok-4.6", label: "Grok 4.6" }, { id: "grok-4.7", label: "Grok 4.7" }],
       },
       capabilities: { effortLevels: ["low", "medium", "high", "xhigh"] },
     };
     const row = pickerRows([instance], { instanceId: "grok", model: "grok-4.6" })[0]!;
-    const byModel = new Map(row.cells.map((cell) => [cell.options[0]!.id, cell]));
-    expect(pickerEfforts(row, byModel.get("grok-4.6")!).map((option) => option.id))
-      .toEqual(["low", "medium", "high", "xhigh"]);
-    expect(pickerEfforts(row, byModel.get("grok-4.5")!).map((option) => option.id))
-      .toEqual(["low", "medium", "high"]);
+    expect(row.cells.map((cell) => cell.options[0]!.id)).toEqual(["grok-4.7", "grok-4.6"]);
+    for (const cell of row.cells) {
+      expect(pickerEfforts(row, cell).map((option) => option.id)).toEqual(["low", "medium", "high", "xhigh"]);
+    }
   });
 
   it("drops xhigh when switching 4.6 to 4.5 instead of retaining it", () => {

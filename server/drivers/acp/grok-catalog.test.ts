@@ -44,8 +44,8 @@ name = "MiniMax M3 4bit (oMLX)"
     expect(readGrokModelCatalog({ HOME: home })).toEqual({
       default: "ollama-ornith-35b-bf16",
       options: [
+        { id: "grok-4.7", label: "Grok 4.7" },
         { id: "grok-4.6", label: "Grok 4.6" },
-        { id: "grok-4.5", label: "Grok 4.5" },
         { id: "ollama-ornith-35b-bf16", label: "ornith:35b-bf16 (Ollama)", custom: true },
         { id: "omlx-minimax-m3", label: "MiniMax M3 4bit (oMLX)", custom: true },
       ],
@@ -65,7 +65,7 @@ name = "OK"
 `);
     const catalog = readGrokModelCatalog({ HOME: home });
     expect(catalog.default).toBe("grok-4.6");
-    expect(catalog.options.map((o) => o.id)).toEqual(["grok-4.6", "grok-4.5", "ok-model"]);
+    expect(catalog.options.map((o) => o.id)).toEqual(["grok-4.7", "grok-4.6", "ok-model"]);
   });
 
   it("honors GROK_HOME over HOME", () => {
