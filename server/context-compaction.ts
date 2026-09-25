@@ -232,8 +232,9 @@ function summaryMessage(summary: string): ModelContextMessage {
 
 function selectTail(units: ReplayUnit[], budgetTokens: number): TailSelection {
   let used = 0;
+  let kept = 0;
   let start = units.length;
-  while (start > 0 && units.length - start < MAX_TAIL_MESSAGES) {
+  while (start > 0 && kept < MAX_TAIL_MESSAGES) {
     const candidate = units[start - 1]!;
     const tokens = messageTokens(candidate);
     if (used + tokens > budgetTokens) {
@@ -243,6 +244,7 @@ function selectTail(units: ReplayUnit[], budgetTokens: number): TailSelection {
       break;
     }
     used += tokens;
+    if (!candidate.atomic) kept++;
     start--;
   }
   return { old: units.slice(0, start), tail: units.slice(start) };
@@ -371,7 +373,10 @@ export async function prepareModelContext(input: {
     ...units.map(({ role, text }) => ({ role, text })),
   ];
   const currentTokens = estimateContextTokens(currentTranscript);
-  if (currentTokens <= budgetTokens && currentTranscript.length <= MAX_CONTEXT_MESSAGES) {
+  // Tool lines are tiny and still bounded by the token budget; counting them
+  // made busy chats summarize every few turns.
+  const currentMessages = currentTranscript.length - units.filter((unit) => unit.atomic).length;
+  if (currentTokens <= budgetTokens && currentMessages <= MAX_CONTEXT_MESSAGES) {
     return {
       status: "ready",
       transcript: currentTranscript,

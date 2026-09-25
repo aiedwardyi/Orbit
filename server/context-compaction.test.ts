@@ -67,6 +67,27 @@ describe("provider-neutral context compaction", () => {
     expect(result.estimatedTokens).toBeLessThanOrEqual(result.budgetTokens);
   });
 
+  it("does not count tool lines toward the message cap", async () => {
+    const tools = Array.from({ length: 150 }, (_, index): Message => message(`t${index}`, "", {
+      role: "bot",
+      kind: "activity",
+      tool: { name: "Read", ok: true },
+    }));
+    const summarize = vi.fn(async () => "unused");
+    const result = await prepareModelContext({
+      messages: [...longHistory(20), ...tools],
+      contextWindow: 200_000,
+      taskRecordText: "Goal: finish",
+      summarize,
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.compaction).toBeUndefined();
+    expect(result.transcript).toHaveLength(170);
+    expect(summarize).not.toHaveBeenCalled();
+  });
+
   it("folds the previous durable summary into later summaries", async () => {
     const first = await prepareModelContext({
       messages: longHistory(120),
