@@ -193,6 +193,7 @@ import {
   countSessionToolRounds,
   engineIsFresh,
   nativeSessionTokenBudget,
+  resumeSessionUnseeded,
   shouldRecycleProviderSession,
   TASK_RESUME_PROMPT,
   taskRecordBlock,
@@ -1033,6 +1034,7 @@ const wireTask = ({
   lastInstanceId: _lastInstanceId,
   lastModel: _lastModel,
   providerSessionBoundId: _providerSessionBoundId,
+  resumeSeededCompactionId: _resumeSeededCompactionId,
   ...task
 }: TaskRecord) => ({ ...task, taskState: store.taskPacket(task.threadId) ?? undefined });
 
@@ -2106,6 +2108,8 @@ const turnStartedAtMs = new Map<string, number>();
 const turnInterruptedAt = new Map<string, number>();
 const turnEpochByBot = new Map<string, number>();
 const liveTurnIdByThread = new Map<string, string>();
+// Thread → the summary id (null: none) its running 1:1 turn was dispatched with.
+const turnSeedCompactionId = new Map<string, string | null>();
 // Room thread → the instruction id its running turn was dispatched against.
 const roomTurnInstruction = new Map<string, string>();
 const interruptedTurnIds = new Set<string>();
@@ -3011,6 +3015,9 @@ bus.subscribe((event: RuntimeEvent) => {
         }
         const disowned = Boolean(event.turnId && disownedTurnIds.delete(event.turnId));
         if (!superseded && !disowned) {
+          const seeded = turnSeedCompactionId.get(event.threadId);
+          turnSeedCompactionId.delete(event.threadId);
+          if (event.ok && !interrupted && seeded !== undefined) store.markResumeSeeded(bot.id, event.threadId, seeded);
           const packet = taskPacketForWrite(event.threadId);
           if (packet) {
             persistTaskPacket(recordTaskCompletion(packet, {
@@ -3724,9 +3731,10 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     opts?.onDispatchError?.(detail);
     return startedTurn(userMessage, { dispatchFailed: true, error: detail });
   }
+  let latestCompactionId = prepared.compactionId ?? null;
   if (prepared.compaction) {
     try {
-      store.appendCompaction(threadId, prepared.compaction);
+      latestCompactionId = store.appendCompaction(threadId, prepared.compaction).id;
     } catch (error) {
       const detail = `The context summary could not be saved. Earlier messages and the last valid summary remain intact; retry this turn. ${error instanceof Error ? error.message : String(error)}`;
       store.appendMessage(threadId, {
@@ -3778,8 +3786,13 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   const knownWindow = instance.adapter.capabilities.turnInputIsPromptSize
     ? knownCatalogContextWindow(instance.models, model)
     : null;
+  const unseeded = !rewound && !fresh && resumeSessionUnseeded({
+    hasCursor: task.resumeCursors[instanceId] !== undefined,
+    seededCompactionId: task.resumeSeededCompactionId,
+    latestCompactionId,
+  });
   const recycled = shouldRecycleProviderSession({
-    compacted: compactedThisTurn,
+    compacted: compactedThisTurn || unseeded,
     rewound,
     recovering,
     lastTurnToolRounds,
@@ -3797,7 +3810,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     store.markProviderSessionBound(bot.id, threadId, userMessage.id);
   }
   const recycleReason = recycled
-    ? (compactedThisTurn ? "compaction" : "session-fat")
+    ? (compactedThisTurn || (unseeded && latestCompactionId) ? "compaction" : "session-fat")
     : undefined;
   const replaysNatively = instance.adapter.capabilities.transcriptReplay === true;
   const replaysTranscript = turnReplaysTranscript({
@@ -3866,6 +3879,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   turnUsage.delete(threadId);
   turnDispatchedAt.set(threadId, tickTurnClock());
   turnStartedAtMs.set(threadId, Date.now());
+  turnSeedCompactionId.set(threadId, latestCompactionId);
 
   void (async () => {
     if (currentTurnEpoch(bot.id) !== epoch) return;

@@ -51,6 +51,8 @@ export type PreparedModelContext =
       estimatedTokens: number;
       compacted: boolean;
       compaction?: ContextCompactionV1;
+      /** message id of the reused summary; absent when `compaction` is new */
+      compactionId?: string;
     }
   | PreparedModelContextFailure
   | { status: "unsupported"; messageId: string; version: number };
@@ -383,6 +385,7 @@ export async function prepareModelContext(input: {
       budgetTokens,
       estimatedTokens: currentTokens,
       compacted: Boolean(previous),
+      ...(previous ? { compactionId: previous.messageId } : {}),
     };
   }
   const summaryBudget = Math.max(

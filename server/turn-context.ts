@@ -187,6 +187,17 @@ export function shouldRecycleProviderSession(input: {
   return budget > 0 && (input.lastTurnInputTokens ?? 0) > budget;
 }
 
+/** A cursor is resumable only once a turn on it succeeded with the thread's
+ * current summary. A session that failed before its prompt, or predates the
+ * newest summary, would otherwise resume without Orbit's context. */
+export function resumeSessionUnseeded(input: {
+  hasCursor: boolean;
+  seededCompactionId: string | null | undefined;
+  latestCompactionId: string | null;
+}): boolean {
+  return input.hasCursor && input.seededCompactionId !== input.latestCompactionId;
+}
+
 const REWOUND_PREAMBLE =
   "[The user rewound this conversation (edited a message or switched to another version). Everything before this point was replaced by the following history:]";
 const FRESH_PREAMBLE =

@@ -428,6 +428,26 @@ describe("Store", () => {
     expect(reloaded.taskByThread(bot.id, background.threadId)?.resumeCursors).toEqual({ codex: "bg-thread" });
   });
 
+  it("tracks the summary a provider session was seeded with until a new session replaces it", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.setResumeCursor(bot.id, "claude", "session-1", bot.threadId);
+    store.markResumeSeeded(bot.id, bot.threadId, "c1");
+    expect(new Store(selection).taskByThread(bot.id, bot.threadId)?.resumeSeededCompactionId).toBe("c1");
+
+    store.setResumeCursor(bot.id, "claude", "session-1", bot.threadId);
+    expect(store.taskByThread(bot.id, bot.threadId)?.resumeSeededCompactionId).toBe("c1");
+
+    store.setResumeCursor(bot.id, "claude", "session-2", bot.threadId);
+    expect(store.taskByThread(bot.id, bot.threadId)?.resumeSeededCompactionId).toBeUndefined();
+
+    store.markResumeSeeded(bot.id, bot.threadId, null);
+    expect(store.taskByThread(bot.id, bot.threadId)?.resumeSeededCompactionId).toBeNull();
+    store.clearResumeCursors(bot.id, bot.threadId);
+    expect(store.taskByThread(bot.id, bot.threadId)?.resumeSeededCompactionId).toBeUndefined();
+    expect(new Store(selection).taskByThread(bot.id, bot.threadId)?.resumeSeededCompactionId).toBeUndefined();
+  });
+
   it("markProviderSessionBound records the recycle watermark and drops lastInput", () => {
     const store = new Store(selection);
     const bot = store.createBot();

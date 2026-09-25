@@ -253,6 +253,10 @@ export interface TaskRecord {
    * after this id belong to the current native session; older chips do
    * not. Absent on tasks that have never soft-recycled. */
   providerSessionBoundId?: string;
+  /** Latest summary id (null: none) a successful turn on the current
+   * cursor was dispatched with. Absent = the session is not known to hold
+   * Orbit's context, so it must not be resumed. */
+  resumeSeededCompactionId?: string | null;
 }
 
 export interface TaskUsage {
@@ -1385,7 +1389,11 @@ export class Store {
     if (!bot) return;
     // the cursor belongs to the task that produced it, not to the bot
     const task = threadId ? this.taskByThread(botId, threadId) : this.activeTask(botId);
-    if (task) task.resumeCursors[instanceId] = cursor;
+    if (task) {
+      // a new session has not received Orbit's context until a turn on it succeeds
+      if (task.resumeCursors[instanceId] !== cursor) delete task.resumeSeededCompactionId;
+      task.resumeCursors[instanceId] = cursor;
+    }
     // The legacy mirror follows the task visible in chat, never a detached
     // routine task working in the background.
     if (!threadId || bot.threadId === threadId) bot.resumeCursors[instanceId] = cursor;
@@ -1423,7 +1431,10 @@ export class Store {
     const taskEmpty = !task || Object.keys(task.resumeCursors).length === 0;
     const botEmpty = !mirrorsBot || Object.keys(bot.resumeCursors).length === 0;
     if (taskEmpty && botEmpty) return;
-    if (task) task.resumeCursors = {};
+    if (task) {
+      task.resumeCursors = {};
+      delete task.resumeSeededCompactionId;
+    }
     if (mirrorsBot) bot.resumeCursors = {};
     this.saveBots();
     this.emit({ type: "bot", botId });
@@ -1458,6 +1469,13 @@ export class Store {
     if (!touched) return;
     this.saveBots();
     this.emit({ type: "bot", botId });
+  }
+
+  markResumeSeeded(botId: string, threadId: string, compactionId: string | null) {
+    const task = this.taskByThread(botId, threadId);
+    if (!task || task.resumeSeededCompactionId === compactionId) return;
+    task.resumeSeededCompactionId = compactionId;
+    this.saveBots();
   }
 
   /** Record which instance just took a turn on this task. Called at
@@ -1721,6 +1739,7 @@ export class Store {
       record.resumeCursors = {};
       delete record.lastInstanceId;
       delete record.providerSessionBoundId;
+      delete record.resumeSeededCompactionId;
     } else {
       record = { threadId, title: task.title, createdAt: task.createdAt, resumeCursors: {} };
       const tasks = bot.tasks ?? [];

@@ -9,6 +9,7 @@ import {
   nativeSessionTokenBudget,
   PRE_COMPACT_SESSION_TOOL_ROUND_LIMIT,
   PRE_COMPACT_TOOL_ROUND_LIMIT,
+  resumeSessionUnseeded,
   shouldRecycleProviderSession,
   TASK_RESUME_PROMPT,
   taskRecordBlock,
@@ -458,6 +459,57 @@ describe("shouldRecycleProviderSession", () => {
       recovering: true,
       lastTurnToolRounds: PRE_COMPACT_TOOL_ROUND_LIMIT,
     })).toBe(true);
+  });
+});
+
+describe("resumeSessionUnseeded", () => {
+  const summaryTail = [
+    { role: "assistant" as const, text: "Summary: Biscuit is the dog." },
+    { role: "user" as const, text: "and the cat?" },
+  ];
+  const turnFor = (unseeded: boolean, recovering = false) => {
+    const recycled = shouldRecycleProviderSession({ compacted: unseeded, recovering });
+    return buildTurnContext({
+      text: "what are their names?",
+      transcript: summaryTail,
+      rewound: false,
+      fresh: false,
+      recycled,
+      recycleReason: recycled ? "compaction" : undefined,
+      replaysNatively: false,
+      contextCapped: true,
+      recovering,
+    });
+  };
+
+  it("resumes a session a successful turn seeded with the current summary", () => {
+    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: "c1", latestCompactionId: "c1" })).toBe(false);
+    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: null, latestCompactionId: null })).toBe(false);
+    const { turnText, resume } = turnFor(false);
+    expect(resume).toBe(true);
+    expect(turnText).toBe("what are their names?");
+  });
+
+  it("replays summary and tail instead of resuming a session no turn succeeded on", () => {
+    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: undefined, latestCompactionId: "c1" })).toBe(true);
+    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: undefined, latestCompactionId: null })).toBe(true);
+    const { turnText, resume } = turnFor(true);
+    expect(resume).toBe(false);
+    expect(turnText).toContain("Orbit compacted this conversation");
+    expect(turnText).toContain("Biscuit is the dog.");
+    expect(turnText).toContain("User: and the cat?");
+  });
+
+  it("replays after restart when the thread has a newer summary than the session", () => {
+    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: "c1", latestCompactionId: "c2" })).toBe(true);
+    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: null, latestCompactionId: "c1" })).toBe(true);
+    const { turnText, resume } = turnFor(true, true);
+    expect(resume).toBe(false);
+    expect(turnText).toContain("Biscuit is the dog.");
+  });
+
+  it("has nothing to recycle without a cursor", () => {
+    expect(resumeSessionUnseeded({ hasCursor: false, seededCompactionId: undefined, latestCompactionId: "c1" })).toBe(false);
   });
 });
 

@@ -98,6 +98,7 @@ describe("provider-neutral context compaction", () => {
     expect(first.status).toBe("ready");
     if (first.status !== "ready") return;
     expect(first.compaction).toBeDefined();
+    expect(first.compactionId).toBeUndefined();
     if (!first.compaction) return;
 
     const firstRecord = compactionMessage("c1", "m119", first.compaction);
@@ -688,7 +689,10 @@ describe("provider-neutral context compaction", () => {
         { role: "user", text: "three" },
       ],
     });
-    if (result.status === "ready") expect(result.compaction).toBeUndefined();
+    if (result.status === "ready") {
+      expect(result.compaction).toBeUndefined();
+      expect(result.compactionId).toBe("c1");
+    }
     expect(path).toEqual(before);
   });
 
