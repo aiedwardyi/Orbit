@@ -65,14 +65,14 @@ export const TOOLS = [
     name: "terminal_spawn",
     description:
       "Open a labeled pane (a terminal-view tab) in cwd and type command plus Enter if given. Returns sessionId and generation. Max 8 live panes. The shell is PowerShell on Windows. " +
-      "To run a worker: cwd is a git worktree, never the live checkout; label is \"MODEL | EFFORT | NICKNAME\". Wrap the prompt in single quotes, fill every <...> slot, never use \\\" escapes. " +
+      "To run a worker: cwd is a git worktree, never the live checkout; label is \"NICKNAME | MODEL | EFFORT\". Wrap the prompt in single quotes, fill every <...> slot, never use \\\" escapes. " +
       "Claude: claude --model <model-id> --dangerously-skip-permissions 'Read <card path> and do it.' then terminal_send the effort. " +
       `Codex: codex --model <model-id> -c model_reasoning_effort=<effort> -a never -s workspace-write ${REPORT_TEXT.notify}'<prompt>' (a new folder shows a trust prompt first; send Enter). ` +
       REPORT_TEXT.spawn,
     inputSchema: {
       type: "object",
       properties: {
-        label: { type: "string", description: "Short pane label shown on its tab, e.g. \"MODEL | EFFORT | NICKNAME\". Max 40 characters." },
+        label: { type: "string", description: "Short pane label shown on its tab, e.g. \"NICKNAME | MODEL | EFFORT\". Max 40 characters." },
         cwd: { type: "string", description: "Absolute working folder. Omit for the bot's terminal folder." },
         command: { type: "string", description: "Optional first command; Enter is added." },
       },

@@ -27,7 +27,7 @@ describe("terminal proxy", () => {
     expect(TOOLS[2].description).toContain(`-s workspace-write ${workerReportText(process.platform).notify}'<prompt>'`);
     expect(TOOLS[2].description).toContain(workerReportText(process.platform).spawn);
     expect(TOOLS[0].description).toContain(workerReportText(process.platform).read);
-    expect(TOOLS[2].description).toContain("MODEL | EFFORT | NICKNAME");
+    expect(TOOLS[2].description).toContain("NICKNAME | MODEL | EFFORT");
     expect(TOOLS[2].description).toContain("git worktree");
     expect(TOOLS[1].description).toContain("terminal_read until the Claude prompt is visible, then send \"/effort <level>\\n\"");
   });

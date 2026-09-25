@@ -32,7 +32,7 @@ The exact shape of its final message.
 - NICKNAME is short and unique, uppercase with dashes (e.g. `HARNESS-PLAYBOOK`).
 - FRESH: a new worker with no context. CURRENT: reuse a live pane that already
   has the context; send it the card path with terminal_send.
-- The pane label repeats the header order as `MODEL | EFFORT | NICKNAME`.
+- The pane label repeats the header order as `NICKNAME | MODEL | EFFORT`.
 - One card, one branch, one worktree. Keep scope tight; the worker does
   exactly what the card says.
 
