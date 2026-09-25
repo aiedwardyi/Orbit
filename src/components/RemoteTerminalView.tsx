@@ -228,32 +228,13 @@ export function RemoteTerminalView({
 
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-inset text-ink" aria-label={t("terminal.title")}>
-      <header className="flex shrink-0 items-center gap-2 border-b border-hairline bg-panel py-2 pl-11 pr-2 md:pl-5">
+      <header className={`flex shrink-0 items-center gap-2 bg-panel py-2 pl-11 pr-2 md:pl-5 ${panes.length > 1 ? "" : "border-b border-hairline"}`}>
         <TerminalSquare size={16} className="shrink-0 text-accent-text" />
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-[13px] font-medium">{t("terminal.title")} <span className="text-ink-secondary">/ {bot.name}</span></h1>
           <p className="truncate font-mono text-[11px] text-ink-secondary">
             {[snapshot?.cwd, noTerminal ? t("terminal.noSession") : snapshot?.exited ? t("terminal.exited", { code: snapshot.exitCode ?? "?" }) : ""].filter(Boolean).join(" · ")}
           </p>
-          {panes.length > 1 && (
-            <div role="tablist" className="mt-1 flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {panes.map((pane) => (
-                <button
-                  key={pane.sessionId}
-                  type="button"
-                  role="tab"
-                  aria-selected={activePaneId === pane.sessionId}
-                  onClick={() => setSelectedPane(pane.main ? null : pane.sessionId)}
-                  title={paneLabel(pane)}
-                  className={`min-w-[56px] max-w-[160px] shrink-0 truncate rounded-md border px-1.5 py-0.5 font-mono text-[11px] ${
-                    activePaneId === pane.sessionId ? "border-accent-text text-ink" : "border-hairline text-ink-secondary hover:text-ink"
-                  } ${pane.exited ? "opacity-50" : ""}`}
-                >
-                  {paneLabel(pane)}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
         <button type="button" onClick={() => void refreshNow()} disabled={refreshing} aria-label={t("terminal.refresh")} className={buttonClass}>
           <RotateCcw size={16} className={refreshing ? "animate-spin motion-reduce:animate-none" : undefined} /> <span className="max-sm:sr-only">{t("terminal.refresh")}</span>
@@ -265,6 +246,25 @@ export function RemoteTerminalView({
           <X size={18} />
         </button>
       </header>
+      {panes.length > 1 && (
+        <div role="tablist" className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-hairline bg-panel px-3 pb-2 md:px-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {panes.map((pane) => (
+            <button
+              key={pane.sessionId}
+              type="button"
+              role="tab"
+              aria-selected={activePaneId === pane.sessionId}
+              onClick={() => setSelectedPane(pane.main ? null : pane.sessionId)}
+              title={paneLabel(pane)}
+              className={`min-w-[56px] max-w-full shrink-0 truncate rounded-md border px-1.5 py-0.5 font-mono text-[11px] ${
+                activePaneId === pane.sessionId ? "border-accent-text text-ink" : "border-hairline text-ink-secondary hover:text-ink"
+              } ${pane.exited ? "opacity-50" : ""}`}
+            >
+              {paneLabel(pane)}
+            </button>
+          ))}
+        </div>
+      )}
       {error && <p role="alert" className="shrink-0 border-b border-hairline px-4 py-2 text-[12px] text-ink-secondary">{t("terminal.unavailable")}: {error}</p>}
       {noTerminal ? (
         <p className="flex flex-1 items-center justify-center p-6 text-center text-[13px] text-ink-secondary">{t("terminal.noSession")}</p>
