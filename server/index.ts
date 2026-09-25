@@ -5732,6 +5732,7 @@ function configStatus() {
       skillRecorder: skillRecorderEnabled(cfg),
       showToolCalls: showToolCallsEnabled(cfg),
       browser: builtInBrowserEnabled(cfg),
+      terminalHost: Boolean(terminalBridgeAccess),
     },
     browserProfiles: cfg.browserProfiles ?? [],
   };

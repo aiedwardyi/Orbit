@@ -410,6 +410,7 @@ export function SettingsPanel({
   const canUseBrowser = engine?.capabilities?.browserMcp === true;
   const desktopBrowser = Boolean(window.ogb?.browser);
   const desktopTerminal = Boolean(window.ogb?.terminal);
+  const serverHasTerminal = state.config?.features?.terminalHost === true;
   const browserFeature = builtInBrowserEnabled(state.config);
   const browserEnabled = bot.browser !== false;
   const terminalShared = bot.shareTerminalWithChat === true;
@@ -597,7 +598,7 @@ export function SettingsPanel({
               role="switch"
               aria-checked={terminalShared}
               aria-label="Share terminal with chat"
-              disabled={!terminalShared && !desktopTerminal}
+              disabled={!terminalShared && !desktopTerminal && !serverHasTerminal}
               onClick={() => patch({ shareTerminalWithChat: !terminalShared })}
               className={cn(
                 "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40",

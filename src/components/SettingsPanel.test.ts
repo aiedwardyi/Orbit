@@ -8,6 +8,8 @@ const chrome = vi.hoisted(() => ({ botDetailsAdvanced: false }));
 
 const storeMock = vi.hoisted(() => ({ dispatch: vi.fn() }));
 
+const configMock = vi.hoisted(() => ({ terminalHost: false }));
+
 vi.hoisted(() => {
   Object.defineProperty(globalThis, "window", {
     value: { ogb: undefined },
@@ -49,7 +51,7 @@ vi.mock("@/state/store", async (importOriginal) => {
           },
         ],
         bots: [],
-        config: {},
+        config: { features: { terminalHost: configMock.terminalHost } },
         mascotMotion: null,
       },
       dispatch: storeMock.dispatch,
@@ -245,5 +247,40 @@ describe("SettingsPanel lean startup", () => {
     const buttonStart = html.lastIndexOf("<button", labelAt);
     const buttonTag = html.slice(buttonStart, html.indexOf(">", labelAt));
     expect(buttonTag).toContain('aria-checked="false"');
+  });
+});
+
+describe("SettingsPanel share terminal switch", () => {
+  const terminalButtonTag = (html: string) => {
+    const labelAt = html.indexOf('aria-label="Share terminal with chat"');
+    return html.slice(html.lastIndexOf("<button", labelAt), html.indexOf(">", labelAt));
+  };
+
+  afterEach(() => {
+    configMock.terminalHost = false;
+    (globalThis as { window: { ogb?: unknown } }).window.ogb = undefined;
+  });
+
+  it("stays disabled when neither the desktop app nor the server has a terminal bridge", async () => {
+    const { SettingsPanel } = await import("./SettingsPanel");
+    const { I18nProvider } = await import("@/lib/i18n");
+    const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(SettingsPanel, { bot })));
+    expect(terminalButtonTag(html)).toContain('disabled=""');
+  });
+
+  it("enables when the server reports a terminal bridge", async () => {
+    configMock.terminalHost = true;
+    const { SettingsPanel } = await import("./SettingsPanel");
+    const { I18nProvider } = await import("@/lib/i18n");
+    const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(SettingsPanel, { bot })));
+    expect(terminalButtonTag(html)).not.toContain('disabled=""');
+  });
+
+  it("enables when the desktop app has a terminal bridge", async () => {
+    (globalThis as { window: { ogb?: unknown } }).window.ogb = { terminal: {} };
+    const { SettingsPanel } = await import("./SettingsPanel");
+    const { I18nProvider } = await import("@/lib/i18n");
+    const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(SettingsPanel, { bot })));
+    expect(terminalButtonTag(html)).not.toContain('disabled=""');
   });
 });
