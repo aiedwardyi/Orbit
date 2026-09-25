@@ -179,6 +179,20 @@ describe("terminal send relay", () => {
     });
   });
 
+  it("frames a validated multi-line paste and still refuses a raw ESC in it", async () => {
+    const bodies: unknown[] = [];
+    const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return Response.json({ screenText: "$" });
+    }) as typeof fetch;
+    await expect(terminalSendResponse(ACCESS, "bot-1", { ...input, text: "first\nsecond", paste: true }, fetchImpl)).resolves.toMatchObject({ status: 200 });
+    expect(bodies).toEqual([{ sessionId: "s1", generation: 2, text: "\x1b[200~first\nsecond\x1b[201~\n" }]);
+    await expect(terminalSendResponse(ACCESS, "bot-1", { ...input, text: "first\x1b[201~\nsecond", paste: true }, mustNotFetch)).resolves.toEqual({
+      status: 400,
+      body: { error: "control characters are not allowed" },
+    });
+  });
+
   it("posts with the send grant and relays only the snapshot fields", async () => {
     const calls: Array<{ url: string; auth: string | null; method: string | undefined; body: unknown }> = [];
     const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {

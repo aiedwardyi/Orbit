@@ -39,9 +39,9 @@ function sendMayHaveRun(cause: unknown): boolean {
   return /unreachable|terminal bridge: HTTP|^50[24] /i.test(cause.message);
 }
 
-// TUIs submit on a bare newline, so a multi-line draft goes in as one bracketed paste.
-export function terminalSendText(line: string): string {
-  return line.includes("\n") ? `\x1b[200~${line}\x1b[201~\n` : `${line}\n`;
+// TUIs submit on a bare newline, so a multi-line draft goes in as one bracketed paste the server frames.
+export function terminalSendInput(line: string): { text: string; paste?: true } {
+  return line.includes("\n") ? { text: line, paste: true } : { text: `${line}\n` };
 }
 
 export function snapshotText(snapshot: RemoteTerminalSnapshot): string {
@@ -199,7 +199,7 @@ export function RemoteTerminalView({
     try {
       const next: RemoteTerminalSnapshot = await api(`/api/bots/${encodeURIComponent(bot.id)}/terminal/send`, {
         method: "POST",
-        body: JSON.stringify({ sessionId: snapshot.sessionId, generation: snapshot.generation, text: terminalSendText(line) }),
+        body: JSON.stringify({ sessionId: snapshot.sessionId, generation: snapshot.generation, ...terminalSendInput(line) }),
       });
       appliedRequestRef.current = ++requestRef.current;
       pinnedRef.current = true;

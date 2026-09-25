@@ -8,7 +8,7 @@ export const TERMINAL_SEND_MAX_BYTES = 4 * 1024;
 // ESC covers kitty-mode keys like \x1b[99;5u (Ctrl+C); tab and newlines stay allowed.
 const CONTROL_BYTES = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/;
 
-const terminalSendSchema = z.object({ sessionId: z.string().min(1), generation: z.number().int(), text: z.string() });
+const terminalSendSchema = z.object({ sessionId: z.string().min(1), generation: z.number().int(), text: z.string(), paste: z.boolean().optional() });
 
 function snapshotBody(snapshot: Record<string, unknown>): Record<string, unknown> {
   const body: Record<string, unknown> = {};
@@ -59,12 +59,15 @@ export async function terminalSendResponse(
   if (parsed.data.text.includes("\x03")) return { status: 400, body: { error: "Ctrl+C is not allowed" } };
   if (CONTROL_BYTES.test(parsed.data.text)) return { status: 400, body: { error: "control characters are not allowed" } };
   if (!access) return { status: 503, body: { error: "terminal bridge unavailable" } };
+  // Framed only after validation, so a sender can never supply its own ESC.
+  const { paste, ...send } = parsed.data;
+  if (paste) send.text = `\x1b[200~${send.text}\x1b[201~\n`;
   let res: Response;
   try {
     res = await fetchImpl(`${access.url}/v1/bots/${encodeURIComponent(botId)}/terminal/send`, {
       method: "POST",
       headers: { authorization: `Bearer ${terminalSendGrant(access.token, botId)}`, "content-type": "application/json" },
-      body: JSON.stringify(parsed.data),
+      body: JSON.stringify(send),
       signal: AbortSignal.timeout(5_000),
     });
   } catch {

@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Notification } from "./notify.ts";
+import { buildNotification, type Notification } from "./notify.ts";
 import {
   PHONE_PING_FILE,
   PHONE_PING_TIMEOUT_MS,
@@ -194,6 +194,16 @@ describe("sendPhonePing", () => {
     const body = String(fetchImpl.mock.calls[0]![1]?.body);
     expect(body).not.toContain(token);
     expect(JSON.parse(body)).toMatchObject({ title: "leaked «redacted 40 chars»" });
+  });
+
+  it("publishes no part of a config key cut at the summary boundary", async () => {
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response("{}", { status: 200 }));
+    const value = "Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4z";
+    const detail = `${"x".repeat(98)} ${JSON.stringify({ key: value })}`;
+    const bot = { id: "bot-1", name: "Scout", threadId: "thread-1" };
+    await sendPhonePing(target, pingForNotification(buildNotification("approval", bot, "thread-1", detail)!)!, fetchImpl);
+    await sendPhonePing(target, pingForMailbox("Scout", `FAIL ${detail}`)!, fetchImpl);
+    for (const [, init] of fetchImpl.mock.calls) expect(String(init?.body)).not.toMatch(/Ab3dEf6h/);
   });
 
   it("gives up on a hung server at the timeout", async () => {

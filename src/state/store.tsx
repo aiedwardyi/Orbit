@@ -2115,7 +2115,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               }
               // A queued send stays off the transcript until drain; the same
               // sendId is idempotent, so a re-POST returns its receipt.
-              const receipt = error instanceof TypeError ? await post().catch(() => null) : null;
+              const receipt =
+                error instanceof TypeError && !cancelledSendsRef.current.has(sendId) ? await post().catch(() => null) : null;
               if (receipt) return settle(receipt);
               cancelledSendsRef.current.delete(sendId);
               if (typeof threadId === "string") {

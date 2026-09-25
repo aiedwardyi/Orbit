@@ -450,7 +450,7 @@ describe("RemoteTerminalView", () => {
       expect(sends()).toHaveLength(1);
       expect(store.api).toHaveBeenLastCalledWith("/api/bots/bot-1/terminal/send", {
         method: "POST",
-        body: JSON.stringify({ sessionId: "s1", generation: 2, text: "\x1b[200~fix the bug\nthen run tests\x1b[201~\n" }),
+        body: JSON.stringify({ sessionId: "s1", generation: 2, text: "fix the bug\nthen run tests", paste: true }),
       });
       expect(composer(host)!.value).toBe("");
     } finally {

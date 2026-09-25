@@ -63,7 +63,7 @@ export function pingForNotification(notification: Notification, turnMs?: number)
 
 /** Worker FAIL / BLOCKED reports ping; DONE and plain notes do not. */
 export function pingForMailbox(botName: string, text: string): PhonePing | null {
-  const first = text.trimStart().split(/\r?\n/, 1)[0] ?? "";
+  const first = redactSecretsInText(text).trimStart().split(/\r?\n/, 1)[0] ?? "";
   const status = /^(FAIL|BLOCKED) /.exec(first)?.[1];
   if (!status) return null;
   return { title: `${botName}: worker ${status}`, message: summarize(first), tags: ["warning"] };

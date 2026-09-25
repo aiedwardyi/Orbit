@@ -10,6 +10,8 @@
 // listening decides what to do with it — desktop and paired-phone local
 // notifications today, and closed-app APNs delivery once a relay exists.
 
+import { redactSecretsInText } from "./redact.ts";
+
 export type NotifyKind = "approval" | "question" | "done" | "routine-failed" | "takeover";
 
 export interface Notification {
@@ -54,7 +56,8 @@ export function buildNotification(
   // you — that is the choice you made, and the chat still shows the card.
   if (bot.notifications === false) return null;
 
-  const body = summarize(detail);
+  // Redact before the cut: truncation can strip the quote a matcher needs.
+  const body = summarize(redactSecretsInText(detail));
   const title =
     kind === "approval"
       ? `${bot.name} needs approval`

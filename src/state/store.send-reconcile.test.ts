@@ -235,4 +235,28 @@ describe("send while the server holds the thread", () => {
     expect(onError).not.toHaveBeenCalled();
     expect(store.state.error).toBeNull();
   });
+
+  it("does not re-POST a send stopped while its lookup was pending", async () => {
+    let answer!: () => void;
+    let asked = false;
+    const post = vi.fn(async () => {
+      throw new TypeError("Load failed");
+    });
+    await mount(
+      () =>
+        new Promise<Response>((done) => {
+          asked = true;
+          answer = () => done(Response.json({ messages: [], hasMore: false }));
+        }),
+      post,
+      [{ ...bot, busy: false, activity: "idle" }],
+    );
+    const onError = vi.fn();
+    await act(async () => store.dispatch({ type: "send", botId: bot.id, text: "hello", sendId: "s3", threadId: bot.threadId, onError }));
+    await vi.waitFor(() => expect(asked).toBe(true));
+    await act(async () => store.dispatch({ type: "interrupt", botId: bot.id }));
+    await act(async () => answer());
+    await vi.waitFor(() => expect(store.state.acceptedSends[bot.threadId]).toBeUndefined());
+    expect(post).toHaveBeenCalledOnce();
+  });
 });
