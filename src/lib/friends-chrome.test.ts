@@ -95,8 +95,12 @@ describe("friends chrome call sites keep the feature code", () => {
     expect(usage).toContain("Cost");
   });
 
-  it("keeps the bot thread picker on so synced threads stay reachable", () => {
-    expect(showBotNewTaskControl()).toBe(true);
+  it("hides the bot chat picker so every bot has one chat", () => {
+    expect(showBotNewTaskControl()).toBe(false);
+    const taskPicker = readFileSync(join(components, "TaskPicker.tsx"), "utf8");
+    const store = readFileSync(join(here, "../state/store.tsx"), "utf8");
+    expect(taskPicker).not.toContain('type: "newTask"');
+    expect(store).not.toContain('"newTask"');
   });
 
   it("gates the Computer panel and bot new-task control in chat chrome", () => {

@@ -1745,6 +1745,31 @@ export class Store {
     return record;
   }
 
+  /** Show an idle bot's task with the newest message; `skip` threads never win.
+   * An empty task it leaves is dropped, like a followed import. */
+  followNewestTask(botId: string, skip: ReadonlySet<string> = new Set()): boolean {
+    const bot = this.bot(botId);
+    if (!bot?.tasks || bot.tasks.length < 2 || bot.busy) return false;
+    const current = bot.threadId;
+    let newest: { threadId: string; at: number } | null = null;
+    for (const task of bot.tasks) {
+      if (skip.has(task.threadId)) continue;
+      const at = mdb.lastMessageAt(task.threadId);
+      if (at !== null && (!newest || at > newest.at)) newest = { threadId: task.threadId, at };
+    }
+    if (!newest || newest.threadId === current) return false;
+    const task = this.taskByThread(botId, newest.threadId)!;
+    bot.threadId = task.threadId;
+    bot.resumeCursors = { ...task.resumeCursors };
+    if (!skip.has(current) && mdb.lastMessageAt(current) === null) {
+      bot.tasks = bot.tasks.filter((candidate) => candidate.threadId !== current);
+      this.deleteThreadRecord(current);
+    }
+    this.saveBots();
+    this.emit({ type: "bot", botId, switched: true });
+    return true;
+  }
+
   switchTask(botId: string, threadId: string): BotRecord | null {
     const bot = this.bot(botId);
     const task = bot?.tasks?.find((t) => t.threadId === threadId);

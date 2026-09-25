@@ -177,6 +177,12 @@ export function replaceThread(threadId: string, messages: Message[], activeLeafI
   }
 }
 
+/** Newest message time without loading the transcript. */
+export function lastMessageAt(threadId: string): number | null {
+  const row = db().prepare("SELECT MAX(at) AS at FROM messages WHERE thread_id = ?").get(threadId) as { at: number | null } | undefined;
+  return row?.at ?? null;
+}
+
 export function deleteThread(threadId: string): void {
   db().prepare("DELETE FROM messages WHERE thread_id = ?").run(threadId);
   db().prepare("DELETE FROM thread_state WHERE thread_id = ?").run(threadId);

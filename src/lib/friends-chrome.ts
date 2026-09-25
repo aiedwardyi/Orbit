@@ -17,9 +17,9 @@ export function showComputerPanelChrome(): boolean {
   return false;
 }
 
-// Threads synced from another PC land here; without the picker they are unreachable.
+// One chat per bot: the server follows the newest chat, so synced ones stay reachable.
 export function showBotNewTaskControl(): boolean {
-  return true;
+  return false;
 }
 
 export function showChannelNewTaskControl(): boolean {

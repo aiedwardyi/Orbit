@@ -4378,6 +4378,11 @@ if (recoveryOwners.length > 0) {
     ),
   );
 }
+// One chat per bot: open each idle bot on its newest user chat, never a routine run.
+const routineThreads = new Set(routines.listRuns().flatMap((run) => (run.threadId ? [run.threadId] : [])));
+for (const bot of store.bots) {
+  if (!botHasActiveTurn(bot.id)) store.followNewestTask(bot.id, routineThreads);
+}
 routines.start();
 
 // Chat tools can prepare routine changes, but the harness applies them only

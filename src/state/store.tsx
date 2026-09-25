@@ -740,7 +740,6 @@ export type Action =
       /** Local UI recovery hook for voice flows. Never sent to the server. */
       onError?: (message: string) => void;
     }
-  | { type: "newTask"; botId: string }
   | { type: "switchTask"; botId: string; threadId: string }
   | { type: "taskSwitched"; bot: Bot }
   | { type: "renameTask"; botId: string; threadId: string; title: string }
@@ -1635,7 +1634,6 @@ export function reducer(state: AppState, action: Action): AppState {
           [action.threadId]: { updatedAt: action.updatedAt, flushReason: action.flushReason },
         },
       };
-    case "newTask":
     case "switchTask":
     case "deleteTask":
     case "resumeTask":
@@ -2445,11 +2443,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           break;
         // tasks: the server answers with the bot AND the live transcript,
         // because switching changes which conversation is on screen
-        case "newTask":
-          api(`/api/bots/${action.botId}/tasks`, { method: "POST", body: "{}" })
-            .then((r: any) => r?.bot && dispatch({ type: "taskSwitched", bot: r.bot }))
-            .catch(showError);
-          break;
         case "switchTask":
           api(`/api/bots/${action.botId}/tasks/${action.threadId}`, { method: "POST" })
             .then((r: any) => r?.bot && dispatch({ type: "taskSwitched", bot: r.bot }))

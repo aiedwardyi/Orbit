@@ -593,6 +593,52 @@ describe("thread sync follow", () => {
   });
 });
 
+describe("one chat per bot", () => {
+  function setup() {
+    closeMessageDb();
+    rmSync(DATA_DIR, { recursive: true, force: true });
+    mkdirSync(DATA_DIR, { recursive: true });
+    const store = new Store((): ModelSelection => ({ instanceId: "claude", model: "claude-sonnet-5" }));
+    const { id, threadId: older } = store.createBot({}, { seedMessages: false });
+    store.appendMessage(older, { role: "user", kind: "text", text: "older" });
+    const newer = store.createTask(id, "Newer", false)!.threadId;
+    store.appendMessage(newer, msg("n1", "newer", null, { at: Date.now() + 60_000 }));
+    return { store, id, older, newer };
+  }
+
+  afterEach(() => closeMessageDb());
+
+  it("switches an idle bot to its newest chat and keeps both", () => {
+    const { store, id, older, newer } = setup();
+    expect(store.followNewestTask(id)).toBe(true);
+    expect(store.bot(id)?.threadId).toBe(newer);
+    expect(store.tasks(id).map((t) => t.threadId).sort()).toEqual([older, newer].sort());
+    expect(store.messagesFor(older).map((m) => m.text)).toEqual(["older"]);
+  });
+
+  it("leaves a busy bot on its chat", () => {
+    const { store, id, older } = setup();
+    store.setActivity(id, "working", older);
+    expect(store.followNewestTask(id)).toBe(false);
+    expect(store.bot(id)?.threadId).toBe(older);
+  });
+
+  it("never picks a skipped routine thread", () => {
+    const { store, id, older, newer } = setup();
+    expect(store.followNewestTask(id, new Set([newer]))).toBe(false);
+    expect(store.bot(id)?.threadId).toBe(older);
+  });
+
+  it("drops an empty chat it leaves", () => {
+    const { store, id, older, newer } = setup();
+    const empty = store.createTask(id)!.threadId;
+    store.followNewestTask(id);
+    expect(store.bot(id)?.threadId).toBe(newer);
+    expect(store.taskByThread(id, empty)).toBeUndefined();
+    expect(store.tasks(id).map((t) => t.threadId).sort()).toEqual([older, newer].sort());
+  });
+});
+
 describe("thread sync delete", () => {
   function setup() {
     closeMessageDb();

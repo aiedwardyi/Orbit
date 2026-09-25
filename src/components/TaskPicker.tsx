@@ -80,7 +80,7 @@ function ConversationTaskPicker({
   tasks: PickerTask[];
   busy: boolean;
   runningThreadId: string | null;
-  onNew: () => void;
+  onNew?: () => void;
   onSwitch: (threadId: string) => void;
   onRename: (threadId: string, title: string) => void;
   onDelete: (threadId: string) => void;
@@ -174,6 +174,7 @@ function ConversationTaskPicker({
   // a bot that has only ever done one thing doesn't need a switcher yet —
   // just the button that gives it a second context
   if (tasks.length <= 1) {
+    if (!onNew) return null;
     return (
       <button
         type="button"
@@ -362,17 +363,19 @@ function ConversationTaskPicker({
               );
             })}
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              onNew();
-              closeMenu();
-            }}
-            disabled={busy}
-            className="mt-1 flex w-full items-center gap-2 border-t border-hairline/40 px-3 py-2 text-left text-[13px] text-ink hover:bg-raised/50 disabled:opacity-40"
-          >
-            <Plus size={13} className="text-ink-secondary" /> {t("task.new")}
-          </button>
+          {onNew && (
+            <button
+              type="button"
+              onClick={() => {
+                onNew();
+                closeMenu();
+              }}
+              disabled={busy}
+              className="mt-1 flex w-full items-center gap-2 border-t border-hairline/40 px-3 py-2 text-left text-[13px] text-ink hover:bg-raised/50 disabled:opacity-40"
+            >
+              <Plus size={13} className="text-ink-secondary" /> {t("task.new")}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -392,7 +395,6 @@ export function TaskPicker({ bot }: { bot: Bot }) {
         viewedThreadId: bot.threadId,
         liveRoutineThreadId: live?.threadId,
       })}
-      onNew={() => dispatch({ type: "newTask", botId: bot.id })}
       onSwitch={(threadId) => dispatch({ type: "switchTask", botId: bot.id, threadId })}
       onRename={(threadId, title) => dispatch({ type: "renameTask", botId: bot.id, threadId, title })}
       onDelete={(threadId) => dispatch({ type: "deleteTask", botId: bot.id, threadId })}
