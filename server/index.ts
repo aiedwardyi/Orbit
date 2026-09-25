@@ -1573,7 +1573,8 @@ store.onChange((change) => {
     }
     case "bot": {
       const bot = store.bot(change.botId);
-      if (bot) broadcast({ kind: "bot", bot: wireBot(bot) });
+      // clients drop messages for a thread their bot is not on, so a switch carries the new transcript
+      if (bot) broadcast({ kind: "bot", bot: change.switched ? publicBot(bot) : wireBot(bot) });
       break;
     }
     case "bot.deleted":
@@ -1637,7 +1638,8 @@ function threadSyncHost(folder: string): ThreadSyncHost {
       });
     },
     adopt: (botId, file) => {
-      store.adoptSyncedTask(botId, file.task, file.messages, file.activeLeafId);
+      const follow = !botHasActiveTurn(botId, store.bot(botId)?.threadId);
+      store.adoptSyncedTask(botId, file.task, file.messages, file.activeLeafId, follow);
     },
     conflicted: (threadId) => {
       store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: `error: ${CONFLICT_NOTICE}`, ok: false } });

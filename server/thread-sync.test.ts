@@ -525,6 +525,52 @@ describe("thread sync", () => {
   });
 });
 
+describe("thread sync follow", () => {
+  function setup() {
+    closeMessageDb();
+    rmSync(DATA_DIR, { recursive: true, force: true });
+    mkdirSync(DATA_DIR, { recursive: true });
+    const store = new Store((): ModelSelection => ({ instanceId: "claude", model: "claude-sonnet-5" }));
+    const { id, threadId } = store.createBot();
+    store.appendMessage(threadId, { role: "user", kind: "text", text: "local" });
+    const switched: unknown[] = [];
+    store.onChange((change) => {
+      if (change.type === "bot") switched.push(change.switched);
+    });
+    const adopt = (at: number, follow = true) =>
+      store.adoptSyncedTask(id, { threadId: "remote", title: "From home", createdAt: 1 }, [msg("r1", "remote", null, { at })], "r1", follow);
+    return { store, id, local: threadId, switched, adopt };
+  }
+
+  afterEach(() => closeMessageDb());
+
+  it("follows a newer imported thread while idle", () => {
+    const { store, id, switched, adopt } = setup();
+    adopt(Date.now() + 60_000);
+    expect(store.bot(id)?.threadId).toBe("remote");
+    expect(store.bot(id)?.resumeCursors).toEqual({});
+    expect(switched).toEqual([true]);
+  });
+
+  it("stays on the local thread when the import is older", () => {
+    const { store, id, local, switched, adopt } = setup();
+    adopt(1);
+    expect(store.bot(id)?.threadId).toBe(local);
+    expect(store.taskByThread(id, "remote")).toBeDefined();
+    expect(switched).toEqual([undefined]);
+  });
+
+  it("never switches while the bot is busy or a turn is starting", () => {
+    const { store, id, local, adopt } = setup();
+    store.setActivity(id, "working", local);
+    adopt(Date.now() + 60_000);
+    expect(store.bot(id)?.threadId).toBe(local);
+    store.setActivity(id, "idle");
+    adopt(Date.now() + 60_000, false);
+    expect(store.bot(id)?.threadId).toBe(local);
+  });
+});
+
 describe("thread sync poll", () => {
   function poll() {
     vi.useFakeTimers();

@@ -388,7 +388,7 @@ export type StoreChange =
   | { type: "thread"; threadId: string; activeLeafId: string }
   | { type: "thread.deleted"; threadId: string }
   | { type: "task.packet"; threadId: string }
-  | { type: "bot"; botId: string }
+  | { type: "bot"; botId: string; switched?: true }
   | { type: "bot.deleted"; botId: string }
   | { type: "bots.order"; botIds: string[] }
   | { type: "groups.order"; groupIds: string[] }
@@ -1692,16 +1692,21 @@ export class Store {
   }
 
   /** Take a task's transcript from another device. Provider sessions are
-   * per device, so the next turn replays the transcript instead. */
+   * per device, so the next turn replays the transcript instead. `follow`
+   * makes it the active task when it is newer; the caller vouches no turn is starting. */
   adoptSyncedTask(
     botId: string,
     task: Pick<TaskRecord, "threadId" | "title" | "createdAt">,
     messages: Message[],
     activeLeafId: string | null,
+    follow = false,
   ): TaskRecord | null {
     const bot = this.bot(botId);
     if (!bot) return null;
     const { threadId } = task;
+    const newest = (list: Message[], floor: number) => list.reduce((max, m) => Math.max(max, m.at), floor);
+    const followed = follow && !bot.busy && bot.threadId !== threadId
+      && newest(messages, -Infinity) > newest(this.messagesFor(bot.threadId), this.activeTask(botId)?.createdAt ?? 0);
     const t = this.thread(threadId);
     const before = new Map(t.messages.map((m) => [m.id, JSON.stringify(m)]));
     mdb.replaceThread(threadId, messages, activeLeafId);
@@ -1720,6 +1725,7 @@ export class Store {
       tasks.splice(at < 0 ? tasks.length : at, 0, record);
       bot.tasks = tasks;
     }
+    if (followed) bot.threadId = threadId;
     if (bot.threadId === threadId) bot.resumeCursors = {};
     this.saveBots();
     for (const message of messages) {
@@ -1728,7 +1734,7 @@ export class Store {
       else if (prior !== JSON.stringify(message)) this.emit({ type: "message.patch", threadId, message });
     }
     if (t.activeLeafId) this.emit({ type: "thread", threadId, activeLeafId: t.activeLeafId });
-    this.emit({ type: "bot", botId });
+    this.emit(followed ? { type: "bot", botId, switched: true } : { type: "bot", botId });
     return record;
   }
 
