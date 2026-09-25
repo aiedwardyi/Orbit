@@ -1062,11 +1062,12 @@ export function Composer({
               onEditLast();
               return;
             }
-            // Shift+Enter inserts a newline; plain Enter sends
+            // Shift+Enter inserts a newline; plain Enter sends, except on touch
             if (
               composerEnterIntent(e, {
                 composing: composingRef.current,
                 justEnded: Date.now() - compositionEndedAtRef.current < 50,
+                touch: window.matchMedia?.("(pointer: coarse)").matches,
               }) === "send"
             ) {
               e.preventDefault();

@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { withAcceptedMessages } from "@/lib/send-accept";
 import { StoreProvider, useStore, type Bot, type Group, type Message } from "./store";
 
 class FakeEventSource {
@@ -53,14 +54,15 @@ afterEach(async () => {
 
 async function mount(
   threadPage: (threadId: string, init?: RequestInit) => Response | Promise<Response>,
-  post: () => Promise<Response> = async () => {
+  post: (init?: RequestInit) => Promise<Response> = async () => {
     throw new TypeError("Load failed");
   },
+  bots: Bot[] = [bot],
 ) {
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     const path = String(url);
-    if (path === "/api/bots") return Response.json({ bots: [bot], groups: [group], computerControl: {} });
-    if (init?.method === "POST" && path.endsWith("/messages")) return post();
+    if (path === "/api/bots") return Response.json({ bots, groups: [group], computerControl: {} });
+    if (init?.method === "POST" && path.endsWith("/messages")) return post(init);
     const page = path.match(/^\/api\/threads\/([\w-]+)\/messages\?/);
     if (page) return threadPage(page[1]!, init);
     return Response.json({ error: "not in this test" }, { status: 404 });
@@ -197,5 +199,40 @@ describe("send reject after the server accepted", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("send while the server holds the thread", () => {
+  const text = 'look\n\n<attached-image path="/a/1.png" />';
+  const queued = () => Response.json({ ok: true, queued: true, queueId: "q1", threadId: bot.threadId }, { status: 202 });
+
+  it("paints one bubble when a bot that looked idle queues the send", async () => {
+    await mount(() => Response.json({ messages: [], hasMore: false }), async () => queued(), [
+      { ...bot, busy: false, activity: "idle" },
+    ]);
+    await act(async () => store.dispatch({ type: "send", botId: bot.id, text, sendId: "s1", threadId: bot.threadId }));
+    await vi.waitFor(() => expect(store.state.pendingQueued[bot.threadId]).toHaveLength(1));
+    const painted = withAcceptedMessages([], store.state.acceptedSends[bot.threadId], store.state.pendingQueued[bot.threadId]);
+    expect(painted.map((message) => message.text)).toEqual([text]);
+  });
+
+  it("keeps a queued send when the phone drops the POST response", async () => {
+    const bodies: unknown[] = [];
+    await mount(
+      () => Response.json({ messages: [], hasMore: false }),
+      async (init) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        if (bodies.length === 1) throw new TypeError("Load failed");
+        return queued();
+      },
+    );
+    const onError = vi.fn();
+    await act(async () =>
+      store.dispatch({ type: "send", botId: bot.id, text: "it sent twice", sendId: "s2", threadId: bot.threadId, onError }),
+    );
+    await vi.waitFor(() => expect(store.state.pendingQueued[bot.threadId]).toEqual([expect.objectContaining({ queueId: "q1" })]));
+    expect(bodies).toEqual([expect.objectContaining({ sendId: "s2" }), expect.objectContaining({ sendId: "s2" })]);
+    expect(onError).not.toHaveBeenCalled();
+    expect(store.state.error).toBeNull();
   });
 });

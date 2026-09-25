@@ -720,7 +720,7 @@ export type Action =
   | { type: "pendingQueued"; threadId: string; queueId: string; text: string; at?: number }
   | { type: "consumePendingQueued"; threadId: string; queueId: string }
   | { type: "cancelQueued"; botId: string; queueId: string }
-  | { type: "sendSettled"; threadId: string; sendId: string }
+  | { type: "sendSettled"; threadId: string; sendId: string; queued?: boolean }
   | { type: "sendRejected"; threadId: string; sendId: string; botId?: string }
   | { type: "editMessage"; botId: string; messageId: string; text: string }
   | { type: "switchBranch"; botId: string; messageId: string }
@@ -1576,7 +1576,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case "sendSettled":
       return {
         ...state,
-        acceptedSends: settleAcceptedSend(state.acceptedSends, action.threadId, action.sendId),
+        acceptedSends: settleAcceptedSend(state.acceptedSends, action.threadId, action.sendId, action.queued),
       };
     case "sendRejected": {
       const rejected = (state.acceptedSends[action.threadId] ?? []).find(
@@ -2045,71 +2045,79 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             action.threadId ?? stateRef.current.bots.find((bot) => bot.id === action.botId)?.threadId;
           const sendId = action.sendId;
           if (!sendId) break;
-          void api(`/api/bots/${action.botId}/messages`, {
-            method: "POST",
-            body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId }),
-          })
-            .then((body) => {
-              if (receiptRejectsAcceptedSend(body)) {
-                cancelledSendsRef.current.delete(sendId);
-                if (typeof threadId === "string") {
-                  rawDispatch({ type: "sendRejected", botId: action.botId, threadId, sendId });
-                }
-                if (body?.message && typeof body.threadId === "string") {
-                  rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
-                }
-                return;
+          const post = () =>
+            api(`/api/bots/${action.botId}/messages`, {
+              method: "POST",
+              body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId }),
+            });
+          const settle = (body: any) => {
+            if (receiptRejectsAcceptedSend(body)) {
+              cancelledSendsRef.current.delete(sendId);
+              if (typeof threadId === "string") {
+                rawDispatch({ type: "sendRejected", botId: action.botId, threadId, sendId });
               }
-              if (cancelledSendsRef.current.has(sendId)) {
-                cancelledSendsRef.current.delete(sendId);
-                if (typeof threadId === "string") {
-                  rawDispatch({ type: "sendRejected", botId: action.botId, threadId, sendId });
-                }
-                if (body?.queued && typeof body.queueId === "string") {
-                  void api(`/api/bots/${action.botId}/queue/${body.queueId}`, { method: "DELETE" }).catch(
-                    () => {},
-                  );
-                  return;
-                }
-                if (body?.message && typeof body.threadId === "string") {
-                  rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
-                }
-                return;
-              }
-              const settledThread =
-                typeof body?.threadId === "string" ? body.threadId : threadId;
               if (body?.message && typeof body.threadId === "string") {
                 rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
               }
-              if (
-                body?.queued &&
-                typeof body.threadId === "string" &&
-                typeof body.queueId === "string"
-              ) {
-                const accepted = stateRef.current.acceptedSends[threadId ?? body.threadId]?.find(
-                  (entry) => entry.sendId === sendId,
-                );
-                rawDispatch({
-                  type: "pendingQueued",
-                  threadId: body.threadId,
-                  queueId: body.queueId,
-                  text: action.text,
-                  at: accepted?.at ?? Date.now(),
-                });
-              }
-              if (typeof settledThread === "string") {
-                rawDispatch({ type: "sendSettled", threadId: settledThread, sendId });
-              }
-            })
-            .catch(async (error) => {
+              return;
+            }
+            if (cancelledSendsRef.current.has(sendId)) {
               cancelledSendsRef.current.delete(sendId);
+              if (typeof threadId === "string") {
+                rawDispatch({ type: "sendRejected", botId: action.botId, threadId, sendId });
+              }
+              if (body?.queued && typeof body.queueId === "string") {
+                void api(`/api/bots/${action.botId}/queue/${body.queueId}`, { method: "DELETE" }).catch(
+                  () => {},
+                );
+                return;
+              }
+              if (body?.message && typeof body.threadId === "string") {
+                rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
+              }
+              return;
+            }
+            const settledThread =
+              typeof body?.threadId === "string" ? body.threadId : threadId;
+            if (body?.message && typeof body.threadId === "string") {
+              rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
+            }
+            if (
+              body?.queued &&
+              typeof body.threadId === "string" &&
+              typeof body.queueId === "string"
+            ) {
+              const accepted = stateRef.current.acceptedSends[threadId ?? body.threadId]?.find(
+                (entry) => entry.sendId === sendId,
+              );
+              rawDispatch({
+                type: "pendingQueued",
+                threadId: body.threadId,
+                queueId: body.queueId,
+                text: action.text,
+                at: accepted?.at ?? Date.now(),
+              });
+            }
+            if (typeof settledThread === "string") {
+              rawDispatch({ type: "sendSettled", threadId: settledThread, sendId, queued: body?.queued === true });
+            }
+          };
+          void post()
+            .then(settle)
+            .catch(async (error) => {
               const accepted =
                 typeof threadId === "string" ? await acceptedSend(stateRef.current, threadId, sendId, action.text) : null;
               if (accepted && typeof threadId === "string") {
+                cancelledSendsRef.current.delete(sendId);
                 rawDispatch({ type: "messageAdded", threadId, message: accepted });
                 rawDispatch({ type: "sendSettled", threadId, sendId });
                 return;
               }
+              // A queued send stays off the transcript until drain; the same
+              // sendId is idempotent, so a re-POST returns its receipt.
+              const receipt = error instanceof TypeError ? await post().catch(() => null) : null;
+              if (receipt) return settle(receipt);
+              cancelledSendsRef.current.delete(sendId);
               if (typeof threadId === "string") {
                 rawDispatch({ type: "sendRejected", botId: action.botId, threadId, sendId });
               }

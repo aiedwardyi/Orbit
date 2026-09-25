@@ -63,6 +63,12 @@ describe("composerEnterIntent", () => {
     expect(composerEnterIntent(enter({ isComposing: true }), idle)).toBe("none");
   });
 
+  it("inserts a newline on a touch keyboard's Enter, composing or not", () => {
+    const touch = { ...idle, touch: true };
+    expect(composerEnterIntent(enter({ keyCode: 13 }), touch)).toBe("newline");
+    expect(composerEnterIntent(enter({ keyCode: 13, isComposing: true }), touch)).toBe("newline");
+  });
+
   it("sends NumpadEnter the same as Enter", () => {
     expect(composerEnterIntent(enter({ code: "NumpadEnter", keyCode: 13 }), idle)).toBe("send");
     expect(composerEnterIntent(enter({ key: "Unidentified", code: "NumpadEnter", keyCode: 13 }), idle)).toBe("send");
