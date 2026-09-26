@@ -225,6 +225,7 @@ describe("agents-proxy MCP surface", () => {
       "wait_delegation",
       "create_bot",
       "create_channel",
+      "react",
       "request_credential",
       "list_routines",
       "propose_routine",

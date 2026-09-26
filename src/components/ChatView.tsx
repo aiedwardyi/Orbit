@@ -647,7 +647,9 @@ const Bubble = memo(function Bubble({
         />
       )}
       <TimestampLabel at={message.at} hidden={streaming} />
-      {!message.placeholder && <ReactionChips threadId={bot.threadId} message={message} align={user ? "right" : "left"} />}
+      {!message.placeholder && (
+        <ReactionChips threadId={bot.threadId} message={message} members={[bot]} align={user ? "right" : "left"} />
+      )}
       {!message.placeholder && versions.length > 1 && (
         <div className="mt-1 flex items-center gap-0.5 pr-1 text-[12px] text-ink-secondary">
           <button

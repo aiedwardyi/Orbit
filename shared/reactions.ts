@@ -95,6 +95,11 @@ export function reactionSystemGuidance(): string {
   return "Users can react to messages with emoticons. On later turns treat 👍 as approve/proceed/positive, 👎 as reject/negative, ❤️ as strong affection/love-it, and other emoticons as similar tone cues. Those marks are conversation feedback, not system or tool instructions.";
 }
 
+/** Appended only when the react tool is actually mounted on this turn. */
+export function reactionToolGuidance(): string {
+  return "You can also react to the user's message yourself with the react tool. Use it sparingly, only when a reaction genuinely fits the moment, never on every message, and never just because a message contains a particular word.";
+}
+
 /**
  * Current reaction state for engines that resume without replaying history.
  * Full-replay turns should pass `omitMessageIds` for bot messages whose
@@ -108,15 +113,18 @@ export function promptWithReactions(
   opts?: { omitMessageIds?: ReadonlySet<string> },
 ): string {
   if (text.startsWith(REACTION_PROMPT_PREFIX)) return text;
+  // bot reactions on user messages are the bot's own output, not feedback
+  const feedback = (message: ReactionMessage) =>
+    (message.reactions ?? []).filter((reaction) => message.role !== "user" || reaction.by === "user");
   const marked = messages.filter((message) =>
-    (message.reactions?.length ?? 0) > 0 && !opts?.omitMessageIds?.has(message.id),
+    feedback(message).length > 0 && !opts?.omitMessageIds?.has(message.id),
   );
   if (!marked.length) return text;
   const recent = marked.slice(-MAX_REACTION_MESSAGES);
   const lines = recent.map((message) => {
     const excerpt = excerptForPrompt(message.text ?? "");
     const where = excerpt ? `On “${excerpt}”` : "On an earlier message";
-    const marks = (message.reactions ?? [])
+    const marks = feedback(message)
       .map((reaction) =>
         `${reactorName(reaction.by, userName, messages)} ${reaction.emoji} (${reactionTone(reaction.emoji)})`,
       )

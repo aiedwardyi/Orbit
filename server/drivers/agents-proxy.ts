@@ -14,6 +14,7 @@
 //                                          their own section
 //   create_channel(name, member_ids, …)  → open a shared room with existing
 //                                          bots (self is added automatically)
+//   react(emoji)                          → react to the user's latest message
 //   request_credential(id, reason?)       → show a secure, allowlisted key card
 //   list_routines()                       → inspect this bot's scheduled work
 //   propose_routine(...)                  → show a confirmation card for a new routine
@@ -30,6 +31,7 @@
 import readline from "node:readline";
 
 import { CREDENTIAL_TARGETS, isCredentialTargetId } from "../../shared/credential-request.ts";
+import { EXTENDED_REACTIONS } from "../../shared/reactions.ts";
 
 const HARNESS = process.env.OMB_HARNESS_URL ?? "http://127.0.0.1:8799";
 const BOT_ID = process.env.OMB_BOT_ID ?? "";
@@ -338,6 +340,19 @@ const TOOLS = [
     },
   },
   {
+    name: "react",
+    description:
+      "Leave an emoji reaction on the user's message, the way they can already react to yours. Reacts to the latest user message. Use it sparingly, only when a reaction genuinely fits the moment, never on every message, and never just because a message contains a particular word.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        emoji: { type: "string", enum: [...EXTENDED_REACTIONS], description: "One emoji from Orbit's reaction set." },
+      },
+      required: ["emoji"],
+    },
+  },
+  {
     name: "request_credential",
     description:
       "Ask the user for a supported API key through Orbit's secure credential card. Use this instead of asking them to paste a secret into chat. The secret is saved by the desktop app and is never returned to you. After calling this tool, end the turn; Orbit resumes the task after the user saves or declines.",
@@ -634,6 +649,16 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
     return {
       text: `Created channel “${r.name ?? channelName}” [id: ${r.id}]. Members: ${members}. Tell the user to open this channel for the shared room. Use ask_bot if you need a peer's reply this turn — do not leave them only in a new bot's 1:1.`,
     };
+  }
+  if (name === "react") {
+    const emoji = String(args.emoji ?? "").trim();
+    if (!emoji) return { text: "react needs an emoji.", isError: true };
+    const r = await api("/api/internal/react", {
+      method: "POST",
+      body: JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID, emoji }),
+    });
+    if (r.error) return { text: `Couldn't react: ${r.error}`, isError: true };
+    return { text: `Reacted ${emoji} to the user's message.` };
   }
   if (name === "request_credential") {
     const credentialId = args.credential_id;

@@ -125,7 +125,7 @@ import { claimAsk, clearAskBudget, MAX_ASKS_PER_TURN } from "./comms-budget.ts";
 import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorOutcomeToRoom, mirrorReply, type CommsBus } from "./comms-visibility.ts";
 import { searchMessages, searchSnippet } from "./message-db.ts";
 import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript } from "./replies.ts";
-import { reactionSystemGuidance } from "../shared/reactions.ts";
+import { EXTENDED_REACTIONS, reactionSystemGuidance, reactionToolGuidance } from "../shared/reactions.ts";
 import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, findDelegationReceipt, pendingDelegationInfo, pendingDelegationSnapshot, queueDelegation, recordDelegationReceipt, threadsWaitingOn, type QueueResult } from "./delegations.ts";
 import {
   cancelQueuedRoomParticipations,
@@ -4234,6 +4234,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       const taskStatePrompt = integrations.agents
         ? " Keep the durable task record current with update_task_state after meaningful plan changes, completed milestones, new blockers, or created files. Record only verified progress, use it before long operations, and do not call it after every tool."
         : "";
+      const reactPrompt = integrations.agents ? ` ${reactionToolGuidance()}` : "";
 
       // (activeVpsThreads was already claimed above, before the provision or
       // reuse await, so the backend guards saw this turn the whole time.)
@@ -4308,6 +4309,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           credentialPrompt +
           routinePrompt +
           taskStatePrompt +
+          reactPrompt +
           CORPUS_SEARCH_INSTRUCTIONS +
           sectionContextSystemPrompt(bot.section) +
           (privateWorkspace ? memorySystemPrompt(bot.id) + skillsSystemPrompt(bot.id) : "") +
@@ -5082,6 +5084,7 @@ async function runClaimedGroupMemberTurn(
       "If the user explicitly asks to list or review, schedule, run, or change routines, use list_routines and propose_routine or propose_routine_action. A proposal is not applied until the user confirms its in-app card, so never claim the action completed before that confirmation.",
     integrations.agents &&
       "Keep the durable task record current with update_task_state after meaningful plan changes, completed milestones, new blockers, or created files. Record only verified progress, use it before long operations, and do not call it after every tool.",
+    integrations.agents && reactionToolGuidance(),
   ]
     .filter(Boolean)
     .join("\n");
@@ -6251,6 +6254,28 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         });
         mirrorReply(commsBus, currentTarget, reply, channel);
         return json(res, 200, { botName: currentTarget.name, text: reply });
+      }
+      // The react tool: a bot leaving an emoji on the user's message, the
+      // way the user already can on the bot's. Always targets the latest
+      // user message on the active branch, the one this turn is replying to.
+      if (method === "POST" && path === "/api/internal/react") {
+        const body = await readBody(req);
+        const fromBotId = String(body.fromBotId ?? "");
+        const fromThreadId = String(body.fromThreadId ?? "");
+        const emoji = String(body.emoji ?? "").trim();
+        if (!(EXTENDED_REACTIONS as readonly string[]).includes(emoji)) {
+          return json(res, 400, { error: "unsupported emoji" });
+        }
+        const from = store.bot(fromBotId);
+        if (!from) return json(res, 403, { error: "unknown sender" });
+        if (!connectorThread(from.id, fromThreadId)) {
+          return json(res, 403, { error: "source thread does not belong to sender" });
+        }
+        const target = store.activePath(fromThreadId).findLast((m) => m.role === "user" && m.kind === "text");
+        if (!target) return json(res, 200, { error: "no user message to react to yet" });
+        const patched = store.toggleReaction(fromThreadId, target.id, emoji, fromBotId);
+        if (!patched) return json(res, 404, { error: "message not found" });
+        return json(res, 200, { ok: true });
       }
       // Async handoff: the source bot queues a task for a peer and goes
       // back to the user; the peer turn runs after the source's
