@@ -495,6 +495,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
           menuButtonRef.current?.focus();
         }}
         onTerminalAttention={openTerminalAttention}
+        rigidView={Boolean(browserWorkspaceBotId || localVmWorkspaceBotId || (bot && terminalViews[bot.id] !== undefined))}
       />
       {state.activeView === "team-map" ? (
         <Suspense fallback={<BootFallback />}>

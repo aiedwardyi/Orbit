@@ -439,9 +439,16 @@ describe("Sidebar layout controls", () => {
     const animate = vi.spyOn(HTMLElement.prototype, "animate").mockImplementation(() => new Animation());
     const host = document.body.appendChild(document.createElement("div"));
     const root = createRoot(host);
+    const motion = { duration: 300, easing: "cubic-bezier(0.32, 0.72, 0, 1)" };
+    const calls = () => animate.mock.calls.map(([keyframes, options], i) => ({ el: animate.mock.contexts[i], keyframes, options }));
     try {
       await act(async () =>
-        root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+        root.render(createElement(
+          StoreProvider,
+          null,
+          createElement(Sidebar, { open: false, onClose: () => {} }),
+          createElement("main"),
+        )),
       );
       await act(async () => FakeEventSource.current!.onmessage?.({
         data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
@@ -449,21 +456,124 @@ describe("Sidebar layout controls", () => {
       }));
 
       const toggle = () => host.querySelector('button[aria-label="Collapse sidebar to avatars"], button[aria-label="Expand sidebar"]');
+      const view = host.querySelector("main")!;
       expect(toggle()).not.toBeNull();
       await act(async () => toggle()!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
       expect(window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY)).toBe("1");
       const aside = host.querySelector("aside")!;
       expect(aside.getAttribute("style")).toContain("width: 64px");
       expect(aside.className).not.toContain("transition-[width]");
-      expect(animate.mock.contexts.at(-1)).not.toBe(aside);
-      expect(animate.mock.calls.at(-1)?.[0]).toEqual([{ transform: "scaleX(1)" }, { transform: "scaleX(0)" }]);
+      expect(calls().map(({ el }) => el)).not.toContain(aside);
+      expect(calls()).toEqual([
+        { el: expect.anything(), keyframes: [{ transform: "scaleX(1)" }, { transform: "scaleX(0)" }], options: { ...motion, fill: "forwards" } },
+        { el: view, keyframes: [{ marginLeft: "296px" }, { marginLeft: "0px" }], options: motion },
+      ]);
 
+      animate.mockClear();
       await act(async () => toggle()!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
       expect(window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY)).toBe("0");
       expect(window.localStorage.getItem(SIDEBAR_WIDTH_KEY)).toBe("360");
       expect(aside.getAttribute("style")).toContain("width: 360px");
-      expect(animate.mock.contexts.at(-1)).toBe(aside);
-      expect(animate.mock.calls.at(-1)?.[0]).toEqual([{ clipPath: "inset(0 296px 0 0)" }, { clipPath: "inset(0)" }]);
+      // No fill: a clip left on the aside would clip its fixed overlays.
+      expect(calls()).toEqual([
+        { el: aside, keyframes: [{ clipPath: "inset(0 296px 0 0)" }, { clipPath: "inset(0)" }], options: motion },
+        { el: view, keyframes: [{ marginLeft: "-296px" }, { marginLeft: "0px" }], options: motion },
+      ]);
+    } finally {
+      window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
+      window.localStorage.removeItem(SIDEBAR_WIDTH_KEY);
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("reverses an interrupted toggle from the current edge and slides rigid views", async () => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "0");
+    window.localStorage.setItem(SIDEBAR_WIDTH_KEY, "360");
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string) =>
+        path === "/api/bots"
+          ? new Response(JSON.stringify({ bots: [bot("a")], groups: [] }))
+          : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cancel = vi.fn();
+    const halfway = () => ({ cancel, effect: { getComputedTiming: () => ({ progress: 0.5 }) } }) as unknown as Animation;
+    const animate = vi.spyOn(HTMLElement.prototype, "animate").mockImplementation(halfway);
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(createElement(
+          StoreProvider,
+          null,
+          createElement(Sidebar, { open: false, onClose: () => {}, rigidView: true }),
+          createElement("main"),
+          createElement("div", { style: { position: "fixed" } }),
+        )),
+      );
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+
+      const toggle = () => host.querySelector('button[aria-label="Collapse sidebar to avatars"], button[aria-label="Expand sidebar"]');
+      const view = host.querySelector("main")!;
+      const aside = host.querySelector("aside")!;
+      await act(async () => toggle()!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+      expect(animate.mock.contexts.slice(1)).toEqual([view]);
+      expect(animate.mock.calls[1]?.[0]).toEqual([{ transform: "translateX(296px)" }, { transform: "none" }]);
+
+      animate.mockClear();
+      await act(async () => toggle()!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+      expect(cancel).toHaveBeenCalledTimes(2);
+      expect(animate.mock.contexts).toEqual([aside, view]);
+      expect(animate.mock.calls.map(([keyframes]) => keyframes)).toEqual([
+        [{ clipPath: "inset(0 148px 0 0)" }, { clipPath: "inset(0)" }],
+        [{ transform: "translateX(-148px)" }, { transform: "none" }],
+      ]);
+    } finally {
+      window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
+      window.localStorage.removeItem(SIDEBAR_WIDTH_KEY);
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("never animates a drag resize or reduced motion", async () => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "0");
+    window.localStorage.setItem(SIDEBAR_WIDTH_KEY, "360");
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const animate = vi.spyOn(HTMLElement.prototype, "animate").mockImplementation(() => new Animation());
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    const aside = () => host.querySelector("aside")!;
+    try {
+      await act(async () =>
+        root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }), createElement("main"))),
+      );
+      const handle = host.querySelector<HTMLElement>("[data-sidebar-resize]")!;
+      handle.setPointerCapture = () => {};
+      handle.releasePointerCapture = () => {};
+      const pointer = (type: string, clientX: number) =>
+        act(async () => handle.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX, pointerId: 1 })));
+      await pointer("pointerdown", 360);
+      await pointer("pointermove", 300);
+      await pointer("pointerup", 300);
+      expect(aside().getAttribute("style")).toContain("width: 300px");
+      expect(animate).not.toHaveBeenCalled();
+
+      const matchMedia = window.matchMedia.bind(window);
+      vi.spyOn(window, "matchMedia").mockImplementation((query) =>
+        query === "(prefers-reduced-motion: reduce)" ? ({ matches: true } as MediaQueryList) : matchMedia(query));
+      const toggle = host.querySelector('button[aria-label="Collapse sidebar to avatars"]')!;
+      await act(async () => toggle.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+      expect(aside().getAttribute("style")).toContain("width: 64px");
+      expect(animate).not.toHaveBeenCalled();
     } finally {
       window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
       window.localStorage.removeItem(SIDEBAR_WIDTH_KEY);

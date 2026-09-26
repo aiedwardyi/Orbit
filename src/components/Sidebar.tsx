@@ -108,6 +108,9 @@ import { phoneSettingsAvailable } from "@/lib/phone-availability";
 import { localeTag, t, useI18n } from "@/lib/i18n";
 import { terminalAttentionCopy } from "@/lib/notify";
 
+// Effect-level easing: getComputedTiming().progress is then the eased edge position.
+const SIDEBAR_MOTION = { duration: 300, easing: "cubic-bezier(0.32, 0.72, 0, 1)" };
+
 /** "Milind Soni" → "MS", "milind" → "M", "you@x.dev" → "Y", unset → "?" */
 function profileInitials(profile?: { name?: string; email?: string }): string {
   const name = profile?.name?.trim();
@@ -1230,11 +1233,14 @@ export function Sidebar({
   onClose,
   onOverlayChange,
   onTerminalAttention,
+  rigidView = false,
 }: {
   open: boolean;
   onClose: () => void;
   onOverlayChange?: (key: string | null) => void;
   onTerminalAttention?: (attention: TerminalAttention) => void;
+  /** The view beside the sidebar must not resize mid-animation (terminal PTYs, native views). */
+  rigidView?: boolean;
 }) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
@@ -1425,8 +1431,8 @@ export function Sidebar({
     };
   }, [resizing]);
 
-  // Never transition the aside's width: that relays out and repaints the whole chat
-  // every frame. Width snaps; a clip reveals growth, a ghost shrinks over the chat.
+  // Never transition the aside's width: its content would reflow every frame. Width
+  // snaps; a clip or ghost draws the edge and the view's margin follows it.
   useLayoutEffect(() => {
     const from = shownSidebarWidth.current;
     shownSidebarWidth.current = sidebarDisplayWidth;
@@ -1435,22 +1441,33 @@ export function Sidebar({
     if (!from || resizing || from === sidebarDisplayWidth || !aside || !ghost) return;
     if (!window.matchMedia?.(`(min-width: ${SIDEBAR_INLINE_BREAKPOINT}px)`).matches) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const timing = { duration: 200, easing: "cubic-bezier(0.4, 0, 0.2, 1)" };
-    if (from < sidebarDisplayWidth) {
-      const reveal = aside.animate(
-        [{ clipPath: `inset(0 ${sidebarDisplayWidth - from}px 0 0)` }, { clipPath: "inset(0)" }],
-        timing,
-      );
-      return () => reveal.cancel();
+    const shift = from - sidebarDisplayWidth;
+    const motions: Animation[] = [];
+    if (shift < 0) {
+      motions.push(aside.animate([{ clipPath: `inset(0 ${-shift}px 0 0)` }, { clipPath: "inset(0)" }], SIDEBAR_MOTION));
+    } else {
+      ghost.style.width = `${shift}px`;
+      const shrink = ghost.animate([{ transform: "scaleX(1)" }, { transform: "scaleX(0)" }], { ...SIDEBAR_MOTION, fill: "forwards" });
+      shrink.onfinish = () => {
+        shrink.cancel();
+        ghost.style.width = "";
+      };
+      motions.push(shrink);
     }
-    ghost.style.width = `${from - sidebarDisplayWidth}px`;
-    const shrink = ghost.animate([{ transform: "scaleX(1)" }, { transform: "scaleX(0)" }], { ...timing, fill: "forwards" });
-    const reset = () => {
-      shrink.cancel();
+    const view = aside.nextElementSibling;
+    if (view instanceof HTMLElement && !rigidView) {
+      motions.push(view.animate([{ marginLeft: `${shift}px` }, { marginLeft: "0px" }], SIDEBAR_MOTION));
+    }
+    for (let el = view; el && rigidView; el = el.nextElementSibling) {
+      if (!(el instanceof HTMLElement) || ["absolute", "fixed"].includes(getComputedStyle(el).position)) continue;
+      motions.push(el.animate([{ transform: `translateX(${shift}px)` }, { transform: "none" }], SIDEBAR_MOTION));
+    }
+    return () => {
+      const progress = motions[0]!.effect?.getComputedTiming().progress;
+      if (progress != null) shownSidebarWidth.current = from + (sidebarDisplayWidth - from) * progress;
+      for (const motion of motions) motion.cancel();
       ghost.style.width = "";
     };
-    shrink.onfinish = reset;
-    return reset;
   }, [sidebarDisplayWidth]);
 
   useEffect(() => {
