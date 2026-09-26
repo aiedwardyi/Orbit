@@ -63,6 +63,7 @@ import {
   TRANSCRIPT_WINDOW_SIZE,
   expandWindowStart,
   focusWindowRange,
+  followedTailStart,
   resolveTranscriptWindow,
   tailWindowStart,
 } from "@/lib/transcript-window";
@@ -1151,6 +1152,11 @@ export function GroupView({ group }: { group: Group }) {
     setTranscriptWindow({ key: transcriptKey, start: range.start, end: range.end });
   }, [group.messages, group.threadId, setBottomFollow, state.focusMessage, transcriptKey]);
   useFocusMessage(group.threadId, group.messages.length > 0);
+  useEffect(() => {
+    if (!follow || transcriptWindow.end !== null) return;
+    const start = followedTailStart(transcriptWindow.start, group.messages.length);
+    if (start !== transcriptWindow.start) setTranscriptWindow((w) => ({ ...w, start }));
+  }, [follow, group.messages.length, transcriptWindow.start, transcriptWindow.end]);
 
   // an open draft outranks an incoming bulletin patch — resyncing under the cursor loses the edit
   useEffect(() => {

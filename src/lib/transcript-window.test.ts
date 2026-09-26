@@ -4,6 +4,7 @@ import {
   TRANSCRIPT_WINDOW_SIZE,
   expandWindowStart,
   focusWindowRange,
+  followedTailStart,
   resolveTranscriptWindow,
   tailWindowStart,
 } from "./transcript-window";
@@ -132,5 +133,20 @@ describe("focusWindowRange", () => {
 
   it("uses the full short transcript", () => {
     expect(focusWindowRange(20, 10)).toEqual({ start: 0, end: 20 });
+  });
+});
+
+describe("followedTailStart", () => {
+  it("keeps the boundary while the followed tail is within two windows", () => {
+    expect(followedTailStart(180, 180 + TRANSCRIPT_WINDOW_SIZE * 2)).toBe(180);
+  });
+
+  it("slides to a fresh tail once appends outgrow two windows", () => {
+    const total = 180 + TRANSCRIPT_WINDOW_SIZE * 2 + 1;
+    expect(followedTailStart(180, total)).toBe(tailWindowStart(total));
+  });
+
+  it("leaves a stale boundary past the end for resolve to handle", () => {
+    expect(followedTailStart(500, 100)).toBe(500);
   });
 });

@@ -927,7 +927,7 @@ export function reducer(state: AppState, action: Action): AppState {
       const hydrated = reconcileSnapshotQueues(
         {
           ...state,
-          bots: action.bots,
+          bots: action.bots.map((b) => (b.messages ? { ...b, messages: keepNewestScreenFrames(b.messages) } : b)),
           groups: action.groups,
           computerControl: action.computerControl,
           terminalAttention: Object.fromEntries(
@@ -1256,18 +1256,8 @@ export function reducer(state: AppState, action: Action): AppState {
       // back to it can hide a newer assistant reply that won the race.
       if (bot.messages.some((message) => message.id === action.message.id)) return state;
       const next = updateBot(state, bot.id, (b) => {
-        let messages = [...b.messages, action.message];
-        // base64 screen frames are big; a long computer-use session would
-        // grow memory without bound. Keep the newest few frames' pixels and
-        // strip the rest (the message row survives as a placeholder).
-        if (action.message.kind === "screen") {
-          const withPng = messages.filter((m) => m.kind === "screen" && m.png);
-          const excess = withPng.length - MAX_KEPT_SCREEN_FRAMES;
-          if (excess > 0) {
-            const dropIds = new Set(withPng.slice(0, excess).map((m) => m.id));
-            messages = messages.map((m) => (dropIds.has(m.id) ? { ...m, png: undefined } : m));
-          }
-        }
+        const appended = [...b.messages, action.message];
+        const messages = action.message.kind === "screen" ? keepNewestScreenFrames(appended) : appended;
         const currentLeaf = b.activeLeafId ? b.messages.find((message) => message.id === b.activeLeafId) : undefined;
         const parentId = action.message.parentId ?? null;
         const currentLeafId = b.activeLeafId ?? null;
@@ -1714,6 +1704,16 @@ export function reducer(state: AppState, action: Action): AppState {
 
 /** Newest screen frames whose pixels stay in memory per thread. */
 const MAX_KEPT_SCREEN_FRAMES = 8;
+
+// base64 screen frames are big; a long computer-use history would grow memory
+// without bound. Strip older pixels (the message row survives as a placeholder).
+function keepNewestScreenFrames(messages: Message[]): Message[] {
+  const withPng = messages.filter((m) => m.kind === "screen" && m.png);
+  const excess = withPng.length - MAX_KEPT_SCREEN_FRAMES;
+  if (excess <= 0) return messages;
+  const dropIds = new Set(withPng.slice(0, excess).map((m) => m.id));
+  return messages.map((m) => (dropIds.has(m.id) ? { ...m, png: undefined } : m));
+}
 
 export const initialState: AppState = {
   bots: [],

@@ -82,6 +82,7 @@ import {
   TRANSCRIPT_WINDOW_SIZE,
   expandWindowStart,
   focusWindowRange,
+  followedTailStart,
   resolveTranscriptWindow,
   tailWindowStart,
 } from "@/lib/transcript-window";
@@ -1162,6 +1163,11 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
     setTranscriptWindow({ key: transcriptKey, start: range.start, end: range.end });
   }, [bot.threadId, messages, setBottomFollow, state.focusMessage, transcriptKey]);
   useFocusMessage(bot.threadId, messages.length > 0);
+  useEffect(() => {
+    if (!follow || transcriptWindow.end !== null) return;
+    const start = followedTailStart(transcriptWindow.start, messages.length);
+    if (start !== transcriptWindow.start) setTranscriptWindow((w) => ({ ...w, start }));
+  }, [follow, messages.length, transcriptWindow.start, transcriptWindow.end]);
 
   // deps track the FULL messages.length, so expanding the window (which only
   // changes windowedMessages) can never re-trigger this bottom scrollTo.

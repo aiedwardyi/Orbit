@@ -32,6 +32,12 @@ export function expandWindowStart(startIndex: number, size: number = TRANSCRIPT_
   return Math.max(0, startIndex - size);
 }
 
+/** A followed tail slides once it outgrows two windows, so a long live session
+ * stops mounting every new row. Only safe while the reader is at the bottom. */
+export function followedTailStart(startIndex: number, total: number, size: number = TRANSCRIPT_WINDOW_SIZE): number {
+  return total - startIndex > size * 2 ? tailWindowStart(total, size) : startIndex;
+}
+
 /** A bounded window containing a search target. Keeping this finite avoids
  * mounting an entire old transcript merely to land on one result. */
 export function focusWindowRange(

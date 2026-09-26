@@ -1690,3 +1690,39 @@ describe("formatTime", () => {
     expect(formatTime(at, "ko")).not.toBe(formatTime(at, "en"));
   });
 });
+
+describe("hydrate screen frames", () => {
+  it("keeps pixels only for the newest screen frames", () => {
+    const frames: Message[] = Array.from({ length: 12 }, (_, i) => ({
+      id: `s${i}`,
+      role: "bot",
+      kind: "screen",
+      text: "",
+      at: i,
+      png: `png-${i}`,
+      mime: "image/png",
+    }));
+    const bot = {
+      id: "cua",
+      threadId: "thread-cua",
+      name: "cua",
+      title: "",
+      description: "",
+      notifications: true,
+      color: "green",
+      unread: false,
+      modelSelection: { instanceId: "codex", model: "default" },
+      messages: frames,
+    } satisfies Bot;
+    const hydrated = reducer(initialState, {
+      type: "hydrate",
+      bots: [bot],
+      groups: [],
+      computerControl: {},
+      sidebarOrder: { sectionOrder: [], itemOrder: {} },
+    });
+    const pngs = hydrated.bots[0]!.messages.map((message) => message.png);
+    expect(pngs.filter(Boolean)).toEqual(["png-4", "png-5", "png-6", "png-7", "png-8", "png-9", "png-10", "png-11"]);
+    expect(hydrated.bots[0]!.messages).toHaveLength(12);
+  });
+});
