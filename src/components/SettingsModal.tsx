@@ -479,7 +479,6 @@ export function SettingsModal({
                   <ProfileFields />
                 </Card>
                 <ToolCallsRow />
-                <PhonePingSettings />
                 <TerminalAppearanceRow />
                 <UpdatesRow />
                 {showSettingsAdvancedSection() && (
@@ -525,6 +524,7 @@ export function SettingsModal({
                     </div>
                   ) : null}
                   <EnginesSettings />
+                  <PhonePingSettings />
                   {showSettingsMoreServicesSection() && (
                     <>
                   <button
