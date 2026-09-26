@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, ty
 import { Check, Copy, CornerDownLeft, RotateCcw, TerminalSquare, X } from "lucide-react";
 import type { Bot } from "@/state/store";
 import { api } from "@/state/store";
-import { useI18n } from "@/lib/i18n";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 import { ansiColor } from "@/lib/ansi-palette";
 import { composerEnterIntent } from "@/lib/composer-enter";
 
@@ -32,6 +32,15 @@ const REFRESH_MS = 1_000;
 const SPIN_MS = 500;
 const REFRESH_TIMEOUT_MS = 5_000;
 const SEND_MAY_HAVE_RUN = "Send may have run. Check the screen before resending.";
+
+type TerminalKey = "up" | "down" | "enter" | "esc";
+// Menus and yes/no prompts need keys a phone keyboard does not have.
+const TERMINAL_KEY_BUTTONS: Array<{ key: TerminalKey; label: string; aria?: MessageKey }> = [
+  { key: "up", label: "↑", aria: "terminal.keyUp" },
+  { key: "down", label: "↓", aria: "terminal.keyDown" },
+  { key: "enter", label: "Enter" },
+  { key: "esc", label: "Esc" },
+];
 
 // A dropped fetch, a timeout or a bridge 5xx can fail a send the pty already ran.
 function sendMayHaveRun(cause: unknown): boolean {
@@ -190,8 +199,7 @@ export function RemoteTerminalView({
     event.currentTarget.form?.requestSubmit();
   };
 
-  const send = async (event: FormEvent) => {
-    event.preventDefault();
+  const post = async (input: ReturnType<typeof terminalSendInput> | { key: TerminalKey }) => {
     if (sending || !snapshot?.sessionId || snapshot.generation === undefined) return;
     const line = draft;
     setSending(true);
@@ -199,12 +207,12 @@ export function RemoteTerminalView({
     try {
       const next: RemoteTerminalSnapshot = await api(`/api/bots/${encodeURIComponent(bot.id)}/terminal/send`, {
         method: "POST",
-        body: JSON.stringify({ sessionId: snapshot.sessionId, generation: snapshot.generation, ...terminalSendInput(line) }),
+        body: JSON.stringify({ sessionId: snapshot.sessionId, generation: snapshot.generation, ...input }),
       });
       appliedRequestRef.current = ++requestRef.current;
       pinnedRef.current = true;
       setSnapshot(next);
-      setDraft((current) => (current === line ? "" : current));
+      if (!("key" in input)) setDraft((current) => (current === line ? "" : current));
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       const mayHaveRun = sendMayHaveRun(cause);
@@ -213,6 +221,10 @@ export function RemoteTerminalView({
     } finally {
       setSending(false);
     }
+  };
+  const send = (event: FormEvent) => {
+    event.preventDefault();
+    void post(terminalSendInput(draft));
   };
   const copy = async () => {
     try {
@@ -297,7 +309,22 @@ export function RemoteTerminalView({
         </pre>
       )}
       {canType && (
-        <form onSubmit={(event) => void send(event)} aria-busy={sending} className="shrink-0 border-t border-hairline bg-panel px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+        <form onSubmit={send} aria-busy={sending} className="shrink-0 border-t border-hairline bg-panel px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          <div role="group" aria-label={t("terminal.keys")} className="flex gap-1.5 pb-2">
+            {TERMINAL_KEY_BUTTONS.map(({ key, label, aria }) => (
+              <button
+                key={key}
+                type="button"
+                disabled={sending}
+                onClick={() => void post({ key })}
+                onMouseDown={(event) => event.preventDefault()}
+                aria-label={aria ? t(aria) : undefined}
+                className="flex min-h-9 min-w-11 items-center justify-center rounded-md border border-hairline bg-inset px-3 font-mono text-[13px] text-ink-secondary hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text disabled:opacity-50"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <div className="flex items-end gap-2">
             <textarea
               ref={inputRef}

@@ -7,8 +7,13 @@ const SNAPSHOT_FIELDS = ["screenText", "screenRuns", "recentText", "state", "ses
 export const TERMINAL_SEND_MAX_BYTES = 4 * 1024;
 // ESC covers kitty-mode keys like \x1b[99;5u (Ctrl+C); tab and newlines stay allowed.
 const CONTROL_BYTES = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/;
+export const TERMINAL_KEYS = { up: "\x1b[A", down: "\x1b[B", enter: "\r", esc: "\x1b" } as const;
+export type TerminalKey = keyof typeof TERMINAL_KEYS;
 
-const terminalSendSchema = z.object({ sessionId: z.string().min(1), generation: z.number().int(), text: z.string(), paste: z.boolean().optional() });
+const terminalSendSchema = z.union([
+  z.object({ sessionId: z.string().min(1), generation: z.number().int(), text: z.string(), paste: z.boolean().optional() }),
+  z.object({ sessionId: z.string().min(1), generation: z.number().int(), key: z.enum(["up", "down", "enter", "esc"]) }),
+]);
 
 function snapshotBody(snapshot: Record<string, unknown>): Record<string, unknown> {
   const body: Record<string, unknown> = {};
@@ -52,16 +57,23 @@ export async function terminalSendResponse(
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const parsed = terminalSendSchema.safeParse(input);
-  if (!parsed.success) return { status: 400, body: { error: "sessionId, generation and text are required" } };
-  if (Buffer.byteLength(parsed.data.text, "utf8") > TERMINAL_SEND_MAX_BYTES) {
-    return { status: 400, body: { error: `terminal input is capped at ${TERMINAL_SEND_MAX_BYTES / 1024}KB` } };
+  if (!parsed.success) return { status: 400, body: { error: "sessionId, generation and text or key are required" } };
+  const { sessionId, generation } = parsed.data;
+  let text: string;
+  if ("key" in parsed.data) {
+    text = TERMINAL_KEYS[parsed.data.key];
+  } else {
+    text = parsed.data.text;
+    if (Buffer.byteLength(text, "utf8") > TERMINAL_SEND_MAX_BYTES) {
+      return { status: 400, body: { error: `terminal input is capped at ${TERMINAL_SEND_MAX_BYTES / 1024}KB` } };
+    }
+    if (text.includes("\x03")) return { status: 400, body: { error: "Ctrl+C is not allowed" } };
+    if (CONTROL_BYTES.test(text)) return { status: 400, body: { error: "control characters are not allowed" } };
+    // Framed only after validation, so a sender can never supply its own ESC.
+    if (parsed.data.paste) text = `\x1b[200~${text}\x1b[201~\n`;
   }
-  if (parsed.data.text.includes("\x03")) return { status: 400, body: { error: "Ctrl+C is not allowed" } };
-  if (CONTROL_BYTES.test(parsed.data.text)) return { status: 400, body: { error: "control characters are not allowed" } };
   if (!access) return { status: 503, body: { error: "terminal bridge unavailable" } };
-  // Framed only after validation, so a sender can never supply its own ESC.
-  const { paste, ...send } = parsed.data;
-  if (paste) send.text = `\x1b[200~${send.text}\x1b[201~\n`;
+  const send = { sessionId, generation, text };
   let res: Response;
   try {
     res = await fetchImpl(`${access.url}/v1/bots/${encodeURIComponent(botId)}/terminal/send`, {

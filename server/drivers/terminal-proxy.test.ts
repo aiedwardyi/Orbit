@@ -13,7 +13,7 @@ describe("terminal proxy", () => {
     expect(TOOLS.map((tool) => tool.name)).toEqual(["terminal_read", "terminal_send", "terminal_spawn", "terminal_close"]);
     expect(TOOLS[0]).toMatchObject({ annotations: { readOnlyHint: true, destructiveHint: false } });
     expect(Object.keys(TOOLS[0].inputSchema.properties)).toEqual(["sessionId"]);
-    expect(TOOLS[1]).toMatchObject({ annotations: { readOnlyHint: false, destructiveHint: true }, inputSchema: { required: ["text", "sessionId", "generation"] } });
+    expect(TOOLS[1]).toMatchObject({ annotations: { readOnlyHint: false, destructiveHint: true }, inputSchema: { required: ["sessionId", "generation"] } });
     expect(Object.keys(TOOLS[1].inputSchema.properties)).not.toContain("botId");
     expect(TOOLS[1].description).toContain("End with a newline to submit the line.");
     expect(TOOLS[1].description).toContain("Ctrl+C is refused");
@@ -146,6 +146,29 @@ describe("terminal proxy", () => {
     const result = await callTool("terminal_send", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { text: "x", sessionId: "s1", generation: 1 });
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("stale");
+  });
+
+  it.each([
+    ["up", "\x1b[A"],
+    ["down", "\x1b[B"],
+    ["enter", "\r"],
+    ["esc", "\x1b"],
+  ])("sends the %s key as its bytes", async (key, expected) => {
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({ screenText: "ok" }), { status: 200 }));
+    const result = await callTool("terminal_send", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { key, sessionId: "s1", generation: 2 });
+    expect(result.isError).toBeUndefined();
+    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body)).text).toBe(expected);
+  });
+
+  it.each([
+    ["an unknown key", { key: "ctrl+c" }],
+    ["both text and key", { key: "up", text: "x" }],
+    ["neither text nor key", {}],
+  ])("rejects terminal_send with %s before fetching", async (_label, input) => {
+    const fetchImpl = vi.fn();
+    const result = await callTool("terminal_send", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { ...input, sessionId: "s1", generation: 2 });
+    expect(result.isError).toBe(true);
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("rejects terminal_send without a session pair before fetching", async () => {

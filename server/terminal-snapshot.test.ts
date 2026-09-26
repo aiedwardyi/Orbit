@@ -193,6 +193,25 @@ describe("terminal send relay", () => {
     });
   });
 
+  it.each([
+    ["up", "\x1b[A"],
+    ["down", "\x1b[B"],
+    ["enter", "\r"],
+    ["esc", "\x1b"],
+  ])("maps the %s key to its bytes", async (key, text) => {
+    const bodies: unknown[] = [];
+    const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return Response.json({ screenText: "$" });
+    }) as typeof fetch;
+    await expect(terminalSendResponse(ACCESS, "bot-1", { sessionId: "s1", generation: 2, key }, fetchImpl)).resolves.toMatchObject({ status: 200 });
+    expect(bodies).toEqual([{ sessionId: "s1", generation: 2, text }]);
+  });
+
+  it("refuses an unknown key before the bridge", async () => {
+    await expect(terminalSendResponse(ACCESS, "bot-1", { sessionId: "s1", generation: 2, key: "ctrl+c" }, mustNotFetch)).resolves.toMatchObject({ status: 400 });
+  });
+
   it("posts with the send grant and relays only the snapshot fields", async () => {
     const calls: Array<{ url: string; auth: string | null; method: string | undefined; body: unknown }> = [];
     const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
