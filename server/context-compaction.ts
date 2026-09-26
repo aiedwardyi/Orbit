@@ -53,6 +53,8 @@ export type PreparedModelContext =
       compaction?: ContextCompactionV1;
       /** message id of the reused summary; absent when `compaction` is new */
       compactionId?: string;
+      /** the window grew past the summary's, so the original history replaced it */
+      expanded?: boolean;
     }
   | PreparedModelContextFailure
   | { status: "unsupported"; messageId: string; version: number };
@@ -386,6 +388,7 @@ export async function prepareModelContext(input: {
       estimatedTokens: currentTokens,
       compacted: Boolean(previous),
       ...(previous ? { compactionId: previous.messageId } : {}),
+      ...(previous && expanding ? { expanded: true } : {}),
     };
   }
   const summaryBudget = Math.max(

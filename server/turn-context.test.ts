@@ -13,6 +13,7 @@ import {
   shouldRecycleProviderSession,
   TASK_RESUME_PROMPT,
   taskRecordBlock,
+  turnSeedsSession,
 } from "./turn-context.ts";
 
 const transcript = [
@@ -490,9 +491,9 @@ describe("resumeSessionUnseeded", () => {
     expect(turnText).toBe("what are their names?");
   });
 
-  it("replays summary and tail instead of resuming a session no turn succeeded on", () => {
-    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: undefined, latestCompactionId: "c1" })).toBe(true);
-    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: undefined, latestCompactionId: null })).toBe(true);
+  it("replays summary and tail instead of resuming a session no prompt reached", () => {
+    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: false, latestCompactionId: "c1" })).toBe(true);
+    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: false, latestCompactionId: null })).toBe(true);
     const { turnText, resume } = turnFor(true);
     expect(resume).toBe(false);
     expect(turnText).toContain("Orbit compacted this conversation");
@@ -509,7 +510,42 @@ describe("resumeSessionUnseeded", () => {
   });
 
   it("has nothing to recycle without a cursor", () => {
-    expect(resumeSessionUnseeded({ hasCursor: false, seededCompactionId: undefined, latestCompactionId: "c1" })).toBe(false);
+    expect(resumeSessionUnseeded({ hasCursor: false, seededCompactionId: false, latestCompactionId: "c1" })).toBe(false);
+  });
+
+  it("trusts a cursor saved before seeds existed as holding the latest summary", () => {
+    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: undefined, latestCompactionId: "c1" })).toBe(false);
+    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: undefined, latestCompactionId: null })).toBe(false);
+    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: undefined, latestCompactionId: "c1", expanded: true })).toBe(true);
+  });
+
+  it("recycles once when a grown window restores the history a summary stood for", () => {
+    // seeded with the summary, now dispatched with the original history
+    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: "c1", latestCompactionId: "c1", expanded: true })).toBe(true);
+    // the recycled session was seeded with that history: no summary at all
+    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: null, latestCompactionId: "c1", expanded: true })).toBe(false);
+    // back on the small window the summary is what the session lacks
+    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: null, latestCompactionId: "c1" })).toBe(true);
+  });
+});
+
+describe("turnSeedsSession", () => {
+  const seed = { instanceId: "claude", cursor: "session-b" };
+
+  it("certifies only the cursor the successful turn ran on", () => {
+    expect(turnSeedsSession({ ok: true, interrupted: false, seed, eventInstanceId: "claude", currentCursor: "session-b" })).toBe(true);
+    // a stopped turn's late init moved the cursor to its own session
+    expect(turnSeedsSession({ ok: true, interrupted: false, seed, eventInstanceId: "claude", currentCursor: "session-a" })).toBe(false);
+    expect(turnSeedsSession({ ok: true, interrupted: false, seed, eventInstanceId: "codex", currentCursor: "session-b" })).toBe(false);
+    expect(turnSeedsSession({ ok: true, interrupted: false, seed: { instanceId: "grok", cursor: undefined }, currentCursor: undefined })).toBe(false);
+  });
+
+  it("keeps a session resumable once the provider accepted the prompt, even if the turn did not finish", () => {
+    expect(turnSeedsSession({ ok: false, interrupted: true, promptAccepted: true, seed, currentCursor: "session-b" })).toBe(true);
+    expect(turnSeedsSession({ ok: false, interrupted: false, promptAccepted: true, seed, currentCursor: "session-b" })).toBe(true);
+    expect(turnSeedsSession({ ok: false, interrupted: true, seed, currentCursor: "session-b" })).toBe(false);
+    expect(turnSeedsSession({ ok: true, interrupted: true, seed, currentCursor: "session-b" })).toBe(false);
+    expect(turnSeedsSession({ ok: false, interrupted: false, promptAccepted: false, seed, currentCursor: "session-b" })).toBe(false);
   });
 });
 

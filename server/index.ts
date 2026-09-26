@@ -197,6 +197,7 @@ import {
   shouldRecycleProviderSession,
   TASK_RESUME_PROMPT,
   taskRecordBlock,
+  turnSeedsSession,
 } from "./turn-context.ts";
 import { providerReloadErrorActivity, stallErrorActivity } from "./room-error-attribution.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
@@ -2108,8 +2109,11 @@ const turnStartedAtMs = new Map<string, number>();
 const turnInterruptedAt = new Map<string, number>();
 const turnEpochByBot = new Map<string, number>();
 const liveTurnIdByThread = new Map<string, string>();
-// Thread → the summary id (null: none) its running 1:1 turn was dispatched with.
-const turnSeedCompactionId = new Map<string, string | null>();
+// Thread → the turn that last settled on it; its late events are stale.
+const settledTurnIdByThread = new Map<string, string>();
+// Thread → what its running 1:1 turn certifies on completion: the summary id
+// (null: none) it was dispatched with, for the session it resumed or started.
+const turnSeed = new Map<string, { compactionId: string | null; instanceId: string; cursor: unknown }>();
 // Room thread → the instruction id its running turn was dispatched against.
 const roomTurnInstruction = new Map<string, string>();
 const interruptedTurnIds = new Set<string>();
@@ -2171,6 +2175,7 @@ function forgetTurnThread(threadId: string) {
   const live = liveTurnIdByThread.get(threadId);
   if (live) interruptedTurnIds.delete(live);
   liveTurnIdByThread.delete(threadId);
+  settledTurnIdByThread.delete(threadId);
   turnDispatchedAt.delete(threadId);
   turnStartedAtMs.delete(threadId);
   turnInterruptedAt.delete(threadId);
@@ -2448,6 +2453,16 @@ bus.subscribe((event: RuntimeEvent) => {
   });
 });
 
+// A stopped process can still print its init after the turn that replaced
+// it started; that session must not become the thread's cursor.
+function staleTurnEvent(threadId: string, turnId: string | undefined): boolean {
+  if (!turnId) return false;
+  if (interruptedTurnIds.has(turnId) || disownedTurnIds.has(turnId)) return true;
+  if (settledTurnIdByThread.get(threadId) === turnId) return true;
+  const live = liveTurnIdByThread.get(threadId);
+  return live !== undefined && live !== turnId;
+}
+
 // Bots currently working with nobody at the keyboard — a webhook turn, or a
 // turn a webhook-driven bot handed to a teammate. Auto mode is a decision
 // someone made for turns they were present for, so these don't inherit it:
@@ -2603,8 +2618,10 @@ bus.subscribe((event: RuntimeEvent) => {
 
   switch (event.type) {
     case "session.started":
-      if (bot && event.sessionId && event.providerInstanceId) {
+      if (bot && event.sessionId && event.providerInstanceId && !staleTurnEvent(event.threadId, event.turnId)) {
         store.setResumeCursor(bot.id, event.providerInstanceId, event.sessionId, event.threadId);
+        const seed = turnSeed.get(event.threadId);
+        if (seed?.instanceId === event.providerInstanceId) seed.cursor = event.sessionId;
       }
       break;
     case "item.completed":
@@ -3009,15 +3026,27 @@ bus.subscribe((event: RuntimeEvent) => {
           dispatchedAt: dispatched,
           stopReason: event.stopReason,
         });
-        if (event.turnId) interruptedTurnIds.delete(event.turnId);
+        if (event.turnId) {
+          interruptedTurnIds.delete(event.turnId);
+          settledTurnIdByThread.set(event.threadId, event.turnId);
+        }
         if (!event.turnId || liveTurnIdByThread.get(event.threadId) === event.turnId) {
           liveTurnIdByThread.delete(event.threadId);
         }
         const disowned = Boolean(event.turnId && disownedTurnIds.delete(event.turnId));
         if (!superseded && !disowned) {
-          const seeded = turnSeedCompactionId.get(event.threadId);
-          turnSeedCompactionId.delete(event.threadId);
-          if (event.ok && !interrupted && seeded !== undefined) store.markResumeSeeded(bot.id, event.threadId, seeded);
+          const seed = turnSeed.get(event.threadId);
+          turnSeed.delete(event.threadId);
+          if (seed && turnSeedsSession({
+            ok: event.ok,
+            interrupted,
+            promptAccepted: event.promptAccepted,
+            seed,
+            eventInstanceId: event.providerInstanceId,
+            currentCursor: store.taskByThread(bot.id, event.threadId)?.resumeCursors[seed.instanceId],
+          })) {
+            store.markResumeSeeded(bot.id, event.threadId, seed.compactionId);
+          }
           const packet = taskPacketForWrite(event.threadId);
           if (packet) {
             persistTaskPacket(recordTaskCompletion(packet, {
@@ -3790,7 +3819,11 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     hasCursor: task.resumeCursors[instanceId] !== undefined,
     seededCompactionId: task.resumeSeededCompactionId,
     latestCompactionId,
+    expanded: prepared.expanded,
   });
+  // What this turn's session ends up holding: the summary, or the original
+  // history a grown window restored in its place.
+  const sessionCompactionId = prepared.expanded ? null : latestCompactionId;
   const recycled = shouldRecycleProviderSession({
     compacted: compactedThisTurn || unseeded,
     rewound,
@@ -3879,10 +3912,17 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   turnUsage.delete(threadId);
   turnDispatchedAt.set(threadId, tickTurnClock());
   turnStartedAtMs.set(threadId, Date.now());
-  turnSeedCompactionId.set(threadId, latestCompactionId);
+  turnSeed.set(threadId, {
+    compactionId: sessionCompactionId,
+    instanceId,
+    cursor: resume ? task.resumeCursors[instanceId] : undefined,
+  });
 
   void (async () => {
-    if (currentTurnEpoch(bot.id) !== epoch) return;
+    if (currentTurnEpoch(bot.id) !== epoch) {
+      turnSeed.delete(threadId);
+      return;
+    }
     try {
       const integrations: NonNullable<Parameters<typeof instance.adapter.sendTurn>[0]["integrations"]> = {};
       if (bot.shareTerminalWithChat) {
@@ -4200,6 +4240,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       if (currentTurnEpoch(bot.id) !== epoch) {
         releaseLocalVmThread(threadId);
         if (activeVpsThreads.get(bot.id) === threadId) activeVpsThreads.delete(bot.id);
+        turnSeed.delete(threadId);
         return;
       }
       watchdog.watch(threadId, bot.id);
@@ -4300,6 +4341,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       if (activeVpsThreads.get(bot.id) === threadId) activeVpsThreads.delete(bot.id);
       watchdog.settle(threadId);
       turnUsage.delete(threadId);
+      turnSeed.delete(threadId);
       if (currentTurnEpoch(bot.id) !== epoch) return;
       const message = e instanceof Error ? e.message : String(e);
       store.appendMessage(threadId, {

@@ -808,7 +808,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         }
         const child = connection.child;
 
-        const state = { settled: false, promptSent: false, text: "" };
+        // promptAccepted: the agent answered this prompt, so its session holds it
+        const state = { settled: false, promptSent: false, promptAccepted: false, text: "" };
         const interjections = new Set<string>();
         const interjectionWaiters = new Map<string, (delivered: boolean) => void>();
         // Steer prompts Grok has not answered. If the running prompt ends
@@ -932,7 +933,14 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           flushAssistantText();
           turnTimer.mark("turnDone");
         turnTimer.finish();
-        emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason, cost: null });
+        emit({
+          ...base(threadId, turnId),
+          type: "turn.completed",
+          ok,
+          stopReason,
+          cost: null,
+          ...(state.promptAccepted ? { promptAccepted: true } : {}),
+        });
         };
 
         // Whether this turn could have spent a subscription window at all.
@@ -1051,6 +1059,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           // to the provider, so _meta.turnId is not a shared namespace.
           if (state.settled || !state.promptSent || p._meta?.isReplay === true || (p.sessionId && p.sessionId !== sessionId)) return;
           const u = p.update ?? {};
+          if (["agent_message_chunk", "agent_thought_chunk", "tool_call"].includes(u.sessionUpdate)) state.promptAccepted = true;
           switch (u.sessionUpdate) {
             case "agent_message_chunk": {
               const delta = u.content?.text;
@@ -1277,6 +1286,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               sessionId: activeSessionId,
               prompt: [{ type: "text", text }],
             });
+            state.promptAccepted = true;
             // opencode 1.18.18 reports usage at the result root; grok and
             // gemini put it under _meta. Read both rather than lose the count.
             const usage = result?.usage ?? result?._meta ?? {};

@@ -220,6 +220,8 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         settled: false,
         lastText: "",
         sawStreamDelta: false,
+        // turn/start took the prompt into the thread, so it survives a stop
+        promptAccepted: false,
         // codex reports token usage as a running THREAD total; the harness
         // wants this turn's figure, so the last report is banked on settle
         usage: undefined as { input: number; output: number; cachedInput?: number } | undefined,
@@ -285,7 +287,15 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         for (const p of rpcPending.values()) p.reject(new Error("turn settled"));
         rpcPending.clear();
         active.delete(threadId);
-        emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason, cost: null, ...(state.usage ? { usage: state.usage } : {}) });
+        emit({
+          ...base(threadId, turnId),
+          type: "turn.completed",
+          ok,
+          stopReason,
+          cost: null,
+          ...(state.usage ? { usage: state.usage } : {}),
+          ...(state.promptAccepted ? { promptAccepted: true } : {}),
+        });
         stop(); // the app-server never exits on its own
       };
 
@@ -604,6 +614,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           ...(turn.effort ? { effort: turn.effort } : {}),
         });
         nativeTurnId = startedTurn?.turn?.id ?? nativeTurnId;
+        state.promptAccepted = true;
       } catch (e) {
         const failure = e instanceof Error ? e : { text: String(e) };
         const message = e instanceof Error ? e.message : String(e);

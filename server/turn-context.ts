@@ -187,15 +187,38 @@ export function shouldRecycleProviderSession(input: {
   return budget > 0 && (input.lastTurnInputTokens ?? 0) > budget;
 }
 
-/** A cursor is resumable only once a turn on it succeeded with the thread's
- * current summary. A session that failed before its prompt, or predates the
- * newest summary, would otherwise resume without Orbit's context. */
+/** A cursor is resumable only once the provider accepted a prompt carrying the
+ * thread's current summary into it. A session that failed before its prompt,
+ * or predates the newest summary, would otherwise resume without Orbit's
+ * context. A grown window replaces the summary with the original history, so
+ * the session must have been seeded with that (no summary) instead. */
 export function resumeSessionUnseeded(input: {
   hasCursor: boolean;
-  seededCompactionId: string | null | undefined;
+  seededCompactionId: string | null | false | undefined;
   latestCompactionId: string | null;
+  expanded?: boolean;
 }): boolean {
-  return input.hasCursor && input.seededCompactionId !== input.latestCompactionId;
+  if (!input.hasCursor) return false;
+  // Absent: a task from before seeds existed. Those builds replayed the latest
+  // summary into every session, so that is what the cursor holds.
+  const seeded = input.seededCompactionId === undefined ? input.latestCompactionId : input.seededCompactionId;
+  return seeded !== (input.expanded ? null : input.latestCompactionId);
+}
+
+/** A turn certifies only the session it ran on: the cursor it resumed, or the
+ * one its own session.started set, on its own instance. A late session.started
+ * from a stopped turn can move the task's cursor underneath a live one. */
+export function turnSeedsSession(input: {
+  ok: boolean;
+  interrupted: boolean;
+  promptAccepted?: boolean;
+  seed: { instanceId: string; cursor: unknown };
+  eventInstanceId?: string;
+  currentCursor: unknown;
+}): boolean {
+  if (!input.promptAccepted && !(input.ok && !input.interrupted)) return false;
+  if (input.eventInstanceId !== undefined && input.eventInstanceId !== input.seed.instanceId) return false;
+  return input.seed.cursor !== undefined && input.seed.cursor === input.currentCursor;
 }
 
 const REWOUND_PREAMBLE =

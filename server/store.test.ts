@@ -438,8 +438,10 @@ describe("Store", () => {
     store.setResumeCursor(bot.id, "claude", "session-1", bot.threadId);
     expect(store.taskByThread(bot.id, bot.threadId)?.resumeSeededCompactionId).toBe("c1");
 
+    // false, not absent: absent is a task from before seeds existed
     store.setResumeCursor(bot.id, "claude", "session-2", bot.threadId);
-    expect(store.taskByThread(bot.id, bot.threadId)?.resumeSeededCompactionId).toBeUndefined();
+    expect(store.taskByThread(bot.id, bot.threadId)?.resumeSeededCompactionId).toBe(false);
+    expect(new Store(selection).taskByThread(bot.id, bot.threadId)?.resumeSeededCompactionId).toBe(false);
 
     store.markResumeSeeded(bot.id, bot.threadId, null);
     expect(store.taskByThread(bot.id, bot.threadId)?.resumeSeededCompactionId).toBeNull();
@@ -1373,6 +1375,7 @@ describe("Store task working folder", () => {
     expect(store.pinTaskCwd(bot.id, second.threadId)).toBe("/tmp/project-a");
     store.setResumeCursor(bot.id, "claude", "sess-old", bot.threadId);
     store.setResumeCursor(bot.id, "claude", "sess-old-2", second.threadId);
+    store.markResumeSeeded(bot.id, bot.threadId, "c1");
 
     // the PATCH path compares old vs new, then calls this on a real change
     store.patchBot(bot.id, { cwd: "/tmp/project-b" });
@@ -1382,6 +1385,9 @@ describe("Store task working folder", () => {
     expect(store.taskByThread(bot.id, second.threadId)?.cwd).toBeUndefined();
     expect(store.taskByThread(bot.id, bot.threadId)?.resumeCursors).toEqual({});
     expect(store.taskByThread(bot.id, second.threadId)?.resumeCursors).toEqual({});
+    // the seed described the dropped session; a fresh one starts unseeded
+    expect(store.taskByThread(bot.id, bot.threadId)?.resumeSeededCompactionId).toBeUndefined();
+    expect(store.taskByThread(bot.id, second.threadId)?.resumeSeededCompactionId).toBeUndefined();
     expect(store.bot(bot.id)?.resumeCursors).toEqual({});
     // the next turn re-resolves the new pin (pin wins) on a fresh session
     expect(store.pinTaskCwd(bot.id, bot.threadId)).toBe("/tmp/project-b");

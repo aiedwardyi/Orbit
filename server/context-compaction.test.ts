@@ -692,8 +692,45 @@ describe("provider-neutral context compaction", () => {
     if (result.status === "ready") {
       expect(result.compaction).toBeUndefined();
       expect(result.compactionId).toBe("c1");
+      expect(result.expanded).toBeUndefined();
     }
     expect(path).toEqual(before);
+  });
+
+  it("marks a grown window that restored the original history in place of the summary", async () => {
+    const previous: ContextCompactionV1 = {
+      v: 1,
+      summary: "small-window summary",
+      coveredThroughId: "m1",
+      firstKeptId: "m2",
+      contextWindow: 8_192,
+      estimatedTokensBefore: 20,
+      sourceMessageCount: 1,
+    };
+    const path = [
+      message("m1", "one"),
+      message("m2", "two", { role: "bot" }),
+      compactionMessage("c1", "m2", previous),
+      message("m3", "three"),
+    ];
+    const result = await prepareModelContext({
+      messages: path,
+      contextWindow: 200_000,
+      taskRecordText: "Goal: recover raw history",
+    });
+
+    // the session seeded with c1 has not seen "one"; the caller recycles once
+    expect(result).toMatchObject({
+      status: "ready",
+      compacted: true,
+      compactionId: "c1",
+      expanded: true,
+      transcript: [
+        { role: "user", text: "one" },
+        { role: "assistant", text: "two" },
+        { role: "user", text: "three" },
+      ],
+    });
   });
 
   it("blocks on an unknown future version behind a malformed marker", async () => {

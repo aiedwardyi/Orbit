@@ -605,6 +605,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         turnId: string;
         settled: boolean;
         sawStreamDelta: boolean;
+        /** the model answered this prompt, so the session holds it */
+        promptAccepted?: boolean;
         /** opened by the CLI waking on its own after `result`; never retried */
         continuation?: boolean;
         /** steers written since the CLI last sent a model request */
@@ -1006,7 +1008,15 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         retryState.delete(threadId);
         t.timer.mark("turnDone");
         t.timer.finish();
-        emit({ ...base(threadId, t.turnId), type: "turn.completed", ok, stopReason, cost, ...(usage ? { usage } : {}) });
+        emit({
+          ...base(threadId, t.turnId),
+          type: "turn.completed",
+          ok,
+          stopReason,
+          cost,
+          ...(usage ? { usage } : {}),
+          ...(t.promptAccepted ? { promptAccepted: true } : {}),
+        });
         if (session.child.exitCode === null && !session.closing) armIdle(threadId);
       };
       session.settleTurn = settle;
@@ -1061,6 +1071,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             }
             break;
           case "stream_event": {
+            if (session.turn) session.turn.promptAccepted = true;
             // subagent narration is dropped — N parallel Tasks would
             // interleave their prose into one bubble (upstream-verified bug)
             if (o.parent_tool_use_id) break;
@@ -1077,6 +1088,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             break;
           }
           case "assistant": {
+            if (session.turn) session.turn.promptAccepted = true;
             const msg = o.message ?? {};
             const text = firstText(msg.content);
             if (text.trim()) {

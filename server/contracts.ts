@@ -107,6 +107,9 @@ export type RuntimeEvent = RuntimeEventBase &
          * is a live indicator whose meaning differs per driver (a per-call
          * delta, a thread total, a per-step figure) and must never be summed. */
         usage?: { input: number; output: number; cachedInput?: number };
+        /** The provider took this turn's prompt into its session before the
+         * turn ended, so the session holds it even when the turn did not. */
+        promptAccepted?: boolean;
       }
     | { type: "item.started"; itemType: "tool" | "reasoning"; title?: string; summary?: string }
     | { type: "item.updated"; itemType: "tool" | "reasoning"; tokens?: number | null }

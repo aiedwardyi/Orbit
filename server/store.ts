@@ -253,10 +253,11 @@ export interface TaskRecord {
    * after this id belong to the current native session; older chips do
    * not. Absent on tasks that have never soft-recycled. */
   providerSessionBoundId?: string;
-  /** Latest summary id (null: none) a successful turn on the current
-   * cursor was dispatched with. Absent = the session is not known to hold
-   * Orbit's context, so it must not be resumed. */
-  resumeSeededCompactionId?: string | null;
+  /** Latest summary id (null: none) the provider accepted into the current
+   * cursor's session; false until a new session accepts one, so it must
+   * not be resumed. Absent on tasks from before the field existed, whose
+   * builds replayed the latest summary into every session. */
+  resumeSeededCompactionId?: string | null | false;
 }
 
 export interface TaskUsage {
@@ -1390,8 +1391,8 @@ export class Store {
     // the cursor belongs to the task that produced it, not to the bot
     const task = threadId ? this.taskByThread(botId, threadId) : this.activeTask(botId);
     if (task) {
-      // a new session has not received Orbit's context until a turn on it succeeds
-      if (task.resumeCursors[instanceId] !== cursor) delete task.resumeSeededCompactionId;
+      // a new session has not received Orbit's context until it accepts a prompt
+      if (task.resumeCursors[instanceId] !== cursor) task.resumeSeededCompactionId = false;
       task.resumeCursors[instanceId] = cursor;
     }
     // The legacy mirror follows the task visible in chat, never a detached
@@ -1459,6 +1460,10 @@ export class Store {
       }
       if (Object.keys(task.resumeCursors).length !== 0) {
         task.resumeCursors = {};
+        touched = true;
+      }
+      if (task.resumeSeededCompactionId !== undefined) {
+        delete task.resumeSeededCompactionId;
         touched = true;
       }
     }
