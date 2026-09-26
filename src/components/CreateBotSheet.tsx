@@ -22,10 +22,11 @@ export function CreateBotSheet({
   const { state, dispatch } = useStore();
   const [job, setJob] = useState("");
   const [folder, setFolder] = useState("");
+  const [showFolder, setShowFolder] = useState(() => Boolean(folder.trim()));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const canPick = Boolean(window.ogb?.pickFolder);
 
   const close = () => {
@@ -75,8 +76,8 @@ export function CreateBotSheet({
   };
 
   const submit = async () => {
+    if (saving) return;
     const normalized = job.trim();
-    if (!normalized || saving) return;
     setSaving(true);
     setError(null);
     try {
@@ -87,7 +88,7 @@ export function CreateBotSheet({
       // engine the field stays out and the server path is unchanged.
       const selection = defaultModelSelection(state.instances);
       const payload = {
-        job: normalized,
+        job: normalized || undefined,
         cwd: trimmedFolder || undefined,
         section: initialSection?.trim() || undefined,
         modelSelection: selection ?? undefined,
@@ -140,57 +141,68 @@ export function CreateBotSheet({
           }}
         >
           <label htmlFor="create-bot-job" className="sr-only">{t("createBot.jobLabel")}</label>
-          <textarea
+          <input
             ref={inputRef}
             id="create-bot-job"
             value={job}
             maxLength={BOT_PROFILE_LIMITS.description}
             onChange={(event) => setJob(event.target.value)}
             onKeyDown={(event) => {
-              // Enter submits (Shift+Enter keeps the newline); an IME
-              // confirm-Enter must not submit the half-composed edit.
-              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+              // An IME confirm-Enter must not submit the half-composed edit.
+              if (event.key === "Enter" && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 void submit();
               }
             }}
             placeholder={t("createBot.placeholder")}
-            className="min-h-[150px] w-full resize-y rounded-xl border border-hairline/50 bg-inset px-4 py-3 text-[15px] leading-relaxed text-ink placeholder:text-ink-secondary focus:border-accent/70 focus:outline-none"
+            className="w-full rounded-xl border border-hairline/50 bg-inset px-4 py-2.5 text-[15px] text-ink placeholder:text-ink-secondary focus:border-accent/70 focus:outline-none"
           />
-          <div className="mt-4">
-            <label htmlFor="create-bot-folder" className="mb-1.5 block text-[13px] text-ink-secondary">
-              {t("bot.workingFolder")}
-            </label>
-            <div className="flex items-center gap-2">
-              <input
-                id="create-bot-folder"
-                value={folder}
-                onChange={(event) => setFolder(event.target.value)}
-                placeholder={t("bot.workingFolderPlaceholder")}
-                className="min-w-0 flex-1 rounded-xl border border-hairline/50 bg-inset px-4 py-2.5 font-mono text-[13px] text-ink placeholder:text-ink-secondary focus:border-accent/70 focus:outline-none"
-              />
-              {canPick && (
-                <button
-                  type="button"
-                  onClick={() => void pick()}
-                  disabled={saving}
-                  className="flex shrink-0 items-center gap-1.5 rounded-xl bg-control px-4 py-2.5 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50"
-                >
-                  <FolderOpen size={14} /> {t("bot.workingFolderChoose")}
-                </button>
-              )}
-              {folder.trim() && (
-                <button
-                  type="button"
-                  onClick={() => setFolder("")}
-                  disabled={saving}
-                  className="shrink-0 rounded-xl px-2 py-2.5 text-[13px] text-ink-secondary hover:text-ink disabled:opacity-50"
-                >
-                  {t("bot.workingFolderClear")}
-                </button>
-              )}
+          <p className="mt-1.5 text-[12.5px] text-ink-secondary">{t("createBot.jobHint")}</p>
+          {showFolder ? (
+            <div className="mt-4">
+              <label htmlFor="create-bot-folder" className="mb-1.5 block text-[13px] text-ink-secondary">
+                {t("bot.workingFolder")}
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  id="create-bot-folder"
+                  value={folder}
+                  onChange={(event) => setFolder(event.target.value)}
+                  placeholder={t("bot.workingFolderPlaceholder")}
+                  className="min-w-0 flex-1 rounded-xl border border-hairline/50 bg-inset px-4 py-2.5 font-mono text-[13px] text-ink placeholder:text-ink-secondary focus:border-accent/70 focus:outline-none"
+                />
+                {canPick && (
+                  <button
+                    type="button"
+                    onClick={() => void pick()}
+                    disabled={saving}
+                    className="flex shrink-0 items-center gap-1.5 rounded-xl bg-control px-4 py-2.5 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50"
+                  >
+                    <FolderOpen size={14} /> {t("bot.workingFolderChoose")}
+                  </button>
+                )}
+                {folder.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => setFolder("")}
+                    disabled={saving}
+                    className="shrink-0 rounded-xl px-2 py-2.5 text-[13px] text-ink-secondary hover:text-ink disabled:opacity-50"
+                  >
+                    {t("bot.workingFolderClear")}
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowFolder(true)}
+              className="mt-3 flex items-center gap-1.5 text-[12.5px] text-ink-secondary hover:text-ink"
+            >
+              <FolderOpen size={13} />
+              {t("createBot.addFolder")}
+            </button>
+          )}
           {error && <div role="alert" className="mt-2 text-[12.5px] text-danger">{error}</div>}
           <div className="mt-5 flex items-center justify-end gap-2.5">
             {!required && (
@@ -205,7 +217,7 @@ export function CreateBotSheet({
             )}
             <button
               type="submit"
-              disabled={!job.trim() || saving}
+              disabled={saving}
               className="flex min-w-[140px] items-center justify-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-[14px] font-semibold text-accent-ink hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {saving && <Loader2 size={15} className="animate-spin" />}

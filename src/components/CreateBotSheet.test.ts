@@ -49,9 +49,25 @@ async function renderSheet(options: {
     root.render(createElement(CreateBotSheet, { required: options.required ?? true, ...options }));
   });
   const dialog = host.querySelector('[role="dialog"]');
+  if (!(dialog instanceof HTMLElement)) throw new Error("sheet did not render");
+  return { host, root, dialog };
+}
+
+function addFolderLink(host: HTMLElement): HTMLButtonElement {
+  const found = [...host.querySelectorAll("button")].find((button) =>
+    button.textContent?.includes("Folder"),
+  );
+  if (!(found instanceof HTMLButtonElement)) throw new Error("add-folder link did not render");
+  return found;
+}
+
+async function revealFolder(host: HTMLElement): Promise<HTMLInputElement> {
+  await act(async () => {
+    addFolderLink(host).click();
+  });
   const folder = host.querySelector<HTMLInputElement>("#create-bot-folder");
-  if (!(dialog instanceof HTMLElement) || !folder) throw new Error("sheet did not render");
-  return { host, root, dialog, folder };
+  if (!folder) throw new Error("folder field did not render");
+  return folder;
 }
 
 function chooseButton(host: HTMLElement): HTMLButtonElement {
@@ -104,19 +120,19 @@ function stubPostBot() {
 }
 
 async function fillJob(host: HTMLElement, text: string) {
-  const area = host.querySelector<HTMLTextAreaElement>("#create-bot-job");
-  if (!area) throw new Error("job field did not render");
+  const field = host.querySelector<HTMLInputElement>("#create-bot-job");
+  if (!field) throw new Error("job field did not render");
   await act(async () => {
-    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(area), "value")!.set!;
-    setValue.call(area, text);
-    area.dispatchEvent(new Event("input", { bubbles: true }));
+    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+    setValue.call(field, text);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  return area;
+  return field;
 }
 
-async function pressEnter(area: HTMLTextAreaElement, shiftKey: boolean) {
+async function pressEnter(field: HTMLInputElement) {
   await act(async () => {
-    area.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", shiftKey, bubbles: true, cancelable: true }));
+    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
   });
   await flush();
 }
@@ -126,12 +142,28 @@ describe("CreateBotSheet submit", () => {
     const calls = stubPostBot();
     const { host, root } = await renderSheet();
     try {
-      const area = await fillJob(host, "weekly brief");
-      await pressEnter(area, false);
+      const field = await fillJob(host, "weekly brief");
+      await pressEnter(field);
       expect(calls).toHaveLength(1);
       expect(calls[0]?.url).toBe("/api/bots");
       expect(calls[0]?.body).toMatchObject({ job: "weekly brief" });
       expect(calls[0]?.body).not.toHaveProperty("modelSelection");
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+    }
+  });
+
+  it("leaves job out of the body when submitted blank", async () => {
+    const calls = stubPostBot();
+    const { host, root } = await renderSheet();
+    try {
+      const field = host.querySelector<HTMLInputElement>("#create-bot-job");
+      if (!field) throw new Error("job field did not render");
+      await pressEnter(field);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.body).not.toHaveProperty("job");
     } finally {
       await act(async () => {
         root.unmount();
@@ -144,8 +176,8 @@ describe("CreateBotSheet submit", () => {
     const calls = stubPostBot();
     const { host, root } = await renderSheet();
     try {
-      const area = await fillJob(host, "weekly brief");
-      await pressEnter(area, false);
+      const field = await fillJob(host, "weekly brief");
+      await pressEnter(field);
       expect(calls).toHaveLength(1);
       expect(calls[0]?.body).toMatchObject({
         job: "weekly brief",
@@ -163,8 +195,8 @@ describe("CreateBotSheet submit", () => {
     const onCreated = vi.fn();
     const { host, root } = await renderSheet({ initialSection: " Work ", onCreated });
     try {
-      const area = await fillJob(host, "weekly brief");
-      await pressEnter(area, false);
+      const field = await fillJob(host, "weekly brief");
+      await pressEnter(field);
       expect(calls[0]?.body).toMatchObject({ section: "Work" });
       expect(onCreated).toHaveBeenCalledWith({ id: "b1" });
     } finally {
@@ -187,29 +219,15 @@ describe("CreateBotSheet submit", () => {
     );
     const { host, root } = await renderSheet();
     try {
-      const area = await fillJob(host, "weekly brief");
+      const field = await fillJob(host, "weekly brief");
       await act(async () => {
-        area.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+        field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
       });
       expect(host.textContent).toContain("Adding bot");
       await act(async () => {
         resolvePost(new Response(JSON.stringify({ bot: { id: "b1" } }), { status: 201 }));
       });
       await flush();
-    } finally {
-      await act(async () => {
-        root.unmount();
-      });
-    }
-  });
-
-  it("leaves Shift+Enter as a newline instead of submitting", async () => {
-    const calls = stubPostBot();
-    const { host, root } = await renderSheet();
-    try {
-      const area = await fillJob(host, "weekly brief");
-      await pressEnter(area, true);
-      expect(calls).toHaveLength(0);
     } finally {
       await act(async () => {
         root.unmount();
@@ -236,10 +254,24 @@ describe("CreateBotSheet folder choice", () => {
     }
   });
 
+  it("hides the folder row behind a link until it's clicked", async () => {
+    const { host, root } = await renderSheet();
+    try {
+      expect(host.querySelector("#create-bot-folder")).toBeNull();
+      const folder = await revealFolder(host);
+      expect(folder).toBeInstanceOf(HTMLInputElement);
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+    }
+  });
+
   it("fills the field when the native pick resolves", async () => {
     setOgbPick(() => Promise.resolve("/tmp/picked"));
-    const { host, root, folder } = await renderSheet();
+    const { host, root } = await renderSheet();
     try {
+      const folder = await revealFolder(host);
       await act(async () => {
         chooseButton(host).click();
       });
@@ -254,13 +286,14 @@ describe("CreateBotSheet folder choice", () => {
 
   it("treats a rejected native pick as a silent no-op", async () => {
     setOgbPick(() => Promise.reject(new Error("cancelled")));
-    const { host, root, folder } = await renderSheet();
+    const { host, root } = await renderSheet();
     const rejections: Array<unknown> = [];
     const onUnhandled = (reason: {} | null | undefined) => {
       rejections.push(reason);
     };
     process.on("unhandledRejection", onUnhandled);
     try {
+      const folder = await revealFolder(host);
       await act(async () => {
         chooseButton(host).click();
       });
