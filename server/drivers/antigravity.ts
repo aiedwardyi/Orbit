@@ -503,12 +503,14 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
       createdAt: new Date().toISOString(),
     });
 
-    const sendTurn = async (turn: SendTurnInput) => {
+    // A resume fallback relaunch is the same logical turn: the harness holds
+    // the first id as live and drops events from any other.
+    const sendTurn = async (turn: SendTurnInput, relaunchOf?: string) => {
       const { threadId } = turn;
       if (disposed) throw new Error("Antigravity instance is disposed");
       if (active.has(threadId) || pending.has(threadId)) throw new Error("a turn is already running on this thread");
       pending.add(threadId);
-      const turnId = newId();
+      const turnId = relaunchOf ?? newId();
 
       // Default cwd to a per-thread workspace under DATA_DIR — deliberately
       // NOT homedir(): a bot running unattended should not get the whole home
@@ -534,6 +536,8 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
       const resumeCursor = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
 
       let settled = false;
+      // the model answered this prompt, so the session holds it
+      let promptAccepted = false;
       // backstop watchdog: if agy hangs without emitting `result` and without
       // exiting, the bot would stay busy forever (agy's own --print-timeout 10m
       // is the only other net). Assigned just below; settle() always clears it.
@@ -552,7 +556,15 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
         clearTimeout(watchdog);
         active.delete(threadId);
         armPostSettleCleanup();
-        emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason, cost, ...(usage ? { usage } : {}) });
+        emit({
+          ...base(threadId, turnId),
+          type: "turn.completed",
+          ok,
+          stopReason,
+          cost,
+          ...(usage ? { usage } : {}),
+          ...(promptAccepted ? { promptAccepted: true } : {}),
+        });
       };
 
       // agy's config is global, so every turn — including one without a
@@ -757,6 +769,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
             break;
           }
           case "step_update": {
+            promptAccepted = true;
             if (payload.step_type === "tool") {
               cancelledTool ||= isCancelledTool(payload);
               const itemId = `${conversationId ?? o.conversation_id ?? "conv"}:${payload.step_index}`;
@@ -778,6 +791,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
             break;
           }
           case "result": {
+            promptAccepted = true;
             // agy delivers the assistant text in result.response (not streamed)
             const response = typeof payload.response === "string" ? payload.response : "";
             const realResponse = Boolean(response.trim()) && !isAntigravitySystemNotice(response) && !cancelledTool;
@@ -859,7 +873,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
               text: turn.resumeFallback!.text,
               resumeCursor: undefined,
               resumeFallback: undefined,
-            }).catch((error) => {
+            }, turnId).catch((error) => {
               emit({
                 ...base(threadId, turnId),
                 type: "runtime.error",

@@ -428,26 +428,26 @@ describe("Store", () => {
     expect(reloaded.taskByThread(bot.id, background.threadId)?.resumeCursors).toEqual({ codex: "bg-thread" });
   });
 
-  it("tracks the summary a provider session was seeded with until a new session replaces it", () => {
+  it("keeps the seed that names the instance, cursor, and summary a turn certified", () => {
     const store = new Store(selection);
     const bot = store.createBot();
+    const seed = { instanceId: "claude", cursor: "session-1", compactionId: "c1" };
     store.setResumeCursor(bot.id, "claude", "session-1", bot.threadId);
-    store.markResumeSeeded(bot.id, bot.threadId, "c1");
-    expect(new Store(selection).taskByThread(bot.id, bot.threadId)?.resumeSeededCompactionId).toBe("c1");
+    store.markResumeSeeded(bot.id, bot.threadId, seed);
+    expect(new Store(selection).taskByThread(bot.id, bot.threadId)?.resumeSeed).toEqual(seed);
 
     store.setResumeCursor(bot.id, "claude", "session-1", bot.threadId);
-    expect(store.taskByThread(bot.id, bot.threadId)?.resumeSeededCompactionId).toBe("c1");
+    expect(store.taskByThread(bot.id, bot.threadId)?.resumeSeed).toEqual(seed);
 
-    // false, not absent: absent is a task from before seeds existed
+    // a moved cursor leaves the seed naming the session it certified
     store.setResumeCursor(bot.id, "claude", "session-2", bot.threadId);
-    expect(store.taskByThread(bot.id, bot.threadId)?.resumeSeededCompactionId).toBe(false);
-    expect(new Store(selection).taskByThread(bot.id, bot.threadId)?.resumeSeededCompactionId).toBe(false);
+    expect(store.taskByThread(bot.id, bot.threadId)?.resumeSeed).toEqual(seed);
 
-    store.markResumeSeeded(bot.id, bot.threadId, null);
-    expect(store.taskByThread(bot.id, bot.threadId)?.resumeSeededCompactionId).toBeNull();
+    store.markResumeSeeded(bot.id, bot.threadId, { ...seed, cursor: "session-2", compactionId: null });
+    expect(store.taskByThread(bot.id, bot.threadId)?.resumeSeed).toEqual({ instanceId: "claude", cursor: "session-2", compactionId: null });
     store.clearResumeCursors(bot.id, bot.threadId);
-    expect(store.taskByThread(bot.id, bot.threadId)?.resumeSeededCompactionId).toBeUndefined();
-    expect(new Store(selection).taskByThread(bot.id, bot.threadId)?.resumeSeededCompactionId).toBeUndefined();
+    expect(store.taskByThread(bot.id, bot.threadId)?.resumeSeed).toBeUndefined();
+    expect(new Store(selection).taskByThread(bot.id, bot.threadId)?.resumeSeed).toBeUndefined();
   });
 
   it("markProviderSessionBound records the recycle watermark and drops lastInput", () => {
@@ -1375,7 +1375,7 @@ describe("Store task working folder", () => {
     expect(store.pinTaskCwd(bot.id, second.threadId)).toBe("/tmp/project-a");
     store.setResumeCursor(bot.id, "claude", "sess-old", bot.threadId);
     store.setResumeCursor(bot.id, "claude", "sess-old-2", second.threadId);
-    store.markResumeSeeded(bot.id, bot.threadId, "c1");
+    store.markResumeSeeded(bot.id, bot.threadId, { instanceId: "claude", cursor: "sess-old", compactionId: "c1" });
 
     // the PATCH path compares old vs new, then calls this on a real change
     store.patchBot(bot.id, { cwd: "/tmp/project-b" });
@@ -1386,8 +1386,8 @@ describe("Store task working folder", () => {
     expect(store.taskByThread(bot.id, bot.threadId)?.resumeCursors).toEqual({});
     expect(store.taskByThread(bot.id, second.threadId)?.resumeCursors).toEqual({});
     // the seed described the dropped session; a fresh one starts unseeded
-    expect(store.taskByThread(bot.id, bot.threadId)?.resumeSeededCompactionId).toBeUndefined();
-    expect(store.taskByThread(bot.id, second.threadId)?.resumeSeededCompactionId).toBeUndefined();
+    expect(store.taskByThread(bot.id, bot.threadId)?.resumeSeed).toBeUndefined();
+    expect(store.taskByThread(bot.id, second.threadId)?.resumeSeed).toBeUndefined();
     expect(store.bot(bot.id)?.resumeCursors).toEqual({});
     // the next turn re-resolves the new pin (pin wins) on a fresh session
     expect(store.pinTaskCwd(bot.id, bot.threadId)).toBe("/tmp/project-b");

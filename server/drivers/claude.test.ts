@@ -656,7 +656,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     const dump = join(scratch, "resume-fallback.json");
     process.env.FAKE_CLAUDE_DUMP = dump;
 
-    await instance.adapter.sendTurn({
+    const { turnId } = await instance.adapter.sendTurn({
       threadId: `t-resume-fallback-${diagnostic.replaceAll(" ", "-")}`,
       text: "continue",
       resumeCursor: "missing-session",
@@ -668,7 +668,10 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     expect(seen.argv).not.toContain("--resume");
     expect(seen.prompt.message.content).toBe("durable task record and recent work\n\ncontinue");
-    expect(done).toMatchObject({ ok: true });
+    // the relaunch is the same logical turn: the harness records the new
+    // session only for the turn id it holds as live
+    expect(recorder.events.filter((event) => event.type === "session.started").at(-1)).toMatchObject({ turnId });
+    expect(done).toMatchObject({ ok: true, turnId });
     expect(recorder.events.filter((event) => event.type === "turn.completed")).toHaveLength(1);
   });
 
@@ -951,9 +954,11 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     process.env.FAKE_CLAUDE_STATE = join(scratch, "launches");
     process.env.FAKE_CLAUDE_RETRY_SCALE = "0.001";
     await create();
-    await instance.adapter.sendTurn({ threadId: "t-retry", text: "go" });
+    const { turnId } = await instance.adapter.sendTurn({ threadId: "t-retry", text: "go" });
 
-    await recorder.until((e) => e.type === "turn.completed" && e.ok === true);
+    const done = await recorder.until((e) => e.type === "turn.completed" && e.ok === true);
+    expect(done).toMatchObject({ turnId });
+    expect(recorder.events.filter((e) => e.type === "session.started").at(-1)).toMatchObject({ turnId });
     const retries = recorder.events.filter((e) => e.type === "turn.retrying");
     expect(retries.map((e) => e.attempt)).toEqual([1, 2]);
     expect(retries.every((e) => e.delayMs > 0 && typeof e.reason === "string")).toBe(true);

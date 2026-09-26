@@ -210,7 +210,7 @@ describe("Antigravity turns (fake CLI)", () => {
 
     const done = recorder.events.at(-1)!;
     // result.usage is the turn total (the per-step figures precede it)
-    expect(done).toMatchObject({ type: "turn.completed", ok: true, usage: { input: 105, output: 20 } });
+    expect(done).toMatchObject({ type: "turn.completed", ok: true, promptAccepted: true, usage: { input: 105, output: 20 } });
     expect(instance.adapter.hasSession("t-happy")).toBe(false);
   });
 
@@ -282,7 +282,7 @@ describe("Antigravity turns (fake CLI)", () => {
     process.env.FAKE_AGY_RESUME_FAIL = resumeFailure;
     try {
       await create();
-      await instance.adapter.sendTurn({
+      const { turnId } = await instance.adapter.sendTurn({
         threadId: `t-resume-fallback-${label}`,
         text: "latest prompt",
         resumeCursor: "missing-conversation",
@@ -290,6 +290,10 @@ describe("Antigravity turns (fake CLI)", () => {
       });
       await recorder.until((event) => event.type === "turn.retrying" && event.reason === "resume_cursor");
       await recorder.until((event) => event.type === "turn.completed");
+      // the relaunch is the same logical turn, so its session lands on the
+      // turn id the harness holds as live
+      expect(recorder.events.filter((event) => event.type === "session.started").at(-1)).toMatchObject({ turnId });
+      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", turnId });
 
       const invocation = JSON.parse(readFileSync(dump, "utf8"));
       expect(invocation.argv).not.toContain("--conversation");

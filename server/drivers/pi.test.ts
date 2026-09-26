@@ -245,7 +245,7 @@ describe("PiDriver turns (fake CLI)", () => {
     expect((text as { text: string }).text).toBe("Hello from pi");
 
     const done = recorder.events.at(-1)!;
-    expect(done).toMatchObject({ type: "turn.completed", ok: true, stopReason: "end_turn", usage: { input: 12, output: 3 } });
+    expect(done).toMatchObject({ type: "turn.completed", ok: true, stopReason: "end_turn", promptAccepted: true, usage: { input: 12, output: 3 } });
     expect(instance.adapter.hasSession("t-happy")).toBe(false);
   });
 
@@ -293,6 +293,8 @@ describe("PiDriver turns (fake CLI)", () => {
     const { turnId } = await instance.adapter.sendTurn({ threadId: "t-exit", text: "hi" });
     const done = await recorder.until((e) => e.type === "turn.completed" && e.turnId === turnId);
     expect(done).toMatchObject({ ok: false, stopReason: "failed" });
+    // nothing reached the model, so the session holds no prompt to resume
+    expect("promptAccepted" in done).toBe(false);
     expect(instance.adapter.hasSession("t-exit")).toBe(false);
   });
 

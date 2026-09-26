@@ -187,22 +187,32 @@ export function shouldRecycleProviderSession(input: {
   return budget > 0 && (input.lastTurnInputTokens ?? 0) > budget;
 }
 
+/** The session a turn certified: the summary id (null: none) the provider
+ * accepted into `cursor` on `instanceId`. */
+export interface ResumeSeed {
+  instanceId: string;
+  cursor: unknown;
+  compactionId: string | null;
+}
+
 /** A cursor is resumable only once the provider accepted a prompt carrying the
- * thread's current summary into it. A session that failed before its prompt,
- * or predates the newest summary, would otherwise resume without Orbit's
- * context. A grown window replaces the summary with the original history, so
- * the session must have been seeded with that (no summary) instead. */
+ * thread's current summary into that very session. A session that failed
+ * before its prompt, another instance's certification, or a seed that
+ * predates the newest summary would otherwise resume without Orbit's context.
+ * A grown window replaces the summary with the original history, so the
+ * session must have been seeded with that (no summary) instead. Absent seed
+ * (tasks from before seeds existed included): replay once. */
 export function resumeSessionUnseeded(input: {
-  hasCursor: boolean;
-  seededCompactionId: string | null | false | undefined;
+  instanceId: string;
+  cursor: unknown;
+  seed: ResumeSeed | undefined;
   latestCompactionId: string | null;
   expanded?: boolean;
 }): boolean {
-  if (!input.hasCursor) return false;
-  // Absent: a task from before seeds existed. Those builds replayed the latest
-  // summary into every session, so that is what the cursor holds.
-  const seeded = input.seededCompactionId === undefined ? input.latestCompactionId : input.seededCompactionId;
-  return seeded !== (input.expanded ? null : input.latestCompactionId);
+  if (input.cursor === undefined) return false;
+  const { seed } = input;
+  if (!seed || seed.instanceId !== input.instanceId || seed.cursor !== input.cursor) return true;
+  return seed.compactionId !== (input.expanded ? null : input.latestCompactionId);
 }
 
 /** A turn certifies only the session it ran on: the cursor it resumed, or the
@@ -219,6 +229,41 @@ export function turnSeedsSession(input: {
   if (!input.promptAccepted && !(input.ok && !input.interrupted)) return false;
   if (input.eventInstanceId !== undefined && input.eventInstanceId !== input.seed.instanceId) return false;
   return input.seed.cursor !== undefined && input.seed.cursor === input.currentCursor;
+}
+
+export interface TurnSeed extends ResumeSeed {
+  /** the adapter's id for the dispatch, once sendTurn returned it */
+  turnId?: string;
+}
+
+/** Thread -> what its running 1:1 turn certifies on completion. Each entry
+ * belongs to the dispatch that set it: a stopped dispatch's cleanup or late
+ * completion must not drop or consume its replacement's entry. */
+export class TurnSeeds {
+  private readonly byThread = new Map<string, TurnSeed>();
+
+  set(threadId: string, seed: ResumeSeed): TurnSeed {
+    const entry: TurnSeed = { ...seed };
+    this.byThread.set(threadId, entry);
+    return entry;
+  }
+
+  get(threadId: string): TurnSeed | undefined {
+    return this.byThread.get(threadId);
+  }
+
+  /** Drop `entry` only while it is still the thread's current seed. */
+  release(threadId: string, entry: TurnSeed): void {
+    if (this.byThread.get(threadId) === entry) this.byThread.delete(threadId);
+  }
+
+  /** Consume the seed of the turn that completed; another dispatch's stays. */
+  take(threadId: string, turnId: string | undefined): TurnSeed | undefined {
+    const entry = this.byThread.get(threadId);
+    if (!entry || turnId === undefined || entry.turnId !== turnId) return undefined;
+    this.byThread.delete(threadId);
+    return entry;
+  }
 }
 
 const REWOUND_PREAMBLE =

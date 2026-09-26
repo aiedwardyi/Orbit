@@ -14,6 +14,7 @@ import { workspaceDir } from "./workspace.ts";
 import { newId, type CloudBackend, type ModelSelection, type ThreadId } from "./contracts.ts";
 import { pickBotName } from "./names.ts";
 import { redactSecretsInText } from "./redact.ts";
+import type { ResumeSeed } from "./turn-context.ts";
 import {
   deleteTaskResumePacket,
   readTaskResumePacket,
@@ -253,11 +254,10 @@ export interface TaskRecord {
    * after this id belong to the current native session; older chips do
    * not. Absent on tasks that have never soft-recycled. */
   providerSessionBoundId?: string;
-  /** Latest summary id (null: none) the provider accepted into the current
-   * cursor's session; false until a new session accepts one, so it must
-   * not be resumed. Absent on tasks from before the field existed, whose
-   * builds replayed the latest summary into every session. */
-  resumeSeededCompactionId?: string | null | false;
+  /** The session a turn certified. Counts only while `resumeCursors` still
+   * holds that instance's cursor; absent means no session may be resumed
+   * before a replay. */
+  resumeSeed?: ResumeSeed;
 }
 
 export interface TaskUsage {
@@ -1390,11 +1390,7 @@ export class Store {
     if (!bot) return;
     // the cursor belongs to the task that produced it, not to the bot
     const task = threadId ? this.taskByThread(botId, threadId) : this.activeTask(botId);
-    if (task) {
-      // a new session has not received Orbit's context until it accepts a prompt
-      if (task.resumeCursors[instanceId] !== cursor) task.resumeSeededCompactionId = false;
-      task.resumeCursors[instanceId] = cursor;
-    }
+    if (task) task.resumeCursors[instanceId] = cursor;
     // The legacy mirror follows the task visible in chat, never a detached
     // routine task working in the background.
     if (!threadId || bot.threadId === threadId) bot.resumeCursors[instanceId] = cursor;
@@ -1434,7 +1430,7 @@ export class Store {
     if (taskEmpty && botEmpty) return;
     if (task) {
       task.resumeCursors = {};
-      delete task.resumeSeededCompactionId;
+      delete task.resumeSeed;
     }
     if (mirrorsBot) bot.resumeCursors = {};
     this.saveBots();
@@ -1462,8 +1458,8 @@ export class Store {
         task.resumeCursors = {};
         touched = true;
       }
-      if (task.resumeSeededCompactionId !== undefined) {
-        delete task.resumeSeededCompactionId;
+      if (task.resumeSeed !== undefined) {
+        delete task.resumeSeed;
         touched = true;
       }
     }
@@ -1476,10 +1472,12 @@ export class Store {
     this.emit({ type: "bot", botId });
   }
 
-  markResumeSeeded(botId: string, threadId: string, compactionId: string | null) {
+  markResumeSeeded(botId: string, threadId: string, seed: ResumeSeed) {
     const task = this.taskByThread(botId, threadId);
-    if (!task || task.resumeSeededCompactionId === compactionId) return;
-    task.resumeSeededCompactionId = compactionId;
+    if (!task) return;
+    const current = task.resumeSeed;
+    if (current && current.instanceId === seed.instanceId && current.cursor === seed.cursor && current.compactionId === seed.compactionId) return;
+    task.resumeSeed = { ...seed };
     this.saveBots();
   }
 
@@ -1744,7 +1742,7 @@ export class Store {
       record.resumeCursors = {};
       delete record.lastInstanceId;
       delete record.providerSessionBoundId;
-      delete record.resumeSeededCompactionId;
+      delete record.resumeSeed;
     } else {
       record = { threadId, title: task.title, createdAt: task.createdAt, resumeCursors: {} };
       const tasks = bot.tasks ?? [];

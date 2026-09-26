@@ -281,6 +281,22 @@ describe("turn completion disposition after stop", () => {
     expect(dispatch).toBeGreaterThan(busy);
   });
 
+  it("drops the task's cursors and seed when a rewound turn dispatches, not only the bot mirror", () => {
+    expect(indexSource).toContain([
+      "if (rewound) {",
+      "        store.clearResumeCursors(bot.id, threadId);",
+      "        store.patchBot(bot.id, { rewound: false });",
+      "      }",
+    ].join("\n"));
+    expect(indexSource).not.toContain("{ rewound: false, resumeCursors: {} }");
+  });
+
+  it("binds each turn seed to its dispatch so a stopped turn cannot drop or consume its replacement's", () => {
+    expect(indexSource).toContain("turnSeeds.take(event.threadId, event.turnId)");
+    expect(indexSource).toContain("turnSeeds.release(threadId, seed)");
+    expect(indexSource).not.toContain("turnSeed.delete(threadId)");
+  });
+
   it("stamps a recovery dismiss only when the posted version still matches", () => {
     const current = { updatedAt: 200, flushReason: "shutdown" };
     expect(shouldStampRecoveryDismiss(current, { updatedAt: 200, flushReason: "shutdown" })).toBe(true);

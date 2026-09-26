@@ -197,6 +197,7 @@ import {
   shouldRecycleProviderSession,
   TASK_RESUME_PROMPT,
   taskRecordBlock,
+  TurnSeeds,
   turnSeedsSession,
 } from "./turn-context.ts";
 import { providerReloadErrorActivity, stallErrorActivity } from "./room-error-attribution.ts";
@@ -1035,7 +1036,7 @@ const wireTask = ({
   lastInstanceId: _lastInstanceId,
   lastModel: _lastModel,
   providerSessionBoundId: _providerSessionBoundId,
-  resumeSeededCompactionId: _resumeSeededCompactionId,
+  resumeSeed: _resumeSeed,
   ...task
 }: TaskRecord) => ({ ...task, taskState: store.taskPacket(task.threadId) ?? undefined });
 
@@ -2113,7 +2114,7 @@ const liveTurnIdByThread = new Map<string, string>();
 const settledTurnIdByThread = new Map<string, string>();
 // Thread → what its running 1:1 turn certifies on completion: the summary id
 // (null: none) it was dispatched with, for the session it resumed or started.
-const turnSeed = new Map<string, { compactionId: string | null; instanceId: string; cursor: unknown }>();
+const turnSeeds = new TurnSeeds();
 // Room thread → the instruction id its running turn was dispatched against.
 const roomTurnInstruction = new Map<string, string>();
 const interruptedTurnIds = new Set<string>();
@@ -2620,7 +2621,7 @@ bus.subscribe((event: RuntimeEvent) => {
     case "session.started":
       if (bot && event.sessionId && event.providerInstanceId && !staleTurnEvent(event.threadId, event.turnId)) {
         store.setResumeCursor(bot.id, event.providerInstanceId, event.sessionId, event.threadId);
-        const seed = turnSeed.get(event.threadId);
+        const seed = turnSeeds.get(event.threadId);
         if (seed?.instanceId === event.providerInstanceId) seed.cursor = event.sessionId;
       }
       break;
@@ -3035,8 +3036,7 @@ bus.subscribe((event: RuntimeEvent) => {
         }
         const disowned = Boolean(event.turnId && disownedTurnIds.delete(event.turnId));
         if (!superseded && !disowned) {
-          const seed = turnSeed.get(event.threadId);
-          turnSeed.delete(event.threadId);
+          const seed = turnSeeds.take(event.threadId, event.turnId);
           if (seed && turnSeedsSession({
             ok: event.ok,
             interrupted,
@@ -3045,7 +3045,11 @@ bus.subscribe((event: RuntimeEvent) => {
             eventInstanceId: event.providerInstanceId,
             currentCursor: store.taskByThread(bot.id, event.threadId)?.resumeCursors[seed.instanceId],
           })) {
-            store.markResumeSeeded(bot.id, event.threadId, seed.compactionId);
+            store.markResumeSeeded(bot.id, event.threadId, {
+              instanceId: seed.instanceId,
+              cursor: seed.cursor,
+              compactionId: seed.compactionId,
+            });
           }
           const packet = taskPacketForWrite(event.threadId);
           if (packet) {
@@ -3816,8 +3820,9 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     ? knownCatalogContextWindow(instance.models, model)
     : null;
   const unseeded = !rewound && !fresh && resumeSessionUnseeded({
-    hasCursor: task.resumeCursors[instanceId] !== undefined,
-    seededCompactionId: task.resumeSeededCompactionId,
+    instanceId,
+    cursor: task.resumeCursors[instanceId],
+    seed: task.resumeSeed,
     latestCompactionId,
     expanded: prepared.expanded,
   });
@@ -3912,7 +3917,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   turnUsage.delete(threadId);
   turnDispatchedAt.set(threadId, tickTurnClock());
   turnStartedAtMs.set(threadId, Date.now());
-  turnSeed.set(threadId, {
+  const seed = turnSeeds.set(threadId, {
     compactionId: sessionCompactionId,
     instanceId,
     cursor: resume ? task.resumeCursors[instanceId] : undefined,
@@ -3920,7 +3925,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
 
   void (async () => {
     if (currentTurnEpoch(bot.id) !== epoch) {
-      turnSeed.delete(threadId);
+      turnSeeds.release(threadId, seed);
       return;
     }
     try {
@@ -4240,7 +4245,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       if (currentTurnEpoch(bot.id) !== epoch) {
         releaseLocalVmThread(threadId);
         if (activeVpsThreads.get(bot.id) === threadId) activeVpsThreads.delete(bot.id);
-        turnSeed.delete(threadId);
+        turnSeeds.release(threadId, seed);
         return;
       }
       watchdog.watch(threadId, bot.id);
@@ -4318,11 +4323,15 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       });
       });
       bindInterruptedTurn(threadId, started.turnId);
+      if (started.turnId) seed.turnId = started.turnId;
       if (newestPaneNoteId) deliveredPaneNotes.set(threadId, newestPaneNoteId);
       if (currentTurnEpoch(bot.id) !== epoch) return;
       if (started.turnId) liveTurnIdByThread.set(threadId, started.turnId);
-      // dispatched: the rewind is spent, and the old cursors are dead
-      if (rewound) store.patchBot(bot.id, { rewound: false, resumeCursors: {} });
+      // dispatched: the rewind is spent, and the old cursors and seed are dead
+      if (rewound) {
+        store.clearResumeCursors(bot.id, threadId);
+        store.patchBot(bot.id, { rewound: false });
+      }
       // and this engine now owns the thread's most recent turn
       store.markTaskDispatched(bot.id, threadId, instanceId, model);
       // a turn can settle before dispatch returns, and a poller started
@@ -4341,7 +4350,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       if (activeVpsThreads.get(bot.id) === threadId) activeVpsThreads.delete(bot.id);
       watchdog.settle(threadId);
       turnUsage.delete(threadId);
-      turnSeed.delete(threadId);
+      turnSeeds.release(threadId, seed);
       if (currentTurnEpoch(bot.id) !== epoch) return;
       const message = e instanceof Error ? e.message : String(e);
       store.appendMessage(threadId, {

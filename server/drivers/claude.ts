@@ -701,14 +701,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     // is a fresh sendTurn, and the attempt cap must survive across launches
     const retryState = new Map<string, { attempt: number; cancelled: boolean }>();
 
-    const sendTurn = async (turn: SendTurnInput) => {
+    // A relaunch (resume fallback, transient retry) is the same logical turn:
+    // the harness holds the first id as live and drops events from any other.
+    const sendTurn = async (turn: SendTurnInput, relaunchOf?: string) => {
       const { threadId } = turn;
       if (active.has(threadId)) throw new Error("a turn is already running on this thread");
       const controlsHost = turn.integrations?.localComputer?.scope === "local-computer";
       if (controlsHost && config.permissionMode === "bypassPermissions") {
         throw new Error("local computer control requires the interactive approval broker");
       }
-      const turnId = newId();
+      const turnId = relaunchOf ?? newId();
     const turnTimer = startTurnTimer({
       engine: "claude",
       model: turn.model,
@@ -1230,7 +1232,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               text: turn.resumeFallback!.text,
               resumeCursor: undefined,
               resumeFallback: undefined,
-            }).catch((error) => {
+            }, turnId).catch((error) => {
               emit({
                 ...base(threadId, turnId),
                 type: "runtime.error",
@@ -1302,7 +1304,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               active.delete(threadId);
               try {
                 const cursor = session.sessionId ?? sessionId ?? undefined;
-                await sendTurn({ ...turn, resumeCursor: cursor });
+                await sendTurn({ ...turn, resumeCursor: cursor }, turnId);
               } catch (e) {
                 retryState.delete(threadId);
                 emit({

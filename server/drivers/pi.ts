@@ -463,6 +463,8 @@ export const PiDriver: ProviderDriver<PiConfig> = {
       const turnId = newId();
       const pending = new Map<string, (decision: { behavior: "allow" | "deny" | "answer"; message?: string }) => void>();
       let settled = false;
+      // the model answered this prompt, so the session holds it
+      let promptAccepted = false;
 
       // Write ~/.pi/agent/models.json before creating any credential-bearing
       // MCP temp files. If model setup fails, there is nothing sensitive to
@@ -567,6 +569,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
           ok,
           stopReason: stopReason ?? (ok ? "end_turn" : "failed"),
           ...(usage ? { usage: { input: usage.input ?? 0, output: usage.output ?? 0 } } : {}),
+          ...(promptAccepted ? { promptAccepted: true } : {}),
         });
         try {
           child.stdin.end();
@@ -618,6 +621,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
           case "message_update": {
             const e = evt.assistantMessageEvent;
             if (!e) return;
+            promptAccepted = true;
             if (e.type === "text_delta" && typeof e.delta === "string") {
               assistantText += e.delta;
               emit({ ...base(threadId, turnId), type: "content.delta", streamKind: "assistant_text", delta: e.delta });
@@ -627,6 +631,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
             return;
           }
           case "tool_execution_start": {
+            promptAccepted = true;
             flushAssistantText();
             emit({
               ...base(threadId, turnId),

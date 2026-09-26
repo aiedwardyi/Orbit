@@ -65,6 +65,8 @@ function claudeResumeBot(input: {
       title: "Release",
       createdAt: 1,
       resumeCursors: { claude: input.session },
+      // a prior turn certified this session with no summary
+      resumeSeed: { instanceId: "claude", cursor: input.session, compactionId: null },
       lastInstanceId: "claude",
       lastModel: "claude-fake",
     }],

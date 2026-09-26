@@ -13,6 +13,7 @@ import {
   shouldRecycleProviderSession,
   TASK_RESUME_PROMPT,
   taskRecordBlock,
+  TurnSeeds,
   turnSeedsSession,
 } from "./turn-context.ts";
 
@@ -483,17 +484,20 @@ describe("resumeSessionUnseeded", () => {
     });
   };
 
+  const seeded = (compactionId: string | null, cursor = "session-1", instanceId = "claude") => ({ instanceId, cursor, compactionId });
+
   it("resumes a session a successful turn seeded with the current summary", () => {
-    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: "c1", latestCompactionId: "c1" })).toBe(false);
-    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: null, latestCompactionId: null })).toBe(false);
+    expect(resumeSessionUnseeded({ instanceId: "claude", cursor: "session-1", seed: seeded("c1"), latestCompactionId: "c1" })).toBe(false);
+    expect(resumeSessionUnseeded({ instanceId: "claude", cursor: "session-1", seed: seeded(null), latestCompactionId: null })).toBe(false);
     const { turnText, resume } = turnFor(false);
     expect(resume).toBe(true);
     expect(turnText).toBe("what are their names?");
   });
 
   it("replays summary and tail instead of resuming a session no prompt reached", () => {
-    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: false, latestCompactionId: "c1" })).toBe(true);
-    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: false, latestCompactionId: null })).toBe(true);
+    // the cursor moved to a session the seed never certified
+    expect(resumeSessionUnseeded({ instanceId: "claude", cursor: "session-2", seed: seeded("c1"), latestCompactionId: "c1" })).toBe(true);
+    expect(resumeSessionUnseeded({ instanceId: "claude", cursor: "session-2", seed: seeded(null), latestCompactionId: null })).toBe(true);
     const { turnText, resume } = turnFor(true);
     expect(resume).toBe(false);
     expect(turnText).toContain("Orbit compacted this conversation");
@@ -502,30 +506,39 @@ describe("resumeSessionUnseeded", () => {
   });
 
   it("replays after restart when the thread has a newer summary than the session", () => {
-    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: "c1", latestCompactionId: "c2" })).toBe(true);
-    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: null, latestCompactionId: "c1" })).toBe(true);
+    expect(resumeSessionUnseeded({ instanceId: "claude", cursor: "session-1", seed: seeded("c1"), latestCompactionId: "c2" })).toBe(true);
+    expect(resumeSessionUnseeded({ instanceId: "claude", cursor: "session-1", seed: seeded(null), latestCompactionId: "c1" })).toBe(true);
     const { turnText, resume } = turnFor(true, true);
     expect(resume).toBe(false);
     expect(turnText).toContain("Biscuit is the dog.");
   });
 
   it("has nothing to recycle without a cursor", () => {
-    expect(resumeSessionUnseeded({ hasCursor: false, seededCompactionId: false, latestCompactionId: "c1" })).toBe(false);
+    expect(resumeSessionUnseeded({ instanceId: "claude", cursor: undefined, seed: undefined, latestCompactionId: "c1" })).toBe(false);
+    expect(resumeSessionUnseeded({ instanceId: "claude", cursor: undefined, seed: seeded("c1"), latestCompactionId: "c1" })).toBe(false);
   });
 
-  it("trusts a cursor saved before seeds existed as holding the latest summary", () => {
-    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: undefined, latestCompactionId: "c1" })).toBe(false);
-    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: undefined, latestCompactionId: null })).toBe(false);
-    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: undefined, latestCompactionId: "c1", expanded: true })).toBe(true);
+  it("replays a cursor saved before seeds existed instead of trusting it", () => {
+    // a pre-seed build saved sessions that failed before their prompt too
+    expect(resumeSessionUnseeded({ instanceId: "claude", cursor: "session-1", seed: undefined, latestCompactionId: "c1" })).toBe(true);
+    expect(resumeSessionUnseeded({ instanceId: "claude", cursor: "session-1", seed: undefined, latestCompactionId: null })).toBe(true);
+  });
+
+  it("never lets one instance's seed certify another instance's cursor", () => {
+    // Codex -> Claude -> Codex: Claude certified c1, the switch-back's first
+    // turn died before session.started, and Codex still holds its old thread
+    const claude = seeded("c1", "session-1", "claude");
+    expect(resumeSessionUnseeded({ instanceId: "codex", cursor: "thread-old", seed: claude, latestCompactionId: "c1" })).toBe(true);
+    expect(resumeSessionUnseeded({ instanceId: "claude", cursor: "session-1", seed: claude, latestCompactionId: "c1" })).toBe(false);
   });
 
   it("recycles once when a grown window restores the history a summary stood for", () => {
     // seeded with the summary, now dispatched with the original history
-    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: "c1", latestCompactionId: "c1", expanded: true })).toBe(true);
+    expect(resumeSessionUnseeded({ instanceId: "claude", cursor: "session-1", seed: seeded("c1"), latestCompactionId: "c1", expanded: true })).toBe(true);
     // the recycled session was seeded with that history: no summary at all
-    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: null, latestCompactionId: "c1", expanded: true })).toBe(false);
+    expect(resumeSessionUnseeded({ instanceId: "claude", cursor: "session-1", seed: seeded(null), latestCompactionId: "c1", expanded: true })).toBe(false);
     // back on the small window the summary is what the session lacks
-    expect(resumeSessionUnseeded({ hasCursor: true, seededCompactionId: null, latestCompactionId: "c1" })).toBe(true);
+    expect(resumeSessionUnseeded({ instanceId: "claude", cursor: "session-1", seed: seeded(null), latestCompactionId: "c1" })).toBe(true);
   });
 });
 
@@ -707,5 +720,33 @@ describe("engineIsFresh", () => {
     expect(
       engineIsFresh({ instanceId: "claude", model: "sonnet", lastInstanceId: undefined, lastModel: undefined, sessionModelSwitch: "in-session", resumeCursors: { claude: "s1", antigravity: "s2" }, transcript: withUser }),
     ).toBe(true);
+  });
+});
+
+describe("TurnSeeds", () => {
+  const seed = { compactionId: "c1", instanceId: "claude", cursor: "session-a" };
+
+  it("lets a stopped dispatch release only its own entry", () => {
+    const seeds = new TurnSeeds();
+    const stopped = seeds.set("t1", seed);
+    const replacement = seeds.set("t1", seed);
+    seeds.release("t1", stopped);
+    expect(seeds.get("t1")).toBe(replacement);
+    seeds.release("t1", replacement);
+    expect(seeds.get("t1")).toBeUndefined();
+  });
+
+  it("hands the seed only to the completion of the turn that dispatched it", () => {
+    const seeds = new TurnSeeds();
+    const stopped = seeds.set("t1", seed);
+    stopped.turnId = "turn-a";
+    const replacement = seeds.set("t1", seed);
+    // A's late completion lands while B is still dispatching
+    expect(seeds.take("t1", "turn-a")).toBeUndefined();
+    replacement.turnId = "turn-b";
+    expect(seeds.take("t1", "turn-a")).toBeUndefined();
+    expect(seeds.take("t1", undefined)).toBeUndefined();
+    expect(seeds.take("t1", "turn-b")).toBe(replacement);
+    expect(seeds.get("t1")).toBeUndefined();
   });
 });
