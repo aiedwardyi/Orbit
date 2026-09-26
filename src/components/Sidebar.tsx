@@ -1439,9 +1439,30 @@ export function Sidebar({
     const aside = asideRef.current;
     const ghost = sidebarGhostRef.current;
     if (!from || resizing || from === sidebarDisplayWidth || !aside || !ghost) return;
-    if (!window.matchMedia?.(`(min-width: ${SIDEBAR_INLINE_BREAKPOINT}px)`).matches) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const shift = from - sidebarDisplayWidth;
+    if (!window.matchMedia?.(`(min-width: ${SIDEBAR_INLINE_BREAKPOINT}px)`).matches) {
+      if (!open) return;
+      if (shift > 0) {
+        ghost.style.width = `${shift}px`;
+        ghost.style.left = `${-shift}px`;
+      }
+      const slide = aside.animate(
+        [{ transform: `translateX(${shift}px)` }, { transform: "translateX(0)" }],
+        SIDEBAR_MOTION,
+      );
+      slide.onfinish = () => {
+        ghost.style.width = "";
+        ghost.style.left = "";
+      };
+      return () => {
+        const progress = slide.effect?.getComputedTiming().progress;
+        if (progress != null) shownSidebarWidth.current = from + (sidebarDisplayWidth - from) * progress;
+        slide.cancel();
+        ghost.style.width = "";
+        ghost.style.left = "";
+      };
+    }
     const motions: Animation[] = [];
     if (shift < 0) {
       motions.push(aside.animate([{ clipPath: `inset(0 ${-shift}px 0 0)` }, { clipPath: "inset(0)" }], SIDEBAR_MOTION));
@@ -1991,7 +2012,7 @@ export function Sidebar({
         // silently reparents the wizard overlay and the "+" menu backdrop on
         // desktop.
         "max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-40",
-        "max-md:transition-transform max-md:duration-200",
+        "max-md:will-change-transform max-md:transition-transform max-md:duration-300 max-md:ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
         open ? "max-md:translate-x-0" : "max-md:-translate-x-full",
       )}
       style={{ width: sidebarDisplayWidth }}

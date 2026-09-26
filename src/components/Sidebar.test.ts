@@ -542,6 +542,63 @@ describe("Sidebar layout controls", () => {
     }
   });
 
+  it("slides both mobile arrows without animating layout or the chat", async () => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "0");
+    window.localStorage.setItem(SIDEBAR_WIDTH_KEY, "360");
+    vi.spyOn(window, "matchMedia").mockImplementation(() => ({ matches: false } as MediaQueryList));
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cancel = vi.fn();
+    const animate = vi.spyOn(HTMLElement.prototype, "animate").mockImplementation(() => ({
+      cancel,
+      effect: { getComputedTiming: () => ({ progress: 0.5 }) },
+    }) as unknown as Animation);
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    const motion = { duration: 300, easing: "cubic-bezier(0.32, 0.72, 0, 1)" };
+    try {
+      await act(async () => root.render(createElement(
+        StoreProvider,
+        null,
+        createElement(Sidebar, { open: true, onClose: () => {} }),
+        createElement("main"),
+      )));
+      const aside = host.querySelector("aside")!;
+      const toggle = () => host.querySelector('button[aria-label="Collapse sidebar to avatars"], button[aria-label="Expand sidebar"]')!;
+      await act(async () => toggle().dispatchEvent(new MouseEvent("click", { bubbles: true })));
+      expect(animate.mock.contexts).toEqual([aside]);
+      expect(animate.mock.calls).toEqual([[
+        [{ transform: "translateX(296px)" }, { transform: "translateX(0)" }], motion,
+      ]]);
+      const ghost = aside.querySelector<HTMLElement>('[aria-hidden][class*="left-full"]')!;
+      expect(ghost.style.left).toBe("-296px");
+      expect(ghost.style.width).toBe("296px");
+
+      animate.mockClear();
+      await act(async () => toggle().dispatchEvent(new MouseEvent("click", { bubbles: true })));
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(animate.mock.contexts).toEqual([aside]);
+      expect(animate.mock.calls).toEqual([[
+        [{ transform: "translateX(-148px)" }, { transform: "translateX(0)" }], motion,
+      ]]);
+      expect(ghost.style.left).toBe("");
+      expect(ghost.style.width).toBe("");
+
+      animate.mockClear();
+      vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+        matches: query === "(prefers-reduced-motion: reduce)",
+      }) as MediaQueryList);
+      await act(async () => toggle().dispatchEvent(new MouseEvent("click", { bubbles: true })));
+      expect(animate).not.toHaveBeenCalled();
+    } finally {
+      window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
+      window.localStorage.removeItem(SIDEBAR_WIDTH_KEY);
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
   it("never animates a drag resize or reduced motion", async () => {
     window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "0");
     window.localStorage.setItem(SIDEBAR_WIDTH_KEY, "360");
