@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { makeFakeDriver } from "../testing/fake-driver.ts";
@@ -75,5 +78,16 @@ describe("provider settings reload", () => {
     expect(live).not.toBe(captured);
     expect(live).toBe(registry.get("muse"));
     reload.settled("muse-thread");
+  });
+});
+
+describe("reload wait at dispatch", () => {
+  const indexSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../index.ts"), "utf8");
+
+  it("skips the wait for a nested turn whose caller still holds the instance", () => {
+    // ask_bot: the caller's turn stays active on the instance until the reply
+    // lands, so a pending reload never resolves while the callee waits on it.
+    expect(indexSource).toContain('if (opts?.runOn !== "cloud" && !commsDepth) await providerReload.wait(selection.instanceId);');
+    expect(indexSource).not.toContain('if (opts?.runOn !== "cloud") await providerReload.wait(');
   });
 });

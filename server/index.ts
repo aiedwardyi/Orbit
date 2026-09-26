@@ -3648,7 +3648,9 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   }
 
   const selection = opts?.runOn === "cloud" ? bot.modelSelection : await resolvedBotSelection(bot, task);
-  if (opts?.runOn !== "cloud") await providerReload.wait(selection.instanceId);
+  // A nested turn's caller holds its instance until the reply lands, so
+  // waiting here would deadlock a pending reload (ask_bot times out at 4m).
+  if (opts?.runOn !== "cloud" && !commsDepth) await providerReload.wait(selection.instanceId);
   const instance = opts?.runOn === "cloud"
     ? registry.instances().find((candidate) => candidate.driverKind === "boxAgent") ?? null
     : registry.get(selection.instanceId);
