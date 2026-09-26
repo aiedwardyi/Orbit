@@ -139,6 +139,8 @@ export interface Message {
   /** screen messages: a frame of the bot's computer (base64 image) */
   png?: string;
   mime?: string;
+  /** a screen message published by show_image: never pruned, always shown */
+  shown?: boolean;
   at: number;
   /** the message this one follows; null = thread root. Edited messages
    * share a parentId with the version they replace — that's a fork. */
@@ -1144,7 +1146,7 @@ export class Store {
     let seen = 0;
     for (let i = t.messages.length - 1; i >= 0 && seen < t.messages.length; i--) {
       const m = t.messages[i];
-      if (m.kind !== "screen" || !m.png) continue;
+      if (m.kind !== "screen" || !m.png || m.shown) continue;
       seen += 1;
       if (seen > keep) {
         m.png = undefined;

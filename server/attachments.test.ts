@@ -156,6 +156,7 @@ describe("show-image route", () => {
     expect(route).toContain("connectorThread(from.id, fromThreadId)");
     expect(route).toContain("importLocalImage(");
     expect(route).toContain('kind: "screen"');
+    expect(route).toContain("shown: true");
     expect(route).toContain("url: `/api/attachments/${saved.name}`");
   });
 

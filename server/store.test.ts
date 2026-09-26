@@ -1029,6 +1029,18 @@ describe("Store change stream", () => {
     ]);
   });
 
+  it("never prunes a shown image, however many frames follow", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const shown = store.appendMessage(bot.threadId, { role: "bot", kind: "screen", png: "mockup", shown: true });
+    for (let i = 1; i <= 6; i += 1) {
+      store.appendMessage(bot.threadId, { role: "bot", kind: "screen", png: `frame-${i}` });
+    }
+    const messages = store.messagesFor(bot.threadId);
+    expect(messages.find((m) => m.id === shown.id)?.png).toBe("mockup");
+    expect(messages.filter((m) => m.kind === "screen" && m.png && !m.shown)).toHaveLength(4);
+  });
+
   it("every bot write emits a bot event carrying only the id (the wire shape is the caller's)", () => {
     const store = new Store(selection);
     const bot = store.createBot();

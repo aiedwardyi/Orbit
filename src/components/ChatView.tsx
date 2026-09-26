@@ -727,14 +727,15 @@ function ActivityChip({ message }: { message: Message }) {
   );
 }
 
-function ScreenFrame({ png, mime }: { png: string; mime?: string }) {
+function ScreenFrame({ png, mime, caption }: { png: string; mime?: string; caption?: string }) {
   return (
-    <div className="flex justify-start">
+    <div className="flex flex-col items-start gap-1">
       <img
         src={`data:${mime ?? "image/png"};base64,${png}`}
-        alt="Bot's screen"
+        alt={caption || "Bot's screen"}
         className="w-fit max-w-[min(42rem,78%)] rounded-2xl border border-hairline/40"
       />
+      {caption && <p className="max-w-[min(42rem,78%)] px-1 text-[13px] text-ink-secondary">{caption}</p>}
     </div>
   );
 }
@@ -905,7 +906,7 @@ const MessagesList = memo(function MessagesList({
               return <ActivityChip message={m} />;
             }
             case "screen":
-              return m.png ? <ScreenFrame png={m.png} mime={m.mime} /> : null;
+              return m.png ? <ScreenFrame png={m.png} mime={m.mime} caption={m.text} /> : null;
             case "note":
               return <NoteMessage message={m} />;
             default:

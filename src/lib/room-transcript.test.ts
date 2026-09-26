@@ -163,6 +163,12 @@ describe("roomTranscriptRows", () => {
     expect(shown.map((row) => row.visible)).toEqual([true, true, true]);
   });
 
+  it("shows a published image even while tool calls are hidden", () => {
+    const image: Message = { id: `s${++seq}`, at: at(1), role: "bot", kind: "screen", png: "mockup", shown: true, from: from("challenge") };
+    const result = rows([say("defense", "One."), image]);
+    expect(result.map((row) => row.visible)).toEqual([true, true]);
+  });
+
   it("hides a plain failed tool step while tool calls are hidden", () => {
     const messages = [
       say("defense", "Here is the argument."),

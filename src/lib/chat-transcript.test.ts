@@ -117,6 +117,12 @@ describe("chatTranscriptRows", () => {
     expect(shown.map((row) => row.visible)).toEqual([true, true, true]);
   });
 
+  it("shows a published image even while tool calls are hidden", () => {
+    const image: Message = { id: `s${++seq}`, at: at(1, 13), role: "bot", kind: "screen", png: "mockup", shown: true };
+    const result = rows([say("One.", at(1, 12)), image]);
+    expect(result.map((row) => row.visible)).toEqual([true, true]);
+  });
+
   it("skips the emerging reply, which renders above the transcript", () => {
     const emerging = say("Popping in.", at(2, 0));
     const result = rows([say("Late.", at(1, 23)), emerging], false, emerging.id);

@@ -383,12 +383,13 @@ const Transcript = memo(function Transcript({
               onRetry={onRetryFor(m.id)}
             />
           ) : m.kind === "screen" && m.png ? (
-            <div className="flex justify-start">
+            <div className="flex flex-col items-start gap-1">
               <img
                 src={`data:${m.mime ?? "image/png"};base64,${m.png}`}
-                alt={t("chrome.screenFrame")}
+                alt={m.text || t("chrome.screenFrame")}
                 className="w-fit max-w-[min(42rem,78%)] rounded-2xl border border-hairline/40"
               />
+              {m.text && <p className="max-w-[min(42rem,78%)] px-1 text-[13px] text-ink-secondary">{m.text}</p>}
             </div>
           ) : m.kind === "text" && m.text ? (
             <div

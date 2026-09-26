@@ -6299,6 +6299,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           ...(owner.group ? { from: { botId: from.id, name: from.name, color: from.color } } : {}),
           png: readFileSync(saved.path).toString("base64"),
           mime: saved.mime,
+          shown: true,
           ...(caption ? { text: caption } : {}),
         });
         return json(res, 201, { messageId: message.id, url: `/api/attachments/${saved.name}` });

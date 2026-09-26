@@ -138,6 +138,8 @@ export interface Message {
   /** screen messages: a frame of the bot's computer (base64) */
   png?: string;
   mime?: string;
+  /** a screen message published by show_image: never pruned, always shown */
+  shown?: boolean;
   at: number;
   /** the message this one follows; null = thread root. Edited messages
    * share a parentId with the version they replace — that's a fork. */
@@ -1708,7 +1710,7 @@ const MAX_KEPT_SCREEN_FRAMES = 8;
 // base64 screen frames are big; a long computer-use history would grow memory
 // without bound. Strip older pixels (the message row survives as a placeholder).
 function keepNewestScreenFrames(messages: Message[]): Message[] {
-  const withPng = messages.filter((m) => m.kind === "screen" && m.png);
+  const withPng = messages.filter((m) => m.kind === "screen" && m.png && !m.shown);
   const excess = withPng.length - MAX_KEPT_SCREEN_FRAMES;
   if (excess <= 0) return messages;
   const dropIds = new Set(withPng.slice(0, excess).map((m) => m.id));
