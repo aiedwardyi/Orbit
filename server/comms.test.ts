@@ -603,7 +603,7 @@ describe("comms e2e (fake ACP fleet)", () => {
   );
 
   it(
-    "finalizes a delegated turn interrupted by provider reload",
+    "keeps a delegated turn running through an unrelated provider save",
     async () => {
       const seeded = (await api("GET", "/api/bots")).body.bots[0];
       await api("PATCH", `/api/bots/${seeded.id}`, { hidden: true });
@@ -637,31 +637,14 @@ describe("comms e2e (fake ACP fleet)", () => {
         await new Promise((r) => setTimeout(r, 250));
       }
 
-      // Any provider credential change rebuilds the fleet and settles busy
-      // turns without relying on a provider turn.completed event.
       const reload = await api("PUT", "/api/config", { xai: { key: "xai_reload_test" } });
       expect(reload.status).toBe(200);
+      await new Promise((r) => setTimeout(r, 1_500));
 
-      const terminalDeadline = Date.now() + 30_000;
-      for (;;) {
-        const state = (await api("GET", "/api/bots")).body;
-        const channel = state.groups.find((g: any) => g.id === channelId);
-        const terminal = channel?.messages.filter(
-          (m: any) =>
-            m.from?.botId === helper.id
-            && m.kind === "activity"
-            && m.tool?.ok === false
-            && m.tool?.name === "Delegated turn did not finish — provider settings changed",
-        );
-        if (terminal?.length === 1) break;
-        if (Date.now() > terminalDeadline) {
-          throw new Error(
-            `provider reload did not finalize delegation. channel tail: ${JSON.stringify(channel?.messages?.slice(-6))}\n` +
-              `stderr: ${stderr.slice(-2000)}`,
-          );
-        }
-        await new Promise((r) => setTimeout(r, 250));
-      }
+      const state = (await api("GET", "/api/bots")).body;
+      const channel = state.groups.find((g: any) => g.id === channelId);
+      expect(state.bots.find((b: any) => b.id === helper.id).busy).toBe(true);
+      expect(channel?.messages.some((m: any) => m.from?.botId === helper.id && m.tool?.ok === false)).toBe(false);
     },
     60_000,
   );

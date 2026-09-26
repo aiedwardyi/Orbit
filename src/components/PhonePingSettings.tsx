@@ -22,10 +22,10 @@ export function PhonePingSettings() {
   useEffect(() => {
     let live = true;
     api("/api/phone-ping")
-      .then((body: { topic: string }) => {
+      .then((body: { topic?: string }) => {
         if (!live) return;
-        setSaved(body.topic);
-        setValue(body.topic);
+        setSaved(body.topic ?? "");
+        setValue(body.topic ?? "");
       })
       .catch(() => {});
     return () => {
