@@ -3826,7 +3826,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       transcript,
       hasPriorUserTurn,
     });
-  const lastTurnToolRounds = countLastTurnToolRounds(activeMessages, skipTranscript);
+  const lastTurnToolRounds = countLastTurnToolRounds(activeMessages, skipTranscript, task.providerSessionBoundId);
   const sessionToolRounds = countSessionToolRounds(
     activeMessages,
     skipTranscript,
@@ -3864,11 +3864,24 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     // Drop the fat cursor, then pin the watermark and lastInput to this
     // send so the next slim turn can resume the new session.
     store.clearResumeCursors(bot.id, threadId);
-    store.markProviderSessionBound(bot.id, threadId, userMessage.id);
+    // A card continuation's id never enters the transcript, so it cannot bound.
+    store.markProviderSessionBound(
+      bot.id,
+      threadId,
+      opts?.cardContinuation ? activeMessages.at(-1)?.id ?? userMessage.id : userMessage.id,
+    );
   }
   const recycleReason = recycled
     ? (compactedThisTurn || (unseeded && latestCompactionId) ? "compaction" : "session-fat")
     : undefined;
+  if (rewound || fresh || recycled) {
+    console.info(`[session] ${JSON.stringify({
+      threadId,
+      reason: rewound ? "rewound" : fresh ? "fresh" : unseeded && !compactedThisTurn ? "unseeded" : recycleReason,
+      lastTurnToolRounds,
+      sessionToolRounds,
+    })}`);
+  }
   const replaysNatively = instance.adapter.capabilities.transcriptReplay === true;
   const replaysTranscript = turnReplaysTranscript({
     rewound,

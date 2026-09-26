@@ -584,6 +584,16 @@ describe("countLastTurnToolRounds", () => {
     ];
     expect(countLastTurnToolRounds(messages)).toBe(1);
   });
+
+  it("stops at a recycle watermark when pane wakes added no user line", () => {
+    const messages = [
+      { id: "u1", role: "user" as const, kind: "text" as const },
+      { id: "old", kind: "activity" as const, tool: { name: "Read", ok: true } },
+      { id: "bound", role: "bot" as const, kind: "note" as const },
+      { id: "t1", kind: "activity" as const, tool: { name: "Bash", ok: true } },
+    ];
+    expect(countLastTurnToolRounds(messages, undefined, "bound")).toBe(1);
+  });
 });
 
 describe("countSessionToolRounds", () => {

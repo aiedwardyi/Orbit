@@ -13,6 +13,7 @@ import {
   countSessionToolRounds,
   engineIsFresh,
   nativeSessionTokenBudget,
+  PRE_COMPACT_SESSION_TOOL_ROUND_LIMIT,
   PRE_COMPACT_TOOL_ROUND_LIMIT,
   shouldRecycleProviderSession,
 } from "./turn-context.ts";
@@ -308,6 +309,32 @@ describe("provider session recycle after Orbit compaction", () => {
       lastTurnToolRounds: countLastTurnToolRounds(store.activePath(bot.threadId), excludeIds),
       sessionToolRounds,
       lastTurnInputTokens: store.taskByThread(bot.id, bot.threadId)?.usage?.lastInput,
+      nativeTokenBudget: 0,
+    })).toBe(false);
+  });
+
+  it("resumes the next pane wake after a pane-wake recycle", async () => {
+    const store = new Store(() => ({ instanceId: "claude", model: "claude-sonnet-5" }));
+    const bot = store.createBot({}, { seedMessages: false });
+    store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "run the workers" });
+    for (let i = 0; i < PRE_COMPACT_SESSION_TOOL_ROUND_LIMIT; i++) {
+      store.appendMessage(bot.threadId, {
+        role: "bot",
+        kind: "activity",
+        tool: { name: `Read: file-${i}.ts`, ok: true },
+      });
+    }
+    const note = store.appendMessage(bot.threadId, { role: "bot", kind: "note", text: "[pane] DONE" });
+    store.markProviderSessionBound(bot.id, bot.threadId, store.activePath(bot.threadId).at(-1)!.id);
+    store.appendMessage(bot.threadId, { role: "bot", kind: "activity", tool: { name: "Bash: git log", ok: true } });
+
+    const messages = store.activePath(bot.threadId);
+    const boundId = store.taskByThread(bot.id, bot.threadId)?.providerSessionBoundId;
+    expect(boundId).toBe(note.id);
+    expect(shouldRecycleProviderSession({
+      compacted: false,
+      lastTurnToolRounds: countLastTurnToolRounds(messages, undefined, boundId),
+      sessionToolRounds: countSessionToolRounds(messages, undefined, boundId),
       nativeTokenBudget: 0,
     })).toBe(false);
   });

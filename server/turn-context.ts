@@ -124,16 +124,19 @@ function isSettledTool(message: SessionFatMessage): boolean {
   return message.kind === "activity" && message.tool?.ok !== undefined;
 }
 
-/** Settled tool chips after the previous user line (the last completed soak). */
+/** Settled tool chips after the previous user line (the last completed soak)
+ *  or the recycle watermark, whichever is later. Pane wakes add no user line. */
 export function countLastTurnToolRounds(
   messages: readonly SessionFatMessage[],
   excludeIds?: ReadonlySet<string>,
+  boundMessageId?: string,
 ): number {
   let count = 0;
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]!;
     if (message.id && excludeIds?.has(message.id)) continue;
     if (message.kind === "text" && message.role === "user") break;
+    if (boundMessageId && message.id === boundMessageId) break;
     if (isSettledTool(message)) count++;
   }
   return count;
