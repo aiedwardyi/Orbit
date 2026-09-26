@@ -145,6 +145,24 @@ export function formatObserved(page: ObservedPage): string {
 
 export type HostRequest = (operation: string, body?: object) => Promise<unknown>;
 
+// The host's own wait loop is bounded by WAIT_MAX_MS (30s, see
+// electron/browser-surface.cjs); this margin keeps the HTTP deadline above
+// that so a slow-but-honest wait gets the host's own timeout error instead
+// of an abort here.
+const WAIT_DEFAULT_MS = 10_000;
+const WAIT_MAX_MS = 30_000;
+const WAIT_HTTP_MARGIN_MS = 5_000;
+
+function httpDeadlineMs(operation: string, body: object): number {
+  if (operation === "navigate") return 30_000;
+  if (operation === "wait") {
+    const requested = Number((body as { timeoutMs?: unknown }).timeoutMs);
+    const bounded = Math.min(Number.isFinite(requested) && requested > 0 ? requested : WAIT_DEFAULT_MS, WAIT_MAX_MS);
+    return bounded + WAIT_HTTP_MARGIN_MS;
+  }
+  return 20_000;
+}
+
 /** One round trip to the browser host. A non-2xx reply carries the host's
  * own sentence (stale ref, refused address, no previous page) — that text
  * is exactly what the model should read, so it is thrown as-is. */
@@ -154,7 +172,7 @@ export async function hostRequest(operation: string, body: object = {}, fetchImp
     method: "POST",
     headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
     body: JSON.stringify({ ...body, profile: PROFILE }),
-    signal: AbortSignal.timeout(operation === "navigate" ? 30_000 : 20_000),
+    signal: AbortSignal.timeout(httpDeadlineMs(operation, body)),
   });
   const parsed: unknown = await res.json().catch(() => ({}));
   if (!res.ok) {

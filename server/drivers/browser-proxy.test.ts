@@ -5,7 +5,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { classifyWall, formatObserved } from "./browser-proxy.ts";
 
@@ -266,5 +266,44 @@ describe("formatObserved", () => {
       "Browser — T: https://a.example/p\nNo interactive elements found.",
     );
     expect(formatObserved({ url: "about:blank", title: "", elements: [] })).toContain("about:blank");
+  });
+});
+
+describe("hostRequest wait deadline", () => {
+  const fetchOk = (async () => new Response("{}", { status: 200, headers: { "content-type": "application/json" } })) as unknown as typeof fetch;
+
+  it("gives a wait call enough HTTP budget for its own timeout_ms, still bounded, and leaves other calls alone", async () => {
+    process.env.OMB_BROWSER_URL = "http://127.0.0.1:1";
+    process.env.OMB_BROWSER_TOKEN = "t".repeat(64);
+    process.env.OMB_BOT_ID = "bot-x";
+    vi.resetModules();
+    const { hostRequest } = await import("./browser-proxy.ts");
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+
+    await hostRequest("wait", { timeoutMs: 30_000 }, fetchOk);
+    // a wait condition met at ~25s with timeout_ms: 30000 must not be aborted first
+    expect(timeoutSpy.mock.calls.at(-1)?.[0]).toBeGreaterThan(25_000);
+
+    await hostRequest("wait", { timeoutMs: 999_999_999 }, fetchOk);
+    // still bounded, not runaway, even for a bogus requested timeout
+    expect(timeoutSpy.mock.calls.at(-1)?.[0]).toBeLessThanOrEqual(40_000);
+
+    await hostRequest("wait", {}, fetchOk);
+    expect(timeoutSpy.mock.calls.at(-1)?.[0]).toBe(15_000); // default wait (10s) plus margin
+
+    await hostRequest("click", {}, fetchOk);
+    expect(timeoutSpy.mock.calls.at(-1)?.[0]).toBe(20_000); // other calls keep their deadline
+
+    await hostRequest("navigate", {}, fetchOk);
+    expect(timeoutSpy.mock.calls.at(-1)?.[0]).toBe(30_000); // navigate keeps its deadline
+
+    timeoutSpy.mockRestore();
+  });
+
+  it("still ends bounded with a clear error when the host never answers in time", async () => {
+    vi.resetModules();
+    const { hostRequest } = await import("./browser-proxy.ts");
+    const timedOut = (() => Promise.reject(new DOMException("The operation was aborted due to timeout", "TimeoutError"))) as unknown as typeof fetch;
+    await expect(hostRequest("wait", { timeoutMs: 5_000 }, timedOut)).rejects.toThrow(/timeout/i);
   });
 });
