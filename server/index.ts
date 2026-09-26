@@ -1539,10 +1539,10 @@ const groupWithThread = (group: GroupRecord) => ({
 store.onChange((change) => {
   switch (change.type) {
     case "message":
-      broadcast({ kind: "message", threadId: change.threadId, message: change.message, ...(change.imported ? { imported: true } : {}) });
+      broadcast({ kind: "message", threadId: change.threadId, message: flagShownImage(change.message), ...(change.imported ? { imported: true } : {}) });
       break;
     case "message.patch":
-      broadcast({ kind: "message.patch", threadId: change.threadId, message: change.message });
+      broadcast({ kind: "message.patch", threadId: change.threadId, message: flagShownImage(change.message) });
       break;
     case "thread":
       broadcast({ kind: "thread", threadId: change.threadId, activeLeafId: change.activeLeafId });
@@ -1789,14 +1789,18 @@ function pageSize(raw: string | null): number | null | undefined {
 
 /** HTTP copy of a transcript row - bot-authored secrets are redacted; the stored row is unchanged. */
 function clientMessage(message: Message): Message {
-  return redactBotAuthored(message);
+  return flagShownImage(redactBotAuthored(message));
+}
+
+/** show_image rows carry a name, not pixels; iOS only fetches them when `hasImage` is set. */
+function flagShownImage(message: Message): Message {
+  return message.kind === "screen" && message.image ? { ...message, hasImage: true } : message;
 }
 
 /** A screen message without its pixels. The client fetches those from
  * `/api/threads/:threadId/messages/:id/image` when it actually shows one. */
 function slimMessage(message: Message): Message | Record<string, unknown> {
   const projected = clientMessage(message);
-  if (projected.kind === "screen" && projected.image) return { ...projected, hasImage: true };
   if (projected.kind !== "screen" || !projected.png) return projected;
   const { png: _png, mime: _mime, ...rest } = projected;
   return { ...rest, hasImage: true };

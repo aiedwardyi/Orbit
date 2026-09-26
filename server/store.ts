@@ -143,6 +143,8 @@ export interface Message {
   shown?: boolean;
   /** show_image: the attachment name its pixels load from */
   image?: string;
+  /** wire only: pixels load from the message image route */
+  hasImage?: boolean;
   at: number;
   /** the message this one follows; null = thread root. Edited messages
    * share a parentId with the version they replace — that's a fork. */
