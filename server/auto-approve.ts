@@ -1,8 +1,8 @@
 // Auto mode: when a bot may answer its own permission requests.
 //
-// Two ways in — the bot is in auto mode, or the user pressed "Always
-// allow" for that one tool — and one way out: anything that reads as
-// destructive stops and asks a human anyway.
+// Auto mode answers every permission request from a turn a person started,
+// destructive-looking ones included. Unattended and local-computer turns
+// keep the guard below even with auto mode on.
 //
 // The guard is deliberately tiny and literal. It is NOT a security
 // boundary (an agent set on damage has a thousand spellings for `rm`);
@@ -224,17 +224,11 @@ export function autoVerdict(
       ? null
       : key && bot.alwaysAllow?.includes(key)
         ? { approve: `auto-approved ${key} (always allowed)`, source: "always-allow" as const, rule: key }
-        : bot.autoApprove
-          ? { approve: `auto-approved ${tool}`, source: "auto-mode" as const, rule: undefined }
-          : null;
+        : null;
   if (context?.unattended) {
-    // Auto mode is something a person switched on for turns they are present
-    // for. A webhook turn begins with nobody watching, on a payload someone
-    // else wrote, so it does not inherit that decision — the guard above is a
+    // A turn nobody started does not inherit auto mode: the guard above is a
     // pattern list its own comment calls "not a security boundary", and it
-    // must not stand in for a human at 3am. A guard that would have carded
-    // anyway keeps its own name; the block is only the story when it is the
-    // thing that changed the outcome.
+    // must not stand in for a human at 3am.
     if (grant) return { approve: null, source: "unattended-block", rule: grant.rule };
     if (destructive) return { approve: null, source: "destructive-guard", rule: destructive };
     if (sensitive) return { approve: null, source: "sensitive-guard", rule: sensitive };
@@ -249,6 +243,16 @@ export function autoVerdict(
     if (sensitive) return { approve: null, source: "sensitive-guard", rule: sensitive };
     return { approve: null, source: "no-grant" };
   }
+  if (context?.scope === "local-computer") {
+    // Auto mode past the warning still stops for a destructive-looking
+    // host-control action.
+    if (destructive) return { approve: null, source: "destructive-guard", rule: destructive };
+    if (sensitive) return { approve: null, source: "sensitive-guard", rule: sensitive };
+    return { approve: `auto-approved ${tool}`, source: "auto-mode" };
+  }
+  // The ordinary, attended case: auto mode answers even a destructive-looking
+  // request instead of carding it. Ask mode keeps the guard.
+  if (bot.autoApprove) return { approve: `auto-approved ${tool}`, source: "auto-mode" };
   if (destructive) return { approve: null, source: "destructive-guard", rule: destructive };
   if (sensitive) return { approve: null, source: "sensitive-guard", rule: sensitive };
   if (grant) return { approve: grant.approve, source: grant.source, rule: grant.rule };

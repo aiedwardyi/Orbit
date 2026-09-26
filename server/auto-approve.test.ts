@@ -201,27 +201,35 @@ describe("autoDecision", () => {
     expect(decision).toBe("auto-approved Bash");
   });
 
-  it("still stops for a destructive command in auto mode", () => {
-    expect(autoDecision({ autoApprove: true }, "Bash", "rm -rf /")).toBeNull();
+  it("answers a destructive Bash request in auto mode and asks in Ask mode", () => {
+    const summary = "rm -rf scratch; cd project && git diff";
+    expect(autoVerdict({ autoApprove: true }, "Bash", summary)).toMatchObject({
+      approve: "auto-approved Bash",
+      source: "auto-mode",
+    });
+    expect(autoVerdict({}, "Bash", summary)).toMatchObject({
+      approve: null,
+      source: "destructive-guard",
+    });
   });
 
-  it("cards recursive PowerShell deletion on attended pane wake turns", () => {
+  it("answers recursive PowerShell deletion in Auto mode but cards it in Ask mode", () => {
     const summary = "Remove-Item -Recurse -Force C:\\work\\project";
-    for (const bot of [{ autoApprove: true }, { alwaysAllow: ["PowerShell:Remove-Item"] }]) {
-      expect(autoVerdict(bot, "PowerShell", summary)).toMatchObject({
-        approve: null,
-        source: "destructive-guard",
-      });
-    }
+    expect(autoDecision({ autoApprove: true }, "PowerShell", summary)).toBe("auto-approved PowerShell");
+    expect(autoVerdict({ alwaysAllow: ["PowerShell:Remove-Item"] }, "PowerShell", summary)).toMatchObject({
+      approve: null,
+      source: "destructive-guard",
+    });
     expect(autoDecision({ autoApprove: true }, "PowerShell", "Get-ChildItem C:\\work")).toBeTruthy();
   });
 
-  it("cards a token= assignment that hides a sensitive path, which redaction would miss", () => {
+  it("answers sensitive paths in Auto mode but keeps the Ask mode guard", () => {
     const raw = `token=~/.aws/credentials; cat "$token"`;
-    expect(autoVerdict({ autoApprove: true }, "Bash", raw)).toMatchObject({
+    expect(autoVerdict({}, "Bash", raw)).toMatchObject({
       approve: null,
       source: "sensitive-guard",
     });
+    expect(autoDecision({ autoApprove: true }, "Bash", raw)).toBe("auto-approved Bash");
     const masked = redactSecretsInText(raw);
     expect(masked).not.toContain(".aws/credentials");
     expect(autoDecision({ autoApprove: true }, "Bash", masked)).toBe("auto-approved Bash");
@@ -303,7 +311,7 @@ describe("power-off command vs branch/path/message", () => {
     expect(autoVerdict(bot, "Bash", cut).source).toBe("auto-mode");
   });
 
-  it("keeps real power-off commands behind the destructive guard", () => {
+  it("keeps real power-off commands behind the Ask mode guard", () => {
     for (const summary of [
       "shutdown -h now",
       "sudo reboot",
@@ -313,17 +321,18 @@ describe("power-off command vs branch/path/message", () => {
       "(shutdown -h now)",
       "/sbin/shutdown -P now",
     ]) {
-      expect(autoVerdict(bot, "Bash", summary)).toMatchObject({
+      expect(autoVerdict({}, "Bash", summary)).toMatchObject({
         approve: null,
         source: "destructive-guard",
         rule: String.raw`\bshutdown\b|\breboot\b|\bhalt\b`,
       });
+      expect(autoDecision(bot, "Bash", summary)).toBe("auto-approved Bash");
     }
   });
 
   it("does not let a redacted client copy change a raw power-off verdict", () => {
     const raw = "shutdown -h now";
-    expect(autoVerdict(bot, "Bash", raw).source).toBe("destructive-guard");
+    expect(autoVerdict({}, "Bash", raw).source).toBe("destructive-guard");
     // redaction does not touch power-off tokens; truncated harmless branch stays auto-mode
     expect(autoVerdict(bot, "Bash", redactSecretsInText(branchPush)).source).toBe("auto-mode");
   });

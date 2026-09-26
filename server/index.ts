@@ -2715,11 +2715,16 @@ bus.subscribe((event: RuntimeEvent) => {
       break;
     case "request.opened": {
       const permission = event.requestType === "permission";
-      // Auto mode / always-allow: answer routine tool permissions for the
-      // bot so it keeps working. A QUESTION always reaches the human — the
-      // whole point of asking is that a person decides — and anything that
-      // looks destructive stops even in auto mode.
+      // Auto mode answers permissions; questions still reach the human.
       const asker = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
+      if (permission && asker?.autoApprove && !event.requestId) {
+        pushMessage({
+          role: "bot",
+          kind: "activity",
+          tool: { name: `Auto mode couldn't answer: ${event.summary.slice(0, 120)}`, ok: false },
+        });
+        break;
+      }
       const unattended = permission && asker && event.requestId ? isUnattended(asker.id) : false;
       // Verdicts run on the original event. The bus redacts only the NDJSON
       // tee; SSE/broadcast (PR72) redacts the client copy. Masking first
@@ -2764,8 +2769,15 @@ bus.subscribe((event: RuntimeEvent) => {
               rule: verdict.rule,
             });
           } catch {
-            // couldn't answer it for them — hand it back to the human
-            // rather than leaving the bot waiting on nobody
+            if (asker.autoApprove) {
+              pushMessage({
+                role: "bot",
+                kind: "activity",
+                tool: { name: `Auto mode couldn't answer: ${summary.slice(0, 120)}`, ok: false },
+              });
+              return;
+            }
+            // A remembered grant failed; ask the human to decide.
             const card = pushMessage({
               role: "bot",
               kind: "options",

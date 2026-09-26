@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { autoVerdict } from "../auto-approve.ts";
 import { ensureDirs, PROVIDER_CREDENTIAL_ENV, WORKSPACE_CREDENTIAL_ENV } from "../config.ts";
 import type { ProviderInstance } from "../contracts.ts";
 import { recordEvents, type EventRecorder } from "../testing/events.ts";
@@ -1164,6 +1165,29 @@ describe("ClaudeDriver turns (fake CLI)", () => {
 
     conn.end();
     await instance.adapter.interruptTurn("t-perm-abc");
+    await recorder.until((e) => e.type === "turn.completed");
+  });
+
+  it("resolves a destructive Bash ask in Auto mode without a user answer", async () => {
+    await create("hang");
+    await instance.adapter.sendTurn({ threadId: "t-auto-destructive", text: "go", approval: "auto" });
+    await recorder.until((e) => e.type === "session.started");
+
+    const conn = await connectSocket(permissionSocketPath("t-auto-destructive"));
+    const nextAnswer = answerQueue(conn);
+    const command = "rm -rf scratch; cd project && git diff";
+    conn.write(JSON.stringify({ t: "ask", id: "ask-destructive", tool: "Bash", input: { command } }) + "\n");
+
+    const opened = await recorder.until((e) => e.type === "request.opened" && e.requestId === "ask-destructive");
+    expect(opened).toMatchObject({ requestType: "permission", tool: "Bash", summary: command });
+    if (opened.type !== "request.opened") throw new Error("missing permission request");
+    expect(autoVerdict({}, opened.tool, opened.summary).approve).toBeNull();
+    expect(autoVerdict({ autoApprove: true }, opened.tool, opened.summary).approve).toBe("auto-approved Bash");
+    await expect(instance.adapter.respondToRequest(opened.threadId, opened.requestId!, { behavior: "allow" })).resolves.toBe("allowed-once");
+    expect(await nextAnswer()).toMatchObject({ behavior: "allow" });
+
+    conn.end();
+    await instance.adapter.interruptTurn("t-auto-destructive");
     await recorder.until((e) => e.type === "turn.completed");
   });
 

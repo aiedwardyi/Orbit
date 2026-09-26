@@ -233,8 +233,7 @@ const ASK_SETTINGS = JSON.stringify({
   permissions: { ask: ["Bash", "PowerShell", "Edit", "Write", "MultiEdit", "NotebookEdit"] },
   sandbox: { autoAllowBashIfSandboxed: false },
 });
-// Auto sends every command too, so the destructive guard sees it before the
-// broker auto-approves; edits still run unasked under acceptEdits.
+// Auto sends commands to the broker for approval; edits run under acceptEdits.
 const AUTO_SETTINGS = JSON.stringify({
   permissions: { ask: ["Bash", "PowerShell"] },
   sandbox: { autoAllowBashIfSandboxed: false },

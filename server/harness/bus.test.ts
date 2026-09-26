@@ -112,8 +112,7 @@ describe("EventBus", () => {
 
   it("lets policy see the raw sensitive path that persist and client copies mask", () => {
     // token=… is credential-shaped, so redactSecrets hides ~/.aws/credentials
-    // before sensitive-guard can match it. The provider still runs the original
-    // command — policy must decide on that original, not the masked copy.
+    // before sensitive-guard can match it. Ask mode must inspect the original.
     const summary = `token=~/.aws/credentials; cat "$token"`;
     const bus = new EventBus();
     const seen: RuntimeEvent[] = [];
@@ -130,7 +129,7 @@ describe("EventBus", () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ type: "request.opened", tool: "Bash", summary });
     const opened = seen[0] as RuntimeEvent & { type: "request.opened" };
-    const verdict = autoVerdict({ autoApprove: true }, opened.tool, opened.summary);
+    const verdict = autoVerdict({}, opened.tool, opened.summary);
     expect(verdict.source).toBe("sensitive-guard");
     expect(verdict.approve).toBeNull();
 
@@ -143,9 +142,8 @@ describe("EventBus", () => {
     expect(JSON.stringify(client)).not.toContain("~/.aws/credentials");
     expect(JSON.stringify(client)).toContain("«redacted");
     const clientEvent = (client as { event: { tool: string; summary: string } }).event;
-    expect(autoVerdict({ autoApprove: true }, clientEvent.tool, clientEvent.summary).approve).toBe(
-      "auto-approved Bash",
-    );
+    expect(autoVerdict({}, clientEvent.tool, clientEvent.summary).source).toBe("no-grant");
+    expect(autoVerdict({ autoApprove: true }, opened.tool, opened.summary).approve).toBe("auto-approved Bash");
   });
 
   it("keeps PR72 client redaction: persist and SSE-shaped copies hide secrets", () => {
