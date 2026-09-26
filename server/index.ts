@@ -43,7 +43,7 @@ import {
   projectPathsFromRecords,
   userProjectTexts,
 } from "./project-folder.ts";
-import { attachmentExists, ATTACHMENTS_DIR, ensureAttachmentsDir, extensionForMime, IMAGE_MAX_BYTES, readAttachment, saveImage, type SavedAttachment } from "./attachments.ts";
+import { attachmentExists, ATTACHMENTS_DIR, ensureAttachmentsDir, extensionForMime, IMAGE_MAX_BYTES, importLocalImage, readAttachment, saveImage, type SavedAttachment } from "./attachments.ts";
 import {
   avatarGenerationRequestSchema,
   avatarGenerationStateMatches,
@@ -3525,6 +3525,9 @@ type StartTurnOptions = {
   onDispatchError?: (message: string) => void;
 };
 
+const SHOW_IMAGE_GUIDANCE =
+  "When you produce or find an image the user should see (a mockup, chart, or screenshot file), call show_image with its absolute path so it appears in this chat. Never end with only a file path.";
+
 // Retrieval discipline for document workloads. Static on purpose: the
 // stream-json driver folds --append-system-prompt into its warm-process
 // argsKey, so anything interpolated here costs a cold start every send.
@@ -4267,6 +4270,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         ? " Keep the durable task record current with update_task_state after meaningful plan changes, completed milestones, new blockers, or created files. Record only verified progress, use it before long operations, and do not call it after every tool."
         : "";
       const reactPrompt = integrations.agents ? ` ${reactionToolGuidance()}` : "";
+      const showImagePrompt = integrations.agents ? ` ${SHOW_IMAGE_GUIDANCE}` : "";
 
       // (activeVpsThreads was already claimed above, before the provision or
       // reuse await, so the backend guards saw this turn the whole time.)
@@ -4344,6 +4348,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           routinePrompt +
           taskStatePrompt +
           reactPrompt +
+          showImagePrompt +
           CORPUS_SEARCH_INSTRUCTIONS +
           sectionContextSystemPrompt(bot.section) +
           (privateWorkspace ? memorySystemPrompt(bot.id) + skillsSystemPrompt(bot.id) : "") +
@@ -5121,6 +5126,7 @@ async function runClaimedGroupMemberTurn(
     integrations.agents &&
       "Keep the durable task record current with update_task_state after meaningful plan changes, completed milestones, new blockers, or created files. Record only verified progress, use it before long operations, and do not call it after every tool.",
     integrations.agents && reactionToolGuidance(),
+    integrations.agents && SHOW_IMAGE_GUIDANCE,
   ]
     .filter(Boolean)
     .join("\n");
@@ -6268,6 +6274,34 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const patched = store.toggleReaction(fromThreadId, target.id, emoji, fromBotId);
         if (!patched) return json(res, 404, { error: "message not found" });
         return json(res, 200, { ok: true });
+      }
+      // The show_image tool: a copy of a local image lands as a settled
+      // screen message, so web and phone render it with no new display path.
+      if (method === "POST" && path === "/api/internal/show-image") {
+        const body = await readBody(req);
+        const fromBotId = String(body.fromBotId ?? "");
+        const fromThreadId = String(body.fromThreadId ?? "");
+        const from = store.bot(fromBotId);
+        if (!from) return json(res, 403, { error: "unknown sender" });
+        if (!fromThreadId) return json(res, 400, { error: "no active thread" });
+        const owner = connectorThread(from.id, fromThreadId);
+        if (!owner) return json(res, 403, { error: "source thread does not belong to sender" });
+        let saved: ReturnType<typeof importLocalImage>;
+        try {
+          saved = importLocalImage(String(body.path ?? ""));
+        } catch (e) {
+          return json(res, (e as { status?: number }).status ?? 400, { error: (e as Error).message });
+        }
+        const caption = typeof body.caption === "string" ? body.caption.trim().slice(0, 500) : "";
+        const message = store.appendMessage(fromThreadId, {
+          role: "bot",
+          kind: "screen",
+          ...(owner.group ? { from: { botId: from.id, name: from.name, color: from.color } } : {}),
+          png: readFileSync(saved.path).toString("base64"),
+          mime: saved.mime,
+          ...(caption ? { text: caption } : {}),
+        });
+        return json(res, 201, { messageId: message.id, url: `/api/attachments/${saved.name}` });
       }
       // Async handoff: the source bot queues a task for a peer and goes
       // back to the user; the peer turn runs after the source's

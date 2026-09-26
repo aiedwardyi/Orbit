@@ -25,6 +25,7 @@ let delegateResponse: unknown = { queued: true, message: "Delegation queued." };
 let lastCreateBody: any = null;
 let lastCreateChannelBody: any = null;
 let lastCredentialBody: any = null;
+let lastShowImageBody: any = null;
 let lastRoutineQuery = "";
 let routinesResponse: unknown = {
   now: "2026-08-28T10:30:00.000Z",
@@ -147,6 +148,20 @@ beforeAll(async () => {
       });
       return;
     }
+    if (req.method === "POST" && req.url === "/api/internal/show-image") {
+      let data = "";
+      req.on("data", (c) => (data += c));
+      req.on("end", () => {
+        lastShowImageBody = JSON.parse(data);
+        if (lastShowImageBody.path.endsWith("fake.png")) {
+          res.writeHead(400, { "content-type": "application/json" });
+          return res.end(JSON.stringify({ error: "not a PNG, JPEG, GIF, or WebP image" }));
+        }
+        res.writeHead(201, { "content-type": "application/json" });
+        res.end(JSON.stringify({ messageId: "msg-img", url: "/api/attachments/abc.png" }));
+      });
+      return;
+    }
     if (req.method === "GET" && req.url?.startsWith("/api/internal/routines?")) {
       lastRoutineQuery = req.url;
       res.writeHead(200, { "content-type": "application/json" });
@@ -226,11 +241,33 @@ describe("agents-proxy MCP surface", () => {
       "create_bot",
       "create_channel",
       "react",
+      "show_image",
       "request_credential",
       "list_routines",
       "propose_routine",
       "propose_routine_action",
     ]);
+  });
+
+  it("publishes a local image into the caller's thread and returns its URL", async () => {
+    const res = await callTool("show_image", { path: "C:\\out\\mockup.png", caption: " Home screen " });
+    expect(res.result.isError).toBe(false);
+    expect(res.result.content[0].text).toContain("/api/attachments/abc.png");
+    expect(lastShowImageBody).toEqual({
+      fromBotId: "bot-asker",
+      fromThreadId: "thread-asker-routine",
+      path: "C:\\out\\mockup.png",
+      caption: "Home screen",
+    });
+  });
+
+  it("surfaces show_image rejections as tool errors", async () => {
+    const fake = await callTool("show_image", { path: "C:\\out\\fake.png" });
+    expect(fake.result.isError).toBe(true);
+    expect(fake.result.content[0].text).toContain("not a PNG, JPEG, GIF, or WebP image");
+    const empty = await callTool("show_image", { path: " " });
+    expect(empty.result.isError).toBe(true);
+    expect(empty.result.content[0].text).toContain("needs a path");
   });
 
   it("forwards durable task progress with source ownership", async () => {

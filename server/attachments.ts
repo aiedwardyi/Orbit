@@ -3,7 +3,7 @@
 // the app never ships image bytes through the prompt itself.
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join, extname } from "node:path";
+import { basename, extname, isAbsolute, join } from "node:path";
 import { DATA_DIR } from "./config.ts";
 
 export const ATTACHMENTS_DIR = join(DATA_DIR, "attachments");
@@ -51,6 +51,38 @@ export function saveImage(bytes: Buffer, mime: string): SavedAttachment {
   const path = join(ATTACHMENTS_DIR, name);
   writeFileSync(path, bytes, { mode: 0o600, flag: "wx" });
   return { path, mime: mime.split(";")[0]!.trim().toLowerCase(), bytes: bytes.byteLength };
+}
+
+/** Format from magic bytes, never from the name or a claimed mime. */
+export function sniffImageMime(bytes: Buffer): string | null {
+  if (bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
+  if (bytes.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) return "image/jpeg";
+  const head = bytes.subarray(0, 6).toString("latin1");
+  if (head === "GIF87a" || head === "GIF89a") return "image/gif";
+  if (bytes.subarray(0, 4).toString("latin1") === "RIFF" && bytes.subarray(8, 12).toString("latin1") === "WEBP") return "image/webp";
+  return null;
+}
+
+/** Copy a bot's local image into the store; the original path is never served. */
+export function importLocalImage(path: string): SavedAttachment & { name: string } {
+  const fail = (status: number, msg: string) => Object.assign(new Error(msg), { status });
+  if (!isAbsolute(path)) throw fail(400, "path must be absolute");
+  let size: number;
+  try {
+    const stat = statSync(path);
+    if (!stat.isFile()) throw fail(400, "not a regular file");
+    size = stat.size;
+  } catch (e) {
+    if ((e as { status?: number }).status) throw e;
+    throw fail(404, "file not found");
+  }
+  if (size === 0) throw fail(400, "empty image");
+  if (size > IMAGE_MAX_BYTES) throw fail(413, `image exceeds ${IMAGE_MAX_BYTES} bytes`);
+  const bytes = readFileSync(path);
+  const mime = sniffImageMime(bytes);
+  if (!mime) throw fail(400, "not a PNG, JPEG, GIF, or WebP image");
+  const saved = saveImage(bytes, mime);
+  return { ...saved, name: basename(saved.path) };
 }
 
 /** Existence check with the same name discipline as readAttachment, without

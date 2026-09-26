@@ -15,6 +15,7 @@
 //   create_channel(name, member_ids, …)  → open a shared room with existing
 //                                          bots (self is added automatically)
 //   react(emoji)                          → react to the user's latest message
+//   show_image(path, caption?)            → post a local image into this chat
 //   request_credential(id, reason?)       → show a secure, allowlisted key card
 //   list_routines()                       → inspect this bot's scheduled work
 //   propose_routine(...)                  → show a confirmation card for a new routine
@@ -353,6 +354,20 @@ const TOOLS = [
     },
   },
   {
+    name: "show_image",
+    description:
+      "Show a local image file (PNG, JPEG, GIF, or WebP, up to 10 MiB) to the user in this chat. Use it whenever you create or find an image the user should see, instead of ending with a file path. Returns the image's URL.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        path: { type: "string", description: "Absolute path to the image file." },
+        caption: { type: "string", description: "Optional short caption." },
+      },
+      required: ["path"],
+    },
+  },
+  {
     name: "request_credential",
     description:
       "Ask the user for a supported API key through Orbit's secure credential card. Use this instead of asking them to paste a secret into chat. The secret is saved by the desktop app and is never returned to you. After calling this tool, end the turn; Orbit resumes the task after the user saves or declines.",
@@ -659,6 +674,19 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
     });
     if (r.error) return { text: `Couldn't react: ${r.error}`, isError: true };
     return { text: `Reacted ${emoji} to the user's message.` };
+  }
+  if (name === "show_image") {
+    const path = String(args.path ?? "").trim();
+    if (!path) return { text: "show_image needs a path.", isError: true };
+    if (!THREAD_ID) return { text: "Couldn't show image: no active thread.", isError: true };
+    const body: Json = { fromBotId: BOT_ID, fromThreadId: THREAD_ID, path };
+    if (typeof args.caption === "string" && args.caption.trim()) body.caption = args.caption.trim();
+    try {
+      const r = await api("/api/internal/show-image", { method: "POST", body: JSON.stringify(body) });
+      return { text: `Showed the image in chat. URL: ${r.url}` };
+    } catch (e) {
+      return { text: `Couldn't show image: ${(e as Error).message}`, isError: true };
+    }
   }
   if (name === "request_credential") {
     const credentialId = args.credential_id;
