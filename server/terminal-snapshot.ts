@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { terminalReadGrant, terminalSendGrant } from "./terminal-grant.ts";
+import { TERMINAL_KEYS } from "./terminal-keys.ts";
 
 export type TerminalBridgeAccess = { url: string; token: string };
 
@@ -7,8 +8,6 @@ const SNAPSHOT_FIELDS = ["screenText", "screenRuns", "recentText", "state", "ses
 export const TERMINAL_SEND_MAX_BYTES = 4 * 1024;
 // ESC covers kitty-mode keys like \x1b[99;5u (Ctrl+C); tab and newlines stay allowed.
 const CONTROL_BYTES = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/;
-export const TERMINAL_KEYS = { up: "\x1b[A", down: "\x1b[B", enter: "\r", esc: "\x1b" } as const;
-export type TerminalKey = keyof typeof TERMINAL_KEYS;
 
 const terminalSendSchema = z.union([
   z.object({ sessionId: z.string().min(1), generation: z.number().int(), text: z.string(), paste: z.boolean().optional() }),

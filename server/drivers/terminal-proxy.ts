@@ -3,7 +3,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { TERMINAL_KEYS, type TerminalKey } from "../terminal-snapshot.ts";
+import { TERMINAL_KEYS, type TerminalKey } from "../terminal-keys.ts";
 export { terminalReadGrant } from "../terminal-grant.ts";
 
 const HOST = process.env.OMB_TERMINAL_URL?.replace(/\/$/, "") ?? "";
