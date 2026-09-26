@@ -10,7 +10,7 @@ import { SKINS, SKIN_IDS, DEFAULT_SKIN, applySkin, readSkin } from "./skins";
 const css = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "../styles.css"),
   "utf8",
-);
+).replace(/\r\n/g, "\n");
 
 const blocks = new Set(
   [...css.matchAll(/\[data-skin="([a-z-]+)"\]/g)].map(([, id]) => id),
