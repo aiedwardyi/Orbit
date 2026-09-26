@@ -529,7 +529,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       ) : group ? (
         <GroupView key={group.id} group={group} />
       ) : bot ? (
-        <div ref={conversationRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <div ref={conversationRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-clip">
           <div className="flex min-h-0 flex-1" inert={terminalOpen} aria-hidden={terminalOpen}>
             <ChatView
               bot={bot}

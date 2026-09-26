@@ -128,3 +128,10 @@ describe("terminal pane shortcuts", () => {
     expect(h).toContain('type: "select", id');
   });
 });
+
+describe("conversation layout", () => {
+  it("clips the hidden terminal overlay instead of making the chat scrollable", () => {
+    // overflow-hidden is still programmatically scrollable: a terminal tab scrollIntoView shifted the chat under the sidebar.
+    expect(app).toContain('ref={conversationRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-clip"');
+  });
+});
