@@ -169,6 +169,12 @@ describe("roomTranscriptRows", () => {
     expect(result.map((row) => row.visible)).toEqual([true, true]);
   });
 
+  it("shows a published image stored as an attachment reference", () => {
+    const image: Message = { id: `s${++seq}`, at: at(1), role: "bot", kind: "screen", image: "a.png", shown: true, from: from("challenge") };
+    const result = rows([say("defense", "One."), image]);
+    expect(result.map((row) => row.visible)).toEqual([true, true]);
+  });
+
   it("hides a plain failed tool step while tool calls are hidden", () => {
     const messages = [
       say("defense", "Here is the argument."),

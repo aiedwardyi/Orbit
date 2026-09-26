@@ -1,10 +1,21 @@
 // attachments.ts: save + read-back, the mime allowlist, size ceiling, and
 // the name-lock that keeps the serving route inside the attachments dir.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import * as fs from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    realpathSync: vi.fn(actual.realpathSync),
+    statSync: vi.fn(actual.statSync),
+    readFileSync: vi.fn(actual.readFileSync),
+  };
+});
 
 // The module reads DATA_DIR at import time, so the env var must be set
 // before the import is evaluated.
@@ -104,47 +115,84 @@ describe("sniffImageMime", () => {
 
 describe("importLocalImage", () => {
   const src = join(DATA_ROOT, "src");
+  const outside = join(DATA_ROOT, "outside");
+  const roots = [src];
   beforeEach(() => {
     rmSync(ATTACHMENTS_DIR, { recursive: true, force: true });
     mkdirSync(src, { recursive: true });
+    mkdirSync(outside, { recursive: true });
   });
   afterEach(() => {
     rmSync(ATTACHMENTS_DIR, { recursive: true, force: true });
     rmSync(src, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
   });
 
   it("copies a real PNG into the store under a generated name", () => {
     const file = join(src, "mockup.png");
     writeFileSync(file, PNG);
-    const saved = importLocalImage(file);
+    const saved = importLocalImage(file, roots);
     expect(saved.mime).toBe("image/png");
     expect(saved.path.startsWith(ATTACHMENTS_DIR)).toBe(true);
     expect(saved.name).not.toContain("mockup");
     expect(readAttachment(saved.name)?.bytes.equals(PNG)).toBe(true);
   });
 
+  it("accepts a file nested inside any allowed root", () => {
+    mkdirSync(join(outside, "shots"), { recursive: true });
+    const file = join(outside, "shots", "a.png");
+    writeFileSync(file, PNG);
+    expect(importLocalImage(file, [src, outside]).mime).toBe("image/png");
+  });
+
   it("stores by sniffed format, not by extension", () => {
     const file = join(src, "shot.jpg");
     writeFileSync(file, PNG);
-    expect(importLocalImage(file).name.endsWith(".png")).toBe(true);
+    expect(importLocalImage(file, roots).name.endsWith(".png")).toBe(true);
   });
 
   it("rejects a text file named .png", () => {
     const file = join(src, "fake.png");
     writeFileSync(file, "hello");
-    expect(() => importLocalImage(file)).toThrow(/not a PNG, JPEG, GIF, or WebP/);
+    expect(() => importLocalImage(file, roots)).toThrow(/not a PNG, JPEG, GIF, or WebP/);
   });
 
   it("rejects missing, relative, directory, empty, and oversized paths", () => {
-    expect(() => importLocalImage(join(src, "nope.png"))).toThrow(/file not found/);
-    expect(() => importLocalImage("mockup.png")).toThrow(/absolute/);
-    expect(() => importLocalImage(src)).toThrow(/regular file/);
+    expect(() => importLocalImage(join(src, "nope.png"), roots)).toThrow(/file not found/);
+    expect(() => importLocalImage("mockup.png", roots)).toThrow(/absolute/);
+    expect(() => importLocalImage(src, roots)).toThrow(/regular file/);
     const empty = join(src, "empty.png");
     writeFileSync(empty, "");
-    expect(() => importLocalImage(empty)).toThrow(/empty/);
+    expect(() => importLocalImage(empty, roots)).toThrow(/empty/);
     const big = join(src, "big.png");
     writeFileSync(big, Buffer.concat([PNG, Buffer.alloc(IMAGE_MAX_BYTES)]));
-    expect(() => importLocalImage(big)).toThrow(/exceeds/);
+    expect(() => importLocalImage(big, roots)).toThrow(/exceeds/);
+  });
+
+  it("rejects UNC and device paths before touching the filesystem", () => {
+    const calls = [fs.realpathSync, fs.statSync, fs.readFileSync].map((fn) => vi.mocked(fn));
+    for (const path of ["\\\\server\\share\\a.png", "//server/share/a.png", "\\\\?\\C:\\a.png", "\\\\.\\C:\\a.png"]) {
+      calls.forEach((fn) => fn.mockClear());
+      expect(() => importLocalImage(path, roots)).toThrow(expect.objectContaining({ status: 403 }));
+      calls.forEach((fn) => expect(fn).not.toHaveBeenCalled());
+    }
+  });
+
+  it("rejects a file outside every root with a 403 that says where to save", () => {
+    const file = join(outside, "private.png");
+    writeFileSync(file, PNG);
+    expect(() => importLocalImage(file, roots)).toThrow(
+      expect.objectContaining({ status: 403, message: expect.stringContaining("project or workspace folder") }),
+    );
+    expect(() => importLocalImage(file, [])).toThrow(expect.objectContaining({ status: 403 }));
+  });
+
+  it("rejects a link inside a root that resolves outside it", () => {
+    writeFileSync(join(outside, "private.png"), PNG);
+    symlinkSync(outside, join(src, "escape"), "junction");
+    expect(() => importLocalImage(join(src, "escape", "private.png"), roots)).toThrow(
+      expect.objectContaining({ status: 403 }),
+    );
   });
 });
 
@@ -154,9 +202,12 @@ describe("show-image route", () => {
 
   it("publishes into the sender's own thread as a screen message", () => {
     expect(route).toContain("connectorThread(from.id, fromThreadId)");
-    expect(route).toContain("importLocalImage(");
+    expect(route).toContain("importLocalImage(String(body.path ?? \"\"), roots)");
+    expect(route).toContain("workspaceDir(from.id)");
     expect(route).toContain('kind: "screen"');
+    expect(route).toContain("image: saved.name,");
     expect(route).toContain("shown: true");
+    expect(route.slice(0, route.indexOf("return json(res, 201"))).not.toContain("png:");
     expect(route).toContain("url: `/api/attachments/${saved.name}`");
   });
 

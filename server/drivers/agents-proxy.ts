@@ -361,7 +361,7 @@ const TOOLS = [
       type: "object",
       additionalProperties: false,
       properties: {
-        path: { type: "string", description: "Absolute path to the image file." },
+        path: { type: "string", description: "Absolute path to the image file, inside your project or workspace folder." },
         caption: { type: "string", description: "Optional short caption." },
       },
       required: ["path"],

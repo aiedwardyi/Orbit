@@ -2,8 +2,8 @@
 // ~/.orbit/attachments so every CLI engine can open them by path.
 // the app never ships image bytes through the prompt itself.
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, extname, isAbsolute, join } from "node:path";
+import { mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { basename, extname, isAbsolute, join, relative } from "node:path";
 import { DATA_DIR } from "./config.ts";
 
 export const ATTACHMENTS_DIR = join(DATA_DIR, "attachments");
@@ -63,13 +63,33 @@ export function sniffImageMime(bytes: Buffer): string | null {
   return null;
 }
 
-/** Copy a bot's local image into the store; the original path is never served. */
-export function importLocalImage(path: string): SavedAttachment & { name: string } {
+/** Copy a bot's local image into the store; the original path is never served.
+ * UNC and device paths are refused before any fs call: resolving one can block the event loop on a network share. */
+export function importLocalImage(path: string, roots: readonly string[]): SavedAttachment & { name: string } {
   const fail = (status: number, msg: string) => Object.assign(new Error(msg), { status });
+  const outside = "image must be inside your project or workspace folder; save it there first";
+  if (/^[\\/]{2}/.test(path)) throw fail(403, outside);
   if (!isAbsolute(path)) throw fail(400, "path must be absolute");
+  let real: string;
+  try {
+    real = realpathSync(path);
+  } catch {
+    throw fail(404, "file not found");
+  }
+  if (/^[\\/]{2}/.test(real)) throw fail(403, outside);
+  const allowed = roots.some((root) => {
+    if (/^[\\/]{2}/.test(root)) return false;
+    try {
+      const fromRoot = relative(realpathSync(root), real);
+      return !fromRoot.startsWith("..") && !isAbsolute(fromRoot);
+    } catch {
+      return false;
+    }
+  });
+  if (!allowed) throw fail(403, outside);
   let size: number;
   try {
-    const stat = statSync(path);
+    const stat = statSync(real);
     if (!stat.isFile()) throw fail(400, "not a regular file");
     size = stat.size;
   } catch (e) {
@@ -78,7 +98,7 @@ export function importLocalImage(path: string): SavedAttachment & { name: string
   }
   if (size === 0) throw fail(400, "empty image");
   if (size > IMAGE_MAX_BYTES) throw fail(413, `image exceeds ${IMAGE_MAX_BYTES} bytes`);
-  const bytes = readFileSync(path);
+  const bytes = readFileSync(real);
   const mime = sniffImageMime(bytes);
   if (!mime) throw fail(400, "not a PNG, JPEG, GIF, or WebP image");
   const saved = saveImage(bytes, mime);

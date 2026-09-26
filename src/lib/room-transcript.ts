@@ -36,7 +36,7 @@ function messageVisible(message: Message, showToolCalls: boolean): boolean {
     case "routine.run":
       return true;
     case "screen":
-      return Boolean(message.png) && (message.shown || showToolCalls);
+      return Boolean(message.png || message.image) && (message.shown || showToolCalls);
     default:
       return false;
   }

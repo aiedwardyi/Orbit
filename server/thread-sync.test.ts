@@ -165,6 +165,21 @@ describe("thread sync", () => {
     expect(JSON.stringify(file)).not.toMatch(/resumeCursors|lastInstanceId|lastModel|providerSessionBoundId|usage/);
   });
 
+  it("keeps a shown image's attachment reference and drops screen frame pixels", () => {
+    const folder = temp("thread-sync-folder-");
+    const a = pc("device-a", folder);
+    a.say("t1", "m1", "hello");
+    const thread = a.threads.get("t1")!;
+    thread.messages.push(
+      msg("f1", "", "m1", { role: "bot", kind: "screen", text: undefined, png: "frame", mime: "image/png" }),
+      msg("s1", "v2", "f1", { role: "bot", kind: "screen", image: "a.png", shown: true }),
+    );
+    expect(uploadThread(a.host, BOT_SYNC_ID, "t1")).toBe("written");
+    const [, frame, shown] = readSyncedThread(remotePath(folder, "t1"))!.messages;
+    expect(frame).not.toHaveProperty("png");
+    expect(shown).toMatchObject({ id: "s1", kind: "screen", image: "a.png", shown: true, text: "v2" });
+  });
+
   it("imports a newer remote copy over a clean local thread", () => {
     const folder = temp("thread-sync-folder-");
     const a = pc("device-a", folder);

@@ -42,7 +42,7 @@ function messageVisible(message: Message, options: ChatTranscriptOptions): boole
         message.tool?.name.startsWith("error:") || activityVisibleInChat(message, options.showToolCalls),
       );
     case "screen":
-      return Boolean(message.png) && (message.shown || options.showToolCalls);
+      return Boolean(message.png || message.image) && (message.shown || options.showToolCalls);
     default:
       return true;
   }

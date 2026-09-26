@@ -1796,6 +1796,7 @@ function clientMessage(message: Message): Message {
  * `/api/threads/:threadId/messages/:id/image` when it actually shows one. */
 function slimMessage(message: Message): Message | Record<string, unknown> {
   const projected = clientMessage(message);
+  if (projected.kind === "screen" && projected.image) return { ...projected, hasImage: true };
   if (projected.kind !== "screen" || !projected.png) return projected;
   const { png: _png, mime: _mime, ...rest } = projected;
   return { ...rest, hasImage: true };
@@ -6276,7 +6277,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 200, { ok: true });
       }
       // The show_image tool: a copy of a local image lands as a settled
-      // screen message, so web and phone render it with no new display path.
+      // screen message that references the attachment, never inline pixels.
       if (method === "POST" && path === "/api/internal/show-image") {
         const body = await readBody(req);
         const fromBotId = String(body.fromBotId ?? "");
@@ -6286,9 +6287,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!fromThreadId) return json(res, 400, { error: "no active thread" });
         const owner = connectorThread(from.id, fromThreadId);
         if (!owner) return json(res, 403, { error: "source thread does not belong to sender" });
+        const roots = [
+          store.taskByThread(from.id, fromThreadId)?.cwd,
+          owner.group ? store.groupTaskByThread(owner.group.id, fromThreadId)?.pinnedCwd : undefined,
+          from.cwd,
+          workspaceDir(from.id),
+        ].filter((root): root is string => Boolean(root));
         let saved: ReturnType<typeof importLocalImage>;
         try {
-          saved = importLocalImage(String(body.path ?? ""));
+          saved = importLocalImage(String(body.path ?? ""), roots);
         } catch (e) {
           return json(res, (e as { status?: number }).status ?? 400, { error: (e as Error).message });
         }
@@ -6297,8 +6304,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           role: "bot",
           kind: "screen",
           ...(owner.group ? { from: { botId: from.id, name: from.name, color: from.color } } : {}),
-          png: readFileSync(saved.path).toString("base64"),
-          mime: saved.mime,
+          image: saved.name,
           shown: true,
           ...(caption ? { text: caption } : {}),
         });
@@ -6948,10 +6954,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 404, { error: "no such conversation" });
       }
       const message = store.messagesFor(m[1]).find((msg) => msg.id === m![2]);
-      if (!message?.png) return json(res, 404, { error: "no image on that message" });
-      const bytes = Buffer.from(message.png, "base64");
+      const attachment = message?.image ? readAttachment(message.image) : null;
+      const bytes = attachment?.bytes ?? (message?.png ? Buffer.from(message.png, "base64") : null);
+      if (!bytes) return json(res, 404, { error: "no image on that message" });
       res.writeHead(200, {
-        "content-type": message.mime ?? "image/png",
+        "content-type": attachment?.mime ?? message?.mime ?? "image/png",
         "content-length": String(bytes.byteLength),
         // a settled message's image never changes
         "cache-control": "private, max-age=31536000, immutable",

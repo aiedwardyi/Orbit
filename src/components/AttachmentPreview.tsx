@@ -165,3 +165,31 @@ export function AttachedImageGallery({ paths, className }: { paths: string[]; cl
     </>
   );
 }
+
+/** A show_image message. A synced row whose file never reached this machine keeps its caption. */
+export function ShownImage({ name, caption }: { name: string; caption?: string }) {
+  const src = attachmentImageUrl(name);
+  const [failed, setFailed] = useState(false);
+  return (
+    <div className="flex flex-col items-start gap-1">
+      {src && !failed ? (
+        <img
+          src={src}
+          alt={caption || name}
+          loading="lazy"
+          onError={() => setFailed(true)}
+          className="w-fit max-w-[min(42rem,78%)] rounded-2xl border border-hairline/40"
+        />
+      ) : (
+        <div
+          role="status"
+          className="flex items-center gap-2 rounded-2xl border border-hairline/40 bg-inset px-3 py-2 text-[12.5px] text-ink-secondary"
+        >
+          <ImageOff size={14} />
+          Image not available
+        </div>
+      )}
+      {caption && <p className="max-w-[min(42rem,78%)] px-1 text-[13px] text-ink-secondary">{caption}</p>}
+    </div>
+  );
+}

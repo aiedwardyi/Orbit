@@ -36,7 +36,7 @@ import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
-import { AttachedImageGallery } from "./AttachmentPreview";
+import { AttachedImageGallery, ShownImage } from "./AttachmentPreview";
 import { GroupCallButton, GroupCallOverlay } from "./GroupCallView";
 import { ReactionBar, ReactionChips } from "./Reactions";
 import { ApprovalCard } from "./ApprovalCard";
@@ -382,6 +382,8 @@ const Transcript = memo(function Transcript({
               message={m}
               onRetry={onRetryFor(m.id)}
             />
+          ) : m.kind === "screen" && m.image ? (
+            <ShownImage name={m.image} caption={m.text} />
           ) : m.kind === "screen" && m.png ? (
             <div className="flex flex-col items-start gap-1">
               <img

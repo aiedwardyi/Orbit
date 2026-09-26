@@ -56,7 +56,7 @@ import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
-import { AttachedImageGallery } from "./AttachmentPreview";
+import { AttachedImageGallery, ShownImage } from "./AttachmentPreview";
 import { ModelPicker } from "./ModelPicker";
 import { RenameTitle } from "./RenameTitle";
 import { TaskPicker } from "./TaskPicker";
@@ -906,6 +906,7 @@ const MessagesList = memo(function MessagesList({
               return <ActivityChip message={m} />;
             }
             case "screen":
+              if (m.image) return <ShownImage name={m.image} caption={m.text} />;
               return m.png ? <ScreenFrame png={m.png} mime={m.mime} caption={m.text} /> : null;
             case "note":
               return <NoteMessage message={m} />;

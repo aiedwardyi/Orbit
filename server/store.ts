@@ -141,6 +141,8 @@ export interface Message {
   mime?: string;
   /** a screen message published by show_image: never pruned, always shown */
   shown?: boolean;
+  /** show_image: the attachment name its pixels load from */
+  image?: string;
   at: number;
   /** the message this one follows; null = thread root. Edited messages
    * share a parentId with the version they replace — that's a fork. */
