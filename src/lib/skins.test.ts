@@ -435,6 +435,55 @@ describe("dark Blueprint skins", () => {
   });
 });
 
+const FACE_SKINS = [
+  { id: "instrument", name: "Instrument", face: "IBM Plex Sans", file: "IBMPlexSans-Variable.woff2", app: "#15181c" },
+  { id: "matte", name: "Matte", face: "Nunito", file: "Nunito-Variable.woff2", app: "#1c1b19" },
+  { id: "carbon", name: "Carbon", face: "JetBrains Mono", file: "JetBrainsMono-Variable.woff2", app: "#0b0c0d" },
+] as const;
+
+describe("bundled-face skins", () => {
+  const fonts = join(dirname(fileURLToPath(import.meta.url)), "../../public/fonts");
+
+  it("registers each with its own bundled face first in the stack", () => {
+    for (const skin of FACE_SKINS) {
+      expect(SKINS.some((entry) => entry.id === skin.id && entry.name === skin.name)).toBe(true);
+      expect(cssToken(skin.id, "--color-app")).toBe(skin.app);
+      const body = css.match(new RegExp(`\\[data-skin="${skin.id}"\\]\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+      expect(body, skin.id).toMatch(new RegExp(`--font-sans:\\s*"${skin.face}"`));
+      expect(css).toContain(`font-family: "${skin.face}";\n  src: url("/fonts/${skin.file}") format("woff2");`);
+      expect(readdirSync(fonts)).toContain(skin.file);
+    }
+  });
+
+  it("gives each a different card geometry", () => {
+    const radii = FACE_SKINS.map((skin) => css.match(new RegExp(`\\[data-skin="${skin.id}"\\]\\s*\\{[^}]*--radius-lg:\\s*([^;]+);`))?.[1]);
+    expect(new Set(radii).size).toBe(FACE_SKINS.length);
+    for (const skin of FACE_SKINS) {
+      expect(css, skin.id).toContain(`@scope ([data-skin="${skin.id}"]) to ([data-skin])`);
+    }
+  });
+
+  it("keeps chat ink at AA on every surface and accent fills readable", () => {
+    for (const skin of FACE_SKINS) {
+      const ink = cssToken(skin.id, "--color-ink")!;
+      const secondary = cssToken(skin.id, "--color-ink-secondary")!;
+      for (const surface of ["--color-app", "--color-card", "--color-bubble-user", "--color-inset", "--color-control"]) {
+        expect(contrast(ink, cssToken(skin.id, surface)!), `${skin.id} ${surface}`).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(secondary, cssToken(skin.id, surface)!), `${skin.id} ${surface}`).toBeGreaterThanOrEqual(4.5);
+      }
+      expect(contrast(cssToken(skin.id, "--color-accent-ink")!, cssToken(skin.id, "--color-accent")!)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(cssToken(skin.id, "--color-danger-ink")!, cssToken(skin.id, "--color-danger")!)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it("keeps accents and grounds low-chroma", () => {
+    for (const skin of FACE_SKINS) {
+      expect(spread(cssToken(skin.id, "--color-accent")!), skin.id).toBeLessThanOrEqual(64);
+      expect(spread(cssToken(skin.id, "--color-app")!), skin.id).toBeLessThanOrEqual(12);
+    }
+  });
+});
+
 const DARK_INK_SKINS = [
   {
     id: "catppuccin-frappe",

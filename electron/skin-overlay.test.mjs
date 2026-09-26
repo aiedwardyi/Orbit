@@ -134,7 +134,7 @@ describe("skin overlay chrome", () => {
     expect(SKIN_CHROME.claude).toEqual({ color: "#171615", symbolColor: "#b8b0a6" });
   });
 
-  it("locks caption chrome for the eight added skins", () => {
+  it("locks caption chrome for the eleven added skins", () => {
     expect(SKIN_CHROME.precision).toEqual({ color: "#121316", symbolColor: "#a3a7b3" });
     expect(SKIN_CHROME.notebook).toEqual({ color: "#ffffff", symbolColor: "#686862" });
     expect(SKIN_CHROME.messenger).toEqual({ color: "#f8f9fb", symbolColor: "#606671" });
@@ -143,6 +143,9 @@ describe("skin overlay chrome", () => {
     expect(SKIN_CHROME.blueprint).toEqual({ color: "#eaf2fa", symbolColor: "#4f6680" });
     expect(SKIN_CHROME["blueprint-gray"]).toEqual({ color: "#3a414a", symbolColor: "#d8e0e8" });
     expect(SKIN_CHROME["blueprint-charcoal"]).toEqual({ color: "#1f252c", symbolColor: "#b7c4d0" });
+    expect(SKIN_CHROME.instrument).toEqual({ color: "#15181c", symbolColor: "#a3acb7" });
+    expect(SKIN_CHROME.matte).toEqual({ color: "#1c1b19", symbolColor: "#b3ab9f" });
+    expect(SKIN_CHROME.carbon).toEqual({ color: "#0b0c0d", symbolColor: "#939da7" });
   });
 
   it("extracts onyx, dracula, and cobalt from the omb-skin marker", () => {
@@ -178,6 +181,7 @@ describe("skin overlay chrome", () => {
     expect(skinThemeSource("blueprint")).toBe("light");
     expect(skinThemeSource("blueprint-gray")).toBe("dark");
     expect(skinThemeSource("blueprint-charcoal")).toBe("dark");
+    expect(skinThemeSource("carbon")).toBe("dark");
   });
 
   it("maps a missing persisted skin to Ledger light nativeTheme", () => {

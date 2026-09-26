@@ -41,6 +41,9 @@ export const SKIN_IDS = [
   "blueprint",
   "blueprint-gray",
   "blueprint-charcoal",
+  "instrument",
+  "matte",
+  "carbon",
 ] as const;
 export type SkinId = (typeof SKIN_IDS)[number];
 
@@ -88,6 +91,9 @@ export const SKINS: readonly Skin[] = [
   { id: "blueprint", name: "Blueprint", tagline: "Technical paper, fine blue rules." },
   { id: "blueprint-gray", name: "Blueprint Gray", tagline: "Mid-gray drafting board, blue rules." },
   { id: "blueprint-charcoal", name: "Blueprint Charcoal", tagline: "Deep charcoal drafting board, blue rules." },
+  { id: "instrument", name: "Instrument", tagline: "Slate ink, Plex type, ruled cards." },
+  { id: "matte", name: "Matte", tagline: "Warm stone, soft light, rounded type." },
+  { id: "carbon", name: "Carbon", tagline: "Near-black steel, dense monospace." },
 ];
 
 export const DEFAULT_SKIN: SkinId = "precision";
