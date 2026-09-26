@@ -182,12 +182,33 @@ describe("claudeUserContent", () => {
     expect(claudeUserContent(text, store)).toBe(text);
   });
 
-  it("sends at most 8 native images, extras stay text", () => {
-    const paths = Array.from({ length: 10 }, (_, i) => put(store, `${i}.png`, Buffer.concat([PNG, Buffer.from([i])])));
+  it("sends the 8 newest native images, dropping the oldest", () => {
+    const paths = Array.from({ length: 9 }, (_, i) => put(store, `${i}.png`, Buffer.concat([PNG, Buffer.from([i])])));
     const content = claudeUserContent(paths.map(tag).join("\n"), store);
     if (!Array.isArray(content)) throw new Error("expected blocks");
     expect(content.slice(1).map((b) => (b.type === "image" ? b.source.data : ""))).toEqual(
-      paths.slice(0, 8).map((_, i) => Buffer.concat([PNG, Buffer.from([i])]).toString("base64")),
+      paths.slice(1).map((_, i) => Buffer.concat([PNG, Buffer.from([i + 1])]).toString("base64")),
+    );
+  });
+
+  it("counts a duplicate path once, so it does not push out another image", () => {
+    const paths = Array.from({ length: 8 }, (_, i) => put(store, `${i}.png`, Buffer.concat([PNG, Buffer.from([i])])));
+    const text = [...paths, paths[7]].map(tag).join("\n");
+    const content = claudeUserContent(text, store);
+    if (!Array.isArray(content)) throw new Error("expected blocks");
+    expect(content.slice(1).map((b) => (b.type === "image" ? b.source.data : ""))).toEqual(
+      paths.map((_, i) => Buffer.concat([PNG, Buffer.from([i])]).toString("base64")),
+    );
+  });
+
+  it("caps total native bytes at 20 MiB, dropping the oldest first", () => {
+    const size = 5 * 1024 * 1024;
+    const chunk = (marker: number) => Buffer.concat([PNG, Buffer.alloc(size - PNG.length, marker)]);
+    const paths = Array.from({ length: 5 }, (_, i) => put(store, `${i}.png`, chunk(i)));
+    const content = claudeUserContent(paths.map(tag).join("\n"), store);
+    if (!Array.isArray(content)) throw new Error("expected blocks");
+    expect(content.slice(1).map((b) => (b.type === "image" ? b.source.data : ""))).toEqual(
+      paths.slice(1).map((_, i) => chunk(i + 1).toString("base64")),
     );
   });
 

@@ -548,6 +548,7 @@ export function claudeToolSummary(name: string, input: unknown, cwd: string, res
 
 const NATIVE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const NATIVE_IMAGE_MAX_COUNT = 8;
+const NATIVE_IMAGE_MAX_TOTAL_BYTES = 20 * 1024 * 1024;
 const ATTACHED_IMAGE_TAG = /<attached-image\s+path="([^"]*)"\s*\/?>/g;
 
 type ClaudeImageBlock = { type: "image"; source: { type: "base64"; media_type: string; data: string } };
@@ -558,7 +559,7 @@ const unescapeAttribute = (value: string) =>
     ({ amp: "&", quot: '"', lt: "<", gt: ">", "#9": "\t", "#13": "\r", "#10": "\n" })[e]!,
   );
 
-function storeImage(path: string, storeDir: string): ClaudeImageBlock | null {
+function storeImage(path: string, storeDir: string): { block: ClaudeImageBlock; realPath: string; bytes: number } | null {
   try {
     const file = realpathSync(path);
     if (dirname(file) !== realpathSync(storeDir)) return null;
@@ -566,21 +567,32 @@ function storeImage(path: string, storeDir: string): ClaudeImageBlock | null {
     if (!stat.isFile() || stat.size === 0 || stat.size > NATIVE_IMAGE_MAX_BYTES) return null;
     const bytes = readFileSync(file);
     const mime = sniffImageMime(bytes);
-    return mime ? { type: "image", source: { type: "base64", media_type: mime, data: bytes.toString("base64") } } : null;
+    if (!mime) return null;
+    return { block: { type: "image", source: { type: "base64", media_type: mime, data: bytes.toString("base64") } }, realPath: file, bytes: bytes.length };
   } catch {
     return null;
   }
 }
 
-/** Attached store images ride along as native blocks; anything else stays the plain string. */
+/** Attached store images ride along as native blocks; anything else stays the plain string.
+ * Newest tags win the 8-image and 20 MiB budgets, so a replayed turn's old history can't
+ * starve out the image the user just attached. */
 export function claudeUserContent(text: string, storeDir: string = ATTACHMENTS_DIR): ClaudeUserContent {
-  const images: ClaudeImageBlock[] = [];
-  for (const [, raw] of text.matchAll(ATTACHED_IMAGE_TAG)) {
-    if (images.length >= NATIVE_IMAGE_MAX_COUNT) break;
-    const block = storeImage(unescapeAttribute(raw!), storeDir);
-    if (block) images.push(block);
+  const tags = [...text.matchAll(ATTACHED_IMAGE_TAG)].map(([, raw]) => unescapeAttribute(raw!));
+  const chosen = new Map<number, ClaudeImageBlock>();
+  const seenPaths = new Set<string>();
+  let totalBytes = 0;
+  for (let i = tags.length - 1; i >= 0 && chosen.size < NATIVE_IMAGE_MAX_COUNT; i--) {
+    const stored = storeImage(tags[i]!, storeDir);
+    if (!stored || seenPaths.has(stored.realPath)) continue;
+    if (totalBytes + stored.bytes > NATIVE_IMAGE_MAX_TOTAL_BYTES) break;
+    seenPaths.add(stored.realPath);
+    totalBytes += stored.bytes;
+    chosen.set(i, stored.block);
   }
-  return images.length ? [{ type: "text", text }, ...images] : text;
+  if (!chosen.size) return text;
+  const images = tags.map((_, i) => chosen.get(i)).filter((b): b is ClaudeImageBlock => !!b);
+  return [{ type: "text", text }, ...images];
 }
 
 const elideImageData = (content: ClaudeUserContent) =>
