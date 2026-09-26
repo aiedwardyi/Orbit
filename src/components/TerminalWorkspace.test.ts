@@ -1358,7 +1358,7 @@ it("closes the active and last spawned tabs while ignoring late worker output", 
   expect(terminal.write).toHaveBeenLastCalledWith("working");
   await act(async () => { f.tabs()[1].parentElement!.querySelectorAll("button")[1].click(); });
   expect(f.close).toHaveBeenLastCalledWith("pane-one");
-  expect(f.tabs().map((tab) => tab.textContent)).toEqual(["Terminal", "two"]);
+  expect(f.tabs().map((tab) => tab.textContent)).toEqual([">_", "two"]);
   expect(f.tabs()[0].getAttribute("aria-selected")).toBe("true");
   terminal.write.mockClear();
   await act(async () => { f.receive({ id: "pane-one", data: "late", seq: 2 }); });
@@ -1391,7 +1391,7 @@ it("does not resurrect a host-closed pane from a delayed initial snapshot", asyn
   await f.render();
   await act(async () => { f.closed({ botId: "bot-1", id: "pane-one" }); });
   await act(async () => { resolve(f.snapshot); });
-  expect(f.tabs().map((tab) => tab.textContent)).toEqual(["Terminal", "two"]);
+  expect(f.tabs().map((tab) => tab.textContent)).toEqual([">_", "two"]);
 });
 
 it.each([null, 0])("gates every visible Restart entry point on a spawned pane with exit %s", async (exitCode) => {
@@ -1441,9 +1441,9 @@ it("keeps snapshot labels isolated across panes and bot remounts", async () => {
   expect(f.tabs()[2].textContent).toBe("two");
   f.readBot.mockResolvedValueOnce({ ...f.snapshot, botId: "bot-2", panes: [{ ...f.snapshot.panes[0], sessionId: "foreign", label: "other bot" }] });
   await act(async () => root.render(createElement(TerminalWorkspace, { ...f.props, key: "bot-2", bot: { ...f.props.bot, id: "bot-2" } })));
-  expect(f.tabs().map((tab) => tab.textContent)).toEqual(["Terminal", "other bot"]);
+  expect(f.tabs().map((tab) => tab.textContent)).toEqual([">_", "other bot"]);
   await act(async () => { f.opened({ botId: "bot-1", id: "ignored", label: "wrong bot", generation: 1 }); });
   expect(f.tabs()).toHaveLength(2);
   await act(async () => root.render(createElement(TerminalWorkspace, { ...f.props, key: "bot-1" })));
-  expect(f.tabs().map((tab) => tab.textContent)).toEqual(["Terminal", "one", "two"]);
+  expect(f.tabs().map((tab) => tab.textContent)).toEqual([">_", "one", "two"]);
 });
