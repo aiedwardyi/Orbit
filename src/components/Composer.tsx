@@ -543,7 +543,7 @@ export function Composer({
   const hasContent = Boolean(text.trim()) || attachments.length > 0;
   const terminalBridge = typeof window === "undefined" ? undefined : window.ogb?.terminal;
   const canShareTerminal = Boolean(
-    bot && !group && bot.shareTerminalWithChat && terminalBridge?.readBot && terminalBridge?.sendBot,
+    bot && !group && bot.shareTerminalWithChat !== false && terminalBridge?.readBot && terminalBridge?.sendBot,
   );
   const retryFailedSend = (failed: FailedComposerSend) => {
     if (failed.requestText.includes("<attached-image ")) {
@@ -1119,7 +1119,7 @@ export function Composer({
         {hasContent && !locked && (
           <>
           {/* Hidden while sharing is on: the bot types into its own panes. */}
-          {canShareTerminal && !bot?.shareTerminalWithChat && !busy && (
+          {canShareTerminal && bot?.shareTerminalWithChat === false && !busy && (
             <button
               type="button"
               onClick={() => void previewTerminalSend()}

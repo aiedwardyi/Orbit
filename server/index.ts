@@ -3318,7 +3318,7 @@ const deliveredPaneNotes = new Map<string, string>();
 // fires for a bot whose owner turned on share-terminal, and its auto mode is
 // the whole point of acting on worker reports; destructive/sensitive still card.
 const paneWake = new PaneWakeScheduler({
-  enabled: (botId) => store.bot(botId)?.shareTerminalWithChat === true,
+  enabled: (botId) => store.bot(botId)?.shareTerminalWithChat !== false,
   busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
   hasNotes: (threadId) => paneNotesSinceLastUserTurn(store.activePath(threadId), new Set(), deliveredPaneNotes.get(threadId)).length > 0,
   wake: (botId, threadId) => {
@@ -3930,7 +3930,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     }
     try {
       const integrations: NonNullable<Parameters<typeof instance.adapter.sendTurn>[0]["integrations"]> = {};
-      if (bot.shareTerminalWithChat) {
+      if (bot.shareTerminalWithChat !== false) {
         const terminal = terminalIntegration(bot.id);
         if (terminal) integrations.terminal = terminal;
       }
@@ -4990,7 +4990,7 @@ async function runClaimedGroupMemberTurn(
   // processes, interleaved token spend, and an interrupt that only ever
   // reached one of them.
   const integrations: NonNullable<Parameters<typeof instance.adapter.sendTurn>[0]["integrations"]> = {};
-  if (bot.shareTerminalWithChat) {
+  if (bot.shareTerminalWithChat !== false) {
     const terminal = terminalIntegration(bot.id);
     if (terminal) integrations.terminal = terminal;
   }

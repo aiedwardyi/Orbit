@@ -413,7 +413,8 @@ export function SettingsPanel({
   const serverHasTerminal = state.config?.features?.terminalHost === true;
   const browserFeature = builtInBrowserEnabled(state.config);
   const browserEnabled = bot.browser !== false;
-  const terminalShared = bot.shareTerminalWithChat === true;
+  const terminalShared =
+    bot.shareTerminalWithChat === true || (bot.shareTerminalWithChat !== false && (desktopTerminal || serverHasTerminal));
   const sectionName = bot.section?.trim() || "General";
   const closeSettings = () => {
     restoreFocusOnUnmount.current = true;
