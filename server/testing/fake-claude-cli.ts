@@ -238,15 +238,18 @@ const playTurn = (prompt: JsonValue) => {
   // FAKE_CLAUDE_STATE is unset) the turn completes normally.
   // FAKE_CLAUDE_PARTIAL_FAILS makes the FIRST launch emit a text delta
   // before failing — the partial-output guard must forbid retrying it.
+  // FAKE_CLAUDE_TRANSIENT_AFTER lets that many turns (a retained process
+  // counts each) succeed before the failures start.
   if (process.env.FAKE_CLAUDE_TRANSIENTS && process.env.FAKE_CLAUDE_STATE) {
     let launched = 0;
     try {
       launched = Number(readFileSync(process.env.FAKE_CLAUDE_STATE, "utf8")) || 0;
     } catch {}
     const quota = Number(process.env.FAKE_CLAUDE_TRANSIENTS) || 0;
+    const after = Number(process.env.FAKE_CLAUDE_TRANSIENT_AFTER) || 0;
     writeFileSync(process.env.FAKE_CLAUDE_STATE, String(launched + 1));
     out({ type: "system", subtype: "init", session_id: sessionId, model });
-    if (launched < quota) {
+    if (launched >= after && launched < after + quota) {
       if (process.env.FAKE_CLAUDE_PARTIAL_FAILS) {
         out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "half an answer" } } });
       }

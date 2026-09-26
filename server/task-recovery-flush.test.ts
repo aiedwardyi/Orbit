@@ -282,13 +282,21 @@ describe("turn completion disposition after stop", () => {
   });
 
   it("drops the task's cursors and seed when a rewound turn dispatches, not only the bot mirror", () => {
-    expect(indexSource).toContain([
-      "if (rewound) {",
-      "        store.clearResumeCursors(bot.id, threadId);",
-      "        store.patchBot(bot.id, { rewound: false });",
-      "      }",
-    ].join("\n"));
+    expect(indexSource).toContain("if (rewound) store.clearResumeCursors(bot.id, threadId);");
+    expect(indexSource).toContain("if (rewound) store.patchBot(bot.id, { rewound: false });");
     expect(indexSource).not.toContain("{ rewound: false, resumeCursors: {} }");
+  });
+
+  it("clears a rewound turn's cursors before the send, so a session announced during dispatch survives", () => {
+    const claimed = indexSource.indexOf("async function startClaimedTurn(");
+    const dispatch = indexSource.indexOf("const started = await dispatchAdapterTurn(", claimed);
+    const clear = indexSource.indexOf("if (rewound) store.clearResumeCursors(bot.id, threadId);", claimed);
+    const spent = indexSource.indexOf("if (rewound) store.patchBot(bot.id, { rewound: false });", claimed);
+    expect(dispatch).toBeGreaterThan(claimed);
+    expect(clear).toBeGreaterThan(claimed);
+    expect(clear).toBeLessThan(dispatch);
+    expect(spent).toBeGreaterThan(dispatch);
+    expect(indexSource.slice(dispatch, spent)).not.toContain("clearResumeCursors");
   });
 
   it("binds each turn seed to its dispatch so a stopped turn cannot drop or consume its replacement's", () => {

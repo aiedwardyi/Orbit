@@ -4248,6 +4248,11 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         turnSeeds.release(threadId, seed);
         return;
       }
+      // a rewound turn never resumes: its old cursors and seed die here,
+      // BEFORE the send. pi announces the replacement session while
+      // sendTurn is still running, and a clear afterwards would take that
+      // new cursor with it.
+      if (rewound) store.clearResumeCursors(bot.id, threadId);
       watchdog.watch(threadId, bot.id);
       const started = await dispatchAdapterTurn(threadId, () => {
         if (currentTurnEpoch(bot.id) !== epoch) {
@@ -4327,11 +4332,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       if (newestPaneNoteId) deliveredPaneNotes.set(threadId, newestPaneNoteId);
       if (currentTurnEpoch(bot.id) !== epoch) return;
       if (started.turnId) liveTurnIdByThread.set(threadId, started.turnId);
-      // dispatched: the rewind is spent, and the old cursors and seed are dead
-      if (rewound) {
-        store.clearResumeCursors(bot.id, threadId);
-        store.patchBot(bot.id, { rewound: false });
-      }
+      // dispatched: the rewind is spent
+      if (rewound) store.patchBot(bot.id, { rewound: false });
       // and this engine now owns the thread's most recent turn
       store.markTaskDispatched(bot.id, threadId, instanceId, model);
       // a turn can settle before dispatch returns, and a poller started

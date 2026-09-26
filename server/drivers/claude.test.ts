@@ -269,6 +269,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     delete process.env.FAKE_CLAUDE_MODE;
     delete process.env.FAKE_CLAUDE_DUMP;
     delete process.env.FAKE_CLAUDE_TRANSIENTS;
+    delete process.env.FAKE_CLAUDE_TRANSIENT_AFTER;
     delete process.env.FAKE_CLAUDE_PARTIAL_FAILS;
     delete process.env.FAKE_CLAUDE_STATE;
     delete process.env.FAKE_CLAUDE_RETRY_SCALE;
@@ -992,6 +993,39 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await recorder.until((e) => e.type === "turn.completed" && e.eventId !== firstDone.eventId);
 
     expect(recorder.events.filter((e) => e.type === "turn.retrying").map((e) => e.attempt)).toEqual([1, 2, 1, 2]);
+  }, 20_000);
+
+  it("retries the turn a retained process is running, not the one that spawned it", async () => {
+    process.env.FAKE_CLAUDE_TRANSIENTS = "1";
+    process.env.FAKE_CLAUDE_TRANSIENT_AFTER = "1";
+    process.env.FAKE_CLAUDE_STATE = join(scratch, "launches-warm");
+    process.env.FAKE_CLAUDE_RETRY_SCALE = "0.001";
+    await create();
+    const first = await instance.adapter.sendTurn({ threadId: "t-warm-retry", text: "one" });
+    const firstDone = await recorder.until((e) => e.type === "turn.completed");
+    expect(firstDone).toMatchObject({ turnId: first.turnId, ok: true });
+    const announced = (recorder.events.find((e) => e.type === "session.started") as { sessionId: string }).sessionId;
+
+    // the retained process runs the second turn and dies before a delta;
+    // only the relaunch sees the dump path, so it records what was resent
+    const dump = join(scratch, "warm-retry-dump.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const second = await instance.adapter.sendTurn({ threadId: "t-warm-retry", text: "two", resumeCursor: announced });
+    const done = await recorder.until((e) => e.type === "turn.completed" && e.eventId !== firstDone.eventId);
+
+    expect(done).toMatchObject({ turnId: second.turnId, ok: true });
+    expect(recorder.events.filter((e) => e.type === "turn.retrying")).toEqual([
+      expect.objectContaining({ turnId: second.turnId, attempt: 1 }),
+    ]);
+    // the warm turn's own init, then the relaunch's: all under the second id
+    const later = recorder.events.slice(recorder.events.indexOf(firstDone) + 1).filter((e) => e.type === "session.started");
+    expect(later.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(later.map((e) => e.turnId))).toEqual(new Set([second.turnId]));
+    expect(later.at(-1)).toMatchObject({ sessionId: announced });
+    const relaunch = JSON.parse(readFileSync(dump, "utf8")) as { argv: string[]; prompt: { message: { content: string } } };
+    expect(relaunch.argv).toContain("--resume");
+    expect(relaunch.prompt.message.content).toBe("two");
+    expect(recorder.events.filter((e) => e.type === "item.completed" && e.itemType === "assistant_text")).toHaveLength(2);
   }, 20_000);
 
   it("never retries a terminal (auth-shaped) exit", async () => {

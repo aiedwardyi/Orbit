@@ -605,6 +605,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         turnId: string;
         settled: boolean;
         sawStreamDelta: boolean;
+        /** what a retry relaunches; absent on a continuation */
+        launch?: { request: SendTurnInput; retry: { attempt: number; cancelled: boolean }; abort: AbortController };
         /** the model answered this prompt, so the session holds it */
         promptAccepted?: boolean;
         /** opened by the CLI waking on its own after `result`; never retried */
@@ -861,7 +863,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (live.idleTimer) clearTimeout(live.idleTimer);
         turnTimer.mark("spawnOrReuse");
         turnTimer.mark("cliReady");
-        live.turn = { turnId, settled: false, sawStreamDelta: false, timer: turnTimer };
+        live.turn = { turnId, settled: false, sawStreamDelta: false, timer: turnTimer, launch: { request: turn, retry, abort: retryAbort } };
         active.set(threadId, {
           stop: () => {
             retry.cancelled = true;
@@ -965,7 +967,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         mcpConfigPath,
         argsKey,
         sessionId: sessionId ?? newSessionId,
-        turn: { turnId, settled: false, sawStreamDelta: false, timer: turnTimer },
+        turn: { turnId, settled: false, sawStreamDelta: false, timer: turnTimer, launch: { request: turn, retry, abort: retryAbort } },
         idleTimer: null,
         closing: false,
         stderr: "",
@@ -1204,16 +1206,21 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         // a turn still running when the process died is a failed turn; a
         // process that exited between turns (idle close, contract change)
         // is just a session ending
-        if (session.turn && !session.turn.settled) {
+        // A retained process may be on a later turn than the one that
+        // spawned it: retry, cancel and relaunch THAT turn, not this
+        // closure's, or the harness sees a settled id and stays busy.
+        const t = session.turn;
+        const launch = t?.launch;
+        if (t && !t.settled) {
           const message = `claude exited ${code} before result${session.stderr ? `: ${session.stderr.trim().slice(-300)}` : ""}`;
           const resumeRejected = Boolean(
-            !session.turn.continuation &&
+            launch &&
             sessionId &&
-            turn.resumeFallback &&
-            !session.turn.sawStreamDelta &&
+            launch.request.resumeFallback &&
+            !t.sawStreamDelta &&
             isResumeCursorRejected(session.stderr),
           );
-          if (resumeRejected) {
+          if (launch && resumeRejected) {
             session.broker?.pause();
             session.broker?.close();
             if (session.mcpConfigPath) {
@@ -1226,21 +1233,21 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             session.turn = null;
             active.delete(threadId);
             retryState.delete(threadId);
-            emit({ ...base(threadId, turnId), type: "turn.retrying", attempt: 1, delayMs: 0, reason: "resume_cursor" });
+            emit({ ...base(threadId, t.turnId), type: "turn.retrying", attempt: 1, delayMs: 0, reason: "resume_cursor" });
             void sendTurn({
-              ...turn,
-              text: turn.resumeFallback!.text,
+              ...launch.request,
+              text: launch.request.resumeFallback!.text,
               resumeCursor: undefined,
               resumeFallback: undefined,
-            }, turnId).catch((error) => {
+            }, t.turnId).catch((error) => {
               emit({
-                ...base(threadId, turnId),
+                ...base(threadId, t.turnId),
                 type: "runtime.error",
                 message: error instanceof Error ? error.message : String(error),
               });
-              turnTimer.mark("turnDone");
-      turnTimer.finish();
-      emit({ ...base(threadId, turnId), type: "turn.completed",
+              t.timer.mark("turnDone");
+              t.timer.finish();
+              emit({ ...base(threadId, t.turnId), type: "turn.completed",
                 ok: false,
                 stopReason: "resume_fallback_failed",
                 cost: null,
@@ -1250,12 +1257,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           }
           const verdict = classifyError({ exitCode: code, stderr: message });
           if (
-            !retry.cancelled &&
-            !session.turn.continuation &&
+            launch &&
+            !launch.retry.cancelled &&
             code !== 0 &&
             verdict.transient &&
-            !session.turn.sawStreamDelta &&
-            retry.attempt < RETRY_MAX_ATTEMPTS - 1
+            !t.sawStreamDelta &&
+            launch.retry.attempt < RETRY_MAX_ATTEMPTS - 1
           ) {
             // the CLI is gone but the TURN continues: keep the thread busy,
             // emit no terminal event, and relaunch after the backoff. The
@@ -1273,26 +1280,26 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             }
             sessions.delete(threadId);
             session.turn = null;
-            retry.attempt++;
-            const delayMs = computeBackoff(retry.attempt - 1);
+            launch.retry.attempt++;
+            const delayMs = computeBackoff(launch.retry.attempt - 1);
             emit({
-              ...base(threadId, turnId),
+              ...base(threadId, t.turnId),
               type: "turn.retrying",
-              attempt: retry.attempt,
+              attempt: launch.retry.attempt,
               delayMs,
               reason: verdict.reason,
             });
             void (async () => {
-              const wait = interruptibleDelay(delayMs * retryScale, retryAbort.signal);
+              const wait = interruptibleDelay(delayMs * retryScale, launch.abort.signal);
               await wait.promise;
               // an interrupt during the backoff landed here via stop(); the
               // turn settles as interrupted and no zombie relaunch happens
-              if (retry.cancelled) {
+              if (launch.retry.cancelled) {
                 active.delete(threadId);
                 retryState.delete(threadId);
-                turnTimer.mark("turnDone");
-      turnTimer.finish();
-      emit({ ...base(threadId, turnId), type: "turn.completed",
+                t.timer.mark("turnDone");
+                t.timer.finish();
+                emit({ ...base(threadId, t.turnId), type: "turn.completed",
                   ok: false,
                   stopReason: "interrupted",
                   cost: null,
@@ -1304,17 +1311,17 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               active.delete(threadId);
               try {
                 const cursor = session.sessionId ?? sessionId ?? undefined;
-                await sendTurn({ ...turn, resumeCursor: cursor }, turnId);
+                await sendTurn({ ...launch.request, resumeCursor: cursor }, t.turnId);
               } catch (e) {
                 retryState.delete(threadId);
                 emit({
-                  ...base(threadId, turnId),
+                  ...base(threadId, t.turnId),
                   type: "runtime.error",
                   message: e instanceof Error ? e.message : String(e),
                 });
-                turnTimer.mark("turnDone");
-      turnTimer.finish();
-      emit({ ...base(threadId, turnId), type: "turn.completed",
+                t.timer.mark("turnDone");
+                t.timer.finish();
+                emit({ ...base(threadId, t.turnId), type: "turn.completed",
                   ok: false,
                   stopReason: "exit_before_result",
                   cost: null,
