@@ -613,10 +613,10 @@ export function TerminalWorkspace({
             ) : null}
           </div>
           {panes.length > 0 && (
-            <div ref={tablistRef} role="tablist" className="mt-1 flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div ref={tablistRef} role="tablist" className="mt-1 flex min-w-0 items-center gap-1 overflow-x-auto pb-1">
               {[{ id: null, label: t("terminal.title") }, ...panes.map((item) => ({ id: item.id, label: item.label || item.id.slice(0, 8) }))].map((tab, index) => (
-                <div key={tab.id ?? "main"} className={`inline-flex min-w-[56px] max-w-[220px] flex-1 basis-0 items-center rounded-md border font-mono text-[11px] ${pane === tab.id ? "border-accent-text text-ink" : "border-hairline text-ink-secondary hover:text-ink"}`}>
-                  <button type="button" role="tab" aria-selected={pane === tab.id} onClick={() => setPane(tab.id)} title={`${tab.label} (Alt+${index + 1})`} className="min-w-0 flex-1 truncate text-left px-1.5 py-0.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text">
+                <div key={tab.id ?? "main"} className={`inline-flex shrink-0 items-center rounded-md border font-mono text-[11px] ${pane === tab.id ? "border-accent-text text-ink" : "border-hairline text-ink-secondary hover:text-ink"}`}>
+                  <button type="button" role="tab" aria-selected={pane === tab.id} onClick={() => setPane(tab.id)} title={`${tab.label} (Alt+${index + 1})`} className="whitespace-nowrap px-1.5 py-0.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text">
                     {tab.label}
                   </button>
                   {tab.id && (

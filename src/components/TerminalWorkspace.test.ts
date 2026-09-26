@@ -1271,7 +1271,7 @@ it("opens Ctrl+clicked http(s) links via openExternal and ignores other schemes"
 });
 
 
-it("shares tab width, hides the strip scrollbar, and switches panes on the Alt+digit hotkey", async () => {
+it("keeps full-width pane labels, shows the strip scrollbar, and switches panes on the Alt+digit hotkey", async () => {
   const open = vi.fn(async (input: { sessionId?: string }) => ({ id: input.sessionId ?? "session-main", cwd: "C:\\work", shell: "pwsh.exe", output: "", seq: 0, exitCode: null }));
   const scrollIntoView = vi.fn();
   Element.prototype.scrollIntoView = scrollIntoView;
@@ -1284,15 +1284,17 @@ it("shares tab width, hides the strip scrollbar, and switches panes on the Alt+d
 
   const tablist = host.querySelector<HTMLElement>('[role="tablist"]');
   expect(tablist?.className).toContain("overflow-x-auto");
-  expect(tablist?.className).toContain("[scrollbar-width:none]");
-  expect(tablist?.className).toContain("[&::-webkit-scrollbar]:hidden");
+  expect(tablist?.className).toContain("pb-1");
+  expect(tablist?.className).not.toContain("scrollbar-width:none");
+  expect(tablist?.className).not.toContain("::-webkit-scrollbar]:hidden");
   const tabs = [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
   expect(tabs).toHaveLength(3);
   for (const tab of tabs) {
-    expect(tab.parentElement?.className).toMatch(/\bflex-1\b/);
-    expect(tab.parentElement?.className).toContain("basis-0");
-    expect(tab.parentElement?.className).toContain("min-w-[56px]");
-    expect(tab.parentElement?.className).not.toMatch(/\bshrink-0\b/);
+    expect(tab.parentElement?.className).toContain("shrink-0");
+    expect(tab.parentElement?.className).not.toMatch(/\bflex-1\b/);
+    expect(tab.parentElement?.className).not.toContain("basis-0");
+    expect(tab.className).toContain("whitespace-nowrap");
+    expect(tab.className).not.toContain("truncate");
   }
   expect(tabs.map((tab) => tab.title)).toEqual(["Terminal (Alt+1)", "worker-one-with-a-long-label (Alt+2)", "worker-two-with-a-long-label (Alt+3)"]);
 
