@@ -32,7 +32,7 @@ function paneEnv(bin, url, overrides = {}) {
     ORBIT_BOT: "bot-1",
     ORBIT_TEACHER: "bot-1",
     ORBIT_URL: url,
-    ORBIT_MSG_TOKEN: "test-token",
+    ORBIT_MSG_AUTH: "test-token",
     ...overrides,
   };
 }
@@ -194,6 +194,17 @@ test("powershell path posts identical text", { skip: !WIN32, timeout: LIVE_TIMEO
     const viaCmd = await runCmdLines({ cwd: dir, env: paneEnv(bin, url), lines: ["orbit-msg.cmd note ^& echo MARKER"] });
     assert.doesNotMatch(viaCmd.out, /MARKER/);
     assert.deepEqual(posts.map((p) => p.text), ["note & echo MARKER", "note & echo MARKER"]);
+  });
+});
+
+test("powershell accepts the legacy pane grant", { skip: !WIN32, timeout: LIVE_TIMEOUT }, async (t) => {
+  const { dir, bin } = await installBin();
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  await withMailboxStub(async (url, posts) => {
+    const env = paneEnv(bin, url, { ORBIT_MSG_AUTH: undefined, ORBIT_MSG_TOKEN: "test-token" });
+    const run = await runPs1Direct({ ps1: path.join(bin, "orbit-msg.ps1"), env, args: ["legacy"] });
+    assert.equal(run.status, 0);
+    assert.deepEqual(posts.map((p) => p.text), ["legacy"]);
   });
 });
 

@@ -311,7 +311,7 @@ describe("POST /api/mailbox", () => {
     expect(statSync(target).mtimeMs).toBe(past.getTime());
     writeFileSync(target, "stale");
     await installOrbitMsg(dir, "win32");
-    expect(readFileSync(target, "utf8")).toContain("ORBIT_MSG_TOKEN");
+    expect(readFileSync(target, "utf8")).toContain("ORBIT_MSG_AUTH");
   });
 
   it.runIf(process.platform === "win32")("orbit-msg retries 18799 then 28799 on connection refused", async () => {
@@ -386,8 +386,8 @@ describe("POST /api/mailbox", () => {
     const texts = [
       'A " & echo PWNED & rem "',
       'A " & exit /b 2 & rem "',
-      "%ORBIT_MSG_TOKEN%",
-      "$env:ORBIT_MSG_TOKEN",
+      "%ORBIT_MSG_AUTH%",
+      "$env:ORBIT_MSG_AUTH",
       `she said "hi" and it's fine`,
     ];
     const launches = [
@@ -403,6 +403,6 @@ describe("POST /api/mailbox", () => {
     }
     const posted = (await transcript("teacher-thread")).slice(-launches.length).map((message) => message.text);
     expect(posted).toEqual([...texts, ...texts, ...texts].map((text) => `[pane 0f3c9a1e] from worker (worker): ${text}`));
-    expect(posted.join("\n")).not.toContain(paneEnv.ORBIT_MSG_TOKEN);
+    expect(posted.join("\n")).not.toContain(paneEnv.ORBIT_MSG_AUTH);
   }, 60_000);
 });

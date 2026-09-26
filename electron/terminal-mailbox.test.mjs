@@ -33,8 +33,9 @@ describe("terminal pane env", () => {
     const session = await f.host.open(f.event, f.input);
     const env = f.spawned[0];
     expect(env).toMatchObject({ ORBIT_PANE: session.id, ORBIT_BOT: "bot-1", ORBIT_TEACHER: "bot-1", ORBIT_URL: "http://127.0.0.1:8799" });
-    expect(env.ORBIT_MSG_TOKEN).toBe(serverGrant("secret", session.id, "bot-1", "bot-1"));
-    expect(env.ORBIT_MSG_TOKEN).not.toContain("secret");
+    expect(env.ORBIT_MSG_AUTH).toBe(serverGrant("secret", session.id, "bot-1", "bot-1"));
+    expect(env.ORBIT_MSG_AUTH).not.toContain("secret");
+    expect(env.ORBIT_MSG_TOKEN).toBeUndefined();
     expect(env.OMB_COMMS_TOKEN).toBeUndefined();
     expect(env.PATH).toBe(`/orbit/bin${path.delimiter}/usr/bin`);
   });
@@ -44,7 +45,7 @@ describe("terminal pane env", () => {
     const session = await f.host.open(f.event, f.input);
     expect(f.spawned[0]).toMatchObject({ ORBIT_PANE: session.id, ORBIT_BOT: "bot-1", ORBIT_TEACHER: "bot-1" });
     expect(f.spawned[0].ORBIT_URL).toBeUndefined();
-    expect(f.spawned[0].ORBIT_MSG_TOKEN).toBeUndefined();
+    expect(f.spawned[0].ORBIT_MSG_AUTH).toBeUndefined();
   });
 
   it("prepends to a Windows-cased Path key", () => {
@@ -59,7 +60,7 @@ describe("terminal pane env", () => {
     const session = await f.host.open(f.event, f.input);
     const env = f.spawned[0];
     expect(env.ORBIT_TEACHER).toBe("chief-1");
-    expect(env.ORBIT_MSG_TOKEN).toBe(serverGrant("secret", session.id, "bot-1", "chief-1"));
+    expect(env.ORBIT_MSG_AUTH).toBe(serverGrant("secret", session.id, "bot-1", "chief-1"));
   });
 
   it("falls back to the bot when the resolved teacher is invalid", async () => {
@@ -68,7 +69,7 @@ describe("terminal pane env", () => {
     const session = await f.host.open(f.event, f.input);
     const env = f.spawned[0];
     expect(env.ORBIT_TEACHER).toBe("bot-1");
-    expect(env.ORBIT_MSG_TOKEN).toBe(serverGrant("secret", session.id, "bot-1", "bot-1"));
+    expect(env.ORBIT_MSG_AUTH).toBe(serverGrant("secret", session.id, "bot-1", "bot-1"));
   });
 });
 
@@ -98,7 +99,7 @@ const FAKE_GIT_CMD = [
   "@echo off",
   'set "ARGS=%*"',
   'if defined ORBIT_FAKE_GIT_LOG >>"%ORBIT_FAKE_GIT_LOG%" echo %ARGS%',
-  'if defined ORBIT_FAKE_GIT_LOG for %%v in (ORBIT_PANE ORBIT_BOT ORBIT_TEACHER ORBIT_URL ORBIT_MSG_TOKEN) do if defined %%v >>"%ORBIT_FAKE_GIT_LOG%" echo leaked %%v',
+  'if defined ORBIT_FAKE_GIT_LOG for %%v in (ORBIT_PANE ORBIT_BOT ORBIT_TEACHER ORBIT_URL ORBIT_MSG_AUTH ORBIT_MSG_TOKEN) do if defined %%v >>"%ORBIT_FAKE_GIT_LOG%" echo leaked %%v',
   'if "%ORBIT_FAKE_GIT%"=="norepo" exit /b 128',
   'if not "%ARGS:--abbrev-ref=%"=="%ARGS%" echo feat/widget& exit /b 0',
   'if not "%ARGS:--short=%"=="%ARGS%" echo abc1234& exit /b 0',

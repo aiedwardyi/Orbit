@@ -26,7 +26,7 @@ export function terminalPaneEnv(base, { pane, bot, teacher = bot, mailbox = null
   const env = { ...base, ORBIT_PANE: pane, ORBIT_BOT: bot, ORBIT_TEACHER: teacher };
   if (!mailbox) return env;
   env.ORBIT_URL = mailbox.url;
-  env.ORBIT_MSG_TOKEN = mailboxGrant(mailbox.token, pane, bot, teacher);
+  env.ORBIT_MSG_AUTH = mailboxGrant(mailbox.token, pane, bot, teacher);
   if (mailbox.binDir) {
     const key = Object.keys(env).find((name) => name.toUpperCase() === "PATH") ?? "PATH";
     env[key] = env[key] ? `${mailbox.binDir}${path.delimiter}${env[key]}` : mailbox.binDir;
@@ -38,7 +38,8 @@ export function terminalPaneEnv(base, { pane, bot, teacher = bot, mailbox = null
 // The .cmd and extensionless shims forward argv here; this script holds the only logic.
 const ORBIT_MSG_PS1 = String.raw`$ErrorActionPreference = 'Stop'
 $mode = if ($args.Count -ge 2 -and ($args[0] -eq '--hook' -or $args[0] -eq '--notify')) { $args[0] }
-if (-not $env:ORBIT_PANE -or -not $env:ORBIT_URL -or -not $env:ORBIT_MSG_TOKEN) {
+$auth = if ($env:ORBIT_MSG_AUTH) { $env:ORBIT_MSG_AUTH } else { $env:ORBIT_MSG_TOKEN }
+if (-not $env:ORBIT_PANE -or -not $env:ORBIT_URL -or -not $auth) {
   if ($mode) { exit 0 }
   [Console]::Error.WriteLine('orbit-msg: not inside an Orbit terminal pane')
   exit 1
@@ -61,7 +62,7 @@ if ($report) {
   }
   $branch = 'none'; $sha = 'none'; $dirty = 'unknown'
   # Repo config can run fsmonitor or hooks; neither may see the pane grant.
-  $paneVars = @('ORBIT_PANE', 'ORBIT_BOT', 'ORBIT_TEACHER', 'ORBIT_URL', 'ORBIT_MSG_TOKEN')
+  $paneVars = @('ORBIT_PANE', 'ORBIT_BOT', 'ORBIT_TEACHER', 'ORBIT_URL', 'ORBIT_MSG_AUTH', 'ORBIT_MSG_TOKEN')
   $saved = @{}
   foreach ($name in $paneVars) { $saved[$name] = [Environment]::GetEnvironmentVariable($name); [Environment]::SetEnvironmentVariable($name, $null) }
   try {
@@ -100,7 +101,7 @@ do {
   $body = [Text.Encoding]::UTF8.GetBytes((@{ text = $clip } | ConvertTo-Json -Compress))
   $max = [int]($max / 2)
 } while ($body.Length -gt 16000)
-$headers = @{ Authorization = "Bearer $env:ORBIT_MSG_TOKEN"; 'X-Orbit-Pane' = $env:ORBIT_PANE; 'X-Orbit-Bot' = $env:ORBIT_BOT; 'X-Orbit-Teacher' = $env:ORBIT_TEACHER }
+$headers = @{ Authorization = "Bearer $auth"; 'X-Orbit-Pane' = $env:ORBIT_PANE; 'X-Orbit-Bot' = $env:ORBIT_BOT; 'X-Orbit-Teacher' = $env:ORBIT_TEACHER }
 $uris = @("$env:ORBIT_URL/api/mailbox")
 if ($env:ORBIT_URL -match '^http://127\.0\.0\.1:\d+$') {
   $uris += 'http://127.0.0.1:18799/api/mailbox', 'http://127.0.0.1:28799/api/mailbox'
