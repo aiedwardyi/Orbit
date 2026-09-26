@@ -436,6 +436,7 @@ describe("Sidebar layout controls", () => {
           : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
     );
     vi.spyOn(console, "warn").mockImplementation(() => {});
+    const animate = vi.spyOn(HTMLElement.prototype, "animate").mockImplementation(() => new Animation());
     const host = document.body.appendChild(document.createElement("div"));
     const root = createRoot(host);
     try {
@@ -451,12 +452,18 @@ describe("Sidebar layout controls", () => {
       expect(toggle()).not.toBeNull();
       await act(async () => toggle()!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
       expect(window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY)).toBe("1");
-      expect(host.querySelector("aside")?.getAttribute("style")).toContain("width: 64px");
+      const aside = host.querySelector("aside")!;
+      expect(aside.getAttribute("style")).toContain("width: 64px");
+      expect(aside.className).not.toContain("transition-[width]");
+      expect(animate.mock.contexts.at(-1)).not.toBe(aside);
+      expect(animate.mock.calls.at(-1)?.[0]).toEqual([{ transform: "scaleX(1)" }, { transform: "scaleX(0)" }]);
 
       await act(async () => toggle()!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
       expect(window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY)).toBe("0");
       expect(window.localStorage.getItem(SIDEBAR_WIDTH_KEY)).toBe("360");
-      expect(host.querySelector("aside")?.getAttribute("style")).toContain("width: 360px");
+      expect(aside.getAttribute("style")).toContain("width: 360px");
+      expect(animate.mock.contexts.at(-1)).toBe(aside);
+      expect(animate.mock.calls.at(-1)?.[0]).toEqual([{ clipPath: "inset(0 296px 0 0)" }, { clipPath: "inset(0)" }]);
     } finally {
       window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
       window.localStorage.removeItem(SIDEBAR_WIDTH_KEY);

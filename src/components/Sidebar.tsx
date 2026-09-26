@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
 import {
   Archive,
@@ -78,6 +78,7 @@ import {
   saveSidebarWidth,
   SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_ICONS_WIDTH,
+  SIDEBAR_INLINE_BREAKPOINT,
   SIDEBAR_MAX_WIDTH,
   restoreSidebarDragWidth,
   snapSidebarDrag,
@@ -1309,6 +1310,9 @@ export function Sidebar({
   const focusSearchAfterExpand = useRef(false);
   const resizeFrom = useRef<{ x: number; width: number; collapsed: boolean; query: string } | null>(null);
   const [resizing, setResizing] = useState(false);
+  const asideRef = useRef<HTMLElement>(null);
+  const sidebarGhostRef = useRef<HTMLDivElement>(null);
+  const shownSidebarWidth = useRef(0);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   useEffect(() => {
     const onResize = () => setViewportWidth(window.innerWidth);
@@ -1420,6 +1424,34 @@ export function Sidebar({
       document.body.style.userSelect = previousUserSelect;
     };
   }, [resizing]);
+
+  // Never transition the aside's width: that relays out and repaints the whole chat
+  // every frame. Width snaps; a clip reveals growth, a ghost shrinks over the chat.
+  useLayoutEffect(() => {
+    const from = shownSidebarWidth.current;
+    shownSidebarWidth.current = sidebarDisplayWidth;
+    const aside = asideRef.current;
+    const ghost = sidebarGhostRef.current;
+    if (!from || resizing || from === sidebarDisplayWidth || !aside || !ghost) return;
+    if (!window.matchMedia?.(`(min-width: ${SIDEBAR_INLINE_BREAKPOINT}px)`).matches) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const timing = { duration: 200, easing: "cubic-bezier(0.4, 0, 0.2, 1)" };
+    if (from < sidebarDisplayWidth) {
+      const reveal = aside.animate(
+        [{ clipPath: `inset(0 ${sidebarDisplayWidth - from}px 0 0)` }, { clipPath: "inset(0)" }],
+        timing,
+      );
+      return () => reveal.cancel();
+    }
+    ghost.style.width = `${from - sidebarDisplayWidth}px`;
+    const shrink = ghost.animate([{ transform: "scaleX(1)" }, { transform: "scaleX(0)" }], { ...timing, fill: "forwards" });
+    const reset = () => {
+      shrink.cancel();
+      ghost.style.width = "";
+    };
+    shrink.onfinish = reset;
+    return reset;
+  }, [sidebarDisplayWidth]);
 
   useEffect(() => {
     if (sidebarCollapsed || !focusSearchAfterExpand.current) return;
@@ -1930,13 +1962,10 @@ export function Sidebar({
 
   return (
     <aside
+      ref={asideRef}
       aria-label={t("chrome.navAria")}
       className={cn(
         "relative flex h-full min-w-0 shrink-0 flex-col border-r border-hairline/40 bg-panel",
-        // md and up only: below md, width is a layout property fighting the
-        // translate-based drawer slide (both animating the same frame) — that
-        // pane leaves width alone and animates transform only, see below.
-        !resizing && "md:transition-[width] md:duration-200",
         // Below md only: the sidebar leaves the flow and slides in over the chat.
         // Scoped with max-md: rather than cancelled with md: on purpose — Tailwind
         // v4 emits the native `translate` property, and any value other than
@@ -1967,6 +1996,7 @@ export function Sidebar({
         onKeyDown={onSidebarResizeKeyDown}
         className="absolute inset-y-0 right-0 z-10 hidden w-1.5 cursor-col-resize touch-none hover:bg-accent/40 focus-visible:bg-accent/60 md:block"
       />
+      <div ref={sidebarGhostRef} aria-hidden className="pointer-events-none absolute inset-y-0 left-full z-30 origin-left bg-panel" />
       {/* macOS owns inset traffic lights; Linux/Windows use native chrome. */}
       <div
         className={cn("flex items-center pt-3.5 pb-1", density === "icons" ? "flex-col gap-1 px-2" : "justify-between px-4")}
