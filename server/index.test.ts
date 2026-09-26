@@ -3087,7 +3087,7 @@ describe("harness HTTP API", () => {
     expect(nothing.status).toBe(400);
   });
 
-  it("keeps an active task recoverable when provider settings reload", async () => {
+  it("keeps a Claude turn running when Muse connection settings change", async () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
     try {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
@@ -3100,15 +3100,17 @@ describe("harness HTTP API", () => {
       await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 5_000 }).toBe(true);
       expect(storedTaskPacket(bot.threadId).flushReason).toBe("progress");
 
-      expect((await api("PUT", "/api/config", { xai: { key: "" } })).status).toBe(200);
+      expect((await api("PATCH", "/api/instances/muse", { cli: "muse-preset" })).status).toBe(200);
 
-      await expect.poll(() => storedTaskPacket(bot.threadId).flushReason).toBe("crash");
+      expect(storedTaskPacket(bot.threadId).flushReason).toBe("progress");
       const refreshed = (await api("GET", "/api/bots?messages=0")).body.bots.find(
         (candidate: { id: string }) => candidate.id === bot.id,
       );
-      expect(refreshed?.busy).toBe(false);
+      expect(refreshed?.busy).toBe(true);
     } finally {
+      await api("POST", `/api/bots/${bot.id}/interrupt`);
       await api("DELETE", `/api/bots/${bot.id}`);
+      await api("PATCH", "/api/instances/muse", { cli: "" });
     }
   });
 

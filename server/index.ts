@@ -147,6 +147,7 @@ import {
   SendSequencer,
 } from "./send-idempotency.ts";
 import { EventBus } from "./harness/bus.ts";
+import { ProviderReload } from "./harness/provider-reload.ts";
 import { ProviderRegistry } from "./harness/registry.ts";
 import { cancelPeerApprovalsFor, cancelPeerApprovalsForThread, dismissStalePeerCards, requestPeerApproval, resolvePeerComms, type ApprovalBus } from "./peer-approval.ts";
 import {
@@ -200,7 +201,7 @@ import {
   TurnSeeds,
   turnSeedsSession,
 } from "./turn-context.ts";
-import { providerReloadErrorActivity, stallErrorActivity } from "./room-error-attribution.ts";
+import { stallErrorActivity } from "./room-error-attribution.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import { foldContinuationStart } from "./continuation-turn.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
@@ -383,6 +384,7 @@ utilityParentPort?.on("message", (event) => {
 
 const bus = new EventBus();
 bus.attach(registry.instances());
+const providerReload = new ProviderReload(registry, bus, instanceConfigs(cfg));
 
 // ── peer-agent comms wiring ────────────────────────────────────────────
 // A shared secret guards the localhost-only /api/internal endpoints the
@@ -2322,6 +2324,7 @@ const watchdog = new TurnWatchdog({
     // overlap the process we are stopping. The normal turn.completed fold
     // clears it first when the adapter responds.
     const release = setTimeout(() => {
+      providerReload.settled(turn.threadId);
       const group = store.groupByThread(turn.threadId);
       const speaker = groupSpeakers.get(turn.threadId);
       if (group && group.busyBotId === turn.botId && speaker?.botId === turn.botId) {
@@ -3303,6 +3306,7 @@ bus.subscribe((event: RuntimeEvent) => {
 // drains too.
 bus.subscribe((event: RuntimeEvent) => {
   if (event.type !== "turn.completed") return;
+  providerReload.settled(event.threadId);
   drainQueuedSends();
   paneWake.settled();
   followPendingSyncImports();
@@ -3632,6 +3636,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   }
 
   const selection = opts?.runOn === "cloud" ? bot.modelSelection : await resolvedBotSelection(bot, task);
+  if (opts?.runOn !== "cloud") await providerReload.wait(selection.instanceId);
   const instance = opts?.runOn === "cloud"
     ? registry.instances().find((candidate) => candidate.driverKind === "boxAgent") ?? null
     : registry.get(selection.instanceId);
@@ -4259,7 +4264,9 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         if (currentTurnEpoch(bot.id) !== epoch) {
           return Promise.reject(Object.assign(new Error("turn cancelled before dispatch"), { cancelled: true }));
         }
-        return instance.adapter.sendTurn({
+        const live = providerReload.started(threadId, instanceId);
+        if (!live) return Promise.reject(new Error(`provider instance "${instanceId}" is unavailable`));
+        return live.adapter.sendTurn({
         threadId,
         text: turnText,
         model,
@@ -4350,6 +4357,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         startScreenPoller(bot.id, previewCapture, { screenIsTheWork: instance.driverKind === "boxAgent" });
       }
     } catch (e) {
+      providerReload.settled(threadId);
       releaseLocalVmThread(threadId);
       if (activeVpsThreads.get(bot.id) === threadId) activeVpsThreads.delete(bot.id);
       watchdog.settle(threadId);
@@ -4915,6 +4923,7 @@ async function runClaimedGroupMemberTurn(
     onDispatchError?.(message);
     return true;
   }
+  await providerReload.wait(selection.instanceId);
   const instance = registry.get(selection.instanceId);
   if (!instance) {
     const message = `${bot.name}'s model is unavailable`;
@@ -5158,7 +5167,10 @@ async function runClaimedGroupMemberTurn(
     // through startClaimedTurn, which recycles the native session after
     // Orbit compaction or a pre-compact fat soak.
     keepRoomTurnInstruction = true;
-    dispatchAdapterTurn(threadId, () => instance.adapter.sendTurn({
+    dispatchAdapterTurn(threadId, () => {
+      const live = providerReload.started(threadId, selection.instanceId);
+      if (!live) return Promise.reject(new Error(`${bot.name}'s model is unavailable`));
+      return live.adapter.sendTurn({
         threadId,
         text,
         system: roomSystem,
@@ -5166,12 +5178,14 @@ async function runClaimedGroupMemberTurn(
         cwd,
         integrations,
         ...memberTurnSelection(selection, bot.leanStartup),
-      }))
+      });
+    })
       .then((started) => {
         bindInterruptedTurn(threadId, started.turnId);
         if (started.turnId) liveTurnIdByThread.set(threadId, started.turnId);
       })
       .catch((err) => {
+        providerReload.settled(threadId);
         const message = err instanceof Error ? err.message : "turn failed";
         store.appendMessage(threadId, {
           role: "bot",
@@ -5811,57 +5825,8 @@ function configStatus() {
   };
 }
 
-/** Rebuild the provider fleet after a config change so new keys take
- * effect without a server restart (kills any in-flight turns). */
-async function reloadProviders() {
-  const interruptedTaskThreads = new Map<string, string>();
-  for (const bot of store.bots) {
-    const threadId = bot.busy ? bot.activeThreadId : undefined;
-    if (!threadId || !store.conversationForBot(bot.id, threadId)) continue;
-    interruptedTaskThreads.set(bot.id, threadId);
-    const packet = taskPacketForWrite(threadId);
-    if (packet && isRecoveryFlushReason(packet.flushReason)) continue;
-    flushInterruptedTask(threadId, bot.id, "crash");
-  }
-  bus.detachAll();
-  await registry.disposeAll();
-  await registry.load(instanceConfigs(cfg));
-  bus.attach(registry.instances());
-  // A killed turn's terminal events can die with the old fleet (dispose is
-  // async under the hood), stranding the bot busy — and its screen poller —
-  // forever. Settle anything still marked busy.
-  for (const b of store.bots.filter((b) => b.busy)) {
-    const threadId = interruptedTaskThreads.get(b.id) ?? b.threadId;
-    const vmThread = [...localVmThreadTargets.entries()].find(([, target]) =>
-      localVmLeaseFor(target).current(localVmOwnerBusy)?.botId === b.id
-    )?.[0];
-    if (vmThread) releaseLocalVmThread(vmThread);
-    stopScreenPoller(b.id);
-    activeVpsThreads.delete(b.id);
-    finalizeDelegationWatch(
-      threadId,
-      false,
-      "",
-      "Delegated turn did not finish — provider settings changed",
-    );
-    const group = store.groupByThread(threadId);
-    store.appendMessage(threadId, providerReloadErrorActivity(b, Boolean(group)));
-    if (group) {
-      cancelGroupTurnOperations(group.id, threadId);
-      for (const operation of [...(groupTurnOperations.get(group.id) ?? [])]) {
-        if (operation.threadId === threadId) finishGroupTurnOperation(group.id, operation);
-      }
-      releaseInterruptedBot(b.id, threadId);
-    } else {
-      store.setActivity(b.id, "idle");
-    }
-  }
-  // killed turns settle here without a turn.completed event, so anything
-  // queued behind them drains now — onto the freshly loaded fleet
-  drainQueuedSends();
-  paneWake.settled();
-  drainConnectorResumes();
-  drainSecretResumes();
+function reloadProviders() {
+  return providerReload.reload(instanceConfigs(cfg));
 }
 
 // Config writes rebuild the whole provider registry. Keep the read-modify-write
@@ -9127,7 +9092,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
     // ── per-instance CLI path override (custom builds / versioned bins) ──
     // PATCH /api/instances/:id {cli: "/path/to/cli" | ""} — "" reverts to the
-    // driver default. Kills in-flight turns like any provider reload.
+    // driver default. Running turns keep their current connection.
     const instancePatch = /^\/api\/instances\/([\w.-]+)$/.exec(path);
     if (method === "PATCH" && instancePatch) {
       // same non-simple-request gate as the local-VM lifecycle routes
@@ -9253,9 +9218,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         syncCredentialEnv(patch);
         Object.assign(cfg, loadConfig());
       }
-      // Provider keys change the fleet. Profile, voice, VPS, and room timeout
-      // changes do not rebuild it: no driver reads them, and they should not
-      // interrupt in-flight turns.
+      // Provider keys update their instances. Other settings need no reload.
       const reloadKeys = Object.keys(patch).filter(
         (key) =>
           key !== "profile" &&

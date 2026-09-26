@@ -774,10 +774,10 @@ describe("first-run core path leftovers", () => {
     expect(en["engines.unavailable"]).toBe("Unavailable");
     expect(ko["engines.unavailable"]).toBe("사용 불가");
     expect(en["engines.saveRestartWarning"]).toBe(
-      "Saving restarts this connection and interrupts its running turns.",
+      "Changes apply from the next turn. Running turns continue.",
     );
     expect(ko["engines.saveRestartWarning"]).toBe(
-      "저장하면 이 연결이 다시 시작되고 진행 중인 차례가 중단됩니다.",
+      "변경 사항은 다음 차례부터 적용됩니다. 진행 중인 차례는 계속됩니다.",
     );
   });
 

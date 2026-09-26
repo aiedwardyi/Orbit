@@ -163,6 +163,15 @@ export class ProviderRegistry {
     return [...this.byId.values()].flatMap((e) => (e.live ? [e.live] : []));
   }
 
+  remove(instanceId: InstanceId): ProviderInstance | null {
+    const live = this.get(instanceId);
+    this.byId.delete(instanceId);
+    this.cliByInstance.delete(instanceId);
+    this.modelRefreshAt.delete(instanceId);
+    this.modelRefreshInFlight.delete(instanceId);
+    return live;
+  }
+
   /** instance snapshots for the model picker: id, driver, models, health */
   async describe(opts?: { rescan?: boolean }) {
     // Multiple instances may share a driver. Scan each default binary once
