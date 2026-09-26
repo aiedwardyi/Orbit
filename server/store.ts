@@ -1233,7 +1233,7 @@ export class Store {
 
   createBot(
     profile: Partial<
-      Pick<BotRecord, "name" | "title" | "description" | "color" | "mascotExpression" | "mascotStyle" | "modelSelection" | "section" | "computer" | "cwd">
+      Pick<BotRecord, "name" | "title" | "description" | "color" | "mascotExpression" | "mascotStyle" | "modelSelection" | "section" | "computer" | "cwd" | "autoApprove">
     > = {},
     opts: {
       /** false = no onboarding seed. Imported bots must not open with a
@@ -1265,6 +1265,7 @@ export class Store {
       ...(computer ? { computer } : {}),
     };
     if (profile.cwd) bot.cwd = profile.cwd;
+    if (profile.autoApprove) bot.autoApprove = true;
     if (section) bot.section = section;
     bot.tasks = [{ threadId: bot.threadId, title: UNTITLED_TASK, createdAt: bot.createdAt, resumeCursors: {} }];
     this.bots.unshift(bot);

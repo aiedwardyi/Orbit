@@ -60,6 +60,12 @@ describe("Store", () => {
     expect(bot.modelSelection).toEqual(selection());
   });
 
+  it("createBot sets Auto mode only when asked", () => {
+    const store = new Store(selection);
+    expect(store.createBot().autoApprove).toBeUndefined();
+    expect(store.createBot({ autoApprove: true }).autoApprove).toBe(true);
+  });
+
   it("createBot on packaged Windows defaults Runs-on to Off, not Local VM", () => {
     const store = new Store(selection);
     const bot = store.createBot({}, { host: { platform: "win32", packaged: true } });

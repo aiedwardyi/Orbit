@@ -126,3 +126,17 @@ describe("composer reply focus", () => {
     expect(document.activeElement).not.toBe(textarea);
   });
 });
+
+describe("composer approval chip", () => {
+  it("leaves the approval mode out of the composer", async () => {
+    await mount(null);
+    const bot: Bot = {
+      id: "chip", threadId: "chip-thread", name: "Chip", title: "", description: "",
+      notifications: false, color: "blue", unread: false, messages: [],
+      modelSelection: { instanceId: "grok", model: "grok" },
+    };
+    await act(async () => root!.render(createElement(Composer, { bot })));
+    expect(host!.textContent).not.toMatch(/Ask for approval|Auto mode/);
+    expect(host!.querySelector('[aria-haspopup="menu"]')).toBeNull();
+  });
+});

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { conversationPreview, roomConversationPreview, showComposerPermissionChip, transcriptIdleAfterOnboarding } from "./conversation-preview";
+import { conversationPreview, roomConversationPreview, transcriptIdleAfterOnboarding } from "./conversation-preview";
 import { t, translate, type Translate } from "@/lib/i18n";
 import { initialState, reducer, type Bot, type Group, type Message, type OptionCardData } from "@/state/store";
 
@@ -126,30 +126,15 @@ describe("conversationPreview after first-turn ignore", () => {
     expect(conversationPreview(bot([quiz], { activity: "waiting-on-you" }))).toBe("Waiting for you…");
   });
 
-  it("hides the Ask-for-approval chip after the first-turn quiz is ignored", () => {
-    expect(showComposerPermissionChip([])).toBe(true);
-    expect(showComposerPermissionChip([quiz])).toBe(true);
-    expect(showComposerPermissionChip([{ ...quiz, card: { ...quizCard, dismissed: true } }])).toBe(false);
-  });
-
-  it("hides the Ask-for-approval chip on an engine that can never ask", () => {
-    const chat: Message = { id: "u", role: "user", kind: "text", text: "hi", at: 1 };
-    expect(showComposerPermissionChip([], false)).toBe(false);
-    expect(showComposerPermissionChip([chat], false)).toBe(false);
-    expect(showComposerPermissionChip([chat], true)).toBe(true);
-  });
-
   it("does not treat a chosen option as an ignored leftover", () => {
     const answered: Message = { ...quiz, card: { ...quizCard, answered: "Work & projects", dismissed: true } };
     expect(transcriptIdleAfterOnboarding([answered])).toBe(false);
-    expect(showComposerPermissionChip([answered])).toBe(true);
     expect(conversationPreview(bot([answered]))).toBe("Work & projects");
   });
 
   it("previews a chosen option even when dismissed is unset", () => {
     const answered: Message = { ...quiz, card: { ...quizCard, answered: "Work & projects" } };
     expect(transcriptIdleAfterOnboarding([answered])).toBe(false);
-    expect(showComposerPermissionChip([answered])).toBe(true);
     expect(conversationPreview(bot([answered]))).toBe("Work & projects");
   });
 
@@ -157,7 +142,6 @@ describe("conversationPreview after first-turn ignore", () => {
     const answered: Message = { ...quiz, card: { ...quizCard, answered: "Work & projects", dismissed: true } };
     const choice: Message = { id: "u", role: "user", kind: "text", text: "Work & projects", at: 3, parentId: "q" };
     expect(conversationPreview(bot([answered, choice]))).toBe("Work & projects");
-    expect(showComposerPermissionChip([answered, choice])).toBe(true);
   });
 });
 

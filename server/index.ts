@@ -7858,7 +7858,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!checked.ok) return json(res, 400, { error: checked.error });
         cwd = checked.cwd ?? undefined;
       }
-      const createProfile: Parameters<typeof store.createBot>[0] = { ...profile.patch, section, modelSelection: selection, color, mascotStyle };
+      // no computer is set at create, so the local Auto acknowledgement cannot apply
+      const createProfile: Parameters<typeof store.createBot>[0] = { ...profile.patch, section, modelSelection: selection, color, mascotStyle, autoApprove: true };
       if (cwd) createProfile.cwd = cwd;
       const bot = store.createBot(createProfile, { job });
       return json(res, 201, {

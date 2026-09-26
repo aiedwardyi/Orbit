@@ -54,7 +54,7 @@ vi.mock("./BotProfileAvatarCard", () => ({
 }));
 
 vi.mock("./LocalComputerAutoWarning", () => ({
-  LocalComputerAutoWarning: () => null,
+  LocalComputerAutoWarning: ({ open }: { open: boolean }) => (open ? createElement("div", { "data-local-warning": "" }) : null),
 }));
 
 vi.mock("./CloudBackendPicker", () => ({
@@ -125,5 +125,59 @@ describe("SettingsPanel lean startup switch", () => {
       botId: "bot-1",
       patch: { leanStartup: false },
     });
+  });
+});
+
+describe("SettingsPanel approval pill", () => {
+  let host: HTMLDivElement;
+  let root: ReturnType<typeof createRoot>;
+  const option = (label: string) =>
+    Array.from(host.querySelectorAll<HTMLButtonElement>('[role="radiogroup"][aria-label="Approval"] button')).find(
+      (button) => button.textContent === label,
+    )!;
+
+  beforeEach(() => {
+    mockDispatch.mockClear();
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+  });
+
+  afterEach(() => {
+    root.unmount();
+    host.remove();
+  });
+
+  it("shows Ask for an unset bot outside Advanced and switches to Auto", async () => {
+    await act(async () => {
+      root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot })));
+    });
+    expect(option("Ask").getAttribute("aria-checked")).toBe("true");
+    expect(option("Auto").getAttribute("aria-checked")).toBe("false");
+    expect(host.querySelector('[aria-label="Auto mode"]')).toBeNull();
+    await act(async () => option("Auto").click());
+    expect(mockDispatch).toHaveBeenCalledWith({ type: "updateBot", botId: "bot-1", patch: { autoApprove: true } });
+  });
+
+  it("switches an Auto bot back to Ask", async () => {
+    await act(async () => {
+      root.render(
+        createElement(I18nProvider, null, createElement(SettingsPanel, { bot: { ...claudeBot, autoApprove: true } as Bot })),
+      );
+    });
+    expect(option("Auto").getAttribute("aria-checked")).toBe("true");
+    await act(async () => option("Ask").click());
+    expect(mockDispatch).toHaveBeenCalledWith({ type: "updateBot", botId: "bot-1", patch: { autoApprove: false } });
+  });
+
+  it("warns before Auto on a bot that drives this computer", async () => {
+    await act(async () => {
+      root.render(
+        createElement(I18nProvider, null, createElement(SettingsPanel, { bot: { ...claudeBot, computer: "local" } as Bot })),
+      );
+    });
+    await act(async () => option("Auto").click());
+    expect(mockDispatch).not.toHaveBeenCalled();
+    expect(host.querySelector("[data-local-warning]")).not.toBeNull();
   });
 });

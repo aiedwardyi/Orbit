@@ -536,6 +536,31 @@ export function SettingsPanel({
             />
           </Field>
 
+          <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
+            <div className="text-[15px] font-medium text-ink">{t("bot.approval")}</div>
+            <div role="radiogroup" aria-label={t("bot.approval")} className="flex gap-1 rounded-full bg-inset p-0.5">
+              {([true, false] as const).map((auto) => (
+                <button
+                  key={String(auto)}
+                  type="button"
+                  role="radio"
+                  aria-checked={Boolean(bot.autoApprove) === auto}
+                  onClick={() => {
+                    if (Boolean(bot.autoApprove) === auto) return;
+                    if (auto && bot.computer === "local") setLocalAutoWarning("auto");
+                    else patch({ autoApprove: auto });
+                  }}
+                  className={cn(
+                    "rounded-full px-3 py-1 text-[13px] font-medium",
+                    Boolean(bot.autoApprove) === auto ? "bg-accent text-accent-ink" : "text-ink-secondary hover:text-ink",
+                  )}
+                >
+                  {auto ? t("bot.approvalAuto") : t("bot.approvalAsk")}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {engine?.driverKind === "claudeAgent" && (
             <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
               <div>
@@ -796,34 +821,6 @@ export function SettingsPanel({
           )}
 
           {advancedOpen && <BotUsageCard bot={bot} />}
-
-          {advancedOpen && (
-            <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
-            <div>
-              <div className="text-[15px] font-medium text-ink">Auto mode</div>
-            </div>
-            <button
-              role="switch"
-              aria-checked={Boolean(bot.autoApprove)}
-              aria-label="Auto mode"
-              onClick={() => {
-                if (!bot.autoApprove && bot.computer === "local") setLocalAutoWarning("auto");
-                else patch({ autoApprove: !bot.autoApprove });
-              }}
-              className={cn(
-                "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors",
-                bot.autoApprove ? "bg-accent" : "bg-control",
-              )}
-            >
-              <span
-                className={cn(
-                  "absolute top-[3px] size-5 rounded-full bg-white transition-all",
-                  bot.autoApprove ? "left-[21px]" : "left-[3px]",
-                )}
-              />
-            </button>
-            </div>
-          )}
 
           {advancedOpen && (
             <div className="rounded-xl bg-card p-4">
