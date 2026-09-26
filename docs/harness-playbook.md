@@ -47,15 +47,12 @@ git -C <repo> worktree add {{WORKTREE}} -b <branch> <base>
 - Create it before the spawn and pass it as the pane cwd.
 - `<name>` matches the nickname in lowercase.
 - Remove it once the branch has landed: `git -C <repo> worktree remove <path>`.
-- Codex can't commit in a worktree: its sandbox blocks the repo's `.git`. A
-  Codex card says "leave changes uncommitted"; you commit after verifying.
 
 ## Verify before push
 
 When a worker reports done, check its work yourself before anything moves:
 
-1. `git -C <worktree> log --oneline -3` - the commit exists on the right branch
-   (for Codex, `git -C <worktree> status --short` shows the edits instead).
+1. `git -C <worktree> log --oneline -3` - the commit exists on the right branch.
 2. `git -C <worktree> diff --stat --ignore-cr-at-eol <base>...HEAD` - only the
    expected files changed, no whole-file line-ending diffs.
 3. Run the targeted checks only: the named vitest files

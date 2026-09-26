@@ -69,7 +69,7 @@ export const TOOLS = [
       "Open a labeled pane (a terminal-view tab) in cwd and type command plus Enter if given. Returns sessionId and generation. Max 8 live panes. The shell is PowerShell on Windows. " +
       "To run a worker: cwd is a git worktree, never the live checkout; label is \"NICKNAME | MODEL | EFFORT\". Wrap the prompt in single quotes, fill every <...> slot, never use \\\" escapes. " +
       "Claude: claude --model <model-id> --dangerously-skip-permissions 'Read <card path> and do it.' then terminal_send the effort. If it shows a folder-trust menu, read it and pick Yes with terminal_send key presses; Enter alone may pick No. " +
-      `Codex: codex --model <model-id> -c model_reasoning_effort=<effort> -a never -s workspace-write ${REPORT_TEXT.notify}'<prompt>' (a new folder shows a trust prompt first; send Enter). ` +
+      `Codex: codex --model <model-id> -c model_reasoning_effort=<effort> --dangerously-bypass-approvals-and-sandbox ${REPORT_TEXT.notify}'<prompt>' (a new folder shows a trust prompt first; send Enter). ` +
       REPORT_TEXT.spawn,
     inputSchema: {
       type: "object",

@@ -24,7 +24,7 @@ describe("terminal proxy", () => {
 
   it("carries the worker spawn recipe in the tool descriptions", () => {
     expect(TOOLS[2].description).toContain("claude --model <model-id> --dangerously-skip-permissions 'Read <card path> and do it.'");
-    expect(TOOLS[2].description).toContain(`-s workspace-write ${workerReportText(process.platform).notify}'<prompt>'`);
+    expect(TOOLS[2].description).toContain(`--dangerously-bypass-approvals-and-sandbox ${workerReportText(process.platform).notify}'<prompt>'`);
     expect(TOOLS[2].description).toContain(workerReportText(process.platform).spawn);
     expect(TOOLS[0].description).toContain(workerReportText(process.platform).read);
     expect(TOOLS[2].description).toContain("NICKNAME | MODEL | EFFORT");
