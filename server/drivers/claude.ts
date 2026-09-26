@@ -16,11 +16,12 @@
 //   - the bot's cloud computer (box.ascii.dev) via server/computer-proxy.ts
 //     — screenshot/exec/open_url, the CUA-on-the-box bridge
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer as createNetServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 
+import { ATTACHMENTS_DIR, sniffImageMime } from "../attachments.ts";
 import { applyCredentialAllowlist, DATA_DIR } from "../config.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, spawnCli } from "../procs.ts";
@@ -545,6 +546,48 @@ export function claudeToolSummary(name: string, input: unknown, cwd: string, res
   return text.length > SUMMARY_MAX ? `${text.slice(0, SUMMARY_MAX - 1)}…` : text;
 }
 
+const NATIVE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const NATIVE_IMAGE_MAX_COUNT = 8;
+const ATTACHED_IMAGE_TAG = /<attached-image\s+path="([^"]*)"\s*\/?>/g;
+
+type ClaudeImageBlock = { type: "image"; source: { type: "base64"; media_type: string; data: string } };
+type ClaudeUserContent = string | Array<{ type: "text"; text: string } | ClaudeImageBlock>;
+
+const unescapeAttribute = (value: string) =>
+  value.replace(/&(amp|quot|lt|gt|#9|#13|#10);/g, (_m, e: string) =>
+    ({ amp: "&", quot: '"', lt: "<", gt: ">", "#9": "\t", "#13": "\r", "#10": "\n" })[e]!,
+  );
+
+function storeImage(path: string, storeDir: string): ClaudeImageBlock | null {
+  try {
+    const file = realpathSync(path);
+    if (dirname(file) !== realpathSync(storeDir)) return null;
+    const stat = statSync(file);
+    if (!stat.isFile() || stat.size === 0 || stat.size > NATIVE_IMAGE_MAX_BYTES) return null;
+    const bytes = readFileSync(file);
+    const mime = sniffImageMime(bytes);
+    return mime ? { type: "image", source: { type: "base64", media_type: mime, data: bytes.toString("base64") } } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Attached store images ride along as native blocks; anything else stays the plain string. */
+export function claudeUserContent(text: string, storeDir: string = ATTACHMENTS_DIR): ClaudeUserContent {
+  const images: ClaudeImageBlock[] = [];
+  for (const [, raw] of text.matchAll(ATTACHED_IMAGE_TAG)) {
+    if (images.length >= NATIVE_IMAGE_MAX_COUNT) break;
+    const block = storeImage(unescapeAttribute(raw!), storeDir);
+    if (block) images.push(block);
+  }
+  return images.length ? [{ type: "text", text }, ...images] : text;
+}
+
+const elideImageData = (content: ClaudeUserContent) =>
+  Array.isArray(content)
+    ? content.map((b) => (b.type === "image" ? { ...b, source: { ...b.source, data: `<${b.source.data.length} base64 chars>` } } : b))
+    : content;
+
 export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
   driverKind: DRIVER_KIND,
   metadata: { displayName: "Claude", supportsMultipleInstances: true },
@@ -672,13 +715,15 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       s.idleTimer.unref?.();
     };
     const writeUser = (s: Session, threadId: string, text: string): Promise<boolean> => {
-      const promptMsg = { type: "user", message: { role: "user", content: text } };
+      const content = claudeUserContent(text);
+      const promptMsg = { type: "user", message: { role: "user", content } };
       if (!s.child.stdin.writable || s.child.stdin.destroyed) return Promise.resolve(false);
       return new Promise((resolve) => {
         try {
           s.child.stdin.write(JSON.stringify(promptMsg) + "\n", (error) => {
             if (error) return resolve(false);
-            appendNative(threadId, { dir: "out", source: "claude.sdk.message", msg: promptMsg });
+            const logged = { ...promptMsg, message: { ...promptMsg.message, content: elideImageData(content) } };
+            appendNative(threadId, { dir: "out", source: "claude.sdk.message", msg: logged });
             resolve(true);
           });
         } catch {

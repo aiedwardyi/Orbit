@@ -6,18 +6,19 @@
 // These used to be POSIX-only: the fake CLI is a shebang script Windows
 // cannot exec, and the broker is a unix socket. Both now go through
 // resolveCliSpawn / permissionSocketPath, so they run everywhere.
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { saveImage } from "../attachments.ts";
 import { autoVerdict } from "../auto-approve.ts";
 import { ensureDirs, PROVIDER_CREDENTIAL_ENV, WORKSPACE_CREDENTIAL_ENV } from "../config.ts";
 import type { ProviderInstance } from "../contracts.ts";
 import { recordEvents, type EventRecorder } from "../testing/events.ts";
-import { ClaudeDriver, claudeToolSummary, permissionSocketPath, type ClaudeConfig } from "./claude.ts";
+import { ClaudeDriver, claudeToolSummary, claudeUserContent, permissionSocketPath, type ClaudeConfig } from "./claude.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-claude-cli.ts");
@@ -123,6 +124,77 @@ describe("claudeToolSummary", () => {
   it("caps an unknown tool's first string field at 120 chars", () => {
     const summary = claudeToolSummary("Agent", { description: "y".repeat(200), count: 3 }, cwd);
     expect(summary).toHaveLength(120);
+  });
+});
+
+describe("claudeUserContent", () => {
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+  const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 4, 5]);
+  let store: string;
+  let outside: string;
+  const tag = (path: string) => `<attached-image path="${path}" />`;
+  const put = (dir: string, name: string, bytes: Buffer) => {
+    const path = join(dir, name);
+    writeFileSync(path, bytes);
+    return path;
+  };
+
+  beforeEach(() => {
+    store = mkdtempSync(join(tmpdir(), "omb-claude-store-"));
+    outside = mkdtempSync(join(tmpdir(), "omb-claude-outside-"));
+  });
+  afterEach(() => {
+    rmSync(store, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  });
+
+  it("adds one native block per store image, in tag order, after the untouched text", () => {
+    const jpg = put(store, "b.jpg", JPEG);
+    const png = put(store, "a.png", PNG);
+    const text = `look\n\n${tag(jpg)}\n\n${tag(png)}`;
+    expect(claudeUserContent(text, store)).toEqual([
+      { type: "text", text },
+      { type: "image", source: { type: "base64", media_type: "image/jpeg", data: JPEG.toString("base64") } },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: PNG.toString("base64") } },
+    ]);
+  });
+
+  it("keeps a turn with no image tags byte-identical to the plain string message", () => {
+    const text = 'hi <attached-file path="x.png" /> "quoted" é';
+    const msg = (content: ReturnType<typeof claudeUserContent>) => JSON.stringify({ type: "user", message: { role: "user", content } }) + "\n";
+    expect(claudeUserContent(text, store)).toBe(text);
+    expect(msg(claudeUserContent(text, store))).toBe(msg(text));
+  });
+
+  it("ignores a real image outside the store", () => {
+    const text = tag(put(outside, "a.png", PNG));
+    expect(claudeUserContent(text, store)).toBe(text);
+  });
+
+  it("ignores a text file named .png", () => {
+    const text = tag(put(store, "fake.png", Buffer.from("not an image")));
+    expect(claudeUserContent(text, store)).toBe(text);
+  });
+
+  it("ignores an image over 5 MiB and a missing file", () => {
+    const big = Buffer.concat([PNG, Buffer.alloc(5 * 1024 * 1024)]);
+    const text = `${tag(put(store, "big.png", big))}\n${tag(join(store, "gone.png"))}`;
+    expect(claudeUserContent(text, store)).toBe(text);
+  });
+
+  it("sends at most 8 native images, extras stay text", () => {
+    const paths = Array.from({ length: 10 }, (_, i) => put(store, `${i}.png`, Buffer.concat([PNG, Buffer.from([i])])));
+    const content = claudeUserContent(paths.map(tag).join("\n"), store);
+    if (!Array.isArray(content)) throw new Error("expected blocks");
+    expect(content.slice(1).map((b) => (b.type === "image" ? b.source.data : ""))).toEqual(
+      paths.slice(0, 8).map((_, i) => Buffer.concat([PNG, Buffer.from([i])]).toString("base64")),
+    );
+  });
+
+  it("unescapes the tag's path attribute", () => {
+    const path = put(store, "a&b.png", PNG);
+    const content = claudeUserContent(tag(path.replaceAll("&", "&amp;")), store);
+    expect(Array.isArray(content) && content.length).toBe(2);
   });
 });
 
@@ -379,6 +451,23 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.env.XAI_API_KEY).toBeUndefined();
     expect(seen.env.BOX_TOKEN).toBeUndefined();
     expect(seen.env.OMB_TTS_KEY).toBeUndefined();
+  });
+
+  it("sends an attached store image as a native block over stdin", async () => {
+    await create();
+    const dump = join(scratch, "dump-image.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 7]);
+    const text = `what is this\n\n<attached-image path="${saveImage(png, "image/png").path}" />`;
+
+    await instance.adapter.sendTurn({ threadId: "t-image", text });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.prompt.message.content).toEqual([
+      { type: "text", text },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: png.toString("base64") } },
+    ]);
   });
 
   it("hands the turn child no credential it was not granted, known or not", async () => {
