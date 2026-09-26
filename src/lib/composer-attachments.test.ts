@@ -130,6 +130,16 @@ describe("pasteImageAttachment", () => {
       mime: "image/png",
     });
   });
+
+  it("still uploads a pathless paste for an engine that cannot read images inline", async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], "shot.png", { type: "image/png" });
+    const attachment = await pasteImageAttachment(file, false, async () => ({
+      path: "/tmp/shot.png",
+      mime: "image/png",
+      bytes: 3,
+    }));
+    expect(attachment).toMatchObject({ kind: "file", path: "/tmp/shot.png", name: "shot.png", size: 3 });
+  });
 });
 
 describe("attachmentBasename", () => {

@@ -24,7 +24,6 @@ import { LocalComputerAutoWarning } from "./LocalComputerAutoWarning";
 import {
   appendPastedText,
   composeMessage,
-  imageAttachmentFromFile,
   imageSupportForTargets,
   imageSupportNotice,
   intakeFiles,
@@ -513,7 +512,7 @@ export function Composer({
     const { attachments: added, notice } = await intakeFiles(Array.from(picked), {
       allowImages: engineSupportsImages,
       getPath: pathForFile,
-      uploadImage: imageAttachmentFromFile,
+      uploadImage: pasteImageAttachment,
     });
     if (added.length) addAttachments(added);
     // Keep file-specific failures beside the attachments. A successful

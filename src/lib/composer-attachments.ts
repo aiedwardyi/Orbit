@@ -201,12 +201,7 @@ export async function attachmentsFromDroppedFiles<T extends DroppedFile>(
 ): Promise<{ attachments: Attachment[]; rejectedNames: string[] }> {
   const results = await Promise.all(
     files.map(async (file) => {
-      let path = "";
-      try {
-        path = getPath(file);
-      } catch {
-        // A browser or older desktop shell has no disk path to expose.
-      }
+      const path = safeGetPath(file, getPath);
       if (path) return { attachment: fileAttachment(file.name, path, file.size) };
       if (isInlineText(file) && file.size <= INLINE_DROP_LIMIT) {
         try {
@@ -231,6 +226,15 @@ export async function attachmentsFromDroppedFiles<T extends DroppedFile>(
 
 function isInlineText(file: DroppedFile): boolean {
   return file.type.startsWith("text/") || file.type === "application/json";
+}
+
+/** A browser or older desktop shell has no disk path to expose. */
+function safeGetPath<T>(file: T, getPath: (file: T) => string): string {
+  try {
+    return getPath(file);
+  } catch {
+    return "";
+  }
 }
 
 /** What the paste actually weighs — String#length counts UTF-16 units, so
@@ -341,7 +345,7 @@ export async function intakeFiles<T extends DroppedFile & { type: string }>(
   _opts: {
     allowImages: boolean;
     getPath: (file: T) => string;
-    uploadImage: (file: T) => Promise<Attachment | null>;
+    uploadImage: (file: T, allowImages: boolean) => Promise<Attachment | null>;
   },
 ): Promise<{ attachments: Attachment[]; notice: string | null }> {
   const files = [..._files];
@@ -352,13 +356,20 @@ export async function intakeFiles<T extends DroppedFile & { type: string }>(
   // Finish each selected file in sequence so the chips retain the order in
   // which the user chose or dropped them.
   for (const file of files) {
-    if (allowImages && isImageFile(file)) {
-      try {
-        const attachment = await uploadImage(file);
-        if (attachment) attachments.push(attachment);
-      } catch (err) {
-        imageErrors.push(`${file.name}: ${err instanceof Error ? err.message : "upload failed"}`);
+    if (isImageFile(file)) {
+      const path = safeGetPath(file, getPath);
+      // A pathless image (phone, web) has no other way to reach the bot, so
+      // it uploads even when the engine cannot read it inline, same as paste.
+      if (allowImages || !path) {
+        try {
+          const attachment = await uploadImage(file, allowImages);
+          if (attachment) attachments.push(attachment);
+        } catch (err) {
+          imageErrors.push(`${file.name}: ${err instanceof Error ? err.message : "upload failed"}`);
+        }
+        continue;
       }
+      attachments.push(fileAttachment(file.name, path, file.size));
       continue;
     }
     const result = await attachmentsFromDroppedFiles([file], getPath);

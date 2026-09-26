@@ -9,7 +9,7 @@ import {
   attachmentImageUrl,
   intakeFiles,
   formatSize,
-  imageAttachmentFromFile,
+  pasteImageAttachment,
   pasteSummary,
   type Attachment,
   type PasteAttachment,
@@ -75,7 +75,7 @@ export function ComposerAttachments({
       const { attachments, notice: message } = await intakeFiles(files, {
         allowImages,
         getPath: pathForFile,
-        uploadImage: imageAttachmentFromFile,
+        uploadImage: pasteImageAttachment,
       });
       if (!active) return;
       if (attachments.length) onAdd(attachments);

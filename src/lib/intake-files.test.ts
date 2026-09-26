@@ -67,4 +67,27 @@ describe("intakeFiles", () => {
     expect(out.attachments).toHaveLength(1);
     expect(out.notice).toMatch(/bad\.png: too large/);
   });
+
+  it("uploads a pathless image for an engine that reads images inline", async () => {
+    const out = await intakeFiles([file("shot.png", "image/png")], {
+      allowImages: true,
+      getPath: () => "",
+      uploadImage: upload,
+    });
+    expect(out.attachments).toEqual([expect.objectContaining({ kind: "image", name: "shot.png" })]);
+    expect(out.notice).toBeNull();
+  });
+
+  it("uploads a pathless image as a file chip for an engine that cannot read images", async () => {
+    const out = await intakeFiles([file("shot.png", "image/png")], {
+      allowImages: false,
+      getPath: () => "",
+      uploadImage: async (f, allowImages): Promise<Attachment> => {
+        if (allowImages) return upload(f);
+        return { kind: "file", id: `id-${f.name}`, name: f.name, path: `/api/attachments/${f.name}`, size: f.size };
+      },
+    });
+    expect(out.attachments).toEqual([expect.objectContaining({ kind: "file", name: "shot.png" })]);
+    expect(out.notice).toBeNull();
+  });
 });
