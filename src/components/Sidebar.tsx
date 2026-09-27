@@ -73,7 +73,6 @@ import {
   loadSidebarCollapsed,
   loadSidebarDensity,
   loadSidebarOrder,
-  loadSidebarSide,
   loadSidebarWidth,
   saveSidebarCollapsed,
   saveSidebarDensity,
@@ -83,13 +82,12 @@ import {
   SIDEBAR_ICONS_WIDTH,
   SIDEBAR_INLINE_BREAKPOINT,
   SIDEBAR_MAX_WIDTH,
-  SIDEBAR_SIDE_EVENT,
   restoreSidebarDragWidth,
   snapSidebarDrag,
   stepSidebarLayout,
+  useSidebarSide,
   type SidebarDensity,
   type SidebarLayout,
-  type SidebarSide,
 } from "@/lib/sidebar-preferences";
 import {
   moveSidebarItem,
@@ -1285,15 +1283,8 @@ export function Sidebar({
   const [query, setQuery] = useState("");
   const [densityState, setDensityState] = useState<SidebarDensity>(() => loadSidebarDensity());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => loadSidebarCollapsed());
-  const [sidebarSide, setSidebarSideState] = useState<SidebarSide>(() => loadSidebarSide());
+  const sidebarSide = useSidebarSide();
   const sidebarOnRight = sidebarSide === "right";
-  // Settings lives in a separate mounted component; it saves the preference and
-  // broadcasts the change since a `storage` event never fires on this same window.
-  useEffect(() => {
-    const onSideChange = () => setSidebarSideState(loadSidebarSide());
-    window.addEventListener(SIDEBAR_SIDE_EVENT, onSideChange);
-    return () => window.removeEventListener(SIDEBAR_SIDE_EVENT, onSideChange);
-  }, []);
   const collapsedUnread = sidebarCollapsed ? collapsedUnreadCount(state.bots, state.groups, state.selectedId) : 0;
   const collapsedUnreadBadge = formatCollapsedUnreadBadge(collapsedUnread);
   const collapsedBadgeRef = useRef<HTMLSpanElement>(null);
@@ -2053,10 +2044,13 @@ export function Sidebar({
         // descendants. Cancelling it with an `md:` prefix still emits a value, which
         // silently reparents the wizard overlay and the "+" menu backdrop on
         // desktop.
-        "max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-40",
+        "max-md:absolute max-md:inset-y-0 max-md:z-40",
+        sidebarOnRight ? "max-md:right-0" : "max-md:left-0",
         "max-md:will-change-transform max-md:transition-transform max-md:duration-300 max-md:ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
-        open ? "max-md:translate-x-0" : "max-md:-translate-x-full",
-        // The phone drawer always slides from the left; only the desktop edge mirrors.
+        open
+          ? "max-md:translate-x-0"
+          : sidebarOnRight ? "max-md:translate-x-full" : "max-md:-translate-x-full",
+        sidebarOnRight && "max-md:border-l max-md:border-r-0",
         sidebarOnRight && "md:order-last md:border-l md:border-r-0",
       )}
       style={{ width: sidebarDisplayWidth }}

@@ -14,7 +14,7 @@ import {
 } from "@/state/store";
 import { unreadConversationCount } from "@/lib/unread";
 import { preferredStartupSelectionId } from "@/lib/sidebar-order";
-import { loadSidebarOrder } from "@/lib/sidebar-preferences";
+import { loadSidebarOrder, useSidebarSide } from "@/lib/sidebar-preferences";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatView } from "@/components/ChatView";
 import { GroupView } from "@/components/GroupView";
@@ -94,6 +94,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   // the panel hands off to this and back)
   const [browserWorkspaceBotId, setBrowserWorkspaceBotId] = useState<string | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const sidebarOnRight = useSidebarSide() === "right";
   const conversationRef = useRef<HTMLDivElement>(null);
   const group = state.groups.find((g) => g.id === state.selectedId);
   const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? fallbackStartupBot(state.bots, state.groups));
@@ -488,7 +489,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
         aria-label={t("chrome.openBotList")}
         aria-expanded={drawerOpen}
         onClick={() => setDrawerOpen(true)}
-        className="absolute left-3 top-3 z-30 rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink md:hidden"
+        className={`absolute top-3 z-30 rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink md:hidden ${sidebarOnRight ? "right-3" : "left-3"}`}
       >
         <Menu size={18} />
       </button>

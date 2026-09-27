@@ -18,6 +18,7 @@ import {
 import { BotAvatar } from "./Avatar";
 import { MessageBoundary, PresenceAnswer, TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
+import { useSidebarSide } from "@/lib/sidebar-preferences";
 import { DEFAULT_MAUS_COLOR, normalizeState } from "@/lib/mascot";
 import { effectiveDefaultResponder, groupResponseHint } from "@/lib/group-routing";
 import { ChatMarkdown } from "./ChatMarkdown";
@@ -1014,6 +1015,7 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
 export function GroupView({ group }: { group: Group }) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
+  const sidebarOnRight = useSidebarSide() === "right";
   const stream = useStreaming();
   const streaming = stream.streaming[group.threadId];
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1275,7 +1277,7 @@ export function GroupView({ group }: { group: Group }) {
         className={cn(
           "flex items-center justify-between px-5 py-3",
           // Room for the drawer button, which overlays this corner below md.
-          "pl-11 md:pl-5",
+          sidebarOnRight ? "pr-11 md:pr-5" : "pl-11 md:pl-5",
         )}
       >
         <div className="flex min-w-0 items-center gap-2">

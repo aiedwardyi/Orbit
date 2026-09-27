@@ -6,6 +6,7 @@ import { BotAvatar } from "./Avatar";
 import { api, formatTime, useStore, type Bot } from "@/state/store";
 import { localeTag, useI18n } from "@/lib/i18n";
 import { normalizeState } from "@/lib/mascot";
+import { useSidebarSide } from "@/lib/sidebar-preferences";
 import {
   EMPTY_TEAM_MAP_SNAPSHOT,
   buildTeamMapEdges,
@@ -296,6 +297,7 @@ function SectionContextDialog({ section, label, onClose }: { section: string; la
 export function TeamMapPage() {
   const { t } = useI18n();
   const { state } = useStore();
+  const sidebarOnRight = useSidebarSide() === "right";
   const [snapshot, setSnapshot] = useState<TeamMapSnapshot>(EMPTY_TEAM_MAP_SNAPSHOT);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -330,7 +332,7 @@ export function TeamMapPage() {
 
   return (
     <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-app text-ink">
-      <header className="flex shrink-0 items-center justify-between border-b border-hairline/40 px-7 py-5 max-md:pl-12">
+      <header className={cn("flex shrink-0 items-center justify-between border-b border-hairline/40 px-7 py-5", sidebarOnRight ? "max-md:pr-12" : "max-md:pl-12")}>
         <div>
           <div className="flex items-center gap-2.5">
             <Network size={20} className="text-accent" />

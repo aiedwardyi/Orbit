@@ -39,6 +39,7 @@ import { EngineSetup, OpenConnectionsCta, setupErrorAction } from "./EngineSetup
 import { BotAvatar } from "./Avatar";
 import { MessageBoundary, TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
+import { useSidebarSide } from "@/lib/sidebar-preferences";
 import { showBotNewTaskControl, showComputerPanelChrome } from "@/lib/friends-chrome";
 import { stateForBot } from "@/lib/mascot";
 import { transcriptIdleAfterOnboarding } from "@/lib/conversation-preview";
@@ -998,6 +999,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const { capabilities, ready: capabilitiesReady } = useDesktopCapabilities();
+  const sidebarOnRight = useSidebarSide() === "right";
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const composerDockRef = useRef<HTMLDivElement>(null);
@@ -1262,7 +1264,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
           // when the column is narrow (side panel open, small window)
           "@container/chathead flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 px-5 py-3",
           // Room for the drawer button, which overlays this corner below md.
-          "pl-11 md:pl-5",
+          sidebarOnRight ? "pr-11 md:pr-5" : "pl-11 md:pl-5",
         )}
       >
         <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-lg px-1.5 py-1">

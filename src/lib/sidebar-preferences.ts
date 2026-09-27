@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { z } from "zod";
 
 import { UNASSIGNED_SECTION_ID, type SidebarOrder } from "./sidebar-order";
@@ -206,6 +207,18 @@ export function saveSidebarSide(
     // Same localStorage failure mode as collapsed - side still applies this session.
   }
   if (typeof window !== "undefined") window.dispatchEvent(new Event(SIDEBAR_SIDE_EVENT));
+}
+
+/** Reads the saved side and stays in sync with settings changes, since a
+ * `storage` event never fires on the window that made the change. */
+export function useSidebarSide(): SidebarSide {
+  const [side, setSide] = useState<SidebarSide>(() => loadSidebarSide());
+  useEffect(() => {
+    const onSideChange = () => setSide(loadSidebarSide());
+    window.addEventListener(SIDEBAR_SIDE_EVENT, onSideChange);
+    return () => window.removeEventListener(SIDEBAR_SIDE_EVENT, onSideChange);
+  }, []);
+  return side;
 }
 
 function parseStringList(raw: string | null): string[] {

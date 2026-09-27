@@ -5,6 +5,14 @@ import { describe, expect, it } from "vitest";
 
 const app = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "App.tsx"), "utf8");
 
+describe("phone drawer menu button", () => {
+  it("sits top-right when the sidebar side is right, top-left otherwise", () => {
+    const button = app.slice(app.indexOf('aria-label={t("chrome.openBotList")}'), app.indexOf("</button>", app.indexOf('aria-label={t("chrome.openBotList")}')));
+    expect(button).toContain('sidebarOnRight ? "right-3" : "left-3"');
+    expect(button).toContain("md:hidden");
+  });
+});
+
 describe("settings section shortcuts", () => {
   it("opens Themes and Usage with Alt+T and Alt+U by physical key", () => {
     expect(app).toContain("e.altKey && !mod && !e.shiftKey");

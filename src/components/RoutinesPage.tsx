@@ -24,6 +24,7 @@ import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
 import { MAUS_COLORS, type MausState } from "@/lib/mascot";
 import type { Routine, RoutineInput, RoutineRun, RoutineRunOn, RoutineRunStatus } from "@/lib/routines";
+import { useSidebarSide } from "@/lib/sidebar-preferences";
 import { api, useStore, type Bot } from "@/state/store";
 import {
   activeRunForRoutine,
@@ -664,6 +665,7 @@ function PausedRoutines({ routines, bots, onClose, onEdit }: { routines: Routine
 export function RoutinesPage() {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
+  const sidebarOnRight = useSidebarSide() === "right";
   const [section, setSection] = useState<"calendar" | "webhooks">("calendar");
   const [viewDays, setViewDays] = useState<1 | 3 | 7>(7);
   const [anchor, setAnchor] = useState(() => startOfWeek(Date.now()));
@@ -706,7 +708,7 @@ export function RoutinesPage() {
         className={cn(
           "shrink-0 px-5 pb-4 pt-4",
           // Room for the drawer button, which overlays this corner below md.
-          "pl-11 md:pl-5",
+          sidebarOnRight ? "pr-11 md:pr-5" : "pl-11 md:pl-5",
         )}
       >
         <div className="flex flex-wrap items-start justify-between gap-3">

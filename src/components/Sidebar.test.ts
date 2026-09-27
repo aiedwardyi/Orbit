@@ -769,6 +769,53 @@ describe("Sidebar layout controls", () => {
     }
   });
 
+  it("anchors the phone drawer to the right and slides it in from the right when the side is right", async () => {
+    window.localStorage.setItem(SIDEBAR_SIDE_KEY, "right");
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+      );
+      const aside = host.querySelector("aside")!;
+      expect(aside.className).toContain("max-md:right-0");
+      expect(aside.className).not.toContain("max-md:left-0");
+      expect(aside.className).toContain("max-md:translate-x-full");
+      expect(aside.className).not.toContain("max-md:-translate-x-full");
+      expect(aside.className).toContain("max-md:border-l");
+      expect(aside.className).toContain("max-md:border-r-0");
+    } finally {
+      window.localStorage.removeItem(SIDEBAR_SIDE_KEY);
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("leaves the phone drawer on the left, sliding from the left, when the side is left", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+      );
+      const aside = host.querySelector("aside")!;
+      expect(aside.className).toContain("max-md:left-0");
+      expect(aside.className).not.toContain("max-md:right-0");
+      expect(aside.className).toContain("max-md:-translate-x-full");
+      expect(aside.className).not.toContain("max-md:border-l");
+      expect(aside.className).not.toContain("max-md:border-r-0");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
   it("badges the collapsed reopen button, excluding the open chat, hidden bots, and terminals", async () => {
     window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "1");
     const bots = [
