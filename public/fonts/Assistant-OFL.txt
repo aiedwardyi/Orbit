@@ -1,51 +1,15 @@
-# Fonts
+Copyright 2020 The Assistant Project Authors (https://github.com/hafontia/Assistant).
+Copyright 2010 The Source Sans Pro Authors (https://github.com/adobe-fonts/source-sans-pro), with Reserved Font Name 'Source'.
+Source is a trademark of Adobe Systems Incorporated in the United States and/or other countries.
 
-## SymbolsNerdFontMono-Regular.woff2
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license is copied below, and is also available with a FAQ at:
+http://scripts.sil.org/OFL
 
-- Source: Nerd Fonts v3.5.1, `NerdFontsSymbolsOnly.zip` from https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.5.1
-- File: `SymbolsNerdFontMono-Regular.ttf` from that archive, converted to woff2 with fontTools (`TTFont(...).flavor = "woff2"`). Not subset: the woff2 is 1.2 MB.
-- Used only as a glyph fallback in the phone terminal view.
 
-Icon sets carry their own upstream licenses (listed in the release's README): Codicons and Font Awesome CC BY 4.0, Material Design Apache 2.0, Pomicons and Weather Icons OFL 1.1, Font Logos unlicensed, the rest MIT.
-
-Nerd Fonts license:
-
-```
-The MIT License (MIT)
-
-Copyright (c) 2014 Ryan L McIntyre
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
-## IBMPlexSans-Variable.woff2, Nunito-Variable.woff2, JetBrainsMono-Variable.woff2
-
-- Source: Google Fonts, Latin-subset variable woff2 (`wght` axis only), unmodified.
-- Used as the primary faces of the Instrument, Matte, and Carbon skins. Other scripts fall through to the system stack.
-- IBM Plex Sans: Copyright 2019 IBM Corp. https://github.com/IBM/plex
-- Nunito: Copyright 2014 The Nunito Project Authors. https://github.com/googlefonts/nunito
-- JetBrains Mono: Copyright 2020 The JetBrains Mono Project Authors. https://github.com/JetBrains/JetBrainsMono
-
-All three are licensed under the SIL Open Font License, Version 1.1 (https://openfontlicense.org):
-
-```
+-----------------------------------------------------------
 SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+-----------------------------------------------------------
 
 PREAMBLE
 The goals of the Open Font License (OFL) are to stimulate worldwide
@@ -56,7 +20,7 @@ with others.
 
 The OFL allows the licensed fonts to be used, studied, modified and
 redistributed freely as long as they are not sold by themselves. The
-fonts, including any derivative works, can be bundled, embedded,
+fonts, including any derivative works, can be bundled, embedded, 
 redistributed and/or sold with any software provided that any reserved
 names are not used by derivative works. The fonts and derivatives,
 however, cannot be released under any other type of license. The
@@ -103,7 +67,7 @@ Name(s) unless explicit written permission is granted by the corresponding
 Copyright Holder. This restriction only applies to the primary font name as
 presented to the users.
 
-4) The name(s) of the Copyright Holder(s) and the Author(s) of the Font
+4) The name(s) of the Copyright Holder(s) or the Author(s) of the Font
 Software shall not be used to promote, endorse or advertise any
 Modified Version, except to acknowledge the contribution(s) of the
 Copyright Holder(s) and the Author(s) or with their explicit written
@@ -124,17 +88,8 @@ THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
 EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF
 MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
 OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE
-COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, INCLUDING ANY GENERAL,
-SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL DAMAGES, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF THE
-USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM OTHER DEALINGS IN THE
-FONT SOFTWARE.
-```
-
-## Assistant-Variable.woff2
-
-- Source: https://cdn.jsdelivr.net/fontsource/fonts/assistant:vf@latest/latin-wght-normal.woff2, unmodified Latin variable woff2, 22,096 bytes.
-- Used by Seaglass at weights 400-600. Other scripts fall through to the system stack.
-- Copyright 2020 The Assistant Project Authors (https://github.com/hafontia/Assistant).
-- Copyright 2010 The Source Sans Pro Authors, with Reserved Font Name 'Source'. Source is a trademark of Adobe Systems Incorporated.
-- SIL Open Font License 1.1; full notice in [Assistant-OFL.txt](Assistant-OFL.txt).
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
+DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
+OTHER DEALINGS IN THE FONT SOFTWARE.

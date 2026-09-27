@@ -44,6 +44,7 @@ export const SKIN_IDS = [
   "instrument",
   "matte",
   "carbon",
+  "seaglass",
 ] as const;
 export type SkinId = (typeof SKIN_IDS)[number];
 
@@ -94,6 +95,7 @@ export const SKINS: readonly Skin[] = [
   { id: "instrument", name: "Instrument", tagline: "Slate ink, Plex type, ruled cards." },
   { id: "matte", name: "Matte", tagline: "Warm stone, soft light, rounded type." },
   { id: "carbon", name: "Carbon", tagline: "Near-black steel, dense monospace." },
+  { id: "seaglass", name: "Seaglass", tagline: "Deep teal, powder blue, easy reading." },
 ];
 
 export const DEFAULT_SKIN: SkinId = "precision";

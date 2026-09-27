@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SKINS, SKIN_IDS, DEFAULT_SKIN, applySkin, readSkin } from "./skins";
+import { terminalTheme } from "./terminal-appearance";
 
 const css = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "../styles.css"),
@@ -439,7 +440,21 @@ const FACE_SKINS = [
   { id: "instrument", name: "Instrument", face: "IBM Plex Sans", file: "IBMPlexSans-Variable.woff2", app: "#15181c" },
   { id: "matte", name: "Matte", face: "Nunito", file: "Nunito-Variable.woff2", app: "#1c1b19" },
   { id: "carbon", name: "Carbon", face: "JetBrains Mono", file: "JetBrainsMono-Variable.woff2", app: "#0b0c0d" },
+  { id: "seaglass", name: "Seaglass", face: "Assistant", file: "Assistant-Variable.woff2", app: "#283234" },
 ] as const;
+
+describe("Seaglass", () => {
+  it("derives terminal colors from the shipped palette", () => {
+    const theme = terminalTheme((name) => cssToken("seaglass", `--color-${name}`) ?? "");
+    expect(theme).toEqual({
+      background: "#1c282a",
+      foreground: "#e5efec",
+      cursor: "#b8d5e4",
+      cursorAccent: "#1c282a",
+      selectionBackground: "#3d4e50",
+    });
+  });
+});
 
 describe("bundled-face skins", () => {
   const fonts = join(dirname(fileURLToPath(import.meta.url)), "../../public/fonts");
@@ -986,6 +1001,13 @@ describe("skin persistence", () => {
     expect(dataset.skin).toBe("ledger");
     expect(store.get("omb-skin")).toBe("ledger");
     expect(readSkin()).toBe("ledger");
+  });
+
+  it("remembers Seaglass and restores it for the next session", () => {
+    applySkin("seaglass");
+    expect(dataset.skin).toBe("seaglass");
+    expect(store.get("omb-skin")).toBe("seaglass");
+    expect(readSkin()).toBe("seaglass");
   });
 
   it("falls back to Precision for an unknown stored value", () => {

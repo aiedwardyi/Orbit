@@ -29,6 +29,13 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: "Assistant";
+  src: url("/fonts/Assistant-Variable.woff2") format("woff2");
+  font-weight: 400 600;
+  font-display: swap;
+}
+
 /* Phone terminal: system mono first, Nerd Font only for glyphs it lacks. */
 .orbit-remote-terminal {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", "Symbols Nerd Font Mono", monospace;
@@ -2201,6 +2208,93 @@
   [data-orbit-composer-frame] {
     border: 1px solid var(--color-hairline);
     border-radius: var(--radius-lg);
+  }
+}
+
+[data-skin="seaglass"] {
+  --color-app: #283234;
+  --color-panel: #283638;
+  --color-raised: #344446;
+  --color-raised-hover: #3d4e50;
+  --color-card: #2c3c3e;
+  --color-inset: #1c282a;
+  --color-control: #37494b;
+  --color-hairline: #52696c;
+
+  --color-ink: #e5efec;
+  --color-ink-secondary: #bccdcd;
+
+  --color-accent: #a8cce0;
+  --color-accent-border: #b8d5e4;
+  --color-accent-text: #b8d5e4;
+  --color-focus: #b8d5e4;
+  --color-accent-ink: #1c282a;
+  --color-bubble-user: #35494e;
+
+  --color-success: #b7d6c5;
+  --color-danger: #efb9ac;
+  --color-danger-ink: #1c282a;
+  --color-warning: #e5cca6;
+  --color-scrollbar: #607a7d;
+  --color-maus-line: #bccdcd;
+
+  --font-sans: "Assistant", "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo",
+    system-ui, sans-serif;
+  --radius-lg: 10px;
+  --radius-xl: 16px;
+}
+
+@scope ([data-skin="seaglass"]) to ([data-skin]) {
+  [data-orbit-message] {
+    padding-block: 0.375rem;
+  }
+
+  [data-orbit-message-body] {
+    max-width: min(44rem, 88%);
+  }
+
+  .orbit-message-speaker {
+    display: block;
+    margin-bottom: 6px;
+    padding-inline: 4px;
+    color: var(--color-accent-text);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  [data-orbit-message-content] {
+    padding: 14px 18px;
+    border: 1px solid var(--color-hairline);
+    border-radius: var(--radius-lg);
+    font-size: 16px;
+    line-height: 1.7;
+  }
+
+  [data-orbit-message="bot"] [data-orbit-message-content] {
+    background: var(--color-card);
+    border-top-left-radius: 2px;
+  }
+
+  [data-orbit-message="user"] [data-orbit-message-content] {
+    background: var(--color-bubble-user);
+    border-top-right-radius: 2px;
+    border-color: var(--color-accent-border);
+  }
+
+  .chat-md > div[class*="font-semibold"] {
+    color: var(--color-accent-text);
+    margin-top: 1rem;
+  }
+
+  .chat-md blockquote {
+    border-left: 2px solid var(--color-success);
+    padding: 4px 12px;
+    color: var(--color-ink-secondary);
+  }
+
+  [data-orbit-composer-frame] {
+    border: 1px solid var(--color-hairline);
+    border-radius: var(--radius-xl);
   }
 }
 

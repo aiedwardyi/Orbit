@@ -89,6 +89,7 @@ export const SECTION_PHRASE_KEYS = {
     "settings.skin.instrument.tagline",
     "settings.skin.matte.tagline",
     "settings.skin.carbon.tagline",
+    "settings.skin.seaglass.tagline",
   ],
   connections: [
     "settings.section.connections",
@@ -151,7 +152,7 @@ const EXTRA_KEYWORDS = {
   general: ["profile", "name", "updates", "tools", "tool calls", "language", "locale", "vm", "diagnostics", "experimental"],
   connections: ["keys", "api", "gemini", "muse", "claude", "grok", "codex", "antigravity", "cli"],
   sync: ["sync", "drive", "google drive", "shared folder", "profiles", "동기화", "Drive", "공유 폴더"],
-  themes: ["skin", "theme", "appearance", "claude", "kanagawa", "haxor", "hax0r", "hurtado", "rose", "nord", "github", "dimmed", "tui", "terminal", "amber", "slate", "smoke", "vscode", "visual studio code", "studio gray", "steel gray", "graphite", "periwinkle", "mint", "precision", "linear", "issue discussion", "notebook", "notion", "document", "paper", "messenger", "messages", "bubbles", "community", "discord", "sender", "code review", "code-review", "github light", "review", "pull request", "pr", "blueprint", "blueprint gray", "blueprint charcoal", "mid gray", "mid-gray", "charcoal", "technical drawing", "technical drawing dark", "drafting", "청사진", "중간 회색", "깊은 차콜", "도면", "instrument", "plex", "engineering", "matte", "stone", "soft", "carbon", "monospace", "jetbrains"],
+  themes: ["skin", "theme", "appearance", "claude", "kanagawa", "haxor", "hax0r", "hurtado", "rose", "nord", "github", "dimmed", "tui", "terminal", "amber", "slate", "smoke", "vscode", "visual studio code", "studio gray", "steel gray", "graphite", "periwinkle", "mint", "precision", "linear", "issue discussion", "notebook", "notion", "document", "paper", "messenger", "messages", "bubbles", "community", "discord", "sender", "code review", "code-review", "github light", "review", "pull request", "pr", "blueprint", "blueprint gray", "blueprint charcoal", "mid gray", "mid-gray", "charcoal", "technical drawing", "technical drawing dark", "drafting", "청사진", "중간 회색", "깊은 차콜", "도면", "instrument", "plex", "engineering", "matte", "stone", "soft", "carbon", "monospace", "jetbrains", "seaglass", "pastel", "powder blue", "assistant", "시글라스", "파스텔"],
   engines: ["models", "claude", "grok", "providers", "cli"],
   companion: ["companion", "phone", "pair", "mobile"],
   computer: ["vm", "virtual", "desktop"],
