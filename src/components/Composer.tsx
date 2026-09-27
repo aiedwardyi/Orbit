@@ -691,7 +691,46 @@ export function Composer({
           </button>
         </div>
       )}
-      <div className="pointer-events-auto relative w-full">
+      <div className="pointer-events-auto relative flex max-h-[60dvh] w-full flex-col">
+        {pickerOpen && (
+          <div
+            role="listbox"
+            aria-label={t("composer.tagBot")}
+            className="absolute bottom-full left-2 z-20 mb-2 w-72 overflow-hidden rounded-xl border border-hairline/40 bg-raised shadow-lg"
+          >
+            {candidates.map((peer, i) => (
+              <button
+                key={peer.id}
+                role="option"
+                aria-selected={i === highlight}
+                onClick={() => pickMention(peer)}
+                onMouseEnter={() => setHighlight(i)}
+                className={cn(
+                  "flex w-full items-center gap-2.5 px-3 py-2 text-left",
+                  i === highlight ? "bg-raised-hover" : "",
+                )}
+              >
+                {peer.bot ? (
+                  <MausAvatar
+                    color={peer.bot.color}
+                    state={normalizeState(peer.bot.mascotExpression) ?? "happy"}
+                    size={24}
+                  />
+                ) : (
+                  <span className="flex size-6 items-center justify-center rounded-full bg-raised text-ink-secondary">
+                    <Users size={14} aria-hidden="true" />
+                  </span>
+                )}
+                <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-ink">{peer.name}</span>
+                <span className="shrink-0 text-xs text-ink-secondary">{peer.bot ? t("composer.agent") : t("composer.channel")}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {/* Notices, reply/approval banners and the attachment tray scroll here
+            first, so a long list of them shrinks instead of pushing the send
+            row (below, shrink-0) off the screen. */}
+        <div className="min-h-0 shrink overflow-y-auto">
         {failedSends.map((failed) => (
           <div
             key={failed.id}
@@ -738,41 +777,6 @@ export function Composer({
             </button>
           </div>
         ))}
-        {pickerOpen && (
-          <div
-            role="listbox"
-            aria-label={t("composer.tagBot")}
-            className="absolute bottom-full left-2 z-20 mb-2 w-72 overflow-hidden rounded-xl border border-hairline/40 bg-raised shadow-lg"
-          >
-            {candidates.map((peer, i) => (
-              <button
-                key={peer.id}
-                role="option"
-                aria-selected={i === highlight}
-                onClick={() => pickMention(peer)}
-                onMouseEnter={() => setHighlight(i)}
-                className={cn(
-                  "flex w-full items-center gap-2.5 px-3 py-2 text-left",
-                  i === highlight ? "bg-raised-hover" : "",
-                )}
-              >
-                {peer.bot ? (
-                  <MausAvatar
-                    color={peer.bot.color}
-                    state={normalizeState(peer.bot.mascotExpression) ?? "happy"}
-                    size={24}
-                  />
-                ) : (
-                  <span className="flex size-6 items-center justify-center rounded-full bg-raised text-ink-secondary">
-                    <Users size={14} aria-hidden="true" />
-                  </span>
-                )}
-                <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-ink">{peer.name}</span>
-                <span className="shrink-0 text-xs text-ink-secondary">{peer.bot ? t("composer.agent") : t("composer.channel")}</span>
-              </button>
-            ))}
-          </div>
-        )}
         {/* An approval takes over the composer: you answer it before you
             can type again, so a waiting bot is impossible to miss. */}
         {approval && (
@@ -807,7 +811,8 @@ export function Composer({
           notice={attachmentNotice}
           onNotice={setAttachmentNotice}
         />
-        <div className="relative">
+        </div>
+        <div className="relative shrink-0">
           {/* App-ground from the pill's bottom radius down, full-bleed.
               Bubbles may tuck into the pill; they must not paint under it. */}
           <div

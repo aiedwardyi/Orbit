@@ -121,7 +121,7 @@ export function ComposerAttachments({
       )}
 
       {items.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-2">
+        <div className="mb-2 flex gap-2 overflow-x-auto">
           {items.map((a) =>
             a.kind === "paste" ? (
               <Chip
@@ -200,7 +200,7 @@ function Chip({
     <div
       title={title}
       className={cn(
-        "group relative w-[172px] rounded-xl border border-hairline/40 bg-raised px-2.5 py-2",
+        "group relative w-[172px] shrink-0 rounded-xl border border-hairline/40 bg-raised px-2.5 py-2",
         "transition-colors hover:border-hairline",
       )}
     >
