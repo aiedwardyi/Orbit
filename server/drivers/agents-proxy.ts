@@ -17,6 +17,7 @@
 //   react(emoji)                          → react to the user's latest message
 //   show_image(path, caption?)            → post a local image into this chat
 //   generate_image(prompt, …)             → create a PNG with the saved image key
+//   call_api(credential_id, method, url)  → call a service with its saved key
 //   request_credential(id, reason?)       → show a secure, allowlisted key card
 //   list_routines()                       → inspect this bot's scheduled work
 //   propose_routine(...)                  → show a confirmation card for a new routine
@@ -32,7 +33,7 @@
 //   OMB_TURN_DEPTH   this turn's comms depth (the harness refuses recursion)
 import readline from "node:readline";
 
-import { CREDENTIAL_TARGETS, isCredentialTargetId } from "../../shared/credential-request.ts";
+import { CREDENTIAL_BROKER, CREDENTIAL_TARGETS, isCredentialTargetId } from "../../shared/credential-request.ts";
 import { EXTENDED_REACTIONS } from "../../shared/reactions.ts";
 
 const HARNESS = process.env.OMB_HARNESS_URL ?? "http://127.0.0.1:8799";
@@ -386,6 +387,23 @@ const TOOLS = [
     },
   },
   {
+    name: "call_api",
+    description:
+      "Call a service's HTTPS API with the user's saved key for it. You never see the key; Orbit adds it. Only that service's own hosts are allowed. Binary responses are saved to a file and the path is returned.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        credential_id: { type: "string", enum: Object.keys(CREDENTIAL_BROKER), description: "Which saved key to use." },
+        method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+        url: { type: "string", description: "Full https URL on that service's API host." },
+        headers: { type: "object", additionalProperties: { type: "string" }, description: "Extra headers. Never an auth header." },
+        body: { description: "Request body: a JSON value (sent as JSON) or a string." },
+      },
+      required: ["credential_id", "method", "url"],
+    },
+  },
+  {
     name: "request_credential",
     description:
       "Ask the user for a supported API key through Orbit's secure credential card. Use this instead of asking them to paste a secret into chat. The secret is saved by the desktop app and is never returned to you. After calling this tool, end the turn; Orbit resumes the task after the user saves or declines.",
@@ -727,6 +745,27 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
       return { text: `Saved the image to ${r.path}.${shown}` };
     } catch (e) {
       return { text: `Couldn't generate image: ${(e as Error).message}`, isError: true };
+    }
+  }
+  if (name === "call_api") {
+    if (!THREAD_ID) return { text: "Couldn't call the API: no active thread.", isError: true };
+    const body: Json = {
+      fromBotId: BOT_ID,
+      fromThreadId: THREAD_ID,
+      credentialId: args.credential_id,
+      method: typeof args.method === "string" ? args.method.toUpperCase() : args.method,
+      url: args.url,
+    };
+    if (args.headers !== undefined) body.headers = args.headers;
+    if (args.body !== undefined) body.body = args.body;
+    try {
+      const r = await api("/api/internal/call-api", { method: "POST", body: JSON.stringify(body) });
+      if (typeof r.path === "string") {
+        return { text: `HTTP ${r.status}: saved the ${r.contentType} response to ${r.path}. Use show_image to show an image.` };
+      }
+      return { text: String(r.text), isError: Number(r.status) >= 400 };
+    } catch (e) {
+      return { text: `Couldn't call the API: ${(e as Error).message}`, isError: true };
     }
   }
   if (name === "request_credential") {

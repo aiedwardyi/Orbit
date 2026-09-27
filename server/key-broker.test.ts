@@ -1,0 +1,108 @@
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { callApi, callApiRequestSchema, CALL_API_TEXT_CHARS, loadKeyUses, missingKeyMessage, recordKeyUse } from "./key-broker.ts";
+
+const KEY = "xai-secretKEY1234567890";
+let root: string;
+
+beforeEach(() => {
+  root = realpathSync(mkdtempSync(join(tmpdir(), "omb-key-broker-")));
+});
+
+afterEach(() => {
+  rmSync(root, { recursive: true, force: true });
+});
+
+const request = (fields: Record<string, unknown>) =>
+  callApiRequestSchema.parse({ credentialId: "xaiApiKey", method: "GET", url: "https://api.x.ai/v1/models", ...fields });
+const keys = (id: string) => (id === "xaiApiKey" || id === "ttsKey" ? KEY : "");
+const reply = (body: string, init: ResponseInit = { status: 200 }) => vi.fn<typeof fetch>(async () => new Response(body, init));
+
+describe("call_api", () => {
+  it("injects the key into that service's header and returns status and body", async () => {
+    const fetchMock = reply(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } });
+    const result = await callApi(request({ method: "POST", body: { q: 1 } }), keys, [root], fetchMock);
+
+    expect(result).toEqual({ status: 200, text: 'HTTP 200\n{"data":[]}' });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    const headers = init!.headers as Headers;
+    expect(String(url)).toBe("https://api.x.ai/v1/models");
+    expect(headers.get("authorization")).toBe(`Bearer ${KEY}`);
+    expect(headers.get("content-type")).toBe("application/json");
+    expect(init).toMatchObject({ method: "POST", body: '{"q":1}', redirect: "manual" });
+
+    await callApi(request({ credentialId: "ttsKey", url: "https://api.elevenlabs.io/v1/voices" }), keys, [root], fetchMock);
+    expect((fetchMock.mock.calls[1]![1]!.headers as Headers).get("xi-api-key")).toBe(KEY);
+  });
+
+  it.each([
+    ["http://api.x.ai/v1/models", 400],
+    ["https://api.openai.com/v1/models", 403],
+    ["https://api.x.ai.evil.com/v1", 403],
+    ["https://api.x.ai:8443/v1", 403],
+    ["not a url", 400],
+  ])("refuses %s", async (url, status) => {
+    const fetchMock = reply("");
+    await expect(callApi(request({ url }), keys, [root], fetchMock)).rejects.toMatchObject({ status });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses box, a bot-supplied auth header, and a missing key", async () => {
+    const fetchMock = reply("");
+    await expect(callApi(request({ credentialId: "boxToken" }), keys, [root], fetchMock))
+      .rejects.toThrow("Box API key is not available through call_api.");
+    await expect(callApi(request({ headers: { Authorization: "Bearer mine" } }), keys, [root], fetchMock))
+      .rejects.toMatchObject({ status: 400 });
+    await expect(callApi(request({ credentialId: "geminiApiKey", url: "https://generativelanguage.googleapis.com/v1beta/models" }), keys, [root], fetchMock))
+      .rejects.toMatchObject({ status: 409, message: missingKeyMessage("geminiApiKey") });
+    expect(missingKeyMessage("geminiApiKey")).toContain("request_credential with geminiApiKey, end the turn, then retry");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not follow redirects", async () => {
+    const result = await callApi(request({}), keys, [root], reply("", { status: 302, headers: { location: "https://evil.test" } }));
+    expect(result).toEqual({ status: 302, text: "HTTP 302: redirect not followed" });
+  });
+
+  it("redacts the key and truncates long text", async () => {
+    const result = await callApi(request({}), keys, [root], reply(`bad key ${KEY} ${"x".repeat(CALL_API_TEXT_CHARS)}`, { status: 401 }));
+    expect(result.status).toBe(401);
+    expect("text" in result && result.text).toMatch(/^HTTP 401\nbad key \[key\] x+\n\[truncated\]$/);
+    const failing = vi.fn<typeof fetch>(async () => { throw new Error(`connect failed for ${KEY}`); });
+    await expect(callApi(request({}), keys, [root], failing)).rejects.toThrow("connect failed for [key]");
+  });
+
+  it("saves binary responses under api-files", async () => {
+    const result = await callApi(request({}), keys, [root], reply("mp3-bytes", { status: 200, headers: { "content-type": "audio/mpeg" } }));
+    expect(result).toMatchObject({ status: 200, contentType: "audio/mpeg" });
+    const path = (result as { path: string }).path;
+    expect(dirname(path)).toBe(join(root, "api-files"));
+    expect(path).toMatch(/response-[0-9a-f]{8}\.mp3$/);
+    expect(readFileSync(path, "utf8")).toBe("mp3-bytes");
+  });
+
+  it("caps the response size and times out", async () => {
+    const big = reply("x", { status: 200, headers: { "content-length": String(20 * 1024 * 1024) } });
+    await expect(callApi(request({}), keys, [root], big)).rejects.toMatchObject({ status: 502 });
+    const hang = vi.fn<typeof fetch>((_url, init) => new Promise((_resolve, reject) => {
+      init!.signal!.addEventListener("abort", () => reject(new Error("aborted")));
+    }));
+    await expect(callApi(request({}), keys, [root], hang, 10)).rejects.toMatchObject({ status: 504 });
+  });
+});
+
+describe("key uses", () => {
+  it("records the last bot and time per credential", () => {
+    expect(loadKeyUses(root)).toEqual({});
+    recordKeyUse(root, "xaiApiKey", "bot-a", new Date("2026-09-01T00:00:00Z"));
+    recordKeyUse(root, "ttsKey", "bot-b", new Date("2026-09-02T00:00:00Z"));
+    recordKeyUse(root, "xaiApiKey", "bot-c", new Date("2026-09-03T00:00:00Z"));
+    expect(loadKeyUses(root)).toEqual({
+      xaiApiKey: { botId: "bot-c", at: "2026-09-03T00:00:00.000Z" },
+      ttsKey: { botId: "bot-b", at: "2026-09-02T00:00:00.000Z" },
+    });
+  });
+});

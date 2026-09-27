@@ -36,7 +36,20 @@ export const CREDENTIAL_TARGETS = {
   },
 } as const;
 
+/** Hosts call_api may send each key to, and the header it goes in. Box is not brokered. */
+export const CREDENTIAL_BROKER = {
+  openaiImageApiKey: { hosts: ["api.openai.com"], header: "authorization", prefix: "Bearer " },
+  xaiApiKey: { hosts: ["api.x.ai"], header: "authorization", prefix: "Bearer " },
+  geminiApiKey: { hosts: ["generativelanguage.googleapis.com"], header: "x-goog-api-key", prefix: "" },
+  ttsKey: { hosts: ["api.elevenlabs.io"], header: "xi-api-key", prefix: "" },
+} as const;
+
 export type CredentialTargetId = keyof typeof CREDENTIAL_TARGETS;
+export type BrokeredCredentialId = keyof typeof CREDENTIAL_BROKER;
+
+export function isBrokeredCredentialId(value: unknown): value is BrokeredCredentialId {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(CREDENTIAL_BROKER, value);
+}
 export type CredentialConfig = {
   xai?: { key?: string };
   gemini?: { apiKey?: string };
@@ -64,19 +77,23 @@ export function credentialConfigPatch(id: CredentialTargetId, value: string): Cr
   }
 }
 
-export function credentialIsConfigured(config: CredentialConfig, id: CredentialTargetId): boolean {
+export function credentialValue(config: CredentialConfig, id: CredentialTargetId): string {
   switch (id) {
     case "xaiApiKey":
-      return Boolean(config.xai?.key);
+      return config.xai?.key ?? "";
     case "geminiApiKey":
-      return Boolean(config.gemini?.apiKey);
+      return config.gemini?.apiKey ?? "";
     case "boxToken":
-      return Boolean(config.box?.token);
+      return config.box?.token ?? "";
     case "ttsKey":
-      return Boolean(config.tts?.key);
+      return config.tts?.key ?? "";
     case "openaiImageApiKey":
-      return Boolean(config.imageGen?.key);
+      return config.imageGen?.key ?? "";
   }
+}
+
+export function credentialIsConfigured(config: CredentialConfig, id: CredentialTargetId): boolean {
+  return Boolean(credentialValue(config, id));
 }
 
 export function isReusableCredentialRequest(

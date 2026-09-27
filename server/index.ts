@@ -21,6 +21,7 @@ import {
   CREDENTIAL_TARGETS,
   credentialResumeOutcome,
   credentialIsConfigured,
+  credentialValue,
   isReusableCredentialRequest,
   isCredentialTargetId,
   type CredentialTargetId,
@@ -52,6 +53,7 @@ import {
 } from "./avatar-image.ts";
 import { parseBotProfilePatch } from "./bot-profile.ts";
 import { generateImageFile, generateImageRequestSchema } from "./generate-image.ts";
+import { callApi, callApiRequestSchema, loadKeyUses, recordKeyUse } from "./key-broker.ts";
 import { groupTurnCwd } from "./room-cwd.ts";
 import { RoomTurnDeadline, RoomTurnStallRegistry, roomTurnTimeoutMessage } from "./room-turn-timeout.ts";
 import * as box from "./box.ts";
@@ -5449,6 +5451,16 @@ function connectorThread(botId: string, threadId: string) {
   return store.conversationForBot(botId, threadId);
 }
 
+/** Folders a bot's generated files may land in, most specific first. */
+function botOutputRoots(bot: BotRecord, threadId: string, groupId?: string): string[] {
+  return [
+    store.taskByThread(bot.id, threadId)?.cwd,
+    groupId ? store.groupTaskByThread(groupId, threadId)?.pinnedCwd : undefined,
+    bot.cwd,
+    workspaceDir(bot.id),
+  ].filter((root): root is string => Boolean(root));
+}
+
 function routineProposalPersistence(botId: string, threadId: string) {
   if (!store.bot(botId)) {
     return { ok: false as const, status: 403, error: "unknown sender" };
@@ -6330,18 +6342,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!parsed.success) {
           return json(res, 400, { error: "needs a prompt (max 4000 chars) and a supported size and quality" });
         }
-        const roots = [
-          store.taskByThread(from.id, fromThreadId)?.cwd,
-          owner.group ? store.groupTaskByThread(owner.group.id, fromThreadId)?.pinnedCwd : undefined,
-          from.cwd,
-          workspaceDir(from.id),
-        ].filter((root): root is string => Boolean(root));
+        const roots = botOutputRoots(from, fromThreadId, owner.group?.id);
         let generated: Awaited<ReturnType<typeof generateImageFile>>;
         try {
           generated = await generateImageFile(cfg.imageGen?.key ?? "", parsed.data, roots);
         } catch (e) {
           return json(res, (e as { status?: number }).status ?? 500, { error: (e as Error).message });
         }
+        recordKeyUse(DATA_DIR, "openaiImageApiKey", from.id);
         if (body.show === false) return json(res, 201, { path: generated.path });
         // Generation is slow; the conversation may be gone by now.
         const current = connectorThread(from.id, fromThreadId);
@@ -6361,6 +6369,30 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           shown: true,
         });
         return json(res, 201, { path: generated.path, messageId: message.id, url: `/api/attachments/${name}` });
+      }
+      // The call_api tool: the saved key is injected here, only toward that
+      // credential's own hosts, and never appears in what the bot gets back.
+      if (method === "POST" && path === "/api/internal/call-api") {
+        const body = await readBody(req);
+        const fromThreadId = String(body.fromThreadId ?? "");
+        const from = store.bot(String(body.fromBotId ?? ""));
+        if (!from) return json(res, 403, { error: "unknown sender" });
+        if (!fromThreadId) return json(res, 400, { error: "no active thread" });
+        const owner = connectorThread(from.id, fromThreadId);
+        if (!owner) return json(res, 403, { error: "source thread does not belong to sender" });
+        const parsed = callApiRequestSchema.safeParse(body);
+        if (!parsed.success) return json(res, 400, { error: "needs credential_id, method, and url; headers must be strings" });
+        try {
+          const result = await callApi(
+            parsed.data,
+            (id) => credentialValue(cfg, id),
+            botOutputRoots(from, fromThreadId, owner.group?.id),
+          );
+          recordKeyUse(DATA_DIR, parsed.data.credentialId, from.id);
+          return json(res, 200, result);
+        } catch (e) {
+          return json(res, (e as { status?: number }).status ?? 500, { error: (e as Error).message });
+        }
       }
       // Async handoff: the source bot queues a task for a peer and goes
       // back to the user; the peer turn runs after the source's
@@ -6911,6 +6943,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
       syncAllThreads();
       return json(res, 200, profileSyncStatus());
+    }
+
+    if (method === "GET" && path === "/api/key-uses") {
+      return json(res, 200, { uses: loadKeyUses(DATA_DIR) });
     }
 
     // ── phone ping (local to this PC, never synced) ──

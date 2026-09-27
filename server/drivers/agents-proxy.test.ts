@@ -27,6 +27,7 @@ let lastCreateChannelBody: any = null;
 let lastCredentialBody: any = null;
 let lastShowImageBody: any = null;
 let lastGenerateImageBody: any = null;
+let lastCallApiBody: any = null;
 let lastRoutineQuery = "";
 let routinesResponse: unknown = {
   now: "2026-08-28T10:30:00.000Z",
@@ -185,6 +186,25 @@ beforeAll(async () => {
       });
       return;
     }
+    if (req.method === "POST" && req.url === "/api/internal/call-api") {
+      let data = "";
+      req.on("data", (c) => (data += c));
+      req.on("end", () => {
+        lastCallApiBody = JSON.parse(data);
+        if (lastCallApiBody.credentialId === "geminiApiKey") {
+          res.writeHead(409, { "content-type": "application/json" });
+          return res.end(JSON.stringify({
+            error: "No Gemini API key saved. Call request_credential with geminiApiKey, end the turn, then retry call_api.",
+          }));
+        }
+        res.writeHead(200, { "content-type": "application/json" });
+        if (lastCallApiBody.credentialId === "ttsKey") {
+          return res.end(JSON.stringify({ status: 200, path: "/proj/api-files/response-ab12cd34.mp3", contentType: "audio/mpeg" }));
+        }
+        res.end(JSON.stringify({ status: 401, text: "HTTP 401\nbad key [key]" }));
+      });
+      return;
+    }
     if (req.method === "GET" && req.url?.startsWith("/api/internal/routines?")) {
       lastRoutineQuery = req.url;
       res.writeHead(200, { "content-type": "application/json" });
@@ -266,6 +286,7 @@ describe("agents-proxy MCP surface", () => {
       "react",
       "show_image",
       "generate_image",
+      "call_api",
       "request_credential",
       "list_routines",
       "propose_routine",
@@ -318,6 +339,26 @@ describe("agents-proxy MCP surface", () => {
     expect(res.result.content[0].text).toContain("Call request_credential with openaiImageApiKey");
     const empty = await callTool("generate_image", { prompt: " " });
     expect(empty.result.content[0].text).toContain("needs a prompt");
+  });
+
+  it("calls an API through the harness key broker", async () => {
+    const res = await callTool("call_api", { credential_id: "xaiApiKey", method: "post", url: "https://api.x.ai/v1/chat", body: { q: 1 } });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toBe("HTTP 401\nbad key [key]");
+    expect(lastCallApiBody).toEqual({
+      fromBotId: "bot-asker",
+      fromThreadId: "thread-asker-routine",
+      credentialId: "xaiApiKey",
+      method: "POST",
+      url: "https://api.x.ai/v1/chat",
+      body: { q: 1 },
+    });
+    const audio = await callTool("call_api", { credential_id: "ttsKey", method: "GET", url: "https://api.elevenlabs.io/v1/x" });
+    expect(audio.result.isError).toBe(false);
+    expect(audio.result.content[0].text).toContain("/proj/api-files/response-ab12cd34.mp3");
+    const missing = await callTool("call_api", { credential_id: "geminiApiKey", method: "GET", url: "https://generativelanguage.googleapis.com/v1beta/models" });
+    expect(missing.result.isError).toBe(true);
+    expect(missing.result.content[0].text).toContain("Call request_credential with geminiApiKey");
   });
 
   it("points a configured image key at generate_image", async () => {

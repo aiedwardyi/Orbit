@@ -28,8 +28,8 @@ export function generatedImageName(requested: string | undefined): string {
   return `${stem || "image"}-${randomBytes(4).toString("hex")}.png`;
 }
 
-/** First usable root's generated-images folder; a junction or symlink out of the root is refused. */
-export function generatedImagesDir(roots: readonly string[]): string {
+/** First usable root's output folder; a junction or symlink out of the root is refused. */
+export function generatedImagesDir(roots: readonly string[], folder = "generated-images"): string {
   for (const root of roots) {
     if (/^[\\/]{2}/.test(root)) continue;
     let realRoot: string;
@@ -38,16 +38,16 @@ export function generatedImagesDir(roots: readonly string[]): string {
     } catch {
       continue;
     }
-    const dir = join(realRoot, "generated-images");
+    const dir = join(realRoot, folder);
     mkdirSync(dir, { recursive: true });
     const realDir = realpathSync(dir);
     const fromRoot = relative(realRoot, realDir);
     if (!fromRoot || fromRoot.startsWith("..") || isAbsolute(fromRoot)) {
-      throw fail(403, "generated-images must stay inside your working folder");
+      throw fail(403, `${folder} must stay inside your working folder`);
     }
     return realDir;
   }
-  throw fail(409, "no working folder to save the image in");
+  throw fail(409, "no working folder to save the file in");
 }
 
 /** One short line with the key and anything key-shaped redacted. */
