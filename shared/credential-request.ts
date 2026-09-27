@@ -30,7 +30,7 @@ export const CREDENTIAL_TARGETS = {
   },
   openaiImageApiKey: {
     label: "OpenAI API key",
-    description: "Used only to generate custom bot avatar images.",
+    description: "Used to generate bot avatars and images bots create with generate_image.",
     placeholder: "sk-…",
     helpUrl: "https://platform.openai.com/api-keys",
   },

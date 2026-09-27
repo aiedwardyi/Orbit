@@ -6,7 +6,7 @@ import { existsSync, readFileSync, realpathSync, statSync, unlinkSync, writeFile
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { currentEarlyListen } from "./early-listen.ts";
 import { isIP } from "node:net";
-import { extname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
 
 import { z } from "zod";
 import {
@@ -51,6 +51,7 @@ import {
   snapshotAvatarGenerationState,
 } from "./avatar-image.ts";
 import { parseBotProfilePatch } from "./bot-profile.ts";
+import { generateImageFile, generateImageRequestSchema } from "./generate-image.ts";
 import { groupTurnCwd } from "./room-cwd.ts";
 import { RoomTurnDeadline, RoomTurnStallRegistry, roomTurnTimeoutMessage } from "./room-turn-timeout.ts";
 import * as box from "./box.ts";
@@ -3531,7 +3532,7 @@ type StartTurnOptions = {
 };
 
 const SHOW_IMAGE_GUIDANCE =
-  "When you produce or find an image the user should see (a mockup, chart, or screenshot file), call show_image with its absolute path so it appears in this chat. Never end with only a file path.";
+  "When you produce or find an image the user should see (a mockup, chart, or screenshot file), call show_image with its absolute path so it appears in this chat. Never end with only a file path. To create a new image, call generate_image.";
 
 // Retrieval discipline for document workloads. Static on purpose: the
 // stream-json driver folds --append-system-prompt into its warm-process
@@ -6313,6 +6314,53 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           ...(caption ? { text: caption } : {}),
         });
         return json(res, 201, { messageId: message.id, url: `/api/attachments/${saved.name}` });
+      }
+      // The generate_image tool: the saved key stays server-side; the file
+      // lands under generated-images in the same roots show_image allows.
+      if (method === "POST" && path === "/api/internal/generate-image") {
+        const body = await readBody(req);
+        const fromBotId = String(body.fromBotId ?? "");
+        const fromThreadId = String(body.fromThreadId ?? "");
+        const from = store.bot(fromBotId);
+        if (!from) return json(res, 403, { error: "unknown sender" });
+        if (!fromThreadId) return json(res, 400, { error: "no active thread" });
+        const owner = connectorThread(from.id, fromThreadId);
+        if (!owner) return json(res, 403, { error: "source thread does not belong to sender" });
+        const parsed = generateImageRequestSchema.safeParse(body);
+        if (!parsed.success) {
+          return json(res, 400, { error: "needs a prompt (max 4000 chars) and a supported size and quality" });
+        }
+        const roots = [
+          store.taskByThread(from.id, fromThreadId)?.cwd,
+          owner.group ? store.groupTaskByThread(owner.group.id, fromThreadId)?.pinnedCwd : undefined,
+          from.cwd,
+          workspaceDir(from.id),
+        ].filter((root): root is string => Boolean(root));
+        let generated: Awaited<ReturnType<typeof generateImageFile>>;
+        try {
+          generated = await generateImageFile(cfg.imageGen?.key ?? "", parsed.data, roots);
+        } catch (e) {
+          return json(res, (e as { status?: number }).status ?? 500, { error: (e as Error).message });
+        }
+        if (body.show === false) return json(res, 201, { path: generated.path });
+        // Generation is slow; the conversation may be gone by now.
+        const current = connectorThread(from.id, fromThreadId);
+        if (!current) return json(res, 201, { path: generated.path, showError: "the conversation is gone" });
+        let shown: SavedAttachment;
+        try {
+          shown = saveImage(generated.bytes, "image/png");
+        } catch (e) {
+          return json(res, 201, { path: generated.path, showError: (e as Error).message });
+        }
+        const name = basename(shown.path);
+        const message = store.appendMessage(fromThreadId, {
+          role: "bot",
+          kind: "screen",
+          ...(current.group ? { from: { botId: from.id, name: from.name, color: from.color } } : {}),
+          image: name,
+          shown: true,
+        });
+        return json(res, 201, { path: generated.path, messageId: message.id, url: `/api/attachments/${name}` });
       }
       // Async handoff: the source bot queues a task for a peer and goes
       // back to the user; the peer turn runs after the source's

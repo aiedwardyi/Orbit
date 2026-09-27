@@ -16,6 +16,7 @@
 //                                          bots (self is added automatically)
 //   react(emoji)                          → react to the user's latest message
 //   show_image(path, caption?)            → post a local image into this chat
+//   generate_image(prompt, …)             → create a PNG with the saved image key
 //   request_credential(id, reason?)       → show a secure, allowlisted key card
 //   list_routines()                       → inspect this bot's scheduled work
 //   propose_routine(...)                  → show a confirmation card for a new routine
@@ -368,6 +369,23 @@ const TOOLS = [
     },
   },
   {
+    name: "generate_image",
+    description:
+      "Create a new PNG image from a text prompt using the user's saved OpenAI image key (you never see the key). Saves it under generated-images in your working folder, shows it in this chat by default, and returns the saved path. If no key is saved, call request_credential with openaiImageApiKey, end the turn, then retry. To show an image file that already exists, use show_image instead.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        prompt: { type: "string", description: "What to draw: subject, style, composition, colors, and any text to include." },
+        filename: { type: "string", description: "Optional short name like \"hero-banner\". A unique suffix and .png are added." },
+        size: { type: "string", enum: ["1024x1024", "1536x1024", "1024x1536"], default: "1024x1024", description: "Square, landscape, or portrait." },
+        quality: { type: "string", enum: ["low", "medium", "high"], default: "medium", description: "Higher is slower and costs more." },
+        show: { type: "boolean", default: true, description: "Post the image in this chat." },
+      },
+      required: ["prompt"],
+    },
+  },
+  {
     name: "request_credential",
     description:
       "Ask the user for a supported API key through Orbit's secure credential card. Use this instead of asking them to paste a secret into chat. The secret is saved by the desktop app and is never returned to you. After calling this tool, end the turn; Orbit resumes the task after the user saves or declines.",
@@ -695,6 +713,22 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
       return { text: `Couldn't show image: ${(e as Error).message}`, isError: true };
     }
   }
+  if (name === "generate_image") {
+    const prompt = String(args.prompt ?? "").trim();
+    if (!prompt) return { text: "generate_image needs a prompt.", isError: true };
+    if (!THREAD_ID) return { text: "Couldn't generate image: no active thread.", isError: true };
+    const body: Json = { fromBotId: BOT_ID, fromThreadId: THREAD_ID, prompt, show: args.show !== false };
+    if (typeof args.filename === "string" && args.filename.trim()) body.filename = args.filename.trim();
+    if (typeof args.size === "string") body.size = args.size;
+    if (typeof args.quality === "string") body.quality = args.quality;
+    try {
+      const r = await api("/api/internal/generate-image", { method: "POST", body: JSON.stringify(body) });
+      const shown = r.url ? ` Showed it in chat. URL: ${r.url}` : r.showError ? ` Couldn't show it in chat: ${r.showError}` : "";
+      return { text: `Saved the image to ${r.path}.${shown}` };
+    } catch (e) {
+      return { text: `Couldn't generate image: ${(e as Error).message}`, isError: true };
+    }
+  }
   if (name === "request_credential") {
     const credentialId = args.credential_id;
     if (!isCredentialTargetId(credentialId)) {
@@ -711,7 +745,8 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
       }),
     });
     if (r.alreadyConfigured) {
-      return { text: `${r.label ?? CREDENTIAL_TARGETS[credentialId].label} is already configured. Continue the task.` };
+      const next = credentialId === "openaiImageApiKey" ? "Use generate_image." : "Continue the task.";
+      return { text: `${r.label ?? CREDENTIAL_TARGETS[credentialId].label} is already configured. ${next}` };
     }
     return {
       text: `A secure ${r.label ?? CREDENTIAL_TARGETS[credentialId].label} card is now visible to the user. End this turn; Orbit will resume the task after they save or decline. Never ask them to paste the key into chat.`,

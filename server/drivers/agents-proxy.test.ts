@@ -26,6 +26,7 @@ let lastCreateBody: any = null;
 let lastCreateChannelBody: any = null;
 let lastCredentialBody: any = null;
 let lastShowImageBody: any = null;
+let lastGenerateImageBody: any = null;
 let lastRoutineQuery = "";
 let routinesResponse: unknown = {
   now: "2026-08-28T10:30:00.000Z",
@@ -144,6 +145,9 @@ beforeAll(async () => {
       req.on("end", () => {
         lastCredentialBody = JSON.parse(data);
         res.writeHead(200, { "content-type": "application/json" });
+        if (lastCredentialBody.credentialId === "openaiImageApiKey") {
+          return res.end(JSON.stringify({ alreadyConfigured: true, label: "OpenAI API key" }));
+        }
         res.end(JSON.stringify({ messageId: "msg-key", label: "Gemini API key" }));
       });
       return;
@@ -159,6 +163,25 @@ beforeAll(async () => {
         }
         res.writeHead(201, { "content-type": "application/json" });
         res.end(JSON.stringify({ messageId: "msg-img", url: "/api/attachments/abc.png" }));
+      });
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/internal/generate-image") {
+      let data = "";
+      req.on("data", (c) => (data += c));
+      req.on("end", () => {
+        lastGenerateImageBody = JSON.parse(data);
+        if (lastGenerateImageBody.prompt === "no key") {
+          res.writeHead(409, { "content-type": "application/json" });
+          return res.end(JSON.stringify({
+            error: "No image key saved. Call request_credential with openaiImageApiKey, end the turn, then retry generate_image.",
+          }));
+        }
+        res.writeHead(201, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          path: "C:\proj\generated-images\logo-ab12cd34.png",
+          ...(lastGenerateImageBody.show ? { url: "/api/attachments/gen.png" } : {}),
+        }));
       });
       return;
     }
@@ -242,6 +265,7 @@ describe("agents-proxy MCP surface", () => {
       "create_channel",
       "react",
       "show_image",
+      "generate_image",
       "request_credential",
       "list_routines",
       "propose_routine",
@@ -268,6 +292,37 @@ describe("agents-proxy MCP surface", () => {
     const empty = await callTool("show_image", { path: " " });
     expect(empty.result.isError).toBe(true);
     expect(empty.result.content[0].text).toContain("needs a path");
+  });
+
+  it("generates an image through the harness and returns its path and URL", async () => {
+    const res = await callTool("generate_image", { prompt: " a teal fox logo ", filename: "logo", size: "1536x1024" });
+    expect(res.result.isError).toBe(false);
+    expect(res.result.content[0].text).toContain("C:\proj\generated-images\logo-ab12cd34.png");
+    expect(res.result.content[0].text).toContain("/api/attachments/gen.png");
+    expect(lastGenerateImageBody).toEqual({
+      fromBotId: "bot-asker",
+      fromThreadId: "thread-asker-routine",
+      prompt: "a teal fox logo",
+      show: true,
+      filename: "logo",
+      size: "1536x1024",
+    });
+    const hidden = await callTool("generate_image", { prompt: "icon", show: false });
+    expect(hidden.result.content[0].text).not.toContain("/api/attachments/");
+    expect(lastGenerateImageBody.show).toBe(false);
+  });
+
+  it("tells the bot how to get an image key when none is saved", async () => {
+    const res = await callTool("generate_image", { prompt: "no key" });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toContain("Call request_credential with openaiImageApiKey");
+    const empty = await callTool("generate_image", { prompt: " " });
+    expect(empty.result.content[0].text).toContain("needs a prompt");
+  });
+
+  it("points a configured image key at generate_image", async () => {
+    const res = await callTool("request_credential", { credential_id: "openaiImageApiKey" });
+    expect(res.result.content[0].text).toBe("OpenAI API key is already configured. Use generate_image.");
   });
 
   it("forwards durable task progress with source ownership", async () => {

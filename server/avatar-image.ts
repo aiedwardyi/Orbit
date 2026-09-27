@@ -59,11 +59,11 @@ export interface GeneratedAvatarImage {
  * arbitrarily large body. The image API returns base64 JSON, so a byte cap is
  * the real memory boundary; decoding happens only after the bounded read.
  */
-async function boundedResponseText(response: Response): Promise<string> {
+async function boundedResponseText(response: Response, subject: string): Promise<string> {
   const advertised = Number(response.headers.get("content-length"));
   if (Number.isFinite(advertised) && advertised > MAX_UPSTREAM_RESPONSE_BYTES) {
     await response.body?.cancel().catch(() => {});
-    throw Object.assign(new Error("Generated avatar exceeded the response limit"), { status: 502 });
+    throw Object.assign(new Error(`Generated ${subject.toLowerCase()} exceeded the response limit`), { status: 502 });
   }
   const reader = response.body?.getReader();
   if (!reader) return "";
@@ -78,7 +78,7 @@ async function boundedResponseText(response: Response): Promise<string> {
       received += value.byteLength;
       if (received > MAX_UPSTREAM_RESPONSE_BYTES) {
         await reader.cancel().catch(() => {});
-        throw Object.assign(new Error("Generated avatar exceeded the response limit"), { status: 502 });
+        throw Object.assign(new Error(`Generated ${subject.toLowerCase()} exceeded the response limit`), { status: 502 });
       }
       chunks.push(decoder.decode(value, { stream: true }));
     }
@@ -97,6 +97,29 @@ export async function generateAvatarImage(
   timeoutMs = AVATAR_IMAGE_TIMEOUT_MS,
 ): Promise<GeneratedAvatarImage> {
   if (!apiKey.trim()) throw Object.assign(new Error("Add an OpenAI image API key first"), { status: 409 });
+  const bytes = await requestOpenAiImage(
+    apiKey,
+    {
+      prompt: avatarGenerationPrompt(bot, direction),
+      size: "1024x1024",
+      quality: "low",
+      output_format: "webp",
+    },
+    "Avatar",
+    fetchImpl,
+    timeoutMs,
+  );
+  return { bytes, mime: "image/webp" };
+}
+
+/** One GPT Image 2 generation; errors carry `status` and, for provider rejections, `upstreamStatus`. */
+export async function requestOpenAiImage(
+  apiKey: string,
+  request: { prompt: string; size: string; quality: string; output_format: string },
+  subject: string,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+): Promise<Buffer> {
 
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   let response: Response;
@@ -107,32 +130,26 @@ export async function generateAvatarImage(
         authorization: `Bearer ${apiKey.trim()}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({
-        model: "gpt-image-2",
-        prompt: avatarGenerationPrompt(bot, direction),
-        size: "1024x1024",
-        quality: "low",
-        output_format: "webp",
-      }),
+      body: JSON.stringify({ model: "gpt-image-2", ...request }),
       signal: timeoutSignal,
     });
   } catch (error) {
     const timedOut = timeoutSignal.aborted || (error instanceof Error && error.name === "TimeoutError");
     throw Object.assign(
-      new Error(timedOut ? "Avatar generation timed out" : "Could not reach OpenAI image generation"),
+      new Error(timedOut ? `${subject} generation timed out` : "Could not reach OpenAI image generation"),
       { status: 502 },
     );
   }
 
   let text: string;
   try {
-    text = await boundedResponseText(response);
+    text = await boundedResponseText(response, subject);
   } catch (error) {
     // A fetch can resolve its headers before the provider stalls. When the
     // same timeout later aborts the response body, undici may surface either
     // TimeoutError or AbortError; the signal is the authoritative cause.
     if (timeoutSignal.aborted || (error instanceof Error && error.name === "TimeoutError")) {
-      throw Object.assign(new Error("Avatar generation timed out"), { status: 502 });
+      throw Object.assign(new Error(`${subject} generation timed out`), { status: 502 });
     }
     throw error;
   }
@@ -144,7 +161,10 @@ export async function generateAvatarImage(
     } catch {
       // Keep the bounded status-only message for malformed upstream errors.
     }
-    throw Object.assign(new Error(message), { status: response.status === 401 ? 401 : 502 });
+    throw Object.assign(new Error(message), {
+      status: response.status === 401 ? 401 : 502,
+      upstreamStatus: response.status,
+    });
   }
 
   let parsedJson: unknown;
@@ -165,5 +185,5 @@ export async function generateAvatarImage(
   if (bytes.byteLength === 0) {
     throw Object.assign(new Error("OpenAI returned an empty image"), { status: 502 });
   }
-  return { bytes, mime: "image/webp" };
+  return bytes;
 }
