@@ -99,15 +99,18 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? fallbackStartupBot(state.bots, state.groups));
   const terminalOpen = Boolean(bot && terminalViews[bot.id] && state.activeView === "chat" && !browserWorkspaceBotId && !localVmWorkspaceBotId);
   const openTerminal = () => { if (bot) setTerminalViews((views) => ({ ...views, [bot.id]: true })); };
-  const acknowledgeTerminalAttention = (attention: Pick<TerminalAttention, "botId" | "sessionId">) => {
+  const clearTerminalAttention = (attention: Pick<TerminalAttention, "botId" | "sessionId">) => {
     const key = terminalAttentionKey(attention.botId, attention.sessionId);
     const sessions = pendingTerminalAcknowledgements.current.get(attention.botId);
     sessions?.delete(attention.sessionId);
     if (sessions?.size === 0) pendingTerminalAcknowledgements.current.delete(attention.botId);
     handledTerminalAttention.current.delete(key);
+    dispatch({ type: "ackTerminalAttention", botId: attention.botId, sessionId: attention.sessionId });
+  };
+  const acknowledgeTerminalAttention = (attention: Pick<TerminalAttention, "botId" | "sessionId">) => {
+    clearTerminalAttention(attention);
     const acknowledge = window.ogb?.terminal?.acknowledge;
     if (acknowledge) void acknowledge(attention.sessionId).catch(() => {});
-    dispatch({ type: "ackTerminalAttention", botId: attention.botId, sessionId: attention.sessionId });
   };
   const requestTerminalAcknowledgement = (attention: Pick<TerminalAttention, "botId" | "sessionId">) => {
     const sessions = pendingTerminalAcknowledgements.current.get(attention.botId) ?? new Set<string>();
@@ -258,6 +261,15 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     });
     return offAttention;
   }, [dispatch, terminalOpen]);
+
+  useEffect(() => {
+    const offClosed = window.ogb?.terminal?.onClosed?.(({ id: sessionId, botId }) => {
+      const current = latestState.current;
+      if (!current.terminalAttention[terminalAttentionKey(botId, sessionId)]) return;
+      clearTerminalAttention({ botId, sessionId });
+    });
+    return offClosed;
+  }, [dispatch]);
 
   useEffect(() => {
     return window.ogb?.onNotificationClick?.((target) => {

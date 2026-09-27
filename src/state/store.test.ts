@@ -297,6 +297,11 @@ describe("terminal attention state", () => {
     const deleted = reducer(marked, { type: "deleteBot", botId: bot.id });
     expect(deleted.terminalAttention).toEqual({});
   });
+
+  it("is a no-op acking a session with no pending attention", () => {
+    const state = { ...initialState, bots: [bot] };
+    expect(reducer(state, { type: "ackTerminalAttention", botId: bot.id, sessionId: "session-1" })).toBe(state);
+  });
 });
 
 describe("config status frames", () => {

@@ -106,6 +106,28 @@ describe("terminal attention routing", () => {
   });
 });
 
+describe("terminal close routing", () => {
+  it("subscribes to onClosed once and clears attention without re-acknowledging the pane", () => {
+    const start = app.indexOf("const offClosed");
+    const end = app.indexOf("}, [dispatch]);", start);
+    const handler = app.slice(start, end);
+
+    expect(handler).toContain("window.ogb?.terminal?.onClosed?.(({ id: sessionId, botId })");
+    expect(handler).toContain("terminalAttentionKey(botId, sessionId)");
+    expect(handler).toContain("clearTerminalAttention({ botId, sessionId })");
+    expect(handler).not.toContain("window.ogb?.terminal?.acknowledge");
+  });
+
+  it("shares the ackTerminalAttention dispatch and ref cleanup with the acknowledge path", () => {
+    const start = app.indexOf("const clearTerminalAttention");
+    const end = app.indexOf("const acknowledgeTerminalAttention");
+    const handler = app.slice(start, end);
+
+    expect(handler).toContain("handledTerminalAttention.current.delete(key)");
+    expect(handler).toContain('type: "ackTerminalAttention"');
+  });
+});
+
 describe("terminal pane shortcuts", () => {
   const handler = () =>
     app.slice(app.indexOf("const onKey = (e: KeyboardEvent)"), app.indexOf("window.addEventListener(\"keydown\", onKey)"));
