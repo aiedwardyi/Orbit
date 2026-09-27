@@ -20,6 +20,7 @@ import type { ProviderInstance } from "../contracts.ts";
 import { recordEvents, type EventRecorder } from "../testing/events.ts";
 import { ClaudeDriver, claudeToolSummary, claudeUserContent, permissionSocketPath, type ClaudeConfig } from "./claude.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
+import { REPLY_MARKER } from "../turn-context.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-claude-cli.ts");
 
@@ -215,6 +216,29 @@ describe("claudeUserContent", () => {
   it("unescapes the tag's path attribute", () => {
     const path = put(store, "a&b.png", PNG);
     const content = claudeUserContent(tag(path.replaceAll("&", "&amp;")), store);
+    expect(Array.isArray(content) && content.length).toBe(2);
+  });
+
+  it("after a replay marker, attaches only the tag past it, not old tags before it", () => {
+    const oldPng = put(store, "old.png", PNG);
+    const newJpg = put(store, "new.jpg", JPEG);
+    const text = `User: look\n${tag(oldPng)}\n\n${REPLY_MARKER}\n\n${tag(newJpg)}`;
+    expect(claudeUserContent(text, store)).toEqual([
+      { type: "text", text },
+      { type: "image", source: { type: "base64", media_type: "image/jpeg", data: JPEG.toString("base64") } },
+    ]);
+  });
+
+  it("after a replay marker with no new tag, stays the plain string even though old tags exist", () => {
+    const oldPng = put(store, "old.png", PNG);
+    const text = `User: look\n${tag(oldPng)}\n\n${REPLY_MARKER}\n\nno images here`;
+    expect(claudeUserContent(text, store)).toBe(text);
+  });
+
+  it("with no replay marker, attaches every tag as before", () => {
+    const png = put(store, "a.png", PNG);
+    const text = tag(png);
+    const content = claudeUserContent(text, store);
     expect(Array.isArray(content) && content.length).toBe(2);
   });
 });

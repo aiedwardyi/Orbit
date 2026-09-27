@@ -25,6 +25,7 @@ import { ATTACHMENTS_DIR, sniffImageMime } from "../attachments.ts";
 import { applyCredentialAllowlist, DATA_DIR } from "../config.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, spawnCli } from "../procs.ts";
+import { REPLY_MARKER } from "../turn-context.ts";
 import { startTurnTimer } from "../turn-timing.ts";
 
 import type {
@@ -576,9 +577,14 @@ function storeImage(path: string, storeDir: string): { block: ClaudeImageBlock; 
 
 /** Attached store images ride along as native blocks; anything else stays the plain string.
  * Newest tags win the 8-image and 20 MiB budgets, so a replayed turn's old history can't
- * starve out the image the user just attached. */
+ * starve out the image the user just attached. A replayed turn also marks where history
+ * ends and the user's latest message begins (`REPLY_MARKER`); tags before that marker are
+ * old history re-attached as text, not something the user just sent, so only tags after it
+ * are eligible. */
 export function claudeUserContent(text: string, storeDir: string = ATTACHMENTS_DIR): ClaudeUserContent {
-  const tags = [...text.matchAll(ATTACHED_IMAGE_TAG)].map(([, raw]) => unescapeAttribute(raw!));
+  const markerIndex = text.lastIndexOf(REPLY_MARKER);
+  const matches = [...text.matchAll(ATTACHED_IMAGE_TAG)].filter((m) => markerIndex === -1 || m.index! > markerIndex);
+  const tags = matches.map(([, raw]) => unescapeAttribute(raw!));
   const chosen = new Map<number, ClaudeImageBlock>();
   const seenPaths = new Set<string>();
   let totalBytes = 0;

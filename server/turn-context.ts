@@ -289,6 +289,12 @@ function replayPreamble(input: TurnContextInput): string {
 export const TASK_RESUME_PROMPT =
   "The previous turn was interrupted. Continue from the conversation.";
 
+/** Marks where replayed history ends and the message a driver must actually
+ * answer begins. Drivers that re-attach native content (e.g. images) from
+ * `<attached-image>` tags in replayed text scope that to tags after this
+ * marker, so old history isn't mistaken for something the user just sent. */
+export const REPLY_MARKER = "[Now reply to the user's latest message:]";
+
 export interface TaskRecordBlockOptions {
   /** Stop / crash Resume — do not present a drifted Goal/Plan/Next as current work. */
   recovering?: boolean;
@@ -391,7 +397,7 @@ export function buildResumeFallback(input: {
     "",
     ...input.transcript.map((message) => `${message.role === "user" ? "User" : "Assistant"}: ${message.text}`),
     "",
-    "[Now reply to the user's latest message:]",
+    REPLY_MARKER,
     "",
     input.text,
   ].filter((line) => line !== null).join("\n");
@@ -431,7 +437,7 @@ export function buildTurnContext(input: TurnContextInput): {
       "",
       ...transcript.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`),
       "",
-      "[Now reply to the user's latest message:]",
+      REPLY_MARKER,
       "",
       text,
     ].filter((line) => line !== null).join("\n"),
