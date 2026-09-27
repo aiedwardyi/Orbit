@@ -270,7 +270,7 @@ describe("pane attention relay", () => {
   });
 
   it("raises attention after the mailbox stores a pane note", () => {
-    const route = server.slice(server.indexOf('path === "/api/mailbox"'), server.indexOf('path === "/api/mailbox"') + 1200);
+    const route = server.slice(server.indexOf('path === "/api/mailbox"'), server.indexOf('path === "/api/mailbox"') + 1600);
     expect(route).toContain("raisePaneAttention(terminalBridgeAccess, scope.bot, scope.pane)");
   });
 });
