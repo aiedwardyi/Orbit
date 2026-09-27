@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { useI18n } from "@/lib/i18n";
 import { api } from "@/state/store";
-import { Card } from "./SettingsPrimitives";
+import { Section } from "./SettingsPrimitives";
 
 const TOPIC_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
@@ -60,7 +60,7 @@ export function PhonePingSettings() {
   };
 
   return (
-    <Card title={t("settings.phonePing.title")} subtitle={t("settings.phonePing.help")}>
+    <Section title={t("settings.phonePing.title")} subtitle={t("settings.phonePing.help")}>
       <div className="flex flex-wrap items-center gap-2">
         <input
           type="text"
@@ -99,7 +99,7 @@ export function PhonePingSettings() {
           type="button"
           disabled={busy || !value.trim()}
           onClick={() => void sendTest()}
-          className="rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-control/70 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-control/70 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {t("settings.phonePing.test")}
         </button>
@@ -110,6 +110,6 @@ export function PhonePingSettings() {
           {test.message}
         </p>
       ) : null}
-    </Card>
+    </Section>
   );
 }

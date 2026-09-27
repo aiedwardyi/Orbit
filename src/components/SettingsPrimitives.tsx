@@ -32,6 +32,25 @@ export function Card({
   );
 }
 
+/** A section header + body sharing one surface with its siblings, instead of a nested Card. */
+export function Section({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="text-[13px] font-medium text-ink">{title}</div>
+      {subtitle && <div className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">{subtitle}</div>}
+      {children && <div className="mt-2">{children}</div>}
+    </div>
+  );
+}
+
 /** A command the user is meant to run, with one-click copy. */
 export function CommandLine({ command }: { command: string }) {
   const [copied, setCopied] = useState(false);

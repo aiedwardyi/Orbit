@@ -374,7 +374,7 @@ export function EnginesSettings() {
             listShown && "mb-3",
           )}
         >
-          <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink">
+          <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 text-[13px] font-medium text-ink">
             {cliRows.map((i) => (
               <span key={i.instanceId} className="flex items-center gap-1">
                 {isEngineConnected(i)

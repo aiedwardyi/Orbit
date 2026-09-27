@@ -14,6 +14,7 @@ import {
 import { api, useStore, type ConfigStatus } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { useI18n, type MessageKey } from "@/lib/i18n";
+import { Section } from "./SettingsPrimitives";
 
 export type ConfigSection = "composio" | "gemini" | "box";
 
@@ -361,9 +362,8 @@ export function SavedKeys() {
   };
 
   return (
-    <div>
-      <div className="mb-1.5 text-[13px] font-medium text-ink">{t("keys.title")}</div>
-      {saved.length === 0 && <div className="text-[12px] text-ink-secondary">{t("keys.empty")}</div>}
+    <Section title={t("keys.title")}>
+      {saved.length === 0 && <div className="px-1 text-[12px] text-ink-secondary">{t("keys.empty")}</div>}
       {saved.map(({ id, label }) => {
         const use = uses[id];
         const bot = use && state.bots.find((b) => b.id === use.botId);
@@ -390,6 +390,6 @@ export function SavedKeys() {
         );
       })}
       {error && <div className="mt-1 text-[12px] text-danger">{error}</div>}
-    </div>
+    </Section>
   );
 }
