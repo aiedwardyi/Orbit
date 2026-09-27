@@ -265,6 +265,38 @@ describe("thread sync", () => {
     expect(readSyncedThread(remotePath(folder, "t1"))).toMatchObject({ revision: 2, writerDeviceId: "device-a" });
   });
 
+  it("archives a completed card when a higher revision from another PC holds the stale one", () => {
+    const folder = temp("thread-sync-folder-");
+    const a = pc("device-a", folder);
+    const b = pc("device-b", folder);
+    const path = remotePath(folder, "t1");
+    const card = (status: "running" | "completed", text: string) =>
+      msg("r1", text, "m1", { role: "bot", kind: "routine.run", routineRun: { runId: "run-1", routineId: "rt-1", routineName: "Nightly", status } });
+    a.say("t1", "m1", "run the routine");
+    const thread = a.threads.get("t1")!;
+    thread.messages.push(card("running", "Running."));
+    thread.activeLeafId = "r1";
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    expect(pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1")).toBe("imported");
+    const rev1 = readFileSync(path, "utf8");
+    thread.messages[1] = card("completed", "Result: 42.");
+    markThreadDirty(a.host.ledger, "t1");
+    expect(uploadThread(a.host, BOT_SYNC_ID, "t1")).toBe("written");
+    // b publishes twice before a's revision 2 reaches it, so its stale card lands on top
+    writeFileSync(path, rev1);
+    b.say("t1", "b2", "from b");
+    expect(uploadThread(b.host, BOT_SYNC_ID, "t1")).toBe("written");
+    b.say("t1", "b3", "b again");
+    expect(uploadThread(b.host, BOT_SYNC_ID, "t1")).toBe("written");
+
+    expect(pullThread(a.host, "bot-a", BOT_SYNC_ID, "t1")).toBe("imported");
+    const dir = threadSyncDir(folder, BOT_SYNC_ID);
+    const parked = readdirSync(dir).filter((name) => name.startsWith("t1.conflict-device-a-"));
+    expect(parked).toHaveLength(1);
+    const archived = readSyncedThread(join(dir, parked[0]), true)?.messages.find((m) => m.id === "r1");
+    expect(archived).toMatchObject({ text: "Result: 42.", routineRun: { status: "completed" } });
+  });
+
   it("keeps the conflict notice local so an idle PC imports over it", () => {
     const folder = temp("thread-sync-folder-");
     const a = pc("device-a", folder);

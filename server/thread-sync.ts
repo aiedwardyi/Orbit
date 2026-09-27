@@ -241,6 +241,20 @@ function preserved(dir: string, threadId: string, local: LocalThread, remote: Sy
   return !missing.length;
 }
 
+/** Same id, different content: one side patched the row and only the ledger's own writer proves whose is newer. */
+function rowsDiffer(local: LocalThread, remote: SyncedThreadFile): boolean {
+  const rows = new Map(remote.messages.map((message) => [message.id, canonical(message)]));
+  return shared(local).messages.some((message) => {
+    const row = rows.get(message.id);
+    return row !== undefined && row !== canonical(message);
+  });
+}
+
+/** The writer of the copy we synced wrote this one too, so its rows descend from the ones we hold. */
+function descends(entry: ThreadSyncEntry | undefined, remote: SyncedThreadFile): boolean {
+  return entry?.syncedWriter === remote.writerDeviceId && remote.revision > (entry?.syncedRevision ?? 0);
+}
+
 function toFile(host: ThreadSyncHost, threadId: string, local: LocalThread, revision: number): SyncedThreadFile {
   return {
     format: THREAD_SYNC_FORMAT,
@@ -354,6 +368,10 @@ export function pullThread(host: ThreadSyncHost, botId: string, botSyncId: strin
   const diverged = remote.revision === entry?.syncedRevision;
   if (local && (diverged || isDirty(host, threadId, local) || !preserved(dir, threadId, local, remote))) {
     return keepConflict(host, dir, threadId, remote);
+  }
+  // another writer's higher revision can still carry a stale copy of a row we published; park ours before it goes
+  if (local && !descends(entry, remote) && rowsDiffer(local, remote)) {
+    parkConflict(host, dir, threadId, toFile(host, threadId, local, (entry?.syncedRevision ?? 0) + 1));
   }
   host.adopt(botId, structuredClone(remote));
   host.ledger[threadId] = { syncedRevision: remote.revision, syncedWriter: remote.writerDeviceId, dirty: false };
