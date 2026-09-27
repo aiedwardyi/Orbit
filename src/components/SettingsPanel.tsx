@@ -842,7 +842,7 @@ export function SettingsPanel({
                     disabled={disabled}
                     onClick={() => patch({ autoReview: value })}
                     className={cn(
-                      "flex-1 rounded-md px-2.5 py-1.5 text-[13px] font-medium disabled:cursor-not-allowed disabled:opacity-40",
+                      "flex-1 rounded-[max(0px,calc(var(--radius-lg)_-_2px))] px-2.5 py-1.5 text-[13px] font-medium disabled:cursor-not-allowed disabled:opacity-40",
                       current === value ? "bg-raised text-ink" : "text-ink-secondary hover:text-ink",
                     )}
                   >

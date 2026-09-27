@@ -25,7 +25,7 @@ export function LanguagePicker() {
               aria-describedby={id === "system" ? hintId : undefined}
               onClick={() => setPreference(id)}
               className={cn(
-                "min-w-0 flex-1 rounded-md px-2 py-1.5 text-center text-[13px] font-medium transition-colors",
+                "min-w-0 flex-1 rounded-[max(0px,calc(var(--radius-lg)_-_2px))] px-2 py-1.5 text-center text-[13px] font-medium transition-colors",
                 selected ? "bg-raised text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
               )}
             >

@@ -234,7 +234,7 @@ export function InspectorPanel({ bot }: { bot: Bot }) {
               key={l}
               onClick={() => setLens(l)}
               className={cn(
-                "rounded-md px-2.5 py-1 text-[12px] font-medium capitalize",
+                "rounded-[max(0px,calc(var(--radius-lg)_-_2px))] px-2.5 py-1 text-[12px] font-medium capitalize",
                 lens === l ? "bg-raised text-ink" : "text-ink-secondary hover:text-ink",
               )}
             >
