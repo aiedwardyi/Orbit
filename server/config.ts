@@ -187,10 +187,17 @@ export function parseConfigPatch(value: JsonValue): ConfigPatch {
   return parsed.data;
 }
 
-/** Custom keys persist only in the desktop's encrypted store, so a phone write would be lost on restart. */
-export function phoneCustomKeyError(patch: ConfigPatch, headers: IncomingHttpHeaders, remoteHost: string | undefined) {
+/** Custom keys live only in the packaged desktop's encrypted store; saveConfig() strips them, so any
+ * other writer reports success and loses the key on restart. */
+export function customKeyStorageError(
+  patch: ConfigPatch,
+  headers: IncomingHttpHeaders,
+  remoteHost: string | undefined,
+  externalSecretStorage: boolean,
+) {
+  if (!patch.customKeys || externalSecretStorage) return undefined;
   const phone = headers["x-openmausbot-companion"] === "1" || hostMatchesRemote(headers.host, remoteHost);
-  return patch.customKeys && phone ? "Custom keys can only be saved on the PC" : undefined;
+  return phone ? "Custom keys can only be saved on the PC" : "Custom keys need the desktop app's encrypted key store";
 }
 
 /** Drop the legacy OpenCode section from the stored file. The engine is gone

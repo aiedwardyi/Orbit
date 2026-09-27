@@ -80,13 +80,13 @@ import {
 } from "./container-computer.ts";
 import {
   cliProbeEnvironment,
+  customKeyStorageError,
   ensureDirs,
   instanceConfigs,
   loadConfig,
   localVmMaxInstances,
   localVmMode,
   parseConfigPatch,
-  phoneCustomKeyError,
   roomTurnTimeoutMinutes,
   saveConfig,
   showToolCallsEnabled,
@@ -9312,8 +9312,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const body = await readBody(req);
       const patch = parseConfigPatch(body);
       if (!Object.keys(patch).length) return json(res, 400, { error: "nothing to save" });
-      const phoneKeyError = phoneCustomKeyError(patch, req.headers, REMOTE_HOST);
-      if (phoneKeyError) return json(res, 400, { error: phoneKeyError });
+      const externalSecretStorage = url.searchParams.get("secretStorage") === "external";
+      const customKeyError = customKeyStorageError(patch, req.headers, REMOTE_HOST, externalSecretStorage);
+      if (customKeyError) return json(res, 400, { error: customKeyError });
       if (providerConfigBusy) return json(res, 409, { error: "provider settings are already being updated" });
       if (patch.vps !== undefined) {
         const currentAlias = vpsSshAlias(cfg);
@@ -9375,7 +9376,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const check = await tts.verifyKey(newTts.key.trim());
         if (!check.ok) return json(res, 400, { error: check.message });
       }
-      const externalSecretStorage = url.searchParams.get("secretStorage") === "external";
       if (externalSecretStorage) {
         // The packaged Electron caller commits supplied credentials to the
         // OS-encrypted store before entering this route. Persist every

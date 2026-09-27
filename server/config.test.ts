@@ -14,7 +14,7 @@ import {
   localVmMode,
   parseConfigPatch,
   parseStoredConfig,
-  phoneCustomKeyError,
+  customKeyStorageError,
   PROVIDER_CREDENTIAL_ENV,
   roomTurnTimeoutMinutes,
   showToolCallsEnabled,
@@ -523,14 +523,19 @@ describe("credential env preference", () => {
     expect(parseConfigPatch({ xai: { key: "xai-ok\n" }, customKeys: { "api.acme.dev": acme("ok") } })).toBeTruthy();
   });
 
-  it("refuses custom key changes from the phone only", () => {
+  it("refuses custom key changes unless the encrypted desktop store holds them", () => {
     const custom = parseConfigPatch({ customKeys: { "api.acme.dev": null } });
     const preset = parseConfigPatch({ xai: { key: "xai-new" } });
+    const local = { host: "127.0.0.1:8787" };
+    const phone = { host: "127.0.0.1:8787", "x-openmausbot-companion": "1" };
     const pcOnly = "Custom keys can only be saved on the PC";
-    expect(phoneCustomKeyError(custom, { host: "127.0.0.1:8787", "x-openmausbot-companion": "1" }, undefined)).toBe(pcOnly);
-    expect(phoneCustomKeyError(custom, { host: "orbit.tail1234.ts.net" }, "orbit.tail1234.ts.net")).toBe(pcOnly);
-    expect(phoneCustomKeyError(custom, { host: "127.0.0.1:8787" }, "orbit.tail1234.ts.net")).toBeUndefined();
-    expect(phoneCustomKeyError(preset, { host: "127.0.0.1:8787", "x-openmausbot-companion": "1" }, undefined)).toBeUndefined();
+    const store = "Custom keys need the desktop app's encrypted key store";
+    expect(customKeyStorageError(custom, phone, undefined, false)).toBe(pcOnly);
+    expect(customKeyStorageError(custom, { host: "orbit.tail1234.ts.net" }, "orbit.tail1234.ts.net", false)).toBe(pcOnly);
+    // the localhost browser and an unpackaged desktop both reach here without the encrypted store
+    expect(customKeyStorageError(custom, local, "orbit.tail1234.ts.net", false)).toBe(store);
+    expect(customKeyStorageError(custom, local, undefined, true)).toBeUndefined();
+    expect(customKeyStorageError(preset, phone, undefined, false)).toBeUndefined();
   });
 
   it("syncCredentialEnv keeps model and provider env in step with a save", () => {
