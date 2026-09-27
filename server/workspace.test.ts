@@ -169,6 +169,7 @@ describe("workspace", () => {
     const withMemory = memorySystemPrompt(BOT);
     expect(withMemory).toContain("Your memory (MEMORY.md):");
     expect(withMemory).toContain("railway up");
+    expect(withMemory).toContain("Read it, then update it");
   });
 
   it("only sends file-backed memory to engines with local workspace files", () => {
