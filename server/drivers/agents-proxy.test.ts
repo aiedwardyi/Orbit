@@ -146,6 +146,9 @@ beforeAll(async () => {
       req.on("end", () => {
         lastCredentialBody = JSON.parse(data);
         res.writeHead(200, { "content-type": "application/json" });
+        if (lastCredentialBody.credentialId === "custom") {
+          return res.end(JSON.stringify({ messageId: "msg-custom", label: "Acme" }));
+        }
         if (lastCredentialBody.credentialId === "openaiImageApiKey") {
           return res.end(JSON.stringify({ alreadyConfigured: true, label: "OpenAI API key" }));
         }
@@ -595,6 +598,26 @@ describe("agents-proxy MCP surface", () => {
       reason: "The selected model needs it.",
     });
     expect(JSON.stringify(lastCredentialBody)).not.toContain("secret");
+  });
+
+  it("requests a custom key locked to one host", async () => {
+    const res = await callTool("request_credential", { credential_id: "custom", service: { name: "Acme", host: "api.acme.dev" } });
+    expect(res.result.content[0].text).toContain("call_api with credential_id custom:api.acme.dev");
+    expect(lastCredentialBody).toEqual({
+      fromBotId: "bot-asker",
+      fromThreadId: "thread-asker-routine",
+      credentialId: "custom",
+      service: { name: "Acme", host: "api.acme.dev", header: "authorization", prefix: "Bearer " },
+    });
+    lastCredentialBody = null;
+    for (const service of [{ name: "Acme", host: "https://api.acme.dev" }, { name: "Acme", host: "api.acme.dev", header: "cookie" }]) {
+      const bad = await callTool("request_credential", { credential_id: "custom", service });
+      expect(bad.result.isError).toBe(true);
+    }
+    expect(lastCredentialBody).toBeNull();
+    const call = await callTool("call_api", { credential_id: "custom:api.acme.dev", method: "GET", url: "https://api.acme.dev/v1" });
+    expect(call.result.content[0].text).not.toContain("secret");
+    expect(lastCallApiBody.credentialId).toBe("custom:api.acme.dev");
   });
 
   it("rejects credential ids outside the fixed allowlist locally", async () => {

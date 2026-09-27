@@ -143,6 +143,13 @@ describe("workspace credential env", () => {
     });
   });
 
+  it("sends custom keys as one JSON map by host", () => {
+    const acme = { name: "Acme", header: "authorization", prefix: "Bearer ", key: "k" };
+    expect(workspaceCredentialEnv({ "custom:api.acme.dev": JSON.stringify(acme), "custom:bad.dev": "{" })).toEqual({
+      OMB_CUSTOM_KEYS: JSON.stringify({ "api.acme.dev": acme }),
+    });
+  });
+
   it("emits nothing for absent or empty secrets", () => {
     expect(workspaceCredentialEnv({})).toEqual({});
     expect(workspaceCredentialEnv({ xaiApiKey: "" })).toEqual({});

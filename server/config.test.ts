@@ -413,6 +413,7 @@ describe("credential env preference", () => {
     "BOX_TOKEN",
     "OMB_TTS_KEY",
     "OMB_OPENAI_IMAGE_KEY",
+    "OMB_CUSTOM_KEYS",
     "COMPOSIO_API_KEY",
   ] as const;
   let saved: Record<string, string | undefined>;
@@ -497,6 +498,18 @@ describe("credential env preference", () => {
     expect(process.env.COMPOSIO_API_KEY).toBe("ak_just_saved");
     expect(process.env.BOX_TOKEN).toBeUndefined();
     expect(process.env.OMB_TTS_KEY).toBeUndefined();
+  });
+
+  it("keeps custom keys in env only, replacing by host", () => {
+    const acme = (key: string) => ({ name: "Acme", header: "authorization", prefix: "Bearer ", key });
+    syncCredentialEnv(parseConfigPatch({ customKeys: { "api.acme.dev": acme("first"), "api.other.dev": acme("other") } }));
+    syncCredentialEnv(parseConfigPatch({ customKeys: { "api.acme.dev": acme("second") } }));
+    expect(loadConfig().customKeys).toEqual({ "api.acme.dev": acme("second"), "api.other.dev": acme("other") });
+    syncCredentialEnv(parseConfigPatch({ customKeys: { "api.other.dev": null } }));
+    expect(Object.keys(loadConfig().customKeys ?? {})).toEqual(["api.acme.dev"]);
+    expect(() => parseConfigPatch({ customKeys: { "api.acme.dev": { ...acme("k"), header: "cookie" } } })).toThrow();
+    expect(() => parseConfigPatch({ customKeys: { localhost: acme("k") } })).toThrow();
+    expect(parseStoredConfig({ customKeys: { "api.acme.dev": acme("k") } })).toEqual({});
   });
 
   it("syncCredentialEnv keeps model and provider env in step with a save", () => {

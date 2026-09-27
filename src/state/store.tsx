@@ -95,12 +95,14 @@ export interface ConnectorCardData {
 }
 
 export interface SecretRequestCardData {
-  target: import("../../shared/credential-request").CredentialTargetId;
+  target: import("../../shared/credential-request").CredentialId;
   label: string;
   description: string;
   placeholder: string;
   helpUrl: string;
   requestKey: string;
+  /** Custom keys only: the site the saved key is locked to. */
+  service?: import("../../shared/credential-request").CustomService;
   provided?: boolean;
   dismissed?: boolean;
   resumed?: boolean;
@@ -429,6 +431,7 @@ export interface ConfigStatus {
   imageGen?: { configured: boolean };
   anthropic?: { configured: boolean };
   vertex?: { configured: boolean };
+  customKeys?: { host: string; name: string }[];
   /** who's using the app — collected in onboarding, shown in the sidebar */
   profile?: { name: string; email: string };
   /** Opt-in flags. Absent means off. */
@@ -444,7 +447,7 @@ export interface BrowserProfile {
 
 export type ConfigStatusFrame = Pick<
   ConfigStatus,
-  "xai" | "gemini" | "openaiCompat" | "composio" | "box" | "vps" | "rooms" | "localVm" | "tts" | "imageGen" | "anthropic" | "vertex" | "profile" | "features" | "browserProfiles"
+  "xai" | "gemini" | "openaiCompat" | "composio" | "box" | "vps" | "rooms" | "localVm" | "tts" | "imageGen" | "anthropic" | "vertex" | "customKeys" | "profile" | "features" | "browserProfiles"
 >;
 
 export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
@@ -461,6 +464,7 @@ export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
     imageGen: frame.imageGen,
     anthropic: frame.anthropic,
     vertex: frame.vertex,
+    customKeys: frame.customKeys,
     profile: frame.profile,
     features: frame.features,
     browserProfiles: frame.browserProfiles,

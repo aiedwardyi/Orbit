@@ -34,6 +34,11 @@ describe("SavedKeys", () => {
     expect(html).not.toContain("type=\"password\"");
   });
 
+  it("lists a custom key as name and host", () => {
+    mockState.config = { customKeys: [{ host: "api.acme.dev", name: "Acme" }] };
+    expect(render()).toContain("Acme · api.acme.dev");
+  });
+
   it("shows one muted line when no key is saved", () => {
     mockState.config = { imageGen: { configured: false } };
     expect(render()).toContain("Bots ask for keys when they need them.");

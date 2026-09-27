@@ -5,8 +5,10 @@ import {
   credentialConfigPatch,
   credentialIsConfigured,
   credentialResumeOutcome,
+  isCustomCredentialId,
   isReusableCredentialRequest,
   isCredentialTargetId,
+  parseCustomService,
   type CredentialConfig,
   type CredentialTargetId,
 } from "../shared/credential-request.ts";
@@ -55,6 +57,32 @@ describe("credential request allowlist", () => {
     expect(isReusableCredentialRequest(card, "xaiApiKey", "pixel", false)).toBe(true);
     expect(isReusableCredentialRequest({ ...card, secret: { ...card.secret, provided: true } }, "xaiApiKey", "atlas", true)).toBe(false);
   });
+
+  it("parses a custom service with bearer defaults", () => {
+    expect(parseCustomService({ name: " Acme ", host: "api.acme.dev" })).toEqual({
+      service: { name: "Acme", host: "api.acme.dev", header: "authorization", prefix: "Bearer " },
+    });
+    expect(parseCustomService({ name: "Acme", host: "api.acme.dev", header: "X-Api-Key" })).toEqual({
+      service: { name: "Acme", host: "api.acme.dev", header: "x-api-key", prefix: "" },
+    });
+    expect(credentialIsConfigured({ customKeys: { "api.acme.dev": { name: "Acme", header: "x", prefix: "", key: "k" } } }, "custom:api.acme.dev")).toBe(true);
+    expect(credentialIsConfigured({ customKeys: { "api.acme.dev": null } }, "custom:api.acme.dev")).toBe(false);
+  });
+
+  it.each([
+    "https://api.acme.dev", "api.acme.dev:443", "api.acme.dev/v1", "*.acme.dev", "API.acme.dev", "10.0.0.1",
+    "localhost", "printer.local", "db.internal", "acme", "[::1]", "a..b.dev",
+  ])("rejects custom host %s", (host) => {
+    expect(parseCustomService({ name: "Acme", host })).toHaveProperty("error");
+    expect(isCustomCredentialId(`custom:${host}`)).toBe(false);
+  });
+
+  it.each(["host", "cookie", "content-length", "transfer-encoding", "proxy-authorization", "x key", "x-key\r\nx", "", 5])(
+    "rejects custom header %s",
+    (header) => {
+      expect(parseCustomService({ name: "Acme", host: "api.acme.dev", header })).toHaveProperty("error");
+    },
+  );
 
   it("preserves the original save or decline outcome when retrying", () => {
     expect(credentialResumeOutcome({ provided: true })).toBe("provided");

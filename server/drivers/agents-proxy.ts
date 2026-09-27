@@ -33,7 +33,7 @@
 //   OMB_TURN_DEPTH   this turn's comms depth (the harness refuses recursion)
 import readline from "node:readline";
 
-import { CREDENTIAL_BROKER, CREDENTIAL_TARGETS, isCredentialTargetId } from "../../shared/credential-request.ts";
+import { CREDENTIAL_BROKER, CREDENTIAL_TARGETS, isCredentialTargetId, parseCustomService } from "../../shared/credential-request.ts";
 import { EXTENDED_REACTIONS } from "../../shared/reactions.ts";
 
 const HARNESS = process.env.OMB_HARNESS_URL ?? "http://127.0.0.1:8799";
@@ -389,12 +389,12 @@ const TOOLS = [
   {
     name: "call_api",
     description:
-      "Call a service's HTTPS API with the user's saved key for it. You never see the key; Orbit adds it. Only that service's own hosts are allowed. Binary responses are saved to a file and the path is returned.",
+      "Call a service's HTTPS API with the user's saved key for it. You never see the key; Orbit adds it. Only that service's own hosts are allowed. Binary responses are saved to a file and the path is returned. A key saved with the custom form is custom:<host> and only works on that exact host.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
       properties: {
-        credential_id: { type: "string", enum: Object.keys(CREDENTIAL_BROKER), description: "Which saved key to use." },
+        credential_id: { type: "string", description: `Which saved key to use: ${Object.keys(CREDENTIAL_BROKER).join(", ")}, or custom:<host>.` },
         method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE"] },
         url: { type: "string", description: "Full https URL on that service's API host." },
         headers: { type: "object", additionalProperties: { type: "string" }, description: "Extra headers. Never an auth header." },
@@ -406,14 +406,26 @@ const TOOLS = [
   {
     name: "request_credential",
     description:
-      "Ask the user for a supported API key through Orbit's secure credential card. Use this instead of asking them to paste a secret into chat. The secret is saved by the desktop app and is never returned to you. After calling this tool, end the turn; Orbit resumes the task after the user saves or declines.",
+      "Ask the user for a supported API key through Orbit's secure credential card. Use this instead of asking them to paste a secret into chat. The secret is saved by the desktop app and is never returned to you. After calling this tool, end the turn; Orbit resumes the task after the user saves or declines. For any other site, use credential_id custom with service { name, host } (header defaults to Authorization: Bearer).",
     inputSchema: {
       type: "object",
       properties: {
         credential_id: {
           type: "string",
-          enum: Object.keys(CREDENTIAL_TARGETS),
+          enum: [...Object.keys(CREDENTIAL_TARGETS), "custom"],
           description: "The credential the current task requires.",
+        },
+        service: {
+          type: "object",
+          additionalProperties: false,
+          description: "Only with credential_id custom: the site the key is locked to.",
+          properties: {
+            name: { type: "string", description: "Service name shown to the user." },
+            host: { type: "string", description: "Bare API hostname, like api.example.com." },
+            header: { type: "string", description: "Auth header name. Default authorization." },
+            prefix: { type: "string", description: "Text before the key. Default \"Bearer \" for authorization." },
+          },
+          required: ["name", "host"],
         },
         reason: {
           type: "string",
@@ -770,9 +782,12 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
   }
   if (name === "request_credential") {
     const credentialId = args.credential_id;
-    if (!isCredentialTargetId(credentialId)) {
+    const custom = credentialId === "custom" ? parseCustomService(args.service) : undefined;
+    if (custom && "error" in custom) return { text: `request_credential: ${custom.error}.`, isError: true };
+    if (!custom && !isCredentialTargetId(credentialId)) {
       return { text: "request_credential needs a supported credential_id.", isError: true };
     }
+    const label = custom ? custom.service.name : CREDENTIAL_TARGETS[credentialId as keyof typeof CREDENTIAL_TARGETS].label;
     const reason = typeof args.reason === "string" ? args.reason.trim().slice(0, 240) : "";
     const r = await api("/api/internal/request-credential", {
       method: "POST",
@@ -780,15 +795,21 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
         fromBotId: BOT_ID,
         fromThreadId: THREAD_ID,
         credentialId,
+        ...(custom ? { service: custom.service } : {}),
         ...(reason ? { reason } : {}),
       }),
     });
     if (r.alreadyConfigured) {
       const next = credentialId === "openaiImageApiKey" ? "Use generate_image." : "Continue the task.";
-      return { text: `${r.label ?? CREDENTIAL_TARGETS[credentialId].label} is already configured. ${next}` };
+      return { text: `${r.label ?? label} is already configured. ${next}` };
+    }
+    if (custom) {
+      return {
+        text: `A secure ${label} key card for ${custom.service.host} is now visible to the user. End this turn; after they save it, use call_api with credential_id custom:${custom.service.host}. Never ask them to paste the key into chat.`,
+      };
     }
     return {
-      text: `A secure ${r.label ?? CREDENTIAL_TARGETS[credentialId].label} card is now visible to the user. End this turn; Orbit will resume the task after they save or decline. Never ask them to paste the key into chat.`,
+      text: `A secure ${r.label ?? label} card is now visible to the user. End this turn; Orbit will resume the task after they save or decline. Never ask them to paste the key into chat.`,
     };
   }
   if (name === "list_routines") {

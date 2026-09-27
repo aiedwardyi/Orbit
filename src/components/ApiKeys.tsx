@@ -7,7 +7,9 @@ import {
   CREDENTIAL_BROKER,
   CREDENTIAL_TARGETS,
   credentialConfigPatch,
+  customCredentialId,
   type BrokeredCredentialId,
+  type CredentialId,
 } from "../../shared/credential-request";
 import { api, useStore, type ConfigStatus } from "@/state/store";
 import { cn } from "@/lib/cn";
@@ -327,8 +329,12 @@ export function SavedKeys() {
   const [uses, setUses] = useState<Record<string, { botId: string; at: string }>>({});
   const [error, setError] = useState<string | null>(null);
   const config = state.config;
-  const saved = (Object.keys(CREDENTIAL_BROKER) as BrokeredCredentialId[])
-    .filter((id) => config && BROKERED_CONFIGURED[id](config));
+  const saved: { id: CredentialId; label: string }[] = [
+    ...(Object.keys(CREDENTIAL_BROKER) as BrokeredCredentialId[])
+      .filter((id) => config && BROKERED_CONFIGURED[id](config))
+      .map((id) => ({ id, label: CREDENTIAL_TARGETS[id].label })),
+    ...(config?.customKeys ?? []).map((k) => ({ id: customCredentialId(k.host), label: `${k.name} · ${k.host}` })),
+  ];
 
   useEffect(() => {
     let live = true;
@@ -340,13 +346,15 @@ export function SavedKeys() {
     };
   }, []);
 
-  const remove = (id: BrokeredCredentialId) => {
-    const label = CREDENTIAL_TARGETS[id].label;
+  const remove = (id: CredentialId, label: string) => {
     if (!window.confirm(t("keys.removeConfirm", { label }))) return;
     setError(null);
+    const patch = id.startsWith("custom:")
+      ? { customKeys: { [id.slice(7)]: null } }
+      : credentialConfigPatch(id as BrokeredCredentialId, "");
     const request = window.ogb?.setCredential
       ? window.ogb.setCredential(id, "")
-      : api("/api/config", { method: "PUT", body: JSON.stringify(credentialConfigPatch(id, "")) });
+      : api("/api/config", { method: "PUT", body: JSON.stringify(patch) });
     request
       .then((status: ConfigStatus) => dispatch({ type: "configStatus", config: status }))
       .catch((e) => setError(e.message));
@@ -356,13 +364,13 @@ export function SavedKeys() {
     <div>
       <div className="mb-1.5 text-[13px] font-medium text-ink">{t("keys.title")}</div>
       {saved.length === 0 && <div className="text-[12px] text-ink-secondary">{t("keys.empty")}</div>}
-      {saved.map((id) => {
+      {saved.map(({ id, label }) => {
         const use = uses[id];
         const bot = use && state.bots.find((b) => b.id === use.botId);
         return (
           <div key={id} className="flex min-h-[44px] items-center gap-2 rounded-lg px-1 hover:bg-raised/50">
             <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] text-ink">{CREDENTIAL_TARGETS[id].label}</div>
+              <div className="truncate text-[13px] text-ink">{label}</div>
               <div className="truncate text-[11.5px] text-ink-secondary">
                 {use
                   ? t("keys.lastUsed", { bot: bot?.name ?? use.botId, time: relativeTimeLabel(use.at, locale) })
@@ -371,7 +379,7 @@ export function SavedKeys() {
             </div>
             <button
               type="button"
-              onClick={() => remove(id)}
+              onClick={() => remove(id, label)}
               aria-label={t("connections.removeKey")}
               title={t("connections.removeKey")}
               className="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-secondary hover:bg-control hover:text-danger"

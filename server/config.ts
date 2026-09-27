@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 
+import { isCustomHost, isCustomKey, type CustomKey } from "../shared/credential-request.ts";
 import { writeFileAtomic } from "./atomic.ts";
 import type { InstanceConfigMap } from "./contracts.ts";
 import { parseJson, schemaIssue, type JsonObject, type JsonValue } from "./schema.ts";
@@ -116,7 +117,14 @@ const appConfigSchema = z.object({
   browserProfiles: browserProfilesSchema.optional(),
   instances: instanceConfigMapSchema.optional(),
 });
-const appConfigPatchSchema = appConfigSchema.omit({ instances: true });
+/** Custom keys by host, validated against their binding. Env and patches only, never config.json. */
+const customKeysSchema = z
+  .record(z.string(), z.object({ name: z.string(), header: z.string(), prefix: z.string(), key: z.string() }).nullable())
+  .refine(
+    (keys) => Object.entries(keys).every(([host, saved]) => (saved ? isCustomKey(host, saved) : isCustomHost(host))),
+    "Invalid custom key",
+  );
+const appConfigPatchSchema = appConfigSchema.omit({ instances: true }).extend({ customKeys: customKeysSchema.optional() });
 const jsonObjectSchema = z.record(z.string(), z.json());
 
 export interface AppConfig {
@@ -131,6 +139,7 @@ export interface AppConfig {
   imageGen?: { key?: string };
   anthropic?: { key?: string };
   vertex?: { key?: string };
+  customKeys?: Record<string, CustomKey | null>;
   profile?: { name?: string; email?: string };
   rooms?: { turnTimeoutMinutes: number };
   /** Shared preserves the historical singleton. Per-bot gives every bot a
@@ -273,7 +282,16 @@ export function loadConfig(): AppConfig {
   if (process.env.OMB_ANTHROPIC_KEY !== undefined) cfg.anthropic.key = process.env.OMB_ANTHROPIC_KEY;
   cfg.vertex = { ...cfg.vertex };
   if (process.env.OMB_VERTEX_KEY !== undefined) cfg.vertex.key = process.env.OMB_VERTEX_KEY;
+  cfg.customKeys = customKeysFromEnv();
   return cfg;
+}
+
+function customKeysFromEnv(): Record<string, CustomKey | null> {
+  try {
+    return customKeysSchema.parse(JSON.parse(process.env.OMB_CUSTOM_KEYS ?? "{}"));
+  } catch {
+    return {};
+  }
 }
 
 /** After saveConfig() writes a credential, the running process's env must
@@ -299,6 +317,12 @@ export function syncCredentialEnv(patch: Partial<AppConfig>): void {
     if (value === undefined) continue;
     if (value) process.env[name] = value;
     else delete process.env[name];
+  }
+  if (patch.customKeys) {
+    const keys = { ...customKeysFromEnv(), ...patch.customKeys };
+    for (const host of Object.keys(keys)) if (!keys[host]) delete keys[host];
+    if (Object.keys(keys).length) process.env.OMB_CUSTOM_KEYS = JSON.stringify(keys);
+    else delete process.env.OMB_CUSTOM_KEYS;
   }
   // loadConfig() also prefers env for url/model/provider, so a saved value
   // must follow the same set-when-truthy / delete-when-cleared rule as keys.
@@ -329,6 +353,7 @@ export const WORKSPACE_CREDENTIAL_ENV = [
   "OMB_OPENAI_IMAGE_KEY",
   "OMB_ANTHROPIC_KEY",
   "OMB_VERTEX_KEY",
+  "OMB_CUSTOM_KEYS",
   "COMPOSIO_API_KEY",
   "OMB_COMPOSIO_BROKER_TOKEN",
 ] as const;

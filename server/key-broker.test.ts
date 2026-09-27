@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { CredentialConfig } from "../shared/credential-request.ts";
 import { callApi, callApiRequestSchema, CALL_API_TEXT_CHARS, loadKeyUses, missingKeyMessage, recordKeyUse } from "./key-broker.ts";
 
 const KEY = "xai-secretKEY1234567890";
@@ -18,7 +19,13 @@ afterEach(() => {
 
 const request = (fields: Record<string, unknown>) =>
   callApiRequestSchema.parse({ credentialId: "xaiApiKey", method: "GET", url: "https://api.x.ai/v1/models", ...fields });
-const keys = (id: string) => (["xaiApiKey", "ttsKey", "anthropicApiKey", "vertexApiKey"].includes(id) ? KEY : "");
+const keys: CredentialConfig = {
+  xai: { key: KEY },
+  tts: { key: KEY },
+  anthropic: { key: KEY },
+  vertex: { key: KEY },
+  customKeys: { "api.acme.dev": { name: "Acme", header: "x-acme-key", prefix: "Token ", key: KEY } },
+};
 const reply = (body: string, init: ResponseInit = { status: 200 }) => vi.fn<typeof fetch>(async () => new Response(body, init));
 
 describe("call_api", () => {
@@ -65,6 +72,25 @@ describe("call_api", () => {
       .rejects.toMatchObject({ status: 409, message: missingKeyMessage("geminiApiKey") });
     expect(missingKeyMessage("geminiApiKey")).toContain("request_credential with geminiApiKey, end the turn, then retry");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("locks a custom key to its exact host, header, and prefix", async () => {
+    const fetchMock = reply(`echo ${KEY}`, { status: 200 });
+    const result = await callApi(request({ credentialId: "custom:api.acme.dev", url: "https://api.acme.dev/v1/items" }), keys, [root], fetchMock);
+    expect((fetchMock.mock.calls[0]![1]!.headers as Headers).get("x-acme-key")).toBe(`Token ${KEY}`);
+    expect(JSON.stringify(result)).not.toContain(KEY);
+
+    for (const url of ["https://evil.test/v1", "https://eu.api.acme.dev/v1", "https://api.acme.dev.evil.test/v1", "http://api.acme.dev/v1"]) {
+      await expect(callApi(request({ credentialId: "custom:api.acme.dev", url }), keys, [root], fetchMock)).rejects.toMatchObject({ status: expect.any(Number) });
+    }
+    await expect(callApi(request({ credentialId: "custom:api.acme.dev", url: "https://api.acme.dev/v1", headers: { "X-Acme-Key": "mine" } }), keys, [root], fetchMock))
+      .rejects.toMatchObject({ status: 400 });
+    await expect(callApi(request({ credentialId: "custom:api.other.dev", url: "https://api.other.dev/v1" }), keys, [root], fetchMock))
+      .rejects.toMatchObject({ status: 409, message: missingKeyMessage("custom:api.other.dev") });
+    expect(missingKeyMessage("custom:api.other.dev")).toContain('credential_id "custom"');
+    await expect(callApi(request({ credentialId: "custom:localhost", url: "https://localhost/" }), keys, [root], fetchMock))
+      .rejects.toMatchObject({ status: 400 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("does not follow redirects", async () => {

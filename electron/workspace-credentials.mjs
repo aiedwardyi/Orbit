@@ -62,12 +62,23 @@ export function migrateWorkspaceCredentials(config, credentials) {
 }
 
 /** Env for the spawned server: one var per stored secret, nothing else.
- * The server treats each var as authoritative over its config.json field. */
+ * The server treats each var as authoritative over its config.json field.
+ * Custom keys ("custom:<host>") travel together as one JSON map by host. */
 export function workspaceCredentialEnv(credentials) {
   const env = {};
   for (const { name, env: envName } of WORKSPACE_CREDENTIALS) {
     const value = credentials?.[name];
     if (typeof value === "string" && value) env[envName] = value;
   }
+  const custom = {};
+  for (const [name, value] of Object.entries(credentials ?? {})) {
+    if (!name.startsWith("custom:") || typeof value !== "string") continue;
+    try {
+      custom[name.slice(7)] = JSON.parse(value);
+    } catch {
+      // The server drops anything that does not validate.
+    }
+  }
+  if (Object.keys(custom).length) env.OMB_CUSTOM_KEYS = JSON.stringify(custom);
   return env;
 }

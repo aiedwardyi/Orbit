@@ -61,6 +61,61 @@ export const CREDENTIAL_BROKER = {
 export type CredentialTargetId = keyof typeof CREDENTIAL_TARGETS;
 export type BrokeredCredentialId = keyof typeof CREDENTIAL_BROKER;
 
+/** A site the bot named for a custom key. Only the fields a card showed ever bind that key. */
+export type CustomService = { name: string; host: string; header: string; prefix: string };
+export type CustomKey = Omit<CustomService, "host"> & { key: string };
+export type CustomCredentialId = `custom:${string}`;
+export type CredentialId = CredentialTargetId | CustomCredentialId;
+
+const HOSTNAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const HEADER_TOKEN = /^[!#$%&'*+.^_`|~0-9a-z-]{1,64}$/;
+const RESERVED_HEADERS = new Set([
+  "host", "cookie", "set-cookie", "content-length", "content-type", "transfer-encoding", "connection",
+  "keep-alive", "upgrade", "te", "trailer", "expect", "origin", "referer",
+]);
+
+export function isCustomHost(host: string): boolean {
+  return HOSTNAME.test(host) && !/\.(local|internal|localhost)$/.test(host);
+}
+
+export function isCustomCredentialId(value: unknown): value is CustomCredentialId {
+  return typeof value === "string" && value.startsWith("custom:") && isCustomHost(value.slice(7));
+}
+
+export const customCredentialId = (host: string): CustomCredentialId => `custom:${host}`;
+
+export function parseCustomService(value: unknown): { service: CustomService } | { error: string } {
+  const input = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+  const name = typeof input.name === "string" ? input.name.trim() : "";
+  const host = typeof input.host === "string" ? input.host.trim() : "";
+  const header = input.header == null ? "authorization" : typeof input.header === "string" ? input.header.trim().toLowerCase() : "";
+  const prefix = input.prefix ?? (header === "authorization" ? "Bearer " : "");
+  if (!name || name.length > 60 || /[\x00-\x1f\x7f]/.test(name)) return { error: "service.name must be 1-60 plain characters" };
+  if (!isCustomHost(host)) return { error: "service.host must be a bare public hostname like api.example.com" };
+  if (!HEADER_TOKEN.test(header) || RESERVED_HEADERS.has(header) || /^(proxy-|sec-)/.test(header)) {
+    return { error: "service.header must be a plain auth header name" };
+  }
+  if (typeof prefix !== "string" || !/^[\x20-\x7e]{0,40}$/.test(prefix)) return { error: "service.prefix must be up to 40 printable characters" };
+  return { service: { name, host, header, prefix } };
+}
+
+export function isCustomKey(host: string, value: CustomKey): boolean {
+  const parsed = parseCustomService({ ...value, host });
+  return "service" in parsed && parsed.service.name === value.name && parsed.service.header === value.header &&
+    parsed.service.prefix === value.prefix && Boolean(value.key.trim());
+}
+
+export const customKeyRecord = ({ name, header, prefix }: CustomService, key: string): CustomKey => ({ name, header, prefix, key });
+
+export function customCredentialTarget(service: CustomService) {
+  return {
+    label: service.name,
+    description: `Lets bots call ${service.host} with call_api.`,
+    placeholder: "Paste your API key",
+    helpUrl: "",
+  };
+}
+
 export function isBrokeredCredentialId(value: unknown): value is BrokeredCredentialId {
   return typeof value === "string" && Object.prototype.hasOwnProperty.call(CREDENTIAL_BROKER, value);
 }
@@ -72,6 +127,8 @@ export type CredentialConfig = {
   imageGen?: { key?: string };
   anthropic?: { key?: string };
   vertex?: { key?: string };
+  /** By host. Never persisted to config.json. */
+  customKeys?: Record<string, CustomKey | null>;
 };
 
 export function isCredentialTargetId(value: unknown): value is CredentialTargetId {
@@ -97,7 +154,8 @@ export function credentialConfigPatch(id: CredentialTargetId, value: string): Cr
   }
 }
 
-export function credentialValue(config: CredentialConfig, id: CredentialTargetId): string {
+export function credentialValue(config: CredentialConfig, id: CredentialId): string {
+  if (isCustomCredentialId(id)) return config.customKeys?.[id.slice(7)]?.key ?? "";
   switch (id) {
     case "xaiApiKey":
       return config.xai?.key ?? "";
@@ -116,7 +174,7 @@ export function credentialValue(config: CredentialConfig, id: CredentialTargetId
   }
 }
 
-export function credentialIsConfigured(config: CredentialConfig, id: CredentialTargetId): boolean {
+export function credentialIsConfigured(config: CredentialConfig, id: CredentialId): boolean {
   return Boolean(credentialValue(config, id));
 }
 
@@ -126,7 +184,7 @@ export function isReusableCredentialRequest(
     secret?: { target?: unknown; provided?: unknown; dismissed?: unknown };
     from?: { botId?: unknown };
   },
-  target: CredentialTargetId,
+  target: CredentialId,
   requestingBotId: string,
   roomThread: boolean,
 ): boolean {

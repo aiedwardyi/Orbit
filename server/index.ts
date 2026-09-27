@@ -21,9 +21,12 @@ import {
   CREDENTIAL_TARGETS,
   credentialResumeOutcome,
   credentialIsConfigured,
-  credentialValue,
+  customCredentialId,
+  customCredentialTarget,
   isReusableCredentialRequest,
   isCredentialTargetId,
+  parseCustomService,
+  type CredentialId,
   type CredentialTargetId,
 } from "../shared/credential-request.ts";
 
@@ -5861,6 +5864,7 @@ function configStatus() {
     imageGen: { configured: Boolean(cfg.imageGen?.key) },
     anthropic: { configured: Boolean(cfg.anthropic?.key) },
     vertex: { configured: Boolean(cfg.vertex?.key) },
+    customKeys: Object.entries(cfg.customKeys ?? {}).flatMap(([host, saved]) => (saved ? [{ host, name: saved.name }] : [])),
     // not a secret — the sidebar shows it
     profile: { name: cfg.profile?.name ?? "", email: cfg.profile?.email ?? "" },
     rooms: { turnTimeoutMinutes: roomTurnTimeoutMinutes(cfg) },
@@ -6385,11 +6389,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const parsed = callApiRequestSchema.safeParse(body);
         if (!parsed.success) return json(res, 400, { error: "needs credential_id, method, and url; headers must be strings" });
         try {
-          const result = await callApi(
-            parsed.data,
-            (id) => credentialValue(cfg, id),
-            botOutputRoots(from, fromThreadId, owner.group?.id),
-          );
+          const result = await callApi(parsed.data, cfg, botOutputRoots(from, fromThreadId, owner.group?.id));
           recordKeyUse(DATA_DIR, parsed.data.credentialId, from.id);
           return json(res, 200, result);
         } catch (e) {
@@ -6611,16 +6611,21 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const fromThreadId = String(body.fromThreadId ?? from.threadId);
         const owner = connectorThread(from.id, fromThreadId);
         if (!owner) return json(res, 403, { error: "source conversation does not belong to sender" });
-        if (!isCredentialTargetId(body.credentialId)) {
+        // A custom key is always asked again: a second card for the same host replaces it.
+        const custom = body.credentialId === "custom" ? parseCustomService(body.service) : undefined;
+        if (custom && "error" in custom) return json(res, 400, { error: custom.error });
+        if (!custom && !isCredentialTargetId(body.credentialId)) {
           return json(res, 400, { error: "unsupported credential id" });
         }
-        const credentialId: CredentialTargetId = body.credentialId;
-        const target = CREDENTIAL_TARGETS[credentialId];
-        if (credentialIsConfigured(cfg, credentialId)) {
+        const service = custom?.service;
+        const credentialId: CredentialId = service ? customCredentialId(service.host) : body.credentialId as CredentialTargetId;
+        const target = service ? customCredentialTarget(service) : CREDENTIAL_TARGETS[body.credentialId as CredentialTargetId];
+        if (!service && credentialIsConfigured(cfg, credentialId)) {
           return json(res, 200, { alreadyConfigured: true, label: target.label });
         }
         const existing = store.messagesFor(fromThreadId).find((message) =>
-          isReusableCredentialRequest(message, credentialId, from.id, Boolean(owner.group))
+          isReusableCredentialRequest(message, credentialId, from.id, Boolean(owner.group)) &&
+          JSON.stringify(message.secret?.service) === JSON.stringify(service)
         );
         if (existing) {
           return json(res, 200, { messageId: existing.id, label: target.label });
@@ -6637,6 +6642,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             placeholder: target.placeholder,
             helpUrl: target.helpUrl,
             requestKey: randomUUID(),
+            ...(service ? { service } : {}),
           },
         });
         return json(res, 201, { messageId: message.id, label: target.label });
@@ -9388,6 +9394,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           key !== "imageGen" &&
           key !== "anthropic" &&
           key !== "vertex" &&
+          key !== "customKeys" &&
           key !== "vps" &&
           key !== "rooms" &&
           key !== "localVm" &&

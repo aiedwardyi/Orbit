@@ -1,7 +1,12 @@
 import { useState, type FormEvent } from "react";
 import { Check, ExternalLink, KeyRound, Loader2, LockKeyhole, RefreshCw, X } from "lucide-react";
 
-import { credentialConfigPatch, credentialResumeOutcome } from "../../shared/credential-request";
+import {
+  credentialConfigPatch,
+  credentialResumeOutcome,
+  customKeyRecord,
+  type CredentialTargetId,
+} from "../../shared/credential-request";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
 import { api, useStore, type ConfigStatus, type Message } from "@/state/store";
@@ -18,6 +23,7 @@ export function SecretRequestCard({
   const { t } = useI18n();
   const { dispatch } = useStore();
   const secret = message.secret!;
+  const service = secret.service;
   const [value, setValue] = useState("");
   const [saving, setSaving] = useState(false);
   const [savedLocally, setSavedLocally] = useState(false);
@@ -77,11 +83,14 @@ export function SecretRequestCard({
     try {
       if (!savedLocally) {
         const next = value.trim();
+        // A custom key saves with the exact binding this card shows.
         const status: ConfigStatus = window.ogb?.setCredential
-          ? await window.ogb.setCredential(secret.target, next)
+          ? await window.ogb.setCredential(secret.target, service ? JSON.stringify(customKeyRecord(service, next)) : next)
           : await api("/api/config", {
               method: "PUT",
-              body: JSON.stringify(credentialConfigPatch(secret.target, next)),
+              body: JSON.stringify(service
+                ? { customKeys: { [service.host]: customKeyRecord(service, next) } }
+                : credentialConfigPatch(secret.target as CredentialTargetId, next)),
             });
         dispatch({ type: "configStatus", config: status });
         setValue("");
@@ -121,6 +130,14 @@ export function SecretRequestCard({
             <p className="mt-0.5 text-[12.5px] leading-relaxed text-ink-secondary">
               {description}
             </p>
+            {service && !provided && !declined && (
+              <div className="mt-2 rounded-lg border border-hairline/60 bg-panel/60 px-3 py-2">
+                <div className="break-all text-[17px] font-semibold text-ink">{service.name}</div>
+                <div className="mt-0.5 break-all text-[15px] font-medium text-ink">
+                  {t("secret.onlySentTo", { host: service.host })}
+                </div>
+              </div>
+            )}
             {!provided && !declined && (
               <p className="mt-1 flex items-center gap-1 text-[11.5px] text-ink-secondary/80">
                 <LockKeyhole size={11} /> {t("secret.storedLocally")}
@@ -162,14 +179,16 @@ export function SecretRequestCard({
                 {savedLocally ? t("secret.continueTask") : t("secret.saveSecurely")}
               </button>
             </div>
-            <a
-              href={secret.helpUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-2 inline-flex items-center gap-1 text-[11.5px] text-accent hover:underline"
-            >
-              {t("secret.whereToGet")} <ExternalLink size={11} />
-            </a>
+            {secret.helpUrl && (
+              <a
+                href={secret.helpUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-flex items-center gap-1 text-[11.5px] text-accent hover:underline"
+              >
+                {t("secret.whereToGet")} <ExternalLink size={11} />
+              </a>
+            )}
           </form>
         )}
         {(provided || declined) && (

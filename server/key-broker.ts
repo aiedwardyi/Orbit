@@ -6,9 +6,13 @@ import { z } from "zod";
 import {
   CREDENTIAL_BROKER,
   CREDENTIAL_TARGETS,
+  credentialValue,
   isBrokeredCredentialId,
   isCredentialTargetId,
+  isCustomCredentialId,
   type BrokeredCredentialId,
+  type CredentialConfig,
+  type CustomCredentialId,
 } from "../shared/credential-request.ts";
 import { writeFileAtomic } from "./atomic.ts";
 import { generatedImagesDir } from "./generate-image.ts";
@@ -34,8 +38,10 @@ export type KeyUses = Record<string, { botId: string; at: string }>;
 
 const fail = (status: number, message: string) => Object.assign(new Error(message), { status });
 
-export const missingKeyMessage = (id: BrokeredCredentialId) =>
-  `No ${CREDENTIAL_TARGETS[id].label} saved. Call request_credential with ${id}, end the turn, then retry call_api.`;
+export const missingKeyMessage = (id: BrokeredCredentialId | CustomCredentialId) =>
+  isCustomCredentialId(id)
+    ? `No key saved for ${id.slice(7)}. Call request_credential with credential_id "custom" and service { name, host: "${id.slice(7)}" }, end the turn, then retry call_api.`
+    : `No ${CREDENTIAL_TARGETS[id].label} saved. Call request_credential with ${id}, end the turn, then retry call_api.`;
 
 export function redactKey(text: string, key: string): string {
   return (key ? text.split(key).join("[key]") : text).replace(/\b(?:sk|xai)-[\w*.-]{8,}/g, "[key]");
@@ -71,18 +77,21 @@ async function boundedBytes(response: Response): Promise<Buffer> {
 /** Sends one request with the saved key injected; the key never leaves this process in a result. */
 export async function callApi(
   request: CallApiRequest,
-  keyFor: (id: BrokeredCredentialId) => string,
+  config: CredentialConfig,
   roots: readonly string[],
   fetchImpl: typeof fetch = fetch,
   timeoutMs = CALL_API_TIMEOUT_MS,
 ): Promise<CallApiResult> {
   const id = request.credentialId;
-  if (!isBrokeredCredentialId(id)) {
+  if (!isBrokeredCredentialId(id) && !isCustomCredentialId(id)) {
     throw fail(400, isCredentialTargetId(id)
       ? `${CREDENTIAL_TARGETS[id].label} is not available through call_api.`
       : "unsupported credential id");
   }
-  const rule = CREDENTIAL_BROKER[id];
+  const custom = isCustomCredentialId(id) ? config.customKeys?.[id.slice(7)] : undefined;
+  const rule = isCustomCredentialId(id)
+    ? { hosts: [id.slice(7)], header: custom?.header ?? "authorization", prefix: custom?.prefix ?? "" }
+    : CREDENTIAL_BROKER[id];
   let url: URL;
   try {
     url = new URL(request.url);
@@ -93,10 +102,10 @@ export async function callApi(
   if (!(rule.hosts as readonly string[]).includes(url.host)) {
     throw fail(403, `${id} may only call ${rule.hosts.join(", ")}`);
   }
+  const key = credentialValue(config, id).trim();
+  if (!key) throw fail(409, missingKeyMessage(id));
   const headers = new Headers(request.headers ?? {});
   if (headers.has(rule.header)) throw fail(400, `do not set ${rule.header}; Orbit adds the key`);
-  const key = keyFor(id).trim();
-  if (!key) throw fail(409, missingKeyMessage(id));
   headers.set(rule.header, `${rule.prefix}${key}`);
   let body: string | undefined;
   if (typeof request.body === "string") body = request.body;

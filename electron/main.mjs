@@ -1981,7 +1981,11 @@ const CREDENTIAL_PATCH = {
 };
 
 ipcMain.handle("credential:set", async (_event, name, value) => {
-  const patchFor = CREDENTIAL_PATCH[name];
+  // A custom key's value is its JSON binding; the server validates it before anything goes live.
+  const customHost = /^custom:([a-z0-9.-]{1,253})$/.exec(String(name))?.[1];
+  const patchFor = customHost
+    ? (secret) => ({ customKeys: { [customHost]: secret ? JSON.parse(secret) : null } })
+    : CREDENTIAL_PATCH[name];
   if (!patchFor || typeof value !== "string") {
     throw new Error("Unsupported credential");
   }

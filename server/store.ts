@@ -92,12 +92,14 @@ export interface ConnectorCardData {
 
 export interface SecretRequestCardData {
   /** Fixed allowlisted credential id; never an arbitrary config path. */
-  target: import("../shared/credential-request.ts").CredentialTargetId;
+  target: import("../shared/credential-request.ts").CredentialId;
   label: string;
   description: string;
   placeholder: string;
   helpUrl: string;
   requestKey: string;
+  /** Custom keys only: the site the saved key is locked to. */
+  service?: import("../shared/credential-request.ts").CustomService;
   provided?: boolean;
   dismissed?: boolean;
   resumed?: boolean;
