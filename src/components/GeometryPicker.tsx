@@ -15,7 +15,7 @@ export function GeometryPicker() {
           aria-pressed={geometry === value}
           onClick={() => { applyGeometry(value); setGeometry(value); }}
           className={cn(
-            "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+            "rounded-[max(0px,calc(var(--radius-lg)_-_3px))] px-2.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
             geometry === value ? "bg-raised text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
           )}
         >
