@@ -18,7 +18,7 @@ import {
   showSettingsAdvancedControls,
   showSettingsMoreServices,
 } from "@/lib/settings-chrome";
-import { ApiKeyRow, VpsConnection } from "./ApiKeys";
+import { ApiKeyRow, SavedKeys, VpsConnection } from "./ApiKeys";
 import { updaterActions, useManualCheck, useUpdaterState } from "@/lib/updater";
 import { EnginesSettings } from "./EnginesSettings";
 import { LocalComputerSection } from "./LocalComputerSection";
@@ -524,6 +524,7 @@ export function SettingsModal({
                     </div>
                   ) : null}
                   <EnginesSettings />
+                  <SavedKeys />
                   <PhonePingSettings />
                   {showSettingsMoreServicesSection() && (
                     <>

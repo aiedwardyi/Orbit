@@ -159,9 +159,14 @@ describe("CLI-candidates in-use marker", () => {
 
 describe("EnginesSettings friends Connections list", () => {
   it("shows Set CLI for Claude Codex Grok Antigravity Meta Muse, not Gemini API or the zoo", () => {
+    const grok = mockInstances.find((i) => i.instanceId === "grok")!;
+    grok.snapshot = { state: "unavailable" };
     const html = renderToStaticMarkup(
       createElement(I18nProvider, null, createElement(EnginesSettings)),
     );
+    grok.snapshot = { state: "available", authenticated: true };
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain("size-1.5 shrink-0 rounded-full bg-accent");
     expect(html).toContain("Grok");
     expect(html).toContain("Claude");
     expect(html).toContain("Codex");
@@ -175,15 +180,15 @@ describe("EnginesSettings friends Connections list", () => {
     expect(html).not.toContain("Kimi");
     expect(html).not.toContain("Hermes");
     expect(html).not.toContain("Show all engines");
-    const grok = html.indexOf("Grok");
+    const grokAt = html.indexOf("Grok");
     const claude = html.indexOf("Claude");
     const codex = html.indexOf("Codex");
     const antigravity = html.indexOf("Gemini (Antigravity)");
     const muse = html.indexOf("Meta Muse");
     expect(claude).toBeGreaterThan(-1);
     expect(codex).toBeGreaterThan(claude);
-    expect(grok).toBeGreaterThan(codex);
-    expect(antigravity).toBeGreaterThan(grok);
+    expect(grokAt).toBeGreaterThan(codex);
+    expect(antigravity).toBeGreaterThan(grokAt);
     expect(muse).toBeGreaterThan(antigravity);
   });
 });
@@ -203,12 +208,17 @@ describe("isEngineConnected", () => {
   });
 });
 
-describe("connected dot", () => {
-  it("renders lit dots for detected engines that have no override", () => {
+describe("engines summary", () => {
+  it("collapses to one line of checked engine names when every engine is connected", () => {
     const html = renderToStaticMarkup(
       createElement(I18nProvider, null, createElement(EnginesSettings)),
     );
-    expect(html).toContain("size-1.5 shrink-0 rounded-full bg-accent");
-    expect(html).not.toContain("size-1.5 shrink-0 rounded-full bg-raised-hover");
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain("Claude");
+    expect(html).toContain("Meta Muse");
+    expect(html).toContain("text-success");
+    expect(html).not.toContain("text-warning");
+    expect(html).not.toContain("Set CLI…");
+    expect(html).not.toContain("Kimi");
   });
 });

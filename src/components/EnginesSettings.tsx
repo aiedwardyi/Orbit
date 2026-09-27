@@ -358,9 +358,37 @@ export function EnginesSettings() {
   }
 
   const { subscription, custom } = splitEngineRail(visible);
+  const anyDown = cliRows.some((i) => !isEngineConnected(i));
+  const [expanded, setExpanded] = useState(anyDown);
+  const listShown = expanded || anyDown || cliRows.length === 0;
 
   return (
     <div className="flex flex-col">
+      {cliRows.length > 0 && (
+        <button
+          type="button"
+          aria-expanded={listShown}
+          onClick={() => setExpanded(!listShown)}
+          className={cn(
+            "flex w-full items-center gap-2 rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-left hover:bg-control/60",
+            listShown && "mb-3",
+          )}
+        >
+          <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink">
+            {cliRows.map((i) => (
+              <span key={i.instanceId} className="flex items-center gap-1">
+                {isEngineConnected(i)
+                  ? <Check size={13} className="text-success" aria-label={t("connections.connected")} />
+                  : <TriangleAlert size={13} className="text-warning" aria-label={t("engines.unavailable")} />}
+                {i.displayName}
+              </span>
+            ))}
+          </span>
+          <ChevronDown size={16} className={cn("shrink-0 text-ink-secondary transition-transform", listShown && "rotate-180")} />
+        </button>
+      )}
+      {listShown && (
+      <>
       {rows.length === 0 && (
         <div className="text-[13px] text-ink-secondary">{t("engines.none")}</div>
       )}
@@ -375,6 +403,8 @@ export function EnginesSettings() {
         >
           {showAll ? t("engines.showFewer") : t("engines.showAll", { count: rest.length })}
         </button>
+      )}
+      </>
       )}
     </div>
   );
