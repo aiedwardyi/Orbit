@@ -260,6 +260,7 @@ import {
   initRemoteAccess,
   originAllowedByRemote,
   remoteKeyMatches,
+  remoteLinkUrl,
 } from "./remote-access.ts";
 import * as vps from "./vps-computer.ts";
 import { RoutineManager, routineTriggerIsUnattended, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
@@ -6955,6 +6956,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
     if (method === "GET" && path === "/api/key-uses") {
       return json(res, 200, { uses: loadKeyUses(DATA_DIR) });
+    }
+
+    // ── phone link (this PC's own /remote?key= url, never synced) ──
+    if (method === "GET" && path === "/api/remote-link") {
+      return json(res, 200, { url: remoteLinkUrl(REMOTE_HOST, REMOTE_KEY) ?? null });
     }
 
     // ── phone ping (local to this PC, never synced) ──

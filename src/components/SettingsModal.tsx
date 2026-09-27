@@ -33,6 +33,7 @@ import { LanguagePicker } from "./LanguagePicker";
 import { useI18n } from "@/lib/i18n";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { phoneSettingsAvailable } from "@/lib/phone-availability";
+import { PhoneLinkSettings } from "./PhoneLinkSettings";
 import { PhonePingSettings } from "./PhonePingSettings";
 import { RoomTurnTimeoutSettings } from "./RoomTurnTimeoutSettings";
 import { TranscriptionSettings } from "./TranscriptionSettings";
@@ -525,6 +526,7 @@ export function SettingsModal({
                   ) : null}
                   <EnginesSettings />
                   <SavedKeys />
+                  <PhoneLinkSettings />
                   <PhonePingSettings />
                   {showSettingsMoreServicesSection() && (
                     <>

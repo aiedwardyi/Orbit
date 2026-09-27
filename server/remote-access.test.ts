@@ -14,6 +14,7 @@ import {
   originAllowedByRemote,
   remoteCookieAuthorized,
   remoteKeyMatches,
+  remoteLinkUrl,
   resolveRemoteHost,
 } from "./remote-access.ts";
 
@@ -130,6 +131,13 @@ describe("remote access", () => {
     const lines: string[] = [];
     expect(initRemoteAccess({}, freshDir(), (l) => lines.push(l))).toEqual({ host: undefined, key: undefined });
     expect(lines).toEqual([]);
+  });
+
+  it("builds the phone link only when both host and key are set", () => {
+    expect(remoteLinkUrl(HOST, "a".repeat(64))).toBe(`https://${HOST}/remote?key=${"a".repeat(64)}`);
+    expect(remoteLinkUrl(undefined, "a".repeat(64))).toBeUndefined();
+    expect(remoteLinkUrl(HOST, undefined)).toBeUndefined();
+    expect(remoteLinkUrl(undefined, undefined)).toBeUndefined();
   });
 
   it("regenerates the key when ORBIT_REMOTE_ROTATE_KEY is truthy", () => {

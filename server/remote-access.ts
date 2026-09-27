@@ -98,6 +98,12 @@ export function buildRemoteSetCookie(key: string): string {
   return `${REMOTE_COOKIE}=${key}; Path=/; Max-Age=${REMOTE_COOKIE_MAX_AGE_S}; HttpOnly; Secure; SameSite=Lax`;
 }
 
+/** Full one-time phone link for this host, or undefined when remote mode is off. */
+export function remoteLinkUrl(host: string | undefined, key: string | undefined): string | undefined {
+  if (!host || !key) return undefined;
+  return `https://${host}/remote?key=${key}`;
+}
+
 /** True when the request carries the remote cookie with the current key. */
 export function remoteCookieAuthorized(cookieHeader: string | undefined, remoteKey: string | undefined): boolean {
   if (remoteKey === undefined) return false;
