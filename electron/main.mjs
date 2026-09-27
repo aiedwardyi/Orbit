@@ -1976,6 +1976,8 @@ const CREDENTIAL_PATCH = {
   boxToken: (value) => ({ box: { token: value } }),
   ttsKey: (value) => ({ tts: { key: value } }),
   openaiImageApiKey: (value) => ({ imageGen: { key: value } }),
+  anthropicApiKey: (value) => ({ anthropic: { key: value } }),
+  vertexApiKey: (value) => ({ vertex: { key: value } }),
 };
 
 ipcMain.handle("credential:set", async (_event, name, value) => {

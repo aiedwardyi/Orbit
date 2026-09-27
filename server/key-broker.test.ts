@@ -18,7 +18,7 @@ afterEach(() => {
 
 const request = (fields: Record<string, unknown>) =>
   callApiRequestSchema.parse({ credentialId: "xaiApiKey", method: "GET", url: "https://api.x.ai/v1/models", ...fields });
-const keys = (id: string) => (id === "xaiApiKey" || id === "ttsKey" ? KEY : "");
+const keys = (id: string) => (["xaiApiKey", "ttsKey", "anthropicApiKey", "vertexApiKey"].includes(id) ? KEY : "");
 const reply = (body: string, init: ResponseInit = { status: 200 }) => vi.fn<typeof fetch>(async () => new Response(body, init));
 
 describe("call_api", () => {
@@ -36,6 +36,11 @@ describe("call_api", () => {
 
     await callApi(request({ credentialId: "ttsKey", url: "https://api.elevenlabs.io/v1/voices" }), keys, [root], fetchMock);
     expect((fetchMock.mock.calls[1]![1]!.headers as Headers).get("xi-api-key")).toBe(KEY);
+
+    await callApi(request({ credentialId: "anthropicApiKey", url: "https://api.anthropic.com/v1/messages" }), keys, [root], fetchMock);
+    expect((fetchMock.mock.calls[2]![1]!.headers as Headers).get("x-api-key")).toBe(KEY);
+    await callApi(request({ credentialId: "vertexApiKey", url: "https://aiplatform.googleapis.com/v1/publishers/google/models" }), keys, [root], fetchMock);
+    expect((fetchMock.mock.calls[3]![1]!.headers as Headers).get("x-goog-api-key")).toBe(KEY);
   });
 
   it.each([

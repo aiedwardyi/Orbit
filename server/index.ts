@@ -5859,6 +5859,8 @@ function configStatus() {
     // same configured-or-not way as every other credential
     tts: tts.describeVoice(cfg),
     imageGen: { configured: Boolean(cfg.imageGen?.key) },
+    anthropic: { configured: Boolean(cfg.anthropic?.key) },
+    vertex: { configured: Boolean(cfg.vertex?.key) },
     // not a secret — the sidebar shows it
     profile: { name: cfg.profile?.name ?? "", email: cfg.profile?.email ?? "" },
     rooms: { turnTimeoutMinutes: roomTurnTimeoutMinutes(cfg) },
@@ -9365,6 +9367,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (persisted.box?.token !== undefined) persisted.box.token = "";
         if (persisted.tts?.key !== undefined) persisted.tts.key = "";
         if (persisted.imageGen?.key !== undefined) persisted.imageGen.key = "";
+        if (persisted.anthropic?.key !== undefined) persisted.anthropic.key = "";
+        if (persisted.vertex?.key !== undefined) persisted.vertex.key = "";
         saveConfig(persisted);
         syncCredentialEnv(patch);
         Object.assign(cfg, loadConfig());
@@ -9382,6 +9386,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           key !== "profile" &&
           key !== "tts" &&
           key !== "imageGen" &&
+          key !== "anthropic" &&
+          key !== "vertex" &&
           key !== "vps" &&
           key !== "rooms" &&
           key !== "localVm" &&

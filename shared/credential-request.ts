@@ -34,6 +34,18 @@ export const CREDENTIAL_TARGETS = {
     placeholder: "sk-…",
     helpUrl: "https://platform.openai.com/api-keys",
   },
+  anthropicApiKey: {
+    label: "Claude API key",
+    description: "Lets bots call the Claude API with call_api.",
+    placeholder: "sk-ant-…",
+    helpUrl: "https://console.anthropic.com/settings/keys",
+  },
+  vertexApiKey: {
+    label: "Vertex AI API key",
+    description: "Lets bots call Vertex AI with call_api.",
+    placeholder: "Paste your Vertex AI API key",
+    helpUrl: "https://console.cloud.google.com/apis/credentials",
+  },
 } as const;
 
 /** Hosts call_api may send each key to, and the header it goes in. Box is not brokered. */
@@ -42,6 +54,8 @@ export const CREDENTIAL_BROKER = {
   xaiApiKey: { hosts: ["api.x.ai"], header: "authorization", prefix: "Bearer " },
   geminiApiKey: { hosts: ["generativelanguage.googleapis.com"], header: "x-goog-api-key", prefix: "" },
   ttsKey: { hosts: ["api.elevenlabs.io"], header: "xi-api-key", prefix: "" },
+  anthropicApiKey: { hosts: ["api.anthropic.com"], header: "x-api-key", prefix: "" },
+  vertexApiKey: { hosts: ["aiplatform.googleapis.com"], header: "x-goog-api-key", prefix: "" },
 } as const;
 
 export type CredentialTargetId = keyof typeof CREDENTIAL_TARGETS;
@@ -56,6 +70,8 @@ export type CredentialConfig = {
   box?: { token?: string };
   tts?: { key?: string };
   imageGen?: { key?: string };
+  anthropic?: { key?: string };
+  vertex?: { key?: string };
 };
 
 export function isCredentialTargetId(value: unknown): value is CredentialTargetId {
@@ -74,6 +90,10 @@ export function credentialConfigPatch(id: CredentialTargetId, value: string): Cr
       return { tts: { key: value } };
     case "openaiImageApiKey":
       return { imageGen: { key: value } };
+    case "anthropicApiKey":
+      return { anthropic: { key: value } };
+    case "vertexApiKey":
+      return { vertex: { key: value } };
   }
 }
 
@@ -89,6 +109,10 @@ export function credentialValue(config: CredentialConfig, id: CredentialTargetId
       return config.tts?.key ?? "";
     case "openaiImageApiKey":
       return config.imageGen?.key ?? "";
+    case "anthropicApiKey":
+      return config.anthropic?.key ?? "";
+    case "vertexApiKey":
+      return config.vertex?.key ?? "";
   }
 }
 

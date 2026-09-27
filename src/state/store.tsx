@@ -427,6 +427,8 @@ export interface ConfigStatus {
   tts?: { configured: boolean; ready: boolean; voice: string; provider?: "elevenlabs" | "system" };
   /** Shared write-only credential for on-demand GPT Image avatars. */
   imageGen?: { configured: boolean };
+  anthropic?: { configured: boolean };
+  vertex?: { configured: boolean };
   /** who's using the app — collected in onboarding, shown in the sidebar */
   profile?: { name: string; email: string };
   /** Opt-in flags. Absent means off. */
@@ -442,7 +444,7 @@ export interface BrowserProfile {
 
 export type ConfigStatusFrame = Pick<
   ConfigStatus,
-  "xai" | "gemini" | "openaiCompat" | "composio" | "box" | "vps" | "rooms" | "localVm" | "tts" | "imageGen" | "profile" | "features" | "browserProfiles"
+  "xai" | "gemini" | "openaiCompat" | "composio" | "box" | "vps" | "rooms" | "localVm" | "tts" | "imageGen" | "anthropic" | "vertex" | "profile" | "features" | "browserProfiles"
 >;
 
 export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
@@ -457,6 +459,8 @@ export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
     localVm: frame.localVm,
     tts: frame.tts,
     imageGen: frame.imageGen,
+    anthropic: frame.anthropic,
+    vertex: frame.vertex,
     profile: frame.profile,
     features: frame.features,
     browserProfiles: frame.browserProfiles,

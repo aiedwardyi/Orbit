@@ -105,6 +105,9 @@ const appConfigSchema = z.object({
   tts: z.object({ key: optionalText, voice: optionalText, provider: z.enum(["elevenlabs", "system"]).optional() }).optional(),
   /** OpenAI key used only by the in-process avatar image generator. */
   imageGen: z.object({ key: optionalText }).optional(),
+  /** Keys only call_api uses; never handed to an engine. */
+  anthropic: z.object({ key: optionalText }).optional(),
+  vertex: z.object({ key: optionalText }).optional(),
   /** Non-secret profile details shown in the sidebar. */
   profile: z.object({ name: optionalText, email: optionalText }).optional(),
   rooms: roomConfigSchema.optional(),
@@ -126,6 +129,8 @@ export interface AppConfig {
   vps?: { sshAlias?: string };
   tts?: { key?: string; voice?: string; provider?: "elevenlabs" | "system" };
   imageGen?: { key?: string };
+  anthropic?: { key?: string };
+  vertex?: { key?: string };
   profile?: { name?: string; email?: string };
   rooms?: { turnTimeoutMinutes: number };
   /** Shared preserves the historical singleton. Per-bot gives every bot a
@@ -264,6 +269,10 @@ export function loadConfig(): AppConfig {
   if (process.env.OMB_TTS_KEY !== undefined) cfg.tts.key = process.env.OMB_TTS_KEY;
   cfg.imageGen = { ...cfg.imageGen };
   if (process.env.OMB_OPENAI_IMAGE_KEY !== undefined) cfg.imageGen.key = process.env.OMB_OPENAI_IMAGE_KEY;
+  cfg.anthropic = { ...cfg.anthropic };
+  if (process.env.OMB_ANTHROPIC_KEY !== undefined) cfg.anthropic.key = process.env.OMB_ANTHROPIC_KEY;
+  cfg.vertex = { ...cfg.vertex };
+  if (process.env.OMB_VERTEX_KEY !== undefined) cfg.vertex.key = process.env.OMB_VERTEX_KEY;
   return cfg;
 }
 
@@ -283,6 +292,8 @@ export function syncCredentialEnv(patch: Partial<AppConfig>): void {
     [patch.box?.token, "BOX_TOKEN"],
     [patch.tts?.key, "OMB_TTS_KEY"],
     [patch.imageGen?.key, "OMB_OPENAI_IMAGE_KEY"],
+    [patch.anthropic?.key, "OMB_ANTHROPIC_KEY"],
+    [patch.vertex?.key, "OMB_VERTEX_KEY"],
   ];
   for (const [value, name] of secrets) {
     if (value === undefined) continue;
@@ -316,6 +327,8 @@ export const WORKSPACE_CREDENTIAL_ENV = [
   "BOX_TOKEN",
   "OMB_TTS_KEY",
   "OMB_OPENAI_IMAGE_KEY",
+  "OMB_ANTHROPIC_KEY",
+  "OMB_VERTEX_KEY",
   "COMPOSIO_API_KEY",
   "OMB_COMPOSIO_BROKER_TOKEN",
 ] as const;
@@ -398,7 +411,7 @@ export function saveConfig(patch: Partial<AppConfig>): void {
     /* first write */
   }
   const checkedPatch = appConfigSchema.partial().parse(patch);
-  for (const key of ["xai", "gemini", "openaiCompat", "composio", "box", "tts", "imageGen", "profile", "rooms", "localVm", "features"] as const) {
+  for (const key of ["xai", "gemini", "openaiCompat", "composio", "box", "tts", "imageGen", "anthropic", "vertex", "profile", "rooms", "localVm", "features"] as const) {
     const section = checkedPatch[key];
     if (!section) continue;
     const current = jsonObjectSchema.safeParse(disk[key]);

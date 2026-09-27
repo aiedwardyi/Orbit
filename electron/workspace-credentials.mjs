@@ -14,6 +14,8 @@ export const WORKSPACE_CREDENTIALS = [
   { section: "box", field: "token", name: "boxToken", env: "BOX_TOKEN" },
   { section: "tts", field: "key", name: "ttsKey", env: "OMB_TTS_KEY" },
   { section: "imageGen", field: "key", name: "openaiImageApiKey", env: "OMB_OPENAI_IMAGE_KEY" },
+  { section: "anthropic", field: "key", name: "anthropicApiKey", env: "OMB_ANTHROPIC_KEY" },
+  { section: "vertex", field: "key", name: "vertexApiKey", env: "OMB_VERTEX_KEY" },
 ];
 
 /** One boot-time sweep of config.json: move every plaintext workspace secret

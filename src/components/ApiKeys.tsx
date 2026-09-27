@@ -307,6 +307,8 @@ const BROKERED_CONFIGURED: Record<BrokeredCredentialId, (config: ConfigStatus) =
   xaiApiKey: (c) => c.xai?.configured ?? false,
   geminiApiKey: (c) => c.gemini?.configured ?? false,
   ttsKey: (c) => c.tts?.configured ?? false,
+  anthropicApiKey: (c) => c.anthropic?.configured ?? false,
+  vertexApiKey: (c) => c.vertex?.configured ?? false,
 };
 
 export function relativeTimeLabel(at: string, locale: string, now = Date.now()): string {
