@@ -116,9 +116,11 @@ export function CreateBotSheet({
         aria-modal="true"
         aria-labelledby="create-bot-title"
         aria-describedby="create-bot-help"
-        className="max-h-[min(680px,calc(100dvh-2rem))] w-full max-w-[560px] overflow-y-auto rounded-2xl border border-hairline/50 bg-panel p-7 shadow-2xl shadow-black/60"
+        className="max-h-[min(680px,calc(100dvh-2rem))] w-full max-w-[560px] overflow-y-auto rounded-2xl border border-hairline/50 bg-panel p-5 shadow-2xl shadow-black/60 sm:p-7"
       >
-        <div className="flex items-start gap-4">
+        {/* Stacked below sm: beside the mark the title wraps and the copy sits on
+            its own left edge, apart from every row of the form. */}
+        <div className="flex items-start gap-4 max-sm:flex-col max-sm:gap-3">
           <div className="relative shrink-0">
             <div className="absolute inset-1 rounded-full bg-accent/20 blur-xl" />
             <OrbitMark size={54} />
@@ -197,9 +199,8 @@ export function CreateBotSheet({
             <button
               type="button"
               onClick={() => setShowFolder(true)}
-              className="mt-3 flex items-center gap-1.5 text-[12.5px] text-ink-secondary hover:text-ink"
+              className="mt-3 text-[12.5px] text-ink-secondary hover:text-ink"
             >
-              <FolderOpen size={13} />
               {t("createBot.addFolder")}
             </button>
           )}
@@ -210,7 +211,7 @@ export function CreateBotSheet({
                 type="button"
                 onClick={close}
                 disabled={saving}
-                className="rounded-xl px-4 py-2.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink disabled:opacity-50"
+                className="rounded-xl px-4 py-2.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink disabled:opacity-50 max-sm:flex-1"
               >
                 {t("createBot.cancel")}
               </button>
@@ -218,7 +219,7 @@ export function CreateBotSheet({
             <button
               type="submit"
               disabled={saving}
-              className="flex min-w-[140px] items-center justify-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-[14px] font-semibold text-accent-ink hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex min-w-[140px] items-center justify-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-[14px] font-semibold text-accent-ink hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 max-sm:min-w-0 max-sm:flex-1"
             >
               {saving && <Loader2 size={15} className="animate-spin" />}
               {saving ? t("createBot.adding") : t("createBot.start")}

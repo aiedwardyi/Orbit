@@ -254,6 +254,27 @@ describe("CreateBotSheet folder choice", () => {
     }
   });
 
+  it("keeps one left edge and an even action row on a phone", async () => {
+    const { host, root, dialog } = await renderSheet({ required: false });
+    try {
+      expect(dialog.className).toContain("p-5");
+      expect(dialog.className).toContain("sm:p-7");
+      const header = dialog.firstElementChild!;
+      expect(header.className).toContain("max-sm:flex-col");
+      // "+ Folder" carries its own plus, so the folder glyph would be a second icon.
+      expect(addFolderLink(host).querySelector("svg")).toBeNull();
+      const actions = [...host.querySelectorAll("button")].filter(
+        (button) => button.type === "submit" || button.textContent === "Cancel",
+      );
+      expect(actions).toHaveLength(2);
+      for (const action of actions) expect(action.className).toContain("max-sm:flex-1");
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+    }
+  });
+
   it("hides the folder row behind a link until it's clicked", async () => {
     const { host, root } = await renderSheet();
     try {
