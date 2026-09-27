@@ -17,6 +17,8 @@ import {
   Pencil,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Pin,
   PinOff,
   Plus,
@@ -71,6 +73,7 @@ import {
   loadSidebarCollapsed,
   loadSidebarDensity,
   loadSidebarOrder,
+  loadSidebarSide,
   loadSidebarWidth,
   saveSidebarCollapsed,
   saveSidebarDensity,
@@ -80,11 +83,13 @@ import {
   SIDEBAR_ICONS_WIDTH,
   SIDEBAR_INLINE_BREAKPOINT,
   SIDEBAR_MAX_WIDTH,
+  SIDEBAR_SIDE_EVENT,
   restoreSidebarDragWidth,
   snapSidebarDrag,
   stepSidebarLayout,
   type SidebarDensity,
   type SidebarLayout,
+  type SidebarSide,
 } from "@/lib/sidebar-preferences";
 import {
   moveSidebarItem,
@@ -107,6 +112,7 @@ import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import { phoneSettingsAvailable } from "@/lib/phone-availability";
 import { localeTag, t, useI18n } from "@/lib/i18n";
 import { terminalAttentionCopy } from "@/lib/notify";
+import { collapsedUnreadCount, formatCollapsedUnreadBadge } from "@/lib/unread";
 
 // Effect-level easing: getComputedTiming().progress is then the eased edge position.
 const SIDEBAR_MOTION = { duration: 300, easing: "cubic-bezier(0.32, 0.72, 0, 1)" };
@@ -1279,6 +1285,31 @@ export function Sidebar({
   const [query, setQuery] = useState("");
   const [densityState, setDensityState] = useState<SidebarDensity>(() => loadSidebarDensity());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => loadSidebarCollapsed());
+  const [sidebarSide, setSidebarSideState] = useState<SidebarSide>(() => loadSidebarSide());
+  const sidebarOnRight = sidebarSide === "right";
+  // Settings lives in a separate mounted component; it saves the preference and
+  // broadcasts the change since a `storage` event never fires on this same window.
+  useEffect(() => {
+    const onSideChange = () => setSidebarSideState(loadSidebarSide());
+    window.addEventListener(SIDEBAR_SIDE_EVENT, onSideChange);
+    return () => window.removeEventListener(SIDEBAR_SIDE_EVENT, onSideChange);
+  }, []);
+  const collapsedUnread = sidebarCollapsed ? collapsedUnreadCount(state.bots, state.groups, state.selectedId) : 0;
+  const collapsedUnreadBadge = formatCollapsedUnreadBadge(collapsedUnread);
+  const collapsedBadgeRef = useRef<HTMLSpanElement>(null);
+  const lastCollapsedUnread = useRef(collapsedUnread);
+  useEffect(() => {
+    if (
+      collapsedUnread > lastCollapsedUnread.current &&
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      collapsedBadgeRef.current?.animate(
+        [{ transform: "scale(1)" }, { transform: "scale(1.3)" }, { transform: "scale(1)" }],
+        { duration: 260, easing: "ease-out" },
+      );
+    }
+    lastCollapsedUnread.current = collapsedUnread;
+  }, [collapsedUnread]);
   const density: SidebarDensity = sidebarCollapsed
     ? "icons"
     : showSidebarDensityControls() ? densityState : "comfortable";
@@ -1372,9 +1403,12 @@ export function Sidebar({
   };
   const onSidebarResizeMove = (event: PointerEvent<HTMLDivElement>) => {
     if (!resizeFrom.current) return;
+    // On the right edge the handle sits on the sidebar's left, so dragging
+    // toward the screen edge (negative screen delta) is what widens it.
+    const dragDelta = event.clientX - resizeFrom.current.x;
     const next = snapSidebarDrag(
       { width: resizeFrom.current.width, collapsed: resizeFrom.current.collapsed },
-      event.clientX - resizeFrom.current.x,
+      sidebarOnRight ? -dragDelta : dragDelta,
     );
     if (next.collapsed !== resizeFrom.current.collapsed) {
       resizeFrom.current = {
@@ -1405,12 +1439,16 @@ export function Sidebar({
   };
   const onSidebarResizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!sidebarCollapsedRef.current && density === "icons") return;
+    // Same mirroring as the pointer drag: on the right, "toward the edge" is Left.
+    const key = sidebarOnRight
+      ? event.key === "ArrowRight" ? "ArrowLeft" : event.key === "ArrowLeft" ? "ArrowRight" : event.key
+      : event.key;
     const next = stepSidebarLayout(
       {
         width: fitSidebarWidth(sidebarWidthRef.current, viewportWidth, dockedAsideWidth),
         collapsed: sidebarCollapsedRef.current,
       },
-      event.key,
+      key,
     );
     if (next == null) return;
     event.preventDefault();
@@ -1464,8 +1502,12 @@ export function Sidebar({
       };
     }
     const motions: Animation[] = [];
+    // On the right the sidebar's growing/shrinking edge is its left, not its right.
+    const marginProp = sidebarOnRight ? "marginRight" : "marginLeft";
+    const railShift = sidebarOnRight ? -shift : shift;
     if (shift < 0) {
-      motions.push(aside.animate([{ clipPath: `inset(0 ${-shift}px 0 0)` }, { clipPath: "inset(0)" }], SIDEBAR_MOTION));
+      const clip = sidebarOnRight ? `inset(0 0 0 ${-shift}px)` : `inset(0 ${-shift}px 0 0)`;
+      motions.push(aside.animate([{ clipPath: clip }, { clipPath: "inset(0)" }], SIDEBAR_MOTION));
     } else {
       ghost.style.width = `${shift}px`;
       const shrink = ghost.animate([{ transform: "scaleX(1)" }, { transform: "scaleX(0)" }], { ...SIDEBAR_MOTION, fill: "forwards" });
@@ -1477,11 +1519,11 @@ export function Sidebar({
     }
     const view = aside.nextElementSibling;
     if (view instanceof HTMLElement && !rigidView) {
-      motions.push(view.animate([{ marginLeft: `${shift}px` }, { marginLeft: "0px" }], SIDEBAR_MOTION));
+      motions.push(view.animate([{ [marginProp]: `${shift}px` }, { [marginProp]: "0px" }], SIDEBAR_MOTION));
     }
     for (let el = view; el && rigidView; el = el.nextElementSibling) {
       if (!(el instanceof HTMLElement) || ["absolute", "fixed"].includes(getComputedStyle(el).position)) continue;
-      motions.push(el.animate([{ transform: `translateX(${shift}px)` }, { transform: "none" }], SIDEBAR_MOTION));
+      motions.push(el.animate([{ transform: `translateX(${railShift}px)` }, { transform: "none" }], SIDEBAR_MOTION));
     }
     return () => {
       const progress = motions[0]!.effect?.getComputedTiming().progress;
@@ -2014,6 +2056,8 @@ export function Sidebar({
         "max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-40",
         "max-md:will-change-transform max-md:transition-transform max-md:duration-300 max-md:ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
         open ? "max-md:translate-x-0" : "max-md:-translate-x-full",
+        // The phone drawer always slides from the left; only the desktop edge mirrors.
+        sidebarOnRight && "md:order-last md:border-l md:border-r-0",
       )}
       style={{ width: sidebarDisplayWidth }}
     >
@@ -2032,9 +2076,19 @@ export function Sidebar({
         onPointerUp={onSidebarResizeEnd}
         onPointerCancel={onSidebarResizeCancel}
         onKeyDown={onSidebarResizeKeyDown}
-        className="absolute inset-y-0 right-0 z-10 hidden w-1.5 cursor-col-resize touch-none hover:bg-accent/40 focus-visible:bg-accent/60 md:block"
+        className={cn(
+          "absolute inset-y-0 z-10 hidden w-1.5 cursor-col-resize touch-none hover:bg-accent/40 focus-visible:bg-accent/60 md:block",
+          sidebarOnRight ? "left-0" : "right-0",
+        )}
       />
-      <div ref={sidebarGhostRef} aria-hidden className="pointer-events-none absolute inset-y-0 left-full z-30 origin-left bg-panel" />
+      <div
+        ref={sidebarGhostRef}
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-y-0 left-full z-30 origin-left bg-panel",
+          sidebarOnRight && "md:left-auto md:right-full md:origin-right",
+        )}
+      />
       {/* macOS owns inset traffic lights; Linux/Windows use native chrome. */}
       <div
         className={cn("flex items-center pt-3.5 pb-1", density === "icons" ? "flex-col gap-1 px-2" : "justify-between px-4")}
@@ -2050,11 +2104,29 @@ export function Sidebar({
           <button
             type="button"
             onClick={toggleCollapsed}
-            aria-label={density === "icons" ? t("chrome.expandSidebar") : t("chrome.collapseSidebar")}
-            className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
+            aria-label={
+              density === "icons"
+                ? collapsedUnreadBadge != null
+                  ? t("chrome.expandSidebarUnread", { count: collapsedUnreadBadge })
+                  : t("chrome.expandSidebar")
+                : t("chrome.collapseSidebar")
+            }
+            className="relative flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
             title={density === "icons" ? t("chrome.expandSidebar") : t("chrome.collapseSidebar")}
           >
-            {density === "icons" ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
+            {density === "icons"
+              ? sidebarOnRight ? <PanelRightOpen size={20} /> : <PanelLeftOpen size={20} />
+              : sidebarOnRight ? <PanelRightClose size={20} /> : <PanelLeftClose size={20} />}
+            {sidebarCollapsed && collapsedUnreadBadge != null && (
+              <span
+                ref={collapsedBadgeRef}
+                data-sidebar-collapsed-unread
+                aria-hidden="true"
+                className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-accent-ink"
+              >
+                {collapsedUnreadBadge}
+              </span>
+            )}
           </button>
           {showSidebarDensityControls() && (
           <div className="relative">

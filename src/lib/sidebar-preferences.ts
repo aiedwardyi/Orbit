@@ -3,6 +3,7 @@ import { z } from "zod";
 import { UNASSIGNED_SECTION_ID, type SidebarOrder } from "./sidebar-order";
 
 export type SidebarDensity = "comfortable" | "compact" | "icons";
+export type SidebarSide = "left" | "right";
 
 export type SidebarLayout = {
   collapsed: boolean;
@@ -12,6 +13,9 @@ export type SidebarLayout = {
 export const SIDEBAR_DENSITY_KEY = "openmausbot.sidebarDensity";
 export const SIDEBAR_WIDTH_KEY = "openmausbot.sidebarWidth";
 export const SIDEBAR_COLLAPSED_KEY = "openmausbot.sidebarCollapsed";
+export const SIDEBAR_SIDE_KEY = "openmausbot.sidebarSide";
+/** Fired on the same window that just saved the side, since `storage` events never do. */
+export const SIDEBAR_SIDE_EVENT = "orbit-sidebar-side";
 export const SIDEBAR_SECTION_ORDER_KEY = "openmausbot.sidebarSectionOrder.v1";
 export const SIDEBAR_ORDER_KEY = "openmausbot.sidebarOrder.v1";
 export const SIDEBAR_MIN_WIDTH = 220;
@@ -176,6 +180,32 @@ export function saveSidebarCollapsed(
   } catch {
     // Same localStorage failure mode as width — collapse still applies this session.
   }
+}
+
+export function parseSidebarSide(value: string | null): SidebarSide {
+  return value === "right" ? "right" : "left";
+}
+
+export function loadSidebarSide(storage?: Pick<Storage, "getItem"> | null): SidebarSide {
+  try {
+    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
+    return parseSidebarSide(target?.getItem(SIDEBAR_SIDE_KEY) ?? null);
+  } catch {
+    return "left";
+  }
+}
+
+export function saveSidebarSide(
+  side: SidebarSide,
+  storage?: Pick<Storage, "setItem"> | null,
+): void {
+  try {
+    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
+    target?.setItem(SIDEBAR_SIDE_KEY, side);
+  } catch {
+    // Same localStorage failure mode as collapsed - side still applies this session.
+  }
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(SIDEBAR_SIDE_EVENT));
 }
 
 function parseStringList(raw: string | null): string[] {

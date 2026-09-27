@@ -11,6 +11,7 @@ import {
   SIDEBAR_MIN_WIDTH,
   SIDEBAR_ORDER_KEY,
   SIDEBAR_SECTION_ORDER_KEY,
+  SIDEBAR_SIDE_KEY,
   SIDEBAR_SNAP_DISTANCE,
   SIDEBAR_WIDTH_KEY,
   SIDEBAR_WIDTH_STEP,
@@ -22,14 +23,17 @@ import {
   loadSidebarDensity,
   loadSidebarOrder,
   loadSectionOrder,
+  loadSidebarSide,
   loadSidebarWidth,
   parseSidebarCollapsed,
   parseSidebarDensity,
+  parseSidebarSide,
   parseSidebarWidth,
   saveSidebarCollapsed,
   saveSidebarDensity,
   saveSidebarOrder,
   saveSectionOrder,
+  saveSidebarSide,
   restoreSidebarDragWidth,
   saveSidebarWidth,
   snapSidebarDrag,
@@ -52,6 +56,25 @@ describe("sidebar density preferences", () => {
     expect(setItem).toHaveBeenCalledWith(SIDEBAR_DENSITY_KEY, "icons");
     expect(loadSidebarDensity({ getItem: () => "compact" })).toBe("compact");
     expect(loadSidebarDensity({ getItem: () => { throw new Error("blocked"); } })).toBe("comfortable");
+  });
+});
+
+describe("sidebar side preferences", () => {
+  it("accepts left and right and rejects stale values", () => {
+    expect(parseSidebarSide("left")).toBe("left");
+    expect(parseSidebarSide("right")).toBe("right");
+    expect(parseSidebarSide("top")).toBe("left");
+    expect(parseSidebarSide(null)).toBe("left");
+  });
+
+  it("loads and saves without making storage availability a launch dependency", () => {
+    const setItem = vi.fn();
+    saveSidebarSide("right", { setItem });
+    expect(setItem).toHaveBeenCalledWith(SIDEBAR_SIDE_KEY, "right");
+    expect(loadSidebarSide({ getItem: () => "right" })).toBe("right");
+    expect(loadSidebarSide({ getItem: () => "left" })).toBe("left");
+    expect(loadSidebarSide({ getItem: () => { throw new Error("blocked"); } })).toBe("left");
+    expect(() => saveSidebarSide("left", { setItem: () => { throw new Error("blocked"); } })).not.toThrow();
   });
 });
 

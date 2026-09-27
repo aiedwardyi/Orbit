@@ -2,12 +2,19 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { act, createElement, useEffect } from "react";
+import { act, createElement, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { persistPreference } from "@/lib/i18n";
-import { SIDEBAR_COLLAPSED_KEY, SIDEBAR_ORDER_KEY, SIDEBAR_SECTION_ORDER_KEY, SIDEBAR_WIDTH_KEY } from "@/lib/sidebar-preferences";
+import {
+  SIDEBAR_COLLAPSED_KEY,
+  SIDEBAR_ORDER_KEY,
+  SIDEBAR_SECTION_ORDER_KEY,
+  SIDEBAR_SIDE_EVENT,
+  SIDEBAR_SIDE_KEY,
+  SIDEBAR_WIDTH_KEY,
+} from "@/lib/sidebar-preferences";
 import { formatTime, StoreProvider, useStore } from "@/state/store";
 
 import { compactSidebarModelLabel, Sidebar } from "./Sidebar";
@@ -36,6 +43,20 @@ function SeedTerminalAttention() {
       receivedAt: 10,
     });
   }, [dispatch, state.bots.length]);
+  return createElement(Sidebar, { open: false, onClose: () => {} });
+}
+
+/** Selects a bot (clearing its unread), then re-marks it unread the way an
+ * incoming message would while it stays open - the badge must still skip it. */
+function SelectThenMarkUnread({ id }: { id: string }) {
+  const { state, dispatch } = useStore();
+  const done = useRef(false);
+  useEffect(() => {
+    if (done.current || !state.bots.some((candidate) => candidate.id === id)) return;
+    done.current = true;
+    dispatch({ type: "select", id });
+    dispatch({ type: "markUnread", botId: id });
+  }, [dispatch, id, state.bots]);
   return createElement(Sidebar, { open: false, onClose: () => {} });
 }
 
@@ -712,6 +733,142 @@ describe("Sidebar layout controls", () => {
       expect(sectionOrder()).toEqual(["section:Work", "section:Personal"]);
     } finally {
       window.localStorage.removeItem(SIDEBAR_SECTION_ORDER_KEY);
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("mirrors the aside border, resize handle, and toggle icon to the right and reacts live to a settings change", async () => {
+    window.localStorage.setItem(SIDEBAR_SIDE_KEY, "right");
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+      );
+      const aside = host.querySelector("aside")!;
+      const handle = host.querySelector<HTMLElement>("[data-sidebar-resize]")!;
+      expect(aside.className).toContain("md:order-last");
+      expect(aside.className).toContain("md:border-l");
+      expect(handle.className).toContain("left-0");
+      expect(handle.className).not.toContain("right-0");
+      expect(host.querySelector('svg[class*="panel-right-close"]')).not.toBeNull();
+
+      window.localStorage.setItem(SIDEBAR_SIDE_KEY, "left");
+      await act(async () => window.dispatchEvent(new Event(SIDEBAR_SIDE_EVENT)));
+      expect(aside.className).not.toContain("md:order-last");
+      expect(handle.className).toContain("right-0");
+      expect(host.querySelector('svg[class*="panel-left-close"]')).not.toBeNull();
+    } finally {
+      window.localStorage.removeItem(SIDEBAR_SIDE_KEY);
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("badges the collapsed reopen button, excluding the open chat, hidden bots, and terminals", async () => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "1");
+    const bots = [
+      { ...bot("a"), unread: true },
+      { ...bot("b"), unread: true },
+      { ...bot("hidden"), unread: true, hidden: true },
+    ];
+    const groups = [{ id: "g1", threadId: "g1-thread", name: "Room", memberIds: ["a", "b"], messages: [], unread: true }];
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string) =>
+        path === "/api/bots"
+          ? new Response(JSON.stringify({ bots, groups }))
+          : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(createElement(StoreProvider, null, createElement(SelectThenMarkUnread, { id: "a" }))),
+      );
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      // "a" is the open chat (re-marked unread) and "hidden" is archived - only "b" and "g1" count.
+      const badge = await vi.waitFor(() => {
+        const el = host.querySelector("[data-sidebar-collapsed-unread]");
+        expect(el).not.toBeNull();
+        return el!;
+      });
+      expect(badge.textContent).toBe("2");
+    } finally {
+      window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("hides the collapsed badge at zero unread and expanded", async () => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "0");
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string) =>
+        path === "/api/bots"
+          ? new Response(JSON.stringify({ bots: [{ ...bot("a"), unread: true }], groups: [] }))
+          : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+      );
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      expect(host.querySelector("[data-sidebar-collapsed-unread]")).toBeNull();
+    } finally {
+      window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("caps the collapsed badge at 9+", async () => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "1");
+    const bots = Array.from({ length: 12 }, (_, i) => ({ ...bot(`b${i}`), unread: true }));
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string) =>
+        path === "/api/bots"
+          ? new Response(JSON.stringify({ bots, groups: [] }))
+          : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+      );
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      const badge = await vi.waitFor(() => {
+        const el = host.querySelector("[data-sidebar-collapsed-unread]");
+        expect(el).not.toBeNull();
+        return el!;
+      });
+      expect(badge.textContent).toBe("9+");
+    } finally {
+      window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
       await act(async () => root.unmount());
       host.remove();
     }

@@ -37,6 +37,7 @@ import { PhoneLinkSettings } from "./PhoneLinkSettings";
 import { PhonePingSettings } from "./PhonePingSettings";
 import { RoomTurnTimeoutSettings } from "./RoomTurnTimeoutSettings";
 import { TranscriptionSettings } from "./TranscriptionSettings";
+import { loadSidebarSide, saveSidebarSide, type SidebarSide } from "@/lib/sidebar-preferences";
 import { cn } from "@/lib/cn";
 import { SyncPanel } from "./SyncPanel";
 
@@ -179,6 +180,37 @@ function ToolCallsRow() {
         </button>
       </div>
       {error ? <p role="alert" className="mt-2 text-[12px] text-danger">{error}</p> : null}
+    </Card>
+  );
+}
+
+const SIDEBAR_SIDE_OPTIONS: SidebarSide[] = ["left", "right"];
+
+function SidebarSideRow() {
+  const { t } = useI18n();
+  const [side, setSide] = useState<SidebarSide>(() => loadSidebarSide());
+  return (
+    <Card title={t("settings.sidebarSide.title")} compact>
+      <div role="radiogroup" aria-label={t("settings.sidebarSide.title")} className="flex gap-1 rounded-lg bg-inset p-0.5">
+        {SIDEBAR_SIDE_OPTIONS.map((option) => {
+          const selected = side === option;
+          return (
+            <button
+              key={option}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              onClick={() => { saveSidebarSide(option); setSide(option); }}
+              className={cn(
+                "min-w-0 flex-1 rounded-md px-2 py-1.5 text-center text-[13px] font-medium transition-colors",
+                selected ? "bg-raised text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
+              )}
+            >
+              {option === "left" ? t("settings.sidebarSide.left") : t("settings.sidebarSide.right")}
+            </button>
+          );
+        })}
+      </div>
     </Card>
   );
 }
@@ -480,6 +512,7 @@ export function SettingsModal({
                   <ProfileFields />
                 </Card>
                 <ToolCallsRow />
+                <SidebarSideRow />
                 <TerminalAppearanceRow />
                 <UpdatesRow />
                 {showSettingsAdvancedSection() && (
