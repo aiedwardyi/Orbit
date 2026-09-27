@@ -111,15 +111,23 @@ export function createTerminalBridge({ host, updater, token = randomBytes(24).to
       if (!sendOnly && !bearerMatches(req.headers.authorization, token, botId)) return json(res, 401, { error: "Unauthorized" });
       try {
         const sessionId = parsed.searchParams.get("sessionId");
-        if (req.method === "GET" && !match[2]) return json(res, 200, host.readBot(botId, sessionId ? { sessionId } : undefined));
+        if (req.method === "GET" && !match[2]) {
+          const waitFor = parsed.searchParams.get("waitFor");
+          const timeoutParam = parsed.searchParams.get("timeoutMs");
+          const options = {};
+          if (sessionId) options.sessionId = sessionId;
+          if (waitFor) options.waitFor = waitFor;
+          if (waitFor && timeoutParam) options.timeoutMs = Number(timeoutParam);
+          return json(res, 200, await host.readBot(botId, options));
+        }
         if (req.method === "DELETE" && !match[2]) {
           await host.closeBotPanes(botId);
           return json(res, 200, { closed: true });
         }
         if (req.method === "POST" && match[2] === "open") return json(res, 200, await host.openForBot(botId, await readJson(req)));
         if (req.method === "POST" && match[2] === "close") {
-          await host.closeForBot(botId, (await readJson(req))?.sessionId);
-          return json(res, 200, { closed: true });
+          const result = await host.closeForBot(botId, (await readJson(req))?.sessionId);
+          return json(res, 200, result?.alreadyClosed === true ? { closed: true, alreadyClosed: true } : { closed: true });
         }
         if (req.method === "POST" && match[2] === "attention") return json(res, 200, { raised: host.attendBot(botId, (await readJson(req))?.sessionId) });
         if (req.method === "POST" && match[2]) {

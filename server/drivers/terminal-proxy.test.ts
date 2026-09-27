@@ -12,7 +12,7 @@ describe("terminal proxy", () => {
   it("exposes a read-only read tool and destructive send, spawn and close tools, all bot-scoped", () => {
     expect(TOOLS.map((tool) => tool.name)).toEqual(["terminal_read", "terminal_send", "terminal_spawn", "terminal_close"]);
     expect(TOOLS[0]).toMatchObject({ annotations: { readOnlyHint: true, destructiveHint: false } });
-    expect(Object.keys(TOOLS[0].inputSchema.properties)).toEqual(["sessionId"]);
+    expect(Object.keys(TOOLS[0].inputSchema.properties)).toEqual(["sessionId", "waitFor", "timeoutMs"]);
     expect(TOOLS[1]).toMatchObject({ annotations: { readOnlyHint: false, destructiveHint: true }, inputSchema: { required: ["sessionId", "generation"] } });
     expect(Object.keys(TOOLS[1].inputSchema.properties)).not.toContain("botId");
     expect(TOOLS[1].description).toContain("End with a newline to submit the line.");
@@ -29,7 +29,7 @@ describe("terminal proxy", () => {
     expect(TOOLS[0].description).toContain(workerReportText(process.platform).read);
     expect(TOOLS[2].description).toContain("NICKNAME | MODEL | EFFORT");
     expect(TOOLS[2].description).toContain("git worktree");
-    expect(TOOLS[1].description).toContain("terminal_read until the Claude prompt is visible, then send \"/effort <level>\\n\"");
+    expect(TOOLS[1].description).toContain("terminal_read with waitFor set to the Claude prompt text, then send \"/effort <level>\\n\"");
   });
 
   it("adds Codex notify and orbit-msg reports on Windows only", () => {
@@ -81,6 +81,13 @@ describe("terminal proxy", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("reports success, not an error, when the pane was already closed", async () => {
+    const fetchImpl = async () => new Response(JSON.stringify({ closed: true, alreadyClosed: true }), { status: 200 });
+    const result = await callTool("terminal_close", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { sessionId: "p1" });
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0].text).toBe("Pane p1 was already closed");
+  });
+
   it("reads one pane by session id and lists every pane with its label", async () => {
     const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({
       sessionId: "p1",
@@ -97,6 +104,50 @@ describe("terminal proxy", () => {
     expect(result.content[0].text).toContain("Label: worker");
     expect(result.content[0].text).toContain("- main: sessionId m1 (generation 3), main");
     expect(result.content[0].text).toContain("- worker: sessionId p1 (generation 1)");
+  });
+
+  it("passes waitFor and timeoutMs as query params and reports a hit", async () => {
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
+      new Response(JSON.stringify({ sessionId: "p1", generation: 1, screenText: "ready>", waited: "hit" }), { status: 200 }));
+    const result = await callTool("terminal_read", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { sessionId: "p1", waitFor: "ready>", timeoutMs: 20_000 });
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:1/v1/bots/bot-1/terminal?sessionId=p1&waitFor=ready%3E&timeoutMs=20000");
+    expect(result.content[0].text).toContain("Waited for text: found");
+  });
+
+  it("reports a timeout with the current screen when waitFor never matches", async () => {
+    const fetchImpl = async () => new Response(JSON.stringify({ sessionId: "p1", generation: 1, screenText: "still booting", waited: "timeout" }), { status: 200 });
+    const result = await callTool("terminal_read", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { sessionId: "p1", waitFor: "ready>" });
+    expect(result.content[0].text).toContain("Waited for text: timed out");
+    expect(result.content[0].text).toContain("still booting");
+  });
+
+  it("gives a waitFor read a margin above timeoutMs, still bounded, and leaves other calls alone", async () => {
+    const fetchImpl = async () => new Response(JSON.stringify({ screenText: "" }), { status: 200 });
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    const config = { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" };
+
+    await callTool("terminal_read", fetchImpl, config, { waitFor: "x", timeoutMs: 30_000 });
+    expect(timeoutSpy.mock.calls.at(-1)?.[0]).toBe(35_000); // requested timeout plus 5s margin
+
+    await callTool("terminal_read", fetchImpl, config, { waitFor: "x", timeoutMs: 999_999_999 });
+    expect(timeoutSpy.mock.calls.at(-1)?.[0]).toBe(65_000); // clamped to the 60s max plus margin
+
+    await callTool("terminal_read", fetchImpl, config, { waitFor: "x" });
+    expect(timeoutSpy.mock.calls.at(-1)?.[0]).toBe(20_000); // default 15s wait plus margin
+
+    await callTool("terminal_read", fetchImpl, config, {});
+    expect(timeoutSpy.mock.calls.at(-1)?.[0]).toBe(10_000); // a plain read keeps its own deadline
+
+    await callTool("terminal_close", fetchImpl, config, { sessionId: "p1" });
+    expect(timeoutSpy.mock.calls.at(-1)?.[0]).toBe(10_000); // other routes are unaffected
+
+    timeoutSpy.mockRestore();
+  });
+
+  it("does not send waitFor or timeoutMs when waitFor is omitted", async () => {
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({ screenText: "ok" }), { status: 200 }));
+    await callTool("terminal_read", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, {});
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:1/v1/bots/bot-1/terminal");
   });
 
   it("maps terminal_send args to a POST on the bot's send route", async () => {

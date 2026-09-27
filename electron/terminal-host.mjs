@@ -18,6 +18,26 @@ const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 const BOT_PANE_LIMIT = 8;
 const SESSION_LIMIT = 16;
 const LABEL_LIMIT = 40;
+const MIN_ID_PREFIX_LEN = 8;
+const CLOSED_PANE_HISTORY_LIMIT = 32;
+const WAIT_POLL_MS = 100;
+const READ_WAIT_DEFAULT_MS = 15_000;
+const READ_WAIT_MAX_MS = 60_000;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Resolves a bot's own pane by full id or a unique prefix of at least MIN_ID_PREFIX_LEN chars. */
+export function resolveBotSession(live, idOrPrefix) {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Session ids cross the local proxy boundary.
+  if (typeof idOrPrefix !== "string" || !idOrPrefix) return {};
+  const exact = live.find((candidate) => candidate.id === idOrPrefix);
+  if (exact) return { session: exact };
+  if (idOrPrefix.length < MIN_ID_PREFIX_LEN) return {};
+  const matches = live.filter((candidate) => candidate.id.startsWith(idOrPrefix));
+  if (matches.length === 1) return { session: matches[0] };
+  if (matches.length > 1) return { ambiguous: true };
+  return {};
+}
 
 const stringControl = new Set(["P", "^", "_", "X"]);
 
@@ -152,8 +172,20 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
   const pending = new Map();
   const paneReservations = new Map();
   const deletedBots = new Set();
+  const closedBotPanes = new Map();
   let reservedPanes = 0;
   let disposed = false;
+  const rememberClosedPane = (botId, sessionId) => {
+    const list = closedBotPanes.get(botId) ?? [];
+    list.push(sessionId);
+    if (list.length > CLOSED_PANE_HISTORY_LIMIT) list.shift();
+    closedBotPanes.set(botId, list);
+  };
+  const wasClosedPane = (botId, idOrPrefix) => {
+    const list = closedBotPanes.get(botId);
+    if (!list) return false;
+    return list.some((id) => id === idOrPrefix || (idOrPrefix.length >= MIN_ID_PREFIX_LEN && id.startsWith(idOrPrefix)));
+  };
   const dimensions = (cols, rows) => {
     if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || cols > 500 || rows < 1 || rows > 300) {
       throw new Error("Invalid terminal dimensions");
@@ -575,25 +607,49 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     readBot(botId, options = {}) {
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Bot ids cross the local proxy boundary.
       if (typeof botId !== "string" || !BOT_ID_RE.test(botId)) throw new Error("Invalid bot");
-      const live = botSessions(botId);
-      const session = options.sessionId ? live.find((candidate) => candidate.id === options.sessionId) : live.find((candidate) => !candidate.botPane) ?? live[0];
-      if (options.sessionId && !session) throw new Error("Unknown terminal");
-      if (!session) return { botId, state: "no-terminal", screenText: "", recentText: "", seq: 0, capturedAt: now(), exitCode: null, exited: false, truncated: false, panes: [] };
-      const maxScreenChars = Number.isInteger(options.maxScreenChars) ? Math.max(1, Math.min(options.maxScreenChars, 64 * 1024)) : 64 * 1024;
-      const maxScrollbackChars = Number.isInteger(options.maxScrollbackChars) ? Math.max(0, Math.min(options.maxScrollbackChars, 16 * 1024)) : 16 * 1024;
-      return {
-        botId,
-        sessionId: session.id,
-        generation: session.generation,
-        label: session.label ?? null,
-        cwd: session.cwd,
-        seq: session.seq,
-        capturedAt: now(),
-        exitCode: session.exitCode,
-        exited: session.exitCode !== null,
-        ...session.screen.snapshot({ maxScreenChars, maxScrollbackChars }),
-        panes: live.map(paneSummary),
+      const buildSnapshot = () => {
+        const live = botSessions(botId);
+        let session;
+        if (options.sessionId) {
+          const match = resolveBotSession(live, options.sessionId);
+          if (!match.session) throw new Error("Unknown terminal");
+          session = match.session;
+        } else {
+          session = live.find((candidate) => !candidate.botPane) ?? live[0];
+        }
+        if (!session) return { botId, state: "no-terminal", screenText: "", recentText: "", seq: 0, capturedAt: now(), exitCode: null, exited: false, truncated: false, panes: [] };
+        const maxScreenChars = Number.isInteger(options.maxScreenChars) ? Math.max(1, Math.min(options.maxScreenChars, 64 * 1024)) : 64 * 1024;
+        const maxScrollbackChars = Number.isInteger(options.maxScrollbackChars) ? Math.max(0, Math.min(options.maxScrollbackChars, 16 * 1024)) : 16 * 1024;
+        return {
+          botId,
+          sessionId: session.id,
+          generation: session.generation,
+          label: session.label ?? null,
+          cwd: session.cwd,
+          seq: session.seq,
+          capturedAt: now(),
+          exitCode: session.exitCode,
+          exited: session.exitCode !== null,
+          ...session.screen.snapshot({ maxScreenChars, maxScrollbackChars }),
+          panes: live.map(paneSummary),
+        };
       };
+      const first = buildSnapshot();
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Wait text is untyped proxy input.
+      const waitFor = typeof options.waitFor === "string" && options.waitFor ? options.waitFor : null;
+      if (!waitFor) return first;
+      if (first.screenText.includes(waitFor)) return Promise.resolve({ ...first, waited: "hit" });
+      const timeoutMs = Math.min(Math.max(Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : READ_WAIT_DEFAULT_MS, WAIT_POLL_MS), READ_WAIT_MAX_MS);
+      const deadline = now() + timeoutMs;
+      return (async () => {
+        let snap = first;
+        while (now() < deadline) {
+          await sleep(WAIT_POLL_MS);
+          snap = buildSnapshot();
+          if (snap.screenText.includes(waitFor)) return { ...snap, waited: "hit" };
+        }
+        return { ...snap, waited: "timeout" };
+      })();
     },
     sendBot(botId, input) {
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Bot ids cross the local proxy boundary.
@@ -606,7 +662,11 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       }
       const live = botSessions(botId);
       if (!live.length) throw new Error("No active terminal for this bot");
-      const session = live.find((candidate) => candidate.id === input.sessionId);
+      // A restarted pane's old id is expected to stop resolving here (its
+      // replacement took over the slot), so an unmatched or ambiguous id
+      // keeps the existing "stale" wording rather than "Unknown terminal".
+      const match = resolveBotSession(live, input.sessionId);
+      const session = match.session;
       if (!session || session.generation !== input.generation) throw new Error("Terminal session is stale; take a fresh snapshot");
       if (session.exitCode !== null) throw new Error("Terminal has exited");
       if (input.text.includes("\x03")) throw new Error("Ctrl+C is not allowed in a confirmed terminal send");
@@ -632,10 +692,15 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     closeForBot(botId, sessionId) {
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Bot ids cross the local proxy boundary.
       if (typeof botId !== "string" || !BOT_ID_RE.test(botId)) throw new Error("Invalid bot");
-      const session = botSessions(botId).find((candidate) => candidate.id === sessionId);
-      if (!session) throw new Error("Unknown terminal");
-      if (!session.botPane) throw new Error("Only bot terminals can be closed");
-      return retire(session, true);
+      const match = resolveBotSession(botSessions(botId), sessionId);
+      if (match.session) {
+        if (!match.session.botPane) throw new Error("Only bot terminals can be closed");
+        rememberClosedPane(botId, match.session.id);
+        return retire(match.session, true).then(() => ({ alreadyClosed: false }));
+      }
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Session ids cross the local proxy boundary.
+      if (!match.ambiguous && typeof sessionId === "string" && wasClosedPane(botId, sessionId)) return Promise.resolve({ alreadyClosed: true });
+      throw new Error("Unknown terminal");
     },
     async openForBot(botId, input = {}) {
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Bot ids cross the local proxy boundary.

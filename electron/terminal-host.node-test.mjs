@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import os from "node:os";
-import { createTerminalHost, createTerminalOutputParser, terminalEnvironment, terminalReadyTimeoutMs, trustedTerminalSender } from "./terminal-host.mjs";
+import { createTerminalHost, createTerminalOutputParser, resolveBotSession, terminalEnvironment, terminalReadyTimeoutMs, trustedTerminalSender } from "./terminal-host.mjs";
 
 function fixture(options = {}) {
   const events = [];
@@ -718,6 +718,8 @@ test("readBot lists every pane and sendBot targets a pane by session id", async 
   assert.deepEqual(read.panes.map(({ sessionId, label, main: isMain }) => [sessionId, label, isMain]), [[main.id, null, true], [pane.sessionId, "worker", false]]);
   assert.equal(f.host.readBot("bot-1", { sessionId: pane.sessionId }).label, "worker");
   assert.throws(() => f.host.readBot("bot-1", { sessionId: "missing" }), /Unknown terminal/);
+  // sendBot keeps its existing "stale" wording for an unresolved id (see the restart case below).
+  assert.throws(() => f.host.sendBot("bot-1", { sessionId: "missingmissing", generation: 1, text: "x" }), /stale/);
   f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "ls\r" });
   assert.deepEqual(f.children[1].writes, ["ls\r"]);
   assert.deepEqual(f.children[0].writes, []);
@@ -797,11 +799,96 @@ test("closeForBot retires a bot pane, frees its slot and refuses main or foreign
   const other = await f.host.openForBot("bot-2", { label: "other" });
   assert.throws(() => f.host.closeForBot("bot-1", other.sessionId), /Unknown terminal/);
   assert.throws(() => f.host.closeForBot("bot-1", main.id), /Only bot terminals/);
-  await f.host.closeForBot("bot-1", panes[0].sessionId);
+  const closed = await f.host.closeForBot("bot-1", panes[0].sessionId);
+  assert.deepEqual(closed, { alreadyClosed: false });
   assert.deepEqual(f.events.find(([channel, value]) => channel === "terminal:closed" && value.id === panes[0].sessionId), ["terminal:closed", { id: panes[0].sessionId, botId: "bot-1" }]);
   assert.equal(f.children[1].killed, true);
-  assert.throws(() => f.host.closeForBot("bot-1", panes[0].sessionId), /Unknown terminal/);
   await f.host.openForBot("bot-1", { label: "w8" });
+});
+
+test("closeForBot on an already-closed pane succeeds instead of erroring", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  const pane = await f.host.openForBot("bot-1", { label: "worker" });
+  await f.host.closeForBot("bot-1", pane.sessionId);
+  const again = await f.host.closeForBot("bot-1", pane.sessionId);
+  assert.deepEqual(again, { alreadyClosed: true });
+  // A foreign bot's id is never in this bot's closed history, so it still refuses.
+  assert.throws(() => f.host.closeForBot("bot-2", pane.sessionId), /Unknown terminal/);
+  // A prefix of an already-closed pane also reports already closed.
+  const alsoAgain = await f.host.closeForBot("bot-1", pane.sessionId.slice(0, 8));
+  assert.deepEqual(alsoAgain, { alreadyClosed: true });
+});
+
+test("terminal_read, terminal_send and terminal_close accept a unique pane id prefix", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  const one = await f.host.openForBot("bot-1", { label: "one" });
+  const prefix = one.sessionId.slice(0, 8);
+  assert.equal(f.host.readBot("bot-1", { sessionId: prefix }).sessionId, one.sessionId);
+  f.host.sendBot("bot-1", { sessionId: prefix, generation: one.generation, text: "ls\r" });
+  assert.deepEqual(f.children[0].writes, ["ls\r"]);
+  await f.host.closeForBot("bot-1", prefix);
+  assert.equal(f.children[0].killed, true);
+});
+
+test("resolveBotSession matches a unique prefix, refuses ambiguous or too-short prefixes", () => {
+  const live = [{ id: "abcdef123456" }, { id: "abcdef129999" }, { id: "112233445566" }];
+  assert.equal(resolveBotSession(live, "112233445566").session, live[2]);
+  assert.equal(resolveBotSession(live, "1122334455").session, live[2]);
+  assert.equal(resolveBotSession(live, "abcdef123456").session, live[0]);
+  assert.deepEqual(resolveBotSession(live, "abcdef12"), { ambiguous: true });
+  assert.deepEqual(resolveBotSession(live, "abcdef1"), {});
+  assert.deepEqual(resolveBotSession(live, "zzzzzzzz"), {});
+});
+
+test("a pane id prefix never matches another bot's pane", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  const one = await f.host.openForBot("bot-1", { label: "one" });
+  await f.host.openForBot("bot-2", { label: "foreign" });
+  assert.throws(() => f.host.readBot("bot-2", { sessionId: one.sessionId.slice(0, 8) }), /Unknown terminal/);
+  assert.throws(() => f.host.closeForBot("bot-2", one.sessionId.slice(0, 8)), /Unknown terminal/);
+  // sendBot never resolves another bot's pane either; it just keeps its own not-found wording.
+  assert.throws(() => f.host.sendBot("bot-2", { sessionId: one.sessionId.slice(0, 8), generation: 1, text: "x" }), /stale/);
+});
+
+test("readBot's waitFor returns as soon as the text appears on screen", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  const pane = await f.host.openForBot("bot-1", { label: "worker" });
+  const waiting = f.host.readBot("bot-1", { sessionId: pane.sessionId, waitFor: "ready>", timeoutMs: 5000 });
+  assert.ok(waiting instanceof Promise);
+  await wait(20);
+  f.children[0].data("booting\r\nready> ");
+  const result = await waiting;
+  assert.equal(result.waited, "hit");
+  assert.match(result.screenText, /ready>/);
+});
+
+test("readBot's waitFor times out with the current screen when the text never appears", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  const pane = await f.host.openForBot("bot-1", { label: "worker" });
+  f.children[0].data("still booting");
+  const result = await f.host.readBot("bot-1", { sessionId: pane.sessionId, waitFor: "ready>", timeoutMs: 150 });
+  assert.equal(result.waited, "timeout");
+  assert.match(result.screenText, /still booting/);
+});
+
+test("readBot without waitFor returns a plain snapshot, not a promise", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  const pane = await f.host.openForBot("bot-1", { label: "worker" });
+  const result = f.host.readBot("bot-1", { sessionId: pane.sessionId });
+  assert.ok(!(result instanceof Promise));
+  assert.equal(result.sessionId, pane.sessionId);
 });
 
 test("openForBot reserves pane slots before resolving the folder", async () => {
