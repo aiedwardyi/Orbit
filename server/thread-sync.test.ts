@@ -242,6 +242,63 @@ describe("thread sync", () => {
     expect(b.notices).toEqual(["t1"]);
   });
 
+  it("imports a newer remote that patched a row an idle PC still holds", () => {
+    const folder = temp("thread-sync-folder-");
+    const laptop = pc("device-a", folder);
+    const home = pc("device-b", folder);
+    laptop.say("t1", "m1", "hello");
+    const thread = laptop.threads.get("t1")!;
+    thread.messages.push(msg("a1", "", "m1", { role: "bot", kind: "activity", tool: { name: "Read" } }));
+    thread.activeLeafId = "a1";
+    uploadThread(laptop.host, BOT_SYNC_ID, "t1");
+    expect(pullThread(home.host, "bot-b", BOT_SYNC_ID, "t1")).toBe("imported");
+    thread.messages[1] = { ...thread.messages[1], tool: { name: "Read", ok: true } };
+    markThreadDirty(laptop.host.ledger, "t1");
+    laptop.say("t1", "m2", "more");
+    uploadThread(laptop.host, BOT_SYNC_ID, "t1");
+
+    expect(pullThread(home.host, "bot-b", BOT_SYNC_ID, "t1")).toBe("imported");
+    expect(home.notices).toEqual([]);
+    expect(conflictMessages(folder, "device-a")).toEqual([]);
+    expect(home.threads.get("t1")?.messages[1].tool?.ok).toBe(true);
+    expect(uploadThread(home.host, BOT_SYNC_ID, "t1")).toBe("current");
+    expect(readSyncedThread(remotePath(folder, "t1"))).toMatchObject({ revision: 2, writerDeviceId: "device-a" });
+  });
+
+  it("keeps the conflict notice local so an idle PC imports over it", () => {
+    const folder = temp("thread-sync-folder-");
+    const a = pc("device-a", folder);
+    const b = pc("device-b", folder);
+    b.host.conflicted = (threadId) => {
+      const thread = b.threads.get(threadId)!;
+      thread.messages.push(msg("n1", "", thread.activeLeafId, { role: "bot", kind: "activity", tool: { name: `error: ${CONFLICT_NOTICE}`, ok: false } }));
+      thread.activeLeafId = "n1";
+    };
+    a.say("t1", "m1", "hello");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1");
+    a.say("t1", "m2", "from a");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    b.say("t1", "b1", "from b");
+    expect(uploadThread(b.host, BOT_SYNC_ID, "t1")).toBe("conflict");
+
+    expect(uploadThread(b.host, BOT_SYNC_ID, "t1")).toBe("written");
+    expect(readSyncedThread(remotePath(folder, "t1"))).toMatchObject({ activeLeafId: "b1" });
+    b.say("t1", "b2", "after the notice");
+    expect(uploadThread(b.host, BOT_SYNC_ID, "t1")).toBe("written");
+    const remote = readSyncedThread(remotePath(folder, "t1"));
+    expect(remote?.messages.map((m) => [m.id, m.parentId])).toEqual([["m1", null], ["b1", "m1"], ["b2", "b1"]]);
+    expect(remote?.activeLeafId).toBe("b2");
+    expect(b.threads.get("t1")?.messages.map((m) => m.id)).toEqual(["m1", "b1", "n1", "b2"]);
+
+    expect(pullThread(a.host, "bot-a", BOT_SYNC_ID, "t1")).toBe("imported");
+    a.say("t1", "m3", "from a again");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    expect(pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1")).toBe("imported");
+    expect(conflictMessages(folder, "device-a")).toEqual([["m1", "m2"]]);
+    expect(uploadThread(b.host, BOT_SYNC_ID, "t1")).toBe("current");
+  });
+
   it("treats an equal revision from another writer as a conflict on upload and pull", () => {
     // both at rev 2; A writes rev 3, a lagging Drive shows B rev 2, B writes its own rev 3 and Drive keeps it
     const race = () => {

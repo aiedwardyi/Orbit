@@ -210,10 +210,28 @@ function canonical(message: Message): string {
       : value);
 }
 
-/** Every local message, content included, is in the remote or a parked conflict copy; a higher revision alone does not prove ancestry. */
+const isConflictNotice = (message: Message) => message.kind === "activity" && message.tool?.name === `error: ${CONFLICT_NOTICE}`;
+
+/** Conflict notices stay on the PC that showed them; rows under one hang off its parent instead. */
+function shared(local: LocalThread): { messages: Message[]; activeLeafId: string | null } {
+  const notices = new Map(local.messages.filter(isConflictNotice).map((message) => [message.id, message.parentId ?? null]));
+  const lift = (id: string | null | undefined) => {
+    while (id && notices.has(id)) id = notices.get(id);
+    return id;
+  };
+  return {
+    messages: local.messages
+      .filter((message) => !notices.has(message.id))
+      .map((message) => persisted(notices.has(message.parentId ?? "") ? { ...message, parentId: lift(message.parentId) } : message)),
+    activeLeafId: lift(local.activeLeafId) ?? null,
+  };
+}
+
+/** Every local message is in the remote or a parked conflict copy; a higher revision alone does not prove ancestry.
+ * A clean thread's row the remote holds under the same id was patched there (a card answered on another PC), so it counts. */
 function preserved(dir: string, threadId: string, local: LocalThread, remote: SyncedThreadFile): boolean {
-  const kept = new Set(remote.messages.map(canonical));
-  let missing = local.messages.map((message) => canonical(persisted(message))).filter((key) => !kept.has(key));
+  const kept = new Set(remote.messages.map((message) => message.id));
+  let missing = shared(local).messages.filter((message) => !kept.has(message.id)).map(canonical);
   for (const name of missing.length ? readdirSync(dir) : []) {
     if (!name.startsWith(`${threadId}.conflict-`)) continue;
     const parked = new Set(readSyncedThread(join(dir, name), true)?.messages.map(canonical));
@@ -231,8 +249,7 @@ function toFile(host: ThreadSyncHost, threadId: string, local: LocalThread, revi
     writerDeviceId: host.deviceId,
     updatedAt: host.now?.() ?? Date.now(),
     task: { threadId, title: local.title, createdAt: local.createdAt },
-    activeLeafId: local.activeLeafId,
-    messages: local.messages.map(persisted),
+    ...shared(local),
   };
 }
 
