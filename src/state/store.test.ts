@@ -175,11 +175,17 @@ describe("notification routing", () => {
   it("clears unread only when that exact conversation is visible", () => {
     const owner = { id: "bot-1", unread: true };
     const visible = { activeView: "chat" as const, selectedId: "bot-1", workspaceOpen: false };
-    expect(shouldClearSelectedUnread(visible, owner)).toBe(true);
-    expect(shouldClearSelectedUnread({ ...visible, activeView: "routines" }, owner)).toBe(false);
-    expect(shouldClearSelectedUnread({ ...visible, selectedId: "room-1" }, owner)).toBe(false);
-    expect(shouldClearSelectedUnread({ ...visible, workspaceOpen: true }, owner)).toBe(false);
-    expect(shouldClearSelectedUnread(visible, { ...owner, unread: false })).toBe(false);
+    expect(shouldClearSelectedUnread(visible, owner, true)).toBe(true);
+    expect(shouldClearSelectedUnread({ ...visible, activeView: "routines" }, owner, true)).toBe(false);
+    expect(shouldClearSelectedUnread({ ...visible, selectedId: "room-1" }, owner, true)).toBe(false);
+    expect(shouldClearSelectedUnread({ ...visible, workspaceOpen: true }, owner, true)).toBe(false);
+    expect(shouldClearSelectedUnread(visible, { ...owner, unread: false }, true)).toBe(false);
+  });
+
+  it("does not clear unread on a window that is hidden or unfocused, even with the chat on screen", () => {
+    const owner = { id: "bot-1", unread: true };
+    const visible = { activeView: "chat" as const, selectedId: "bot-1", workspaceOpen: false };
+    expect(shouldClearSelectedUnread(visible, owner, false)).toBe(false);
   });
 
   const coveredBot = {
@@ -220,6 +226,20 @@ describe("notification routing", () => {
     const open = { ...initialState, bots: [coveredBot], selectedId: "bot-1", workspaceOpen: true };
     expect(reducer(open, { type: "select", id: "bot-1" }).bots[0]?.unread).toBe(true);
     expect(reducer({ ...open, workspaceOpen: false }, { type: "select", id: "bot-1" }).bots[0]?.unread).toBe(false);
+  });
+
+  it("clears the badge when the window regains focus over the visible chat", () => {
+    const visible = { ...initialState, bots: [coveredBot], selectedId: "bot-1", workspaceOpen: false };
+    expect(reducer(visible, { type: "windowActivated" }).bots[0]?.unread).toBe(false);
+    const room = { ...initialState, groups: [coveredRoom], selectedId: "room-1", workspaceOpen: false };
+    expect(reducer(room, { type: "windowActivated" }).groups[0]?.unread).toBe(false);
+  });
+
+  it("leaves the badge alone on focus regain when the chat is covered or not on screen", () => {
+    const covered = { ...initialState, bots: [coveredBot], selectedId: "bot-1", workspaceOpen: true };
+    expect(reducer(covered, { type: "windowActivated" }).bots[0]?.unread).toBe(true);
+    const away = { ...initialState, bots: [coveredBot], selectedId: "bot-1", workspaceOpen: false, activeView: "routines" as const };
+    expect(reducer(away, { type: "windowActivated" }).bots[0]?.unread).toBe(true);
   });
 });
 

@@ -3538,6 +3538,12 @@ type StartTurnOptions = {
   onDispatchError?: (message: string) => void;
 };
 
+/** True only for a turn a person actually typed - not a pane note wake, a
+ * delegation/peer ask, or an automation/routine trigger. */
+function turnStartedByUser(opts?: StartTurnOptions): boolean {
+  return opts?.automationSource === undefined && !opts?.commsDepth && !opts?.cardContinuation;
+}
+
 const SHOW_IMAGE_GUIDANCE =
   "When you produce or find an image the user should see (a mockup, chart, or screenshot file), call show_image with its absolute path so it appears in this chat. Never end with only a file path. To create a new image, call generate_image.";
 
@@ -3647,7 +3653,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // inherited from a bot already running unattended
   if (routineTriggerIsUnattended(opts?.automationSource) || opts?.unattended) markUnattended(bot.id);
   // a person typing into this bot ends the unattended window immediately
-  else if (opts?.automationSource === undefined && !opts?.commsDepth && !opts?.cardContinuation) clearUnattended(bot.id);
+  else if (turnStartedByUser(opts)) clearUnattended(bot.id);
   const task = store.taskByThread(bot.id, threadId);
   if (!task) throw Object.assign(new Error("no such task"), { status: 404 });
   const latencySendId = opts?.sendId ?? opts?.userMessage?.sendId;
@@ -3961,7 +3967,9 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     clearSendRunning(bot.id);
     return startedTurn(userMessage);
   }
-  store.patchBot(bot.id, { unread: false });
+  // a pane note, delegation, routine, or peer ask starting this turn is not
+  // the user reading anything - only their own message should clear it
+  if (turnStartedByUser(opts)) store.patchBot(bot.id, { unread: false });
   turnUsage.delete(threadId);
   turnDispatchedAt.set(threadId, tickTurnClock());
   turnStartedAtMs.set(threadId, Date.now());

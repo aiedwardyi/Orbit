@@ -797,6 +797,7 @@ export type Action =
   | { type: "toggleComputer"; open?: boolean }
   | { type: "toggleInspector"; open?: boolean }
   | { type: "setWorkspaceOpen"; open: boolean }
+  | { type: "windowActivated" }
   | { type: "focusMessage"; threadId: string; messageId: string }
   | { type: "focusMessageConsumed"; nonce: number }
   | { type: "mascotMotionDone"; nonce: number }
@@ -836,12 +837,20 @@ export function autoSpeaks(frame: { imported?: boolean; message?: { text?: strin
   return !frame.imported && Boolean(frame.message?.text?.trim());
 }
 
+/** A conversation on an unfocused or hidden window is not being read, even
+ * if it is the one on screen - an idle client watching over someone's
+ * shoulder must not silently clear the badge the active device hasn't seen. */
 export function shouldClearSelectedUnread(
   state: Pick<AppState, "activeView" | "selectedId" | "workspaceOpen">,
   owner: { id: string; unread?: boolean },
+  windowActive: boolean,
 ): boolean {
   return Boolean(
-    owner.unread && state.activeView === "chat" && !state.workspaceOpen && state.selectedId === owner.id,
+    owner.unread &&
+      windowActive &&
+      state.activeView === "chat" &&
+      !state.workspaceOpen &&
+      state.selectedId === owner.id,
   );
 }
 
@@ -1393,6 +1402,16 @@ export function reducer(state: AppState, action: Action): AppState {
         ...next,
         bots: next.bots.map((b) => (b.id === next.selectedId ? { ...b, unread: false } : b)),
         groups: next.groups.map((g) => (g.id === next.selectedId ? { ...g, unread: false } : g)),
+      };
+    }
+    // the window just regained focus/visibility with an unread chat still
+    // on screen - that is the user reading it, same as opening it fresh
+    case "windowActivated": {
+      if (state.activeView !== "chat" || state.workspaceOpen) return state;
+      return {
+        ...state,
+        bots: state.bots.map((b) => (b.id === state.selectedId ? { ...b, unread: false } : b)),
+        groups: state.groups.map((g) => (g.id === state.selectedId ? { ...g, unread: false } : g)),
       };
     }
     case "toggleComputer": {
@@ -2307,6 +2326,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }
           break;
         }
+        case "windowActivated": {
+          if (stateRef.current.activeView !== "chat" || stateRef.current.workspaceOpen) break;
+          const selected = stateRef.current.selectedId;
+          const shown = stateRef.current.bots.find((b) => b.id === selected);
+          const shownGroup = stateRef.current.groups.find((g) => g.id === selected);
+          if (shown?.unread) {
+            api(`/api/bots/${selected}`, { method: "PATCH", body: JSON.stringify({ unread: false }) }).catch(() => {});
+          } else if (shownGroup?.unread) {
+            api(`/api/groups/${selected}`, { method: "PATCH", body: JSON.stringify({ unread: false }) }).catch(() => {});
+          }
+          break;
+        }
         case "select": {
           if (stateRef.current.workspaceOpen && stateRef.current.selectedId === action.id) break;
           const bot = stateRef.current.bots.find((b) => b.id === action.id);
@@ -2761,8 +2792,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           break;
         case "bot": {
           const bot = frame.bot as BotAnnouncement;
-          // reading the selected chat clears its badge immediately
-          if (shouldClearSelectedUnread(stateRef.current, bot)) {
+          // reading the selected chat clears its badge immediately - but only
+          // on the window actually being looked at right now
+          if (shouldClearSelectedUnread(stateRef.current, bot, document.visibilityState === "visible" && document.hasFocus())) {
             bot.unread = false;
             fetch(`/api/bots/${bot.id}`, {
               method: "PATCH",
@@ -2778,8 +2810,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         case "group": {
           const group = frame.group as Partial<Group> & { id: string };
-          // reading the selected room clears its badge immediately
-          if (shouldClearSelectedUnread(stateRef.current, group)) {
+          // reading the selected room clears its badge immediately - but only
+          // on the window actually being looked at right now
+          if (shouldClearSelectedUnread(stateRef.current, group, document.visibilityState === "visible" && document.hasFocus())) {
             group.unread = false;
             fetch(`/api/groups/${group.id}`, {
               method: "PATCH",
@@ -2979,6 +3012,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [refreshInstances]);
+
+  // A chat left open on a hidden or unfocused window is not "read" until the
+  // window is actually visible and focused again - that moment is the only
+  // honest signal, so both events feed the same check.
+  useEffect(() => {
+    const onWindowActivated = () => {
+      if (document.visibilityState === "visible" && document.hasFocus()) {
+        dispatch({ type: "windowActivated" });
+      }
+    };
+    window.addEventListener("focus", onWindowActivated);
+    document.addEventListener("visibilitychange", onWindowActivated);
+    return () => {
+      window.removeEventListener("focus", onWindowActivated);
+      document.removeEventListener("visibilitychange", onWindowActivated);
+    };
+  }, [dispatch]);
 
   useEffect(() => {
     return window.ogb?.onNotificationClick?.((target) => {

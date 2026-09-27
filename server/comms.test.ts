@@ -547,6 +547,49 @@ describe("comms e2e (fake ACP fleet)", () => {
     45_000,
   );
 
+  // A delegated turn dispatching on B is not B's owner reading anything -
+  // the old code cleared unread at the start of every turn regardless of
+  // who started it, so a delegation would silently wipe a badge nobody saw.
+  it(
+    "leaves B's unread flag alone when a delegated turn dispatches on it",
+    async () => {
+      const seeded = (await api("GET", "/api/bots")).body.bots[0];
+      await api("PATCH", `/api/bots/${seeded.id}`, { hidden: true });
+      const helperSelection = { instanceId: "grok", model: "fake-model" };
+      const askerSelection = { instanceId: "askerDelegate", model: "fake-model" };
+      const helper = (await api("POST", "/api/bots")).body.bot;
+      await api("PATCH", `/api/bots/${helper.id}`, { name: "Helper", modelSelection: helperSelection });
+      const asker = (await api("POST", "/api/bots")).body.bot;
+      await api("PATCH", `/api/bots/${asker.id}`, { name: "Asker", modelSelection: askerSelection });
+
+      await api("PATCH", `/api/bots/${helper.id}`, { unread: true });
+
+      const send = await api("POST", `/api/bots/${asker.id}/messages`, { text: "hey @Helper please pick this up" });
+      expect(send.status).toBe(202);
+
+      const deadline = Date.now() + 30_000;
+      let helperBot: any;
+      for (;;) {
+        const state = (await api("GET", "/api/bots")).body;
+        helperBot = state.bots.find((b: any) => b.id === helper.id);
+        const helperReplied = helperBot.messages.some(
+          (m: any) => m.role === "bot" && m.kind === "text" && m.text?.includes("hello from fake acp"),
+        );
+        if (helperReplied && !helperBot.busy) break;
+        if (Date.now() > deadline) {
+          throw new Error(
+            `delegated turn on B never settled. helper busy=${helperBot.busy}\n` +
+              `helper tail: ${JSON.stringify(helperBot.messages.slice(-6))}\nstderr: ${stderr.slice(-2000)}`,
+          );
+        }
+        await new Promise((r) => setTimeout(r, 250));
+      }
+
+      expect(helperBot.unread).toBe(true);
+    },
+    45_000,
+  );
+
   // ── delegation terminal-state mirroring ─────────────────────────────
   // A delegated turn is fire-and-forget: nobody waits for B, so the ONLY
   // place a human would ever see how it ended is the A⇄B channel. These
