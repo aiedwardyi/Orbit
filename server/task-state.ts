@@ -216,3 +216,13 @@ export function deleteTaskResumePacket(
   unlinkSync(path);
   return true;
 }
+
+const TASK_STATE_UPDATE_FIELDS = "goal, plan, completed_note, next_action, blockers, artifacts";
+
+export function taskStateUpdateError(error: z.ZodError): string {
+  const issue = error.issues[0];
+  let detail = "unreadable body";
+  if (issue?.code === "unrecognized_keys") detail = `unknown field ${issue.keys.join(", ")}`;
+  else if (issue) detail = issue.path.length ? `${issue.path.map(String).join(".")}: ${issue.message}` : issue.message;
+  return `invalid task state update: ${detail.slice(0, 200)}; allowed: ${TASK_STATE_UPDATE_FIELDS}.`;
+}

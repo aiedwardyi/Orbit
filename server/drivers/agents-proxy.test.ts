@@ -310,6 +310,22 @@ describe("agents-proxy MCP surface", () => {
     expect(lastTaskStateBody).toBeNull();
   });
 
+  it("rejects unknown and misshapen task fields with the allowed list", async () => {
+    lastTaskStateBody = null;
+    const unknown = await callTool("update_task_state", { goal: "Ship", notes: "x", done: true });
+    expect(unknown.result.isError).toBe(true);
+    expect(unknown.result.content[0].text).toContain("unknown field notes, done");
+    expect(unknown.result.content[0].text).toContain("allowed: goal, plan, completed_note, next_action, blockers, artifacts");
+
+    const empty = await callTool("update_task_state", {});
+    expect(empty.result.content[0].text).toContain("allowed: goal, plan");
+
+    const plan = await callTool("update_task_state", { plan: "step one, step two" });
+    expect(plan.result.isError).toBe(true);
+    expect(plan.result.content[0].text).toContain("plan must be an array");
+    expect(lastTaskStateBody).toBeNull();
+  });
+
   it("publishes a flat routine schedule schema that survives provider conversion", async () => {
     const list = await rpc("tools/list");
     const create = list.result.tools.find((t: { name: string }) => t.name === "propose_routine");

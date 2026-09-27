@@ -13,11 +13,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import {
   deleteTaskResumePacket,
   readTaskResumePacket,
   TASK_STATE_MAX_BYTES,
+  taskStateUpdateError,
   writeTaskResumePacket,
   type TaskResumePacket,
 } from "./task-state.ts";
@@ -151,5 +153,33 @@ describe("task resume packets", () => {
     writeTaskResumePacket(packet(), { dir });
 
     expect(statSync(path).mode & 0o777).toBe(0o600);
+  });
+});
+
+describe("taskStateUpdateError", () => {
+  const schema = z.object({
+    goal: z.string().optional(),
+    plan: z.array(z.object({ step: z.string().min(1) }).strict()).optional(),
+  }).strict();
+  const error = (body: unknown) => {
+    const parsed = schema.safeParse(body);
+    if (parsed.success) throw new Error("expected a parse failure");
+    return taskStateUpdateError(parsed.error);
+  };
+
+  it("names an unknown field and the allowed ones", () => {
+    const text = error({ goal: "ship", notes: "x" });
+    expect(text).toContain("unknown field notes");
+    expect(text).toContain("allowed: goal, plan, completed_note, next_action, blockers, artifacts");
+  });
+
+  it("names the failing path", () => {
+    expect(error({ plan: "step one" })).toMatch(/: plan: /);
+    expect(error({ plan: [{ step: "" }] })).toMatch(/: plan\.0\.step: /);
+  });
+
+  it("bounds the detail length", () => {
+    const text = error({ ["x".repeat(1000)]: 1 });
+    expect(text.length).toBeLessThan(400);
   });
 });

@@ -530,9 +530,16 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
   }
   if (name === "update_task_state") {
     const supported = ["goal", "plan", "completed_note", "next_action", "blockers", "artifacts"] as const;
-    if (!supported.some((key) => args[key] !== undefined)) {
-      return { text: "update_task_state needs at least one task field.", isError: true };
+    const allowed = `allowed: ${supported.join(", ")}.`;
+    const unknown = Object.keys(args).filter((key) => !(supported as readonly string[]).includes(key));
+    if (unknown.length) {
+      return { text: `update_task_state unknown field ${unknown.join(", ")}; ${allowed}`, isError: true };
     }
+    if (!supported.some((key) => args[key] !== undefined)) {
+      return { text: `update_task_state needs at least one task field; ${allowed}`, isError: true };
+    }
+    const notArray = (["plan", "blockers", "artifacts"] as const).find((key) => args[key] !== undefined && !Array.isArray(args[key]));
+    if (notArray) return { text: `update_task_state ${notArray} must be an array.`, isError: true };
     if (hasBlankTaskText(args)) {
       return { text: "update_task_state text fields cannot be blank.", isError: true };
     }

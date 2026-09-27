@@ -184,7 +184,7 @@ import {
   type RecoveryFlushReason,
 } from "./task-recovery-flush.ts";
 import { isCompletedTaskRecord } from "../shared/task-resume.ts";
-import type { TaskResumePacket } from "./task-state.ts";
+import { taskStateUpdateError, type TaskResumePacket } from "./task-state.ts";
 import * as tts from "./tts/index.ts";
 import { narrateTool, toUtterances } from "./tts/speech-text.ts";
 import {
@@ -6025,7 +6025,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (method === "POST" && path === "/api/internal/task-state") {
         const parsed = taskStateUpdateEnvelopeSchema.safeParse(await readBody(req));
-        if (!parsed.success) return json(res, 400, { error: "invalid task state update" });
+        if (!parsed.success) return json(res, 400, { error: taskStateUpdateError(parsed.error) });
         const body = parsed.data;
         const bot = store.bot(body.fromBotId);
         if (!bot) return json(res, 403, { error: "unknown sender" });
