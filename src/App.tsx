@@ -26,6 +26,7 @@ import { I18nProvider, useI18n } from "@/lib/i18n";
 import { buildTerminalNotification, showNotification, type NotificationTarget } from "@/lib/notify";
 import { focusComposerOnActivation } from "@/lib/focus-composer";
 import { BackNavigation, backDepth, followSelection, trailTarget, type BackLayer } from "@/lib/back-navigation";
+import { SKINS, applySkin, nextSkin, readSkin, type SkinId } from "@/lib/skins";
 
 const Onboarding = lazy(() => import("@/components/Onboarding").then((m) => ({ default: m.Onboarding })));
 const SettingsPanel = lazy(() => import("@/components/SettingsPanel").then((m) => ({ default: m.SettingsPanel })));
@@ -84,6 +85,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   // turn the aside into a containing block for its fixed descendants (see
   // Sidebar.tsx's className comment).
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [themeToast, setThemeToast] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [sidebarOverlay, setSidebarOverlay] = useState<string | null>(null);
@@ -180,10 +182,19 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   // first /api/instances response has not arrived yet.
   const noEngines = state.connected && isEmptyEngineLaunch(state.instances);
 
-  // App-wide shortcuts: Alt+T Themes · Alt+U Usage · Ctrl+1..9 Nth bot · Alt+1..9 Nth pane while the terminal is open, else Nth bot. Esc still closes panels.
+  // App-wide shortcuts: Alt+T Themes · Alt+Shift+T Cycle theme · Alt+U Usage · Ctrl+1..9 Nth bot · Alt+1..9 Nth pane while the terminal is open, else Nth bot. Esc still closes panels.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
+      if (e.altKey && !mod && e.shiftKey && e.code === "KeyT") {
+        if (e.repeat || e.isComposing) return;
+        e.preventDefault();
+        const current = (document.documentElement.dataset.skin as SkinId) || readSkin();
+        const next = nextSkin(current);
+        applySkin(next);
+        setThemeToast(SKINS.find((skin) => skin.id === next)?.name ?? next);
+        return;
+      }
       if (e.altKey && !mod && !e.shiftKey) {
         if (e.code === "KeyT") {
           e.preventDefault();
@@ -238,6 +249,12 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [state.appSettingsOpen, state.appSettingsSection, state.settingsOpen, terminalOpen, dispatch]);
+
+  useEffect(() => {
+    if (!themeToast) return;
+    const timer = window.setTimeout(() => setThemeToast(null), 1200);
+    return () => window.clearTimeout(timer);
+  }, [themeToast]);
 
   useEffect(() => {
     window.ogb?.setUnreadCount?.(unreadCount);
@@ -483,6 +500,15 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       ) : null}
       {/* fixed-position popup, bottom-left — outside the layout flow */}
       <UpdateBanner />
+      {themeToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="pointer-events-none fixed bottom-4 left-1/2 z-[60] -translate-x-1/2 rounded-full border border-hairline/50 bg-card px-3.5 py-1.5 text-[13px] text-ink shadow-xl"
+        >
+          {themeToast}
+        </div>
+      )}
       <div className="relative flex min-h-0 flex-1">
       <button
         type="button"

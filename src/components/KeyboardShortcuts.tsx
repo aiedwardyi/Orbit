@@ -11,6 +11,7 @@ export function KeyboardShortcuts() {
   const groups: Array<{ title: MessageKey; rows: Array<[MessageKey, string[]]> }> = [
     { title: "shortcuts.navigation", rows: [
       ["shortcuts.themes", [alt, "T"]],
+      ["shortcuts.themeCycle", [alt, "Shift", "T"]],
       ["shortcuts.usage", [alt, "U"]],
       ["shortcuts.usageRefresh", [alt, "R"]],
     ] },

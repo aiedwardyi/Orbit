@@ -4,9 +4,9 @@
 // `[data-skin]` rather than `:root[data-skin]` — any element can open a skin
 // context for its own subtree, so the miniature styles itself and can never
 // drift from what picking it actually does.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check } from "lucide-react";
-import { SKINS, applySkin, readSkin, type SkinId } from "@/lib/skins";
+import { SKINS, SKIN_CHANGE_EVENT, applySkin, readSkin, type SkinId } from "@/lib/skins";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 
@@ -74,6 +74,14 @@ export function SkinPicker() {
   const [active, setActive] = useState<SkinId>(
     () => (document.documentElement.dataset.skin as SkinId) || readSkin(),
   );
+
+  // The theme-cycle hotkey calls applySkin() directly, outside this
+  // component's own onClick - without this, the checkmark would go stale.
+  useEffect(() => {
+    const onChange = () => setActive((document.documentElement.dataset.skin as SkinId) || readSkin());
+    window.addEventListener(SKIN_CHANGE_EVENT, onChange);
+    return () => window.removeEventListener(SKIN_CHANGE_EVENT, onChange);
+  }, []);
 
   return (
     // Four columns on a wide settings card. Five columns left a leftover

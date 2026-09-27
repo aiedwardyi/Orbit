@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { SKIN_IDS, nextSkin } from "@/lib/skins";
 
 const app = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "App.tsx"), "utf8");
 
@@ -35,6 +36,32 @@ describe("settings section shortcuts", () => {
     expect(handler).toMatch(/e\.code === "KeyT"/);
     expect(handler).toMatch(/e\.altKey && !mod/);
     expect(handler).not.toMatch(/mod && e\.key === "t"/);
+  });
+});
+
+describe("theme cycle shortcut", () => {
+  const handler = () =>
+    app.slice(app.indexOf("const onKey = (e: KeyboardEvent)"), app.indexOf("window.addEventListener(\"keydown\", onKey)"));
+
+  it("cycles forward through SKIN_IDS", () => {
+    expect(nextSkin(SKIN_IDS[0])).toBe(SKIN_IDS[1]);
+    expect(nextSkin(SKIN_IDS[1])).toBe(SKIN_IDS[2]);
+  });
+
+  it("wraps from the last skin back to the first", () => {
+    expect(nextSkin(SKIN_IDS[SKIN_IDS.length - 1])).toBe(SKIN_IDS[0]);
+  });
+
+  it("binds Alt+Shift+T to cycling the skin and ignores repeat or IME composition", () => {
+    expect(handler()).toContain('e.altKey && !mod && e.shiftKey && e.code === "KeyT"');
+    expect(handler()).toContain("if (e.repeat || e.isComposing) return;");
+    expect(handler()).toContain("nextSkin(current)");
+    expect(handler()).toContain("applySkin(next)");
+    expect(handler()).toContain("setThemeToast(");
+  });
+
+  it("keeps the shortcut comment in App-wide shortcuts up to date", () => {
+    expect(app).toContain("Alt+Shift+T Cycle theme");
   });
 });
 

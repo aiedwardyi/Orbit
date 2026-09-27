@@ -100,6 +100,10 @@ export const SKINS: readonly Skin[] = [
 
 export const DEFAULT_SKIN: SkinId = "precision";
 
+// Fired after applySkin() so anything showing the current skin elsewhere
+// (SkinPicker's checkmark) can re-read dataset.skin instead of going stale.
+export const SKIN_CHANGE_EVENT = "orbit-skin-change";
+
 const KEY = "omb-skin";
 
 // The input is whatever localStorage handed back — a string this app wrote
@@ -121,6 +125,11 @@ function getStore(): Storage | undefined {
   } catch {
     return undefined;
   }
+}
+
+export function nextSkin(current: SkinId): SkinId {
+  const i = SKIN_IDS.indexOf(current);
+  return SKIN_IDS[(i + 1) % SKIN_IDS.length];
 }
 
 export function readSkin(): SkinId {
@@ -157,4 +166,5 @@ export function applySkin(id: SkinId): void {
   } catch {
     /* no bridge */
   }
+  window.dispatchEvent?.(new Event(SKIN_CHANGE_EVENT));
 }
