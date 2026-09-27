@@ -16,6 +16,7 @@ describe("OpenAICompatDriver", () => {
     else process.env.OPENAI_COMPAT_URL = savedUrl;
     if (savedKey === undefined) delete process.env.OPENAI_COMPAT_API_KEY;
     else process.env.OPENAI_COMPAT_API_KEY = savedKey;
+    delete process.env.FAKE_OPENAI_COMPAT_STREAM_IDLE_MS;
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -453,4 +454,37 @@ describe("OpenAICompatDriver", () => {
     recorder.stop();
     await inst.dispose();
   });
+  it("settles a stalled stream instead of waiting on it forever", async () => {
+    process.env.FAKE_OPENAI_COMPAT_STREAM_IDLE_MS = "50";
+    // A body that opens and then goes silent, wired to the request signal the
+    // way undici wires a real one: nothing else ever ends this turn.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const silent = new ReadableStream<Uint8Array>({
+          start(controller) {
+            init.signal?.addEventListener("abort", () => controller.error(init.signal?.reason));
+          },
+        });
+        return new Response(silent, { status: 200, headers: { "content-type": "text/event-stream" } });
+      }),
+    );
+    const inst = await OpenAICompatDriver.create({
+      instanceId: "test-stall",
+      displayName: "Stalled",
+      enabled: true,
+      config: { url: "https://openrouter.ai/api/v1", apiKeyEnv: "TEST_KEY" },
+      environment: { TEST_KEY: "secret" },
+    });
+    const recorder = recordEvents(inst.adapter);
+
+    await inst.adapter.sendTurn({ threadId: "thread-stall", text: "prompt" });
+    await recorder.until((e) => e.type === "turn.completed" && e.ok === false);
+
+    expect(recorder.events.find((e) => e.type === "runtime.error")).toMatchObject({
+      message: expect.stringContaining("timed out"),
+    });
+    recorder.stop();
+    await inst.dispose();
+  }, 20_000);
 });

@@ -54,6 +54,7 @@ describe("GrokDriver turns (fake fetch)", () => {
   afterEach(async () => {
     globalThis.fetch = previousFetch;
     delete process.env.FAKE_GROK_RETRY_SCALE;
+    delete process.env.FAKE_GROK_STREAM_IDLE_MS;
     recorder?.stop();
     await instance?.dispose();
   });
@@ -161,6 +162,29 @@ describe("GrokDriver turns (fake fetch)", () => {
       type: "turn.completed",
       ok: false,
       stopReason: "interrupted",
+    });
+  }, 20_000);
+
+  it("settles a stalled stream instead of waiting on it forever", async () => {
+    process.env.FAKE_GROK_STREAM_IDLE_MS = "50";
+    // A body that opens and then goes silent, wired to the request signal the
+    // way undici wires a real one: nothing else ever ends this turn.
+    // SAFETY: the stub only returns real Response objects.
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      calls++;
+      const silent = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init.signal?.addEventListener("abort", () => controller.error(init.signal?.reason));
+        },
+      });
+      return new Response(silent, { status: 200, headers: { "content-type": "text/event-stream" } });
+    }) as typeof fetch;
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-stall", text: "go" });
+    await recorder.until((e) => e.type === "turn.completed" && e.ok === false);
+
+    expect(recorder.events.find((e) => e.type === "runtime.error")).toMatchObject({
+      message: expect.stringContaining("timed out"),
     });
   }, 20_000);
 

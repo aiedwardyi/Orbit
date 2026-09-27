@@ -22,6 +22,11 @@ import { appendNative, finishNative } from "./native.ts";
 
 const DRIVER_KIND = "openai-compat";
 
+/** Silence allowed between SSE chunks before the turn is called stalled. An
+ *  idle window, not a total cap: a live stream may legitimately run for
+ *  hours, but a body that goes quiet this long is never coming back. */
+const STREAM_IDLE_MS = 300_000;
+
 // Default catalog — overwritten by /models when the endpoint answers.
 // Free-tier-friendly defaults so the picker is never empty.
 const DEFAULT_MODELS: ModelCatalog = {
@@ -151,89 +156,110 @@ export const OpenAICompatDriver: ProviderDriver<OpenAICompatConfig> = {
       reasoning: string;
       usage: { input: number; output: number } | null;
     }> => {
-      const res = await fetch(`${config.url}/chat/completions`, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${apiKey}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          messages,
-          stream: opts.stream,
-          // OpenRouter routing: pin the upstream provider when configured —
-          // only on OpenRouter itself; strict endpoints reject the field.
-          ...(config.provider && isOpenRouterUrl(config.url)
-            ? { provider: { order: [config.provider], allow_fallbacks: false } }
-            : {}),
-        }),
-        signal: opts.signal ?? AbortSignal.timeout(120_000),
-      });
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        throw new Error(
-          `upstream HTTP ${res.status}${body ? `: ${body.slice(0, 200)}` : ""}`,
+      // The interrupt signal used to REPLACE the deadline rather than join
+      // it, so every real turn ran with no deadline at all and a stalled
+      // body left turn.completed unemitted until the bot was restarted.
+      const stalled = new AbortController();
+      let idle: ReturnType<typeof setTimeout> | undefined;
+      // scaled down in tests so a stalled fake does not burn real minutes
+      const idleMs = Number(process.env.FAKE_OPENAI_COMPAT_STREAM_IDLE_MS) || STREAM_IDLE_MS;
+      const bump = () => {
+        clearTimeout(idle);
+        idle = setTimeout(
+          () => stalled.abort(new Error(`upstream stream timed out after ${idleMs}ms of silence`)),
+          idleMs,
         );
-      }
-      if (!opts.stream) {
-        const json: any = await res.json();
-        const msg = json.choices?.[0]?.message;
-        const mainContent = typeof msg?.content === "string" ? msg.content : "";
-        const reasoningContent = typeof msg?.reasoning_content === "string" ? msg.reasoning_content : "";
-        return {
-          text: mainContent,
-          reasoning: reasoningContent,
-          usage: json.usage
-            ? {
-                input: json.usage.prompt_tokens ?? 0,
-                output: json.usage.completion_tokens ?? 0,
-              }
-            : null,
-        };
-      }
-      let text = "";
-      let reasoning = "";
-      let usage: { input: number; output: number } | null = null;
-      const reader = res.body!.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        let nl;
-        while ((nl = buf.indexOf("\n")) !== -1) {
-          const line = buf.slice(0, nl).trim();
-          buf = buf.slice(nl + 1);
-          if (!line.startsWith("data:")) continue;
-          const data = line.slice(5).trim();
-          if (data === "[DONE]") continue;
-          let chunk: any;
-          try {
-            chunk = JSON.parse(data);
-          } catch {
-            continue;
-          }
-          const delta = chunk.choices?.[0]?.delta;
-          const contentDelta = typeof delta?.content === "string" ? delta.content : undefined;
-          const reasoningDelta = typeof delta?.reasoning_content === "string" ? delta.reasoning_content : undefined;
-          if (reasoningDelta) {
-            reasoning += reasoningDelta;
-            opts.onDelta?.(reasoningDelta, "reasoning_text");
-          }
-          if (contentDelta) {
-            text += contentDelta;
-            opts.onDelta?.(contentDelta, "assistant_text");
-          }
-          if (chunk.usage) {
-            usage = {
-              input: chunk.usage.prompt_tokens ?? 0,
-              output: chunk.usage.completion_tokens ?? 0,
-            };
+        idle.unref?.();
+      };
+      bump();
+      try {
+        const res = await fetch(`${config.url}/chat/completions`, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${apiKey}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model,
+            messages,
+            stream: opts.stream,
+            // OpenRouter routing: pin the upstream provider when configured —
+            // only on OpenRouter itself; strict endpoints reject the field.
+            ...(config.provider && isOpenRouterUrl(config.url)
+              ? { provider: { order: [config.provider], allow_fallbacks: false } }
+              : {}),
+          }),
+          signal: opts.signal ? AbortSignal.any([opts.signal, stalled.signal]) : stalled.signal,
+        });
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          throw new Error(
+            `upstream HTTP ${res.status}${body ? `: ${body.slice(0, 200)}` : ""}`,
+          );
+        }
+        if (!opts.stream) {
+          const json: any = await res.json();
+          const msg = json.choices?.[0]?.message;
+          const mainContent = typeof msg?.content === "string" ? msg.content : "";
+          const reasoningContent = typeof msg?.reasoning_content === "string" ? msg.reasoning_content : "";
+          return {
+            text: mainContent,
+            reasoning: reasoningContent,
+            usage: json.usage
+              ? {
+                  input: json.usage.prompt_tokens ?? 0,
+                  output: json.usage.completion_tokens ?? 0,
+                }
+              : null,
+          };
+        }
+        let text = "";
+        let reasoning = "";
+        let usage: { input: number; output: number } | null = null;
+        const reader = res.body!.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          bump();
+          buf += decoder.decode(value, { stream: true });
+          let nl;
+          while ((nl = buf.indexOf("\n")) !== -1) {
+            const line = buf.slice(0, nl).trim();
+            buf = buf.slice(nl + 1);
+            if (!line.startsWith("data:")) continue;
+            const data = line.slice(5).trim();
+            if (data === "[DONE]") continue;
+            let chunk: any;
+            try {
+              chunk = JSON.parse(data);
+            } catch {
+              continue;
+            }
+            const delta = chunk.choices?.[0]?.delta;
+            const contentDelta = typeof delta?.content === "string" ? delta.content : undefined;
+            const reasoningDelta = typeof delta?.reasoning_content === "string" ? delta.reasoning_content : undefined;
+            if (reasoningDelta) {
+              reasoning += reasoningDelta;
+              opts.onDelta?.(reasoningDelta, "reasoning_text");
+            }
+            if (contentDelta) {
+              text += contentDelta;
+              opts.onDelta?.(contentDelta, "assistant_text");
+            }
+            if (chunk.usage) {
+              usage = {
+                input: chunk.usage.prompt_tokens ?? 0,
+                output: chunk.usage.completion_tokens ?? 0,
+              };
+            }
           }
         }
+        return { text, reasoning, usage };
+      } finally {
+        clearTimeout(idle);
       }
-      return { text, reasoning, usage };
     };
 
     const fetchModels = async (): Promise<void> => {

@@ -19,6 +19,11 @@ import { appendNative, finishNative } from "./native.ts";
 const DRIVER_KIND = "grok";
 const DEFAULT_URL = "https://api.x.ai/v1";
 
+/** Silence allowed between SSE chunks before the turn is called stalled. An
+ *  idle window, not a total cap: a live stream may legitimately run for
+ *  hours, but a body that goes quiet this long is never coming back. */
+const STREAM_IDLE_MS = 300_000;
+
 const MODELS = {
   default: "grok-4",
   options: [
@@ -73,58 +78,79 @@ export const GrokDriver: ProviderDriver<GrokConfig> = {
       model: string,
       opts: { stream: boolean; signal?: AbortSignal; onDelta?: (d: string) => void },
     ): Promise<{ text: string; usage: { input: number; output: number } | null }> => {
-      const res = await fetch(`${config.url}/chat/completions`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-        body: JSON.stringify({ model, messages, stream: opts.stream }),
-        signal: opts.signal ?? AbortSignal.timeout(120_000),
-      });
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        throw new Error(`xAI HTTP ${res.status}${body ? `: ${body.slice(0, 200)}` : ""}`);
-      }
-      if (!opts.stream) {
-        const json: any = await res.json();
-        return {
-          text: json.choices?.[0]?.message?.content ?? "",
-          usage: json.usage
-            ? { input: json.usage.prompt_tokens ?? 0, output: json.usage.completion_tokens ?? 0 }
-            : null,
-        };
-      }
-      let text = "";
-      let usage: { input: number; output: number } | null = null;
-      const reader = res.body!.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        let nl;
-        while ((nl = buf.indexOf("\n")) !== -1) {
-          const line = buf.slice(0, nl).trim();
-          buf = buf.slice(nl + 1);
-          if (!line.startsWith("data:")) continue;
-          const data = line.slice(5).trim();
-          if (data === "[DONE]") continue;
-          let chunk: any;
-          try {
-            chunk = JSON.parse(data);
-          } catch {
-            continue;
-          }
-          const delta = chunk.choices?.[0]?.delta?.content;
-          if (delta) {
-            text += delta;
-            opts.onDelta?.(delta);
-          }
-          if (chunk.usage) {
-            usage = { input: chunk.usage.prompt_tokens ?? 0, output: chunk.usage.completion_tokens ?? 0 };
+      // The interrupt signal used to REPLACE the deadline rather than join
+      // it, so every real turn ran with no deadline at all and a stalled
+      // body left turn.completed unemitted until the bot was restarted.
+      const stalled = new AbortController();
+      let idle: ReturnType<typeof setTimeout> | undefined;
+      // scaled down in tests so a stalled fake does not burn real minutes
+      const idleMs = Number(process.env.FAKE_GROK_STREAM_IDLE_MS) || STREAM_IDLE_MS;
+      const bump = () => {
+        clearTimeout(idle);
+        idle = setTimeout(
+          () => stalled.abort(new Error(`xAI stream timed out after ${idleMs}ms of silence`)),
+          idleMs,
+        );
+        idle.unref?.();
+      };
+      bump();
+      try {
+        const res = await fetch(`${config.url}/chat/completions`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+          body: JSON.stringify({ model, messages, stream: opts.stream }),
+          signal: opts.signal ? AbortSignal.any([opts.signal, stalled.signal]) : stalled.signal,
+        });
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          throw new Error(`xAI HTTP ${res.status}${body ? `: ${body.slice(0, 200)}` : ""}`);
+        }
+        if (!opts.stream) {
+          const json: any = await res.json();
+          return {
+            text: json.choices?.[0]?.message?.content ?? "",
+            usage: json.usage
+              ? { input: json.usage.prompt_tokens ?? 0, output: json.usage.completion_tokens ?? 0 }
+              : null,
+          };
+        }
+        let text = "";
+        let usage: { input: number; output: number } | null = null;
+        const reader = res.body!.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          bump();
+          buf += decoder.decode(value, { stream: true });
+          let nl;
+          while ((nl = buf.indexOf("\n")) !== -1) {
+            const line = buf.slice(0, nl).trim();
+            buf = buf.slice(nl + 1);
+            if (!line.startsWith("data:")) continue;
+            const data = line.slice(5).trim();
+            if (data === "[DONE]") continue;
+            let chunk: any;
+            try {
+              chunk = JSON.parse(data);
+            } catch {
+              continue;
+            }
+            const delta = chunk.choices?.[0]?.delta?.content;
+            if (delta) {
+              text += delta;
+              opts.onDelta?.(delta);
+            }
+            if (chunk.usage) {
+              usage = { input: chunk.usage.prompt_tokens ?? 0, output: chunk.usage.completion_tokens ?? 0 };
+            }
           }
         }
+        return { text, usage };
+      } finally {
+        clearTimeout(idle);
       }
-      return { text, usage };
     };
 
     const sendTurn = async (turn: SendTurnInput) => {
