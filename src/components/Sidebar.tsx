@@ -1474,10 +1474,13 @@ export function Sidebar({
       if (!open) return;
       if (shift > 0) {
         ghost.style.width = `${shift}px`;
-        ghost.style.left = `${-shift}px`;
+        // The drawer is anchored to its own edge, so the strip it uncovers is on
+        // the other one: past the aside's right edge on the right, where the
+        // ghost already sits, but across from it on the left.
+        if (!sidebarOnRight) ghost.style.left = `${-shift}px`;
       }
       const slide = aside.animate(
-        [{ transform: `translateX(${shift}px)` }, { transform: "translateX(0)" }],
+        [{ transform: `translateX(${sidebarOnRight ? -shift : shift}px)` }, { transform: "translateX(0)" }],
         SIDEBAR_MOTION,
       );
       slide.onfinish = () => {
@@ -1508,13 +1511,21 @@ export function Sidebar({
       };
       motions.push(shrink);
     }
-    const view = aside.nextElementSibling;
-    if (view instanceof HTMLElement && !rigidView) {
-      motions.push(view.animate([{ [marginProp]: `${shift}px` }, { [marginProp]: "0px" }], SIDEBAR_MOTION));
+    const rail: HTMLElement[] = [];
+    for (let el = aside.nextElementSibling; el; el = el.nextElementSibling) {
+      if (el instanceof HTMLElement && !["absolute", "fixed"].includes(getComputedStyle(el).position)) rail.push(el);
     }
-    for (let el = view; el && rigidView; el = el.nextElementSibling) {
-      if (!(el instanceof HTMLElement) || ["absolute", "fixed"].includes(getComputedStyle(el).position)) continue;
-      motions.push(el.animate([{ transform: `translateX(${railShift}px)` }, { transform: "none" }], SIDEBAR_MOTION));
+    if (rigidView) {
+      for (const el of rail) {
+        motions.push(el.animate([{ transform: `translateX(${railShift}px)` }, { transform: "none" }], SIDEBAR_MOTION));
+      }
+    } else {
+      // The margin belongs on whichever rail element abuts the aside, which on
+      // the right is the last one - a docked panel, not the view.
+      const abutting = sidebarOnRight ? rail.at(-1) : rail[0];
+      if (abutting) {
+        motions.push(abutting.animate([{ [marginProp]: `${shift}px` }, { [marginProp]: "0px" }], SIDEBAR_MOTION));
+      }
     }
     return () => {
       const progress = motions[0]!.effect?.getComputedTiming().progress;
