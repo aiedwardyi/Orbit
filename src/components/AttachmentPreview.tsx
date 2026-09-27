@@ -168,18 +168,27 @@ export function AttachedImageGallery({ paths, className }: { paths: string[]; cl
 
 /** A show_image message. A synced row whose file never reached this machine keeps its caption. */
 export function ShownImage({ name, caption }: { name: string; caption?: string }) {
-  const src = attachmentImageUrl(name);
+  const image = useMemo(() => previewImage(name), [name]);
   const [failed, setFailed] = useState(false);
+  const [open, setOpen] = useState(false);
   return (
     <div className="flex flex-col items-start gap-1">
-      {src && !failed ? (
-        <img
-          src={src}
-          alt={caption || name}
-          loading="lazy"
-          onError={() => setFailed(true)}
-          className="w-fit max-w-[min(42rem,78%)] rounded-2xl border border-hairline/40"
-        />
+      {image && !failed ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-label={`Open image ${image.name}`}
+          title={`Open ${image.name}`}
+          className="block w-fit max-w-[min(42rem,78%)] cursor-pointer rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        >
+          <img
+            src={image.src}
+            alt={caption || image.name}
+            loading="lazy"
+            onError={() => setFailed(true)}
+            className="block w-full rounded-2xl border border-hairline/40"
+          />
+        </button>
       ) : (
         <div
           role="status"
@@ -190,6 +199,7 @@ export function ShownImage({ name, caption }: { name: string; caption?: string }
         </div>
       )}
       {caption && <p className="max-w-[min(42rem,78%)] px-1 text-[13px] text-ink-secondary">{caption}</p>}
+      {open && image && <AttachmentPreviewDialog image={image} onClose={() => setOpen(false)} />}
     </div>
   );
 }
