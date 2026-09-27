@@ -12,7 +12,7 @@ import {
   type Group,
   type TerminalAttention,
 } from "@/state/store";
-import { unreadConversationCount } from "@/lib/unread";
+import { collapsedUnreadCount, formatCollapsedUnreadBadge, unreadConversationCount } from "@/lib/unread";
 import { preferredStartupSelectionId } from "@/lib/sidebar-order";
 import { loadSidebarOrder, useSidebarSide } from "@/lib/sidebar-preferences";
 import { Sidebar } from "@/components/Sidebar";
@@ -77,6 +77,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     latestState.current = state;
   }, [state]);
   const unreadCount = unreadConversationCount(state.bots, state.groups) + terminalAttentionCount(state.terminalAttention);
+  const menuUnreadBadge = formatCollapsedUnreadBadge(collapsedUnreadCount(state.bots, state.groups, state.selectedId));
   // Mobile-only drawer state. Above md, none of these properties are emitted
   // at all — Sidebar scopes every mobile class with max-md: rather than
   // cancelling them with md:, which would still emit a translate value and
@@ -492,6 +493,15 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
         className={`absolute top-3 z-30 rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink md:hidden ${sidebarOnRight ? "right-3" : "left-3"}`}
       >
         <Menu size={18} />
+        {menuUnreadBadge != null && (
+          <span
+            data-menu-unread
+            aria-hidden="true"
+            className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-accent-ink"
+          >
+            {menuUnreadBadge}
+          </span>
+        )}
       </button>
       {drawerOpen && (
         <div

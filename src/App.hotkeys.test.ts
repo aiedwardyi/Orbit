@@ -11,6 +11,13 @@ describe("phone drawer menu button", () => {
     expect(button).toContain('sidebarOnRight ? "right-3" : "left-3"');
     expect(button).toContain("md:hidden");
   });
+
+  it("badges other unread chats, excluding the open one", () => {
+    const button = app.slice(app.indexOf('aria-label={t("chrome.openBotList")}'), app.indexOf("</button>", app.indexOf('aria-label={t("chrome.openBotList")}')));
+    expect(button).toContain("data-menu-unread");
+    expect(button).toContain("{menuUnreadBadge}");
+    expect(app).toContain("collapsedUnreadCount(state.bots, state.groups, state.selectedId)");
+  });
 });
 
 describe("settings section shortcuts", () => {
