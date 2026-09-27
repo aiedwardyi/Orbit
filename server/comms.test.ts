@@ -765,6 +765,9 @@ describe("comms e2e (fake ACP fleet)", () => {
       await api("PATCH", `/api/bots/${ghost.id}`, {
         name: "Ghost",
         section: "StaleScope",
+        // new bots default to Auto; this peer needs Ask mode so its later
+        // permission request raises a card instead of auto-approving
+        autoApprove: false,
         // no such instance — startTurn rejects, so the delegated turn never starts
         modelSelection: { instanceId: "missing-instance", model: "fake-model" },
       });
@@ -1128,6 +1131,9 @@ stderr: ${stderr.slice(-2000)}`,
       await api("PATCH", `/api/bots/${gatekeeper.id}`, {
         name: "Gatekeeper",
         section: "ApprovalScope",
+        // new bots default to Auto; this peer needs Ask mode so its
+        // permission request raises a card instead of auto-approving
+        autoApprove: false,
         modelSelection: { instanceId: "helperPermission", model: "fake-model" },
       });
       const prober = (await api("POST", "/api/bots")).body.bot;
@@ -1194,6 +1200,9 @@ stderr: ${stderr.slice(-2000)}`,
       await api("PATCH", `/api/bots/${doorman.id}`, {
         name: "Doorman",
         section: "TwoCardScope",
+        // new bots default to Auto; this peer needs Ask mode so its
+        // permission requests raise cards instead of auto-approving
+        autoApprove: false,
         modelSelection: { instanceId: "helperPermissionTwice", model: "fake-model" },
       });
       const knocker = (await api("POST", "/api/bots")).body.bot;
