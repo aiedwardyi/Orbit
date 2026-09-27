@@ -55,7 +55,7 @@ async function renderSheet(options: {
 
 function addFolderLink(host: HTMLElement): HTMLButtonElement {
   const found = [...host.querySelectorAll("button")].find((button) =>
-    button.textContent?.includes("Folder"),
+    button.textContent?.includes("Add a folder"),
   );
   if (!(found instanceof HTMLButtonElement)) throw new Error("add-folder link did not render");
   return found;
@@ -261,7 +261,7 @@ describe("CreateBotSheet folder choice", () => {
       expect(dialog.className).toContain("sm:p-7");
       const header = dialog.firstElementChild!;
       expect(header.className).toContain("max-sm:flex-col");
-      // "+ Folder" carries its own plus, so the folder glyph would be a second icon.
+      // "+ Add a folder" carries its own plus, so the folder glyph would be a second icon.
       expect(addFolderLink(host).querySelector("svg")).toBeNull();
       const actions = [...host.querySelectorAll("button")].filter(
         (button) => button.type === "submit" || button.textContent === "Cancel",

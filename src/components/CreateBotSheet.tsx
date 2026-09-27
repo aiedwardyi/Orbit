@@ -115,24 +115,17 @@ export function CreateBotSheet({
         role="dialog"
         aria-modal="true"
         aria-labelledby="create-bot-title"
-        aria-describedby="create-bot-help"
         className="max-h-[min(680px,calc(100dvh-2rem))] w-full max-w-[560px] overflow-y-auto rounded-2xl border border-hairline/50 bg-panel p-5 shadow-2xl shadow-black/60 sm:p-7"
       >
-        {/* Stacked below sm: beside the mark the title wraps and the copy sits on
-            its own left edge, apart from every row of the form. */}
-        <div className="flex items-start gap-4 max-sm:flex-col max-sm:gap-3">
+        {/* Stacked below sm so the title shares the form's left edge. */}
+        <div className="flex items-center gap-4 max-sm:flex-col max-sm:items-start max-sm:gap-3">
           <div className="relative shrink-0">
             <div className="absolute inset-1 rounded-full bg-accent/20 blur-xl" />
             <OrbitMark size={54} />
           </div>
-          <div>
-            <h1 id="create-bot-title" className="text-[20px] font-semibold tracking-[-0.02em] text-ink">
-              {t("createBot.title")}
-            </h1>
-            <p id="create-bot-help" className="mt-1 text-[13px] leading-relaxed text-ink-secondary">
-              {t("createBot.help")}
-            </p>
-          </div>
+          <h1 id="create-bot-title" className="text-[20px] font-semibold tracking-[-0.02em] text-ink">
+            {t("createBot.title")}
+          </h1>
         </div>
 
         <form
@@ -142,7 +135,7 @@ export function CreateBotSheet({
             void submit();
           }}
         >
-          <label htmlFor="create-bot-job" className="sr-only">{t("createBot.jobLabel")}</label>
+          <label htmlFor="create-bot-job" className="mb-1.5 block text-[13px] text-ink-secondary">{t("createBot.jobLabel")}</label>
           <input
             ref={inputRef}
             id="create-bot-job"
@@ -159,7 +152,6 @@ export function CreateBotSheet({
             placeholder={t("createBot.placeholder")}
             className="w-full rounded-xl border border-hairline/50 bg-inset px-4 py-2.5 text-[15px] text-ink placeholder:text-ink-secondary focus:border-accent/70 focus:outline-none"
           />
-          <p className="mt-1.5 text-[12.5px] text-ink-secondary">{t("createBot.jobHint")}</p>
           {showFolder ? (
             <div className="mt-4">
               <label htmlFor="create-bot-folder" className="mb-1.5 block text-[13px] text-ink-secondary">
