@@ -2659,6 +2659,7 @@ describe("harness HTTP API", () => {
 
   it("refuses to switch a bot's active task while its turn is running", async () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
+    let routineId = "";
     try {
       const instances = (await api("GET", "/api/instances")).body.instances;
       const claude = instances.find((instance: { instanceId: string }) => instance.instanceId === "claude");
@@ -2668,16 +2669,25 @@ describe("harness HTTP API", () => {
       })).status).toBe(200);
 
       const originalTask = bot.threadId;
-      const created = await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Running task" });
+      // One chat per bot: a bot can no longer grow a second task through its
+      // own create-task route. A routine run still spins up a detached task
+      // and keeps the bot busy on it without disturbing the viewed thread.
+      const created = await api("POST", "/api/routines", {
+        name: "Running task",
+        prompt: "keep running",
+        botId: bot.id,
+        runOn: "maus",
+        enabled: false,
+        schedule: { type: "daily", time: "09:00", weekdays: [1] },
+      });
       expect(created.status).toBe(201);
-      const runningTask = created.body.task.threadId;
-      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "keep running" })).status).toBe(202);
+      routineId = created.body.routine.id;
+      const queued = await api("POST", `/api/routines/${routineId}/run`);
+      expect(queued.status).toBe(201);
 
       await expect.poll(async () => {
-        const state = (await api("GET", "/api/bots?messages=0")).body.bots.find(
-          (candidate: { id: string }) => candidate.id === bot.id,
-        );
-        return state?.busy;
+        const runs = (await api("GET", "/api/routines")).body.runs as Array<{ id: string; status: string }>;
+        return runs.find((candidate) => candidate.id === queued.body.run.id)?.status === "running";
       }).toBe(true);
 
       const blocked = await api("POST", `/api/bots/${bot.id}/tasks/${originalTask}`);
@@ -2686,9 +2696,10 @@ describe("harness HTTP API", () => {
       const current = (await api("GET", "/api/bots?messages=0")).body.bots.find(
         (candidate: { id: string }) => candidate.id === bot.id,
       );
-      expect(current.threadId).toBe(runningTask);
+      expect(current.threadId).toBe(originalTask);
     } finally {
       await api("POST", `/api/bots/${bot.id}/interrupt`, {});
+      if (routineId) await api("DELETE", `/api/routines/${routineId}`);
       await api("DELETE", `/api/bots/${bot.id}`);
     }
   });
@@ -2816,12 +2827,16 @@ describe("harness HTTP API", () => {
       expect(wrongRoom.body.error).toMatch(/switched tasks/i);
 
       const botOriginal = bot.threadId;
+      // One chat per bot: creating a task for a direct bot now just hands
+      // back its existing chat, so the switch below is a self-switch — it
+      // still exercises the same compact-response shape.
       const botTask = await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Second" });
-      expect(botTask.status).toBe(201);
+      expect(botTask.status).toBe(200);
+      expect(botTask.body.task.threadId).toBe(botOriginal);
       const compactBot = await api("POST", `/api/bots/${bot.id}/tasks/${botOriginal}?messages=0`, {});
       expect(compactBot.status).toBe(200);
       expect(compactBot.body.bot.threadId).toBe(botOriginal);
-      expect(compactBot.body.bot.tasks).toHaveLength(2);
+      expect(compactBot.body.bot.tasks).toHaveLength(1);
       expect(compactBot.body.bot).not.toHaveProperty("messages");
       expect(compactBot.body.bot).not.toHaveProperty("activeLeafId");
 
@@ -3141,20 +3156,20 @@ describe("harness HTTP API", () => {
   it("keeps Teach a skill off by default and persists an explicit opt-in", async () => {
     const before = await api("GET", "/api/config");
     expect(before.status).toBe(200);
-    expect(before.body.features).toEqual({ browser: true, skillRecorder: false, showToolCalls: false });
+    expect(before.body.features).toEqual({ browser: true, skillRecorder: false, showToolCalls: false, terminalHost: false });
 
     const saved = await api("PATCH", "/api/config", {
       features: { skillRecorder: true },
     });
     expect(saved.status).toBe(200);
-    expect(saved.body.features).toEqual({ browser: true, skillRecorder: true, showToolCalls: false });
+    expect(saved.body.features).toEqual({ browser: true, skillRecorder: true, showToolCalls: false, terminalHost: false });
 
     const disk = JSON.parse(readFileSync(join(home, ".orbit", "config.json"), "utf8"));
     expect(disk.features).toEqual({ skillRecorder: true });
 
     const tools = await api("PATCH", "/api/config", { features: { showToolCalls: true } });
     expect(tools.status).toBe(200);
-    expect(tools.body.features).toEqual({ browser: true, skillRecorder: true, showToolCalls: true });
+    expect(tools.body.features).toEqual({ browser: true, skillRecorder: true, showToolCalls: true, terminalHost: false });
 
     await api("PATCH", "/api/config", { features: { skillRecorder: false, showToolCalls: false } });
   });
@@ -3546,6 +3561,7 @@ describe("harness HTTP API", () => {
     let routineId = "";
     let orphanRoutineId = "";
     let legacyRoutineId = "";
+    let scratchRoomId = "";
     try {
       const selected = await api("PATCH", `/api/bots/${bot.id}`, {
         modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
@@ -3744,7 +3760,12 @@ describe("harness HTTP API", () => {
       // A deleted source conversation is a safe fallback, not an instruction
       // to recreate its transcript. The run still gets its detached receipt
       // and failure, but no lifecycle message is written to the orphan id.
-      const orphanSource = await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Temporary routine source" });
+      // One chat per bot means a bot itself can no longer grow a second
+      // task — a scratch room the bot belongs to stands in for the
+      // disposable source thread.
+      const scratchRoom = (await api("POST", "/api/groups", { name: "Orphan scope", memberIds: [bot.id] })).body.group;
+      scratchRoomId = scratchRoom.id;
+      const orphanSource = await api("POST", `/api/groups/${scratchRoomId}/tasks`, { title: "Temporary routine source" });
       expect(orphanSource.status).toBe(201);
       const orphanThreadId = z.object({
         task: z.object({ threadId: z.string() }),
@@ -3772,7 +3793,7 @@ describe("harness HTTP API", () => {
       });
       expect(orphanConfirmed.status).toBe(200);
       orphanRoutineId = orphanConfirmed.body.resultId;
-      expect((await api("DELETE", `/api/bots/${bot.id}/tasks/${orphanThreadId}`)).status).toBe(200);
+      expect((await api("DELETE", `/api/groups/${scratchRoomId}/tasks/${orphanThreadId}`)).status).toBe(200);
       expect(storedMessageCount(orphanThreadId)).toBe(0);
 
       const orphanRun = await api("POST", `/api/routines/${orphanRoutineId}/run`);
@@ -3830,6 +3851,7 @@ describe("harness HTTP API", () => {
       if (legacyRoutineId) await api("DELETE", `/api/routines/${legacyRoutineId}`);
       if (orphanRoutineId) await api("DELETE", `/api/routines/${orphanRoutineId}`);
       if (routineId) await api("DELETE", `/api/routines/${routineId}`);
+      if (scratchRoomId) await api("DELETE", `/api/groups/${scratchRoomId}`);
       await api("POST", `/api/bots/${bot.id}/interrupt`);
       await api("DELETE", `/api/bots/${bot.id}`);
     }
@@ -5563,8 +5585,11 @@ describe("approval chip on the claude CLI", () => {
   it("asks before edits under Ask for approval and keeps acceptEdits under Auto", async () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
     try {
+      // New bots now default to Auto (autoApprove: true) — opt back into
+      // Ask mode to exercise it before flipping to Auto below.
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        autoApprove: false,
       })).status).toBe(200);
       const ask = await argvForTurn(bot.id, "create notes.txt");
       expect(ask[ask.indexOf("--permission-mode") + 1]).toBe("default");

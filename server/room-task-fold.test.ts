@@ -211,6 +211,10 @@ describe("room task-state fold", () => {
       const made = (await api("POST", "/api/bots")).body.bot;
       expect((await api("PATCH", `/api/bots/${made.id}`, {
         modelSelection: { instanceId, model: pick(instanceId) },
+        // new bots default to auto mode, which answers even a
+        // destructive-looking ask itself; this test needs the ask to
+        // actually card so it can inspect the blocker it leaves behind.
+        autoApprove: false,
       })).status).toBe(200);
       return made;
     };
