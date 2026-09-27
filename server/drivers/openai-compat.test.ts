@@ -454,6 +454,43 @@ describe("OpenAICompatDriver", () => {
     recorder.stop();
     await inst.dispose();
   });
+  it("completes on the end marker when the body stays open", async () => {
+    process.env.FAKE_OPENAI_COMPAT_STREAM_IDLE_MS = "60";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        if (String(input).endsWith("/models")) return new Response(JSON.stringify({ data: [] }), { status: 200 });
+        // the answer and the end marker arrive, then the proxy keeps the body open
+        const held = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(
+              'data: {"choices":[{"delta":{"content":"hello"}}]}\n'
+              + 'data: {"choices":[],"usage":{"prompt_tokens":5,"completion_tokens":1}}\n'
+              + "data: [DONE]\n",
+            ));
+          },
+        });
+        return new Response(held, { status: 200, headers: { "content-type": "text/event-stream" } });
+      }),
+    );
+    const inst = await OpenAICompatDriver.create({
+      instanceId: "test-done",
+      displayName: "Done",
+      enabled: true,
+      config: { url: "https://example.test/v1", apiKeyEnv: "TEST_KEY" },
+      environment: { TEST_KEY: "secret" },
+    });
+    const recorder = recordEvents(inst.adapter);
+
+    await inst.adapter.sendTurn({ threadId: "thread-done", text: "prompt" });
+    const completed = await recorder.until((event) => event.type === "turn.completed");
+
+    expect(completed).toMatchObject({ ok: true, usage: { input: 5, output: 1 } });
+    expect(recorder.events.find((e) => e.type === "item.completed")).toMatchObject({ text: "hello" });
+    recorder.stop();
+    await inst.dispose();
+  }, 20_000);
+
   it("settles a stalled stream instead of waiting on it forever", async () => {
     process.env.FAKE_OPENAI_COMPAT_STREAM_IDLE_MS = "50";
     // A body that opens and then goes silent, wired to the request signal the

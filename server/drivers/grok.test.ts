@@ -188,6 +188,28 @@ describe("GrokDriver turns (fake fetch)", () => {
     });
   }, 20_000);
 
+  it("completes on the end marker when the body stays open", async () => {
+    process.env.FAKE_GROK_STREAM_IDLE_MS = "60";
+    // the answer and the end marker arrive, then the proxy keeps the body open
+    // SAFETY: the stub only returns real Response objects.
+    globalThis.fetch = (async () => {
+      calls++;
+      const held = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(SSE_BODY("held open")));
+        },
+      });
+      return new Response(held, { status: 200, headers: { "content-type": "text/event-stream" } });
+    }) as typeof fetch;
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-done", text: "go" });
+    const completed = await recorder.until((e) => e.type === "turn.completed");
+
+    expect(completed).toMatchObject({ ok: true });
+    expect(recorder.events.find((e) => e.type === "item.completed")).toMatchObject({ text: "held open" });
+    expect(calls).toBe(1);
+  }, 20_000);
+
   it("declares no interactive channels this engine cannot honor", async () => {
     script = [];
     await create();

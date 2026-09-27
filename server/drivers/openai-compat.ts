@@ -219,6 +219,7 @@ export const OpenAICompatDriver: ProviderDriver<OpenAICompatConfig> = {
         const reader = res.body!.getReader();
         const decoder = new TextDecoder();
         let buf = "";
+        let ended = false;
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -230,7 +231,11 @@ export const OpenAICompatDriver: ProviderDriver<OpenAICompatConfig> = {
             buf = buf.slice(nl + 1);
             if (!line.startsWith("data:")) continue;
             const data = line.slice(5).trim();
-            if (data === "[DONE]") continue;
+            // a proxy can hold the body open past the end marker; the answer is complete here
+            if (data === "[DONE]") {
+              ended = true;
+              break;
+            }
             let chunk: any;
             try {
               chunk = JSON.parse(data);
@@ -255,7 +260,9 @@ export const OpenAICompatDriver: ProviderDriver<OpenAICompatConfig> = {
               };
             }
           }
+          if (ended) break;
         }
+        if (ended) await reader.cancel().catch(() => {});
         return { text, reasoning, usage };
       } finally {
         clearTimeout(idle);

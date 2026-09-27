@@ -119,6 +119,7 @@ export const GrokDriver: ProviderDriver<GrokConfig> = {
         const reader = res.body!.getReader();
         const decoder = new TextDecoder();
         let buf = "";
+        let ended = false;
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -130,7 +131,11 @@ export const GrokDriver: ProviderDriver<GrokConfig> = {
             buf = buf.slice(nl + 1);
             if (!line.startsWith("data:")) continue;
             const data = line.slice(5).trim();
-            if (data === "[DONE]") continue;
+            // a proxy can hold the body open past the end marker; the answer is complete here
+            if (data === "[DONE]") {
+              ended = true;
+              break;
+            }
             let chunk: any;
             try {
               chunk = JSON.parse(data);
@@ -146,7 +151,9 @@ export const GrokDriver: ProviderDriver<GrokConfig> = {
               usage = { input: chunk.usage.prompt_tokens ?? 0, output: chunk.usage.completion_tokens ?? 0 };
             }
           }
+          if (ended) break;
         }
+        if (ended) await reader.cancel().catch(() => {});
         return { text, usage };
       } finally {
         clearTimeout(idle);
