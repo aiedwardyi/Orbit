@@ -71,6 +71,10 @@ If a worker hits a usage limit, its edits stay in the worktree. Close the pane
 and spawn a FRESH worker on another engine in the same worktree, with the card
 plus "continue from the uncommitted changes already here".
 
+Usage bars count down. In Orbit's chat bar and in worker status lines, a
+percentage is what is LEFT, not what is used: "90%" means 90% left. Always say
+"X% left" when reporting usage.
+
 ## Push and merge
 
 - Push only to the remote and branch the card names. If the card names none,
