@@ -2154,7 +2154,7 @@ export function Sidebar({
                 <div className="fixed inset-0 z-30" onMouseDown={() => setDensityOpen(false)} />
                 <div className={cn(
                   "absolute top-full z-40 mt-1 w-40 overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60",
-                  density === "icons" ? "left-0" : "right-0",
+                  density === "icons" && !sidebarOnRight ? "left-0" : "right-0",
                 )}>
                   {(["comfortable", "compact", "icons"] as const).map((option) => (
                     <button
@@ -2193,7 +2193,7 @@ export function Sidebar({
               <div className="fixed inset-0 z-30" onMouseDown={() => setPlusOpen(false)} />
               <div className={cn(
                 "absolute top-full z-40 mt-1 w-44 overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60",
-                density === "icons" ? "left-0" : "right-0",
+                density === "icons" && !sidebarOnRight ? "left-0" : "right-0",
               )}>
                 <button
                   onClick={() => {
