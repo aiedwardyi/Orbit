@@ -14,6 +14,7 @@ import {
   localVmMode,
   parseConfigPatch,
   parseStoredConfig,
+  phoneCustomKeyError,
   PROVIDER_CREDENTIAL_ENV,
   roomTurnTimeoutMinutes,
   showToolCallsEnabled,
@@ -510,6 +511,26 @@ describe("credential env preference", () => {
     expect(() => parseConfigPatch({ customKeys: { "api.acme.dev": { ...acme("k"), header: "cookie" } } })).toThrow();
     expect(() => parseConfigPatch({ customKeys: { localhost: acme("k") } })).toThrow();
     expect(parseStoredConfig({ customKeys: { "api.acme.dev": acme("k") } })).toEqual({});
+  });
+
+  it("rejects keys that cannot be sent as a header value", () => {
+    const acme = (key: string) => ({ name: "Acme", header: "authorization", prefix: "Bearer ", key });
+    for (const key of ["line1\nline2", "a\rb", "a\u0000b", "a\u0001b"]) {
+      expect(() => parseConfigPatch({ customKeys: { "api.acme.dev": acme(key) } })).toThrow("control characters");
+      expect(() => parseConfigPatch({ xai: { key } })).toThrow("control characters");
+      expect(() => parseConfigPatch({ vertex: { key } })).toThrow("control characters");
+    }
+    expect(parseConfigPatch({ xai: { key: "xai-ok\n" }, customKeys: { "api.acme.dev": acme("ok") } })).toBeTruthy();
+  });
+
+  it("refuses custom key changes from the phone only", () => {
+    const custom = parseConfigPatch({ customKeys: { "api.acme.dev": null } });
+    const preset = parseConfigPatch({ xai: { key: "xai-new" } });
+    const pcOnly = "Custom keys can only be saved on the PC";
+    expect(phoneCustomKeyError(custom, { host: "127.0.0.1:8787", "x-openmausbot-companion": "1" }, undefined)).toBe(pcOnly);
+    expect(phoneCustomKeyError(custom, { host: "orbit.tail1234.ts.net" }, "orbit.tail1234.ts.net")).toBe(pcOnly);
+    expect(phoneCustomKeyError(custom, { host: "127.0.0.1:8787" }, "orbit.tail1234.ts.net")).toBeUndefined();
+    expect(phoneCustomKeyError(preset, { host: "127.0.0.1:8787", "x-openmausbot-companion": "1" }, undefined)).toBeUndefined();
   });
 
   it("syncCredentialEnv keeps model and provider env in step with a save", () => {

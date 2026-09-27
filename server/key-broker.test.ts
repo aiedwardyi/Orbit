@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -113,6 +113,28 @@ describe("call_api", () => {
     expect(dirname(path)).toBe(join(root, "api-files"));
     expect(path).toMatch(/response-[0-9a-f]{8}\.mp3$/);
     expect(readFileSync(path, "utf8")).toBe("mp3-bytes");
+  });
+
+  it("never puts a key that is not a valid header value in the error", async () => {
+    const bad = "line1secret\nline2secret";
+    const fetchMock = reply("");
+    const error = await callApi(request({ credentialId: "custom:api.acme.dev", url: "https://api.acme.dev/v1" }), {
+      customKeys: { "api.acme.dev": { name: "Acme", header: "authorization", prefix: "Bearer ", key: bad } },
+    }, [root], fetchMock).catch((e: Error) => e);
+    expect(error).toMatchObject({ status: 400 });
+    expect((error as Error).message).not.toContain("line1secret");
+    expect((error as Error).message).not.toContain("line2secret");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses to save a binary response that echoes the key", async () => {
+    const echo = vi.fn<typeof fetch>(async (_url, init) => new Response(
+      `auth=${(init!.headers as Headers).get("x-acme-key")}`,
+      { status: 200, headers: { "content-type": "application/octet-stream" } },
+    ));
+    await expect(callApi(request({ credentialId: "custom:api.acme.dev", url: "https://api.acme.dev/v1" }), keys, [root], echo))
+      .rejects.toMatchObject({ status: 502, message: expect.stringContaining("echoed the key") });
+    expect(existsSync(join(root, "api-files"))).toBe(false);
   });
 
   it("caps the response size and times out", async () => {

@@ -2,13 +2,22 @@
 //   { "xai": {"key":"xai-…"}, "composio": {"apiKey":"ak_…"}, "box": {"token":"…"},
 //     "instances": { "<instanceId>": {"driver":"grok", …} } }
 import { readFileSync, mkdirSync } from "node:fs";
+import type { IncomingHttpHeaders } from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 
-import { isCustomHost, isCustomKey, type CustomKey } from "../shared/credential-request.ts";
+import {
+  CREDENTIAL_BROKER,
+  credentialValue,
+  isCustomHost,
+  isCustomKey,
+  type BrokeredCredentialId,
+  type CustomKey,
+} from "../shared/credential-request.ts";
 import { writeFileAtomic } from "./atomic.ts";
 import type { InstanceConfigMap } from "./contracts.ts";
+import { hostMatchesRemote } from "./remote-access.ts";
 import { parseJson, schemaIssue, type JsonObject, type JsonValue } from "./schema.ts";
 
 const optionalText = z.string().optional();
@@ -124,7 +133,17 @@ const customKeysSchema = z
     (keys) => Object.entries(keys).every(([host, saved]) => (saved ? isCustomKey(host, saved) : isCustomHost(host))),
     "Invalid custom key",
   );
-const appConfigPatchSchema = appConfigSchema.omit({ instances: true }).extend({ customKeys: customKeysSchema.optional() });
+/** call_api sends these as header values; a control character would make Headers throw with the key in its message. */
+const headerSafe = (key = "") => !/[\x00-\x1f\x7f]/.test(key.trim());
+const appConfigPatchSchema = appConfigSchema
+  .omit({ instances: true })
+  .extend({ customKeys: customKeysSchema.optional() })
+  .refine(
+    (patch) =>
+      (Object.keys(CREDENTIAL_BROKER) as BrokeredCredentialId[]).every((id) => headerSafe(credentialValue(patch, id))) &&
+      Object.values(patch.customKeys ?? {}).every((saved) => headerSafe(saved?.key)),
+    "Keys cannot contain line breaks or control characters",
+  );
 const jsonObjectSchema = z.record(z.string(), z.json());
 
 export interface AppConfig {
@@ -166,6 +185,12 @@ export function parseConfigPatch(value: JsonValue): ConfigPatch {
     throw Object.assign(new Error(schemaIssue(parsed.error, "Invalid configuration")), { status: 400 });
   }
   return parsed.data;
+}
+
+/** Custom keys persist only in the desktop's encrypted store, so a phone write would be lost on restart. */
+export function phoneCustomKeyError(patch: ConfigPatch, headers: IncomingHttpHeaders, remoteHost: string | undefined) {
+  const phone = headers["x-openmausbot-companion"] === "1" || hostMatchesRemote(headers.host, remoteHost);
+  return patch.customKeys && phone ? "Custom keys can only be saved on the PC" : undefined;
 }
 
 /** Drop the legacy OpenCode section from the stored file. The engine is gone

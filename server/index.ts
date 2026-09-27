@@ -86,6 +86,7 @@ import {
   localVmMaxInstances,
   localVmMode,
   parseConfigPatch,
+  phoneCustomKeyError,
   roomTurnTimeoutMinutes,
   saveConfig,
   showToolCallsEnabled,
@@ -9303,6 +9304,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const body = await readBody(req);
       const patch = parseConfigPatch(body);
       if (!Object.keys(patch).length) return json(res, 400, { error: "nothing to save" });
+      const phoneKeyError = phoneCustomKeyError(patch, req.headers, REMOTE_HOST);
+      if (phoneKeyError) return json(res, 400, { error: phoneKeyError });
       if (providerConfigBusy) return json(res, 409, { error: "provider settings are already being updated" });
       if (patch.vps !== undefined) {
         const currentAlias = vpsSshAlias(cfg);

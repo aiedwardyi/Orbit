@@ -106,7 +106,11 @@ export async function callApi(
   if (!key) throw fail(409, missingKeyMessage(id));
   const headers = new Headers(request.headers ?? {});
   if (headers.has(rule.header)) throw fail(400, `do not set ${rule.header}; Orbit adds the key`);
-  headers.set(rule.header, `${rule.prefix}${key}`);
+  try {
+    headers.set(rule.header, `${rule.prefix}${key}`);
+  } catch (error) {
+    throw fail(400, redactKey(String((error as Error).message), key).slice(0, 300));
+  }
   let body: string | undefined;
   if (typeof request.body === "string") body = request.body;
   else if (request.body !== undefined && request.body !== null) {
@@ -129,6 +133,7 @@ export async function callApi(
   }
   const contentType = (response.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
   if (response.ok && BINARY_TYPE.test(contentType)) {
+    if (bytes.includes(key)) throw fail(502, "the response echoed the key, so Orbit did not save it");
     const ext = EXTENSIONS[contentType] ?? (contentType.split("/")[1]!.replace(/[^a-z0-9]/g, "").slice(0, 8) || "bin");
     const path = join(generatedImagesDir(roots, "api-files"), `response-${randomBytes(4).toString("hex")}.${ext}`);
     writeFileSync(path, bytes, { flag: "wx" });
