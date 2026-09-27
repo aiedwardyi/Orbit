@@ -2,15 +2,43 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import {
+  DRAWER_BUTTON_LEFT,
+  DRAWER_BUTTON_RIGHT,
+  DRAWER_HEADER_LEFT,
+  DRAWER_HEADER_RIGHT,
+} from "@/lib/drawer-button";
 import { SKIN_IDS, nextSkin } from "@/lib/skins";
 
 const app = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "App.tsx"), "utf8");
+/** Every page whose header keeps the drawer button's corner clear. */
+const HEADERS = [
+  "ChatView.tsx",
+  "GroupView.tsx",
+  "RemoteTerminalView.tsx",
+  "RoutinesPage.tsx",
+  "TeamMapPage.tsx",
+  "TerminalWorkspace.tsx",
+];
 
 describe("phone drawer menu button", () => {
   it("sits top-right when the sidebar side is right, top-left otherwise", () => {
     const button = app.slice(app.indexOf('aria-label={t("chrome.openBotList")}'), app.indexOf("</button>", app.indexOf('aria-label={t("chrome.openBotList")}')));
-    expect(button).toContain('sidebarOnRight ? "right-3" : "left-3"');
+    expect(button).toContain("sidebarOnRight ? DRAWER_BUTTON_RIGHT : DRAWER_BUTTON_LEFT");
     expect(button).toContain("md:hidden");
+    // Both sides share one inset and one top, so neither can drift from the header row.
+    expect(DRAWER_BUTTON_LEFT).toBe(DRAWER_BUTTON_RIGHT.replace("right-3.5", "left-3.5"));
+    expect(DRAWER_BUTTON_LEFT).toContain("top-[15px]");
+  });
+
+  it("centers on the same leading row every page header reserves", () => {
+    expect(DRAWER_HEADER_LEFT).toBe(DRAWER_HEADER_RIGHT.replace("pr-11", "pl-11"));
+    // 30px button centered on the row: 15 + 15 + 30 = 60.
+    expect(DRAWER_HEADER_LEFT).toContain("max-md:min-h-[60px]");
+    for (const header of HEADERS) {
+      const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "components", header), "utf8");
+      expect(source, header).toContain("sidebarOnRight ? DRAWER_HEADER_RIGHT : DRAWER_HEADER_LEFT");
+    }
   });
 
   it("badges other unread chats, excluding the open one", () => {

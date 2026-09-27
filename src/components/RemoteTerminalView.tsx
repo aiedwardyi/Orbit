@@ -5,6 +5,7 @@ import { api } from "@/state/store";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { ansiColor } from "@/lib/ansi-palette";
 import { composerEnterIntent } from "@/lib/composer-enter";
+import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
 
 type RemoteTerminalPane = {
@@ -242,7 +243,7 @@ export function RemoteTerminalView({
 
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-inset text-ink" aria-label={t("terminal.title")}>
-      <header className={`flex shrink-0 items-center gap-2 bg-panel py-2 ${sidebarOnRight ? "pl-2 pr-11 md:pl-5 md:pr-2" : "pl-11 pr-2 md:pl-5"} ${panes.length > 1 ? "" : "border-b border-hairline"}`}>
+      <header className={`flex shrink-0 items-center gap-2 bg-panel px-2 py-2 md:pl-5 ${sidebarOnRight ? DRAWER_HEADER_RIGHT : DRAWER_HEADER_LEFT} ${panes.length > 1 ? "" : "border-b border-hairline"}`}>
         <TerminalSquare size={16} className="shrink-0 text-accent-text" />
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-[13px] font-medium">{t("terminal.title")} <span className="text-ink-secondary">/ {bot.name}</span></h1>

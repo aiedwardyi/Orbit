@@ -7,6 +7,7 @@ import type { Bot } from "@/state/store";
 import { api, useStore } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
 import { readTerminalMatch, terminalTheme, TERMINAL_APPEARANCE_EVENT } from "@/lib/terminal-appearance";
+import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
 import { ConfirmDialog } from "./ConfirmDialog";
 import "@xterm/xterm/css/xterm.css";
@@ -589,7 +590,7 @@ export function TerminalWorkspace({
 
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-inset text-ink" aria-label={t("terminal.title")}>
-      <header className={`flex min-h-[60px] shrink-0 items-center gap-3 border-b border-hairline bg-panel py-3 ${sidebarOnRight ? "pl-5 pr-11 md:pr-5" : "pl-11 pr-5 md:pl-5"}`}>
+      <header className={`flex min-h-[60px] shrink-0 items-center gap-3 border-b border-hairline bg-panel px-5 py-3 ${sidebarOnRight ? DRAWER_HEADER_RIGHT : DRAWER_HEADER_LEFT}`}>
         <button type="button" onClick={onClose} className="flex shrink-0 items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text">
           <ArrowLeft size={15} /> {t("terminal.chat")} <kbd className="text-[10px] text-ink-secondary">{window.ogb?.platform === "darwin" ? "⌘" : "Ctrl+"}`</kbd>
         </button>

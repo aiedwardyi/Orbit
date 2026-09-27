@@ -39,6 +39,7 @@ import { EngineSetup, OpenConnectionsCta, setupErrorAction } from "./EngineSetup
 import { BotAvatar } from "./Avatar";
 import { MessageBoundary, TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
+import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
 import { showBotNewTaskControl, showComputerPanelChrome } from "@/lib/friends-chrome";
 import { stateForBot } from "@/lib/mascot";
@@ -1262,9 +1263,11 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
         className={cn(
           // @container so the chips on the right can fold to icon bubbles
           // when the column is narrow (side panel open, small window)
-          "@container/chathead flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 px-5 py-3",
+          // py-1.5 below md: the 48px avatar row is the tallest of these headers,
+          // so it needs the tighter padding to land on the shared 60px row.
+          "@container/chathead flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 px-5 py-3 max-md:py-1.5",
           // Room for the drawer button, which overlays this corner below md.
-          sidebarOnRight ? "pr-11 md:pr-5" : "pl-11 md:pl-5",
+          sidebarOnRight ? DRAWER_HEADER_RIGHT : DRAWER_HEADER_LEFT,
         )}
       >
         <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-lg px-1.5 py-1">

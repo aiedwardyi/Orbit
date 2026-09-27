@@ -18,6 +18,7 @@ import {
 import { BotAvatar } from "./Avatar";
 import { MessageBoundary, PresenceAnswer, TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
+import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
 import { DEFAULT_MAUS_COLOR, normalizeState } from "@/lib/mascot";
 import { effectiveDefaultResponder, groupResponseHint } from "@/lib/group-routing";
@@ -1277,7 +1278,7 @@ export function GroupView({ group }: { group: Group }) {
         className={cn(
           "flex items-center justify-between px-5 py-3",
           // Room for the drawer button, which overlays this corner below md.
-          sidebarOnRight ? "pr-11 md:pr-5" : "pl-11 md:pl-5",
+          sidebarOnRight ? DRAWER_HEADER_RIGHT : DRAWER_HEADER_LEFT,
         )}
       >
         <div className="flex min-w-0 items-center gap-2">
