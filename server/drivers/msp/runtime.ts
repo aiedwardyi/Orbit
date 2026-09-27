@@ -674,7 +674,15 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
               break;
             }
             case "turn/completed": {
-              if (typeof p.turnId === "string" && p.turnId !== state.mspTurnId) break;
+              // The turn/start ack resolves on a microtask, so a host that
+              // writes the ack and this notification into one stdout chunk
+              // lands here with mspTurnId still unset. Adopt it rather than
+              // drop it: nothing times a prompt out, so a dropped completion
+              // leaves the thread busy until the bot is restarted.
+              if (typeof p.turnId === "string") {
+                if (state.mspTurnId === null) state.mspTurnId = p.turnId;
+                else if (p.turnId !== state.mspTurnId) break;
+              }
               const terminal = p.terminal as string | undefined;
               if (terminal === "completed") {
                 if (!completionPending) {

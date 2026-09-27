@@ -58,6 +58,7 @@ describe("MSP turns (fake host)", () => {
 
   afterEach(async () => {
     delete process.env.FAKE_MSP_MODE;
+    delete process.env.FAKE_MSP_COALESCE;
     delete process.env.FAKE_MSP_DUMP;
     delete process.env.FAKE_MSP_STATE;
     delete process.env.FAKE_MSP_RPC_DUMP;
@@ -295,6 +296,13 @@ describe("MSP turns (fake host)", () => {
     expect(recorder.events).toContainEqual(
       expect.objectContaining({ type: "content.delta", delta: "half a report, then a crash" }),
     );
+  });
+
+  it("settles when turn/completed shares the turn/start ack's stdout chunk", async () => {
+    process.env.FAKE_MSP_COALESCE = "1";
+    await create("fail-after-text");
+    await instance.adapter.sendTurn({ threadId: "t-coalesced", text: "hi" });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: false });
   });
 
   it("rejects a second turn while one is in flight", async () => {

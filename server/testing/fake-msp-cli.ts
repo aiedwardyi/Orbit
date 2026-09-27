@@ -32,6 +32,9 @@
 //   FAKE_MSP_DUMP   path to write {argv, env} as JSON, so a test can assert
 //                   the spawn shape. session/start params land next to it in
 //                   `<path>.config.json`; turn/start input in `<path>.turn.json`.
+//   FAKE_MSP_COALESCE  1 = buffer every reply/notification produced while
+//                   handling one inbound message and write them as a single
+//                   stdout chunk, the framing a busy real host produces.
 //   FAKE_MSP_RPC_DUMP  path to write the method sequence seen this run.
 //   FAKE_MSP_USAGE     JSON result for usage/read.
 //   FAKE_MSP_USAGE_CHANGED  JSON params for a usage/changed notification.
@@ -55,7 +58,22 @@ if (argv.includes("--version")) {
   process.exit(0);
 }
 
-const out = (obj: unknown) => process.stdout.write(`${JSON.stringify(obj)}\n`);
+// A real host can land an RPC result and the notifications that follow it in
+// one stdout chunk. FAKE_MSP_COALESCE forces that framing so a client is not
+// allowed to depend on its own microtask ordering between the two.
+const coalesce = process.env.FAKE_MSP_COALESCE === "1";
+let outBuffer = "";
+const out = (obj: unknown) => {
+  const line = `${JSON.stringify(obj)}\n`;
+  if (coalesce) outBuffer += line;
+  else process.stdout.write(line);
+};
+const flushOut = () => {
+  if (!outBuffer) return;
+  const chunk = outBuffer;
+  outBuffer = "";
+  process.stdout.write(chunk);
+};
 const result = (id: unknown, res: unknown) => out({ jsonrpc: "2.0", id, result: res });
 const rpcMethods: string[] = [];
 const recordMethod = (method: string) => {
@@ -199,6 +217,7 @@ process.stdin.on("data", (c) => {
     }
     if (msg.method) handle(msg);
     else if (msg.id === 7001 && msg.result !== undefined) recordDecide({ method: "approval/receipt", result: msg.result });
+    flushOut();
   }
 });
 
