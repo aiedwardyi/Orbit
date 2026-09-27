@@ -817,6 +817,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       // acceptEdits run silently denies anything unlisted)
       const mcpServers: Record<string, unknown> = {};
       const allowed: string[] = [];
+      // Orbit's own servers skip ToolSearch deferral; a fresh CLI session
+      // would otherwise re-fetch their schemas every time.
+      const orbitOwned = { alwaysLoad: true };
       if (turn.integrations?.composio) {
         mcpServers.composio = { ...turn.integrations.composio };
         allowed.push("mcp__composio");
@@ -826,6 +829,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           command: process.execPath,
           args: [PROXY_PATH],
           env: { ...NODE_ENV_FLAG, ...computerProxyEnv(turn.integrations.computer) },
+          ...orbitOwned,
         };
         allowed.push("mcp__computer");
       } else if (turn.integrations?.localComputer) {
@@ -844,19 +848,19 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       // agentsIntegration(); pre-allowing matters doubly here, or the CLI's
       // own ListAgents look-alike shadows it and "@Bot" asks go nowhere
       if (turn.integrations?.agents) {
-        mcpServers.agents = { ...turn.integrations.agents };
+        mcpServers.agents = { ...turn.integrations.agents, ...orbitOwned };
         allowed.push("mcp__agents");
       }
       if (turn.integrations?.phone) {
-        mcpServers.phone = { ...turn.integrations.phone };
+        mcpServers.phone = { ...turn.integrations.phone, ...orbitOwned };
         allowed.push("mcp__phone");
       }
       if (turn.integrations?.browser) {
-        mcpServers.browser = { ...turn.integrations.browser };
+        mcpServers.browser = { ...turn.integrations.browser, ...orbitOwned };
         allowed.push("mcp__browser");
       }
       if (turn.integrations?.terminal) {
-        mcpServers.terminal = { ...turn.integrations.terminal };
+        mcpServers.terminal = { ...turn.integrations.terminal, ...orbitOwned };
         allowed.push("mcp__terminal__terminal_read");
       }
       // dweb network daemon (status / repo / opencode model access) via
@@ -869,6 +873,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             ...NODE_ENV_FLAG,
             DWEB_URL: turn.integrations.dweb.url,
           },
+          ...orbitOwned,
         };
         allowed.push("mcp__dweb");
       }
@@ -882,7 +887,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         socketPath = permissionSocketPath(threadId);
         ogbArgs[1] = socketPath;
         args.push("--permission-prompt-tool", "mcp__ogb__approve");
-        mcpServers.ogb = { command: process.execPath, args: ogbArgs, env: { ...NODE_ENV_FLAG } };
+        mcpServers.ogb = { command: process.execPath, args: ogbArgs, env: { ...NODE_ENV_FLAG }, ...orbitOwned };
         allowed.push("mcp__ogb");
       }
       // The MCP config carries credentials — a Composio consumer key in a

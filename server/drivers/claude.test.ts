@@ -574,6 +574,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.mcpConfig.mcpServers.agents).toMatchObject({
       args: ["/fake/agents-proxy.js"],
       env: { OMB_BOT_ID: "b1", OMB_COMMS_TOKEN: "tok" },
+      alwaysLoad: true,
     });
     // the config goes in a private file, never on argv, where `ps` would
     // show the comms token to every other user on the machine
@@ -598,6 +599,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     const allowed: string[] = seen.argv[seen.argv.indexOf("--allowedTools") + 1].split(",");
     expect(allowed).toContain("mcp__terminal__terminal_read");
     expect(allowed).not.toContain("mcp__terminal");
+    expect(seen.mcpConfig.mcpServers.terminal.alwaysLoad).toBe(true);
     expect(allowed).not.toContain("mcp__terminal__terminal_send");
   });
 
@@ -676,6 +678,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       args: ["/tmp/connector-proxy.js"],
       env: { OMB_CONNECTOR_UPSTREAM_URL: "https://example.test/mcp" },
     });
+    expect(seen.mcpConfig.mcpServers.composio.alwaysLoad).toBeUndefined();
     // the user's Composio key must not be readable via `ps`
     expect(JSON.stringify(seen.argv)).not.toContain("ak_test");
     expect(seen.argv[seen.argv.indexOf("--allowedTools") + 1]).toContain("mcp__composio");
