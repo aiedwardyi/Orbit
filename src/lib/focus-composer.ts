@@ -77,17 +77,13 @@ export function focusComposer(doc: Document = document, target?: HTMLTextAreaEle
   if (typeof start === "number" && typeof end === "number") {
     composer.setSelectionRange(start, end);
   }
-  const win = doc.defaultView;
-  const scrollX = win?.scrollX;
+  const ancestors = new Set<Element>();
+  for (let node = composer.parentElement; node; node = node.parentElement) ancestors.add(node);
+  if (doc.scrollingElement) ancestors.add(doc.scrollingElement);
+  const scrollLeft = new Map([...ancestors].map((el) => [el, el.scrollLeft] as const));
   composer.scrollIntoView?.({ block: "nearest" });
-  // scrollIntoView walks every scrollable ancestor (the footgun documented in
-  // focus-message.ts). On a phone, a mobile drawer still mid-close-transition
-  // can transiently widen the document's scrollable area, so this can drag the
-  // whole page sideways even though the composer never needs horizontal
-  // movement. Undo any horizontal drift it introduces.
-  if (win && typeof scrollX === "number" && win.scrollX !== scrollX) {
-    win.scrollTo(scrollX, win.scrollY);
-  }
+  // scrollIntoView walks every scrollable ancestor (the footgun documented in focus-message.ts); undo any horizontal drift it leaves behind.
+  for (const [el, left] of scrollLeft) if (el.scrollLeft !== left) el.scrollLeft = left;
   return true;
 }
 
