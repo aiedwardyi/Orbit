@@ -227,6 +227,23 @@ describe.runIf(process.platform === "win32")("orbit-msg --report", () => {
       await removeTempDir(f.dir);
     }
   }, 30_000);
+
+  it("prints usage for --help without posting", async () => {
+    const f = await reportFixture();
+    try {
+      await withMailboxStub(async (url, posts) => {
+        const env = reportEnv(url, f.fakebin);
+        for (const flag of ["--help", "-h", "/?"]) {
+          const run = await runOrbitMsg(env, f.bin, [flag]);
+          expect(run.status).toBe(0);
+          expect(run.stdout).toContain("usage: orbit-msg");
+        }
+        expect(posts).toHaveLength(0);
+      });
+    } finally {
+      await removeTempDir(f.dir);
+    }
+  }, 30_000);
 });
 
 describe("installOrbitMsg", () => {

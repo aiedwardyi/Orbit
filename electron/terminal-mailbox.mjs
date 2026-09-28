@@ -38,6 +38,10 @@ export function terminalPaneEnv(base, { pane, bot, teacher = bot, mailbox = null
 // The .cmd and extensionless shims forward argv here; this script holds the only logic.
 const ORBIT_MSG_PS1 = String.raw`$ErrorActionPreference = 'Stop'
 $mode = if ($args.Count -ge 2 -and ($args[0] -eq '--hook' -or $args[0] -eq '--notify')) { $args[0] }
+if ($args.Count -ge 1 -and @('--help', '-h', '/?') -contains $args[0]) {
+  [Console]::Out.WriteLine('usage: orbit-msg "text" | orbit-msg --report <DONE|FAIL|BLOCKED> <TASK-NICK> [text]')
+  exit 0
+}
 $auth = if ($env:ORBIT_MSG_AUTH) { $env:ORBIT_MSG_AUTH } else { $env:ORBIT_MSG_TOKEN }
 if (-not $env:ORBIT_PANE -or -not $env:ORBIT_URL -or -not $auth) {
   if ($mode) { exit 0 }
