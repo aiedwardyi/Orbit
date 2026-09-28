@@ -381,11 +381,12 @@ export function terminalAttentionCount(attention: TerminalAttentionMap): number 
 
 /** The visible conversation: walk parentId links from the active leaf back
  * to the root. Falls back to the flat list for pre-branching payloads. */
-export function visibleMessages(bot: Pick<Bot, "messages" | "activeLeafId">): Message[] {
+export function visibleMessages(bot: Pick<Bot, "messages" | "activeLeafId" | "hasMore">): Message[] {
   const leafId = bot.activeLeafId;
   if (!leafId) return bot.messages;
   const byId = new Map(bot.messages.map((m) => [m.id, m]));
-  if (!byId.has(leafId)) return bot.messages;
+  // a paged leaf lives on an older page; the loaded rows may be another branch
+  if (!byId.has(leafId)) return bot.hasMore ? [] : bot.messages;
   const path: Message[] = [];
   const seen = new Set<string>();
   let cur = byId.get(leafId);
@@ -602,6 +603,9 @@ export interface AppState {
   /** queueIds whose drain frame beat the POST continuation. One-shot and
    * bounded to a short event window so other clients cannot grow it forever. */
   consumedQueueIds: Record<string, true>;
+  /** Patches for rows older than every loaded page, keyed by threadId then
+   * message id. An older page applies them before it lands. */
+  olderPatches: Record<string, Record<string, Message>>;
   /** Session dismissals for the Continuity strip, keyed by thread. A later
    * crash/stop/shutdown packet with a new updatedAt may show again. */
   dismissedTaskRecovery: Record<string, { updatedAt: number; flushReason: TaskResumePacket["flushReason"] }>;
@@ -956,10 +960,9 @@ export function reducer(state: AppState, action: Action): AppState {
       const hydrated = reconcileSnapshotQueues(
         {
           ...state,
-          bots: action.bots.map((b) =>
-            keepLoadedScrollback(state, b.messages ? { ...b, messages: keepNewestScreenFrames(b.messages) } : b, state.bots),
-          ),
-          groups: action.groups.map((g) => keepLoadedScrollback(state, g, state.groups)),
+          bots: action.bots.map((b) => (b.messages ? { ...b, messages: keepNewestScreenFrames(b.messages) } : b)),
+          groups: action.groups,
+          olderPatches: {},
           computerControl: action.computerControl,
           terminalAttention: Object.fromEntries(
             Object.entries(state.terminalAttention).filter(([, attention]) => action.bots.some((bot) => bot.id === attention.botId)),
@@ -993,13 +996,21 @@ export function reducer(state: AppState, action: Action): AppState {
     case "olderMessages": {
       // A cursor that is no longer the head means a snapshot replaced this
       // list mid-request; prepending would leave a hole.
+      const patches = state.olderPatches[action.threadId] ?? {};
+      let landed = false;
       const prepend = <T extends Bot | Group>(conversation: T): T => {
         if (conversation.threadId !== action.threadId || conversation.messages[0]?.id !== action.before) return conversation;
+        landed = true;
         const held = new Set(conversation.messages.map((message) => message.id));
-        const older = action.messages.filter((message) => !held.has(message.id));
+        const older = action.messages.filter((message) => !held.has(message.id)).map((message) => patches[message.id] ?? message);
         return { ...conversation, messages: [...older, ...conversation.messages], hasMore: action.hasMore };
       };
-      return { ...state, bots: state.bots.map(prepend), groups: state.groups.map(prepend) };
+      const bots = state.bots.map(prepend);
+      const groups = state.groups.map(prepend);
+      if (!landed) return state;
+      const page = new Set(action.messages.map((message) => message.id));
+      const waiting = Object.entries(patches).filter(([id]) => !page.has(id));
+      return { ...state, bots, groups, olderPatches: { ...state.olderPatches, [action.threadId]: Object.fromEntries(waiting) } };
     }
     case "showRoutines":
       return {
@@ -1339,7 +1350,7 @@ export function reducer(state: AppState, action: Action): AppState {
         const group = state.groups.find((g) => g.threadId === action.threadId);
         if (!group) return state;
         return {
-          ...state,
+          ...holdOlderPatch(state, group, action.message),
           groups: state.groups.map((g) =>
             g.id === group.id
               ? { ...g, messages: g.messages.map((m) => (m.id === action.message.id ? action.message : m)) }
@@ -1355,7 +1366,8 @@ export function reducer(state: AppState, action: Action): AppState {
               ? "success"
               : "working"
           : null;
-      const next = motion ? withMascotMotion(state, bot.id, motion) : state;
+      const held = holdOlderPatch(state, bot, action.message);
+      const next = motion ? withMascotMotion(held, bot.id, motion) : held;
       return updateBot(next, bot.id, (b) => ({
         ...b,
         messages: b.messages.map((m) => (m.id === action.message.id ? action.message : m)),
@@ -1760,15 +1772,10 @@ export function reducer(state: AppState, action: Action): AppState {
   }
 }
 
-/** A re-hydrate answers with the newest page only. Keep the older pages the
- * reader already loaded when that page still joins onto them. */
-function keepLoadedScrollback<T extends Bot | Group>(state: AppState, next: T, previous: readonly (Bot | Group)[]): T {
-  const head = next.messages?.[0]?.id;
-  if (!state.hydrated || !next.hasMore || !head) return next;
-  const held = previous.find((conversation) => conversation.threadId === next.threadId);
-  const joins = held ? held.messages.findIndex((message) => message.id === head) : -1;
-  if (!held || joins <= 0) return next;
-  return { ...next, messages: [...held.messages.slice(0, joins), ...next.messages], hasMore: held.hasMore };
+function holdOlderPatch(state: AppState, conversation: Bot | Group, message: Message): AppState {
+  if (!conversation.hasMore || conversation.messages.some((m) => m.id === message.id)) return state;
+  const thread = { ...state.olderPatches[conversation.threadId], [message.id]: message };
+  return { ...state, olderPatches: { ...state.olderPatches, [conversation.threadId]: thread } };
 }
 
 /** Newest screen frames whose pixels stay in memory per thread. */
@@ -1837,6 +1844,7 @@ export const initialState: AppState = {
   mascotMotion: null,
   pendingQueued: {},
   consumedQueueIds: {},
+  olderPatches: {},
   dismissedTaskRecovery: {},
   acceptedSends: {},
   terminalAttention: {},

@@ -1783,11 +1783,35 @@ describe("paged transcripts", () => {
     expect(top.bots[0]!.hasMore).toBe(false);
   });
 
-  it("keeps loaded scrollback when a re-hydrate returns only the newest page", () => {
+  it("drops loaded scrollback on a re-hydrate, since it may have missed edits", () => {
     const loaded = hydrate(initialState, [bot(rows(0, 6), false)]);
     const rehydrated = hydrate(loaded, [bot(rows(3, 7), true)]);
-    expect(ids(rehydrated)).toEqual(["m0", "m1", "m2", "m3", "m4", "m5", "m6"]);
-    expect(rehydrated.bots[0]!.hasMore).toBe(false);
+    expect(ids(rehydrated)).toEqual(["m3", "m4", "m5", "m6"]);
+    expect(rehydrated.bots[0]!.hasMore).toBe(true);
+  });
+
+  it("applies a patch for an unloaded row to the older page before it lands", () => {
+    const room = { id: "g", threadId: "thread-g", name: "Room", memberIds: [], messages: rows(200, 202), hasMore: true } as unknown as Group;
+    const reacted = (id: string): Message => ({ ...row(Number(id.slice(1))), reactions: [{ emoji: "👍", by: "user" }] });
+    let state = reducer(initialState, {
+      type: "hydrate",
+      bots: [bot(rows(200, 202), true)],
+      groups: [room],
+      computerControl: {},
+      sidebarOrder: { sectionOrder: [], itemOrder: {} },
+    });
+    for (const threadId of ["thread-a", "thread-g"]) {
+      state = reducer(state, { type: "messagePatched", threadId, message: reacted("m199") });
+      state = reducer(state, { type: "olderMessages", threadId, before: "m200", messages: rows(198, 200), hasMore: true });
+    }
+    expect(state.bots[0]!.messages.find((m) => m.id === "m199")!.reactions).toHaveLength(1);
+    expect(state.groups[0]!.messages.find((m) => m.id === "m199")!.reactions).toHaveLength(1);
+    expect(state.bots[0]!.messages.find((m) => m.id === "m198")!.reactions).toBeUndefined();
+  });
+
+  it("shows no branch, rather than another one, while a paged leaf is unloaded", () => {
+    expect(visibleMessages({ messages: rows(300, 302), activeLeafId: "m99", hasMore: true })).toEqual([]);
+    expect(visibleMessages({ messages: rows(0, 2), activeLeafId: "m99" }).map((m) => m.id)).toEqual(["m0", "m1"]);
   });
 
   it("drops the old thread's hasMore when a task switch frame carries the full transcript", () => {

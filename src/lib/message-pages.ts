@@ -55,20 +55,19 @@ export function useOlderMessages(
   oldestId: string | undefined,
   hasMore: boolean | undefined,
 ) {
-  const inflight = useRef(false);
+  // One view serves many threads; a page still loading for one must not block another.
+  const inflight = useRef(new Set<string>());
   return useCallback(
     (beforeCommit?: () => void) => {
-      if (!hasMore || !oldestId || inflight.current) return;
-      inflight.current = true;
+      if (!hasMore || !oldestId || inflight.current.has(threadId)) return;
+      inflight.current.add(threadId);
       fetchOlderPage(threadId, oldestId)
         .then((page) => {
           beforeCommit?.();
           dispatch({ type: "olderMessages", threadId, before: oldestId, ...page });
         })
         .catch(() => {})
-        .finally(() => {
-          inflight.current = false;
-        });
+        .finally(() => inflight.current.delete(threadId));
     },
     [dispatch, threadId, oldestId, hasMore],
   );

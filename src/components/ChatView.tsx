@@ -1126,6 +1126,14 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
     () => [...canonicalMessages].reverse().find((m) => m.role === "user" && m.kind === "text"),
     [canonicalMessages],
   );
+  // The selected leaf, or the prompt behind a long tool run, can sit on an
+  // older page. Page back until the branch has them.
+  const branchPaging =
+    Boolean(bot.hasMore) &&
+    (canonicalMessages.length === 0 || (Boolean(canonicalMessages[0]!.parentId) && !lastUserMessage));
+  useEffect(() => {
+    if (branchPaging) loadOlder();
+  }, [branchPaging, loadOlder]);
 
   // Stream buffers belong to the canonical tail, never an optimistic send.
   const lastMessage = canonicalMessages.at(-1);

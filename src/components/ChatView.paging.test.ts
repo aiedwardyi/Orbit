@@ -99,7 +99,7 @@ async function mount(view: "chat" | "room") {
   vi.spyOn(console, "warn").mockImplementation(() => {});
   function Live() {
     store = useStore();
-    const b = store.state.bots[0];
+    const b = store.state.bots.find((candidate) => candidate.id === store.state.selectedId) ?? store.state.bots[0];
     const g = store.state.groups[0];
     if (view === "chat") return b ? createElement(ChatView, { bot: b }) : null;
     return g ? createElement(GroupView, { group: g }) : null;
@@ -184,5 +184,66 @@ describe("paged transcripts", () => {
     expect(store.state.bots[0]!.hasMore).toBe(false);
     // the window stays bounded around the hit instead of mounting the whole thread
     expect(host.querySelectorAll("[data-mid]").length).toBeLessThan(200);
+  });
+
+  it("reloads onto the selected branch when its leaf is older than the loaded page", async () => {
+    const link = (i: number, parentId: string | null): Message => ({ ...row(i), parentId });
+    const thread = [
+      ...Array.from({ length: 100 }, (_, i) => link(i, i ? `m${i - 1}` : null)),
+      ...Array.from({ length: 400 }, (_, i) => link(i + 100, i ? `m${i + 99}` : "m49")),
+    ];
+    pagedServer("thread-a", thread, { bots: [{ ...bot(thread.slice(-200), true), activeLeafId: "m99" }], groups: [] });
+    const host = await mount("chat");
+    await vi.waitFor(() => expect(host.textContent).toContain("row 99;"));
+    expect(host.textContent).not.toContain("row 499;");
+  });
+
+  it("regenerates from a prompt older than the loaded page", async () => {
+    const thread: Message[] = [
+      { id: "m0", at: 1, role: "user", kind: "text", text: "the prompt;", parentId: null },
+      ...Array.from({ length: 250 }, (_, i): Message => ({ id: `m${i + 1}`, at: 1, role: "bot", kind: "text", text: `step ${i + 1};`, parentId: `m${i}` })),
+    ];
+    const calls = pagedServer("thread-a", thread, { bots: [{ ...bot(thread.slice(-200), true), activeLeafId: "m250" }], groups: [] });
+    const host = await mount("chat");
+    await vi.waitFor(() => expect(store.state.bots[0]!.messages[0]!.id).toBe("m0"));
+    await act(async () => (host.querySelector('[aria-label="Regenerate response"]') as HTMLElement).click());
+    expect(calls).toContain("/api/bots/a/messages/m0/edit");
+  });
+
+  it("jumps within one bot while another bot's older page is still loading", async () => {
+    const thread = (p: string) =>
+      Array.from({ length: 600 }, (_, i): Message => ({ id: `${p}${i}`, at: 1, role: "user", kind: "text", text: `${p} row ${i};` }));
+    const threads: Record<string, Message[]> = { "thread-a": thread("a"), "thread-b": thread("b") };
+    const b = { ...bot(threads["thread-b"]!.slice(-200), true), id: "b", threadId: "thread-b", name: "B" } as Bot;
+    let releaseA = () => {};
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const path = String(url);
+      calls.push(path);
+      if (path === "/api/bots?messages=200") {
+        return Response.json({ bots: [bot(threads["thread-a"]!.slice(-200), true), b], groups: [], computerControl: {} });
+      }
+      const page = path.match(/^\/api\/threads\/([\w-]+)\/messages\?limit=(\d+)&before=(\w+)$/);
+      if (page) {
+        const all = threads[page[1]!]!;
+        const stop = all.findIndex((message) => message.id === page[3]);
+        const start = Math.max(0, stop - Number(page[2]));
+        const body = () => Response.json({ messages: all.slice(start, stop), hasMore: start > 0 });
+        if (page[1] === "thread-a") return new Promise<Response>((resolve) => (releaseA = () => resolve(body())));
+        return body();
+      }
+      return new Promise<Response>(() => {});
+    }));
+    const host = await mount("chat");
+    await act(async () => store.dispatch({ type: "select", id: "a" }));
+    await vi.waitFor(() => expect(host.textContent).toContain("a row 599;"));
+    await act(async () => store.dispatch({ type: "focusMessage", threadId: "thread-a", messageId: "a5" }));
+    await vi.waitFor(() => expect(calls).toContain("/api/threads/thread-a/messages?limit=200&before=a400"));
+    await act(async () => {
+      store.dispatch({ type: "select", id: "b" });
+      store.dispatch({ type: "focusMessage", threadId: "thread-b", messageId: "b300" });
+    });
+    await vi.waitFor(() => expect(host.querySelector('[data-mid="b300"]')).not.toBeNull());
+    releaseA();
   });
 });
