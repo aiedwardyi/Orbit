@@ -134,9 +134,10 @@ describe("home-screen app shell", () => {
       [...css.matchAll(/@font-face \{\s*font-family: "([^"]+)";\s*src: url\("\/fonts\/([^"]+)-Variable\.woff2"\)/g)].map((m) => [m[1], m[2]]),
     );
     const expected: Record<string, string> = {};
-    for (const [, skin, family] of css.matchAll(/\[data-skin="([\w-]+)"\] \{[^}]*?--font-sans: "([^"]+)"/g)) {
+    for (const [, selectors, family] of css.matchAll(/((?:\[data-skin="[\w-]+"\],\s*)*\[data-skin="[\w-]+"\]) \{[^}]*?--font-sans: "([^"]+)"/g)) {
       const file = bundled.get(family);
-      if (file) expected[skin] = file;
+      if (!file) continue;
+      for (const [, skin] of selectors.matchAll(/\[data-skin="([\w-]+)"\]/g)) expected[skin] = file;
     }
     const preloads = JSON.parse(`{${html.match(/var font = \{([^}]*)\}/)![1].replace(/(\w+):/g, '"$1":')}}`);
     expect(preloads).toEqual(expected);

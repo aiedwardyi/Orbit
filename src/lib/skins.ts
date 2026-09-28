@@ -46,6 +46,8 @@ export const SKIN_IDS = [
   "carbon",
   "seaglass",
   "pewter",
+  "pewter-dusk",
+  "pewter-night",
   "coal",
   "folio",
 ] as const;
@@ -100,6 +102,8 @@ export const SKINS: readonly Skin[] = [
   { id: "carbon", name: "Carbon", tagline: "Near-black steel, dense monospace." },
   { id: "seaglass", name: "Seaglass", tagline: "Deep teal, powder blue, easy reading." },
   { id: "pewter", name: "Pewter", tagline: "Mid gray, ice blue, cards drawn in outline." },
+  { id: "pewter-dusk", name: "Pewter Dusk", tagline: "Dusk gray, ice blue, cards drawn in outline." },
+  { id: "pewter-night", name: "Pewter Night", tagline: "Soft black, ice blue, cards drawn in outline." },
   { id: "coal", name: "Coal", tagline: "Soft black, gray keycap tiles, muted coral." },
   { id: "folio", name: "Folio", tagline: "Dark gray pages, serif type, muted gold." },
 ];

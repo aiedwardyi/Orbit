@@ -2334,6 +2334,8 @@
    Mid gray and ice blue in Manrope. Nothing is filled: turns, composer, and
    the selected row are drawn as rounded outlines on one flat ground.
    ───────────────────────────────────────────────────────────────────────── */
+[data-skin="pewter-dusk"],
+[data-skin="pewter-night"],
 [data-skin="pewter"] {
   --color-app: #3a3d41;
   --color-panel: #34373b;
@@ -2367,7 +2369,64 @@
   --radius-xl: 22px;
 }
 
-@scope ([data-skin="pewter"]) to ([data-skin]) {
+/* Darker Pewter siblings: same outline cards, only the palette steps down. */
+[data-skin="pewter-dusk"] {
+  --color-app: #2a2c2f;
+  --color-panel: #25272a;
+  --color-raised: #383b3f;
+  --color-raised-hover: #42454a;
+  --color-card: #303236;
+  --color-inset: #202225;
+  --color-control: #3a3d41;
+  --color-hairline: #5c6168;
+
+  --color-ink: #eef0f2;
+  --color-ink-secondary: #c0c6cc;
+
+  --color-accent: #a2bcd4;
+  --color-accent-border: #b3cadf;
+  --color-accent-text: #bed3e6;
+  --color-focus: #b3cadf;
+  --color-accent-ink: #202225;
+  --color-bubble-user: #34373b;
+
+  --color-success: #aac3da;
+  --color-danger: #efb0a7;
+  --color-danger-ink: #202225;
+  --color-warning: #e2cb9b;
+  --color-scrollbar: #5a5e64;
+  --color-maus-line: #c0c6cc;
+}
+
+[data-skin="pewter-night"] {
+  --color-app: #18191b;
+  --color-panel: #141517;
+  --color-raised: #26282b;
+  --color-raised-hover: #2f3135;
+  --color-card: #1e2023;
+  --color-inset: #111214;
+  --color-control: #27292c;
+  --color-hairline: #4d5158;
+
+  --color-ink: #e6e8eb;
+  --color-ink-secondary: #b1b7be;
+
+  --color-accent: #9ab3ca;
+  --color-accent-border: #a9c0d5;
+  --color-accent-text: #b4c9dc;
+  --color-focus: #a9c0d5;
+  --color-accent-ink: #141517;
+  --color-bubble-user: #222427;
+
+  --color-success: #a3bbd2;
+  --color-danger: #e8a89f;
+  --color-danger-ink: #141517;
+  --color-warning: #d9c294;
+  --color-scrollbar: #45494e;
+  --color-maus-line: #b1b7be;
+}
+
+@scope ([data-skin="pewter"], [data-skin="pewter-dusk"], [data-skin="pewter-night"]) to ([data-skin]) {
   [data-orbit-message] {
     padding-block: 0.25rem;
   }

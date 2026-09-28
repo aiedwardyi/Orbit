@@ -150,9 +150,11 @@ describe("skin overlay chrome", () => {
 
   it("locks caption chrome for Pewter, Coal, and Folio", () => {
     expect(SKIN_CHROME.pewter).toEqual({ color: "#3a3d41", symbolColor: "#c9ced4" });
+    expect(SKIN_CHROME["pewter-dusk"]).toEqual({ color: "#2a2c2f", symbolColor: "#c0c6cc" });
+    expect(SKIN_CHROME["pewter-night"]).toEqual({ color: "#18191b", symbolColor: "#b1b7be" });
     expect(SKIN_CHROME.coal).toEqual({ color: "#121315", symbolColor: "#a8adb3" });
     expect(SKIN_CHROME.folio).toEqual({ color: "#232528", symbolColor: "#b5b8bd" });
-    for (const id of ["pewter", "coal", "folio"]) {
+    for (const id of ["pewter", "pewter-dusk", "pewter-night", "coal", "folio"]) {
       expect(extractOmbSkin(Buffer.from(`xxomb-skin\u0000\u0001${id}\u0000yy`))).toBe(id);
       expect(skinThemeSource(id)).toBe("dark");
     }

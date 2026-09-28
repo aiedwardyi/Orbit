@@ -91,6 +91,8 @@ export const SECTION_PHRASE_KEYS = {
     "settings.skin.carbon.tagline",
     "settings.skin.seaglass.tagline",
     "settings.skin.pewter.tagline",
+    "settings.skin.pewter-dusk.tagline",
+    "settings.skin.pewter-night.tagline",
     "settings.skin.coal.tagline",
     "settings.skin.folio.tagline",
   ],

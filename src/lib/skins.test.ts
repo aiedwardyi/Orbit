@@ -22,9 +22,16 @@ function cssToken(id: string, name: string): string | null {
   return body.match(new RegExp(`${name}\\s*:\\s*(#[0-9a-fA-F]+)`))?.[1]?.toLowerCase() ?? null;
 }
 
+// A shared list (`[data-skin="a"],\n[data-skin="b"] {`) gives every listed skin its tokens.
+function sharedBodies(id: string): string[] {
+  return [...css.matchAll(/((?:\[data-skin="[a-z-]+"\],\s*)+\[data-skin="[a-z-]+"\])\s*\{([^}]*)\}/g)]
+    .filter(([, selectors]) => selectors.includes(`[data-skin="${id}"]`))
+    .map(([, , body]) => body);
+}
+
 function tokensOf(id: string): Set<string> {
   const body = css.match(new RegExp(`\\[data-skin="${id}"\\]\\s*\\{([^}]*)\\}`))?.[1] ?? "";
-  return new Set([...body.matchAll(/(--[\w-]+)\s*:/g)].map(([, name]) => name));
+  return new Set([body, ...sharedBodies(id)].flatMap((b) => [...b.matchAll(/(--[\w-]+)\s*:/g)].map(([, name]) => name)));
 }
 
 function channels(hex: string) {
@@ -477,7 +484,7 @@ describe("bundled-face skins", () => {
     const radii = FACE_SKINS.map((skin) => css.match(new RegExp(`\\[data-skin="${skin.id}"\\]\\s*\\{[^}]*--radius-lg:\\s*([^;]+);`))?.[1]);
     expect(new Set(radii).size).toBe(FACE_SKINS.length);
     for (const skin of FACE_SKINS) {
-      expect(css, skin.id).toContain(`@scope ([data-skin="${skin.id}"]) to ([data-skin])`);
+      expect(css, skin.id).toMatch(new RegExp(`@scope \\([^)]*\\[data-skin="${skin.id}"\\][^)]*\\) to \\(\\[data-skin\\]\\)`));
     }
   });
 
@@ -491,6 +498,35 @@ describe("bundled-face skins", () => {
       }
       expect(contrast(cssToken(skin.id, "--color-accent-ink")!, cssToken(skin.id, "--color-accent")!)).toBeGreaterThanOrEqual(4.5);
       expect(contrast(cssToken(skin.id, "--color-danger-ink")!, cssToken(skin.id, "--color-danger")!)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it("steps Pewter Dusk and Pewter Night down from Pewter's palette only", () => {
+    const pewter = SKIN_IDS.indexOf("pewter");
+    expect(SKIN_IDS.slice(pewter, pewter + 3)).toEqual(["pewter", "pewter-dusk", "pewter-night"]);
+    const shared = sharedBodies("pewter");
+    expect(shared).toHaveLength(1);
+    expect(shared[0]).toMatch(/--font-sans:\s*"Manrope"/);
+    expect(css).toContain('@scope ([data-skin="pewter"], [data-skin="pewter-dusk"], [data-skin="pewter-night"]) to ([data-skin])');
+    let lighter = cssToken("pewter", "--color-app")!;
+    for (const id of ["pewter-dusk", "pewter-night"]) {
+      expect(sharedBodies(id), id).toEqual(shared);
+      expect(DEFAULT_SKIN).not.toBe(id);
+      const own = css.match(new RegExp(`\\[data-skin="${id}"\\]\\s*\\{([^}]*)\\}`))![1];
+      expect([...own.matchAll(/(--[\w-]+)\s*:/g)].every(([, name]) => name.startsWith("--color-")), id).toBe(true);
+      const app = cssToken(id, "--color-app")!;
+      expect(app).not.toBe("#000000");
+      expect(luminance(app)).toBeLessThan(luminance(lighter));
+      expect(spread(app), id).toBeLessThanOrEqual(12);
+      expect(spread(cssToken(id, "--color-accent")!), id).toBeLessThanOrEqual(64);
+      for (const text of ["--color-ink", "--color-ink-secondary", "--color-accent-text"]) {
+        for (const surface of ["--color-app", "--color-panel", "--color-card", "--color-bubble-user", "--color-inset", "--color-control", "--color-raised"]) {
+          expect(contrast(cssToken(id, text)!, cssToken(id, surface)!), `${id} ${text} on ${surface}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+      expect(contrast(cssToken(id, "--color-accent-ink")!, cssToken(id, "--color-accent")!)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(cssToken(id, "--color-danger-ink")!, cssToken(id, "--color-danger")!)).toBeGreaterThanOrEqual(4.5);
+      lighter = app;
     }
   });
 
@@ -1095,7 +1131,7 @@ describe("skin persistence", () => {
   });
 
   it("remembers Pewter, Coal, and Folio", () => {
-    for (const id of ["pewter", "coal", "folio"] as const) {
+    for (const id of ["pewter", "pewter-dusk", "pewter-night", "coal", "folio"] as const) {
       applySkin(id);
       expect(dataset.skin).toBe(id);
       expect(store.get("omb-skin")).toBe(id);

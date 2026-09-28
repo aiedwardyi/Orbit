@@ -221,6 +221,8 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain('data-skin="seaglass"');
     expect(html).toContain("Seaglass");
     expect(html).toContain('data-skin="pewter"');
+    expect(html).toContain('data-skin="pewter-dusk"');
+    expect(html).toContain('data-skin="pewter-night"');
     expect(html).toContain('data-skin="coal"');
     expect(html).toContain('data-skin="folio"');
   });

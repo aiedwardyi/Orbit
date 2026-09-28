@@ -10,7 +10,7 @@
     <script>
       // The skin's webfont would otherwise start loading only after the bundle renders text.
       try {
-        var font = { instrument: "IBMPlexSans", matte: "Nunito", carbon: "JetBrainsMono", seaglass: "Assistant", pewter: "Manrope", coal: "SpaceGrotesk", folio: "Literata" }[localStorage.getItem("omb-skin")];
+        var font = { instrument: "IBMPlexSans", matte: "Nunito", carbon: "JetBrainsMono", seaglass: "Assistant", pewter: "Manrope", "pewter-dusk": "Manrope", "pewter-night": "Manrope", coal: "SpaceGrotesk", folio: "Literata" }[localStorage.getItem("omb-skin")];
         if (font) {
           var link = document.createElement("link");
           link.rel = "preload";
