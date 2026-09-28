@@ -331,26 +331,36 @@ export function openLiveEvents(
     connect();
   };
 
-  const recover = () => {
+  const recover = (wake = false) => {
     // Background tabs suspend timers and network delivery. Let visibility or
     // focus perform one recovery on wake instead of churning hidden sockets.
     if (stopped || !platform.isOnline() || !platform.isVisible()) return;
     if (!source || shouldReconnectLiveEvents(lastHeardAt, platform.now(), staleMs)) {
+      // Failures from before the page went away say nothing about the network now.
+      if (wake) retryAttempt = 0;
       reconnectNow(source !== null);
     }
   };
-  const onOnline = () => recover();
+  const onOnline = () => recover(true);
   const onFocus = () => {
-    if (platform.isVisible()) recover();
+    if (platform.isVisible()) recover(true);
   };
   const onVisibilityChange = () => {
-    if (platform.isVisible()) recover();
+    if (platform.isVisible()) recover(true);
+  };
+  // A back/forward-cache restore keeps the old source object, but its socket
+  // was dropped while the page sat in the cache.
+  const onPageShow = (event?: { persisted?: boolean }) => {
+    if (!event?.persisted || stopped || !platform.isOnline()) return;
+    retryAttempt = 0;
+    reconnectNow(source !== null);
   };
 
   connect();
-  const staleTimer = setInterval(recover, staleCheckMs);
+  const staleTimer = setInterval(() => recover(), staleCheckMs);
   platform.windowTarget?.addEventListener("online", onOnline);
   platform.windowTarget?.addEventListener("focus", onFocus);
+  platform.windowTarget?.addEventListener("pageshow", onPageShow);
   platform.documentTarget?.addEventListener("visibilitychange", onVisibilityChange);
 
   return () => {
@@ -361,6 +371,7 @@ export function openLiveEvents(
     closeSource();
     platform.windowTarget?.removeEventListener("online", onOnline);
     platform.windowTarget?.removeEventListener("focus", onFocus);
+    platform.windowTarget?.removeEventListener("pageshow", onPageShow);
     platform.documentTarget?.removeEventListener("visibilitychange", onVisibilityChange);
   };
 }

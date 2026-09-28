@@ -27,6 +27,7 @@ import { preferredStartupSelectionId, type SidebarOrder } from "@/lib/sidebar-or
 import { loadSidebarOrder } from "@/lib/sidebar-preferences";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import { firstChatPeripherals, scheduleDeferredInstancesLoad } from "./first-chat-snapshot";
+import { readSnapshotCache, writeSnapshotCache } from "./snapshot-cache";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
 import { completedReopenDismissals } from "@/lib/task-recovery";
 import { openLiveEvents } from "@/lib/live-events";
@@ -1746,6 +1747,26 @@ function keepNewestScreenFrames(messages: Message[]): Message[] {
   return messages.map((m) => (dropIds.has(m.id) ? { ...m, png: undefined } : m));
 }
 
+/** Messages per conversation a reload paints before the live snapshot lands. */
+const CACHED_TAIL_MESSAGES = 50;
+
+function cachedTail(messages: Message[]): Message[] {
+  return messages.slice(-CACHED_TAIL_MESSAGES).map((m) => (m.png ? { ...m, png: undefined } : m));
+}
+
+function saveSnapshotCache(state: AppState): void {
+  writeSnapshotCache({
+    bots: state.bots.map((b) => ({ ...b, messages: cachedTail(visibleMessages(b)) })),
+    groups: state.groups.map((g) => ({ ...g, messages: cachedTail(g.messages) })),
+    selectedId: state.selectedId,
+  });
+}
+
+function withCachedSnapshot(state: AppState): AppState {
+  const cached = readSnapshotCache();
+  return cached ? { ...state, ...cached } : state;
+}
+
 export const initialState: AppState = {
   bots: [],
   groups: [],
@@ -1857,7 +1878,7 @@ const StoreContext = createContext<{
 } | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [state, rawDispatch] = useReducer(reducer, initialState);
+  const [state, rawDispatch] = useReducer(reducer, initialState, withCachedSnapshot);
   const stateRef = useRef(state);
   stateRef.current = state;
   useMascotMotionExpiry(state.mascotMotion?.nonce, rawDispatch);
@@ -3029,6 +3050,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       document.removeEventListener("visibilitychange", onWindowActivated);
     };
   }, [dispatch]);
+
+  // Phone browsers discard hidden tabs; the reload paints this instead of the
+  // full-screen connecting state while the live snapshot loads.
+  useEffect(() => {
+    const save = () => {
+      if (stateRef.current.hydrated) saveSnapshotCache(stateRef.current);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") save();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", save);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", save);
+    };
+  }, []);
 
   useEffect(() => {
     return window.ogb?.onNotificationClick?.((target) => {

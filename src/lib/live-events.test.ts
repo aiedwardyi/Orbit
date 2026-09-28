@@ -11,20 +11,20 @@ import {
 } from "./live-events";
 
 class FakeTarget {
-  private readonly listeners = new Map<string, Set<() => void>>();
+  private readonly listeners = new Map<string, Set<(event?: unknown) => void>>();
 
-  addEventListener(type: string, listener: () => void) {
+  addEventListener(type: string, listener: (event?: unknown) => void) {
     const listeners = this.listeners.get(type) ?? new Set();
     listeners.add(listener);
     this.listeners.set(type, listeners);
   }
 
-  removeEventListener(type: string, listener: () => void) {
+  removeEventListener(type: string, listener: (event?: unknown) => void) {
     this.listeners.get(type)?.delete(listener);
   }
 
-  emit(type: string) {
-    for (const listener of this.listeners.get(type) ?? []) listener();
+  emit(type: string, event?: unknown) {
+    for (const listener of this.listeners.get(type) ?? []) listener(event);
   }
 
   count(type: string) {
@@ -295,6 +295,55 @@ describe("live events supervisor", () => {
     expect(test.sources).toHaveLength(2);
     expect(test.sources[0].close).toHaveBeenCalledOnce();
     stop();
+  });
+
+  it("reconnects a wake at the minimum delay, not the backoff built before hiding", () => {
+    const test = harness();
+    const stop = openLiveEvents(
+      {
+        onFrame: vi.fn(),
+        onSnapshotRequired: async () => true,
+        retryMinMs: 100,
+        retryMaxMs: 10_000,
+        staleMs: 60_000,
+      },
+      test.platform,
+    );
+
+    test.sources[0].error();
+    vi.advanceTimersByTime(100);
+    test.sources[1].error();
+    vi.advanceTimersByTime(200);
+    test.sources[2].error();
+    test.setVisible(false);
+    vi.advanceTimersByTime(400);
+    expect(test.sources).toHaveLength(3);
+
+    test.setVisible(true);
+    test.documentTarget.emit("visibilitychange");
+    expect(test.sources).toHaveLength(4);
+    test.sources[3].error();
+    vi.advanceTimersByTime(100);
+    expect(test.sources).toHaveLength(5);
+    stop();
+  });
+
+  it("replaces the stream at once when the page comes back from the back/forward cache", () => {
+    const test = harness();
+    const stop = openLiveEvents(
+      { onFrame: vi.fn(), onSnapshotRequired: async () => true, staleMs: 60_000 },
+      test.platform,
+    );
+    test.sources[0].open();
+
+    test.windowTarget.emit("pageshow", { persisted: false });
+    expect(test.sources).toHaveLength(1);
+    test.windowTarget.emit("pageshow", { persisted: true });
+    expect(test.sources).toHaveLength(2);
+    expect(test.sources[0].close).toHaveBeenCalledOnce();
+
+    stop();
+    expect(test.windowTarget.count("pageshow")).toBe(0);
   });
 
   it("recovers immediately on online/focus/visible and removes every owner on cleanup", () => {
