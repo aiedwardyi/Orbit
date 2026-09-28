@@ -441,6 +441,9 @@ const FACE_SKINS = [
   { id: "matte", name: "Matte", face: "Nunito", file: "Nunito-Variable.woff2", app: "#1c1b19" },
   { id: "carbon", name: "Carbon", face: "JetBrains Mono", file: "JetBrainsMono-Variable.woff2", app: "#0b0c0d" },
   { id: "seaglass", name: "Seaglass", face: "Assistant", file: "Assistant-Variable.woff2", app: "#283234" },
+  { id: "pewter", name: "Pewter", face: "Manrope", file: "Manrope-Variable.woff2", app: "#3a3d41" },
+  { id: "coal", name: "Coal", face: "Space Grotesk", file: "SpaceGrotesk-Variable.woff2", app: "#121315" },
+  { id: "folio", name: "Folio", face: "Literata", file: "Literata-Variable.woff2", app: "#232528" },
 ] as const;
 
 describe("Seaglass", () => {
@@ -489,6 +492,14 @@ describe("bundled-face skins", () => {
       expect(contrast(cssToken(skin.id, "--color-accent-ink")!, cssToken(skin.id, "--color-accent")!)).toBeGreaterThanOrEqual(4.5);
       expect(contrast(cssToken(skin.id, "--color-danger-ink")!, cssToken(skin.id, "--color-danger")!)).toBeGreaterThanOrEqual(4.5);
     }
+  });
+
+  it("keeps Coal a soft black under raised gray cards", () => {
+    const app = cssToken("coal", "--color-app")!;
+    expect(app).not.toBe("#000000");
+    expect(luminance(app)).toBeGreaterThan(luminance("#0e0e0e"));
+    expect(luminance(app)).toBeLessThan(luminance("#161616"));
+    expect(contrast(cssToken("coal", "--color-card")!, app)).toBeGreaterThan(1.1);
   });
 
   it("keeps accents and grounds low-chroma", () => {
@@ -1008,6 +1019,15 @@ describe("skin persistence", () => {
     expect(dataset.skin).toBe("seaglass");
     expect(store.get("omb-skin")).toBe("seaglass");
     expect(readSkin()).toBe("seaglass");
+  });
+
+  it("remembers Pewter, Coal, and Folio", () => {
+    for (const id of ["pewter", "coal", "folio"] as const) {
+      applySkin(id);
+      expect(dataset.skin).toBe(id);
+      expect(store.get("omb-skin")).toBe(id);
+      expect(readSkin()).toBe(id);
+    }
   });
 
   it("falls back to Precision for an unknown stored value", () => {

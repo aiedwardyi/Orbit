@@ -45,6 +45,9 @@ export const SKIN_IDS = [
   "matte",
   "carbon",
   "seaglass",
+  "pewter",
+  "coal",
+  "folio",
 ] as const;
 export type SkinId = (typeof SKIN_IDS)[number];
 
@@ -96,6 +99,9 @@ export const SKINS: readonly Skin[] = [
   { id: "matte", name: "Matte", tagline: "Warm stone, soft light, rounded type." },
   { id: "carbon", name: "Carbon", tagline: "Near-black steel, dense monospace." },
   { id: "seaglass", name: "Seaglass", tagline: "Deep teal, powder blue, easy reading." },
+  { id: "pewter", name: "Pewter", tagline: "Mid gray, ice blue, cards drawn in outline." },
+  { id: "coal", name: "Coal", tagline: "Soft black, gray keycap tiles, muted coral." },
+  { id: "folio", name: "Folio", tagline: "Dark gray pages, serif type, muted gold." },
 ];
 
 export const DEFAULT_SKIN: SkinId = "precision";

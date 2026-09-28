@@ -220,6 +220,9 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain('data-skin="carbon"');
     expect(html).toContain('data-skin="seaglass"');
     expect(html).toContain("Seaglass");
+    expect(html).toContain('data-skin="pewter"');
+    expect(html).toContain('data-skin="coal"');
+    expect(html).toContain('data-skin="folio"');
   });
 
   it("orders Themes and Usage last in the settings left nav", () => {

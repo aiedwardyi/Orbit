@@ -53,6 +53,10 @@ describe("settings section search", () => {
     expect(settingsSectionMatches("themes", "pastel")).toBe(true);
     expect(settingsSectionMatches("themes", "파스텔")).toBe(true);
     expect(settingsSectionMatches("themes", "편안한 읽기")).toBe(true);
+    expect(settingsSectionMatches("themes", "pewter")).toBe(true);
+    expect(settingsSectionMatches("themes", "keycap")).toBe(true);
+    expect(settingsSectionMatches("themes", "folio")).toBe(true);
+    expect(settingsSectionMatches("themes", "세리프 서체")).toBe(true);
     expect(settingsSectionMatches("themes", "둥근 서체")).toBe(true);
     expect(settingsSectionMatches("themes", "테마")).toBe(true);
     expect(settingsSectionMatches("general", "skin")).toBe(false);

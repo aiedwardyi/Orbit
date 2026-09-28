@@ -36,6 +36,27 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: "Manrope";
+  src: url("/fonts/Manrope-Variable.woff2") format("woff2");
+  font-weight: 200 800;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("/fonts/SpaceGrotesk-Variable.woff2") format("woff2");
+  font-weight: 300 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Literata";
+  src: url("/fonts/Literata-Variable.woff2") format("woff2");
+  font-weight: 200 900;
+  font-display: swap;
+}
+
 /* Phone terminal: system mono first, Nerd Font only for glyphs it lacks. */
 .orbit-remote-terminal {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", "Symbols Nerd Font Mono", monospace;
@@ -2295,6 +2316,355 @@
   [data-orbit-composer-frame] {
     border: 1px solid var(--color-hairline);
     border-radius: var(--radius-xl);
+  }
+}
+
+/* ── Pewter ────────────────────────────────────────────────────────────────
+   Mid gray and ice blue in Manrope. Nothing is filled: turns, composer, and
+   the selected row are drawn as rounded outlines on one flat ground.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="pewter"] {
+  --color-app: #3a3d41;
+  --color-panel: #34373b;
+  --color-raised: #474b50;
+  --color-raised-hover: #51555b;
+  --color-card: #404348;
+  --color-inset: #2e3134;
+  --color-control: #4b4f54;
+  --color-hairline: #6a6f76;
+
+  --color-ink: #f1f3f5;
+  --color-ink-secondary: #c9ced4;
+
+  --color-accent: #a9c3db;
+  --color-accent-border: #bcd2e6;
+  --color-accent-text: #c4d8ea;
+  --color-focus: #bcd2e6;
+  --color-accent-ink: #25282b;
+  --color-bubble-user: #44484e;
+
+  --color-success: #b3cbe2;
+  --color-danger: #f2b3aa;
+  --color-danger-ink: #25282b;
+  --color-warning: #e6cf9f;
+  --color-scrollbar: #6d7278;
+  --color-maus-line: #c9ced4;
+
+  --font-sans: "Manrope", "Segoe UI", -apple-system, BlinkMacSystemFont,
+    "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 20px;
+  --radius-xl: 22px;
+}
+
+@scope ([data-skin="pewter"]) to ([data-skin]) {
+  [data-orbit-message] {
+    padding-block: 0.25rem;
+  }
+
+  [data-orbit-message-body] {
+    max-width: min(44rem, 88%);
+  }
+
+  .orbit-message-speaker {
+    display: block;
+    margin: 0 14px 6px;
+    color: var(--color-ink-secondary);
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+
+  [data-orbit-message="user"] .orbit-message-speaker {
+    text-align: right;
+  }
+
+  [data-orbit-message-content] {
+    padding: 12px 18px;
+    background: transparent;
+    border: 1.5px solid var(--color-hairline);
+    border-radius: var(--radius-lg);
+    font-size: 15.5px;
+    line-height: 1.65;
+  }
+
+  [data-orbit-message="bot"] [data-orbit-message-content] {
+    border-bottom-left-radius: 6px;
+  }
+
+  [data-orbit-message="user"] [data-orbit-message-content] {
+    border-color: var(--color-accent-border);
+    border-bottom-right-radius: 6px;
+  }
+
+  .chat-md > div[class*="font-semibold"] {
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+
+  .chat-md blockquote {
+    border: 1.5px dashed var(--color-hairline);
+    border-radius: 14px;
+    padding: 8px 14px;
+    color: var(--color-ink-secondary);
+  }
+
+  [data-orbit-composer-frame] {
+    background: transparent;
+    border: 1.5px solid var(--color-hairline);
+    border-radius: var(--radius-xl);
+  }
+
+  [data-orbit-composer-frame]:focus-within {
+    border-color: var(--color-accent-border);
+  }
+
+  [data-sidebar-row] > .bg-raised {
+    background: transparent;
+    border-color: var(--color-accent-border);
+  }
+
+  [data-choice-signal] {
+    border-radius: 999px;
+    background: transparent;
+    box-shadow: inset 0 0 0 1.5px var(--color-accent-text);
+  }
+
+  [data-sidebar-model-dot] {
+    filter: saturate(0.3);
+  }
+}
+
+/* ── Coal ──────────────────────────────────────────────────────────────────
+   Soft black, never true black, in Space Grotesk. Turns are raised gray
+   keycap tiles with a heavy bottom lip; the user lip and the selected row
+   carry a muted coral.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="coal"] {
+  --color-app: #121315;
+  --color-panel: #16171a;
+  --color-raised: #25272b;
+  --color-raised-hover: #2e3035;
+  --color-card: #1e2023;
+  --color-inset: #0d0e0f;
+  --color-control: #2a2c30;
+  --color-hairline: #383b40;
+
+  --color-ink: #e4e4e1;
+  --color-ink-secondary: #a8adb3;
+
+  --color-accent: #d9aa9c;
+  --color-accent-border: #e4b8ab;
+  --color-accent-text: #e9bfb2;
+  --color-focus: #e4b8ab;
+  --color-accent-ink: #121315;
+  --color-bubble-user: #2a2c30;
+
+  --color-success: #a9c2d8;
+  --color-danger: #f0a3ab;
+  --color-danger-ink: #121315;
+  --color-warning: #dcc494;
+  --color-scrollbar: #3a3d42;
+  --color-maus-line: #a8adb3;
+
+  --font-sans: "Space Grotesk", "Segoe UI", -apple-system, BlinkMacSystemFont,
+    "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
+}
+
+@scope ([data-skin="coal"]) to ([data-skin]) {
+  [data-orbit-message] {
+    padding-block: 0.3rem;
+  }
+
+  [data-orbit-message-body] {
+    max-width: min(46rem, 88%);
+  }
+
+  .orbit-message-speaker {
+    display: block;
+    width: fit-content;
+    margin-bottom: 8px;
+    padding: 2px 9px;
+    border-radius: 6px;
+    background: var(--color-raised);
+    color: var(--color-ink-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  [data-orbit-message="user"] .orbit-message-speaker {
+    margin-left: auto;
+  }
+
+  [data-orbit-message-content] {
+    padding: 13px 17px;
+    border: 1px solid var(--color-hairline);
+    border-bottom-width: 3px;
+    border-radius: var(--radius-lg);
+    font-size: 15.5px;
+    line-height: 1.65;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05);
+  }
+
+  [data-orbit-message="bot"] [data-orbit-message-content] {
+    background: var(--color-card);
+  }
+
+  [data-orbit-message="user"] [data-orbit-message-content] {
+    background: var(--color-bubble-user);
+    border-bottom-color: var(--color-accent);
+  }
+
+  .chat-md > div[class*="font-semibold"] {
+    color: var(--color-accent-text);
+    letter-spacing: 0.01em;
+  }
+
+  .chat-md blockquote {
+    border-left: 3px solid var(--color-accent);
+    border-radius: 8px;
+    background: var(--color-inset);
+    padding: 8px 14px;
+    color: var(--color-ink-secondary);
+  }
+
+  [data-orbit-composer-frame] {
+    border: 1px solid var(--color-hairline);
+    border-bottom-width: 3px;
+    border-radius: var(--radius-xl);
+  }
+
+  [data-orbit-composer-frame]:focus-within {
+    border-bottom-color: var(--color-accent);
+  }
+
+  [data-sidebar-row] > .bg-raised {
+    box-shadow: inset 0 -2px 0 var(--color-accent);
+  }
+
+  [data-choice-signal] {
+    border-radius: 1.5px;
+    background: var(--color-accent);
+  }
+
+  [data-sidebar-model-dot] {
+    filter: saturate(0.3);
+  }
+}
+
+/* ── Folio ─────────────────────────────────────────────────────────────────
+   Dark gray pages set in Literata, with muted gold. Bot turns are dog-eared
+   sheets, user turns carry a gold ribbon, labels run in small caps.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="folio"] {
+  --color-app: #232528;
+  --color-panel: #1e2023;
+  --color-raised: #303338;
+  --color-raised-hover: #393c42;
+  --color-card: #2b2e32;
+  --color-inset: #1a1c1e;
+  --color-control: #34373c;
+  --color-hairline: #4a4e55;
+
+  --color-ink: #ecebe7;
+  --color-ink-secondary: #b5b8bd;
+
+  --color-accent: #cfbf94;
+  --color-accent-border: #d9cba5;
+  --color-accent-text: #dccfab;
+  --color-focus: #d9cba5;
+  --color-accent-ink: #1a1c1e;
+  --color-bubble-user: #31353b;
+
+  --color-success: #aec4da;
+  --color-danger: #eeaba3;
+  --color-danger-ink: #1a1c1e;
+  --color-warning: #e3c486;
+  --color-scrollbar: #4d5158;
+  --color-maus-line: #b5b8bd;
+
+  --font-sans: "Literata", "Iowan Old Style", "Palatino Linotype", Georgia,
+    "Malgun Gothic", "Apple SD Gothic Neo", serif;
+  --radius-lg: 5px;
+  --radius-xl: 8px;
+}
+
+@scope ([data-skin="folio"]) to ([data-skin]) {
+  [data-orbit-message] {
+    padding-block: 0.5rem;
+  }
+
+  [data-orbit-message-body] {
+    max-width: min(44rem, 90%);
+  }
+
+  .orbit-message-speaker {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--color-accent-text);
+    font-size: 13px;
+    font-weight: 600;
+    font-variant-caps: all-small-caps;
+    letter-spacing: 0.08em;
+  }
+
+  [data-orbit-message="user"] .orbit-message-speaker {
+    text-align: right;
+  }
+
+  [data-orbit-message-content] {
+    border-radius: var(--radius-lg);
+    font-size: 16.5px;
+    line-height: 1.7;
+  }
+
+  [data-orbit-message="bot"] [data-orbit-message-content] {
+    padding: 16px 22px 18px;
+    border-top-right-radius: 0;
+    background:
+      linear-gradient(45deg, var(--color-hairline) 50%, transparent 50%) top right / 14px 14px no-repeat,
+      linear-gradient(225deg, transparent 10px, var(--color-card) 10px);
+    box-shadow: 0 10px 18px -14px rgb(0 0 0 / 0.8);
+  }
+
+  [data-orbit-message="user"] [data-orbit-message-content] {
+    background: var(--color-bubble-user);
+    border-left: 3px solid var(--color-accent);
+    border-radius: 2px var(--radius-lg) var(--radius-lg) 2px;
+  }
+
+  .chat-md > div[class*="font-semibold"] {
+    color: var(--color-accent-text);
+    font-weight: 700;
+  }
+
+  .chat-md blockquote {
+    border-left: 1px solid var(--color-accent);
+    padding: 2px 16px;
+    color: var(--color-ink-secondary);
+    font-style: italic;
+  }
+
+  [data-orbit-composer-frame] {
+    border: 1px solid var(--color-hairline);
+    border-radius: var(--radius-xl);
+    box-shadow: inset 0 -2px 0 var(--color-accent);
+  }
+
+  [data-sidebar-row] > .bg-raised {
+    box-shadow: inset 3px 0 0 var(--color-accent);
+  }
+
+  [data-choice-signal] {
+    transform: rotate(45deg);
+    background: var(--color-accent);
+  }
+
+  [data-sidebar-model-dot] {
+    filter: saturate(0.3);
   }
 }
 
