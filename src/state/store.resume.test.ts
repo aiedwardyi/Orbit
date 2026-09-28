@@ -1,9 +1,12 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { StoreProvider, useStore, type Bot, type Message } from "./store";
+import { ModelPickerControl } from "@/components/ModelPicker";
+import { I18nProvider } from "@/lib/i18n";
+import { StoreProvider, useStore, type Bot, type InstanceInfo, type Message } from "./store";
 
 class FakeEventSource {
   static last: FakeEventSource | null = null;
@@ -116,6 +119,31 @@ describe("page reload after the tab was discarded", () => {
     expect(cached.length).toBeLessThan(200);
     expect(cached.at(-1)?.id).toBe("shot");
     expect(cached.at(-1)?.png).toBeUndefined();
+  });
+
+  it("paints the model chip's engine icon before the instances load", async () => {
+    const claude = {
+      instanceId: "inst",
+      driverKind: "claudeAgent",
+      displayName: "Claude",
+      snapshot: { state: "available" },
+      models: { default: "m", options: [{ id: "m", label: "Fable 5.1" }] },
+    } as InstanceInfo;
+    await mount(async () => Response.json({ bots: [botOf("b1", [text("b1", 0)])], groups: [], computerControl: {} }));
+    await hello();
+    await vi.waitFor(() => expect(store.state.bots).toHaveLength(1));
+    await act(async () => store.dispatch({ type: "instances", instances: [claude] }));
+    await hide();
+    await unmount!();
+    unmount = null;
+    vi.restoreAllMocks();
+
+    await mount(() => new Promise<Response>(() => {}));
+    const chip = renderToStaticMarkup(
+      createElement(I18nProvider, null, createElement(ModelPickerControl, { bot: store.state.bots[0], store })),
+    );
+    expect(chip).not.toContain("lucide-sparkles");
+    expect(chip).toContain("Fable 5.1");
   });
 
   it("stays on the connecting screen on a first load with nothing cached", async () => {

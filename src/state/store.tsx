@@ -1759,6 +1759,8 @@ function saveSnapshotCache(state: AppState): void {
     bots: state.bots.map((b) => ({ ...b, messages: cachedTail(visibleMessages(b)) })),
     groups: state.groups.map((g) => ({ ...g, messages: cachedTail(g.messages) })),
     selectedId: state.selectedId,
+    // preserveRateLimits would keep a stale usage window past the live fetch.
+    instances: state.instances.map(({ rateLimits: _rateLimits, ...instance }) => instance),
   });
 }
 

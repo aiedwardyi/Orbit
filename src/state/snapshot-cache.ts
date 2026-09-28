@@ -4,12 +4,14 @@
 // this, the reload paints the full-screen connecting state until the stream
 // says hello and every transcript downloads. The live snapshot always
 // replaces it; nothing here is acted on.
-import type { Bot, Group } from "./store";
+import type { Bot, Group, InstanceInfo } from "./store";
 
 export interface CachedSnapshot {
   bots: Bot[];
   groups: Group[];
   selectedId: string;
+  /** The model chip's engine icon; absent in older caches. */
+  instances?: InstanceInfo[];
 }
 
 export const SNAPSHOT_CACHE_KEY = "omb-snapshot";
@@ -33,6 +35,9 @@ const isConversation = (value: unknown) =>
   typeof value.threadId === "string" &&
   Array.isArray(value.messages);
 
+const isInstance = (value: unknown) =>
+  isRecord(value) && typeof value.instanceId === "string" && typeof value.driverKind === "string";
+
 export function readSnapshotCache(explicit?: Storage): CachedSnapshot | null {
   try {
     const raw = store(explicit)?.getItem(SNAPSHOT_CACHE_KEY);
@@ -44,7 +49,8 @@ export function readSnapshotCache(explicit?: Storage): CachedSnapshot | null {
       !Array.isArray(parsed.groups) ||
       typeof parsed.selectedId !== "string" ||
       !parsed.bots.every(isConversation) ||
-      !parsed.groups.every(isConversation)
+      !parsed.groups.every(isConversation) ||
+      (parsed.instances !== undefined && !(Array.isArray(parsed.instances) && parsed.instances.every(isInstance)))
     ) {
       return null;
     }

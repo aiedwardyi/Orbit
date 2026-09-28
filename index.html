@@ -3,8 +3,25 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#121316" />
     <link rel="icon" type="image/svg+xml" href="/app-icon.svg" />
+    <link rel="manifest" href="/manifest.json" />
     <title>Orbit</title>
+    <script>
+      // The skin's webfont would otherwise start loading only after the bundle renders text.
+      try {
+        var font = { instrument: "IBMPlexSans", matte: "Nunito", carbon: "JetBrainsMono", seaglass: "Assistant" }[localStorage.getItem("omb-skin")];
+        if (font) {
+          var link = document.createElement("link");
+          link.rel = "preload";
+          link.as = "font";
+          link.type = "font/woff2";
+          link.crossOrigin = "anonymous";
+          link.href = "/fonts/" + font + "-Variable.woff2";
+          document.head.appendChild(link);
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
