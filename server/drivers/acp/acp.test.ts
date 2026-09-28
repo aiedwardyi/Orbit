@@ -1196,6 +1196,32 @@ describe("ACP turns (fake CLI)", () => {
     expect(instance.adapter.capabilities.localComputerMcp).toBe(true);
   });
 
+  it("mounts the phone bridge as a session MCP server", async () => {
+    await create();
+    const dump = join(scratch, "phone-dump.json");
+    process.env.FAKE_ACP_DUMP = dump;
+    await instance.adapter.sendTurn({
+      threadId: "t-phone",
+      text: "check my phone",
+      integrations: {
+        phone: {
+          command: "/usr/bin/node",
+          args: ["/opt/orbit/phone-proxy.js"],
+          env: { OMB_ADB_PATH: "/usr/bin/adb" },
+        },
+      },
+    });
+    await recorder.until((event) => event.type === "turn.completed");
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.mcpServers).toContainEqual({
+      name: "phone",
+      command: "/usr/bin/node",
+      args: ["/opt/orbit/phone-proxy.js"],
+      env: [{ name: "OMB_ADB_PATH", value: "/usr/bin/adb" }],
+    });
+    expect(instance.adapter.capabilities.phoneMcp).toBe(true);
+  });
+
   it("surfaces a permission ask as request.opened and completes once allowed", async () => {
     await create(GrokAgentDriver, "permission");
     await instance.adapter.sendTurn({

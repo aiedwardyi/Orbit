@@ -558,6 +558,10 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         if (terminal) {
           servers.push({ name: "terminal", command: terminal.command, args: terminal.args, env: acpEnv(terminal.env) });
         }
+        const phone = turn.integrations?.phone;
+        if (phone) {
+          servers.push({ name: "phone", command: phone.command, args: phone.args, env: acpEnv(phone.env) });
+        }
         // The bot's computer, mounted exactly like the Claude driver does.
         // Cloud boxes use the REST adapter; host and sandbox Cua connections
         // expose Cua Driver's official MCP server directly.
@@ -1382,6 +1386,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             computerMcp: true,
             composioMcp: true,
             browserMcp: true,
+            phoneMcp: true,
             images: support.images !== false,
             effortLevels: support.effortLevels,
             localComputerMcp: !config.fullAuto,

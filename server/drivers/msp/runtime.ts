@@ -22,8 +22,10 @@ import type {
 } from "../../contracts.ts";
 import { newEventId, newId } from "../../contracts.ts";
 import { applyCredentialAllowlist } from "../../config.ts";
+import { computerProxyEnv } from "../../container-computer.ts";
 import { augmentedPath, toWslPath } from "../../env-path.ts";
 import { execCli, killCliTree, spawnCli } from "../../procs.ts";
+import { SPAWNED_PROXIES } from "../../proxy-paths.ts";
 import { isWslCommand, withWslProbeReason, wslBlockedReason, wslProbeAllowed } from "../../wsl-gate.ts";
 import { startTurnTimer } from "../../turn-timing.ts";
 import { finishNative } from "../native.ts";
@@ -123,18 +125,65 @@ const textStreamFor = (kinds: ItemKinds, itemId: string, field: unknown) => {
   return "assistant_text" as const;
 };
 
-type MspTerminalIntegration = NonNullable<NonNullable<SendTurnInput["integrations"]>["terminal"]>;
+type MspIntegrations = NonNullable<SendTurnInput["integrations"]>;
 
-function isWindowsPath(value: string): boolean {
-  return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\");
+/** One session MCP server, stdio arm of the schema's SessionMcpServerConfig.
+ * `transport` is required: the union is closed, so an arm without it fails
+ * session/start decode. */
+export interface MspMcpServer {
+  transport: "stdio";
+  command: string;
+  args: string[];
+  env: Record<string, string>;
 }
 
-export function translateMspTerminalForWsl(terminal: MspTerminalIntegration): MspTerminalIntegration {
-  return {
-    ...terminal,
-    command: toWslPath(terminal.command),
-    args: terminal.args.map((arg) => (isWindowsPath(arg) ? toWslPath(arg) : arg)),
+/** Behind the `wsl` wrapper the muse host is a Linux process, so a server
+ * command it spawns must be named in /mnt/c form.
+ *
+ * Args are deliberately NOT translated. The command is a Windows exe reached
+ * through WSL interop, and interop hands argv over verbatim: a /mnt/c arg
+ * arrives at node.exe as the nonexistent `C:\mnt\c\...` and the server dies
+ * on spawn. Same for env: those values are read by the Windows child. */
+export function translateMspServerForWsl(server: MspMcpServer): MspMcpServer {
+  return { ...server, command: toWslPath(server.command) };
+}
+
+/** Every Orbit MCP server this turn mounts, in the MSP session-config shape.
+ * Mirrors the ACP core's set so a Muse bot has the same hands as a Grok
+ * Build one; `undefined` when the turn mounts nothing, so the `config` key
+ * stays off the wire entirely. */
+export function mspMcpServers(
+  integrations: MspIntegrations | undefined,
+  opts: { wsl: boolean },
+): Record<string, MspMcpServer> | undefined {
+  const servers: Record<string, MspMcpServer> = {};
+  const add = (name: string, server: { command: string; args: string[]; env?: Record<string, string> }) => {
+    const stdio: MspMcpServer = {
+      transport: "stdio",
+      command: server.command,
+      args: server.args,
+      env: server.env ?? {},
+    };
+    servers[name] = opts.wsl ? translateMspServerForWsl(stdio) : stdio;
   };
+  if (integrations?.agents) add("agents", integrations.agents);
+  if (integrations?.composio) add("composio", integrations.composio);
+  if (integrations?.browser) add("browser", integrations.browser);
+  if (integrations?.terminal) add("terminal", integrations.terminal);
+  if (integrations?.phone) add("phone", integrations.phone);
+  // The bot's computer, mounted exactly as acp/core.ts does it: a cloud box
+  // goes through the REST adapter proxy, host and sandbox Cua connections
+  // expose Cua Driver's own MCP server directly.
+  if (integrations?.computer) {
+    add("computer", {
+      command: process.execPath,
+      args: [SPAWNED_PROXIES.computer],
+      env: { ELECTRON_RUN_AS_NODE: "1", ...computerProxyEnv(integrations.computer) },
+    });
+  } else if (integrations?.localComputer) {
+    add("computer", integrations.localComputer);
+  }
+  return Object.keys(servers).length ? servers : undefined;
 }
 
 /** First approved-* choice for allow, first denied-* for deny, ends as fallback. */
@@ -243,6 +292,9 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
       const sendTurn = async (turn: SendTurnInput) => {
         const { threadId } = turn;
         if (active.has(threadId)) throw new Error("a turn is already running on this thread");
+        if (turn.integrations?.localComputer?.scope === "local-computer" && config.fullAuto) {
+          throw new Error("local computer control requires interactive provider approvals");
+        }
         const turnId = newId();
   const turnTimer = startTurnTimer({
     engine: support.driverKind ?? "msp",
@@ -305,14 +357,12 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
         // when session/resume succeeds; recovered flips on the single retry.
         let resumedOk = false;
         let recovered = false;
-        const terminalIntegration = turn.integrations?.terminal;
-        const mcpServers = terminalIntegration
-          ? {
-              terminal: {
-                ...(isWslCli() ? translateMspTerminalForWsl(terminalIntegration) : terminalIntegration),
-              },
-            }
-          : undefined;
+        // Session MCP rides in the `config` extension object, never at the
+        // top level: SessionStartParams has no `mcpServers` member, and the
+        // decoder ignores unknown keys instead of rejecting them: a top-level
+        // mount is silently dropped and every tool simply never appears.
+        const mcpServers = mspMcpServers(turn.integrations, { wsl: isWslCli() });
+        const sessionConfig = mcpServers ? { config: { mcpServers } } : {};
 
         const stop = () => {
           channel.detach();
@@ -380,7 +430,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
               {
                 commandId: uuidv7(),
                 workspaceRoot: sessionRoot,
-                ...(mcpServers ? { mcpServers } : {}),
+                ...sessionConfig,
                 ...(turn.model ? { modelId: turn.model } : {}),
               },
               SESSION_TIMEOUT,
@@ -755,7 +805,10 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
                 clientInfo: { name: "orbit", version: "1.0.8" },
                 // Schema key is `capabilities`; the ACP-shaped
                 // clientCapabilities rides along (tolerated live).
-                capabilities: { userInputDialogs: false },
+                // sessionMcp is a GRANTED capability: without it here the host
+                // fails session/start with capabilityRequired the moment the
+                // params carry any MCP server.
+                capabilities: { userInputDialogs: false, requestedCapabilities: ["sessionMcp"] },
                 clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
               },
               INIT_TIMEOUT,
@@ -769,7 +822,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
               try {
                 const resumed: any = await channel.request(
                   "session/resume",
-                  { commandId: uuidv7(), sessionId: turn.resumeCursor, ...(mcpServers ? { mcpServers } : {}) },
+                  { commandId: uuidv7(), sessionId: turn.resumeCursor, ...sessionConfig },
                   SESSION_TIMEOUT,
                 );
                 sessionId = typeof resumed?.session?.sessionId === "string"
@@ -782,7 +835,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
                 // and replay the fallback text instead of the transcript.
                 const started: any = await channel.request(
                   "session/start",
-                  { commandId: uuidv7(), workspaceRoot: sessionRoot, ...(mcpServers ? { mcpServers } : {}) },
+                  { commandId: uuidv7(), workspaceRoot: sessionRoot, ...sessionConfig },
                   SESSION_TIMEOUT,
                 );
                 sessionId = typeof started?.session?.sessionId === "string" ? started.session.sessionId : null;
@@ -797,7 +850,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
                   commandId: uuidv7(),
                   workspaceRoot: sessionRoot,
                   ...(model ? { modelId: model } : {}),
-                  ...(mcpServers ? { mcpServers } : {}),
+                  ...sessionConfig,
                 },
                 SESSION_TIMEOUT,
               );
@@ -877,6 +930,13 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
             rateLimits: true,
             askApproval: !config.fullAuto,
             effortLevels: support.effortLevels,
+            agentsMcp: true,
+            composioMcp: true,
+            browserMcp: true,
+            phoneMcp: true,
+            computerMcp: true,
+            // Host control needs interactive approvals, same rule as ACP.
+            localComputerMcp: !config.fullAuto,
           },
           sendTurn,
           interruptTurn: async (threadId) => {

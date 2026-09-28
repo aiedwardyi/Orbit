@@ -92,6 +92,44 @@ const SESSION_ID = "fake-msp-session";
 const TURN_ID = "fake-msp-turn-1";
 const ITEM_ID = "fake-msp-item-1";
 
+// Session MCP, exactly as the real host gates it: servers live in the `config`
+// extension (a top-level `mcpServers` is an unknown key the wire silently
+// drops), the stdio arm of the closed union requires `transport`, and the
+// whole feature needs the sessionMcp grant negotiated at initialize.
+const GRANTABLE = ["userShell", "sessionMcp"];
+let granted: string[] = [];
+const sessionMcp = (msg: any) => msg.params?.config?.mcpServers ?? null;
+function rejectSessionMcp(msg: any): boolean {
+  const servers = sessionMcp(msg);
+  if (!servers) return false;
+  if (!granted.includes("sessionMcp")) {
+    out({
+      jsonrpc: "2.0",
+      id: msg.id,
+      error: {
+        code: -32010,
+        message: "session MCP configuration requires the sessionMcp capability",
+        data: { capability: "sessionMcp", kind: "capabilityRequired", retryable: false },
+      },
+    });
+    return true;
+  }
+  for (const [name, server] of Object.entries(servers as Record<string, any>)) {
+    if (server?.transport === "stdio" || server?.transport === "streamableHttp") continue;
+    out({
+      jsonrpc: "2.0",
+      id: msg.id,
+      error: {
+        code: -32602,
+        message: `invalid ${msg.method} params: unknown variant for mcpServers.${name}, expected one of \`stdio\`, \`streamableHttp\``,
+        data: { kind: "invalidParams" },
+      },
+    });
+    return true;
+  }
+  return false;
+}
+
 // Durable per-session models, so a switch sticks across the one-process-per
 // turn spawns. FAKE_MSP_STATE points at a JSON file shared by the run.
 const STATE_PATH = process.env.FAKE_MSP_STATE;
@@ -244,19 +282,22 @@ function handle(msg: any) {
         out({ jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: "invalid initialize params: missing clientInfo" } });
         break;
       }
+      const requested: unknown = msg.params?.capabilities?.requestedCapabilities;
+      granted = (Array.isArray(requested) ? requested : []).filter((name) => GRANTABLE.includes(name as string));
       result(msg.id, {
         experimentalApi: false,
-        grantedCapabilities: [],
+        grantedCapabilities: granted,
         serverInfo: { name: "fake-msp", version: "0.0.0" },
         sessionDurability: "durable",
       });
       break;
     }
     case "session/start": {
+      if (rejectSessionMcp(msg)) break;
       recordConfig({
         method: "session/start",
         modelId: msg.params?.modelId ?? null,
-        ...(msg.params?.mcpServers ? { mcpServers: msg.params.mcpServers } : {}),
+        ...(sessionMcp(msg) ? { mcpServers: sessionMcp(msg) } : {}),
       });
       const modelId = typeof msg.params?.modelId === "string" ? msg.params.modelId : "fake-msp-default";
       const models = readModels();
@@ -268,6 +309,7 @@ function handle(msg: any) {
       break;
     }
     case "session/resume": {
+      if (rejectSessionMcp(msg)) break;
       recordConfig({ method: "session/resume", params: msg.params ?? null });
       if (mode === "resume-fails") {
         out({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "method not found" } });

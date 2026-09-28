@@ -13,7 +13,7 @@ import { toWslPath } from "../../env-path.ts";
 import { removeTempDir } from "../../testing/cleanup.ts";
 import { recordEvents, type EventRecorder } from "../../testing/events.ts";
 import { MspMuseAgentDriver } from "./muse.ts";
-import { translateMspTerminalForWsl } from "./runtime.ts";
+import { mspMcpServers, translateMspServerForWsl } from "./runtime.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "testing", "fake-msp-cli.ts");
 
@@ -37,17 +37,59 @@ describe("MSP turns (fake host)", () => {
 
   const V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
-  it("translates the terminal command and Windows path args for WSL", () => {
-    const terminal = {
+  // WSL interop hands argv to the Windows exe verbatim, so a translated arg
+  // reaches node.exe as `C:\mnt\c\...` and the server dies on spawn.
+  it("translates a server command for WSL and leaves args and env alone", () => {
+    const server = {
+      transport: "stdio" as const,
       command: "C:\\Program Files\\nodejs\\node.exe",
       args: ["C:\\Orbit\\server\\drivers\\terminal-proxy.js", "--read-only"],
       env: { OMB_TERMINAL_TOKEN: "grant" },
     };
-    expect(translateMspTerminalForWsl(terminal)).toEqual({
-      command: toWslPath(terminal.command),
-      args: [toWslPath(terminal.args[0]), "--read-only"],
-      env: terminal.env,
+    expect(translateMspServerForWsl(server)).toEqual({
+      transport: "stdio",
+      command: toWslPath(server.command),
+      args: server.args,
+      env: server.env,
     });
+  });
+
+  it("mounts every Orbit server Grok Build gets, each on the stdio transport", () => {
+    const stdio = (name: string) => ({ command: `${name}-cmd`, args: [`${name}.js`], env: { T: name } });
+    const servers = mspMcpServers(
+      {
+        agents: stdio("agents"),
+        composio: stdio("composio"),
+        browser: stdio("browser"),
+        terminal: stdio("terminal"),
+        phone: stdio("phone"),
+        localComputer: { ...stdio("computer"), platform: "linux", scope: "local-computer" },
+      },
+      { wsl: false },
+    );
+    expect(Object.keys(servers!).sort()).toEqual([
+      "agents",
+      "browser",
+      "composio",
+      "computer",
+      "phone",
+      "terminal",
+    ]);
+    for (const server of Object.values(servers!)) expect(server.transport).toBe("stdio");
+    expect(servers!.phone).toEqual({ transport: "stdio", command: "phone-cmd", args: ["phone.js"], env: { T: "phone" } });
+  });
+
+  it("mounts a cloud box computer through the computer proxy", () => {
+    const servers = mspMcpServers(
+      { computer: { kind: "box", boxId: "box-1", token: "box-token" } },
+      { wsl: false },
+    );
+    expect(servers!.computer.env).toMatchObject({ ELECTRON_RUN_AS_NODE: "1", OGB_BOX_ID: "box-1" });
+  });
+
+  it("omits the config key entirely when the turn mounts nothing", () => {
+    expect(mspMcpServers(undefined, { wsl: false })).toBeUndefined();
+    expect(mspMcpServers({}, { wsl: false })).toBeUndefined();
   });
 
   beforeEach(() => {
@@ -241,7 +283,11 @@ describe("MSP turns (fake host)", () => {
     });
     expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
     const calls = JSON.parse(readFileSync(`${dump}.config.json`, "utf8"));
-    expect(calls).toContainEqual({ method: "session/start", modelId: null, mcpServers: { terminal } });
+    expect(calls).toContainEqual({
+      method: "session/start",
+      modelId: null,
+      mcpServers: { terminal: { transport: "stdio", ...terminal } },
+    });
   });
 
   it("passes the terminal MCP server to remembered sessions", async () => {
@@ -263,8 +309,29 @@ describe("MSP turns (fake host)", () => {
     const calls = JSON.parse(readFileSync(`${dump}.config.json`, "utf8"));
     expect(calls).toContainEqual({
       method: "session/resume",
-      params: expect.objectContaining({ mcpServers: { terminal } }),
+      params: expect.objectContaining({
+        config: { mcpServers: { terminal: { transport: "stdio", ...terminal } } },
+      }),
     });
+  });
+
+  // The host ignores unknown keys instead of rejecting them, so a top-level
+  // mount or a missing sessionMcp grant loses every tool in silence.
+  it("negotiates the sessionMcp grant so the mount is not rejected", async () => {
+    const dump = join(scratch, "muse-session-mcp.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    await create();
+    await instance.adapter.sendTurn({
+      threadId: "t-session-mcp",
+      text: "hi",
+      integrations: { terminal: { command: "node", args: ["terminal-proxy.mjs"], env: {} } },
+    });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    expect(recorder.events.some((e) => e.type === "runtime.error")).toBe(false);
+    // The fake only records servers it accepted out of `config.mcpServers`,
+    // and only once the grant was negotiated at initialize.
+    const calls = JSON.parse(readFileSync(`${dump}.config.json`, "utf8"));
+    expect(calls[0]).toMatchObject({ method: "session/start", mcpServers: { terminal: { transport: "stdio" } } });
   });
 
   it("settles a hung turn as cancelled on interrupt", async () => {
