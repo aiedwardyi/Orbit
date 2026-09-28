@@ -67,7 +67,7 @@ import { CallButton, CallOverlay } from "./CallView";
 import { cn } from "@/lib/cn";
 import { usageLimitReset } from "@/lib/usage";
 import { useFocusMessage } from "@/lib/focus-message";
-import { screenImageUrl, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
+import { screenImageUrl, useJumpWindow, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
 import { activityVisibleInChat, groupActivityRuns } from "@/lib/activity-runs";
 import { chatTranscriptRows, messageVisible } from "@/lib/chat-transcript";
 import { detectChatOptions, laterUserAnswer } from "@/lib/chat-options";
@@ -101,6 +101,8 @@ import { ContextCompactionDivider, TaskRecoveryCard } from "./TaskRecoveryCard";
  * bury the conversation; bots get full markdown. */
 const USER_COLLAPSE_CHARS = 600;
 const USER_COLLAPSE_LINES = 8;
+/** Older pages fetched looking for the prompt behind a bot-only branch. */
+const PROMPT_PAGES = 3;
 
 const NOTE_HEADER = /^\[pane ([0-9a-f]{1,8})\](?: \[([^\]]+)\])?/;
 
@@ -1060,6 +1062,9 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   // never flashes into the new one. Everything derived below (lastBotTextId,
   // lastUserMessage, working dots) stays computed from the FULL list.
   const transcriptKey = `${bot.id}:${bot.threadId}`;
+  // an old jump shows its own window; the live pages below keep taking arrivals
+  const jump = useJumpWindow(dispatch, transcriptKey, bot.threadId, bot.messages[0]?.id, Boolean(bot.activeLeafId));
+  const shown = jump.messages ?? messages;
   const showToolCalls = showToolCallsEnabled(state.config);
   const renders = useCallback(
     (index: number) => messageVisible(messages[index], { showToolCalls, transcript: messages }),
@@ -1082,11 +1087,11 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   // The window is index-based, so an older page landing on top shifts it.
   const loadOlder = useOlderMessages(dispatch, bot.threadId, bot.messages[0]?.id, bot.hasMore);
   const revealOlder = useRef(false);
-  const head = messages[0]?.id;
+  const head = shown[0]?.id;
   const [windowHead, setWindowHead] = useState(head);
   if (windowHead !== head) {
     setWindowHead(head);
-    const prepended = windowHead ? messages.findIndex((message) => message.id === windowHead) : -1;
+    const prepended = windowHead ? shown.findIndex((message) => message.id === windowHead) : -1;
     // a window set on an empty branch has no rows to anchor to
     if (!windowHead) {
       setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(messages.length, TRANSCRIPT_WINDOW_SIZE, renders), end: null });
@@ -1103,8 +1108,8 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
     startIndex,
     endIndex,
   } = useMemo(
-    () => resolveTranscriptWindow(messages, transcriptWindow.start, TRANSCRIPT_WINDOW_SIZE, transcriptWindow.end),
-    [messages, transcriptWindow.start, transcriptWindow.end],
+    () => resolveTranscriptWindow(shown, transcriptWindow.start, TRANSCRIPT_WINDOW_SIZE, transcriptWindow.end),
+    [shown, transcriptWindow.start, transcriptWindow.end],
   );
 
   const lastBotTextId = useMemo(
@@ -1130,13 +1135,23 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
     [canonicalMessages],
   );
   // The selected leaf, or the prompt behind a long tool run, can sit on an
-  // older page. Page back until the branch has them.
-  const branchPaging =
-    Boolean(bot.hasMore) &&
-    (canonicalMessages.length === 0 || (Boolean(canonicalMessages[0]!.parentId) && !lastUserMessage));
+  // older page. Page back until the leaf lands; the prompt gets a few pages.
+  const leafPaging = Boolean(bot.hasMore) && canonicalMessages.length === 0;
+  const promptPaging = Boolean(bot.hasMore) && Boolean(canonicalMessages[0]?.parentId) && !lastUserMessage;
+  const promptPages = useRef({ key: transcriptKey, cursors: new Set<string>() });
+  const cursor = bot.messages[0]?.id;
   useEffect(() => {
-    if (branchPaging) loadOlder();
-  }, [branchPaging, loadOlder]);
+    if (leafPaging) {
+      loadOlder();
+      return;
+    }
+    if (!promptPaging || !cursor) return;
+    if (promptPages.current.key !== transcriptKey) promptPages.current = { key: transcriptKey, cursors: new Set() };
+    const { cursors } = promptPages.current;
+    if (!cursors.has(cursor) && cursors.size >= PROMPT_PAGES) return;
+    cursors.add(cursor);
+    loadOlder();
+  }, [leafPaging, promptPaging, loadOlder, cursor, transcriptKey]);
 
   // Stream buffers belong to the canonical tail, never an optimistic send.
   const lastMessage = canonicalMessages.at(-1);
@@ -1196,30 +1211,38 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   // bounded window around it first; useFocusMessage then scrolls and flashes
   // the row after React commits that window.
   const appliedFocus = useRef<number | null>(null);
+  const requestedFocus = useRef<number | null>(null);
+  const { open: openJump, close: closeJump } = jump;
   useEffect(() => {
     const focus = state.focusMessage;
     if (!focus || focus.consumed || focus.threadId !== bot.threadId || appliedFocus.current === focus.nonce) return;
-    const targetIndex = messages.findIndex((message) => message.id === focus.messageId);
-    // older than every loaded page: keep paging back until it lands
+    const liveIndex = messages.findIndex((message) => message.id === focus.messageId);
+    const list = liveIndex >= 0 ? messages : shown;
+    const targetIndex = liveIndex >= 0 ? liveIndex : shown.findIndex((message) => message.id === focus.messageId);
+    // older than every loaded page: fetch one window around it
     if (targetIndex < 0) {
-      loadOlder();
+      if (bot.hasMore && requestedFocus.current !== focus.nonce) {
+        requestedFocus.current = focus.nonce;
+        openJump(focus.messageId);
+      }
       return;
     }
     appliedFocus.current = focus.nonce;
-    const range = focusWindowRange(messages.length, targetIndex);
+    if (liveIndex >= 0) closeJump();
+    const range = focusWindowRange(list.length, targetIndex);
     setBottomFollow(false);
     setTranscriptWindow({ key: transcriptKey, start: range.start, end: range.end });
-  }, [bot.threadId, loadOlder, messages, setBottomFollow, state.focusMessage, transcriptKey]);
+  }, [bot.threadId, bot.hasMore, closeJump, messages, openJump, setBottomFollow, shown, state.focusMessage, transcriptKey]);
   const focusPaging =
     Boolean(bot.hasMore) &&
     state.focusMessage?.threadId === bot.threadId &&
-    !messages.some((message) => message.id === state.focusMessage?.messageId);
-  useFocusMessage(bot.threadId, messages.length > 0 && !focusPaging);
+    !shown.some((message) => message.id === state.focusMessage?.messageId);
+  useFocusMessage(bot.threadId, shown.length > 0 && !focusPaging);
   useEffect(() => {
-    if (!follow || transcriptWindow.end !== null || transcriptWindow.expanded) return;
+    if (!follow || jump.messages || transcriptWindow.end !== null || transcriptWindow.expanded) return;
     const start = followedTailStart(transcriptWindow.start, messages.length, TRANSCRIPT_WINDOW_SIZE, renders);
     if (start !== transcriptWindow.start) setTranscriptWindow((w) => ({ ...w, start }));
-  }, [follow, messages.length, renders, transcriptWindow.start, transcriptWindow.end, transcriptWindow.expanded]);
+  }, [follow, jump.messages, messages.length, renders, transcriptWindow.start, transcriptWindow.end, transcriptWindow.expanded]);
 
   // deps track the FULL messages.length, so expanding the window (which only
   // changes windowedMessages) can never re-trigger this bottom scrollTo.
@@ -1260,7 +1283,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
     if (startIndex === 0) {
       revealOlder.current = true;
       setTranscriptWindow((w) => ({ ...w, expanded: true }));
-      loadOlder(() => {
+      (jump.messages ? jump.older : loadOlder)(() => {
         preExpandHeight.current = scrollRef.current?.scrollHeight ?? null;
       });
       return;
@@ -1281,8 +1304,8 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
 
   const showLater = () => {
     setBottomFollow(false);
-    const nextEnd = Math.min(messages.length, endIndex + TRANSCRIPT_WINDOW_SIZE);
-    setTranscriptWindow((w) => ({ ...w, end: nextEnd >= messages.length ? null : nextEnd }));
+    const nextEnd = Math.min(shown.length, endIndex + TRANSCRIPT_WINDOW_SIZE);
+    setTranscriptWindow((w) => ({ ...w, end: nextEnd >= shown.length ? null : nextEnd }));
   };
 
   // keyboard is a scroll gesture too (upstream lesson): PageUp/Home break
@@ -1302,6 +1325,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
     return !el || el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_FOLLOW_THRESHOLD;
   };
   const jumpToLatest = () => {
+    closeJump();
     setBottomFollow(true);
     setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(messages.length, TRANSCRIPT_WINDOW_SIZE, renders), end: null });
     requestAnimationFrame(() => {
@@ -1501,7 +1525,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
           aria-live="polite"
           aria-label={t("chat.conversationAria", { name: bot.name })}
         >
-          {(hiddenCount > 0 || bot.hasMore) && (
+          {(hiddenCount > 0 || (jump.messages ? jump.hasMore : bot.hasMore)) && (
             <div className="flex justify-center pt-2">
               <button
                 onClick={showEarlier}
@@ -1514,11 +1538,11 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
           <MessagesList
             bot={bot}
             messages={windowedMessages}
-            transcript={messages}
+            transcript={shown}
             editingId={editingId}
             lastBotTextId={lastBotTextId}
             canonicalLastMessageId={lastMessage?.id}
-            streamingMessage={laterCount === 0 ? streamingMessage : null}
+            streamingMessage={laterCount === 0 && !jump.messages ? streamingMessage : null}
             canRetryLast={!bot.busy && Boolean(lastUserMessage)}
             engine={engine}
             onStartEdit={startEdit}
@@ -1559,14 +1583,14 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
                 trackPointer={false}
               />
             }
-            visible={waiting}
+            visible={waiting && !jump.messages}
             label={activityLabel}
           />
         </div>
       </div>
 
       {/* Reading scrollback — one tap back to the end, streaming or not */}
-      {!follow && (
+      {(!follow || jump.messages) && (
         <button
           onClick={jumpToLatest}
           aria-label={t("chat.jumpToLatest")}

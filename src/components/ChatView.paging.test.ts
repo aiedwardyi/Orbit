@@ -73,10 +73,20 @@ function pagedServer(threadId: string, thread: Message[], snapshot: { bots: Bot[
       const start = Math.max(0, stop - Number(page[1]));
       return Response.json({ messages: thread.slice(start, stop), hasMore: start > 0 });
     }
+    const around = path.match(new RegExp(`^/api/threads/${threadId}/messages\\?around=(\\w+)&limit=(\\d+)$`));
+    if (around) {
+      const limit = Number(around[2]);
+      const index = thread.findIndex((message) => message.id === around[1]);
+      const start = Math.max(0, Math.min(index - Math.floor((limit - 1) / 2), thread.length - limit));
+      return Response.json({ messages: thread.slice(start, start + limit), hasMore: start > 0 });
+    }
     return new Promise<Response>(() => {});
   }));
   return calls;
 }
+
+const arrive = (threadId: string, message: Message) =>
+  act(async () => store.dispatch({ type: "messageAdded", threadId, message }));
 
 let unmount: (() => Promise<void>) | null = null;
 let store: ReturnType<typeof useStore>;
@@ -181,7 +191,7 @@ describe("paged transcripts", () => {
     await vi.waitFor(() => expect(host.textContent).toContain("row 599;"));
     await act(async () => store.dispatch({ type: "focusMessage", threadId: "thread-a", messageId: "m5" }));
     await vi.waitFor(() => expect(host.querySelector('[data-mid="m5"]')).not.toBeNull());
-    expect(store.state.bots[0]!.hasMore).toBe(false);
+    expect(store.state.bots[0]!.messages).toHaveLength(200);
     // the window stays bounded around the hit instead of mounting the whole thread
     expect(host.querySelectorAll("[data-mid]").length).toBeLessThan(200);
   });
@@ -245,18 +255,85 @@ describe("paged transcripts", () => {
         if (page[1] === "thread-a") return new Promise<Response>((resolve) => (releaseA = () => resolve(body())));
         return body();
       }
+      const around = path.match(/^\/api\/threads\/([\w-]+)\/messages\?around=(\w+)&limit=200$/);
+      if (around) {
+        const all = threads[around[1]!]!;
+        const index = all.findIndex((message) => message.id === around[2]);
+        const body = () => Response.json({ messages: all.slice(Math.max(0, index - 99), index + 101), hasMore: index > 99 });
+        if (around[1] === "thread-a") return new Promise<Response>((resolve) => (releaseA = () => resolve(body())));
+        return body();
+      }
       return new Promise<Response>(() => {});
     }));
     const host = await mount("chat");
     await act(async () => store.dispatch({ type: "select", id: "a" }));
     await vi.waitFor(() => expect(host.textContent).toContain("a row 599;"));
     await act(async () => store.dispatch({ type: "focusMessage", threadId: "thread-a", messageId: "a5" }));
-    await vi.waitFor(() => expect(calls).toContain("/api/threads/thread-a/messages?limit=200&before=a400"));
+    await vi.waitFor(() => expect(calls).toContain("/api/threads/thread-a/messages?around=a5&limit=200"));
     await act(async () => {
       store.dispatch({ type: "select", id: "b" });
       store.dispatch({ type: "focusMessage", threadId: "thread-b", messageId: "b300" });
     });
     await vi.waitFor(() => expect(host.querySelector('[data-mid="b300"]')).not.toBeNull());
     releaseA();
+  });
+
+  it("jumps to an old message with one bounded request", async () => {
+    const thread = rows(0, 5000);
+    const calls = pagedServer("thread-a", thread, { bots: [bot(thread.slice(-200), true)], groups: [] });
+    const host = await mount("chat");
+    await vi.waitFor(() => expect(host.textContent).toContain("row 4999;"));
+    await act(async () => store.dispatch({ type: "focusMessage", threadId: "thread-a", messageId: "m5" }));
+    await vi.waitFor(() => expect(host.querySelector('[data-mid="m5"]')).not.toBeNull());
+    expect(calls.filter((call) => call.startsWith("/api/threads/"))).toEqual(["/api/threads/thread-a/messages?around=m5&limit=200"]);
+    expect(store.state.bots[0]!.messages).toHaveLength(200);
+  });
+
+  it("returns to the latest after a jump with live arrivals kept", async () => {
+    const link = (i: number): Message => ({ ...row(i), parentId: i ? `m${i - 1}` : null });
+    const thread = Array.from({ length: 5000 }, (_, i) => link(i));
+    const calls = pagedServer("thread-a", thread, { bots: [bot(thread.slice(-200), true)], groups: [] });
+    const host = await mount("chat");
+    await vi.waitFor(() => expect(host.textContent).toContain("row 4999;"));
+    await act(async () => store.dispatch({ type: "focusMessage", threadId: "thread-a", messageId: "m2500" }));
+    await vi.waitFor(() => expect(host.querySelector('[data-mid="m2500"]')).not.toBeNull());
+    await arrive("thread-a", link(5000));
+    expect(store.state.bots[0]!.messages).toHaveLength(201);
+    expect(host.textContent).not.toContain("row 5000;");
+
+    for (let i = 0; i < 3 && !calls.some((call) => call.includes("before=")); i++) {
+      await act(async () => button(host, "Show earlier messages")!.click());
+    }
+    await vi.waitFor(() => expect(host.textContent).toContain("row 2281;"));
+    expect(calls).toContain("/api/threads/thread-a/messages?limit=200&before=m2401");
+    expect(store.state.bots[0]!.messages).toHaveLength(201);
+
+    await act(async () => button(host, "Show later messages")!.click());
+    expect(button(host, "Show later messages")).toBeUndefined();
+    await act(async () => button(host, "Jump to latest")!.click());
+    expect(host.textContent).toContain("row 5000;");
+    expect(host.textContent).toContain("row 4999;");
+    expect(host.textContent).not.toContain("row 2500;");
+  });
+
+  it("jumps a room to an old message with one bounded request", async () => {
+    const thread = rows(0, 5000);
+    const calls = pagedServer("thread-g", thread, { bots: [], groups: [room(thread.slice(-200), true)] });
+    const host = await mount("room");
+    await vi.waitFor(() => expect(host.textContent).toContain("row 4999;"));
+    await act(async () => store.dispatch({ type: "focusMessage", threadId: "thread-g", messageId: "m5" }));
+    await vi.waitFor(() => expect(host.querySelector('[data-mid="m5"]')).not.toBeNull());
+    expect(calls.filter((call) => call.startsWith("/api/threads/"))).toEqual(["/api/threads/thread-g/messages?around=m5&limit=200"]);
+    expect(store.state.groups[0]!.messages).toHaveLength(200);
+  });
+
+  it("stops looking for a bot-only branch's prompt after a few pages", async () => {
+    const thread = Array.from({ length: 2000 }, (_, i): Message => ({ id: `m${i}`, at: 1, role: "bot", kind: "text", text: `step ${i};`, parentId: i ? `m${i - 1}` : null }));
+    const calls = pagedServer("thread-a", thread, { bots: [{ ...bot(thread.slice(-200), true), activeLeafId: "m1999" }], groups: [] });
+    await mount("chat");
+    await vi.waitFor(() => expect(store.state.bots[0]!.messages).toHaveLength(800));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(calls.filter((call) => call.includes("before="))).toHaveLength(3);
+    expect(store.state.bots[0]!.messages).toHaveLength(800);
   });
 });

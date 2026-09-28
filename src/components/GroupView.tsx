@@ -51,7 +51,7 @@ import { ActivityRun } from "./ActivityRun";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
 import { useFocusMessage } from "@/lib/focus-message";
-import { screenImageUrl, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
+import { screenImageUrl, useJumpWindow, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
 import { shortPath } from "@/lib/short-path";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow } from "@/lib/bottom-follow";
 import { CHAT_COLUMN_CLASS } from "@/lib/chat-column";
@@ -1128,6 +1128,9 @@ export function GroupView({ group }: { group: Group }) {
   // the anchored boundary re-tails on a render-phase reset when the room (or
   // its thread) changes. Working dots below stay on the FULL list's tail.
   const transcriptKey = `${group.id}:${group.threadId}`;
+  // an old jump shows its own window; the live pages below keep taking arrivals
+  const jump = useJumpWindow(dispatch, transcriptKey, group.threadId, group.messages[0]?.id, false);
+  const shown = jump.messages ?? group.messages;
   const renders = useCallback(
     (index: number) => messageVisible(group.messages[index], showToolCalls),
     [group.messages, showToolCalls],
@@ -1148,11 +1151,11 @@ export function GroupView({ group }: { group: Group }) {
   // The window is index-based, so an older page landing on top shifts it.
   const loadOlder = useOlderMessages(dispatch, group.threadId, group.messages[0]?.id, group.hasMore);
   const revealOlder = useRef(false);
-  const head = group.messages[0]?.id;
+  const head = shown[0]?.id;
   const [windowHead, setWindowHead] = useState(head);
   if (windowHead !== head) {
     setWindowHead(head);
-    const prepended = windowHead ? group.messages.findIndex((message) => message.id === windowHead) : -1;
+    const prepended = windowHead ? shown.findIndex((message) => message.id === windowHead) : -1;
     if (prepended > 0) {
       const reveal = revealOlder.current;
       revealOlder.current = false;
@@ -1166,8 +1169,8 @@ export function GroupView({ group }: { group: Group }) {
     startIndex,
     endIndex,
   } = useMemo(
-    () => resolveTranscriptWindow(group.messages, transcriptWindow.start, TRANSCRIPT_WINDOW_SIZE, transcriptWindow.end),
-    [group.messages, transcriptWindow.start, transcriptWindow.end],
+    () => resolveTranscriptWindow(shown, transcriptWindow.start, TRANSCRIPT_WINDOW_SIZE, transcriptWindow.end),
+    [shown, transcriptWindow.start, transcriptWindow.end],
   );
 
   const setBottomFollow = useCallback((next: boolean) => {
@@ -1178,30 +1181,38 @@ export function GroupView({ group }: { group: Group }) {
   useEffect(() => setBottomFollow(true), [group.id, setBottomFollow]);
 
   const appliedFocus = useRef<number | null>(null);
+  const requestedFocus = useRef<number | null>(null);
+  const { open: openJump, close: closeJump } = jump;
   useEffect(() => {
     const focus = state.focusMessage;
     if (!focus || focus.consumed || focus.threadId !== group.threadId || appliedFocus.current === focus.nonce) return;
-    const targetIndex = group.messages.findIndex((message) => message.id === focus.messageId);
-    // older than every loaded page: keep paging back until it lands
+    const liveIndex = group.messages.findIndex((message) => message.id === focus.messageId);
+    const list = liveIndex >= 0 ? group.messages : shown;
+    const targetIndex = liveIndex >= 0 ? liveIndex : shown.findIndex((message) => message.id === focus.messageId);
+    // older than every loaded page: fetch one window around it
     if (targetIndex < 0) {
-      loadOlder();
+      if (group.hasMore && requestedFocus.current !== focus.nonce) {
+        requestedFocus.current = focus.nonce;
+        openJump(focus.messageId);
+      }
       return;
     }
     appliedFocus.current = focus.nonce;
-    const range = focusWindowRange(group.messages.length, targetIndex);
+    if (liveIndex >= 0) closeJump();
+    const range = focusWindowRange(list.length, targetIndex);
     setBottomFollow(false);
     setTranscriptWindow({ key: transcriptKey, start: range.start, end: range.end });
-  }, [group.messages, group.threadId, loadOlder, setBottomFollow, state.focusMessage, transcriptKey]);
+  }, [closeJump, group.hasMore, group.messages, group.threadId, openJump, setBottomFollow, shown, state.focusMessage, transcriptKey]);
   const focusPaging =
     Boolean(group.hasMore) &&
     state.focusMessage?.threadId === group.threadId &&
-    !group.messages.some((message) => message.id === state.focusMessage?.messageId);
-  useFocusMessage(group.threadId, group.messages.length > 0 && !focusPaging);
+    !shown.some((message) => message.id === state.focusMessage?.messageId);
+  useFocusMessage(group.threadId, shown.length > 0 && !focusPaging);
   useEffect(() => {
-    if (!follow || transcriptWindow.end !== null || transcriptWindow.expanded) return;
+    if (!follow || jump.messages || transcriptWindow.end !== null || transcriptWindow.expanded) return;
     const start = followedTailStart(transcriptWindow.start, group.messages.length, TRANSCRIPT_WINDOW_SIZE, renders);
     if (start !== transcriptWindow.start) setTranscriptWindow((w) => ({ ...w, start }));
-  }, [follow, group.messages.length, renders, transcriptWindow.start, transcriptWindow.end, transcriptWindow.expanded]);
+  }, [follow, jump.messages, group.messages.length, renders, transcriptWindow.start, transcriptWindow.end, transcriptWindow.expanded]);
 
   // an open draft outranks an incoming bulletin patch — resyncing under the cursor loses the edit
   useEffect(() => {
@@ -1245,7 +1256,7 @@ export function GroupView({ group }: { group: Group }) {
     if (startIndex === 0) {
       revealOlder.current = true;
       setTranscriptWindow((w) => ({ ...w, expanded: true }));
-      loadOlder(() => {
+      (jump.messages ? jump.older : loadOlder)(() => {
         preExpandHeight.current = scrollRef.current?.scrollHeight ?? null;
       });
       return;
@@ -1266,8 +1277,8 @@ export function GroupView({ group }: { group: Group }) {
 
   const showLater = () => {
     setBottomFollow(false);
-    const nextEnd = Math.min(group.messages.length, endIndex + TRANSCRIPT_WINDOW_SIZE);
-    setTranscriptWindow((w) => ({ ...w, end: nextEnd >= group.messages.length ? null : nextEnd }));
+    const nextEnd = Math.min(shown.length, endIndex + TRANSCRIPT_WINDOW_SIZE);
+    setTranscriptWindow((w) => ({ ...w, end: nextEnd >= shown.length ? null : nextEnd }));
   };
 
   const atEnd = () => {
@@ -1277,6 +1288,7 @@ export function GroupView({ group }: { group: Group }) {
 
   // Own send re-anchors even from scrollback; incoming content never yanks.
   const jumpToLatest = () => {
+    closeJump();
     setBottomFollow(true);
     setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(group.messages.length, TRANSCRIPT_WINDOW_SIZE, renders), end: null });
     requestAnimationFrame(() => {
@@ -1530,7 +1542,7 @@ export function GroupView({ group }: { group: Group }) {
               </div>
             </div>
           )}
-          {(hiddenCount > 0 || group.hasMore) && (
+          {(hiddenCount > 0 || (jump.messages ? jump.hasMore : group.hasMore)) && (
             <div className="flex justify-center pt-2">
               <button
                 onClick={showEarlier}
@@ -1544,7 +1556,7 @@ export function GroupView({ group }: { group: Group }) {
             group={group}
             members={members}
             messages={windowedMessages}
-            transcript={group.messages}
+            transcript={shown}
             emergingId={popping?.id}
             onReply={selectReply}
             onFocusComposer={focusComposer}
@@ -1559,7 +1571,7 @@ export function GroupView({ group }: { group: Group }) {
               </button>
             </div>
           )}
-          {(speaker || presenceVisible) && (
+          {(speaker || presenceVisible) && !jump.messages && (
             <TurnPresence
               avatar={
                 <BotAvatar
@@ -1587,7 +1599,7 @@ export function GroupView({ group }: { group: Group }) {
         )}
       </div>
 
-      {!follow && (
+      {(!follow || jump.messages) && (
         <button
           onClick={jumpToLatest}
           aria-label={t("chat.jumpToLatest")}
