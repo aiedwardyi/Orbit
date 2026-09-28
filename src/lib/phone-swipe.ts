@@ -64,16 +64,20 @@ export function swipeBlocked(target: EventTarget | null, startX: number, win: ty
   return false;
 }
 
+// Session fallback for when storage can't be read from or written to (e.g. private browsing).
+let sessionVibration: boolean | null = null;
+
 export function vibrationEnabled(storage?: Pick<Storage, "getItem"> | null): boolean {
   try {
     const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
     return target?.getItem(VIBRATION_KEY) !== "off";
   } catch {
-    return true;
+    return sessionVibration ?? true;
   }
 }
 
 export function saveVibration(on: boolean, storage?: Pick<Storage, "setItem"> | null): void {
+  sessionVibration = on;
   try {
     const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
     target?.setItem(VIBRATION_KEY, on ? "on" : "off");

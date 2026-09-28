@@ -2,7 +2,7 @@ import "@/components/ProfileFields.test-dom.ts";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createElement, useRef } from "react";
+import { createElement } from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -218,6 +218,18 @@ describe("vibration setting", () => {
     expect(vibrationEnabled(broken)).toBe(true);
   });
 
+  it("keeps Vibration Off in memory when storage rejects the write", () => {
+    saveVibration(true, memoryStorage());
+    const broken = {
+      getItem: () => { throw new Error("denied"); },
+      setItem: () => { throw new Error("denied"); },
+    };
+    saveVibration(false, broken);
+    const { win, vibrate } = fakeWindow();
+    hapticTick(win, broken);
+    expect(vibrate).not.toHaveBeenCalled();
+  });
+
   it("is a switch in Settings > General", () => {
     const modal = readFileSync(join(here, "../components/SettingsModal.tsx"), "utf8");
     const general = modal.slice(modal.indexOf('section === "general"'), modal.indexOf('section === "connections"'));
@@ -234,9 +246,9 @@ describe("usePhoneSwipe", () => {
   let select: ReturnType<typeof vi.fn<(id: string) => void>>;
   let vibrate: ReturnType<typeof vi.fn>;
 
-  function Harness({ botId }: { botId: string }) {
-    const stage = useRef<HTMLDivElement>(null);
-    usePhoneSwipe(stage, botId, true, select);
+  function Harness({ botId, showStage = true }: { botId: string; showStage?: boolean }) {
+    const stage = usePhoneSwipe(botId, true, select);
+    if (!showStage) return null;
     return createElement("div", { ref: stage, id: "stage" }, createElement("p", { id: "msg" }, "hello"));
   }
 
@@ -321,5 +333,18 @@ describe("usePhoneSwipe", () => {
     render("a");
     render("b");
     expect(vibrate).toHaveBeenCalledWith(10);
+  });
+
+  it("rebinds after the stage node is replaced (e.g. Back from another view)", () => {
+    act(() => root.render(createElement(Harness, { botId: "a" })));
+    swipe([[300, 200], [260, 202], [200, 204], [150, 205]]);
+    expect(select).toHaveBeenCalledWith("b");
+    select.mockClear();
+
+    act(() => root.render(createElement(Harness, { botId: "a", showStage: false })));
+    act(() => root.render(createElement(Harness, { botId: "a", showStage: true })));
+
+    swipe([[300, 200], [260, 202], [200, 204], [150, 205]]);
+    expect(select).toHaveBeenCalledWith("b");
   });
 });

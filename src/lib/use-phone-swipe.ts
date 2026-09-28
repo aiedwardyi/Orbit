@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   SWIPE_MOTION_MS,
   SWIPE_SPRING,
@@ -35,13 +35,15 @@ function settle(stage: HTMLElement, from: number, to: number, opacity = 1) {
   );
 }
 
-/** Phone-only horizontal swipe on `stage` to move between sidebar bots, plus the enter motion and haptic on any bot switch. */
+/** Phone-only horizontal swipe on the returned stage ref to move between sidebar bots, plus the enter motion and haptic on any bot switch. */
 export function usePhoneSwipe(
-  stage: RefObject<HTMLElement | null>,
   botId: string | undefined,
   enabled: boolean,
   select: (id: string) => void,
-) {
+): (node: HTMLElement | null) => void {
+  const [el, setEl] = useState<HTMLElement | null>(null);
+  const stage = useCallback((node: HTMLElement | null) => setEl(node), []);
+
   const enterFrom = useRef<number | null>(null);
   const shownBot = useRef(botId);
   const latest = useRef({ botId, select });
@@ -52,7 +54,6 @@ export function usePhoneSwipe(
   useLayoutEffect(() => {
     const from = shownBot.current;
     shownBot.current = botId;
-    const el = stage.current;
     if (!from || !botId || from === botId || !el || !isPhone()) return;
     hapticTick();
     if (enterFrom.current !== null) {
@@ -63,11 +64,10 @@ export function usePhoneSwipe(
     const ids = sidebarBotIds();
     const dir = Math.sign(ids.indexOf(botId) - ids.indexOf(from));
     settle(el, ids.includes(from) && ids.includes(botId) ? dir * TAP_ENTER_PX : 0, 0, 0);
-  }, [botId, stage]);
+  }, [botId, el]);
 
   const hasBot = Boolean(botId);
   useEffect(() => {
-    const el = stage.current;
     if (!el || !hasBot || !enabled) return;
     let drag: Drag | null = null;
     const onStart = (e: TouchEvent) => {
@@ -128,5 +128,7 @@ export function usePhoneSwipe(
       el.removeEventListener("touchcancel", onCancel);
       el.style.transform = "";
     };
-  }, [stage, hasBot, enabled]);
+  }, [el, hasBot, enabled]);
+
+  return stage;
 }
