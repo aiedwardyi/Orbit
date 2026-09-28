@@ -93,6 +93,17 @@
     border-radius: 0;
   }
 
+  /* Skin blocks below set literal or asymmetric radii straight on these four
+     selectors (bubble tails, chips, blockquotes), each with higher selector
+     specificity than this scope. !important is the one override that reaches
+     every skin without a per-skin specificity war. */
+  [data-orbit-message-content],
+  [data-orbit-composer-frame],
+  .orbit-message-speaker,
+  .chat-md blockquote {
+    border-radius: 0 !important;
+  }
+
   [data-orbit-composer-frame] {
     outline: 1px solid var(--color-hairline);
     outline-offset: -1px;

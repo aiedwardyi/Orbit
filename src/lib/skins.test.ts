@@ -986,6 +986,79 @@ describe("dark ink skins", () => {
   });
 });
 
+describe("Boxy shape", () => {
+  // Extracts one rule's { declarations } at a time, tracking brace depth so it
+  // also works inside @scope/@media wrappers without matching their own braces.
+  function balancedBody(source: string, openBraceIdx: number): string {
+    let depth = 0;
+    for (let i = openBraceIdx; i < source.length; i++) {
+      if (source[i] === "{") depth++;
+      else if (source[i] === "}") {
+        depth--;
+        if (depth === 0) return source.slice(openBraceIdx + 1, i);
+      }
+    }
+    throw new Error("unbalanced braces in styles.css");
+  }
+
+  function flatRules(body: string): { selector: string; declarations: string }[] {
+    return [...body.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, declarations]) => ({
+      selector: selector.trim(),
+      declarations,
+    }));
+  }
+
+  it("leaves no theme-scoped radius rule able to escape Boxy", () => {
+    // Comments (which may contain commas) would otherwise bleed into the
+    // selector text a regex captures right after them.
+    const stripped = css.replace(/\/\*[\s\S]*?\*\//g, "");
+
+    // The only radius Boxy is allowed to leave alone: a decoration that was
+    // never a corner in the first place (the choice-signal selection dot).
+    const exempt = ["[data-choice-signal]"];
+
+    const boxyScopeStart = stripped.indexOf('@scope (:root[data-shape="boxy"]) to ([data-skin])');
+    expect(boxyScopeStart).toBeGreaterThan(-1);
+    const boxyBody = balancedBody(stripped, stripped.indexOf("{", boxyScopeStart));
+    const squared = new Set(
+      flatRules(boxyBody)
+        .filter((r) => /border-radius:\s*0\s*!important/.test(r.declarations))
+        .flatMap((r) => r.selector.split(",").map((s) => s.trim())),
+    );
+
+    const offenders: string[] = [];
+    const checkRadius = (selector: string, declarations: string) => {
+      if (exempt.some((token) => selector.includes(token))) return;
+      const decls = declarations.match(/border-[\w-]*radius\s*:\s*[^;]+;/g) ?? [];
+      for (const decl of decls) {
+        if (/:\s*0(px)?\s*;/.test(decl)) continue;
+        if (![...squared].some((token) => selector.endsWith(token))) {
+          offenders.push(`${selector} { ${decl.trim()} }`);
+        }
+      }
+    };
+
+    // Flat, skin-prefixed rules (e.g. `[data-skin="messenger"] [data-orbit-message-content]`).
+    for (const { selector, declarations } of flatRules(stripped)) {
+      if (selector.includes("[data-skin=")) checkRadius(selector, declarations);
+    }
+
+    // Rules nested in a per-skin `@scope ([data-skin="x"]) { ... }` block, whose
+    // own selectors (e.g. `.chat-md blockquote`) never repeat the skin attribute.
+    const scopeRe = /@scope\s*\(([^)]*)\)[^{]*\{/g;
+    let m: RegExpExecArray | null;
+    while ((m = scopeRe.exec(stripped))) {
+      if (!m[1].includes("[data-skin=")) continue;
+      const body = balancedBody(stripped, stripped.indexOf("{", m.index));
+      for (const { selector, declarations } of flatRules(body)) {
+        checkRadius(selector, declarations);
+      }
+    }
+
+    expect(offenders).toEqual([]);
+  });
+});
+
 describe("skin persistence", () => {
   const store = new Map<string, string>();
   const dataset = { skin: "" };
