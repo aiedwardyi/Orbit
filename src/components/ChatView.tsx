@@ -1087,7 +1087,10 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   if (windowHead !== head) {
     setWindowHead(head);
     const prepended = windowHead ? messages.findIndex((message) => message.id === windowHead) : -1;
-    if (prepended > 0) {
+    // a window set on an empty branch has no rows to anchor to
+    if (!windowHead) {
+      setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(messages.length, TRANSCRIPT_WINDOW_SIZE, renders), end: null });
+    } else if (prepended > 0) {
       const reveal = revealOlder.current;
       revealOlder.current = false;
       setTranscriptWindow((w) => shiftForPrepend(w, prepended, reveal));

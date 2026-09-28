@@ -198,6 +198,19 @@ describe("paged transcripts", () => {
     expect(host.textContent).not.toContain("row 499;");
   });
 
+  it("opens at the newest row when the selected branch lands from an older page", async () => {
+    const link = (i: number, parentId: string | null): Message => ({ ...row(i), parentId });
+    const thread = [
+      ...Array.from({ length: 300 }, (_, i) => link(i, i ? `m${i - 1}` : null)),
+      ...Array.from({ length: 200 }, (_, i) => link(i + 300, i ? `m${i + 299}` : "m149")),
+    ];
+    pagedServer("thread-a", thread, { bots: [{ ...bot(thread.slice(-200), true), activeLeafId: "m299" }], groups: [] });
+    const host = await mount("chat");
+    await vi.waitFor(() => expect(host.textContent).toContain("row 299;"));
+    expect(host.textContent).not.toContain("row 100;");
+    expect(button(host, "Show earlier messages (80 more)")).toBeDefined();
+  });
+
   it("regenerates from a prompt older than the loaded page", async () => {
     const thread: Message[] = [
       { id: "m0", at: 1, role: "user", kind: "text", text: "the prompt;", parentId: null },
