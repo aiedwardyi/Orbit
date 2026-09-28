@@ -10,7 +10,7 @@
 //   FAKE_CODEX_DUMP   path to write {argv, env, calls, decision} as JSON
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, writeSync } from "node:fs";
 
 const mode = process.env.FAKE_CODEX_MODE ?? "happy";
 
@@ -28,6 +28,20 @@ if (process.argv[2] === "login" && process.argv[3] === "status") {
   const statusStream = mode === "logged-in-stdout" ? process.stdout : process.stderr;
   statusStream.write("Logged in using ChatGPT\n");
   process.exit(0);
+}
+// startup-race script: the first FAKE_CODEX_EARLY_EXITS launches write
+// FAKE_CODEX_EARLY_EXIT_MESSAGE to stderr and exit before initialize. The
+// launch count lives in FAKE_CODEX_STATE, as with the transient script.
+if (process.env.FAKE_CODEX_EARLY_EXITS && process.env.FAKE_CODEX_STATE) {
+  let launched = 0;
+  try {
+    launched = Number(readFileSync(process.env.FAKE_CODEX_STATE, "utf8")) || 0;
+  } catch {}
+  writeFileSync(process.env.FAKE_CODEX_STATE, String(launched + 1));
+  if (launched < (Number(process.env.FAKE_CODEX_EARLY_EXITS) || 0)) {
+    writeSync(2, `${process.env.FAKE_CODEX_EARLY_EXIT_MESSAGE ?? "boom"}\n`);
+    process.exit(1);
+  }
 }
 const calls: Array<{ method: string; params: unknown }> = [];
 let decision: unknown = null;

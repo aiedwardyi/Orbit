@@ -14,7 +14,7 @@ import { homedir } from "node:os";
 
 import { applyCredentialAllowlist } from "../config.ts";
 import { computerProxyEnv } from "../container-computer.ts";
-import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../procs.ts";
+import { describeSpawnFailure, execCli, spawnCli } from "../procs.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
 
 import type {
@@ -27,7 +27,13 @@ import type {
   SendTurnInput,
 } from "../contracts.ts";
 import { newEventId, newId } from "../contracts.ts";
-import { decodeCodexSelection, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
+import {
+  awaitDyingAppServers,
+  decodeCodexSelection,
+  readCodexModelCatalog,
+  retireAppServer,
+  STATIC_CODEX_MODELS,
+} from "./codex-catalog.ts";
 import { codexLocalProviderArgs } from "./local-inject.ts";
 import { augmentedPath } from "../env-path.ts";
 import { classifyError, computeBackoff, RETRY_MAX_ATTEMPTS } from "./retry.ts";
@@ -50,6 +56,8 @@ function decodeConfig(raw: unknown): CodexConfig {
     fullAuto: o.fullAuto === true,
   };
 }
+
+const STATE_RUNTIME_RETRY_MS = 300;
 
 const QUESTION_TIMEOUT_NOTE = "No answer was given — use your best judgment.";
 const DENY_TIMEOUT_NOTE =
@@ -147,9 +155,11 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     });
 
     const sendTurn = async (turn: SendTurnInput) => {
+      await awaitDyingAppServers();
       // One driver instance serves many threads. Interrupt state belongs to
       // this turn so activity elsewhere cannot cancel or revive its retry.
       let stopRequested = false;
+      let stateRuntimeRetried = false;
       const { threadId } = turn;
       if (active.has(threadId)) throw new Error("a turn is already running on this thread");
       const turnId = newId();
@@ -216,6 +226,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         });
 
       let abandoned = false;
+      let initialized = false;
       const state = {
         settled: false,
         lastText: "",
@@ -263,7 +274,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
 
       const stop = () => {
         stopRequested = true;
-        killCliTree(child);
+        retireAppServer(child);
       };
 
       const steer = async (text: string): Promise<boolean> => {
@@ -545,6 +556,31 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       });
       child.on("close", (code) => {
         if (abandoned) return;
+        if (
+          !state.settled &&
+          !initialized &&
+          !stateRuntimeRetried &&
+          !stopRequested &&
+          /failed to initialize state runtime/i.test(stderr)
+        ) {
+          stateRuntimeRetried = true;
+          abandoned = true;
+          for (const p of rpcPending.values()) p.reject(new Error("app-server relaunched"));
+          rpcPending.clear();
+          emit({
+            ...base(threadId, turnId),
+            type: "turn.retrying",
+            attempt: attempt + 1,
+            delayMs: STATE_RUNTIME_RETRY_MS,
+            reason: "state runtime busy",
+          });
+          setTimeout(async () => {
+            await awaitDyingAppServers();
+            if (!stopRequested) void launchAttempt(attempt + 1).catch(() => {});
+            else settle(false, "interrupted");
+          }, STATE_RUNTIME_RETRY_MS);
+          return;
+        }
         if (!state.settled) {
           emit({
             ...base(threadId, turnId),
@@ -565,6 +601,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       // nothing streamed yet, and never for auth/shape errors or interrupts
       try {
         await request("initialize", { clientInfo: { name: "openmausbot", version: "1" } });
+        initialized = true;
         send({ jsonrpc: "2.0", method: "initialized", params: {} });
         const cursor = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
         let codexThreadId: string | null = null;
@@ -616,6 +653,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         nativeTurnId = startedTurn?.turn?.id ?? nativeTurnId;
         state.promptAccepted = true;
       } catch (e) {
+        if (abandoned) return;
         const failure = e instanceof Error ? e : { text: String(e) };
         const message = e instanceof Error ? e.message : String(e);
         const needsAuth = /(?:\b401\b|unauthorized|missing bearer|authentication required)/i.test(message);
@@ -633,11 +671,12 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           // This app-server never exits by itself. Retire the failed attempt
           // and silence its late handlers before the replacement launches.
           abandoned = true;
-          killCliTree(child);
+          retireAppServer(child);
           await new Promise<void>((resolve) => {
             const timer = setTimeout(resolve, Math.max(1, Math.round(delayMs * retryScale)));
             timer.unref?.();
           });
+          await awaitDyingAppServers();
           if (!stopRequested) {
             void launchAttempt(attempt).catch(() => {});
           } else {

@@ -3,6 +3,7 @@
 // cached catalogs, live /v1/models) is tagged `custom` so ModelPicker
 // can hide it behind Custom. `codex app-server` thread/start takes
 // `model` + `modelProvider` separately; picker ids encode both.
+import type { ChildProcess } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -55,6 +56,30 @@ export function decodeCodexSelection(id: string | null | undefined): {
   return { model: id, modelProvider: MODEL_ID.test(id) ? OFFICIAL_CODEX_PROVIDER : null };
 }
 
+// A new app-server started while a force-killed one still holds CODEX_HOME
+// exits with "failed to initialize state runtime", so spawns wait these out.
+const dyingAppServers = new Set<Promise<void>>();
+
+export function retireAppServer(child: ChildProcess): void {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
+  dyingAppServers.add(closed);
+  void closed.then(() => dyingAppServers.delete(closed));
+  killCliTree(child);
+}
+
+export async function awaitDyingAppServers(limitMs = 2_000): Promise<void> {
+  if (!dyingAppServers.size) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    Promise.all(dyingAppServers),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, limitMs);
+    }),
+  ]);
+  clearTimeout(timer);
+}
+
 interface CodexAppServerModel {
   id?: unknown;
   displayName?: unknown;
@@ -88,8 +113,8 @@ export function readCodexAppServerModelCatalog(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      killCliTree(child);
-      resolve(catalog);
+      retireAppServer(child);
+      void awaitDyingAppServers().then(() => resolve(catalog));
     };
     const request = (method: string, params: unknown, kind: "initialize" | "models") => {
       const id = nextId++;

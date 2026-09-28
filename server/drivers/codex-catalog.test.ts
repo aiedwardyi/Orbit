@@ -1,3 +1,5 @@
+import type { ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -6,10 +8,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { CodexDriver } from "./codex.ts";
 import {
+  awaitDyingAppServers,
   decodeCodexSelection,
   encodeCodexSelection,
   OFFICIAL_CODEX_PROVIDER,
   readCodexModelCatalog,
+  retireAppServer,
   STATIC_CODEX_MODELS,
   withSuggestedCodexAstra,
 } from "./codex-catalog.ts";
@@ -249,5 +253,41 @@ name = "oMLX"
     } finally {
       await instance.dispose();
     }
+  });
+});
+
+describe("retired app-servers", () => {
+  // no pid, so killCliTree leaves the fake alone and the test decides when it closes
+  const fakeChild = () =>
+    Object.assign(new EventEmitter(), { pid: undefined, exitCode: null, signalCode: null }) as unknown as ChildProcess;
+
+  it("holds the next spawn until the retired app-server closes", async () => {
+    const child = fakeChild();
+    retireAppServer(child);
+    let released = false;
+    const waiting = awaitDyingAppServers().then(() => {
+      released = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(released).toBe(false);
+    child.emit("close", 1);
+    await waiting;
+    expect(released).toBe(true);
+  });
+
+  it("stops waiting at the limit when the old app-server never closes", async () => {
+    const child = fakeChild();
+    retireAppServer(child);
+    const started = Date.now();
+    await awaitDyingAppServers(100);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(90);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    child.emit("close", 1);
+  });
+
+  it("does not wait when nothing is dying", async () => {
+    const started = Date.now();
+    await awaitDyingAppServers();
+    expect(Date.now() - started).toBeLessThan(50);
   });
 });

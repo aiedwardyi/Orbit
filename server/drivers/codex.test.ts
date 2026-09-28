@@ -89,6 +89,8 @@ describe("CodexDriver turns (fake app-server)", () => {
     delete process.env.FAKE_CODEX_DUMP;
     delete process.env.FAKE_CODEX_TRANSIENTS;
     delete process.env.FAKE_CODEX_PARTIAL_FAILS;
+    delete process.env.FAKE_CODEX_EARLY_EXITS;
+    delete process.env.FAKE_CODEX_EARLY_EXIT_MESSAGE;
     delete process.env.FAKE_CODEX_STATE;
     delete process.env.FAKE_CODEX_RETRY_SCALE;
     delete process.env.FAKE_CODEX_RATE_LIMITS;
@@ -726,6 +728,47 @@ describe("CodexDriver turns (fake app-server)", () => {
 
     await expect(recorder.until((e) => e.type === "turn.completed" && e.ok === false)).resolves.toBeTruthy();
     expect(recorder.events.some((e) => e.type === "content.delta" && e.streamKind === "assistant_text")).toBe(true);
+    expect(recorder.events.some((e) => e.type === "turn.retrying")).toBe(false);
+  }, 20_000);
+
+  it("relaunches once when the app-server exits on a busy state runtime", async () => {
+    await create();
+    process.env.FAKE_CODEX_EARLY_EXITS = "1";
+    process.env.FAKE_CODEX_EARLY_EXIT_MESSAGE = "failed to initialize state runtime at /tmp/codex-home";
+    process.env.FAKE_CODEX_STATE = join(scratch, "codex-launches-state-runtime");
+    await instance.adapter.sendTurn({ threadId: "t-codex-state-runtime", text: "hi" });
+
+    await expect(recorder.until((e) => e.type === "turn.completed")).resolves.toMatchObject({ ok: true });
+    expect(recorder.events.filter((e) => e.type === "turn.retrying")).toHaveLength(1);
+    expect(recorder.events.filter((e) => e.type === "turn.started")).toHaveLength(1);
+    expect(recorder.events.some((e) => e.type === "runtime.error")).toBe(false);
+  }, 20_000);
+
+  it("retries a busy state runtime only once", async () => {
+    await create();
+    process.env.FAKE_CODEX_EARLY_EXITS = "2";
+    process.env.FAKE_CODEX_EARLY_EXIT_MESSAGE = "failed to initialize state runtime at /tmp/codex-home";
+    process.env.FAKE_CODEX_STATE = join(scratch, "codex-launches-state-runtime-twice");
+    await instance.adapter.sendTurn({ threadId: "t-codex-state-runtime-twice", text: "hi" });
+
+    await expect(recorder.until((e) => e.type === "turn.completed")).resolves.toMatchObject({
+      ok: false,
+      stopReason: "exit_before_result",
+    });
+    expect(recorder.events.filter((e) => e.type === "turn.retrying")).toHaveLength(1);
+  }, 20_000);
+
+  it("does not retry any other early exit", async () => {
+    await create();
+    process.env.FAKE_CODEX_EARLY_EXITS = "1";
+    process.env.FAKE_CODEX_EARLY_EXIT_MESSAGE = "error: unknown config key";
+    process.env.FAKE_CODEX_STATE = join(scratch, "codex-launches-other-exit");
+    await instance.adapter.sendTurn({ threadId: "t-codex-other-exit", text: "hi" });
+
+    await expect(recorder.until((e) => e.type === "turn.completed")).resolves.toMatchObject({
+      ok: false,
+      stopReason: "exit_before_result",
+    });
     expect(recorder.events.some((e) => e.type === "turn.retrying")).toBe(false);
   }, 20_000);
 
