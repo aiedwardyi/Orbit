@@ -7,6 +7,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { persistPreference } from "@/lib/i18n";
+import { hapticTick } from "@/lib/phone-swipe";
 import {
   SIDEBAR_COLLAPSED_KEY,
   SIDEBAR_ORDER_KEY,
@@ -15,9 +16,17 @@ import {
   SIDEBAR_SIDE_KEY,
   SIDEBAR_WIDTH_KEY,
 } from "@/lib/sidebar-preferences";
+import { LONG_PRESS_MS } from "@/lib/use-touch-drag";
+import { usePhoneSwipe } from "@/lib/use-phone-swipe";
 import { formatTime, StoreProvider, useStore } from "@/state/store";
 
 import { compactSidebarModelLabel, Sidebar } from "./Sidebar";
+
+vi.mock("@/lib/phone-swipe", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/phone-swipe")>()),
+  hapticTick: vi.fn(),
+  isPhone: () => true,
+}));
 
 class FakeEventSource {
   static current: FakeEventSource | null = null;
@@ -68,6 +77,7 @@ const fire = (target: Element, type: string) => {
 };
 
 afterEach(() => {
+  vi.useRealTimers();
   window.localStorage.removeItem(SIDEBAR_ORDER_KEY);
   window.localStorage.removeItem(SIDEBAR_SECTION_ORDER_KEY);
   vi.unstubAllGlobals();
@@ -1460,5 +1470,197 @@ describe("Sidebar model labels", () => {
   it("shortens the Contributor suffix without changing other labels", () => {
     expect(compactSidebarModelLabel("Meta Muse 1.3 Contributor")).toBe("Meta Muse 1.3 Cont.");
     expect(compactSidebarModelLabel("Meta Muse 1.3")).toBe("Meta Muse 1.3");
+  });
+});
+
+function SelectedProbe() {
+  const { state } = useStore();
+  return createElement("output", { "data-selected": state.selectedId ?? "" });
+}
+
+function SwipeStage({ onSelect }: { onSelect: (id: string) => void }) {
+  const stage = usePhoneSwipe("a", true, onSelect);
+  return createElement("div", { ref: stage }, createElement(Sidebar, { open: false, onClose: () => {} }));
+}
+
+const touch = (target: Element, type: string, x = 100, y = 100) => {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "touches", { value: type === "touchend" || type === "touchcancel" ? [] : [{ clientX: x, clientY: y }] });
+  target.dispatchEvent(event);
+  return event;
+};
+
+describe("Sidebar touch drag", () => {
+  let under: Element | null = null;
+
+  async function mount(
+    bots: Array<ReturnType<typeof bot> & { section?: string }>,
+    view: ReturnType<typeof createElement> = createElement(Sidebar, { open: false, onClose: () => {} }),
+  ) {
+    const patches: Array<{ path: string; body: unknown }> = [];
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/bots?messages=200") return new Response(JSON.stringify({ bots, groups: [] }));
+      if (init?.method === "PATCH") {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        patches.push({ path, body });
+        return new Response(JSON.stringify({ bot: { id: path.split("/").at(-1), ...body } }));
+      }
+      return new Response(JSON.stringify({ error: "not in this test" }), { status: 404 });
+    }));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(hapticTick).mockClear();
+    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => under });
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    await act(async () => root.render(createElement(StoreProvider, null, view, createElement(SelectedProbe))));
+    await act(async () => FakeEventSource.current!.onmessage?.({
+      data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+      lastEventId: "",
+    }));
+    await vi.waitFor(() => expect(host.querySelectorAll("[data-sidebar-row]")).toHaveLength(bots.length));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const row = (id: string) => host.querySelector(`[data-sidebar-row-id="${id}"] [role="button"]`)!;
+    const order = () => [...host.querySelectorAll("[data-sidebar-row]")].map((el) => el.getAttribute("data-sidebar-row-id"));
+    const lifted = () => host.querySelector("[data-touch-lifted]")?.getAttribute("data-sidebar-row-id") ?? null;
+    const hold = async (id: string) => {
+      await act(async () => void touch(row(id), "touchstart"));
+      await act(async () => void vi.advanceTimersByTime(LONG_PRESS_MS));
+    };
+    const moveOver = async (target: Element | null, source: Element, y = 160) => {
+      under = target;
+      await act(async () => void touch(source, "touchmove", 100, y));
+    };
+    const unmount = async () => {
+      under = null;
+      await act(async () => root.unmount());
+      host.remove();
+    };
+    return { host, patches, row, order, lifted, hold, moveOver, unmount };
+  }
+
+  it("lifts a row after a long press and buzzes once", async () => {
+    const view = await mount(["a", "b", "c"].map(bot));
+    try {
+      await act(async () => void touch(view.row("b"), "touchstart"));
+      await act(async () => void vi.advanceTimersByTime(LONG_PRESS_MS - 50));
+      expect(view.lifted()).toBeNull();
+      await act(async () => void vi.advanceTimersByTime(50));
+      expect(view.lifted()).toBe("b");
+      expect(hapticTick).toHaveBeenCalledTimes(1);
+      expect(view.host.querySelector<HTMLElement>("[data-touch-lifted]")?.style.getPropertyValue("pointer-events")).toBe("none");
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("moves and drops through the desktop reorder path, within and across sections", async () => {
+    const view = await mount([bot("a"), bot("b"), bot("c"), { ...bot("d"), section: "Work" }]);
+    try {
+      await view.hold("a");
+      await view.moveOver(view.row("c"), view.row("a"));
+      expect(view.host.querySelector("[data-sidebar-row-drop-marker]")).not.toBeNull();
+      const end = touch(view.row("a"), "touchend");
+      await act(async () => {});
+      expect(end.defaultPrevented).toBe(true);
+      expect(view.lifted()).toBeNull();
+      expect(view.order().slice(0, 3)).toEqual(["b", "c", "a"]);
+      expect(JSON.parse(window.localStorage.getItem(SIDEBAR_ORDER_KEY) ?? "{}").itemOrder).toMatchObject({
+        unassigned: ["bot:b", "bot:c", "bot:a"],
+      });
+
+      await view.hold("b");
+      const work = view.host.querySelector('[data-sidebar-item-drop-zone="section:Work"] [data-sidebar-section-header]')!;
+      await view.moveOver(work, view.row("b"));
+      expect(view.host.querySelector("[data-sidebar-bot-drop-marker]")).not.toBeNull();
+      await act(async () => void touch(view.row("b"), "touchend"));
+      await vi.waitFor(() => expect(view.patches).toContainEqual({ path: "/api/bots/b", body: { section: "Work" } }));
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("lets a short tap open the chat and never clicks after a drop", async () => {
+    const view = await mount(["a", "b", "c"].map(bot));
+    const selected = () => view.host.querySelector("output")?.getAttribute("data-selected");
+    try {
+      await act(async () => void touch(view.row("c"), "touchstart"));
+      await act(async () => void vi.advanceTimersByTime(120));
+      const tapEnd = touch(view.row("c"), "touchend");
+      expect(tapEnd.defaultPrevented).toBe(false);
+      await act(async () => (view.row("c") as HTMLElement).click());
+      expect(selected()).toBe("c");
+      expect(view.lifted()).toBeNull();
+
+      await view.hold("a");
+      expect(view.lifted()).toBe("a");
+      await view.moveOver(view.row("b"), view.row("a"));
+      const dropEnd = touch(view.row("a"), "touchend");
+      await act(async () => {});
+      expect(dropEnd.defaultPrevented).toBe(true);
+      expect(selected()).toBe("c");
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("treats a move before the hold as a scroll, not a drag", async () => {
+    const view = await mount(["a", "b", "c"].map(bot));
+    try {
+      await act(async () => void touch(view.row("a"), "touchstart", 100, 100));
+      const scroll = touch(view.row("a"), "touchmove", 100, 120);
+      await act(async () => void vi.advanceTimersByTime(LONG_PRESS_MS * 2));
+      expect(scroll.defaultPrevented).toBe(false);
+      expect(view.lifted()).toBeNull();
+      expect(hapticTick).not.toHaveBeenCalled();
+      await act(async () => void touch(view.row("a"), "touchend"));
+
+      await view.hold("a");
+      expect(view.lifted()).toBe("a");
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("puts the row back on touchcancel or a drop outside the list", async () => {
+    const view = await mount(["a", "b", "c"].map(bot));
+    try {
+      await view.hold("a");
+      await view.moveOver(view.row("c"), view.row("a"));
+      expect(view.host.querySelector("[data-sidebar-row-drop-marker]")).not.toBeNull();
+      await act(async () => void touch(view.row("a"), "touchcancel"));
+      expect(view.lifted()).toBeNull();
+      expect(view.host.querySelector("[data-sidebar-row-drop-marker]")).toBeNull();
+      expect(view.order()).toEqual(["a", "b", "c"]);
+
+      await view.hold("a");
+      expect(view.lifted()).toBe("a");
+      await view.moveOver(view.row("c"), view.row("a"));
+      await view.moveOver(document.body, view.row("a"), 900);
+      expect(view.host.querySelector("[data-sidebar-row-drop-marker]")).toBeNull();
+      await act(async () => void touch(view.row("a"), "touchend"));
+      expect(view.lifted()).toBeNull();
+      expect(view.order()).toEqual(["a", "b", "c"]);
+      expect(window.localStorage.getItem(SIDEBAR_ORDER_KEY)).toBeNull();
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("keeps the phone swipe from switching bots while a row is lifted", async () => {
+    const onSelect = vi.fn();
+    const view = await mount(["a", "b", "c"].map(bot), createElement(SwipeStage, { onSelect }));
+    try {
+      await view.hold("a");
+      expect(view.lifted()).toBe("a");
+      for (const x of [80, 40, 0]) {
+        under = view.row("b");
+        expect(touch(view.row("a"), "touchmove", x, 100).defaultPrevented).toBe(true);
+      }
+      await act(async () => void touch(view.row("a"), "touchend", 0, 100));
+      expect(onSelect).not.toHaveBeenCalled();
+    } finally {
+      await view.unmount();
+    }
   });
 });

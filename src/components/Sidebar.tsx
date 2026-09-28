@@ -105,6 +105,7 @@ import {
   type SidebarOrder,
 } from "@/lib/sidebar-order";
 import { sidebarConversationRowTone } from "@/lib/sidebar-row";
+import { useTouchDrag } from "@/lib/use-touch-drag";
 import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
 import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import { phoneSettingsAvailable } from "@/lib/phone-availability";
@@ -1849,22 +1850,28 @@ export function Sidebar({
     setDrag(null);
     setItemSectionDropTarget(null);
   };
-  const updateSectionDropTarget = (event: React.DragEvent<HTMLDivElement>, id: string) => {
-    if (!sectionsReorderable || !sectionDragRef.current.from || sectionDragRef.current.from === id) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-    const rect = event.currentTarget.getBoundingClientRect();
-    const place: SectionDropPlace = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+  const aimSection = (id: string, clientY: number, rect: DOMRect) => {
+    if (!sectionsReorderable || !sectionDragRef.current.from || sectionDragRef.current.from === id) return false;
+    const place: SectionDropPlace = clientY < rect.top + rect.height / 2 ? "before" : "after";
     const next = { id, place };
     sectionDragRef.current.over = next;
     setSectionDropTarget(next);
+    return true;
+  };
+  const updateSectionDropTarget = (event: React.DragEvent<HTMLDivElement>, id: string) => {
+    if (!aimSection(id, event.clientY, event.currentTarget.getBoundingClientRect())) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
   };
   const dropSection = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
-    const from =
+    placeSectionFrom(
       event.dataTransfer.getData("application/x-openmausbot-sidebar-section") ||
       event.dataTransfer.getData("text/plain") ||
-      sectionDragRef.current.from;
+      sectionDragRef.current.from,
+    );
+  };
+  const placeSectionFrom = (from: string | null) => {
     const over = sectionDragRef.current.over;
     if (from && over) {
       const next = placeSection(sectionIds, from, over.id, over.place);
@@ -1932,18 +1939,25 @@ export function Sidebar({
     else dispatch({ type: "patchGroup", groupId: from.id, patch: { section } });
     setReorderAnnouncement(`${from.name} moved to ${sectionLabel(drop.targetSectionId)}`);
   };
-  const updateItemSectionDropTarget = (event: React.DragEvent<HTMLDivElement>, id: string) => {
+  const aimItemSection = (id: string) => {
     if (!rowsReorderable || !drag) return false;
     const from = itemByKey.get(drag.from);
     if (!from || from.sectionId === id || (from.kind === "bot" && sidebarPriorityFor(from.bot!))) return false;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
     if (itemSectionDropTarget !== id) setItemSectionDropTarget(id);
     if (drag.over !== null) setDrag((current) => (current ? { ...current, over: null } : null));
     return true;
   };
+  const updateItemSectionDropTarget = (event: React.DragEvent<HTMLDivElement>, id: string) => {
+    if (!aimItemSection(id)) return false;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    return true;
+  };
   const dropItemInSection = (event: React.DragEvent<HTMLDivElement>, id: string) => {
     event.preventDefault();
+    dropItemInSectionId(id);
+  };
+  const dropItemInSectionId = (id: string) => {
     if (!drag) {
       resetRowDrag();
       return;
@@ -2039,6 +2053,64 @@ export function Sidebar({
       onMove: (direction) => moveItemByKeyboard(item.key, direction),
     };
   };
+  const touchRowItem = (target: Element | null) => {
+    const row = target?.closest("[data-sidebar-row]");
+    const kind = row?.getAttribute("data-sidebar-row-kind");
+    const id = row?.getAttribute("data-sidebar-row-id");
+    return kind === "bot" || kind === "group" ? itemByKey.get(sidebarItemKey(kind, id ?? "")) : undefined;
+  };
+  const touchSectionId = (target: Element | null) =>
+    target?.closest("[data-sidebar-item-drop-zone]")?.getAttribute("data-sidebar-item-drop-zone") ?? null;
+  const touchListRef = useTouchDrag("[data-sidebar-row], [data-sidebar-section-handle]", {
+    lift: (pressed) => {
+      const item = touchRowItem(pressed);
+      if (item) {
+        if (!rowsReorderable) return null;
+        rowDrag(item).onStart();
+        return pressed;
+      }
+      const id = touchSectionId(pressed);
+      if (!id || !sectionsReorderable) return null;
+      sectionDragRef.current = { from: id, over: null };
+      setDraggingSectionId(id);
+      return pressed.closest<HTMLElement>("[data-sidebar-section-header]");
+    },
+    over: (target, y) => {
+      if (drag) {
+        const item = touchRowItem(target);
+        if (item) {
+          rowDrag(item).onOver();
+          return;
+        }
+        const id = touchSectionId(target);
+        if (id && aimItemSection(id)) return;
+        setItemSectionDropTarget(null);
+        if (drag.over !== null) setDrag((current) => (current ? { ...current, over: null } : null));
+        return;
+      }
+      const section = target?.closest("[data-sidebar-item-drop-zone]");
+      const id = section?.getAttribute("data-sidebar-item-drop-zone");
+      if (section && id && aimSection(id, y, section.getBoundingClientRect())) return;
+      sectionDragRef.current.over = null;
+      setSectionDropTarget(null);
+    },
+    drop: (target) => {
+      if (drag) {
+        const item = touchRowItem(target);
+        const id = touchSectionId(target);
+        if (item) rowDrag(item).onDrop();
+        else if (id) dropItemInSectionId(id);
+        resetRowDrag();
+        return;
+      }
+      if (touchSectionId(target)) placeSectionFrom(sectionDragRef.current.from);
+      else resetSectionDrag();
+    },
+    cancel: () => {
+      resetRowDrag();
+      resetSectionDrag();
+    },
+  });
   const pendingTeamUndo = teamFeedback?.undo;
   const pendingBotUndo = teamFeedback?.restoreBot;
 
@@ -2291,7 +2363,7 @@ export function Sidebar({
       )}
 
       {/* Bot list */}
-      <div className={cn("min-w-0 flex-1 overflow-x-hidden overflow-y-auto", density === "icons" ? "px-0" : "px-2")}>
+      <div ref={touchListRef} className={cn("min-w-0 flex-1 overflow-x-hidden overflow-y-auto", density === "icons" ? "px-0" : "px-2")}>
         <div className="flex flex-col gap-0.5">
           {matchingBots.length === 0 && visibleGroups.length === 0 && q && q.length < MIN_QUERY && (
             <div className="px-3 py-6 text-center text-[13px] text-ink-secondary">{t("palette.noMatch", { query })}</div>
