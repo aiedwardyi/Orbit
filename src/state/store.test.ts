@@ -1751,3 +1751,49 @@ describe("hydrate screen frames", () => {
     expect(hydrated.bots[0]!.messages).toHaveLength(12);
   });
 });
+
+describe("paged transcripts", () => {
+  const row = (i: number): Message => ({ id: `m${i}`, at: i, role: "user", kind: "text", text: `row ${i}` });
+  const rows = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => row(from + i));
+  const bot = (messages: Message[], hasMore: boolean): Bot => ({
+    id: "a",
+    threadId: "thread-a",
+    name: "a",
+    title: "",
+    description: "",
+    notifications: true,
+    color: "green",
+    unread: false,
+    modelSelection: { instanceId: "codex", model: "default" },
+    messages,
+    hasMore,
+  });
+  const hydrate = (state: typeof initialState, bots: Bot[]) =>
+    reducer(state, { type: "hydrate", bots, groups: [], computerControl: {}, sidebarOrder: { sectionOrder: [], itemOrder: {} } });
+  const ids = (state: typeof initialState) => state.bots[0]!.messages.map((message) => message.id);
+
+  it("prepends an older page only onto the head it was requested before", () => {
+    const state = hydrate(initialState, [bot(rows(4, 6), true)]);
+    const older = reducer(state, { type: "olderMessages", threadId: "thread-a", before: "m4", messages: rows(2, 4), hasMore: true });
+    expect(ids(older)).toEqual(["m2", "m3", "m4", "m5"]);
+    const stale = reducer(older, { type: "olderMessages", threadId: "thread-a", before: "m4", messages: rows(0, 2), hasMore: false });
+    expect(ids(stale)).toEqual(ids(older));
+    const top = reducer(older, { type: "olderMessages", threadId: "thread-a", before: "m2", messages: rows(0, 2), hasMore: false });
+    expect(ids(top)).toEqual(["m0", "m1", "m2", "m3", "m4", "m5"]);
+    expect(top.bots[0]!.hasMore).toBe(false);
+  });
+
+  it("keeps loaded scrollback when a re-hydrate returns only the newest page", () => {
+    const loaded = hydrate(initialState, [bot(rows(0, 6), false)]);
+    const rehydrated = hydrate(loaded, [bot(rows(3, 7), true)]);
+    expect(ids(rehydrated)).toEqual(["m0", "m1", "m2", "m3", "m4", "m5", "m6"]);
+    expect(rehydrated.bots[0]!.hasMore).toBe(false);
+  });
+
+  it("drops the old thread's hasMore when a task switch frame carries the full transcript", () => {
+    const state = hydrate(initialState, [bot(rows(4, 6), true)]);
+    const { hasMore: _hasMore, ...full } = bot(rows(0, 2), false);
+    const switched = reducer(state, { type: "botPatched", bot: { ...full, threadId: "thread-b" } });
+    expect(switched.bots[0]!.hasMore).toBeFalsy();
+  });
+});

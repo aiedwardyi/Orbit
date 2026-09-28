@@ -67,6 +67,7 @@ import { CallButton, CallOverlay } from "./CallView";
 import { cn } from "@/lib/cn";
 import { usageLimitReset } from "@/lib/usage";
 import { useFocusMessage } from "@/lib/focus-message";
+import { screenImageUrl, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
 import { activityVisibleInChat, groupActivityRuns } from "@/lib/activity-runs";
 import { chatTranscriptRows, messageVisible } from "@/lib/chat-transcript";
 import { detectChatOptions, laterUserAnswer } from "@/lib/chat-options";
@@ -86,6 +87,7 @@ import {
   focusWindowRange,
   followedTailStart,
   resolveTranscriptWindow,
+  shiftForPrepend,
   tailWindowStart,
 } from "@/lib/transcript-window";
 import { timelineEvents } from "@/lib/taskTimeline";
@@ -440,6 +442,7 @@ const Bubble = memo(function Bubble({
 }) {
   const { t } = useI18n();
   const { dispatch } = useStore();
+  const quoted = useThreadMessage(bot.threadId, bot.hasMore ? message.replyToId : undefined, replyTarget);
   const user = message.role === "user";
   const [expanded, setExpanded] = useState(false);
   const text = message.text ?? "";
@@ -535,14 +538,14 @@ const Bubble = memo(function Bubble({
                 : "bg-card px-4 py-2.5 text-ink",
           )}
         >
-          {replyTarget && (
+          {quoted && (
             <div className="mb-2">
               <ReplyQuote
-                message={replyTarget}
+                message={quoted}
                 fallbackName={bot.name}
                 compact
                 onJump={() =>
-                  dispatch({ type: "focusMessage", threadId: bot.threadId, messageId: replyTarget.id })
+                  dispatch({ type: "focusMessage", threadId: bot.threadId, messageId: quoted.id })
                 }
               />
             </div>
@@ -729,11 +732,11 @@ function ActivityChip({ message }: { message: Message }) {
   );
 }
 
-function ScreenFrame({ png, mime, caption }: { png: string; mime?: string; caption?: string }) {
+function ScreenFrame({ src, caption }: { src: string; caption?: string }) {
   return (
     <div className="flex flex-col items-start gap-1">
       <img
-        src={`data:${mime ?? "image/png"};base64,${png}`}
+        src={src}
         alt={caption || "Bot's screen"}
         className="w-fit max-w-[min(42rem,78%)] rounded-2xl border border-hairline/40"
       />
@@ -909,7 +912,8 @@ const MessagesList = memo(function MessagesList({
             }
             case "screen":
               if (m.image) return <ShownImage name={m.image} caption={m.text} />;
-              return m.png ? <ScreenFrame png={m.png} mime={m.mime} caption={m.text} /> : null;
+              if (m.png) return <ScreenFrame src={`data:${m.mime ?? "image/png"};base64,${m.png}`} caption={m.text} />;
+              return m.hasImage ? <ScreenFrame src={screenImageUrl(bot.threadId, m.id)} caption={m.text} /> : null;
             case "note":
               return <NoteMessage message={m} />;
             default:
@@ -958,14 +962,18 @@ export function PinnedBanner({
   onJump,
   onUnpin,
 }: {
-  bot: Pick<Bot, "name">;
+  bot: Pick<Bot, "name" | "threadId" | "hasMore">;
   pinnedId?: string;
   messages: Message[];
   onJump: (messageId: string) => void;
   onUnpin: () => void;
 }) {
   const { t } = useI18n();
-  const pinned = messages.find((m) => m.id === pinnedId);
+  const pinned = useThreadMessage(
+    bot.threadId,
+    bot.hasMore ? pinnedId : undefined,
+    messages.find((m) => m.id === pinnedId),
+  );
   if (!pinned || pinned.kind !== "text") return null;
   const sender =
     pinned.role === "user" ? t("chat.you") : (pinned.from?.name ?? bot.name);
@@ -1071,6 +1079,20 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   if (transcriptWindow.key !== transcriptKey) {
     setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(messages.length, TRANSCRIPT_WINDOW_SIZE, renders), end: null });
   }
+  // The window is index-based, so an older page landing on top shifts it.
+  const loadOlder = useOlderMessages(dispatch, bot.threadId, bot.messages[0]?.id, bot.hasMore);
+  const revealOlder = useRef(false);
+  const head = messages[0]?.id;
+  const [windowHead, setWindowHead] = useState(head);
+  if (windowHead !== head) {
+    setWindowHead(head);
+    const prepended = windowHead ? messages.findIndex((message) => message.id === windowHead) : -1;
+    if (prepended > 0) {
+      const reveal = revealOlder.current;
+      revealOlder.current = false;
+      setTranscriptWindow((w) => shiftForPrepend(w, prepended, reveal));
+    }
+  }
   const {
     visible: windowedMessages,
     hiddenCount,
@@ -1167,13 +1189,21 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
     const focus = state.focusMessage;
     if (!focus || focus.consumed || focus.threadId !== bot.threadId || appliedFocus.current === focus.nonce) return;
     const targetIndex = messages.findIndex((message) => message.id === focus.messageId);
-    if (targetIndex < 0) return;
+    // older than every loaded page: keep paging back until it lands
+    if (targetIndex < 0) {
+      loadOlder();
+      return;
+    }
     appliedFocus.current = focus.nonce;
     const range = focusWindowRange(messages.length, targetIndex);
     setBottomFollow(false);
     setTranscriptWindow({ key: transcriptKey, start: range.start, end: range.end });
-  }, [bot.threadId, messages, setBottomFollow, state.focusMessage, transcriptKey]);
-  useFocusMessage(bot.threadId, messages.length > 0);
+  }, [bot.threadId, loadOlder, messages, setBottomFollow, state.focusMessage, transcriptKey]);
+  const focusPaging =
+    Boolean(bot.hasMore) &&
+    state.focusMessage?.threadId === bot.threadId &&
+    !messages.some((message) => message.id === state.focusMessage?.messageId);
+  useFocusMessage(bot.threadId, messages.length > 0 && !focusPaging);
   useEffect(() => {
     if (!follow || transcriptWindow.end !== null || transcriptWindow.expanded) return;
     const start = followedTailStart(transcriptWindow.start, messages.length, TRANSCRIPT_WINDOW_SIZE, renders);
@@ -1213,10 +1243,18 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   // (browser scroll anchoring is disabled on this container).
   const preExpandHeight = useRef<number | null>(null);
   const showEarlier = () => {
-    preExpandHeight.current = scrollRef.current?.scrollHeight ?? null;
     // expanding means reading scrollback — never let a mid-expand stream
     // event pin the viewport back to the bottom
     setBottomFollow(false);
+    if (startIndex === 0) {
+      revealOlder.current = true;
+      setTranscriptWindow((w) => ({ ...w, expanded: true }));
+      loadOlder(() => {
+        preExpandHeight.current = scrollRef.current?.scrollHeight ?? null;
+      });
+      return;
+    }
+    preExpandHeight.current = scrollRef.current?.scrollHeight ?? null;
     const start = expandWindowStart(startIndex);
     setTranscriptWindow((w) => ({ ...w, start, expanded: true }));
   };
@@ -1228,7 +1266,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
     // keep the resume-follow heuristic from reading the restore as a
     // downward user scroll
     previousScrollTop.current = el.scrollTop;
-  }, [transcriptWindow.start]);
+  }, [transcriptWindow.start, head]);
 
   const showLater = () => {
     setBottomFollow(false);
@@ -1452,13 +1490,13 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
           aria-live="polite"
           aria-label={t("chat.conversationAria", { name: bot.name })}
         >
-          {hiddenCount > 0 && (
+          {(hiddenCount > 0 || bot.hasMore) && (
             <div className="flex justify-center pt-2">
               <button
                 onClick={showEarlier}
                 className="rounded-full border border-hairline/40 bg-panel px-3 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
               >
-                Show earlier messages ({hiddenCount} more)
+                Show earlier messages{hiddenCount > 0 && ` (${hiddenCount} more)`}
               </button>
             </div>
           )}

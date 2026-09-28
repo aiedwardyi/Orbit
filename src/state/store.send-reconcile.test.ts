@@ -61,7 +61,7 @@ async function mount(
 ) {
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     const path = String(url);
-    if (path === "/api/bots") return Response.json({ bots, groups: [group], computerControl: {} });
+    if (path === "/api/bots?messages=200") return Response.json({ bots, groups: [group], computerControl: {} });
     if (init?.method === "POST" && path.endsWith("/messages")) return post(init);
     const page = path.match(/^\/api\/threads\/([\w-]+)\/messages\?/);
     if (page) return threadPage(page[1]!, init);

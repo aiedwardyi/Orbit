@@ -36,7 +36,7 @@ export function messageVisible(message: Message, showToolCalls: boolean): boolea
     case "routine.run":
       return true;
     case "screen":
-      return Boolean(message.png || message.image) && (message.shown || showToolCalls);
+      return Boolean(message.png || message.image || message.hasImage) && (message.shown || showToolCalls);
     default:
       return false;
   }

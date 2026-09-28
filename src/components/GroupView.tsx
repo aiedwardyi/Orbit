@@ -51,6 +51,7 @@ import { ActivityRun } from "./ActivityRun";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
 import { useFocusMessage } from "@/lib/focus-message";
+import { screenImageUrl, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
 import { shortPath } from "@/lib/short-path";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow } from "@/lib/bottom-follow";
 import { CHAT_COLUMN_CLASS } from "@/lib/chat-column";
@@ -67,6 +68,7 @@ import {
   focusWindowRange,
   followedTailStart,
   resolveTranscriptWindow,
+  shiftForPrepend,
   tailWindowStart,
 } from "@/lib/transcript-window";
 import { useReplyDraft } from "@/lib/drafts";
@@ -259,6 +261,25 @@ function PinToggle({ group, message }: { group: Group; message: Message }) {
   );
 }
 
+function RoomReplyQuote({ group, replyToId, transcript }: { group: Group; replyToId: string; transcript: Message[] }) {
+  const { dispatch } = useStore();
+  const target = useThreadMessage(
+    group.threadId,
+    group.hasMore ? replyToId : undefined,
+    transcript.find((candidate) => candidate.id === replyToId),
+  );
+  return target ? (
+    <div className="mb-2">
+      <ReplyQuote
+        message={target}
+        fallbackName="Bot"
+        compact
+        onJump={() => dispatch({ type: "focusMessage", threadId: group.threadId, messageId: target.id })}
+      />
+    </div>
+  ) : null;
+}
+
 const Transcript = memo(function Transcript({
   group,
   members,
@@ -386,10 +407,10 @@ const Transcript = memo(function Transcript({
             />
           ) : m.kind === "screen" && m.image ? (
             <ShownImage name={m.image} caption={m.text} />
-          ) : m.kind === "screen" && m.png ? (
+          ) : m.kind === "screen" && (m.png || m.hasImage) ? (
             <div className="flex flex-col items-start gap-1">
               <img
-                src={`data:${m.mime ?? "image/png"};base64,${m.png}`}
+                src={m.png ? `data:${m.mime ?? "image/png"};base64,${m.png}` : screenImageUrl(group.threadId, m.id)}
                 alt={m.text || t("chrome.screenFrame")}
                 className="w-fit max-w-[min(42rem,78%)] rounded-2xl border border-hairline/40"
               />
@@ -427,21 +448,7 @@ const Transcript = memo(function Transcript({
                   )}
                   title={new Date(m.at).toLocaleString(localeTag(locale))}
                 >
-                  {m.replyToId && (() => {
-                    const target = transcript.find((candidate) => candidate.id === m.replyToId);
-                    return target ? (
-                      <div className="mb-2">
-                        <ReplyQuote
-                          message={target}
-                          fallbackName="Bot"
-                          compact
-                          onJump={() =>
-                            dispatch({ type: "focusMessage", threadId: group.threadId, messageId: target.id })
-                          }
-                        />
-                      </div>
-                    ) : null;
-                  })()}
+                  {m.replyToId && <RoomReplyQuote group={group} replyToId={m.replyToId} transcript={transcript} />}
                   {user ? (
                     <>
                       {attachedImages && attachedImages.images.length > 0 && (
@@ -1060,6 +1067,11 @@ export function GroupView({ group }: { group: Group }) {
     [group.memberIds, state.bots],
   );
   const speaker = members.find((b) => b.id === group.busyBotId);
+  const pinnedMessage = useThreadMessage(
+    group.threadId,
+    group.hasMore ? group.pinnedMessageId : undefined,
+    group.messages.find((m) => m.id === group.pinnedMessageId),
+  );
   const recoveryPacket = roomRecoveryPacket(group);
   const recoveryBot = recoveryPacket
     ? members.find((b) => b.id === recoveryPacket.botId) ?? members[0]
@@ -1133,6 +1145,20 @@ export function GroupView({ group }: { group: Group }) {
   if (transcriptWindow.key !== transcriptKey) {
     setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(group.messages.length, TRANSCRIPT_WINDOW_SIZE, renders), end: null });
   }
+  // The window is index-based, so an older page landing on top shifts it.
+  const loadOlder = useOlderMessages(dispatch, group.threadId, group.messages[0]?.id, group.hasMore);
+  const revealOlder = useRef(false);
+  const head = group.messages[0]?.id;
+  const [windowHead, setWindowHead] = useState(head);
+  if (windowHead !== head) {
+    setWindowHead(head);
+    const prepended = windowHead ? group.messages.findIndex((message) => message.id === windowHead) : -1;
+    if (prepended > 0) {
+      const reveal = revealOlder.current;
+      revealOlder.current = false;
+      setTranscriptWindow((w) => shiftForPrepend(w, prepended, reveal));
+    }
+  }
   const {
     visible: windowedMessages,
     hiddenCount,
@@ -1156,13 +1182,21 @@ export function GroupView({ group }: { group: Group }) {
     const focus = state.focusMessage;
     if (!focus || focus.consumed || focus.threadId !== group.threadId || appliedFocus.current === focus.nonce) return;
     const targetIndex = group.messages.findIndex((message) => message.id === focus.messageId);
-    if (targetIndex < 0) return;
+    // older than every loaded page: keep paging back until it lands
+    if (targetIndex < 0) {
+      loadOlder();
+      return;
+    }
     appliedFocus.current = focus.nonce;
     const range = focusWindowRange(group.messages.length, targetIndex);
     setBottomFollow(false);
     setTranscriptWindow({ key: transcriptKey, start: range.start, end: range.end });
-  }, [group.messages, group.threadId, setBottomFollow, state.focusMessage, transcriptKey]);
-  useFocusMessage(group.threadId, group.messages.length > 0);
+  }, [group.messages, group.threadId, loadOlder, setBottomFollow, state.focusMessage, transcriptKey]);
+  const focusPaging =
+    Boolean(group.hasMore) &&
+    state.focusMessage?.threadId === group.threadId &&
+    !group.messages.some((message) => message.id === state.focusMessage?.messageId);
+  useFocusMessage(group.threadId, group.messages.length > 0 && !focusPaging);
   useEffect(() => {
     if (!follow || transcriptWindow.end !== null || transcriptWindow.expanded) return;
     const start = followedTailStart(transcriptWindow.start, group.messages.length, TRANSCRIPT_WINDOW_SIZE, renders);
@@ -1205,10 +1239,18 @@ export function GroupView({ group }: { group: Group }) {
   // (browser scroll anchoring is disabled on this container).
   const preExpandHeight = useRef<number | null>(null);
   const showEarlier = () => {
-    preExpandHeight.current = scrollRef.current?.scrollHeight ?? null;
     // expanding means reading scrollback — never let a mid-expand stream
     // event pin the viewport back to the bottom
     setBottomFollow(false);
+    if (startIndex === 0) {
+      revealOlder.current = true;
+      setTranscriptWindow((w) => ({ ...w, expanded: true }));
+      loadOlder(() => {
+        preExpandHeight.current = scrollRef.current?.scrollHeight ?? null;
+      });
+      return;
+    }
+    preExpandHeight.current = scrollRef.current?.scrollHeight ?? null;
     const start = expandWindowStart(startIndex);
     setTranscriptWindow((w) => ({ ...w, start, expanded: true }));
   };
@@ -1220,7 +1262,7 @@ export function GroupView({ group }: { group: Group }) {
     // keep the resume-follow heuristic from reading the restore as a
     // downward user scroll
     previousScrollTop.current = el.scrollTop;
-  }, [transcriptWindow.start]);
+  }, [transcriptWindow.start, head]);
 
   const showLater = () => {
     setBottomFollow(false);
@@ -1393,7 +1435,7 @@ export function GroupView({ group }: { group: Group }) {
 
       {/* Pinned message banner — resolves against the room's full transcript */}
       {(() => {
-        const pinned = group.messages.find((m) => m.id === group.pinnedMessageId && m.kind === "text");
+        const pinned = pinnedMessage?.kind === "text" ? pinnedMessage : undefined;
         const text = pinned ? splitAttachedImages(pinned.text ?? "").display.replace(/\s+/g, " ").trim() : "";
         if (!pinned || !text) return null;
         const sender = pinned.role === "user" ? t("room.you") : (pinned.from?.name ?? t("chrome.aBot"));
@@ -1488,13 +1530,13 @@ export function GroupView({ group }: { group: Group }) {
               </div>
             </div>
           )}
-          {hiddenCount > 0 && (
+          {(hiddenCount > 0 || group.hasMore) && (
             <div className="flex justify-center pt-2">
               <button
                 onClick={showEarlier}
                 className="rounded-full border border-hairline/40 bg-panel px-3 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
               >
-                {t("room.showEarlier", { count: hiddenCount })}
+                {hiddenCount > 0 ? t("room.showEarlier", { count: hiddenCount }) : t("room.showOlder")}
               </button>
             </div>
           )}

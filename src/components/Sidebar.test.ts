@@ -78,7 +78,7 @@ describe("Sidebar drag to reorder", () => {
   it("never revives a drag when a dragover lands after its dragend", async () => {
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal("fetch", vi.fn(async (path: string) =>
-      path === "/api/bots"
+      path === "/api/bots?messages=200"
         ? new Response(JSON.stringify({ bots: ["a", "b", "c"].map(bot), groups: [] }))
         : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })));
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -129,7 +129,7 @@ describe("Sidebar bot section drag", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (path: string, init?: RequestInit) => {
-        if (path === "/api/bots") {
+        if (path === "/api/bots?messages=200") {
           return new Response(JSON.stringify({
             bots: [scopedBot("a", "A"), scopedBot("b", "B")],
             groups: [sectionGroup],
@@ -193,7 +193,7 @@ describe("Sidebar bot section drag", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (path: string, init?: RequestInit) => {
-        if (path === "/api/bots") return new Response(JSON.stringify({ bots: [scopedBot], groups: [] }));
+        if (path === "/api/bots?messages=200") return new Response(JSON.stringify({ bots: [scopedBot], groups: [] }));
         if (path === "/api/bots/a" && init?.method === "PATCH") {
           return new Response(JSON.stringify({ bot: { ...scopedBot, section: "" } }));
         }
@@ -257,7 +257,7 @@ describe("Sidebar row time", () => {
     const a = { ...bot("a"), messages: [{ id: "m", role: "bot", kind: "text", text: "hi", at }], activeLeafId: "m" };
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal("fetch", vi.fn(async (path: string) =>
-      new Response(JSON.stringify(path === "/api/bots" ? { bots: [a], groups: [] } : {}), { status: path === "/api/bots" ? 200 : 404 })));
+      new Response(JSON.stringify(path === "/api/bots?messages=200" ? { bots: [a], groups: [] } : {}), { status: path === "/api/bots?messages=200" ? 200 : 404 })));
     persistPreference(locale);
     const host = document.body.appendChild(document.createElement("div"));
     const root = createRoot(host);
@@ -296,7 +296,7 @@ describe("Sidebar priority ordering", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (path: string, init?: RequestInit) => {
-        if (path === "/api/bots") return new Response(JSON.stringify({ bots: serverBots, groups: [] }));
+        if (path === "/api/bots?messages=200") return new Response(JSON.stringify({ bots: serverBots, groups: [] }));
         if (path.startsWith("/api/bots/") && init?.method === "PATCH") {
           const id = path.slice("/api/bots/".length);
           const patch = JSON.parse(String(init.body)) as Record<string, unknown>;
@@ -368,7 +368,7 @@ describe("Sidebar priority ordering", () => {
     }));
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal("fetch", vi.fn(async (path: string) =>
-      path === "/api/bots"
+      path === "/api/bots?messages=200"
         ? new Response(JSON.stringify({ bots, groups: [] }))
         : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 }),
     ));
@@ -404,7 +404,7 @@ describe("Sidebar priority ordering", () => {
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (path: string) => path === "/api/bots"
+      vi.fn(async (path: string) => path === "/api/bots?messages=200"
         ? new Response(JSON.stringify({ bots: [pinnedOne, regular, pinnedTwo], groups: [] }))
         : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
     );
@@ -452,7 +452,7 @@ describe("Sidebar layout controls", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (path: string) =>
-        path === "/api/bots"
+        path === "/api/bots?messages=200"
           ? new Response(JSON.stringify({ bots: [bot("a")], groups: [] }))
           : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
     );
@@ -515,7 +515,7 @@ describe("Sidebar layout controls", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (path: string) =>
-        path === "/api/bots"
+        path === "/api/bots?messages=200"
           ? new Response(JSON.stringify({ bots: [bot("a")], groups: [] }))
           : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
     );
@@ -734,7 +734,7 @@ describe("Sidebar layout controls", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (path: string) =>
-        path === "/api/bots"
+        path === "/api/bots?messages=200"
           ? new Response(JSON.stringify({ bots: [work, personal], groups: [] }))
           : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
     );
@@ -877,7 +877,7 @@ describe("Sidebar layout controls", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (path: string) =>
-        path === "/api/bots"
+        path === "/api/bots?messages=200"
           ? new Response(JSON.stringify({ bots, groups }))
           : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
     );
@@ -912,7 +912,7 @@ describe("Sidebar layout controls", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (path: string) =>
-        path === "/api/bots"
+        path === "/api/bots?messages=200"
           ? new Response(JSON.stringify({ bots: [{ ...bot("a"), unread: true }], groups: [] }))
           : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
     );
@@ -942,7 +942,7 @@ describe("Sidebar layout controls", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (path: string) =>
-        path === "/api/bots"
+        path === "/api/bots?messages=200"
           ? new Response(JSON.stringify({ bots, groups: [] }))
           : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
     );
@@ -986,7 +986,7 @@ describe("Sidebar group drag to reorder", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (path: string, init?: RequestInit) => {
-        if (path === "/api/bots")
+        if (path === "/api/bots?messages=200")
           return new Response(
             JSON.stringify({
               bots: [],
@@ -1083,7 +1083,7 @@ describe("Sidebar group avatar overflow", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (path: string) =>
-        path === "/api/bots"
+        path === "/api/bots?messages=200"
           ? new Response(JSON.stringify({ bots: members, groups: [group] }))
           : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
     );
@@ -1123,7 +1123,7 @@ describe("Sidebar bot delete confirm", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (path: string, init?: RequestInit) => {
-        if (path === "/api/bots")
+        if (path === "/api/bots?messages=200")
           return new Response(JSON.stringify({ bots: ["a", "b"].map(deletable), groups: [] }));
         if (path.startsWith("/api/bots/") && init?.method === "DELETE") {
           deletes.push(path);
@@ -1209,7 +1209,7 @@ describe("Sidebar bot model line", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (path: string) => {
-        if (path === "/api/bots")
+        if (path === "/api/bots?messages=200")
           return new Response(JSON.stringify({ bots: [pinned], groups: [] }));
         if (path === "/api/instances")
           return new Response(JSON.stringify({ instances: [muse] }));
@@ -1256,7 +1256,7 @@ describe("Sidebar bot second line", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (path: string) => {
-        if (path === "/api/bots") return new Response(JSON.stringify(payload));
+        if (path === "/api/bots?messages=200") return new Response(JSON.stringify(payload));
         if (path === "/api/instances") return new Response(JSON.stringify({ instances: [muse] }));
         return new Response(JSON.stringify({ error: "not in this test" }), { status: 404 });
       }),
@@ -1363,7 +1363,7 @@ describe("Sidebar bot second line", () => {
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (path: string) => path === "/api/bots"
+      vi.fn(async (path: string) => path === "/api/bots?messages=200"
         ? new Response(JSON.stringify({ bots: [attentionBot], groups: [] }))
         : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
     );
@@ -1424,7 +1424,7 @@ describe("Sidebar bot rename", () => {
   it("shows the input on double-click and restores the row after Escape", async () => {
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal("fetch", vi.fn(async (path: string) =>
-      path === "/api/bots"
+      path === "/api/bots?messages=200"
         ? new Response(JSON.stringify({ bots: [bot("a")], groups: [] }))
         : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })));
     vi.spyOn(console, "warn").mockImplementation(() => {});

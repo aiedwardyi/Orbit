@@ -53,6 +53,21 @@ export function followedTailStart(
   return total - startIndex > size * 2 ? tailWindowStart(total, size, renders) : startIndex;
 }
 
+/** Older rows were prepended: keep the window on the same rows, or open one
+ * "Show earlier" step into them when the reader asked for them. */
+export function shiftForPrepend<W extends { start: number; end: number | null }>(
+  window: W,
+  count: number,
+  reveal: boolean,
+  size: number = TRANSCRIPT_WINDOW_SIZE,
+): W {
+  return {
+    ...window,
+    start: reveal && window.start === 0 ? expandWindowStart(count, size) : window.start + count,
+    end: window.end === null ? null : window.end + count,
+  };
+}
+
 /** A bounded window containing a search target. Keeping this finite avoids
  * mounting an entire old transcript merely to land on one result. */
 export function focusWindowRange(

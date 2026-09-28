@@ -40,7 +40,7 @@ async function mountStore() {
   let serverOrder = ["a", "b", "c"];
   vi.stubGlobal("EventSource", FakeEventSource);
   vi.stubGlobal("fetch", vi.fn(async (path: string, init: RequestInit = {}) => {
-    if (path === "/api/bots") return respond(200, { bots: serverOrder.map(bot), groups: [] });
+    if (path === "/api/bots?messages=200") return respond(200, { bots: serverOrder.map(bot), groups: [] });
     if (path === "/api/bots?messages=0") {
       const saved = serverOrder;
       return new Promise<Response>((resolve) => {
@@ -83,7 +83,7 @@ async function mountGroupPatchStore() {
   const group = { id: "g1", threadId: "g1-thread", name: "before", memberIds: [], messages: [] };
   vi.stubGlobal("EventSource", FakeEventSource);
   vi.stubGlobal("fetch", vi.fn(async (path: string, init: RequestInit = {}) => {
-    if (path === "/api/bots") return respond(200, { bots: [], groups: [group] });
+    if (path === "/api/bots?messages=200") return respond(200, { bots: [], groups: [group] });
     if (path === "/api/groups/g1" && init.method === "PATCH") {
       return new Promise<Response>((resolve) => answers.push(resolve));
     }

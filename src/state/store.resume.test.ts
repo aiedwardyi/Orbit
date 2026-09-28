@@ -40,7 +40,7 @@ afterEach(async () => {
 });
 
 async function mount(snapshot: () => Promise<Response>) {
-  vi.stubGlobal("fetch", vi.fn(async (url: string) => (String(url) === "/api/bots" ? snapshot() : new Promise<Response>(() => {}))));
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => (String(url) === "/api/bots?messages=200" ? snapshot() : new Promise<Response>(() => {}))));
   vi.stubGlobal("EventSource", FakeEventSource);
   vi.spyOn(console, "warn").mockImplementation(() => {});
   function Probe() {

@@ -48,6 +48,7 @@ import {
   localComputerSelectable,
 } from "@/lib/local-computer";
 import { vpsComputerNeedsReplacement, type VpsComputerStatus } from "@/lib/vps-computer";
+import { screenImageUrl } from "@/lib/message-pages";
 import {
   computerRunsOnLabel,
   computerStatusKind,
@@ -564,18 +565,20 @@ export function ComputerPanel({
     };
   }, [phase, isLinux, pageVisible, bot.busy]);
 
-  const lastScreenMessage = [...bot.messages].reverse().find((m) => m.kind === "screen" && m.png);
+  const lastScreenMessage = [...bot.messages].reverse().find((m) => m.kind === "screen" && (m.png || (m.hasImage && !m.image)));
   const cloudFrame =
     live ??
     polledFrame ??
-    (lastScreenMessage ? { png: lastScreenMessage.png!, mime: lastScreenMessage.mime ?? "image/png" } : null);
+    (lastScreenMessage?.png ? { png: lastScreenMessage.png, mime: lastScreenMessage.mime ?? "image/png" } : null);
   const frameSrc =
     phase === "vm"
       ? vmFrame
       : phase === "local" && !isLinux
       ? localFrame
       : phase === "ready" || phase === "starting"
-        ? cloudFrame && `data:${cloudFrame.mime};base64,${cloudFrame.png}`
+        ? cloudFrame
+          ? `data:${cloudFrame.mime};base64,${cloudFrame.png}`
+          : lastScreenMessage && screenImageUrl(bot.threadId, lastScreenMessage.id)
         : null;
   const previewOpensDesktop = Boolean(
     frameSrc &&

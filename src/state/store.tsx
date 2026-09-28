@@ -145,6 +145,8 @@ export interface Message {
   shown?: boolean;
   /** show_image: the attachment name its pixels load from */
   image?: string;
+  /** A paged copy left the pixels out; they load from the image endpoint. */
+  hasImage?: boolean;
   at: number;
   /** the message this one follows; null = thread root. Edited messages
    * share a parentId with the version they replace — that's a fork. */
@@ -207,6 +209,8 @@ export interface Group {
   /** True while a member turn or queued room operation is in flight. */
   working?: boolean;
   messages: Message[];
+  /** The server holds older messages than `messages` starts with. */
+  hasMore?: boolean;
 }
 
 /** One of a channel's independent conversations. The channel's threadId
@@ -343,6 +347,8 @@ export interface Bot {
   /** Allow this bot's provider to read its own Orbit terminal screen. */
   shareTerminalWithChat?: boolean;
   messages: Message[];
+  /** The server holds older messages than `messages` starts with. */
+  hasMore?: boolean;
   /** leaf of the visible conversation branch (see visibleMessages) */
   activeLeafId?: string | null;
 }
@@ -667,6 +673,7 @@ export type Action =
       computerControl: Record<string, { held: boolean; helpReason: string | null }>;
       sidebarOrder: SidebarOrder;
     }
+  | { type: "olderMessages"; threadId: string; before: string; messages: Message[]; hasMore: boolean }
   | { type: "showRoutines" }
   | { type: "showTeamMap" }
   | { type: "showSkillRecorder" }
@@ -949,8 +956,10 @@ export function reducer(state: AppState, action: Action): AppState {
       const hydrated = reconcileSnapshotQueues(
         {
           ...state,
-          bots: action.bots.map((b) => (b.messages ? { ...b, messages: keepNewestScreenFrames(b.messages) } : b)),
-          groups: action.groups,
+          bots: action.bots.map((b) =>
+            keepLoadedScrollback(state, b.messages ? { ...b, messages: keepNewestScreenFrames(b.messages) } : b, state.bots),
+          ),
+          groups: action.groups.map((g) => keepLoadedScrollback(state, g, state.groups)),
           computerControl: action.computerControl,
           terminalAttention: Object.fromEntries(
             Object.entries(state.terminalAttention).filter(([, attention]) => action.bots.some((bot) => bot.id === attention.botId)),
@@ -980,6 +989,17 @@ export function reducer(state: AppState, action: Action): AppState {
           ...completedReopenDismissals(leftoverPackets),
         },
       };
+    }
+    case "olderMessages": {
+      // A cursor that is no longer the head means a snapshot replaced this
+      // list mid-request; prepending would leave a hole.
+      const prepend = <T extends Bot | Group>(conversation: T): T => {
+        if (conversation.threadId !== action.threadId || conversation.messages[0]?.id !== action.before) return conversation;
+        const held = new Set(conversation.messages.map((message) => message.id));
+        const older = action.messages.filter((message) => !held.has(message.id));
+        return { ...conversation, messages: [...older, ...conversation.messages], hasMore: action.hasMore };
+      };
+      return { ...state, bots: state.bots.map(prepend), groups: state.groups.map(prepend) };
     }
     case "showRoutines":
       return {
@@ -1058,7 +1078,11 @@ export function reducer(state: AppState, action: Action): AppState {
     case "groupPatched": {
       const exists = state.groups.some((g) => g.id === action.group.id);
       const groups = exists
-        ? state.groups.map((g) => (g.id === action.group.id ? { ...g, ...action.group, messages: action.group.messages ?? g.messages } : g))
+        ? state.groups.map((g) =>
+            g.id === action.group.id
+              ? { ...g, ...action.group, messages: action.group.messages ?? g.messages, hasMore: action.group.messages ? action.group.hasMore : g.hasMore }
+              : g,
+          )
         : [{ ...(action.group as Group), messages: action.group.messages ?? [] }, ...state.groups];
       const patchedGroup = groups.find((group) => group.id === action.group.id);
       const acceptedSends =
@@ -1239,6 +1263,7 @@ export function reducer(state: AppState, action: Action): AppState {
           switchedThread && Array.isArray(action.bot.messages)
             ? action.bot.messages
             : b.messages,
+        hasMore: switchedThread && Array.isArray(action.bot.messages) ? action.bot.hasMore : b.hasMore,
       }));
       const reconciled =
         switchedThread && Array.isArray(action.bot.messages)
@@ -1706,6 +1731,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...bot,
         ...action.bot,
         messages: action.bot.messages ?? [],
+        hasMore: action.bot.hasMore,
       }));
       return reconcileSnapshotQueues(switched, [action.bot]);
     }
@@ -1732,6 +1758,17 @@ export function reducer(state: AppState, action: Action): AppState {
     case "markRoutineRunSeen":
       return state;
   }
+}
+
+/** A re-hydrate answers with the newest page only. Keep the older pages the
+ * reader already loaded when that page still joins onto them. */
+function keepLoadedScrollback<T extends Bot | Group>(state: AppState, next: T, previous: readonly (Bot | Group)[]): T {
+  const head = next.messages?.[0]?.id;
+  if (!state.hydrated || !next.hasMore || !head) return next;
+  const held = previous.find((conversation) => conversation.threadId === next.threadId);
+  const joins = held ? held.messages.findIndex((message) => message.id === head) : -1;
+  if (!held || joins <= 0) return next;
+  return { ...next, messages: [...held.messages.slice(0, joins), ...next.messages], hasMore: held.hasMore };
 }
 
 /** Newest screen frames whose pixels stay in memory per thread. */
@@ -1806,6 +1843,11 @@ export const initialState: AppState = {
 };
 
 // ── API client ─────────────────────────────────────────────────────────
+/** Messages per conversation a hydrate or scrollback request asks for - the
+ * server's page cap. Tool-heavy threads hide ~9 of every 10 rows, so a
+ * smaller page can leave a first screen with only a handful of bubbles. */
+export const MESSAGE_PAGE = 200;
+
 export async function api(path: string, init?: RequestInit): Promise<any> {
   const res = await fetch(path, {
     headers: { "content-type": "application/json" },
@@ -2674,7 +2716,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
     const loadAll = async (): Promise<boolean> => {
       const chat = () =>
-        api("/api/bots").then(({ bots, groups, computerControl }) => {
+        api(`/api/bots?messages=${MESSAGE_PAGE}`).then(({ bots, groups, computerControl }) => {
           if (!alive) return;
           rawDispatch({
             type: "hydrate",
