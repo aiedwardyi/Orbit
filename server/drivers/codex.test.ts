@@ -5,16 +5,20 @@
 //
 // The fake is a shebang script — the same constraint codex.cmd itself
 // hits on Windows. resolveCliSpawn covers both, so these run everywhere.
+import type { ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { chmodSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PROVIDER_CREDENTIAL_ENV, WORKSPACE_CREDENTIAL_ENV } from "../config.ts";
 import type { ProviderInstance } from "../contracts.ts";
+import * as procs from "../procs.ts";
 import { recordEvents, type EventRecorder } from "../testing/events.ts";
 import { CodexDriver } from "./codex.ts";
+import { retireAppServer } from "./codex-catalog.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-codex-app-server.ts");
@@ -106,6 +110,7 @@ describe("CodexDriver turns (fake app-server)", () => {
     }
     recorder?.stop();
     await instance?.dispose();
+    vi.restoreAllMocks();
     await removeTempDir(scratch);
   });
 
@@ -618,6 +623,27 @@ describe("CodexDriver turns (fake app-server)", () => {
     await expect(instance.adapter.sendTurn({ threadId: "t-busy", text: "two" })).rejects.toThrow(/already running/);
     await instance.adapter.interruptTurn("t-busy");
     await recorder.until((e) => e.type === "turn.completed");
+  });
+
+  it("drops a Stop during the retired app-server wait without launching", async () => {
+    await create();
+    const spawn = vi.spyOn(procs, "spawnCli");
+    // no pid, so killCliTree leaves the fake alone and the test decides when it closes
+    const dying = Object.assign(new EventEmitter(), { pid: undefined, exitCode: null, signalCode: null });
+    retireAppServer(dying as unknown as ChildProcess);
+    const sent = instance.adapter.sendTurn({ threadId: "t-dying-stop", text: "hi" });
+    expect(instance.adapter.hasSession("t-dying-stop")).toBe(true);
+    await expect(instance.adapter.sendTurn({ threadId: "t-dying-stop", text: "two" })).rejects.toThrow(/already running/);
+    await instance.adapter.interruptTurn("t-dying-stop");
+    dying.emit("close", 1);
+    await sent;
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({
+      ok: false,
+      stopReason: "interrupted",
+    });
+    expect(recorder.events.map((e) => e.type)).toEqual(["turn.started", "turn.completed"]);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(instance.adapter.hasSession("t-dying-stop")).toBe(false);
   });
 
   it("a missing binary surfaces as a failed turn, and snapshot says unavailable", async () => {

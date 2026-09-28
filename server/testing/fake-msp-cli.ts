@@ -38,6 +38,7 @@
 //   FAKE_MSP_RPC_DUMP  path to write the method sequence seen this run.
 //   FAKE_MSP_USAGE     JSON result for usage/read.
 //   FAKE_MSP_USAGE_CHANGED  JSON params for a usage/changed notification.
+//   FAKE_MSP_INIT_DELAY_MS  hold the initialize result this long.
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
 import { readFileSync, writeFileSync } from "node:fs";
@@ -284,12 +285,16 @@ function handle(msg: any) {
       }
       const requested: unknown = msg.params?.capabilities?.requestedCapabilities;
       granted = (Array.isArray(requested) ? requested : []).filter((name) => GRANTABLE.includes(name as string));
-      result(msg.id, {
-        experimentalApi: false,
-        grantedCapabilities: granted,
-        serverInfo: { name: "fake-msp", version: "0.0.0" },
-        sessionDurability: "durable",
-      });
+      const reply = () =>
+        result(msg.id, {
+          experimentalApi: false,
+          grantedCapabilities: granted,
+          serverInfo: { name: "fake-msp", version: "0.0.0" },
+          sessionDurability: "durable",
+        });
+      const delay = Number(process.env.FAKE_MSP_INIT_DELAY_MS ?? 0);
+      if (delay > 0) setTimeout(reply, delay);
+      else reply();
       break;
     }
     case "session/start": {

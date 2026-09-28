@@ -155,7 +155,6 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     });
 
     const sendTurn = async (turn: SendTurnInput) => {
-      await awaitDyingAppServers();
       // One driver instance serves many threads. Interrupt state belongs to
       // this turn so activity elsewhere cannot cancel or revive its retry.
       let stopRequested = false;
@@ -163,6 +162,15 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       const { threadId } = turn;
       if (active.has(threadId)) throw new Error("a turn is already running on this thread");
       const turnId = newId();
+      // Reserve the thread across the retirement wait so Stop lands here.
+      active.set(threadId, { stop: () => { stopRequested = true; }, steer: async () => false, turnId, asks: new Map() });
+      await awaitDyingAppServers();
+      if (stopRequested) {
+        emit({ ...base(threadId, turnId), type: "turn.started" });
+        active.delete(threadId);
+        emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "interrupted", cost: null });
+        return { turnId };
+      }
       // a retry relaunches the whole app-server; the backoff is scaled down in
       // tests so a fake's transient failures don't stall real seconds
       const retryScale = Number(process.env.FAKE_CODEX_RETRY_SCALE ?? "1");

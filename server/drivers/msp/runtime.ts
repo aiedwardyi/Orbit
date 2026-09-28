@@ -409,7 +409,15 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
         const cwd = turn.cwd ?? config.workspace ?? homedir();
         const env = childEnv();
         const asks = new Map<string, Ask>();
-        active.set(threadId, { turnId, interrupt: () => {}, asks });
+        // Stop can land before the real interrupt is installed below; a warm
+        // host claimed mid-handshake dies at once so takeWarm returns null.
+        let cancelled = false;
+        let claimed: Warm | null = null;
+        const earlyInterrupt = () => {
+          cancelled = true;
+          if (claimed) discardWarm(claimed);
+        };
+        active.set(threadId, { turnId, interrupt: earlyInterrupt, asks });
         try {
           if (support.requireAuthenticationBeforeSpawn && !(await withWslProbeReason("turn", () => support.isAuthenticated(env, config)))) {
             emit({ ...base(threadId, turnId), type: "turn.started" });
@@ -437,7 +445,17 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
           throw err;
         }
 
-        const warmed = await takeWarm();
+        claimed = cancelled ? null : warm;
+        const warmed = cancelled ? null : await takeWarm();
+        claimed = null;
+        if (cancelled) {
+          emit({ ...base(threadId, turnId), type: "turn.started" });
+          active.delete(threadId);
+          turnTimer.mark("turnDone");
+    turnTimer.finish();
+    emit({ ...base(threadId, turnId), type: "turn.completed", ok: true, stopReason: "cancelled" });
+          return { turnId };
+        }
         const child = warmed?.child ?? spawnCli(effectiveCli(), ["serve"], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
         children.add(child);
         turnTimer.mark("spawnOrReuse");

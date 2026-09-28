@@ -657,7 +657,7 @@ describe("MSP prewarm (fake host)", () => {
   let scratch: string;
   let rpcDump: string;
 
-  const create = async (warmIdleMs?: number) => {
+  const create = async (warmIdleMs?: number, isAuthenticated: () => boolean | Promise<boolean> = () => true) => {
     const Driver = createMspDriver({
       driverKind: "museAgent",
       displayName: "MSP Prewarm",
@@ -665,7 +665,8 @@ describe("MSP prewarm (fake host)", () => {
       defaultCli: FAKE_CLI,
       nativeSource: "muse.msp",
       loginNote: "sign in",
-      isAuthenticated: () => true,
+      isAuthenticated,
+      requireAuthenticationBeforeSpawn: true,
       warmIdleMs,
     });
     instance = await Driver.create({
@@ -698,6 +699,7 @@ describe("MSP prewarm (fake host)", () => {
 
   afterEach(async () => {
     delete process.env.FAKE_MSP_RPC_DUMP;
+    delete process.env.FAKE_MSP_INIT_DELAY_MS;
     await instance?.dispose();
     vi.restoreAllMocks();
     removeTempDir(scratch);
@@ -716,6 +718,54 @@ describe("MSP prewarm (fake host)", () => {
     const methods = JSON.parse(readFileSync(rpcDump, "utf8")) as string[];
     expect(methods.filter((m) => m === "initialize")).toHaveLength(1);
     expect(methods).toContain("turn/start");
+  });
+
+  it("drops a Stop during the warm handshake without starting the turn", async () => {
+    process.env.FAKE_MSP_INIT_DELAY_MS = "30000";
+    const spawn = vi.spyOn(procs, "spawnCli");
+    await create();
+    void instance.prepare!();
+    await vi.waitFor(() => expect(JSON.parse(readFileSync(rpcDump, "utf8"))).toEqual(["initialize"]));
+    const child = spawn.mock.results[0].value as ReturnType<typeof procs.spawnCli>;
+    const recorder = recordEvents(instance.adapter);
+    try {
+      const sent = instance.adapter.sendTurn({ threadId: "t-warm-stop", text: "hi" });
+      await new Promise((resolve) => setImmediate(resolve));
+      await instance.adapter.interruptTurn("t-warm-stop");
+      await sent;
+      expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({
+        ok: true,
+        stopReason: "cancelled",
+      });
+      expect(recorder.events.map((e) => e.type)).toEqual(["turn.started", "turn.completed"]);
+    } finally {
+      recorder.stop();
+    }
+    expect(serveSpawns(spawn)).toBe(1);
+    await expect.poll(() => child.exitCode !== null || child.signalCode !== null).toBe(true);
+    expect(JSON.parse(readFileSync(rpcDump, "utf8"))).toEqual(["initialize"]);
+    expect(instance.adapter.hasSession("t-warm-stop")).toBe(false);
+  });
+
+  it("drops a Stop during the auth check without spawning", async () => {
+    let authed!: (ok: boolean) => void;
+    const spawn = vi.spyOn(procs, "spawnCli");
+    await create(undefined, () => new Promise<boolean>((resolve) => (authed = resolve)));
+    const recorder = recordEvents(instance.adapter);
+    try {
+      const sent = instance.adapter.sendTurn({ threadId: "t-auth-stop", text: "hi" });
+      await instance.adapter.interruptTurn("t-auth-stop");
+      authed(true);
+      await sent;
+      expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({
+        ok: true,
+        stopReason: "cancelled",
+      });
+    } finally {
+      recorder.stop();
+    }
+    expect(serveSpawns(spawn)).toBe(0);
+    expect(instance.adapter.hasSession("t-auth-stop")).toBe(false);
   });
 
   it("kills an unclaimed prewarmed host after the idle TTL and cold-spawns the next turn", async () => {

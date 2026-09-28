@@ -4,7 +4,8 @@
 // this, the reload paints the full-screen connecting state until the stream
 // says hello and every transcript downloads. The live snapshot always
 // replaces it; nothing here is acted on.
-import type { Bot, Group, InstanceInfo } from "./store";
+import { redactSecrets } from "../../server/redact.ts";
+import type { Bot, Group, InstanceInfo, Message } from "./store";
 
 export interface CachedSnapshot {
   bots: Bot[];
@@ -14,7 +15,9 @@ export interface CachedSnapshot {
   instances?: InstanceInfo[];
 }
 
-export const SNAPSHOT_CACHE_KEY = "omb-snapshot";
+export const SNAPSHOT_CACHE_KEY = "omb-snapshot-v2";
+/** Held user messages unredacted; dropped on the next read. */
+const LEGACY_SNAPSHOT_CACHE_KEY = "omb-snapshot";
 
 /** A private window or blocked site data throws on access. */
 function store(explicit?: Storage): Storage | undefined {
@@ -40,7 +43,9 @@ const isInstance = (value: unknown) =>
 
 export function readSnapshotCache(explicit?: Storage): CachedSnapshot | null {
   try {
-    const raw = store(explicit)?.getItem(SNAPSHOT_CACHE_KEY);
+    const storage = store(explicit);
+    storage?.removeItem(LEGACY_SNAPSHOT_CACHE_KEY);
+    const raw = storage?.getItem(SNAPSHOT_CACHE_KEY);
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     if (
@@ -61,9 +66,17 @@ export function readSnapshotCache(explicit?: Storage): CachedSnapshot | null {
   }
 }
 
+// SAFETY: redactSecrets keeps the shape and only rewrites string values.
+const redactMessages = (messages: Message[]) => messages.map((m) => redactSecrets(m) as Message);
+
 export function writeSnapshotCache(snapshot: CachedSnapshot, explicit?: Storage): void {
   try {
-    store(explicit)?.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(snapshot));
+    const redacted: CachedSnapshot = {
+      ...snapshot,
+      bots: snapshot.bots.map((b) => ({ ...b, messages: redactMessages(b.messages) })),
+      groups: snapshot.groups.map((g) => ({ ...g, messages: redactMessages(g.messages) })),
+    };
+    store(explicit)?.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(redacted));
   } catch {
     /* over quota or blocked: a reload just shows the connecting screen */
   }
