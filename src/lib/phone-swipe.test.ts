@@ -230,6 +230,15 @@ describe("vibration setting", () => {
     expect(vibrate).not.toHaveBeenCalled();
   });
 
+  it("keeps Vibration Off when storage reads but rejects the write, or is missing", () => {
+    const readOnly = { getItem: () => null, setItem: () => { throw new Error("denied"); } };
+    saveVibration(false, readOnly);
+    expect(vibrationEnabled(readOnly)).toBe(false);
+    expect(vibrationEnabled(null)).toBe(false);
+    saveVibration(true, null);
+    expect(vibrationEnabled(null)).toBe(true);
+  });
+
   it("is a switch in Settings > General", () => {
     const modal = readFileSync(join(here, "../components/SettingsModal.tsx"), "utf8");
     const general = modal.slice(modal.indexOf('section === "general"'), modal.indexOf('section === "connections"'));

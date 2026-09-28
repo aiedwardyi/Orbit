@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { conversationPreview, roomConversationPreview, transcriptIdleAfterOnboarding } from "./conversation-preview";
 import { t, translate, type Translate } from "@/lib/i18n";
-import { initialState, reducer, type Bot, type Group, type Message, type OptionCardData } from "@/state/store";
+import { initialState, previewMessages, reducer, visibleMessages, type Bot, type Group, type Message, type OptionCardData } from "@/state/store";
 
 const quizCard = {
   title: "What do you mostly want help with?",
@@ -193,6 +193,16 @@ describe("sidebar preview hides tool names when Show tool calls is off", () => {
     expect(sidebar).toMatch(/conversationPreview\([^)]*showToolCalls/);
     expect(sidebar).toMatch(/roomConversationPreview\([^)]*showToolCalls/);
     expect(sidebar).not.toMatch(/last\.kind === "activity" && last\.tool \? last\.tool\.name/);
+  });
+});
+
+describe("paged preview", () => {
+  it("falls back to the newest loaded row while the selected leaf is on an older page", () => {
+    const newest: Message = { id: "m9", role: "bot", kind: "text", text: "newest loaded", at: 9 };
+    const paged = { ...bot([newest]), activeLeafId: "m1", hasMore: true };
+    expect(conversationPreview(paged)).toBe("newest loaded");
+    expect(previewMessages(paged)).toEqual([newest]);
+    expect(visibleMessages(paged)).toEqual([]);
   });
 });
 

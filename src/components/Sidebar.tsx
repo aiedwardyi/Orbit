@@ -44,7 +44,7 @@ import {
   terminalAttentionForBot,
   useStore,
   formatTime,
-  visibleMessages,
+  previewMessages,
   type Bot,
   type Group,
   type TerminalAttention,
@@ -828,7 +828,7 @@ function BotListItem({
   }, [iconOnly]);
   const avatarSize = iconOnly ? 44 : density === "compact" ? 32 : 48;
   // the visible branch, so a version switch changes the row with the chat
-  const visible = visibleMessages(bot);
+  const visible = previewMessages(bot);
   const last = visible.at(-1);
   const engine = state.instances.find((instance) => instance.instanceId === bot.modelSelection?.instanceId);
   const modelLabel = engine && bot.modelSelection

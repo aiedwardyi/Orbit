@@ -7,7 +7,7 @@ import { isOnboardingCard, shouldHideOnboardingCard } from "@/components/OptionC
 import { activityVisibleInChat } from "@/lib/activity-runs";
 import { splitAttachedImages } from "@/lib/composer-attachments";
 import { t, type Translate } from "@/lib/i18n";
-import { visibleMessages, type Bot, type Group, type OptionCardData } from "@/state/store";
+import { previewMessages, type Bot, type Group, type OptionCardData } from "@/state/store";
 
 export type PreviewBot = Pick<Bot, "activity" | "busy" | "messages" | "activeLeafId">;
 
@@ -53,7 +53,7 @@ export function conversationPreview(
 ): string {
   if (bot.activity === "waiting-on-you") return translate("chrome.waitingForYou");
   if (bot.busy) return translate("chrome.working");
-  const visible = visibleMessages(bot);
+  const visible = previewMessages(bot);
   for (let i = visible.length - 1; i >= 0; i--) {
     const last = visible[i];
     if (last.kind === "options" && last.card) {

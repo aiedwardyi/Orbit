@@ -49,11 +49,14 @@ export function useThreadMessage(threadId: string, messageId: string | undefined
 
 type JumpWindow = { key: string; targetId: string; messages: Message[]; hasMore: boolean };
 
-/** The branch through `targetId` in a fetched window: its ancestors, then the newest child at each fork. */
-function windowBranch(messages: Message[], targetId: string): Message[] {
+/** The branch through `targetId` in a fetched window: its ancestors, then the
+ * child on `active` at each fork, else the newest. */
+function windowBranch(messages: Message[], targetId: string, active: Set<string>): Message[] {
   const byId = new Map(messages.map((message) => [message.id, message]));
   const children = new Map<string, Message>();
-  for (const message of messages) if (message.parentId) children.set(message.parentId, message);
+  for (const message of messages) {
+    if (message.parentId && !active.has(children.get(message.parentId)?.id ?? "")) children.set(message.parentId, message);
+  }
   const seen = new Set<string>();
   const path: Message[] = [];
   for (let cur = byId.get(targetId); cur && !seen.has(cur.id); cur = cur.parentId ? byId.get(cur.parentId) : undefined) {
@@ -73,17 +76,26 @@ export function useJumpWindow(
   dispatch: React.Dispatch<Action>,
   key: string,
   threadId: string,
-  head: string | undefined,
-  branched: boolean,
+  loaded: Message[],
+  leafId: string | null | undefined,
+  patches: Record<string, Message> | undefined,
 ) {
   const [held, setHeld] = useState<JumpWindow | null>(null);
   const inflight = useRef(false);
   const latest = useRef(0);
+  // leaving the view drops the window; coming back opens at the newest message
+  if (held && held.key !== key) setHeld(null);
   const current = held?.key === key ? held : null;
-  const messages = useMemo(
-    () => (current ? (branched ? windowBranch(current.messages, current.targetId) : current.messages) : null),
-    [current, branched],
-  );
+  const head = loaded[0]?.id;
+  const messages = useMemo(() => {
+    if (!current) return null;
+    const rows = patches ? current.messages.map((message) => patches[message.id] ?? message) : current.messages;
+    if (!leafId) return rows;
+    const byId = new Map([...rows, ...loaded].map((message) => [message.id, message]));
+    const active = new Set<string>();
+    for (let cur = byId.get(leafId); cur && !active.has(cur.id); cur = cur.parentId ? byId.get(cur.parentId) : undefined) active.add(cur.id);
+    return windowBranch(rows, current.targetId, active);
+  }, [current, patches, leafId, loaded]);
   const open = useCallback(
     (messageId: string) => {
       const generation = ++latest.current;

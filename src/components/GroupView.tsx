@@ -1129,7 +1129,7 @@ export function GroupView({ group }: { group: Group }) {
   // its thread) changes. Working dots below stay on the FULL list's tail.
   const transcriptKey = `${group.id}:${group.threadId}`;
   // an old jump shows its own window; the live pages below keep taking arrivals
-  const jump = useJumpWindow(dispatch, transcriptKey, group.threadId, group.messages[0]?.id, false);
+  const jump = useJumpWindow(dispatch, transcriptKey, group.threadId, group.messages, null, state.olderPatches[group.threadId]);
   const shown = jump.messages ?? group.messages;
   const renders = useCallback(
     (index: number) => messageVisible(group.messages[index], showToolCalls),

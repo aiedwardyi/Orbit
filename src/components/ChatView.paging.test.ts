@@ -316,6 +316,84 @@ describe("paged transcripts", () => {
     expect(host.textContent).not.toContain("row 2500;");
   });
 
+  it("shows patches and reactions on a jump window's rows", async () => {
+    const thread = rows(0, 5000);
+    pagedServer("thread-a", thread, { bots: [bot(thread.slice(-200), true)], groups: [] });
+    const host = await mount("chat");
+    await vi.waitFor(() => expect(host.textContent).toContain("row 4999;"));
+    await act(async () => store.dispatch({ type: "focusMessage", threadId: "thread-a", messageId: "m2500" }));
+    await vi.waitFor(() => expect(host.querySelector('[data-mid="m2500"]')).not.toBeNull());
+    await act(async () => store.dispatch({ type: "messagePatched", threadId: "thread-a", message: { ...row(2500), text: "patched;" } }));
+    expect(host.querySelector('[data-mid="m2500"]')!.textContent).toContain("patched;");
+    await act(async () => store.dispatch({ type: "toggleReaction", threadId: "thread-a", messageId: "m2499", emoji: "🎉", message: row(2499) }));
+    expect(host.querySelector('[data-mid="m2499"]')!.textContent).toContain("🎉");
+  });
+
+  it("drops a jump window when switching bots and reopens at the newest message", async () => {
+    const thread = (p: string) =>
+      Array.from({ length: 5000 }, (_, i): Message => ({ id: `${p}${i}`, at: 1, role: "user", kind: "text", text: `${p} row ${i};` }));
+    const threads: Record<string, Message[]> = { "thread-a": thread("a"), "thread-b": thread("b") };
+    const b = { ...bot(threads["thread-b"]!.slice(-200), true), id: "b", threadId: "thread-b", name: "B" } as Bot;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const path = String(url);
+      if (path === "/api/bots?messages=200") {
+        return Response.json({ bots: [bot(threads["thread-a"]!.slice(-200), true), b], groups: [], computerControl: {} });
+      }
+      const around = path.match(/^\/api\/threads\/([\w-]+)\/messages\?around=(\w+)&limit=200$/);
+      if (around) {
+        const all = threads[around[1]!]!;
+        const index = all.findIndex((message) => message.id === around[2]);
+        return Response.json({ messages: all.slice(index - 99, index + 101), hasMore: true });
+      }
+      return new Promise<Response>(() => {});
+    }));
+    const host = await mount("chat");
+    await act(async () => store.dispatch({ type: "select", id: "a" }));
+    await vi.waitFor(() => expect(host.textContent).toContain("a row 4999;"));
+    await act(async () => store.dispatch({ type: "focusMessage", threadId: "thread-a", messageId: "a2500" }));
+    await vi.waitFor(() => expect(host.querySelector('[data-mid="a2500"]')).not.toBeNull());
+    await act(async () => store.dispatch({ type: "select", id: "b" }));
+    await vi.waitFor(() => expect(host.textContent).toContain("b row 4999;"));
+    await arrive("thread-a", { id: "a5000", at: 1, role: "user", kind: "text", text: "a row 5000;" });
+    await act(async () => store.dispatch({ type: "select", id: "a" }));
+    expect(host.textContent).toContain("a row 5000;");
+    expect(host.querySelector('[data-mid="a2500"]')).toBeNull();
+  });
+
+  it("shows an edit made in a jump window on its new branch with the ancestors", async () => {
+    const link = (i: number): Message => ({ ...row(i), parentId: i ? `m${i - 1}` : null });
+    const thread = Array.from({ length: 1000 }, (_, i) => link(i));
+    pagedServer("thread-a", thread, { bots: [{ ...bot(thread.slice(-200), true), activeLeafId: "m999" }], groups: [] });
+    const host = await mount("chat");
+    await vi.waitFor(() => expect(host.textContent).toContain("row 999;"));
+    await act(async () => store.dispatch({ type: "focusMessage", threadId: "thread-a", messageId: "m500" }));
+    await vi.waitFor(() => expect(host.querySelector('[data-mid="m500"]')).not.toBeNull());
+    await act(async () => (host.querySelector('[data-mid="m500"] [aria-label="Edit message"]') as HTMLElement).click());
+    await act(async () => button(host, "Send")!.click());
+    await arrive("thread-a", { id: "e1", at: 2, role: "user", kind: "text", text: "edited;", parentId: "m499" });
+    await vi.waitFor(() => expect(host.querySelector('[data-mid="m499"]')).not.toBeNull());
+    expect(host.querySelector('[data-mid="e1"]')).not.toBeNull();
+    expect(host.querySelector('[data-mid="m500"]')).toBeNull();
+  });
+
+  it("follows the selected branch through a fork in a jump window", async () => {
+    const link = (id: string, parentId: string | null, text: string): Message => ({ id, at: 1, role: "user", kind: "text", text, parentId });
+    // a newer abandoned answer forks off m300; the selected branch runs on to the loaded tail
+    const thread = [
+      ...Array.from({ length: 305 }, (_, i) => link(`m${i}`, i ? `m${i - 1}` : null, `row ${i};`)),
+      link("b", "m300", "abandoned;"),
+      ...Array.from({ length: 294 }, (_, i) => link(`m${i + 305}`, `m${i + 304}`, `row ${i + 305};`)),
+    ];
+    pagedServer("thread-a", thread, { bots: [{ ...bot(thread.slice(-200), true), activeLeafId: "m598" }], groups: [] });
+    const host = await mount("chat");
+    await vi.waitFor(() => expect(host.textContent).toContain("row 598;"));
+    await act(async () => store.dispatch({ type: "focusMessage", threadId: "thread-a", messageId: "m299" }));
+    await vi.waitFor(() => expect(host.querySelector('[data-mid="m299"]')).not.toBeNull());
+    expect(store.state.bots[0]!.messages).toHaveLength(200);
+    expect(host.querySelector('[data-mid="m301"]')).not.toBeNull();
+    expect(host.querySelector('[data-mid="b"]')).toBeNull();
+  });
+
   it("jumps a room to an old message with one bounded request", async () => {
     const thread = rows(0, 5000);
     const calls = pagedServer("thread-g", thread, { bots: [], groups: [room(thread.slice(-200), true)] });

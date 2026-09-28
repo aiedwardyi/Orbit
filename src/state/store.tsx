@@ -398,6 +398,12 @@ export function visibleMessages(bot: Pick<Bot, "messages" | "activeLeafId" | "ha
   return path.reverse();
 }
 
+/** visibleMessages for previews: a paged leaf not loaded yet falls back to the newest loaded row. */
+export function previewMessages(bot: Pick<Bot, "messages" | "activeLeafId" | "hasMore">): Message[] {
+  const visible = visibleMessages(bot);
+  return visible.length ? visible : bot.messages.slice(-1);
+}
+
 function messageIsAncestor(messages: readonly Message[], childId: string, ancestorId: string): boolean {
   const byId = new Map(messages.map((message) => [message.id, message]));
   const seen = new Set<string>();
@@ -726,7 +732,7 @@ export type Action =
   | { type: "switchGroupTask"; groupId: string; threadId: string }
   | { type: "renameGroupTask"; groupId: string; threadId: string; title: string }
   | { type: "deleteGroupTask"; groupId: string; threadId: string }
-  | { type: "toggleReaction"; threadId: string; messageId: string; emoji: string }
+  | { type: "toggleReaction"; threadId: string; messageId: string; emoji: string; message?: Message }
   | { type: "interruptGroup"; groupId: string }
   | { type: "instances"; instances: InstanceInfo[]; preserveRateLimits?: boolean }
   | { type: "rateLimits"; instanceId: string; report: RateLimitReport }
@@ -1540,7 +1546,7 @@ export function reducer(state: AppState, action: Action): AppState {
         const next = at >= 0 ? reactions.filter((_, i) => i !== at) : [...reactions, { emoji: action.emoji, by: "user" }];
         return { ...m, reactions: next.length ? next : undefined };
       };
-      return {
+      const next = {
         ...state,
         bots: state.bots.map((b) =>
           b.threadId === action.threadId ? { ...b, messages: b.messages.map(toggle) } : b,
@@ -1549,6 +1555,10 @@ export function reducer(state: AppState, action: Action): AppState {
           g.threadId === action.threadId ? { ...g, messages: g.messages.map(toggle) } : g,
         ),
       };
+      // a row on an older page shows through a jump window
+      const conversation = state.bots.find((b) => b.threadId === action.threadId) ?? state.groups.find((g) => g.threadId === action.threadId);
+      const older = state.olderPatches[action.threadId]?.[action.messageId] ?? action.message;
+      return conversation && older ? holdOlderPatch(next, conversation, toggle(older)) : next;
     }
     // handled entirely by the async wrapper
     case "pendingQueued": {
@@ -1800,7 +1810,7 @@ function cachedTail(messages: Message[]): Message[] {
 
 function saveSnapshotCache(state: AppState): void {
   writeSnapshotCache({
-    bots: state.bots.map((b) => ({ ...b, messages: cachedTail(visibleMessages(b)) })),
+    bots: state.bots.map((b) => ({ ...b, messages: cachedTail(previewMessages(b)) })),
     groups: state.groups.map((g) => ({ ...g, messages: cachedTail(g.messages) })),
     selectedId: state.selectedId,
     // preserveRateLimits would keep a stale usage window past the live fetch.

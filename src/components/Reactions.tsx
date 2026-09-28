@@ -157,7 +157,7 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
   }, [pickerOpen, placed]);
 
   const toggle = (emoji: string) => {
-    dispatch({ type: "toggleReaction", threadId, messageId: message.id, emoji });
+    dispatch({ type: "toggleReaction", threadId, messageId: message.id, emoji, message });
     closeAndRefocus();
   };
 
@@ -236,7 +236,7 @@ export function ReactionChips({
         <button
           key={emoji}
           type="button"
-          onClick={() => dispatch({ type: "toggleReaction", threadId, messageId: message.id, emoji })}
+          onClick={() => dispatch({ type: "toggleReaction", threadId, messageId: message.id, emoji, message })}
           title={bys.map(nameOf).join(", ")}
           className={cn(
             "flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[12px] leading-none",

@@ -1063,7 +1063,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   // lastUserMessage, working dots) stays computed from the FULL list.
   const transcriptKey = `${bot.id}:${bot.threadId}`;
   // an old jump shows its own window; the live pages below keep taking arrivals
-  const jump = useJumpWindow(dispatch, transcriptKey, bot.threadId, bot.messages[0]?.id, Boolean(bot.activeLeafId));
+  const jump = useJumpWindow(dispatch, transcriptKey, bot.threadId, bot.messages, bot.activeLeafId, state.olderPatches[bot.threadId]);
   const shown = jump.messages ?? messages;
   const showToolCalls = showToolCallsEnabled(state.config);
   const renders = useCallback(
@@ -1117,18 +1117,43 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
     [messages],
   );
 
+  // Scroll pinning: follow the bottom while the user hasn't scrolled away.
+  // Follow breaks ONLY on an upward user gesture (wheel/touch), never on
+  // scroll position checks — streamed content growth flickers "at bottom"
+  // false for a frame, and breaking there kills follow permanently
+  // (upstream-verified failure). Scrolling back to the end re-arms it.
+  const [follow, setFollow] = useState(true);
+  const followRef = useRef(true);
+  const previousScrollTop = useRef(0);
+  const touchY = useRef(0);
+
+  const setBottomFollow = useCallback((next: boolean) => {
+    followRef.current = next;
+    setFollow(next);
+  }, []);
+
   // one message at a time may be in edit mode
   const [editingId, setEditingId] = useState<string | null>(null);
   useEffect(() => setEditingId(null), [bot.id]);
   // stable handler identities — MessagesList is memo'd on them
   const startEdit = useCallback((id: string) => setEditingId(id), []);
   const cancelEdit = useCallback(() => setEditingId(null), []);
+  // An edit in a jump window forks off an old parent: back to the tail, paging until the parent lands.
+  const [editJoin, setEditJoin] = useState<{ key: string; parentId: string } | null>(null);
+  const { close: closeJump } = jump;
   const submitEdit = useCallback(
     (messageId: string, text: string) => {
       setEditingId(null); // closes the editor first — a double Enter can't fork twice
+      const edited = jump.messages?.find((message) => message.id === messageId);
+      if (edited) {
+        closeJump();
+        setBottomFollow(true);
+        setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(messages.length, TRANSCRIPT_WINDOW_SIZE, renders), end: null });
+        if (edited.parentId) setEditJoin({ key: transcriptKey, parentId: edited.parentId });
+      }
       dispatch({ type: "editMessage", botId: bot.id, messageId, text });
     },
-    [bot.id, dispatch],
+    [bot.id, closeJump, dispatch, jump.messages, messages.length, renders, setBottomFollow, transcriptKey],
   );
   const lastUserMessage = useMemo(
     () => [...canonicalMessages].reverse().find((m) => m.role === "user" && m.kind === "text"),
@@ -1138,10 +1163,12 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   // older page. Page back until the leaf lands; the prompt gets a few pages.
   const leafPaging = Boolean(bot.hasMore) && canonicalMessages.length === 0;
   const promptPaging = Boolean(bot.hasMore) && Boolean(canonicalMessages[0]?.parentId) && !lastUserMessage;
+  const joinPaging = editJoin?.key === transcriptKey && Boolean(bot.hasMore) && !bot.messages.some((message) => message.id === editJoin.parentId);
+  if (editJoin && !joinPaging) setEditJoin(null);
   const promptPages = useRef({ key: transcriptKey, cursors: new Set<string>() });
   const cursor = bot.messages[0]?.id;
   useEffect(() => {
-    if (leafPaging) {
+    if (leafPaging || joinPaging) {
       loadOlder();
       return;
     }
@@ -1151,7 +1178,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
     if (!cursors.has(cursor) && cursors.size >= PROMPT_PAGES) return;
     cursors.add(cursor);
     loadOlder();
-  }, [leafPaging, promptPaging, loadOlder, cursor, transcriptKey]);
+  }, [leafPaging, joinPaging, promptPaging, loadOlder, cursor, transcriptKey]);
 
   // Stream buffers belong to the canonical tail, never an optimistic send.
   const lastMessage = canonicalMessages.at(-1);
@@ -1190,21 +1217,6 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
     }
   }, [lastUserMessage, bot.busy, bot.id, dispatch]);
 
-  // Scroll pinning: follow the bottom while the user hasn't scrolled away.
-  // Follow breaks ONLY on an upward user gesture (wheel/touch), never on
-  // scroll position checks — streamed content growth flickers "at bottom"
-  // false for a frame, and breaking there kills follow permanently
-  // (upstream-verified failure). Scrolling back to the end re-arms it.
-  const [follow, setFollow] = useState(true);
-  const followRef = useRef(true);
-  const previousScrollTop = useRef(0);
-  const touchY = useRef(0);
-
-  const setBottomFollow = useCallback((next: boolean) => {
-    followRef.current = next;
-    setFollow(next);
-  }, []);
-
   useEffect(() => setBottomFollow(true), [bot.id, setBottomFollow]);
 
   // A search result may be hundreds of rows before the mounted tail. Open a
@@ -1212,7 +1224,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   // the row after React commits that window.
   const appliedFocus = useRef<number | null>(null);
   const requestedFocus = useRef<number | null>(null);
-  const { open: openJump, close: closeJump } = jump;
+  const { open: openJump } = jump;
   useEffect(() => {
     const focus = state.focusMessage;
     if (!focus || focus.consumed || focus.threadId !== bot.threadId || appliedFocus.current === focus.nonce) return;
