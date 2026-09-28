@@ -2498,10 +2498,6 @@
     background: transparent;
     box-shadow: inset 0 0 0 1.5px var(--color-accent-text);
   }
-
-  [data-sidebar-model-dot] {
-    filter: saturate(0.3);
-  }
 }
 
 /* ── Coal ──────────────────────────────────────────────────────────────────
@@ -2619,10 +2615,6 @@
     border-radius: 1.5px;
     background: var(--color-accent);
   }
-
-  [data-sidebar-model-dot] {
-    filter: saturate(0.3);
-  }
 }
 
 /* ── Folio ─────────────────────────────────────────────────────────────────
@@ -2731,10 +2723,6 @@
   [data-choice-signal] {
     transform: rotate(45deg);
     background: var(--color-accent);
-  }
-
-  [data-sidebar-model-dot] {
-    filter: saturate(0.3);
   }
 }
 

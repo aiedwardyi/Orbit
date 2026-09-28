@@ -234,6 +234,11 @@ describe("skins", () => {
       expect(skin.tagline.length).toBeGreaterThan(0);
     }
   });
+
+  it("keeps provider model dots at full color in every skin", () => {
+    const dotRules = [...css.matchAll(/\[data-sidebar-model-dot\][^{]*\{([^}]*)\}/g)];
+    for (const [, body] of dotRules) expect(body).not.toMatch(/filter|opacity/);
+  });
 });
 
 describe("Ledger", () => {
