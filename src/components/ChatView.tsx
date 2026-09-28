@@ -47,7 +47,6 @@ import { transcriptIdleAfterOnboarding } from "@/lib/conversation-preview";
 import { turnPresenceWaiting, withAcceptedMessages } from "@/lib/send-accept";
 import { liveActivityLabel } from "@/lib/live-activity";
 import { buffersForTurn, turnPhase, turnStageLabel } from "@/lib/turn-stage";
-import { useStuckWarning } from "@/lib/stuck-warning";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
 import { ApprovalCard } from "./ApprovalCard";
@@ -1119,9 +1118,6 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
     lastMessage,
     accepted: state.acceptedSends[bot.threadId],
   });
-  // Resets the moment text, a tool step, or a status event arrives.
-  const stuckEventKey = `${lastMessage?.id}:${lastMessage?.at}:${lastMessage?.kind === "activity" ? lastMessage.tool?.ok : ""}:${streaming?.length ?? -1}:${reasoning?.length ?? -1}:${turnSignal ?? ""}`;
-  const stuckMinutes = useStuckWarning(waiting, stuckEventKey);
   const streamingMessage = useMemo<Message | null>(() => waiting && streaming ? {
     id: `stream:${bot.threadId}:${lastMessage?.id ?? ""}`,
     parentId: lastMessage?.id,
@@ -1511,13 +1507,6 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
             visible={waiting}
             label={activityLabel}
           />
-          {stuckMinutes !== null && (
-            <div className="flex justify-start">
-              <div className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary">
-                {t("chat.stuckWarning", { count: stuckMinutes })}
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
