@@ -48,6 +48,7 @@ import {
 import { composerIsBusy } from "@/lib/send-accept";
 import { composerEnterIntent, isComposerEnterKey } from "@/lib/composer-enter";
 import { fitComposerHeight } from "@/lib/composer-dock";
+import { hapticTick } from "@/lib/phone-swipe";
 import { useI18n } from "@/lib/i18n";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -472,6 +473,7 @@ export function Composer({
     }
     const t = composeMessage(liveText, attachments);
     if (!t) return;
+    hapticTick();
     const sentDraft: ComposerDraftSnapshot = {
       draftId,
       revision: draftRevision(draftId),

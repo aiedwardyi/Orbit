@@ -26,6 +26,7 @@ import { showComputerPanelChrome } from "@/lib/friends-chrome";
 import { I18nProvider, useI18n } from "@/lib/i18n";
 import { buildTerminalNotification, showNotification, type NotificationTarget } from "@/lib/notify";
 import { focusComposerOnActivation } from "@/lib/focus-composer";
+import { usePhoneSwipe } from "@/lib/use-phone-swipe";
 import { BackNavigation, backDepth, followSelection, trailTarget, type BackLayer } from "@/lib/back-navigation";
 import { SKINS, applySkin, nextSkin, readSkin, type SkinId } from "@/lib/skins";
 
@@ -100,6 +101,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const sidebarOnRight = useSidebarSide() === "right";
   const conversationRef = useRef<HTMLDivElement>(null);
+  const swipeStageRef = useRef<HTMLDivElement>(null);
   const group = state.groups.find((g) => g.id === state.selectedId);
   const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? fallbackStartupBot(state.bots, state.groups));
   const terminalOpen = Boolean(bot && terminalViews[bot.id] && state.activeView === "chat" && !browserWorkspaceBotId && !localVmWorkspaceBotId);
@@ -396,6 +398,8 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     state.pluginsOpen ||
     state.createBotOpen;
 
+  usePhoneSwipe(swipeStageRef, bot?.id, !terminalOpen && !nativeViewOverlayOpen, (id) => dispatch({ type: "select", id }));
+
   const closeTerminal = () => {
     if (bot) setTerminalViews((views) => ({ ...views, [bot.id]: false }));
     requestAnimationFrame(() => conversationRef.current?.querySelector<HTMLTextAreaElement>("[data-orbit-composer]")?.focus());
@@ -530,13 +534,11 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
           </span>
         )}
       </button>
-      {drawerOpen && (
-        <div
-          aria-hidden
-          onMouseDown={(e) => e.target === e.currentTarget && setDrawerOpen(false)}
-          className="absolute inset-0 z-30 bg-black/50 md:hidden"
-        />
-      )}
+      <div
+        aria-hidden
+        onMouseDown={(e) => e.target === e.currentTarget && setDrawerOpen(false)}
+        className={`absolute inset-0 z-30 bg-black/50 transition-opacity duration-[260ms] ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none md:hidden ${drawerOpen ? "opacity-100" : "pointer-events-none opacity-0"}`}
+      />
       <Sidebar
         open={drawerOpen}
         onOverlayChange={setSidebarOverlay}
@@ -580,7 +582,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
         <GroupView key={group.id} group={group} />
       ) : bot ? (
         <div ref={conversationRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-clip">
-          <div className="flex min-h-0 flex-1" inert={terminalOpen} aria-hidden={terminalOpen}>
+          <div ref={swipeStageRef} className="flex min-h-0 flex-1" inert={terminalOpen} aria-hidden={terminalOpen}>
             <ChatView
               bot={bot}
               focusComposerBlocked={paletteOpen || terminalOpen}

@@ -2057,7 +2057,7 @@ export function Sidebar({
         // desktop.
         "max-md:absolute max-md:inset-y-0 max-md:z-40",
         sidebarOnRight ? "max-md:right-0" : "max-md:left-0",
-        "max-md:will-change-transform max-md:transition-transform max-md:duration-300 max-md:ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
+        "max-md:will-change-transform max-md:transition-transform max-md:duration-[260ms] max-md:ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
         open
           ? "max-md:translate-x-0"
           : sidebarOnRight ? "max-md:translate-x-full" : "max-md:-translate-x-full",
