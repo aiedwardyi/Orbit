@@ -5,15 +5,16 @@ import { chmodSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ensureDirs } from "../../config.ts";
 import type { ProviderInstance } from "../../contracts.ts";
 import { toWslPath } from "../../env-path.ts";
+import * as procs from "../../procs.ts";
 import { removeTempDir } from "../../testing/cleanup.ts";
 import { recordEvents, type EventRecorder } from "../../testing/events.ts";
 import { MspMuseAgentDriver } from "./muse.ts";
-import { mspMcpServers, translateMspServerForWsl } from "./runtime.ts";
+import { createMspDriver, mspMcpServers, translateMspServerForWsl } from "./runtime.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "testing", "fake-msp-cli.ts");
 
@@ -648,5 +649,101 @@ describe("MSP turns (fake host)", () => {
       ok: false,
       stopReason: "auth_required",
     });
+  });
+});
+
+describe("MSP prewarm (fake host)", () => {
+  let instance: ProviderInstance;
+  let scratch: string;
+  let rpcDump: string;
+
+  const create = async (warmIdleMs?: number) => {
+    const Driver = createMspDriver({
+      driverKind: "museAgent",
+      displayName: "MSP Prewarm",
+      models: { default: "muse-spark-1.3", options: [] },
+      defaultCli: FAKE_CLI,
+      nativeSource: "muse.msp",
+      loginNote: "sign in",
+      isAuthenticated: () => true,
+      warmIdleMs,
+    });
+    instance = await Driver.create({
+      instanceId: "msp-prewarm",
+      displayName: "MSP Prewarm",
+      environment: {},
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: true, workspace: scratch },
+    });
+  };
+  const runTurn = async (threadId: string) => {
+    const recorder = recordEvents(instance.adapter);
+    try {
+      await instance.adapter.sendTurn({ threadId, text: "hi" });
+      return await recorder.until((e) => e.type === "turn.completed");
+    } finally {
+      recorder.stop();
+    }
+  };
+  const serveSpawns = (spawn: { mock: { calls: unknown[][] } }) =>
+    spawn.mock.calls.filter((call) => (call[1] as string[]).includes("serve")).length;
+
+  beforeEach(() => {
+    ensureDirs();
+    chmodSync(FAKE_CLI, 0o755);
+    scratch = mkdtempSync(join(tmpdir(), "omb-msp-prewarm-"));
+    rpcDump = join(scratch, "rpc.json");
+    process.env.FAKE_MSP_RPC_DUMP = rpcDump;
+  });
+
+  afterEach(async () => {
+    delete process.env.FAKE_MSP_RPC_DUMP;
+    await instance?.dispose();
+    vi.restoreAllMocks();
+    removeTempDir(scratch);
+  });
+
+  it("hands the prewarmed host to the next turn without a second initialize", async () => {
+    const spawn = vi.spyOn(procs, "spawnCli");
+    await create();
+    await instance.prepare!();
+    expect(serveSpawns(spawn)).toBe(1);
+    expect(JSON.parse(readFileSync(rpcDump, "utf8"))).toEqual(["initialize", "initialized"]);
+
+    expect(await runTurn("t-prewarm")).toMatchObject({ ok: true });
+    expect(serveSpawns(spawn)).toBe(1);
+    const methods = JSON.parse(readFileSync(rpcDump, "utf8")) as string[];
+    expect(methods.filter((m) => m === "initialize")).toHaveLength(1);
+    expect(methods).toContain("turn/start");
+  });
+
+  it("kills an unclaimed prewarmed host after the idle TTL and cold-spawns the next turn", async () => {
+    const spawn = vi.spyOn(procs, "spawnCli");
+    await create(300);
+    await instance.prepare!();
+    const child = spawn.mock.results[0].value as ReturnType<typeof procs.spawnCli>;
+    await expect.poll(() => child.exitCode !== null || child.signalCode !== null).toBe(true);
+
+    expect(await runTurn("t-expired")).toMatchObject({ ok: true });
+    expect(serveSpawns(spawn)).toBe(2);
+  });
+
+  it("keeps at most one idle prewarmed host", async () => {
+    const spawn = vi.spyOn(procs, "spawnCli");
+    await create();
+    await Promise.all([instance.prepare!(), instance.prepare!()]);
+    await instance.prepare!();
+    expect(serveSpawns(spawn)).toBe(1);
+  });
+
+  it("probes the CLI version once per instance, not per turn", async () => {
+    const exec = vi.spyOn(procs, "execCli");
+    await create();
+    expect(await runTurn("t-probe-1")).toMatchObject({ ok: true });
+    expect(await runTurn("t-probe-2")).toMatchObject({ ok: true });
+    const versionProbes = () => exec.mock.calls.filter((call) => (call[1] as string[]).includes("--version"));
+    expect(versionProbes()).toHaveLength(1);
+    await instance.prepare!();
+    expect(versionProbes()).toHaveLength(1);
   });
 });

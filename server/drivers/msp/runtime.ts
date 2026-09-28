@@ -30,7 +30,7 @@ import { isWslCommand, withWslProbeReason, wslBlockedReason, wslProbeAllowed } f
 import { startTurnTimer } from "../../turn-timing.ts";
 import { finishNative } from "../native.ts";
 import { museUsageReport } from "../rate-limits.ts";
-import { createMspChannel, uuidv7 } from "./protocol.ts";
+import { createMspChannel, uuidv7, type MspChannel } from "./protocol.ts";
 
 const INIT_TIMEOUT = 20_000;
 const SESSION_TIMEOUT = 30_000;
@@ -72,6 +72,8 @@ export interface MspSupport {
   /** win32 only: wrapper + resolver shared with the ACP muse driver. */
   wslProbeWrapper?: (cli: string) => string | null;
   wslResolveCli?: (cli: string, probeEnv: NodeJS.ProcessEnv) => Promise<string | null>;
+  /** Idle TTL for a prewarmed host (default 60s). Tests may shorten. */
+  warmIdleMs?: number;
 }
 
 const decodeConfig = (raw: unknown): MspMuseConfig => {
@@ -186,6 +188,25 @@ export function mspMcpServers(
   return Object.keys(servers).length ? servers : undefined;
 }
 
+const initializeHost = async (channel: MspChannel) => {
+  await channel.request(
+    "initialize",
+    {
+      protocolVersion: 1,
+      clientInfo: { name: "orbit", version: "1.0.8" },
+      // Schema key is `capabilities`; the ACP-shaped
+      // clientCapabilities rides along (tolerated live).
+      // sessionMcp is a GRANTED capability: without it here the host
+      // fails session/start with capabilityRequired the moment the
+      // params carry any MCP server.
+      capabilities: { userInputDialogs: false, requestedCapabilities: ["sessionMcp"] },
+      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
+    },
+    INIT_TIMEOUT,
+  );
+  channel.notify("initialized", {});
+};
+
 /** First approved-* choice for allow, first denied-* for deny, ends as fallback. */
 const pickChoice = (choices: ApprovalChoice[], want: "allow" | "deny"): ApprovalChoice | null => {
   if (!choices.length) return null;
@@ -257,6 +278,16 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
         }
         return false;
       };
+      // Turns and prepare share one successful resolution; snapshot()
+      // re-probes and refreshes it, a miss is never remembered.
+      let cliResolved: Promise<boolean> | null = null;
+      const ensureCli = (probeEnv: NodeJS.ProcessEnv) => {
+        cliResolved ??= resolveCli(probeEnv).then((ok) => {
+          if (!ok) cliResolved = null;
+          return ok;
+        });
+        return cliResolved;
+      };
       const childEnv = () => {
         const env: Record<string, string | undefined> = {
           ...process.env,
@@ -276,6 +307,78 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
       }
       const active = new Map<string, Turn>();
       const children = new Set<ReturnType<typeof spawnCli>>();
+
+      // At most one idle initialized host per instance, claimed by the next
+      // turn. MSP names the workspace per session, so the spawn cwd is free.
+      interface Warm {
+        child: ReturnType<typeof spawnCli>;
+        channel: MspChannel;
+        cli: string;
+        ready: Promise<boolean>;
+        timer?: ReturnType<typeof setTimeout>;
+        offExit?: () => void;
+      }
+      let warm: Warm | null = null;
+      let preparing: Promise<void> | null = null;
+      let disposed = false;
+      const warmIdleMs = support.warmIdleMs ?? 60_000;
+      const discardWarm = (entry: Warm | null = warm) => {
+        if (!entry) return;
+        if (warm === entry) warm = null;
+        clearTimeout(entry.timer);
+        entry.offExit?.();
+        entry.channel.detach();
+        try {
+          killCliTree(entry.child);
+        } catch {
+          // already gone
+        }
+        children.delete(entry.child);
+      };
+      const runPrepare = async () => {
+        if (disposed || warm) return;
+        const env = childEnv();
+        try {
+          if (support.requireAuthenticationBeforeSpawn && !(await support.isAuthenticated(env, config))) return;
+          if (!(await ensureCli(env))) return;
+        } catch {
+          return;
+        }
+        if (disposed || warm) return;
+        const cli = effectiveCli();
+        let child: ReturnType<typeof spawnCli>;
+        try {
+          child = spawnCli(cli, ["serve"], { cwd: config.workspace ?? homedir(), env, stdio: ["pipe", "pipe", "pipe"] });
+        } catch {
+          return;
+        }
+        children.add(child);
+        const channel = createMspChannel(child);
+        const entry: Warm = { child, channel, cli, ready: initializeHost(channel).then(() => true, () => false) };
+        entry.offExit = channel.onExit(() => discardWarm(entry));
+        entry.timer = setTimeout(() => discardWarm(entry), warmIdleMs);
+        entry.timer.unref?.();
+        warm = entry;
+        if (!(await entry.ready) && warm === entry) discardWarm(entry);
+      };
+      const takeWarm = async (): Promise<Warm | null> => {
+        const entry = warm;
+        if (!entry) return null;
+        warm = null;
+        clearTimeout(entry.timer);
+        entry.offExit?.();
+        if (
+          (await entry.ready)
+          && !disposed
+          && entry.cli === effectiveCli()
+          && entry.child.exitCode === null
+          && entry.child.signalCode === null
+        ) {
+          return entry;
+        }
+        discardWarm(entry);
+        return null;
+      };
 
       const emit = (event: RuntimeEvent) => {
         finishNative(event);
@@ -316,7 +419,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
     emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "auth_required" });
             return { turnId };
           }
-          if (!(await withWslProbeReason("turn", () => resolveCli(env)))) {
+          if (!(await withWslProbeReason("turn", () => ensureCli(env)))) {
             emit({ ...base(threadId, turnId), type: "turn.started" });
             emit({
               ...base(threadId, turnId),
@@ -334,10 +437,12 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
           throw err;
         }
 
-        const child = spawnCli(effectiveCli(), ["serve"], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+        const warmed = await takeWarm();
+        const child = warmed?.child ?? spawnCli(effectiveCli(), ["serve"], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
         children.add(child);
         turnTimer.mark("spawnOrReuse");
-        const channel = createMspChannel(child);
+        turnTimer.setMeta({ reusedHandshake: !!warmed });
+        const channel = warmed?.channel ?? createMspChannel(child);
         const state = {
           settled: false,
           mspTurnId: null as string | null,
@@ -798,22 +903,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
 
         void (async () => {
           try {
-            await channel.request(
-              "initialize",
-              {
-                protocolVersion: 1,
-                clientInfo: { name: "orbit", version: "1.0.8" },
-                // Schema key is `capabilities`; the ACP-shaped
-                // clientCapabilities rides along (tolerated live).
-                // sessionMcp is a GRANTED capability: without it here the host
-                // fails session/start with capabilityRequired the moment the
-                // params carry any MCP server.
-                capabilities: { userInputDialogs: false, requestedCapabilities: ["sessionMcp"] },
-                clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
-              },
-              INIT_TIMEOUT,
-            );
-            channel.notify("initialized", {});
+            if (!warmed) await initializeHost(channel);
             const model = turn.model;
             let sessionId: string | null = null;
             let sessionModel: string | null = null;
@@ -958,7 +1048,9 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
           withWslProbeReason(opts?.rescan ? "rescan" : "passive", async (): Promise<ProviderSnapshot> => {
             const env = childEnv();
             const gated = support.wslProbeWrapper !== undefined && !wslProbeAllowed();
-            if (!(await resolveCli(env))) {
+            const resolved = await resolveCli(env);
+            cliResolved = resolved ? Promise.resolve(true) : null;
+            if (!resolved) {
               if (gated) return lastSnapshot ?? { state: "unavailable", reason: wslBlockedReason(support.displayName) };
               return { state: "unavailable", reason: `\`${effectiveCli()}\` CLI not found` };
             }
@@ -970,7 +1062,16 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
             if (!gated) lastSnapshot = ready;
             return ready;
           }),
+        prepare: async () => {
+          if (!input.enabled || disposed) return;
+          preparing ??= runPrepare().finally(() => {
+            preparing = null;
+          });
+          await preparing;
+        },
         dispose: async () => {
+          disposed = true;
+          discardWarm();
           for (const child of [...children]) {
             try {
               killCliTree(child);
