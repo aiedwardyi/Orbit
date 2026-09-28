@@ -7,6 +7,7 @@ export const SWIPE_VELOCITY = 0.4;
 export const SWIPE_MOTION_MS = 260;
 // critically damped spring: fast start, no overshoot
 export const SWIPE_SPRING = "cubic-bezier(0.22, 1, 0.36, 1)";
+export const VIBRATION_KEY = "omb-vibration";
 
 export type SwipeAxis = "x" | "y" | null;
 export type SwipeStep = -1 | 0 | 1;
@@ -63,8 +64,26 @@ export function swipeBlocked(target: EventTarget | null, startX: number, win: ty
   return false;
 }
 
-export function hapticTick(win: typeof window = window): void {
-  if (!isPhone(win) || reducedMotion(win)) return;
+export function vibrationEnabled(storage?: Pick<Storage, "getItem"> | null): boolean {
+  try {
+    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
+    return target?.getItem(VIBRATION_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+export function saveVibration(on: boolean, storage?: Pick<Storage, "setItem"> | null): void {
+  try {
+    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
+    target?.setItem(VIBRATION_KEY, on ? "on" : "off");
+  } catch {
+    // Private browsing may reject localStorage; the toggle still works this session.
+  }
+}
+
+export function hapticTick(win: typeof window = window, storage?: Pick<Storage, "getItem"> | null): void {
+  if (!isPhone(win) || reducedMotion(win) || !vibrationEnabled(storage)) return;
   try {
     win.navigator.vibrate?.(10);
   } catch {

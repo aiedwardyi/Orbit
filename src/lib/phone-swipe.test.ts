@@ -12,9 +12,11 @@ import {
   hapticTick,
   lockAxis,
   neighborId,
+  saveVibration,
   sidebarBotIds,
   swipeBlocked,
   swipeStep,
+  vibrationEnabled,
 } from "./phone-swipe";
 import { usePhoneSwipe } from "./use-phone-swipe";
 
@@ -25,6 +27,11 @@ function fakeWindow({ width = 400, reduced = false, vibrate = vi.fn() as ((ms: n
     matches: query.includes("reduced-motion") ? reduced : width < 768,
   });
   return { win: { matchMedia, navigator: { vibrate } } as unknown as typeof window, vibrate };
+}
+
+function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
+  const values = new Map<string, string>();
+  return { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => void values.set(key, value) };
 }
 
 function setWidth(width: number) {
@@ -178,10 +185,46 @@ describe("hapticTick", () => {
     expect(() => hapticTick(win)).not.toThrow();
   });
 
+  it("stays still when the Vibration setting is off", () => {
+    const store = memoryStorage();
+    saveVibration(false, store);
+    const { win, vibrate } = fakeWindow();
+    hapticTick(win, store);
+    expect(vibrate).not.toHaveBeenCalled();
+    saveVibration(true, store);
+    hapticTick(win, store);
+    expect(vibrate).toHaveBeenCalledWith(10);
+  });
+
   it("fires on send in the composer", () => {
     const composer = readFileSync(join(here, "../components/Composer.tsx"), "utf8");
     const send = composer.slice(composer.indexOf("  const send = () => {"), composer.indexOf("  const previewTerminalSend"));
     expect(send).toContain("hapticTick();");
+  });
+});
+
+describe("vibration setting", () => {
+  it("defaults on and persists per device", () => {
+    const store = memoryStorage();
+    expect(vibrationEnabled(store)).toBe(true);
+    saveVibration(false, store);
+    expect(vibrationEnabled(store)).toBe(false);
+    saveVibration(true, store);
+    expect(vibrationEnabled(store)).toBe(true);
+  });
+
+  it("stays on when storage throws", () => {
+    const broken = { getItem: () => { throw new Error("denied"); } };
+    expect(vibrationEnabled(broken)).toBe(true);
+  });
+
+  it("is a switch in Settings > General", () => {
+    const modal = readFileSync(join(here, "../components/SettingsModal.tsx"), "utf8");
+    const general = modal.slice(modal.indexOf('section === "general"'), modal.indexOf('section === "connections"'));
+    expect(general).toContain("<VibrationRow />");
+    const row = modal.slice(modal.indexOf("function VibrationRow()"), modal.indexOf("function ExperimentalFeaturesRow()"));
+    expect(row).toContain('role="switch"');
+    expect(row).toContain("saveVibration(!on)");
   });
 });
 
