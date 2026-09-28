@@ -708,7 +708,8 @@ describe("MSP prewarm (fake host)", () => {
     await create();
     await instance.prepare!();
     expect(serveSpawns(spawn)).toBe(1);
-    expect(JSON.parse(readFileSync(rpcDump, "utf8"))).toEqual(["initialize", "initialized"]);
+    // `initialized` is a notification, so the fake host logs it after prepare() resolves.
+    await vi.waitFor(() => expect(JSON.parse(readFileSync(rpcDump, "utf8"))).toEqual(["initialize", "initialized"]));
 
     expect(await runTurn("t-prewarm")).toMatchObject({ ok: true });
     expect(serveSpawns(spawn)).toBe(1);
