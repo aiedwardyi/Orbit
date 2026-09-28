@@ -61,6 +61,19 @@ describe("focusComposer", () => {
     expect(roomComposer.selectionEnd).toBe(6);
     expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
   });
+
+  it("undoes horizontal drift left behind by scrollIntoView", () => {
+    // On a phone, scrollIntoView can walk into a mobile drawer that is still
+    // mid-close-transition and drag the whole page sideways as a side effect.
+    // Simulate that browser behavior and assert focusComposer corrects it.
+    textarea.scrollIntoView = () => {
+      document.documentElement.scrollLeft = 140;
+    };
+
+    focusComposer(document);
+
+    expect(document.documentElement.scrollLeft).toBe(0);
+  });
 });
 
 describe("focusComposerOnActivation guards", () => {
