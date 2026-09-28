@@ -440,7 +440,7 @@ describe("wiring", () => {
     expect(composerView).toContain("onSend?: () => void;");
     expect(composerView).toContain("onSend?.();");
     for (const src of [chatView, groupView]) {
-      expect(src).toMatch(/const jumpToLatest = \(\) => \{\s*setBottomFollow\(true\)/);
+      expect(src).toMatch(/const jumpToLatest = \(\) => \{\s*(?:closeJump\(\);\s*)?setBottomFollow\(true\)/);
     }
   });
 
