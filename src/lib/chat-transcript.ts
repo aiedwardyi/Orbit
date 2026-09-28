@@ -22,7 +22,7 @@ export interface ChatTranscriptRow {
 }
 
 /** Mirrors the row ChatView's Transcript renders for one message. */
-function messageVisible(message: Message, options: ChatTranscriptOptions): boolean {
+export function messageVisible(message: Message, options: ChatTranscriptOptions): boolean {
   if (message.id === options.emergingId) return false;
   switch (message.kind) {
     case "compaction":

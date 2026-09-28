@@ -22,9 +22,19 @@ export interface TranscriptWindowRange {
   end: number;
 }
 
-/** Boundary for a fresh window: the last `size` messages. */
-export function tailWindowStart(total: number, size: number = TRANSCRIPT_WINDOW_SIZE): number {
-  return Math.max(0, total - size);
+/** Boundary for a fresh window: the last `size` messages, or the last `size`
+ * that `renders`, so a tail of hidden tool rows cannot mount blank. */
+export function tailWindowStart(
+  total: number,
+  size: number = TRANSCRIPT_WINDOW_SIZE,
+  renders?: (index: number) => boolean,
+): number {
+  if (!renders) return Math.max(0, total - size);
+  let counted = 0;
+  for (let i = total - 1; i >= 0; i--) {
+    if (renders(i) && ++counted >= size) return i;
+  }
+  return 0;
 }
 
 /** One "Show earlier" click: pull the boundary back by another `size`. */
@@ -34,8 +44,13 @@ export function expandWindowStart(startIndex: number, size: number = TRANSCRIPT_
 
 /** A followed tail slides once it outgrows two windows, so a long live session
  * stops mounting every new row. Only safe while the reader is at the bottom. */
-export function followedTailStart(startIndex: number, total: number, size: number = TRANSCRIPT_WINDOW_SIZE): number {
-  return total - startIndex > size * 2 ? tailWindowStart(total, size) : startIndex;
+export function followedTailStart(
+  startIndex: number,
+  total: number,
+  size: number = TRANSCRIPT_WINDOW_SIZE,
+  renders?: (index: number) => boolean,
+): number {
+  return total - startIndex > size * 2 ? tailWindowStart(total, size, renders) : startIndex;
 }
 
 /** A bounded window containing a search target. Keeping this finite avoids

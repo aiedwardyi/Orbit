@@ -232,3 +232,89 @@ describe("ChatView bot switch while busy", () => {
     }
   });
 });
+
+describe("ChatView transcript window", () => {
+  const mount = async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const render = async (bot: Bot) => {
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot }))));
+    };
+    const unmount = async () => {
+      await act(async () => root.unmount());
+      host.remove();
+    };
+    return { host, render, unmount };
+  };
+  const tool = (i: number): Message => ({ id: `tool-${i}`, at: 1, role: "bot", kind: "activity", tool: { name: "Read", ok: true } });
+  const button = (host: HTMLElement, label: string) =>
+    Array.from(host.querySelectorAll("button")).find((b) => b.textContent?.includes(label));
+
+  it("reaches past a tail of hidden tool rows to the last text", async () => {
+    const { host, render, unmount } = await mount();
+    const messages = [
+      userMsg("ask", "research this"),
+      { id: "early", at: 1, role: "bot", kind: "text", text: "early finding" } as Message,
+      ...Array.from({ length: 250 }, (_, i) => tool(i)),
+    ];
+    try {
+      await render({ ...botA, messages });
+      expect(host.textContent).toContain("early finding");
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("keeps an expanded window after scrolling back to the bottom during a live turn", async () => {
+    const { host, render, unmount } = await mount();
+    const messages = Array.from({ length: 370 }, (_, i) => userMsg(`m${i}`, `row ${i};`));
+    try {
+      await render({ ...botA, messages });
+      expect(host.textContent).not.toContain("row 249;");
+      await act(async () => button(host, "Show earlier messages")!.click());
+      expect(host.textContent).toContain("row 130;");
+
+      const scroller = host.querySelector("[data-orbit-transcript]") as HTMLElement;
+      Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => VIEWPORT_PX });
+      Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => TRANSCRIPT_PX });
+      scroller.scrollTop = TRANSCRIPT_PX - VIEWPORT_PX;
+      await act(async () => scroller.dispatchEvent(new Event("scroll")));
+      expect(button(host, "Jump to latest")).toBeUndefined();
+
+      await render({ ...botA, messages: [...messages, tool(0)] });
+      expect(host.textContent).toContain("row 130;");
+
+      await render({ ...botA, messages: [...messages, tool(0), tool(1)] });
+      await act(async () => {
+        await sleep(300);
+      });
+      expect(host.textContent).toContain("row 130;");
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("re-tails an expanded window on Jump to latest", async () => {
+    const { host, render, unmount } = await mount();
+    const messages = Array.from({ length: 370 }, (_, i) => userMsg(`m${i}`, `row ${i};`));
+    try {
+      await render({ ...botA, messages });
+      await act(async () => button(host, "Show earlier messages")!.click());
+      expect(host.textContent).toContain("row 130;");
+      await act(async () => button(host, "Jump to latest")!.click());
+      expect(host.textContent).not.toContain("row 130;");
+      expect(host.textContent).toContain("row 250;");
+    } finally {
+      await unmount();
+    }
+  });
+});

@@ -68,7 +68,7 @@ import { cn } from "@/lib/cn";
 import { usageLimitReset } from "@/lib/usage";
 import { useFocusMessage } from "@/lib/focus-message";
 import { activityVisibleInChat, groupActivityRuns } from "@/lib/activity-runs";
-import { chatTranscriptRows } from "@/lib/chat-transcript";
+import { chatTranscriptRows, messageVisible } from "@/lib/chat-transcript";
 import { detectChatOptions, laterUserAnswer } from "@/lib/chat-options";
 import { focusComposerOnActivation } from "@/lib/focus-composer";
 import { ChatOptionChips } from "./ChatOptionChips";
@@ -1052,17 +1052,24 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   // never flashes into the new one. Everything derived below (lastBotTextId,
   // lastUserMessage, working dots) stays computed from the FULL list.
   const transcriptKey = `${bot.id}:${bot.threadId}`;
+  const showToolCalls = showToolCallsEnabled(state.config);
+  const renders = useCallback(
+    (index: number) => messageVisible(messages[index], { showToolCalls, transcript: messages }),
+    [messages, showToolCalls],
+  );
+  // `expanded`: the reader asked for scrollback, so the followed tail never slides it away.
   const [transcriptWindow, setTranscriptWindow] = useState<{
     key: string;
     start: number;
     end: number | null;
+    expanded?: boolean;
   }>(() => ({
     key: transcriptKey,
-    start: tailWindowStart(messages.length),
+    start: tailWindowStart(messages.length, TRANSCRIPT_WINDOW_SIZE, renders),
     end: null,
   }));
   if (transcriptWindow.key !== transcriptKey) {
-    setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(messages.length), end: null });
+    setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(messages.length, TRANSCRIPT_WINDOW_SIZE, renders), end: null });
   }
   const {
     visible: windowedMessages,
@@ -1107,7 +1114,6 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   // content while messages, buffers and busy stay put, so the pin watches it.
   const turnSignal = stream.signal[bot.threadId];
   const toolInFlight = lastMessage?.kind === "activity" && lastMessage.tool?.ok === undefined;
-  const showToolCalls = showToolCallsEnabled(state.config);
   const activityLabel = turnStageLabel(
     turnPhase({ signal: stream.signal[bot.threadId], lastMessage, streaming, reasoning }),
     liveActivityLabel(lastMessage, showToolCalls),
@@ -1169,10 +1175,10 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   }, [bot.threadId, messages, setBottomFollow, state.focusMessage, transcriptKey]);
   useFocusMessage(bot.threadId, messages.length > 0);
   useEffect(() => {
-    if (!follow || transcriptWindow.end !== null) return;
-    const start = followedTailStart(transcriptWindow.start, messages.length);
+    if (!follow || transcriptWindow.end !== null || transcriptWindow.expanded) return;
+    const start = followedTailStart(transcriptWindow.start, messages.length, TRANSCRIPT_WINDOW_SIZE, renders);
     if (start !== transcriptWindow.start) setTranscriptWindow((w) => ({ ...w, start }));
-  }, [follow, messages.length, transcriptWindow.start, transcriptWindow.end]);
+  }, [follow, messages.length, renders, transcriptWindow.start, transcriptWindow.end, transcriptWindow.expanded]);
 
   // deps track the FULL messages.length, so expanding the window (which only
   // changes windowedMessages) can never re-trigger this bottom scrollTo.
@@ -1212,7 +1218,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
     // event pin the viewport back to the bottom
     setBottomFollow(false);
     const start = expandWindowStart(startIndex);
-    setTranscriptWindow((w) => ({ ...w, start }));
+    setTranscriptWindow((w) => ({ ...w, start, expanded: true }));
   };
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -1248,7 +1254,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   };
   const jumpToLatest = () => {
     setBottomFollow(true);
-    setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(messages.length), end: null });
+    setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(messages.length, TRANSCRIPT_WINDOW_SIZE, renders), end: null });
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
     });

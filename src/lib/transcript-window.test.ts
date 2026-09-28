@@ -27,6 +27,14 @@ describe("tailWindowStart", () => {
   it("is zero for an empty thread", () => {
     expect(tailWindowStart(0)).toBe(0);
   });
+
+  it("counts only rows that render", () => {
+    expect(tailWindowStart(300, 4, (i) => i % 3 === 0)).toBe(288);
+  });
+
+  it("reaches back past a tail of hidden rows to the last text", () => {
+    expect(tailWindowStart(370, TRANSCRIPT_WINDOW_SIZE, (i) => i < 50)).toBe(0);
+  });
 });
 
 describe("expandWindowStart", () => {
@@ -144,6 +152,11 @@ describe("followedTailStart", () => {
   it("slides to a fresh tail once appends outgrow two windows", () => {
     const total = 180 + TRANSCRIPT_WINDOW_SIZE * 2 + 1;
     expect(followedTailStart(180, total)).toBe(tailWindowStart(total));
+  });
+
+  it("slides to the counted tail when given a render filter", () => {
+    const total = 180 + TRANSCRIPT_WINDOW_SIZE * 2 + 1;
+    expect(followedTailStart(180, total, TRANSCRIPT_WINDOW_SIZE, (i) => i % 2 === 0)).toBe(182);
   });
 
   it("leaves a stale boundary past the end for resolve to handle", () => {

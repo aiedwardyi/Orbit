@@ -21,7 +21,7 @@ export interface RoomTranscriptRow {
  * and a bot⇄bot chip stay whatever the setting says: one is the reason to
  * look, the other is a link to another conversation, not tool work. Failed
  * named-tool pills stay too — quiet default-off hides success, not failure. */
-function messageVisible(message: Message, showToolCalls: boolean): boolean {
+export function messageVisible(message: Message, showToolCalls: boolean): boolean {
   switch (message.kind) {
     case "text":
       return Boolean(message.text);

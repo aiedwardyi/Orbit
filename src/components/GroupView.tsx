@@ -44,7 +44,7 @@ import { ReactionBar, ReactionChips } from "./Reactions";
 import { ApprovalCard } from "./ApprovalCard";
 import { ManageMembersPanel } from "./ManageMembersPanel";
 import { groupActivityRuns } from "@/lib/activity-runs";
-import { roomTranscriptRows } from "@/lib/room-transcript";
+import { messageVisible, roomTranscriptRows } from "@/lib/room-transcript";
 import { roomRetry } from "@/lib/room-retry";
 import { nextBulletin } from "@/lib/room-bulletin";
 import { ActivityRun } from "./ActivityRun";
@@ -1116,17 +1116,22 @@ export function GroupView({ group }: { group: Group }) {
   // the anchored boundary re-tails on a render-phase reset when the room (or
   // its thread) changes. Working dots below stay on the FULL list's tail.
   const transcriptKey = `${group.id}:${group.threadId}`;
+  const renders = useCallback(
+    (index: number) => messageVisible(group.messages[index], showToolCalls),
+    [group.messages, showToolCalls],
+  );
   const [transcriptWindow, setTranscriptWindow] = useState<{
     key: string;
     start: number;
     end: number | null;
+    expanded?: boolean;
   }>(() => ({
     key: transcriptKey,
-    start: tailWindowStart(group.messages.length),
+    start: tailWindowStart(group.messages.length, TRANSCRIPT_WINDOW_SIZE, renders),
     end: null,
   }));
   if (transcriptWindow.key !== transcriptKey) {
-    setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(group.messages.length), end: null });
+    setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(group.messages.length, TRANSCRIPT_WINDOW_SIZE, renders), end: null });
   }
   const {
     visible: windowedMessages,
@@ -1159,10 +1164,10 @@ export function GroupView({ group }: { group: Group }) {
   }, [group.messages, group.threadId, setBottomFollow, state.focusMessage, transcriptKey]);
   useFocusMessage(group.threadId, group.messages.length > 0);
   useEffect(() => {
-    if (!follow || transcriptWindow.end !== null) return;
-    const start = followedTailStart(transcriptWindow.start, group.messages.length);
+    if (!follow || transcriptWindow.end !== null || transcriptWindow.expanded) return;
+    const start = followedTailStart(transcriptWindow.start, group.messages.length, TRANSCRIPT_WINDOW_SIZE, renders);
     if (start !== transcriptWindow.start) setTranscriptWindow((w) => ({ ...w, start }));
-  }, [follow, group.messages.length, transcriptWindow.start, transcriptWindow.end]);
+  }, [follow, group.messages.length, renders, transcriptWindow.start, transcriptWindow.end, transcriptWindow.expanded]);
 
   // an open draft outranks an incoming bulletin patch — resyncing under the cursor loses the edit
   useEffect(() => {
@@ -1205,7 +1210,7 @@ export function GroupView({ group }: { group: Group }) {
     // event pin the viewport back to the bottom
     setBottomFollow(false);
     const start = expandWindowStart(startIndex);
-    setTranscriptWindow((w) => ({ ...w, start }));
+    setTranscriptWindow((w) => ({ ...w, start, expanded: true }));
   };
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -1231,7 +1236,7 @@ export function GroupView({ group }: { group: Group }) {
   // Own send re-anchors even from scrollback; incoming content never yanks.
   const jumpToLatest = () => {
     setBottomFollow(true);
-    setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(group.messages.length), end: null });
+    setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(group.messages.length, TRANSCRIPT_WINDOW_SIZE, renders), end: null });
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
     });
