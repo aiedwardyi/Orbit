@@ -86,4 +86,33 @@ describe("useStuckWarning", () => {
     act(() => vi.advanceTimersByTime(4 * 60_000 + 59_000));
     expect(latest).toBeNull();
   });
+
+  it("never re-renders while quiet, and renders about once a minute once due, not once a second", () => {
+    let renders = 0;
+    function CountingHarness({ running, eventKey }: { running: boolean; eventKey: string }) {
+      renders += 1;
+      latest = useStuckWarning(running, eventKey);
+      return null;
+    }
+    act(() => {
+      root.render(createElement(CountingHarness, { running: true, eventKey: "turn-1" }));
+    });
+    const mountRenders = renders;
+
+    act(() => vi.advanceTimersByTime(4 * 60_000 + 59_000));
+    expect(renders).toBe(mountRenders); // no per-second re-render while quiet
+    expect(latest).toBeNull();
+
+    act(() => vi.advanceTimersByTime(1000));
+    expect(renders).toBe(mountRenders + 1); // exactly one render when the warning becomes due
+    expect(latest).toBe(5);
+
+    // Five more one-minute boundaries, each advanced separately - a per-second
+    // tick would have rendered up to 300 times over this stretch instead of 5.
+    for (let minute = 6; minute <= 10; minute++) {
+      act(() => vi.advanceTimersByTime(60_000));
+    }
+    expect(renders).toBe(mountRenders + 6);
+    expect(latest).toBe(10);
+  });
 });

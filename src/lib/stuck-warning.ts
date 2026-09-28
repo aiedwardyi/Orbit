@@ -28,9 +28,21 @@ export function useStuckWarning(running: boolean, eventKey: string): number | nu
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!running) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [running]);
+    // One timeout for the moment the warning becomes due, then one per minute
+    // after that (re-aligned each time so drift can't skip or repeat a minute)
+    // - never a per-second tick re-rendering the whole turn while it's quiet.
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = (delay: number) => {
+      timer = setTimeout(() => {
+        setNow(Date.now());
+        const elapsed = Date.now() - lastEventAt;
+        const sinceDue = elapsed - STUCK_WARNING_MS;
+        schedule(sinceDue < 0 ? -sinceDue : 60_000 - (sinceDue % 60_000));
+      }, delay);
+    };
+    schedule(Math.max(0, STUCK_WARNING_MS - (Date.now() - lastEventAt)));
+    return () => clearTimeout(timer);
+  }, [running, lastEventAt]);
 
   return running ? stuckWarningMinutes(now - lastEventAt) : null;
 }
