@@ -439,9 +439,9 @@ describe("ModelPicker friends chip", () => {
     expect(html).not.toMatch(/data-model-effort[^>]*@max-4xl\/chathead:hidden/);
   });
 
-  it("hides the header effort label on phones only", () => {
+  it("keeps the effort label visible on phones", () => {
     const html = markup({ instanceId: "grok", model: "grok-4.6", mode: "automatic", effort: "high" });
-    expect(html).toMatch(/data-model-effort[^>]*max-md:hidden/);
+    expect(html).not.toMatch(/data-model-effort[^>]*max-md:hidden/);
     expect(html).toContain(`background-color:${modelFamilyAccent("grokAgent")}`);
   });
 
