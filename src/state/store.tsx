@@ -31,6 +31,7 @@ import { readSnapshotCache, writeSnapshotCache } from "./snapshot-cache";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
 import { completedReopenDismissals } from "@/lib/task-recovery";
 import { openLiveEvents } from "@/lib/live-events";
+import { hapticTick } from "@/lib/phone-swipe";
 import {
   acceptedSendPaint,
   applyOptimisticBusy,
@@ -855,6 +856,18 @@ export function visibleNotificationThread(
 /** A reply pulled from another PC is history, not a fresh answer. */
 export function autoSpeaks(frame: { imported?: boolean; message?: { text?: string } }): boolean {
   return !frame.imported && Boolean(frame.message?.text?.trim());
+}
+
+/** Buzz once for a settled bot reply in the chat on screen, never for imported history. */
+export function buzzOnReply(
+  frame: { threadId: string; imported?: boolean; message?: { role?: string; kind?: string } },
+  state: NotificationRoutingState & Pick<AppState, "activeView" | "selectedId">,
+  pageVisible: boolean,
+  buzz: () => void = hapticTick,
+): void {
+  if (!pageVisible || frame.imported) return;
+  if (frame.message?.role !== "bot" || frame.message.kind !== "text") return;
+  if (visibleNotificationThread(state) === frame.threadId) buzz();
 }
 
 /** A conversation on an unfocused or hidden window is not being read, even
@@ -2849,6 +2862,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }
           if (frame.message?.role === "bot" && frame.message?.kind === "text") {
             clearStream(frame.threadId);
+            buzzOnReply(frame, stateRef.current, document.visibilityState === "visible");
             // Auto-speak lives HERE rather than in the chat view so a bot
             // you switched away from still reads its answer out — which is
             // the whole point of listening while you do something else. A

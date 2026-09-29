@@ -80,9 +80,9 @@ export const en = {
   "settings.sidebarSide.left": "Left",
   "settings.sidebarSide.right": "Right",
   "settings.vibration.title": "Vibration",
-  "settings.vibration.toggle": "Vibrate on send and bot switch",
+  "settings.vibration.toggle": "Vibrate on send, replies and bot switch",
   "settings.vibration.help": "A short buzz on phones. Off keeps this device silent.",
-  "settings.vibration.aria": "Vibrate on send and bot switch",
+  "settings.vibration.aria": "Vibrate on send, replies and bot switch",
 
   "settings.title": "Settings",
   "settings.search": "Search",
@@ -1118,9 +1118,9 @@ export const ko = {
   "settings.sidebarSide.left": "왼쪽",
   "settings.sidebarSide.right": "오른쪽",
   "settings.vibration.title": "진동",
-  "settings.vibration.toggle": "보내기와 봇 전환 시 진동",
+  "settings.vibration.toggle": "보내기, 답장, 봇 전환 시 진동",
   "settings.vibration.help": "휴대폰에서 짧게 진동합니다. 끄면 이 기기에서는 진동하지 않습니다.",
-  "settings.vibration.aria": "보내기와 봇 전환 시 진동",
+  "settings.vibration.aria": "보내기, 답장, 봇 전환 시 진동",
 
   "settings.title": "설정",
   "settings.search": "검색",

@@ -4,6 +4,7 @@ import { isTaskRecoveryVisible } from "@/lib/task-recovery";
 import { turnPresenceWaiting, visibleSteerEntries } from "@/lib/send-accept";
 import {
   autoSpeaks,
+  buzzOnReply,
   configStatusFromFrame,
   formatDateTime,
   formatTime,
@@ -1689,6 +1690,28 @@ describe("auto-speak", () => {
     expect(autoSpeaks({ message: { text: "hello" } })).toBe(true);
     expect(autoSpeaks({ imported: true, message: { text: "hello" } })).toBe(false);
     expect(autoSpeaks({ message: { text: "  " } })).toBe(false);
+  });
+});
+
+describe("reply buzz", () => {
+  const screen = { activeView: "chat" as const, selectedId: "bot-1", bots: [{ id: "bot-1", threadId: "t1" }], groups: [] };
+  const reply = { threadId: "t1", message: { role: "bot", kind: "text" } };
+
+  it("buzzes once for a finished reply in the open chat", () => {
+    const buzz = vi.fn();
+    buzzOnReply(reply, screen, true, buzz);
+    expect(buzz).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays silent for hidden pages, other chats, own messages, streams and imports", () => {
+    const buzz = vi.fn();
+    buzzOnReply(reply, screen, false, buzz);
+    buzzOnReply({ ...reply, threadId: "t2" }, screen, true, buzz);
+    buzzOnReply({ ...reply, message: { role: "user", kind: "text" } }, screen, true, buzz);
+    buzzOnReply({ ...reply, message: { role: "bot", kind: "reasoning" } }, screen, true, buzz);
+    buzzOnReply({ ...reply, imported: true }, screen, true, buzz);
+    buzzOnReply(reply, { ...screen, activeView: "routines" as const }, true, buzz);
+    expect(buzz).not.toHaveBeenCalled();
   });
 });
 
