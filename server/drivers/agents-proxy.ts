@@ -4,7 +4,7 @@
 // harness stays the single owner of turns, permissions, and recursion
 // limits:
 //
-//   list_bots()                          → the other bots in this section + their status
+//   list_bots()                          → every other bot + its section and status
 //   ask_bot(bot_id, msg)                 → send msg to that bot, wait, return its reply
 //   delegate_bot(bot_id, msg, reason?)   → hand the task to a peer ASYNC: returns
 //                                          immediately, the peer runs after your
@@ -193,7 +193,7 @@ const TOOLS = [
   {
     name: "list_bots",
     description:
-      "List the other bots (agents) in your Orbit section you can message, with their model and whether they're busy. Call it when you need a teammate's id or availability, not to survey the team before answering.",
+      "List the other bots (agents) in your Orbit workspace you can message, your own section first, with their section, model and whether they're busy. Call it when you need a teammate's id or availability, not to survey the team before answering.",
     inputSchema: { type: "object", properties: {} },
   },
   {
@@ -261,7 +261,7 @@ const TOOLS = [
   {
     name: "ask_bot",
     description:
-      "Send a message to another bot in your section and wait for its reply. Use it to delegate a subtask to a specialist bot or ask a peer a question. The other bot runs a full turn under its own model and permissions; the reply is returned to you as text. Returns promptly with a note if that bot is busy.",
+      "Send a message to another bot in your Orbit workspace and wait for its reply. Use it to delegate a subtask to a specialist bot or ask a peer a question. The other bot runs a full turn under its own model and permissions; the reply is returned to you as text. Returns promptly with a note if that bot is busy.",
     inputSchema: {
       type: "object",
       properties: {
@@ -568,11 +568,11 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
   if (name === "list_bots") {
     const r = await api(`/api/internal/agents?self=${encodeURIComponent(BOT_ID)}`);
     const bots = (r.bots as Array<Json>) ?? [];
-    if (!bots.length) return { text: "No other bots in this section yet." };
+    if (!bots.length) return { text: "No other bots yet." };
     const lines = bots.map((b) => {
       const role = b.title ? ` — ${b.title}` : "";
       const about = b.description ? ` (${String(b.description).slice(0, 120)})` : "";
-      return `- ${b.name}${role}${about} [id: ${b.id}, model: ${b.model}${b.busy ? ", busy" : ""}]`;
+      return `- ${b.name}${role}${about} [id: ${b.id}${b.section ? `, section: ${b.section}` : ""}, model: ${b.model}${b.busy ? ", busy" : ""}]`;
     });
     return { text: `Other bots you can message with ask_bot:\n${lines.join("\n")}` };
   }

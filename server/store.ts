@@ -553,6 +553,13 @@ const messagesFile = (threadId: string) => join(DATA_DIR, `messages-${threadId}.
  * their identity. Missing/blank means the unsectioned (General) team. */
 export const sectionKey = (section?: string | null): string => section?.trim() || "";
 
+/** Every visible bot but `self`, its own section first. */
+export function agentRoster<T extends { id: string; hidden?: boolean; section?: string }>(bots: T[], self: T): T[] {
+  const peers = bots.filter((bot) => bot.id !== self.id && !bot.hidden);
+  const home = (bot: T) => sectionKey(bot.section) === sectionKey(self.section);
+  return [...peers.filter(home), ...peers.filter((bot) => !home(bot))];
+}
+
 /** Resolve @mentions in a message against a bot roster: `@` must start a
  * word, the name must end on a word boundary (so "@New Bottle" never matches
  * "New Bot"), names match case-insensitively, longest name wins (so

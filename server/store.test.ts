@@ -11,7 +11,7 @@ import { prepareModelContext } from "./context-compaction.ts";
 import type { ModelSelection } from "./contracts.ts";
 import { peerAllowKey } from "./peer-approval-key.ts";
 import { applyResolvedProjectFolder } from "./project-folder.ts";
-import { Store, titleFromMessage, type BotRecord } from "./store.ts";
+import { agentRoster, Store, titleFromMessage, type BotRecord } from "./store.ts";
 import * as taskState from "./task-state.ts";
 import { readTaskResumePacket, type TaskResumePacket } from "./task-state.ts";
 import { buildResumeFallback } from "./turn-context.ts";
@@ -1673,5 +1673,20 @@ describe("Store task working folder — cloud runs", () => {
     expect(store.taskByThread(bot.id, bot.threadId)?.cwd).toBeNull();
     // and it stays pinned even if a host run follows
     expect(store.pinTaskCwd(bot.id, bot.threadId)).toBeNull();
+  });
+});
+
+describe("agentRoster", () => {
+  it("lists every visible bot but self, own section first", () => {
+    const self = { id: "self", section: "Orbit" };
+    const bots = [
+      self,
+      { id: "work", section: "Work" },
+      { id: "home", section: " Orbit " },
+      { id: "loose" },
+      { id: "ghost", section: "Orbit", hidden: true },
+      { id: "peer", section: "Orbit" },
+    ];
+    expect(agentRoster(bots, self).map((bot) => bot.id)).toEqual(["home", "peer", "work", "loose"]);
   });
 });

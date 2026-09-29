@@ -977,10 +977,12 @@ describe("harness HTTP API", () => {
       expect(unknown.status).toBe(400);
       expect(unknown.body.error).toMatch(/unknown channel member/);
 
+      // any bot may join, and the room still files under the sender's section
       const crossSection = await createChannel({ name: "Cross", memberIds: [otherSection.id] });
-      expect(crossSection).toEqual({
-        status: 403,
-        body: { error: "that bot belongs to a different section" },
+      expect(crossSection.status).toBe(201);
+      expect(crossSection.body).toMatchObject({
+        memberIds: [chief.id, otherSection.id],
+        section: "Channel tool test",
       });
 
       const emptyMembers = await createChannel({ name: "Empty", memberIds: [] });

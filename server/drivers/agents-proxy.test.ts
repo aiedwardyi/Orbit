@@ -82,7 +82,7 @@ beforeAll(async () => {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(
         JSON.stringify({
-          bots: [{ id: "bot-helper", name: "Helper", model: "fake-model", busy: false }],
+          bots: [{ id: "bot-helper", name: "Helper", section: "Work", model: "fake-model", busy: false }],
         }),
       );
     }
@@ -455,6 +455,7 @@ describe("agents-proxy MCP surface", () => {
     const text = res.result.content[0].text;
     expect(text).toContain("Helper");
     expect(text).toContain("bot-helper");
+    expect(text).toContain("section: Work");
     expect(lastAuth).toBe(`Bearer ${TOKEN}`);
   });
 

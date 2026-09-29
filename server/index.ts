@@ -165,6 +165,7 @@ import { ProviderReload } from "./harness/provider-reload.ts";
 import { ProviderRegistry } from "./harness/registry.ts";
 import { cancelPeerApprovalsFor, cancelPeerApprovalsForThread, dismissStalePeerCards, requestPeerApproval, resolvePeerComms, type ApprovalBus } from "./peer-approval.ts";
 import {
+  agentRoster,
   mentionedBots,
   redactBotAuthored,
   roomResponders,
@@ -6164,16 +6165,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!sender) return json(res, 403, { error: "unknown sender" });
         // title/description included so a "chief of staff"-style bot can
         // judge the team (who does what, who has no job description yet)
-        const bots = store.bots
-          .filter(
-            (b) =>
-              b.id !== self &&
-              !b.hidden &&
-              sectionKey(b.section) === sectionKey(sender.section),
-          )
+        const bots = agentRoster(store.bots, sender)
           .map((b) => ({
             id: b.id,
             name: b.name,
+            section: sectionKey(b.section) || undefined,
             model: b.modelSelection.model,
             busy: !!b.busy,
             title: b.title || undefined,
@@ -6263,9 +6259,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         // hard refusal — every peer turn has an accountable sender.
         const from = store.bot(fromBotId);
         if (!from) return json(res, 403, { error: "unknown sender" });
-        if (sectionKey(from.section) !== sectionKey(target.section)) {
-          return json(res, 403, { error: "that bot belongs to a different section" });
-        }
         const fromThreadId = String(body.fromThreadId ?? from.threadId);
         if (!connectorThread(from.id, fromThreadId)) {
           return json(res, 403, { error: "source thread does not belong to sender" });
@@ -6306,9 +6299,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           const freshFrom = store.bot(fromBotId);
           const freshTarget = store.bot(toBotId);
           if (!freshFrom || !freshTarget) return json(res, 404, { error: "no such bot" });
-          if (sectionKey(freshFrom.section) !== sectionKey(freshTarget.section)) {
-            return json(res, 200, { error: "that bot moved to a different section" });
-          }
           if (!connectorThread(freshFrom.id, fromThreadId)) {
             return json(res, 404, { error: "source task no longer exists" });
           }
@@ -6496,9 +6486,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!from) return json(res, 404, { error: "no such bot" });
         const target = store.bot(toBotId);
         if (!target) return json(res, 404, { error: "no such bot" });
-        if (sectionKey(from.section) !== sectionKey(target.section)) {
-          return json(res, 403, { error: "that bot belongs to a different section" });
-        }
         const fromThreadId = String(body.fromThreadId ?? from.threadId);
         if (!connectorThread(from.id, fromThreadId)) {
           return json(res, 403, { error: "source thread does not belong to sender" });
@@ -6611,9 +6598,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           if (!member || member.hidden) {
             return json(res, 400, { error: `unknown channel member: ${id}` });
           }
-          if (sectionKey(member.section) !== sectionKey(sender.section)) {
-            return json(res, 403, { error: "that bot belongs to a different section" });
-          }
         }
         if (body.name !== undefined && typeof body.name !== "string") {
           return json(res, 400, { error: "channel name must be a string" });
@@ -6623,9 +6607,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           : `${store.bot(memberIds[0])!.name} & co.`;
         if (name.length > 100) return json(res, 400, { error: "channel name must be at most 100 characters" });
         // The room joins the sender's section, always. Sections are the
-        // user's own filing, and every member was just checked to be in this
-        // one — a free-text section here lets a bot invent sidebar sections
-        // and file the user's rooms into them.
+        // user's own filing — a free-text section here lets a bot invent
+        // sidebar sections and file the user's rooms into them.
         const section = sender.section;
         let bulletin = "";
         if (body.bulletin !== undefined) {
