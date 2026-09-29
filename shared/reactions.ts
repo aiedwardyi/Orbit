@@ -97,7 +97,7 @@ export function reactionSystemGuidance(): string {
 
 /** Appended only when the react tool is actually mounted on this turn. */
 export function reactionToolGuidance(): string {
-  return "You can also react to the user's message yourself with the react tool. Use it sparingly, only when a reaction genuinely fits the moment, never on every message, and never just because a message contains a particular word.";
+  return "You can also react to the user's message yourself with the react tool. React when it genuinely fits the moment (wins, approvals, thanks, jokes), roughly 1 in 4 user messages, never every message, and never just because a message contains a particular word.";
 }
 
 /**

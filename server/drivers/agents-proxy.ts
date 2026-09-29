@@ -345,7 +345,7 @@ const TOOLS = [
   {
     name: "react",
     description:
-      "Leave an emoji reaction on the user's message, the way they can already react to yours. Reacts to the latest user message. Use it sparingly, only when a reaction genuinely fits the moment, never on every message, and never just because a message contains a particular word.",
+      "Leave an emoji reaction on the user's message, the way they can already react to yours. Reacts to the latest user message. React when it genuinely fits the moment (wins, approvals, thanks, jokes), roughly 1 in 4 user messages, never every message, and never just because a message contains a particular word.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
