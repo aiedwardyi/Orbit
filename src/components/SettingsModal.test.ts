@@ -162,7 +162,10 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain("Panda Syntax");
     expect(html).toContain("Gruvbox");
     expect(html).toContain("Kanagawa");
-    expect(html).toContain("HaX0R_BLUE");
+    expect(html).toContain("Peach");
+    expect(html).toContain("Coral");
+    expect(html).not.toContain("HaX0R_BLUE");
+    expect(html).not.toContain("Seaglass");
     expect(html).toContain("Hurtado");
     expect(html).toContain("Rosé Pine");
     expect(html).toContain("Nord");
@@ -193,7 +196,10 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain('data-skin="cobalt"');
     expect(html).toContain('data-skin="gruvbox"');
     expect(html).toContain('data-skin="kanagawa"');
-    expect(html).toContain('data-skin="haxor-blue"');
+    expect(html).toContain('data-skin="peach"');
+    expect(html).toContain('data-skin="coral"');
+    expect(html).not.toContain('data-skin="haxor-blue"');
+    expect(html).not.toContain('data-skin="seaglass"');
     expect(html).toContain('data-skin="hurtado"');
     expect(html).toContain('data-skin="rose-pine"');
     expect(html).toContain('data-skin="nord"');
@@ -218,8 +224,6 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain('data-skin="instrument"');
     expect(html).toContain('data-skin="matte"');
     expect(html).toContain('data-skin="carbon"');
-    expect(html).toContain('data-skin="seaglass"');
-    expect(html).toContain("Seaglass");
     expect(html).toContain('data-skin="pewter"');
     expect(html).toContain('data-skin="pewter-dusk"');
     expect(html).toContain('data-skin="pewter-night"');

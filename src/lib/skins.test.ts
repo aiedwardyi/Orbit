@@ -452,24 +452,10 @@ const FACE_SKINS = [
   { id: "instrument", name: "Instrument", face: "IBM Plex Sans", file: "IBMPlexSans-Variable.woff2", app: "#15181c" },
   { id: "matte", name: "Matte", face: "Nunito", file: "Nunito-Variable.woff2", app: "#1c1b19" },
   { id: "carbon", name: "Carbon", face: "JetBrains Mono", file: "JetBrainsMono-Variable.woff2", app: "#0b0c0d" },
-  { id: "seaglass", name: "Seaglass", face: "Assistant", file: "Assistant-Variable.woff2", app: "#283234" },
   { id: "pewter", name: "Pewter", face: "Manrope", file: "Manrope-Variable.woff2", app: "#3a3d41" },
   { id: "coal", name: "Coal", face: "Space Grotesk", file: "SpaceGrotesk-Variable.woff2", app: "#121315" },
   { id: "folio", name: "Folio", face: "Literata", file: "Literata-Variable.woff2", app: "#232528" },
 ] as const;
-
-describe("Seaglass", () => {
-  it("derives terminal colors from the shipped palette", () => {
-    const theme = terminalTheme((name) => cssToken("seaglass", `--color-${name}`) ?? "");
-    expect(theme).toEqual({
-      background: "#1c282a",
-      foreground: "#e5efec",
-      cursor: "#b8d5e4",
-      cursorAccent: "#1c282a",
-      selectionBackground: "#3d4e50",
-    });
-  });
-});
 
 describe("bundled-face skins", () => {
   const fonts = join(dirname(fileURLToPath(import.meta.url)), "../../public/fonts");
@@ -606,6 +592,34 @@ const DARK_INK_SKINS = [
       "--color-hairline": "#2d2d2d",
       "--color-danger": "#f2655f",
       "--color-success": "#73daca",
+    },
+  },
+  {
+    id: "peach",
+    name: "Peach",
+    tokens: {
+      "--color-app": "#000000",
+      "--color-raised": "#13151a",
+      "--color-ink": "#eceef2",
+      "--color-ink-secondary": "#a6abb5",
+      "--color-accent": "#ffd3b6",
+      "--color-hairline": "#2a2d35",
+      "--color-danger": "#ff7d7d",
+      "--color-success": "#7fe0c9",
+    },
+  },
+  {
+    id: "coral",
+    name: "Coral",
+    tokens: {
+      "--color-app": "#000000",
+      "--color-raised": "#141414",
+      "--color-ink": "#ebe8e7",
+      "--color-ink-secondary": "#aaa6a5",
+      "--color-accent": "#ff8b85",
+      "--color-hairline": "#2d2d2d",
+      "--color-danger": "#f04a4a",
+      "--color-success": "#7bdcb5",
     },
   },
   {
@@ -842,6 +856,33 @@ describe("dark ink skins", () => {
     expect(cssToken("onyx", "--color-ink")).not.toBe("#ededf0");
   });
 
+  it("keeps Peach lighter and colder than Vesper, and Coral distinct from its danger", () => {
+    expect(luminance(cssToken("peach", "--color-accent")!)).toBeGreaterThan(luminance(cssToken("vesper", "--color-accent")!));
+    expect(cssToken("peach", "--color-app")).toBe("#000000");
+    expect(cssToken("coral", "--color-app")).toBe("#000000");
+    expect(cssToken("coral", "--color-danger")).not.toBe(cssToken("coral", "--color-accent"));
+  });
+
+  it("derives Peach and Coral terminal colors from the shipped palette", () => {
+    for (const id of ["peach", "coral"]) {
+      const theme = terminalTheme((name) => cssToken(id, `--color-${name}`) ?? "");
+      expect(theme.background).toBe("#000000");
+      expect(theme.cursor).toBe(cssToken(id, "--color-accent-text"));
+      expect(theme.foreground).toBe(cssToken(id, "--color-ink"));
+    }
+  });
+
+  it("keeps chat ink and accent text at AA on every Peach and Coral surface", () => {
+    for (const id of ["peach", "coral"]) {
+      for (const text of ["--color-ink", "--color-ink-secondary", "--color-accent-text", "--color-danger", "--color-success", "--color-warning"]) {
+        for (const surface of ["--color-app", "--color-panel", "--color-card", "--color-bubble-user", "--color-inset", "--color-control", "--color-raised"]) {
+          expect(contrast(cssToken(id, text)!, cssToken(id, surface)!), `${id} ${text} on ${surface}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+      expect(contrast(cssToken(id, "--color-accent-ink")!, cssToken(id, "--color-accent")!)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   it("gives Panda a warning apricot distinct from the mint accent", () => {
     const warning = cssToken("cobalt", "--color-warning");
     const accent = cssToken("cobalt", "--color-accent");
@@ -864,17 +905,6 @@ describe("dark ink skins", () => {
       const ink = cssToken(skin.id, "--color-danger-ink")!;
       expect(contrast(ink, danger)).toBeGreaterThanOrEqual(4.5);
     }
-  });
-
-  it("keeps HaX0R_BLUE success distinct from danger inside the monochrome palette", () => {
-    // The scheme's vivid blues sit within 1.05 of each other, so success
-    // takes the pale selectionBackground ice while danger keeps the vivid
-    // phosphor — go and stop can never be confused at a glance.
-    const success = cssToken("haxor-blue", "--color-success");
-    const danger = cssToken("haxor-blue", "--color-danger");
-    expect(success).toBe("#c1e4ff");
-    expect(danger).toBe("#10b6ff");
-    expect(contrast(success!, danger!)).toBeGreaterThanOrEqual(1.5);
   });
 
   const DANGER_PAIRINGS = [
@@ -1128,11 +1158,20 @@ describe("skin persistence", () => {
     expect(readSkin()).toBe("ledger");
   });
 
-  it("remembers Seaglass and restores it for the next session", () => {
-    applySkin("seaglass");
-    expect(dataset.skin).toBe("seaglass");
-    expect(store.get("omb-skin")).toBe("seaglass");
-    expect(readSkin()).toBe("seaglass");
+  it("remembers Peach and Coral and restores them for the next session", () => {
+    for (const id of ["peach", "coral"] as const) {
+      applySkin(id);
+      expect(dataset.skin).toBe(id);
+      expect(store.get("omb-skin")).toBe(id);
+      expect(readSkin()).toBe(id);
+    }
+  });
+
+  it("falls back to the default skin for removed Haxor and Seaglass", () => {
+    for (const id of ["haxor-blue", "seaglass"]) {
+      store.set("omb-skin", id);
+      expect(readSkin()).toBe(DEFAULT_SKIN);
+    }
   });
 
   it("remembers Pewter, Coal, and Folio", () => {

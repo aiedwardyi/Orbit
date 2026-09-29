@@ -30,13 +30,6 @@
 }
 
 @font-face {
-  font-family: "Assistant";
-  src: url("/fonts/Assistant-Variable.woff2") format("woff2");
-  font-weight: 400 600;
-  font-display: swap;
-}
-
-@font-face {
   font-family: "Manrope";
   src: url("/fonts/Manrope-Variable.woff2") format("woff2");
   font-weight: 200 800;
@@ -659,6 +652,82 @@
   --radius-xl: 8px;
 }
 
+/* ── Peach ─────────────────────────────────────────────────────────────────
+   True black, pastel peach. Surfaces lean cool and the peach is lighter and
+   brighter than Vesper's, so the two never read as the same room. Peach is
+   buttons, links, and focus only; warning is butter so it stays distinct.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="peach"] {
+  --color-app: #000000;
+  --color-panel: #06070a;
+  --color-raised: #13151a;
+  --color-raised-hover: #1b1e25;
+  --color-card: #0a0b0e;
+  --color-inset: #000000;
+  --color-control: #13151a;       /* = raised */
+  --color-hairline: #2a2d35;
+
+  --color-ink: #eceef2;
+  --color-ink-secondary: #a6abb5;
+
+  --color-accent: #ffd3b6;        /* pastel peach — buttons, active, progress */
+  --color-accent-border: #ffdcc4;
+  --color-accent-text: #ffd3b6;
+  --color-focus: #ffd3b6;
+  --color-accent-ink: #000000;    /* ground on the peach fill */
+  --color-bubble-user: #13151a;
+
+  --color-success: #7fe0c9;
+  --color-danger: #ff7d7d;
+  --color-danger-ink: #000000;
+  --color-warning: #f5d97e;       /* butter */
+  --color-scrollbar: #2a2d35;
+  --color-maus-line: #eceef2;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+}
+
+/* ── Coral ─────────────────────────────────────────────────────────────────
+   True black, pastel red. Neutral surfaces; the coral is buttons, links, and
+   focus only. Danger is a deeper red so a stop is never mistaken for the
+   accent.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="coral"] {
+  --color-app: #000000;
+  --color-panel: #050505;
+  --color-raised: #141414;
+  --color-raised-hover: #1c1c1c;
+  --color-card: #0a0a0a;
+  --color-inset: #000000;
+  --color-control: #141414;       /* = raised */
+  --color-hairline: #2d2d2d;
+
+  --color-ink: #ebe8e7;
+  --color-ink-secondary: #aaa6a5;
+
+  --color-accent: #ff8b85;        /* pastel red — buttons, active, progress */
+  --color-accent-border: #ff9b96;
+  --color-accent-text: #ff9b96;
+  --color-focus: #ff8b85;
+  --color-accent-ink: #000000;    /* ground on the coral fill */
+  --color-bubble-user: #141414;
+
+  --color-success: #7bdcb5;
+  --color-danger: #f04a4a;
+  --color-danger-ink: #000000;
+  --color-warning: #f2c261;
+  --color-scrollbar: #2d2d2d;
+  --color-maus-line: #ebe8e7;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+}
+
 /* ── Dracula ───────────────────────────────────────────────────────────────
    Slate purple, neon status. Mapped tokens follow the Dracula palette
    (background, background-lighter, foreground, muted comment-adjacent ink,
@@ -820,51 +889,6 @@
   --radius-xl: 8px;
 }
 
-/* ── HaX0R_BLUE ────────────────────────────────────────────────────────────
-   Deep-space blue, monochrome phosphor. Signature tokens are exact Windows
-   Terminal HaX0R_BLUE scheme hex: background ground, black raised, white
-   ink, selectionBackground secondary and success, blue accent and danger,
-   brightBlue hairline, foreground warning. The scheme's three darks sit
-   within 1.03 of each other, so panel, hover, card, inset, and control are
-   deep-space variants that keep light ink readable while clearing the
-   surface-step rules. The vivid blues sit within 1.05 of each other, so
-   success takes the pale ice and danger keeps the vivid phosphor: go and
-   stop differ at a glance, while warning keeps the vivid foreground tone
-   and errs toward alarm, never toward go.
-   ───────────────────────────────────────────────────────────────────────── */
-[data-skin="haxor-blue"] {
-  --color-app: #010515;
-  --color-panel: #0a1026;
-  --color-raised: #010921;
-  --color-raised-hover: #16204a;
-  --color-card: #0d1530;
-  --color-inset: #00030a;
-  --color-control: #1e2a5a;
-  --color-hairline: #00b3f7;
-
-  --color-ink: #fafafa;
-  --color-ink-secondary: #c1e4ff;
-
-  --color-accent: #10b6ff;
-  --color-accent-border: #00b3f7;
-  --color-accent-text: #10b6ff;
-  --color-focus: #10b6ff;
-  --color-accent-ink: #010515;    /* ground on the phosphor fill */
-  --color-bubble-user: #0a1026;
-
-  --color-success: #c1e4ff;       /* pale ice, 1.73 vs the vivid danger */
-  --color-danger: #10b6ff;
-  --color-danger-ink: #010515;
-  --color-warning: #11b7ff;
-  --color-scrollbar: #00b3f7;
-  --color-maus-line: #c1e4ff;
-
-  --font-sans: "Inter", -apple-system, "BlinkMacSystemFont", "SF Pro Text",
-    "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
-  --radius-lg: 4px;
-  --radius-xl: 8px;
-}
-
 /* ── Hurtado ───────────────────────────────────────────────────────────────
    Pure black, neon pink and ice. Signature tokens are exact Windows Terminal
    Hurtado scheme hex: background ground, brightBlack raised, foreground ink,
@@ -1019,7 +1043,7 @@
 
 /* ── TUI ───────────────────────────────────────────────────────────────────
    Monospace, sharp corners, terminal chrome. Windows Terminal default ground,
-   gray ink, cyan selection. Not HaX0R_BLUE: this one is a TUI, not phosphor.
+   gray ink, cyan selection.
    Ground rides accent and danger fills. Radius is zero on purpose.
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="tui"] {
@@ -2240,93 +2264,6 @@
   [data-orbit-composer-frame] {
     border: 1px solid var(--color-hairline);
     border-radius: var(--radius-lg);
-  }
-}
-
-[data-skin="seaglass"] {
-  --color-app: #283234;
-  --color-panel: #283638;
-  --color-raised: #344446;
-  --color-raised-hover: #3d4e50;
-  --color-card: #2c3c3e;
-  --color-inset: #1c282a;
-  --color-control: #37494b;
-  --color-hairline: #52696c;
-
-  --color-ink: #e5efec;
-  --color-ink-secondary: #bccdcd;
-
-  --color-accent: #a8cce0;
-  --color-accent-border: #b8d5e4;
-  --color-accent-text: #b8d5e4;
-  --color-focus: #b8d5e4;
-  --color-accent-ink: #1c282a;
-  --color-bubble-user: #35494e;
-
-  --color-success: #b7d6c5;
-  --color-danger: #efb9ac;
-  --color-danger-ink: #1c282a;
-  --color-warning: #e5cca6;
-  --color-scrollbar: #607a7d;
-  --color-maus-line: #bccdcd;
-
-  --font-sans: "Assistant", "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo",
-    system-ui, sans-serif;
-  --radius-lg: 10px;
-  --radius-xl: 16px;
-}
-
-@scope ([data-skin="seaglass"]) to ([data-skin]) {
-  [data-orbit-message] {
-    padding-block: 0.375rem;
-  }
-
-  [data-orbit-message-body] {
-    max-width: min(44rem, 88%);
-  }
-
-  .orbit-message-speaker {
-    display: block;
-    margin-bottom: 6px;
-    padding-inline: 4px;
-    color: var(--color-accent-text);
-    font-size: 12px;
-    font-weight: 600;
-  }
-
-  [data-orbit-message-content] {
-    padding: 14px 18px;
-    border: 1px solid var(--color-hairline);
-    border-radius: var(--radius-lg);
-    font-size: 16px;
-    line-height: 1.7;
-  }
-
-  [data-orbit-message="bot"] [data-orbit-message-content] {
-    background: var(--color-card);
-    border-top-left-radius: 2px;
-  }
-
-  [data-orbit-message="user"] [data-orbit-message-content] {
-    background: var(--color-bubble-user);
-    border-top-right-radius: 2px;
-    border-color: var(--color-accent-border);
-  }
-
-  .chat-md > div[class*="font-semibold"] {
-    color: var(--color-accent-text);
-    margin-top: 1rem;
-  }
-
-  .chat-md blockquote {
-    border-left: 2px solid var(--color-success);
-    padding: 4px 12px;
-    color: var(--color-ink-secondary);
-  }
-
-  [data-orbit-composer-frame] {
-    border: 1px solid var(--color-hairline);
-    border-radius: var(--radius-xl);
   }
 }
 

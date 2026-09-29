@@ -131,14 +131,6 @@ USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM OTHER DEALINGS IN THE
 FONT SOFTWARE.
 ```
 
-## Assistant-Variable.woff2
-
-- Source: https://cdn.jsdelivr.net/fontsource/fonts/assistant:vf@latest/latin-wght-normal.woff2, unmodified Latin variable woff2, 22,096 bytes.
-- Used by Seaglass at weights 400-600. Other scripts fall through to the system stack.
-- Copyright 2020 The Assistant Project Authors (https://github.com/hafontia/Assistant).
-- Copyright 2010 The Source Sans Pro Authors, with Reserved Font Name 'Source'. Source is a trademark of Adobe Systems Incorporated.
-- SIL Open Font License 1.1; full notice in [Assistant-OFL.txt](Assistant-OFL.txt).
-
 ## Manrope-Variable.woff2, SpaceGrotesk-Variable.woff2, Literata-Variable.woff2
 
 - Source: Google Fonts GitHub (https://github.com/google/fonts), `ofl/manrope/Manrope[wght].ttf`, `ofl/spacegrotesk/SpaceGrotesk[wght].ttf`, `ofl/literata/Literata[opsz,wght].ttf`.

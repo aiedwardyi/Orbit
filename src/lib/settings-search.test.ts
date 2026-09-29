@@ -34,8 +34,6 @@ describe("settings section search", () => {
     expect(settingsSectionMatches("themes", "skin")).toBe(true);
     expect(settingsSectionMatches("themes", "theme")).toBe(true);
     expect(settingsSectionMatches("themes", "kanagawa")).toBe(true);
-    expect(settingsSectionMatches("themes", "haxor")).toBe(true);
-    expect(settingsSectionMatches("themes", "hax0r")).toBe(true);
     expect(settingsSectionMatches("themes", "linear")).toBe(true);
     expect(settingsSectionMatches("themes", "notion")).toBe(true);
     expect(settingsSectionMatches("themes", "messages")).toBe(true);
@@ -49,10 +47,11 @@ describe("settings section search", () => {
     expect(settingsSectionMatches("themes", "instrument")).toBe(true);
     expect(settingsSectionMatches("themes", "matte")).toBe(true);
     expect(settingsSectionMatches("themes", "carbon")).toBe(true);
-    expect(settingsSectionMatches("themes", "seaglass")).toBe(true);
+    expect(settingsSectionMatches("themes", "peach")).toBe(true);
+    expect(settingsSectionMatches("themes", "coral")).toBe(true);
     expect(settingsSectionMatches("themes", "pastel")).toBe(true);
     expect(settingsSectionMatches("themes", "파스텔")).toBe(true);
-    expect(settingsSectionMatches("themes", "편안한 읽기")).toBe(true);
+    expect(settingsSectionMatches("themes", "파스텔 복숭아")).toBe(true);
     expect(settingsSectionMatches("themes", "pewter")).toBe(true);
     expect(settingsSectionMatches("themes", "keycap")).toBe(true);
     expect(settingsSectionMatches("themes", "folio")).toBe(true);
@@ -61,7 +60,8 @@ describe("settings section search", () => {
     expect(settingsSectionMatches("themes", "테마")).toBe(true);
     expect(settingsSectionMatches("general", "skin")).toBe(false);
     expect(settingsSectionMatches("general", "kanagawa")).toBe(false);
-    expect(settingsSectionMatches("general", "hax0r")).toBe(false);
+    expect(settingsSectionMatches("themes", "hax0r")).toBe(false);
+    expect(settingsSectionMatches("themes", "seaglass")).toBe(false);
     expect(settingsSectionMatches("themes", "updates")).toBe(false);
   });
 });
