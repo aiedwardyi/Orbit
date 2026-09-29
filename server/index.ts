@@ -6,6 +6,7 @@ import { existsSync, readFileSync, realpathSync, statSync, unlinkSync, writeFile
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { currentEarlyListen } from "./early-listen.ts";
 import { isIP } from "node:net";
+import { hostname as osHostname } from "node:os";
 import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
 
 import { z } from "zod";
@@ -263,6 +264,7 @@ import {
   remoteKeyMatches,
   remoteLinkUrl,
 } from "./remote-access.ts";
+import { DEVICE_HEARTBEAT_MS, listDevices, writeDeviceRecord } from "./device-sync.ts";
 import * as vps from "./vps-computer.ts";
 import { RoutineManager, routineTriggerIsUnattended, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
 import { browserScreenshot, readBrowserConnection } from "./browser-connection.ts";
@@ -1734,6 +1736,25 @@ function scheduleProfilePublish(): void {
     publishProfileChangesSafely();
   }, PROFILE_SYNC_DELAY_MS);
   profilePublishTimer.unref?.();
+}
+
+function publishDeviceRecord(): void {
+  const folder = profileSyncSettings.folder;
+  if (!folder || REMOTE_HOST === undefined) return;
+  try {
+    writeDeviceRecord(
+      folder,
+      { deviceId: profileSyncSettings.deviceId, name: process.env.ORBIT_DEVICE_NAME?.trim() || osHostname(), host: REMOTE_HOST },
+      Date.now(),
+    );
+  } catch (error) {
+    console.warn("device sync: publish failed", error);
+  }
+}
+
+if (REMOTE_HOST !== undefined) {
+  publishDeviceRecord();
+  setInterval(publishDeviceRecord, DEVICE_HEARTBEAT_MS).unref();
 }
 
 function syncMemory(botId: string): void {
@@ -6943,6 +6964,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         profileSyncSettings.folder = folder;
         profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
         syncAllThreads();
+        publishDeviceRecord();
         return json(res, 200, profileSyncStatus());
       } catch (error) {
         return json(res, 400, { error: error instanceof Error ? error.message : String(error) });
@@ -6971,6 +6993,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // ── phone link (this PC's own /remote?key= url, never synced) ──
     if (method === "GET" && path === "/api/remote-link") {
       return json(res, 200, { url: remoteLinkUrl(REMOTE_HOST, REMOTE_KEY) ?? null });
+    }
+
+    // ── device picker: PCs in the sync folder, only over the tailnet host ──
+    if (method === "GET" && path === "/api/devices") {
+      const folder = profileSyncSettings.folder;
+      const devices = folder && hostMatchesRemote(req.headers.host, REMOTE_HOST)
+        ? listDevices(folder, profileSyncSettings.deviceId, Date.now())
+        : [];
+      return json(res, 200, { devices });
     }
 
     // ── phone ping (local to this PC, never synced) ──

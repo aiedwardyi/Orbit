@@ -108,6 +108,7 @@ import { sidebarConversationRowTone } from "@/lib/sidebar-row";
 import { useTouchDrag, type TouchDropMark } from "@/lib/use-touch-drag";
 import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
 import { SidebarSectionHeader } from "./SidebarSectionHeader";
+import { DeviceSwitcher } from "./DeviceSwitcher";
 import { phoneSettingsAvailable } from "@/lib/phone-availability";
 import { localeTag, t, useI18n } from "@/lib/i18n";
 import { terminalAttentionCopy } from "@/lib/notify";
@@ -2331,6 +2332,8 @@ export function Sidebar({
           )}
         </div>
       </div>
+
+      {density !== "icons" && <DeviceSwitcher />}
 
       {/* Search */}
       {density === "icons" ? (
