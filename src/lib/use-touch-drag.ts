@@ -18,13 +18,27 @@ const LIFTED_STYLE: Record<string, string> = {
   transition: "scale 150ms ease-out, box-shadow 150ms ease-out",
 };
 const LIST_STYLE = ["user-select", "-webkit-user-select", "-webkit-touch-callout"];
+// one overlay moved by translate: marking the target itself relaid out and repainted the page per row crossed
+const MARKER_STYLE: Record<string, string> = {
+  position: "absolute",
+  top: "0",
+  left: "0",
+  "z-index": "10",
+  "pointer-events": "none",
+  "border-radius": "9999px",
+  background: "var(--color-accent)",
+  "will-change": "translate, opacity",
+  opacity: "0",
+};
+const MARK_INSET: Record<TouchDropMark, number> = { top: 8, bottom: 8, into: 4 };
+const MARK_HEIGHT: Record<TouchDropMark, number> = { top: 2, bottom: 2, into: 4 };
 
 export type TouchDropMark = "top" | "bottom" | "into";
 
 export type TouchDragHandlers = {
   /** The element to lift for a pressed `selector` match, or null when it can't move. */
   lift: (pressed: HTMLElement) => HTMLElement | null;
-  /** The element to mark with `data-touch-drop`, so a move never re-renders the list. */
+  /** The element to mark with `data-touch-drop` and the drop marker, so a move never re-renders the list. */
   over: (target: Element | null, y: number) => [HTMLElement, TouchDropMark] | null;
   drop: (target: Element | null, y: number) => void;
   cancel: () => void;
@@ -41,6 +55,7 @@ type Press = {
   moved: boolean;
   dirty: boolean;
   marked: [HTMLElement, TouchDropMark] | null;
+  marker: HTMLElement | null;
   // in scroll content coordinates, dropped when the list's DOM changes
   targets: { el: HTMLElement; left: number; right: number; top: number; bottom: number }[] | null;
   timer: ReturnType<typeof setTimeout>;
@@ -88,12 +103,33 @@ export function useTouchDrag(selector: string, targets: string, handlers: TouchD
     const follow = (current: Press) => {
       current.lifted?.style.setProperty("translate", `0 ${current.lastY - current.y + list.scrollTop - current.scrollTop}px`);
     };
+    const draw = (marker: HTMLElement, next: [HTMLElement, TouchDropMark] | null) => {
+      // an unchanged write can still invalidate paint, and most crossings only move the marker
+      const set = (key: string, value: string) => {
+        if (marker.style.getPropertyValue(key) !== value) marker.style.setProperty(key, value);
+      };
+      if (!next) {
+        set("opacity", "0");
+        return;
+      }
+      const [el, mark] = next;
+      const box = list.getBoundingClientRect();
+      const rect = el.getBoundingClientRect();
+      const top = rect.top - box.top - list.clientTop + list.scrollTop;
+      const y = mark === "bottom" ? top + rect.height - MARK_HEIGHT[mark] : top;
+      set("width", `${rect.width - 2 * MARK_INSET[mark]}px`);
+      set("height", `${MARK_HEIGHT[mark]}px`);
+      set("translate", `${rect.left - box.left - list.clientLeft + MARK_INSET[mark]}px ${y}px`);
+      set("box-shadow", mark === "into" ? "0 0 8px color-mix(in oklab, var(--color-accent) 60%, transparent)" : "none");
+      set("opacity", "1");
+    };
     const aim = (current: Press) => {
       const next = latest.current.over(under(current, current.lastX, current.lastY), current.lastY);
       if (next?.[0] === current.marked?.[0] && next?.[1] === current.marked?.[1]) return;
       current.marked?.[0].removeAttribute("data-touch-drop");
       next?.[0].setAttribute("data-touch-drop", next[1]);
       current.marked = next;
+      if (current.marker) draw(current.marker, next);
     };
     const release = () => {
       const done = press;
@@ -104,6 +140,10 @@ export function useTouchDrag(selector: string, targets: string, handlers: TouchD
       done.unbind();
       observer.disconnect();
       done.marked?.[0].removeAttribute("data-touch-drop");
+      if (done.marker) {
+        done.marker.remove();
+        list.style.removeProperty("position");
+      }
       if (done.lifted) {
         for (const key of [...Object.keys(LIFTED_STYLE), "translate"]) done.lifted.style.removeProperty(key);
         done.lifted.removeAttribute("data-touch-lifted");
@@ -135,6 +175,12 @@ export function useTouchDrag(selector: string, targets: string, handlers: TouchD
       press.lifted = lifted;
       for (const [key, value] of Object.entries(LIFTED_STYLE)) lifted.style.setProperty(key, value);
       lifted.setAttribute("data-touch-lifted", "");
+      const marker = list.ownerDocument.createElement("div");
+      for (const [key, value] of Object.entries(MARKER_STYLE)) marker.style.setProperty(key, value);
+      marker.setAttribute("data-touch-drop-marker", "");
+      list.style.setProperty("position", "relative");
+      list.append(marker);
+      press.marker = marker;
       observer.observe(list, { childList: true, subtree: true });
       hapticTick();
       press.frame = requestAnimationFrame(tick);
@@ -159,6 +205,7 @@ export function useTouchDrag(selector: string, targets: string, handlers: TouchD
         moved: false,
         dirty: false,
         marked: null,
+        marker: null,
         targets: null,
         timer: setTimeout(lift, LONG_PRESS_MS),
         frame: 0,

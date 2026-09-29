@@ -1635,6 +1635,28 @@ describe("Sidebar touch drag", () => {
     }
   });
 
+  it("draws the drop target with one moving marker, never restyling the target", async () => {
+    const view = await mount(["a", "b", "c", "d"].map(bot));
+    try {
+      await view.hold("d");
+      const marker = () => view.host.querySelector<HTMLElement>("[data-touch-drop-marker]");
+      await view.moveOver(view.row("c"), view.row("d"));
+      expect(marker()?.style.getPropertyValue("translate")).toBe("8px 140px");
+      expect(marker()?.style.getPropertyValue("opacity")).toBe("1");
+      const first = marker();
+      await view.moveOver(view.row("b"), view.row("d"));
+      expect(marker()).toBe(first);
+      expect(marker()?.style.getPropertyValue("translate")).toBe("8px 90px");
+      expect(view.host.querySelector('[data-sidebar-row-id="b"]')!.getAttribute("style")).toBeNull();
+      await view.moveOver(view.host.querySelector('[data-sidebar-item-drop-zone="unassigned"] [data-sidebar-section-header]'), view.row("d"));
+      expect(marker()?.style.getPropertyValue("opacity")).toBe("0");
+      await act(async () => void touch(view.row("d"), "touchcancel"));
+      expect(marker()).toBeNull();
+    } finally {
+      await view.unmount();
+    }
+  });
+
   it("aims moves and the drop without a browser hit test", async () => {
     const view = await mount(["a", "b", "c", "d"].map(bot));
     try {

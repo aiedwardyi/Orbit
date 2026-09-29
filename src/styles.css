@@ -2785,34 +2785,6 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
   background: transparent;
 }
 
-/* touch drop target, set by use-touch-drag without a render; an overlay, so
-   marking a section above never shifts the lifted row off the finger */
-[data-touch-drop] {
-  position: relative;
-}
-[data-touch-drop]::after {
-  content: "";
-  pointer-events: none;
-  position: absolute;
-  inset-inline: 0.5rem;
-  z-index: 10;
-  height: 0.125rem;
-  border-radius: 9999px;
-  background: var(--color-accent);
-}
-[data-touch-drop="top"]::after {
-  top: 0;
-}
-[data-touch-drop="bottom"]::after {
-  bottom: 0;
-}
-[data-touch-drop="into"]::after {
-  top: 0;
-  inset-inline: 0.25rem;
-  height: 0.25rem;
-  box-shadow: 0 0 8px color-mix(in oklab, var(--color-accent) 60%, transparent);
-}
-
 @keyframes panel-in {
   from { transform: translateX(28px); opacity: 0; }
   to { transform: translateX(0); opacity: 1; }
