@@ -439,6 +439,12 @@ describe("ModelPicker friends chip", () => {
     expect(html).not.toMatch(/data-model-effort[^>]*@max-4xl\/chathead:hidden/);
   });
 
+  it("hides the header effort label on phones only", () => {
+    const html = markup({ instanceId: "grok", model: "grok-4.6", mode: "automatic", effort: "high" });
+    expect(html).toMatch(/data-model-effort[^>]*max-md:hidden/);
+    expect(html).toContain(`background-color:${modelFamilyAccent("grokAgent")}`);
+  });
+
   it("keeps the model label before the effort on the one-line chip", () => {
     const html = markup({ instanceId: "grok", model: "grok-4.6", mode: "automatic", effort: "high" });
     const label = html.indexOf("max-w-[160px]");
