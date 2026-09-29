@@ -188,6 +188,13 @@ describe("pushPayload", () => {
     });
   });
 
+  it("publishes no part of a config key cut at the summary boundary", () => {
+    const value = "Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4z";
+    const detail = `${"x".repeat(98)} ${JSON.stringify({ key: value })}`;
+    const pings = [pingForNotification(buildNotification("approval", bot, "thread-1", detail)!)!, pingForMailbox("Scout", `FAIL ${detail}`)!];
+    for (const ping of pings) expect(JSON.stringify(pushPayload(ping, target))).not.toMatch(/Ab3dEf6h/);
+  });
+
   it("redacts secrets and encodes the open url", () => {
     const token = `ghp_${"a".repeat(36)}`;
     const payload = pushPayload({ title: `leaked ${token}`, message: `token=${token}` }, { botId: "b&1", threadId: "t 1" });

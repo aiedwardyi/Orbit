@@ -35,7 +35,6 @@ import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { phoneSettingsAvailable } from "@/lib/phone-availability";
 import { PhoneLinkSettings } from "./PhoneLinkSettings";
 import { PhoneNotificationSettings } from "./PhoneNotificationSettings";
-import { PhonePingSettings } from "./PhonePingSettings";
 import { RoomTurnTimeoutSettings } from "./RoomTurnTimeoutSettings";
 import { TranscriptionSettings } from "./TranscriptionSettings";
 import { loadSidebarSide, saveSidebarSide, type SidebarSide } from "@/lib/sidebar-preferences";
@@ -589,7 +588,6 @@ export function SettingsModal({
                   <EnginesSettings />
                   <SavedKeys />
                   <PhoneLinkSettings />
-                  <PhonePingSettings />
                   <PhoneNotificationSettings />
                   {showSettingsMoreServicesSection() && (
                     <>

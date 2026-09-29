@@ -1,4 +1,4 @@
-// Web Push: closed-app notifications to a phone browser that enabled them, beside ntfy.
+// Web Push: closed-app notifications to a phone browser that enabled them.
 // VAPID (RFC 8292) and aes128gcm payload encryption (RFC 8291) on node:crypto alone.
 import { createCipheriv, createECDH, createHmac, createPrivateKey, generateKeyPairSync, randomBytes, sign } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
@@ -93,7 +93,7 @@ export function encryptPushPayload(
   return Buffer.concat([salt, rs, Buffer.from([asPublic.length]), asPublic, body]);
 }
 
-/** Same redaction as ntfy; the tag matches desktop toasts so one bot stacks as one. */
+/** The tag matches desktop toasts so one bot stacks as one. */
 export function pushPayload(ping: PhonePing, target: PushTarget): PushPayload {
   const query = new URLSearchParams({ bot: target.botId, thread: target.threadId });
   return {

@@ -102,8 +102,6 @@ export const SECTION_PHRASE_KEYS = {
     "settings.connections.ready",
     "settings.connections.selfHost",
     "settings.connections.moreServices",
-    "settings.phonePing.title",
-    "settings.phonePing.help",
     "settings.phoneNotifications.title",
     "settings.phoneNotifications.help",
     "connections.gemini.label",

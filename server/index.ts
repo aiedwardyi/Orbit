@@ -110,13 +110,8 @@ import { describeSpawnFailure, execCli } from "./procs.ts";
 import { buildNotification, type Notification } from "./notify.ts";
 import {
   createPingLimiter,
-  loadPhonePingTopic,
-  parsePhonePingTopic,
-  phonePingBodySchema,
   pingForMailbox,
   pingForNotification,
-  savePhonePingTopic,
-  sendPhonePing,
   type PhonePing,
 } from "./phone-ping.ts";
 import {
@@ -2284,14 +2279,11 @@ function notify(notification: Notification | null, turnMs?: number) {
   phonePing(notification.botId, pingForNotification(notification, turnMs), notification);
 }
 
-let phonePingTopic = loadPhonePingTopic(DATA_DIR);
 const phonePingAllowed = createPingLimiter();
 const WEB_PUSH_SUBJECT = REMOTE_HOST ? `https://${REMOTE_HOST}` : "mailto:orbit@localhost";
 
 function phonePing(botId: string, ping: PhonePing | null, open: PushTarget) {
   if (!ping || !phonePingAllowed(botId, ping.title, ping.message)) return;
-  const parsed = parsePhonePingTopic(phonePingTopic);
-  if (parsed.ok && parsed.target) void sendPhonePing(parsed.target, ping);
   void sendWebPushToDevices(DATA_DIR, pushPayload(ping, open), WEB_PUSH_SUBJECT).catch((cause) => console.warn(`web-push: ${cause}`));
 }
 
@@ -7015,28 +7007,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         ? listDevices(folder, profileSyncSettings.deviceId, Date.now())
         : [];
       return json(res, 200, { devices });
-    }
-
-    // ── phone ping (local to this PC, never synced) ──
-    if (method === "GET" && path === "/api/phone-ping") {
-      return json(res, 200, { topic: phonePingTopic });
-    }
-    if (method === "PUT" && path === "/api/phone-ping") {
-      const body = phonePingBodySchema.safeParse(await readBody(req));
-      if (!body.success) return json(res, 400, { error: "topic must be a string" });
-      const parsed = parsePhonePingTopic(body.data.topic);
-      if (!parsed.ok) return json(res, 400, { error: parsed.error });
-      savePhonePingTopic(DATA_DIR, body.data.topic);
-      phonePingTopic = body.data.topic.trim();
-      return json(res, 200, { topic: phonePingTopic });
-    }
-    if (method === "POST" && path === "/api/phone-ping/test") {
-      const body = phonePingBodySchema.safeParse(await readBody(req));
-      const parsed = parsePhonePingTopic(body.success ? body.data.topic : phonePingTopic);
-      if (!parsed.ok) return json(res, 400, { error: parsed.error });
-      if (!parsed.target) return json(res, 400, { error: "Set a topic first" });
-      const result = await sendPhonePing(parsed.target, { title: "Orbit", message: "Test ping. Your phone is set up." });
-      return result.ok ? json(res, 200, { ok: true }) : json(res, 502, { error: result.error });
     }
 
     // ── web push (this PC's phone subscriptions, never synced) ──
