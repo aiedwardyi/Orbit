@@ -111,7 +111,7 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain("Show tool calls");
     expect(html).toContain("Failed tools, turn-level errors, and bot-to-bot messages still appear.");
     expect(html).toMatch(/aria-label="Show tool calls in chat"[^>]*aria-checked="false"|aria-checked="false"[^>]*aria-label="Show tool calls in chat"/);
-    expect(html).toContain("Match this computer");
+    expect(html).toContain(">Auto<");
     expect(html).toContain("Uses English or Korean from the operating system.");
     expect(html).toContain("aria-describedby");
     expect(html).not.toMatch(/title="Uses English or Korean from the operating system/);
