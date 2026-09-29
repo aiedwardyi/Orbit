@@ -41,13 +41,15 @@ type Press = {
   moved: boolean;
   dirty: boolean;
   marked: [HTMLElement, TouchDropMark] | null;
+  // in scroll content coordinates, dropped when the list's DOM changes
+  targets: { el: HTMLElement; left: number; right: number; top: number; bottom: number }[] | null;
   timer: ReturnType<typeof setTimeout>;
   frame: number;
   unbind: () => void;
 };
 
-/** Long-press then drag for touch inside the returned scroll list ref; mouse and pen never start it. */
-export function useTouchDrag(selector: string, handlers: TouchDragHandlers): (node: HTMLElement | null) => void {
+/** Long-press then drag for touch inside the returned scroll list ref; mouse and pen never start it. Moves aim at the innermost `targets` match. */
+export function useTouchDrag(selector: string, targets: string, handlers: TouchDragHandlers): (node: HTMLElement | null) => void {
   const [list, setList] = useState<HTMLElement | null>(null);
   const listRef = useCallback((node: HTMLElement | null) => setList(node), []);
   const latest = useRef(handlers);
@@ -62,11 +64,32 @@ export function useTouchDrag(selector: string, handlers: TouchDragHandlers): (no
       const target = list.ownerDocument.elementFromPoint(x, y);
       return target && list.contains(target) ? target : null;
     };
+    // not elementFromPoint: it walks every layer painted after the point, so rows high in a long list lagged
+    const under = (current: Press, x: number, y: number) => {
+      const box = list.getBoundingClientRect();
+      if (x < box.left || x >= box.right || y < box.top || y >= box.bottom) return null;
+      current.targets ??= [...list.querySelectorAll<HTMLElement>(targets)]
+        .filter((el) => !current.lifted?.contains(el))
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          return { el, left: rect.left, right: rect.right, top: rect.top + list.scrollTop, bottom: rect.bottom + list.scrollTop };
+        });
+      const top = y + list.scrollTop;
+      // innermost wins: a descendant always follows its ancestor
+      for (let i = current.targets.length - 1; i >= 0; i--) {
+        const target = current.targets[i]!;
+        if (x >= target.left && x < target.right && top >= target.top && top < target.bottom) return target.el;
+      }
+      return null;
+    };
+    const observer = new MutationObserver(() => {
+      if (press) press.targets = null;
+    });
     const follow = (current: Press) => {
       current.lifted?.style.setProperty("translate", `0 ${current.lastY - current.y + list.scrollTop - current.scrollTop}px`);
     };
     const aim = (current: Press) => {
-      const next = latest.current.over(hit(current.lastX, current.lastY), current.lastY);
+      const next = latest.current.over(under(current, current.lastX, current.lastY), current.lastY);
       if (next?.[0] === current.marked?.[0] && next?.[1] === current.marked?.[1]) return;
       current.marked?.[0].removeAttribute("data-touch-drop");
       next?.[0].setAttribute("data-touch-drop", next[1]);
@@ -79,6 +102,7 @@ export function useTouchDrag(selector: string, handlers: TouchDragHandlers): (no
       clearTimeout(done.timer);
       cancelAnimationFrame(done.frame);
       done.unbind();
+      observer.disconnect();
       done.marked?.[0].removeAttribute("data-touch-drop");
       if (done.lifted) {
         for (const key of [...Object.keys(LIFTED_STYLE), "translate"]) done.lifted.style.removeProperty(key);
@@ -96,8 +120,8 @@ export function useTouchDrag(selector: string, handlers: TouchDragHandlers): (no
       if (step) list.scrollTop += step;
       if (press.dirty || list.scrollTop !== before) {
         press.dirty = false;
-        follow(press);
         aim(press);
+        follow(press);
       }
       press.frame = requestAnimationFrame(tick);
     };
@@ -111,6 +135,7 @@ export function useTouchDrag(selector: string, handlers: TouchDragHandlers): (no
       press.lifted = lifted;
       for (const [key, value] of Object.entries(LIFTED_STYLE)) lifted.style.setProperty(key, value);
       lifted.setAttribute("data-touch-lifted", "");
+      observer.observe(list, { childList: true, subtree: true });
       hapticTick();
       press.frame = requestAnimationFrame(tick);
     };
@@ -134,6 +159,7 @@ export function useTouchDrag(selector: string, handlers: TouchDragHandlers): (no
         moved: false,
         dirty: false,
         marked: null,
+        targets: null,
         timer: setTimeout(lift, LONG_PRESS_MS),
         frame: 0,
         unbind: () => {},
@@ -176,7 +202,7 @@ export function useTouchDrag(selector: string, handlers: TouchDragHandlers): (no
       e.stopPropagation();
       const done = release()!;
       if (done.moved) {
-        latest.current.drop(hit(done.lastX, done.lastY), done.lastY);
+        latest.current.drop(under(done, done.lastX, done.lastY), done.lastY);
         return;
       }
       latest.current.cancel();
@@ -208,7 +234,7 @@ export function useTouchDrag(selector: string, handlers: TouchDragHandlers): (no
       list.removeEventListener("scroll", onScroll);
       cancel();
     };
-  }, [list, selector]);
+  }, [list, selector, targets]);
 
   return listRef;
 }

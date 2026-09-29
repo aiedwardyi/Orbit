@@ -2075,7 +2075,7 @@ export function Sidebar({
     sectionDragRef.current.over = over;
     return over ? [section!, over.place === "before" ? "top" : "bottom"] : null;
   };
-  const touchListRef = useTouchDrag("[data-sidebar-row], [data-sidebar-section-handle]", {
+  const touchListRef = useTouchDrag("[data-sidebar-row], [data-sidebar-section-handle]", "[data-sidebar-row], [data-sidebar-item-drop-zone]", {
     lift: (pressed) => {
       const item = touchRowItem(pressed);
       if (item) {

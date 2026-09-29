@@ -1525,6 +1525,23 @@ describe("Sidebar touch drag", () => {
       lastEventId: "",
     }));
     await vi.waitFor(() => expect(host.querySelectorAll("[data-sidebar-row]")).toHaveLength(bots.length));
+    // jsdom has no layout: rows 50px and section headers 40px, stacked in DOM order in a 1000px list
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      const own = this.closest("[data-sidebar-row], [data-sidebar-section-header]") ?? this;
+      let y = 0;
+      let top: number | null = null;
+      let bottom = 0;
+      for (const box of host.querySelectorAll("[data-sidebar-row], [data-sidebar-section-header]")) {
+        const next = y + (box.matches("[data-sidebar-row]") ? 50 : 40);
+        if (own.contains(box)) {
+          top ??= y;
+          bottom = next;
+        }
+        y = next;
+      }
+      if (own === this && top !== null && !this.matches("[data-sidebar-row], [data-sidebar-section-header], [data-sidebar-item-drop-zone]")) [top, bottom] = [0, 1000];
+      return { left: 0, right: 300, top: top ?? 0, bottom, x: 0, y: top ?? 0, width: 300, height: bottom - (top ?? 0) } as DOMRect;
+    });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const row = (id: string) => host.querySelector(`[data-sidebar-row-id="${id}"] [role="button"]`)!;
     const order = () => [...host.querySelectorAll("[data-sidebar-row]")].map((el) => el.getAttribute("data-sidebar-row-id"));
@@ -1533,7 +1550,11 @@ describe("Sidebar touch drag", () => {
       await act(async () => void touch(row(id), "touchstart"));
       await act(async () => void vi.advanceTimersByTime(LONG_PRESS_MS));
     };
-    const moveOver = async (target: Element | null, source: Element, y = 160) => {
+    const middle = (target: Element | null) => {
+      const rect = target?.getBoundingClientRect();
+      return rect ? (rect.top + rect.bottom) / 2 : 160;
+    };
+    const moveOver = async (target: Element | null, source: Element, y = middle(target)) => {
       under = target;
       await act(async () => {
         touch(source, "touchmove", 100, y);
@@ -1603,12 +1624,48 @@ describe("Sidebar touch drag", () => {
         expect(view.commits.count).toBe(before);
         expect(view.marked()).toBe(`${id}:top`);
       }
-      await view.moveOver(view.host.querySelector('[data-sidebar-item-drop-zone="unassigned"]'), view.row("d"));
+      await view.moveOver(view.host.querySelector('[data-sidebar-item-drop-zone="unassigned"] [data-sidebar-section-header]'), view.row("d"));
       expect(view.marked()).toBeNull();
       await view.moveOver(view.row("c"), view.row("d"));
       expect(view.commits.count).toBe(before);
       await act(async () => void touch(view.row("d"), "touchend"));
       expect(view.order()).toEqual(["a", "b", "d", "c"]);
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("aims moves and the drop without a browser hit test", async () => {
+    const view = await mount(["a", "b", "c", "d"].map(bot));
+    try {
+      await view.hold("d");
+      const hitTest = vi.spyOn(document, "elementFromPoint");
+      await view.moveOver(view.row("a"), view.row("d"));
+      await view.moveOver(view.row("b"), view.row("d"));
+      expect(view.marked()).toBe("b:top");
+      await act(async () => void touch(view.row("d"), "touchend"));
+      expect(hitTest).not.toHaveBeenCalled();
+      expect(view.order()).toEqual(["a", "d", "b", "c"]);
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("re-measures drop targets when a row leaves mid-drag", async () => {
+    const view = await mount(["a", "b", "c", "d"].map(bot));
+    try {
+      await view.hold("a");
+      await view.moveOver(view.row("c"), view.row("a"));
+      expect(view.marked()).toBe("c:bottom");
+      const cOld = view.row("c").getBoundingClientRect();
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "bot.deleted", botId: "b" }),
+        lastEventId: "c1",
+      }));
+      await vi.waitFor(() => expect(view.order()).toEqual(["a", "c", "d"]));
+      // d now sits where c was
+      await view.moveOver(view.row("d"), view.row("a"), (cOld.top + cOld.bottom) / 2);
+      expect(view.marked()).toBe("d:bottom");
     } finally {
       await view.unmount();
     }
