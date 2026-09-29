@@ -50,7 +50,9 @@ describe("QA 17 one Bot-details header entry", () => {
   it("wraps the header controls instead of overlapping at narrow widths", () => {
     expect(chatHeader).toContain("flex min-w-0 flex-wrap items-center justify-between");
     expect(chatHeader).toContain("flex min-w-0 flex-1 items-center");
-    expect(chatHeader).toContain("max-md:min-w-32");
+    expect(chatHeader).not.toContain("max-md:min-w-32");
+    expect(chatHeader).toContain("max-md:flex-nowrap");
+    expect(chatHeader).toContain("rounded-md p-1.5 hover:bg-raised max-md:hidden");
     expect(chatHeader).toContain("flex max-w-full shrink-0 flex-wrap items-center justify-end");
   });
 
@@ -273,7 +275,7 @@ describe("SettingsPanel still owns folder and usage", () => {
     );
     expect(html).not.toContain("Stays on the active engine by default, or choose a specific one");
     expect(settingsPanel).not.toContain("<ModelPicker");
-    expect(chatView).toContain("<ModelPicker bot={bot} />");
+    expect(chatView).toContain("<ModelPicker bot={bot}");
   });
 });
 

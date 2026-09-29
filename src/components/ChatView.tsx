@@ -1397,12 +1397,12 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
           // when the column is narrow (side panel open, small window)
           // py-1.5 below md: the 48px avatar row is the tallest of these headers,
           // so it needs the tighter padding to land on the shared 60px row.
-          "@container/chathead flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 px-5 py-3 max-md:py-1.5",
+          "@container/chathead flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 px-5 py-3 max-md:flex-nowrap max-md:py-1.5",
           // Room for the drawer button, which overlays this corner below md.
           sidebarOnRight ? DRAWER_HEADER_RIGHT : DRAWER_HEADER_LEFT,
         )}
       >
-        <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-lg px-1.5 py-1 max-md:min-w-32">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-lg px-1.5 py-1 max-md:min-w-[3.25rem]">
           <button
             data-orbit-chat-focus-fallback=""
             onClick={() => dispatch({ type: "toggleSettings", open: true })}
@@ -1418,7 +1418,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
               motionKey={mascotMotion?.nonce ?? 0}
             />
           </button>
-          <div className="min-w-0 flex-1 overflow-hidden">
+          <div className="min-w-0 flex-1 overflow-hidden max-md:hidden">
             <RenameTitle
               value={bot.name}
               onCommit={(name) => dispatch({ type: "updateBot", botId: bot.id, patch: { name } })}
@@ -1430,16 +1430,16 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
           </div>
           {bot.chiefOfStaff && (
             <span
-              className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-accent/12 px-2 py-0.5 text-[11px] font-medium text-accent"
+              className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-accent/12 px-2 py-0.5 text-[11px] font-medium text-accent max-md:hidden"
               title={t("chrome.chiefOfStaff")}
               aria-label={t("chrome.chiefOfStaff")}
             >
               <Crown size={11} aria-hidden="true" /> <span className="@max-xs/chathead:sr-only">{t("chrome.chiefOfStaff")}</span>
             </span>
           )}
-          {bot.busy && <Loader2 size={14} className="animate-spin text-ink-secondary" />}
+          {bot.busy && <Loader2 size={14} className="animate-spin text-ink-secondary max-md:hidden" />}
         </div>
-        <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2">
+        <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2 max-md:min-w-0 max-md:shrink max-md:flex-nowrap">
           {onOpenTerminal && (
             <button
               type="button"
@@ -1456,7 +1456,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
             aria-label={t("chat.findInConversation")}
             aria-pressed={findOpen}
             className={cn(
-              "rounded-md p-1.5 hover:bg-raised",
+              "rounded-md p-1.5 hover:bg-raised max-md:hidden",
               findOpen ? "text-accent" : "text-ink-secondary hover:text-ink",
             )}
             title={t("chat.findInConversation")}
@@ -1464,7 +1464,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
             <Search size={18} />
           </button>
           {showBotNewTaskControl() && <TaskPicker bot={bot} />}
-          <ModelPicker bot={bot} />
+          <ModelPicker bot={bot} className="max-md:min-w-0" />
           {callAvailable && <CallButton bot={bot} />}
           {showComputerPanelChrome() && (
           <button

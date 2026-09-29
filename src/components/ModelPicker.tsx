@@ -222,7 +222,7 @@ export function ModelPickerControl({
       aria-expanded={open}
       aria-haspopup="dialog"
       aria-keyshortcuts={shortcutEnabled ? "Alt+M" : undefined}
-      className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover"
+      className="flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover"
       title={modelChipTitle({ mode: selection.mode, instance: active, model: selection.model, effort: selection.effort }, t) + (shortcutEnabled ? ` (${shortcut}+M)` : "")}
     >
       {active ? <ProviderMark driverKind={active.driverKind} size={14} /> : <Sparkles size={14} className="text-accent" />}
@@ -237,7 +237,7 @@ export function ModelPickerControl({
         <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(active.driverKind) }} />
       )}
       {chipEffort && (
-        <span data-model-effort className={cn("shrink-0 whitespace-nowrap text-[12px] text-ink-secondary", !contained && "max-md:hidden")}>{" "}{chipEffortLabel(chipEffort, t)}</span>
+        <span data-model-effort className="shrink-0 whitespace-nowrap text-[12px] text-ink-secondary">{" "}{chipEffortLabel(chipEffort, t)}</span>
       )}
       <ChevronDown size={14} className={cn("shrink-0 text-ink-secondary", !contained && active && "@max-4xl/chathead:hidden")} />
     </button>
