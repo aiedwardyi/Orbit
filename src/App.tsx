@@ -26,6 +26,7 @@ import { showComputerPanelChrome } from "@/lib/friends-chrome";
 import { I18nProvider, useI18n } from "@/lib/i18n";
 import { buildTerminalNotification, showNotification, type NotificationTarget } from "@/lib/notify";
 import { focusComposerOnActivation } from "@/lib/focus-composer";
+import { webPushTarget } from "@/lib/web-push";
 import { usePhoneSwipe } from "@/lib/use-phone-swipe";
 import { BackNavigation, backDepth, followSelection, trailTarget, type BackLayer } from "@/lib/back-navigation";
 import { SKINS, applySkin, nextSkin, readSkin, type SkinId } from "@/lib/skins";
@@ -310,6 +311,30 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
         setTerminalViews((views) => ({ ...views, [target.botId]: false }));
       }
     });
+  }, [dispatch]);
+
+  // A tapped push notification: its /?bot=&thread= url on a cold open, or a worker message when already open.
+  const pushOpenTarget = useRef(webPushTarget(window.location.search));
+  const hydratedBots = state.bots.length > 0;
+  useEffect(() => {
+    const target = pushOpenTarget.current;
+    if (!target || !hydratedBots) return;
+    pushOpenTarget.current = null;
+    window.history.replaceState(window.history.state, "", window.location.pathname);
+    openNotificationTarget(dispatch, target, latestState.current);
+  }, [dispatch, hydratedBots]);
+  useEffect(() => {
+    const worker = window.ogb ? undefined : navigator.serviceWorker;
+    if (!worker) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type !== "orbit-open" || typeof event.data.url !== "string") return;
+      const target = webPushTarget(new URL(event.data.url, window.location.origin).search);
+      if (!target) return;
+      setTerminalViews((views) => ({ ...views, [target.botId]: false }));
+      openNotificationTarget(dispatch, target, latestState.current);
+    };
+    worker.addEventListener("message", onMessage);
+    return () => worker.removeEventListener("message", onMessage);
   }, [dispatch]);
 
   const taskbarBusy = state.bots.some((candidate) => candidate.busy);

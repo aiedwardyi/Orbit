@@ -149,6 +149,10 @@ export function showNotification(
       body: frame.body,
       ...buildNotificationOptions({ id: frame.botId, avatarUrl }),
     };
-    new Notification(frame.title, options).onclick = open;
+    try {
+      new Notification(frame.title, options).onclick = open;
+    } catch {
+      // Android browsers only allow worker notifications; Web Push covers the phone.
+    }
   }
 }

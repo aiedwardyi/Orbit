@@ -120,6 +120,17 @@ import {
   type PhonePing,
 } from "./phone-ping.ts";
 import {
+  addPushSubscription,
+  loadOrCreateVapidKeys,
+  loadPushSubscriptions,
+  pushEndpointSchema,
+  pushPayload,
+  pushSubscriptionSchema,
+  removePushSubscription,
+  sendWebPushToDevices,
+  type PushTarget,
+} from "./web-push.ts";
+import {
   isEffortLevel,
   type ModelSelection,
   type ProviderInstance,
@@ -2270,16 +2281,18 @@ function notify(notification: Notification | null, turnMs?: number) {
   // nested rather than spread — the frame's own `kind` names the frame,
   // exactly like {kind:"message", message} and {kind:"bot", bot}
   broadcast({ kind: "notify", notification });
-  phonePing(notification.botId, pingForNotification(notification, turnMs));
+  phonePing(notification.botId, pingForNotification(notification, turnMs), notification);
 }
 
 let phonePingTopic = loadPhonePingTopic(DATA_DIR);
 const phonePingAllowed = createPingLimiter();
+const WEB_PUSH_SUBJECT = REMOTE_HOST ? `https://${REMOTE_HOST}` : "mailto:orbit@localhost";
 
-function phonePing(botId: string, ping: PhonePing | null) {
+function phonePing(botId: string, ping: PhonePing | null, open: PushTarget) {
+  if (!ping || !phonePingAllowed(botId, ping.title, ping.message)) return;
   const parsed = parsePhonePingTopic(phonePingTopic);
-  if (!ping || !parsed.ok || !parsed.target || !phonePingAllowed(botId, ping.title, ping.message)) return;
-  void sendPhonePing(parsed.target, ping);
+  if (parsed.ok && parsed.target) void sendPhonePing(parsed.target, ping);
+  void sendWebPushToDevices(DATA_DIR, pushPayload(ping, open), WEB_PUSH_SUBJECT).catch((cause) => console.warn(`web-push: ${cause}`));
 }
 
 // Group threads: the fold needs to know WHO is talking — the turn engine
@@ -6036,7 +6049,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const note = mailboxNoteText(scope.pane, source.name || source.id, source.id, parsed.data.text, label);
       if (!note) return json(res, 400, { error: "empty message" });
       const message = store.appendMessage(teacher.threadId, { role: "bot", kind: "note", text: note });
-      if (source.notifications !== false) phonePing(source.id, pingForMailbox(source.name || source.id, parsed.data.text));
+      if (source.notifications !== false) phonePing(source.id, pingForMailbox(source.name || source.id, parsed.data.text), { botId: teacher.id, threadId: teacher.threadId });
       void raisePaneAttention(terminalBridgeAccess, scope.bot, scope.pane);
       paneWake.noteArrived(teacher.id, teacher.threadId);
       return json(res, 200, { ok: true, id: message.id });
@@ -7024,6 +7037,33 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!parsed.target) return json(res, 400, { error: "Set a topic first" });
       const result = await sendPhonePing(parsed.target, { title: "Orbit", message: "Test ping. Your phone is set up." });
       return result.ok ? json(res, 200, { ok: true }) : json(res, 502, { error: result.error });
+    }
+
+    // ── web push (this PC's phone subscriptions, never synced) ──
+    if (method === "GET" && path === "/api/web-push") {
+      return json(res, 200, { publicKey: loadOrCreateVapidKeys(DATA_DIR).publicKey });
+    }
+    if (method === "POST" && path === "/api/web-push/subscribe") {
+      const body = pushSubscriptionSchema.safeParse(await readBody(req));
+      if (!body.success) return json(res, 400, { error: "invalid push subscription" });
+      addPushSubscription(DATA_DIR, body.data);
+      return json(res, 200, { ok: true });
+    }
+    if (method === "POST" && path === "/api/web-push/unsubscribe") {
+      const body = pushEndpointSchema.safeParse(await readBody(req));
+      if (!body.success) return json(res, 400, { error: "endpoint must be a string" });
+      removePushSubscription(DATA_DIR, body.data.endpoint);
+      return json(res, 200, { ok: true });
+    }
+    if (method === "POST" && path === "/api/web-push/test") {
+      const body = pushEndpointSchema.safeParse(await readBody(req));
+      if (!body.success) return json(res, 400, { error: "endpoint must be a string" });
+      if (!loadPushSubscriptions(DATA_DIR).some((sub) => sub.endpoint === body.data.endpoint)) {
+        return json(res, 404, { error: "This device is not subscribed" });
+      }
+      const test = { title: "Orbit", body: "Test notification. Your phone is set up.", tag: "orbit:test", url: "/" };
+      const [result] = await sendWebPushToDevices(DATA_DIR, test, WEB_PUSH_SUBJECT, body.data.endpoint);
+      return result?.ok ? json(res, 200, { ok: true }) : json(res, 502, { error: result?.error ?? "push failed" });
     }
 
     // ── bots ──
