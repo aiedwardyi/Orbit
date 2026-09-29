@@ -47,7 +47,12 @@ export function useThreadMessage(threadId: string, messageId: string | undefined
   return held ?? (fetched && fetched.id === messageId ? fetched : undefined);
 }
 
-type JumpWindow = { key: string; targetId: string; messages: Message[]; hasMore: boolean };
+type JumpWindow = { key: string; targetId: string; messages: Message[]; hasMore: boolean; snapshot: number };
+
+async function fetchAround(threadId: string, messageId: string): Promise<{ rows: Message[]; hasMore: boolean }> {
+  const page = await api(`/api/threads/${threadId}/messages?around=${encodeURIComponent(messageId)}&limit=${MESSAGE_PAGE}`);
+  return { rows: Array.isArray(page?.messages) ? page.messages : [], hasMore: page?.hasMore === true };
+}
 
 /** The branch through `targetId` in a fetched window: its ancestors, then the
  * child on `active` at each fork, else the newest. */
@@ -79,8 +84,10 @@ export function useJumpWindow(
   loaded: Message[],
   leafId: string | null | undefined,
   patches: Record<string, Message> | undefined,
+  snapshot: number,
 ) {
   const [held, setHeld] = useState<JumpWindow | null>(null);
+  const [pending, setPending] = useState(false);
   const inflight = useRef(false);
   const latest = useRef(0);
   // leaving the view drops the window; coming back opens at the newest message
@@ -99,20 +106,34 @@ export function useJumpWindow(
   const open = useCallback(
     (messageId: string) => {
       const generation = ++latest.current;
-      api(`/api/threads/${threadId}/messages?around=${encodeURIComponent(messageId)}&limit=${MESSAGE_PAGE}`)
-        .then((page) => {
+      setPending(true);
+      fetchAround(threadId, messageId)
+        .then(({ rows, hasMore }) => {
           if (generation !== latest.current) return;
-          const rows: Message[] = Array.isArray(page?.messages) ? page.messages : [];
-          const hasMore = page?.hasMore === true;
           // reaches the loaded pages: join them instead of opening a detached window
           const joins = head ? rows.findIndex((message) => message.id === head) : -1;
           if (joins >= 0) dispatch({ type: "olderMessages", threadId, before: head!, messages: rows.slice(0, joins), hasMore });
-          else setHeld({ key, targetId: messageId, messages: rows, hasMore });
+          else setHeld({ key, targetId: messageId, messages: rows, hasMore, snapshot });
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => {
+          if (generation === latest.current) setPending(false);
+        });
     },
-    [dispatch, key, threadId, head],
+    [dispatch, key, threadId, head, snapshot],
   );
+  // a snapshot clears the patches the window shows; refetch so the server's copy replaces the stale rows
+  useEffect(() => {
+    if (!current || current.snapshot === snapshot) return;
+    const generation = ++latest.current;
+    fetchAround(threadId, current.targetId)
+      .then(({ rows, hasMore }) => {
+        if (generation !== latest.current) return;
+        setHeld((w) => (w && w.key === key && w.targetId === current.targetId ? { ...w, messages: rows, hasMore, snapshot } : w));
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot]);
   const older = useCallback(
     (beforeCommit?: () => void) => {
       const before = current?.messages[0]?.id;
@@ -133,7 +154,7 @@ export function useJumpWindow(
     [current, key, threadId],
   );
   const close = useCallback(() => setHeld(null), []);
-  return { messages, hasMore: Boolean(current?.hasMore), open, older, close };
+  return { messages, hasMore: Boolean(current?.hasMore), pending, open, older, close };
 }
 
 /** Loads the page before `oldestId`, one request at a time. `beforeCommit`
@@ -147,7 +168,7 @@ export function useOlderMessages(
   // One view serves many threads; a page still loading for one must not block another.
   const inflight = useRef(new Set<string>());
   return useCallback(
-    (beforeCommit?: () => void) => {
+    (beforeCommit?: () => void, onFail?: () => void) => {
       if (!hasMore || !oldestId || inflight.current.has(threadId)) return;
       inflight.current.add(threadId);
       fetchOlderPage(threadId, oldestId)
@@ -155,7 +176,7 @@ export function useOlderMessages(
           beforeCommit?.();
           dispatch({ type: "olderMessages", threadId, before: oldestId, ...page });
         })
-        .catch(() => {})
+        .catch(() => onFail?.())
         .finally(() => inflight.current.delete(threadId));
     },
     [dispatch, threadId, oldestId, hasMore],

@@ -612,6 +612,8 @@ export interface AppState {
   /** Patches for rows older than every loaded page, keyed by threadId then
    * message id. An older page applies them before it lands. */
   olderPatches: Record<string, Record<string, Message>>;
+  /** Snapshots applied so far; a jump window fetched before one is stale. */
+  snapshots: number;
   /** Session dismissals for the Continuity strip, keyed by thread. A later
    * crash/stop/shutdown packet with a new updatedAt may show again. */
   dismissedTaskRecovery: Record<string, { updatedAt: number; flushReason: TaskResumePacket["flushReason"] }>;
@@ -969,6 +971,7 @@ export function reducer(state: AppState, action: Action): AppState {
           bots: action.bots.map((b) => (b.messages ? { ...b, messages: keepNewestScreenFrames(b.messages) } : b)),
           groups: action.groups,
           olderPatches: {},
+          snapshots: state.snapshots + 1,
           computerControl: action.computerControl,
           terminalAttention: Object.fromEntries(
             Object.entries(state.terminalAttention).filter(([, attention]) => action.bots.some((bot) => bot.id === attention.botId)),
@@ -1855,6 +1858,7 @@ export const initialState: AppState = {
   pendingQueued: {},
   consumedQueueIds: {},
   olderPatches: {},
+  snapshots: 0,
   dismissedTaskRecovery: {},
   acceptedSends: {},
   terminalAttention: {},

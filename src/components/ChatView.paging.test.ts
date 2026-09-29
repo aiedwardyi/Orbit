@@ -414,4 +414,129 @@ describe("paged transcripts", () => {
     expect(calls.filter((call) => call.includes("before="))).toHaveLength(3);
     expect(store.state.bots[0]!.messages).toHaveLength(800);
   });
+
+  const snapshot = (bots: Bot[]) =>
+    act(async () => store.dispatch({ type: "hydrate", bots, groups: [], computerControl: {}, sidebarOrder: [] } as never));
+
+  it("keeps the reader on the same row when a snapshot drops the scrollback they were in", async () => {
+    const thread = rows(0, 600);
+    pagedServer("thread-a", thread, { bots: [bot(thread.slice(-200), true)], groups: [] });
+    const host = await mount("chat");
+    await vi.waitFor(() => expect(host.textContent).toContain("row 599;"));
+    const scroller = host.querySelector("[data-orbit-transcript]") as HTMLElement;
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => host.querySelectorAll("[data-mid]").length * 10 });
+    scroller.scrollTop = 0;
+    await act(async () => button(host, "Show earlier messages (80 more)")!.click());
+    await act(async () => button(host, "Show earlier messages")!.click());
+    await vi.waitFor(() => expect(store.state.bots[0]!.messages).toHaveLength(400));
+    expect(host.querySelector('[data-mid="m280"]')).not.toBeNull();
+    scroller.scrollTop = 0;
+    await snapshot([bot(thread.slice(-200), true)]);
+    await vi.waitFor(() => expect(host.querySelector('[data-mid="m280"]')).not.toBeNull());
+    expect(store.state.bots[0]!.messages).toHaveLength(200);
+  });
+
+  it("refetches an open jump window after a snapshot so its reactions stay", async () => {
+    const thread = rows(0, 5000);
+    const calls = pagedServer("thread-a", thread, { bots: [bot(thread.slice(-200), true)], groups: [] });
+    const host = await mount("chat");
+    await vi.waitFor(() => expect(host.textContent).toContain("row 4999;"));
+    await act(async () => store.dispatch({ type: "focusMessage", threadId: "thread-a", messageId: "m2500" }));
+    await vi.waitFor(() => expect(host.querySelector('[data-mid="m2500"]')).not.toBeNull());
+    await act(async () => store.dispatch({ type: "toggleReaction", threadId: "thread-a", messageId: "m2499", emoji: "🎉", message: row(2499) }));
+    expect(host.querySelector('[data-mid="m2499"]')!.textContent).toContain("🎉");
+    thread[2499] = { ...row(2499), reactions: [{ emoji: "🎉", by: "user" }] } as Message;
+    await snapshot([bot(thread.slice(-200), true)]);
+    await vi.waitFor(() => expect(host.querySelector('[data-mid="m2499"]')!.textContent).toContain("🎉"));
+    expect(calls.filter((call) => call.includes("around=m2500"))).toHaveLength(2);
+  });
+
+  it("retries a failed edit-join page instead of stranding the branch", async () => {
+    const link = (i: number): Message => ({ ...row(i), parentId: i ? `m${i - 1}` : null });
+    const thread = Array.from({ length: 1000 }, (_, i) => link(i));
+    pagedServer("thread-a", thread, { bots: [{ ...bot(thread.slice(-200), true), activeLeafId: "m999" }], groups: [] });
+    const served = globalThis.fetch as (url: string) => Promise<Response>;
+    let failed = false;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (String(url).includes("before=") && !failed) {
+        failed = true;
+        return new Response("{}", { status: 500 });
+      }
+      return served(url);
+    }));
+    const host = await mount("chat");
+    await vi.waitFor(() => expect(host.textContent).toContain("row 999;"));
+    await act(async () => store.dispatch({ type: "focusMessage", threadId: "thread-a", messageId: "m500" }));
+    await vi.waitFor(() => expect(host.querySelector('[data-mid="m500"]')).not.toBeNull());
+    await act(async () => (host.querySelector('[data-mid="m500"] [aria-label="Edit message"]') as HTMLElement).click());
+    await act(async () => button(host, "Send")!.click());
+    await arrive("thread-a", { id: "e1", at: 2, role: "user", kind: "text", text: "edited;", parentId: "m499" });
+    await vi.waitFor(() => expect(host.querySelector('[data-mid="m499"]')).not.toBeNull(), { timeout: 4000 });
+    expect(failed).toBe(true);
+  });
+
+  it("resumes the edit join when the reader returns from another bot", async () => {
+    const link = (p: string, i: number): Message => ({ id: `${p}${i}`, at: 1, role: "user", kind: "text", text: `${p} row ${i};`, parentId: i ? `${p}${i - 1}` : null });
+    const threads: Record<string, Message[]> = {
+      "thread-a": Array.from({ length: 1000 }, (_, i) => link("a", i)),
+      "thread-b": Array.from({ length: 300 }, (_, i) => ({ ...link("b", i), parentId: undefined })),
+    };
+    const a = { ...bot(threads["thread-a"]!.slice(-200), true), activeLeafId: "a999" };
+    const b = { ...bot(threads["thread-b"]!.slice(-200), true), id: "b", threadId: "thread-b", name: "B" } as Bot;
+    let releasePage = () => {};
+    let held = false;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const path = String(url);
+      if (path === "/api/bots?messages=200") return Response.json({ bots: [a, b], groups: [], computerControl: {} });
+      const page = path.match(/^\/api\/threads\/([\w-]+)\/messages\?limit=(\d+)&before=(\w+)$/);
+      if (page) {
+        const all = threads[page[1]!]!;
+        const stop = all.findIndex((message) => message.id === page[3]);
+        const start = Math.max(0, stop - Number(page[2]));
+        const body = () => Response.json({ messages: all.slice(start, stop), hasMore: start > 0 });
+        if (!held) {
+          held = true;
+          return new Promise<Response>((resolve) => (releasePage = () => resolve(body())));
+        }
+        return body();
+      }
+      const around = path.match(/^\/api\/threads\/([\w-]+)\/messages\?around=(\w+)&limit=200$/);
+      if (around) {
+        const all = threads[around[1]!]!;
+        const index = all.findIndex((message) => message.id === around[2]);
+        return Response.json({ messages: all.slice(Math.max(0, index - 99), index + 101), hasMore: index > 99 });
+      }
+      return new Promise<Response>(() => {});
+    }));
+    const host = await mount("chat");
+    await act(async () => store.dispatch({ type: "select", id: "a" }));
+    await vi.waitFor(() => expect(host.textContent).toContain("a row 999;"));
+    await act(async () => store.dispatch({ type: "focusMessage", threadId: "thread-a", messageId: "a500" }));
+    await vi.waitFor(() => expect(host.querySelector('[data-mid="a500"]')).not.toBeNull());
+    await act(async () => (host.querySelector('[data-mid="a500"] [aria-label="Edit message"]') as HTMLElement).click());
+    await act(async () => button(host, "Send")!.click());
+    await arrive("thread-a", { id: "e1", at: 2, role: "user", kind: "text", text: "edited;", parentId: "a499" });
+    await vi.waitFor(() => expect(held).toBe(true));
+    await act(async () => store.dispatch({ type: "select", id: "b" }));
+    await vi.waitFor(() => expect(host.textContent).toContain("b row 299;"));
+    await act(async () => releasePage());
+    await vi.waitFor(() => expect(store.state.bots.find((candidate) => candidate.id === "a")!.messages.length).toBeGreaterThanOrEqual(400));
+    await act(async () => store.dispatch({ type: "select", id: "a" }));
+    await vi.waitFor(() => expect(store.state.bots.find((candidate) => candidate.id === "a")!.messages.some((message) => message.id === "a499")).toBe(true));
+  });
+
+  it("stops leaf paging once a search hit opens a jump window", async () => {
+    const link = (i: number): Message => ({ ...row(i), parentId: i ? `m${i - 1}` : null });
+    const thread = Array.from({ length: 3000 }, (_, i) => link(i));
+    const calls = pagedServer("thread-a", thread, { bots: [bot(thread.slice(-200), true)], groups: [] });
+    const host = await mount("chat");
+    await vi.waitFor(() => expect(host.textContent).toContain("row 2999;"));
+    await act(async () => {
+      store.dispatch({ type: "threadActive", threadId: "thread-a", activeLeafId: "m100" });
+      store.dispatch({ type: "focusMessage", threadId: "thread-a", messageId: "m110" });
+    });
+    await vi.waitFor(() => expect(host.querySelector('[data-mid="m110"]')).not.toBeNull());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 100)));
+    expect(calls.filter((call) => call.includes("before=")).length).toBeLessThanOrEqual(1);
+  });
 });

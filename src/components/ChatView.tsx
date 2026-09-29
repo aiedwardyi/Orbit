@@ -103,6 +103,9 @@ const USER_COLLAPSE_CHARS = 600;
 const USER_COLLAPSE_LINES = 8;
 /** Older pages fetched looking for the prompt behind a bot-only branch. */
 const PROMPT_PAGES = 3;
+/** Tries at a scrollback page during an edit join before it waits for Show earlier. */
+const JOIN_TRIES = 3;
+const JOIN_RETRY_MS = 1000;
 
 const NOTE_HEADER = /^\[pane ([0-9a-f]{1,8})\](?: \[([^\]]+)\])?/;
 
@@ -1063,7 +1066,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   // lastUserMessage, working dots) stays computed from the FULL list.
   const transcriptKey = `${bot.id}:${bot.threadId}`;
   // an old jump shows its own window; the live pages below keep taking arrivals
-  const jump = useJumpWindow(dispatch, transcriptKey, bot.threadId, bot.messages, bot.activeLeafId, state.olderPatches[bot.threadId]);
+  const jump = useJumpWindow(dispatch, transcriptKey, bot.threadId, bot.messages, bot.activeLeafId, state.olderPatches[bot.threadId], state.snapshots);
   const shown = jump.messages ?? messages;
   const showToolCalls = showToolCallsEnabled(state.config);
   const renders = useCallback(
@@ -1087,6 +1090,12 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   // The window is index-based, so an older page landing on top shifts it.
   const loadOlder = useOlderMessages(dispatch, bot.threadId, bot.messages[0]?.id, bot.hasMore);
   const revealOlder = useRef(false);
+  // the window's first row, so a snapshot that replaces the head can re-anchor by id
+  const windowAnchor = useRef<{ id?: string; index: number }>({ index: 0 });
+  const [seenSnapshot, setSeenSnapshot] = useState(state.snapshots);
+  const [reanchor, setReanchor] = useState<string | null>(null);
+  const rehydrated = seenSnapshot !== state.snapshots;
+  if (rehydrated) setSeenSnapshot(state.snapshots);
   const head = shown[0]?.id;
   const [windowHead, setWindowHead] = useState(head);
   if (windowHead !== head) {
@@ -1099,6 +1108,15 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
       const reveal = revealOlder.current;
       revealOlder.current = false;
       setTranscriptWindow((w) => shiftForPrepend(w, prepended, reveal));
+    } else if (prepended < 0) {
+      const { id, index } = windowAnchor.current;
+      const at = id ? shown.findIndex((message) => message.id === id) : -1;
+      if (at >= 0) setTranscriptWindow((w) => shiftForPrepend(w, at - index, false));
+      else if (rehydrated && id) {
+        // the reader's row is older than the new snapshot: reopen around it
+        setReanchor(id);
+        setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(messages.length, TRANSCRIPT_WINDOW_SIZE, renders), end: null });
+      }
     }
   }
   const {
@@ -1111,6 +1129,9 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
     () => resolveTranscriptWindow(shown, transcriptWindow.start, TRANSCRIPT_WINDOW_SIZE, transcriptWindow.end),
     [shown, transcriptWindow.start, transcriptWindow.end],
   );
+  useLayoutEffect(() => {
+    windowAnchor.current = { id: windowedMessages[0]?.id, index: startIndex };
+  });
 
   const lastBotTextId = useMemo(
     () => [...messages].reverse().find((m) => m.role === "bot" && m.kind === "text")?.id,
@@ -1140,6 +1161,8 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   const cancelEdit = useCallback(() => setEditingId(null), []);
   // An edit in a jump window forks off an old parent: back to the tail, paging until the parent lands.
   const [editJoin, setEditJoin] = useState<{ key: string; parentId: string } | null>(null);
+  const joinFails = useRef(0);
+  const [joinRetry, setJoinRetry] = useState(0);
   const { close: closeJump } = jump;
   const submitEdit = useCallback(
     (messageId: string, text: string) => {
@@ -1149,7 +1172,10 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
         closeJump();
         setBottomFollow(true);
         setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(messages.length, TRANSCRIPT_WINDOW_SIZE, renders), end: null });
-        if (edited.parentId) setEditJoin({ key: transcriptKey, parentId: edited.parentId });
+        if (edited.parentId) {
+          joinFails.current = 0;
+          setEditJoin({ key: transcriptKey, parentId: edited.parentId });
+        }
       }
       dispatch({ type: "editMessage", botId: bot.id, messageId, text });
     },
@@ -1161,15 +1187,25 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   );
   // The selected leaf, or the prompt behind a long tool run, can sit on an
   // older page. Page back until the leaf lands; the prompt gets a few pages.
-  const leafPaging = Boolean(bot.hasMore) && canonicalMessages.length === 0;
+  const leafPaging = Boolean(bot.hasMore) && canonicalMessages.length === 0 && !jump.messages && !jump.pending;
   const promptPaging = Boolean(bot.hasMore) && Boolean(canonicalMessages[0]?.parentId) && !lastUserMessage;
   const joinPaging = editJoin?.key === transcriptKey && Boolean(bot.hasMore) && !bot.messages.some((message) => message.id === editJoin.parentId);
-  if (editJoin && !joinPaging) setEditJoin(null);
+  // another view's join is kept; it resumes when its conversation is shown again
+  if (editJoin?.key === transcriptKey && !joinPaging) setEditJoin(null);
   const promptPages = useRef({ key: transcriptKey, cursors: new Set<string>() });
   const cursor = bot.messages[0]?.id;
   useEffect(() => {
-    if (leafPaging || joinPaging) {
+    if (leafPaging) {
       loadOlder();
+      return;
+    }
+    if (joinPaging) {
+      loadOlder(
+        () => (joinFails.current = 0),
+        () => {
+          if (++joinFails.current < JOIN_TRIES) setTimeout(() => setJoinRetry((n) => n + 1), JOIN_RETRY_MS);
+        },
+      );
       return;
     }
     if (!promptPaging || !cursor) return;
@@ -1178,7 +1214,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
     if (!cursors.has(cursor) && cursors.size >= PROMPT_PAGES) return;
     cursors.add(cursor);
     loadOlder();
-  }, [leafPaging, joinPaging, promptPaging, loadOlder, cursor, transcriptKey]);
+  }, [leafPaging, joinPaging, joinRetry, promptPaging, loadOlder, cursor, transcriptKey]);
 
   // Stream buffers belong to the canonical tail, never an optimistic send.
   const lastMessage = canonicalMessages.at(-1);
@@ -1225,6 +1261,11 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
   const appliedFocus = useRef<number | null>(null);
   const requestedFocus = useRef<number | null>(null);
   const { open: openJump } = jump;
+  useEffect(() => {
+    if (!reanchor) return;
+    setReanchor(null);
+    if (!followRef.current && bot.hasMore) dispatch({ type: "focusMessage", threadId: bot.threadId, messageId: reanchor });
+  }, [reanchor, bot.hasMore, bot.threadId, dispatch]);
   useEffect(() => {
     const focus = state.focusMessage;
     if (!focus || focus.consumed || focus.threadId !== bot.threadId || appliedFocus.current === focus.nonce) return;

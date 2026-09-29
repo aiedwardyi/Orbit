@@ -43,6 +43,7 @@ type Press = {
   marked: [HTMLElement, TouchDropMark] | null;
   timer: ReturnType<typeof setTimeout>;
   frame: number;
+  unbind: () => void;
 };
 
 /** Long-press then drag for touch inside the returned scroll list ref; mouse and pen never start it. */
@@ -77,6 +78,7 @@ export function useTouchDrag(selector: string, handlers: TouchDragHandlers): (no
       press = null;
       clearTimeout(done.timer);
       cancelAnimationFrame(done.frame);
+      done.unbind();
       done.marked?.[0].removeAttribute("data-touch-drop");
       if (done.lifted) {
         for (const key of [...Object.keys(LIFTED_STYLE), "translate"]) done.lifted.style.removeProperty(key);
@@ -134,7 +136,20 @@ export function useTouchDrag(selector: string, handlers: TouchDragHandlers): (no
         marked: null,
         timer: setTimeout(lift, LONG_PRESS_MS),
         frame: 0,
+        unbind: () => {},
       };
+      // React removing the pressed node stops its touches bubbling to the list
+      const node = e.target;
+      if (node instanceof HTMLElement && node !== list) {
+        node.addEventListener("touchmove", onMove, { passive: false });
+        node.addEventListener("touchend", onEnd);
+        node.addEventListener("touchcancel", cancel);
+        press.unbind = () => {
+          node.removeEventListener("touchmove", onMove);
+          node.removeEventListener("touchend", onEnd);
+          node.removeEventListener("touchcancel", cancel);
+        };
+      }
     };
     const onMove = (e: TouchEvent) => {
       const touch = e.touches[0];

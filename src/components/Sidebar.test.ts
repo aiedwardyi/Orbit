@@ -1681,6 +1681,21 @@ describe("Sidebar touch drag", () => {
     }
   });
 
+  it("ends the press when the pressed child leaves the DOM", async () => {
+    const view = await mount(["a", "b", "c"].map(bot));
+    try {
+      const child = view.row("a").firstElementChild!;
+      await act(async () => void touch(child, "touchstart"));
+      child.remove();
+      await act(async () => void vi.advanceTimersByTime(LONG_PRESS_MS));
+      expect(view.lifted()).toBe("a");
+      await act(async () => void touch(child, "touchend"));
+      expect(view.lifted()).toBeNull();
+    } finally {
+      await view.unmount();
+    }
+  });
+
   it("keeps the phone swipe from switching bots while a row is lifted", async () => {
     const onSelect = vi.fn();
     const view = await mount(["a", "b", "c"].map(bot), createElement(SwipeStage, { onSelect }));
