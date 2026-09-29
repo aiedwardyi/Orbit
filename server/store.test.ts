@@ -762,6 +762,20 @@ describe("Store", () => {
     expect(task?.lastModel).toBe("gpt-5.2");
   });
 
+  it("renameModel moves saved Claude selections off a retired model and leaves other engines", () => {
+    const store = new Store(selection);
+    const claude = store.createBot();
+    const droid = store.createBot({ modelSelection: { instanceId: "droid", model: "claude-sonnet-5" } });
+    store.markTaskDispatched(claude.id, claude.threadId, "claude", "claude-sonnet-5");
+
+    store.renameModel(["claude"], "claude-sonnet-5", "claude-sonnet-5-5");
+
+    const reloaded = new Store(selection);
+    expect(reloaded.bot(claude.id)?.modelSelection.model).toBe("claude-sonnet-5-5");
+    expect(reloaded.taskByThread(claude.id, claude.threadId)?.lastModel).toBe("claude-sonnet-5-5");
+    expect(reloaded.bot(droid.id)?.modelSelection.model).toBe("claude-sonnet-5");
+  });
+
   it("seedIfEmpty creates exactly one starter bot, once", () => {
     const store = new Store(selection);
     store.seedIfEmpty();

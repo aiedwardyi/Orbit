@@ -1490,6 +1490,22 @@ export class Store {
     this.saveBots();
   }
 
+  /** Repoint saved bot selections and task continuity from a retired model id. */
+  renameModel(instanceIds: string[], from: string, to: string) {
+    let changed = false;
+    for (const b of this.bots) {
+      if (!instanceIds.includes(b.modelSelection.instanceId) || b.modelSelection.model !== from) continue;
+      b.modelSelection.model = to;
+      changed = true;
+    }
+    for (const task of this.bots.flatMap((b) => b.tasks ?? [])) {
+      if (task.lastInstanceId === undefined || !instanceIds.includes(task.lastInstanceId) || task.lastModel !== from) continue;
+      task.lastModel = to;
+      changed = true;
+    }
+    if (changed) this.saveBots();
+  }
+
   /** Record which instance just took a turn on this task. Called at
    * dispatch, not at cursor time — transcript-replay engines never
    * produce a cursor, and they still count as having run last. */

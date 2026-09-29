@@ -4,7 +4,7 @@ const DEFAULTS = new Map<string, EffortLevel>([
   ["claudeAgent:claude-fable-5-1", "high"],
   ["claudeAgent:claude-fable-5", "high"],
   ["claudeAgent:claude-opus-5-5", "high"],
-  ["claudeAgent:claude-sonnet-5", "high"],
+  ["claudeAgent:claude-sonnet-5-5", "high"],
   ["codex:gpt-6-astra", "low"],
   ["codex:gpt-6-sol", "low"],
   ["codex:gpt-5.6-terra", "medium"],

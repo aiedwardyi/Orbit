@@ -70,7 +70,7 @@ describe("MSP Muse driver", () => {
     for (const model of ["muse-spark-1.3", "muse-spark-1.3-contributor", "muse-spark-1.2"]) {
       expect(defaultModelEffort("museAgent", model, [...MSP_MUSE_EFFORT_LEVELS])).toBeUndefined();
     }
-    expect(defaultModelEffort("claudeAgent", "claude-sonnet-5", ["low", "medium", "high", "xhigh", "max"])).toBe(
+    expect(defaultModelEffort("claudeAgent", "claude-sonnet-5-5", ["low", "medium", "high", "xhigh", "max"])).toBe(
       "high",
     );
   });

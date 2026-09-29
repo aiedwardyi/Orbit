@@ -37,11 +37,11 @@ describe("picker catalogs", () => {
   it("orders the model column frontier-first without changing the catalog default", () => {
     const instance: InstanceInfo = {
       instanceId: "claude", driverKind: "claudeAgent", displayName: "Claude", snapshot: { state: "available" },
-      models: { default: "claude-sonnet-5", options: ["claude-sonnet-5", "claude-opus-5-5", "claude-fable-5", "claude-fable-5-1"].map((id) => ({ id, label: id })) },
+      models: { default: "claude-sonnet-5-5", options: ["claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5", "claude-fable-5-1"].map((id) => ({ id, label: id })) },
     };
     const before = JSON.stringify(instance.models);
     const rows = pickerRows([instance], { instanceId: "claude", model: "claude-opus-5-5", mode: "pinned" });
-    expect(rows[0]!.cells.map((cell) => cell.options[0]!.id)).toEqual(["claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-sonnet-5"]);
+    expect(rows[0]!.cells.map((cell) => cell.options[0]!.id)).toEqual(["claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-sonnet-5-5"]);
     expect(JSON.stringify(instance.models)).toBe(before);
   });
 

@@ -94,7 +94,7 @@ describe("automatic usage ranking", () => {
 
 describe("resolveAutomaticSelection", () => {
   it.each([
-    ["claudeAgent", "claude-sonnet-5", "high"],
+    ["claudeAgent", "claude-sonnet-5-5", "high"],
     ["codex", "gpt-6-astra", "low"],
     ["codex", "gpt-5.6-terra", "medium"],
     ["grokAgent", "grok-4.6", "high"],

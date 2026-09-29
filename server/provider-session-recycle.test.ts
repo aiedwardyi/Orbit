@@ -263,7 +263,7 @@ describe("provider session recycle after Orbit compaction", () => {
   it("leaves the native budget off for a driver whose input is an invocation total", () => {
     // Claude's catalog now states 200k, but its turn `input` sums every tool
     // round's cache read, so the window comparison stays gated off.
-    const knownWindow = knownCatalogContextWindow(STATIC_CLAUDE_MODELS, "claude-sonnet-5");
+    const knownWindow = knownCatalogContextWindow(STATIC_CLAUDE_MODELS, "claude-sonnet-5-5");
     expect(knownWindow).toBe(200_000);
     const gated = (turnInputIsPromptSize: boolean) =>
       shouldRecycleProviderSession({
