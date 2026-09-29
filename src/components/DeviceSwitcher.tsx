@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Monitor } from "lucide-react";
+import { Check, Monitor, Pencil } from "lucide-react";
 
 import { useI18n } from "@/lib/i18n";
 import { isPhone } from "@/lib/phone-swipe";
@@ -18,6 +18,7 @@ export function DeviceSwitcher({ navigate = (url) => window.location.assign(url)
   const { t } = useI18n();
   const [devices, setDevices] = useState<DeviceItem[]>([]);
   const [open, setOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
 
   useEffect(() => {
     if (!isPhone()) return;
@@ -41,11 +42,26 @@ export function DeviceSwitcher({ navigate = (url) => window.location.assign(url)
 
   if (devices.length < 2 || !isPhone()) return null;
 
+  const close = () => {
+    setOpen(false);
+    setRenaming(false);
+  };
+  const rename = (value: string) => {
+    const name = value.trim();
+    if (!name || name.length > 64) return;
+    api("/api/devices/name", { method: "PUT", body: JSON.stringify({ name }) })
+      .then((body: { name: string }) => {
+        setDevices((list) => list.map((device) => (device.current ? { ...device, name: body.name } : device)));
+        setRenaming(false);
+      })
+      .catch(() => {});
+  };
+
   return (
     <div data-device-switcher>
       <button
         type="button"
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => (open ? close() : setOpen(true))}
         aria-expanded={open}
         aria-label={t("chrome.devices")}
         className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
@@ -55,31 +71,62 @@ export function DeviceSwitcher({ navigate = (url) => window.location.assign(url)
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-30" onMouseDown={() => setOpen(false)} />
+          <div className="fixed inset-0 z-30" onMouseDown={close} />
           <ul className="absolute right-0 top-full z-40 mt-1 w-60 overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60">
-            {devices.map((device) => (
-              <li key={device.deviceId}>
-                <button
-                  type="button"
-                  data-device-id={device.deviceId}
-                  onClick={() => (device.current ? setOpen(false) : navigate(`https://${device.host}/`))}
-                  className={cn(
-                    "flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70",
-                    device.offline && !device.current && "opacity-50",
+            {devices.map((device) =>
+              device.current && renaming ? (
+                <li key={device.deviceId} className="px-2.5 py-1">
+                  <input
+                    autoFocus
+                    defaultValue={device.name}
+                    maxLength={64}
+                    aria-label={t("chrome.renameDevice")}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") rename(event.currentTarget.value);
+                      if (event.key === "Escape") {
+                        event.stopPropagation();
+                        setRenaming(false);
+                      }
+                    }}
+                    className="w-full rounded-md border border-hairline bg-raised px-2 py-1.5 text-[14px] text-ink outline-none focus:border-accent"
+                  />
+                </li>
+              ) : (
+                <li key={device.deviceId} className="flex items-center">
+                  <button
+                    type="button"
+                    data-device-id={device.deviceId}
+                    onClick={() => (device.current ? close() : navigate(`https://${device.host}/`))}
+                    className={cn(
+                      "flex min-w-0 flex-1 items-center gap-3 py-2 pl-3.5 text-left text-[14px] text-ink hover:bg-raised/70",
+                      device.current ? "pr-2" : "pr-3.5",
+                      device.offline && !device.current && "opacity-50",
+                    )}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{device.name}</span>
+                    {device.current ? (
+                      <span className="flex items-center gap-1 text-[12px] text-accent">
+                        <Check size={14} />
+                        {t("chrome.deviceCurrent")}
+                      </span>
+                    ) : device.offline ? (
+                      <span className="text-[12px] text-ink-secondary">{t("chrome.deviceOffline")}</span>
+                    ) : null}
+                  </button>
+                  {device.current && (
+                    <button
+                      type="button"
+                      onClick={() => setRenaming(true)}
+                      aria-label={t("chrome.renameDevice")}
+                      title={t("chrome.renameDevice")}
+                      className="mr-1.5 flex size-8 shrink-0 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
+                    >
+                      <Pencil size={14} />
+                    </button>
                   )}
-                >
-                  <span className="min-w-0 flex-1 truncate">{device.name}</span>
-                  {device.current ? (
-                    <span className="flex items-center gap-1 text-[12px] text-accent">
-                      <Check size={14} />
-                      {t("chrome.deviceCurrent")}
-                    </span>
-                  ) : device.offline ? (
-                    <span className="text-[12px] text-ink-secondary">{t("chrome.deviceOffline")}</span>
-                  ) : null}
-                </button>
-              </li>
-            ))}
+                </li>
+              ),
+            )}
           </ul>
         </>
       )}

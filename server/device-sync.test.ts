@@ -3,7 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { DEVICE_DIR, DEVICE_STALE_MS, listDevices, writeDeviceRecord } from "./device-sync.ts";
+import {
+  DEVICE_DIR,
+  DEVICE_STALE_MS,
+  deviceDisplayName,
+  listDevices,
+  loadDeviceName,
+  saveDeviceName,
+  writeDeviceRecord,
+} from "./device-sync.ts";
 
 const NOW = 1_800_000_000_000;
 const freshDir = () => mkdtempSync(join(tmpdir(), "orbit-devices-"));
@@ -53,5 +61,32 @@ describe("device sync", () => {
     writeDeviceRecord(folder, rec("work"), NOW - DEVICE_STALE_MS);
     const byId = Object.fromEntries(listDevices(folder, "x", NOW).map((d) => [d.deviceId, d.offline]));
     expect(byId).toEqual({ home: true, work: false });
+  });
+
+  it("saves a trimmed name that a fresh load reads back", () => {
+    const dataDir = freshDir();
+    expect(loadDeviceName(dataDir)).toBeNull();
+    expect(saveDeviceName(dataDir, "  Home  ")).toBe("Home");
+    expect(loadDeviceName(dataDir)).toBe("Home");
+  });
+
+  it("rejects an empty or over-64 name", () => {
+    const dataDir = freshDir();
+    expect(() => saveDeviceName(dataDir, "   ")).toThrow();
+    expect(() => saveDeviceName(dataDir, "x".repeat(65))).toThrow();
+    expect(saveDeviceName(dataDir, "x".repeat(64))).toHaveLength(64);
+  });
+
+  it("ignores a corrupt name file", () => {
+    const dataDir = freshDir();
+    writeFileSync(join(dataDir, "device-name.json"), "{nope");
+    expect(loadDeviceName(dataDir)).toBeNull();
+  });
+
+  it("prefers the saved name, then the env name, then the hostname", () => {
+    expect(deviceDisplayName("Home", "Env", "EDWARD-PC")).toBe("Home");
+    expect(deviceDisplayName(null, " Env ", "EDWARD-PC")).toBe("Env");
+    expect(deviceDisplayName(null, "  ", "EDWARD-PC")).toBe("EDWARD-PC");
+    expect(deviceDisplayName(null, undefined, "EDWARD-PC")).toBe("EDWARD-PC");
   });
 });

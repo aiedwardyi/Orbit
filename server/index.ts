@@ -270,7 +270,15 @@ import {
   remoteKeyMatches,
   remoteLinkUrl,
 } from "./remote-access.ts";
-import { DEVICE_HEARTBEAT_MS, listDevices, writeDeviceRecord } from "./device-sync.ts";
+import {
+  DEVICE_HEARTBEAT_MS,
+  deviceDisplayName,
+  deviceNameSchema,
+  listDevices,
+  loadDeviceName,
+  saveDeviceName,
+  writeDeviceRecord,
+} from "./device-sync.ts";
 import * as vps from "./vps-computer.ts";
 import { RoutineManager, routineTriggerIsUnattended, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
 import { browserScreenshot, readBrowserConnection } from "./browser-connection.ts";
@@ -1744,13 +1752,19 @@ function scheduleProfilePublish(): void {
   profilePublishTimer.unref?.();
 }
 
+let deviceName = loadDeviceName(DATA_DIR);
+
 function publishDeviceRecord(): void {
   const folder = profileSyncSettings.folder;
   if (!folder || REMOTE_HOST === undefined) return;
   try {
     writeDeviceRecord(
       folder,
-      { deviceId: profileSyncSettings.deviceId, name: process.env.ORBIT_DEVICE_NAME?.trim() || osHostname(), host: REMOTE_HOST },
+      {
+        deviceId: profileSyncSettings.deviceId,
+        name: deviceDisplayName(deviceName, process.env.ORBIT_DEVICE_NAME, osHostname()),
+        host: REMOTE_HOST,
+      },
       Date.now(),
     );
   } catch (error) {
@@ -7007,6 +7021,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         ? listDevices(folder, profileSyncSettings.deviceId, Date.now())
         : [];
       return json(res, 200, { devices });
+    }
+    if (method === "PUT" && path === "/api/devices/name") {
+      if (!hostMatchesRemote(req.headers.host, REMOTE_HOST)) return json(res, 404, { error: "not found" });
+      const body = await readBody(req);
+      const name = deviceNameSchema.safeParse(body?.name);
+      if (!name.success) return json(res, 400, { error: "name must be 1-64 characters" });
+      deviceName = saveDeviceName(DATA_DIR, name.data);
+      publishDeviceRecord();
+      return json(res, 200, { name: deviceName });
     }
 
     // ── web push (this PC's phone subscriptions, never synced) ──

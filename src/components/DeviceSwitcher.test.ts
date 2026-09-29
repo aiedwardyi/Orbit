@@ -37,6 +37,7 @@ async function renderView(devices: DeviceItem[], navigate = vi.fn()) {
 }
 
 const click = (target: Element) => target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+const key = (target: Element, name: string) => target.dispatchEvent(new KeyboardEvent("keydown", { key: name, bubbles: true }));
 
 describe("DeviceSwitcher", () => {
   it("is hidden with fewer than 2 devices", async () => {
@@ -72,5 +73,31 @@ describe("DeviceSwitcher", () => {
     await act(async () => click(toggle));
     await act(async () => click(host.querySelector("[data-device-id=laptop]")!));
     expect(navigate).toHaveBeenCalledWith("https://laptop.tail396477.ts.net/");
+  });
+
+  it("renames this PC inline", async () => {
+    setPhone(true);
+    const { host } = await renderView([device("home", { current: true, name: "EDWARD-PC" }), device("work")]);
+    await act(async () => click(host.querySelector("button[aria-expanded]")!));
+    expect(host.querySelectorAll("button[aria-label='Rename this PC']")).toHaveLength(1);
+    await act(async () => click(host.querySelector("button[aria-label='Rename this PC']")!));
+    let input = host.querySelector("input")!;
+    expect(input.value).toBe("EDWARD-PC");
+    await act(async () => key(input, "Escape"));
+    expect(host.querySelector("input")).toBeNull();
+    expect(store.api).toHaveBeenCalledTimes(1);
+
+    await act(async () => click(host.querySelector("button[aria-label='Rename this PC']")!));
+    input = host.querySelector("input")!;
+    input.value = "   ";
+    await act(async () => key(input, "Enter"));
+    expect(store.api).toHaveBeenCalledTimes(1);
+
+    store.api.mockResolvedValueOnce({ name: "Home" });
+    input.value = " Home ";
+    await act(async () => key(input, "Enter"));
+    expect(store.api).toHaveBeenLastCalledWith("/api/devices/name", { method: "PUT", body: JSON.stringify({ name: "Home" }) });
+    expect(host.querySelector("input")).toBeNull();
+    expect(host.querySelector("[data-device-id=home]")!.textContent).toContain("Home");
   });
 });

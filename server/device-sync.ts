@@ -10,11 +10,14 @@ import { writeFileAtomic } from "./atomic.ts";
 export const DEVICE_DIR = "devices";
 export const DEVICE_HEARTBEAT_MS = 5 * 60_000;
 export const DEVICE_STALE_MS = 15 * 60_000;
+export const DEVICE_NAME_FILE = "device-name.json";
 const MAX_DEVICE_FILES = 64;
+
+export const deviceNameSchema = z.string().trim().min(1).max(64);
 
 const deviceSchema = z.object({
   deviceId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/),
-  name: z.string().trim().min(1).max(64),
+  name: deviceNameSchema,
   host: z.string().max(253).regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/),
   lastSeen: z.number().int().nonnegative(),
 });
@@ -27,6 +30,28 @@ export function writeDeviceRecord(folder: string, record: Omit<DeviceRecord, "la
   const directory = join(folder, DEVICE_DIR);
   mkdirSync(directory, { recursive: true });
   writeFileAtomic(join(directory, `${parsed.deviceId}.json`), `${JSON.stringify(parsed, null, 2)}\n`);
+}
+
+/** This PC's saved name, local only; null when unset or invalid. */
+export function loadDeviceName(dataDir: string): string | null {
+  try {
+    const parsed = deviceNameSchema.safeParse(JSON.parse(readFileSync(join(dataDir, DEVICE_NAME_FILE), "utf8")).name);
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveDeviceName(dataDir: string, name: string): string {
+  const parsed = deviceNameSchema.parse(name);
+  mkdirSync(dataDir, { recursive: true });
+  writeFileAtomic(join(dataDir, DEVICE_NAME_FILE), `${JSON.stringify({ name: parsed }, null, 2)}
+`);
+  return parsed;
+}
+
+export function deviceDisplayName(saved: string | null, envName: string | undefined, hostname: string): string {
+  return saved || envName?.trim() || hostname;
 }
 
 /** Valid records by name; corrupt files are skipped. */
