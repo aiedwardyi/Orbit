@@ -19,10 +19,13 @@ const LIFTED_STYLE: Record<string, string> = {
 };
 const LIST_STYLE = ["user-select", "-webkit-user-select", "-webkit-touch-callout"];
 
+export type TouchDropMark = "top" | "bottom" | "into";
+
 export type TouchDragHandlers = {
   /** The element to lift for a pressed `selector` match, or null when it can't move. */
   lift: (pressed: HTMLElement) => HTMLElement | null;
-  over: (target: Element | null, y: number) => void;
+  /** The element to mark with `data-touch-drop`, so a move never re-renders the list. */
+  over: (target: Element | null, y: number) => [HTMLElement, TouchDropMark] | null;
   drop: (target: Element | null, y: number) => void;
   cancel: () => void;
 };
@@ -36,6 +39,8 @@ type Press = {
   lastY: number;
   scrollTop: number;
   moved: boolean;
+  dirty: boolean;
+  marked: [HTMLElement, TouchDropMark] | null;
   timer: ReturnType<typeof setTimeout>;
   frame: number;
 };
@@ -59,12 +64,20 @@ export function useTouchDrag(selector: string, handlers: TouchDragHandlers): (no
     const follow = (current: Press) => {
       current.lifted?.style.setProperty("translate", `0 ${current.lastY - current.y + list.scrollTop - current.scrollTop}px`);
     };
+    const aim = (current: Press) => {
+      const next = latest.current.over(hit(current.lastX, current.lastY), current.lastY);
+      if (next?.[0] === current.marked?.[0] && next?.[1] === current.marked?.[1]) return;
+      current.marked?.[0].removeAttribute("data-touch-drop");
+      next?.[0].setAttribute("data-touch-drop", next[1]);
+      current.marked = next;
+    };
     const release = () => {
       const done = press;
       if (!done) return null;
       press = null;
       clearTimeout(done.timer);
       cancelAnimationFrame(done.frame);
+      done.marked?.[0].removeAttribute("data-touch-drop");
       if (done.lifted) {
         for (const key of [...Object.keys(LIFTED_STYLE), "translate"]) done.lifted.style.removeProperty(key);
         done.lifted.removeAttribute("data-touch-lifted");
@@ -72,17 +85,19 @@ export function useTouchDrag(selector: string, handlers: TouchDragHandlers): (no
       for (const key of LIST_STYLE) list.style.removeProperty(key);
       return done;
     };
-    const autoScroll = () => {
+    // one hit test and style write per frame, however many touchmoves arrive
+    const tick = () => {
       if (!press?.lifted) return;
       const rect = list.getBoundingClientRect();
       const step = press.lastY < rect.top + SCROLL_EDGE ? -SCROLL_STEP : press.lastY > rect.bottom - SCROLL_EDGE ? SCROLL_STEP : 0;
       const before = list.scrollTop;
       if (step) list.scrollTop += step;
-      if (list.scrollTop !== before) {
+      if (press.dirty || list.scrollTop !== before) {
+        press.dirty = false;
         follow(press);
-        latest.current.over(hit(press.lastX, press.lastY), press.lastY);
+        aim(press);
       }
-      press.frame = requestAnimationFrame(autoScroll);
+      press.frame = requestAnimationFrame(tick);
     };
     const lift = () => {
       if (!press) return;
@@ -95,7 +110,7 @@ export function useTouchDrag(selector: string, handlers: TouchDragHandlers): (no
       for (const [key, value] of Object.entries(LIFTED_STYLE)) lifted.style.setProperty(key, value);
       lifted.setAttribute("data-touch-lifted", "");
       hapticTick();
-      press.frame = requestAnimationFrame(autoScroll);
+      press.frame = requestAnimationFrame(tick);
     };
     const cancel = () => {
       if (release()?.lifted) latest.current.cancel();
@@ -115,6 +130,8 @@ export function useTouchDrag(selector: string, handlers: TouchDragHandlers): (no
         lastY: touch.clientY,
         scrollTop: list.scrollTop,
         moved: false,
+        dirty: false,
+        marked: null,
         timer: setTimeout(lift, LONG_PRESS_MS),
         frame: 0,
       };
@@ -132,8 +149,7 @@ export function useTouchDrag(selector: string, handlers: TouchDragHandlers): (no
       press.lastX = touch.clientX;
       press.lastY = touch.clientY;
       press.moved ||= far;
-      follow(press);
-      latest.current.over(hit(press.lastX, press.lastY), press.lastY);
+      press.dirty = true;
     };
     const onEnd = (e: TouchEvent) => {
       if (!press?.lifted) {

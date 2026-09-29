@@ -105,7 +105,7 @@ import {
   type SidebarOrder,
 } from "@/lib/sidebar-order";
 import { sidebarConversationRowTone } from "@/lib/sidebar-row";
-import { useTouchDrag } from "@/lib/use-touch-drag";
+import { useTouchDrag, type TouchDropMark } from "@/lib/use-touch-drag";
 import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
 import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import { phoneSettingsAvailable } from "@/lib/phone-availability";
@@ -1850,10 +1850,14 @@ export function Sidebar({
     setDrag(null);
     setItemSectionDropTarget(null);
   };
-  const aimSection = (id: string, clientY: number, rect: DOMRect) => {
-    if (!sectionsReorderable || !sectionDragRef.current.from || sectionDragRef.current.from === id) return false;
+  const sectionAim = (id: string, clientY: number, rect: DOMRect) => {
+    if (!sectionsReorderable || !sectionDragRef.current.from || sectionDragRef.current.from === id) return null;
     const place: SectionDropPlace = clientY < rect.top + rect.height / 2 ? "before" : "after";
-    const next = { id, place };
+    return { id, place };
+  };
+  const aimSection = (id: string, clientY: number, rect: DOMRect) => {
+    const next = sectionAim(id, clientY, rect);
+    if (!next) return false;
     sectionDragRef.current.over = next;
     setSectionDropTarget(next);
     return true;
@@ -1939,10 +1943,13 @@ export function Sidebar({
     else dispatch({ type: "patchGroup", groupId: from.id, patch: { section } });
     setReorderAnnouncement(`${from.name} moved to ${sectionLabel(drop.targetSectionId)}`);
   };
-  const aimItemSection = (id: string) => {
+  const canDropItemInSection = (id: string) => {
     if (!rowsReorderable || !drag) return false;
     const from = itemByKey.get(drag.from);
-    if (!from || from.sectionId === id || (from.kind === "bot" && sidebarPriorityFor(from.bot!))) return false;
+    return Boolean(from && from.sectionId !== id && !(from.kind === "bot" && sidebarPriorityFor(from.bot!)));
+  };
+  const aimItemSection = (id: string) => {
+    if (!drag || !canDropItemInSection(id)) return false;
     if (itemSectionDropTarget !== id) setItemSectionDropTarget(id);
     if (drag.over !== null) setDrag((current) => (current ? { ...current, over: null } : null));
     return true;
@@ -2061,6 +2068,13 @@ export function Sidebar({
   };
   const touchSectionId = (target: Element | null) =>
     target?.closest("[data-sidebar-item-drop-zone]")?.getAttribute("data-sidebar-item-drop-zone") ?? null;
+  const aimTouchSection = (target: Element | null, y: number): [HTMLElement, TouchDropMark] | null => {
+    const section = target?.closest<HTMLElement>("[data-sidebar-item-drop-zone]");
+    const id = section?.getAttribute("data-sidebar-item-drop-zone");
+    const over = section && id ? sectionAim(id, y, section.getBoundingClientRect()) : null;
+    sectionDragRef.current.over = over;
+    return over ? [section!, over.place === "before" ? "top" : "bottom"] : null;
+  };
   const touchListRef = useTouchDrag("[data-sidebar-row], [data-sidebar-section-handle]", {
     lift: (pressed) => {
       const item = touchRowItem(pressed);
@@ -2076,25 +2090,16 @@ export function Sidebar({
       return pressed.closest<HTMLElement>("[data-sidebar-section-header]");
     },
     over: (target, y) => {
-      if (drag) {
-        const item = touchRowItem(target);
-        if (item) {
-          rowDrag(item).onOver();
-          return;
-        }
-        const id = touchSectionId(target);
-        if (id && aimItemSection(id)) return;
-        setItemSectionDropTarget(null);
-        if (drag.over !== null) setDrag((current) => (current ? { ...current, over: null } : null));
-        return;
+      if (!drag) return aimTouchSection(target, y);
+      const item = touchRowItem(target);
+      if (item) {
+        const edge = itemDropOrder(item.key)?.edge;
+        return edge ? [target!.closest<HTMLElement>("[data-sidebar-row]")!, edge] : null;
       }
-      const section = target?.closest("[data-sidebar-item-drop-zone]");
-      const id = section?.getAttribute("data-sidebar-item-drop-zone");
-      if (section && id && aimSection(id, y, section.getBoundingClientRect())) return;
-      sectionDragRef.current.over = null;
-      setSectionDropTarget(null);
+      const section = target?.closest<HTMLElement>("[data-sidebar-item-drop-zone]");
+      return section && canDropItemInSection(section.getAttribute("data-sidebar-item-drop-zone")!) ? [section, "into"] : null;
     },
-    drop: (target) => {
+    drop: (target, y) => {
       if (drag) {
         const item = touchRowItem(target);
         const id = touchSectionId(target);
@@ -2103,7 +2108,7 @@ export function Sidebar({
         resetRowDrag();
         return;
       }
-      if (touchSectionId(target)) placeSectionFrom(sectionDragRef.current.from);
+      if (aimTouchSection(target, y)) placeSectionFrom(sectionDragRef.current.from);
       else resetSectionDrag();
     },
     cancel: () => {

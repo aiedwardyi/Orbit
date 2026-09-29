@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { act, createElement, useEffect, useRef } from "react";
+import { act, createElement, Profiler, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -1513,7 +1513,13 @@ describe("Sidebar touch drag", () => {
     Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => under });
     const host = document.body.appendChild(document.createElement("div"));
     const root = createRoot(host);
-    await act(async () => root.render(createElement(StoreProvider, null, view, createElement(SelectedProbe))));
+    const commits = { count: 0 };
+    await act(async () => root.render(createElement(
+      StoreProvider,
+      null,
+      createElement(Profiler, { id: "sidebar", onRender: () => void commits.count++ }, view),
+      createElement(SelectedProbe),
+    )));
     await act(async () => FakeEventSource.current!.onmessage?.({
       data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
       lastEventId: "",
@@ -1529,14 +1535,21 @@ describe("Sidebar touch drag", () => {
     };
     const moveOver = async (target: Element | null, source: Element, y = 160) => {
       under = target;
-      await act(async () => void touch(source, "touchmove", 100, y));
+      await act(async () => {
+        touch(source, "touchmove", 100, y);
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      });
+    };
+    const marked = () => {
+      const el = host.querySelector("[data-touch-drop]");
+      return el && `${el.getAttribute("data-sidebar-row-id") ?? el.getAttribute("data-sidebar-item-drop-zone")}:${el.getAttribute("data-touch-drop")}`;
     };
     const unmount = async () => {
       under = null;
       await act(async () => root.unmount());
       host.remove();
     };
-    return { host, patches, row, order, lifted, hold, moveOver, unmount };
+    return { host, patches, commits, row, order, lifted, marked, hold, moveOver, unmount };
   }
 
   it("lifts a row after a long press and buzzes once", async () => {
@@ -1559,7 +1572,7 @@ describe("Sidebar touch drag", () => {
     try {
       await view.hold("a");
       await view.moveOver(view.row("c"), view.row("a"));
-      expect(view.host.querySelector("[data-sidebar-row-drop-marker]")).not.toBeNull();
+      expect(view.marked()).toBe("c:bottom");
       const end = touch(view.row("a"), "touchend");
       await act(async () => {});
       expect(end.defaultPrevented).toBe(true);
@@ -1572,9 +1585,30 @@ describe("Sidebar touch drag", () => {
       await view.hold("b");
       const work = view.host.querySelector('[data-sidebar-item-drop-zone="section:Work"] [data-sidebar-section-header]')!;
       await view.moveOver(work, view.row("b"));
-      expect(view.host.querySelector("[data-sidebar-bot-drop-marker]")).not.toBeNull();
+      expect(view.marked()).toBe("section:Work:into");
       await act(async () => void touch(view.row("b"), "touchend"));
       await vi.waitFor(() => expect(view.patches).toContainEqual({ path: "/api/bots/b", body: { section: "Work" } }));
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("moves the drop target without re-rendering the list", async () => {
+    const view = await mount(["a", "b", "c", "d"].map(bot));
+    try {
+      await view.hold("d");
+      const before = view.commits.count;
+      for (const id of ["c", "c", "b", "a", "a", "b"]) {
+        await view.moveOver(view.row(id), view.row("d"));
+        expect(view.commits.count).toBe(before);
+        expect(view.marked()).toBe(`${id}:top`);
+      }
+      await view.moveOver(view.host.querySelector('[data-sidebar-item-drop-zone="unassigned"]'), view.row("d"));
+      expect(view.marked()).toBeNull();
+      await view.moveOver(view.row("c"), view.row("d"));
+      expect(view.commits.count).toBe(before);
+      await act(async () => void touch(view.row("d"), "touchend"));
+      expect(view.order()).toEqual(["a", "b", "d", "c"]);
     } finally {
       await view.unmount();
     }
@@ -1627,17 +1661,17 @@ describe("Sidebar touch drag", () => {
     try {
       await view.hold("a");
       await view.moveOver(view.row("c"), view.row("a"));
-      expect(view.host.querySelector("[data-sidebar-row-drop-marker]")).not.toBeNull();
+      expect(view.marked()).toBe("c:bottom");
       await act(async () => void touch(view.row("a"), "touchcancel"));
       expect(view.lifted()).toBeNull();
-      expect(view.host.querySelector("[data-sidebar-row-drop-marker]")).toBeNull();
+      expect(view.marked()).toBeNull();
       expect(view.order()).toEqual(["a", "b", "c"]);
 
       await view.hold("a");
       expect(view.lifted()).toBe("a");
       await view.moveOver(view.row("c"), view.row("a"));
       await view.moveOver(document.body, view.row("a"), 900);
-      expect(view.host.querySelector("[data-sidebar-row-drop-marker]")).toBeNull();
+      expect(view.marked()).toBeNull();
       await act(async () => void touch(view.row("a"), "touchend"));
       expect(view.lifted()).toBeNull();
       expect(view.order()).toEqual(["a", "b", "c"]);
