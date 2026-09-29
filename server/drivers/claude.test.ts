@@ -974,7 +974,6 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(instance.adapter.hasSession("t-late-wake")).toBe(true);
     const opened = await recorder.until((e) => e.type === "request.opened" && e.turnId === started.turnId);
     expect(opened).toMatchObject({ tool: "Bash" });
-    await expect(instance.adapter.steer!("t-late-wake", "queue me")).resolves.toBe(false);
     await expect(
       instance.adapter.respondToRequest("t-late-wake", (opened as { requestId: string }).requestId, { behavior: "allow" }),
     ).resolves.toBe("allowed-once");
@@ -988,6 +987,28 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       expect.objectContaining({ type: "item.completed", itemType: "assistant_text", text: "background allow", turnId: started.turnId }),
     );
     expect(instance.adapter.hasSession("t-late-wake")).toBe(false);
+  });
+
+  it("steers a send into a continuation turn so it lands before the replies", async () => {
+    await create("late-wake");
+    const first = await instance.adapter.sendTurn({ threadId: "t-wake-steer", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId);
+
+    const started = await recorder.until((e) => e.type === "turn.started" && e.turnId !== first.turnId);
+    const opened = await recorder.until((e) => e.type === "request.opened" && e.turnId === started.turnId);
+    // true is what lets the route record the user message now, not after the drain
+    await expect(instance.adapter.steer!("t-wake-steer", "and also this")).resolves.toBe(true);
+    const repliesBefore = recorder.events.filter((e) => e.type === "item.completed" && e.itemType === "assistant_text").length;
+    await instance.adapter.respondToRequest("t-wake-steer", (opened as { requestId: string }).requestId, { behavior: "allow" });
+
+    const done = await recorder.until((e) => e.type === "turn.completed" && e.turnId === started.turnId);
+    expect(done).toMatchObject({ ok: true });
+    const replies = recorder.events.filter((e) => e.type === "item.completed" && e.itemType === "assistant_text");
+    expect(replies.slice(repliesBefore)).toEqual([
+      expect.objectContaining({ text: "background allow + steered: and also this", turnId: started.turnId }),
+    ]);
+    expect(recorder.events.filter((e) => e.type === "turn.started")).toHaveLength(2);
+    expect(instance.adapter.hasSession("t-wake-steer")).toBe(false);
   });
 
   it("rebinds the permission broker when a fresh session replaces a live one", async () => {

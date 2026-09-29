@@ -1445,8 +1445,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
      * next model call. False when nothing is running here to steer. */
     const steer = async (threadId: string, text: string): Promise<boolean> => {
       const s = sessions.get(threadId);
-      // a continuation is the CLI's own work; the user's words queue behind it
-      if (!s || !s.turn || s.turn.settled || s.turn.continuation || s.closing || s.child.exitCode !== null) return false;
+      if (!s || !s.turn || s.turn.settled || s.closing || s.child.exitCode !== null) return false;
       const turn = s.turn;
       turn.unsentSteers = (turn.unsentSteers ?? 0) + 1;
       const written = await writeUser(s, threadId, text);

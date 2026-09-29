@@ -185,15 +185,19 @@ const playEdits = async () => {
 
 // `late-wake`: after the first turn's result the process wakes on its own,
 // the way a finished background Bash task restarts the real CLI, and asks
-// the broker for another Bash call before settling again.
+// the broker for another Bash call before settling again. A steer folds into
+// its reply the way `slow` does.
 let lateWakeScheduled = false;
 const playLateWake = async (socketPath: string) => {
   turnRunning = true;
+  steered = [];
   out({ type: "system", subtype: "init", session_id: `${sessionId}-woken`, model });
   out({ type: "assistant", message: { content: [{ type: "tool_use", id: "tu-late", name: "Bash", input: { command: "echo late" } }] } });
   const behavior = await askBroker(socketPath, "Bash", { command: "echo late" });
   out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-late", is_error: behavior !== "allow" }] } });
-  out({ type: "assistant", message: { content: [{ type: "text", text: `background ${behavior}` }] } });
+  out({ type: "system", subtype: "status", status: "requesting" });
+  const tail = steered.length ? ` + steered: ${steered.join(" | ")}` : "";
+  out({ type: "assistant", message: { content: [{ type: "text", text: `background ${behavior}${tail}` }] } });
   out({ type: "result", is_error: false, stop_reason: "end_turn", total_cost_usd: 0.01, usage: { input_tokens: 10, output_tokens: 5 } });
   turnRunning = false;
   finishIfDone();
