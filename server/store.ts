@@ -1494,7 +1494,7 @@ export class Store {
   renameModel(instanceIds: string[], from: string, to: string) {
     let changed = false;
     for (const b of this.bots) {
-      if (!instanceIds.includes(b.modelSelection.instanceId) || b.modelSelection.model !== from) continue;
+      if (!b.modelSelection || !instanceIds.includes(b.modelSelection.instanceId) || b.modelSelection.model !== from) continue;
       b.modelSelection.model = to;
       changed = true;
     }

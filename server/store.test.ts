@@ -776,6 +776,14 @@ describe("Store", () => {
     expect(reloaded.bot(droid.id)?.modelSelection.model).toBe("claude-sonnet-5");
   });
 
+  it("renameModel skips a bot record with no modelSelection", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    delete (bot as { modelSelection?: unknown }).modelSelection;
+
+    expect(() => store.renameModel(["claude"], "claude-sonnet-5", "claude-sonnet-5-5")).not.toThrow();
+  });
+
   it("seedIfEmpty creates exactly one starter bot, once", () => {
     const store = new Store(selection);
     store.seedIfEmpty();
