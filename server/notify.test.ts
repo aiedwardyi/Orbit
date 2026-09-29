@@ -60,6 +60,14 @@ describe("summarize", () => {
     expect(summarize("   padded   ")).toBe("padded");
   });
 
+  it("drops markdown marks", () => {
+    expect(summarize("Not yet.\n\n- **Test:** I ran `codex -m gpt-6.1-sol` and it failed.")).toBe(
+      "Not yet. Test: I ran codex -m gpt-6.1-sol and it failed.",
+    );
+    expect(summarize("## Done\n1. See [the log](https://x.io) *now*\n> quoted")).toBe("Done See the log now quoted");
+    expect(summarize("keep snake_case and 2 * 3")).toBe("keep snake_case and 2 * 3");
+  });
+
   it("clamps long text with an ellipsis", () => {
     const long = summarize("x".repeat(400));
     expect(long).toHaveLength(140);
