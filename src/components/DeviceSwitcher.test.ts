@@ -58,12 +58,18 @@ describe("DeviceSwitcher", () => {
       device("laptop", { offline: true }),
       device("work"),
     ]);
-    await act(async () => click(host.querySelector("button")!));
+    const toggle = host.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+    expect(toggle.getAttribute("aria-label")).toBe("Your PCs");
+    expect(toggle.textContent).toBe("");
+    expect(host.querySelector("ul")).toBeNull();
+    await act(async () => click(toggle));
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(host.textContent).toContain("This PC");
     expect(host.textContent).toContain("Offline");
     await act(async () => click(host.querySelector("[data-device-id=home]")!));
     expect(navigate).not.toHaveBeenCalled();
-    await act(async () => click(host.querySelector("button")!));
+    expect(host.querySelector("ul")).toBeNull();
+    await act(async () => click(toggle));
     await act(async () => click(host.querySelector("[data-device-id=laptop]")!));
     expect(navigate).toHaveBeenCalledWith("https://laptop.tail396477.ts.net/");
   });

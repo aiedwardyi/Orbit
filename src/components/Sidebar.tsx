@@ -2184,6 +2184,7 @@ export function Sidebar({
           className={cn("relative flex items-center", density === "icons" ? "flex-col gap-1" : "gap-1")}
           style={windowNoDragStyle}
         >
+          {density !== "icons" && <DeviceSwitcher />}
           <button
             type="button"
             onClick={toggleCollapsed}
@@ -2332,8 +2333,6 @@ export function Sidebar({
           )}
         </div>
       </div>
-
-      {density !== "icons" && <DeviceSwitcher />}
 
       {/* Search */}
       {density === "icons" ? (
