@@ -139,8 +139,8 @@ export function useTouchDrag(selector: string, handlers: TouchDragHandlers): (no
         unbind: () => {},
       };
       // React removing the pressed node stops its touches bubbling to the list
-      const node = e.target;
-      if (node instanceof HTMLElement && node !== list) {
+      const node = e.target instanceof Element ? (e.target as HTMLElement) : null;
+      if (node && node !== list) {
         node.addEventListener("touchmove", onMove, { passive: false });
         node.addEventListener("touchend", onEnd);
         node.addEventListener("touchcancel", cancel);

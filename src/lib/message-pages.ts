@@ -90,6 +90,8 @@ export function useJumpWindow(
   const [pending, setPending] = useState(false);
   const inflight = useRef(false);
   const latest = useRef(0);
+  // own counter, so a snapshot refetch never strands a jump still in flight
+  const refetched = useRef(0);
   // leaving the view drops the window; coming back opens at the newest message
   if (held && held.key !== key) setHeld(null);
   const current = held?.key === key ? held : null;
@@ -125,10 +127,10 @@ export function useJumpWindow(
   // a snapshot clears the patches the window shows; refetch so the server's copy replaces the stale rows
   useEffect(() => {
     if (!current || current.snapshot === snapshot) return;
-    const generation = ++latest.current;
+    const generation = ++refetched.current;
     fetchAround(threadId, current.targetId)
       .then(({ rows, hasMore }) => {
-        if (generation !== latest.current) return;
+        if (generation !== refetched.current) return;
         setHeld((w) => (w && w.key === key && w.targetId === current.targetId ? { ...w, messages: rows, hasMore, snapshot } : w));
       })
       .catch(() => {});

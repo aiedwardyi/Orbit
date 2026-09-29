@@ -393,16 +393,16 @@ describe("ModelPicker cross navigation", () => {
 
   it.each(["ArrowUp", "ArrowDown"])("skips an empty engine row with %s", async (direction) => {
     mock.instances = [
-      engine("claude", "claudeAgent", ["claude-sonnet-5"]),
+      engine("claude", "claudeAgent", ["claude-sonnet-5-5"]),
       engine("codex", "codex", []),
       engine("grok", "grokAgent", ["grok-4.7", "grok-4.6"]),
     ];
     const down = direction === "ArrowDown";
-    await mount({ instanceId: down ? "claude" : "grok", model: down ? "claude-sonnet-5" : "grok-4.7", mode: "pinned" });
+    await mount({ instanceId: down ? "claude" : "grok", model: down ? "claude-sonnet-5-5" : "grok-4.7", mode: "pinned" });
     await key(direction);
     await key("Enter");
     expect(mock.dispatch.mock.calls[0]?.[0].selection).toEqual({
-      instanceId: down ? "grok" : "claude", model: down ? "grok-4.7" : "claude-sonnet-5", mode: "pinned",
+      instanceId: down ? "grok" : "claude", model: down ? "grok-4.7" : "claude-sonnet-5-5", mode: "pinned",
     });
   });
 
