@@ -106,7 +106,7 @@ export function DeviceSwitcher({
         )}
         title={compact ? here!.name : t("chrome.devices")}
       >
-        {compact ? <DeviceIcon device={here!} size={18} /> : <Monitor size={20} />}
+        {here ? <DeviceIcon device={here} size={compact ? 18 : 20} /> : <Monitor size={20} />}
       </button>
       {open && (
         <>
