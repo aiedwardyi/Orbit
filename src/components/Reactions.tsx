@@ -239,7 +239,7 @@ export function ReactionChips({
           onClick={() => dispatch({ type: "toggleReaction", threadId, messageId: message.id, emoji, message })}
           title={bys.map(nameOf).join(", ")}
           className={cn(
-            "flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[12px] leading-none",
+            "flex items-center gap-1 rounded-full border px-2 py-1 text-[17px] leading-none",
             bys.includes("user")
               ? "border-accent/50 bg-accent/15"
               : "border-hairline/40 bg-panel hover:bg-control",
