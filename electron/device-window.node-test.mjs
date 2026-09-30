@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import test from "node:test";
 
 const require = createRequire(import.meta.url);
-const { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceWindowTitle, deviceWindowUrl, openOrFocus } = require("./device-window.cjs");
+const { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceTailnet, deviceWindowTitle, deviceWindowUrl, openOrFocus } = require("./device-window.cjs");
 
 class FakeWindow extends EventEmitter {
   destroyed = false;
@@ -30,10 +30,26 @@ class FakeWindow extends EventEmitter {
 }
 
 test("opens a PC over HTTPS on its tailnet host only", () => {
-  assert.equal(deviceWindowUrl(" Home.tail396477.ts.net ").toString(), "https://home.tail396477.ts.net/");
+  const tailnet = deviceTailnet("laptop.tail396477.ts.net");
+  assert.equal(deviceWindowUrl(" Home.tail396477.ts.net ", tailnet).toString(), "https://home.tail396477.ts.net/");
+  assert.equal(deviceWindowUrl("work.tail396477.ts.net", tailnet).toString(), "https://work.tail396477.ts.net/");
   for (const bad of ["", "localhost", "home.ts.net/evil", "user@home.ts.net", "home.ts.net:8799", "javascript:alert(1)", "example.com", "ts.net.example.com", "ts.net", 42]) {
-    assert.throws(() => deviceWindowUrl(bad), /invalid/);
+    assert.throws(() => deviceWindowUrl(bad, tailnet), /invalid/);
   }
+});
+
+test("refuses a public Funnel host on another tailnet", () => {
+  const tailnet = deviceTailnet("laptop.tail396477.ts.net");
+  for (const bad of ["attacker.other-tailnet.ts.net", "tail396477.ts.net", "a.b.tail396477.ts.net", "home.tail396477.ts.net.evil.ts.net"]) {
+    assert.throws(() => deviceWindowUrl(bad, tailnet), /invalid/);
+  }
+});
+
+test("fails closed without this PC's tailnet", () => {
+  for (const local of [undefined, "", "laptop", "tail396477.ts.net", "laptop.example.com"]) {
+    assert.equal(deviceTailnet(local), "");
+  }
+  assert.throws(() => deviceWindowUrl("home.tail396477.ts.net", ""), /invalid/);
 });
 
 test("titles the window with the PC name", () => {

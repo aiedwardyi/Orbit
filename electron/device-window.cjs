@@ -6,9 +6,22 @@ const DEVICE_WINDOW_PARTITION = "persist:orbit-devices";
 // Tailscale Serve names only: a synced record must never point a PC window at the public web.
 const HOST_RE = /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+ts\.net$/;
 
-function deviceWindowUrl(rawHost) {
-  const host = Object.prototype.toString.call(rawHost) === "[object String]" ? rawHost.trim().toLowerCase() : "";
-  if (host.length > 253 || !HOST_RE.test(host)) throw new Error("The PC address is invalid");
+function normalizedHost(raw) {
+  const host = Object.prototype.toString.call(raw) === "[object String]" ? raw.trim().toLowerCase() : "";
+  return host.length <= 253 && HOST_RE.test(host) ? host : "";
+}
+
+/** This PC's tailnet suffix from its own Serve host, or "" when unknown. */
+function deviceTailnet(localHost) {
+  const host = normalizedHost(localHost);
+  const tailnet = host.slice(host.indexOf(".") + 1);
+  return host && HOST_RE.test(tailnet) ? tailnet : "";
+}
+
+// Funnel sites on other tailnets are public *.ts.net too, so only this tailnet's machines pass.
+function deviceWindowUrl(rawHost, tailnet) {
+  const host = normalizedHost(rawHost);
+  if (!host || !tailnet || host.slice(host.indexOf(".") + 1) !== tailnet) throw new Error("The PC address is invalid");
   return new URL(`https://${host}/`);
 }
 
@@ -61,4 +74,4 @@ location.assign("https://"+host+"/remote?key="+key);});`;
   );
 }
 
-module.exports = { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceWindowTitle, deviceWindowUrl, openOrFocus };
+module.exports = { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceTailnet, deviceWindowTitle, deviceWindowUrl, openOrFocus };

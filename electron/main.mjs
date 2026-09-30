@@ -94,7 +94,7 @@ const { createDisplayMediaGuard, invokeDisplayMediaCallback, selectCaptureSource
 );
 const { STAGE_PREFIX: APPIMAGE_CUA_STAGE_PREFIX } = require("./cua-linux-bundle.cjs");
 const { desktopViewerUrl, desktopViewerWindowOptions, sameDesktopViewerOrigin } = require("./desktop-viewer.cjs");
-const { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceWindowTitle, deviceWindowUrl, openOrFocus } = require("./device-window.cjs");
+const { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceTailnet, deviceWindowTitle, deviceWindowUrl, openOrFocus } = require("./device-window.cjs");
 const { createDesktopWorkspaceManager } = require("./desktop-workspace.cjs");
 const { createBrowserSurfaceManager } = require("./browser-surface.cjs");
 const { browserProfilePartition } = require("./browser-snapshot.cjs");
@@ -1194,7 +1194,12 @@ function openDesktopViewer(owner, rawUrl, rawTitle, contextId) {
 }
 
 function openDeviceWindow(rawHost, rawName) {
-  const url = deviceWindowUrl(rawHost);
+  const tailnet = deviceTailnet(process.env.ORBIT_REMOTE_HOST);
+  if (!tailnet) {
+    dialog.showErrorBox("Orbit", nativeText("packaged.deviceTailnetUnknown"));
+    return false;
+  }
+  const url = deviceWindowUrl(rawHost, tailnet);
   openOrFocus(deviceWindows, url.origin, () => {
     const title = deviceWindowTitle(rawName, url.hostname);
     const win = new BrowserWindow({
