@@ -181,6 +181,7 @@ export function openLiveEvents(
   let retryAttempt = 0;
   let cursor: string | null = null;
   let lastHeardAt = platform.now();
+  let wakePending = false;
   let snapshotGeneration = 0;
   let pendingSnapshot: {
     generation: number;
@@ -224,6 +225,7 @@ export function openLiveEvents(
 
   const connectionLost = (current: LiveEventSourceLike) => {
     if (stopped || source !== current) return;
+    wakePending = false;
     closeSource();
     handlers.onError?.();
     scheduleReconnect();
@@ -267,6 +269,7 @@ export function openLiveEvents(
       }
 
       if (frame.kind === "hello") {
+        wakePending = false;
         // `resumed:true` is followed by replay frames. Advancing to hello's
         // newest cursor here would skip any replay frame not yet delivered if
         // this socket died mid-replay. A failed resume has no replay, but its
@@ -335,7 +338,9 @@ export function openLiveEvents(
     // Background tabs suspend timers and network delivery. Let visibility or
     // focus perform one recovery on wake instead of churning hidden sockets.
     if (stopped || !platform.isOnline() || !platform.isVisible()) return;
-    if (!source || shouldReconnectLiveEvents(lastHeardAt, platform.now(), staleMs)) {
+    if (!source || (wake && !wakePending) || shouldReconnectLiveEvents(lastHeardAt, platform.now(), staleMs)) {
+      // Replay on wake even after a recent ping; coalesce signals until hello.
+      wakePending = wake;
       // Failures from before the page went away say nothing about the network now.
       if (wake) retryAttempt = 0;
       reconnectNow(source !== null);
@@ -347,13 +352,12 @@ export function openLiveEvents(
   };
   const onVisibilityChange = () => {
     if (platform.isVisible()) recover(true);
+    else wakePending = false;
   };
   // A back/forward-cache restore keeps the old source object, but its socket
   // was dropped while the page sat in the cache.
   const onPageShow = (event?: { persisted?: boolean }) => {
-    if (!event?.persisted || stopped || !platform.isOnline()) return;
-    retryAttempt = 0;
-    reconnectNow(source !== null);
+    if (event?.persisted) recover(true);
   };
 
   connect();

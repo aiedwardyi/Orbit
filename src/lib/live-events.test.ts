@@ -267,6 +267,43 @@ describe("live events supervisor", () => {
     stop();
   });
 
+  it.each(["visibilitychange", "focus", "online", "pageshow"])(
+    "replays missing messages immediately on %s before the stream is stale",
+    (event) => {
+      const test = harness();
+      const frames: unknown[] = [];
+      const onSnapshotRequired = vi.fn(async () => true);
+      const stop = openLiveEvents(
+        { onFrame: (frame) => frames.push(frame), onSnapshotRequired },
+        test.platform,
+      );
+      test.sources[0].message({ kind: "message", value: "old" }, "run00000:4");
+      test.setVisible(false);
+      test.documentTarget.emit("visibilitychange");
+      test.setNow(1_000);
+      test.sources[0].message({ kind: "ping" });
+      test.setVisible(true);
+
+      const target = event === "visibilitychange" ? test.documentTarget : test.windowTarget;
+      target.emit(event, { persisted: true });
+      expect(test.sources).toHaveLength(2);
+      expect(test.sources[1].url).toBe("/api/events?since=run00000%3A4");
+      expect(frames).toEqual([{ kind: "message", value: "old" }]);
+
+      test.windowTarget.emit("focus");
+      test.documentTarget.emit("visibilitychange");
+      expect(test.sources).toHaveLength(2);
+      test.sources[1].message({ kind: "hello", resumed: true, cursor: "run00000:5" });
+      test.sources[1].message({ kind: "message", value: "new" }, "run00000:5");
+      expect(frames).toEqual([
+        { kind: "message", value: "old" },
+        { kind: "message", value: "new" },
+      ]);
+      expect(onSnapshotRequired).not.toHaveBeenCalled();
+      stop();
+    },
+  );
+
   it("does not churn a suspended hidden stream and recovers once visible", () => {
     const test = harness({ visible: false });
     const stop = openLiveEvents(

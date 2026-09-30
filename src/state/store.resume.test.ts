@@ -12,7 +12,7 @@ class FakeEventSource {
   static last: FakeEventSource | null = null;
   onmessage: ((event: { data: string; lastEventId: string }) => void) | null = null;
   close = vi.fn();
-  constructor() {
+  constructor(readonly url: string) {
     FakeEventSource.last = this;
   }
 }
@@ -67,6 +67,47 @@ async function hide() {
   vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
   await act(async () => document.dispatchEvent(new Event("visibilitychange")));
 }
+
+describe("chat catch-up on return", () => {
+  it.each(["visibilitychange", "focus", "online", "pageshow"])(
+    "keeps the chat visible while replaying missing messages on %s",
+    async (event) => {
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      const snapshot = vi.fn(async () => Response.json({
+        bots: [botOf("b1", [text("b1", 0)])], groups: [], computerControl: {},
+      }));
+      await mount(snapshot);
+      vi.mocked(fetch).mockImplementation(async (url) => String(url) === "/api/bots?messages=200"
+        ? snapshot()
+        : Response.json({ error: "not in this test" }, { status: 404 }));
+      await hello();
+      await vi.waitFor(() => expect(store.state.bots).toHaveLength(1));
+      await hide();
+      const oldSource = FakeEventSource.last!;
+      vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+
+      await act(async () => {
+        const target = event === "visibilitychange" ? document : window;
+        target.dispatchEvent(Object.assign(new Event(event), { persisted: true }));
+      });
+      expect(oldSource.close).toHaveBeenCalledOnce();
+      expect(FakeEventSource.last!.url).toBe("/api/events?since=c1");
+      expect(store.state.bots[0].messages).toEqual([text("b1", 0)]);
+      expect(store.state.hydrated).toBe(true);
+
+      await act(async () => {
+        FakeEventSource.last!.onmessage!({
+          data: JSON.stringify({ kind: "hello", resumed: true, cursor: "c2" }), lastEventId: "",
+        });
+        FakeEventSource.last!.onmessage!({
+          data: JSON.stringify({ kind: "message", threadId: "t-b1", message: text("b1", 1) }), lastEventId: "c2",
+        });
+      });
+      expect(store.state.bots[0].messages).toEqual([text("b1", 0), text("b1", 1)]);
+      expect(snapshot).toHaveBeenCalledOnce();
+    },
+  );
+});
 
 describe("page reload after the tab was discarded", () => {
   it("shows the last chat before the stream or snapshot answers", async () => {
