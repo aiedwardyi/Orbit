@@ -9,6 +9,11 @@
 //                   | approval (approval/requested, then waits for decide)
 //                   | approval-request (approval/request with id: the client
 //                     must answer the receipt before the card resolves)
+//                   | approval-both (approval/request with id AND
+//                     approval/requested for the same approval, like Muse
+//                     1.3; a second decide is rejected as already resolved)
+//                   | approval-stale (approval/requested, then the decide is
+//                     rejected as stale and the turn completes anyway)
 //                   | approval-decide-fails (approval/requested, then the
 //                     decide is rejected with the settlement failure a real
 //                     host reports when the turn is already tearing down;
@@ -187,6 +192,7 @@ const userInputParams = {
 };
 
 let awaitingDecide = false;
+let decided = false;
 let awaitingAnswer = false;
 // Poison disarm: the poisoned modes fail exactly ONCE per process, on the
 // first turn/start aimed at a foreign (resumed) session id.
@@ -394,9 +400,12 @@ function handle(msg: any) {
         });
         return;
       }
-      if (mode === "approval" || mode === "approval-request" || mode === "approval-decide-fails") {
+      if (mode === "approval" || mode === "approval-request" || mode === "approval-both" || mode === "approval-stale" || mode === "approval-decide-fails") {
         if (mode === "approval-request") {
           out({ jsonrpc: "2.0", id: 7001, method: "approval/request", params: approvalParams });
+        } else if (mode === "approval-both") {
+          out({ jsonrpc: "2.0", id: 7001, method: "approval/request", params: approvalParams });
+          out({ jsonrpc: "2.0", method: "approval/requested", params: approvalParams });
         } else {
           out({ jsonrpc: "2.0", method: "approval/requested", params: approvalParams });
         }
@@ -503,6 +512,24 @@ function handle(msg: any) {
         });
         break;
       }
+      if (mode === "approval-stale") {
+        out({
+          jsonrpc: "2.0",
+          id: msg.id,
+          error: { code: -32000, message: `approval ${msg.params?.approvalId} requirement is stale` },
+        });
+        completeTurn();
+        break;
+      }
+      if (decided) {
+        out({
+          jsonrpc: "2.0",
+          id: msg.id,
+          error: { code: -32000, message: `approval ${msg.params?.approvalId} is already resolved` },
+        });
+        break;
+      }
+      decided = true;
       result(msg.id, { commandId: msg.params?.commandId ?? null, status: "accepted" });
       if (awaitingDecide) {
         awaitingDecide = false;

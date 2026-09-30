@@ -465,6 +465,36 @@ describe("MSP turns (fake host)", () => {
     expect(calls).toContainEqual(expect.objectContaining({ method: "approval/decide" }));
   });
 
+  it("opens and decides one card when the host sends both approval/request and approval/requested", async () => {
+    const dump = join(scratch, "muse-approval-both.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    await create("approval-both");
+    await instance.adapter.sendTurn({ threadId: "t-approval-both", text: "hi" });
+    await recorder.until((e) => e.type === "request.opened");
+    // Auto-approve answers every card it sees, like the server's auto-mode.
+    for (const e of recorder.events.filter((e) => e.type === "request.opened")) {
+      await instance.adapter.respondToRequest("t-approval-both", e.requestId!, { behavior: "allow" });
+    }
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    expect(recorder.events.filter((e) => e.type === "request.opened")).toHaveLength(1);
+    expect(recorder.events.map((e) => e.type)).not.toContain("runtime.error");
+    const calls = JSON.parse(readFileSync(`${dump}.decide.json`, "utf8"));
+    expect(calls.filter((c: { method: string }) => c.method === "approval/decide")).toHaveLength(1);
+  });
+
+  it("settles a stale allow decide without failing the turn", async () => {
+    await create("approval-stale");
+    await instance.adapter.sendTurn({ threadId: "t-approval-stale", text: "hi" });
+    const opened = await recorder.until((e) => e.type === "request.opened");
+    await instance.adapter.respondToRequest("t-approval-stale", opened.requestId!, { behavior: "allow" });
+    expect(await recorder.until((e) => e.type === "request.resolved")).toMatchObject({
+      behavior: "deny",
+      source: "system",
+    });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    expect(recorder.events.map((e) => e.type)).not.toContain("runtime.error");
+  });
+
   it("auto-allows without a card in fullAuto", async () => {
     const dump = join(scratch, "muse-auto.json");
     process.env.FAKE_MSP_DUMP = dump;

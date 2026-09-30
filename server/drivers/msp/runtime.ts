@@ -217,6 +217,10 @@ const pickChoice = (choices: ApprovalChoice[], want: "allow" | "deny"): Approval
   );
 };
 
+/** The host already settled this approval; a late decide is not a turn failure. */
+const isSettledApprovalError = (err: unknown): boolean =>
+  err instanceof Error && /(already resolved|is stale)/.test(err.message);
+
 export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConfig> {
   const DRIVER_KIND = support.driverKind;
   const withCli = (raw: unknown): MspMuseConfig => {
@@ -630,16 +634,21 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
           return true;
         };
 
+        const seenApprovals = new Set<string>();
         const openApproval = (params: any) => {
           const approvalId = typeof params?.approvalId === "string" ? params.approvalId : null;
           const choices = Array.isArray(params?.availableChoices) ? params.availableChoices : [];
-          if (!approvalId) return;
+          // Muse 1.3 sends approval/request and approval/requested for one approval.
+          if (!approvalId || seenApprovals.has(approvalId)) return;
+          seenApprovals.add(approvalId);
           const tool = String(params?.toolName ?? "tool").slice(0, 80);
           const summary = String(params?.rawArgs ?? params?.toolName ?? tool).slice(0, 200);
           if (config.fullAuto) {
             // No card: answer immediately with the allow choice, like the core.
             void decideApproval({ approvalId, requirementId: params?.currentRequirementId, choices }, "allow").catch(
-              (err) => fail(err instanceof Error ? err.message : String(err)),
+              (err) => {
+                if (!isSettledApprovalError(err)) fail(err instanceof Error ? err.message : String(err));
+              },
             );
             return;
           }
@@ -679,6 +688,10 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
                       behavior: "deny",
                       source,
                     });
+                    return;
+                  }
+                  if (isSettledApprovalError(err)) {
+                    emit({ ...base(threadId, turnId), type: "request.resolved", requestId, behavior: "deny", source: "system" });
                     return;
                   }
                   fail(err instanceof Error ? err.message : String(err));
