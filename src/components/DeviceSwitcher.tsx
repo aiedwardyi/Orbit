@@ -15,8 +15,8 @@ export interface DeviceItem {
   laptop?: boolean;
 }
 
-const DeviceIcon = ({ device, size }: { device: DeviceItem; size: number }) =>
-  device.laptop ? <Laptop size={size} className="shrink-0" /> : <Monitor size={size} className="shrink-0" />;
+const DeviceIcon = ({ device, size, className }: { device: DeviceItem; size: number; className?: string }) =>
+  device.laptop ? <Laptop size={size} className={cn("shrink-0", className)} /> : <Monitor size={size} className={cn("shrink-0", className)} />;
 
 const DEVICES_CHANGE = "orbit-devices-change";
 
@@ -169,10 +169,10 @@ export function DeviceTag() {
     <span
       data-device-tag
       title={device.name}
-      className="flex min-w-0 items-center gap-1 text-[12px] leading-none text-ink-secondary"
+      className="flex min-w-0 items-center gap-1 text-[12px] leading-none text-ink-secondary max-md:shrink-0 max-md:p-1.5"
     >
-      <DeviceIcon device={device} size={14} />
-      <span className="truncate">{device.name}</span>
+      <DeviceIcon device={device} size={14} className="max-md:size-[18px]" />
+      <span className="truncate max-md:sr-only">{device.name}</span>
     </span>
   );
 }
