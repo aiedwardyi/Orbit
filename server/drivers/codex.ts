@@ -618,9 +618,12 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         // on-request never asks inside the workspace; untrusted asks before
         // any edit or command that is not read-only
         const approvalPolicy = config.fullAuto ? "never" : turn.approval === "ask" ? "untrusted" : "on-request";
+        // a user-level approvals_reviewer = "auto_review" would otherwise answer
+        // escalations with a reviewer model, never reaching the chip or Auto mode
+        const approvalsReviewer = "user";
         if (cursor) {
           try {
-            const resumed = await request("thread/resume", { threadId: cursor, approvalPolicy });
+            const resumed = await request("thread/resume", { threadId: cursor, approvalPolicy, approvalsReviewer });
             codexThreadId = resumed?.thread?.id ?? cursor;
           } catch {
             resumeFailed = true;
@@ -634,6 +637,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             ...(selection.modelProvider ? { modelProvider: selection.modelProvider } : {}),
             sandbox: config.fullAuto ? "danger-full-access" : "workspace-write",
             approvalPolicy,
+            approvalsReviewer,
             ephemeral: false,
             config: { web_search: "live" },
           });

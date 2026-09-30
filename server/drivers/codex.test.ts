@@ -297,6 +297,18 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(await policyFor("auto")).toMatchObject({ approvalPolicy: "on-request", sandbox: "workspace-write" });
   });
 
+  it("routes approvals to Orbit even when the user's codex config sets an auto reviewer", async () => {
+    await create();
+    const dump = join(scratch, "reviewer.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    await instance.adapter.sendTurn({ threadId: "t-reviewer", text: "hi", approval: "auto" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    const threadStart = seen.calls.find((c: { method: string }) => c.method === "thread/start");
+    expect(threadStart.params.approvalsReviewer).toBe("user");
+  });
+
   it("carries the chip's policy onto a resumed thread", async () => {
     await create({ mode: "resume" });
     const dump = join(scratch, "resume-policy.json");
@@ -306,7 +318,7 @@ describe("CodexDriver turns (fake app-server)", () => {
 
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     const resume = seen.calls.find((c: { method: string }) => c.method === "thread/resume");
-    expect(resume.params).toEqual({ threadId: "codex-thread-9", approvalPolicy: "untrusted" });
+    expect(resume.params).toEqual({ threadId: "codex-thread-9", approvalPolicy: "untrusted", approvalsReviewer: "user" });
   });
 
   it("offers the approval chip unless fullAuto means nothing ever asks", async () => {
