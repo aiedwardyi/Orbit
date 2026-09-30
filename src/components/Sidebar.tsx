@@ -2076,8 +2076,11 @@ export function Sidebar({
     sectionDragRef.current.over = over;
     return over ? [section!, over.place === "before" ? "top" : "bottom"] : null;
   };
+  // over() runs every frame; the order is fixed until drop, so recompute only on a new row
+  const touchEdgeRef = useRef<{ key: string; edge: TouchDropMark | undefined } | null>(null);
   const touchListRef = useTouchDrag("[data-sidebar-row], [data-sidebar-section-handle]", "[data-sidebar-row], [data-sidebar-item-drop-zone]", {
     lift: (pressed) => {
+      touchEdgeRef.current = null;
       const item = touchRowItem(pressed);
       if (item) {
         if (!rowsReorderable) return null;
@@ -2094,7 +2097,8 @@ export function Sidebar({
       if (!drag) return aimTouchSection(target, y);
       const item = touchRowItem(target);
       if (item) {
-        const edge = itemDropOrder(item.key)?.edge;
+        if (touchEdgeRef.current?.key !== item.key) touchEdgeRef.current = { key: item.key, edge: itemDropOrder(item.key)?.edge };
+        const edge = touchEdgeRef.current.edge;
         return edge ? [target!.closest<HTMLElement>("[data-sidebar-row]")!, edge] : null;
       }
       const section = target?.closest<HTMLElement>("[data-sidebar-item-drop-zone]");

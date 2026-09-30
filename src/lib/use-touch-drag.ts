@@ -15,6 +15,8 @@ const LIFTED_STYLE: Record<string, string> = {
   "border-radius": "12px",
   "box-shadow": "0 8px 24px rgb(0 0 0 / 0.35)",
   "pointer-events": "none",
+  // own layer, so following the finger doesn't re-raster the blurred shadow every frame
+  "will-change": "translate",
   transition: "scale 150ms ease-out, box-shadow 150ms ease-out",
 };
 const LIST_STYLE = ["user-select", "-webkit-user-select", "-webkit-touch-callout"];
