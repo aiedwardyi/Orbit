@@ -102,7 +102,9 @@ if (-not $text.Trim()) {
 $max = 8000
 do {
   $clip = if ($text.Length -gt $max) { $text.Substring(0, $max) + "` + "`" + String.raw`n[truncated]" } else { $text }
-  $body = [Text.Encoding]::UTF8.GetBytes((@{ text = $clip } | ConvertTo-Json -Compress))
+  $payload = @{ text = $clip }
+  if ($report) { $payload.kind = 'report' } elseif ($mode) { $payload.kind = 'auto' }
+  $body = [Text.Encoding]::UTF8.GetBytes(($payload | ConvertTo-Json -Compress))
   $max = [int]($max / 2)
 } while ($body.Length -gt 16000)
 $headers = @{ Authorization = "Bearer $auth"; 'X-Orbit-Pane' = $env:ORBIT_PANE; 'X-Orbit-Bot' = $env:ORBIT_BOT; 'X-Orbit-Teacher' = $env:ORBIT_TEACHER }

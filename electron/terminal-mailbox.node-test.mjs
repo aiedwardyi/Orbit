@@ -72,12 +72,12 @@ function runCmdLines({ cwd, env, lines }) {
   });
 }
 
-function runPs1Direct({ ps1, env, args }) {
+function runPs1Direct({ ps1, env, args, input }) {
   return new Promise((resolve) => {
     const child = execFile("powershell", ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", ps1, ...args],
       { env, encoding: "utf8", windowsHide: true, timeout: 60_000 },
       (error, stdout, stderr) => resolve({ status: error?.code ?? 0, stdout, stderr }));
-    child.stdin?.end();
+    child.stdin?.end(input);
   });
 }
 
@@ -205,6 +205,21 @@ test("powershell accepts the legacy pane grant", { skip: !WIN32, timeout: LIVE_T
     const run = await runPs1Direct({ ps1: path.join(bin, "orbit-msg.ps1"), env, args: ["legacy"] });
     assert.equal(run.status, 0);
     assert.deepEqual(posts.map((p) => p.text), ["legacy"]);
+  });
+});
+
+test("powershell marks report and hook/notify posts, leaves plain notes unmarked", { skip: !WIN32, timeout: LIVE_TIMEOUT }, async (t) => {
+  const { dir, bin } = await installBin();
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const ps1 = path.join(bin, "orbit-msg.ps1");
+  await withMailboxStub(async (url, posts) => {
+    const env = paneEnv(bin, url);
+    await runPs1Direct({ ps1, env, args: ["plain"] });
+    await runPs1Direct({ ps1, env, args: ["--report", "DONE", "WIDGET", "text"] });
+    await runPs1Direct({ ps1, env, args: ["--hook", "last_assistant_message"], input: JSON.stringify({ last_assistant_message: "from hook" }) });
+    await runPs1Direct({ ps1, env, args: ["--notify", "last-assistant-message", JSON.stringify({ "last-assistant-message": "from notify" })] });
+    assert.deepEqual(posts.map((p) => p.kind), [undefined, "report", "auto", "auto"]);
+    assert.deepEqual(posts.slice(2).map((p) => p.text), ["from hook", "from notify"]);
   });
 });
 

@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { installOrbitMsg, terminalPaneEnv } from "../electron/terminal-mailbox.mjs";
 import {
-  loadMailboxSecret, mailboxGrant, mailboxNoteText, mailboxScope, mailboxSecretFor, MAILBOX_NOTE_MAX_CHARS, MAILBOX_SECRET_FILE, MAILBOX_STALE_GRANT, readMailboxBody,
+  loadMailboxSecret, mailboxGrant, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, MailboxAutoDedup, MAILBOX_AUTO_DEDUP_MS, MAILBOX_NOTE_MAX_CHARS, MAILBOX_SECRET_FILE, MAILBOX_STALE_GRANT, readMailboxBody,
 } from "./mailbox.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 
@@ -150,6 +150,46 @@ describe("mailbox note text", () => {
   });
 });
 
+describe("mailbox auto dedup", () => {
+  const pane = { pane: PANE, bot: "worker" };
+
+  it("drops one auto post after a report and lets the next through", () => {
+    const dedup = new MailboxAutoDedup();
+    expect(dedup.shouldDrop(pane, "report", 0)).toBe(false);
+    expect(dedup.shouldDrop(pane, "auto", 1000)).toBe(true);
+    expect(dedup.shouldDrop(pane, "auto", 2000)).toBe(false);
+  });
+
+  it("keeps an auto post with no prior report and every plain note", () => {
+    const dedup = new MailboxAutoDedup();
+    expect(dedup.shouldDrop(pane, "auto", 0)).toBe(false);
+    dedup.shouldDrop(pane, "report", 0);
+    expect(dedup.shouldDrop(pane, undefined, 1000)).toBe(false);
+    expect(dedup.shouldDrop(pane, "auto", 2000)).toBe(true);
+  });
+
+  it("expires the report after 15 minutes", () => {
+    const dedup = new MailboxAutoDedup();
+    dedup.shouldDrop(pane, "report", 0);
+    expect(dedup.shouldDrop(pane, "auto", MAILBOX_AUTO_DEDUP_MS + 1)).toBe(false);
+    dedup.shouldDrop(pane, "report", 0);
+    expect(dedup.shouldDrop(pane, "auto", MAILBOX_AUTO_DEDUP_MS)).toBe(true);
+  });
+
+  it("scopes suppression to the same pane and bot", () => {
+    const dedup = new MailboxAutoDedup();
+    dedup.shouldDrop(pane, "report", 0);
+    expect(dedup.shouldDrop({ ...pane, bot: "solo" }, "auto", 1000)).toBe(false);
+    expect(dedup.shouldDrop({ ...pane, pane: "other-pane" }, "auto", 1000)).toBe(false);
+    expect(dedup.shouldDrop(pane, "auto", 1000)).toBe(true);
+  });
+
+  it("accepts old panes that send only text", () => {
+    expect(mailboxPostSchema.safeParse({ text: "hi" }).success).toBe(true);
+    expect(mailboxPostSchema.safeParse({ text: "hi", kind: "bogus" }).success).toBe(false);
+  });
+});
+
 describe("mailbox secret", () => {
   it("never falls back to a shared key when the pane key cannot persist", () => {
     const warnings: string[] = [];
@@ -187,6 +227,19 @@ describe("POST /api/mailbox", () => {
     const { bots } = await (await fetch(`${base}/api/bots`, { headers: { authorization: `Bearer ${TOKEN}` } })).json() as { bots: Array<{ id: string; busy?: boolean }> };
     expect(bots.find((bot) => bot.id === "teacher")?.busy).toBe(false);
     expect(await transcript("worker-thread")).toEqual([]);
+  });
+
+  it("drops the auto note that follows a report, once", async () => {
+    const scope = { pane: PANE, bot: "solo", teacher: "solo" };
+    const grant = mailboxGrant(MAILBOX_KEY, PANE, "solo", "solo");
+    const send = async (text: string, kind?: string) => (await post({ text, kind }, scope, grant)).json();
+    expect(await send("DONE X", "report")).toMatchObject({ ok: true, id: expect.any(String) });
+    expect(await send("long write-up", "auto")).toEqual({ ok: true, dropped: true });
+    expect(await send("asked a question", "auto")).toMatchObject({ ok: true, id: expect.any(String) });
+    expect((await transcript("solo-thread")).map((m) => m.text)).toEqual([
+      "[pane 0f3c9a1e] from solo (solo): DONE X",
+      "[pane 0f3c9a1e] from solo (solo): asked a question",
+    ]);
   });
 
   it("routes a self-addressed note to the section chief", async () => {

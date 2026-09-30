@@ -16,7 +16,30 @@ const id = z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/);
 
 const mailboxScopeSchema = z.object({ pane: id, bot: id, teacher: id });
 
-export const mailboxPostSchema = z.object({ text: z.string() });
+/** `report` is orbit-msg --report; `auto` is the Stop hook or Codex notify. Absent is a plain note. */
+export const mailboxPostSchema = z.object({ text: z.string(), kind: z.enum(["report", "auto"]).optional() });
+
+export const MAILBOX_AUTO_DEDUP_MS = 15 * 60 * 1000;
+
+/** One report swallows the next auto note from the same pane, so a turn doesn't reach the teacher twice. */
+export class MailboxAutoDedup {
+  private readonly reports = new Map<string, number>();
+
+  /** True when the post should be dropped. */
+  shouldDrop(scope: { pane: string; bot: string }, kind: "report" | "auto" | undefined, now = Date.now()): boolean {
+    const key = `${scope.pane}:${scope.bot}`;
+    if (kind === "report") {
+      for (const [k, at] of this.reports) if (now - at > MAILBOX_AUTO_DEDUP_MS) this.reports.delete(k);
+      this.reports.set(key, now);
+      return false;
+    }
+    if (kind !== "auto") return false;
+    const at = this.reports.get(key);
+    if (at === undefined) return false;
+    this.reports.delete(key);
+    return now - at <= MAILBOX_AUTO_DEDUP_MS;
+  }
+}
 
 /** Per-install, not per-boot, so live panes keep posting across a server restart. */
 export function loadMailboxSecret(dir: string): string {
