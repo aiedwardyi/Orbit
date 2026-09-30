@@ -13,8 +13,8 @@ function fixture(options = {}) {
     resolveCwd: async () => os.tmpdir(),
     platform: "linux",
     env: { SHELL: "/bin/sh" },
-    loadPty: () => ({ spawn: () => {
-      const child = { writes: [], sizes: [], killed: false, onData(cb) { this.data = cb; }, onExit(cb) { this.exit = cb; }, write(data) { this.writes.push(data); }, resize(...size) { this.sizes.push(size); }, kill() { this.killed = true; } };
+    loadPty: () => ({ spawn: (_shell, _args, options) => {
+      const child = { options, writes: [], sizes: [], killed: false, onData(cb) { this.data = cb; }, onExit(cb) { this.exit = cb; }, write(data) { this.writes.push(data); }, resize(...size) { this.sizes.push(size); }, kill() { this.killed = true; } };
       children.push(child);
       return child;
     } }),
@@ -723,6 +723,16 @@ test("readBot lists every pane and sendBot targets a pane by session id", async 
   f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "ls\r" });
   assert.deepEqual(f.children[1].writes, ["ls\r"]);
   assert.deepEqual(f.children[0].writes, []);
+});
+
+test("only bot-spawned panes turn off Claude prompt suggestions", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  await f.host.open(f.event, f.input);
+  await f.host.openForBot("bot-1", { label: "worker" });
+  assert.equal(f.children[0].options.env.CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION, undefined);
+  assert.equal(f.children[1].options.env.CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION, "false");
 });
 
 test("openForBot caps live panes per bot and rejects bad input", async () => {

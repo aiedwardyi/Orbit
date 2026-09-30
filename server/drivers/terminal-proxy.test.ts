@@ -1,7 +1,34 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
-import { TOOLS, callTool, readTerminalSnapshot, terminalReadGrant, terminalSnapshotText, workerReportText } from "./terminal-proxy.ts";
+import { describe, expect, it, vi, type Mock } from "vitest";
+import { TOOLS, callTool, claudeState, readTerminalSnapshot, terminalReadGrant, terminalSnapshotText, workerReportText } from "./terminal-proxy.ts";
+
+const CONFIG = { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" };
+const BUSY = "● Working on it\n✽ Undulating… (3s · ↓ 75 tokens · thought for 2s)\n────────────────────\n❯\n────────────────────";
+const IDLE = "● pong\n✻ Sautéed for 5s · done 11:34 PM\n──⏸─manual─mode─on──────────\n❯\n────────────────────";
+
+type FetchMock = Mock<(url: string | URL | Request, init?: RequestInit) => Promise<Response>>;
+
+// GETs walk the given reads (the last repeats); POSTs answer with a mid-render screen.
+function scripted(...reads: object[]): FetchMock {
+  let next = 0;
+  return vi.fn(async (_url: string | URL | Request, init?: RequestInit) =>
+    new Response(JSON.stringify(init?.method === "POST" ? { screenText: "mid-render" } : reads[Math.min(next++, reads.length - 1)]), { status: 200 }));
+}
+
+const posted = (fetchImpl: FetchMock) => fetchImpl.mock.calls.filter(([, init]) => init?.method === "POST").map(([, init]) => JSON.parse(String(init?.body)).text);
+const methods = (fetchImpl: FetchMock) => fetchImpl.mock.calls.map(([, init]) => init?.method ?? "GET");
+
+async function send(fetchImpl: typeof fetch, args: Parameters<typeof callTool>[3]) {
+  vi.useFakeTimers({ toFake: ["setTimeout"] });
+  try {
+    const result = callTool("terminal_send", fetchImpl, CONFIG, args);
+    await vi.runAllTimersAsync();
+    return await result;
+  } finally {
+    vi.useRealTimers();
+  }
+}
 
 describe("terminal proxy", () => {
   it("derives distinct bot-bound read grants", () => {
@@ -17,6 +44,8 @@ describe("terminal proxy", () => {
     expect(Object.keys(TOOLS[1].inputSchema.properties)).not.toContain("botId");
     expect(TOOLS[1].description).toContain("End with a newline to submit the line.");
     expect(TOOLS[1].description).toContain("Ctrl+C is refused");
+    expect(TOOLS[1].description).toContain("esc interrupts a running Claude turn, so it is refused while the pane shows Claude: busy.");
+    expect(TOOLS[0].description).toContain("\"Claude: busy\" while its spinner line says a turn is running");
     expect(TOOLS[2]).toMatchObject({ annotations: { readOnlyHint: false, destructiveHint: true }, inputSchema: { required: ["label"], additionalProperties: false } });
     expect(Object.keys(TOOLS[2].inputSchema.properties)).toEqual(["label", "cwd", "command"]);
     expect(TOOLS[3]).toMatchObject({ annotations: { readOnlyHint: false, destructiveHint: true }, inputSchema: { required: ["sessionId"], additionalProperties: false } });
@@ -151,50 +180,92 @@ describe("terminal proxy", () => {
   });
 
   it("maps terminal_send args to a POST on the bot's send route", async () => {
-    const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
-      new Response(JSON.stringify({ sessionId: "s1", generation: 2, screenText: "echo ok", seq: 3 }), { status: 200 }));
-    const result = await callTool(
-      "terminal_send",
-      fetchImpl,
-      { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" },
-      { text: "echo ok\r", sessionId: "s1", generation: 2 },
-    );
+    const fetchImpl = scripted({ sessionId: "s1", generation: 2, screenText: "PS> echo ok", seq: 3 });
+    const result = await send(fetchImpl, { text: "echo ok\r", sessionId: "s1", generation: 2 });
     expect(result.isError).toBeUndefined();
     expect(result.content[0].text).toContain("echo ok");
-    const [url, init] = fetchImpl.mock.calls[0];
+    const [url, init] = fetchImpl.mock.calls.find(([, call]) => call?.method === "POST")!;
     expect(url).toBe("http://127.0.0.1:1/v1/bots/bot-1/terminal/send");
-    expect(init?.method).toBe("POST");
-    expect(JSON.parse(String(init?.body))).toEqual({ sessionId: "s1", generation: 2, text: "echo ok\r" });
+    expect(JSON.parse(String(init?.body))).toEqual({ sessionId: "s1", generation: 2, text: "echo ok" });
     expect(new Headers(init?.headers).get("authorization")).toBe("Bearer grant");
   });
 
   it.each([
-    ["LF submits", "echo ok\n", "echo ok\r"],
-    ["CRLF does not double-submit", "echo ok\r\n", "echo ok\r"],
-    ["plain text stays unchanged", "echo ok", "echo ok"],
+    ["LF submits", "echo ok\n", ["echo ok", "\r"]],
+    ["CRLF does not double-submit", "echo ok\r\n", ["echo ok", "\r"]],
+    ["plain text stays unchanged", "echo ok", ["echo ok"]],
   ])("normalizes terminal_send text: %s", async (_label, text, expected) => {
-    const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({ screenText: "ok" }), { status: 200 }));
-    await callTool(
-      "terminal_send",
-      fetchImpl,
-      { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" },
-      { text, sessionId: "s1", generation: 2 },
-    );
-    const [, init] = fetchImpl.mock.calls[0];
-    expect(JSON.parse(String(init?.body)).text).toBe(expected);
+    const fetchImpl = scripted({ screenText: "echo ok" });
+    await send(fetchImpl, { text, sessionId: "s1", generation: 2 });
+    expect(posted(fetchImpl)).toEqual(expected);
+  });
+
+  it("submits with a separate Enter once the typed text shows, as a bracketed paste", async () => {
+    const fetchImpl = scripted({ screenText: "❯", modes: [2004] }, { screenText: "❯" }, { screenText: "❯ Reply with\n  pong" });
+    await send(fetchImpl, { text: "Reply with pong\n", sessionId: "s1", generation: 2 });
+    expect(posted(fetchImpl)).toEqual(["\x1b[200~Reply with pong\x1b[201~", "\r"]);
+    expect(methods(fetchImpl).slice(0, 5)).toEqual(["GET", "POST", "GET", "GET", "POST"]);
+  });
+
+  it("submits long text once Claude folds it into [Pasted text]", async () => {
+    const text = Array.from({ length: 60 }, (_, line) => `step ${line}`).join("\n");
+    const fetchImpl = scripted({ screenText: "❯", modes: [2004] }, { screenText: "❯ [Pasted text #1 +59 lines]" });
+    await send(fetchImpl, { text: `${text}\n`, sessionId: "s1", generation: 2 });
+    expect(posted(fetchImpl).at(-1)).toBe("\r");
+    expect(methods(fetchImpl).slice(0, 4)).toEqual(["GET", "POST", "GET", "POST"]);
+  });
+
+  it("still presses Enter when the typed text never shows, after a bounded wait", async () => {
+    const fetchImpl = scripted({ screenText: "❯" });
+    await send(fetchImpl, { text: "hidden\n", sessionId: "s1", generation: 2 });
+    const calls = methods(fetchImpl);
+    expect(posted(fetchImpl)).toEqual(["hidden", "\r"]);
+    expect(calls.indexOf("POST", 2) - calls.indexOf("POST") - 1).toBe(15);
+  });
+
+  it("returns the snapshot after the screen settles, not the mid-render one", async () => {
+    const fetchImpl = scripted({ screenText: "frame 1" }, { screenText: "frame 2" }, { screenText: "done" });
+    const result = await send(fetchImpl, { key: "enter", sessionId: "s1", generation: 2 });
+    expect(result.content[0].text).toContain("done");
+    expect(result.content[0].text).not.toContain("mid-render");
+    expect(methods(fetchImpl)).toEqual(["POST", "GET", "GET", "GET", "GET"]);
+  });
+
+  it("stops settling after a bounded number of reads when the screen keeps changing", async () => {
+    let frame = 0;
+    const fetchImpl: FetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) =>
+      new Response(JSON.stringify({ screenText: init?.method === "POST" ? "mid-render" : `frame ${frame++}` }), { status: 200 }));
+    const result = await send(fetchImpl, { key: "down", sessionId: "s1", generation: 2 });
+    expect(methods(fetchImpl).filter((method) => method === "GET")).toHaveLength(13);
+    expect(result.content[0].text).toContain("frame 12");
+  });
+
+  it("refuses esc while the Claude pane is busy, without sending it", async () => {
+    const fetchImpl = scripted({ screenText: BUSY });
+    const result = await send(fetchImpl, { key: "esc", sessionId: "s1", generation: 2 });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("esc would interrupt the running Claude turn");
+    expect(posted(fetchImpl)).toEqual([]);
+  });
+
+  it("sends esc when the Claude pane is idle", async () => {
+    const fetchImpl = scripted({ screenText: IDLE });
+    const result = await send(fetchImpl, { key: "esc", sessionId: "s1", generation: 2 });
+    expect(result.isError).toBeUndefined();
+    expect(posted(fetchImpl)).toEqual(["\x1b"]);
   });
 
   it("prints the capture time the send route returns", async () => {
     const capturedAt = Date.parse("2026-09-21T01:02:03.000Z");
     const fetchImpl = async () => new Response(JSON.stringify({ botId: "bot-1", sessionId: "s1", generation: 2, capturedAt, exited: false, screenText: "ok" }), { status: 200 });
-    const result = await callTool("terminal_send", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { text: "x", sessionId: "s1", generation: 2 });
+    const result = await send(fetchImpl, { text: "x", sessionId: "s1", generation: 2 });
     expect(result.content[0].text).toContain("Captured at: 2026-09-21T01:02:03.000Z");
     expect(result.content[0].text).toContain("State: running");
   });
 
   it("surfaces bridge send errors as tool errors", async () => {
     const fetchImpl = async () => new Response(JSON.stringify({ error: "Terminal session is stale; take a fresh snapshot" }), { status: 409 });
-    const result = await callTool("terminal_send", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { text: "x", sessionId: "s1", generation: 1 });
+    const result = await callTool("terminal_send", fetchImpl, CONFIG, { text: "x", sessionId: "s1", generation: 1 });
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("stale");
   });
@@ -205,10 +276,22 @@ describe("terminal proxy", () => {
     ["enter", "\r"],
     ["esc", "\x1b"],
   ])("sends the %s key as its bytes", async (key, expected) => {
-    const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({ screenText: "ok" }), { status: 200 }));
-    const result = await callTool("terminal_send", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { key, sessionId: "s1", generation: 2 });
+    const fetchImpl = scripted({ screenText: "ok" });
+    const result = await send(fetchImpl, { key, sessionId: "s1", generation: 2 });
     expect(result.isError).toBeUndefined();
-    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body)).text).toBe(expected);
+    expect(posted(fetchImpl)).toEqual([expected]);
+  });
+
+  it.each([
+    ["a running turn", BUSY, "busy"],
+    ["the first spinner frame", "❯ go\n* Fermenting…\n────────────\n❯", "busy"],
+    ["a finished turn at its prompt", IDLE, "idle"],
+    ["a shell", "PS C:\\work> echo done…", undefined],
+  ])("reads the Claude state from %s", (_label, screenText, state) => {
+    expect(claudeState(screenText)).toBe(state);
+    const text = terminalSnapshotText({ sessionId: "s1", generation: 1, screenText });
+    if (state) expect(text).toContain(`Claude: ${state}`);
+    else expect(text).not.toContain("Claude:");
   });
 
   it.each([

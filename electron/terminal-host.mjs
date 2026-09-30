@@ -23,6 +23,8 @@ const CLOSED_PANE_HISTORY_LIMIT = 32;
 const WAIT_POLL_MS = 100;
 const READ_WAIT_DEFAULT_MS = 15_000;
 const READ_WAIT_MAX_MS = 60_000;
+// A stray Enter on an empty Claude prompt submits its suggestion as a real turn.
+const BOT_PANE_ENV = { CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION: "false" };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -374,7 +376,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- The test adapter predates worker error events.
     if (typeof session.pty.onError === "function") session.pty.onError((error) => fail(session, error));
   };
-  const start = async ({ key, event, input, folder, cwd, cancelPromise }) => {
+  const start = async ({ key, event, input, folder, cwd, cancelPromise, botPane = false }) => {
     const shell = platform === "win32"
       ? [path.join(env.ProgramFiles || "C:\\Program Files", "PowerShell", "7", "pwsh.exe"), path.join(env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")].find((file) => fs.existsSync(file))
       : (env.SHELL || "/bin/sh");
@@ -382,10 +384,12 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     const id = randomUUID();
     // A pane without orbit-msg beats no pane at all.
     const mail = await Promise.resolve().then(mailbox).catch(() => null);
+    const paneEnv = terminalPaneEnv(terminalEnvironment(env), { pane: id, bot: input.botId, teacher: folder.teacher, mailbox: mail });
+    if (botPane) Object.assign(paneEnv, BOT_PANE_ENV);
     let pty;
     try {
       pty = await loadPty().spawn(shell, platform === "win32" ? ["-NoLogo"] : [], {
-        name: "xterm-256color", cols: input.cols, rows: input.rows, cwd, env: terminalPaneEnv(terminalEnvironment(env), { pane: id, bot: input.botId, teacher: folder.teacher, mailbox: mail }), useConptyDll: platform === "win32",
+        name: "xterm-256color", cols: input.cols, rows: input.rows, cwd, env: paneEnv, useConptyDll: platform === "win32",
       });
     } catch (cause) {
       throw errorValue(cause);
@@ -735,7 +739,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         if (disposed) throw new Error("Terminal host is shutting down");
         if (deletedBots.has(botId)) throw new Error("Terminal bot was deleted");
         const key = `${sender.id}:${botId}:pane:${randomUUID()}`;
-        session = await start({ key, event: { sender }, input: { botId, cols: 120, rows: 30 }, folder, cwd, cancelPromise: new Promise(() => {}) });
+        session = await start({ key, event: { sender }, input: { botId, cols: 120, rows: 30 }, folder, cwd, cancelPromise: new Promise(() => {}), botPane: true });
         if (disposed) {
           await retire(session, true);
           throw new Error("Terminal host is shutting down");

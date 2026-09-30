@@ -67,6 +67,9 @@ When a worker reports done, check its work yourself before anything moves:
 If a report says FAIL or BLOCKED, read the pane with terminal_read, decide, and
 either answer the worker with terminal_send or tell the user.
 
+Follow-ups use the card rule: write long instructions to a file, then send one
+line, `Read <file path> and do it.`
+
 If a worker hits a usage limit, its edits stay in the worktree. Close the pane
 and spawn a FRESH worker on another engine in the same worktree, with the card
 plus "continue from the uncommitted changes already here".

@@ -10,6 +10,10 @@ describe("harness playbook", () => {
     expect(harnessPlaybookPrompt(false)).toBe("");
   });
 
+  it("sends long follow-ups as a file, one line", () => {
+    expect(harnessPlaybookPrompt(true)).toContain("Follow-ups use the card rule: write long instructions to a file");
+  });
+
   it("fills the worktree path from the configured root", () => {
     const prompt = loadHarnessPlaybook(undefined, join("D:", "wt"));
     expect(prompt).toContain(join("D:", "wt", "<name>"));
