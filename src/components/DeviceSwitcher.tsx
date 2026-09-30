@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Monitor, Pencil } from "lucide-react";
+import { Check, Laptop, Monitor, Pencil } from "lucide-react";
 
 import { useI18n } from "@/lib/i18n";
 import { isPhone } from "@/lib/phone-swipe";
@@ -12,7 +12,11 @@ export interface DeviceItem {
   host: string;
   current: boolean;
   offline: boolean;
+  laptop?: boolean;
 }
+
+const DeviceIcon = ({ device, size }: { device: DeviceItem; size: number }) =>
+  device.laptop ? <Laptop size={size} className="shrink-0" /> : <Monitor size={size} className="shrink-0" />;
 
 const DEVICES_CHANGE = "orbit-devices-change";
 
@@ -121,6 +125,9 @@ export function DeviceSwitcher({ navigate = (url) => window.location.assign(url)
                       device.offline && !device.current && "opacity-50",
                     )}
                   >
+                    <span className="text-ink-secondary">
+                      <DeviceIcon device={device} size={16} />
+                    </span>
                     <span className="min-w-0 flex-1 truncate">{device.name}</span>
                     {device.current ? (
                       <span className="flex items-center gap-1 text-[12px] text-accent">
@@ -156,15 +163,16 @@ export function DeviceSwitcher({ navigate = (url) => window.location.assign(url)
 export function DeviceTag() {
   const local = Boolean(window.ogb);
   const devices = useDevices(!local);
-  const name = devices.length > 1 ? devices.find((device) => device.current)?.name : undefined;
-  if (local || !name) return null;
+  const device = devices.length > 1 ? devices.find((item) => item.current) : undefined;
+  if (local || !device) return null;
   return (
     <span
       data-device-tag
-      title={name}
-      className="min-w-0 truncate rounded-md border border-hairline/60 px-1.5 py-0.5 text-[11px] leading-none text-ink-secondary"
+      title={device.name}
+      className="flex min-w-0 items-center gap-1 text-[12px] leading-none text-ink-secondary"
     >
-      {name}
+      <DeviceIcon device={device} size={14} />
+      <span className="truncate">{device.name}</span>
     </span>
   );
 }

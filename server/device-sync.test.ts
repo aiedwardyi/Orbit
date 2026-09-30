@@ -26,6 +26,13 @@ describe("device sync", () => {
     expect(text).not.toMatch(/key|cookie|orbit_remote|a{64}/);
   });
 
+  it("keeps the laptop flag", () => {
+    const folder = freshDir();
+    writeDeviceRecord(folder, { ...rec("laptop"), laptop: true }, NOW);
+    writeDeviceRecord(folder, rec("home"), NOW);
+    expect(listDevices(folder, "home", NOW).map((d) => [d.deviceId, d.laptop])).toEqual([["home", undefined], ["laptop", true]]);
+  });
+
   it("rejects a host that is not a plain hostname", () => {
     expect(() => writeDeviceRecord(freshDir(), rec("home", "evil.com/x?y"), NOW)).toThrow();
   });

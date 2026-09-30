@@ -134,6 +134,13 @@ describe("DeviceTag", () => {
     setPhone(true);
     const { host } = await renderView(pcs, vi.fn(), DeviceTag);
     expect(host.querySelector("[data-device-tag]")!.textContent).toBe("Home");
+    expect(host.querySelector("[data-device-tag] .lucide-monitor")).not.toBeNull();
+  });
+
+  it("shows a laptop icon on a laptop", async () => {
+    setPhone(true);
+    const { host } = await renderView([device("laptop", { current: true, laptop: true }), device("work")], vi.fn(), DeviceTag);
+    expect(host.querySelector("[data-device-tag] .lucide-laptop")).not.toBeNull();
   });
 
   it("is hidden in the local desktop app", async () => {

@@ -1,5 +1,6 @@
 // Per-PC presence records in the sync folder so a phone can jump between PCs.
 // Records carry only a name, a public tailnet host and a timestamp: never the remote key or cookie.
+import { execFile } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
@@ -20,16 +21,37 @@ const deviceSchema = z.object({
   name: deviceNameSchema,
   host: z.string().max(253).regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/),
   lastSeen: z.number().int().nonnegative(),
+  laptop: z.boolean().optional(),
 });
 
 export type DeviceRecord = z.infer<typeof deviceSchema>;
 export type DeviceListItem = DeviceRecord & { current: boolean; offline: boolean };
 
 export function writeDeviceRecord(folder: string, record: Omit<DeviceRecord, "lastSeen">, now: number): void {
-  const parsed = deviceSchema.parse({ deviceId: record.deviceId, name: record.name, host: record.host, lastSeen: now });
+  const parsed = deviceSchema.parse({ deviceId: record.deviceId, name: record.name, host: record.host, lastSeen: now, laptop: record.laptop });
   const directory = join(folder, DEVICE_DIR);
   mkdirSync(directory, { recursive: true });
   writeFileAtomic(join(directory, `${parsed.deviceId}.json`), `${JSON.stringify(parsed, null, 2)}\n`);
+}
+
+/** A battery means a laptop, so the picker can show the right icon. */
+export function detectLaptop(): Promise<boolean> {
+  if (process.platform === "linux") {
+    try {
+      return Promise.resolve(readdirSync("/sys/class/power_supply").some((name) => name.startsWith("BAT")));
+    } catch {
+      return Promise.resolve(false);
+    }
+  }
+  if (process.platform !== "win32") return Promise.resolve(false);
+  return new Promise((resolve) => {
+    execFile(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", "@(Get-CimInstance Win32_Battery).Count"],
+      { windowsHide: true, timeout: 15_000 },
+      (error, stdout) => resolve(!error && Number(stdout.trim()) > 0),
+    );
+  });
 }
 
 /** This PC's saved name, local only; null when unset or invalid. */

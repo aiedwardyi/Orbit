@@ -273,6 +273,7 @@ import {
 } from "./remote-access.ts";
 import {
   DEVICE_HEARTBEAT_MS,
+  detectLaptop,
   deviceDisplayName,
   deviceNameSchema,
   listDevices,
@@ -1754,6 +1755,7 @@ function scheduleProfilePublish(): void {
 }
 
 let deviceName = loadDeviceName(DATA_DIR);
+let deviceLaptop = false;
 
 function publishDeviceRecord(): void {
   const folder = profileSyncSettings.folder;
@@ -1765,6 +1767,7 @@ function publishDeviceRecord(): void {
         deviceId: profileSyncSettings.deviceId,
         name: deviceDisplayName(deviceName, process.env.ORBIT_DEVICE_NAME, osHostname()),
         host: REMOTE_HOST,
+        laptop: deviceLaptop,
       },
       Date.now(),
     );
@@ -1776,6 +1779,10 @@ function publishDeviceRecord(): void {
 if (REMOTE_HOST !== undefined) {
   publishDeviceRecord();
   setInterval(publishDeviceRecord, DEVICE_HEARTBEAT_MS).unref();
+  void detectLaptop().then((laptop) => {
+    deviceLaptop = laptop;
+    if (laptop) publishDeviceRecord();
+  });
 }
 
 function syncMemory(botId: string): void {
