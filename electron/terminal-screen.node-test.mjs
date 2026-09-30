@@ -6,6 +6,7 @@ test("models cursor movement, erase, resize, and wrapped text", () => {
   const screen = createTerminalScreen({ cols: 5, rows: 3 });
   screen.consume("abc\x1b[2J\x1b[Hxy\x1b[2;2Hz\x1b[2K\x1b[2;2Hwide!");
   assert.equal(screen.snapshot().screenText, "xy\n wide\n!");
+  assert.equal(screen.text(), "xy\n wide\n!");
   screen.resize(7, 4);
   assert.equal(screen.snapshot().cols, 7);
   assert.equal(screen.snapshot().rows, 4);

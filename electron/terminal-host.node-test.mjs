@@ -716,6 +716,8 @@ test("readBot lists every pane and sendBot targets a pane by session id", async 
   const read = f.host.readBot("bot-1");
   assert.equal(read.sessionId, main.id);
   assert.deepEqual(read.panes.map(({ sessionId, label, main: isMain }) => [sessionId, label, isMain]), [[main.id, null, true], [pane.sessionId, "worker", false]]);
+  f.children[1].data("Fermenting…");
+  assert.deepEqual(f.host.readBot("bot-1").panes.map((entry) => entry.screenText.trim()), ["", "Fermenting…"]);
   assert.equal(f.host.readBot("bot-1", { sessionId: pane.sessionId }).label, "worker");
   assert.throws(() => f.host.readBot("bot-1", { sessionId: "missing" }), /Unknown terminal/);
   // sendBot keeps its existing "stale" wording for an unresolved id (see the restart case below).

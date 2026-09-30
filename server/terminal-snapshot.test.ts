@@ -115,6 +115,16 @@ describe("terminal snapshot relay", () => {
     expect(calls).toEqual([{ url: "http://127.0.0.1:52150/v1/bots/bot-1/terminal?sessionId=worker" }]);
   });
 
+  it("keeps other panes' screens out of the browser snapshot", async () => {
+    const fetchImpl = (async () => new Response(JSON.stringify({
+      sessionId: "main",
+      screenText: "$ ls",
+      panes: [{ sessionId: "main", generation: 1, label: null, main: true, screenText: "$ ls" }],
+    }))) as typeof fetch;
+    const { body } = await terminalSnapshotResponse(ACCESS, "bot-1", undefined, fetchImpl);
+    expect(body.panes).toEqual([{ sessionId: "main", generation: 1, label: null, main: true }]);
+  });
+
   it("answers a clean 404 for an unknown or closed pane instead of a 502", async () => {
     const notFound = (async () => new Response(JSON.stringify({ error: "Unknown terminal route" }), { status: 404 })) as typeof fetch;
     await expect(terminalSnapshotResponse(ACCESS, "bot-1", "gone", notFound)).resolves.toEqual({

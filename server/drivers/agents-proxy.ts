@@ -288,11 +288,11 @@ const TOOLS = [
   {
     name: "check_delegation",
     description:
-      "Check what happened to a delegation you queued with delegate_bot, without waiting: still queued, running, or finished — and the peer's reply once it is done.",
+      "Check what happened to a delegation you queued with delegate_bot, without waiting: still queued, running, or finished — and the peer's reply once it is done. task_id may be a unique prefix of 8+ characters.",
     inputSchema: {
       type: "object",
       properties: {
-        task_id: { type: "string", description: "The task id delegate_bot returned." },
+        task_id: { type: "string", description: "The task id delegate_bot returned, or a unique prefix of 8+ characters." },
       },
       required: ["task_id"],
     },
@@ -304,7 +304,7 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        task_id: { type: "string", description: "The task id delegate_bot returned." },
+        task_id: { type: "string", description: "The task id delegate_bot returned, or a unique prefix of 8+ characters." },
         timeout_seconds: { type: "integer", description: "give up waiting after this many seconds; default 60, max 240" },
       },
       required: ["task_id"],

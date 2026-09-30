@@ -35,6 +35,9 @@ The exact shape of its final message.
 - The pane label repeats the header order as `NICKNAME | MODEL | EFFORT`.
 - One card, one branch, one worktree. Keep scope tight; the worker does
   exactly what the card says.
+- Parallel cards: split shared ids, routes and names between them up front.
+- If their branches must work together, end with one INTEGRATE card: merge the
+  named branches in a scratch worktree, run the checks, report like a worker.
 
 ## Worktrees
 

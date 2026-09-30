@@ -635,7 +635,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
           exitCode: session.exitCode,
           exited: session.exitCode !== null,
           ...session.screen.snapshot({ maxScreenChars, maxScrollbackChars }),
-          panes: live.map(paneSummary),
+          panes: live.map((pane) => ({ ...paneSummary(pane), screenText: pane.screen.text() })),
         };
       };
       const first = buildSnapshot();

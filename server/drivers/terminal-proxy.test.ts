@@ -282,6 +282,22 @@ describe("terminal proxy", () => {
     expect(posted(fetchImpl)).toEqual([expected]);
   });
 
+  it("adds each pane's Claude state to the pane list, and nothing for an unknown one", () => {
+    const text = terminalSnapshotText({
+      sessionId: "s1",
+      generation: 1,
+      panes: [
+        { sessionId: "s1", generation: 1, label: null, main: true, screenText: "PS C:\\work>" },
+        { sessionId: "s2", generation: 1, label: "A | M | H", screenText: BUSY },
+        { sessionId: "s3", generation: 2, label: "B | M | H", screenText: IDLE },
+      ],
+    });
+    const list = text.split("Panes:\n")[1].split("\n");
+    expect(list[0]).not.toContain("Claude:");
+    expect(list[1]).toMatch(/A \| M \| H: sessionId s2 \(generation 1\), Claude: busy$/);
+    expect(list[2]).toMatch(/B \| M \| H: sessionId s3 \(generation 2\), Claude: idle$/);
+  });
+
   it.each([
     ["a running turn", BUSY, "busy"],
     ["the first spinner frame", "❯ go\n* Fermenting…\n────────────\n❯", "busy"],

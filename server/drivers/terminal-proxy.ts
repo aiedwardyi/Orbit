@@ -125,7 +125,7 @@ export const TOOLS = [
 type TerminalConfig = { host?: string; token?: string; botId?: string };
 type SendInput = { sessionId: string; generation: number; text: string };
 type SpawnInput = { label: string; cwd?: string; command?: string };
-type Pane = { sessionId: string; generation: number; label: string | null; main?: boolean; exited?: boolean };
+type Pane = { sessionId: string; generation: number; label: string | null; main?: boolean; exited?: boolean; screenText?: string };
 
 type Snapshot = {
   botId?: string;
@@ -166,7 +166,8 @@ export function terminalSnapshotText(snapshot: Snapshot): string {
   if (snapshot.panes?.length) {
     lines.push("", "Panes:");
     for (const pane of snapshot.panes) {
-      lines.push(`- ${pane.label || (pane.main ? "main" : "(unlabeled)")}: sessionId ${pane.sessionId} (generation ${pane.generation})${pane.main ? ", main" : ""}${pane.exited ? ", exited" : ""}`);
+      const claude = claudeState(pane.screenText);
+      lines.push(`- ${pane.label || (pane.main ? "main" : "(unlabeled)")}: sessionId ${pane.sessionId} (generation ${pane.generation})${pane.main ? ", main" : ""}${pane.exited ? ", exited" : ""}${claude ? `, Claude: ${claude}` : ""}`);
     }
   }
   return lines.join("\n");

@@ -130,6 +130,24 @@ export function findDelegationReceipt(id: string): DelegationReceipt | null {
   return receipts.find((receipt) => receipt.id === id) ?? null;
 }
 
+export const DELEGATION_PREFIX_MIN = 8;
+
+export type DelegationIdMatch = { id: string } | { error: "too_short" | "ambiguous" };
+
+/** Full ids pass through; a prefix only matches the caller's own thread, so it never reaches another bot's task. */
+export function resolveDelegationId(input: string, sourceThreadId: string, runningIds: Iterable<string> = []): DelegationIdMatch {
+  const own = new Set<string>([
+    ...receipts.filter((receipt) => receipt.sourceThreadId === sourceThreadId).map((receipt) => receipt.id),
+    ...(pendingDelegations.get(sourceThreadId) ?? []).map((item) => item.id),
+    ...runningIds,
+  ]);
+  if (own.has(input)) return { id: input };
+  if (input.length < DELEGATION_PREFIX_MIN) return { error: "too_short" };
+  const matches = [...own].filter((id) => id.startsWith(input));
+  if (matches.length > 1) return { error: "ambiguous" };
+  return { id: matches[0] ?? input };
+}
+
 /** A still-queued task's routing info, or null once it dispatched/settled. */
 export function pendingDelegationInfo(id: string): { sourceThreadId: string; toBotId: string; attempts: number } | null {
   for (const [sourceThreadId, items] of pendingDelegations) {

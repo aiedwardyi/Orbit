@@ -14,6 +14,12 @@ describe("harness playbook", () => {
     expect(harnessPlaybookPrompt(true)).toContain("Follow-ups use the card rule: write long instructions to a file");
   });
 
+  it("tells parallel cards to split shared names and to end with an INTEGRATE card", () => {
+    const prompt = harnessPlaybookPrompt(true);
+    expect(prompt).toContain("split shared ids, routes and names between them up front");
+    expect(prompt).toContain("end with one INTEGRATE card");
+  });
+
   it("fills the worktree path from the configured root", () => {
     const prompt = loadHarnessPlaybook(undefined, join("D:", "wt"));
     expect(prompt).toContain(join("D:", "wt", "<name>"));

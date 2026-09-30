@@ -17,6 +17,8 @@ const terminalSendSchema = z.union([
 function snapshotBody(snapshot: Record<string, unknown>): Record<string, unknown> {
   const body: Record<string, unknown> = {};
   for (const key of SNAPSHOT_FIELDS) if (snapshot[key] !== undefined) body[key] = snapshot[key];
+  // Pane screens feed the MCP pane list only.
+  if (Array.isArray(body.panes)) body.panes = body.panes.map(({ screenText: _screenText, ...pane }) => pane);
   return body;
 }
 

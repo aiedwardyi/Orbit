@@ -217,9 +217,28 @@ test("powershell marks report and hook/notify posts, leaves plain notes unmarked
     await runPs1Direct({ ps1, env, args: ["plain"] });
     await runPs1Direct({ ps1, env, args: ["--report", "DONE", "WIDGET", "text"] });
     await runPs1Direct({ ps1, env, args: ["--hook", "last_assistant_message"], input: JSON.stringify({ last_assistant_message: "from hook" }) });
-    await runPs1Direct({ ps1, env, args: ["--notify", "last-assistant-message", JSON.stringify({ "last-assistant-message": "from notify" })] });
+    await runPs1Direct({ ps1, env, args: ["--notify", "last-assistant-message", JSON.stringify({ type: "agent-turn-complete", "last-assistant-message": "from notify" })] });
     assert.deepEqual(posts.map((p) => p.kind), [undefined, "report", "auto", "auto"]);
     assert.deepEqual(posts.slice(2).map((p) => p.text), ["from hook", "from notify"]);
+  });
+});
+
+test("powershell notify posts only turn-complete events with text", { skip: !WIN32, timeout: LIVE_TIMEOUT }, async (t) => {
+  const { dir, bin } = await installBin();
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const ps1 = path.join(bin, "orbit-msg.ps1");
+  await withMailboxStub(async (url, posts) => {
+    const env = paneEnv(bin, url);
+    for (const event of [
+      { title: "Implement REPS audit" },
+      { type: "thread-title-updated", "last-assistant-message": "not a report" },
+      { type: "agent-turn-complete", "last-assistant-message": "  " },
+      { type: "agent-turn-complete" },
+      { type: "agent-turn-complete", "last-assistant-message": "real report" },
+    ]) {
+      await runPs1Direct({ ps1, env, args: ["--notify", "last-assistant-message", JSON.stringify(event)] });
+    }
+    assert.deepEqual(posts.map((p) => p.text), ["real report"]);
   });
 });
 

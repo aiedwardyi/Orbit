@@ -645,6 +645,7 @@ describe("agents-proxy MCP surface", () => {
     for (const name of ["check_delegation", "wait_delegation"]) {
       const tool = list.result.tools.find((t: { name: string }) => t.name === name);
       expect(JSON.stringify(tool.inputSchema)).not.toMatch(/"(oneOf|anyOf|allOf|const|format)":/);
+      expect(tool.inputSchema.properties.task_id.description).toContain("unique prefix of 8+ characters");
     }
 
     lastDelegationUrl = null;

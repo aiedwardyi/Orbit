@@ -18,6 +18,7 @@ import {
   pendingDelegationSnapshot,
   queueDelegation,
   recordDelegationReceipt,
+  resolveDelegationId,
   threadsWaitingOn,
   _pendingCount,
 } from "./delegations.ts";
@@ -874,5 +875,40 @@ describe("boot does not run a dead process's handoffs", () => {
     const bootBlock = index.slice(start, start + 700);
     expect(bootBlock).toContain("discardOrphanedDelegations(commsBus)");
     expect(bootBlock).not.toContain("drainDelegations(");
+  });
+});
+
+describe("resolveDelegationId", () => {
+  const receipt = (id: string, sourceThreadId: string) =>
+    recordDelegationReceipt({ id, sourceThreadId, toBotId: "peer", toBotName: "Helper", status: "done" });
+
+  beforeEach(() => {
+    _resetPending();
+    receipt("aaaaaaaa-1111", "mine");
+    receipt("aaaaaaab-2222", "mine");
+    receipt("bbbbbbbb-3333", "mine");
+    receipt("cccccccc-4444", "theirs");
+  });
+
+  it("resolves a unique prefix of 8+ characters and passes full ids through", () => {
+    expect(resolveDelegationId("bbbbbbbb", "mine")).toEqual({ id: "bbbbbbbb-3333" });
+    expect(resolveDelegationId("aaaaaaaa-1111", "mine")).toEqual({ id: "aaaaaaaa-1111" });
+  });
+
+  it("resolves a prefix of a still-running task", () => {
+    expect(resolveDelegationId("dddddddd", "mine", ["dddddddd-5555"])).toEqual({ id: "dddddddd-5555" });
+  });
+
+  it("refuses a prefix under 8 characters", () => {
+    expect(resolveDelegationId("aaaaaaa", "mine")).toEqual({ error: "too_short" });
+  });
+
+  it("flags two matches as ambiguous", () => {
+    receipt("bbbbbbbb-9999", "mine");
+    expect(resolveDelegationId("bbbbbbbb", "mine")).toEqual({ error: "ambiguous" });
+  });
+
+  it("never resolves another thread's prefix", () => {
+    expect(resolveDelegationId("cccccccc", "mine")).toEqual({ id: "cccccccc" });
   });
 });

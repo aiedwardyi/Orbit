@@ -518,5 +518,7 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
     };
   }
 
-  return { consume, resize, snapshot };
+  const text = () => active.rows.map((line) => line.chars.join("").replace(/\s+$/u, "")).join("\n");
+
+  return { consume, resize, snapshot, text };
 }

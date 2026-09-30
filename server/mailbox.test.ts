@@ -446,7 +446,7 @@ describe("POST /api/mailbox", () => {
     const launches = [
       ...texts.map((text) => () => paneShell(paneEnv, `orbit-msg '${text.replaceAll("'", "''")}'`)),
       ...texts.map((text) => () => orbitMsgFile(paneEnv, bin, ["--hook", "last_assistant_message"], JSON.stringify({ last_assistant_message: text }))),
-      ...texts.map((text) => () => orbitMsgFile(paneEnv, bin, ["--notify", "last-assistant-message", JSON.stringify({ "last-assistant-message": text })])),
+      ...texts.map((text) => () => orbitMsgFile(paneEnv, bin, ["--notify", "last-assistant-message", JSON.stringify({ type: "agent-turn-complete", "last-assistant-message": text })])),
     ];
     for (const launch of launches) {
       const run = await launch();

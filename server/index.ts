@@ -140,7 +140,7 @@ import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorOutcomeToRoom
 import { searchMessages, searchSnippet } from "./message-db.ts";
 import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript } from "./replies.ts";
 import { EXTENDED_REACTIONS, reactionSystemGuidance, reactionToolGuidance } from "../shared/reactions.ts";
-import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, findDelegationReceipt, pendingDelegationInfo, pendingDelegationSnapshot, queueDelegation, recordDelegationReceipt, threadsWaitingOn, type QueueResult } from "./delegations.ts";
+import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, findDelegationReceipt, pendingDelegationInfo, pendingDelegationSnapshot, queueDelegation, recordDelegationReceipt, resolveDelegationId, threadsWaitingOn, type QueueResult } from "./delegations.ts";
 import {
   cancelQueuedRoomParticipations,
   cancelSteeredMessage,
@@ -6451,11 +6451,20 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // turn.completed. Returns immediately (the caller does not wait).
       const delegationMatch = method === "GET" ? path.match(/^\/api\/internal\/delegations\/([\w-]{4,64})$/) : null;
       if (delegationMatch) {
-        const taskId = delegationMatch[1];
         const fromBotId = String(url.searchParams.get("fromBotId") ?? "");
         const fromThreadId = String(url.searchParams.get("fromThreadId") ?? "");
         const from = store.bot(fromBotId);
         if (!from || !connectorThread(from.id, fromThreadId)) return json(res, 403, { error: "unknown sender" });
+        const runningIds = [...delegationWatch.values()].filter((watch) => watch.sourceThreadId === fromThreadId && watch.taskId).map((watch) => watch.taskId!);
+        const resolved = resolveDelegationId(delegationMatch[1], fromThreadId, runningIds);
+        if ("error" in resolved) {
+          return json(res, resolved.error === "too_short" ? 400 : 409, {
+            error: resolved.error === "too_short"
+              ? "unknown task id; a prefix needs at least 8 characters"
+              : "that task id prefix matches more than one delegation; use more characters",
+          });
+        }
+        const taskId = resolved.id;
         const waitMs = Math.min(Math.max(Number(url.searchParams.get("wait_ms")) || 0, 0), 240_000);
         const deadline = Date.now() + waitMs;
         // Bounded long-poll: the delegating bot parks ONE cheap HTTP request
