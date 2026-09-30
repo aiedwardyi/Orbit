@@ -1237,6 +1237,9 @@ function openDeviceWindow(rawHost, rawName) {
       if (open) void shell.openExternal(open);
       return { action: "deny" };
     });
+    win.webContents.on("before-input-event", (event, input) => {
+      if (applyZoomShortcut(win.webContents, input)) event.preventDefault();
+    });
     win.webContents.on("will-navigate", (event, target) => {
       if (sameDesktopViewerOrigin(target, url.origin)) return;
       event.preventDefault();
