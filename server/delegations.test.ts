@@ -258,6 +258,17 @@ describe("sender chip status", () => {
     expect(rows()[0]?.tool?.name).toContain("dropped");
   });
 
+  // index.ts appends the 1:1 error row exactly when this returns false
+  it("reports no row for an untracked chip on a 1:1 sender, and one row in a room", () => {
+    const channel = store.createGroup("Pair", [from.id, target.id]);
+    expect(settleDelegationChip(commsBus, target, from.threadId, channel, "untracked", "could not start", false)).toBe(false);
+    expect(rows()).toHaveLength(0);
+
+    const room = store.createGroup("Project room", [from.id, target.id]);
+    expect(settleDelegationChip(commsBus, target, room.threadId, channel, "untracked", "could not start", false)).toBe(true);
+    expect(store.messagesFor(room.threadId).filter((m) => m.kind === "activity")).toHaveLength(1);
+  });
+
   it("does not double-post a room outcome when the chip settles in place", async () => {
     const group = store.createGroup("Project room", [from.id, target.id]);
     const queued = queueDelegation(commsBus, from, { toBotId: target.id, message: "do this", depth: 0 }, 1, group.threadId);

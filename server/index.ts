@@ -3212,7 +3212,8 @@ const delegationWatch = new Map<string, { channelId?: string; toBotId: string; t
 
 /** Consume one delegated-turn watch and mirror exactly one terminal state.
  * Some harness paths settle a busy bot without a provider turn.completed
- * event, so they call this same finalizer explicitly. */
+ * event, so they call this same finalizer explicitly. Returns whether the
+ * sender's thread got the outcome. */
 function finalizeDelegationWatch(
   threadId: string,
   ok: boolean,
@@ -3237,11 +3238,12 @@ function finalizeDelegationWatch(
   }
   const target = store.bot(watched.toBotId);
   const channel = watched.channelId ? store.group(watched.channelId) : undefined;
-  if (!target) return true;
+  if (!target) return false;
   // The sender's chip is where the human is waiting, and the target runs in
   // its own 1:1 - so the sender never hears back without this.
+  let reported = false;
   if (watched.sourceThreadId) {
-    settleDelegationChip(
+    reported = settleDelegationChip(
       commsBus,
       target,
       watched.sourceThreadId,
@@ -3251,11 +3253,11 @@ function finalizeDelegationWatch(
       ok,
     );
   }
-  if (!channel) return true;
+  if (!channel) return reported;
   if (ok && reply.trim()) mirrorReply(commsBus, target, reply, channel);
   else if (ok) mirrorActivity(commsBus, target, channel, "Delegated turn completed", true);
   else mirrorActivity(commsBus, target, channel, failureName, false);
-  return true;
+  return reported;
 }
 
 // A bot going in circles — the same call with the same arguments, over and
@@ -3312,19 +3314,17 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text,
       if (targetThreadId) peerTurnSource.delete(targetThreadId);
       const bot = store.bot(toBotId);
       const why = error instanceof Error ? error.message : String(error);
-      if (targetThreadId) {
-        finalizeDelegationWatch(
+      const reported = targetThreadId
+        && finalizeDelegationWatch(
           targetThreadId,
           false,
           "",
           `Delegated turn could not start — ${why.slice(0, 120)}`,
         );
-      }
       const source = store.conversationForBot(sourceBotId, sourceThreadId)?.bot;
       if (!source) return;
-      // finalizeDelegationWatch above already put this failure on the sender's
-      // chip; a second row here is the same dead handoff reported twice.
-      if (targetThreadId) return;
+      // a second row after one was written is the same dead handoff twice
+      if (reported) return;
       const activity: Omit<Message, "id" | "at"> = {
         role: "bot",
         kind: "activity",

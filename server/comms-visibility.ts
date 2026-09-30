@@ -113,7 +113,8 @@ export function mirrorExchange(
 }
 
 /** Close a handoff's loop in the sender's thread: patch its chip in place, or
- * fall back to the room row when the chip is gone. Either way one row, never two. */
+ * fall back to the room row when the chip is gone. Either way one row, never two.
+ * False means the sender's thread got nothing (a 1:1 whose chip is gone). */
 export function settleDelegationChip(
   bus: CommsBus,
   target: BotRecord,
@@ -122,12 +123,13 @@ export function settleDelegationChip(
   itemId: string | undefined,
   name: string,
   ok: boolean,
-): void {
+): boolean {
   if (!patchDelegationChip(bus, itemId, { name, ok }, commLink(channel, target))) {
     return mirrorOutcomeToRoom(bus, target, sourceThreadId, channel, name, ok);
   }
   const room = bus.store.groupByThread(sourceThreadId);
   if (room) bus.store.patchGroup(room.id, { unread: true });
+  return true;
 }
 
 /** Mirror `target`'s reply into the channel so the channel stays the
@@ -161,9 +163,11 @@ export function mirrorOutcomeToRoom(
   channel: GroupRecord | undefined,
   name: string,
   ok: boolean,
-): void {
+): boolean {
   const room = bus.store.groupByThread(sourceThreadId);
-  if (!room || room.id === channel?.id) return;
+  if (!room) return false;
+  // the channel gets its own mirror, so that row is the sender's too
+  if (room.id === channel?.id) return true;
   bus.store.appendMessage(sourceThreadId, {
     role: "bot",
     kind: "activity",
@@ -176,6 +180,7 @@ export function mirrorOutcomeToRoom(
   // appendMessage does not touch the flag the sidebar's room dot reads, so
   // without this the outcome is invisible to anyone reading another thread.
   bus.store.patchGroup(room.id, { unread: true });
+  return true;
 }
 
 /** Mirror a terminal activity note into the channel — for async handoffs
