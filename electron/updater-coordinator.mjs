@@ -1,3 +1,22 @@
+function versionParts(version) {
+  const [core, pre = ""] = String(version ?? "").split(/-(.*)/s);
+  return { core: core.split(".").map((part) => Number.parseInt(part, 10) || 0), pre };
+}
+
+/** True when `candidate` is a later release than `current`; a prerelease sorts before its release. */
+export function isNewerVersion(candidate, current) {
+  if (!current) return true;
+  const a = versionParts(candidate);
+  const b = versionParts(current);
+  for (let i = 0; i < Math.max(a.core.length, b.core.length); i += 1) {
+    const diff = (a.core[i] ?? 0) - (b.core[i] ?? 0);
+    if (diff) return diff > 0;
+  }
+  if (a.pre === b.pre) return false;
+  if (!a.pre || !b.pre) return !a.pre;
+  return a.pre.localeCompare(b.pre, undefined, { numeric: true }) > 0;
+}
+
 export function createUpdaterCoordinator(updater, setState, { quitForInstall } = {}) {
   let checkOperation = null;
   let downloadOperation = null;
@@ -93,6 +112,7 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
   }
 
   // downloadUpdate acts on the last check's result, which can be an hour stale.
+  // Resolves null when the re-check failed, so callers fall back to the known release.
   function recheck() {
     if (checkOperation) checkOperation.supersededByDownload = true;
     rechecks += 1;
@@ -121,7 +141,19 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
     // — the UI reads a missing percent as "starting".
     setState({ status: "downloading" });
     operation.promise = recheck()
-      .then(() => updater.downloadUpdate())
+      .then((check) => {
+        if (check && !check.isUpdateAvailable) {
+          // The feed withdrew the release: the updater's cached metadata must not be downloaded.
+          setState({ status: "idle" });
+          return undefined;
+        }
+        const latest = check?.updateInfo?.version;
+        if (downloadedVersion && latest && !isNewerVersion(latest, downloadedVersion)) {
+          setState({ status: "downloaded", version: downloadedVersion });
+          return undefined;
+        }
+        return updater.downloadUpdate();
+      })
       .then((result) => {
         if (!operation.failed && operation.downloadedInfo) {
           setState({ status: "downloaded", version: operation.downloadedInfo?.version });
@@ -142,8 +174,13 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
     setState({ status: "installing" });
     operation.promise = recheck().then((result) => {
       if (installOperation !== operation) return;
+      if (result && !result.isUpdateAvailable) {
+        installOperation = null;
+        setState({ status: "idle" });
+        return;
+      }
       const latest = result?.isUpdateAvailable ? result.updateInfo?.version : undefined;
-      if (!latest || latest === downloadedVersion) return quit(operation);
+      if (!latest || !isNewerVersion(latest, downloadedVersion)) return quit(operation);
       // A newer release went live after this one downloaded: fetch it, then install that.
       installOperation = null;
       return download().then(() => {

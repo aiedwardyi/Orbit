@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 
-import { createUpdaterCoordinator } from "./updater-coordinator.mjs";
+import { createUpdaterCoordinator, isNewerVersion } from "./updater-coordinator.mjs";
 
 function deferred() {
   let resolve;
@@ -457,4 +457,73 @@ test("install falls back to the downloaded release when the re-check fails", asy
   assert.equal(quitCalls, 1);
   assert.equal(getState().status, "installing");
   assert.equal(errorStates(states).length, 0);
+});
+
+// Models electron-updater: a no-update answer still leaves the last offered release cached.
+function versionedFeed(updater, current, initialVersion) {
+  const feed = { live: initialVersion, cached: null, downloads: [] };
+  updater.checkForUpdates = () => {
+    const isUpdateAvailable = isNewerVersion(feed.live, current);
+    if (isUpdateAvailable) feed.cached = feed.live;
+    return Promise.resolve({ isUpdateAvailable, updateInfo: { version: feed.live } });
+  };
+  updater.downloadUpdate = () => {
+    feed.downloads.push(feed.cached);
+    updater.emit("update-downloaded", { version: feed.cached });
+    return Promise.resolve([`${feed.cached}.exe`]);
+  };
+  return feed;
+}
+
+test("a withdrawn release is neither downloaded nor installed", async () => {
+  let quitCalls = 0;
+  const { updater, coordinator, getState } = harness({
+    quitForInstall: () => {
+      quitCalls += 1;
+    },
+  });
+  const feed = versionedFeed(updater, "1.0.97", "1.0.98");
+  await coordinator.check(true);
+
+  feed.live = "1.0.97";
+  await coordinator.download();
+  assert.deepEqual(feed.downloads, []);
+  assert.equal(getState().status, "idle");
+
+  feed.live = "1.0.98";
+  await coordinator.download();
+  feed.live = "1.0.97";
+  await coordinator.install();
+
+  assert.deepEqual(feed.downloads, ["1.0.98"]);
+  assert.equal(quitCalls, 0);
+  assert.equal(getState().status, "idle");
+});
+
+test("an older release never replaces the staged one", async () => {
+  let quitCalls = 0;
+  const { updater, coordinator, getState } = harness({
+    quitForInstall: () => {
+      quitCalls += 1;
+    },
+  });
+  const feed = versionedFeed(updater, "1.0.97", "1.0.99");
+  await coordinator.download();
+
+  feed.live = "1.0.98";
+  await coordinator.download();
+  assert.deepEqual(getState(), { status: "downloaded", version: "1.0.99" });
+  await coordinator.install();
+
+  assert.deepEqual(feed.downloads, ["1.0.99"]);
+  assert.equal(quitCalls, 1);
+});
+
+test("compares release versions numerically", () => {
+  assert.equal(isNewerVersion("1.0.100", "1.0.99"), true);
+  assert.equal(isNewerVersion("1.0.98", "1.0.99"), false);
+  assert.equal(isNewerVersion("1.0.99", "1.0.99"), false);
+  assert.equal(isNewerVersion("1.1.0", "1.1.0-beta.2"), true);
+  assert.equal(isNewerVersion("1.1.0-beta.10", "1.1.0-beta.2"), true);
+  assert.equal(isNewerVersion("1.0.98", null), true);
 });
