@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { Check, Laptop, Monitor, Pencil } from "lucide-react";
 
 import { useI18n } from "@/lib/i18n";
@@ -48,16 +48,27 @@ function useDevices(enabled: boolean) {
   return devices;
 }
 
-/** Phones jump in place; the desktop app opens the PC in its own window. */
-export function DeviceSwitcher({ navigate = (url) => window.location.assign(url) }: { navigate?: (url: string) => void }) {
+type Navigate = (url: string) => void;
+
+/** Phones jump in place from the chat header; the desktop app opens the PC in its own window. */
+export function DeviceSwitcher({
+  navigate = (url) => window.location.assign(url),
+  compact = false,
+}: {
+  navigate?: Navigate;
+  compact?: boolean;
+}) {
   const { t } = useI18n();
   const deviceWindow = window.ogb?.deviceWindow;
-  const visible = Boolean(deviceWindow) || isPhone();
+  const visible = compact || Boolean(deviceWindow);
   const devices = useDevices(visible);
   const [open, setOpen] = useState(false);
+  // The chat header clips overflow, so the phone menu is pinned to the viewport.
+  const [pinned, setPinned] = useState<CSSProperties>();
   const [renaming, setRenaming] = useState(false);
 
-  if (devices.length < 2 || !visible) return null;
+  const here = devices.find((device) => device.current);
+  if (devices.length < 2 || !visible || (compact && !here)) return null;
 
   const close = () => {
     setOpen(false);
@@ -75,21 +86,38 @@ export function DeviceSwitcher({ navigate = (url) => window.location.assign(url)
   };
 
   return (
-    <div data-device-switcher>
+    <div data-device-switcher className={cn(compact && "mr-2 shrink-0")}>
       <button
         type="button"
-        onClick={() => (open ? close() : setOpen(true))}
+        data-device-tag={compact ? "" : undefined}
+        onClick={(event) => {
+          if (open) return close();
+          if (compact) {
+            const rect = event.currentTarget.getBoundingClientRect();
+            setPinned({ top: rect.bottom, left: rect.left });
+          }
+          setOpen(true);
+        }}
         aria-expanded={open}
         aria-label={t("chrome.devices")}
-        className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
-        title={t("chrome.devices")}
+        className={cn(
+          "flex items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink",
+          compact ? "size-[30px]" : "size-10",
+        )}
+        title={compact ? here!.name : t("chrome.devices")}
       >
-        <Monitor size={20} />
+        {compact ? <DeviceIcon device={here!} size={18} /> : <Monitor size={20} />}
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-30" onMouseDown={close} />
-          <ul className="absolute right-0 top-full z-40 mt-1 w-60 overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60">
+          <ul
+            className={cn(
+              "z-40 mt-1 w-60 overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60",
+              compact ? "fixed" : "absolute right-0 top-full",
+            )}
+            style={compact ? pinned : undefined}
+          >
             {devices.map((device) =>
               device.current && renaming ? (
                 <li key={device.deviceId} className="px-2.5 py-1">
@@ -159,20 +187,22 @@ export function DeviceSwitcher({ navigate = (url) => window.location.assign(url)
   );
 }
 
-/** Which PC this is, everywhere but the local desktop app window. */
-export function DeviceTag() {
+/** Which PC this is, everywhere but the local desktop app window. On phones it opens the PC menu. */
+export function DeviceTag({ navigate }: { navigate?: Navigate }) {
   const local = Boolean(window.ogb);
-  const devices = useDevices(!local);
+  const phone = isPhone();
+  const devices = useDevices(!local && !phone);
   const device = devices.length > 1 ? devices.find((item) => item.current) : undefined;
+  if (!local && phone) return <DeviceSwitcher compact navigate={navigate} />;
   if (local || !device) return null;
   return (
     <span
       data-device-tag
       title={device.name}
-      className="flex min-w-0 items-center gap-1 text-[12px] leading-none text-ink-secondary max-md:shrink-0 max-md:p-1.5"
+      className="flex min-w-0 items-center gap-1 text-[12px] leading-none text-ink-secondary"
     >
-      <DeviceIcon device={device} size={14} className="max-md:size-[18px]" />
-      <span className="truncate max-md:sr-only">{device.name}</span>
+      <DeviceIcon device={device} size={14} />
+      <span className="truncate">{device.name}</span>
     </span>
   );
 }

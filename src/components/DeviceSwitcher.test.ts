@@ -49,7 +49,7 @@ const key = (target: Element, name: string) => target.dispatchEvent(new Keyboard
 describe("DeviceSwitcher", () => {
   it("is hidden with fewer than 2 devices", async () => {
     setPhone(true);
-    const { host } = await renderView([device("home", { current: true })]);
+    const { host } = await renderView([device("home", { current: true })], vi.fn(), DeviceTag);
     expect(host.textContent).toBe("");
   });
 
@@ -59,13 +59,19 @@ describe("DeviceSwitcher", () => {
     expect(host.textContent).toBe("");
   });
 
-  it("marks the current PC and jumps to another", async () => {
+  it("leaves the sidebar to the phone header", async () => {
     setPhone(true);
-    const { host, navigate } = await renderView([
-      device("home", { current: true }),
-      device("laptop", { offline: true }),
-      device("work"),
-    ]);
+    const { host } = await renderView([device("home", { current: true }), device("work")]);
+    expect(host.textContent).toBe("");
+  });
+
+  it("marks the current PC and jumps to another from the phone tag", async () => {
+    setPhone(true);
+    const { host, navigate } = await renderView(
+      [device("home", { current: true }), device("laptop", { offline: true }), device("work")],
+      vi.fn(),
+      DeviceTag,
+    );
     const toggle = host.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
     expect(toggle.getAttribute("aria-label")).toBe("Your PCs");
     expect(toggle.textContent).toBe("");
@@ -84,7 +90,7 @@ describe("DeviceSwitcher", () => {
 
   it("renames this PC inline", async () => {
     setPhone(true);
-    const { host } = await renderView([device("home", { current: true, name: "EDWARD-PC" }), device("work")]);
+    const { host } = await renderView([device("home", { current: true, name: "EDWARD-PC" }), device("work")], vi.fn(), DeviceTag);
     await act(async () => click(host.querySelector("button[aria-expanded]")!));
     expect(host.querySelectorAll("button[aria-label='Rename this PC']")).toHaveLength(1);
     await act(async () => click(host.querySelector("button[aria-label='Rename this PC']")!));
@@ -130,11 +136,21 @@ describe("DeviceSwitcher", () => {
 describe("DeviceTag", () => {
   const pcs = [device("home", { current: true, name: "Home" }), device("work")];
 
-  it("names this PC on phones and remote windows", async () => {
-    setPhone(true);
+  it("names this PC in remote windows", async () => {
+    setPhone(false);
     const { host } = await renderView(pcs, vi.fn(), DeviceTag);
     expect(host.querySelector("[data-device-tag]")!.textContent).toBe("Home");
     expect(host.querySelector("[data-device-tag] .lucide-monitor")).not.toBeNull();
+  });
+
+  it("is an icon button on phones", async () => {
+    setPhone(true);
+    const { host } = await renderView(pcs, vi.fn(), DeviceTag);
+    const tag = host.querySelector("button[data-device-tag]")!;
+    expect(tag.getAttribute("title")).toBe("Home");
+    expect(tag.textContent).toBe("");
+    expect(tag.querySelector(".lucide-monitor")).not.toBeNull();
+    expect(store.api).toHaveBeenCalledTimes(1);
   });
 
   it("shows a laptop icon on a laptop", async () => {
