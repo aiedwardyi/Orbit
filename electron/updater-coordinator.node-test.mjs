@@ -14,6 +14,8 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+const flush = () => new Promise((resolve) => setImmediate(resolve));
+
 function harness(options = {}) {
   const updater = new EventEmitter();
   // electron-updater has its own error listener; model that without routing it.
@@ -146,29 +148,29 @@ test("downloaded waits for native staging to finish before becoming actionable",
   assert.deepEqual(getState(), { status: "downloaded", version: "2.0.0" });
 });
 
-test("an asynchronous native install error escapes the restarting spinner", () => {
+test("an asynchronous native install error escapes the restarting spinner", async () => {
   const { updater, coordinator, getState, states } = harness();
   const error = new Error("native staging failed");
   updater.quitAndInstall = () => updater.emit("error", error);
 
-  coordinator.install();
+  await coordinator.install();
 
   assert.deepEqual(getState(), { status: "error", message: "native staging failed" });
   assert.equal(errorStates(states).length, 1);
 });
 
-test("a synchronous install failure becomes a user-visible error", () => {
+test("a synchronous install failure becomes a user-visible error", async () => {
   const { updater, coordinator, getState } = harness();
   updater.quitAndInstall = () => {
     throw new Error("install threw");
   };
 
-  coordinator.install();
+  await coordinator.install();
 
   assert.deepEqual(getState(), { status: "error", message: "install threw" });
 });
 
-test("install quits for cleanup instead of racing quitAndInstall", () => {
+test("install quits for cleanup instead of racing quitAndInstall", async () => {
   let quitCalls = 0;
   const { updater, coordinator, getState } = harness({
     quitForInstall: () => {
@@ -180,7 +182,7 @@ test("install quits for cleanup instead of racing quitAndInstall", () => {
     installCalls += 1;
   };
 
-  coordinator.install();
+  await coordinator.install();
 
   assert.equal(quitCalls, 1);
   assert.equal(installCalls, 0);
@@ -195,15 +197,17 @@ test("an active download state survives a later background check failure", async
     updater.emit("download-progress", { percent: 42 });
     return downloadPending.promise;
   };
+
+  const download = coordinator.download();
+  await flush();
+  assert.deepEqual(getState(), { status: "downloading", percent: 42 });
+
   updater.checkForUpdates = () => {
     updater.emit("checking-for-update");
     updater.emit("update-available", { version: "2.1.0" });
     updater.emit("update-not-available");
     return checkPending.promise;
   };
-
-  const download = coordinator.download();
-  assert.deepEqual(getState(), { status: "downloading", percent: 42 });
 
   const background = coordinator.check();
   checkPending.reject(new Error("background check failed"));
@@ -222,9 +226,10 @@ test("a download error remains authoritative after a later background failure", 
     updater.emit("download-progress", { percent: 75 });
     return downloadPending.promise;
   };
-  updater.checkForUpdates = () => checkPending.promise;
 
   const download = coordinator.download();
+  await flush();
+  updater.checkForUpdates = () => checkPending.promise;
   const background = coordinator.check();
 
   const downloadError = new Error("download failed first");
@@ -267,6 +272,7 @@ test("a background failure stays silent before a later download failure", async 
   updater.emit("update-not-available");
   checkPending.reject(new Error("background check failed first"));
   await background;
+  await flush();
   assert.deepEqual(getState(), { status: "downloading", percent: 18 });
   assert.equal(errorStates(states).length, 0);
 
@@ -341,4 +347,114 @@ test("an updater error event and rejected promise produce one deterministic stat
   await download.coordinator.download();
   assert.equal(errorStates(download.states).length, 1);
   assert.deepEqual(download.getState(), { status: "error", message: "download failed once" });
+});
+
+function releaseFeed(updater, initialVersion) {
+  const feed = { live: initialVersion, cached: null, checks: 0, downloads: 0 };
+  updater.checkForUpdates = () => {
+    feed.checks += 1;
+    feed.cached = feed.live;
+    updater.emit("checking-for-update");
+    updater.emit("update-available", { version: feed.live });
+    return Promise.resolve({ isUpdateAvailable: true, updateInfo: { version: feed.live } });
+  };
+  updater.downloadUpdate = () => {
+    feed.downloads += 1;
+    updater.emit("update-downloaded", { version: feed.cached });
+    return Promise.resolve([`${feed.cached}.exe`]);
+  };
+  return feed;
+}
+
+test("download re-checks so a stale check still gets the newest release", async () => {
+  const { updater, coordinator, getState } = harness();
+  const feed = releaseFeed(updater, "1.0.93");
+  await coordinator.check(true);
+  assert.deepEqual(getState(), { status: "available", version: "1.0.93", message: undefined });
+
+  feed.live = "1.0.94";
+  await coordinator.download();
+
+  assert.equal(feed.checks, 2);
+  assert.equal(getState().status, "downloaded");
+  assert.equal(getState().version, "1.0.94");
+});
+
+test("download falls back to the cached release when the re-check fails", async () => {
+  const { updater, coordinator, getState, states } = harness();
+  const feed = releaseFeed(updater, "1.0.93");
+  await coordinator.check(true);
+
+  const checkError = new Error("feed offline");
+  updater.checkForUpdates = () => {
+    updater.emit("error", checkError);
+    return Promise.reject(checkError);
+  };
+  await coordinator.download();
+
+  assert.equal(errorStates(states).length, 0);
+  assert.equal(feed.downloads, 1);
+  assert.equal(getState().status, "downloaded");
+  assert.equal(getState().version, "1.0.93");
+});
+
+test("install downloads and installs a newer release that went live", async () => {
+  let quitCalls = 0;
+  const { updater, coordinator, getState, states } = harness({
+    quitForInstall: () => {
+      quitCalls += 1;
+    },
+  });
+  const feed = releaseFeed(updater, "1.0.93");
+  await coordinator.check(true);
+  await coordinator.download();
+  assert.equal(getState().version, "1.0.93");
+
+  feed.live = "1.0.94";
+  await coordinator.install();
+
+  assert.equal(feed.downloads, 2);
+  assert.equal(quitCalls, 1);
+  assert.deepEqual(getState(), { status: "installing", version: "1.0.94", message: undefined });
+  assert.ok(states.some((entry) => entry.status === "downloaded" && entry.version === "1.0.94"));
+});
+
+test("install keeps the downloaded release when nothing newer is live", async () => {
+  let quitCalls = 0;
+  const { updater, coordinator } = harness({
+    quitForInstall: () => {
+      quitCalls += 1;
+    },
+  });
+  const feed = releaseFeed(updater, "1.0.94");
+  await coordinator.check(true);
+  await coordinator.download();
+
+  await coordinator.install();
+
+  assert.equal(feed.downloads, 1);
+  assert.equal(quitCalls, 1);
+});
+
+test("install falls back to the downloaded release when the re-check fails", async () => {
+  let quitCalls = 0;
+  const { updater, coordinator, getState, states } = harness({
+    quitForInstall: () => {
+      quitCalls += 1;
+    },
+  });
+  releaseFeed(updater, "1.0.94");
+  await coordinator.check(true);
+  await coordinator.download();
+
+  const checkError = new Error("feed offline");
+  updater.checkForUpdates = () => {
+    updater.emit("error", checkError);
+    return Promise.reject(checkError);
+  };
+  await coordinator.install();
+
+  assert.equal(quitCalls, 1);
+  assert.equal(getState().status, "installing");
+  assert.equal(errorStates(states).length, 0);
 });

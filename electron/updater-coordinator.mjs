@@ -2,6 +2,8 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
   let checkOperation = null;
   let downloadOperation = null;
   let installOperation = null;
+  let downloadedVersion = null;
+  let rechecks = 0;
   const routedErrors = new WeakSet();
 
   const routeError = (manual, error) => {
@@ -26,7 +28,7 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
   }
 
   function checkOwnsState() {
-    return !downloadOperation && !checkOperation?.supersededByDownload;
+    return !rechecks && !downloadOperation && !checkOperation?.supersededByDownload;
   }
 
   updater.on("checking-for-update", () => {
@@ -45,6 +47,8 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
   // this listener a Squirrel.Mac failure leaves the renderer on "Restarting"
   // forever because quitAndInstall itself returns void.
   updater.on("error", (error) => {
+    // A failed re-check falls back to the known release instead of failing the click.
+    if (rechecks) return;
     const manual = Boolean(installOperation || downloadOperation || checkOperation?.manual);
     routeError(manual, error);
   });
@@ -52,6 +56,7 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
     setState({ status: "downloading", percent: Math.round(progress?.percent ?? 0) }),
   );
   updater.on("update-downloaded", (info) => {
+    downloadedVersion = info?.version;
     // On macOS electron-updater emits this before Squirrel.Mac has finished
     // staging the ZIP. Keep the UI in downloading until downloadUpdate's
     // promise resolves, which is the point the native updater is ready.
@@ -87,6 +92,23 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
     return operation.promise;
   }
 
+  // downloadUpdate acts on the last check's result, which can be an hour stale.
+  function recheck() {
+    if (checkOperation) checkOperation.supersededByDownload = true;
+    rechecks += 1;
+    let promise;
+    try {
+      promise = Promise.resolve(updater.checkForUpdates());
+    } catch {
+      promise = Promise.resolve(null);
+    }
+    return promise
+      .catch(() => null)
+      .finally(() => {
+        rechecks -= 1;
+      });
+  }
+
   function download() {
     if (checkOperation) checkOperation.supersededByDownload = true;
     if (downloadOperation) return downloadOperation.promise;
@@ -98,31 +120,40 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
     // renderer would still show an untouched "Download" button. No percent yet
     // — the UI reads a missing percent as "starting".
     setState({ status: "downloading" });
-    try {
-      operation.promise = Promise.resolve(updater.downloadUpdate())
-        .then((result) => {
-          if (!operation.failed && operation.downloadedInfo) {
-            setState({ status: "downloaded", version: operation.downloadedInfo?.version });
-          }
-          return result;
-        })
-        .catch((error) => handleRejectedOperation(true, error))
-        .finally(() => {
-          if (downloadOperation === operation) downloadOperation = null;
-        });
-    } catch (error) {
-      handleRejectedOperation(true, error);
-      downloadOperation = null;
-      operation.promise = Promise.resolve();
-    }
+    operation.promise = recheck()
+      .then(() => updater.downloadUpdate())
+      .then((result) => {
+        if (!operation.failed && operation.downloadedInfo) {
+          setState({ status: "downloaded", version: operation.downloadedInfo?.version });
+        }
+        return result;
+      })
+      .catch((error) => handleRejectedOperation(true, error))
+      .finally(() => {
+        if (downloadOperation === operation) downloadOperation = null;
+      });
     return operation.promise;
   }
 
   function install() {
-    if (installOperation) return;
-    const operation = { failed: false, timer: null };
+    if (installOperation) return installOperation.promise;
+    const operation = { failed: false, timer: null, promise: null };
     installOperation = operation;
     setState({ status: "installing" });
+    operation.promise = recheck().then((result) => {
+      if (installOperation !== operation) return;
+      const latest = result?.isUpdateAvailable ? result.updateInfo?.version : undefined;
+      if (!latest || latest === downloadedVersion) return quit(operation);
+      // A newer release went live after this one downloaded: fetch it, then install that.
+      installOperation = null;
+      return download().then(() => {
+        if (downloadedVersion === latest) return install();
+      });
+    });
+    return operation.promise;
+  }
+
+  function quit(operation) {
     try {
       // Windows NSIS (and any before-quit preventDefault cleanup) must run
       // *before* quitAndInstall spawns the installer. The app quit path
