@@ -571,7 +571,7 @@ describe("harness HTTP API", () => {
 
   it("returns the canonical stored user message for direct and channel sends", async () => {
     const created = await api("POST", "/api/bots", {
-      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      modelSelection: { instanceId: "claude", model: "claude-sonnet-5-5" },
       requireAvailableModel: true,
     });
     expect(created.status).toBe(201);
@@ -635,7 +635,7 @@ describe("harness HTTP API", () => {
 
   it("deduplicates direct send retries by sendId", async () => {
     const created = await api("POST", "/api/bots", {
-      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      modelSelection: { instanceId: "claude", model: "claude-sonnet-5-5" },
       requireAvailableModel: true,
     });
     expect(created.status).toBe(201);
