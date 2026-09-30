@@ -14,9 +14,9 @@ import {
 const packet = (flushReason: string, updatedAt = 100) => ({ flushReason, threadId: "t1", updatedAt });
 
 describe("task recovery banner eligibility", () => {
-  it("shows only when a packet exists, the bot is idle, and flushReason is crash, shutdown, or stop", () => {
+  it("shows only when a packet exists, the bot is idle, and flushReason is crash or stop", () => {
     expect(isTaskRecoveryVisible(packet("crash"), false)).toBe(true);
-    expect(isTaskRecoveryVisible(packet("shutdown"), false)).toBe(true);
+    expect(isTaskRecoveryVisible(packet("shutdown"), false)).toBe(false);
     expect(isTaskRecoveryVisible(packet("stop"), false)).toBe(true);
   });
 
@@ -26,12 +26,12 @@ describe("task recovery banner eligibility", () => {
     expect(isTaskRecoveryVisible(stopped, false)).toBe(true);
   });
 
-  it("shows a shutdown packet after a normal reopen and hides it once dismissed for that packet", () => {
-    const reopened = packet("shutdown", 200);
-    expect(isTaskRecoveryVisible(reopened, false)).toBe(true);
-    expect(isTaskRecoveryVisible(reopened, false, { updatedAt: 200, flushReason: "shutdown" })).toBe(false);
-    expect(isTaskRecoveryVisible(reopened, false, { updatedAt: 199, flushReason: "shutdown" })).toBe(true);
-    expect(isTaskRecoveryVisible(packet("stop", 300), false, { updatedAt: 200, flushReason: "shutdown" })).toBe(true);
+  it("hides a crash packet once dismissed for that packet", () => {
+    const crashed = packet("crash", 200);
+    expect(isTaskRecoveryVisible(crashed, false)).toBe(true);
+    expect(isTaskRecoveryVisible(crashed, false, { updatedAt: 200, flushReason: "crash" })).toBe(false);
+    expect(isTaskRecoveryVisible(crashed, false, { updatedAt: 199, flushReason: "crash" })).toBe(true);
+    expect(isTaskRecoveryVisible(packet("stop", 300), false, { updatedAt: 200, flushReason: "crash" })).toBe(true);
   });
 
   it("posts the packet version with dismiss so a late request cannot wipe a newer Stop", () => {
@@ -106,7 +106,7 @@ describe("task recovery banner eligibility", () => {
     const saved = { ...finished, nextAction: "" };
     expect(isCompletedTaskRecord(saved)).toBe(true);
     expect(shouldDismissCompletedReopen(saved)).toBe(false);
-    expect(isTaskRecoveryVisible(saved, false)).toBe(true);
+    expect(isTaskRecoveryVisible(saved, false)).toBe(false);
 
     expect(isCompletedTaskRecord(packet("stop"))).toBe(false);
     expect(isCompletedTaskRecord(packet("crash"))).toBe(false);

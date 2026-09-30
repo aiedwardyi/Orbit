@@ -1,6 +1,6 @@
 /** Client banner eligibility for Continuity recovery. Must stay aligned with
  * the resume API: only crash / shutdown / stop packets are continuable.
- * Shutdown includes a normal idle reopen stamp. Turn-end, progress,
+ * Shutdown (normal restart or update) stays resumable but shows no banner. Turn-end, progress,
  * approval, engine-switch, and pre-compaction stay hidden in-session.
  * A v1 MED8 leftover that still offers a stale next action is dismissed. */
 import {
@@ -38,6 +38,7 @@ export function isTaskRecoveryVisible<T extends {
 ): packet is T {
   if (!packet || botBusy) return false;
   if (!(TASK_RECOVERY_FLUSH_REASONS as readonly string[]).includes(packet.flushReason)) return false;
+  if (packet.flushReason === "shutdown") return false;
   if (shouldDismissCompletedReopen(packet)) return false;
   if (
     dismissed &&
