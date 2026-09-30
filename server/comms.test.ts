@@ -476,10 +476,10 @@ describe("comms e2e (fake ACP fleet)", () => {
         // We also want B to have actually run (its busy flag is false and
         // it has a bot text reply).
         const askerDelegated = askerBot.messages.some(
-          (m: any) => m.kind === "activity" && m.tool?.name === "Delegated to @Helper: followup",
+          (m: any) => m.kind === "activity" && m.comm && m.tool?.name?.includes("@Helper"),
         );
         note = askerBot.messages.find(
-          (m: any) => m.kind === "activity" && m.tool?.name === "Messaged @Helper",
+          (m: any) => m.kind === "activity" && m.comm?.withName === "Helper",
         );
         const helperReplied = helperBot.messages.some(
           (m: any) => m.role === "bot" && m.kind === "text" && m.text?.includes("hello from fake acp"),
@@ -620,7 +620,7 @@ describe("comms e2e (fake ACP fleet)", () => {
         const state = (await api("GET", "/api/bots")).body;
         const askerBot = state.bots.find((b: any) => b.id === asker.id);
         const note = askerBot.messages.find(
-          (m: any) => m.kind === "activity" && m.tool?.name === "Messaged @Helper",
+          (m: any) => m.kind === "activity" && m.comm?.withName === "Helper",
         );
         channel = note?.comm?.groupId
           ? state.groups.find((g: any) => g.id === note.comm.groupId)
@@ -671,7 +671,7 @@ describe("comms e2e (fake ACP fleet)", () => {
         const askerBot = state.bots.find((b: any) => b.id === asker.id);
         const helperBot = state.bots.find((b: any) => b.id === helper.id);
         channelId = askerBot.messages.find(
-          (m: any) => m.kind === "activity" && m.tool?.name === "Messaged @Helper",
+          (m: any) => m.kind === "activity" && m.comm?.withName === "Helper",
         )?.comm?.groupId;
         if (channelId && helperBot.busy) break;
         if (Date.now() > busyDeadline) {
@@ -719,7 +719,7 @@ describe("comms e2e (fake ACP fleet)", () => {
         const state = (await api("GET", "/api/bots")).body;
         const askerBot = state.bots.find((b: any) => b.id === asker.id);
         const note = askerBot.messages.find(
-          (m: any) => m.kind === "activity" && m.tool?.name === "Messaged @Helper",
+          (m: any) => m.kind === "activity" && m.comm?.withName === "Helper",
         );
         channel = note?.comm?.groupId
           ? state.groups.find((g: any) => g.id === note.comm.groupId)
@@ -773,7 +773,7 @@ describe("comms e2e (fake ACP fleet)", () => {
         const state = (await api("GET", "/api/bots")).body;
         const askerBot = state.bots.find((b: any) => b.id === asker.id);
         const note = askerBot.messages.find(
-          (m: any) => m.kind === "activity" && m.tool?.name === "Messaged @Helper",
+          (m: any) => m.kind === "activity" && m.comm?.withName === "Helper",
         );
         sourceChip = askerBot.messages.find(
           (m: any) => m.kind === "activity" && m.tool?.ok === false && m.tool?.name?.includes("could not start"),

@@ -27,6 +27,40 @@ export function getOrCreateChannel(store: Store, from: BotRecord, target: BotRec
   return store.createGroup(`${from.name} ⇄ ${target.name}`, [from.id, target.id], true, from.section);
 }
 
+type CommLink = NonNullable<Message["comm"]>;
+
+/** The chip link to a pair channel, as seen from `peer`'s side. */
+export function commLink(channel: GroupRecord | undefined, peer: BotRecord): CommLink | undefined {
+  return channel
+    ? { groupId: channel.id, withBotId: peer.id, withName: peer.name, withColor: peer.color }
+    : undefined;
+}
+
+/** The one chip per queued handoff in the sender's thread, keyed by handoff id.
+ * Memory only: a restart drops the queue, so nothing outlives its chip. */
+const delegationChips = new Map<string, { threadId: string; messageId: string }>();
+
+export function trackDelegationChip(itemId: string, threadId: string, messageId: string): void {
+  delegationChips.set(itemId, { threadId, messageId });
+}
+
+/** Rewrite a handoff's chip in place; false when it has none. A set `ok` is a
+ * terminal state, so it also retires the chip. */
+export function patchDelegationChip(
+  bus: CommsBus,
+  itemId: string | undefined,
+  tool: NonNullable<Message["tool"]>,
+  comm?: CommLink,
+): boolean {
+  const chip = itemId ? delegationChips.get(itemId) : undefined;
+  if (!itemId || !chip) return false;
+  const patch: Partial<Message> = { tool };
+  if (comm) patch.comm = comm;
+  if (!bus.store.patchMessage(chip.threadId, chip.messageId, patch)) return false;
+  if (tool.ok !== undefined) delegationChips.delete(itemId);
+  return true;
+}
+
 /** Mirror `from`'s outgoing message into the channel, drop chips into
  * both 1:1 threads linking to the channel, and bump the channel's unread
  * count. The chips are what make bot-to-bot turns observable — those
@@ -39,6 +73,7 @@ export function mirrorExchange(
   message: string,
   channel: GroupRecord | undefined,
   sourceThreadId = from.threadId,
+  sourceChip = true,
 ): void {
   const note = (threadId: string, m: Omit<Message, "id" | "at">) => {
     bus.store.appendMessage(threadId, m);
@@ -63,7 +98,7 @@ export function mirrorExchange(
   if (sourceThreadId !== from.threadId) {
     sourceActivity.from = { botId: from.id, name: from.name, color: from.color };
   }
-  note(sourceThreadId, sourceActivity);
+  if (sourceChip) note(sourceThreadId, sourceActivity);
   note(target.threadId, {
     role: "bot",
     kind: "activity",
@@ -75,6 +110,24 @@ export function mirrorExchange(
   if (channel) {
     bus.store.patchGroup(channel.id, { unread: true });
   }
+}
+
+/** Close a handoff's loop in the sender's thread: patch its chip in place, or
+ * fall back to the room row when the chip is gone. Either way one row, never two. */
+export function settleDelegationChip(
+  bus: CommsBus,
+  target: BotRecord,
+  sourceThreadId: string,
+  channel: GroupRecord | undefined,
+  itemId: string | undefined,
+  name: string,
+  ok: boolean,
+): void {
+  if (!patchDelegationChip(bus, itemId, { name, ok }, commLink(channel, target))) {
+    return mirrorOutcomeToRoom(bus, target, sourceThreadId, channel, name, ok);
+  }
+  const room = bus.store.groupByThread(sourceThreadId);
+  if (room) bus.store.patchGroup(room.id, { unread: true });
 }
 
 /** Mirror `target`'s reply into the channel so the channel stays the

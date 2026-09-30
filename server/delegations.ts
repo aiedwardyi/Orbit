@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import { writeFileAtomic } from "./atomic.ts";
-import { getOrCreateChannel, mirrorExchange, type CommsBus } from "./comms-visibility.ts";
+import { commLink, getOrCreateChannel, mirrorExchange, patchDelegationChip, trackDelegationChip, type CommsBus } from "./comms-visibility.ts";
 import { DATA_DIR } from "./config.ts";
 import { newId } from "./contracts.ts";
 import { requestPeerApproval, type ApprovalBus } from "./peer-approval.ts";
@@ -262,16 +262,27 @@ function appendDelegationActivity(
   sourceThreadId: string,
   tool: NonNullable<Message["tool"]>,
   from?: BotRecord | null,
-): void {
+): Message {
   const activity: Omit<Message, "id" | "at"> = { role: "bot", kind: "activity", tool };
   if (from && sourceThreadId !== from.threadId) {
     activity.from = { botId: from.id, name: from.name, color: from.color };
   }
-  bus.store.appendMessage(sourceThreadId, activity);
+  return bus.store.appendMessage(sourceThreadId, activity);
 }
 
-/** Validate and enqueue a delegation. Pushes a "Delegated to @B: reason"
- * chip to the source thread so the user can see what was queued. */
+/** Show a handoff's state on its queued chip; append a row only if it has none. */
+function reportDelegation(
+  bus: CommsBus,
+  sourceThreadId: string,
+  itemId: string,
+  tool: NonNullable<Message["tool"]>,
+  from?: BotRecord | null,
+): void {
+  if (!patchDelegationChip(bus, itemId, tool)) appendDelegationActivity(bus, sourceThreadId, tool, from);
+}
+
+/** Validate and enqueue a delegation. Pushes a "Queued for @B" chip to the
+ * source thread; later states rewrite that same chip. */
 export function queueDelegation(
   bus: CommsBus,
   from: BotRecord,
@@ -302,8 +313,8 @@ export function queueDelegation(
   list.push(queued);
   pendingDelegations.set(sourceThreadId, list);
   savePending();
-  const label = `Delegated to @${target.name}${item.reason ? `: ${item.reason}` : ""}`;
-  appendDelegationActivity(bus, sourceThreadId, { name: label }, from);
+  const label = `Queued for @${target.name}, sends when this reply ends${item.reason ? `: ${item.reason}` : ""}`;
+  trackDelegationChip(id, sourceThreadId, appendDelegationActivity(bus, sourceThreadId, { name: label }, from).id);
   return { result: "ok", id };
 }
 
@@ -366,9 +377,10 @@ export function drainDelegations(
           result: why.slice(0, 200),
         });
         try {
-          appendDelegationActivity(
+          reportDelegation(
             bus,
             threadId,
+            item.id,
             { name: `error: delegation failed — ${why.slice(0, 120)}`, ok: false },
             sender,
           );
@@ -436,6 +448,9 @@ export function discardDelegations(bus: CommsBus, threadId: string, sourceBotId?
   // keeps every dropped handoff attributable to the bot that queued it.
   const counts = new Map<string | undefined, number>();
   for (const item of dropped) {
+    const toName = bus.store.bot(item.toBotId)?.name ?? item.toBotId;
+    // a handoff with its own chip says so there; only the rest get the tally
+    if (patchDelegationChip(bus, item.id, { name: `Delegation to @${toName} dropped - the turn did not finish`, ok: false })) continue;
     const fromId = item.fromBotId ?? privateSourceId;
     counts.set(fromId, (counts.get(fromId) ?? 0) + 1);
   }
@@ -500,9 +515,10 @@ async function processOne(
       status: "error",
       result: "no such bot",
     });
-    appendDelegationActivity(
+    reportDelegation(
       bus,
       sourceThreadId,
+      item.id,
       { name: `error: delegation to ${item.toBotId} failed — no such bot`, ok: false },
       sender,
     );
@@ -512,9 +528,10 @@ async function processOne(
     item.attempts += 1;
     if (item.attempts < MAX_BUSY_ATTEMPTS) {
       savePending();
-      appendDelegationActivity(
+      reportDelegation(
         bus,
         sourceThreadId,
+        item.id,
         { name: `Delegation to @${target.name} waiting — they're busy (retry ${item.attempts}/${MAX_BUSY_ATTEMPTS} when they finish)` },
         sender,
       );
@@ -528,9 +545,10 @@ async function processOne(
       status: "busy_gave_up",
       result: `@${target.name} stayed busy through ${MAX_BUSY_ATTEMPTS} retries`,
     });
-    appendDelegationActivity(
+    reportDelegation(
       bus,
       sourceThreadId,
+      item.id,
       { name: `Delegation to @${target.name} canceled — still busy after ${MAX_BUSY_ATTEMPTS} retries`, ok: false },
       sender,
     );
@@ -557,9 +575,10 @@ async function processOne(
         status: "denied",
         result: "the user denied this handoff",
       });
-      appendDelegationActivity(
+      reportDelegation(
         bus,
         sourceThreadId,
+        item.id,
         { name: `Delegation to @${target.name} denied by user`, ok: false },
         sender,
       );
@@ -576,9 +595,10 @@ async function processOne(
       item.attempts += 1;
       if (item.attempts < MAX_BUSY_ATTEMPTS) {
         savePending();
-        appendDelegationActivity(
+        reportDelegation(
           bus,
           sourceThreadId,
+          item.id,
           { name: `Delegation to @${current.name} waiting — they're busy (retry ${item.attempts}/${MAX_BUSY_ATTEMPTS} when they finish)` },
           currentSender,
         );
@@ -592,9 +612,10 @@ async function processOne(
         status: "busy_gave_up",
         result: `@${current.name} stayed busy through ${MAX_BUSY_ATTEMPTS} retries`,
       });
-      appendDelegationActivity(
+      reportDelegation(
         bus,
         sourceThreadId,
+        item.id,
         { name: `Delegation to @${current.name} canceled — still busy after ${MAX_BUSY_ATTEMPTS} retries`, ok: false },
         currentSender,
       );
@@ -604,7 +625,8 @@ async function processOne(
     target = current;
   }
   const channel = getOrCreateChannel(bus.store, sender, target);
-  mirrorExchange(bus, sender, target, item.message, channel, sourceThreadId);
+  const delivered = patchDelegationChip(bus, item.id, { name: `Delivered to @${target.name}` }, commLink(channel, target));
+  mirrorExchange(bus, sender, target, item.message, channel, sourceThreadId, !delivered);
   const reasonLine = item.reason ? `\n\n[Reason: ${item.reason}]` : "";
   const prefixed = `[Delegated by @${sender.name}, another bot in this Orbit workspace. Do the work and reply directly.]\n\n${item.message}${reasonLine}`;
   const transcriptText = `${item.message}${reasonLine}`;

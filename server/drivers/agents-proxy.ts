@@ -274,7 +274,7 @@ const TOOLS = [
   {
     name: "delegate_bot",
     description:
-      "Hand a task to another bot ASYNCHRONOUSLY: returns immediately and the peer runs after your current turn finishes. Use this when you want to keep working or hand off a long-running subtask without waiting. The user sees the peer's reply as its own turn; you do NOT receive the reply inline.",
+      "Hand a task to another bot ASYNCHRONOUSLY: returns immediately and the message is only QUEUED: it is sent when your current turn ends, so do not tell the user it was sent yet. Use this when you want to keep working or hand off a long-running subtask without waiting. The user sees the peer's reply as its own turn; you do NOT receive the reply inline.",
     inputSchema: {
       type: "object",
       properties: {

@@ -136,7 +136,7 @@ import { RETRY_MAX_ATTEMPTS } from "./drivers/retry.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { claimAsk, clearAskBudget, MAX_ASKS_PER_TURN } from "./comms-budget.ts";
-import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorOutcomeToRoom, mirrorReply, type CommsBus } from "./comms-visibility.ts";
+import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorReply, settleDelegationChip, type CommsBus } from "./comms-visibility.ts";
 import { searchMessages, searchSnippet } from "./message-db.ts";
 import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript } from "./replies.ts";
 import { EXTENDED_REACTIONS, reactionSystemGuidance, reactionToolGuidance } from "../shared/reactions.ts";
@@ -3238,15 +3238,16 @@ function finalizeDelegationWatch(
   const target = store.bot(watched.toBotId);
   const channel = watched.channelId ? store.group(watched.channelId) : undefined;
   if (!target) return true;
-  // The room that queued the handoff is where the human is waiting, and the
-  // target runs in its own 1:1 — so it never hears back without this.
+  // The sender's chip is where the human is waiting, and the target runs in
+  // its own 1:1 - so the sender never hears back without this.
   if (watched.sourceThreadId) {
-    mirrorOutcomeToRoom(
+    settleDelegationChip(
       commsBus,
       target,
       watched.sourceThreadId,
       channel,
-      ok ? `@${target.name} finished the delegated task` : failureName,
+      watched.taskId,
+      ok ? `@${target.name} replied` : failureName,
       ok,
     );
   }
@@ -3321,9 +3322,9 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text,
       }
       const source = store.conversationForBot(sourceBotId, sourceThreadId)?.bot;
       if (!source) return;
-      // finalizeDelegationWatch above mirrors this failure into a room
-      // source; a second chip here is the same dead handoff reported twice.
-      if (store.groupByThread(sourceThreadId)) return;
+      // finalizeDelegationWatch above already put this failure on the sender's
+      // chip; a second row here is the same dead handoff reported twice.
+      if (targetThreadId) return;
       const activity: Omit<Message, "id" | "at"> = {
         role: "bot",
         kind: "activity",

@@ -7,7 +7,7 @@
 import { rmSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { CommsBus } from "./comms-visibility.ts";
+import { settleDelegationChip, type CommsBus } from "./comms-visibility.ts";
 import { DATA_DIR } from "./config.ts";
 import type { ModelSelection } from "./contracts.ts";
 import {
@@ -111,7 +111,7 @@ describe("queueDelegation", () => {
     expect(_pendingCount(from.threadId)).toBe(0);
   });
 
-  it("queues, broadcasts, and drops a 'Delegated to @Target' chip on the source thread", () => {
+  it("queues, broadcasts, and drops a 'Queued for @Target' chip on the source thread", () => {
     const result = queueDelegation(commsBus, from, {
       toBotId: target.id,
       message: "do this",
@@ -123,8 +123,8 @@ describe("queueDelegation", () => {
 
     const chip = store
       .messagesFor(from.threadId)
-      .find((m) => m.kind === "activity" && m.tool?.name?.startsWith("Delegated to @"));
-    expect(chip?.tool?.name).toBe("Delegated to @Helper: followup");
+      .find((m) => m.kind === "activity" && m.tool?.name?.startsWith("Queued for @"));
+    expect(chip?.tool?.name).toBe("Queued for @Helper, sends when this reply ends: followup");
 
     // The chip is also broadcast over SSE so chat clients see it without
     // polling /api/bots
@@ -189,11 +189,90 @@ describe("queueDelegation", () => {
     expect(_pendingCount(routineTask.threadId)).toBe(1);
     expect(_pendingCount(from.threadId)).toBe(0);
     expect(
-      store.messagesFor(routineTask.threadId).some((m) => m.tool?.name === "Delegated to @Helper"),
+      store.messagesFor(routineTask.threadId).some((m) => m.tool?.name?.startsWith("Queued for @Helper")),
     ).toBe(true);
     expect(
-      store.messagesFor(from.threadId).some((m) => m.tool?.name === "Delegated to @Helper"),
+      store.messagesFor(from.threadId).some((m) => m.tool?.name?.startsWith("Queued for @Helper")),
     ).toBe(false);
+  });
+});
+
+describe("sender chip status", () => {
+  let store: Store;
+  let from: BotRecord;
+  let target: BotRecord;
+  let commsBus: CommsBus;
+  let approvalBus: BusPair["approvalBus"];
+
+  beforeEach(() => {
+    rmSync(DATA_DIR, { recursive: true, force: true });
+    store = new Store(selection);
+    from = store.createBot();
+    target = store.createBot();
+    store.patchBot(target.id, { name: "Helper" });
+    ({ commsBus, approvalBus } = setupBuses(store));
+  });
+
+  const rows = () => store.messagesFor(from.threadId).filter((m) => m.kind === "activity");
+
+  it("moves one chip from queued to delivered to replied", async () => {
+    const queued = queueDelegation(commsBus, from, { toBotId: target.id, message: "do this", depth: 0 }, 1);
+    if (queued.result !== "ok") throw new Error("not queued");
+    expect(rows().map((m) => m.tool?.name)).toEqual(["Queued for @Helper, sends when this reply ends"]);
+    const chipId = rows()[0]!.id;
+
+    let channelId = "";
+    drainDelegations(commsBus, approvalBus, from.threadId, (_to, _msg, _depth, _src, channel) => {
+      channelId = channel!.id;
+    });
+    await waitFor(() => rows()[0]?.tool?.name === "Delivered to @Helper");
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]).toMatchObject({ id: chipId, comm: { groupId: channelId, withBotId: target.id } });
+
+    settleDelegationChip(commsBus, target, from.threadId, store.group(channelId), queued.id, "@Helper replied", true);
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]).toMatchObject({ id: chipId, tool: { name: "@Helper replied", ok: true }, comm: { groupId: channelId } });
+  });
+
+  it("settles the same chip as failed when the target turn fails", async () => {
+    const queued = queueDelegation(commsBus, from, { toBotId: target.id, message: "do this", depth: 0 }, 1);
+    if (queued.result !== "ok") throw new Error("not queued");
+    let channelId = "";
+    drainDelegations(commsBus, approvalBus, from.threadId, (_to, _msg, _depth, _src, channel) => {
+      channelId = channel!.id;
+    });
+    await waitFor(() => rows()[0]?.tool?.name === "Delivered to @Helper");
+
+    settleDelegationChip(commsBus, target, from.threadId, store.group(channelId), queued.id, "Delegated turn did not finish", false);
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]?.tool).toMatchObject({ name: "Delegated turn did not finish", ok: false });
+  });
+
+  it("rewrites the chip when the target is busy and when the handoff is dropped", () => {
+    store.patchBot(target.id, { busy: true });
+    queueDelegation(commsBus, from, { toBotId: target.id, message: "do this", depth: 0 }, 1);
+    drainDelegations(commsBus, approvalBus, from.threadId, () => undefined);
+    discardDelegations(commsBus, from.threadId);
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]?.tool).toMatchObject({ ok: false });
+    expect(rows()[0]?.tool?.name).toContain("dropped");
+  });
+
+  it("does not double-post a room outcome when the chip settles in place", async () => {
+    const group = store.createGroup("Project room", [from.id, target.id]);
+    const queued = queueDelegation(commsBus, from, { toBotId: target.id, message: "do this", depth: 0 }, 1, group.threadId);
+    if (queued.result !== "ok") throw new Error("not queued");
+    let channelId = "";
+    drainDelegations(commsBus, approvalBus, group.threadId, (_to, _msg, _depth, _src, channel) => {
+      channelId = channel!.id;
+    });
+    await waitFor(() => channelId);
+
+    settleDelegationChip(commsBus, target, group.threadId, store.group(channelId), queued.id, "@Helper replied", true);
+    const inRoom = store.messagesFor(group.threadId).filter((m) => m.kind === "activity");
+    expect(inRoom).toHaveLength(1);
+    expect(inRoom[0]?.tool).toMatchObject({ name: "@Helper replied", ok: true });
+    expect(store.group(group.id)?.unread).toBe(true);
   });
 });
 
@@ -240,12 +319,13 @@ describe("drainDelegations", () => {
     expect(call.message).toContain("do this");
     expect(call.transcriptText).toBe("do this");
 
-    // Both 1:1 threads picked up their comm chips, attributed to the
-    // source/target bot respectively, linking to the same channel.
+    // The sender's queued chip became the comm chip in place; the target
+    // thread got its own, linking to the same channel.
     const fromChips = store
       .messagesFor(from.threadId)
-      .filter((m) => m.kind === "activity" && m.tool?.name === "Messaged @Helper");
+      .filter((m) => m.kind === "activity" && m.comm);
     expect(fromChips).toHaveLength(1);
+    expect(fromChips[0]?.tool?.name).toBe("Delivered to @Helper");
     const targetChips = store
       .messagesFor(target.threadId)
       .filter((m) => m.kind === "activity" && m.tool?.name === `Message from @${from.name}`);
@@ -291,10 +371,10 @@ describe("drainDelegations", () => {
     expect(_pendingCount(routineTask.threadId)).toBe(0);
     expect(runTargetCalls[0]?.sourceThreadId).toBe(routineTask.threadId);
     expect(
-      store.messagesFor(routineTask.threadId).some((m) => m.tool?.name === "Messaged @Helper"),
+      store.messagesFor(routineTask.threadId).some((m) => m.tool?.name === "Delivered to @Helper"),
     ).toBe(true);
     expect(
-      store.messagesFor(activeThreadId).some((m) => m.tool?.name === "Messaged @Helper"),
+      store.messagesFor(activeThreadId).some((m) => m.tool?.name === "Delivered to @Helper"),
     ).toBe(false);
   });
 
@@ -619,7 +699,7 @@ describe("busy retries and receipts", () => {
     expect(calls[0][3]).toBe(group.threadId);
     expect(calls[0][5]).toBe(queued.id);
     expect(calls[0][6]).toBe(from.id);
-    expect(store.messagesFor(group.threadId).find((message) => message.tool?.name === "Delegated to @Helper")?.from?.botId).toBe(from.id);
+    expect(store.messagesFor(group.threadId).find((message) => message.tool?.name === "Delivered to @Helper")?.from?.botId).toBe(from.id);
   });
 
   it("attributes a room waiting status to the initiating bot", async () => {
@@ -773,11 +853,8 @@ describe("busy retries and receipts", () => {
     const dropped = store
       .messagesFor(group.threadId)
       .filter((message) => message.tool?.name.includes("dropped"))
-      .map((message) => [message.from?.botId, message.tool?.name.split(" ")[0]]);
-    expect(dropped).toEqual([
-      [from.id, "2"],
-      [other.id, "1"],
-    ]);
+      .map((message) => message.from?.botId);
+    expect(dropped).toEqual([from.id, from.id, other.id]);
   });
 
   const chipCount = (needle: string) =>
