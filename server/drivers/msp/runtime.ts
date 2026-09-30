@@ -607,6 +607,8 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
           settle(true, null);
         };
 
+        // Last decision per approval, replayed on each later stage.
+        const decisions = new Map<string, { want: "allow" | "deny"; requirement: string }>();
         const decideApproval = async (
           ask: Pick<ApprovalAsk, "approvalId" | "requirementId" | "choices">,
           want: "allow" | "deny",
@@ -620,6 +622,8 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
             });
             return false;
           }
+          // Set before the request: the host announces the next stage before it acks this one.
+          decisions.set(ask.approvalId, { want, requirement: JSON.stringify(ask.requirementId ?? null) });
           await channel.request(
             "approval/decide",
             {
@@ -714,6 +718,22 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
             choices: choices.map((c: ApprovalChoice) => String(c?.label ?? "")).filter(Boolean),
           });
         };
+        // Muse stages a shell approval per pipeline stage: approval/updated
+        // moves currentRequirementId on, and the tool waits for every stage.
+        const continueApproval = (params: any) => {
+          const approvalId = typeof params?.approvalId === "string" ? params.approvalId : null;
+          const prior = approvalId ? decisions.get(approvalId) : undefined;
+          if (!approvalId || !prior || !params?.currentRequirementId) return;
+          if (JSON.stringify(params.currentRequirementId) === prior.requirement) return;
+          const choices = Array.isArray(params?.availableChoices) ? params.availableChoices : [];
+          void decideApproval({ approvalId, requirementId: params.currentRequirementId, choices }, prior.want).catch(
+            (err) => {
+              if (prior.want === "allow" && !isSettledApprovalError(err)) {
+                fail(err instanceof Error ? err.message : String(err));
+              }
+            },
+          );
+        };
 
         const openUserInput = (params: any) => {
           const userInputId = typeof params?.userInputId === "string" ? params.userInputId : null;
@@ -802,6 +822,9 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
           switch (method) {
             case "approval/requested":
               openApproval(p);
+              break;
+            case "approval/updated":
+              continueApproval(p);
               break;
             case "userInput/requested":
               openUserInput(p);

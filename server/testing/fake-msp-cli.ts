@@ -12,6 +12,10 @@
 //                   | approval-both (approval/request with id AND
 //                     approval/requested for the same approval, like Muse
 //                     1.3; a second decide is rejected as already resolved)
+//                   | approval-staged (a three-stage shell approval: each
+//                     decide is answered by approval/updated moving
+//                     currentRequirementId on, like Muse 1.4; the turn
+//                     completes only after the last stage)
 //                   | approval-stale (approval/requested, then the decide is
 //                     rejected as stale and the turn completes anyway)
 //                   | approval-decide-fails (approval/requested, then the
@@ -400,7 +404,7 @@ function handle(msg: any) {
         });
         return;
       }
-      if (mode === "approval" || mode === "approval-request" || mode === "approval-both" || mode === "approval-stale" || mode === "approval-decide-fails") {
+      if (mode === "approval" || mode === "approval-request" || mode === "approval-both" || mode === "approval-staged" || mode === "approval-stale" || mode === "approval-decide-fails") {
         if (mode === "approval-request") {
           out({ jsonrpc: "2.0", id: 7001, method: "approval/request", params: approvalParams });
         } else if (mode === "approval-both") {
@@ -510,6 +514,25 @@ function handle(msg: any) {
               "approval decide settlement failed: approval ledger durability fence: background task failed: retained acknowledgement fence left records unflushed (failed=0)",
           },
         });
+        break;
+      }
+      if (mode === "approval-staged") {
+        const stage = msg.params?.requirementId?.sourceIndex ?? 0;
+        if (stage < 2) {
+          out({
+            jsonrpc: "2.0",
+            method: "approval/updated",
+            params: {
+              ...approvalParams,
+              change: { kind: "stageResolved", choiceId: msg.params?.choiceId, requirementId: msg.params?.requirementId },
+              currentRequirementId: { approvalId: approvalParams.approvalId, sourceIndex: stage + 1 },
+            },
+          });
+          result(msg.id, { commandId: msg.params?.commandId ?? null, status: "accepted" });
+        } else {
+          result(msg.id, { commandId: msg.params?.commandId ?? null, status: "accepted" });
+          completeTurn();
+        }
         break;
       }
       if (mode === "approval-stale") {

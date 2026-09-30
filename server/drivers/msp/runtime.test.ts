@@ -482,6 +482,23 @@ describe("MSP turns (fake host)", () => {
     expect(calls.filter((c: { method: string }) => c.method === "approval/decide")).toHaveLength(1);
   });
 
+  it("decides every stage of a staged approval after one allow", async () => {
+    const dump = join(scratch, "muse-approval-staged.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    await create("approval-staged");
+    await instance.adapter.sendTurn({ threadId: "t-approval-staged", text: "hi" });
+    const opened = await recorder.until((e) => e.type === "request.opened");
+    await instance.adapter.respondToRequest("t-approval-staged", opened.requestId!, { behavior: "allow" });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    expect(recorder.events.filter((e) => e.type === "request.opened")).toHaveLength(1);
+    const decides = JSON.parse(readFileSync(`${dump}.decide.json`, "utf8"));
+    expect(decides.map((c: any) => [c.params.choiceId, c.params.requirementId.sourceIndex])).toEqual([
+      ["allow-once", 0],
+      ["allow-once", 1],
+      ["allow-once", 2],
+    ]);
+  });
+
   it("settles a stale allow decide without failing the turn", async () => {
     await create("approval-stale");
     await instance.adapter.sendTurn({ threadId: "t-approval-stale", text: "hi" });
