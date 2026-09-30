@@ -267,6 +267,50 @@ describe("live events supervisor", () => {
     stop();
   });
 
+  it("keeps a healthy visible stream on focus and replays after hiding", () => {
+    const test = harness();
+    const onError = vi.fn();
+    const stop = openLiveEvents(
+      { onFrame: vi.fn(), onSnapshotRequired: async () => true, onError },
+      test.platform,
+    );
+    test.sources[0].message({ kind: "hello", resumed: true, cursor: "run00000:4" });
+    test.sources[0].message({ kind: "message" }, "run00000:4");
+
+    test.windowTarget.emit("focus");
+    test.windowTarget.emit("focus");
+    test.documentTarget.emit("visibilitychange");
+    expect(test.sources).toHaveLength(1);
+    expect(onError).not.toHaveBeenCalled();
+
+    test.setVisible(false);
+    test.documentTarget.emit("visibilitychange");
+    test.setVisible(true);
+    test.documentTarget.emit("visibilitychange");
+    expect(test.sources).toHaveLength(2);
+    expect(test.sources[1].url).toBe("/api/events?since=run00000%3A4");
+    expect(onError).toHaveBeenCalledOnce();
+
+    test.sources[1].message({ kind: "hello", resumed: true, cursor: "run00000:4" });
+    test.windowTarget.emit("focus");
+    expect(test.sources).toHaveLength(2);
+    expect(onError).toHaveBeenCalledOnce();
+    stop();
+  });
+
+  it.each(["online", "pageshow"])("forces replay on %s while visible", (event) => {
+    const test = harness();
+    const stop = openLiveEvents(
+      { onFrame: vi.fn(), onSnapshotRequired: async () => true },
+      test.platform,
+    );
+    test.sources[0].message({ kind: "message" }, "run00000:4");
+    test.windowTarget.emit(event, { persisted: true });
+    expect(test.sources).toHaveLength(2);
+    expect(test.sources[1].url).toBe("/api/events?since=run00000%3A4");
+    stop();
+  });
+
   it.each(["visibilitychange", "focus", "online", "pageshow"])(
     "replays missing messages immediately on %s before the stream is stale",
     (event) => {
@@ -353,6 +397,7 @@ describe("live events supervisor", () => {
     vi.advanceTimersByTime(200);
     test.sources[2].error();
     test.setVisible(false);
+    test.documentTarget.emit("visibilitychange");
     vi.advanceTimersByTime(400);
     expect(test.sources).toHaveLength(3);
 

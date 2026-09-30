@@ -182,6 +182,7 @@ export function openLiveEvents(
   let cursor: string | null = null;
   let lastHeardAt = platform.now();
   let wakePending = false;
+  let wasHidden = !platform.isVisible();
   let snapshotGeneration = 0;
   let pendingSnapshot: {
     generation: number;
@@ -270,6 +271,7 @@ export function openLiveEvents(
 
       if (frame.kind === "hello") {
         wakePending = false;
+        wasHidden = false;
         // `resumed:true` is followed by replay frames. Advancing to hello's
         // newest cursor here would skip any replay frame not yet delivered if
         // this socket died mid-replay. A failed resume has no replay, but its
@@ -348,11 +350,14 @@ export function openLiveEvents(
   };
   const onOnline = () => recover(true);
   const onFocus = () => {
-    if (platform.isVisible()) recover(true);
+    if (platform.isVisible()) recover(wasHidden);
   };
   const onVisibilityChange = () => {
-    if (platform.isVisible()) recover(true);
-    else wakePending = false;
+    if (platform.isVisible()) recover(wasHidden);
+    else {
+      wasHidden = true;
+      wakePending = false;
+    }
   };
   // A back/forward-cache restore keeps the old source object, but its socket
   // was dropped while the page sat in the cache.
