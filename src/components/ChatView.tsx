@@ -452,6 +452,9 @@ const Bubble = memo(function Bubble({
   const user = message.role === "user";
   const [expanded, setExpanded] = useState(false);
   const text = message.text ?? "";
+  // the folder this task's turns run in: pinned once a turn ran, else the bot's own
+  const pinnedFolder = bot.tasks?.find((task) => task.threadId === bot.threadId)?.cwd;
+  const botFolder = pinnedFolder === undefined ? bot.cwd : pinnedFolder;
   const detectedOptions = !user && !streaming && message.kind === "text" ? detectChatOptions(text) : null;
   const answeredChoice = detectedOptions ? laterUserAnswer(transcript, message.id) : null;
   const optionChoices =
@@ -598,7 +601,7 @@ const Bubble = memo(function Bubble({
             </>
           ) : markdownText.trim() ? (
             <MessageBoundary fallbackText={markdownText}>
-              <ChatMarkdown text={markdownText} streaming={streaming} />
+              <ChatMarkdown text={markdownText} streaming={streaming} baseDir={botFolder} />
             </MessageBoundary>
           ) : null}
         </div>

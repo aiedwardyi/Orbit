@@ -56,6 +56,33 @@ const localFilePath = (href?: string): string | null => {
   return absolutePath(href);
 };
 
+// A bare relative target ("reps.py", "./notes.md", "..\x.txt") means a file in
+// the writing bot's folder. As an anchor it would resolve against Orbit's own
+// server and open a second Orbit window. "C:foo" reads as a scheme and stays an
+// anchor, like any other non-file scheme.
+const SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
+export const isRelativeHref = (href: string): boolean => !SCHEME.test(href);
+
+// Null when there is nothing to open: no known base, or a #anchor / ?query.
+export const resolveRelativePath = (href: string, base?: string | null): string | null => {
+  const root = base ? absolutePath(base) : null;
+  if (!root || /^[#?]/.test(href)) return null;
+  let rel = href.replace(/[#?].*$/, "");
+  try {
+    rel = decodeURIComponent(rel);
+  } catch {
+    /* keep the raw target */
+  }
+  const win = WINDOWS_PATH.test(root);
+  const drive = win ? `${root.slice(0, 2)}\\` : "/";
+  const parts = root.slice(win ? 3 : 1).split(/[\\/]+/).filter(Boolean);
+  for (const seg of rel.split(/[\\/]+/)) {
+    if (seg === "..") parts.pop();
+    else if (seg && seg !== ".") parts.push(seg);
+  }
+  return drive + parts.join(win ? "\\" : "/");
+};
+
 const StreamingContext = createContext(false);
 
 function CodeBlock({ code, lang }: { code: string; lang: string }) {
@@ -247,7 +274,7 @@ function Spoiler({ children }: { children?: ReactNode }) {
   );
 }
 
-function ChatMarkdownComponent({ text, streaming = false }: { text: string; streaming?: boolean }) {
+function ChatMarkdownComponent({ text, streaming = false, baseDir }: { text: string; streaming?: boolean; baseDir?: string | null }) {
   const components = useMemo(() => ({
     pre({ children }: { children?: ReactNode }) {
       // fenced code arrives as <pre><code class="language-x">…</code></pre>
@@ -279,6 +306,10 @@ function ChatMarkdownComponent({ text, streaming = false }: { text: string; stre
     a({ href, children }: { href?: string; children?: ReactNode }) {
       const localPath = localFilePath(href);
       if (localPath) return <LocalFileLink filePath={localPath}>{children}</LocalFileLink>;
+      if (href && isRelativeHref(href)) {
+        const resolved = resolveRelativePath(href, baseDir);
+        return resolved ? <LocalFileLink filePath={resolved}>{children}</LocalFileLink> : <>{children}</>;
+      }
       return (
         <a
           href={href}
@@ -340,7 +371,7 @@ function ChatMarkdownComponent({ text, streaming = false }: { text: string; stre
     hr() {
       return <hr className="border-hairline/40" />;
     },
-  }), []);
+  }), [baseDir]);
   return (
     <StreamingContext.Provider value={streaming}>
       <div className="chat-md min-w-0 [&>*+*]:mt-2">

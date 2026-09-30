@@ -372,6 +372,8 @@ const Transcript = memo(function Transcript({
             : null;
         const markdownText =
           optionChoices?.messagePrefix != null ? optionChoices.messagePrefix : (m.text ?? "");
+        // the room's pinned folder, else its shared desk, else the writer's own
+        const botFolder = (group.pinnedCwd === undefined ? group.cwd : group.pinnedCwd) ?? memberOf(m.from?.botId)?.cwd;
         const routineOwner = m.kind === "routine.run" ? memberOf(m.from?.botId) : undefined;
         const routineExecutionThreadId = m.routineRun?.executionThreadId;
         const routineTarget = routineOwner && hasRoutineExecutionTask(routineOwner.tasks, routineExecutionThreadId)
@@ -456,7 +458,7 @@ const Transcript = memo(function Transcript({
                       )}
                       {attachedImages?.display ?? m.text}
                     </>
-                  ) : markdownText.trim() ? <ChatMarkdown text={markdownText} /> : null}
+                  ) : markdownText.trim() ? <ChatMarkdown text={markdownText} baseDir={botFolder} /> : null}
                 </div>
                 {!user && (
                   <div
