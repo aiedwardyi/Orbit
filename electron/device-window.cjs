@@ -3,7 +3,8 @@
 // partition so the link is pasted once, never the local app's token.
 
 const DEVICE_WINDOW_PARTITION = "persist:orbit-devices";
-const HOST_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+// Tailscale Serve names only: a synced record must never point a PC window at the public web.
+const HOST_RE = /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+ts\.net$/;
 
 function deviceWindowUrl(rawHost) {
   const host = Object.prototype.toString.call(rawHost) === "[object String]" ? rawHost.trim().toLowerCase() : "";

@@ -1243,6 +1243,9 @@ function openDeviceWindow(rawHost, rawName) {
       const open = safeExternalUrl(target);
       if (open) void shell.openExternal(open);
     });
+    win.webContents.on("will-redirect", (event, target) => {
+      if (!sameDesktopViewerOrigin(target, url.origin)) event.preventDefault();
+    });
     void win.loadURL(url.toString()).catch(() => {});
     return win;
   });

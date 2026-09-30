@@ -31,7 +31,7 @@ class FakeWindow extends EventEmitter {
 
 test("opens a PC over HTTPS on its tailnet host only", () => {
   assert.equal(deviceWindowUrl(" Home.tail396477.ts.net ").toString(), "https://home.tail396477.ts.net/");
-  for (const bad of ["", "localhost", "home.ts.net/evil", "user@home.ts.net", "home.ts.net:8799", "javascript:alert(1)", 42]) {
+  for (const bad of ["", "localhost", "home.ts.net/evil", "user@home.ts.net", "home.ts.net:8799", "javascript:alert(1)", "example.com", "ts.net.example.com", "ts.net", 42]) {
     assert.throws(() => deviceWindowUrl(bad), /invalid/);
   }
 });
