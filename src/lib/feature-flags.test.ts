@@ -24,11 +24,11 @@ describe("experimental feature flags", () => {
     expect(showToolCallsEnabled({ features: { showToolCalls: true } })).toBe(true);
   });
 
-  it("keeps the built-in browser on unless it is switched off", () => {
-    expect(builtInBrowserEnabled(null)).toBe(true);
-    expect(builtInBrowserEnabled({})).toBe(true);
-    expect(builtInBrowserEnabled({ features: {} })).toBe(true);
+  it("keeps the built-in browser off even when switched on", () => {
+    expect(builtInBrowserEnabled(null)).toBe(false);
+    expect(builtInBrowserEnabled({})).toBe(false);
+    expect(builtInBrowserEnabled({ features: {} })).toBe(false);
     expect(builtInBrowserEnabled({ features: { browser: false } })).toBe(false);
-    expect(builtInBrowserEnabled({ features: { browser: true } })).toBe(true);
+    expect(builtInBrowserEnabled({ features: { browser: true } })).toBe(false);
   });
 });

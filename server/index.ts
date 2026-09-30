@@ -343,6 +343,7 @@ import { WebhookManager } from "./webhooks.ts";
 import { SPAWNED_PROXIES } from "./proxy-paths.ts";
 import { loadBundledSkills, loadUserSkills, mergeSkills, renderSkillInstructions, selectBundledSkills } from "./skill-library.ts";
 import { harnessPlaybookPrompt } from "./harness-playbook.ts";
+import { botBrowserEnabled, browserPrompt } from "./builtin-browser.ts";
 import { installedPlaybookInstructions } from "./installed-playbooks.ts";
 import { createBotPackageExport } from "./package-export.ts";
 import { localVmTurnPlan, shouldMountLocalComputer } from "./local-routing.ts";
@@ -4051,7 +4052,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       }
       // the built-in browser: per-bot opt-in, and only to a driver that can
       // mount it, and only while the desktop app is running its host
-      const browser = builtInBrowserEnabled(cfg) && bot.browser !== false && instance.adapter.capabilities.browserMcp === true
+      const browser = botBrowserEnabled(cfg, bot, instance.adapter.capabilities)
         ? browserIntegration(bot.id, bot.browserProfile)
         : null;
       if (browser) integrations.browser = browser.integration;
@@ -4412,9 +4413,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           (integrations.composio
             ? " The user's connected apps (Gmail, Calendar, Slack, Notion, and the rest) are reachable through the composio tools — find the right one with COMPOSIO_SEARCH_TOOLS, read its arguments with COMPOSIO_GET_TOOL_SCHEMAS, then run it with COMPOSIO_MULTI_EXECUTE_TOOL. Reach for them before telling the user you have no access to a service."
             : "") +
-          (integrations.browser
-            ? " You have your own built-in web browser through the browser tools: browser_navigate opens a page and browser_snapshot returns its accessibility tree with [ref=eN] refs; browser_click, browser_fill, browser_select_option, browser_hover and browser_press act on refs; browser_read returns the page's text; browser_wait_for waits for text or an address; browser_screenshot shows the page when the tree isn't enough. Every browser action already returns the resulting page, so don't follow it with browser_snapshot. The user watches the same page in the Browser panel and can take over at any time. At a sign-in, password, MFA, CAPTCHA, or payment step, call browser_request_takeover with what you need and continue from the page it returns; never type their password or a one-time code."
-            : "") +
+          browserPrompt(Boolean(integrations.browser)) +
           (coordinationPrompt ? ` ${coordinationPrompt}` : "") +
           credentialPrompt +
           routinePrompt +
@@ -5120,7 +5119,7 @@ async function runClaimedGroupMemberTurn(
   if (selectedSkills.some((skill) => skill.manifest.requiredCapabilities.includes("phoneMcp"))) {
     integrations.phone = phoneIntegration();
   }
-  if (builtInBrowserEnabled(cfg) && bot.browser !== false && instance.adapter.capabilities.browserMcp === true) {
+  if (botBrowserEnabled(cfg, bot, instance.adapter.capabilities)) {
     const browser = browserIntegration(bot.id, bot.browserProfile);
     if (browser) integrations.browser = browser.integration;
   }

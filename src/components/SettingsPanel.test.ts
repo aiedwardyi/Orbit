@@ -172,6 +172,16 @@ describe("SettingsPanel friends effort", () => {
     expect(buttonTag).not.toContain("disabled");
     expect(html).not.toContain("This engine cannot contact other bots");
   });
+
+  it("offers no per-bot Browser switch even with Advanced open", async () => {
+    chrome.botDetailsAdvanced = true;
+    const { SettingsPanel } = await import("./SettingsPanel");
+    const { I18nProvider } = await import("@/lib/i18n");
+    const html = renderToStaticMarkup(
+      createElement(I18nProvider, null, createElement(SettingsPanel, { bot, defaultAdvancedOpen: true })),
+    );
+    expect(html).not.toContain("Give this bot a built-in browser");
+  });
 });
 
 describe("SettingsPanel Korean bot details", () => {

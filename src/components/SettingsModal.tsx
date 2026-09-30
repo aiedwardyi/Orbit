@@ -291,6 +291,7 @@ function ExperimentalFeaturesRow() {
           <span className={cnKnob(skillRecorder)} />
         </button>
       </div>
+      {browser ? (
       <div className="mt-4 flex items-center justify-between gap-4 border-t border-hairline/30 pt-4">
         <div className="min-w-0">
           <div className="text-[14px] font-medium text-ink">{t("settings.experimental.browser")}</div>
@@ -311,6 +312,7 @@ function ExperimentalFeaturesRow() {
           <span className={cnKnob(browser)} />
         </button>
       </div>
+      ) : null}
       {error ? <p role="alert" className="mt-2 text-[12px] text-danger">{error}</p> : null}
     </Card>
   );

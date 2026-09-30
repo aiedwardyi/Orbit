@@ -92,12 +92,12 @@ describe("configuration boundaries", () => {
       features: { skillRecorder: true },
     });
     expect(skillRecorderEnabled({ features: { skillRecorder: true } })).toBe(true);
-    // the built-in browser is on unless switched off — an independent flag
-    expect(builtInBrowserEnabled({})).toBe(true);
-    expect(builtInBrowserEnabled({ features: { skillRecorder: true } })).toBe(true);
+    // the built-in browser is removed: off whatever the flag says
+    expect(builtInBrowserEnabled({})).toBe(false);
+    expect(builtInBrowserEnabled({ features: { skillRecorder: true } })).toBe(false);
     expect(parseConfigPatch({ features: { browser: false } })).toEqual({ features: { browser: false } });
     expect(builtInBrowserEnabled({ features: { browser: false } })).toBe(false);
-    expect(builtInBrowserEnabled({ features: { browser: true } })).toBe(true);
+    expect(builtInBrowserEnabled({ features: { browser: true } })).toBe(false);
     // named browser profiles: the list is the unit, ids are partition-safe
     expect(parseConfigPatch({ browserProfiles: [{ id: "work", name: " Work " }] })).toEqual({
       browserProfiles: [{ id: "work", name: "Work" }],

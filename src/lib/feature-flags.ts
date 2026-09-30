@@ -7,10 +7,10 @@ export function skillRecorderEnabled(config: FeatureFlagConfig | null | undefine
   return config?.features?.skillRecorder === true;
 }
 
-/** The built-in per-bot browser (Browser tab of the computer panel). On
- * unless switched off; each bot also has its own switch. */
-export function builtInBrowserEnabled(config: FeatureFlagConfig | null | undefined): boolean {
-  return config?.features?.browser !== false;
+/** The built-in per-bot browser (Browser tab of the computer panel) is
+ * removed: permanently off, whatever the config says. */
+export function builtInBrowserEnabled(_config: FeatureFlagConfig | null | undefined): boolean {
+  return false;
 }
 
 /** Tool-run chips in the transcript. Off by default — the mascot already

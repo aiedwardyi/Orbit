@@ -83,8 +83,7 @@ const featureConfigSchema = z.object({
   skillRecorder: z.boolean().optional(),
   /** Show each tool run in the transcript. Off unless explicitly enabled. */
   showToolCalls: z.boolean().optional(),
-  /** The built-in per-bot browser (Browser tab). On unless switched off;
-   * each bot also has its own switch. */
+  /** The built-in per-bot browser (Browser tab). Removed: ignored. */
   browser: z.boolean().optional(),
 });
 const instanceConfigSchema = z.object({
@@ -264,10 +263,9 @@ export function showToolCallsEnabled(cfg: AppConfig): boolean {
   return cfg.features?.showToolCalls === true;
 }
 
-/** Workspace-level gate for the built-in browser: on unless switched off.
- * A bot's own switch sits under it, so either can withhold the browser. */
-export function builtInBrowserEnabled(cfg: AppConfig): boolean {
-  return cfg.features?.browser !== false;
+/** The built-in browser is removed: permanently off, whatever the config says. */
+export function builtInBrowserEnabled(_cfg: AppConfig): boolean {
+  return false;
 }
 
 // OMB_DATA_DIR isolates test/soak rigs from the user's real fleet.
