@@ -72,11 +72,11 @@ describe("picker catalogs", () => {
   it("leaves the full driver catalog intact while keeping only the requested models", () => {
     const instance: InstanceInfo = {
       instanceId: "codex", driverKind: "codex", displayName: "OpenAI", snapshot: { state: "available" },
-      models: { default: "other-model", options: ["other-model", "gpt-6-astra", "gpt-6-sol", "gpt-5.6-terra", "gpt-6-luna"].map((id) => ({ id, label: id })) },
+      models: { default: "other-model", options: ["other-model", "gpt-6-astra", "gpt-6.1-sol", "gpt-5.6-terra", "gpt-6-luna"].map((id) => ({ id, label: id })) },
     };
     const before = JSON.stringify(instance.models);
     const rows = pickerRows([instance], { instanceId: "codex", model: "gpt-6-astra" });
-    expect(rows[0]!.cells.map((cell) => cell.options[0]!.id)).toEqual(["gpt-6-astra", "gpt-6-sol", "gpt-5.6-terra", "gpt-6-luna"]);
+    expect(rows[0]!.cells.map((cell) => cell.options[0]!.id)).toEqual(["gpt-6-astra", "gpt-6.1-sol", "gpt-5.6-terra", "gpt-6-luna"]);
     expect(JSON.stringify(instance.models)).toBe(before);
   });
 

@@ -13,13 +13,13 @@ import { killCliTree, spawnCli } from "../procs.ts";
 import { mergeLocalInject } from "./local-inject.ts";
 
 export const STATIC_CODEX_MODELS: ModelCatalog = {
-  default: "gpt-6-sol",
+  default: "gpt-6.1-sol",
   options: [
     // Official ChatGPT / Codex slug from the 2026-09-03 Codex 0.153 catalog
     // and OpenAI model docs (`codex -m gpt-6-astra`). Kept first so the
     // compact picker suggested list includes it. Default stays Sol.
     { id: "gpt-6-astra", label: "GPT-6 Astra" },
-    { id: "gpt-6-sol", label: "GPT-6 Sol" },
+    { id: "gpt-6.1-sol", label: "GPT-6.1 Sol" },
     { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
     { id: "gpt-6-luna", label: "GPT-6 Luna" },
     { id: "gpt-5.5", label: "GPT-5.5" },
@@ -392,6 +392,17 @@ export function withSuggestedCodexAstra(catalog: ModelCatalog): ModelCatalog {
   return { ...catalog, options: [{ ...CODEX_ASTRA }, ...catalog.options] };
 }
 
+const CODEX_SOL = { id: "gpt-6.1-sol", label: "GPT-6.1 Sol" } as const;
+
+/** Codex 0.159.2 serves 6.1 Sol while its live catalog still lists 6 Sol. */
+export function withCodexSol61(catalog: ModelCatalog): ModelCatalog {
+  if (catalog.options.some((option) => option.id === CODEX_SOL.id)) return catalog;
+  return {
+    default: catalog.default === "gpt-6-sol" ? CODEX_SOL.id : catalog.default,
+    options: catalog.options.map((option) => option.id === "gpt-6-sol" ? { ...CODEX_SOL } : option),
+  };
+}
+
 /** Local slugs Codex already knows, plus the official cloud rows. */
 export async function readCodexModelCatalog(
   env: Record<string, string | undefined> = process.env,
@@ -399,7 +410,7 @@ export async function readCodexModelCatalog(
   cli?: string,
 ): Promise<ModelCatalog> {
   const advertised = cli ? await readCodexAppServerModelCatalog(cli, env) : null;
-  const official = advertised ? withSuggestedCodexAstra(advertised) : STATIC_CODEX_MODELS;
+  const official = advertised ? withCodexSol61(withSuggestedCodexAstra(advertised)) : STATIC_CODEX_MODELS;
   const home = codexHome(env);
   const mainText = readText(join(home, "config.toml"));
   if (!mainText) return mergeLocalInject(official, env, fetchImpl);

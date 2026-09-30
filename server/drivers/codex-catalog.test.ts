@@ -15,6 +15,7 @@ import {
   readCodexModelCatalog,
   retireAppServer,
   STATIC_CODEX_MODELS,
+  withCodexSol61,
   withSuggestedCodexAstra,
 } from "./codex-catalog.ts";
 
@@ -64,7 +65,7 @@ describe("decodeCodexSelection", () => {
 describe("STATIC_CODEX_MODELS", () => {
   it("includes GPT-6 Astra in the suggested official rows", () => {
     expect(STATIC_CODEX_MODELS.options[0]).toEqual({ id: "gpt-6-astra", label: "GPT-6 Astra" });
-    expect(STATIC_CODEX_MODELS.default).toBe("gpt-6-sol");
+    expect(STATIC_CODEX_MODELS.default).toBe("gpt-6.1-sol");
   });
 
   it("prepends Astra when a live catalog omitted it", () => {
@@ -89,6 +90,20 @@ describe("STATIC_CODEX_MODELS", () => {
     expect(merged.options.filter((option) => option.id === "gpt-6-astra")).toEqual([
       { id: "gpt-6-astra", label: "GPT-6-Astra Fast" },
     ]);
+  });
+});
+
+describe("withCodexSol61", () => {
+  it("swaps a live 6 Sol row and default for 6.1 Sol", () => {
+    expect(
+      withCodexSol61({
+        default: "gpt-6-sol",
+        options: [{ id: "gpt-6-astra", label: "GPT-6 Astra" }, { id: "gpt-6-sol", label: "gpt-6-sol" }],
+      }),
+    ).toEqual({
+      default: "gpt-6.1-sol",
+      options: [{ id: "gpt-6-astra", label: "GPT-6 Astra" }, { id: "gpt-6.1-sol", label: "GPT-6.1 Sol" }],
+    });
   });
 });
 
@@ -223,7 +238,7 @@ name = "oMLX"
 `,
     });
     const catalog = await readCodexModelCatalog({ HOME: home });
-    expect(catalog.default).toBe("gpt-6-sol");
+    expect(catalog.default).toBe("gpt-6.1-sol");
     expect(catalog.options.every((option) => !option.custom)).toBe(true);
   });
 });
