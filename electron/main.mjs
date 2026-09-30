@@ -94,6 +94,7 @@ const { createDisplayMediaGuard, invokeDisplayMediaCallback, selectCaptureSource
 );
 const { STAGE_PREFIX: APPIMAGE_CUA_STAGE_PREFIX } = require("./cua-linux-bundle.cjs");
 const { desktopViewerUrl, desktopViewerWindowOptions, sameDesktopViewerOrigin } = require("./desktop-viewer.cjs");
+const { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceWindowTitle, deviceWindowUrl, openOrFocus } = require("./device-window.cjs");
 const { createDesktopWorkspaceManager } = require("./desktop-workspace.cjs");
 const { createBrowserSurfaceManager } = require("./browser-surface.cjs");
 const { browserProfilePartition } = require("./browser-snapshot.cjs");
@@ -111,6 +112,8 @@ const APP_ICON = path.join(__dirname, "resources/app-icon.png");
 let desktopViewerWindow = null;
 let desktopViewerOwner = null;
 let desktopViewerContextId = null;
+const deviceWindows = new Map();
+const deviceLinkPages = new WeakMap();
 let desktopWorkspaceManager = null;
 let desktopWorkspaceOwner = null;
 // The built-in browser surface (Browser tab of the computer panel): views
@@ -1190,6 +1193,62 @@ function openDesktopViewer(owner, rawUrl, rawTitle, contextId) {
   return true;
 }
 
+function openDeviceWindow(rawHost, rawName) {
+  const url = deviceWindowUrl(rawHost);
+  openOrFocus(deviceWindows, url.origin, () => {
+    const title = deviceWindowTitle(rawName, url.hostname);
+    const win = new BrowserWindow({
+      ...desktopViewerWindowOptions(),
+      // Shown at once: an offline PC never fires ready-to-show.
+      show: true,
+      title,
+      icon: APP_ICON,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        partition: DEVICE_WINDOW_PARTITION,
+      },
+    });
+    deviceLinkPages.set(win, deviceLinkPage({
+      host: url.host,
+      title,
+      heading: title,
+      help: nativeText("packaged.deviceLinkHelp"),
+      placeholder: `https://${url.host}/remote?key=...`,
+      submit: nativeText("packaged.deviceLinkSubmit"),
+      invalid: nativeText("packaged.deviceLinkInvalid"),
+    }));
+    const devices = win.webContents.session;
+    devices.setPermissionCheckHandler((_webContents, permission) => permission === "clipboard-sanitized-write");
+    devices.setPermissionRequestHandler((_webContents, permission, callback) => callback(permission === "clipboard-sanitized-write"));
+    // One listener per session: route each 401 to the device window that made it.
+    devices.webRequest.onCompleted({ urls: ["https://*/*"] }, ({ statusCode, webContentsId }) => {
+      if (statusCode !== 401) return;
+      const target = [...deviceWindows.values()].find((open) => !open.isDestroyed() && open.webContents.id === webContentsId);
+      if (target && !target.webContents.getURL().startsWith("data:")) void target.loadURL(deviceLinkPages.get(target));
+    });
+    win.on("page-title-updated", (event) => {
+      event.preventDefault();
+      win.setTitle(title);
+    });
+    win.webContents.setWindowOpenHandler(({ url: target }) => {
+      const open = safeExternalUrl(target);
+      if (open) void shell.openExternal(open);
+      return { action: "deny" };
+    });
+    win.webContents.on("will-navigate", (event, target) => {
+      if (sameDesktopViewerOrigin(target, url.origin)) return;
+      event.preventDefault();
+      const open = safeExternalUrl(target);
+      if (open) void shell.openExternal(open);
+    });
+    void win.loadURL(url.toString()).catch(() => {});
+    return win;
+  });
+  return true;
+}
+
 function ensureDesktopWorkspace(owner) {
   if (!owner || owner.isDestroyed()) throw new Error("The Orbit window is unavailable");
   if (desktopWorkspaceManager) {
@@ -1807,6 +1866,9 @@ ipcMain.handle("desktop-viewer:open", (event, rawUrl, title, contextId) => {
   const owner = BrowserWindow.fromWebContents(event.sender);
   return openDesktopViewer(owner, rawUrl, title, contextId);
 });
+
+// Another PC's Orbit opens beside this one; picking it again focuses that window.
+ipcMain.handle("device-window:open", (_event, host, name) => openDeviceWindow(host, name));
 
 // Two Local VM desktops share the existing app BrowserWindow. The renderer
 // supplies only layout and intent; URL validation, sandboxing, session

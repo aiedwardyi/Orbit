@@ -7,7 +7,7 @@ const store = vi.hoisted(() => ({ api: vi.fn() }));
 vi.mock("@/state/store", () => store);
 
 import { I18nProvider } from "@/lib/i18n";
-import { DeviceSwitcher, type DeviceItem } from "./DeviceSwitcher";
+import { DeviceSwitcher, DeviceTag, type DeviceItem } from "./DeviceSwitcher";
 
 const device = (id: string, over: Partial<DeviceItem> = {}): DeviceItem => ({
   deviceId: id,
@@ -24,16 +24,23 @@ function setPhone(phone: boolean) {
 
 afterEach(() => {
   store.api.mockReset();
+  delete window.ogb;
   document.body.innerHTML = "";
 });
 
-async function renderView(devices: DeviceItem[], navigate = vi.fn()) {
+async function renderView(devices: DeviceItem[], navigate = vi.fn(), view: typeof DeviceSwitcher | typeof DeviceTag = DeviceSwitcher) {
   store.api.mockResolvedValue({ devices });
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
-  await act(async () => root.render(createElement(I18nProvider, null, createElement(DeviceSwitcher, { navigate }))));
+  await act(async () => root.render(createElement(I18nProvider, null, createElement(view, { navigate }))));
   return { host, root, navigate };
+}
+
+function setDesktop() {
+  const open = vi.fn().mockResolvedValue(true);
+  window.ogb = { deviceWindow: { open } } as never;
+  return open;
 }
 
 const click = (target: Element) => target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -94,10 +101,52 @@ describe("DeviceSwitcher", () => {
     expect(store.api).toHaveBeenCalledTimes(1);
 
     store.api.mockResolvedValueOnce({ name: "Home" });
+    store.api.mockResolvedValue({ devices: [device("home", { current: true, name: "Home" }), device("work")] });
     input.value = " Home ";
     await act(async () => key(input, "Enter"));
-    expect(store.api).toHaveBeenLastCalledWith("/api/devices/name", { method: "PUT", body: JSON.stringify({ name: "Home" }) });
+    expect(store.api).toHaveBeenCalledWith("/api/devices/name", { method: "PUT", body: JSON.stringify({ name: "Home" }) });
+    expect(store.api).toHaveBeenLastCalledWith("/api/devices");
     expect(host.querySelector("input")).toBeNull();
     expect(host.querySelector("[data-device-id=home]")!.textContent).toContain("Home");
+  });
+
+  it("shows in the desktop app and opens another PC in its own window", async () => {
+    setPhone(false);
+    const open = setDesktop();
+    const { host, navigate } = await renderView([device("home", { current: true }), device("work", { name: "Work" })]);
+    const toggle = host.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+    await act(async () => click(toggle));
+    await act(async () => click(host.querySelector("[data-device-id=home]")!));
+    expect(open).not.toHaveBeenCalled();
+    expect(host.querySelector("ul")).toBeNull();
+    await act(async () => click(toggle));
+    await act(async () => click(host.querySelector("[data-device-id=work]")!));
+    expect(open).toHaveBeenCalledWith("work.tail396477.ts.net", "Work");
+    expect(navigate).not.toHaveBeenCalled();
+    expect(host.querySelector("ul")).toBeNull();
+  });
+});
+
+describe("DeviceTag", () => {
+  const pcs = [device("home", { current: true, name: "Home" }), device("work")];
+
+  it("names this PC on phones and remote windows", async () => {
+    setPhone(true);
+    const { host } = await renderView(pcs, vi.fn(), DeviceTag);
+    expect(host.querySelector("[data-device-tag]")!.textContent).toBe("Home");
+  });
+
+  it("is hidden in the local desktop app", async () => {
+    setPhone(false);
+    setDesktop();
+    const { host } = await renderView(pcs, vi.fn(), DeviceTag);
+    expect(host.textContent).toBe("");
+    expect(store.api).not.toHaveBeenCalled();
+  });
+
+  it("is hidden with a single PC", async () => {
+    setPhone(true);
+    const { host } = await renderView([pcs[0]], vi.fn(), DeviceTag);
+    expect(host.textContent).toBe("");
   });
 });

@@ -14,14 +14,13 @@ export interface DeviceItem {
   offline: boolean;
 }
 
-export function DeviceSwitcher({ navigate = (url) => window.location.assign(url) }: { navigate?: (url: string) => void }) {
-  const { t } = useI18n();
+const DEVICES_CHANGE = "orbit-devices-change";
+
+function useDevices(enabled: boolean) {
   const [devices, setDevices] = useState<DeviceItem[]>([]);
-  const [open, setOpen] = useState(false);
-  const [renaming, setRenaming] = useState(false);
 
   useEffect(() => {
-    if (!isPhone()) return;
+    if (!enabled) return;
     let live = true;
     const load = () =>
       api("/api/devices")
@@ -34,13 +33,27 @@ export function DeviceSwitcher({ navigate = (url) => window.location.assign(url)
     };
     void load();
     document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener(DEVICES_CHANGE, load);
     return () => {
       live = false;
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener(DEVICES_CHANGE, load);
     };
-  }, []);
+  }, [enabled]);
 
-  if (devices.length < 2 || !isPhone()) return null;
+  return devices;
+}
+
+/** Phones jump in place; the desktop app opens the PC in its own window. */
+export function DeviceSwitcher({ navigate = (url) => window.location.assign(url) }: { navigate?: (url: string) => void }) {
+  const { t } = useI18n();
+  const deviceWindow = window.ogb?.deviceWindow;
+  const visible = Boolean(deviceWindow) || isPhone();
+  const devices = useDevices(visible);
+  const [open, setOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+
+  if (devices.length < 2 || !visible) return null;
 
   const close = () => {
     setOpen(false);
@@ -50,8 +63,8 @@ export function DeviceSwitcher({ navigate = (url) => window.location.assign(url)
     const name = value.trim();
     if (!name || name.length > 64) return;
     api("/api/devices/name", { method: "PUT", body: JSON.stringify({ name }) })
-      .then((body: { name: string }) => {
-        setDevices((list) => list.map((device) => (device.current ? { ...device, name: body.name } : device)));
+      .then(() => {
+        window.dispatchEvent(new Event(DEVICES_CHANGE));
         setRenaming(false);
       })
       .catch(() => {});
@@ -96,7 +109,12 @@ export function DeviceSwitcher({ navigate = (url) => window.location.assign(url)
                   <button
                     type="button"
                     data-device-id={device.deviceId}
-                    onClick={() => (device.current ? close() : navigate(`https://${device.host}/`))}
+                    onClick={() => {
+                      if (device.current) return close();
+                      if (!deviceWindow) return navigate(`https://${device.host}/`);
+                      void deviceWindow.open(device.host, device.name).catch(() => {});
+                      close();
+                    }}
                     className={cn(
                       "flex min-w-0 flex-1 items-center gap-3 py-2 pl-3.5 text-left text-[14px] text-ink hover:bg-raised/70",
                       device.current ? "pr-2" : "pr-3.5",
@@ -131,5 +149,22 @@ export function DeviceSwitcher({ navigate = (url) => window.location.assign(url)
         </>
       )}
     </div>
+  );
+}
+
+/** Which PC this is, everywhere but the local desktop app window. */
+export function DeviceTag() {
+  const local = Boolean(window.ogb);
+  const devices = useDevices(!local);
+  const name = devices.length > 1 ? devices.find((device) => device.current)?.name : undefined;
+  if (local || !name) return null;
+  return (
+    <span
+      data-device-tag
+      title={name}
+      className="min-w-0 truncate rounded-md border border-hairline/60 px-1.5 py-0.5 text-[11px] leading-none text-ink-secondary"
+    >
+      {name}
+    </span>
   );
 }

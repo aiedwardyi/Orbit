@@ -6997,16 +6997,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, 200, { url: remoteLinkUrl(REMOTE_HOST, REMOTE_KEY) ?? null });
     }
 
-    // ── device picker: PCs in the sync folder, only over the tailnet host ──
+    // ── device picker: PCs in the sync folder ──
     if (method === "GET" && path === "/api/devices") {
       const folder = profileSyncSettings.folder;
-      const devices = folder && hostMatchesRemote(req.headers.host, REMOTE_HOST)
-        ? listDevices(folder, profileSyncSettings.deviceId, Date.now())
-        : [];
+      const devices = folder ? listDevices(folder, profileSyncSettings.deviceId, Date.now()) : [];
       return json(res, 200, { devices });
     }
     if (method === "PUT" && path === "/api/devices/name") {
-      if (!hostMatchesRemote(req.headers.host, REMOTE_HOST)) return json(res, 404, { error: "not found" });
       const body = await readBody(req);
       const name = deviceNameSchema.safeParse(body?.name);
       if (!name.success) return json(res, 400, { error: "name must be 1-64 characters" });

@@ -196,6 +196,10 @@ contextBridge.exposeInMainWorld("ogb", {
       return () => ipcRenderer.removeListener("desktop-viewer:state", handler);
     },
   },
+  /** Another PC's Orbit in its own sandboxed window; focuses it when already open. */
+  deviceWindow: {
+    open: (host, name) => ipcRenderer.invoke("device-window:open", host, name),
+  },
   /** Two sandboxed Local VM viewers embedded in the owning app window. */
   desktopWorkspace: {
     open: (input) => ipcRenderer.invoke("desktop-workspace:open", input),

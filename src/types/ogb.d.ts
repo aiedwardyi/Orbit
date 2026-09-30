@@ -295,6 +295,10 @@ type SkillRecordingPayload = {
         currentState(): Promise<{ open: boolean; contextId: string | null }>;
         onState(cb: (state: { open: boolean; contextId: string | null }) => void): () => void;
       };
+      /** Another PC's Orbit in its own sandboxed window; focuses it when already open. */
+      deviceWindow?: {
+        open(host: string, name: string): Promise<boolean>;
+      };
       /** Two Local VM viewers embedded in one app window. URLs are accepted
        * only by main-process validation and never return over this bridge. */
       /** The built-in browser surface; absent in a browser tab or an older shell. */

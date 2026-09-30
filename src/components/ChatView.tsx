@@ -60,6 +60,7 @@ import { SecretRequestCard } from "./SecretRequestCard";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
 import { AttachedImageGallery, ShownImage } from "./AttachmentPreview";
 import { ModelPicker } from "./ModelPicker";
+import { DeviceTag } from "./DeviceSwitcher";
 import { RenameTitle } from "./RenameTitle";
 import { TaskPicker } from "./TaskPicker";
 import { ReactionBar, ReactionChips } from "./Reactions";
@@ -1428,6 +1429,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
               inputClassName="max-w-[220px] rounded bg-inset px-1.5 py-0.5 text-[15px] font-semibold"
             />
           </div>
+          <DeviceTag />
           {bot.chiefOfStaff && (
             <span
               className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-accent/12 px-2 py-0.5 text-[11px] font-medium text-accent max-md:hidden"
