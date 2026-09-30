@@ -241,8 +241,8 @@ contextBridge.exposeInMainWorld("ogb", {
    * cancelled the dialog. The chat bubble shows the
    * rejection text verbatim, so strip the "Error invoking remote method"
    * wrapper ipcRenderer adds around a main-process throw. */
-  saveFile: (filePath) =>
-    ipcRenderer.invoke("desktop:save-file", filePath).catch((error) => {
+  saveFile: (filePath, base) =>
+    ipcRenderer.invoke("desktop:save-file", filePath, base).catch((error) => {
       const message = String(error?.message ?? error);
       throw new Error(message.replace(/^Error invoking remote method '[^']*':\s*(?:Error:\s*)?/, ""));
     }),

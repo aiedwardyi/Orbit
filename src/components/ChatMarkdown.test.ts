@@ -40,15 +40,23 @@ describe("relative file links", () => {
     expect(resolveRelativePath("reps.py", base)).toBe("C:\\Users\\me\\proj\\reps.py");
     expect(resolveRelativePath("src/app.py", base)).toBe("C:\\Users\\me\\proj\\src\\app.py");
     expect(resolveRelativePath("./notes.md", base)).toBe("C:\\Users\\me\\proj\\notes.md");
-    expect(resolveRelativePath("..\\x.txt", base)).toBe("C:\\Users\\me\\x.txt");
-    expect(resolveRelativePath("../../../../x.txt", "C:/proj/")).toBe("C:\\x.txt");
+    expect(resolveRelativePath("src\\..\\x.txt", base)).toBe("C:\\Users\\me\\proj\\x.txt");
+    expect(resolveRelativePath("..\\x.txt", base)).toBeNull();
+    expect(resolveRelativePath("../../../../x.txt", "C:/proj/")).toBeNull();
   });
 
   it("resolves against a POSIX base", () => {
     expect(resolveRelativePath("reps.py", "/home/me/proj")).toBe("/home/me/proj/reps.py");
     expect(resolveRelativePath("a/../b/./c.txt", "/home/me/proj/")).toBe("/home/me/proj/b/c.txt");
-    expect(resolveRelativePath("..\\x.txt", "/home/me/proj")).toBe("/home/me/x.txt");
-    expect(resolveRelativePath("../../../../x.txt", "/home/me")).toBe("/x.txt");
+    expect(resolveRelativePath("..\\x.txt", "/home/me/proj")).toBeNull();
+    expect(resolveRelativePath("../../../../x.txt", "/home/me")).toBeNull();
+  });
+
+  it("refuses a link that climbs out of the bot's folder", () => {
+    const base = "C:\\Users\\audit\\.orbit\\workspaces\\bot-a";
+    expect(resolveRelativePath("%2e%2e/bot-b/private.txt", base)).toBeNull();
+    expect(resolveRelativePath("docs/%2E%2E/%2e%2e/bot-b/private.txt", base)).toBeNull();
+    expect(resolveRelativePath("docs/%2e%2e/report.md", base)).toBe(`${base}\\report.md`);
   });
 
   it("decodes escapes and drops a fragment or query", () => {
@@ -84,11 +92,10 @@ describe("relative file links", () => {
       const buttons = [...host.querySelectorAll("button")].map((b) => b.getAttribute("title"));
       expect(buttons).toEqual([
         "Save a copy — /home/me/proj/reps.py",
-        "Save a copy — /home/me/x.txt",
         "Save a copy — /tmp/a.py",
       ]);
       expect([...host.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual(["https://a.com"]);
-      expect(host.textContent).toContain("top");
+      expect(host.textContent).toContain("win top");
 
       await act(async () => root.render(createElement(ChatMarkdown, { text, baseDir: null })));
       expect([...host.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["abs"]);
@@ -109,7 +116,7 @@ describe("relative file links", () => {
     try {
       await act(async () => root.render(createElement(ChatMarkdown, { text: "[gone](gone.py)", baseDir: "/p" })));
       await act(async () => (host.querySelector("button") as HTMLButtonElement).click());
-      expect(saveFile).toHaveBeenCalledWith("/p/gone.py");
+      expect(saveFile).toHaveBeenCalledWith("/p/gone.py", "/p");
       expect(host.textContent).toContain("That file no longer exists");
     } finally {
       await act(async () => root.unmount());

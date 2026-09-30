@@ -68,6 +68,21 @@ describe("save-file path validation", () => {
     await assert.rejects(resolveSavablePath(path.join(botHome, "..", "secret.txt"), { home }), { message: rejected });
   });
 
+  it("keeps a relative link's file inside its own bot folder", async () => {
+    const botA = path.join(botHome, "workspaces", "bot");
+    const botB = path.join(botHome, "workspaces", "bot-b");
+    fs.mkdirSync(botB, { recursive: true });
+    fs.writeFileSync(path.join(botB, "private.txt"), "private");
+    const own = path.join(botA, "report.docx");
+    assert.equal(await resolveSavablePath(own, { home, base: botA }), await fs.promises.realpath(own));
+    await assert.rejects(resolveSavablePath(path.join(botB, "private.txt"), { home, base: botA }), {
+      message: "Only files created by your bots can be saved",
+    });
+    await assert.rejects(withSavableFile(path.join(botA, "..", "bot-b", "private.txt"), { home, base: botA }, async () => {}), {
+      message: "Only files created by your bots can be saved",
+    });
+  });
+
   it("rejects a symlink inside the bot home pointing outside it", { skip: !canSymlink }, async () => {
     const escape = path.join(botHome, "escape.txt");
     fs.symlinkSync(path.join(home, "secret.txt"), escape);

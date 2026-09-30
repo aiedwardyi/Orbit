@@ -341,8 +341,9 @@ type SkillRecordingPayload = {
       exportDiagnostics?(): Promise<string | null>;
       /** Asks where to save a bot-created file (inside ~/.orbit), copies
        * it there and reveals it. Resolves the chosen path, or null if the
-       * user cancelled the dialog. */
-      saveFile?(filePath: string): Promise<string | null>;
+       * user cancelled the dialog. A relative link passes its bot folder
+       * as `base`, and the file must stay inside it. */
+      saveFile?(filePath: string, base?: string): Promise<string | null>;
       /** Save a provider credential through Electron's OS-backed store. */
       setCredential?(
         name: "composioApiKey" | "xaiApiKey" | "geminiApiKey" | "openaiCompatKey" | "boxToken" | "ttsKey" | "openaiImageApiKey" | "anthropicApiKey" | "vertexApiKey" | `custom:${string}`,

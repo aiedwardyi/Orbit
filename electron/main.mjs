@@ -1818,8 +1818,8 @@ ipcMain.handle("desktop:export-diagnostics", async (event) => {
 // where, which a silent copy into ~/Downloads does not. The path is
 // renderer-controlled, so it must resolve inside ~/.orbit and be a
 // regular file — never a symlink escape or directory.
-ipcMain.handle("desktop:save-file", async (event, rawPath) => {
-  return withSavableFile(rawPath, { home: os.homedir() }, async ({ defaultName, copyTo }) => {
+ipcMain.handle("desktop:save-file", async (event, rawPath, rawBase) => {
+  return withSavableFile(rawPath, { home: os.homedir(), base: rawBase }, async ({ defaultName, copyTo }) => {
     const parent = BrowserWindow.fromWebContents(event.sender);
     const defaultPath = await defaultSaveName(app.getPath("downloads"), defaultName);
     const choice = await dialog.showSaveDialog(parent ?? undefined, {

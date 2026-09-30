@@ -63,7 +63,8 @@ const localFilePath = (href?: string): string | null => {
 const SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 export const isRelativeHref = (href: string): boolean => !SCHEME.test(href);
 
-// Null when there is nothing to open: no known base, or a #anchor / ?query.
+// Null when there is nothing to open: no known base, a #anchor / ?query, or a
+// target that climbs out of the bot's folder.
 export const resolveRelativePath = (href: string, base?: string | null): string | null => {
   const root = base ? absolutePath(base) : null;
   if (!root || /^[#?]/.test(href)) return null;
@@ -76,9 +77,12 @@ export const resolveRelativePath = (href: string, base?: string | null): string 
   const win = WINDOWS_PATH.test(root);
   const drive = win ? `${root.slice(0, 2)}\\` : "/";
   const parts = root.slice(win ? 3 : 1).split(/[\\/]+/).filter(Boolean);
+  const depth = parts.length;
   for (const seg of rel.split(/[\\/]+/)) {
-    if (seg === "..") parts.pop();
-    else if (seg && seg !== ".") parts.push(seg);
+    if (seg === "..") {
+      if (parts.length === depth) return null;
+      parts.pop();
+    } else if (seg && seg !== ".") parts.push(seg);
   }
   return drive + parts.join(win ? "\\" : "/");
 };
@@ -183,7 +187,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
 // and an <a href="file://…"> would still reach setWindowOpenHandler on a
 // middle or modifier click (that handler now denies non-http(s), but the
 // click should never become a navigation in the first place).
-function LocalFileLink({ filePath, children }: { filePath: string; children?: ReactNode }) {
+function LocalFileLink({ filePath, base, children }: { filePath: string; base?: string; children?: ReactNode }) {
   const [state, setState] = useState<"idle" | "saved" | "failed">("idle");
   const [reason, setReason] = useState("");
   const [savedTo, setSavedTo] = useState("");
@@ -198,7 +202,7 @@ function LocalFileLink({ filePath, children }: { filePath: string; children?: Re
       return;
     }
     try {
-      const saved = await saveFile(filePath);
+      const saved = await saveFile(filePath, base);
       // null means the user closed the save dialog, which is a decision
       // rather than a failure — say nothing
       if (!saved) return;
@@ -308,7 +312,7 @@ function ChatMarkdownComponent({ text, streaming = false, baseDir }: { text: str
       if (localPath) return <LocalFileLink filePath={localPath}>{children}</LocalFileLink>;
       if (href && isRelativeHref(href)) {
         const resolved = resolveRelativePath(href, baseDir);
-        return resolved ? <LocalFileLink filePath={resolved}>{children}</LocalFileLink> : <>{children}</>;
+        return resolved ? <LocalFileLink filePath={resolved} base={baseDir ?? undefined}>{children}</LocalFileLink> : <>{children}</>;
       }
       return (
         <a
