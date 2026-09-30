@@ -204,18 +204,18 @@ describe("terminal proxy", () => {
   });
 
   it("submits with a separate Enter once the typed text shows, as a bracketed paste", async () => {
-    const fetchImpl = scripted({ screenText: "❯", modes: [2004] }, { screenText: "❯" }, { screenText: "❯ Reply with\n  pong" });
+    const fetchImpl = scripted({ sessionId: "s1" }, { screenText: "❯", modes: [2004] }, { screenText: "❯" }, { screenText: "❯ Reply with\n  pong" });
     await send(fetchImpl, { text: "Reply with pong\n", sessionId: "s1", generation: 2 });
     expect(posted(fetchImpl)).toEqual(["\x1b[200~Reply with pong\x1b[201~", "\r"]);
-    expect(methods(fetchImpl).slice(0, 5)).toEqual(["GET", "POST", "GET", "GET", "POST"]);
+    expect(methods(fetchImpl).slice(0, 6)).toEqual(["GET", "GET", "POST", "GET", "GET", "POST"]);
   });
 
   it("submits long text once Claude folds it into [Pasted text]", async () => {
     const text = Array.from({ length: 60 }, (_, line) => `step ${line}`).join("\n");
-    const fetchImpl = scripted({ screenText: "❯", modes: [2004] }, { screenText: "❯ [Pasted text #1 +59 lines]" });
+    const fetchImpl = scripted({ sessionId: "s1" }, { screenText: "❯", modes: [2004] }, { screenText: "❯ [Pasted text #1 +59 lines]" });
     await send(fetchImpl, { text: `${text}\n`, sessionId: "s1", generation: 2 });
     expect(posted(fetchImpl).at(-1)).toBe("\r");
-    expect(methods(fetchImpl).slice(0, 4)).toEqual(["GET", "POST", "GET", "POST"]);
+    expect(methods(fetchImpl).slice(0, 5)).toEqual(["GET", "GET", "POST", "GET", "POST"]);
   });
 
   it("still presses Enter when the typed text never shows, after a bounded wait", async () => {
@@ -223,15 +223,40 @@ describe("terminal proxy", () => {
     await send(fetchImpl, { text: "hidden\n", sessionId: "s1", generation: 2 });
     const calls = methods(fetchImpl);
     expect(posted(fetchImpl)).toEqual(["hidden", "\r"]);
-    expect(calls.indexOf("POST", 2) - calls.indexOf("POST") - 1).toBe(15);
+    expect(calls.indexOf("POST", 3) - calls.indexOf("POST") - 1).toBe(15);
+  });
+
+  it("keeps concurrent sends to one pane, by full id or prefix, from interleaving", async () => {
+    const id = "0123456789abcdef";
+    const writes: string[] = [];
+    let line = "";
+    const fetchImpl: FetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        const text: string = JSON.parse(String(init.body)).text;
+        writes.push(text);
+        line = text === "\r" ? "" : line + text;
+      }
+      return new Response(JSON.stringify({ sessionId: id, generation: 2, screenText: `PS> ${line}` }), { status: 200 });
+    });
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      const one = callTool("terminal_send", fetchImpl, CONFIG, { text: "echo one\n", sessionId: id, generation: 2 });
+      const two = callTool("terminal_send", fetchImpl, CONFIG, { text: "echo two\n", sessionId: id.slice(0, 8), generation: 2 });
+      await vi.runAllTimersAsync();
+      expect((await one).isError).toBeUndefined();
+      expect((await two).isError).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(writes).toEqual(["echo one", "\r", "echo two", "\r"]);
   });
 
   it("returns the snapshot after the screen settles, not the mid-render one", async () => {
-    const fetchImpl = scripted({ screenText: "frame 1" }, { screenText: "frame 2" }, { screenText: "done" });
+    const fetchImpl = scripted({ sessionId: "s1" }, { screenText: "frame 1" }, { screenText: "frame 2" }, { screenText: "done" });
     const result = await send(fetchImpl, { key: "enter", sessionId: "s1", generation: 2 });
     expect(result.content[0].text).toContain("done");
     expect(result.content[0].text).not.toContain("mid-render");
-    expect(methods(fetchImpl)).toEqual(["POST", "GET", "GET", "GET", "GET"]);
+    expect(methods(fetchImpl)).toEqual(["GET", "POST", "GET", "GET", "GET", "GET"]);
   });
 
   it("stops settling after a bounded number of reads when the screen keeps changing", async () => {
@@ -239,8 +264,8 @@ describe("terminal proxy", () => {
     const fetchImpl: FetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) =>
       new Response(JSON.stringify({ screenText: init?.method === "POST" ? "mid-render" : `frame ${frame++}` }), { status: 200 }));
     const result = await send(fetchImpl, { key: "down", sessionId: "s1", generation: 2 });
-    expect(methods(fetchImpl).filter((method) => method === "GET")).toHaveLength(13);
-    expect(result.content[0].text).toContain("frame 12");
+    expect(methods(fetchImpl).filter((method) => method === "GET")).toHaveLength(14);
+    expect(result.content[0].text).toContain("frame 13");
   });
 
   it("refuses esc while the Claude pane is busy, without sending it", async () => {

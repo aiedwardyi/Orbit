@@ -243,6 +243,19 @@ export function closeTerminalPane(args: Record<string, unknown>, fetchImpl: type
   return terminalRequest<{ closed: boolean; alreadyClosed?: boolean }>(fetchImpl, config, { close: { sessionId } });
 }
 
+// Requests are dispatched concurrently, so two sends to one pane would interleave their text and Enter.
+const paneSends = new Map<string, Promise<unknown>>();
+
+function onePaneSend<T>(sessionId: string, run: () => Promise<T>): Promise<T> {
+  const result = (paneSends.get(sessionId) ?? Promise.resolve()).then(run);
+  const tail = result.catch(() => undefined);
+  paneSends.set(sessionId, tail);
+  void tail.then(() => {
+    if (paneSends.get(sessionId) === tail) paneSends.delete(sessionId);
+  });
+  return result;
+}
+
 // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Tool arguments are untyped JSON-RPC input validated here.
 export async function sendTerminalText(args: Record<string, unknown>, fetchImpl: typeof fetch = fetch, config: TerminalConfig = {}): Promise<Snapshot> {
   const { text, key, sessionId, generation } = args;
@@ -257,6 +270,12 @@ export async function sendTerminalText(args: Record<string, unknown>, fetchImpl:
   }
   const write = (data: string) => terminalRequest(fetchImpl, config, { send: { sessionId, generation, text: data } });
   const read = () => readTerminalSnapshot(fetchImpl, config, sessionId);
+  // A prefix and the full id name one pane, so both queue on the full id.
+  const pane = (await read()).sessionId ?? sessionId;
+  return onePaneSend(pane, () => typeIntoPane(key, keyText, typed, read, write));
+}
+
+async function typeIntoPane(key: unknown, keyText: string | undefined, typed: string | undefined, read: () => Promise<Snapshot>, write: (data: string) => Promise<Snapshot>): Promise<Snapshot> {
   if (key === "esc" && claudeState((await read()).screenText) === "busy") throw new Error("esc would interrupt the running Claude turn; refused while the pane shows Claude: busy");
   const body = typed?.replace(/\r+$/, "");
   if (typed && body && body !== typed) {
