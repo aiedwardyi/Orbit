@@ -25,16 +25,20 @@ const CLAUDE_BUSY_RE = /^[·✢✳✶✻✽*][\s─]+\S[^\n]*…(?:\s+\(|\s*$)/m
 const CLAUDE_PROMPT_RE = /^──[^\n]*\n❯/mu;
 // Where electron/main.mjs installs orbit-msg; forward slashes survive the JSON inside notify.
 const ORBIT_MSG_PS1 = join(homedir(), ".orbit", "bin", "orbit-msg.ps1").replace(/\\/g, "/");
+// shell_environment_policy inherit="core" strips these from Codex's shell; set them back from the pane.
+const ORBIT_PANE_VARS = ["ORBIT_PANE", "ORBIT_BOT", "ORBIT_TEACHER", "ORBIT_URL", "ORBIT_MSG_AUTH"];
 
 // orbit-msg is installed on Windows only, so elsewhere no report arrives on its own.
 export function workerReportText(platform: NodeJS.Platform) {
   return platform === "win32"
     ? {
+        env: ORBIT_PANE_VARS.map((name) => `-c "shell_environment_policy.set.${name}='$env:${name}'" `).join(""),
         notify: `-c 'notify=["powershell.exe","-NoProfile","-ExecutionPolicy","Bypass","-File","${ORBIT_MSG_PS1}","--notify","last-assistant-message"]' `,
         read: "Do not poll it for a worker's final report: that arrives on its own as a pane note in this thread.",
         spawn: `Every card, Claude included, ends with the line the worker runs last: orbit-msg --report DONE|FAIL|BLOCKED <NICKNAME> "<text>". That report arrives as a pane note in this thread; do not poll for it.`,
       }
     : {
+        env: "",
         notify: "",
         read: "orbit-msg is not installed on this platform, so a worker's final report does not arrive on its own; read its pane for it.",
         spawn: "orbit-msg is not installed on this platform; terminal_read the pane for the worker's final report.",
@@ -94,7 +98,7 @@ export const TOOLS = [
       "Open a labeled pane (a terminal-view tab) in cwd and type command plus Enter if given. Returns sessionId and generation. Max 8 live panes. The shell is PowerShell on Windows. " +
       "To run a worker: cwd is a git worktree, never the live checkout; label is \"NICKNAME | MODEL | EFFORT\". Wrap the prompt in single quotes, fill every <...> slot, never use \\\" escapes. " +
       "Claude: claude --model <model-id> --dangerously-skip-permissions 'Read <card path> and do it.' then terminal_send the effort. If it shows a folder-trust menu, read it and pick Yes with terminal_send key presses; Enter alone may pick No. " +
-      `Codex: codex --model <model-id> -c model_reasoning_effort=<effort> --dangerously-bypass-approvals-and-sandbox ${REPORT_TEXT.notify}'<prompt>' (a new folder shows a trust prompt first; send Enter). ` +
+      `Codex: codex --model <model-id> -c model_reasoning_effort=<effort> --dangerously-bypass-approvals-and-sandbox ${REPORT_TEXT.env}${REPORT_TEXT.notify}'<prompt>' (a new folder shows a trust prompt first; send Enter). ` +
       REPORT_TEXT.spawn,
     inputSchema: {
       type: "object",

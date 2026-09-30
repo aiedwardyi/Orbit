@@ -53,7 +53,7 @@ describe("terminal proxy", () => {
 
   it("carries the worker spawn recipe in the tool descriptions", () => {
     expect(TOOLS[2].description).toContain("claude --model <model-id> --dangerously-skip-permissions 'Read <card path> and do it.'");
-    expect(TOOLS[2].description).toContain(`--dangerously-bypass-approvals-and-sandbox ${workerReportText(process.platform).notify}'<prompt>'`);
+    expect(TOOLS[2].description).toContain(`--dangerously-bypass-approvals-and-sandbox ${workerReportText(process.platform).env}${workerReportText(process.platform).notify}'<prompt>'`);
     expect(TOOLS[2].description).toContain(workerReportText(process.platform).spawn);
     expect(TOOLS[0].description).toContain(workerReportText(process.platform).read);
     expect(TOOLS[2].description).toContain("NICKNAME | MODEL | EFFORT");
@@ -61,13 +61,16 @@ describe("terminal proxy", () => {
     expect(TOOLS[1].description).toContain("terminal_read with waitFor set to the Claude prompt text, then send \"/effort <level>\\n\"");
   });
 
-  it("adds Codex notify and orbit-msg reports on Windows only", () => {
+  it("adds Codex pane env, notify and orbit-msg reports on Windows only", () => {
     const orbitMsg = join(homedir(), ".orbit", "bin", "orbit-msg.ps1").replace(/\\/g, "/");
     const win = workerReportText("win32");
+    expect(win.env).toBe(["ORBIT_PANE", "ORBIT_BOT", "ORBIT_TEACHER", "ORBIT_URL", "ORBIT_MSG_AUTH"].map((name) => `-c "shell_environment_policy.set.${name}='$env:${name}'" `).join(""));
+    expect(win.env).not.toContain("inherit");
     expect(win.notify).toBe(`-c 'notify=["powershell.exe","-NoProfile","-ExecutionPolicy","Bypass","-File","${orbitMsg}","--notify","last-assistant-message"]' `);
     expect(win.spawn).toContain("orbit-msg --report DONE|FAIL|BLOCKED <NICKNAME>");
     expect(win.read).toContain("pane note");
     const linux = workerReportText("linux");
+    expect(linux.env).toBe("");
     expect(linux.notify).toBe("");
     expect(linux.spawn).toContain("orbit-msg is not installed on this platform");
     expect(linux.read).not.toContain("pane note");
