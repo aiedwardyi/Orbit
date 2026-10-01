@@ -67,6 +67,20 @@ describe("provider-neutral context compaction", () => {
     expect(result.estimatedTokens).toBeLessThanOrEqual(result.budgetTokens);
   });
 
+  it("tells the summarizer to trust the task record over unverified worker claims", async () => {
+    const summarize = vi.fn(async (_prompt: string) => "summary");
+    await prepareModelContext({
+      messages: longHistory(205),
+      contextWindow: 2_048,
+      taskRecordText: "Plan: 4 of 6 steps done",
+      summarize,
+    });
+
+    const prompt = summarize.mock.calls[0]?.[0] ?? "";
+    expect(prompt).toContain("Take plan and step status from <task_record>. If the history disagrees, the task record wins.");
+    expect(prompt).toContain("as reported, not verified, unless the history shows the assistant verified them");
+  });
+
   it("does not count tool lines toward the message cap", async () => {
     const tools = Array.from({ length: 150 }, (_, index): Message => message(`t${index}`, "", {
       role: "bot",
