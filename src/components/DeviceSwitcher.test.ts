@@ -88,6 +88,17 @@ describe("DeviceSwitcher", () => {
     expect(navigate).toHaveBeenCalledWith("https://laptop.tail396477.ts.net/");
   });
 
+  it("refreshes devices when the menu opens", async () => {
+    setPhone(false);
+    setDesktop();
+    const { host } = await renderView([device("laptop", { current: true }), device("work")]);
+    expect(host.querySelector("button[aria-expanded] .lucide-monitor")).not.toBeNull();
+    store.api.mockResolvedValue({ devices: [device("laptop", { current: true, laptop: true }), device("work")] });
+    await act(async () => click(host.querySelector("button[aria-expanded]")!));
+    expect(store.api).toHaveBeenCalledTimes(2);
+    expect(host.querySelector("[data-device-id=laptop] .lucide-laptop")).not.toBeNull();
+  });
+
   it("renames this PC inline", async () => {
     setPhone(true);
     const { host } = await renderView([device("home", { current: true, name: "EDWARD-PC" }), device("work")], vi.fn(), DeviceTag);
@@ -98,13 +109,13 @@ describe("DeviceSwitcher", () => {
     expect(input.value).toBe("EDWARD-PC");
     await act(async () => key(input, "Escape"));
     expect(host.querySelector("input")).toBeNull();
-    expect(store.api).toHaveBeenCalledTimes(1);
+    expect(store.api).toHaveBeenCalledTimes(2);
 
     await act(async () => click(host.querySelector("button[aria-label='Rename this PC']")!));
     input = host.querySelector("input")!;
     input.value = "   ";
     await act(async () => key(input, "Enter"));
-    expect(store.api).toHaveBeenCalledTimes(1);
+    expect(store.api).toHaveBeenCalledTimes(2);
 
     store.api.mockResolvedValueOnce({ name: "Home" });
     store.api.mockResolvedValue({ devices: [device("home", { current: true, name: "Home" }), device("work")] });

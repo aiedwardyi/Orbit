@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Check, Laptop, Monitor, Pencil } from "lucide-react";
 
 import { useI18n } from "@/lib/i18n";
@@ -22,16 +22,20 @@ const DEVICES_CHANGE = "orbit-devices-change";
 
 function useDevices(enabled: boolean) {
   const [devices, setDevices] = useState<DeviceItem[]>([]);
-
-  useEffect(() => {
-    if (!enabled) return;
-    let live = true;
-    const load = () =>
+  const live = useRef(true);
+  const load = useCallback(
+    () =>
       api("/api/devices")
         .then((body: { devices: DeviceItem[] }) => {
-          if (live) setDevices(body.devices);
+          if (live.current) setDevices(body.devices);
         })
-        .catch(() => {});
+        .catch(() => {}),
+    [],
+  );
+
+  useEffect(() => {
+    live.current = true;
+    if (!enabled) return;
     const onVisible = () => {
       if (document.visibilityState === "visible") void load();
     };
@@ -39,13 +43,13 @@ function useDevices(enabled: boolean) {
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener(DEVICES_CHANGE, load);
     return () => {
-      live = false;
+      live.current = false;
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener(DEVICES_CHANGE, load);
     };
-  }, [enabled]);
+  }, [enabled, load]);
 
-  return devices;
+  return [devices, load] as const;
 }
 
 type Navigate = (url: string) => void;
@@ -61,7 +65,7 @@ export function DeviceSwitcher({
   const { t } = useI18n();
   const deviceWindow = window.ogb?.deviceWindow;
   const visible = compact || Boolean(deviceWindow);
-  const devices = useDevices(visible);
+  const [devices, reload] = useDevices(visible);
   const [open, setOpen] = useState(false);
   // The chat header clips overflow, so the phone menu is pinned to the viewport.
   const [pinned, setPinned] = useState<CSSProperties>();
@@ -97,6 +101,7 @@ export function DeviceSwitcher({
             setPinned({ top: rect.bottom, left: rect.left });
           }
           setOpen(true);
+          reload();
         }}
         aria-expanded={open}
         aria-label={t("chrome.devices")}
@@ -191,7 +196,7 @@ export function DeviceSwitcher({
 export function DeviceTag({ navigate }: { navigate?: Navigate }) {
   const local = Boolean(window.ogb);
   const phone = isPhone();
-  const devices = useDevices(!local && !phone);
+  const [devices] = useDevices(!local && !phone);
   const device = devices.length > 1 ? devices.find((item) => item.current) : undefined;
   if (!local && phone) return <DeviceSwitcher compact navigate={navigate} />;
   if (local || !device) return null;
