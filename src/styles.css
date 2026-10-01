@@ -3196,6 +3196,11 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
   outline-color: transparent !important;
 }
 
+/* Folio's inset accent line would show under the ring. */
+[data-skin="folio"] [data-orbit-composer-frame][data-rainbow] {
+  box-shadow: none;
+}
+
 [data-orbit-rainbow] {
   position: absolute;
   border-radius: inherit;
