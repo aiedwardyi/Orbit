@@ -234,11 +234,13 @@ test("powershell notify posts only turn-complete events with text", { skip: !WIN
       { type: "thread-title-updated", "last-assistant-message": "not a report" },
       { type: "agent-turn-complete", "last-assistant-message": "  " },
       { type: "agent-turn-complete" },
+      { type: "agent-turn-complete", "last-assistant-message": "{\"title\":\"Complete WINK audit\"}" },
       { type: "agent-turn-complete", "last-assistant-message": "real report" },
+      { type: "agent-turn-complete", "last-assistant-message": "Renamed to {\"title\":\"x\"} as asked" },
     ]) {
       await runPs1Direct({ ps1, env, args: ["--notify", "last-assistant-message", JSON.stringify(event)] });
     }
-    assert.deepEqual(posts.map((p) => p.text), ["real report"]);
+    assert.deepEqual(posts.map((p) => p.text), ["real report", "Renamed to {\"title\":\"x\"} as asked"]);
   });
 });
 

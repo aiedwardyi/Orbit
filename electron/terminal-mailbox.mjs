@@ -86,9 +86,15 @@ if ($report) {
   $text = [string](([Console]::In.ReadToEnd() | ConvertFrom-Json).($args[1]))
 } elseif ($mode) {
   # Codex notify appends its JSON as one argv and spawns us directly, so no shell re-parses it.
-  # Codex also notifies other events (thread titles); only agent-turn-complete is a report.
+  # Codex also notifies other events and title-naming turns; only a real agent-turn-complete message is a report.
   $event = $args[$args.Count - 1] | ConvertFrom-Json
   $text = if ($event.type -eq 'agent-turn-complete') { [string]($event.($args[1])) } else { '' }
+  if ($text.Trim()) {
+    try {
+      $obj = $text | ConvertFrom-Json -ErrorAction Stop
+      if ($obj -is [pscustomobject] -and (@($obj.PSObject.Properties.Name) -join ',') -eq 'title') { $text = '' }
+    } catch {}
+  }
 } elseif ($args.Count) {
   $text = $args -join ' '
 } else {
