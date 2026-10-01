@@ -2663,6 +2663,432 @@
   }
 }
 
+/* ── Wink ──────────────────────────────────────────────────────────────────
+   The app icon as a skin: deep navy from the icon ground, neon pink leading
+   every action, and the icon's yellow underscore kept for the text caret and
+   the focus ring. Space Grotesk, with code in JetBrains Mono. Cyber and
+   Violet swap the neon pair and the face, nothing else.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="wink"] {
+  --color-app: #0b0f1c;
+  --color-panel: #0e1324;
+  --color-raised: #1f2747;
+  --color-raised-hover: #252e54;
+  --color-card: #131a30;
+  --color-inset: #080b15;
+  --color-control: #1a2140;
+  --color-hairline: #323b5c;
+
+  --color-ink: #eef0f8;
+  --color-ink-secondary: #a8b0d0;
+
+  --color-accent: #ff4d9d;
+  --color-accent-border: #ff6aae;
+  --color-accent-text: #ff7ab5;
+  --color-focus: #ffd447;
+  --color-accent-ink: #0b0f1c;
+  --color-bubble-user: #1c2444;
+
+  --color-success: #7fdcae;
+  --color-danger: #ff8b7a;
+  --color-danger-ink: #0b0f1c;
+  --color-warning: #f2c46b;
+  --color-scrollbar: #323b5c;
+  --color-maus-line: #a8b0d0;
+
+  --font-sans: "Space Grotesk", "Segoe UI", -apple-system, BlinkMacSystemFont,
+    "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+}
+
+/* Icon colour variants: Wink's navy and structure, a different neon pair. */
+[data-skin="wink-cyber"] {
+  --color-app: #0b0f1c;
+  --color-panel: #0e1324;
+  --color-raised: #1f2747;
+  --color-raised-hover: #252e54;
+  --color-card: #131a30;
+  --color-inset: #080b15;
+  --color-control: #1a2140;
+  --color-hairline: #323b5c;
+
+  --color-ink: #eef0f8;
+  --color-ink-secondary: #a8b0d0;
+
+  --color-accent: #38d8ff;
+  --color-accent-border: #66e1ff;
+  --color-accent-text: #5fe0ff;
+  --color-focus: #aaff5a;
+  --color-accent-ink: #0b0f1c;
+  --color-bubble-user: #1c2444;
+
+  --color-success: #7fdcae;
+  --color-danger: #ff8b7a;
+  --color-danger-ink: #0b0f1c;
+  --color-warning: #f2c46b;
+  --color-scrollbar: #323b5c;
+  --color-maus-line: #a8b0d0;
+
+  --font-sans: "IBM Plex Sans", "Segoe UI", -apple-system, BlinkMacSystemFont,
+    "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+}
+
+[data-skin="wink-violet"] {
+  --color-app: #0b0f1c;
+  --color-panel: #0e1324;
+  --color-raised: #1f2747;
+  --color-raised-hover: #252e54;
+  --color-card: #131a30;
+  --color-inset: #080b15;
+  --color-control: #1a2140;
+  --color-hairline: #323b5c;
+
+  --color-ink: #eef0f8;
+  --color-ink-secondary: #a8b0d0;
+
+  --color-accent: #a770ff;
+  --color-accent-border: #b78aff;
+  --color-accent-text: #bb94ff;
+  --color-focus: #6ef0be;
+  --color-accent-ink: #0b0f1c;
+  --color-bubble-user: #1c2444;
+
+  --color-success: #9fe37a;
+  --color-danger: #ff8b7a;
+  --color-danger-ink: #0b0f1c;
+  --color-warning: #f2c46b;
+  --color-scrollbar: #323b5c;
+  --color-maus-line: #a8b0d0;
+
+  --font-sans: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+}
+
+@scope ([data-skin="wink"], [data-skin="wink-cyber"], [data-skin="wink-violet"]) to ([data-skin]) {
+  [data-orbit-message] {
+    padding-block: 0.25rem;
+  }
+
+  .orbit-message-speaker {
+    display: block;
+    margin: 0 4px 6px;
+    color: var(--color-ink-secondary);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  .orbit-message-speaker::before {
+    content: "> ";
+    color: var(--color-accent-text);
+    font-weight: 700;
+  }
+
+  [data-orbit-message="user"] .orbit-message-speaker {
+    text-align: right;
+  }
+
+  [data-orbit-message-content] {
+    padding: 12px 16px;
+    border-radius: var(--radius-lg);
+    font-size: 15px;
+    line-height: 1.65;
+  }
+
+  [data-orbit-message="bot"] [data-orbit-message-content] {
+    background: var(--color-card);
+    border: 1px solid var(--color-hairline);
+    border-bottom-left-radius: 6px;
+  }
+
+  [data-orbit-message="user"] [data-orbit-message-content] {
+    background: var(--color-bubble-user);
+    border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+    border-bottom-right-radius: 6px;
+  }
+
+  .chat-md > div[class*="font-semibold"] {
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .chat-md blockquote {
+    border-left: 2px solid var(--color-accent);
+    padding: 4px 14px;
+    color: var(--color-ink-secondary);
+  }
+
+  .chat-md :is(code, pre) {
+    font-family: "JetBrains Mono", "Cascadia Mono", "Consolas", "Malgun Gothic", monospace;
+  }
+
+  [data-orbit-composer-frame] {
+    border: 1px solid var(--color-hairline);
+    border-radius: var(--radius-xl);
+  }
+
+  [data-orbit-composer-frame]:focus-within {
+    border-color: var(--color-accent-border);
+  }
+
+  [data-sidebar-row] > .bg-raised {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 55%, transparent);
+  }
+
+  [data-choice-signal] {
+    border-radius: 999px;
+    background: var(--color-accent);
+  }
+}
+
+/* ── Wink Black ────────────────────────────────────────────────────────────
+   Wink flipped: true black with a faint navy cast in rims and raised
+   surfaces, yellow leading and pink as the caret. Monospace UI, but the
+   rounded Wink geometry, so it never reads as a TUI skin.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="wink-black"] {
+  --color-app: #000000;
+  --color-panel: #05070e;
+  --color-raised: #161c33;
+  --color-raised-hover: #1e2642;
+  --color-card: #0a0e1a;
+  --color-inset: #020306;
+  --color-control: #121729;
+  --color-hairline: #2a3252;
+
+  --color-ink: #e9ebf3;
+  --color-ink-secondary: #a4abc6;
+
+  --color-accent: #ffd447;
+  --color-accent-border: #ffde70;
+  --color-accent-text: #ffd95e;
+  --color-focus: #ff4d9d;
+  --color-accent-ink: #000000;
+  --color-bubble-user: #0f1426;
+
+  --color-success: #86e0b0;
+  --color-danger: #ff8478;
+  --color-danger-ink: #000000;
+  --color-warning: #ffaa5e;
+  --color-scrollbar: #2a3252;
+  --color-maus-line: #a4abc6;
+
+  --font-sans: "JetBrains Mono", "Cascadia Mono", "Consolas", "Malgun Gothic",
+    ui-monospace, monospace;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+}
+
+@scope ([data-skin="wink-black"]) to ([data-skin]) {
+  [data-orbit-message] {
+    padding-block: 0.25rem;
+  }
+
+  .orbit-message-speaker {
+    display: block;
+    margin: 0 4px 6px;
+    color: var(--color-ink-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: lowercase;
+  }
+
+  .orbit-message-speaker::after {
+    content: "_";
+    margin-left: 1px;
+    color: #ff4d9d;
+  }
+
+  [data-orbit-message="user"] .orbit-message-speaker {
+    text-align: right;
+  }
+
+  [data-orbit-message-content] {
+    padding: 11px 15px;
+    border-radius: var(--radius-lg);
+    font-size: 13.5px;
+    line-height: 1.65;
+  }
+
+  [data-orbit-message="bot"] [data-orbit-message-content] {
+    background: var(--color-card);
+    border: 1px solid var(--color-hairline);
+  }
+
+  [data-orbit-message="user"] [data-orbit-message-content] {
+    background: var(--color-bubble-user);
+    border: 1px solid color-mix(in srgb, var(--color-accent) 40%, transparent);
+  }
+
+  .chat-md > div[class*="font-semibold"] {
+    color: var(--color-accent-text);
+  }
+
+  .chat-md blockquote {
+    border-left: 2px solid var(--color-accent);
+    padding: 2px 14px;
+    color: var(--color-ink-secondary);
+  }
+
+  [data-orbit-composer-frame] {
+    border: 1px solid var(--color-hairline);
+    border-radius: var(--radius-xl);
+  }
+
+  [data-orbit-composer-frame]:focus-within {
+    border-color: var(--color-accent-border);
+  }
+
+  [data-sidebar-row] > .bg-raised {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 55%, transparent);
+  }
+
+  [data-choice-signal] {
+    border-radius: 999px;
+    background: var(--color-accent);
+  }
+}
+
+/* ── Wink Day ──────────────────────────────────────────────────────────────
+   Wink in daylight: cool near-white paper, the icon's navy as ink, pink
+   deepened to carry white, and the yellow kept as a highlighter on selected
+   text. Manrope, with code in JetBrains Mono.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="wink-day"] {
+  color-scheme: light;
+  --color-app: #f7f5fb;
+  --color-panel: #efedf6;
+  --color-raised: #ffffff;
+  --color-raised-hover: #ede9f4;
+  --color-card: #ffffff;
+  --color-inset: #f0eef6;
+  --color-control: #e5e1ee;
+  --color-hairline: #c4c0d6;
+
+  --color-ink: #1f2747;
+  --color-ink-secondary: #545b7c;
+
+  --color-accent: #c81e69;
+  --color-accent-border: #e0458b;
+  --color-accent-text: #b3195d;
+  --color-focus: #b3195d;
+  --color-accent-ink: #ffffff;
+  --color-bubble-user: #fde8f1;
+
+  --color-success: #1d7048;
+  --color-danger: #b3261e;
+  --color-danger-ink: #ffffff;
+  --color-warning: #8a5800;
+  --color-scrollbar: #c4c0d6;
+  --color-maus-line: #545b7c;
+
+  --color-syntax-fg: #1f2747;
+  --color-syntax-comment: #565d7a;
+  --color-syntax-keyword: #a3134f;
+  --color-syntax-string: #1a4c96;
+  --color-syntax-function: #6a2bb0;
+  --color-syntax-constant: #0a5590;
+  --color-syntax-variable: #7a4300;
+  --color-syntax-tag: #17653a;
+  --color-syntax-invalid: #a3134f;
+
+  --font-sans: "Manrope", "Segoe UI", -apple-system, BlinkMacSystemFont,
+    "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+}
+
+@scope ([data-skin="wink-day"]) to ([data-skin]) {
+  [data-orbit-message] {
+    padding-block: 0.3rem;
+  }
+
+  .orbit-message-speaker {
+    display: block;
+    margin: 0 6px 6px;
+    color: var(--color-accent-text);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+  }
+
+  [data-orbit-message="user"] .orbit-message-speaker {
+    text-align: right;
+  }
+
+  [data-orbit-message-content] {
+    border-radius: var(--radius-lg);
+    font-size: 15.5px;
+    line-height: 1.7;
+  }
+
+  [data-orbit-message="bot"] [data-orbit-message-content] {
+    padding: 14px 18px;
+    background: var(--color-card);
+    border: 1px solid var(--color-hairline);
+    box-shadow: 0 10px 24px -18px rgb(31 39 71 / 0.35);
+  }
+
+  [data-orbit-message="user"] [data-orbit-message-content] {
+    padding: 12px 16px;
+    background: var(--color-bubble-user);
+    border-bottom-right-radius: 6px;
+  }
+
+  .chat-md > div[class*="font-semibold"] {
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+
+  .chat-md blockquote {
+    border-left: 3px solid var(--color-accent-border);
+    border-radius: 0 10px 10px 0;
+    background: var(--color-inset);
+    padding: 8px 14px;
+    color: var(--color-ink-secondary);
+  }
+
+  .chat-md :is(code, pre) {
+    font-family: "JetBrains Mono", "Cascadia Mono", "Consolas", "Malgun Gothic", monospace;
+  }
+
+  [data-orbit-composer-frame] {
+    background: var(--color-card);
+    border: 1px solid var(--color-hairline);
+    border-radius: var(--radius-xl);
+    box-shadow: 0 10px 24px -18px rgb(31 39 71 / 0.35);
+  }
+
+  [data-orbit-composer-frame]:focus-within {
+    border-color: var(--color-accent-border);
+  }
+
+  [data-sidebar-row] > .bg-raised {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 55%, transparent);
+  }
+
+  [data-choice-signal] {
+    border-radius: 999px;
+    background: var(--color-accent);
+  }
+}
+
+[data-skin="wink"] :is(input, textarea) { caret-color: #ffd447; }
+[data-skin="wink-cyber"] :is(input, textarea) { caret-color: #aaff5a; }
+[data-skin="wink-violet"] :is(input, textarea) { caret-color: #6ef0be; }
+[data-skin="wink-black"] :is(input, textarea) { caret-color: #ff4d9d; }
+[data-skin="wink-day"] :is(input, textarea) { caret-color: var(--color-accent); }
+
+[data-skin="wink-day"] ::selection {
+  background: #ffe27a;
+  color: var(--color-ink);
+}
+
 /* Keep the rail-to-glyph gap after skin-specific bot padding rules. */
 :root[data-shape="boxy"]:is(
   [data-skin="precision"],
@@ -3464,20 +3890,20 @@ button:disabled.bg-danger {
 :is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"], [data-skin="vscode-dark"]) .shiki span[style*="#f0f6fc" i],
 :is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"], [data-skin="vscode-dark"]) .shiki span[style*="#161b22" i] { color: var(--color-syntax-fg) !important; }
 
-/* The four paper skins use the same Shiki source palette with their own
+/* The paper skins use the same Shiki source palette with their own
    readable foreground tokens. */
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"]) .shiki {
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki {
   color: var(--color-syntax-fg) !important;
 }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"]) .shiki span[style*="#8b949e" i] { color: var(--color-syntax-comment) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"]) .shiki span[style*="#ff7b72" i] { color: var(--color-syntax-keyword) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"]) .shiki span[style*="#a5d6ff" i] { color: var(--color-syntax-string) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"]) .shiki span[style*="#d2a8ff" i] { color: var(--color-syntax-function) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"]) .shiki span[style*="#79c0ff" i] { color: var(--color-syntax-constant) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"]) .shiki span[style*="#ffa657" i],
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"]) .shiki span[style*="#f2cc60" i] { color: var(--color-syntax-variable) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"]) .shiki span[style*="#7ee787" i] { color: var(--color-syntax-tag) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"]) .shiki span[style*="#ffa198" i] { color: var(--color-syntax-invalid) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"]) .shiki span[style*="#e6edf3" i],
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"]) .shiki span[style*="#f0f6fc" i],
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"]) .shiki span[style*="#161b22" i] { color: var(--color-syntax-fg) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#8b949e" i] { color: var(--color-syntax-comment) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#ff7b72" i] { color: var(--color-syntax-keyword) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#a5d6ff" i] { color: var(--color-syntax-string) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#d2a8ff" i] { color: var(--color-syntax-function) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#79c0ff" i] { color: var(--color-syntax-constant) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#ffa657" i],
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#f2cc60" i] { color: var(--color-syntax-variable) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#7ee787" i] { color: var(--color-syntax-tag) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#ffa198" i] { color: var(--color-syntax-invalid) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#e6edf3" i],
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#f0f6fc" i],
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#161b22" i] { color: var(--color-syntax-fg) !important; }

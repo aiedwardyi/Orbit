@@ -162,6 +162,7 @@ describe("skins", () => {
       "messenger",
       "code-review",
       "blueprint",
+      "wink-day",
     ];
     for (const id of remapped) {
       expect([...tokensOf(id)]).toEqual(expect.arrayContaining(roles));
@@ -175,7 +176,7 @@ describe("skins", () => {
   it("drives native input color-scheme from the skin, not a hardcoded dark utility", () => {
     const rootBody = css.match(/:root\s*\{([^}]*)\}/)?.[1] ?? "";
     expect(rootBody).toMatch(/color-scheme:\s*dark\s*;/);
-    const light = ["atelier", "lagoon", "ledger", "notebook", "messenger", "code-review", "blueprint"];
+    const light = ["atelier", "lagoon", "ledger", "notebook", "messenger", "code-review", "blueprint", "wink-day"];
     for (const id of light) {
       const body = css.match(new RegExp(`\\[data-skin="${id}"\\]\\s*\\{([^}]*)\\}`))?.[1] ?? "";
       expect(body).toMatch(/color-scheme:\s*light\s*;/);
@@ -534,6 +535,89 @@ describe("bundled-face skins", () => {
       expect(spread(cssToken(skin.id, "--color-accent")!), skin.id).toBeLessThanOrEqual(64);
       expect(spread(cssToken(skin.id, "--color-app")!), skin.id).toBeLessThanOrEqual(12);
     }
+  });
+});
+
+const WINK_SKINS = [
+  { id: "wink", name: "Wink", face: "Space Grotesk", file: "SpaceGrotesk-Variable.woff2", lead: "#ff4d9d", caret: "#ffd447" },
+  { id: "wink-cyber", name: "Wink Cyber", face: "IBM Plex Sans", file: "IBMPlexSans-Variable.woff2", lead: "#38d8ff", caret: "#aaff5a" },
+  { id: "wink-violet", name: "Wink Violet", face: "Nunito", file: "Nunito-Variable.woff2", lead: "#a770ff", caret: "#6ef0be" },
+  { id: "wink-black", name: "Wink Black", face: "JetBrains Mono", file: "JetBrainsMono-Variable.woff2", lead: "#ffd447", caret: "#ff4d9d" },
+  { id: "wink-day", name: "Wink Day", face: "Manrope", file: "Manrope-Variable.woff2", lead: "#c81e69", caret: "var(--color-accent)" },
+] as const;
+
+const WINK_NAVY = ["wink", "wink-cyber", "wink-violet"];
+
+describe("Wink family", () => {
+  const fonts = join(dirname(fileURLToPath(import.meta.url)), "../../public/fonts");
+
+  it("leads the picker without changing the default", () => {
+    expect(SKIN_IDS.slice(0, 5)).toEqual(WINK_SKINS.map((s) => s.id));
+    expect(SKINS.slice(0, 5).map((s) => s.name)).toEqual(WINK_SKINS.map((s) => s.name));
+    expect(DEFAULT_SKIN).toBe("precision");
+  });
+
+  it("sets each in its own bundled face with its lead and caret", () => {
+    for (const skin of WINK_SKINS) {
+      const body = css.match(new RegExp(`\\[data-skin="${skin.id}"\\]\\s*\\{([^}]*)\\}`))![1];
+      expect(body, skin.id).toMatch(new RegExp(`--font-sans:\\s*"${skin.face}"`));
+      expect(readdirSync(fonts)).toContain(skin.file);
+      expect(cssToken(skin.id, "--color-accent")).toBe(skin.lead);
+      expect(css, skin.id).toContain(`[data-skin="${skin.id}"] :is(input, textarea) { caret-color: ${skin.caret}; }`);
+    }
+    expect(cssToken("wink", "--color-focus")).toBe("#ffd447");
+    expect(cssToken("wink-cyber", "--color-focus")).toBe("#aaff5a");
+    expect(cssToken("wink-violet", "--color-focus")).toBe("#6ef0be");
+    expect(cssToken("wink-black", "--color-focus")).toBe("#ff4d9d");
+    expect(css).toMatch(/\[data-skin="wink-day"\] ::selection \{\s*background: #ffe27a;/);
+  });
+
+  it("keeps Wink, Cyber, and Violet on the icon navy, Wink Black true black, Wink Day light", () => {
+    expect(css).toContain('@scope ([data-skin="wink"], [data-skin="wink-cyber"], [data-skin="wink-violet"]) to ([data-skin])');
+    for (const id of WINK_NAVY) {
+      const { r, g, b } = channels(cssToken(id, "--color-app")!);
+      expect(b - r, id).toBeGreaterThanOrEqual(12);
+      expect(b - g, id).toBeGreaterThanOrEqual(10);
+      for (const token of ["--color-app", "--color-card", "--color-raised", "--color-hairline", "--color-bubble-user"]) {
+        expect(cssToken(id, token), `${id} ${token}`).toBe(cssToken("wink", token));
+      }
+      expect(spread(cssToken(id, "--color-accent")!), id).toBeGreaterThan(140);
+    }
+    expect(cssToken("wink-black", "--color-app")).toBe("#000000");
+    expect(luminance(cssToken("wink-day", "--color-app")!)).toBeGreaterThan(0.85);
+    for (const other of ["hurtado", "tui-amber", "midnight", "tokyo-night"]) {
+      for (const skin of WINK_SKINS) {
+        expect(cssToken(skin.id, "--color-accent"), `${skin.id} vs ${other}`).not.toBe(cssToken(other, "--color-accent"));
+      }
+    }
+    expect(css).toMatch(/\[data-skin="wink-black"\] \{[^}]*--radius-lg: 10px;/);
+  });
+
+  it("keeps chat text at AA and fills readable at rest and on hover", () => {
+    for (const { id } of WINK_SKINS) {
+      for (const text of ["--color-ink", "--color-ink-secondary", "--color-accent-text"]) {
+        for (const surface of ["--color-app", "--color-panel", "--color-card", "--color-bubble-user", "--color-inset", "--color-control", "--color-raised", "--color-raised-hover"]) {
+          expect(contrast(cssToken(id, text)!, cssToken(id, surface)!), `${id} ${text} on ${surface}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+      for (const [ink, fill] of [["--color-accent-ink", "--color-accent"], ["--color-danger-ink", "--color-danger"]]) {
+        const [i, f] = [cssToken(id, ink)!, cssToken(id, fill)!];
+        expect(contrast(i, f), `${id} ${fill}`).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(brightness110(i), brightness110(f)), `${id} ${fill} hover`).toBeGreaterThanOrEqual(4.5);
+      }
+      expect(contrast(cssToken(id, "--color-focus")!, cssToken(id, "--color-app")!), id).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("derives terminal colors from each palette", () => {
+    for (const { id } of WINK_SKINS) {
+      const theme = terminalTheme((name) => skinToken(id, `--color-${name}`));
+      expect(theme.background).toBe(cssToken(id, "--color-inset"));
+      expect(theme.foreground).toBe(cssToken(id, "--color-ink"));
+      expect(theme.cursor).toBe(cssToken(id, "--color-accent-text"));
+    }
+    const day = terminalTheme((name) => skinToken("wink-day", `--color-${name}`));
+    expect(day.red).toBe(cssToken("wink-day", "--color-syntax-keyword"));
   });
 });
 
@@ -1176,6 +1260,15 @@ describe("skin persistence", () => {
 
   it("remembers Pewter, Coal, and Folio", () => {
     for (const id of ["pewter", "pewter-dusk", "pewter-night", "coal", "folio"] as const) {
+      applySkin(id);
+      expect(dataset.skin).toBe(id);
+      expect(store.get("omb-skin")).toBe(id);
+      expect(readSkin()).toBe(id);
+    }
+  });
+
+  it("remembers the Wink family", () => {
+    for (const id of ["wink", "wink-cyber", "wink-violet", "wink-black", "wink-day"] as const) {
       applySkin(id);
       expect(dataset.skin).toBe(id);
       expect(store.get("omb-skin")).toBe(id);

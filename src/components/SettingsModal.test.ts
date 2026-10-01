@@ -229,6 +229,12 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain('data-skin="pewter-night"');
     expect(html).toContain('data-skin="coal"');
     expect(html).toContain('data-skin="folio"');
+    expect(html).toContain('data-skin="wink"');
+    expect(html).toContain('data-skin="wink-cyber"');
+    expect(html).toContain('data-skin="wink-violet"');
+    expect(html).toContain('data-skin="wink-black"');
+    expect(html).toContain('data-skin="wink-day"');
+    expect(html).toContain("Wink Day");
   });
 
   it("orders Themes and Usage last in the settings left nav", () => {

@@ -160,6 +160,22 @@ describe("skin overlay chrome", () => {
     }
   });
 
+  it("locks caption chrome for the Wink family", () => {
+    expect(SKIN_CHROME.wink).toEqual({ color: "#0b0f1c", symbolColor: "#a8b0d0" });
+    expect(SKIN_CHROME["wink-cyber"]).toEqual({ color: "#0b0f1c", symbolColor: "#a8b0d0" });
+    expect(SKIN_CHROME["wink-violet"]).toEqual({ color: "#0b0f1c", symbolColor: "#a8b0d0" });
+    expect(SKIN_CHROME["wink-black"]).toEqual({ color: "#000000", symbolColor: "#a4abc6" });
+    expect(SKIN_CHROME["wink-day"]).toEqual({ color: "#f7f5fb", symbolColor: "#545b7c" });
+    for (const id of ["wink", "wink-cyber", "wink-violet", "wink-black", "wink-day"]) {
+      expect(extractOmbSkin(Buffer.from(`xxomb-skin\u0000\u0001${id}\u0000yy`))).toBe(id);
+    }
+    expect(skinThemeSource("wink")).toBe("dark");
+    expect(skinThemeSource("wink-cyber")).toBe("dark");
+    expect(skinThemeSource("wink-violet")).toBe("dark");
+    expect(skinThemeSource("wink-black")).toBe("dark");
+    expect(skinThemeSource("wink-day")).toBe("light");
+  });
+
   it("extracts onyx, dracula, and cobalt from the omb-skin marker", () => {
     expect(extractOmbSkin(Buffer.from("xxomb-skin\u0000\u0001onyx\u0000yy"))).toBe("onyx");
     expect(extractOmbSkin(Buffer.from("xxomb-skin\u0000\u0001dracula\u0000yy"))).toBe("dracula");

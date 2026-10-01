@@ -11,6 +11,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const SKIN_CHROME = Object.freeze({
+  wink: Object.freeze({ color: "#0b0f1c", symbolColor: "#a8b0d0" }),
+  "wink-cyber": Object.freeze({ color: "#0b0f1c", symbolColor: "#a8b0d0" }),
+  "wink-violet": Object.freeze({ color: "#0b0f1c", symbolColor: "#a8b0d0" }),
+  "wink-black": Object.freeze({ color: "#000000", symbolColor: "#a4abc6" }),
+  "wink-day": Object.freeze({ color: "#f7f5fb", symbolColor: "#545b7c" }),
   midnight: Object.freeze({ color: "#070707", symbolColor: "#b5b5b5" }),
   atelier: Object.freeze({ color: "#f5f1eb", symbolColor: "#6b6559" }),
   foundry: Object.freeze({ color: "#100e0b", symbolColor: "#b0a696" }),
@@ -59,12 +64,12 @@ const SKIN_CHROME = Object.freeze({
 });
 
 const DEFAULT_SKIN = "ledger";
-const LIGHT_SKINS = new Set(["atelier", "lagoon", "ledger", "notebook", "messenger", "code-review", "blueprint"]);
+const LIGHT_SKINS = new Set(["atelier", "lagoon", "ledger", "notebook", "messenger", "code-review", "blueprint", "wink-day"]);
 const SKIN_PREFERENCE_FILE = "skin-preference.json";
 const LOCAL_STORAGE_DIR = path.join("Local Storage", "leveldb");
 const OMB_SKIN_MARKER = Buffer.from("omb-skin");
 const KNOWN_SKIN_RE =
-  /^(midnight|atelier|foundry|lagoon|ledger|catppuccin-frappe|catppuccin-mocha|tokyo-night|vesper|onyx|peach|coral|dracula|cobalt|gruvbox|kanagawa|hurtado|rose-pine|nord|github-dimmed|tui-black|tui-amber|tui-ice|tui-slate|tui-smoke|tui|vscode-dark|studio-gray|steel-gray|claude|precision|notebook|messenger|community|code-review|blueprint|blueprint-gray|blueprint-charcoal|instrument|matte|carbon|pewter|pewter-dusk|pewter-night|coal|folio)(?![A-Za-z0-9_-])/;
+  /^(wink-cyber|wink-violet|wink-black|wink-day|wink|midnight|atelier|foundry|lagoon|ledger|catppuccin-frappe|catppuccin-mocha|tokyo-night|vesper|onyx|peach|coral|dracula|cobalt|gruvbox|kanagawa|hurtado|rose-pine|nord|github-dimmed|tui-black|tui-amber|tui-ice|tui-slate|tui-smoke|tui|vscode-dark|studio-gray|steel-gray|claude|precision|notebook|messenger|community|code-review|blueprint|blueprint-gray|blueprint-charcoal|instrument|matte|carbon|pewter|pewter-dusk|pewter-night|coal|folio)(?![A-Za-z0-9_-])/;
 const MAX_SKIN_ID_LEN = Math.max(...Object.keys(SKIN_CHROME).map((id) => id.length));
 
 function migrateSkin(skin) {

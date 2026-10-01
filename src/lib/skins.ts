@@ -5,6 +5,11 @@
 // one CSS block plus one line in SKINS.
 
 export const SKIN_IDS = [
+  "wink",
+  "wink-cyber",
+  "wink-violet",
+  "wink-black",
+  "wink-day",
   "midnight",
   "atelier",
   "foundry",
@@ -61,6 +66,11 @@ export type Skin = {
 };
 
 export const SKINS: readonly Skin[] = [
+  { id: "wink", name: "Wink", tagline: "Deep navy, neon pink, yellow cursor." },
+  { id: "wink-cyber", name: "Wink Cyber", tagline: "Deep navy, neon cyan, lime cursor." },
+  { id: "wink-violet", name: "Wink Violet", tagline: "Deep navy, neon violet, mint cursor." },
+  { id: "wink-black", name: "Wink Black", tagline: "True black, yellow lead, pink cursor." },
+  { id: "wink-day", name: "Wink Day", tagline: "Cool paper, navy ink, pink and highlighter." },
   { id: "midnight", name: "Midnight", tagline: "The original. Cool and dark." },
   { id: "atelier", name: "Atelier", tagline: "Daylight on paper, warm and quiet." },
   { id: "foundry", name: "Foundry", tagline: "Night shift. Dark, warm, lit in brass." },
