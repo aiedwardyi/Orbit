@@ -373,6 +373,13 @@ describe("MSP turns (fake host)", () => {
     expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: false });
   });
 
+  it("ignores a resumed session's replayed completion of the prior turn", async () => {
+    await create("resume-stale-cancel");
+    await instance.adapter.sendTurn({ threadId: "t-stale-cancel", text: "hi", resumeCursor: "prior-session" });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true, stopReason: null });
+    expect(recorder.events.some((e) => e.type === "item.completed")).toBe(true);
+  });
+
   it("rejects a second turn while one is in flight", async () => {
     await create("hang");
     await instance.adapter.sendTurn({ threadId: "t-busy", text: "first" });
@@ -497,6 +504,23 @@ describe("MSP turns (fake host)", () => {
       ["allow-once", 1],
       ["allow-once", 2],
     ]);
+  });
+
+  it("keeps the turn alive when an allow decide lands but its settlement ack fails", async () => {
+    const dump = join(scratch, "muse-settle-fails.json");
+    process.env.FAKE_MSP_DUMP = dump;
+    await create("approval-settle-fails");
+    await instance.adapter.sendTurn({ threadId: "t-settle-fails", text: "hi" });
+    const opened = await recorder.until((e) => e.type === "request.opened");
+    await instance.adapter.respondToRequest("t-settle-fails", opened.requestId!, { behavior: "allow" });
+    expect(await recorder.until((e) => e.type === "request.resolved")).toMatchObject({
+      behavior: "allow",
+      source: "user",
+    });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    expect(recorder.events.map((e) => e.type)).not.toContain("runtime.error");
+    const decides = JSON.parse(readFileSync(`${dump}.decide.json`, "utf8"));
+    expect(decides).toHaveLength(2);
   });
 
   it("settles a stale allow decide without failing the turn", async () => {

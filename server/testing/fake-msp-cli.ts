@@ -22,6 +22,13 @@
 //                     decide is rejected with the settlement failure a real
 //                     host reports when the turn is already tearing down;
 //                     the turn itself stays open)
+//                   | approval-settle-fails (approval/requested; the first
+//                     decide is taken but answered with that settlement
+//                     failure, like Muse 1.4.2; a later decide is rejected
+//                     as already resolved and the tool completes the turn)
+//                   | resume-stale-cancel (before the turn/start ack, the
+//                     resumed session replays turn/completed cancelled for
+//                     the prior turn a killed host left open; then happy)
 //                   | userinput (userInput/requested, then waits for answer)
 //                   | resume-fails (session/resume rejects, like a
 //                     --no-session-log host)
@@ -381,6 +388,13 @@ function handle(msg: any) {
         });
         break;
       }
+      if (mode === "resume-stale-cancel") {
+        out({
+          jsonrpc: "2.0",
+          method: "turn/completed",
+          params: { sessionId: msg.params?.sessionId, turnId: "fake-msp-turn-0", terminal: "cancelled", viewCursor: "v:2" },
+        });
+      }
       result(msg.id, {
         commandId: msg.params?.commandId ?? null,
         disposition: "started",
@@ -404,7 +418,7 @@ function handle(msg: any) {
         });
         return;
       }
-      if (mode === "approval" || mode === "approval-request" || mode === "approval-both" || mode === "approval-staged" || mode === "approval-stale" || mode === "approval-decide-fails") {
+      if (mode === "approval" || mode === "approval-request" || mode === "approval-both" || mode === "approval-staged" || mode === "approval-stale" || mode === "approval-decide-fails" || mode === "approval-settle-fails") {
         if (mode === "approval-request") {
           out({ jsonrpc: "2.0", id: 7001, method: "approval/request", params: approvalParams });
         } else if (mode === "approval-both") {
@@ -514,6 +528,20 @@ function handle(msg: any) {
               "approval decide settlement failed: approval ledger durability fence: background task failed: retained acknowledgement fence left records unflushed (failed=0)",
           },
         });
+        break;
+      }
+      if (mode === "approval-settle-fails" && !decided) {
+        decided = true;
+        out({
+          jsonrpc: "2.0",
+          id: msg.id,
+          error: {
+            code: -32000,
+            message:
+              "approval decide settlement failed: approval ledger durability fence: background task failed: retained acknowledgement fence left records unflushed (failed=0, pending=2)",
+          },
+        });
+        setTimeout(completeTurn, 50);
         break;
       }
       if (mode === "approval-staged") {

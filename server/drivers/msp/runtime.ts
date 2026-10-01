@@ -221,6 +221,10 @@ const pickChoice = (choices: ApprovalChoice[], want: "allow" | "deny"): Approval
 const isSettledApprovalError = (err: unknown): boolean =>
   err instanceof Error && /(already resolved|is stale)/.test(err.message);
 
+/** Muse took the decision (intake passed) but failed to ack it durably. */
+const isDecideSettlementError = (err: unknown): boolean =>
+  err instanceof Error && /approval decide settlement failed/.test(err.message);
+
 export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConfig> {
   const DRIVER_KIND = support.driverKind;
   const withCli = (raw: unknown): MspMuseConfig => {
@@ -475,6 +479,8 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
         const buffers = new Map<string, string>();
         let latestUsageObservedAt: string | null = null;
         let completionPending = false;
+        // Completions seen before the turn/start ack named our turn.
+        const heldCompletions: Record<string, any>[] = [];
         let interruptTimer: ReturnType<typeof setTimeout> | null = null;
         let pendingText = "";
         // Behind the wsl wrapper the host is a Linux process: Windows
@@ -541,6 +547,11 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
             throw new Error(`turn/start not started (status ${ack?.status}, disposition ${ack?.disposition})`);
           }
           state.mspTurnId = typeof ack?.turnId === "string" ? ack.turnId : null;
+          // No id in the ack: adopt the held completion, as before.
+          for (const p of heldCompletions.splice(0)) {
+            state.mspTurnId ??= p.turnId;
+            onNotification("turn/completed", p);
+          }
         };
         // A resumed session whose provider-private history the active route
         // cannot replay poisons the turn (and its Retry, which resumes the
@@ -624,17 +635,28 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
           }
           // Set before the request: the host announces the next stage before it acks this one.
           decisions.set(ask.approvalId, { want, requirement: JSON.stringify(ask.requirementId ?? null) });
-          await channel.request(
-            "approval/decide",
-            {
-              commandId: uuidv7(),
-              sessionId: state.sessionId,
-              approvalId: ask.approvalId,
-              choiceId: choice.choiceId,
-              requirementId: ask.requirementId,
-            },
-            SESSION_TIMEOUT,
-          );
+          const decide = () =>
+            channel.request(
+              "approval/decide",
+              {
+                commandId: uuidv7(),
+                sessionId: state.sessionId,
+                approvalId: ask.approvalId,
+                choiceId: choice.choiceId,
+                requirementId: ask.requirementId,
+              },
+              SESSION_TIMEOUT,
+            );
+          try {
+            await decide();
+          } catch (err) {
+            if (!isDecideSettlementError(err)) throw err;
+            // Re-sync once: "already resolved" confirms the first decide landed,
+            // success means it had not. Either way the tool is running.
+            await decide().catch((retryErr) => {
+              if (!isSettledApprovalError(retryErr) && !isDecideSettlementError(retryErr)) throw retryErr;
+            });
+          }
           return true;
         };
 
@@ -816,7 +838,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
           }
           throw new Error(`method not found: ${method}`);
         });
-        channel.onNotification((method, params) => {
+        const onNotification = (method: string, params: any) => {
           if (state.settled) return;
           const p = (params ?? {}) as Record<string, any>;
           switch (method) {
@@ -885,12 +907,15 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
             case "turn/completed": {
               // The turn/start ack resolves on a microtask, so a host that
               // writes the ack and this notification into one stdout chunk
-              // lands here with mspTurnId still unset. Adopt it rather than
-              // drop it: nothing times a prompt out, so a dropped completion
-              // leaves the thread busy until the bot is restarted.
+              // lands here with mspTurnId still unset. Hold it for the ack
+              // rather than adopt it: a resumed session first replays the
+              // cancelled completion of a turn a killed host left open.
               if (typeof p.turnId === "string") {
-                if (state.mspTurnId === null) state.mspTurnId = p.turnId;
-                else if (p.turnId !== state.mspTurnId) break;
+                if (state.mspTurnId === null) {
+                  heldCompletions.push(p);
+                  break;
+                }
+                if (p.turnId !== state.mspTurnId) break;
               }
               const terminal = p.terminal as string | undefined;
               if (terminal === "completed") {
@@ -925,7 +950,8 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
             default:
               break;
           }
-        });
+        };
+        channel.onNotification(onNotification);
         channel.onExit(() => {
           if (!state.settled && !completionPending) fail(`${DRIVER_KIND} exited before the turn completed`, false, "exit_before_result");
         });
