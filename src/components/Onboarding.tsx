@@ -96,6 +96,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState(0);
   const [instances, setInstances] = useState<InstanceInfo[] | null>(null);
   const [instancesError, setInstancesError] = useState<string | null>(null);
+  const [signedOut, setSignedOut] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -107,12 +108,19 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
       setInstancesError(null);
       fetch("/api/instances")
         .then((response) => {
+          // A phone without this PC's cookie, not a broken engine check.
+          if (response.status === 401) return null;
           if (!response.ok) throw new Error(`engine check failed with ${response.status}`);
           return response.json();
         })
-        .then((data) => active && request === latestRequest && setInstances(data.instances ?? []))
+        .then((data) => {
+          if (!active || request !== latestRequest) return;
+          setSignedOut(!data);
+          if (data) setInstances(data.instances ?? []);
+        })
         .catch(() => {
           if (active && request === latestRequest) {
+            setSignedOut(false);
             setInstancesError(t("onboarding.enginesError"));
           }
         });
@@ -148,7 +156,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     };
     dialog.addEventListener("keydown", onKey);
     return () => dialog.removeEventListener("keydown", onKey);
-  }, [step, instances, instancesError]);
+  }, [step, instances, instancesError, signedOut]);
 
   const emptyConnect = instances !== null && isEmptyEngineLaunch(instances);
 
@@ -194,7 +202,22 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
           step === 1 ? "max-w-[680px]" : "max-w-[560px]"
         }`}
       >
-        {step === 0 ? (
+        {signedOut ? (
+          <div className="flex flex-col items-center px-8 py-9">
+            <OrbitMark size={56} />
+            <h1 id="onboarding-title" className="mt-5 text-[20px] font-semibold tracking-[-0.02em] text-ink">{t("onboarding.signInTitle")}</h1>
+            <p className="mt-1.5 max-w-[420px] text-center text-[13.5px] leading-relaxed text-ink-secondary">
+              {t("onboarding.signInBody")}
+            </p>
+            <button
+              type="button"
+              onClick={retryInstances}
+              className="mt-6 w-full rounded-xl bg-accent py-2.5 text-[14px] font-semibold text-accent-ink transition-[filter,transform] hover:brightness-110 active:scale-[0.99]"
+            >
+              {t("onboarding.tryAgain")}
+            </button>
+          </div>
+        ) : step === 0 ? (
           <div className="flex flex-col items-center px-8 py-9">
             <div className="relative">
               <div className="absolute inset-2 rounded-full bg-accent/20 blur-2xl" />
