@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Notification, WebContentsView, clipboard, desktopCapturer, dialog, ipcMain, Menu, nativeImage, nativeTheme, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, utilityProcess } from "electron";
+import { execFile } from "node:child_process";
 import { createRequire } from "node:module";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -94,7 +95,7 @@ const { createDisplayMediaGuard, invokeDisplayMediaCallback, selectCaptureSource
 );
 const { STAGE_PREFIX: APPIMAGE_CUA_STAGE_PREFIX } = require("./cua-linux-bundle.cjs");
 const { desktopViewerUrl, desktopViewerWindowOptions, sameDesktopViewerOrigin } = require("./desktop-viewer.cjs");
-const { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceTailnet, deviceWindowTitle, deviceWindowUrl, openOrFocus } = require("./device-window.cjs");
+const { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceTailnet, deviceWindowTitle, deviceWindowUrl, openOrFocus, tailnetFromStatus } = require("./device-window.cjs");
 const { createDesktopWorkspaceManager } = require("./desktop-workspace.cjs");
 const { createBrowserSurfaceManager } = require("./browser-surface.cjs");
 const { browserProfilePartition } = require("./browser-snapshot.cjs");
@@ -1193,8 +1194,29 @@ function openDesktopViewer(owner, rawUrl, rawTitle, contextId) {
   return true;
 }
 
-function openDeviceWindow(rawHost, rawName) {
-  const tailnet = deviceTailnet(process.env.ORBIT_REMOTE_HOST);
+let cachedTailnet = "";
+
+function tailscaleStatus(command) {
+  return new Promise((resolve) => {
+    execFile(command, ["status", "--json"], { timeout: 3000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => resolve(error ? "" : stdout));
+  });
+}
+
+// Only a found tailnet is cached: Tailscale may start after Orbit.
+async function localTailnet() {
+  const fromHost = deviceTailnet(process.env.ORBIT_REMOTE_HOST);
+  if (fromHost) return fromHost;
+  if (cachedTailnet) return cachedTailnet;
+  const commands = process.platform === "win32" ? ["tailscale", "C:\\Program Files\\Tailscale\\tailscale.exe"] : ["tailscale"];
+  for (const command of commands) {
+    cachedTailnet = tailnetFromStatus(await tailscaleStatus(command));
+    if (cachedTailnet) break;
+  }
+  return cachedTailnet;
+}
+
+async function openDeviceWindow(rawHost, rawName) {
+  const tailnet = await localTailnet();
   if (!tailnet) {
     dialog.showErrorBox("Orbit", nativeText("packaged.deviceTailnetUnknown"));
     return false;

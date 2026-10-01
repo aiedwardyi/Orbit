@@ -18,6 +18,16 @@ function deviceTailnet(localHost) {
   return host && HOST_RE.test(tailnet) ? tailnet : "";
 }
 
+/** This PC's tailnet suffix from `tailscale status --json`, or "" when unreadable. */
+function tailnetFromStatus(json) {
+  try {
+    const dnsName = JSON.parse(json)?.Self?.DNSName;
+    return deviceTailnet(Object.prototype.toString.call(dnsName) === "[object String]" ? dnsName.replace(/\.$/, "") : "");
+  } catch {
+    return "";
+  }
+}
+
 // Funnel sites on other tailnets are public *.ts.net too, so only this tailnet's machines pass.
 function deviceWindowUrl(rawHost, tailnet) {
   const host = normalizedHost(rawHost);
@@ -74,4 +84,4 @@ location.assign("https://"+host+"/remote?key="+key);});`;
   );
 }
 
-module.exports = { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceTailnet, deviceWindowTitle, deviceWindowUrl, openOrFocus };
+module.exports = { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceTailnet, deviceWindowTitle, deviceWindowUrl, openOrFocus, tailnetFromStatus };

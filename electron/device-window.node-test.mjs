@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import test from "node:test";
 
 const require = createRequire(import.meta.url);
-const { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceTailnet, deviceWindowTitle, deviceWindowUrl, openOrFocus } = require("./device-window.cjs");
+const { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceTailnet, deviceWindowTitle, deviceWindowUrl, openOrFocus, tailnetFromStatus } = require("./device-window.cjs");
 
 class FakeWindow extends EventEmitter {
   destroyed = false;
@@ -50,6 +50,15 @@ test("fails closed without this PC's tailnet", () => {
     assert.equal(deviceTailnet(local), "");
   }
   assert.throws(() => deviceWindowUrl("home.tail396477.ts.net", ""), /invalid/);
+});
+
+test("reads the tailnet from tailscale status", () => {
+  const status = (Self) => JSON.stringify({ Self });
+  assert.equal(tailnetFromStatus(status({ DNSName: "home.tail396477.ts.net." })), "tail396477.ts.net");
+  assert.equal(tailnetFromStatus(status({ DNSName: "home.tail396477.ts.net" })), "tail396477.ts.net");
+  for (const bad of [status(undefined), status({}), status({ DNSName: 42 }), status({ DNSName: "home.example.com." }), status({ DNSName: "home." }), "null", "{not json", "", undefined]) {
+    assert.equal(tailnetFromStatus(bad), "");
+  }
 });
 
 test("titles the window with the PC name", () => {
