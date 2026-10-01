@@ -289,11 +289,40 @@ describe("live events supervisor", () => {
     test.documentTarget.emit("visibilitychange");
     expect(test.sources).toHaveLength(2);
     expect(test.sources[1].url).toBe("/api/events?since=run00000%3A4");
-    expect(onError).toHaveBeenCalledOnce();
+    expect(onError).not.toHaveBeenCalled();
 
     test.sources[1].message({ kind: "hello", resumed: true, cursor: "run00000:4" });
     test.windowTarget.emit("focus");
     expect(test.sources).toHaveLength(2);
+    expect(onError).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it("reports an outage on wake only when the hidden stream went stale", () => {
+    const test = harness();
+    const onError = vi.fn();
+    const stop = openLiveEvents(
+      { onFrame: vi.fn(), onSnapshotRequired: async () => true, onError, staleMs: 1_000 },
+      test.platform,
+    );
+    test.sources[0].message({ kind: "hello", resumed: true, cursor: "run00000:4" });
+
+    test.setVisible(false);
+    test.documentTarget.emit("visibilitychange");
+    test.setNow(500);
+    test.sources[0].message({ kind: "ping" });
+    test.setVisible(true);
+    test.documentTarget.emit("visibilitychange");
+    expect(test.sources).toHaveLength(2);
+    expect(onError).not.toHaveBeenCalled();
+
+    test.sources[1].message({ kind: "hello", resumed: true, cursor: "run00000:4" });
+    test.setVisible(false);
+    test.documentTarget.emit("visibilitychange");
+    test.setNow(5_000);
+    test.setVisible(true);
+    test.documentTarget.emit("visibilitychange");
+    expect(test.sources).toHaveLength(3);
     expect(onError).toHaveBeenCalledOnce();
     stop();
   });

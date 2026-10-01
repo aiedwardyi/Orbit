@@ -340,12 +340,15 @@ export function openLiveEvents(
     // Background tabs suspend timers and network delivery. Let visibility or
     // focus perform one recovery on wake instead of churning hidden sockets.
     if (stopped || !platform.isOnline() || !platform.isVisible()) return;
-    if (!source || (wake && !wakePending) || shouldReconnectLiveEvents(lastHeardAt, platform.now(), staleMs)) {
+    const stale = shouldReconnectLiveEvents(lastHeardAt, platform.now(), staleMs);
+    if (!source || (wake && !wakePending) || stale) {
       // Replay on wake even after a recent ping; coalesce signals until hello.
       wakePending = wake;
       // Failures from before the page went away say nothing about the network now.
       if (wake) retryAttempt = 0;
-      reconnectNow(source !== null);
+      // A wake replay of a stream that still pinged is not an outage; reporting
+      // one re-renders the app twice before the restored window's first frame.
+      reconnectNow(source !== null && stale);
     }
   };
   const onOnline = () => recover(true);

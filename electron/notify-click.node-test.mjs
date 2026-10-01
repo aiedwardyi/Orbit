@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import v8 from "node:v8";
+import vm from "node:vm";
 
 import { handleDesktopNotify, parseNotifyPayload, shouldShowDesktopToast } from "./desktop-notify.mjs";
 import { activateExistingWindow } from "./single-instance.mjs";
@@ -93,6 +95,35 @@ test("terminal toast click carries the terminal target, chat carries none", () =
   const parsed = parseNotifyPayload({ title: "t", botId: "bot-1", threadId: "thread-1", openTerminal: true, terminalSessionId: "s-1" });
   assert.equal(parsed.openTerminal, true);
   assert.equal(parsed.terminalSessionId, "s-1");
+});
+
+test("a shown toast stays clickable until clicked, then is released", async () => {
+  v8.setFlagsFromString("--expose-gc");
+  const gc = vm.runInNewContext("gc");
+  const collect = async () => {
+    await new Promise((resolve) => setImmediate(resolve));
+    gc();
+  };
+  let shown = null;
+  class LooseNotification {
+    constructor() { this.handlers = {}; shown = new WeakRef(this); }
+    on(e, h) { this.handlers[e] = h; }
+    show() {}
+  }
+  const clicks = [];
+  handleDesktopNotify({
+    win: fakeWindow(),
+    payload: { title: "t", body: "b", botId: "bot-1", threadId: "thread-1", visibleThreadId: null },
+    Notification: LooseNotification,
+    nativeSupported: true,
+    sendClick: (t) => clicks.push(t),
+  });
+  await collect();
+  assert.ok(shown.deref(), "toast was collected before its click");
+  shown.deref().handlers.click();
+  assert.deepEqual(clicks, [{ botId: "bot-1", threadId: "thread-1" }]);
+  await collect();
+  assert.equal(shown.deref(), undefined);
 });
 
 test("main notify click reuses main window and never spawns one", () => {

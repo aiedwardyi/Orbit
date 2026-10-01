@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ModelPickerControl } from "@/components/ModelPicker";
 import { I18nProvider } from "@/lib/i18n";
-import { StoreProvider, useStore, type Bot, type InstanceInfo, type Message } from "./store";
+import { StoreProvider, useStore, useStreaming, type Bot, type InstanceInfo, type Message } from "./store";
 
 class FakeEventSource {
   static last: FakeEventSource | null = null;
@@ -29,6 +29,7 @@ const botOf = (id: string, messages: Message[]) =>
   }) as unknown as Bot;
 
 let store: ReturnType<typeof useStore>;
+let stream: ReturnType<typeof useStreaming>;
 let unmount: (() => Promise<void>) | null = null;
 
 afterEach(async () => {
@@ -45,6 +46,7 @@ async function mount(snapshot: () => Promise<Response>) {
   vi.spyOn(console, "warn").mockImplementation(() => {});
   function Probe() {
     store = useStore();
+    stream = useStreaming();
     return null;
   }
   const host = document.createElement("div");
@@ -107,6 +109,33 @@ describe("chat catch-up on return", () => {
       expect(snapshot).toHaveBeenCalledOnce();
     },
   );
+});
+
+describe("text streamed while hidden", () => {
+  it("is on screen when the window returns, before any animation frame", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1));
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    const snapshot = async () => Response.json({ bots: [botOf("b1", [text("b1", 0)])], groups: [], computerControl: {} });
+    await mount(snapshot);
+    vi.mocked(fetch).mockImplementation(async (url) => String(url) === "/api/bots?messages=200"
+      ? snapshot()
+      : Response.json({ error: "not in this test" }, { status: 404 }));
+    await hello();
+    await vi.waitFor(() => expect(store.state.hydrated).toBe(true));
+    await hide();
+    await act(async () => {
+      FakeEventSource.last!.onmessage!({
+        data: JSON.stringify({ kind: "runtime", event: { type: "content.delta", threadId: "t-b1", streamKind: "assistant_text", delta: "Hello" } }),
+        lastEventId: "c2",
+      });
+    });
+    expect(stream.streaming["t-b1"]).toBeUndefined();
+
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    expect(stream.streaming["t-b1"]).toBe("Hello");
+  });
 });
 
 describe("page reload after the tab was discarded", () => {

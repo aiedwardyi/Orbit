@@ -119,6 +119,16 @@ export function withToastCapability(capabilities, nativeSupported) {
   return { ...capabilities, toasts: { available: nativeSupported === true } };
 }
 
+// Electron drops a toast's click once its Notification is collected; Action
+// Center keeps up to 20 toasts per app, so hold that many.
+const LIVE_TOAST_LIMIT = 20;
+const liveToasts = new Set();
+
+function retainToast(notice) {
+  liveToasts.add(notice);
+  if (liveToasts.size > LIVE_TOAST_LIMIT) liveToasts.delete(liveToasts.values().next().value);
+}
+
 export function handleDesktopNotify({
   win,
   payload,
@@ -149,6 +159,7 @@ export function handleDesktopNotify({
     icon,
   });
   notice.on("click", () => {
+    liveToasts.delete(notice);
     activate?.(win);
     const target = {
       botId: parsed.botId,
@@ -159,5 +170,6 @@ export function handleDesktopNotify({
     sendClick?.(target);
   });
   notice.show();
+  retainToast(notice);
   return { shown: true };
 }

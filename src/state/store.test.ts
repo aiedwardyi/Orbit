@@ -236,6 +236,12 @@ describe("notification routing", () => {
     expect(reducer(room, { type: "windowActivated" }).groups[0]?.unread).toBe(false);
   });
 
+  it("keeps the same state on focus regain when nothing on screen is unread", () => {
+    const read = { ...initialState, bots: [{ ...coveredBot, unread: false }], selectedId: "bot-1", workspaceOpen: false };
+    expect(reducer(read, { type: "windowActivated" })).toBe(read);
+    expect(reducer(read, { type: "connected", value: read.connected })).toBe(read);
+  });
+
   it("leaves the badge alone on focus regain when the chat is covered or not on screen", () => {
     const covered = { ...initialState, bots: [coveredBot], selectedId: "bot-1", workspaceOpen: true };
     expect(reducer(covered, { type: "windowActivated" }).bots[0]?.unread).toBe(true);

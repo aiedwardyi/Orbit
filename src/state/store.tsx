@@ -1417,7 +1417,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case "setModel":
       return updateBot(state, action.botId, (b) => ({ ...b, modelSelection: action.selection }));
     case "connected":
-      return { ...state, connected: action.value };
+      return state.connected === action.value ? state : { ...state, connected: action.value };
     case "error":
       return {
         ...(action.message && state.selectedId
@@ -1468,6 +1468,12 @@ export function reducer(state: AppState, action: Action): AppState {
     // on screen - that is the user reading it, same as opening it fresh
     case "windowActivated": {
       if (state.activeView !== "chat" || state.workspaceOpen) return state;
+      // Runs inside focus/visibilitychange, which React renders synchronously
+      // before the restored window's first frame.
+      const selectedUnread =
+        state.bots.some((b) => b.id === state.selectedId && b.unread) ||
+        state.groups.some((g) => g.id === state.selectedId && g.unread);
+      if (!selectedUnread) return state;
       return {
         ...state,
         bots: state.bots.map((b) => (b.id === state.selectedId ? { ...b, unread: false } : b)),
@@ -3064,6 +3070,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         else pendingFrames.push(frame);
       },
     });
+    // rAF never fires while hidden, so text streamed meanwhile would miss the
+    // restored window's first frame.
+    const flushOnShow = () => {
+      if (document.visibilityState === "visible") flushDeltas();
+    };
+    document.addEventListener("visibilitychange", flushOnShow);
     const instancesPart = partByKey.get("instances");
     const stopDeferredInstances = instancesPart
       ? scheduleDeferredInstancesLoad(() => {
@@ -3075,6 +3087,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       : () => {};
     return () => {
       alive = false;
+      document.removeEventListener("visibilitychange", flushOnShow);
       stopDeferredInstances();
       clearTimeout(hydrationFallback);
       for (const refresh of peripheralRefresh.values()) {
