@@ -1116,7 +1116,8 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
       const { id, index } = windowAnchor.current;
       const at = id ? shown.findIndex((message) => message.id === id) : -1;
       if (at >= 0) setTranscriptWindow((w) => shiftForPrepend(w, at - index, false));
-      else if (rehydrated && id) {
+      // a plain tail's first row is not where the reader is; only scrollback they asked for re-anchors
+      else if (rehydrated && id && transcriptWindow.key === transcriptKey && (transcriptWindow.expanded || transcriptWindow.end !== null)) {
         // the reader's row is older than the new snapshot: reopen around it
         setReanchor(id);
         setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(messages.length, TRANSCRIPT_WINDOW_SIZE, renders), end: null });
@@ -1257,7 +1258,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
     }
   }, [lastUserMessage, bot.busy, bot.id, dispatch]);
 
-  useEffect(() => setBottomFollow(true), [bot.id, setBottomFollow]);
+  useEffect(() => setBottomFollow(true), [transcriptKey, setBottomFollow]);
 
   // A search result may be hundreds of rows before the mounted tail. Open a
   // bounded window around it first; useFocusMessage then scrolls and flashes

@@ -451,6 +451,73 @@ describe("paged transcripts", () => {
     expect(calls.filter((call) => call.includes("around=m2500"))).toHaveLength(2);
   });
 
+  const lettered = (p: string, length: number) =>
+    Array.from({ length }, (_, i): Message => ({ id: `${p}${i}`, at: 1, role: "user", kind: "text", text: `${p} row ${i};` }));
+  const touch = (el: HTMLElement, type: string, clientY: number) => {
+    const event = new Event(type, { bubbles: true });
+    Object.defineProperty(event, "touches", { value: [{ clientY }] });
+    el.dispatchEvent(event);
+  };
+
+  it("opens a bot at the newest message when a resume snapshot lands after a touch scroll", async () => {
+    const threads: Record<string, Message[]> = { "thread-a": lettered("a", 1000), "thread-b": lettered("b", 1000) };
+    const a = bot(threads["thread-a"]!.slice(600, 800), true);
+    const b = { ...bot(threads["thread-b"]!.slice(600, 800), true), id: "b", threadId: "thread-b", name: "B" } as Bot;
+    const calls = pagedServer("thread-b", threads["thread-b"]!, { bots: [a, b], groups: [] });
+    const host = await mount("chat");
+    await act(async () => store.dispatch({ type: "select", id: "a" }));
+    await vi.waitFor(() => expect(host.textContent).toContain("a row 799;"));
+    await act(async () => store.dispatch({ type: "select", id: "b" }));
+    await vi.waitFor(() => expect(host.textContent).toContain("b row 799;"));
+    const scroller = host.querySelector("[data-orbit-transcript]") as HTMLElement;
+    await act(async () => {
+      touch(scroller, "touchstart", 100);
+      touch(scroller, "touchmove", 140);
+    });
+    await snapshot([{ ...a, messages: threads["thread-a"]!.slice(800) }, { ...b, messages: threads["thread-b"]!.slice(800) }]);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(host.textContent).toContain("b row 999;");
+    expect(button(host, "Show later messages")).toBeUndefined();
+    expect(calls.filter((call) => call.includes("around="))).toEqual([]);
+  });
+
+  it("opens a task at the newest message when a snapshot lands after the switch", async () => {
+    const threads: Record<string, Message[]> = { "thread-a": lettered("a", 1000), "thread-a2": lettered("t", 1000) };
+    const a = bot(threads["thread-a"]!.slice(-200), true);
+    const calls = pagedServer("thread-a2", threads["thread-a2"]!, { bots: [a], groups: [] });
+    const host = await mount("chat");
+    await vi.waitFor(() => expect(host.textContent).toContain("a row 999;"));
+    const scroller = host.querySelector("[data-orbit-transcript]") as HTMLElement;
+    await act(async () => scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -10, bubbles: true })));
+    const task = { ...a, threadId: "thread-a2", messages: threads["thread-a2"]!.slice(600, 800) };
+    await act(async () => store.dispatch({ type: "taskSwitched", bot: task }));
+    await vi.waitFor(() => expect(host.textContent).toContain("t row 799;"));
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => host.querySelectorAll("[data-mid]").length * 10 });
+    scroller.scrollTop = 0;
+    await arrive("thread-a2", threads["thread-a2"]![800]!);
+    expect(scroller.scrollTop).toBe(scroller.scrollHeight);
+    await snapshot([{ ...task, messages: threads["thread-a2"]!.slice(800) }]);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(host.textContent).toContain("t row 999;");
+    expect(button(host, "Show later messages")).toBeUndefined();
+    expect(calls.filter((call) => call.includes("around="))).toEqual([]);
+  });
+
+  it("follows a room's new task to the bottom after the reader scrolled up in the old one", async () => {
+    const g = room(lettered("g", 200), false);
+    pagedServer("thread-g", [], { bots: [], groups: [g] });
+    const host = await mount("room");
+    await vi.waitFor(() => expect(host.textContent).toContain("g row 199;"));
+    const scroller = host.querySelector("[data-orbit-transcript]") as HTMLElement;
+    await act(async () => scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -10, bubbles: true })));
+    await act(async () => store.dispatch({ type: "groupPatched", group: { ...g, threadId: "thread-g2", messages: lettered("t", 200) } }));
+    await vi.waitFor(() => expect(host.textContent).toContain("t row 199;"));
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => host.querySelectorAll("[data-mid]").length * 10 });
+    scroller.scrollTop = 0;
+    await arrive("thread-g2", { id: "t200", at: 1, role: "user", kind: "text", text: "t row 200;" });
+    expect(scroller.scrollTop).toBe(scroller.scrollHeight);
+  });
+
   it("retries a failed edit-join page instead of stranding the branch", async () => {
     const link = (i: number): Message => ({ ...row(i), parentId: i ? `m${i - 1}` : null });
     const thread = Array.from({ length: 1000 }, (_, i) => link(i));

@@ -1180,7 +1180,7 @@ export function GroupView({ group }: { group: Group }) {
     setFollow(next);
   }, []);
 
-  useEffect(() => setBottomFollow(true), [group.id, setBottomFollow]);
+  useEffect(() => setBottomFollow(true), [transcriptKey, setBottomFollow]);
 
   const appliedFocus = useRef<number | null>(null);
   const requestedFocus = useRef<number | null>(null);
