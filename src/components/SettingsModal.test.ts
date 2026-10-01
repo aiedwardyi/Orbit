@@ -5,6 +5,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { saveRainbowBox } from "@/lib/rainbow-box";
 import type { AppSettingsSection } from "@/state/store";
 
 const mock = vi.hoisted(() => ({
@@ -267,6 +268,18 @@ describe("SettingsModal friends chrome", () => {
     const themes = markup("themes");
     expect(themes).toContain("Skin");
     expect(themes).toContain('data-skin="kanagawa"');
+  });
+
+  it("flips the Rainbow chat box switch on Themes, off by default", () => {
+    expect(markup("general")).not.toContain("Rainbow chat box");
+    const rainbowSwitch = /<button role="switch" aria-checked="(true|false)" aria-label="Rainbow chat box"/;
+    expect(markup("themes").match(rainbowSwitch)?.[1]).toBe("false");
+    saveRainbowBox(true);
+    expect(markup("themes").match(rainbowSwitch)?.[1]).toBe("true");
+    saveRainbowBox(false);
+    expect(markup("themes").match(rainbowSwitch)?.[1]).toBe("false");
+    const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
+    expect(source).toContain("onClick={() => saveRainbowBox(!on)}");
   });
 
   it("does not reveal Local VM, channel turns, experimental, or diagnostics when Advanced would have been open", () => {

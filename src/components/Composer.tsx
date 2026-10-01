@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { ArrowUp, Clock, Mic, Paperclip, Square, TerminalSquare, Users, X } from "lucide-react";
 import { useStore, visibleMessages, type Bot, type Group, type Message, api } from "@/state/store";
 import { cn } from "@/lib/cn";
@@ -49,6 +49,7 @@ import { composerIsBusy } from "@/lib/send-accept";
 import { composerEnterIntent, isComposerEnterKey } from "@/lib/composer-enter";
 import { fitComposerHeight } from "@/lib/composer-dock";
 import { hapticTick } from "@/lib/phone-swipe";
+import { useRainbowBox } from "@/lib/rainbow-box";
 import { useI18n } from "@/lib/i18n";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -120,6 +121,29 @@ function queuedFromRoomHold(hold: PersistedRoomHold, draftId: string): QueuedGro
   };
 }
 
+// An absolute child sits on the frame's padding box; the inset reaches out over each skin's border.
+function RainbowRing() {
+  const ring = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const el = ring.current;
+    const frame = el?.parentElement;
+    if (!el || !frame) return;
+    const fit = () => {
+      const s = getComputedStyle(frame);
+      el.style.inset = `-${s.borderTopWidth} -${s.borderRightWidth} -${s.borderBottomWidth} -${s.borderLeftWidth}`;
+    };
+    fit();
+    const appearance = new MutationObserver(fit);
+    appearance.observe(document.documentElement, { attributes: true, attributeFilter: ["data-skin", "data-shape"] });
+    return () => appearance.disconnect();
+  }, []);
+  return (
+    <span ref={ring} aria-hidden data-orbit-rainbow>
+      <span />
+    </span>
+  );
+}
+
 /** Renders the editable message composer and its pending attachments. */
 export function Composer({
   bot,
@@ -153,6 +177,7 @@ export function Composer({
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
+  const rainbow = useRainbowBox();
   // Unified target: a 1:1 bot thread or a room. In a room the @ picker
   // offers members plus @everyone; explicit mentions override the room's
   // configured default responder.
@@ -821,7 +846,8 @@ export function Composer({
             aria-hidden
             className="absolute -left-5 -right-5 top-[calc(100%-1.5rem)] h-[50vh] bg-app"
           />
-        <div data-orbit-composer-frame className="relative grid grid-cols-[auto_1fr_auto] items-center gap-x-2 rounded-3xl bg-raised px-3 pb-2 pt-1">
+        <div data-orbit-composer-frame data-rainbow={rainbow ? "" : undefined} className="relative grid grid-cols-[auto_1fr_auto] items-center gap-x-2 rounded-3xl bg-raised px-3 pb-2 pt-1">
+          {rainbow && <RainbowRing />}
           <input
             ref={fileInput}
             type="file"

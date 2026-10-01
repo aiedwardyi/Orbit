@@ -3187,6 +3187,54 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
   outline-offset: 2px;
 }
 
+/* Rainbow chat box. The ring is its own clipped, masked layer so the frame
+   never gains a transform, filter, overflow or stacking context that would
+   clip or move its menus. Skins set the frame border and focus colors at
+   every specificity, so !important is the one way to make them yield. */
+[data-orbit-composer-frame][data-rainbow] {
+  border-color: transparent !important;
+  outline-color: transparent !important;
+}
+
+[data-orbit-rainbow] {
+  position: absolute;
+  border-radius: inherit;
+  padding: 2px;
+  overflow: hidden;
+  pointer-events: none;
+  container-type: size;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  opacity: 0.3;
+  transition: opacity 300ms ease-out;
+}
+
+[data-orbit-rainbow] > span {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(hypot(100cqw, 100cqh) + 6px);
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  background: conic-gradient(#ff0000, #ff00ff, #0000ff, #00ffff, #00ff00, #ffff00, #ff0000);
+  animation: orbit-rainbow-spin 4s linear infinite paused;
+}
+
+[data-orbit-composer-frame]:focus-within > [data-orbit-rainbow] {
+  opacity: 1;
+}
+
+[data-orbit-composer-frame]:focus-within > [data-orbit-rainbow] > span {
+  animation-play-state: running;
+}
+
+@keyframes orbit-rainbow-spin {
+  to { transform: rotate(1turn); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-orbit-rainbow] > span { animation: none; }
+}
+
 ::selection {
   background: color-mix(in oklab, var(--color-accent) 45%, transparent);
   color: var(--color-ink);

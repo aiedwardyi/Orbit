@@ -83,6 +83,9 @@ export const en = {
   "settings.vibration.toggle": "Vibrate on send, replies and bot switch",
   "settings.vibration.help": "A short buzz on phones. Off keeps this device silent.",
   "settings.vibration.aria": "Vibrate on send, replies and bot switch",
+  "settings.rainbowBox.title": "Chat box",
+  "settings.rainbowBox.toggle": "Rainbow chat box",
+  "settings.rainbowBox.help": "Animated rainbow outline around the chat box.",
 
   "settings.title": "Settings",
   "settings.search": "Search",
@@ -1136,6 +1139,9 @@ export const ko = {
   "settings.vibration.toggle": "보내기, 답장, 봇 전환 시 진동",
   "settings.vibration.help": "휴대폰에서 짧게 진동합니다. 끄면 이 기기에서는 진동하지 않습니다.",
   "settings.vibration.aria": "보내기, 답장, 봇 전환 시 진동",
+  "settings.rainbowBox.title": "채팅 입력창",
+  "settings.rainbowBox.toggle": "무지개 채팅 입력창",
+  "settings.rainbowBox.help": "채팅 입력창 둘레에 움직이는 무지개 테두리를 표시합니다.",
 
   "settings.title": "설정",
   "settings.search": "검색",
