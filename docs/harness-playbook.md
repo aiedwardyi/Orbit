@@ -38,6 +38,17 @@ The exact shape of its final message.
 - Parallel cards: split shared ids, routes and names between them up front.
 - If their branches must work together, end with one INTEGRATE card: merge the
   named branches in a scratch worktree, run the checks, report like a worker.
+- Evidence files: the worker regenerates them at the final sha and stamps the
+  sha in each file. An earlier draft can contradict the report.
+
+## Audit cards
+
+- Ask the auditor to walk the user's first real session end to end. That walk
+  finds the bugs normal use hits first.
+- Probe scripts read PORT, HOME and ROOT from env, so a fix branch can be
+  re-checked with one command.
+- Triage findings by "can this hit normal use soon?" Fix those. Park the rest in
+  the findings file with the reason.
 
 ## Worktrees
 
@@ -62,6 +73,14 @@ When a worker reports done, check its work yourself before anything moves:
    (`npx vitest run <files>`) and `pnpm typecheck`.
 4. Never run the full `pnpm test`. Never boot `server/index.ts`.
 5. Read the diff for the acceptance items. A report is a claim, not proof.
+6. Run new regression tests on the base commit first. They must fail with the
+   exact old bug.
+7. Check numeric claims yourself. Run old and new one after the other so
+   timeouts don't skew the counts.
+8. Test servers get a fresh data folder and their own port. Run them in a pane
+   (terminal_spawn, then terminal_close), not as a background task you kill
+   later; a killed task shows up as failed.
+9. Before landing on the user's live checkout: checkout clean, app not running.
 
 ## Reports
 
