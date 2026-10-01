@@ -33,7 +33,7 @@ const executables = [
   path.join(root, "release", appImage),
 ];
 if (process.env.OMB_SMOKE_INSTALLED_DEB === "1") {
-  executables.push("/opt/Orbit/orbit");
+  executables.push("/opt/Wink/orbit");
 }
 
 for (const executable of executables) {

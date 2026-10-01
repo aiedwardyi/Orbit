@@ -2487,7 +2487,7 @@ describe("harness HTTP API", () => {
           }),
         }),
       }).parse(JSON.parse(readFileSync(fakeClaudeDump, "utf8")));
-      expect(JSON.stringify(dump.prompt)).toContain("Orbit task record");
+      expect(JSON.stringify(dump.prompt)).toContain("Wink task record");
       const commsToken = dump.mcpConfig.mcpServers.agents.env.OMB_COMMS_TOKEN;
       const liveBot = (await api("GET", "/api/bots?messages=0")).body.bots.find(
         (candidate: { id: string }) => candidate.id === bot.id,
@@ -2585,7 +2585,7 @@ describe("harness HTTP API", () => {
         JSON.parse(readFileSync(fakeClaudeDump, "utf8")),
       );
       const resumedPrompt = JSON.stringify(resumedDump.prompt);
-      expect(resumedPrompt).toContain("Orbit task record");
+      expect(resumedPrompt).toContain("Wink task record");
       expect(resumedPrompt).toContain("Current request: Continue until I stop you");
       expect(resumedPrompt).toContain("The previous turn was interrupted. Continue from the conversation.");
       expect(resumedPrompt).not.toContain("Goal: Prepare a durable weekly brief");
@@ -5524,7 +5524,7 @@ describe("project folder for a chat-only engine", () => {
     const botId = await compatBot(folder);
     try {
       const system = await nextSystem(() => api("POST", `/api/bots/${botId}/messages`, { text: "what is in the desk folder" }));
-      expect(system).toContain("a personal bot in Orbit.");
+      expect(system).toContain("a personal bot in Wink.");
       expect(system).not.toContain(FOLDER_START);
     } finally {
       await settled(botId);

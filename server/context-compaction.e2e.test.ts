@@ -714,7 +714,7 @@ describe("context compaction e2e", () => {
     expect(JSON.stringify(bot.messages)).not.toContain("cannot summarize it");
   }, 30_000);
 
-  it("does not --resume a fat Claude soak before the first Orbit compact", async () => {
+  it("does not --resume a fat Claude soak before the first Wink compact", async () => {
     rmSync(claudeDumpPath, { force: true });
     expect((await api("POST", `/api/bots/${CLAUDE_FAT.botId}/messages`, {
       text: "now commit",
@@ -733,7 +733,7 @@ describe("context compaction e2e", () => {
     expect(dump.argv).toContain("--session-id");
     const prompt = typeof dump.prompt === "string" ? dump.prompt : JSON.stringify(dump.prompt);
     expect(prompt).toContain("fresh provider session");
-    expect(prompt).not.toContain("Orbit compacted this conversation");
+    expect(prompt).not.toContain("Wink compacted this conversation");
     expect(prompt).toContain("tree inspected");
   }, 30_000);
 
@@ -755,7 +755,7 @@ describe("context compaction e2e", () => {
     expect(dump.argv).toContain(CLAUDE_FAT_STOP.fatSession);
     const prompt = typeof dump.prompt === "string" ? dump.prompt : JSON.stringify(dump.prompt);
     expect(prompt).not.toContain("fresh provider session");
-    expect(prompt).not.toContain("Orbit compacted this conversation");
+    expect(prompt).not.toContain("Wink compacted this conversation");
   }, 30_000);
 
   it("still --resumes a short uncompacted Claude thread", async () => {
@@ -776,10 +776,10 @@ describe("context compaction e2e", () => {
     expect(dump.argv).toContain(CLAUDE_SLIM.session);
     const prompt = typeof dump.prompt === "string" ? dump.prompt : JSON.stringify(dump.prompt);
     expect(prompt).not.toContain("fresh provider session");
-    expect(prompt).not.toContain("Orbit compacted this conversation");
+    expect(prompt).not.toContain("Wink compacted this conversation");
   }, 30_000);
 
-  it("does not --resume a stale Claude session after Orbit compaction", async () => {
+  it("does not --resume a stale Claude session after Wink compaction", async () => {
     rmSync(claudeDumpPath, { force: true });
     expect((await api("POST", `/api/bots/${CLAUDE_RESUME.botId}/messages`, {
       text: "Continue with final QA",
@@ -799,8 +799,8 @@ describe("context compaction e2e", () => {
     const prompt = typeof dump.prompt === "string"
       ? dump.prompt
       : JSON.stringify(dump.prompt);
-    expect(prompt).toContain("Orbit compacted this conversation");
-    expect(prompt).toMatch(/history 0|Orbit durable context summary/);
+    expect(prompt).toContain("Wink compacted this conversation");
+    expect(prompt).toMatch(/history 0|Wink durable context summary/);
   }, 30_000);
 
   it("queues another turn while generated compaction is preparing", async () => {

@@ -18,7 +18,7 @@ import {
   shouldRecycleProviderSession,
 } from "./turn-context.ts";
 
-describe("provider session recycle after Orbit compaction", () => {
+describe("provider session recycle after Wink compaction", () => {
   // Close SQLite before wiping DATA_DIR — Windows EPERM-locks an open
   // messages.db, and a naked afterEach rmSync races the global close hook.
   beforeEach(async () => {
@@ -27,7 +27,7 @@ describe("provider session recycle after Orbit compaction", () => {
     mkdirSync(DATA_DIR, { recursive: true });
   });
 
-  it("does not resume a stale Claude cursor once Orbit compacted the thread", async () => {
+  it("does not resume a stale Claude cursor once Wink compacted the thread", async () => {
     const store = new Store(() => ({ instanceId: "claude", model: "claude-sonnet-5" }));
     const bot = store.createBot({}, { seedMessages: false });
     const old = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "old work produced report.json" });
@@ -79,8 +79,8 @@ describe("provider session recycle after Orbit compaction", () => {
 
     expect(recycled).toBe(true);
     expect(resume).toBe(false);
-    expect(turnText).toContain("Orbit compacted this conversation");
-    expect(turnText).toContain("[Orbit durable context summary]");
+    expect(turnText).toContain("Wink compacted this conversation");
+    expect(turnText).toContain("[Wink durable context summary]");
     expect(turnText).toContain("recent verification passed");
     expect(turnText.endsWith("continue the release")).toBe(true);
 
@@ -112,11 +112,11 @@ describe("provider session recycle after Orbit compaction", () => {
     expect(nextFresh).toBe(true);
     expect(nextRecycled).toBe(true);
     expect(next.resume).toBe(false);
-    expect(next.turnText).toContain("Orbit compacted this conversation");
+    expect(next.turnText).toContain("Wink compacted this conversation");
     expect(next.turnText).not.toContain("joining this conversation");
   });
 
-  it("still resumes Stop recovery when Orbit has not compacted yet", () => {
+  it("still resumes Stop recovery when Wink has not compacted yet", () => {
     const resume = shouldRecycleProviderSession({ compacted: false, rewound: false });
     const out = buildTurnContext({
       text: "continue",
@@ -135,8 +135,8 @@ describe("provider session recycle after Orbit compaction", () => {
       },
     });
     expect(out.resume).toBe(true);
-    expect(out.turnText).toContain("Orbit task record");
-    expect(out.turnText).not.toContain("Orbit compacted this conversation");
+    expect(out.turnText).toContain("Wink task record");
+    expect(out.turnText).not.toContain("Wink compacted this conversation");
   });
 
   it("recycles a fat uncompacted Claude soak on the next user send", async () => {
@@ -193,7 +193,7 @@ describe("provider session recycle after Orbit compaction", () => {
     expect(recycled).toBe(true);
     expect(resume).toBe(false);
     expect(turnText).toContain("fresh provider session");
-    expect(turnText).not.toContain("Orbit compacted this conversation");
+    expect(turnText).not.toContain("Wink compacted this conversation");
     expect(turnText).toContain("tree inspected");
     expect(ask.text).toBe("inspect the tree");
 
@@ -255,7 +255,7 @@ describe("provider session recycle after Orbit compaction", () => {
     expect(prepared.compacted).toBe(false);
     expect(recycled).toBe(false);
     expect(out.resume).toBe(true);
-    expect(out.turnText).toContain("Orbit task record");
+    expect(out.turnText).toContain("Wink task record");
     expect(out.turnText).not.toContain("fresh provider session");
     expect(store.taskByThread(bot.id, bot.threadId)?.resumeCursors.claude).toBe("fat-soak-session");
   });

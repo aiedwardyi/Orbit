@@ -719,7 +719,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       if (input.cwd !== undefined && typeof input.cwd !== "string") throw new Error("Invalid terminal folder");
       if (disposed) throw new Error("Terminal host is shutting down");
       const sender = paneOwner();
-      if (!sender || sender.isDestroyed?.()) throw new Error("Orbit window is not available");
+      if (!sender || sender.isDestroyed?.()) throw new Error("Wink window is not available");
       // Reserved before the first await so concurrent opens cannot overshoot the caps.
       const botReserved = paneReservations.get(botId) ?? 0;
       if (botSessions(botId).filter((session) => session.botPane && session.exitCode === null).length + botReserved >= BOT_PANE_LIMIT) throw new Error(`Too many bot terminals (limit ${BOT_PANE_LIMIT})`);

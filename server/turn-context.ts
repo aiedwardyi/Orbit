@@ -274,9 +274,9 @@ const REWOUND_PREAMBLE =
 const FRESH_PREAMBLE =
   "[You are joining this conversation mid-thread (the user switched this bot over to you). The conversation so far:]";
 const RECYCLED_PREAMBLE =
-  "[Orbit compacted this conversation to keep the provider session bounded. The conversation so far:]";
+  "[Wink compacted this conversation to keep the provider session bounded. The conversation so far:]";
 const SESSION_FAT_PREAMBLE =
-  "[Orbit started a fresh provider session to keep tool history bounded. The conversation so far:]";
+  "[Wink started a fresh provider session to keep tool history bounded. The conversation so far:]";
 
 function replayPreamble(input: TurnContextInput): string {
   if (input.rewound) return REWOUND_PREAMBLE;
@@ -356,7 +356,7 @@ export function taskRecordBlock(
   if (options?.recovering) {
     const current = (options.latestUserText ?? "").trim();
     return formatTaskRecordFields(
-      "[Orbit task record - local notes. The previous turn was interrupted. Continue from the conversation.]",
+      "[Wink task record - local notes. The previous turn was interrupted. Continue from the conversation.]",
       [
         ...(current ? [["Current request", current] as const] : []),
         ...taskRecordProgressFields(record),
@@ -369,7 +369,7 @@ export function taskRecordBlock(
   const pending = record.plan.find((item) => item.status === "pending")?.step;
   const plan = record.plan.map((item, index) => `${index + 1}. ${item.status}: ${item.step}`).join(" | ") || "none";
   return formatTaskRecordFields(
-    "[Orbit task record - saved locally. The conversation is authoritative; verify against it.]",
+    "[Wink task record - saved locally. The conversation is authoritative; verify against it.]",
     [
       ["Goal", record.goal],
       ["Plan", `${done}/${record.plan.length} done${active ? `; active: ${active}` : ""}${pending ? `; next pending: ${pending}` : ""}; steps: ${plan}`],
@@ -381,7 +381,7 @@ export function taskRecordBlock(
 }
 
 const RESUME_FALLBACK_PREAMBLE =
-  "[The provider session could not be resumed. Continue from this durable Orbit context:]";
+  "[The provider session could not be resumed. Continue from this durable Wink context:]";
 
 export function buildResumeFallback(input: {
   text: string;

@@ -385,7 +385,7 @@ const PUBLIC_ACCOUNT_MESSAGES = [
   /^The secure connection request (?:was not accepted|was not allowed)\./,
   /^That code (?:is not valid|expired)\./,
   /^Your sign-in expired\./,
-  /^Orbit could not reach its secure connection service\./,
+  /^(?:Orbit|Wink) could not reach its secure connection service\./,
   /^Too many attempts were made\./,
   /^This computer was reconnected too often\./,
   /^This account has reached its computer limit\./,
@@ -409,7 +409,7 @@ export function normalizePhoneSetupActionError(cause: unknown, fallback: string)
     && message.startsWith("The secure connection request was not allowed.");
   const publicMessage = !forbiddenCodeRequest
     && PUBLIC_ACCOUNT_MESSAGES.some((pattern) => pattern.test(message))
-    ? message
+    ? message.replace(/^Orbit/, "Wink")
     : fallback;
   return reference ? `${publicMessage} Reference: ${reference}.` : publicMessage;
 }

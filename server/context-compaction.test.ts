@@ -60,7 +60,7 @@ describe("provider-neutral context compaction", () => {
     expect(result.compaction?.summary).toContain("dist/app.zip");
     expect(result.compaction?.summary).toContain("signing approval");
     expect(result.transcript.at(-1)?.text).toContain("work item 204");
-    expect(result.transcript[0]?.text).toContain("Orbit durable context summary");
+    expect(result.transcript[0]?.text).toContain("Wink durable context summary");
     expect(summarize).toHaveBeenCalled();
     expect(summarize.mock.calls[0]?.[0]).toContain("Goal: ship the release");
     expect(summarize.mock.calls[0]?.[0]).toContain("Completed: package built");

@@ -348,7 +348,7 @@ describe("POST /api/mailbox", () => {
     const hung = await orbitMsgFile(paneEnv, bin, ["hi"]);
     const waited = Date.now() - started;
     expect(hung.status).toBe(1);
-    expect(hung.stderr).toContain("orbit-msg: Orbit did not answer in 10s");
+    expect(hung.stderr).toContain("orbit-msg: Wink did not answer in 10s");
     expect(waited).toBeGreaterThanOrEqual(9000);
     expect(waited).toBeLessThan(30000);
     await new Promise((resolve) => stub.close(resolve));
@@ -427,7 +427,7 @@ describe("POST /api/mailbox", () => {
     ]);
     const outside = await orbitMsgFile(PANE_BASE, bin, ["hi"]);
     expect(outside.status).toBe(1);
-    expect(outside.stderr).toContain("not inside an Orbit terminal pane");
+    expect(outside.stderr).toContain("not inside a Wink terminal pane");
     expect((await orbitMsgFile(PANE_BASE, bin, ["--hook", "message"], "{}")).status).toBe(0);
   }, 30_000);
 

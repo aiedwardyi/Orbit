@@ -95,16 +95,16 @@ describe("home-screen app shell", () => {
   it("links a valid standalone manifest whose icons exist", () => {
     expect(html).toContain('<link rel="manifest" href="/manifest.json" />');
     const manifest = JSON.parse(readFileSync(join(root, "public/manifest.json"), "utf8"));
-    expect(manifest).toMatchObject({ name: "Orbit", start_url: "/", display: "standalone" });
+    expect(manifest).toMatchObject({ name: "Wink", start_url: "/", display: "standalone" });
     expect(manifest.icons.map((icon: { sizes: string }) => icon.sizes)).toEqual(["192x192", "512x512", "512x512"]);
     expect(manifest.icons.some((icon: { purpose?: string }) => icon.purpose === "maskable")).toBe(true);
-    for (const icon of manifest.icons) expect(existsSync(join(root, "public", icon.src))).toBe(true);
+    for (const icon of manifest.icons) expect(existsSync(join(root, "public", icon.src.split("?")[0]))).toBe(true);
   });
 
   it("blends the maskable icon's edge into the phone splash background, keeping art inside the safe zone", () => {
     const manifest = JSON.parse(readFileSync(join(root, "public/manifest.json"), "utf8"));
     const maskable = manifest.icons.find((icon: { purpose?: string }) => icon.purpose === "maskable");
-    const png = decodePngRgb(join(root, "public", maskable.src));
+    const png = decodePngRgb(join(root, "public", maskable.src.split("?")[0]));
     const bg = manifest.background_color.toLowerCase();
     expect(png.pixelAt(0, 0)).toBe(bg);
 

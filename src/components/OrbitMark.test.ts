@@ -7,23 +7,29 @@ const html = renderToStaticMarkup(createElement(OrbitMark, { size: 96 }));
 const lower = html.toLowerCase();
 
 describe("OrbitMark", () => {
-  it("renders the Peach Warm artwork", () => {
+  it("renders the Wink prompt artwork", () => {
     expect(html).toContain("<svg");
-    expect(lower).toContain("#2b1d1a");
-    expect(lower).toContain("#ff9e64");
-    expect(lower).toContain("#f8e8d0");
-    expect(lower).toContain('aria-label="orbit"');
+    expect(lower).toContain("#1f2747");
+    expect(lower).toContain("#0a0e19");
+    expect(lower).toContain("#ff4d9d");
+    expect(lower).toContain("#ffd447");
+    expect(lower).toContain('aria-label="wink"');
+    expect(lower).toContain('d="m72 86 l122 128 l72 170"');
   });
 
-  it("keeps the two-dot face with no mouth", () => {
-    expect(lower.match(/<circle[^>]*fill="#2b1d1a"/g)?.length).toBe(2);
-    expect(lower).not.toContain("smile");
+  it("gives each instance its own gradient and filter ids", () => {
+    const pair = renderToStaticMarkup(
+      createElement("div", null, createElement(OrbitMark), createElement(OrbitMark)),
+    );
+    const ids = [...pair.matchAll(/ id="([^"]+)"/g)].map((match) => match[1]);
+    expect(ids.length).toBe(8);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("drops the old spectrum-ring artwork", () => {
-    expect(html).not.toContain("orbit-spectrum");
-    expect(html).not.toContain("orbit-core");
-    expect(lower).not.toContain("#1688ff");
-    expect(lower).not.toContain("#f45aa8");
+  it("drops the Peach Warm face artwork", () => {
+    expect(lower).not.toContain("#2b1d1a");
+    expect(lower).not.toContain("#ff9e64");
+    expect(lower).not.toContain("#f8e8d0");
+    expect(lower).not.toContain("<ellipse");
   });
 });

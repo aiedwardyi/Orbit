@@ -114,15 +114,64 @@ describe("app icon assets", () => {
     }
   });
 
-  it("paints the vector sources in the Peach Warm artwork", () => {
+  it("paints the vector sources in the Wink prompt artwork", () => {
     for (const relative of ["build/icon.svg", "public/app-icon.svg"]) {
       const svg = readFileSync(join(ROOT, relative), "utf8").toLowerCase();
-      expect(svg, `${relative} base`).toContain("#2b1d1a");
-      expect(svg, `${relative} ring`).toContain("#ff9e64");
-      expect(svg, `${relative} face`).toContain("#f8e8d0");
-      expect(svg, `${relative} stale spectrum`).not.toContain("#1688ff");
-      expect(svg, `${relative} stale magenta`).not.toContain("#f45aa8");
-      expect(svg, `${relative} inset tile`).toContain('x="26"');
+      expect(svg, `${relative} tile top`).toContain("#1f2747");
+      expect(svg, `${relative} tile bottom`).toContain("#0a0e19");
+      expect(svg, `${relative} chevron`).toContain("#ff4d9d");
+      expect(svg, `${relative} cursor`).toContain("#ffd447");
+      expect(svg, `${relative} rim`).toContain("#323b5c");
+      expect(svg, `${relative} title`).toContain("<title id=\"title\">wink</title>");
+      expect(svg, `${relative} stale base`).not.toContain("#2b1d1a");
+      expect(svg, `${relative} stale ring`).not.toContain("#ff9e64");
+      expect(svg, `${relative} inset tile`).toContain('x="12"');
     }
+  });
+
+  it("draws 16-32px Windows frames from the small-size artwork", () => {
+    const ico = readFileSync(join(ROOT, "build/icon.ico"));
+    const frames = new Map();
+    for (let index = 0; index < ico.readUInt16LE(4); index++) {
+      const entry = 6 + index * 16;
+      const size = ico[entry] || 256;
+      const offset = ico.readUInt32LE(entry + 12);
+      frames.set(size, ico.subarray(offset, offset + ico.readUInt32LE(entry + 8)));
+    }
+    expect([...frames.keys()].sort((a, b) => a - b)).toEqual([16, 20, 32, 48, 64, 128, 256]);
+    const dir = mkdtempSync(join(tmpdir(), "omb-icon-ico-"));
+    try {
+      for (const size of [16, 20, 32]) {
+        const path = join(dir, `${size}.png`);
+        writeFileSync(path, frames.get(size));
+        const image = decodePng(path);
+        // The small art's tile runs to the edge; the large art keeps a 12/256 transparent margin.
+        expect(rgba(image, size >> 1, 0)[3], `${size} top edge alpha`).toBeGreaterThan(200);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the maskable PWA icon opaque and full-bleed", () => {
+    const manifest = JSON.parse(readFileSync(join(ROOT, "public/manifest.json"), "utf8"));
+    const maskable = manifest.icons.find((icon) => icon.purpose === "maskable");
+    expect(maskable.src.split("?")[0]).toBe("/app-icon-maskable-512.png");
+    const bytes = readFileSync(join(ROOT, "public/app-icon-maskable-512.png"));
+    expect(bytes.readUInt32BE(16)).toBe(512);
+    expect(bytes.readUInt32BE(20)).toBe(512);
+    // Opaque RGB: a launcher mask may crop anywhere, so no transparent corner may show.
+    expect(bytes[25], "color type").toBe(2);
+  });
+
+  it("versions every PWA icon URL the same way", () => {
+    const html = readFileSync(join(ROOT, "index.html"), "utf8");
+    const manifest = readFileSync(join(ROOT, "public/manifest.json"), "utf8");
+    const worker = readFileSync(join(ROOT, "public/sw.js"), "utf8");
+    const versions = [html, manifest, worker].flatMap((text) =>
+      [...text.matchAll(/\/app-icon[\w-]*\.(?:png|svg)(\?v=\w+)?/g)].map((match) => match[1]),
+    );
+    expect(versions.length).toBe(6);
+    expect(new Set(versions)).toEqual(new Set(["?v=2"]));
   });
 });

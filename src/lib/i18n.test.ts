@@ -142,7 +142,7 @@ describe("catalogs", () => {
       ["bot.rememberedFolderNextTask", "다음 작업 폴더: {folder}"],
       ["bot.rememberedFolderNextTaskHome", "다음 작업 폴더: {folder}"],
       ["approval.spoken", "{name}의 도구 실행 요청입니다. 도구: {tool}. {detail}. 허용할까요?"],
-      ["update.available", "사용 가능한 Orbit 버전: {version}"],
+      ["update.available", "사용 가능한 Wink 버전: {version}"],
       ["update.ready", "업데이트 준비 완료: {version}"],
     ] as const;
     for (const value of ["팀장", "도우미", "Read", "1.2.4"]) {
@@ -627,7 +627,7 @@ describe("team map, team library, and team toasts", () => {
       "1번 팀원 정보가 올바르지 않습니다.",
     );
     applyLocale("en");
-    expect(() => teamImportPreview({ format: "nope" })).toThrow("This is not an Orbit playbook or a team file.");
+    expect(() => teamImportPreview({ format: "nope" })).toThrow("This is not a Wink playbook or a team file.");
   });
 });
 
@@ -1009,8 +1009,8 @@ describe("Continuity recovery and compaction chrome", () => {
     expect(ko["chat.resume"]).toBe("재개");
     expect(en["chat.resuming"]).toBe("Resuming…");
     expect(ko["chat.resuming"]).toBe("재개 중…");
-    expect(en["chat.compactionUnsupported"]).toMatch(/newer Orbit version/);
-    expect(ko["chat.compactionUnsupported"]).not.toMatch(/Context summary|Orbit version/i);
+    expect(en["chat.compactionUnsupported"]).toMatch(/newer Wink version/);
+    expect(ko["chat.compactionUnsupported"]).not.toMatch(/Context summary|Wink version/i);
     expect(ko["chat.resuming"]).not.toMatch(/Resuming/i);
     expect(Object.hasOwn(en, "chat.continue")).toBe(false);
     expect(Object.hasOwn(ko, "chat.continue")).toBe(false);
@@ -1022,7 +1022,7 @@ describe("Continuity recovery and compaction chrome", () => {
     expect(recovery).toContain('t("chat.resuming")');
     expect(recovery).toContain('t("chat.compactionUnsupported")');
     expect(recovery).not.toMatch(/Older context was summarized/);
-    expect(recovery).not.toMatch(/Context summary requires a newer Orbit version/);
+    expect(recovery).not.toMatch(/Context summary requires a newer Wink version/);
   });
 });
 

@@ -30,8 +30,10 @@ const temporary = fs.mkdtempSync(path.join(path.resolve(runnerTemp), "omb-deb-up
 if (path.dirname(temporary) !== path.resolve(runnerTemp)) fail("temporary fixture escaped RUNNER_TEMP");
 const legacyRoot = path.join(temporary, "legacy-package");
 const controlRoot = path.join(legacyRoot, "DEBIAN");
-const legacyApp = path.join(legacyRoot, "opt", "Orbit");
+const legacyApp = path.join(legacyRoot, "opt", "Wink");
 const legacyResources = path.join(legacyApp, "resources");
+const orbitApp = path.join(legacyRoot, "opt", "Orbit");
+const legacyDesktop = path.join(legacyRoot, "usr", "share", "applications", "com.orbit.agentdesk.desktop");
 const legacyDeb = path.join(temporary, "orbit-desktop_0.1.7_amd64.deb");
 
 try {
@@ -52,12 +54,21 @@ try {
     { mode: 0o644 },
   );
   fs.writeFileSync(path.join(legacyResources, "legacy-upgrade-fixture"), "0.1.7\n", { mode: 0o644 });
+  // Pre-rename builds installed to /opt/Orbit; the upgrade must not leave its launcher behind.
+  fs.mkdirSync(orbitApp, { recursive: true, mode: 0o755 });
+  fs.writeFileSync(path.join(orbitApp, "orbit"), "0.1.7\n", { mode: 0o755 });
+  fs.mkdirSync(path.dirname(legacyDesktop), { recursive: true, mode: 0o755 });
+  fs.writeFileSync(
+    legacyDesktop,
+    ["[Desktop Entry]", "Name=Orbit", "Exec=/opt/Orbit/orbit %U", "Type=Application", ""].join("\n"),
+    { mode: 0o644 },
+  );
 
   execFileSync("dpkg-deb", ["--build", "--root-owner-group", legacyRoot, legacyDeb], {
     stdio: "inherit",
   });
   execFileSync("dpkg", ["--install", legacyDeb], { stdio: "inherit" });
-  for (const directory of ["/opt/Orbit", "/opt/Orbit/resources"]) {
+  for (const directory of ["/opt/Wink", "/opt/Wink/resources"]) {
     const mode = fs.lstatSync(directory).mode & 0o777;
     if (mode !== 0o775) fail(`legacy fixture did not reproduce 0775 at ${directory}`);
   }
@@ -70,9 +81,9 @@ try {
     stdio: "inherit",
   });
   for (const directory of [
-    "/opt/Orbit",
-    "/opt/Orbit/resources",
-    "/opt/Orbit/resources/cua-linux-x64",
+    "/opt/Wink",
+    "/opt/Wink/resources",
+    "/opt/Wink/resources/cua-linux-x64",
   ]) {
     const details = fs.lstatSync(directory);
     if (!details.isDirectory() || details.isSymbolicLink()) fail(`unsafe upgraded directory: ${directory}`);
@@ -81,14 +92,14 @@ try {
     }
   }
   for (const executable of ["cua-driver", "cua-cursor-theme"]) {
-    const file = path.join("/opt/Orbit/resources/cua-linux-x64", executable);
+    const file = path.join("/opt/Wink/resources/cua-linux-x64", executable);
     const details = fs.lstatSync(file);
     if (!details.isFile() || details.isSymbolicLink()) fail(`unsafe upgraded executable: ${file}`);
     if (details.uid !== 0 || details.gid !== 0 || (details.mode & 0o777) !== 0o755) {
       fail(`upgraded executable is not root:root 0755: ${file}`);
     }
   }
-  const chromiumSandbox = "/opt/Orbit/chrome-sandbox";
+  const chromiumSandbox = "/opt/Wink/chrome-sandbox";
   const sandboxDetails = fs.lstatSync(chromiumSandbox);
   if (!sandboxDetails.isFile() || sandboxDetails.isSymbolicLink()) {
     fail(`unsafe upgraded Chromium sandbox: ${chromiumSandbox}`);
@@ -100,11 +111,16 @@ try {
   ) {
     fail(`upgraded Chromium sandbox is not root:root 4755: ${chromiumSandbox}`);
   }
+  if (fs.existsSync("/opt/Orbit")) fail("upgrade left the pre-rename /opt/Orbit tree behind");
+  const desktop = fs.readFileSync("/usr/share/applications/com.orbit.agentdesk.desktop", "utf8");
+  for (const expected of ["Name=Wink", "Exec=/opt/Wink/orbit %U"]) {
+    if (!desktop.includes(expected)) fail(`upgraded desktop entry is missing ${JSON.stringify(expected)}`);
+  }
   const installedVersion = execFileSync("dpkg-query", ["-W", "-f=${Version}", "orbit-desktop"], {
     encoding: "utf8",
   }).trim();
   console.log(
-    `[smoke-deb-upgrade] OK: 0.1.7 legacy modes repaired by ${installedVersion} without weakening the runtime path`,
+    `[smoke-deb-upgrade] OK: 0.1.7 legacy modes repaired and /opt/Orbit removed by ${installedVersion} without weakening the runtime path`,
   );
 } finally {
   fs.rmSync(temporary, { recursive: true, force: true });

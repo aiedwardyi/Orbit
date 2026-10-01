@@ -228,7 +228,7 @@ if (process.platform === "win32") {
 // harness server on a fallback port and splits data dirs in two. The loser
 // exits before any child or window exists; the winner surfaces itself.
 if (!app.requestSingleInstanceLock()) {
-  console.log("[desktop] Orbit is already running; focusing that window");
+  console.log("[desktop] Wink is already running; focusing that window");
   process.exit(0);
 }
 function deliverPackageInstall(win) {
@@ -1040,7 +1040,7 @@ function buildErrorPage({ allPortsOccupied }) {
     "data:text/html;charset=utf-8," +
     encodeURIComponent(
       markFailedBootPage(
-        `<html lang="${uiLocale()}"><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:${chrome.color};color:${chrome.symbolColor};font:15px ${uiFontStack()};${inset}">${drag}<div style="text-align:center;max-width:360px"><div style="font-size:40px">🐭</div><h2 style="font-weight:600;margin:12px 0 6px">${escapeHtml(nativeText("packaged.bootTitle"))}</h2><p style="color:${chrome.symbolColor}b3;line-height:1.5">${escapeHtml(reason)} ${escapeHtml(nativeText("packaged.bootCheckLog"))} <code style="color:${chrome.symbolColor}">${escapeHtml(serverLogPath)}</code>.</p></div></body>`,
+        `<html lang="${uiLocale()}"><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:${chrome.color};color:${chrome.symbolColor};font:15px ${uiFontStack()};${inset}">${drag}<div style="text-align:center;max-width:360px"><svg width="48" height="48" viewBox="0 0 256 256" role="img" aria-label="Wink" style="display:block;margin:0 auto"><defs><linearGradient id="tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1f2747"/><stop offset="1" stop-color="#0a0e19"/></linearGradient></defs><rect x="12" y="12" width="232" height="232" rx="54" fill="url(#tile)" stroke="#323b5c" stroke-width="3"/><path d="M72 86 L122 128 L72 170" fill="none" stroke="#ff4d9d" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/><rect x="146" y="156" width="52" height="28" rx="14" fill="#ffd447"/></svg><h2 style="font-weight:600;margin:12px 0 6px">${escapeHtml(nativeText("packaged.bootTitle"))}</h2><p style="color:${chrome.symbolColor}b3;line-height:1.5">${escapeHtml(reason)} ${escapeHtml(nativeText("packaged.bootCheckLog"))} <code style="color:${chrome.symbolColor}">${escapeHtml(serverLogPath)}</code>.</p></div></body>`,
       ),
     )
   );
@@ -1103,7 +1103,7 @@ function desktopViewerErrorPage(message, retryUrl) {
 }
 
 function openDesktopViewer(owner, rawUrl, rawTitle, contextId) {
-  if (!owner || owner.isDestroyed()) throw new Error("The Orbit window is unavailable");
+  if (!owner || owner.isDestroyed()) throw new Error("The Wink window is unavailable");
   const url = desktopViewerUrl(rawUrl);
   const titleCandidate = Object.prototype.toString.call(rawTitle) === "[object String]" ? rawTitle.trim() : "";
   const title = titleCandidate ? titleCandidate.slice(0, 80) : nativeText("packaged.liveDesktop");
@@ -1218,7 +1218,7 @@ async function localTailnet() {
 async function openDeviceWindow(rawHost, rawName) {
   const tailnet = await localTailnet();
   if (!tailnet) {
-    dialog.showErrorBox("Orbit", nativeText("packaged.deviceTailnetUnknown"));
+    dialog.showErrorBox("Wink", nativeText("packaged.deviceTailnetUnknown"));
     return false;
   }
   const url = deviceWindowUrl(rawHost, tailnet);
@@ -1283,7 +1283,7 @@ async function openDeviceWindow(rawHost, rawName) {
 }
 
 function ensureDesktopWorkspace(owner) {
-  if (!owner || owner.isDestroyed()) throw new Error("The Orbit window is unavailable");
+  if (!owner || owner.isDestroyed()) throw new Error("The Wink window is unavailable");
   if (desktopWorkspaceManager) {
     if (desktopWorkspaceOwner !== owner) {
       throw new Error("The desktop workspace belongs to another app window");

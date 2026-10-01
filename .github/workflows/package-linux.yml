@@ -82,20 +82,20 @@ jobs:
         run: |
           set -euo pipefail
           version="$(node -p "require('./package.json').version")"
-          appimage="release/Orbit-${version}-x86_64.AppImage"
-          deb="release/Orbit-${version}-amd64.deb"
+          appimage="release/Wink-${version}-x86_64.AppImage"
+          deb="release/Wink-${version}-amd64.deb"
           test -f "$appimage"
           test -f "$deb"
-          cp "$appimage" release/Orbit.AppImage
-          cp "$deb" release/Orbit-amd64.deb
-          chmod 0755 release/Orbit.AppImage
+          cp "$appimage" release/Wink.AppImage
+          cp "$deb" release/Wink-amd64.deb
+          chmod 0755 release/Wink.AppImage
           (
             cd release
             sha256sum \
               "$(basename "$appimage")" \
               "$(basename "$deb")" \
-              Orbit.AppImage \
-              Orbit-amd64.deb > SHA256SUMS-ubuntu-x64.txt
+              Wink.AppImage \
+              Wink-amd64.deb > SHA256SUMS-ubuntu-x64.txt
           )
           echo "artifact-name=orbit-ubuntu-${version}-x64" >> "$GITHUB_OUTPUT"
           echo "version: $version"
@@ -116,10 +116,10 @@ jobs:
         with:
           name: ${{ steps.release.outputs.artifact-name }}
           path: |
-            release/Orbit-*-amd64.deb
-            release/Orbit-*-x86_64.AppImage
-            release/Orbit-amd64.deb
-            release/Orbit.AppImage
+            release/Wink-*-amd64.deb
+            release/Wink-*-x86_64.AppImage
+            release/Wink-amd64.deb
+            release/Wink.AppImage
             release/SHA256SUMS-ubuntu-x64.txt
           if-no-files-found: error
           retention-days: 14

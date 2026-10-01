@@ -7,13 +7,13 @@ self.addEventListener("push", (event) => {
     // Malformed payloads still owe the user a visible notification.
   }
   event.waitUntil(
-    self.registration.showNotification(data.title || "Orbit", {
+    self.registration.showNotification(data.title || "Wink", {
       body: data.body || "",
       tag: data.tag,
       renotify: Boolean(data.tag),
       vibrate: [200, 100, 200],
-      icon: "/app-icon-192.png",
-      badge: "/app-icon-192.png",
+      icon: "/app-icon-192.png?v=2",
+      badge: "/app-icon-192.png?v=2",
       data: { url: data.url || "/" },
     }),
   );

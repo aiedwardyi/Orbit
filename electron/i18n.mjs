@@ -11,8 +11,8 @@ export const DEFAULT_PREFERENCE = "en";
 
 const en = {
   "packaged.bootTitle": "Couldn't start the bot server",
-  "packaged.bootPorts": "Every Orbit port answered health checks from another process. Quit the other copy or program, then reopen Orbit.",
-  "packaged.bootTimeout": "The background server did not start in time. Quit and reopen Orbit.",
+  "packaged.bootPorts": "Every Wink port answered health checks from another process. Quit the other copy or program, then reopen Wink.",
+  "packaged.bootTimeout": "The background server did not start in time. Quit and reopen Wink.",
   "packaged.bootCheckLog": "If it keeps happening, check the server log.",
   "packaged.connecting": "Connecting to the bot server…",
   "packaged.desktopUnavailable": "Desktop unavailable",
@@ -39,8 +39,8 @@ const en = {
 
 const ko = {
   "packaged.bootTitle": "봇 서버를 시작하지 못했습니다",
-  "packaged.bootPorts": "Orbit 포트가 모두 다른 프로세스의 상태 확인에 응답했습니다. 다른 복사본이나 프로그램을 종료한 뒤 Orbit를 다시 여세요.",
-  "packaged.bootTimeout": "백그라운드 서버가 제시간에 시작되지 않았습니다. Orbit를 종료한 뒤 다시 여세요.",
+  "packaged.bootPorts": "Wink 포트가 모두 다른 프로세스의 상태 확인에 응답했습니다. 다른 복사본이나 프로그램을 종료한 뒤 Wink를 다시 여세요.",
+  "packaged.bootTimeout": "백그라운드 서버가 제시간에 시작되지 않았습니다. Wink를 종료한 뒤 다시 여세요.",
   "packaged.bootCheckLog": "문제가 계속되면 서버 로그를 확인하세요.",
   "packaged.connecting": "봇 서버에 연결하는 중…",
   "packaged.desktopUnavailable": "데스크톱을 사용할 수 없음",

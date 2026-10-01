@@ -103,7 +103,7 @@ Create the team.`);
 
   it("keeps user-facing copy free of BotMRR and .mausteam.json", () => {
     expect(() => teamImportPreview({ format: "nope" })).toThrow(
-      "This is not an Orbit playbook or a team file.",
+      "This is not a Wink playbook or a team file.",
     );
     expect(() => teamImportPreview("plain text")).toThrow(
       "This Markdown is missing its playbook frontmatter.",

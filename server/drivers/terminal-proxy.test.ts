@@ -368,7 +368,7 @@ describe("terminal proxy", () => {
       recentText: "previous",
       truncated: true,
     })).toContain("generation 2");
-    expect(terminalSnapshotText({ state: "no-terminal" })).toContain("no active Orbit terminal");
+    expect(terminalSnapshotText({ state: "no-terminal" })).toContain("no active Wink terminal");
   });
 
   it("returns a read error when the bridge is unavailable", async () => {

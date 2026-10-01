@@ -70,8 +70,8 @@ export function CompanionSection() {
   if (!companionBridge()) {
     return (
       <Card
-        title="Use Orbit from your phone"
-        subtitle="Open Settings in the Orbit desktop app to set up a phone."
+        title="Use Wink from your phone"
+        subtitle="Open Settings in the Wink desktop app to set up a phone."
       />
     );
   }
@@ -126,7 +126,7 @@ export function CompanionSection() {
 
       <Card
         title="Paired phones"
-        subtitle={pairedCount ? "Manage the phones that can use this Orbit." : "No phones are paired yet."}
+        subtitle={pairedCount ? "Manage the phones that can use this Wink." : "No phones are paired yet."}
       >
         {pairedCount > 0 && (
           <ul className="flex flex-col gap-2">

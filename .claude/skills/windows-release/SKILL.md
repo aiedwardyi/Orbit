@@ -5,7 +5,7 @@ description: Build, verify, and publish the Windows desktop build (NSIS installe
 
 # Windows release
 
-Ships `Orbit-<version>-setup.exe` and its update feed to
+Ships `Wink-<version>-setup.exe` and its update feed to
 [aiedwardyi/orbit-releases](https://github.com/aiedwardyi/orbit-releases).
 
 **Scope: Windows only.** The macOS build is a separate flow (dmg + notarytool +
@@ -25,6 +25,7 @@ staple) that must run on a Mac. This skill never touches mac artifacts — but s
 
 Bump `version` in `package.json`. It must match the tag on the GitHub release you
 upload to, and it becomes the version electron-updater compares against.
+The updater never downgrades, so a rollback ships as a new, higher version.
 
 ## 2. Build
 
@@ -41,10 +42,10 @@ Output in `release/`:
 
 | File | Purpose |
 |---|---|
-| `Orbit-<version>-setup.exe` | the installer |
+| `Wink-<version>-setup.exe` | the installer |
 | `latest.yml` | **the update feed** — see step 4 |
-| `Orbit-<version>-setup.exe.blockmap` | differential updates |
-| `Orbit-<version>-x64.zip` | portable, not used by the updater |
+| `Wink-<version>-setup.exe.blockmap` | differential updates |
+| `Wink-<version>-x64.zip` | portable, not used by the updater |
 
 ## 3. Verify before uploading
 
@@ -56,8 +57,8 @@ Test-Path release\win-unpacked\resources\ui\index.html     # built UI
 Get-Content release\win-unpacked\resources\app-update.yml  # feed config
 ```
 
-- Missing `server/index.js` → `utilityProcess.fork` fails → the 🐭 "Couldn't start
-  the bot server" page.
+- Missing `server/index.js` → `utilityProcess.fork` fails → the "Couldn't start the
+  bot server" page.
 - Missing `ui/index.html` → server has nothing to serve → black window.
 - `app-update.yml` must point at `aiedwardyi/orbit-releases` and, while the
   build is unsigned, **must not contain `publisherName`** — electron-updater would
@@ -79,21 +80,27 @@ Upload to the **same tag** as the macOS release for that version, so one release
 carries both platforms.
 
 ```powershell
-Copy-Item release/Orbit-<version>-setup.exe release/Orbit-setup.exe
+Copy-Item release/Wink-<version>-setup.exe release/Wink-setup.exe
+Copy-Item release/Wink-<version>-setup.exe release/Orbit-setup.exe
 gh release upload v<version> --repo aiedwardyi/orbit-releases `
-  release/Orbit-<version>-setup.exe `
+  release/Wink-<version>-setup.exe `
+  release/Wink-setup.exe `
   release/Orbit-setup.exe `
-  release/Orbit-<version>-setup.exe.blockmap `
+  release/Wink-<version>-setup.exe.blockmap `
   release/latest.yml
 ```
 
-Both names are required, for different consumers:
+All three names are required, for different consumers:
 
-- **`Orbit-<version>-setup.exe`** is what `latest.yml` references by name and
+- **`Wink-<version>-setup.exe`** is what `latest.yml` references by name and
   sha512. The auto-updater downloads exactly this.
-- **`Orbit-setup.exe`** is a byte-identical copy that gives the README's
-  `/releases/latest/download/Orbit-setup.exe` button a stable URL. This
-  mirrors `Orbit.dmg` sitting beside `Orbit-<version>.dmg`.
+- **`Wink-setup.exe`** is a byte-identical copy that gives
+  `/releases/latest/download/Wink-setup.exe` a stable URL.
+- **`Orbit-setup.exe`** is another byte-identical copy. Links shared before the
+  rename point at `/releases/latest/download/Orbit-setup.exe`; dropping it breaks them.
+
+The first update from an Orbit build is a full download, since the old blockmap
+name differs. That is expected.
 
 ### latest.yml is not optional
 

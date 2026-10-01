@@ -1,6 +1,6 @@
 // Regenerates every raster app-icon surface from the 1024 master.
 //
-//   node scripts/generate-app-icon.mjs --source <path-to-1024-master>
+//   node scripts/generate-app-icon.mjs --source <path-to-1024-master> [--small-dir <dir>]
 //   node scripts/generate-app-icon.mjs --check
 //
 // The master must be a non-interlaced 8-bit RGBA PNG. Transparent corners are
@@ -11,7 +11,9 @@
 // renders, including the 16/32 1x icp4/icp5 entries. PNG encode/decode lives
 // in scripts/png-codec.mjs (shared with the asset test). No image
 // dependencies. --source is required: the master is author-provided and
-// lives outside the repo, so there is no in-repo default.
+// lives outside the repo, so there is no in-repo default. --small-dir holds
+// 16.png, 20.png and 32.png drawn from the small-size artwork; those exact
+// frames replace the downscaled ones, since a 1024 downscale smears at 16px.
 //
 // --check is read-only: it re-reads every shipped PNG and fails if any
 // corner is not fully transparent (also wired into
@@ -279,6 +281,26 @@ function main() {
   const rendered = {};
   for (const size of [16, 20, 32, 48, 64, 128, 256, 512, 1024]) {
     rendered[size] = size === 1024 ? master : resample(master, size, size);
+  }
+  const smallIndex = args.indexOf("--small-dir");
+  if (smallIndex !== -1) {
+    for (const size of [16, 20, 32]) {
+      const path = join(args[smallIndex + 1] ?? "", `${size}.png`);
+      let frame;
+      try {
+        frame = decodePng(path);
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : error);
+        process.exitCode = 1;
+        return;
+      }
+      if (frame.width !== size || frame.height !== size) {
+        console.error(`refusing ${path}: expected ${size}x${size} (got ${frame.width}x${frame.height})`);
+        process.exitCode = 1;
+        return;
+      }
+      rendered[size] = frame;
+    }
   }
   const write = (relative, data) => {
     const path = join(ROOT, relative);

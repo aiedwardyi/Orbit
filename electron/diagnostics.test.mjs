@@ -181,9 +181,9 @@ describe("decodeLogTail", () => {
 });
 
 describe("diagnosticsFileName", () => {
-  it("uses orbit-diagnostics-YYYYMMDD-HHmmss.txt", () => {
+  it("uses wink-diagnostics-YYYYMMDD-HHmmss.txt", () => {
     expect(diagnosticsFileName(new Date(2026, 7, 22, 16, 5, 9))).toBe(
-      "orbit-diagnostics-20260822-160509.txt",
+      "wink-diagnostics-20260822-160509.txt",
     );
   });
 });

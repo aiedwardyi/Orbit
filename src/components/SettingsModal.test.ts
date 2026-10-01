@@ -280,7 +280,7 @@ describe("SettingsModal friends chrome", () => {
   it("keeps Connections quiet without Gemini key or zoo services", () => {
     const html = markup("connections");
     expect(html).not.toContain("Gemini API key");
-    expect(html).not.toContain("Orbit detects installed");
+    expect(html).not.toContain("Wink detects installed");
     expect(html).not.toContain("OpenCode API key");
     expect(html).not.toContain("More services");
     expect(html).not.toContain("data-settings-more-services");

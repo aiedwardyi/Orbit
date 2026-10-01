@@ -3848,7 +3848,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   });
   if (prepared.status !== "ready") {
     const detail = prepared.status === "unsupported"
-      ? `This conversation uses context summary version ${String(prepared.version)}. Update Orbit before continuing.`
+      ? `This conversation uses context summary version ${String(prepared.version)}. Update Wink before continuing.`
       : `${prepared.error} Earlier messages and the last valid summary remain intact; retry this turn.`;
     store.appendMessage(threadId, {
       role: "bot",
@@ -3997,7 +3997,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   });
 
   const persona = [
-    `You are ${bot.name}, a personal bot in Orbit.`,
+    `You are ${bot.name}, a personal bot in Wink.`,
     bot.title && `Role: ${bot.title}.`,
     bot.description && `About: ${bot.description}`,
     reactionSystemGuidance(),
@@ -4182,7 +4182,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           throw new Error("this model engine cannot control this computer — choose Claude or an ACP engine, or select another destination");
         }
         const cua = readCuaConnection();
-        if (!cua) throw new Error("CUA Driver is not ready for this computer - check permissions and restart Orbit");
+        if (!cua) throw new Error("CUA Driver is not ready for this computer - check permissions and restart Wink");
         integrations.localComputer = cua;
         computerKind = "local";
       }
@@ -4653,7 +4653,7 @@ async function cloudRoutineReadiness(): Promise<{ ready: boolean; reason?: strin
   }
   const instance = registry.instances().find((candidate) => candidate.driverKind === "boxAgent");
   if (!instance) {
-    return { ready: false, reason: "The Cloud VM runner is unavailable. Restart Orbit and try again." };
+    return { ready: false, reason: "The Cloud VM runner is unavailable. Restart Wink and try again." };
   }
   try {
     const snapshot = await instance.snapshot();
@@ -5070,7 +5070,7 @@ async function runClaimedGroupMemberTurn(
   });
   if (prepared.status !== "ready") {
     const detail = prepared.status === "unsupported"
-      ? `This room uses context summary version ${String(prepared.version)}. Update Orbit before continuing.`
+      ? `This room uses context summary version ${String(prepared.version)}. Update Wink before continuing.`
       : `${prepared.error} Earlier room messages and the last valid summary remain intact; retry this turn.`;
     store.appendMessage(threadId, {
       role: "bot",
@@ -5183,7 +5183,7 @@ async function runClaimedGroupMemberTurn(
       ? peerAgentsSystemPrompt(true)
       : "";
   const system = [
-    `You are ${bot.name}, a bot in the room "${group.name}" in Orbit.`,
+    `You are ${bot.name}, a bot in the room "${group.name}" in Wink.`,
     bot.title && `Role: ${bot.title}.`,
     bot.description && `About: ${bot.description}`,
     `Room members: ${roster}, and ${userName} (the human).`,
@@ -5570,7 +5570,7 @@ function dispatchConnectorResume(entry: { botId: string; threadId: string; resum
   const owner = connectorThread(entry.botId, entry.threadId);
   if (!owner) return;
   const names = entry.labels.join(", ");
-  const prompt = `Orbit connection update: the user securely connected ${names}. Continue the task that paused for this connection. Do not ask them to connect it again.`;
+  const prompt = `Wink connection update: the user securely connected ${names}. Continue the task that paused for this connection. Do not ask them to connect it again.`;
   if (owner.bot.busy) {
     pendingConnectorResumes.set(`${entry.threadId}:${entry.resumeKey}`, entry);
     return;
@@ -5666,8 +5666,8 @@ function dispatchSecretResume(entry: SecretResumeEntry) {
   if (!owner) return;
   const prompt =
     entry.outcome === "provided"
-      ? `Orbit credential update: the user securely provided ${entry.label}. Continue the task that paused for it. You do not receive the secret and must not ask them to paste it into chat.`
-      : `Orbit credential update: the user declined to provide ${entry.label}. Continue without it if possible, or briefly explain the limitation. Do not ask them to paste it into chat.`;
+      ? `Wink credential update: the user securely provided ${entry.label}. Continue the task that paused for it. You do not receive the secret and must not ask them to paste it into chat.`
+      : `Wink credential update: the user declined to provide ${entry.label}. Continue without it if possible, or briefly explain the limitation. Do not ask them to paste it into chat.`;
   if (owner.bot.busy) {
     pendingSecretResumes.set(`${entry.threadId}:${entry.messageId}`, entry);
     return;
@@ -6318,7 +6318,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         const channel = getOrCreateChannel(store, currentFrom, currentTarget);
         mirrorExchange(commsBus, currentFrom, currentTarget, message, channel, fromThreadId);
-        const prefixed = `[Message from @${currentFrom.name}, another bot in this Orbit workspace. Reply to them.]\n\n${message}`;
+        const prefixed = `[Message from @${currentFrom.name}, another bot in this Wink workspace. Reply to them.]\n\n${message}`;
         const reply = await askBotAndWait(toBotId, prefixed, depth, fromBotId, {
           sender: currentFrom,
           channel,
@@ -7053,7 +7053,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!loadPushSubscriptions(DATA_DIR).some((sub) => sub.endpoint === body.data.endpoint)) {
         return json(res, 404, { error: "This device is not subscribed" });
       }
-      const test = { title: "Orbit", body: "Test notification. Your phone is set up.", tag: "orbit:test", url: "/" };
+      const test = { title: "Wink", body: "Test notification. Your phone is set up.", tag: "orbit:test", url: "/" };
       const [result] = await sendWebPushToDevices(DATA_DIR, test, WEB_PUSH_SUBJECT, body.data.endpoint);
       return result?.ok ? json(res, 200, { ok: true }) : json(res, 502, { error: result?.error ?? "push failed" });
     }

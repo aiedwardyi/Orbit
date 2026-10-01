@@ -120,7 +120,9 @@ jobs:
         shell: bash
         run: |
           v=$(node -p "require('./package.json').version")
-          cp "release/Orbit-$v-setup.exe" release/Orbit-setup.exe
+          cp "release/Wink-$v-setup.exe" release/Wink-setup.exe
+          # Old links point at the Orbit name, so keep it as a second identical alias.
+          cp "release/Wink-$v-setup.exe" release/Orbit-setup.exe
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: windows-release
@@ -175,7 +177,7 @@ jobs:
           tag="v$VERSION"
           if ! gh release view "$tag" --repo aiedwardyi/orbit-releases > /dev/null 2>&1; then
             gh release create "$tag" --repo aiedwardyi/orbit-releases \
-              --draft --title "Orbit $VERSION" \
+              --draft --title "Wink $VERSION" \
               --notes "Draft assembled by the release workflow from aiedwardyi/Orbit@$SHA. Edit these notes, then publish."
           fi
           while IFS= read -r name; do

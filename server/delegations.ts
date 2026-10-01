@@ -628,7 +628,7 @@ async function processOne(
   const delivered = patchDelegationChip(bus, item.id, { name: `Delivered to @${target.name}` }, commLink(channel, target));
   mirrorExchange(bus, sender, target, item.message, channel, sourceThreadId, !delivered);
   const reasonLine = item.reason ? `\n\n[Reason: ${item.reason}]` : "";
-  const prefixed = `[Delegated by @${sender.name}, another bot in this Orbit workspace. Do the work and reply directly.]\n\n${item.message}${reasonLine}`;
+  const prefixed = `[Delegated by @${sender.name}, another bot in this Wink workspace. Do the work and reply directly.]\n\n${item.message}${reasonLine}`;
   const transcriptText = `${item.message}${reasonLine}`;
   await runTarget(item.toBotId, prefixed, item.depth + 1, sourceThreadId, channel, item.id, sender.id, transcriptText);
   return "settled";

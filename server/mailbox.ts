@@ -6,7 +6,7 @@ import { z } from "zod";
 
 export const MAILBOX_GRANT_PREFIX = "orbit-mailbox-v1";
 export const MAILBOX_SECRET_FILE = "mailbox-secret";
-export const MAILBOX_STALE_GRANT = "stale grant: Orbit's mailbox key changed, restart this pane";
+export const MAILBOX_STALE_GRANT = "stale grant: Wink's mailbox key changed, restart this pane";
 const MAILBOX_SECRET_RE = /^[a-f0-9]{64}$/;
 export const MAILBOX_NOTE_MAX_CHARS = 8000;
 export const MAILBOX_BODY_MAX_BYTES = 16 * 1024;

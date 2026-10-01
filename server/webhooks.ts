@@ -288,7 +288,7 @@ function serializePayload(payload: JsonValue): string {
     }
   }
   if (text.length <= MAX_EVENT_CHARS) return text;
-  return `${text.slice(0, MAX_EVENT_CHARS)}\n\n[Payload truncated by Orbit]`;
+  return `${text.slice(0, MAX_EVENT_CHARS)}\n\n[Payload truncated by Wink]`;
 }
 
 function previewPayload(payload: JsonValue): string {
@@ -477,7 +477,7 @@ export class WebhookManager {
       payload,
       contentType: "application/json",
       eventName,
-      userAgent: "Orbit webhook tester",
+      userAgent: "Wink webhook tester",
       deliveryId: `test-${randomUUID()}`,
     });
   }

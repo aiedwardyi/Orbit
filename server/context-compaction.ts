@@ -15,8 +15,8 @@ const SUMMARY_BUDGET_SHARE = 0.35;
 const MAX_CONTEXT_MESSAGES = 96;
 const MAX_TAIL_MESSAGES = 48;
 const MAX_SUMMARY_TOKENS = 8_192;
-const SUMMARY_HEADER = "[Orbit durable context summary]";
-const FALLBACK_SUMMARY_NOTICE = "Model summary unavailable; full transcript retained by Orbit.";
+const SUMMARY_HEADER = "[Wink durable context summary]";
+const FALLBACK_SUMMARY_NOTICE = "Model summary unavailable; full transcript retained by Wink.";
 
 interface ReplayUnit {
   id: string;

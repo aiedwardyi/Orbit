@@ -179,7 +179,7 @@ const ROUTINE_FIELDS_SCHEMA = {
   run_on: {
     type: "string",
     enum: ["maus", "cloud"],
-    description: "Where the routine runs. Defaults to maus (this Orbit setup).",
+    description: "Where the routine runs. Defaults to maus (this Wink setup).",
   },
   duration_minutes: {
     type: "integer",
@@ -193,13 +193,13 @@ const TOOLS = [
   {
     name: "list_bots",
     description:
-      "List the other bots (agents) in your Orbit workspace you can message, your own section first, with their section, model and whether they're busy. Call it when you need a teammate's id or availability, not to survey the team before answering.",
+      "List the other bots (agents) in your Wink workspace you can message, your own section first, with their section, model and whether they're busy. Call it when you need a teammate's id or availability, not to survey the team before answering.",
     inputSchema: { type: "object", properties: {} },
   },
   {
     name: "update_task_state",
     description:
-      "Keep Orbit's durable record for this task current. Call after a meaningful plan change, completed milestone, new blocker, or created artifact, and before a long operation. Do not call after every tool. This record survives restarts and model switches, but it does not replace your final answer.",
+      "Keep Wink's durable record for this task current. Call after a meaningful plan change, completed milestone, new blocker, or created artifact, and before a long operation. Do not call after every tool. This record survives restarts and model switches, but it does not replace your final answer.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -261,7 +261,7 @@ const TOOLS = [
   {
     name: "ask_bot",
     description:
-      "Send a message to another bot in your Orbit workspace and wait for its reply. Use it to delegate a subtask to a specialist bot or ask a peer a question. The other bot runs a full turn under its own model and permissions; the reply is returned to you as text. Returns promptly with a note if that bot is busy.",
+      "Send a message to another bot in your Wink workspace and wait for its reply. Use it to delegate a subtask to a specialist bot or ask a peer a question. The other bot runs a full turn under its own model and permissions; the reply is returned to you as text. Returns promptly with a note if that bot is busy.",
     inputSchema: {
       type: "object",
       properties: {
@@ -350,7 +350,7 @@ const TOOLS = [
       type: "object",
       additionalProperties: false,
       properties: {
-        emoji: { type: "string", enum: [...EXTENDED_REACTIONS], description: "One emoji from Orbit's reaction set." },
+        emoji: { type: "string", enum: [...EXTENDED_REACTIONS], description: "One emoji from Wink's reaction set." },
       },
       required: ["emoji"],
     },
@@ -389,7 +389,7 @@ const TOOLS = [
   {
     name: "call_api",
     description:
-      "Call a service's HTTPS API with the user's saved key for it. You never see the key; Orbit adds it. Only that service's own hosts are allowed. Binary responses are saved to a file and the path is returned. A key saved with the custom form is custom:<host> and only works on that exact host.",
+      "Call a service's HTTPS API with the user's saved key for it. You never see the key; Wink adds it. Only that service's own hosts are allowed. Binary responses are saved to a file and the path is returned. A key saved with the custom form is custom:<host> and only works on that exact host.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -406,7 +406,7 @@ const TOOLS = [
   {
     name: "request_credential",
     description:
-      "Ask the user for a supported API key through Orbit's secure credential card. Use this instead of asking them to paste a secret into chat. The secret is saved by the desktop app and is never returned to you. After calling this tool, end the turn; Orbit resumes the task after the user saves or declines. For any other site, use credential_id custom with service { name, host } (header defaults to Authorization: Bearer).",
+      "Ask the user for a supported API key through Wink's secure credential card. Use this instead of asking them to paste a secret into chat. The secret is saved by the desktop app and is never returned to you. After calling this tool, end the turn; Wink resumes the task after the user saves or declines. For any other site, use credential_id custom with service { name, host } (header defaults to Authorization: Bearer).",
     inputSchema: {
       type: "object",
       properties: {
@@ -809,7 +809,7 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
       };
     }
     return {
-      text: `A secure ${r.label ?? label} card is now visible to the user. End this turn; Orbit will resume the task after they save or decline. Never ask them to paste the key into chat.`,
+      text: `A secure ${r.label ?? label} card is now visible to the user. End this turn; Wink will resume the task after they save or decline. Never ask them to paste the key into chat.`,
     };
   }
   if (name === "list_routines") {

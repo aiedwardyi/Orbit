@@ -91,7 +91,7 @@ describe("preparing a harness response for a device", () => {
     try {
       const { status, text } = await device("/api/bots/b1/computer/join", "POST");
       expect(status).toBe(403);
-      expect(text).toContain("Enable it in Orbit");
+      expect(text).toContain("Enable it in Wink");
       expect(text).toContain("Settings → Phone");
     } finally {
       cloudDesktopAccess = true;

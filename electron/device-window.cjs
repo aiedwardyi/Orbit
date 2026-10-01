@@ -37,7 +37,7 @@ function deviceWindowUrl(rawHost, tailnet) {
 
 function deviceWindowTitle(rawName, host) {
   const name = Object.prototype.toString.call(rawName) === "[object String]" ? rawName.trim().slice(0, 64) : "";
-  return `Orbit - ${name || host}`;
+  return `Wink - ${name || host}`;
 }
 
 /** Focuses the open window for `key`, or creates and tracks one until it closes. */

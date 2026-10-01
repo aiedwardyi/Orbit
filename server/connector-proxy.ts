@@ -180,12 +180,12 @@ async function handle(message: Json): Promise<void> {
       await showConnectorCards(slugs);
       send(textResult(
         id,
-        `Orbit showed the user a secure connection card for ${slugs.join(", ")}. End this turn now. The app will continue the task automatically after the connection finishes.`,
+        `Wink showed the user a secure connection card for ${slugs.join(", ")}. End this turn now. The app will continue the task automatically after the connection finishes.`,
       ));
       return;
     }
     if (/WAIT_FOR_CONNECTIONS$/i.test(name)) {
-      send(textResult(id, "Orbit is handling connection completion and will continue the task automatically."));
+      send(textResult(id, "Wink is handling connection completion and will continue the task automatically."));
       return;
     }
   }

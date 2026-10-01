@@ -45,7 +45,7 @@ if ($args.Count -ge 1 -and @('--help', '-h', '/?') -contains $args[0]) {
 $auth = if ($env:ORBIT_MSG_AUTH) { $env:ORBIT_MSG_AUTH } else { $env:ORBIT_MSG_TOKEN }
 if (-not $env:ORBIT_PANE -or -not $env:ORBIT_URL -or -not $auth) {
   if ($mode) { exit 0 }
-  [Console]::Error.WriteLine('orbit-msg: not inside an Orbit terminal pane')
+  [Console]::Error.WriteLine('orbit-msg: not inside a Wink terminal pane')
   exit 1
 }
 $report = $null
@@ -134,7 +134,7 @@ foreach ($uri in $uris) {
 }
 if ($failure) {
   if ($failure.Exception.Message -match 'timed out') {
-    [Console]::Error.WriteLine('orbit-msg: Orbit did not answer in 10s')
+    [Console]::Error.WriteLine('orbit-msg: Wink did not answer in 10s')
     exit 1
   }
   # Windows PowerShell leaves ErrorDetails empty; the server's reason is still on the response stream.

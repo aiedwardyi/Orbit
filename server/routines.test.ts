@@ -116,7 +116,7 @@ describe("RoutineManager", () => {
         routineName: "Morning brief",
         status: "failed",
         threadId: "thread-1",
-        error: "Orbit restarted while this routine was running",
+        error: "Wink restarted while this routine was running",
       },
     ]);
   });

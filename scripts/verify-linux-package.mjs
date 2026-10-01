@@ -407,7 +407,7 @@ for (const expected of [
 const extracted = mkdtempSync(path.join(tmpdir(), "omb-deb-verify-"));
 try {
   execFileSync("dpkg-deb", ["--extract", deb, extracted]);
-  const debAppRoot = path.join(extracted, "opt", "Orbit");
+  const debAppRoot = path.join(extracted, "opt", "Wink");
   requireDirectoryMode(debAppRoot, 0o755);
   const debResources = path.join(debAppRoot, "resources");
   const debHashes = verifyCuaResources(debResources, "DEB");
@@ -440,8 +440,8 @@ try {
   requireFile(scalableIcon);
   const desktop = readFileSync(desktopFile, "utf8");
   for (const expected of [
-    "Name=Orbit",
-    "Exec=/opt/Orbit/orbit %U",
+    "Name=Wink",
+    "Exec=/opt/Wink/orbit %U",
     "Icon=orbit",
     "StartupWMClass=com.orbit.agentdesk",
     "Categories=Utility;",

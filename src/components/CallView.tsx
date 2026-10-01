@@ -97,9 +97,9 @@ export function CallTargetButton({
   const reason = !capabilitiesReady
     ? "Checking whether this device can make calls."
     : !capabilities.dictation.available
-      ? "Calls require Orbit for macOS because speech recognition runs on-device."
+      ? "Calls require Wink for macOS because speech recognition runs on-device."
       : !window.ogb?.speechStart
-        ? "The speech service is unavailable in this app build. Restart Orbit."
+        ? "The speech service is unavailable in this app build. Restart Wink."
         : !configured
           ? "Add an ElevenLabs API key — or switch to the built-in Mac voices — so the bot can speak during calls."
           : !voiceReady

@@ -1,11 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
-  <title id="title">Orbit Peach Warm</title>
-  <rect x="26" y="26" width="972" height="972" rx="214" ry="214" fill="#2B1D1A"/>
-  <ellipse cx="512.0" cy="512.0" rx="427.7" ry="179.8" transform="rotate(-20 512.0 512.0)" fill="none" stroke="#FF9E64" stroke-width="75.8"/>
-  <g transform="rotate(-8 512.0 512.0)">
-    <rect x="103.8" y="142.1" width="816.5" height="759.3" rx="244.9" ry="244.9" fill="#F8E8D0"/>
-    <circle cx="373.2" cy="496.8" r="35.0" fill="#2B1D1A"/>
-    <circle cx="650.8" cy="496.8" r="35.0" fill="#2B1D1A"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 256 256" role="img" aria-labelledby="title">
+  <title id="title">Wink</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f2747"/>
+      <stop offset="1" stop-color="#0a0e19"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ff4d9d" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#ff4d9d" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8"/>
+    </filter>
+    <clipPath id="clip"><rect x="12" y="12" width="232" height="232" rx="54"/></clipPath>
+  </defs>
+  <rect x="12" y="12" width="232" height="232" rx="54" fill="url(#tile)"/>
+  <g clip-path="url(#clip)">
+    <circle cx="128" cy="128" r="118" fill="url(#halo)"/>
+    <g filter="url(#glow)" opacity="0.7">
+      <path d="M72 86 L122 128 L72 170" fill="none" stroke="#ff4d9d" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="146" y="156" width="52" height="28" rx="14" fill="#ffd447"/>
+    </g>
+    <path d="M72 86 L122 128 L72 170" fill="none" stroke="#ff4d9d" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="146" y="156" width="52" height="28" rx="14" fill="#ffd447"/>
   </g>
-  <path d="M 918.3 449.1 A 427.7 179.8 -20 0 1 276.8 673.8" fill="none" stroke="#FF9E64" stroke-width="75.8" stroke-linecap="round"/>
+  <rect x="13.5" y="13.5" width="229" height="229" rx="52.5" fill="none" stroke="#323b5c" stroke-width="3"/>
 </svg>

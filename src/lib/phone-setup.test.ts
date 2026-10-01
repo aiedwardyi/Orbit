@@ -404,4 +404,13 @@ describe("phone setup flow", () => {
       ),
     ).toBe("We could not send the code. Try again.");
   });
+
+  it.each(["Orbit", "Wink"])("shows the secure connection error from %s as Wink", (name) => {
+    expect(
+      normalizePhoneSetupActionError(
+        new Error(`${name} could not reach its secure connection service. Check your internet and try again.`),
+        "We could not send the code. Try again.",
+      ),
+    ).toBe("Wink could not reach its secure connection service. Check your internet and try again.");
+  });
 });

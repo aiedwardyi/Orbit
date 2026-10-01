@@ -57,7 +57,7 @@ describe("buildTurnContext", () => {
     expect(out).toEqual({ turnText: "hi", resume: false });
   });
 
-  it("recycles the provider session when Orbit compacted the transcript", () => {
+  it("recycles the provider session when Wink compacted the transcript", () => {
     const out = buildTurnContext({
       text: "continue",
       transcript,
@@ -68,7 +68,7 @@ describe("buildTurnContext", () => {
       replaysNatively: false,
     });
     expect(out.resume).toBe(false);
-    expect(out.turnText).toContain("Orbit compacted this conversation");
+    expect(out.turnText).toContain("Wink compacted this conversation");
     expect(out.turnText).toContain("User: my dog is named Biscuit");
     expect(out.turnText).not.toContain("joining this conversation");
     expect(out.turnText).not.toContain("rewound this conversation");
@@ -93,7 +93,7 @@ describe("buildTurnContext", () => {
       },
     });
     expect(out.resume).toBe(true);
-    expect(out.turnText).toContain("Orbit task record");
+    expect(out.turnText).toContain("Wink task record");
     expect(out.turnText).not.toContain("Goal: Publish the weekly brief");
     expect(out.turnText).not.toContain("Next action: Verify citations");
   });
@@ -117,8 +117,8 @@ describe("buildTurnContext", () => {
       },
     });
     expect(out.resume).toBe(false);
-    expect(out.turnText).toContain("Orbit compacted this conversation");
-    expect(out.turnText).toContain("Orbit task record");
+    expect(out.turnText).toContain("Wink compacted this conversation");
+    expect(out.turnText).toContain("Wink task record");
     expect(out.turnText).toContain("User: my dog is named Biscuit");
   });
 
@@ -133,7 +133,7 @@ describe("buildTurnContext", () => {
       replaysNatively: false,
     });
     expect(out.resume).toBe(false);
-    expect(out.turnText).toContain("Orbit compacted this conversation");
+    expect(out.turnText).toContain("Wink compacted this conversation");
     expect(out.turnText).not.toContain("joining this conversation");
     expect(out.turnText).not.toContain("rewound this conversation");
     expect(out.turnText.endsWith("next")).toBe(true);
@@ -150,7 +150,7 @@ describe("buildTurnContext", () => {
     });
     expect(out.resume).toBe(false);
     expect(out.turnText).toContain("rewound this conversation");
-    expect(out.turnText).not.toContain("Orbit compacted this conversation");
+    expect(out.turnText).not.toContain("Wink compacted this conversation");
   });
 
   it("uses a session-bound preamble when recycling before the first compact", () => {
@@ -166,7 +166,7 @@ describe("buildTurnContext", () => {
     expect(out.resume).toBe(false);
     expect(out.turnText).toContain("fresh provider session");
     expect(out.turnText).toContain("User: my dog is named Biscuit");
-    expect(out.turnText).not.toContain("Orbit compacted this conversation");
+    expect(out.turnText).not.toContain("Wink compacted this conversation");
     expect(out.turnText).not.toContain("joining this conversation");
     expect(out.turnText.endsWith("continue")).toBe(true);
   });
@@ -182,7 +182,7 @@ describe("buildTurnContext", () => {
     });
     expect(out.resume).toBe(false);
     expect(out.turnText).toContain("fresh provider session");
-    expect(out.turnText).not.toContain("Orbit compacted this conversation");
+    expect(out.turnText).not.toContain("Wink compacted this conversation");
   });
 
   it("injects the durable task record at recovery boundaries", () => {
@@ -204,7 +204,7 @@ describe("buildTurnContext", () => {
     });
 
     expect(out.resume).toBe(true);
-    expect(out.turnText).toContain("Orbit task record");
+    expect(out.turnText).toContain("Wink task record");
     expect(out.turnText).toContain("Current request: my dog is named Biscuit");
     expect(out.turnText).toContain("Drafted five sections");
     expect(out.turnText).not.toContain("Goal: Publish the weekly brief");
@@ -252,7 +252,7 @@ describe("buildTurnContext", () => {
     });
 
     expect(out.resume).toBe(true);
-    expect(out.turnText).toContain("Orbit task record");
+    expect(out.turnText).toContain("Wink task record");
     expect(out.turnText).toContain("Current request: Now add a pricing comparison");
     expect(out.turnText).toContain("Drafted five sections with citations.");
     expect(out.turnText).not.toContain("Goal: Prepare a weekly competitor brief");
@@ -389,7 +389,7 @@ describe("buildTurnContext", () => {
 });
 
 describe("shouldRecycleProviderSession", () => {
-  it("recycles once Orbit has a compacted projection and the branch is current", () => {
+  it("recycles once Wink has a compacted projection and the branch is current", () => {
     expect(shouldRecycleProviderSession({ compacted: true, rewound: false })).toBe(true);
     expect(shouldRecycleProviderSession({ compacted: true })).toBe(true);
   });
@@ -455,7 +455,7 @@ describe("shouldRecycleProviderSession", () => {
     })).toBe(false);
   });
 
-  it("still recycles Stop recovery after Orbit compacted", () => {
+  it("still recycles Stop recovery after Wink compacted", () => {
     expect(shouldRecycleProviderSession({
       compacted: true,
       recovering: true,
@@ -500,7 +500,7 @@ describe("resumeSessionUnseeded", () => {
     expect(resumeSessionUnseeded({ instanceId: "claude", cursor: "session-2", seed: seeded(null), latestCompactionId: null })).toBe(true);
     const { turnText, resume } = turnFor(true);
     expect(resume).toBe(false);
-    expect(turnText).toContain("Orbit compacted this conversation");
+    expect(turnText).toContain("Wink compacted this conversation");
     expect(turnText).toContain("Biscuit is the dog.");
     expect(turnText).toContain("User: and the cat?");
   });

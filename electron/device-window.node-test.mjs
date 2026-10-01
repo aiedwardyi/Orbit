@@ -62,8 +62,8 @@ test("reads the tailnet from tailscale status", () => {
 });
 
 test("titles the window with the PC name", () => {
-  assert.equal(deviceWindowTitle("Home", "home.ts.net"), "Orbit - Home");
-  assert.equal(deviceWindowTitle("  ", "home.ts.net"), "Orbit - home.ts.net");
+  assert.equal(deviceWindowTitle("Home", "home.ts.net"), "Wink - Home");
+  assert.equal(deviceWindowTitle("  ", "home.ts.net"), "Wink - home.ts.net");
 });
 
 test("focuses an open PC window instead of opening a second", () => {
