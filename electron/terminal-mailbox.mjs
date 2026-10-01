@@ -121,11 +121,13 @@ if ($env:ORBIT_URL -match '^http://127\.0\.0\.1:\d+$') {
   $uris += 'http://127.0.0.1:18799/api/mailbox', 'http://127.0.0.1:28799/api/mailbox'
 }
 $uris = $uris | Select-Object -Unique
+# Loopback only: skip system proxy auto-detect (WPAD), which .NET runs before any bypass rule and can block 30s+.
+$direct = if ($PSVersionTable.PSVersion.Major -ge 6) { @{ NoProxy = $true } } else { [Net.WebRequest]::DefaultWebProxy = $null; @{} }
 $failure = $null
 foreach ($uri in $uris) {
   $failure = $null
   try {
-    Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $body -TimeoutSec 10 | Out-Null
+    Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $body -TimeoutSec 10 @direct | Out-Null
     break
   } catch {
     $failure = $_
