@@ -267,7 +267,7 @@ export const en = {
   "onboarding.card.life": "Life admin",
   "onboarding.card.everything": "A bit of everything",
 
-  "createBot.title": "Bot details",
+  "createBot.title": "What should your bot do?",
   "createBot.jobLabel": "Add a job description",
   "createBot.placeholder": "Be my chief of staff and...",
   "createBot.addFolder": "+ Add a folder",
@@ -1323,7 +1323,7 @@ export const ko = {
   "onboarding.card.life": "생활 관리",
   "onboarding.card.everything": "이것저것 조금씩",
 
-  "createBot.title": "봇 정보",
+  "createBot.title": "봇에게 어떤 일을 맡길까요?",
   "createBot.jobLabel": "업무 설명 추가",
   "createBot.placeholder": "내 비서실장이 되어...",
   "createBot.addFolder": "+ 폴더 추가",

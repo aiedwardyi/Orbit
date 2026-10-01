@@ -656,8 +656,8 @@ describe("empty-engine first launch copy", () => {
 
 describe("create-bot sheet", () => {
   it("keeps the job-first onboarding question as complete EN+KO phrases", () => {
-    expect(en["createBot.title"]).toBe("Bot details");
-    expect(ko["createBot.title"]).toBe("봇 정보");
+    expect(en["createBot.title"]).toBe("What should your bot do?");
+    expect(ko["createBot.title"]).toBe("봇에게 어떤 일을 맡길까요?");
     expect(en["createBot.jobLabel"]).toBe("Add a job description");
     expect(ko["createBot.jobLabel"]).toBe("업무 설명 추가");
     expect(en["createBot.placeholder"]).toBe("Be my chief of staff and...");
@@ -684,7 +684,7 @@ describe("create-bot sheet", () => {
     expect(createBotSheet).toContain('t("createBot.cancel")');
     expect(createBotSheet).toContain('t("createBot.start")');
     expect(createBotSheet).toContain('t("createBot.adding")');
-    expect(createBotSheet).not.toMatch(/Bot details/);
+    expect(createBotSheet).not.toMatch(/What should your bot do/);
     expect(createBotSheet).not.toMatch(/Add a job description/);
     expect(createBotSheet).not.toMatch(/You are my chief of staff for development/);
     expect(createBotSheet).not.toMatch(/Start chatting/);
