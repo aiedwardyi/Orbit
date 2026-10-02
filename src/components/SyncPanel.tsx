@@ -110,7 +110,6 @@ export function SyncPanel() {
         </div>
 
         <p className="text-[12px] leading-relaxed text-ink-secondary">{t("settings.sync.folderHelp")}</p>
-        {!status || state.syncChats ? null : <p className="text-[12px] leading-relaxed text-ink-secondary">{t("settings.sync.localChats")}</p>}
 
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">

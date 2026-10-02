@@ -5,7 +5,9 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { catalogs } from "@/lib/i18n-catalog";
 import { saveRainbowBox } from "@/lib/rainbow-box";
+import { LIGHT_SKIN_IDS, SKINS } from "@/lib/skins";
 import { saveTerminalPopups } from "@/lib/terminal-popups";
 import type { AppSettingsSection } from "@/state/store";
 
@@ -346,7 +348,7 @@ describe("SettingsModal friends chrome", () => {
     const picker = readFileSync(join(here, "LanguagePicker.tsx"), "utf8");
     const profile = readFileSync(join(here, "ProfileFields.tsx"), "utf8");
     const primitives = readFileSync(join(here, "SettingsPrimitives.tsx"), "utf8");
-    expect(picker).toContain("compact");
+    expect(picker).not.toContain("compact");
     expect(picker).not.toContain("flex-col gap-2");
     expect(picker).toMatch(/role="radiogroup"/);
     expect(picker).toContain("language.matchSystem");
@@ -356,11 +358,11 @@ describe("SettingsModal friends chrome", () => {
     expect(picker).toContain("aria-describedby");
     expect(picker).not.toMatch(/title=\{id === "system"/);
     expect(source).toContain("settings.profile.title");
-    expect(source).toMatch(/settings\.profile\.title[\s\S]*compact/);
+    expect(source).not.toContain("compact");
     expect(profile).toContain("settings.profile.namePlaceholder");
     expect(profile).not.toContain("settings.profile.emailPlaceholder");
     expect(profile).toContain("settings.profile.save");
-    expect(primitives).toContain("compact");
+    expect(primitives).not.toContain("compact");
     const general = source.slice(source.indexOf('section === "general"'), source.indexOf('section === "connections"'));
     expect(general.indexOf("<LanguagePicker")).toBeGreaterThan(-1);
     expect(general.indexOf("<ToolCallsRow")).toBeGreaterThan(general.indexOf("<LanguagePicker"));
@@ -369,6 +371,67 @@ describe("SettingsModal friends chrome", () => {
     const themes = source.slice(source.indexOf('section === "themes"'), source.indexOf('section === "engines"') === -1 ? undefined : source.indexOf('section === "engines"'));
     expect(themes).toContain("<SkinPicker");
     expect(themes).toContain("settings.skin.title");
+  });
+
+  it("orders General cards so Left/Right sits under Language and switches follow", () => {
+    const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
+    const general = source.slice(source.indexOf('section === "general"'), source.indexOf('section === "connections"'));
+    const order = ["<LanguagePicker", "<SidebarSideRow", "settings.profile.title", "<TerminalAppearanceRow", "<ToolCallsRow", "<NotificationsRow", "<VibrationRow", "<UpdatesRow", "data-settings-advanced"].map((marker) => general.indexOf(marker));
+    expect(order.every((at) => at > -1)).toBe(true);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+  });
+
+  it("puts phone notifications in the General Notifications card, not Connections", () => {
+    const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
+    const row = source.slice(source.indexOf("function NotificationsRow"), source.indexOf("function RainbowBoxRow"));
+    expect(row).toContain("<PhoneNotificationSettings");
+    const connections = source.slice(source.indexOf('section === "connections"'), source.indexOf('section === "sync"'));
+    expect(connections).toContain("<PhoneLinkSettings");
+    expect(connections).not.toContain("<PhoneNotificationSettings");
+    const search = readFileSync(join(here, "../lib/settings-search.ts"), "utf8");
+    const generalKeys = search.slice(search.indexOf("  general: ["), search.indexOf("  themes: ["));
+    expect(generalKeys).toContain("settings.phoneNotifications.title");
+  });
+
+  it("shows Vibration only where a phone can vibrate", () => {
+    const win = window as unknown as Record<string, unknown>;
+    const matchMedia = (matches: boolean) => () => ({ matches });
+    try {
+      expect(markup("general")).not.toContain("Vibrate on send");
+      win.matchMedia = matchMedia(false);
+      win.navigator = { vibrate: () => true };
+      expect(markup("general")).not.toContain("Vibrate on send");
+      win.matchMedia = matchMedia(true);
+      win.navigator = {};
+      expect(markup("general")).not.toContain("Vibrate on send");
+      win.navigator = { vibrate: () => true };
+      expect(markup("general")).toContain("Vibrate on send");
+    } finally {
+      delete win.matchMedia;
+      delete win.navigator;
+    }
+  });
+
+  it("drops the on-this-device line from Sync", () => {
+    expect(readFileSync(join(here, "SyncPanel.tsx"), "utf8")).not.toContain("settings.sync.localChats");
+    expect(catalogs.en).not.toHaveProperty("settings.sync.localChats");
+    expect(catalogs.ko).not.toHaveProperty("settings.sync.localChats");
+  });
+
+  it("labels Soft and Boxy as Corners with a tooltip", () => {
+    expect(markup("themes")).toContain('title="Corners"');
+  });
+
+  it("splits Skin into Dark then Light groups covering every skin", () => {
+    const html = markup("themes");
+    const dark = html.indexOf(">Dark<");
+    const light = html.indexOf(">Light<");
+    expect(dark).toBeGreaterThan(-1);
+    expect(light).toBeGreaterThan(dark);
+    const ids = (part: string) => [...part.matchAll(/data-skin="([a-z-]+)"/g)].map(([, id]) => id);
+    expect(ids(html.slice(dark, light))).toEqual(SKINS.filter((skin) => !LIGHT_SKIN_IDS.has(skin.id)).map((skin) => skin.id));
+    expect(ids(html.slice(light))).toEqual(SKINS.filter((skin) => LIGHT_SKIN_IDS.has(skin.id)).map((skin) => skin.id));
+    expect(ids(html)).toHaveLength(SKINS.length);
   });
 
   it("keeps Local VM, channel turns, experimental, and diagnostics inside the folded Advanced body", () => {

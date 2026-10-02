@@ -10,6 +10,15 @@ import { KeyboardShortcuts } from "./KeyboardShortcuts";
 describe("KeyboardShortcuts", () => {
   afterEach(() => persistPreference("en"));
 
+  it("lists Toggle Model index once with both key combos", () => {
+    const html = renderToStaticMarkup(
+      createElement(I18nProvider, null, createElement(KeyboardShortcuts)),
+    );
+
+    expect(html.match(/>Toggle Model index</g)).toHaveLength(1);
+    expect(html).toContain('aria-label="Alt + I / Ctrl + Shift + M"');
+  });
+
   it("keeps the compact set while hiding low-value help rows", () => {
     persistPreference("en");
     const html = renderToStaticMarkup(

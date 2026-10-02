@@ -6,9 +6,10 @@
 // drift from what picking it actually does.
 import { useEffect, useState } from "react";
 import { Check } from "lucide-react";
-import { SKINS, SKIN_CHANGE_EVENT, applySkin, readSkin, type SkinId } from "@/lib/skins";
+import { LIGHT_SKIN_IDS, SKINS, SKIN_CHANGE_EVENT, applySkin, readSkin, type SkinId } from "@/lib/skins";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
+import { Section } from "./SettingsPrimitives";
 
 /**
  * The app's own layout at roughly 1/14 scale: rail, sidebar with a selected
@@ -83,42 +84,53 @@ export function SkinPicker() {
     return () => window.removeEventListener(SKIN_CHANGE_EVENT, onChange);
   }, []);
 
+  const groups = [
+    { key: "settings.skin.dark", skins: SKINS.filter((skin) => !LIGHT_SKIN_IDS.has(skin.id)) },
+    { key: "settings.skin.light", skins: SKINS.filter((skin) => LIGHT_SKIN_IDS.has(skin.id)) },
+  ] as const;
+
   return (
-    // Four columns on a wide settings card. Five columns left a leftover
-    // trio once the dark skins joined the set; wrapping a short last row
-    // is better than shrinking the miniatures.
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      {SKINS.map((skin) => {
-        const selected = skin.id === active;
-        return (
-          <button
-            key={skin.id}
-            type="button"
-            onClick={() => {
-              applySkin(skin.id);
-              setActive(skin.id);
-            }}
-            aria-pressed={selected}
-            className={cn(
-              "flex flex-col gap-2 rounded-xl border p-2 text-left transition-colors",
-              selected
-                ? "border-accent-border bg-control"
-                : "border-hairline/60 hover:border-hairline hover:bg-control/50",
-            )}
-          >
-            <Miniature skin={skin.id} />
-            <div className="flex items-start gap-1.5 px-0.5 pb-0.5">
-              <div className="min-w-0 flex-1">
-                <div className="text-[13px] font-medium text-ink">{skin.name}</div>
-                <div className="mt-0.5 text-[11px] leading-snug text-ink-secondary">
-                  {t(`settings.skin.${skin.id}.tagline`)}
-                </div>
-              </div>
-              {selected && <Check size={13} className="mt-0.5 shrink-0 text-accent-text" />}
-            </div>
-          </button>
-        );
-      })}
+    <div className="flex flex-col gap-4">
+      {groups.map(({ key, skins }) => (
+        <Section key={key} title={t(key)}>
+          {/* Four columns on a wide settings card. Five columns left a leftover
+              trio once the dark skins joined the set; wrapping a short last row
+              is better than shrinking the miniatures. */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {skins.map((skin) => {
+              const selected = skin.id === active;
+              return (
+                <button
+                  key={skin.id}
+                  type="button"
+                  onClick={() => {
+                    applySkin(skin.id);
+                    setActive(skin.id);
+                  }}
+                  aria-pressed={selected}
+                  className={cn(
+                    "flex flex-col gap-2 rounded-xl border p-2 text-left transition-colors",
+                    selected
+                      ? "border-accent-border bg-control"
+                      : "border-hairline/60 hover:border-hairline hover:bg-control/50",
+                  )}
+                >
+                  <Miniature skin={skin.id} />
+                  <div className="flex items-start gap-1.5 px-0.5 pb-0.5">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] font-medium text-ink">{skin.name}</div>
+                      <div className="mt-0.5 text-[11px] leading-snug text-ink-secondary">
+                        {t(`settings.skin.${skin.id}.tagline`)}
+                      </div>
+                    </div>
+                    {selected && <Check size={13} className="mt-0.5 shrink-0 text-accent-text" />}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </Section>
+      ))}
     </div>
   );
 }

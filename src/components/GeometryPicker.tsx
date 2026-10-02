@@ -7,7 +7,7 @@ export function GeometryPicker() {
   const { t } = useI18n();
   const [geometry, setGeometry] = useState(readGeometry);
   return (
-    <div className="flex shrink-0 gap-0.5 rounded-lg border border-hairline/50 bg-inset p-0.5" role="group" aria-label={t("settings.shape.title")}>
+    <div className="flex shrink-0 gap-0.5 rounded-lg border border-hairline/50 bg-inset p-0.5" role="group" aria-label={t("settings.shape.title")} title={t("settings.shape.title")}>
       {(["soft", "boxy"] as const).map((value: Geometry) => (
         <button
           key={value}

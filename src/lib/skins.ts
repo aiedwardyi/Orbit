@@ -118,6 +118,18 @@ export const SKINS: readonly Skin[] = [
   { id: "folio", name: "Folio", tagline: "Dark gray pages, serif type, muted gold." },
 ];
 
+/** Must match electron/skin-overlay.cjs; skins.test.ts pins it. */
+export const LIGHT_SKIN_IDS: ReadonlySet<SkinId> = new Set<SkinId>([
+  "atelier",
+  "lagoon",
+  "ledger",
+  "notebook",
+  "messenger",
+  "code-review",
+  "blueprint",
+  "wink-day",
+]);
+
 export const DEFAULT_SKIN: SkinId = "precision";
 
 // Fired after applySkin() so anything showing the current skin elsewhere

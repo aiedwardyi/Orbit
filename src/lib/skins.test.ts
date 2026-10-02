@@ -5,7 +5,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SKINS, SKIN_IDS, DEFAULT_SKIN, applySkin, readSkin } from "./skins";
+import { createRequire } from "node:module";
+import { SKINS, SKIN_IDS, DEFAULT_SKIN, LIGHT_SKIN_IDS, applySkin, readSkin } from "./skins";
 import { terminalTheme } from "./terminal-appearance";
 
 const css = readFileSync(
@@ -1303,6 +1304,13 @@ describe("skin persistence", () => {
     expect(readSkin()).toBe("tui-slate");
     store.set("omb-skin", "tui-vga");
     expect(readSkin()).toBe("tui-smoke");
+  });
+
+  it("lists the same light skins as the desktop overlay", () => {
+    const { skinThemeSource } = createRequire(import.meta.url)("../../electron/skin-overlay.cjs");
+    for (const id of SKIN_IDS) {
+      expect(LIGHT_SKIN_IDS.has(id) ? "light" : "dark", id).toBe(skinThemeSource(id));
+    }
   });
 
   it("stamps the skin before React mounts", () => {

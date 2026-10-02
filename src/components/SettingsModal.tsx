@@ -39,7 +39,7 @@ import { PhoneNotificationSettings } from "./PhoneNotificationSettings";
 import { RoomTurnTimeoutSettings } from "./RoomTurnTimeoutSettings";
 import { TranscriptionSettings } from "./TranscriptionSettings";
 import { loadSidebarSide, saveSidebarSide, type SidebarSide } from "@/lib/sidebar-preferences";
-import { saveVibration, vibrationEnabled } from "@/lib/phone-swipe";
+import { isPhone, saveVibration, vibrationEnabled } from "@/lib/phone-swipe";
 import { saveRainbowBox, useRainbowBox } from "@/lib/rainbow-box";
 import { saveTerminalPopups, useTerminalPopups } from "@/lib/terminal-popups";
 import { cn } from "@/lib/cn";
@@ -196,7 +196,7 @@ function SidebarSideRow() {
   const { t } = useI18n();
   const [side, setSide] = useState<SidebarSide>(() => loadSidebarSide());
   return (
-    <Card title={t("settings.sidebarSide.title")} compact>
+    <Card title={t("settings.sidebarSide.title")}>
       <div role="radiogroup" aria-label={t("settings.sidebarSide.title")} className="flex gap-1 rounded-lg bg-inset p-0.5">
         {SIDEBAR_SIDE_OPTIONS.map((option) => {
           const selected = side === option;
@@ -224,6 +224,7 @@ function SidebarSideRow() {
 function VibrationRow() {
   const { t } = useI18n();
   const [on, setOn] = useState(() => vibrationEnabled());
+  if (!isPhone() || !window.navigator?.vibrate) return null;
   return (
     <Card title={t("settings.vibration.title")}>
       <div className="flex items-center justify-between gap-4">
@@ -269,6 +270,7 @@ function NotificationsRow() {
           <span className={cnKnob(on)} />
         </button>
       </div>
+      <PhoneNotificationSettings />
     </Card>
   );
 }
@@ -594,14 +596,14 @@ export function SettingsModal({
             {section === "general" && (
               <>
                 <LanguagePicker />
-                <Card title={t("settings.profile.title")} subtitle={t("settings.profile.subtitle")} compact>
+                <SidebarSideRow />
+                <Card title={t("settings.profile.title")} subtitle={t("settings.profile.subtitle")}>
                   <ProfileFields />
                 </Card>
-                <ToolCallsRow />
                 <TerminalAppearanceRow />
-                <VibrationRow />
+                <ToolCallsRow />
                 <NotificationsRow />
-                <SidebarSideRow />
+                <VibrationRow />
                 <UpdatesRow />
                 {showSettingsAdvancedSection() && (
                   <>
@@ -648,7 +650,6 @@ export function SettingsModal({
                   <EnginesSettings />
                   <SavedKeys />
                   <PhoneLinkSettings />
-                  <PhoneNotificationSettings />
                   {showSettingsMoreServicesSection() && (
                     <>
                   <button

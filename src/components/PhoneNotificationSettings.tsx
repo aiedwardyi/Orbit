@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 
 import { useI18n } from "@/lib/i18n";
 import { disableWebPush, enableWebPush, readWebPushState, testWebPush, type WebPushState } from "@/lib/web-push";
-import { Section } from "./SettingsPrimitives";
 
 export function PhoneNotificationSettings() {
   const { t } = useI18n();
@@ -41,8 +40,12 @@ export function PhoneNotificationSettings() {
 
   const button = "rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-control/70 disabled:cursor-not-allowed disabled:opacity-50";
   return (
-    <Section title={t("settings.phoneNotifications.title")} subtitle={t("settings.phoneNotifications.help")}>
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="mt-4 border-t border-hairline/30 pt-4">
+      <div className="text-[14px] font-medium text-ink">{t("settings.phoneNotifications.title")}</div>
+      <div className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">
+        {t("settings.phoneNotifications.help")}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         <span data-web-push-state={state} className="min-w-0 flex-1 text-[13px] text-ink-secondary">
           {t(`settings.phoneNotifications.state.${state}`)}
         </span>
@@ -92,6 +95,6 @@ export function PhoneNotificationSettings() {
           {note.message}
         </p>
       ) : null}
-    </Section>
+    </div>
   );
 }

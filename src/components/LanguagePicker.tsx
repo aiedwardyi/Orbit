@@ -10,7 +10,7 @@ export function LanguagePicker() {
   const { t, preference, setPreference } = useI18n();
   const hintId = "language-match-system-hint";
   return (
-    <Card title={t("language.title")} compact>
+    <Card title={t("language.title")}>
       <div role="radiogroup" aria-label={t("language.title")} className="flex gap-1 rounded-lg bg-inset p-0.5">
         {OPTIONS.map((id) => {
           const selected = preference === id;
