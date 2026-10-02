@@ -19,7 +19,14 @@ const MODELS = new Map<string, string[]>(Object.entries({
   grokAgent: ["grok-4.7", "grok-4.6"],
   museAgent: ["muse-spark-1.3", "muse-spark-1.3-contributor"],
 }));
+const GEMINI_VERSIONS = ["3.8", "3.7"];
 const RETIRED_ENGINE_KINDS = new Set(["geminiAgent"]);
+
+/** Every model the picker grid offers; Gemini ids drop their -high/-medium/-low suffix. */
+export const PICKER_MODEL_IDS: readonly string[] = [
+  ...[...MODELS.values()].flat(),
+  ...GEMINI_VERSIONS.map((version) => `gemini-${version}-flash`),
+];
 
 export function pickerRows(instances: InstanceInfo[], current: ModelSelection, preview = current): PickerRow[] {
   const ordered: Array<{ instance: InstanceInfo; label: string }> = ENGINES.flatMap(([kind, label]) => instances
@@ -51,7 +58,7 @@ export function pickerRows(instances: InstanceInfo[], current: ModelSelection, p
     });
     let cells: PickerCell[];
     if (instance.driverKind === "antigravityAgent") {
-      cells = ["3.8", "3.7"].flatMap((version) => {
+      cells = GEMINI_VERSIONS.flatMap((version) => {
         const options = catalog.filter((option) => new RegExp(`^gemini-${version.replace(".", "\\.")}-flash-(high|medium|low)$`).test(option.id));
         return options.length ? [{ label: `Gemini ${version} Flash`, options }] : [];
       });

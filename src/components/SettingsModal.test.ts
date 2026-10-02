@@ -267,7 +267,7 @@ describe("SettingsModal friends chrome", () => {
     expect(block.indexOf('id: "models-index"')).toBeGreaterThan(block.indexOf('id: "usage"'));
     const html = markup("models-index");
     expect(html).toContain('aria-keyshortcuts="Alt+I"');
-    expect(html).toContain("Ctrl+Shift+M");
+    expect(html).not.toContain("Ctrl+Shift+M");
     expect(html).toContain("Data as of");
   });
 

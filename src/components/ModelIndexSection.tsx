@@ -1,5 +1,5 @@
 // App settings → Model index (experimental): lab-published benchmark scores
-// against cost, per model and effort, so picking a model never needs a web
+// against price, per model and effort, so picking a model never needs a web
 // search. Numbers come only from shared/model-index-data.ts; nothing is fetched.
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "@/state/store";
@@ -10,6 +10,8 @@ import {
   CHART_PROVIDERS,
   chartProvider,
   effortRank,
+  formatPrice,
+  formatUsd,
   indexView,
   linearTicks,
   logTicks,
@@ -34,6 +36,7 @@ type OnHover = (key: string | null, el?: Element, avoid?: Avoid) => void;
 type Translate = ReturnType<typeof useI18n>["t"];
 
 const INDEXES = scoredIndexes();
+const MARKS = markUniverse();
 
 const INDEX_KEY: Record<ModelIndexKey, MessageKey> = {
   intelligence: "modelIndex.index.intelligence",
@@ -78,6 +81,8 @@ const MODEL_SHAPE = modelShapes(SHAPES.length);
 const shapeOf = (model: string) => SHAPES[MODEL_SHAPE.get(model) ?? 0]!;
 
 const ROW = 26;
+// Models at one list price sit this far apart instead of sharing a vertical line.
+const DODGE = 8;
 const MARGIN = { top: 30, right: 16, bottom: 46, left: 44 };
 // Every line keeps a fixed point count so CSS can morph its `d` between tabs.
 const LINE_SLOTS = 6;
@@ -91,17 +96,12 @@ const labName = (provider: string) => {
   return slot === "other" ? provider : PROVIDER_NAME[slot];
 };
 const shortLabel = (label: string) => label.replace(/^Claude /, "");
-const formatCost = (usd: number) =>
-  usd >= 100 ? `$${Math.round(usd).toLocaleString("en-US")}` : `$${usd.toFixed(usd < 10 ? 2 : 1)}`;
-const formatCostShort = (usd: number) =>
-  usd >= 1000 ? `$${Number((usd / 1000).toFixed(usd < 10_000 ? 1 : 0))}k` : formatCost(usd);
-const formatCostTick = (usd: number) => (usd >= 1000 ? `$${usd / 1000}k` : `$${usd}`);
-const formatValue = (index: ModelIndexKey, value: number) =>
-  index === "cost"
-    ? formatCostShort(value)
+const formatValue = (index: ModelIndexKey, point: ModelIndexPoint) =>
+  index === "cost" && point.price
+    ? formatPrice(point.price)
     : index === "general"
-      ? Math.round(value).toLocaleString("en-US")
-      : `${value.toFixed(1)}${PERCENT.has(index) ? "%" : ""}`;
+      ? Math.round(point.score).toLocaleString("en-US")
+      : `${point.score.toFixed(1)}${PERCENT.has(index) ? "%" : ""}`;
 const unitOf = (index: ModelIndexKey) => (PERCENT.has(index) ? "%" : index === "general" ? "elo" : "pts");
 const formatTick = (unit: string, value: number) =>
   unit === "elo" ? value.toLocaleString("en-US") : `${value}${unit === "%" ? "%" : ""}`;
@@ -402,12 +402,17 @@ function Scatter({
   const dots = useRef(new Map<string, Element>());
   const gradient = `mi-best${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   const yItems = yTicks.map((tick) => ({ key: `${unit}:${tick}`, label: formatTick(unit, tick), at: y(tick) }));
-  const xItems = xTicks.map((tick) => ({ key: String(tick), label: formatCostTick(tick), at: x(tick) }));
+  const xItems = xTicks.map((tick) => ({ key: String(tick), label: `$${tick}`, at: x(tick) }));
   const yLeaving = useLeaving(yItems);
   const xLeaving = useLeaving(xItems);
   const titleLeaving = useLeaving([{ key: title }]);
 
-  const at = new Map(plotted.map((point) => [point.key, { x: x(point.cost!), y: y(point.score) }]));
+  const shift = new Map<string, number>();
+  for (const cost of new Set(costs)) {
+    const tied = [...new Set(plotted.filter((point) => point.cost === cost).map((point) => point.model))].sort();
+    tied.forEach((model, i) => shift.set(model, (i - (tied.length - 1) / 2) * DODGE));
+  }
+  const at = new Map(plotted.map((point) => [point.key, { x: x(point.cost!) + shift.get(point.model)!, y: y(point.score) }]));
   const lab = new Set(plotted.filter((point) => point.reported === "lab").map((point) => point.key));
   const byModel = new Map<string, ModelIndexPoint[]>();
   for (const point of plotted) byModel.set(point.model, [...(byModel.get(point.model) ?? []), point]);
@@ -427,7 +432,7 @@ function Scatter({
   const frontier = paretoFrontier(plotted).map((point) => at.get(point.key)!);
   const labels = placeLabels(
     [...byModel.values()]
-      .sort((a, b) => Number(b[0]!.wink) - Number(a[0]!.wink) || Math.max(...b.map((p) => p.score)) - Math.max(...a.map((p) => p.score)))
+      .sort((a, b) => Math.max(...b.map((p) => p.score)) - Math.max(...a.map((p) => p.score)))
       .map((list) => ({
         id: list[0]!.model,
         text: shortLabel(list[0]!.label),
@@ -530,7 +535,7 @@ function Scatter({
               strokeDasharray={list.some((point) => lab.has(point.key)) ? "2.5 2.5" : undefined}
               style={{
                 stroke: color(mark.provider),
-                opacity: list.length > 1 ? (mark.wink ? 0.8 : 0.3) : 0,
+                opacity: list.length > 1 ? 0.8 : 0,
                 d: `path("${padPath(list.length ? list.map((point) => at.get(point.key)!) : [rest(mark)], LINE_SLOTS)}")`,
               } as React.CSSProperties}
             />
@@ -547,7 +552,7 @@ function Scatter({
               data-mi-move
               style={{
                 transform: `translate(${px}px, ${py}px)`,
-                opacity: spot ? (mark.wink ? 1 : 0.4) : 0,
+                opacity: spot ? 1 : 0,
                 pointerEvents: spot ? undefined : "none",
               }}
             >
@@ -641,7 +646,7 @@ function Scatter({
                 strokeLinejoin: "round",
                 paintOrder: "stroke",
                 transform: `translate(${lx}px, ${ly}px)`,
-                opacity: label ? (mark.wink ? 0.92 : 0.5) : 0,
+                opacity: label ? 0.92 : 0,
               }}
             >
               {shortLabel(mark.label)}
@@ -664,7 +669,7 @@ function Bars({
   index: ModelIndexKey;
   onHover: OnHover;
 }) {
-  // Cost ranks cheapest first; every score ranks best first.
+  // Cost ranks cheapest blended price first; every score ranks best first.
   const ranked = [...points].sort((a, b) => (index === "cost" ? a.score - b.score : b.score - a.score));
   const rank = new Map(ranked.map((point, i) => [point.key, i]));
   const byKey = new Map(points.map((point) => [point.key, point]));
@@ -688,13 +693,13 @@ function Bars({
             style={{
               height: ROW,
               transform: `translateY(${(rank.get(mark.key) ?? ranked.length) * ROW}px)`,
-              opacity: point ? (mark.wink ? 1 : 0.5) : 0,
+              opacity: point ? 1 : 0,
               pointerEvents: point ? undefined : "none",
             }}
           >
             <div className="flex w-[40%] min-w-0 shrink-0 items-center justify-end gap-1.5 text-[12px]">
-              <span className={cn("truncate", mark.wink ? "font-medium text-ink" : "text-ink-secondary")}>{mark.label}</span>
-              <span className="shrink-0 text-[11px] text-ink-secondary">{mark.effort}</span>
+              <span className="truncate font-medium text-ink">{mark.label}</span>
+              {mark.effort !== "all" && <span className="shrink-0 text-[11px] text-ink-secondary">{mark.effort}</span>}
               <Shape provider={mark.provider} model={mark.model} hollow={hollow} />
             </div>
             <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -702,14 +707,12 @@ function Bars({
                 data-mi-bar
                 className="h-3.5 rounded-r-[4px]"
                 style={{
-                  width: `calc((100% - 4rem) * ${point ? point.score / max : 0})`,
+                  width: `calc((100% - ${index === "cost" ? 5.5 : 4}rem) * ${point ? point.score / max : 0})`,
                   backgroundColor: hollow ? `color-mix(in srgb, ${color(mark.provider)} 16%, transparent)` : color(mark.provider),
                   boxShadow: hollow ? `inset 0 0 0 1.5px ${color(mark.provider)}` : undefined,
                 }}
               />
-              <span className={cn("shrink-0 text-[12px] tabular-nums", mark.wink ? "text-ink" : "text-ink-secondary")}>
-                {point ? formatValue(index, point.score) : ""}
-              </span>
+              <span className="shrink-0 text-[12px] tabular-nums text-ink">{point ? formatValue(index, point) : ""}</span>
             </div>
           </div>
         );
@@ -724,26 +727,35 @@ export function ModelIndexSection() {
   const catalog = useMemo(() => winkCatalog(state.instances ?? []), [state.instances]);
   const [index, setIndex] = useState<ModelIndexKey>(INDEXES[0] ?? "intelligence");
   const [view, setView] = useState<View>("scatter");
-  const [showAll, setShowAll] = useState(false);
   const [hover, setHover] = useState<Hover | null>(null);
   const [place, setPlace] = useState<{ key: string; left: number; top: number } | null>(null);
   const [wrapRef, width] = useWidth();
   const tipRef = useRef<HTMLDivElement>(null);
 
-  // Before the engine list arrives nothing counts as "yours", so show everything.
-  const all = showAll || catalog.length === 0;
   const shown = index === "cost" ? "bars" : view;
   const { points, missing } = useMemo(() => indexView(index, catalog), [index, catalog]);
-  const marks = useMemo(() => markUniverse(catalog).filter((mark) => all || mark.wink), [catalog, all]);
-  const visible = points.filter((point) => all || point.wink);
-  const noCost = shown === "scatter" ? visible.filter((point) => !point.cost).length : 0;
-  const providers = CHART_PROVIDERS.filter((provider) => visible.some((point) => chartProvider(point.provider) === provider));
-  const sources = [...new Map(visible.map((point) => [point.source, point])).values()];
-  const hovered = hover ? visible.find((point) => point.key === hover.key) : undefined;
-  const labShown = visible.some((point) => point.reported === "lab");
-  const frontier = shown === "scatter" && paretoFrontier(visible).length > 1;
-  const charted = shown === "scatter" ? visible.filter((point) => point.cost) : visible;
+  const noCost = shown === "scatter" ? points.filter((point) => !point.cost).length : 0;
+  const providers = CHART_PROVIDERS.filter((provider) => points.some((point) => chartProvider(point.provider) === provider));
+  const sources = [...new Map(points.map((point) => [point.source, point])).values()];
+  const hovered = hover ? points.find((point) => point.key === hover.key) : undefined;
+  const labShown = points.some((point) => point.reported === "lab");
+  const frontier = shown === "scatter" && paretoFrontier(points).length > 1;
+  const charted = shown === "scatter" ? points.filter((point) => point.cost) : points;
   const lines = shown === "scatter" && new Set(charted.map((point) => point.model)).size < charted.length;
+
+  useEffect(() => {
+    // Capture phase, so a focused terminal never sees the keystroke.
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey || e.code !== "KeyI") return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.repeat || e.isComposing) return;
+      setHover(null);
+      setIndex((current) => INDEXES[(INDEXES.indexOf(current) + 1) % INDEXES.length]!);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
 
   const onHover: OnHover = (key, el, avoid) => {
     const wrap = wrapRef.current;
@@ -766,15 +778,23 @@ export function ModelIndexSection() {
       <p className="text-[13px] leading-relaxed text-ink-secondary">{t("modelIndex.subtitle")}</p>
       <div className="rounded-xl border border-hairline/40 bg-card shadow-sm">
         <div className="flex flex-col gap-2.5 p-4 pb-3">
-          <Segmented
-            label={t("modelIndex.indexLabel")}
-            value={index}
-            options={INDEXES.map((id) => ({ id, label: t(INDEX_KEY[id]) }))}
-            onChange={(id) => {
-              setHover(null);
-              setIndex(id);
-            }}
-          />
+          <div className="flex min-w-0 items-center gap-3">
+            <Segmented
+              label={t("modelIndex.indexLabel")}
+              value={index}
+              options={INDEXES.map((id) => ({ id, label: t(INDEX_KEY[id]) }))}
+              onChange={(id) => {
+                setHover(null);
+                setIndex(id);
+              }}
+            />
+            <kbd
+              aria-label={t("shortcuts.modelsIndexCycle")}
+              className="shrink-0 font-mono text-[10px] tracking-wide text-ink-secondary/55 max-md:hidden"
+            >
+              Alt+Shift+I
+            </kbd>
+          </div>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <Segmented<View>
               label={t("modelIndex.viewLabel")}
@@ -789,35 +809,22 @@ export function ModelIndexSection() {
               }}
               disabled={(id) => id === "scatter" && index === "cost"}
             />
-            {catalog.length > 0 && (
-              <button
-                type="button"
-                aria-pressed={showAll}
-                onClick={() => setShowAll(!showAll)}
-                className={cn(
-                  "rounded-lg border px-2.5 py-1 text-[12.5px] transition-colors",
-                  showAll ? "border-accent-border/60 bg-control text-ink" : "border-hairline/60 text-ink-secondary hover:text-ink",
-                )}
-              >
-                {t("modelIndex.showAll")}
-              </button>
-            )}
           </div>
         </div>
 
         <div className="px-4 pb-4">
-          {shown === "bars" && visible.length > 0 && (
+          {shown === "bars" && points.length > 0 && (
             <div className="mb-2 text-[11.5px] font-medium text-ink-secondary">{t(AXIS_KEY[index])}</div>
           )}
           <div ref={wrapRef} className="relative min-w-0">
-            {visible.length === 0 ? (
+            {points.length === 0 ? (
               <p className="py-10 text-center text-[13px] text-ink-secondary">{t("modelIndex.empty")}</p>
             ) : (
               <div key={shown} data-mi-view>
                 {shown === "scatter" ? (
-                  <Scatter index={index} marks={marks} points={visible} width={width} hover={hover?.key ?? null} onHover={onHover} t={t} />
+                  <Scatter index={index} marks={MARKS} points={points} width={width} hover={hover?.key ?? null} onHover={onHover} t={t} />
                 ) : (
-                  <Bars marks={marks} points={visible} index={index} onHover={onHover} />
+                  <Bars marks={MARKS} points={points} index={index} onHover={onHover} />
                 )}
               </div>
             )}
@@ -831,20 +838,18 @@ export function ModelIndexSection() {
                 <div className="flex items-center gap-1.5 text-ink">
                   <Shape provider={hovered.provider} model={hovered.model} hollow={hovered.reported === "lab"} />
                   <span className="truncate font-medium">{hovered.label}</span>
-                  <span className="shrink-0 rounded bg-inset px-1.5 text-[11px] text-ink-secondary">{hovered.effort}</span>
+                  {hovered.effort !== "all" && (
+                    <span className="shrink-0 rounded bg-inset px-1.5 text-[11px] text-ink-secondary">{hovered.effort}</span>
+                  )}
                 </div>
                 <div className="mt-1 flex items-baseline gap-2">
-                  <span className="text-[17px] font-semibold leading-tight text-ink">
-                    {index === "cost" ? formatCost(hovered.score) : formatValue(index, hovered.score)}
-                  </span>
-                  <span className="truncate text-ink-secondary">{t(INDEX_KEY[index])}</span>
+                  <span className="shrink-0 text-[17px] font-semibold leading-tight text-ink">{formatValue(index, hovered)}</span>
+                  <span className="truncate text-ink-secondary">{t(index === "cost" ? "modelIndex.tooltip.cost" : INDEX_KEY[index])}</span>
                 </div>
-                {index !== "cost" && (
-                  <div className="mt-1 flex justify-between gap-3 tabular-nums">
-                    <span className="text-ink-secondary">{t("modelIndex.tooltip.cost")}</span>
-                    <span className="text-ink">{hovered.cost ? formatCost(hovered.cost) : "-"}</span>
-                  </div>
-                )}
+                <div className="mt-1 flex justify-between gap-3 tabular-nums">
+                  <span className="text-ink-secondary">{t(index === "cost" ? "modelIndex.tooltip.blended" : "modelIndex.tooltip.cost")}</span>
+                  <span className="text-ink">{index === "cost" ? formatUsd(hovered.score) : hovered.price ? formatPrice(hovered.price) : "-"}</span>
+                </div>
                 <p className="mt-1.5 border-t border-hairline/40 pt-1.5 text-[11px] leading-snug text-ink-secondary">
                   {t("modelIndex.tooltip.source")}: {hovered.sourceLabel} · {hovered.date}
                 </p>
@@ -892,7 +897,6 @@ export function ModelIndexSection() {
                   {t("modelIndex.hollow")}
                 </span>
               )}
-              {showAll && <span>{t("modelIndex.faded")}</span>}
             </div>
             {noCost > 0 && <p>{t("modelIndex.noCost", { count: noCost })}</p>}
           </div>

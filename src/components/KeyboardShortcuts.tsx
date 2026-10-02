@@ -16,6 +16,7 @@ export function KeyboardShortcuts() {
       ["shortcuts.usageRefresh", [alt, "R"]],
       ["shortcuts.modelsIndex", [alt, "I"]],
       ["shortcuts.modelsIndex", ["Ctrl", "Shift", "M"]],
+      ["shortcuts.modelsIndexCycle", [alt, "Shift", "I"]],
     ] },
     { title: "shortcuts.chat", rows: [
       ["shortcuts.model", [alt, "M"]],

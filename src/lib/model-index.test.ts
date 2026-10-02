@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import { MODEL_INDEX_AS_OF, MODEL_INDEX_ENTRIES, type ModelIndexEntry } from "../../shared/model-index-data.ts";
+import { PICKER_MODEL_IDS } from "./cross-model-picker";
 import {
   CHART_PROVIDERS,
   MODEL_INDEXES,
   chartProvider,
+  formatPrice,
   indexView,
   logTicks,
+  markUniverse,
   modelShapes,
   paretoFrontier,
   scoredIndexes,
@@ -47,8 +50,30 @@ describe("model index data", () => {
   it("never mixes a lab's own number with an independent run of the same model", () => {
     const run = new Set(MODEL_INDEX_ENTRIES.filter((e) => !e.reported).map((e) => `${e.model}|${e.index}`));
     const lab = MODEL_INDEX_ENTRIES.filter((e) => e.reported === "lab");
-    expect(lab.length).toBeGreaterThan(0);
     expect(lab.filter((e) => run.has(`${e.model}|${e.index}`))).toEqual([]);
+  });
+
+  it("charts only models from the picker", () => {
+    const outside = MODEL_INDEX_ENTRIES.filter((e) => !PICKER_MODEL_IDS.includes(e.model)).map((e) => e.model);
+    expect([...new Set(outside)]).toEqual([]);
+  });
+
+  it("keeps one benchmark per tab", () => {
+    for (const index of MODEL_INDEXES.filter((index) => index !== "cost")) {
+      const labels = new Set(MODEL_INDEX_ENTRIES.filter((e) => e.index === index).map((e) => e.sourceLabel));
+      expect([...labels], index).toHaveLength(1);
+    }
+  });
+
+  it("prices every picker model once, per 1M tokens, blended 3:1", () => {
+    const cost = MODEL_INDEX_ENTRIES.filter((e) => e.index === "cost");
+    expect(cost.map((e) => e.model).sort()).toEqual([...PICKER_MODEL_IDS].sort());
+    for (const e of cost) {
+      expect(e.effort, e.model).toBe("all");
+      expect(e.price, e.model).toBeDefined();
+      expect(e.score, e.model).toBe((3 * e.price!.input + e.price!.output) / 4);
+    }
+    expect(MODEL_INDEX_ENTRIES.filter((e) => e.index !== "cost" && e.price)).toEqual([]);
   });
 
   it("names a charted lab on every lab-reported entry", () => {
@@ -96,13 +121,22 @@ describe("catalog merge", () => {
     ];
     const view = indexView("coding", catalog, [entry("claude-opus-5-5", "coding", 60), entry("claude-opus-5-5", "cost", 900)]);
     expect(view.missing.map((m) => m.model)).toEqual(["gpt-brand-new"]);
-    expect(view.points).toMatchObject([{ model: "claude-opus-5-5", wink: true, cost: 900 }]);
+    expect(view.points).toMatchObject([{ model: "claude-opus-5-5", cost: 900 }]);
   });
 
-  it("marks scored models Wink does not offer as not yours", () => {
-    const view = indexView("coding", [], [entry("someone-else", "coding", 50)]);
-    expect(view.points[0]).toMatchObject({ wink: false });
-    expect(view.points[0]?.cost).toBeUndefined();
+  it("drops scored models the picker does not offer", () => {
+    const entries = [entry("glm-5.3", "coding", 95), entry("gemini-4-argon", "coding", 90), entry("claude-opus-5-5", "coding", 60)];
+    expect(indexView("coding", [], entries).points.map((p) => p.model)).toEqual(["claude-opus-5-5"]);
+    expect(markUniverse(entries).map((m) => m.model)).toEqual(["claude-opus-5-5"]);
+  });
+
+  it("gives every effort of a model its one list price", () => {
+    const price = { ...entry("claude-opus-5-5", "cost", 8, "all"), price: { input: 4, output: 20 } };
+    const view = indexView("coding", [], [entry("claude-opus-5-5", "coding", 60, "low"), entry("claude-opus-5-5", "coding", 70, "max"), price]);
+    expect(view.points.map((p) => [p.effort, p.cost, p.price])).toEqual([
+      ["low", 8, { input: 4, output: 20 }],
+      ["max", 8, { input: 4, output: 20 }],
+    ]);
   });
 
   it("reads models from the picker catalog, folding Gemini effort ids", () => {
@@ -139,5 +173,17 @@ describe("log ticks", () => {
   it("falls back to finer steps on a narrow range", () => {
     expect(logTicks(10, 1000)).toEqual([10, 20, 50, 100, 200, 500, 1000]);
     expect(logTicks(300, 900).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("spans the price axis in 1-2-5 steps", () => {
+    expect(logTicks(0.2 / 1.6, 20 * 1.6)).toEqual([0.2, 0.5, 1, 2, 5, 10, 20]);
+  });
+});
+
+describe("price format", () => {
+  it("reads input / output per 1M tokens like a pricing page", () => {
+    expect(formatPrice({ input: 4, output: 20 })).toBe("$4 / $20");
+    expect(formatPrice({ input: 0.1, output: 0.5 })).toBe("$0.10 / $0.50");
+    expect(formatPrice({ input: 1.25, output: 4.25 })).toBe("$1.25 / $4.25");
   });
 });

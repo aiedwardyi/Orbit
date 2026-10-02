@@ -580,11 +580,6 @@ export function SettingsModal({
             </span>
             <div className="ml-auto flex items-center gap-3">
               {section === "themes" && <GeometryPicker />}
-              {section === "models-index" && (
-                <kbd aria-label={t("shortcuts.modelsIndex")} className="font-mono text-[11px] tracking-wide text-ink-secondary">
-                  Ctrl+Shift+M
-                </kbd>
-              )}
               <button
                 onClick={() => dispatch({ type: "toggleAppSettings", open: false })}
                 aria-label={t("settings.close")}
