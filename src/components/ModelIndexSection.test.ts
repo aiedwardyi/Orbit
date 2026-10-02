@@ -102,3 +102,48 @@ describe("score vs cost", () => {
     expect(host.textContent).toContain("Cost to run the AA Intelligence Index");
   });
 });
+
+describe("score vs cost axis", () => {
+  const rebuild = async (width: number) => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(private cb: (entries: unknown[]) => void) {}
+        observe = () => this.cb([{ contentRect: { width } }]);
+        disconnect = () => undefined;
+      },
+    );
+    await act(async () => root.unmount());
+    host.innerHTML = "";
+    root = createRoot(host);
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(ModelIndexSection))));
+  };
+  const ticks = () =>
+    [...host.querySelectorAll<SVGGElement>("g[data-mi-enter]")]
+      .filter((g) => g.querySelector("line")?.hasAttribute("y1") && !g.hasAttribute("data-mi-leave"))
+      .map((g) => ({ label: g.textContent ?? "", x: Number(g.style.transform.match(/translate\(([\d.]+)px/)?.[1]) }));
+  const caption = () => [...host.querySelectorAll("text")].find((el) => el.textContent?.includes("Cost to run"))!;
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("keeps 1-2-5 ticks and a one-line caption at the narrowest desktop width", async () => {
+    await rebuild(454);
+    expect(ticks().map((tick) => tick.label)).toEqual(["$10", "$20", "$50", "$100", "$200", "$500", "$1k", "$2k", "$5k", "$10k", "$20k"]);
+    expect(caption().querySelectorAll("tspan")).toHaveLength(0);
+  });
+
+  it("keeps labels apart and the caption inside the card at phone widths", async () => {
+    for (const width of [320, 360, 376, 420]) {
+      await rebuild(width);
+      const shown = ticks();
+      expect(shown.length, String(width)).toBeGreaterThanOrEqual(2);
+      shown.slice(1).forEach((tick, i) => {
+        const prev = shown[i]!;
+        const half = ((prev.label.length + tick.label.length) * 6) / 2;
+        expect(tick.x - prev.x, `${width}: ${prev.label} ${tick.label}`).toBeGreaterThanOrEqual(half);
+      });
+      const lines = [...caption().querySelectorAll("tspan")].map((line) => line.textContent ?? "");
+      expect(lines.length, String(width)).toBeGreaterThan(1);
+      for (const line of lines) expect(line.length * 6, `${width}: ${line}`).toBeLessThanOrEqual(width - 36);
+    }
+  });
+});

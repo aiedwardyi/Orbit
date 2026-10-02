@@ -175,3 +175,19 @@ export function logTicks(min: number, max: number, steps: readonly number[] = [1
   }
   return ticks.length < 3 && steps.length < 9 ? logTicks(min, max, [1, 2, 3, 4, 5, 6, 7, 8, 9]) : ticks;
 }
+
+/** Thins log ticks (1-2-5, then 1-3, then decades) until neighbouring labels clear each other. */
+export function fitLogTicks(min: number, max: number, plot: number, labelWidth: (usd: number) => number, gap = 8): number[] {
+  const span = Math.log10(max / min);
+  const fits = (ticks: number[]) =>
+    ticks.every((tick, i) => {
+      const prev = ticks[i - 1];
+      return prev === undefined || (Math.log10(tick / prev) / span) * plot >= (labelWidth(prev) + labelWidth(tick)) / 2 + gap;
+    });
+  let ticks: number[] = [];
+  for (const steps of [[1, 2, 5], [1, 3], [1]]) {
+    ticks = logTicks(min, max, steps);
+    if (fits(ticks)) break;
+  }
+  return ticks;
+}

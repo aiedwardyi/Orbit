@@ -14,7 +14,7 @@ import {
   formatUsd,
   indexView,
   linearTicks,
-  logTicks,
+  fitLogTicks,
   markUniverse,
   modelShapes,
   paretoFrontier,
@@ -81,6 +81,7 @@ const MODEL_SHAPE = modelShapes(SHAPES.length);
 const shapeOf = (model: string) => SHAPES[MODEL_SHAPE.get(model) ?? 0]!;
 
 const ROW = 26;
+const CAPTION_LINE = 13;
 const MARGIN = { top: 30, right: 16, bottom: 46, left: 44 };
 // Every line keeps a fixed point count so CSS can morph its `d` between tabs.
 const LINE_SLOTS = 6;
@@ -131,6 +132,16 @@ function measurer(): (text: string) => number {
   if (!ctx) return (text) => text.length * 6;
   ctx.font = `500 10.5px ${getComputedStyle(document.documentElement).fontFamily}`;
   return (text) => ctx.measureText(text).width;
+}
+
+function wrapLines(text: string, max: number, measure: (text: string) => number) {
+  const lines: string[] = [];
+  for (const word of text.split(" ")) {
+    const last = lines[lines.length - 1];
+    if (last !== undefined && measure(`${last} ${word}`) <= max) lines[lines.length - 1] = `${last} ${word}`;
+    else lines.push(word);
+  }
+  return lines;
 }
 
 function useWidth() {
@@ -377,19 +388,21 @@ function Scatter({
   t: Translate;
 }) {
   const [lineFocus, setLineFocus] = useState<string | null>(null);
-  const height = Math.round(Math.min(420, Math.max(300, width * 0.62)));
   const plotted = points.filter((point) => point.cost !== undefined && point.cost > 0);
   const left = MARGIN.left;
   const right = width - MARGIN.right;
   const top = MARGIN.top;
-  const bottom = height - MARGIN.bottom;
+  const measure = measurer();
+  const caption = wrapLines(`${t("modelIndex.axis.cost")} →`, width - 28, (text) => (measure(text) * 11) / 10.5);
+  const height = Math.round(Math.min(420, Math.max(300, width * 0.62))) + (caption.length - 1) * CAPTION_LINE;
+  const bottom = height - (caption.length - 1) * CAPTION_LINE - MARGIN.bottom;
 
   const costs = plotted.map((point) => point.cost!);
   const xMin = costs.length ? Math.min(...costs) / 1.6 : 1;
   const xMax = costs.length ? Math.max(...costs) * 1.6 : 1000;
   const x = (usd: number) =>
     Math.min(right, Math.max(left, left + ((Math.log10(usd) - Math.log10(xMin)) / (Math.log10(xMax) - Math.log10(xMin))) * (right - left)));
-  const xTicks = logTicks(xMin, xMax);
+  const xTicks = fitLogTicks(xMin, xMax, right - left, (usd) => measure(formatCostTick(usd)));
 
   const scores = plotted.map((point) => point.score);
   const lo = scores.length ? Math.min(...scores) : 0;
@@ -497,8 +510,14 @@ function Scatter({
           ↑ {text}
         </text>
       ))}
-      <text x={(left + right) / 2} y={height - 8} textAnchor="middle" className="fill-ink-secondary text-[11px]">
-        {t("modelIndex.axis.cost")} →
+      <text x={(left + right) / 2} y={height - 8 - (caption.length - 1) * CAPTION_LINE} textAnchor="middle" className="fill-ink-secondary text-[11px]">
+        {caption.length > 1
+          ? caption.map((line, i) => (
+              <tspan key={i} x={(left + right) / 2} dy={i ? CAPTION_LINE : 0}>
+                {line}
+              </tspan>
+            ))
+          : caption[0]}
       </text>
       <text
         data-mi-move

@@ -6,6 +6,7 @@ import {
   CHART_PROVIDERS,
   MODEL_INDEXES,
   chartProvider,
+  fitLogTicks,
   formatPrice,
   indexView,
   logTicks,
@@ -218,6 +219,19 @@ describe("log ticks", () => {
 
   it("spans the price axis in 1-2-5 steps", () => {
     expect(logTicks(0.2 / 1.6, 20 * 1.6)).toEqual([0.2, 0.5, 1, 2, 5, 10, 20]);
+  });
+});
+
+describe("fit log ticks", () => {
+  const width = (usd: number) => (usd >= 1000 ? `$${usd / 1000}k` : `$${usd}`).length * 6;
+
+  it("keeps 1-2-5 when the labels fit", () => {
+    expect(fitLogTicks(10, 1000, 400, width)).toEqual([10, 20, 50, 100, 200, 500, 1000]);
+  });
+
+  it("thins to 1-3 then to decades as the plot narrows", () => {
+    expect(fitLogTicks(10, 1000, 160, width)).toEqual([10, 30, 100, 300, 1000]);
+    expect(fitLogTicks(10, 1000, 100, width)).toEqual([10, 100, 1000]);
   });
 });
 
