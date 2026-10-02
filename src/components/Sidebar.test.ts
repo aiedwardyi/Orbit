@@ -1114,6 +1114,7 @@ describe("Sidebar section collapse", () => {
   it("hides collapsed-section bots in the icon rail, keeps the selected one, and counts their unread", async () => {
     window.localStorage.setItem(SIDEBAR_COLLAPSED_SECTIONS_KEY, JSON.stringify(["section:Work"]));
     window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "1");
+    vi.spyOn(HTMLElement.prototype, "animate").mockImplementation(() => new Animation());
     const { host, unmount } = await mount([
       bot("u1"),
       scoped("w1", "Work"),
