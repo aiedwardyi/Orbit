@@ -40,6 +40,7 @@ import { TranscriptionSettings } from "./TranscriptionSettings";
 import { loadSidebarSide, saveSidebarSide, type SidebarSide } from "@/lib/sidebar-preferences";
 import { saveVibration, vibrationEnabled } from "@/lib/phone-swipe";
 import { saveRainbowBox, useRainbowBox } from "@/lib/rainbow-box";
+import { saveTerminalPopups, useTerminalPopups } from "@/lib/terminal-popups";
 import { cn } from "@/lib/cn";
 import { SyncPanel } from "./SyncPanel";
 
@@ -234,6 +235,32 @@ function VibrationRow() {
           aria-checked={on}
           aria-label={t("settings.vibration.aria")}
           onClick={() => { saveVibration(!on); setOn(!on); }}
+          className={cnSwitch(on)}
+        >
+          <span className={cnKnob(on)} />
+        </button>
+      </div>
+    </Card>
+  );
+}
+
+function NotificationsRow() {
+  const { t } = useI18n();
+  const on = useTerminalPopups();
+  return (
+    <Card title={t("settings.notifications.title")}>
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-[14px] font-medium text-ink">{t("settings.notifications.terminal")}</div>
+          <div className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">
+            {t("settings.notifications.terminalHelp")}
+          </div>
+        </div>
+        <button
+          role="switch"
+          aria-checked={on}
+          aria-label={t("settings.notifications.terminal")}
+          onClick={() => saveTerminalPopups(!on)}
           className={cnSwitch(on)}
         >
           <span className={cnKnob(on)} />
@@ -571,6 +598,7 @@ export function SettingsModal({
                 <TerminalAppearanceRow />
                 <SidebarSideRow />
                 <VibrationRow />
+                <NotificationsRow />
                 <UpdatesRow />
                 {showSettingsAdvancedSection() && (
                   <>

@@ -158,6 +158,16 @@ describe("terminal attention routing", () => {
     expect(handler).not.toContain('type: "markUnread"');
   });
 
+  it("marks attention but skips the popup while terminal popups are off", () => {
+    const start = app.indexOf("const offAttention");
+    const end = app.indexOf("}, [dispatch, terminalOpen]);", start);
+    const handler = app.slice(start, end);
+
+    expect(handler).toContain("if (!terminalPopupsEnabled()) return;");
+    expect(handler.indexOf('type: "markTerminalAttention"')).toBeLessThan(handler.indexOf("if (!terminalPopupsEnabled())"));
+    expect(handler.indexOf("if (!terminalPopupsEnabled())")).toBeLessThan(handler.indexOf("buildTerminalNotification"));
+  });
+
   it("carries the exact terminal session through notification clicks", () => {
     expect(app).toContain("buildTerminalNotification(bot, reason, sessionId)");
     expect(app).toContain("terminalAttentionForBot(latestState.current.terminalAttention, target.botId)");

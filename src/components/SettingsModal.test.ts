@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { saveRainbowBox } from "@/lib/rainbow-box";
+import { saveTerminalPopups } from "@/lib/terminal-popups";
 import type { AppSettingsSection } from "@/state/store";
 
 const mock = vi.hoisted(() => ({
@@ -268,6 +269,16 @@ describe("SettingsModal friends chrome", () => {
     const themes = markup("themes");
     expect(themes).toContain("Skin");
     expect(themes).toContain('data-skin="kanagawa"');
+  });
+
+  it("flips the Terminal popups switch on General, off by default", () => {
+    const popupsSwitch = /<button role="switch" aria-checked="(true|false)" aria-label="Terminal popups"/;
+    expect(markup("general")).toContain("Notifications");
+    expect(markup("general").match(popupsSwitch)?.[1]).toBe("false");
+    saveTerminalPopups(true);
+    expect(markup("general").match(popupsSwitch)?.[1]).toBe("true");
+    saveTerminalPopups(false);
+    expect(markup("general").match(popupsSwitch)?.[1]).toBe("false");
   });
 
   it("flips the Rainbow chat box switch on Themes, off by default", () => {

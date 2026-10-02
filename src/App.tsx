@@ -25,6 +25,7 @@ import { isEmptyEngineLaunch } from "@/lib/engine-rail";
 import { showComputerPanelChrome } from "@/lib/friends-chrome";
 import { I18nProvider, useI18n } from "@/lib/i18n";
 import { buildTerminalNotification, showNotification, type NotificationTarget } from "@/lib/notify";
+import { terminalPopupsEnabled } from "@/lib/terminal-popups";
 import { focusComposerOnActivation } from "@/lib/focus-composer";
 import { webPushTarget } from "@/lib/web-push";
 import { usePhoneSwipe } from "@/lib/use-phone-swipe";
@@ -275,6 +276,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       if (handledTerminalAttention.current.has(key) || current.terminalAttention[key]) return;
       handledTerminalAttention.current.add(key);
       dispatch({ type: "markTerminalAttention", botId, sessionId, reason, receivedAt: Date.now() });
+      if (!terminalPopupsEnabled()) return;
       const frame = buildTerminalNotification(bot, reason, sessionId);
       if (!frame) return;
       showNotification(
