@@ -1,42 +1,78 @@
-/* Provider hues are validated all-pairs (colorblind + normal vision) on the
-   light and dark chart surfaces; light-dark() follows the active skin. */
+/* Provider hues are validated all-pairs (colorblind + normal vision, >= 3:1
+   contrast) on the light and dark chart surfaces; light-dark() follows the
+   active skin. */
 .model-index {
-  --mi-anthropic: light-dark(#eda100, #c98500);
-  --mi-openai: #008300;
-  --mi-google: light-dark(#2a78d6, #3987e5);
-  --mi-xai: light-dark(#e87ba4, #d55181);
+  --mi-anthropic: light-dark(#d65a10, #de7019);
+  --mi-openai: light-dark(#17934f, #27af6d);
+  --mi-google: light-dark(#1477db, #4596e6);
+  --mi-xai: light-dark(#d24196, #d34492);
+  --mi-meta: light-dark(#6435c0, #8b59e1);
   --mi-other: #898781;
-  --mi-ease: 360ms cubic-bezier(0.22, 1, 0.36, 1);
+  --mi-ease: 560ms cubic-bezier(0.33, 1, 0.68, 1);
 }
 
 .model-index [data-mi-move] {
   transition: transform var(--mi-ease), opacity var(--mi-ease);
 }
+.model-index [data-mi-paint] {
+  transition: fill var(--mi-ease), stroke var(--mi-ease), stroke-width var(--mi-ease);
+}
 .model-index [data-mi-line] {
   transition: d var(--mi-ease), opacity var(--mi-ease);
 }
 .model-index [data-mi-bar] {
-  transition: width var(--mi-ease);
+  transition: width var(--mi-ease), background-color var(--mi-ease), box-shadow var(--mi-ease);
 }
 .model-index [data-mi-size] {
   transition: height var(--mi-ease);
 }
+.model-index [data-mi-thumb] {
+  transition: transform var(--mi-ease), width var(--mi-ease);
+}
+.model-index [data-mi-pop] {
+  transition: transform 160ms ease-out;
+}
+.model-index [data-mi-focus] {
+  transition: opacity 180ms ease-out;
+}
+.model-index [data-mi-focus="dim"] {
+  opacity: 0.25;
+}
+.model-index [data-mi-leave] {
+  transition: opacity 200ms ease-out, transform 200ms ease-out;
+}
 .model-index [data-mi-enter] {
-  animation: mi-fade var(--mi-ease) both;
+  animation: mi-fade 420ms ease-out 140ms backwards;
+}
+.model-index [data-mi-rise] {
+  animation: mi-rise 420ms ease-out 140ms backwards;
+}
+.model-index [data-mi-view] {
+  animation: mi-rise var(--mi-ease);
 }
 
 @keyframes mi-fade {
   from { opacity: 0; }
 }
+@keyframes mi-rise {
+  from { opacity: 0; transform: translateY(6px); }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .model-index [data-mi-move],
+  .model-index [data-mi-paint],
   .model-index [data-mi-line],
   .model-index [data-mi-bar],
-  .model-index [data-mi-size] {
+  .model-index [data-mi-size],
+  .model-index [data-mi-thumb],
+  .model-index [data-mi-pop],
+  .model-index [data-mi-focus],
+  .model-index [data-mi-leave] {
     transition: none;
   }
-  .model-index [data-mi-enter] {
+  .model-index [data-mi-enter],
+  .model-index [data-mi-rise],
+  .model-index [data-mi-view] {
     animation: none;
   }
 }

@@ -8,9 +8,9 @@ import { pickerModels, pickerRows } from "./cross-model-picker";
 
 export const MODEL_INDEXES: readonly ModelIndexKey[] = ["intelligence", "coding", "agentic", "general", "legal", "cost"];
 
-// Only four hues pass the all-pairs colorblind check for a scatter; every
-// other lab folds into the gray "other" slot and leans on shape + label.
-export const CHART_PROVIDERS = ["anthropic", "openai", "google", "xai", "other"] as const;
+// Five hues pass the all-pairs colorblind and normal-vision checks on both
+// themes; every other lab folds into the gray "other" slot and leans on its label.
+export const CHART_PROVIDERS = ["anthropic", "openai", "google", "xai", "meta", "other"] as const;
 export type ChartProvider = (typeof CHART_PROVIDERS)[number];
 
 const DRIVER_PROVIDER: Record<string, string> = {
@@ -58,6 +58,19 @@ export function winkCatalog(instances: InstanceInfo[]): CatalogModel[] {
   });
 }
 
+/** Benchmarks with at least one published score; an empty one gets no tab. */
+export function scoredIndexes(entries: readonly ModelIndexEntry[] = MODEL_INDEX_ENTRIES): ModelIndexKey[] {
+  return MODEL_INDEXES.filter((index) => entries.some((entry) => entry.index === index));
+}
+
+/** Points no cheaper point beats, cheapest first. Lab-reported numbers stay off it. */
+export function paretoFrontier<T extends Pick<ModelIndexPoint, "cost" | "score" | "reported">>(points: readonly T[]): T[] {
+  const frontier: T[] = [];
+  const priced = points.filter((point) => point.cost && !point.reported).sort((a, b) => a.cost! - b.cost! || b.score - a.score);
+  for (const point of priced) if (!frontier.length || point.score > frontier[frontier.length - 1]!.score) frontier.push(point);
+  return frontier;
+}
+
 function costByKey(entries: readonly ModelIndexEntry[]): Map<string, number> {
   return new Map(entries.filter((entry) => entry.index === "cost").map((entry) => [`${entry.model}:${entry.effort}`, entry.score]));
 }
@@ -83,10 +96,10 @@ export function indexView(
 export function markUniverse(
   catalog: CatalogModel[],
   entries: readonly ModelIndexEntry[] = MODEL_INDEX_ENTRIES,
-): Array<Omit<ModelIndexPoint, "index" | "score" | "source" | "sourceLabel" | "date">> {
+): Array<Omit<ModelIndexPoint, "index" | "score" | "source" | "sourceLabel" | "date" | "reported">> {
   const wink = new Set(catalog.map((model) => model.model));
   const cost = costByKey(entries);
-  const marks = new Map<string, Omit<ModelIndexPoint, "index" | "score" | "source" | "sourceLabel" | "date">>();
+  const marks = new Map<string, Omit<ModelIndexPoint, "index" | "score" | "source" | "sourceLabel" | "date" | "reported">>();
   for (const { provider, model, label, effort } of entries) {
     const key = `${model}:${effort}`;
     if (!marks.has(key)) marks.set(key, { key, provider, model, label, effort, cost: cost.get(key), wink: wink.has(model) });

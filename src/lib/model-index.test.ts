@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { MODEL_INDEX_AS_OF, MODEL_INDEX_ENTRIES, type ModelIndexEntry } from "../../shared/model-index-data.ts";
-import { MODEL_INDEXES, indexView, logTicks, winkCatalog } from "./model-index";
+import { CHART_PROVIDERS, MODEL_INDEXES, indexView, logTicks, paretoFrontier, scoredIndexes, winkCatalog } from "./model-index";
 import type { InstanceInfo } from "@/state/store";
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -32,6 +32,49 @@ describe("model index data", () => {
   it("has no duplicate model + effort + index", () => {
     const keys = MODEL_INDEX_ENTRIES.map((e) => `${e.model}|${e.effort}|${e.index}`);
     expect(keys.filter((key, i) => keys.indexOf(key) !== i)).toEqual([]);
+  });
+
+  it("never mixes a lab's own number with an independent run of the same model", () => {
+    const run = new Set(MODEL_INDEX_ENTRIES.filter((e) => !e.reported).map((e) => `${e.model}|${e.index}`));
+    const lab = MODEL_INDEX_ENTRIES.filter((e) => e.reported === "lab");
+    expect(lab.length).toBeGreaterThan(0);
+    expect(lab.filter((e) => run.has(`${e.model}|${e.index}`))).toEqual([]);
+  });
+
+  it("names a charted lab on every lab-reported entry", () => {
+    const named = CHART_PROVIDERS.filter((provider) => provider !== "other") as readonly string[];
+    for (const e of MODEL_INDEX_ENTRIES.filter((e) => e.reported === "lab")) expect(named, e.model).toContain(e.provider);
+  });
+
+  it("scores every benchmark, so no tab is hidden", () => {
+    expect(scoredIndexes()).toEqual(MODEL_INDEXES);
+  });
+});
+
+describe("empty tabs", () => {
+  it("hides a benchmark with no published scores", () => {
+    expect(scoredIndexes([entry("claude-opus-5-5", "agentic", 66), entry("claude-opus-5-5", "cost", 900)])).toEqual(["agentic", "cost"]);
+    expect(scoredIndexes([])).toEqual([]);
+  });
+});
+
+describe("lab-reported scores", () => {
+  const lab = { ...entry("claude-opus-5-5", "agentic", 66.4, "xhigh"), reported: "lab" as const };
+
+  it("keep their flag through the view", () => {
+    const view = indexView("agentic", [], [lab, entry("gpt-6-astra", "agentic", 57.9), entry("claude-opus-5-5", "cost", 4000, "xhigh")]);
+    expect(view.points.map((p) => [p.model, p.reported])).toEqual([["claude-opus-5-5", "lab"], ["gpt-6-astra", undefined]]);
+  });
+
+  it("stay off the Pareto frontier", () => {
+    const points = [
+      { score: 40, cost: 100 },
+      { score: 38, cost: 200 },
+      { score: 66, cost: 300, reported: "lab" as const },
+      { score: 55, cost: 900 },
+      { score: 70 },
+    ];
+    expect(paretoFrontier(points).map((p) => p.score)).toEqual([40, 55]);
   });
 });
 

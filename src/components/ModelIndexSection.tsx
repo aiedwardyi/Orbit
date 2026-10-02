@@ -1,31 +1,38 @@
 // App settings → Model index (experimental): lab-published benchmark scores
 // against cost, per model and effort, so picking a model never needs a web
 // search. Numbers come only from shared/model-index-data.ts; nothing is fetched.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n-catalog";
 import { cn } from "@/lib/cn";
 import {
   CHART_PROVIDERS,
-  MODEL_INDEXES,
   chartProvider,
   effortRank,
   indexView,
   linearTicks,
   logTicks,
   markUniverse,
+  paretoFrontier,
+  scoredIndexes,
   winkCatalog,
   type ChartProvider,
   type ModelIndexPoint,
 } from "@/lib/model-index";
 import { MODEL_INDEX_AS_OF, type ModelIndexKey } from "../../shared/model-index-data.ts";
-import { Card } from "./SettingsPrimitives";
 import "./ModelIndexSection.css";
 
 type View = "scatter" | "bars";
 type Mark = ReturnType<typeof markUniverse>[number];
-type Hover = { key: string; x: number; y: number };
+type Box = { x: number; y: number; w: number; h: number };
+type Spot = { x: number; y: number };
+type Avoid = { dots: Spot[]; line: Spot[] };
+type Hover = { key: string; box: Box; avoid?: Avoid };
+type OnHover = (key: string | null, el?: Element, avoid?: Avoid) => void;
+type Translate = ReturnType<typeof useI18n>["t"];
+
+const INDEXES = scoredIndexes();
 
 const INDEX_KEY: Record<ModelIndexKey, MessageKey> = {
   intelligence: "modelIndex.index.intelligence",
@@ -36,32 +43,91 @@ const INDEX_KEY: Record<ModelIndexKey, MessageKey> = {
   cost: "modelIndex.index.cost",
 };
 
+const AXIS_KEY: Record<ModelIndexKey, MessageKey> = {
+  intelligence: "modelIndex.axis.intelligence",
+  coding: "modelIndex.axis.coding",
+  agentic: "modelIndex.axis.agentic",
+  general: "modelIndex.axis.general",
+  legal: "modelIndex.axis.legal",
+  cost: "modelIndex.cost.hint",
+};
+
+const PERCENT = new Set<ModelIndexKey>(["coding", "agentic", "legal"]);
+
 const PROVIDER_NAME: Record<Exclude<ChartProvider, "other">, string> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
   google: "Google",
   xai: "xAI",
+  meta: "Meta",
 };
 
-const CIRCLE = "M-5 0a5 5 0 1 0 10 0a5 5 0 1 0-10 0z";
-const SHAPE: Record<ChartProvider, string> = {
-  anthropic: "M-4.5-4.5h9v9h-9z",
-  openai: "M0-6L6 0L0 6L-6 0z",
-  google: CIRCLE,
-  xai: "M0-6L5.8 4.2H-5.8z",
-  other: CIRCLE,
+// Color names the lab; shape names the effort level.
+const EFFORT_SHAPE: Record<string, string> = {
+  low: "M-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0z",
+  medium: "M-2.7-2.7h5.4v5.4h-5.4z",
+  high: "M0-3.7L3.7 0L0 3.7L-3.7 0z",
+  xhigh: "M0-3.8L3.6 2.6H-3.6z",
+  max: "M0-4.3L1.03-1.42L4.09-1.33L1.66 0.54L2.53 3.48L0 1.75L-2.53 3.48L-1.66 0.54L-4.09-1.33L-1.03-1.42z",
+  default: "M-1.2-3.5h2.4v2.3h2.3v2.4h-2.3v2.3h-2.4v-2.3h-2.3v-2.4h2.3z",
 };
+const EFFORTS = Object.keys(EFFORT_SHAPE);
+const shapeOf = (effort: string) => EFFORT_SHAPE[effort] ?? EFFORT_SHAPE.default!;
 
 const ROW = 26;
-const MARGIN = { top: 14, right: 18, bottom: 28, left: 40 };
+const MARGIN = { top: 30, right: 16, bottom: 46, left: 44 };
+// Every line keeps a fixed point count so CSS can morph its `d` between tabs.
+const LINE_SLOTS = 6;
+const FRONTIER_SLOTS = 16;
+// Outlasts --mi-ease, so a leaving tick finishes its fade before it unmounts.
+const LEAVE_MS = 600;
 
 const color = (provider: string) => `var(--mi-${chartProvider(provider)})`;
+const labName = (provider: string) => {
+  const slot = chartProvider(provider);
+  return slot === "other" ? provider : PROVIDER_NAME[slot];
+};
 const shortLabel = (label: string) => label.replace(/^Claude /, "");
-const formatScore = (value: number) => (Number.isInteger(value) ? String(value) : value.toFixed(1));
 const formatCost = (usd: number) =>
   usd >= 100 ? `$${Math.round(usd).toLocaleString("en-US")}` : `$${usd.toFixed(usd < 10 ? 2 : 1)}`;
+const formatCostShort = (usd: number) =>
+  usd >= 1000 ? `$${Number((usd / 1000).toFixed(usd < 10_000 ? 1 : 0))}k` : formatCost(usd);
 const formatCostTick = (usd: number) => (usd >= 1000 ? `$${usd / 1000}k` : `$${usd}`);
-const formatValue = (index: ModelIndexKey, value: number) => (index === "cost" ? formatCost(value) : formatScore(value));
+const formatValue = (index: ModelIndexKey, value: number) =>
+  index === "cost"
+    ? formatCostShort(value)
+    : index === "general"
+      ? Math.round(value).toLocaleString("en-US")
+      : `${value.toFixed(1)}${PERCENT.has(index) ? "%" : ""}`;
+const unitOf = (index: ModelIndexKey) => (PERCENT.has(index) ? "%" : index === "general" ? "elo" : "pts");
+const formatTick = (unit: string, value: number) =>
+  unit === "elo" ? value.toLocaleString("en-US") : `${value}${unit === "%" ? "%" : ""}`;
+const overlaps = (a: Box, b: Box) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+function median(values: number[]) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
+
+function padPath(spots: Spot[], slots: number) {
+  return Array.from({ length: Math.max(slots, spots.length) }, (_, i) => spots[Math.min(i, spots.length - 1)]!)
+    .map((spot, i) => `${i ? "L" : "M"}${spot.x.toFixed(1)} ${spot.y.toFixed(1)}`)
+    .join("");
+}
+
+let canvas: CanvasRenderingContext2D | null | undefined;
+/** Label width in the live font; server rendering falls back to an estimate. */
+function measurer(): (text: string) => number {
+  canvas ??=
+    typeof document !== "undefined" && typeof document.createElement === "function"
+      ? document.createElement("canvas").getContext("2d")
+      : null;
+  const ctx = canvas;
+  if (!ctx) return (text) => text.length * 6;
+  ctx.font = `500 10.5px ${getComputedStyle(document.documentElement).fontFamily}`;
+  return (text) => ctx.measureText(text).width;
+}
 
 function useWidth() {
   const ref = useRef<HTMLDivElement>(null);
@@ -76,12 +142,39 @@ function useWidth() {
   return [ref, width] as const;
 }
 
-function Shape({ provider }: { provider: string }) {
+/** Items that just left, held at their last spot until their fade-out ends. */
+function useLeaving<T extends { key: string }>(items: T[]): T[] {
+  const last = useRef(items);
+  const keys = items.map((item) => item.key).join("|");
+  const [shown, setShown] = useState(keys);
+  const [leaving, setLeaving] = useState<T[]>([]);
+  if (keys !== shown) {
+    const live = new Set(items.map((item) => item.key));
+    setShown(keys);
+    setLeaving([...leaving, ...last.current].filter((item, i, all) => !live.has(item.key) && all.findIndex((other) => other.key === item.key) === i));
+  }
+  useLayoutEffect(() => {
+    last.current = items;
+  });
+  useEffect(() => {
+    if (!leaving.length) return;
+    const timer = window.setTimeout(() => setLeaving([]), LEAVE_MS);
+    return () => window.clearTimeout(timer);
+  }, [leaving]);
+  return leaving;
+}
+
+function Shape({ effort, provider, hollow = false }: { effort: string; provider?: string; hollow?: boolean }) {
+  const paint = provider ? color(provider) : "currentColor";
   return (
-    <svg width="12" height="12" viewBox="-6.5 -6.5 13 13" aria-hidden className="shrink-0">
-      <path d={SHAPE[chartProvider(provider)]} style={{ fill: color(provider) }} />
+    <svg width="10" height="10" viewBox="-5 -5 10 10" aria-hidden className="shrink-0">
+      <path d={shapeOf(effort)} style={hollow ? { fill: "none", stroke: paint, strokeWidth: 1.25 } : { fill: paint }} />
     </svg>
   );
+}
+
+function Swatch({ provider }: { provider: string }) {
+  return <span aria-hidden className="h-[3px] w-3 shrink-0 rounded-full" style={{ background: color(provider) }} />;
 }
 
 function Segmented<T extends string>({
@@ -97,8 +190,36 @@ function Segmented<T extends string>({
   onChange: (id: T) => void;
   disabled?: (id: T) => boolean;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [thumb, setThumb] = useState<{ x: number; w: number } | null>(null);
+  useLayoutEffect(() => {
+    const group = ref.current;
+    if (!group) return;
+    const place = () => {
+      const on = group.querySelector<HTMLElement>('[aria-checked="true"]');
+      setThumb(on ? { x: on.offsetLeft, w: on.offsetWidth } : null);
+    };
+    place();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(place);
+    for (const button of group.querySelectorAll("button")) observer.observe(button);
+    return () => observer.disconnect();
+  }, [value, options.length]);
   return (
-    <div role="radiogroup" aria-label={label} className="flex min-w-0 gap-0.5 overflow-x-auto rounded-lg bg-inset p-0.5">
+    <div
+      ref={ref}
+      role="radiogroup"
+      aria-label={label}
+      className="relative flex w-fit min-w-0 max-w-full gap-0.5 overflow-x-auto rounded-lg bg-inset p-[3px]"
+    >
+      {thumb && (
+        <span
+          aria-hidden
+          data-mi-thumb
+          className="pointer-events-none absolute inset-y-[3px] left-0 rounded-[max(0px,calc(var(--radius-lg)_-_3px))] bg-raised shadow-sm ring-1 ring-hairline/60"
+          style={{ width: thumb.w, transform: `translateX(${thumb.x}px)` }}
+        />
+      )}
       {options.map((option) => {
         const selected = value === option.id;
         const off = disabled?.(option.id) ?? false;
@@ -111,8 +232,8 @@ function Segmented<T extends string>({
             disabled={off}
             onClick={() => onChange(option.id)}
             className={cn(
-              "shrink-0 whitespace-nowrap rounded-[max(0px,calc(var(--radius-lg)_-_2px))] px-2.5 py-1 text-[12.5px] font-medium transition-colors disabled:opacity-40",
-              selected ? "bg-raised text-ink shadow-sm" : "text-ink-secondary enabled:hover:text-ink",
+              "relative shrink-0 whitespace-nowrap rounded-[max(0px,calc(var(--radius-lg)_-_3px))] px-3 py-1 text-[12.5px] font-medium transition-colors disabled:opacity-40",
+              selected ? "text-ink" : "text-ink-secondary enabled:hover:text-ink",
             )}
           >
             {option.label}
@@ -123,52 +244,136 @@ function Segmented<T extends string>({
   );
 }
 
-/** Greedy label placement around each line's end, then its start; skips a label rather than overlap. */
+/**
+ * Greedy, in priority order: eight spots hugging each anchor, then rings farther out
+ * on a leader line; a label that fits nowhere is skipped.
+ */
 function placeLabels(
-  items: Array<{ id: string; text: string; ends: Array<{ x: number; y: number }> }>,
-  dots: Array<{ x: number; y: number }>,
+  items: Array<{ id: string; text: string; anchors: Spot[] }>,
+  taken: Box[],
   bounds: { left: number; top: number; right: number; bottom: number },
+  measure: (text: string) => number,
 ) {
-  const placed = dots.map((dot) => ({ x: dot.x - 6, y: dot.y - 6, w: 12, h: 12 }));
-  const out = new Map<string, { x: number; y: number; anchor: "start" | "end" | "middle" }>();
-  for (const item of [...items].sort((a, b) => a.ends[0]!.y - b.ends[0]!.y)) {
-    const w = item.text.length * 5.9 + 4;
-    const h = 13;
-    const candidates = item.ends.flatMap((end) => [
-      { x: end.x + 9, y: end.y - h / 2, anchor: "start" as const, tx: end.x + 9 },
-      { x: end.x - 9 - w, y: end.y - h / 2, anchor: "end" as const, tx: end.x - 9 },
-      { x: end.x - w / 2, y: end.y - 9 - h, anchor: "middle" as const, tx: end.x },
-      { x: end.x - w / 2, y: end.y + 9, anchor: "middle" as const, tx: end.x },
+  const placed = [...taken];
+  const out = new Map<string, Spot & { leader?: [Spot, Spot] }>();
+  for (const item of items) {
+    const w = measure(item.text) + 2;
+    const h = 12;
+    const hug = item.anchors.flatMap(({ x, y }) => [
+      { x: x + 7, y: y - h / 2 },
+      { x: x - 7 - w, y: y - h / 2 },
+      { x: x - w / 2, y: y - 8 - h },
+      { x: x - w / 2, y: y + 8 },
+      { x: x + 5, y: y - 5 - h },
+      { x: x - 5 - w, y: y - 5 - h },
+      { x: x + 5, y: y + 5 },
+      { x: x - 5 - w, y: y + 5 },
     ]);
-    const spot = candidates.find(
+    const end = item.anchors[0]!;
+    const rings = [20, 32, 46, 62].flatMap((reach) =>
+      [0, -30, 30, -60, 60, -90, 90, -120, 120, -150, 150, 180].map((deg) => {
+        const [cos, sin] = [Math.cos((deg * Math.PI) / 180), Math.sin((deg * Math.PI) / 180)];
+        return { x: end.x + cos * (reach + (w / 2) * Math.abs(cos)) - w / 2, y: end.y + sin * (reach + (h / 2) * Math.abs(sin)) - h / 2, from: end };
+      }),
+    );
+    const spot = [...hug, ...rings].find(
       (c) =>
         c.x >= bounds.left &&
         c.x + w <= bounds.right &&
-        c.y >= bounds.top - 10 &&
+        c.y >= bounds.top &&
         c.y + h <= bounds.bottom &&
-        !placed.some((p) => c.x < p.x + p.w && c.x + w > p.x && c.y < p.y + p.h && c.y + h > p.y),
+        !placed.some((box) => overlaps({ x: c.x, y: c.y, w, h }, box)),
     );
     if (!spot) continue;
-    placed.push({ x: spot.x, y: spot.y, w, h });
-    out.set(item.id, { x: spot.tx, y: spot.y + h - 3, anchor: spot.anchor });
+    placed.push({ x: spot.x - 2, y: spot.y - 1, w: w + 4, h: h + 2 });
+    const to = "from" in spot ? { x: Math.min(Math.max(end.x, spot.x), spot.x + w), y: Math.min(Math.max(end.y, spot.y), spot.y + h) } : undefined;
+    const along = to && Math.hypot(to.x - end.x, to.y - end.y);
+    out.set(item.id, {
+      x: spot.x,
+      y: spot.y + 9,
+      leader: to && along ? [{ x: end.x + ((to.x - end.x) / along) * 7, y: end.y + ((to.y - end.y) / along) * 7 }, to] : undefined,
+    });
   }
   return out;
 }
 
+function segmentGap(p: Spot, a: Spot, b: Spot) {
+  const [dx, dy] = [b.x - a.x, b.y - a.y];
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+  return Math.hypot(a.x + t * dx - p.x, a.y + t * dy - p.y);
+}
+
+/** Liang-Barsky: does segment a-b pass through the box? */
+function crosses(a: Spot, b: Spot, box: Box) {
+  let [t0, t1] = [0, 1];
+  const [dx, dy] = [b.x - a.x, b.y - a.y];
+  for (const [p, q] of [[-dx, a.x - box.x], [dx, box.x + box.w - a.x], [-dy, a.y - box.y], [dy, box.y + box.h - a.y]] as const) {
+    if (p === 0) {
+      if (q < 0) return false;
+      continue;
+    }
+    const r = q / p;
+    if (p < 0) t0 = Math.max(t0, r);
+    else t1 = Math.min(t1, r);
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
+/** Beside the hovered mark, clear of its own effort line, hiding as few neighbors as it can. */
+function placeTooltip(anchor: Box, tip: { w: number; h: number }, frame: { w: number; h: number }, view: View, avoid?: Avoid) {
+  const cx = anchor.x + anchor.w / 2;
+  const cy = anchor.y + anchor.h / 2;
+  if (view === "bars") {
+    return { left: Math.max(0, frame.w - tip.w), top: cy < frame.h / 2 ? anchor.y + anchor.h + 4 : anchor.y - 4 - tip.h };
+  }
+  const gap = 16;
+  const cost = ({ left, top }: { left: number; top: number }) => {
+    const box = { x: left - 6, y: top - 6, w: tip.w + 12, h: tip.h + 12 };
+    const covers = (dot: Spot) => dot.x > box.x && dot.x < box.x + box.w && dot.y > box.y && dot.y < box.y + box.h;
+    const line = avoid?.line ?? [];
+    const own = line.slice(1).filter((spot, i) => crosses(line[i]!, spot, box)).length + line.filter(covers).length;
+    const far = Math.hypot(left + tip.w / 2 - cx, top + tip.h / 2 - cy);
+    return (covers({ x: cx, y: cy }) ? 1000 : 0) + own * 100 + (avoid?.dots ?? []).filter(covers).length * 2 + far / 100;
+  };
+  // Sweep each side of the mark; the tooltip may spill past the plot onto the card's controls or legend.
+  const spots = Array.from({ length: 9 }, (_, i) => i / 8).flatMap((step) => {
+    const top = cy - tip.h - gap + step * (tip.h + 2 * gap);
+    const left = cx - tip.w - gap + step * (tip.w + 2 * gap);
+    return [
+      { left: cx + gap, top },
+      { left: cx - gap - tip.w, top },
+      { left, top: cy + gap },
+      { left, top: cy - gap - tip.h },
+    ];
+  });
+  return spots
+    .map(({ left, top }) => ({
+      left: Math.min(Math.max(0, frame.w - tip.w), Math.max(0, left)),
+      top: Math.min(frame.h - tip.h + 64, Math.max(-96, top)),
+    }))
+    .reduce((best, spot) => (cost(spot) < cost(best) ? spot : best));
+}
+
 function Scatter({
+  index,
   marks,
   points,
   width,
   hover,
   onHover,
+  t,
 }: {
+  index: ModelIndexKey;
   marks: Mark[];
   points: ModelIndexPoint[];
   width: number;
   hover: string | null;
-  onHover: (key: string | null, el?: Element) => void;
+  onHover: OnHover;
+  t: Translate;
 }) {
-  const height = Math.round(Math.min(380, Math.max(260, width * 0.56)));
+  const [lineFocus, setLineFocus] = useState<string | null>(null);
+  const height = Math.round(Math.min(420, Math.max(300, width * 0.62)));
   const plotted = points.filter((point) => point.cost !== undefined && point.cost > 0);
   const left = MARGIN.left;
   const right = width - MARGIN.right;
@@ -186,111 +391,251 @@ function Scatter({
   const lo = scores.length ? Math.min(...scores) : 0;
   const hi = scores.length ? Math.max(...scores) : 100;
   const pad = (hi - lo) * 0.1 || 1;
-  const { domain: [y0, y1], ticks: yTicks } = linearTicks(lo - pad, hi + pad, 5);
+  const { domain: [y0, y1], ticks: yTicks } = linearTicks(Math.max(0, lo - pad), Math.min(PERCENT.has(index) ? 100 : Infinity, hi + pad), 5);
   const y = (score: number) => bottom - ((score - y0) / (y1 - y0)) * (bottom - top);
 
+  const unit = unitOf(index);
+  const title = t(AXIS_KEY[index]);
+  const dots = useRef(new Map<string, Element>());
+  const gradient = `mi-best${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
+  const yItems = yTicks.map((tick) => ({ key: `${unit}:${tick}`, label: formatTick(unit, tick), at: y(tick) }));
+  const xItems = xTicks.map((tick) => ({ key: String(tick), label: formatCostTick(tick), at: x(tick) }));
+  const yLeaving = useLeaving(yItems);
+  const xLeaving = useLeaving(xItems);
+  const titleLeaving = useLeaving([{ key: title }]);
+
   const at = new Map(plotted.map((point) => [point.key, { x: x(point.cost!), y: y(point.score) }]));
+  const lab = new Set(plotted.filter((point) => point.reported === "lab").map((point) => point.key));
   const byModel = new Map<string, ModelIndexPoint[]>();
   for (const point of plotted) byModel.set(point.model, [...(byModel.get(point.model) ?? []), point]);
   for (const list of byModel.values()) list.sort((a, b) => effortRank(a.effort) - effortRank(b.effort));
   const models = [...new Map(marks.map((mark) => [mark.model, mark])).values()];
+  const rest = (mark: Mark): Spot => ({ x: mark.cost ? x(mark.cost) : left, y: bottom });
+  const focus = (hover ? marks.find((mark) => mark.key === hover)?.model : undefined) ?? lineFocus;
+  const dim = (model: string) => (focus && focus !== model ? "dim" : "");
+  const avoidFor = (key: string): Avoid => {
+    const model = plotted.find((point) => point.key === key)?.model;
+    return { dots: [...at.values()], line: (byModel.get(model ?? "") ?? []).map((point) => at.get(point.key)!) };
+  };
+
+  const quad = plotted.length >= 3 ? { x: x(10 ** median(costs.map(Math.log10))), y: y(median(scores)) } : undefined;
+  const bestValue = t("modelIndex.bestValue");
+  const frontier = paretoFrontier(plotted).map((point) => at.get(point.key)!);
   const labels = placeLabels(
-    [...byModel.entries()].map(([model, list]) => ({
-      id: model,
-      text: shortLabel(list[0]!.label),
-      ends: [at.get(list[list.length - 1]!.key)!, at.get(list[0]!.key)!],
-    })),
-    [...at.values()],
+    [...byModel.values()]
+      .sort((a, b) => Number(b[0]!.wink) - Number(a[0]!.wink) || Math.max(...b.map((p) => p.score)) - Math.max(...a.map((p) => p.score)))
+      .map((list) => ({
+        id: list[0]!.model,
+        text: shortLabel(list[0]!.label),
+        anchors: [list[list.length - 1]!, list[0]!, ...list.slice(1, -1)].map((point) => at.get(point.key)!),
+      })),
+    [
+      ...[...at.values()].map((spot) => ({ x: spot.x - 5, y: spot.y - 5, w: 10, h: 10 })),
+      ...(quad ? [{ x: left + 2, y: top + 2, w: bestValue.length * 7 + 10, h: 14 }] : []),
+    ],
     { left, top, right, bottom },
+    measurer(),
   );
 
   return (
-    <svg width={width} height={height} className="block overflow-visible" role="img">
-      {yTicks.map((tick) => (
-        <g key={`y${tick}`} data-mi-move data-mi-enter style={{ transform: `translate(0px, ${y(tick)}px)` }}>
-          <line x1={left} x2={right} className="stroke-hairline" strokeWidth={1} />
+    <svg width={width} height={height} className="block overflow-visible" role="img" aria-label={title}>
+      <defs>
+        <linearGradient id={gradient} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" style={{ stopColor: "var(--color-ink)", stopOpacity: 0.085 }} />
+          <stop offset="1" style={{ stopColor: "var(--color-ink)", stopOpacity: 0.02 }} />
+        </linearGradient>
+      </defs>
+      <path
+        data-mi-line
+        fill={`url(#${gradient})`}
+        style={{ d: `path("M${left} ${top}H${quad?.x ?? left}V${quad?.y ?? top}H${left}Z")`, opacity: quad ? 1 : 0 } as React.CSSProperties}
+      />
+      {[...yItems.map((item) => [item, true] as const), ...yLeaving.map((item) => [item, false] as const)].map(([item, live]) => (
+        <g
+          key={`y${item.key}`}
+          data-mi-move
+          data-mi-enter
+          data-mi-leave={live ? undefined : ""}
+          style={{ transform: `translate(0px, ${item.at}px)`, opacity: live ? 1 : 0 }}
+        >
+          <line x1={left} x2={right} className="stroke-hairline" strokeWidth={1} style={{ opacity: 0.7 }} />
           <text x={left - 8} dy="0.32em" textAnchor="end" className="fill-ink-secondary text-[10.5px] tabular-nums">
-            {formatScore(tick)}
+            {item.label}
+          </text>
+        </g>
+      ))}
+      {[...xItems.map((item) => [item, true] as const), ...xLeaving.map((item) => [item, false] as const)].map(([item, live]) => (
+        <g
+          key={`x${item.key}`}
+          data-mi-move
+          data-mi-enter
+          data-mi-leave={live ? undefined : ""}
+          style={{ transform: `translate(${item.at}px, 0px)`, opacity: live ? 1 : 0 }}
+        >
+          <line y1={top} y2={bottom} className="stroke-hairline" strokeWidth={1} style={{ opacity: 0.35 }} />
+          <text y={bottom + 16} textAnchor="middle" className="fill-ink-secondary text-[10.5px] tabular-nums">
+            {item.label}
           </text>
         </g>
       ))}
       <line x1={left} x2={right} y1={bottom} y2={bottom} className="stroke-hairline" strokeWidth={1} />
-      {xTicks.map((tick) => (
-        <g key={`x${tick}`} data-mi-move data-mi-enter style={{ transform: `translate(${x(tick)}px, 0px)` }}>
-          <line y1={bottom} y2={bottom + 4} className="stroke-hairline" strokeWidth={1} />
-          <text y={bottom + 16} textAnchor="middle" className="fill-ink-secondary text-[10.5px] tabular-nums">
-            {formatCostTick(tick)}
-          </text>
-        </g>
+      {[[title, true] as const, ...titleLeaving.map((item) => [item.key, false] as const)].map(([text, live]) => (
+        <text
+          key={text}
+          data-mi-move
+          data-mi-rise={live ? "" : undefined}
+          data-mi-leave={live ? undefined : ""}
+          y={12}
+          className="fill-ink-secondary text-[11px] font-medium"
+          style={{ opacity: live ? 1 : 0, transform: live ? undefined : "translateY(-6px)" }}
+        >
+          ↑ {text}
+        </text>
       ))}
+      <text x={(left + right) / 2} y={height - 8} textAnchor="middle" className="fill-ink-secondary text-[11px]">
+        {t("modelIndex.axis.cost")} →
+      </text>
+      <text
+        data-mi-move
+        x={left + 8}
+        y={top + 13}
+        className="pointer-events-none fill-ink-secondary text-[9.5px] font-semibold uppercase tracking-[0.08em]"
+        style={{ opacity: quad ? 0.8 : 0 }}
+      >
+        {bestValue}
+      </text>
+      <path
+        data-mi-line
+        fill="none"
+        strokeWidth={9}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="stroke-ink"
+        style={{ d: `path("${padPath(frontier.length ? frontier : [{ x: left, y: bottom }], FRONTIER_SLOTS)}")`, opacity: frontier.length > 1 ? 0.08 : 0 } as React.CSSProperties}
+      />
       {models.map((mark) => {
         const list = byModel.get(mark.model) ?? [];
-        const d = list.map((point, i) => `${i ? "L" : "M"}${at.get(point.key)!.x} ${at.get(point.key)!.y}`).join("");
         return (
-          <path
-            key={`line-${mark.model}`}
-            data-mi-line
-            fill="none"
-            strokeWidth={1.5}
-            strokeLinejoin="round"
-            strokeLinecap="round"
-            style={{
-              stroke: color(mark.provider),
-              opacity: list.length > 1 ? (mark.wink ? 0.55 : 0.2) : 0,
-              d: `path("${d || "M0 0"}")`,
-            } as React.CSSProperties}
-          />
-        );
-      })}
-      {marks.map((mark) => {
-        const spot = at.get(mark.key);
-        const px = spot?.x ?? (mark.cost ? x(mark.cost) : left);
-        const py = spot?.y ?? bottom;
-        return (
-          <g
-            key={mark.key}
-            data-mi-move
-            style={{
-              transform: `translate(${px}px, ${py}px) scale(${hover === mark.key ? 1.3 : 1})`,
-              opacity: spot ? (mark.wink ? 1 : 0.35) : 0,
-              pointerEvents: spot ? undefined : "none",
-            }}
-          >
+          <g key={`line-${mark.model}`} data-mi-focus={dim(mark.model)}>
             <path
-              d={SHAPE[chartProvider(mark.provider)]}
-              strokeWidth={4}
-              paintOrder="stroke"
-              style={{ fill: color(mark.provider), stroke: "var(--color-card)" }}
-            />
-            <circle
-              r={11}
-              fill="transparent"
-              tabIndex={spot ? 0 : -1}
-              aria-label={`${mark.label} ${mark.effort}`}
-              className="cursor-default outline-none"
-              onMouseEnter={(e) => onHover(mark.key, e.currentTarget)}
-              onMouseLeave={() => onHover(null)}
-              onFocus={(e) => onHover(mark.key, e.currentTarget)}
-              onBlur={() => onHover(null)}
+              data-mi-line
+              fill="none"
+              strokeWidth={1.25}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              strokeDasharray={list.some((point) => lab.has(point.key)) ? "2.5 2.5" : undefined}
+              style={{
+                stroke: color(mark.provider),
+                opacity: list.length > 1 ? (mark.wink ? 0.8 : 0.3) : 0,
+                d: `path("${padPath(list.length ? list.map((point) => at.get(point.key)!) : [rest(mark)], LINE_SLOTS)}")`,
+              } as React.CSSProperties}
             />
           </g>
         );
       })}
-      {models.map((mark) => {
-        const label = labels.get(mark.model);
+      {marks.map((mark) => {
+        const spot = at.get(mark.key);
+        const { x: px, y: py } = spot ?? rest(mark);
+        const hollow = lab.has(mark.key);
         return (
-          <text
-            key={`label-${mark.model}`}
-            data-mi-move
-            textAnchor={label?.anchor ?? "start"}
-            className="pointer-events-none fill-ink text-[10.5px] font-medium"
-            style={{
-              transform: label ? `translate(${label.x}px, ${label.y}px)` : undefined,
-              opacity: label ? (mark.wink ? 0.9 : 0.45) : 0,
-            }}
-          >
-            {shortLabel(mark.label)}
-          </text>
+          <g key={mark.key} data-mi-focus={dim(mark.model)}>
+            <g
+              data-mi-move
+              style={{
+                transform: `translate(${px}px, ${py}px)`,
+                opacity: spot ? (mark.wink ? 1 : 0.4) : 0,
+                pointerEvents: spot ? undefined : "none",
+              }}
+            >
+              <g data-mi-pop style={{ transform: `scale(${hover === mark.key ? 1.6 : 1})` }}>
+                <path
+                  data-mi-paint
+                  d={shapeOf(mark.effort)}
+                  paintOrder="stroke"
+                  style={
+                    hollow
+                      ? { fill: "var(--color-card)", stroke: color(mark.provider), strokeWidth: 2.5 }
+                      : { fill: color(mark.provider), stroke: "var(--color-card)", strokeWidth: 3 }
+                  }
+                />
+              </g>
+              <circle
+                ref={(el) => {
+                  if (el) dots.current.set(mark.key, el);
+                  else dots.current.delete(mark.key);
+                }}
+                r={12}
+                fill="transparent"
+                tabIndex={spot ? 0 : -1}
+                aria-label={`${mark.label} ${mark.effort}`}
+                className="pointer-events-none outline-none"
+                onFocus={(e) => onHover(mark.key, e.currentTarget, avoidFor(mark.key))}
+                onBlur={() => onHover(null)}
+              />
+            </g>
+          </g>
+        );
+      })}
+      <rect
+        x={left - 14}
+        y={top - 14}
+        width={right - left + 28}
+        height={bottom - top + 28}
+        fill="transparent"
+        onMouseMove={(e) => {
+          const frame = e.currentTarget.getBoundingClientRect();
+          const pointer = { x: e.clientX - frame.left + left - 14, y: e.clientY - frame.top + top - 14 };
+          let nearest: string | null = null;
+          let reach = 22;
+          for (const [key, spot] of at) {
+            const gap = Math.hypot(spot.x - pointer.x, spot.y - pointer.y);
+            if (gap < reach) [nearest, reach] = [key, gap];
+          }
+          let line: string | null = null;
+          let near = 7;
+          for (const [model, list] of nearest ? [] : byModel) {
+            for (let i = 1; i < list.length; i++) {
+              const gap = segmentGap(pointer, at.get(list[i - 1]!.key)!, at.get(list[i]!.key)!);
+              if (gap < near) [line, near] = [model, gap];
+            }
+          }
+          setLineFocus(line);
+          if (nearest !== hover) onHover(nearest, nearest ? dots.current.get(nearest) : undefined, nearest ? avoidFor(nearest) : undefined);
+        }}
+        onMouseLeave={() => {
+          setLineFocus(null);
+          onHover(null);
+        }}
+      />
+      {models.map((mark) => {
+        const list = byModel.get(mark.model);
+        const label = labels.get(mark.model);
+        const { x: lx, y: ly } = label ?? (list ? at.get(list[list.length - 1]!.key)! : rest(mark));
+        const [from, to] = label?.leader ?? [{ x: lx, y: ly }, { x: lx, y: ly }];
+        return (
+          <g key={`label-${mark.model}`} data-mi-focus={dim(mark.model)}>
+            <path
+              data-mi-line
+              fill="none"
+              strokeWidth={1}
+              className="stroke-ink-secondary"
+              style={{ d: `path("M${from.x.toFixed(1)} ${from.y.toFixed(1)}L${to.x.toFixed(1)} ${to.y.toFixed(1)}")`, opacity: label?.leader ? 0.55 : 0 } as React.CSSProperties}
+            />
+            <text
+              data-mi-move
+              className="pointer-events-none fill-ink text-[10.5px] font-medium"
+              style={{
+                stroke: "var(--color-card)",
+                strokeWidth: 3,
+                strokeLinejoin: "round",
+                paintOrder: "stroke",
+                transform: `translate(${lx}px, ${ly}px)`,
+                opacity: label ? (mark.wink ? 0.92 : 0.5) : 0,
+              }}
+            >
+              {shortLabel(mark.label)}
+            </text>
+          </g>
         );
       })}
     </svg>
@@ -306,7 +651,7 @@ function Bars({
   marks: Mark[];
   points: ModelIndexPoint[];
   index: ModelIndexKey;
-  onHover: (key: string | null, el?: Element) => void;
+  onHover: OnHover;
 }) {
   // Cost ranks cheapest first; every score ranks best first.
   const ranked = [...points].sort((a, b) => (index === "cost" ? a.score - b.score : b.score - a.score));
@@ -315,8 +660,10 @@ function Bars({
   const max = linearTicks(0, Math.max(1, ...points.map((point) => point.score))).domain[1];
   return (
     <div data-mi-size className="relative" style={{ height: ranked.length * ROW }}>
+      <div aria-hidden className="absolute inset-y-0 w-px bg-hairline/70" style={{ left: "calc(40% + 0.625rem)" }} />
       {marks.map((mark) => {
         const point = byKey.get(mark.key);
+        const hollow = point?.reported === "lab";
         return (
           <div
             key={mark.key}
@@ -330,22 +677,26 @@ function Bars({
             style={{
               height: ROW,
               transform: `translateY(${(rank.get(mark.key) ?? ranked.length) * ROW}px)`,
-              opacity: point ? (mark.wink ? 1 : 0.45) : 0,
+              opacity: point ? (mark.wink ? 1 : 0.5) : 0,
               pointerEvents: point ? undefined : "none",
             }}
           >
             <div className="flex w-[40%] min-w-0 shrink-0 items-center justify-end gap-1.5 text-[12px]">
-              <span className="truncate text-ink">{mark.label}</span>
-              <span className="shrink-0 text-ink-secondary">{mark.effort}</span>
-              <Shape provider={mark.provider} />
+              <span className={cn("truncate", mark.wink ? "font-medium text-ink" : "text-ink-secondary")}>{mark.label}</span>
+              <span className="shrink-0 text-[11px] text-ink-secondary">{mark.effort}</span>
+              <Shape provider={mark.provider} effort={mark.effort} hollow={hollow} />
             </div>
-            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
               <div
                 data-mi-bar
                 className="h-3.5 rounded-r-[4px]"
-                style={{ width: `calc((100% - 4rem) * ${point ? point.score / max : 0})`, background: color(mark.provider) }}
+                style={{
+                  width: `calc((100% - 4rem) * ${point ? point.score / max : 0})`,
+                  backgroundColor: hollow ? `color-mix(in srgb, ${color(mark.provider)} 16%, transparent)` : color(mark.provider),
+                  boxShadow: hollow ? `inset 0 0 0 1.5px ${color(mark.provider)}` : undefined,
+                }}
               />
-              <span className="shrink-0 text-[12px] tabular-nums text-ink-secondary">
+              <span className={cn("shrink-0 text-[12px] tabular-nums", mark.wink ? "text-ink" : "text-ink-secondary")}>
                 {point ? formatValue(index, point.score) : ""}
               </span>
             </div>
@@ -360,11 +711,13 @@ export function ModelIndexSection() {
   const { t } = useI18n();
   const { state } = useStore();
   const catalog = useMemo(() => winkCatalog(state.instances ?? []), [state.instances]);
-  const [index, setIndex] = useState<ModelIndexKey>("intelligence");
+  const [index, setIndex] = useState<ModelIndexKey>(INDEXES[0] ?? "intelligence");
   const [view, setView] = useState<View>("scatter");
   const [showAll, setShowAll] = useState(false);
   const [hover, setHover] = useState<Hover | null>(null);
+  const [place, setPlace] = useState<{ key: string; left: number; top: number } | null>(null);
   const [wrapRef, width] = useWidth();
+  const tipRef = useRef<HTMLDivElement>(null);
 
   // Before the engine list arrives nothing counts as "yours", so show everything.
   const all = showAll || catalog.length === 0;
@@ -376,24 +729,37 @@ export function ModelIndexSection() {
   const providers = CHART_PROVIDERS.filter((provider) => visible.some((point) => chartProvider(point.provider) === provider));
   const sources = [...new Map(visible.map((point) => [point.source, point])).values()];
   const hovered = hover ? visible.find((point) => point.key === hover.key) : undefined;
+  const labShown = visible.some((point) => point.reported === "lab");
+  const frontier = shown === "scatter" && paretoFrontier(visible).length > 1;
+  const charted = shown === "scatter" ? visible.filter((point) => point.cost) : visible;
+  const efforts = EFFORTS.filter((effort) => charted.some((point) => (point.effort in EFFORT_SHAPE ? point.effort : "default") === effort));
+  const lines = shown === "scatter" && new Set(charted.map((point) => point.model)).size < charted.length;
 
-  const onHover = (key: string | null, el?: Element) => {
+  const onHover: OnHover = (key, el, avoid) => {
     const wrap = wrapRef.current;
     if (!key || !el || !wrap) return setHover(null);
     const box = el.getBoundingClientRect();
     const frame = wrap.getBoundingClientRect();
-    setHover({ key, x: box.left - frame.left + box.width / 2, y: box.top - frame.top });
+    setHover({ key, box: { x: box.left - frame.left, y: box.top - frame.top, w: box.width, h: box.height }, avoid });
   };
+
+  useLayoutEffect(() => {
+    const tip = tipRef.current;
+    const wrap = wrapRef.current;
+    if (!hover || !tip || !wrap) return;
+    const frame = { w: wrap.offsetWidth, h: wrap.offsetHeight };
+    setPlace({ key: hover.key, ...placeTooltip(hover.box, { w: tip.offsetWidth, h: tip.offsetHeight }, frame, shown, hover.avoid) });
+  }, [hover, shown, wrapRef]);
 
   return (
     <div className="model-index flex flex-col gap-4">
       <p className="text-[13px] leading-relaxed text-ink-secondary">{t("modelIndex.subtitle")}</p>
-      <Card>
-        <div className="flex flex-col gap-3">
+      <div className="rounded-xl border border-hairline/40 bg-card shadow-sm">
+        <div className="flex flex-col gap-2.5 p-4 pb-3">
           <Segmented
             label={t("modelIndex.indexLabel")}
             value={index}
-            options={MODEL_INDEXES.map((id) => ({ id, label: t(INDEX_KEY[id]) }))}
+            options={INDEXES.map((id) => ({ id, label: t(INDEX_KEY[id]) }))}
             onChange={(id) => {
               setHover(null);
               setIndex(id);
@@ -427,19 +793,19 @@ export function ModelIndexSection() {
               </button>
             )}
           </div>
+        </div>
 
-          <div className="flex items-baseline justify-between gap-3 text-[11.5px] text-ink-secondary">
-            <span>{shown === "scatter" ? `↑ ${t(INDEX_KEY[index])}` : index === "cost" ? t("modelIndex.cost.hint") : t(INDEX_KEY[index])}</span>
-            {shown === "scatter" && <span>{t("modelIndex.axis.cost")} →</span>}
-          </div>
-
+        <div className="px-4 pb-4">
+          {shown === "bars" && visible.length > 0 && (
+            <div className="mb-2 text-[11.5px] font-medium text-ink-secondary">{t(AXIS_KEY[index])}</div>
+          )}
           <div ref={wrapRef} className="relative min-w-0">
             {visible.length === 0 ? (
               <p className="py-10 text-center text-[13px] text-ink-secondary">{t("modelIndex.empty")}</p>
             ) : (
-              <div key={shown} className="animate-pop-in motion-reduce:animate-none">
+              <div key={shown} data-mi-view>
                 {shown === "scatter" ? (
-                  <Scatter marks={marks} points={visible} width={width} hover={hover?.key ?? null} onHover={onHover} />
+                  <Scatter index={index} marks={marks} points={visible} width={width} hover={hover?.key ?? null} onHover={onHover} t={t} />
                 ) : (
                   <Bars marks={marks} points={visible} index={index} onHover={onHover} />
                 )}
@@ -447,64 +813,101 @@ export function ModelIndexSection() {
             )}
             {hovered && hover && (
               <div
+                ref={tipRef}
                 role="tooltip"
-                className="pointer-events-none absolute z-10 w-[220px] rounded-lg border border-hairline/60 bg-raised px-3 py-2 text-[12px] shadow-lg"
-                style={{
-                  left: Math.min(Math.max(0, hover.x - 110), width - 220),
-                  top: hover.y < 110 ? hover.y + 28 : hover.y - 8,
-                  transform: hover.y < 110 ? undefined : "translateY(-100%)",
-                }}
+                className="pointer-events-none absolute z-10 w-[224px] rounded-lg border border-hairline/60 bg-raised px-3 py-2 text-[12px] shadow-lg"
+                style={{ left: place?.left ?? 0, top: place?.top ?? 0, visibility: place?.key === hover.key ? undefined : "hidden" }}
               >
-                <div className="flex items-center gap-1.5 font-medium text-ink">
-                  <Shape provider={hovered.provider} />
-                  <span className="truncate">{hovered.label}</span>
-                  <span className="shrink-0 font-normal text-ink-secondary">{hovered.effort}</span>
+                <div className="flex items-center gap-1.5 text-ink">
+                  <Shape provider={hovered.provider} effort={hovered.effort} hollow={hovered.reported === "lab"} />
+                  <span className="truncate font-medium">{hovered.label}</span>
+                  <span className="shrink-0 rounded bg-inset px-1.5 text-[11px] text-ink-secondary">{hovered.effort}</span>
                 </div>
-                <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 tabular-nums">
-                  <dt className="text-ink-secondary">{t(INDEX_KEY[index])}</dt>
-                  <dd className="text-right text-ink">{formatValue(index, hovered.score)}</dd>
-                  {index !== "cost" && (
-                    <>
-                      <dt className="text-ink-secondary">{t("modelIndex.tooltip.cost")}</dt>
-                      <dd className="text-right text-ink">{hovered.cost ? formatCost(hovered.cost) : "-"}</dd>
-                    </>
-                  )}
-                  <dt className="text-ink-secondary">{t("modelIndex.tooltip.source")}</dt>
-                  <dd className="text-right leading-snug text-ink">{hovered.sourceLabel}</dd>
-                  <dt className="text-ink-secondary">{t("modelIndex.tooltip.date")}</dt>
-                  <dd className="text-right text-ink">{hovered.date}</dd>
-                </dl>
+                <div className="mt-1 flex items-baseline gap-2">
+                  <span className="text-[17px] font-semibold leading-tight text-ink">
+                    {index === "cost" ? formatCost(hovered.score) : formatValue(index, hovered.score)}
+                  </span>
+                  <span className="truncate text-ink-secondary">{t(INDEX_KEY[index])}</span>
+                </div>
+                {index !== "cost" && (
+                  <div className="mt-1 flex justify-between gap-3 tabular-nums">
+                    <span className="text-ink-secondary">{t("modelIndex.tooltip.cost")}</span>
+                    <span className="text-ink">{hovered.cost ? formatCost(hovered.cost) : "-"}</span>
+                  </div>
+                )}
+                <p className="mt-1.5 border-t border-hairline/40 pt-1.5 text-[11px] leading-snug text-ink-secondary">
+                  {t("modelIndex.tooltip.source")}: {hovered.sourceLabel} · {hovered.date}
+                </p>
+                {hovered.reported === "lab" && (
+                  <p className="mt-1 text-[11px] leading-snug text-ink-secondary">
+                    {t("modelIndex.labReported", { lab: labName(hovered.provider) })}
+                  </p>
+                )}
               </div>
             )}
           </div>
+        </div>
 
-          {providers.length > 0 && (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-ink-secondary">
+        {providers.length > 0 && (
+          <div className="flex flex-col gap-1.5 border-t border-hairline/30 px-4 py-3 text-[12px] text-ink-secondary">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
               {providers.map((provider) => (
                 <span key={provider} className="flex items-center gap-1.5">
-                  <Shape provider={provider} />
+                  <Swatch provider={provider} />
                   {provider === "other" ? t("modelIndex.provider.other") : PROVIDER_NAME[provider]}
                 </span>
               ))}
-              {shown === "scatter" && <span className="text-ink-secondary/80">{t("modelIndex.effortLine")}</span>}
-              {showAll && <span className="text-ink-secondary/80">{t("modelIndex.faded")}</span>}
             </div>
-          )}
-          {noCost > 0 && <p className="text-[12px] text-ink-secondary">{t("modelIndex.noCost", { count: noCost })}</p>}
-        </div>
-      </Card>
+            <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
+              {efforts.map((effort) => (
+                <span key={effort} className="flex items-center gap-1.5">
+                  <Shape effort={effort} />
+                  {effort}
+                </span>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11.5px] text-ink-secondary/80">
+              {lines && (
+                <span className="flex items-center gap-1.5">
+                  <svg width="16" height="8" aria-hidden>
+                    <path d="M1 7L15 1" className="stroke-ink-secondary" strokeWidth={1.25} strokeLinecap="round" />
+                  </svg>
+                  {t("modelIndex.effortLine")}
+                </span>
+              )}
+              {frontier && (
+                <span className="flex items-center gap-1.5">
+                  <svg width="16" height="8" aria-hidden>
+                    <path d="M3 4H13" className="stroke-ink-secondary" strokeWidth={6} strokeLinecap="round" style={{ opacity: 0.35 }} />
+                  </svg>
+                  {t("modelIndex.frontier")}
+                </span>
+              )}
+              {labShown && (
+                <span className="flex items-center gap-1.5">
+                  <Shape effort="low" hollow />
+                  {t("modelIndex.hollow")}
+                </span>
+              )}
+              {showAll && <span>{t("modelIndex.faded")}</span>}
+            </div>
+            {noCost > 0 && <p>{t("modelIndex.noCost", { count: noCost })}</p>}
+          </div>
+        )}
+      </div>
 
       {missing.length > 0 && (
-        <Card title={t("modelIndex.noData")} compact>
-          <div className="flex flex-wrap gap-1.5">
+        <div className="rounded-xl border border-hairline/40 bg-card px-4 py-3">
+          <div className="text-[13px] font-medium text-ink">{t("modelIndex.noData")}</div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
             {missing.map((model) => (
               <span key={model.model} className="flex items-center gap-1.5 rounded-md bg-inset px-2 py-1 text-[12px] text-ink-secondary">
-                <Shape provider={model.provider} />
+                <Swatch provider={model.provider} />
                 {model.label}
               </span>
             ))}
           </div>
-        </Card>
+        </div>
       )}
 
       <div className="text-[12px] leading-relaxed text-ink-secondary">
