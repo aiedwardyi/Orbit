@@ -1124,8 +1124,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           return;
         }
         appendNative(threadId, { dir: "in", source: "claude.sdk.message", msg: o });
+        // a subagent's output belongs to the turn that spawned it; it never opens one
         if (
           !session.turn &&
+          !o.parent_tool_use_id &&
           ((o.type === "system" && o.subtype === "init") || o.type === "stream_event" || o.type === "assistant" || o.type === "user")
         ) {
           openContinuation();
@@ -1162,7 +1164,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             if (session.turn) session.turn.promptAccepted = true;
             const msg = o.message ?? {};
             const text = firstText(msg.content);
-            if (text.trim()) {
+            // a subagent's final report is the main agent's input, not a reply
+            if (text.trim() && !o.parent_tool_use_id) {
               // fallback delta for CLIs/paths that never streamed the block
               if (!session.turn?.sawStreamDelta) {
                 session.turn?.timer.mark("firstVisible");

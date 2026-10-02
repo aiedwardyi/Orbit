@@ -11,6 +11,9 @@
 //                      | edit (a Write then a Bash, gated like the real CLI)
 //                      | bench-quiet (text only, no tool_use — latency floor)
 //                      | late-wake (wakes after `result` and asks for a Bash)
+//                      | subagent-wake (a subagent's final lands after `result`,
+//                        then the parent wakes and replies itself)
+//                      | late-after-stop (hangs; prints one more reply once stopped)
 //                      | late-steer (a steer that misses the final request is
 //                        answered as its own query after `result`)
 //   FAKE_CLAUDE_USER_ALLOW  tools the user's own settings.json allows, e.g.
@@ -203,6 +206,19 @@ const playLateWake = async (socketPath: string) => {
   finishIfDone();
 };
 
+// `subagent-wake`: the live order seen in the real CLI log. A Task's final
+// report arrives after `result`, then the parent's notification wakes it.
+let subagentWakeScheduled = false;
+const playSubagentWake = () => {
+  turnRunning = true;
+  out({ type: "assistant", parent_tool_use_id: "task-1", message: { content: [{ type: "text", text: "SUBAGENT FINAL" }] } });
+  out({ type: "system", subtype: "init", session_id: sessionId, model });
+  out({ type: "assistant", message: { content: [{ type: "text", text: "research done" }] } });
+  out({ type: "result", is_error: false, stop_reason: "end_turn", total_cost_usd: 0.01, usage: { input_tokens: 10, output_tokens: 5 } });
+  turnRunning = false;
+  finishIfDone();
+};
+
 const playTurn = (prompt: JsonValue) => {
   turnRunning = true;
   steered = [];
@@ -272,6 +288,22 @@ const playTurn = (prompt: JsonValue) => {
     return;
   }
 
+  if (mode === "late-after-stop") {
+    // Stop ends stdin (and SIGTERMs on POSIX); the reply still gets out,
+    // followed by a marker the test can wait on
+    let spoke = false;
+    const lastWords = () => {
+      if (spoke) return;
+      spoke = true;
+      out({ type: "assistant", message: { content: [{ type: "text", text: "LATE AFTER STOP" }] } });
+      process.stdout.write(JSON.stringify({ type: "system", subtype: "thinking_tokens", estimated_tokens: 1 }) + "\n", () => process.exit(0));
+    };
+    process.stdin.once("end", lastWords);
+    process.once("SIGTERM", lastWords);
+    setInterval(() => {}, 1_000);
+    return;
+  }
+
   if (mode === "edit") {
     void playEdits();
     return;
@@ -292,6 +324,7 @@ const playTurn = (prompt: JsonValue) => {
       parent_tool_use_id: "task-1",
       event: { type: "content_block_delta", delta: { type: "text_delta", text: "SUBAGENT NOISE" } },
     });
+    out({ type: "assistant", parent_tool_use_id: "task-1", message: { content: [{ type: "text", text: "SUBAGENT FINAL" }] } });
   }
 
   // bench-quiet is a text-only fixture for latency calibration: same usage
@@ -335,6 +368,10 @@ const playTurn = (prompt: JsonValue) => {
     lateWakeScheduled = true;
     const socketPath = String(JSON.parse(readFileSync(argAfter("--mcp-config") ?? "", "utf8")).mcpServers.ogb.args[1]);
     setTimeout(() => void playLateWake(socketPath), 200);
+  }
+  if (mode === "subagent-wake" && !subagentWakeScheduled) {
+    subagentWakeScheduled = true;
+    setTimeout(playSubagentWake, 200);
   }
   const finish = () => {
     out({ type: "result", is_error: false, stop_reason: "end_turn", total_cost_usd: 0.01, usage: { input_tokens: 10, cache_read_input_tokens: 2, output_tokens: 5 } });

@@ -2659,6 +2659,15 @@ bus.subscribe((event: RuntimeEvent) => {
     settlePendingToolMessages(event.threadId, event.turnId);
     releaseLocalVmThread(event.threadId);
   }
+  // a stopped, disowned or settled turn's late output is nobody's reply
+  if (
+    (event.type === "content.delta" ||
+      event.type === "item.started" ||
+      (event.type === "item.completed" && event.itemType === "assistant_text")) &&
+    staleTurnEvent(event.threadId, event.turnId)
+  ) {
+    return;
+  }
   broadcast({ kind: "runtime", event });
   if (event.type === "turn.started") {
     markChatLatency({ threadId: event.threadId, turnId: event.turnId }, "provider.started", { turnId: event.turnId });

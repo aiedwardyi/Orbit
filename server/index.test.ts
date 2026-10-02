@@ -126,6 +126,12 @@ beforeAll(async () => {
           environment: { FAKE_CLAUDE_MODE: "stream" },
           config: { cli: FAKE_CLAUDE_CLI },
         },
+        claudeLateStop: {
+          driver: "claudeAgent",
+          displayName: "Fixture Claude Late Stop",
+          environment: { FAKE_CLAUDE_MODE: "late-after-stop" },
+          config: { cli: FAKE_CLAUDE_CLI },
+        },
       },
     }),
   );
@@ -2248,6 +2254,48 @@ describe("harness HTTP API", () => {
         return state?.busy === false && packet?.flushReason === "stop";
       }).toBe(true);
     } finally {
+      await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
+  it("keeps a stopped turn's late reply out of the stream and the transcript", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    const stream = await openSse(`${BASE}/api/events`);
+    try {
+      await stream.until((frame) => frame.kind === "hello");
+      const late = (await api("GET", "/api/instances")).body.instances.find(
+        (instance: { instanceId: string }) => instance.instanceId === "claudeLateStop",
+      );
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claudeLateStop", model: late.models.default },
+      })).status).toBe(200);
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "Keep going until I stop you" })).status).toBe(202);
+      const started = await stream.until((frame) =>
+        frame.kind === "runtime" && frame.event?.type === "session.started" && frame.event?.threadId === bot.threadId,
+      );
+      const turnId = started.event.turnId;
+
+      expect((await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId })).status).toBe(200);
+      const completed = await stream.until((frame) =>
+        frame.kind === "runtime" && frame.event?.type === "turn.completed" && frame.event?.turnId === turnId,
+      );
+      // the fake prints this right after its late reply, so the reply was read
+      await stream.until((frame) =>
+        frame.kind === "runtime" && frame.event?.type === "item.updated" && frame.event?.threadId === bot.threadId,
+      );
+      expect(stream.frames.filter((frame) =>
+        frame.kind === "runtime"
+        && frame.event?.type === "item.completed"
+        && frame.event?.turnId === turnId
+        && frame.seq > completed.seq,
+      )).toEqual([]);
+      const state = (await api("GET", "/api/bots?messages=20")).body.bots.find(
+        (candidate: { id: string }) => candidate.id === bot.id,
+      );
+      expect(state.messages.some((message: { text?: string }) => message.text === "LATE AFTER STOP")).toBe(false);
+    } finally {
+      stream.close();
       await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
       await api("DELETE", `/api/bots/${bot.id}`);
     }

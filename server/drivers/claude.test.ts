@@ -471,6 +471,31 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect((settled[0] as any).text).toBe("hello from fake claude");
   });
 
+  it("never settles a subagent's final report as a reply", async () => {
+    await create("stream");
+    await instance.adapter.sendTurn({ threadId: "t-subagent-final", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    expect(JSON.stringify(recorder.events)).not.toContain("SUBAGENT FINAL");
+    const replies = recorder.events.filter((e: any) => e.type === "item.completed" && e.itemType === "assistant_text");
+    expect(replies.map((e: any) => e.text)).toEqual(["hello from fake claude"]);
+  });
+
+  it("opens one continuation for a parent wake, not for a subagent's final", async () => {
+    await create("subagent-wake");
+    const first = await instance.adapter.sendTurn({ threadId: "t-subagent-wake", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId);
+
+    const started = await recorder.until((e) => e.type === "turn.started" && e.turnId !== first.turnId);
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === started.turnId);
+    expect(recorder.events.filter((e) => e.type === "turn.started")).toHaveLength(2);
+    const replies = recorder.events.filter((e: any) => e.type === "item.completed" && e.itemType === "assistant_text");
+    expect(replies).toEqual([
+      expect.objectContaining({ text: "hello from fake claude", turnId: first.turnId }),
+      expect.objectContaining({ text: "research done", turnId: started.turnId }),
+    ]);
+  });
+
   it("sends the prompt over stdin, never argv, and strips identity env vars", async () => {
     await create();
     const dump = join(scratch, "dump.json");
