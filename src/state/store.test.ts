@@ -1850,3 +1850,39 @@ describe("paged transcripts", () => {
     expect(switched.bots[0]!.hasMore).toBeFalsy();
   });
 });
+
+describe("task switch snapshot", () => {
+  const msg = (id: string, at: number, parentId?: string): Message =>
+    ({ id, role: "bot", kind: "text", text: id, at, parentId }) as Message;
+  const echo = (threadId: string, messages: Message[], activeLeafId?: string): Bot => ({
+    id: "echo",
+    threadId,
+    name: "Echo",
+    title: "",
+    description: "",
+    notifications: true,
+    color: "green",
+    unread: false,
+    modelSelection: { instanceId: "x", model: "y" },
+    messages,
+    activeLeafId,
+  });
+
+  it("keeps newer live messages and leaf over an older snapshot", () => {
+    const m1 = msg("m1", 1);
+    const m2 = msg("m2", 2, "m1");
+    const state = { ...initialState, bots: [echo("t1", [m1, m2], "m2")] };
+    const next = reducer(state, { type: "taskSwitched", bot: echo("t1", [m1], "m1") });
+    expect(next.bots[0]!.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
+    expect(next.bots[0]!.activeLeafId).toBe("m2");
+  });
+
+  it("drops a response for a task the user already switched away from", () => {
+    let state = { ...initialState, bots: [echo("t0", [msg("a", 1)], "a")] };
+    state = reducer(state, { type: "switchTask", botId: "echo", threadId: "t1", generation: 1 });
+    state = reducer(state, { type: "switchTask", botId: "echo", threadId: "t2", generation: 2 });
+    const next = reducer(state, { type: "taskSwitched", bot: echo("t1", [msg("b", 2)], "b"), generation: 1 });
+    expect(next.bots[0]!.threadId).toBe("t0");
+    expect(next.bots[0]!.messages.map((m) => m.id)).toEqual(["a"]);
+  });
+});

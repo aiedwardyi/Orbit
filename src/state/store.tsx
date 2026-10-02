@@ -628,6 +628,8 @@ export interface AppState {
   stoppingBots: Record<string, StopHold>;
   /** Renderer-only PTY alerts, separate from durable chat unread state. */
   terminalAttention: TerminalAttentionMap;
+  /** Latest task switch request per bot; an older response is dropped. */
+  taskSwitches: Record<string, number>;
 }
 
 type StopHold = { until: number; busy: boolean; activity?: Bot["activity"] };
@@ -806,8 +808,8 @@ export type Action =
       /** Local UI recovery hook for voice flows. Never sent to the server. */
       onError?: (message: string) => void;
     }
-  | { type: "switchTask"; botId: string; threadId: string }
-  | { type: "taskSwitched"; bot: Bot }
+  | { type: "switchTask"; botId: string; threadId: string; generation?: number }
+  | { type: "taskSwitched"; bot: Bot; generation?: number }
   | { type: "renameTask"; botId: string; threadId: string; title: string }
   | { type: "deleteTask"; botId: string; threadId: string }
   | { type: "taskPacket"; threadId: string; packet: TaskResumePacket }
@@ -1769,6 +1771,9 @@ export function reducer(state: AppState, action: Action): AppState {
         },
       };
     case "switchTask":
+      return action.generation === undefined
+        ? state
+        : { ...state, taskSwitches: { ...state.taskSwitches, [action.botId]: action.generation } };
     case "deleteTask":
     case "resumeTask":
     case "newGroupTask":
@@ -1814,12 +1819,37 @@ export function reducer(state: AppState, action: Action): AppState {
         ),
       };
     case "taskSwitched": {
-      const switched = updateBot(state, action.bot.id, (bot) => ({
-        ...bot,
-        ...action.bot,
-        messages: action.bot.messages ?? [],
-        hasMore: action.bot.hasMore,
-      }));
+      if (action.generation !== undefined && state.taskSwitches[action.bot.id] !== action.generation) return state;
+      const switched = updateBot(state, action.bot.id, (bot) => {
+        const snapshot = action.bot.messages ?? [];
+        if (bot.threadId !== action.bot.threadId) {
+          return { ...bot, ...action.bot, messages: snapshot, hasMore: action.bot.hasMore };
+        }
+        // SSE frames for this thread may have landed while the request was
+        // in flight; the snapshot must not drop them or move the leaf back.
+        const live = new Map(bot.messages.map((message) => [message.id, message]));
+        const snapshotIds = new Set(snapshot.map((message) => message.id));
+        const messages = [
+          ...snapshot.map((message) => live.get(message.id) ?? message),
+          ...bot.messages.filter((message) => !snapshotIds.has(message.id)),
+        ];
+        const liveLeaf = messages.find((message) => message.id === bot.activeLeafId);
+        const snapshotLeaf = messages.find((message) => message.id === action.bot.activeLeafId);
+        const keepLiveLeaf = Boolean(
+          liveLeaf && (
+            !snapshotLeaf ||
+            messageIsAncestor(messages, liveLeaf.id, snapshotLeaf.id) ||
+            (!messageIsAncestor(messages, snapshotLeaf.id, liveLeaf.id) && liveLeaf.at >= snapshotLeaf.at)
+          ),
+        );
+        return {
+          ...bot,
+          ...action.bot,
+          messages,
+          activeLeafId: keepLiveLeaf ? bot.activeLeafId : action.bot.activeLeafId,
+          hasMore: action.bot.hasMore,
+        };
+      });
       return reconcileSnapshotQueues(switched, [action.bot]);
     }
     case "newBot":
@@ -1925,6 +1955,7 @@ export const initialState: AppState = {
   acceptedSends: {},
   stoppingBots: {},
   terminalAttention: {},
+  taskSwitches: {},
 };
 
 // ── API client ─────────────────────────────────────────────────────────
@@ -2019,6 +2050,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const groupPatchFallback = useRef(new Map<string, Group>());
   const groupPatchLatestSuccess = useRef(new Map<string, Group>());
   const refreshGeneration = useRef(0);
+  const taskSwitchGeneration = useRef(0);
   // per-frame stream-delta batching (see the "runtime" SSE case); stream
   // state is intentionally OUTSIDE the reducer so token frames re-render
   // only StreamContext consumers
@@ -2145,7 +2177,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ? { ...rawAction, sendId: crypto.randomUUID() }
           : rawAction.type === "interrupt" && rawAction.until === undefined
             ? { ...rawAction, until: Date.now() + STOP_HOLD_MS }
-            : rawAction;
+            : rawAction.type === "switchTask" && rawAction.generation === undefined
+              ? { ...rawAction, generation: ++taskSwitchGeneration.current }
+              : rawAction;
       const botBeforeUpdate =
         action.type === "updateBot"
           ? stateRef.current.bots.find((candidate) => candidate.id === action.botId)
@@ -2665,7 +2699,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // because switching changes which conversation is on screen
         case "switchTask":
           api(`/api/bots/${action.botId}/tasks/${action.threadId}`, { method: "POST" })
-            .then((r: any) => r?.bot && dispatch({ type: "taskSwitched", bot: r.bot }))
+            .then((r: any) => r?.bot && dispatch({ type: "taskSwitched", bot: r.bot, generation: action.generation }))
             .catch(showError);
           break;
         case "renameTask":
