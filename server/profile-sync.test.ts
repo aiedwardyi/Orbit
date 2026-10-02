@@ -477,6 +477,32 @@ describe("automatic bot sync", () => {
     expect(applySyncOperations(emptyProfileSyncState(), log).bots).toEqual({});
   });
 
+  it("keeps a picked mascot icon when a legacy bot with no style publishes null", () => {
+    const a = device("a");
+    const b = device("b");
+    a.bots.set("idle", { name: "Idle", changes: { name: "Idle", mascotStyle: "icon-11", avatarCrop: "mascot" } });
+    publish(a);
+    b.botMap.idle = "g-a-idle";
+    b.bots.set("idle", { name: "Idle", changes: { name: "Idle", mascotStyle: null } });
+    publish(b);
+    importInto(a);
+    importInto(b);
+    expect(a.bots.get("idle")!.changes.mascotStyle).toBe("icon-11");
+    expect(b.bots.get("idle")!.changes.mascotStyle).toBe("icon-11");
+    expect(b.bots.get("idle")!.changes.avatarCrop).toBe("mascot");
+  });
+
+  it("applies a remote mascot icon over a legacy local bot with no style", () => {
+    const a = device("a");
+    const b = device("b");
+    a.bots.set("idle", { name: "Idle", changes: { name: "Idle", mascotStyle: "icon-11" } });
+    publish(a);
+    b.botMap.idle = "g-a-idle";
+    b.bots.set("idle", { name: "Idle", changes: { name: "Idle", mascotStyle: null } });
+    expect(importInto(b).bots[0]!.apply).toEqual({ mascotStyle: "icon-11" });
+    expect(b.bots.get("idle")!.changes.mascotStyle).toBe("icon-11");
+  });
+
   it("keeps and publishes a differing local value on a mapping made before auto sync", () => {
     const a = device("a");
     const b = device("b");

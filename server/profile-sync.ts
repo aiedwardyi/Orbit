@@ -381,7 +381,11 @@ export function applySyncOperations(
       continue;
     }
     const changes = validateChanges(operation) ?? {};
-    for (const [field, value] of Object.entries(changes)) setField(state, operation, field, value, appliedOrder);
+    for (const [field, value] of Object.entries(changes)) {
+      // a bot with no picked style publishes null; it must not erase an icon another device picked
+      if (field === "mascotStyle" && value === null) continue;
+      setField(state, operation, field, value, appliedOrder);
+    }
     markApplied(operation.operationId);
   }
   state.appliedOperationIds = [...appliedOperationIds].slice(-10_000);
@@ -701,7 +705,7 @@ export function remoteFieldsToApply(
     if (syncValueHash(value) === base) continue;
     if (local && base !== undefined && syncValueHash(local[field]) !== base) continue;
     // no base on a mapped bot (a pre-auto-sync mapping): its own value wins and publishes
-    if (local && base === undefined && entity === "bot" && field in local) continue;
+    if (local && base === undefined && entity === "bot" && local[field] != null) continue;
     apply[field] = value;
   }
   return apply;
