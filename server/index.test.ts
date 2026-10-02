@@ -2253,6 +2253,32 @@ describe("harness HTTP API", () => {
     }
   });
 
+  it("never starts a send whose Stop landed first", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    try {
+      const hanging = (await api("GET", "/api/instances")).body.instances.find(
+        (instance: { instanceId: string }) => instance.instanceId === "claude",
+      );
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claude", model: hanging.models.default },
+      })).status).toBe(200);
+      const sendId = "stop-before-send-0001";
+      const before = storedMessageCount(bot.threadId);
+      expect((await api("POST", `/api/bots/${bot.id}/interrupt`)).status).toBe(200);
+      expect((await api("DELETE", `/api/bots/${bot.id}/queue/${sendId}`)).body).toMatchObject({ cancelled: true });
+      const sent = await api("POST", `/api/bots/${bot.id}/messages`, { text: "never mind", sendId });
+      expect(sent.body).toMatchObject({ ok: true, cancelled: true });
+      const state = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+        (candidate: { id: string }) => candidate.id === bot.id,
+      );
+      expect(state?.busy).toBe(false);
+      expect(storedMessageCount(bot.threadId)).toBe(before);
+    } finally {
+      await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
   it("leaves an idle room stop recovery packet after interrupting a live channel turn", async () => {
     const first = (await api("POST", "/api/bots")).body.bot;
     const second = (await api("POST", "/api/bots")).body.bot;

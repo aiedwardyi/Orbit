@@ -811,7 +811,7 @@ export type Action =
   | { type: "provisioning"; botId: string; on: boolean }
   | { type: "computerControl"; botId: string; held: boolean; helpReason: string | null }
   | { type: "setModel"; botId: string; selection: ModelSelection }
-  | { type: "interrupt"; botId: string }
+  | { type: "interrupt"; botId: string; onSettled?: () => void }
   | { type: "connected"; value: boolean }
   | { type: "error"; message: string | null }
   | { type: "toggleSettings"; open?: boolean }
@@ -2122,7 +2122,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (action.type === "interrupt") {
         const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
         for (const entry of bot ? (stateRef.current.acceptedSends[bot.threadId] ?? []) : []) {
-          if (entry.kind === "thinking") cancelledSendsRef.current.add(entry.sendId);
+          if (entry.kind !== "thinking") continue;
+          cancelledSendsRef.current.add(entry.sendId);
+          // The interrupt can land before this send does, or after it queued
+          // behind a turn still starting; only a sendId cancel catches both.
+          void api(`/api/bots/${action.botId}/queue/${entry.sendId}`, { method: "DELETE" }).catch(() => {});
         }
       }
       if (action.type === "interruptGroup") {
@@ -2580,7 +2584,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }).catch(showError);
           break;
         case "interrupt":
-          api(`/api/bots/${action.botId}/interrupt`, { method: "POST" }).catch(showError);
+          api(`/api/bots/${action.botId}/interrupt`, { method: "POST" })
+            .catch(showError)
+            .finally(() => action.onSettled?.());
           break;
         case "resumeTask": {
           const done = api(`/api/bots/${action.botId}/tasks/${action.threadId}/resume`, { method: "POST" });

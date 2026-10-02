@@ -259,4 +259,18 @@ describe("send while the server holds the thread", () => {
     await vi.waitFor(() => expect(store.state.acceptedSends[bot.threadId]).toBeUndefined());
     expect(post).toHaveBeenCalledOnce();
   });
+
+  // The interrupt can reach the server before the send does, or after the
+  // send was queued behind a turn still starting; neither may run later.
+  it("cancels a send on the server when Stop beats its receipt", async () => {
+    const fetch = await mount(
+      () => Response.json({ messages: [], hasMore: false }),
+      () => new Promise<Response>(() => {}),
+      [{ ...bot, busy: false, activity: "idle" }],
+    );
+    await act(async () => store.dispatch({ type: "send", botId: bot.id, text: "hello", sendId: "s4", threadId: bot.threadId }));
+    await act(async () => store.dispatch({ type: "interrupt", botId: bot.id }));
+    expect(fetch).toHaveBeenCalledWith("/api/bots/b1/queue/s4", expect.objectContaining({ method: "DELETE" }));
+    expect(fetch).toHaveBeenCalledWith("/api/bots/b1/interrupt", expect.objectContaining({ method: "POST" }));
+  });
 });

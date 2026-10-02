@@ -285,6 +285,8 @@ export function Composer({
   const [caret, setCaret] = useState(0);
   const [highlight, setHighlight] = useState(0);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null); // Esc'd this @
+  const [stoppingBotId, setStoppingBotId] = useState<string | null>(null);
+  const stopping = !group && Boolean(bot) && stoppingBotId === bot?.id;
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const setComposerRef = useCallback(
     (element: HTMLTextAreaElement | null) => {
@@ -1000,10 +1002,22 @@ export function Composer({
           <button
             onClick={() => {
               if (group) dispatch({ type: "interruptGroup", groupId: group.id });
-              else if (bot) dispatch({ type: "interrupt", botId: bot.id });
+              else if (bot && !stopping) {
+                const botId = bot.id;
+                setStoppingBotId(botId);
+                dispatch({
+                  type: "interrupt",
+                  botId,
+                  onSettled: () => setStoppingBotId((current) => (current === botId ? null : current)),
+                });
+              }
             }}
             aria-label={t("composer.stopTurn")}
-            className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-secondary hover:bg-raised hover:text-ink"
+            aria-busy={stopping}
+            className={cn(
+              "flex size-8 shrink-0 items-center justify-center rounded-full text-ink-secondary hover:bg-raised hover:text-ink",
+              stopping && "animate-pulse text-ink",
+            )}
             title={t("composer.stop")}
           >
             <Square size={14} className="fill-current" />
