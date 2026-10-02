@@ -291,10 +291,11 @@ describe("thread sync", () => {
 
     expect(pullThread(a.host, "bot-a", BOT_SYNC_ID, "t1")).toBe("imported");
     const dir = threadSyncDir(folder, BOT_SYNC_ID);
-    const parked = readdirSync(dir).filter((name) => name.startsWith("t1.conflict-device-a-"));
+    const parked = readdirSync(dir).filter((name) => name.startsWith("t1.conflict-device-b-"));
     expect(parked).toHaveLength(1);
     const archived = readSyncedThread(join(dir, parked[0]), true)?.messages.find((m) => m.id === "r1");
-    expect(archived).toMatchObject({ text: "Result: 42.", routineRun: { status: "completed" } });
+    expect(archived).toMatchObject({ text: "Running.", routineRun: { status: "running" } });
+    expect(a.threads.get("t1")?.messages.find((m) => m.id === "r1")).toMatchObject({ text: "Result: 42.", routineRun: { status: "completed" } });
   });
 
   it("keeps the conflict notice local so an idle PC imports over it", () => {

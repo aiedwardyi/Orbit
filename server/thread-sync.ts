@@ -369,11 +369,14 @@ export function pullThread(host: ThreadSyncHost, botId: string, botSyncId: strin
   if (local && (diverged || isDirty(host, threadId, local) || !preserved(dir, threadId, local, remote))) {
     return keepConflict(host, dir, threadId, remote);
   }
-  // another writer's higher revision can still carry a stale copy of a row we published; park ours before it goes
+  let messages = remote.messages;
+  // another writer's higher revision can still carry a stale copy of a row we published; keep ours, park theirs
   if (local && !descends(entry, remote) && rowsDiffer(local, remote)) {
-    parkConflict(host, dir, threadId, toFile(host, threadId, local, (entry?.syncedRevision ?? 0) + 1));
+    parkConflict(host, dir, threadId, remote);
+    const ours = new Map(shared(local).messages.map((message) => [message.id, message]));
+    messages = messages.map((message) => ours.get(message.id) ?? message);
   }
-  host.adopt(botId, structuredClone(remote));
+  host.adopt(botId, structuredClone({ ...remote, messages }));
   host.ledger[threadId] = { syncedRevision: remote.revision, syncedWriter: remote.writerDeviceId, dirty: false };
   host.saveLedger();
   return "imported";
