@@ -183,6 +183,13 @@ describe("catalog merge", () => {
       ["google", "gemini-3.8-flash"],
     ]);
   });
+
+  it("keeps contributor models out of the unscored list but priced", () => {
+    const catalog = winkCatalog([instance("museAgent", ["muse-spark-1.3", "muse-spark-1.3-contributor"])]);
+    expect(catalog.map((m) => m.model)).toEqual(["muse-spark-1.3"]);
+    expect(indexView("coding", catalog, []).missing.map((m) => m.model)).toEqual(["muse-spark-1.3"]);
+    expect(indexView("cost", catalog).points.map((p) => p.model)).toContain("muse-spark-1.3-contributor");
+  });
 });
 
 describe("model shapes", () => {

@@ -61,7 +61,8 @@ export function winkCatalog(instances: InstanceInfo[]): CatalogModel[] {
   const seen = new Set<string>();
   return pickerModels(pickerRows(instances, { instanceId: "", model: "" })).flatMap(({ instance, cell }) => {
     const option = cell.options[0];
-    if (!option) return [];
+    // Contributor shares its base model's scores; only its price differs.
+    if (!option || option.id.endsWith("-contributor")) return [];
     const model = instance.driverKind === "antigravityAgent" ? option.id.replace(/-(high|medium|low)$/, "") : option.id;
     if (seen.has(model)) return [];
     seen.add(model);
