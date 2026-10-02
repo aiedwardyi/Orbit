@@ -24,6 +24,12 @@ describe("readGrokModelCatalog", () => {
     expect(readGrokModelCatalog({ HOME: join(tmpdir(), "omb-grok-missing-home") })).toEqual(STATIC_GROK_MODELS);
   });
 
+  it("carries a context window on every cloud model", () => {
+    for (const option of STATIC_GROK_MODELS.options) {
+      expect(option.contextWindow, option.id).toBeGreaterThanOrEqual(128_000);
+    }
+  });
+
   it("appends local slugs from config.toml and prefers their display names", () => {
     const home = scratchConfig(`
 [models]
@@ -44,8 +50,8 @@ name = "MiniMax M3 4bit (oMLX)"
     expect(readGrokModelCatalog({ HOME: home })).toEqual({
       default: "ollama-ornith-35b-bf16",
       options: [
-        { id: "grok-4.7", label: "Grok 4.7" },
-        { id: "grok-4.6", label: "Grok 4.6" },
+        { id: "grok-4.7", label: "Grok 4.7", contextWindow: 500_000 },
+        { id: "grok-4.6", label: "Grok 4.6", contextWindow: 500_000 },
         { id: "ollama-ornith-35b-bf16", label: "ornith:35b-bf16 (Ollama)", custom: true },
         { id: "omlx-minimax-m3", label: "MiniMax M3 4bit (oMLX)", custom: true },
       ],

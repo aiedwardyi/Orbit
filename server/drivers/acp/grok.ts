@@ -15,8 +15,8 @@ import { createAcpDriver, type AcpSupport } from "./core.ts";
 export const STATIC_GROK_MODELS: ModelCatalog = {
   default: "grok-4.6",
   options: [
-    { id: "grok-4.7", label: "Grok 4.7" },
-    { id: "grok-4.6", label: "Grok 4.6" },
+    { id: "grok-4.7", label: "Grok 4.7", contextWindow: 500_000 },
+    { id: "grok-4.6", label: "Grok 4.6", contextWindow: 500_000 },
   ],
 };
 

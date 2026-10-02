@@ -131,7 +131,7 @@ describe("provider-neutral context compaction", () => {
     expect(second.compaction?.summary).toBe("summary two");
   });
 
-  it("rebuilds continuity for an engine A to B to A sequence", async () => {
+  it("keeps continuity for an engine A to B to A sequence without re-summarizing", async () => {
     const history = longHistory(120);
     const first = await prepareModelContext({
       messages: history,
@@ -147,38 +147,31 @@ describe("provider-neutral context compaction", () => {
     const marker = compactionMessage("c1", "m119", first.compaction);
     const bResult = message("m120", "engine B verified the installer", { role: "bot" });
     const path = [...history, marker, bResult];
-    const bPrompts: string[] = [];
+    const summarize = vi.fn(async (_prompt: string) => "unused");
     const onB = await prepareModelContext({
       messages: path,
       contextWindow: 32_768,
       taskRecordText: "Goal: finish the release",
-      summarize: async (prompt) => {
-        bPrompts.push(prompt);
-        return "engine B summary with early evidence and installer verification";
-      },
+      summarize,
     });
     expect(onB.status).toBe("ready");
     if (onB.status !== "ready") return;
-    expect(onB.compaction).toBeDefined();
-    if (!onB.compaction) return;
-    expect(bPrompts.some((prompt) => prompt.includes("work item 0"))).toBe(true);
-    expect(bPrompts.some((prompt) => prompt.includes("engine A summary with early evidence"))).toBe(true);
+    expect(summarize).not.toHaveBeenCalled();
+    expect(onB.compactionId).toBe("c1");
+    expect(onB.transcript[0]?.text).toContain("engine A summary with early evidence");
     expect(onB.transcript.at(-1)?.text).toContain("engine B verified the installer");
 
-    const bMarker = compactionMessage("c2", bResult.id, onB.compaction);
-    const prompts: string[] = [];
     const backOnA = await prepareModelContext({
-      messages: [...path, bMarker],
+      messages: path,
       contextWindow: 1_024,
       taskRecordText: "Goal: finish the release",
-      summarize: async (prompt) => {
-        prompts.push(prompt);
-        return "engine A resumed with B's verification";
-      },
+      summarize,
     });
     expect(backOnA.status).toBe("ready");
-    expect(prompts.some((prompt) => prompt.includes("engine B summary with early evidence"))).toBe(true);
-    expect(backOnA.status === "ready" && JSON.stringify(backOnA.transcript)).toContain("engine B verified the installer");
+    if (backOnA.status !== "ready") return;
+    expect(summarize).not.toHaveBeenCalled();
+    expect(backOnA.transcript[0]?.text).toContain("engine A summary with early evidence");
+    expect(backOnA.transcript.at(-1)?.text).toContain("engine B verified the installer");
   });
 
   it("flushes task state before the first summarization call", async () => {
@@ -315,7 +308,38 @@ describe("provider-neutral context compaction", () => {
     expect(knownCatalogContextWindow({ default: "x", options: [{ id: "x", label: "X" }] }, "x")).toBeNull();
   });
 
-  it("compacts three large pastes on the 16k fallback but not on a 200k window", async () => {
+  it("falls back to a window no current chat model is below", () => {
+    expect(contextWindowFor({ default: "x", options: [{ id: "x", label: "X" }] }, "x")).toBeGreaterThanOrEqual(128_000);
+  });
+
+  it("keeps the summary chain when the window grows instead of replaying the whole history", async () => {
+    const previous: ContextCompactionV1 = {
+      v: 1,
+      summary: "small-window summary",
+      coveredThroughId: "m9",
+      firstKeptId: "m10",
+      contextWindow: 16_384,
+      estimatedTokensBefore: 9_000,
+      sourceMessageCount: 1_000,
+    };
+    const summarize = vi.fn(async (_prompt: string) => "SUMMARY\ngrown-window summary");
+    const result = await prepareModelContext({
+      messages: [...longHistory(12), compactionMessage("c1", "m11", previous), ...longHistory(128, 12)],
+      contextWindow: 200_000,
+      taskRecordText: "Goal: finish",
+      summarize,
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(summarize.mock.calls.length).toBeLessThanOrEqual(1);
+    expect(summarize.mock.calls[0]?.[0]).toContain("small-window summary");
+    expect(summarize.mock.calls[0]?.[0]).not.toContain("work item 0");
+    expect(result.compaction?.previousCompactionId).toBe("c1");
+    expect(result.compaction?.sourceMessageCount).toBeGreaterThan(1_000);
+  });
+
+  it("compacts three large pastes on a 16k window but not on a 200k window", async () => {
     const pastes = [
       message("m1", "paste one: " + "x".repeat(30_000)),
       message("m2", "paste two: " + "y".repeat(30_000)),
@@ -338,7 +362,7 @@ describe("provider-neutral context compaction", () => {
 
     const narrow = await prepareModelContext({
       messages: pastes,
-      contextWindow: MODEL_CONTEXT_FALLBACK,
+      contextWindow: 16_384,
       taskRecordText: "Goal: review the pastes",
       summarize,
     });
@@ -711,7 +735,7 @@ describe("provider-neutral context compaction", () => {
     expect(path).toEqual(before);
   });
 
-  it("marks a grown window that restored the original history in place of the summary", async () => {
+  it("keeps the previous summary on a grown window and only allows a bigger tail", async () => {
     const previous: ContextCompactionV1 = {
       v: 1,
       summary: "small-window summary",
@@ -730,21 +754,20 @@ describe("provider-neutral context compaction", () => {
     const result = await prepareModelContext({
       messages: path,
       contextWindow: 200_000,
-      taskRecordText: "Goal: recover raw history",
+      taskRecordText: "Goal: keep the chain",
     });
 
-    // the session seeded with c1 has not seen "one"; the caller recycles once
     expect(result).toMatchObject({
       status: "ready",
       compacted: true,
       compactionId: "c1",
-      expanded: true,
       transcript: [
-        { role: "user", text: "one" },
+        { role: "assistant", text: expect.stringContaining("small-window summary") },
         { role: "assistant", text: "two" },
         { role: "user", text: "three" },
       ],
     });
+    if (result.status === "ready") expect(result.expanded).toBeUndefined();
   });
 
   it("blocks on an unknown future version behind a malformed marker", async () => {

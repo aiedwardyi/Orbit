@@ -8,7 +8,7 @@ import {
   type ContextCompactionV1,
 } from "../shared/context-compaction.ts";
 
-export const MODEL_CONTEXT_FALLBACK = 16_384;
+export const MODEL_CONTEXT_FALLBACK = 128_000;
 
 const CONTEXT_BUDGET_SHARE = 0.5;
 const SUMMARY_BUDGET_SHARE = 0.35;
@@ -370,12 +370,13 @@ export async function prepareModelContext(input: {
     input.referenceMessages ?? input.messages,
     input.includeSpeakers ?? false,
   );
-  const expanding = Boolean(previous && contextWindow > previous.value.contextWindow);
-  const units = previous && !expanding
+  // A grown window keeps the summary and only allows a bigger tail; replaying
+  // the covered history re-summarized a whole day at once.
+  const units = previous
     ? allUnits.filter((unit) => unit.pathIndex > previous.coveredIndex)
     : allUnits;
   const currentTranscript = [
-    ...(previous && !expanding ? [summaryMessage(previousSummary)] : []),
+    ...(previous ? [summaryMessage(previousSummary)] : []),
     ...units.map(({ role, text }) => ({ role, text })),
   ];
   const currentTokens = estimateContextTokens(currentTranscript);
@@ -390,7 +391,6 @@ export async function prepareModelContext(input: {
       estimatedTokens: currentTokens,
       compacted: Boolean(previous),
       ...(previous ? { compactionId: previous.messageId } : {}),
-      ...(previous && expanding ? { expanded: true } : {}),
     };
   }
   const summaryBudget = Math.max(
@@ -499,7 +499,7 @@ export async function prepareModelContext(input: {
     firstKeptId: tail[0]?.id ?? null,
     contextWindow,
     estimatedTokensBefore: Math.max(1, currentTokens),
-    sourceMessageCount: expanding ? old.length : (previous?.value.sourceMessageCount ?? 0) + old.length,
+    sourceMessageCount: (previous?.value.sourceMessageCount ?? 0) + old.length,
   };
   if (previous) compaction.previousCompactionId = previous.messageId;
   const validated = readContextCompaction({ value: compaction });

@@ -70,32 +70,33 @@ export interface AntigravityConfig {
 export const STATIC_ANTIGRAVITY_MODELS: ModelCatalog = {
   default: "gemini-3.1-pro-high",
   options: [
-    { id: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro (High)" },
-    { id: "gemini-3.1-pro-low", label: "Gemini 3.1 Pro (Low)" },
+    { id: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro (High)", contextWindow: 1_048_576 },
+    { id: "gemini-3.1-pro-low", label: "Gemini 3.1 Pro (Low)", contextWindow: 1_048_576 },
     // 3.8 ids confirmed against the agy 1.1.26 binary's own model table;
     // there is no bare gemini-3.8-flash, only the three throttle tiers
-    { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
-    { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)" },
-    { id: "gemini-3.8-flash-low", label: "Gemini 3.8 Flash (Low)" },
+    { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)", contextWindow: 1_048_576 },
+    { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)", contextWindow: 1_048_576 },
+    { id: "gemini-3.8-flash-low", label: "Gemini 3.8 Flash (Low)", contextWindow: 1_048_576 },
     // 3.7 ids confirmed against the agy 1.1.12 binary's own model table
-    { id: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash (High)" },
-    { id: "gemini-3.7-flash-medium", label: "Gemini 3.7 Flash (Medium)" },
-    { id: "gemini-3.7-flash-low", label: "Gemini 3.7 Flash (Low)" },
-    { id: "gemini-3.6-flash-high", label: "Gemini 3.6 Flash (High)" },
-    { id: "gemini-3.6-flash-medium", label: "Gemini 3.6 Flash (Medium)" },
-    { id: "gemini-3.6-flash-low", label: "Gemini 3.6 Flash (Low)" },
+    { id: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash (High)", contextWindow: 1_048_576 },
+    { id: "gemini-3.7-flash-medium", label: "Gemini 3.7 Flash (Medium)", contextWindow: 1_048_576 },
+    { id: "gemini-3.7-flash-low", label: "Gemini 3.7 Flash (Low)", contextWindow: 1_048_576 },
+    { id: "gemini-3.6-flash-high", label: "Gemini 3.6 Flash (High)", contextWindow: 1_048_576 },
+    { id: "gemini-3.6-flash-medium", label: "Gemini 3.6 Flash (Medium)", contextWindow: 1_048_576 },
+    { id: "gemini-3.6-flash-low", label: "Gemini 3.6 Flash (Low)", contextWindow: 1_048_576 },
     // 3.5 ids confirmed against the agy 1.1.27 binary's own model table
-    { id: "gemini-3.5-flash-high", label: "Gemini 3.5 Flash (High)" },
-    { id: "gemini-3.5-flash-medium", label: "Gemini 3.5 Flash (Medium)" },
-    { id: "gemini-3.5-flash-low", label: "Gemini 3.5 Flash (Low)" },
+    { id: "gemini-3.5-flash-high", label: "Gemini 3.5 Flash (High)", contextWindow: 1_048_576 },
+    { id: "gemini-3.5-flash-medium", label: "Gemini 3.5 Flash (Medium)", contextWindow: 1_048_576 },
+    { id: "gemini-3.5-flash-low", label: "Gemini 3.5 Flash (Low)", contextWindow: 1_048_576 },
     // claude-sonnet-4-6, claude-opus-4-6-thinking, and gpt-oss-120b-medium
     // below predate the ground-truth rule (driver PR #30) and do not appear
     // in a current `agy models` run — see MODEL-AG-STALE. Left in place
     // pending a follow-up to confirm or remove them; see
     // ANTIGRAVITY_UNVERIFIED_LEGACY_IDS in antigravity.test.ts.
-    { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Thinking)" },
-    { id: "claude-opus-4-6-thinking", label: "Claude Opus 4.6 (Thinking)" },
-    { id: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium)" },
+    // gpt-oss 128k is the published figure, not confirmed against agy.
+    { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Thinking)", contextWindow: 1_000_000 },
+    { id: "claude-opus-4-6-thinking", label: "Claude Opus 4.6 (Thinking)", contextWindow: 1_000_000 },
+    { id: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium)", contextWindow: 131_072 },
   ],
 };
 

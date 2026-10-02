@@ -48,10 +48,13 @@ describe("readAntigravityModelCatalog", () => {
   it("lists the three Gemini 3.8 Flash tiers ahead of older Flash entries", () => {
     const ids = STATIC_ANTIGRAVITY_MODELS.options.map((option) => option.id);
     expect(STATIC_ANTIGRAVITY_MODELS.options.filter((option) => option.id.startsWith("gemini-3.8-"))).toEqual([
-      { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
-      { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)" },
-      { id: "gemini-3.8-flash-low", label: "Gemini 3.8 Flash (Low)" },
+      { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)", contextWindow: 1_048_576 },
+      { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)", contextWindow: 1_048_576 },
+      { id: "gemini-3.8-flash-low", label: "Gemini 3.8 Flash (Low)", contextWindow: 1_048_576 },
     ]);
+    for (const option of STATIC_ANTIGRAVITY_MODELS.options) {
+      expect(option.contextWindow, option.id).toBeGreaterThanOrEqual(128_000);
+    }
     // agy has no bare gemini-3.8-flash: a tier-less id is a bad request
     expect(ids).not.toContain("gemini-3.8-flash");
     expect(ids).toEqual(expect.arrayContaining([
