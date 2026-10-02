@@ -215,4 +215,9 @@ describe("show-image route", () => {
     expect(indexSource).toContain('const showImagePrompt = integrations.agents ? ` ${SHOW_IMAGE_GUIDANCE}` : "";');
     expect(indexSource).toContain("integrations.agents && SHOW_IMAGE_GUIDANCE");
   });
+
+  it("puts the ack-first rule in every bot's base prompt", () => {
+    expect(indexSource).toContain("Start every turn with one short plain-text line saying what you're about to do, before any tool call. Never end a turn without a user-visible reply.");
+    expect(indexSource.split("ACK_FIRST_INSTRUCTIONS +").length - 1).toBe(2);
+  });
 });
