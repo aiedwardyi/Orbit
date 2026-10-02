@@ -181,3 +181,44 @@ describe("SettingsPanel approval pill", () => {
     expect(host.querySelector("[data-local-warning]")).not.toBeNull();
   });
 });
+
+describe("SettingsPanel memory and order", () => {
+  let host: HTMLDivElement;
+  let root: ReturnType<typeof createRoot>;
+
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ text: "likes tea", truncated: false, topics: [] }))),
+    );
+  });
+
+  afterEach(() => {
+    root.unmount();
+    host.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("loads memory on mount with no click", async () => {
+    await act(async () => {
+      root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot })));
+    });
+    const box = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Bot memory"]');
+    expect(box?.value).toBe("likes tea");
+    expect(host.querySelector('button[aria-expanded][class*="justify-between"]')).toBeNull();
+  });
+
+  it("orders the detail rows with lean startup after the terminal share", async () => {
+    await act(async () => {
+      root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot })));
+    });
+    const text = host.textContent ?? "";
+    const order = ["Title", "Description", "Memory", "Project folder", "Approval", "Notifications", "Share terminal with chat", "Load skills & plugins"];
+    const at = order.map((label) => text.indexOf(label));
+    expect(at).not.toContain(-1);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+  });
+});

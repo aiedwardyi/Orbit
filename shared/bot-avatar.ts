@@ -64,6 +64,11 @@ export const BOT_AVATAR_IDS = [
   "icon-28",
   "icon-29",
   "icon-30",
+  "icon-31",
+  "icon-32",
+  "icon-33",
+  "icon-34",
+  "icon-35",
 ] as const;
 export const botAvatarIdSchema = z.enum(BOT_AVATAR_IDS);
 export type BotAvatarId = z.infer<typeof botAvatarIdSchema>;
@@ -101,6 +106,11 @@ export const BOT_AVATAR_ASSETS = {
   "icon-28": "icon-28-wave-bars.png",
   "icon-29": "icon-29-infinity-knot.png",
   "icon-30": "icon-30-shield-orbit.png",
+  "icon-31": "icon-31-wink.png",
+  "icon-32": "icon-32-wink-light.png",
+  "icon-33": "icon-33-wink-mint.png",
+  "icon-34": "icon-34-wink-peach.png",
+  "icon-35": "icon-35-wink-lavender.png",
 } satisfies Record<BotAvatarId, string>;
 
 export const BOT_AVATAR_LABELS = {
@@ -134,6 +144,11 @@ export const BOT_AVATAR_LABELS = {
   "icon-28": "Wave bars",
   "icon-29": "Infinity knot",
   "icon-30": "Shield orbit",
+  "icon-31": "Wink",
+  "icon-32": "Wink light",
+  "icon-33": "Wink mint",
+  "icon-34": "Wink peach",
+  "icon-35": "Wink lavender",
 } satisfies Record<BotAvatarId, string>;
 
 /** Fixed artwork first, with white and mono marks leading the picker. */
@@ -175,6 +190,11 @@ export const BOT_AVATAR_PICKER_ORDER = [
   "squircle",
   "circle",
   "pill",
+  "icon-31",
+  "icon-32",
+  "icon-33",
+  "icon-34",
+  "icon-35",
 ] as const satisfies readonly BotAvatarChoice[];
 
 const BOT_AVATAR_ID_SET = new Set<string>(BOT_AVATAR_IDS);

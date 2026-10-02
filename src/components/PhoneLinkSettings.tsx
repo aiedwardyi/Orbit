@@ -38,7 +38,7 @@ export function PhoneLinkSettings() {
     <Section title={t("settings.phoneLink.title")} subtitle={t("settings.phoneLink.help")}>
       <div className="flex flex-wrap items-center gap-2">
         <code className="min-w-0 flex-1 basis-full truncate rounded-lg bg-inset px-3 py-2 font-mono text-[13px] text-ink sm:basis-0">
-          {new URL(url).host}
+          {new URL(url).host}/••••••••
         </code>
         <button
           type="button"

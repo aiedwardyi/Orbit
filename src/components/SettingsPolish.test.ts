@@ -273,6 +273,8 @@ describe("Settings Polish", () => {
       messages: [],
       cwd: null,
     };
+    const memory = { text: "", truncated: false, topics: [] } as never;
+    mockApi.mockResolvedValueOnce(memory).mockResolvedValueOnce(memory);
 
     await act(async () => {
       root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: emptyBot })));

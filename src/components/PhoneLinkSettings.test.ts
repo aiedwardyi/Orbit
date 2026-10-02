@@ -39,7 +39,7 @@ describe("PhoneLinkSettings", () => {
     const writeText = vi.fn(async () => {});
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     const { host, root } = await renderView();
-    expect(host.textContent).toContain("laptop.tail396477.ts.net");
+    expect(host.textContent).toContain("laptop.tail396477.ts.net/••••••••");
     expect(host.textContent).not.toContain("secretkey");
     await act(async () => click(host.querySelector("button")!));
     expect(writeText).toHaveBeenCalledWith(url);

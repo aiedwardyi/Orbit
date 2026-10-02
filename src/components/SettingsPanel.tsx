@@ -208,8 +208,7 @@ const formatBytes = (bytes: number) => (bytes < 1024 ? `${bytes} B` : `${Math.ro
  * every bot and most visits never look at memory — and an expand also
  * re-reads, so notes the bot wrote mid-session show up on the next open. */
 function MemoryCard({ bot }: { bot: Bot }) {
-  const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [dirty, setDirty] = useState(false);
@@ -263,27 +262,17 @@ function MemoryCard({ bot }: { bot: Bot }) {
     }
   };
 
+  useEffect(() => {
+    void load();
+  }, []);
+
   return (
-    <div className="rounded-xl bg-card p-4">
-      <button
-        className="flex w-full items-center justify-between gap-4 text-left"
-        aria-expanded={open}
-        onClick={() => {
-          const next = !open;
-          setOpen(next);
-          if (next) void load();
-        }}
-      >
+    <div>
+      <div className="mb-1.5 text-[13px] text-ink-secondary">Memory</div>
+      {loading && <div className="text-[13px] text-ink-secondary">Loading…</div>}
+
+      {!loading && topic && (
         <div>
-          <div className="text-[15px] font-medium text-ink">Memory</div>
-        </div>
-        <ChevronDown size={16} className={cn("shrink-0 text-ink-secondary transition-transform", open && "rotate-180")} />
-      </button>
-
-      {open && loading && <div className="mt-3 text-[13px] text-ink-secondary">Loading…</div>}
-
-      {open && !loading && topic && (
-        <div className="mt-3">
           <div className="flex items-center justify-between gap-2">
             <span className="truncate font-mono text-[12.5px] text-ink">memory/{topic.name}</span>
             <button
@@ -299,8 +288,8 @@ function MemoryCard({ bot }: { bot: Bot }) {
         </div>
       )}
 
-      {open && !loading && !topic && (
-        <div className="mt-3">
+      {!loading && !topic && (
+        <div>
           <textarea
             className={cn(inputCls, "min-h-[160px] resize-y font-mono text-[12.5px] leading-relaxed")}
             value={text}
@@ -536,6 +525,9 @@ export function SettingsPanel({
             />
           </Field>
 
+          <MemoryCard key={bot.id} bot={bot} />
+          <WorkingFolder bot={bot} />
+
           <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
             <div className="text-[15px] font-medium text-ink">{t("bot.approval")}</div>
             <div role="radiogroup" aria-label={t("bot.approval")} className="flex gap-1 rounded-full bg-inset p-0.5">
@@ -560,34 +552,6 @@ export function SettingsPanel({
               ))}
             </div>
           </div>
-
-          {engine?.driverKind === "claudeAgent" && (
-            <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
-              <div>
-                <div className="text-[15px] font-medium text-ink">{t("bot.leanStartup")}</div>
-              </div>
-              <button
-                role="switch"
-                aria-checked={bot.leanStartup !== true}
-                aria-label={t("bot.leanStartup")}
-                onClick={() => patch({ leanStartup: !(bot.leanStartup === true) })}
-                className={cn(
-                  "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors",
-                  bot.leanStartup !== true ? "bg-accent" : "bg-control",
-                )}
-              >
-                <span
-                  className={cn(
-                    "absolute top-[3px] size-5 rounded-full bg-white transition-all",
-                    bot.leanStartup !== true ? "left-[21px]" : "left-[3px]",
-                  )}
-                />
-              </button>
-            </div>
-          )}
-
-          <WorkingFolder bot={bot} />
-          <MemoryCard key={bot.id} bot={bot} />
 
           <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
             <div>
@@ -639,6 +603,31 @@ export function SettingsPanel({
               />
             </button>
           </div>
+
+          {engine?.driverKind === "claudeAgent" && (
+            <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
+              <div>
+                <div className="text-[15px] font-medium text-ink">{t("bot.leanStartup")}</div>
+              </div>
+              <button
+                role="switch"
+                aria-checked={bot.leanStartup !== true}
+                aria-label={t("bot.leanStartup")}
+                onClick={() => patch({ leanStartup: !(bot.leanStartup === true) })}
+                className={cn(
+                  "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors",
+                  bot.leanStartup !== true ? "bg-accent" : "bg-control",
+                )}
+              >
+                <span
+                  className={cn(
+                    "absolute top-[3px] size-5 rounded-full bg-white transition-all",
+                    bot.leanStartup !== true ? "left-[21px]" : "left-[3px]",
+                  )}
+                />
+              </button>
+            </div>
+          )}
 
           {showBotDetailsAdvanced() && (
             <>
