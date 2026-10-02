@@ -257,6 +257,8 @@ describe("Sidebar row time", () => {
       expect(row).toContain('!selected && "hidden group-hover:inline group-focus-within:inline"');
       expect(row).not.toContain("group-hover:hidden");
       expect(row).not.toContain("group-focus-within:hidden");
+      expect(row).toContain("@container/rowtext");
+      expect(row).toContain("@max-[10rem]/rowtext:hidden!");
     }
     expect(botTime).toContain("min-w-0 flex-1 truncate");
     expect(botTime).toContain("overflow-hidden");

@@ -371,13 +371,13 @@ function GroupListItem({
         aria-keyshortcuts={drag?.onMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
       >
         <StackedMauses members={members} density={density} />
-        <div className={cn("min-w-0 flex-1", density === "icons" && "hidden")}>
+        <div className={cn("@container/rowtext min-w-0 flex-1", density === "icons" && "hidden")}>
           <div className="flex min-w-0 items-baseline gap-2 overflow-hidden">
             <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink">{group.name}</span>
             {last && (
               <span
                 className={cn(
-                  "shrink-0 text-xs text-ink-secondary",
+                  "shrink-0 text-xs text-ink-secondary @max-[10rem]/rowtext:hidden!",
                   !selected && "hidden group-hover:inline group-focus-within:inline",
                 )}
               >
@@ -916,7 +916,7 @@ function BotListItem({
       </span>
       <div
         className={cn(
-          "min-w-0 flex-1",
+          "@container/rowtext min-w-0 flex-1",
           iconOnly && "hidden",
           density === "compact" && "group-hover:pr-2 group-focus-within:pr-2 max-md:pr-2",
         )}
@@ -945,7 +945,7 @@ function BotListItem({
           {last && !renaming && (
             <span
               className={cn(
-                "shrink-0 text-xs text-ink-secondary",
+                "shrink-0 text-xs text-ink-secondary @max-[10rem]/rowtext:hidden!",
                 !selected && "hidden group-hover:inline group-focus-within:inline",
               )}
             >
