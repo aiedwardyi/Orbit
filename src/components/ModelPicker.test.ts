@@ -173,7 +173,7 @@ function platformMarkup(platform: string, defaultOpen = false) {
 
 /** Chip text as one line: strip tags so the full model + effort read together. */
 function chipText(html: string): string {
-  return html.replace(/<[^>]*>/g, "");
+  return html.replace(/<span class="md:hidden">[^<]*<\/span>/g, "").replace(/<[^>]*>/g, "");
 }
 
 describe("ModelPicker friends chip", () => {
@@ -228,7 +228,7 @@ describe("ModelPicker friends chip", () => {
       ),
     );
     expect(chipText(html)).toContain("Claude Sonnet 5 High");
-    expect(html).toContain('min-w-0 max-w-[160px] truncate"><span class="max-md:hidden">Claude </span>Sonnet 5<');
+    expect(html).toContain('min-w-0 max-w-[160px] truncate"><span class="max-md:hidden">Claude Sonnet 5</span><span class="md:hidden">Sonnet 5</span><');
     expect(html).not.toContain("@max-4xl/chathead:inline");
     expect(html).not.toMatch(/<span[^>]*>Claude<\/span>/);
   });
@@ -374,7 +374,7 @@ describe("ModelPicker friends chip", () => {
 
   it("shortens the Claude chip on phones only", () => {
     const html = markup({ instanceId: "claude", model: "claude-opus-5-5", mode: "pinned", effort: "xhigh" });
-    expect(html).toContain('<span class="max-md:hidden">Claude </span>Opus 5.5');
+    expect(html).toContain('<span class="max-md:hidden">Claude Opus 5.5</span><span class="md:hidden">Opus 5.5</span>');
     expect(html).toContain('class="max-md:hidden">Extra High<');
     expect(html).toContain('class="md:hidden">XHigh<');
   });

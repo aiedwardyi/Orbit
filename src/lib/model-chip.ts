@@ -106,8 +106,18 @@ export function chipEffortShortLabel(effort: string, t: Translate): string {
 }
 
 /** Phone chip drops the vendor word the provider mark already shows. */
-export function chipVendorPrefix(driverKind: string | undefined, label: string): string {
-  return (driverKind === "claudeAgent" && label.match(/^Claude\s+/)?.[0]) || "";
+export function chipPhoneName(driverKind: string | undefined, label: string): string {
+  switch (driverKind) {
+    case "claudeAgent":
+      return label.replace(/^Claude\s+/, "");
+    case "geminiAgent":
+    case "antigravityAgent":
+      return label.replace(/^Gemini\s+/, "");
+    case "museAgent":
+      return label.replace(/^Meta\s+/, "").replace(/\s+Contributor$/, " C");
+    default:
+      return label;
+  }
 }
 
 function capitalizeWords(label: string): string {

@@ -4,7 +4,7 @@ import { translate } from "./i18n";
 import {
   chipEffortLabel,
   chipEffortShortLabel,
-  chipVendorPrefix,
+  chipPhoneName,
   displayedChipEffort,
   engineBadgeText,
   modelChipText,
@@ -263,18 +263,19 @@ describe("chipEffortShortLabel", () => {
   });
 });
 
-describe("chipVendorPrefix", () => {
-  it("drops Claude on the phone chip since the mark shows it", () => {
-    expect(chipVendorPrefix("claudeAgent", "Claude Opus 5.5")).toBe("Claude ");
-  });
-
+describe("chipPhoneName", () => {
   it.each([
-    ["claudeAgent", "Opus 5.5"],
-    ["antigravityAgent", "Gemini 3.8 Flash"],
-    ["grokAgent", "Grok 4.6"],
-    [undefined, "Claude Opus 5.5"],
-  ])("keeps %s label %s whole", (driverKind, label) => {
-    expect(chipVendorPrefix(driverKind, label)).toBe("");
+    ["claudeAgent", "Claude Opus 5.5", "Opus 5.5"],
+    ["geminiAgent", "Gemini 3.8 Flash", "3.8 Flash"],
+    ["antigravityAgent", "Gemini 3.1 Pro (High)", "3.1 Pro (High)"],
+    ["museAgent", "Meta Muse 1.3", "Muse 1.3"],
+    ["museAgent", "Meta Muse 1.3 Contributor", "Muse 1.3 C"],
+    ["codex", "GPT-6 Astra", "GPT-6 Astra"],
+    ["codex", "GPT-5.6 Terra", "GPT-5.6 Terra"],
+    ["grokAgent", "Grok 4.6", "Grok 4.6"],
+    [undefined, "Claude Opus 5.5", "Claude Opus 5.5"],
+  ])("shows %s label %s as %s on the phone", (driverKind, label, phone) => {
+    expect(chipPhoneName(driverKind, label)).toBe(phone);
   });
 });
 
