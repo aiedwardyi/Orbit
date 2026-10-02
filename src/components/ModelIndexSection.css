@@ -1,13 +1,13 @@
-/* Provider hues are validated all-pairs (colorblind + normal vision, >= 3:1
-   contrast) on the light and dark chart surfaces; light-dark() follows the
-   active skin. */
+/* Dark values are the model picker's family accents (model-chip.ts); light
+   values darken the same hues to >= 3:1. "other" is fainter so it doesn't
+   read as xAI. */
 .model-index {
-  --mi-anthropic: light-dark(#d65a10, #de7019);
-  --mi-openai: light-dark(#17934f, #27af6d);
-  --mi-google: light-dark(#1477db, #4596e6);
-  --mi-xai: light-dark(#d24196, #d34492);
-  --mi-meta: light-dark(#6435c0, #8b59e1);
-  --mi-other: #898781;
+  --mi-anthropic: light-dark(#e0553a, #ed6549);
+  --mi-openai: light-dark(#2783f0, #3594ff);
+  --mi-google: light-dark(#9a66f5, #aa7bfa);
+  --mi-xai: light-dark(#7d848e, #8b929c);
+  --mi-meta: light-dark(#1f9d64, #43ce8b);
+  --mi-other: light-dark(#b3b1ab, #5f5e5a);
   --mi-ease: 560ms cubic-bezier(0.33, 1, 0.68, 1);
 }
 
