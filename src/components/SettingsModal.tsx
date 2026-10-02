@@ -599,9 +599,9 @@ export function SettingsModal({
                 </Card>
                 <ToolCallsRow />
                 <TerminalAppearanceRow />
-                <SidebarSideRow />
                 <VibrationRow />
                 <NotificationsRow />
+                <SidebarSideRow />
                 <UpdatesRow />
                 {showSettingsAdvancedSection() && (
                   <>
