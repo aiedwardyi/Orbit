@@ -12,6 +12,7 @@ export const SECTION_PHRASE_KEYS = {
     "shortcuts.chat",
     "shortcuts.themes",
     "shortcuts.usage",
+    "shortcuts.modelsIndex",
     "shortcuts.newBot",
     "shortcuts.jump",
     "shortcuts.previous",
@@ -144,6 +145,10 @@ export const SECTION_PHRASE_KEYS = {
   usage: [
     "settings.section.usage",
   ],
+  "models-index": [
+    "settings.section.modelsIndex",
+    "modelIndex.subtitle",
+  ],
 } as const satisfies Record<AppSettingsSection, readonly MessageKey[]>;
 
 /** Box, VPS, AssemblyAI, and self-host stay in the catalog for when More
@@ -173,6 +178,7 @@ const EXTRA_KEYWORDS = {
   companion: ["companion", "phone", "pair", "mobile"],
   computer: ["vm", "virtual", "desktop"],
   usage: ["tokens", "cost", "billing"],
+  "models-index": ["benchmark", "benchmarks", "intelligence", "coding", "agentic", "legal", "price", "compare", "벤치마크"],
 } as const satisfies Record<AppSettingsSection, readonly string[]>;
 
 export function settingsSectionSearchHaystack(id: AppSettingsSection): string {

@@ -261,6 +261,16 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain('aria-keyshortcuts="Alt+U"');
   });
 
+  it("places Model index right after Usage with its shortcuts", () => {
+    const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
+    const block = source.slice(source.indexOf("const SECTIONS"), source.indexOf("];", source.indexOf("const SECTIONS")));
+    expect(block.indexOf('id: "models-index"')).toBeGreaterThan(block.indexOf('id: "usage"'));
+    const html = markup("models-index");
+    expect(html).toContain('aria-keyshortcuts="Alt+I"');
+    expect(html).toContain("Ctrl+Shift+M");
+    expect(html).toContain("Data as of");
+  });
+
   it("keeps Skin out of General and on its own Themes tab", () => {
     const general = markup("general");
     expect(general).not.toContain("Skin");

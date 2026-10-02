@@ -558,6 +558,7 @@ export type AppSettingsSection =
   | "companion"
   | "computer"
   | "usage"
+  | "models-index"
   | "sync";
 
 export interface AppState {

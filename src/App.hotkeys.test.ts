@@ -59,6 +59,12 @@ describe("settings section shortcuts", () => {
     expect(app).toContain("toggleAppSettings");
   });
 
+  it("opens Model index with Alt+I or Ctrl+Shift+M", () => {
+    expect(app).toContain('e.altKey && !mod && !e.shiftKey && e.code === "KeyI"');
+    expect(app).toContain('e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.code === "KeyM"');
+    expect(app).toContain('section: "models-index"');
+  });
+
   it("does not bind those jumps to Ctrl/Cmd", () => {
     const handler = app.slice(app.indexOf("const onKey = (e: KeyboardEvent)"), app.indexOf("window.addEventListener(\"keydown\", onKey)"));
     expect(handler).toMatch(/e\.code === "KeyT"/);

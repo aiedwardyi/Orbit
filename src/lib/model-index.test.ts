@@ -1,0 +1,72 @@
+import { describe, expect, it } from "vitest";
+
+import { MODEL_INDEX_AS_OF, MODEL_INDEX_ENTRIES, type ModelIndexEntry } from "../../shared/model-index-data.ts";
+import { MODEL_INDEXES, indexView, logTicks, winkCatalog } from "./model-index";
+import type { InstanceInfo } from "@/state/store";
+
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function instance(driverKind: string, ids: string[]): InstanceInfo {
+  return {
+    instanceId: driverKind, driverKind, displayName: driverKind, snapshot: { state: "available" },
+    models: { default: ids[0]!, options: ids.map((id) => ({ id, label: id })) },
+  };
+}
+
+function entry(model: string, index: ModelIndexEntry["index"], score: number, effort = "high"): ModelIndexEntry {
+  return { provider: "anthropic", model, label: model, effort, index, score, source: "https://example.com", sourceLabel: "Example", date: "2026-09-30" };
+}
+
+describe("model index data", () => {
+  it("gives every entry a source URL, a date, and a known index", () => {
+    expect(MODEL_INDEX_AS_OF).toMatch(DATE);
+    for (const e of MODEL_INDEX_ENTRIES) {
+      expect(e.source, e.model).toMatch(/^https:\/\/\S+$/);
+      expect(e.sourceLabel, e.model).not.toBe("");
+      expect(e.date, e.model).toMatch(DATE);
+      expect(MODEL_INDEXES).toContain(e.index);
+      expect(Number.isFinite(e.score), e.model).toBe(true);
+    }
+  });
+
+  it("has no duplicate model + effort + index", () => {
+    const keys = MODEL_INDEX_ENTRIES.map((e) => `${e.model}|${e.effort}|${e.index}`);
+    expect(keys.filter((key, i) => keys.indexOf(key) !== i)).toEqual([]);
+  });
+});
+
+describe("catalog merge", () => {
+  it("lists a Wink model with no data as missing", () => {
+    const catalog = [
+      { provider: "anthropic", model: "claude-opus-5-5", label: "Opus 5.5" },
+      { provider: "openai", model: "gpt-brand-new", label: "GPT Brand New" },
+    ];
+    const view = indexView("coding", catalog, [entry("claude-opus-5-5", "coding", 60), entry("claude-opus-5-5", "cost", 900)]);
+    expect(view.missing.map((m) => m.model)).toEqual(["gpt-brand-new"]);
+    expect(view.points).toMatchObject([{ model: "claude-opus-5-5", wink: true, cost: 900 }]);
+  });
+
+  it("marks scored models Wink does not offer as not yours", () => {
+    const view = indexView("coding", [], [entry("someone-else", "coding", 50)]);
+    expect(view.points[0]).toMatchObject({ wink: false });
+    expect(view.points[0]?.cost).toBeUndefined();
+  });
+
+  it("reads models from the picker catalog, folding Gemini effort ids", () => {
+    const catalog = winkCatalog([
+      instance("claudeAgent", ["claude-opus-5-5"]),
+      instance("antigravityAgent", ["gemini-3.8-flash-high", "gemini-3.8-flash-low"]),
+    ]);
+    expect(catalog.map((m) => [m.provider, m.model])).toEqual([
+      ["anthropic", "claude-opus-5-5"],
+      ["google", "gemini-3.8-flash"],
+    ]);
+  });
+});
+
+describe("log ticks", () => {
+  it("falls back to finer steps on a narrow range", () => {
+    expect(logTicks(10, 1000)).toEqual([10, 20, 50, 100, 200, 500, 1000]);
+    expect(logTicks(300, 900).length).toBeGreaterThanOrEqual(3);
+  });
+});

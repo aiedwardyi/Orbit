@@ -3,7 +3,7 @@
 // is the stuff shared by every bot: who you are, your keys, and the
 // machine your bots can borrow.
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Cloud, Coins, Keyboard, KeyRound, Monitor, Palette, Search, Smartphone, Terminal, User, X } from "lucide-react";
+import { ChartScatter, ChevronDown, Cloud, Coins, Keyboard, KeyRound, Monitor, Palette, Search, Smartphone, Terminal, User, X } from "lucide-react";
 import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
 import { builtInBrowserEnabled, showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
 import {
@@ -25,6 +25,7 @@ import { LocalComputerSection } from "./LocalComputerSection";
 import { ProfileFields } from "./ProfileFields";
 import { Card } from "./SettingsPrimitives";
 import { UsageSection } from "./UsageSection";
+import { ModelIndexSection } from "./ModelIndexSection";
 import { SkinPicker } from "./SkinPicker";
 import { GeometryPicker } from "./GeometryPicker";
 import { TerminalAppearanceRow } from "./TerminalAppearanceRow";
@@ -58,6 +59,7 @@ const SECTIONS: Array<{
   { id: "computer", icon: Monitor },
   { id: "themes", icon: Palette, shortcut: "Alt+T" },
   { id: "usage", icon: Coins, shortcut: "Alt+U" },
+  { id: "models-index", icon: ChartScatter, shortcut: "Alt+I" },
 ];
 
 const SECTION_KEY = {
@@ -69,6 +71,7 @@ const SECTION_KEY = {
   companion: "settings.section.companion",
   computer: "settings.section.computer",
   usage: "settings.section.usage",
+  "models-index": "settings.section.modelsIndex",
   sync: "settings.section.sync",
 } as const;
 
@@ -577,6 +580,11 @@ export function SettingsModal({
             </span>
             <div className="ml-auto flex items-center gap-3">
               {section === "themes" && <GeometryPicker />}
+              {section === "models-index" && (
+                <kbd aria-label={t("shortcuts.modelsIndex")} className="font-mono text-[11px] tracking-wide text-ink-secondary">
+                  Ctrl+Shift+M
+                </kbd>
+              )}
               <button
                 onClick={() => dispatch({ type: "toggleAppSettings", open: false })}
                 aria-label={t("settings.close")}
@@ -699,6 +707,7 @@ export function SettingsModal({
             {showSettingsAdvancedSection() && section === "computer" && <LocalComputerSection />}
 
             {section === "usage" && <UsageSection />}
+            {section === "models-index" && <ModelIndexSection />}
             {section === "shortcuts" && <KeyboardShortcuts />}
           </div>
         </div>

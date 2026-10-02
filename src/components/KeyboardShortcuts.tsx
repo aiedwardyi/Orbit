@@ -14,6 +14,8 @@ export function KeyboardShortcuts() {
       ["shortcuts.themeCycle", [alt, "Shift", "T"]],
       ["shortcuts.usage", [alt, "U"]],
       ["shortcuts.usageRefresh", [alt, "R"]],
+      ["shortcuts.modelsIndex", [alt, "I"]],
+      ["shortcuts.modelsIndex", ["Ctrl", "Shift", "M"]],
     ] },
     { title: "shortcuts.chat", rows: [
       ["shortcuts.model", [alt, "M"]],
@@ -27,7 +29,7 @@ export function KeyboardShortcuts() {
         <Card key={title} title={t(title)}>
           <dl className="divide-y divide-hairline/40">
             {rows.map(([label, keys]) => (
-              <div key={label} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-2.5 first:pt-0 last:pb-0">
+              <div key={`${label}:${keys.join("+")}`} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-2.5 first:pt-0 last:pb-0">
                 <dt className="text-[13px] text-ink">{t(label)}</dt>
                 <dd className="flex shrink-0 items-center gap-1" aria-label={keys.join(" + ")}>
                   {keys.map((key) => <kbd key={key} className="min-w-7 rounded border border-hairline bg-control px-2 py-1 text-center font-mono text-[12px] text-ink-secondary">{key}</kbd>)}
