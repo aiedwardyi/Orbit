@@ -1664,8 +1664,11 @@ export function reducer(state: AppState, action: Action): AppState {
       const sendId = action.sendId ?? crypto.randomUUID();
       const paint = acceptedSendPaint({ alreadyBusy: Boolean(bot.busy) });
       const threadId = action.threadId ?? bot.threadId;
+      // a new send is a new turn: the last Stop's hold must not hide it
+      const { [action.botId]: _superseded, ...stoppingBots } = dismissed.stoppingBots;
       let next: AppState = {
         ...dismissed,
+        stoppingBots,
         acceptedSends: rememberAcceptedSend(dismissed.acceptedSends, threadId, {
           sendId,
           kind: paint.kind,

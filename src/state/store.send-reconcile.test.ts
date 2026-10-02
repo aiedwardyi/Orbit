@@ -285,8 +285,12 @@ describe("stop", () => {
     });
   const busyNow = () => store.state.bots[0]!.busy;
 
-  async function mountStop(interrupt: () => Promise<Response>) {
-    const fetch = await mount(() => Response.json({ messages: [], hasMore: false }));
+  async function mountStop(interrupt: () => Promise<Response>, bots: Bot[] = [bot]) {
+    const fetch = await mount(
+      () => Response.json({ messages: [], hasMore: false }),
+      () => new Promise<Response>(() => {}),
+      bots,
+    );
     const base = fetch.getMockImplementation()!;
     fetch.mockImplementation(async (url: string, init?: RequestInit) =>
       String(url).endsWith("/interrupt") ? interrupt() : base(url, init),
@@ -310,6 +314,20 @@ describe("stop", () => {
     const interrupts = await mountStop(() => new Promise<Response>(() => {}));
     for (let i = 0; i < 3; i++) await act(async () => store.dispatch({ type: "interrupt", botId: bot.id }));
     expect(interrupts()).toBe(1);
+  });
+
+  it("gives a new send its own Stop after stopping the last one", async () => {
+    const interrupts = await mountStop(async () => Response.json({ ok: true }), [{ ...bot, busy: false, activity: "idle" }]);
+    const send = (sendId: string) =>
+      act(async () => store.dispatch({ type: "send", botId: bot.id, text: "hello", sendId, threadId: bot.threadId }));
+    await send("s5");
+    await act(async () => store.dispatch({ type: "interrupt", botId: bot.id }));
+    expect(busyNow()).toBe(false);
+    await send("s6");
+    await botFrame(true);
+    expect(busyNow()).toBe(true);
+    await act(async () => store.dispatch({ type: "interrupt", botId: bot.id }));
+    expect(interrupts()).toBe(2);
   });
 
   it("shows the error and the running turn when Stop fails", async () => {
