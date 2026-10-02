@@ -1308,6 +1308,25 @@ it("keeps full-width pane labels, shows the strip scrollbar, and switches panes 
   Reflect.deleteProperty(Element.prototype, "scrollIntoView");
 });
 
+it("activates the pane a notification names, once its tab exists, and ignores unknown panes", async () => {
+  const open = vi.fn(async (input: { sessionId?: string }) => ({ id: input.sessionId ?? "session-main", cwd: "C:\\work", shell: "pwsh.exe", output: "", seq: 0, exitCode: null }));
+  const panes = ["one", "two"].map((label) => ({ sessionId: `pane-${label}`, generation: 1, label, cwd: "C:\\work", main: false, exited: false }));
+  const readBot = vi.fn(async () => ({ botId: "bot-1", seq: 0, capturedAt: 0, exitCode: null, exited: false, screenText: "", recentText: "", truncated: false, panes }));
+  const bot = mountBridge({ appearance: vi.fn(async () => null), open, readBot, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() });
+  const props = { bot, visible: true, focusBlocked: false, onClose: vi.fn() };
+  await act(async () => root.render(createElement(TerminalWorkspace, { ...props, paneFocus: { sessionId: "pane-two" } })));
+  await act(async () => { await Promise.resolve(); });
+  const selected = () => [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].map((tab) => tab.getAttribute("aria-selected"));
+  expect(selected()).toEqual(["false", "false", "true"]);
+
+  await act(async () => root.render(createElement(TerminalWorkspace, { ...props, paneHotkey: { n: 1 } })));
+  expect(selected()).toEqual(["true", "false", "false"]);
+  await act(async () => root.render(createElement(TerminalWorkspace, { ...props, paneFocus: { sessionId: "pane-gone" } })));
+  expect(selected()).toEqual(["true", "false", "false"]);
+  await act(async () => root.render(createElement(TerminalWorkspace, { ...props, paneFocus: { sessionId: "pane-one" } })));
+  expect(selected()).toEqual(["false", "true", "false"]);
+});
+
 function paneFixture() {
   let receive!: Parameters<TerminalBridge["onData"]>[0];
   let exit!: Parameters<TerminalBridge["onExit"]>[0];

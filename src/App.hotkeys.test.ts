@@ -212,6 +212,16 @@ describe("terminal pane shortcuts", () => {
     expect(app).toContain("terminalOpen, dispatch]);");
   });
 
+  it("focuses the notifying pane from both toast clicks and the in-app attention", () => {
+    const notification = app.slice(app.indexOf("const openTerminalNotification"), app.indexOf("const openTerminalAttention"));
+    const attention = app.slice(app.indexOf("const openTerminalAttention"), app.indexOf("useEffect(() => {\n    const acknowledgeVisible"));
+    const click = app.slice(app.indexOf("window.ogb?.onNotificationClick"), app.indexOf("// A tapped push notification"));
+    expect(notification).toContain("setPaneFocus({ sessionId: target.terminalSessionId })");
+    expect(attention).toContain("setPaneFocus({ sessionId: attention.sessionId })");
+    expect(click).toContain("setPaneFocus({ sessionId: target.terminalSessionId })");
+    expect(app).toContain("paneFocus={paneFocus}");
+  });
+
   it("keeps Alt+digit on bots with the terminal closed and Ctrl+digit on bots everywhere", () => {
     const h = handler();
     expect(h.indexOf("e.altKey && terminalOpen")).toBeLessThan(h.indexOf('type: "select"'));

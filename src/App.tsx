@@ -95,6 +95,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const modelPickerIds = useRef(new Set<string>());
   const [terminalViews, setTerminalViews] = useState<Record<string, boolean>>({});
   const [paneHotkey, setPaneHotkey] = useState<{ n: number } | null>(null);
+  const [paneFocus, setPaneFocus] = useState<{ sessionId: string } | null>(null);
   const [localVmWorkspaceBotId, setLocalVmWorkspaceBotId] = useState<string | null>(null);
   // the Browser tab, expanded into the main column (the small preview in
   // the panel hands off to this and back)
@@ -133,6 +134,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     }
     openNotificationTarget(dispatch, target, latestState.current);
     if (target.openTerminal) setTerminalViews((views) => ({ ...views, [target.botId]: true }));
+    if (target.openTerminal && target.terminalSessionId) setPaneFocus({ sessionId: target.terminalSessionId });
     if (target.openTerminal) {
       const attention = target.terminalSessionId
         ? { botId: target.botId, sessionId: target.terminalSessionId }
@@ -156,6 +158,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       current,
     );
     setTerminalViews((views) => ({ ...views, [attention.botId]: true }));
+    setPaneFocus({ sessionId: attention.sessionId });
     requestTerminalAcknowledgement(attention);
   };
 
@@ -302,6 +305,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
         setLocalVmWorkspaceBotId(null);
         dispatch({ type: "toggleComputer", open: false });
         setTerminalViews((views) => ({ ...views, [target.botId]: true }));
+        if (target.terminalSessionId) setPaneFocus({ sessionId: target.terminalSessionId });
         const attention = target.terminalSessionId
           ? { botId: target.botId, sessionId: target.terminalSessionId }
           : terminalAttentionForBot(current.terminalAttention, target.botId);
@@ -617,7 +621,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
             <div className="orbit-terminal-overlay absolute inset-0 z-20 flex" data-open={terminalOpen} inert={!terminalOpen} aria-hidden={!terminalOpen}>
               <Suspense fallback={<BootFallback label={t("terminal.connecting")} />}>
                 {window.ogb?.terminal ? (
-                  <TerminalWorkspace key={bot.id} bot={bot} visible={terminalOpen} focusBlocked={nativeViewOverlayOpen} paneHotkey={paneHotkey} onClose={closeTerminal} />
+                  <TerminalWorkspace key={bot.id} bot={bot} visible={terminalOpen} focusBlocked={nativeViewOverlayOpen} paneHotkey={paneHotkey} paneFocus={paneFocus} onClose={closeTerminal} />
                 ) : (
                   <RemoteTerminalView key={bot.id} bot={bot} visible={terminalOpen} onClose={closeTerminal} />
                 )}

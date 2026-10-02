@@ -38,12 +38,14 @@ export function TerminalWorkspace({
   focusBlocked,
   visible,
   paneHotkey,
+  paneFocus,
 }: {
   bot: Pick<Bot, "id" | "name" | "busy" | "cwd">;
   onClose: () => void;
   focusBlocked: boolean;
   visible: boolean;
   paneHotkey?: { n: number } | null;
+  paneFocus?: { sessionId: string } | null;
 }) {
   const { t } = useI18n();
   const { dispatch } = useStore();
@@ -529,6 +531,15 @@ export function TerminalWorkspace({
       if (target) setPane(target.id);
     }
   }, [paneHotkey]);
+
+  // Waits for the tab: a cold open seeds panes after mount.
+  const focusedRef = useRef<typeof paneFocus>(null);
+  useEffect(() => {
+    if (!paneFocus || focusedRef.current === paneFocus) return;
+    if (!panes.some((item) => item.id === paneFocus.sessionId)) return;
+    focusedRef.current = paneFocus;
+    setPane(paneFocus.sessionId);
+  }, [paneFocus, panes]);
 
   useEffect(() => {
     const active = tablistRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
