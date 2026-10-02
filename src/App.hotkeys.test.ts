@@ -63,6 +63,8 @@ describe("settings section shortcuts", () => {
     expect(app).toContain('e.altKey && !mod && !e.shiftKey && e.code === "KeyI"');
     expect(app).toContain('e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.code === "KeyM"');
     expect(app).toContain('section: "models-index"');
+    const block = app.slice(app.indexOf('e.code === "KeyI"'), app.indexOf('section: "models-index"'));
+    expect(block).toContain("e.stopPropagation()");
   });
 
   it("does not bind those jumps to Ctrl/Cmd", () => {

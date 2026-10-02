@@ -195,6 +195,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       const mod = e.metaKey || e.ctrlKey;
       if ((e.altKey && !mod && !e.shiftKey && e.code === "KeyI") || (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.code === "KeyM")) {
         e.preventDefault();
+        e.stopPropagation();
         dispatch({
           type: "toggleAppSettings",
           open: !(state.appSettingsOpen && state.appSettingsSection === "models-index"),

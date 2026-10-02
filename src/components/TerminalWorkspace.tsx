@@ -558,7 +558,10 @@ export function TerminalWorkspace({
     if (!visible) pickedRef.current = false;
     else if (seeded && !pickedRef.current) {
       pickedRef.current = true;
-      setPane(pickInitialPane(panes, lastViewedPanes.get(bot.id)));
+      const initial = pickInitialPane(panes, lastViewedPanes.get(bot.id));
+      // An auto-picked main shell is not remembered, so the next open still finds a new worker.
+      if (initial) lastViewedPanes.set(bot.id, initial);
+      setPane(initial);
     }
   }, [visible, seeded, panes, bot.id]);
 

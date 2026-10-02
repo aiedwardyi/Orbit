@@ -1516,6 +1516,27 @@ it("reopens on the last viewed pane, main included, and falls back when it close
   expect(f.tabs().map((tab) => tab.getAttribute("aria-selected"))).toEqual(["false", "true"]);
 });
 
+it("remembers an auto-picked worker but not an auto-picked main shell", async () => {
+  const f = paneFixture();
+  await f.render();
+  expect(f.tabs()[2].getAttribute("aria-selected")).toBe("true");
+  await f.render({ ...f.props, visible: false });
+  await act(async () => { f.opened({ botId: "bot-1", id: "pane-three", label: "three", generation: 1 }); });
+  await f.render();
+  expect(f.tabs().map((tab) => tab.getAttribute("aria-selected"))).toEqual(["false", "false", "true", "false"]);
+
+  lastViewedPanes.clear();
+  await act(async () => root.unmount());
+  await act(async () => { root = createRoot(host); });
+  f.snapshot.panes.splice(0);
+  await f.render();
+  expect(f.tabs()).toHaveLength(0);
+  await f.render({ ...f.props, visible: false });
+  await act(async () => { f.opened({ botId: "bot-1", id: "pane-new", label: "new", generation: 1 }); });
+  await f.render();
+  expect(f.tabs().map((tab) => tab.getAttribute("aria-selected"))).toEqual(["false", "true"]);
+});
+
 it("counts a notification-focused pane as last viewed", async () => {
   const f = paneFixture();
   await f.render({ ...f.props, paneFocus: { sessionId: "pane-one" } } as typeof f.props);
