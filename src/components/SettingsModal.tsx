@@ -270,7 +270,7 @@ function NotificationsRow() {
           <span className={cnKnob(on)} />
         </button>
       </div>
-      <PhoneNotificationSettings />
+      {!window.ogb && <PhoneNotificationSettings />}
     </Card>
   );
 }

@@ -10,13 +10,35 @@ import { KeyboardShortcuts } from "./KeyboardShortcuts";
 describe("KeyboardShortcuts", () => {
   afterEach(() => persistPreference("en"));
 
-  it("lists Toggle Model index once with both key combos", () => {
+  it("lists Toggle Model index once with Alt+I only", () => {
     const html = renderToStaticMarkup(
       createElement(I18nProvider, null, createElement(KeyboardShortcuts)),
     );
 
     expect(html.match(/>Toggle Model index</g)).toHaveLength(1);
-    expect(html).toContain('aria-label="Alt + I / Ctrl + Shift + M"');
+    expect(html).toContain('aria-label="Alt + I"');
+    expect(html).not.toContain("Shift + M");
+  });
+
+  it("names the cycle row like Cycle theme and drops the terminal note", () => {
+    const win = window as unknown as { ogb?: unknown };
+    win.ogb = { terminal: {} };
+    try {
+      const html = renderToStaticMarkup(
+        createElement(I18nProvider, null, createElement(KeyboardShortcuts)),
+      );
+      expect(html).toContain(">Cycle Model index tab<");
+      expect(html).toContain(">Toggle terminal<");
+
+      persistPreference("ko");
+      const ko = renderToStaticMarkup(
+        createElement(I18nProvider, null, createElement(KeyboardShortcuts)),
+      );
+      expect(ko).toContain(">모델 지표 탭 전환<");
+      expect(ko).toContain(">터미널 열기 / 닫기<");
+    } finally {
+      delete win.ogb;
+    }
   });
 
   it("keeps the compact set while hiding low-value help rows", () => {

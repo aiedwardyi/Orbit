@@ -393,6 +393,12 @@ describe("SettingsModal friends chrome", () => {
     expect(generalKeys).toContain("settings.phoneNotifications.title");
   });
 
+  it("hides phone notifications in the desktop app", () => {
+    const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
+    const row = source.slice(source.indexOf("function NotificationsRow"), source.indexOf("function RainbowBoxRow"));
+    expect(row).toContain("{!window.ogb && <PhoneNotificationSettings />}");
+  });
+
   it("shows Vibration only where a phone can vibrate", () => {
     const win = window as unknown as Record<string, unknown>;
     const matchMedia = (matches: boolean) => () => ({ matches });

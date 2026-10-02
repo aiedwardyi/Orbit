@@ -189,11 +189,11 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   // first /api/instances response has not arrived yet.
   const noEngines = state.connected && isEmptyEngineLaunch(state.instances);
 
-  // App-wide shortcuts: Alt+T Themes · Alt+Shift+T Cycle theme · Alt+U Usage · Alt+I or Ctrl+Shift+M Model index · Ctrl+1..9 Nth bot · Alt+1..9 Nth pane while the terminal is open, else Nth bot. Esc still closes panels.
+  // App-wide shortcuts: Alt+T Themes · Alt+Shift+T Cycle theme · Alt+U Usage · Alt+I Model index · Ctrl+1..9 Nth bot · Alt+1..9 Nth pane while the terminal is open, else Nth bot. Esc still closes panels.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
-      if ((e.altKey && !mod && !e.shiftKey && e.code === "KeyI") || (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.code === "KeyM")) {
+      if (e.altKey && !mod && !e.shiftKey && e.code === "KeyI") {
         e.preventDefault();
         e.stopPropagation();
         dispatch({
