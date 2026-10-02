@@ -116,7 +116,7 @@ vi.mock("@/state/store", async () => {
     api: vi.fn(),
   };
 });
-import { TerminalWorkspace, folderBasename } from "./TerminalWorkspace";
+import { TerminalWorkspace, folderBasename, lastViewedPanes, pickInitialPane } from "./TerminalWorkspace";
 import { applyTerminalMatch } from "@/lib/terminal-appearance";
 import { api } from "@/state/store";
 
@@ -131,6 +131,7 @@ afterEach(async () => {
   delete window.ogb;
   vi.clearAllMocks();
   webLinks.instances.length = 0;
+  lastViewedPanes.clear();
   window.localStorage.removeItem("omb-terminal-match-profile");
 });
 
@@ -1329,7 +1330,7 @@ it("activates the pane a notification names, once its tab exists, and ignores un
 
 function paneFixture() {
   let receive!: Parameters<TerminalBridge["onData"]>[0];
-  let exit!: Parameters<TerminalBridge["onExit"]>[0];
+  const exits: Parameters<TerminalBridge["onExit"]>[0][] = [];
   let closed!: Parameters<NonNullable<TerminalBridge["onClosed"]>>[0];
   let opened!: Parameters<NonNullable<TerminalBridge["onOpened"]>>[0];
   const panes = ["one", "two"].map((label) => ({ sessionId: `pane-${label}`, generation: 1, label, cwd: "C:\\work", main: false, exited: false }));
@@ -1341,7 +1342,7 @@ function paneFixture() {
   const bot = mountBridge({
     open, readBot, close, write, appearance: vi.fn(async () => null), resize: vi.fn(async () => {}),
     onData: (cb) => { receive = cb; return vi.fn(); },
-    onExit: (cb) => { exit = cb; return vi.fn(); },
+    onExit: (cb) => { exits.push(cb); return vi.fn(); },
     onClosed: (cb) => { closed = cb; return vi.fn(); },
     onOpened: (cb) => { opened = cb; return vi.fn(); },
   });
@@ -1351,7 +1352,7 @@ function paneFixture() {
   const select = (index: number) => act(async () => { tabs()[index].click(); });
   return { props, render, tabs, select, open, readBot, close, write, snapshot,
     receive: (event: Parameters<typeof receive>[0]) => receive(event),
-    exit: (event: Parameters<typeof exit>[0]) => exit(event),
+    exit: (event: Parameters<Parameters<TerminalBridge["onExit"]>[0]>[0]) => { for (const cb of exits) cb(event); },
     closed: (event: Parameters<typeof closed>[0]) => closed(event),
     opened: (event: Parameters<typeof opened>[0]) => opened(event),
   };
@@ -1465,4 +1466,61 @@ it("keeps snapshot labels isolated across panes and bot remounts", async () => {
   expect(f.tabs()).toHaveLength(2);
   await act(async () => root.render(createElement(TerminalWorkspace, { ...f.props, key: "bot-1" })));
   expect(f.tabs().map((tab) => tab.textContent)).toEqual([">_", "one", "two"]);
+});
+
+it("pickInitialPane prefers the last viewed pane, then the newest running worker, then main", () => {
+  const panes = [{ id: "a" }, { id: "b" }, { id: "c", exited: true }];
+  expect(pickInitialPane(panes, "a")).toBe("a");
+  expect(pickInitialPane(panes, "c")).toBe("c");
+  expect(pickInitialPane(panes, null)).toBeNull();
+  expect(pickInitialPane(panes, "gone")).toBe("b");
+  expect(pickInitialPane(panes)).toBe("b");
+  expect(pickInitialPane([{ id: "a", exited: true }, { id: "b", exited: true }])).toBe("b");
+  expect(pickInitialPane([])).toBeNull();
+  expect(pickInitialPane([], "gone")).toBeNull();
+});
+
+it("opens on the newest running worker pane when nothing was viewed", async () => {
+  const f = paneFixture();
+  f.snapshot.panes[1].exited = true;
+  await f.render();
+  expect(f.tabs().map((tab) => tab.getAttribute("aria-selected"))).toEqual(["false", "true", "false"]);
+  await act(async () => { f.opened({ botId: "bot-1", id: "pane-three", label: "three", generation: 1 }); });
+  expect(f.tabs()[1].getAttribute("aria-selected")).toBe("true");
+});
+
+it("treats a pane that exits before opening as exited", async () => {
+  const f = paneFixture();
+  await f.render({ ...f.props, visible: false });
+  await act(async () => { f.exit({ id: "pane-two", exitCode: 0 }); });
+  await f.render();
+  expect(f.tabs().map((tab) => tab.getAttribute("aria-selected"))).toEqual(["false", "true", "false"]);
+});
+
+it("reopens on the last viewed pane, main included, and falls back when it closes", async () => {
+  const f = paneFixture();
+  await f.render();
+  await f.select(1);
+  await f.render({ ...f.props, visible: false });
+  await f.render();
+  expect(f.tabs()[1].getAttribute("aria-selected")).toBe("true");
+  await f.select(0);
+  await act(async () => root.unmount());
+  await act(async () => { root = createRoot(host); });
+  await f.render();
+  expect(f.tabs()[0].getAttribute("aria-selected")).toBe("true");
+  await f.select(1);
+  await f.render({ ...f.props, visible: false });
+  await act(async () => { f.closed({ botId: "bot-1", id: "pane-one" }); });
+  await f.render();
+  expect(f.tabs().map((tab) => tab.getAttribute("aria-selected"))).toEqual(["false", "true"]);
+});
+
+it("counts a notification-focused pane as last viewed", async () => {
+  const f = paneFixture();
+  await f.render({ ...f.props, paneFocus: { sessionId: "pane-one" } } as typeof f.props);
+  expect(f.tabs()[1].getAttribute("aria-selected")).toBe("true");
+  await f.render({ ...f.props, visible: false });
+  await f.render();
+  expect(f.tabs()[1].getAttribute("aria-selected")).toBe("true");
 });

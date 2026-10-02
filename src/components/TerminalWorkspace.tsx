@@ -15,7 +15,7 @@ import "@xterm/xterm/css/xterm.css";
 type SessionInfo = { cwd: string; shell: string };
 type OutputEvent = { id: string; data: string; seq: number };
 type TerminalSnapshot = { id: string; cwd: string; shell: string; output: string; exitCode: number | null; seq: number; launchProject?: string | null; label?: string; cols?: number; rows?: number; alternate?: boolean; modes?: number[]; resetModes?: number[] };
-type BotPane = { id: string; label: string | null };
+type BotPane = { id: string; label: string | null; exited?: boolean };
 const TERMINAL_FONT_MIN = 8;
 const TERMINAL_FONT_MAX = 128;
 
@@ -24,6 +24,15 @@ function samePath(a: string | null | undefined, b: string | null | undefined): b
   if (!a || !b) return false;
   const norm = (value: string) => value.replace(/[\\/]+$/, "").toLowerCase();
   return norm(a) === norm(b);
+}
+
+// Per bot, in memory: pane id, or null for the main shell.
+export const lastViewedPanes = new Map<string, string | null>();
+
+export function pickInitialPane(panes: { id: string; exited?: boolean }[], lastViewedId?: string | null): string | null {
+  if (lastViewedId === null) return null;
+  if (lastViewedId !== undefined && panes.some((item) => item.id === lastViewedId)) return lastViewedId;
+  return (panes.filter((item) => !item.exited).at(-1) ?? panes.at(-1))?.id ?? null;
 }
 
 export function folderBasename(cwd: string): string {
@@ -82,6 +91,13 @@ export function TerminalWorkspace({
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [panes, setPanes] = useState<BotPane[]>([]);
   const [pane, setPane] = useState<string | null>(null);
+  const [seeded, setSeeded] = useState(false);
+  const pickedRef = useRef(false);
+  const selectPane = (id: string | null) => {
+    pickedRef.current = true;
+    lastViewedPanes.set(bot.id, id);
+    setPane(id);
+  };
   const tablistRef = useRef<HTMLDivElement>(null);
   const panesRef = useRef(panes);
   panesRef.current = panes;
@@ -100,17 +116,21 @@ export function TerminalWorkspace({
     const bridge = window.ogb?.terminal;
     setPanes([]);
     setPane(null);
+    setSeeded(false);
     if (!bridge) return;
     let alive = true;
     const closed = new Set<string>();
     void Promise.resolve().then(() => bridge.readBot?.(bot.id)).then((snapshot) => {
       if (!alive || !snapshot?.panes) return;
-      const seeded = snapshot.panes.filter((item) => !item.main && !closed.has(item.sessionId)).map((item) => ({ id: item.sessionId, label: item.label }));
+      const seeded = snapshot.panes.filter((item) => !item.main && !closed.has(item.sessionId)).map((item) => ({ id: item.sessionId, label: item.label, exited: item.exited }));
       setPanes((list) => [...seeded, ...list.filter((item) => !seeded.some((seed) => seed.id === item.id))]);
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => { if (alive) setSeeded(true); });
     const offOpened = bridge.onOpened?.((event) => {
       if (event.botId !== bot.id) return;
       setPanes((list) => list.some((item) => item.id === event.id) ? list : [...list, { id: event.id, label: event.label }]);
+    });
+    const offExit = bridge.onExit((event) => {
+      setPanes((list) => list.map((item) => item.id === event.id && !item.exited ? { ...item, exited: true } : item));
     });
     const offClosed = bridge.onClosed?.((event) => {
       if (event.botId !== bot.id) return;
@@ -121,6 +141,7 @@ export function TerminalWorkspace({
     return () => {
       alive = false;
       offOpened?.();
+      offExit();
       offClosed?.();
     };
   }, [bot.id]);
@@ -525,12 +546,21 @@ export function TerminalWorkspace({
 
   useEffect(() => {
     if (!paneHotkey) return;
-    if (paneHotkey.n === 1) setPane(null);
+    if (paneHotkey.n === 1) selectPane(null);
     else {
       const target = panesRef.current[paneHotkey.n - 2];
-      if (target) setPane(target.id);
+      if (target) selectPane(target.id);
     }
   }, [paneHotkey]);
+
+  // Each open lands on the last viewed pane, else the newest worker. Waits for the seed.
+  useEffect(() => {
+    if (!visible) pickedRef.current = false;
+    else if (seeded && !pickedRef.current) {
+      pickedRef.current = true;
+      setPane(pickInitialPane(panes, lastViewedPanes.get(bot.id)));
+    }
+  }, [visible, seeded, panes, bot.id]);
 
   // Waits for the tab: a cold open seeds panes after mount.
   const focusedRef = useRef<typeof paneFocus>(null);
@@ -538,7 +568,7 @@ export function TerminalWorkspace({
     if (!paneFocus || focusedRef.current === paneFocus) return;
     if (!panes.some((item) => item.id === paneFocus.sessionId)) return;
     focusedRef.current = paneFocus;
-    setPane(paneFocus.sessionId);
+    selectPane(paneFocus.sessionId);
   }, [paneFocus, panes]);
 
   useEffect(() => {
@@ -630,7 +660,7 @@ export function TerminalWorkspace({
             <div ref={tablistRef} role="tablist" className="mt-1 flex min-w-0 items-center gap-1 overflow-x-auto pb-1">
               {[{ id: null, label: t("terminal.title") }, ...panes.map((item) => ({ id: item.id, label: item.label || item.id.slice(0, 8) }))].map((tab, index) => (
                 <div key={tab.id ?? "main"} className={`inline-flex shrink-0 items-center rounded-md border font-mono text-[11px] ${pane === tab.id ? "border-accent-text text-ink" : "border-hairline text-ink-secondary hover:text-ink"}`}>
-                  <button type="button" role="tab" aria-selected={pane === tab.id} onClick={() => setPane(tab.id)} aria-label={tab.label} title={`${tab.label} (Alt+${index + 1})`} className="whitespace-nowrap px-1.5 py-0.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text">
+                  <button type="button" role="tab" aria-selected={pane === tab.id} onClick={() => selectPane(tab.id)} aria-label={tab.label} title={`${tab.label} (Alt+${index + 1})`} className="whitespace-nowrap px-1.5 py-0.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text">
                     {tab.id ? tab.label : ">_"}
                   </button>
                   {tab.id && (
