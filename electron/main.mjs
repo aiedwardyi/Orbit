@@ -54,7 +54,7 @@ import {
 import { PACKAGE_INSTALL_SCHEME, packageUrlFromCommandLine, packageUrlFromDeepLink } from "./package-link.mjs";
 import { WINDOWS_CAPTION_HEIGHT, applyWindowsTitleBarOverlay, windowChromeOptions } from "./window-chrome.mjs";
 import { applyZoomShortcut } from "./window-zoom.mjs";
-import { defaultSaveName, withSavableFile } from "./save-file.mjs";
+import { openLocalFile } from "./open-file.mjs";
 import {
   ensureManagedComposioCredentials,
   managedComposioAccess,
@@ -1831,32 +1831,13 @@ ipcMain.handle("desktop:export-diagnostics", async (event) => {
   return result.filePath;
 });
 
-// Bots hand users files as markdown links to paths inside the Orbit
-// home (workspaces, attachments). As plain anchors those resolved against the
-// page origin, so the click opened http://127.0.0.1:8799<path> in the default
-// browser and the server's SPA fallback answered with index.html — a second
-// copy of the chat UI instead of the file. Ask where to put it and copy it
-// there instead: a save dialog tells the user the file landed somewhere and
-// where, which a silent copy into ~/Downloads does not. The path is
-// renderer-controlled, so it must resolve inside ~/.orbit and be a
-// regular file — never a symlink escape or directory.
-ipcMain.handle("desktop:save-file", async (event, rawPath, rawBase) => {
-  return withSavableFile(rawPath, { home: os.homedir(), base: rawBase }, async ({ defaultName, copyTo }) => {
-    const parent = BrowserWindow.fromWebContents(event.sender);
-    const defaultPath = await defaultSaveName(app.getPath("downloads"), defaultName);
-    const choice = await dialog.showSaveDialog(parent ?? undefined, {
-      title: nativeText("packaged.saveWhere"),
-      message: nativeText("packaged.saveWhere"),
-      defaultPath,
-      buttonLabel: nativeText("packaged.save"),
-      properties: ["createDirectory", "showOverwriteConfirmation"],
-    });
-    // Cancelling is a decision, not a failure — the bubble stays quiet.
-    if (choice.canceled || !choice.filePath) return null;
-    await copyTo(choice.filePath);
-    shell.showItemInFolder(choice.filePath);
-    return choice.filePath;
-  });
+// Bots hand users files as markdown links (file:// URLs or paths). As plain
+// anchors those opened the app origin in a browser instead of the file. Open
+// safe document and media types in their default app; anything that could
+// run is only revealed in its folder. The path is renderer-controlled, so
+// open-file.mjs resolves and checks it first.
+ipcMain.handle("desktop:open-file", async (_event, rawPath, rawBase) => {
+  await openLocalFile(rawPath, { base: rawBase, shell });
 });
 
 ipcMain.on("desktop:os-locale", (event) => {

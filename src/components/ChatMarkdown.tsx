@@ -6,7 +6,7 @@
 // as plain <pre> until its content has held still for STREAM_SETTLE_MS (the
 // fence is very likely complete), then highlights and caches.
 import { createContext, memo, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import Markdown from "react-markdown";
+import Markdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check, Copy } from "lucide-react";
 
@@ -55,6 +55,12 @@ const localFilePath = (href?: string): string | null => {
   }
   return absolutePath(href);
 };
+
+// react-markdown's default transform blanks file: URLs and "C:\…" paths (an
+// unknown scheme to it), and a blank href opened the app origin. Keep those
+// for links only; LocalFileLink never puts them in the DOM.
+const urlTransform = (url: string, key: string): string =>
+  key === "href" && (/^file:/i.test(url) || WINDOWS_PATH.test(url)) ? url : defaultUrlTransform(url);
 
 // A bare relative target ("reps.py", "./notes.md", "..\x.txt") means a file in
 // the writing bot's folder. As an anchor it would resolve against Orbit's own
@@ -180,40 +186,25 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
   );
 }
 
-// A bot handing over a file it created renders as a button, not an anchor.
-// Two reasons the href is dropped rather than merely preventDefault()ed:
-// an absolute path in an href resolves against the page origin, so the link
-// pointed at http://127.0.0.1:8799<path> and opened the chat UI in a browser;
-// and an <a href="file://…"> would still reach setWindowOpenHandler on a
-// middle or modifier click (that handler now denies non-http(s), but the
-// click should never become a navigation in the first place).
+// A local file link renders as a button that asks the shell to open the file,
+// not an anchor. An absolute path in an href resolves against the page origin
+// (http://127.0.0.1:8799<path>, a second chat UI in the browser), and an
+// <a href="file://…"> would still reach setWindowOpenHandler on a middle or
+// modifier click. The shell decides whether to open or only reveal the file.
 function LocalFileLink({ filePath, base, children }: { filePath: string; base?: string; children?: ReactNode }) {
-  const [state, setState] = useState<"idle" | "saved" | "failed">("idle");
   const [reason, setReason] = useState("");
-  const [savedTo, setSavedTo] = useState("");
 
-  const save = async () => {
-    const saveFile = window.ogb?.saveFile;
-    if (!saveFile) {
-      // an older shell has no save bridge; saying so beats the silent click
-      // this change exists to remove
-      setReason("Saving files needs a newer version of the desktop app");
-      setState("failed");
+  const open = async () => {
+    const openFile = window.ogb?.openFile;
+    if (!openFile) {
+      setReason("Opening files needs a newer version of the desktop app");
       return;
     }
     try {
-      const saved = await saveFile(filePath, base);
-      // null means the user closed the save dialog, which is a decision
-      // rather than a failure — say nothing
-      if (!saved) return;
-      setSavedTo(saved);
-      setState("saved");
-      setTimeout(() => setState("idle"), 4000);
+      setReason("");
+      await openFile(filePath, base);
     } catch (error) {
-      // the bug being fixed here was a click that failed silently, so a
-      // failed save says why rather than doing nothing
-      setReason(error instanceof Error ? error.message : "That file could not be saved");
-      setState("failed");
+      setReason(error instanceof Error ? error.message : "That file could not be opened");
     }
   };
 
@@ -221,17 +212,13 @@ function LocalFileLink({ filePath, base, children }: { filePath: string; base?: 
     <>
       <button
         type="button"
-        onClick={() => void save()}
-        title={`Save a copy — ${filePath}`}
+        onClick={() => void open()}
+        title={filePath}
         className="break-words text-left text-accent underline decoration-accent/40 hover:decoration-accent"
       >
         {children}
       </button>
-      {state !== "idle" && (
-        <span className={`ml-1.5 text-[12px] ${state === "saved" ? "text-success" : "text-danger"}`}>
-          {state === "saved" ? `Saved to ${savedTo}` : reason}
-        </span>
-      )}
+      {reason && <span className="ml-1.5 text-[12px] text-danger">{reason}</span>}
     </>
   );
 }
@@ -308,9 +295,11 @@ function ChatMarkdownComponent({ text, streaming = false, baseDir }: { text: str
       );
     },
     a({ href, children }: { href?: string; children?: ReactNode }) {
+      // a stripped target (javascript:, empty) would open the app origin
+      if (!href) return <>{children}</>;
       const localPath = localFilePath(href);
       if (localPath) return <LocalFileLink filePath={localPath}>{children}</LocalFileLink>;
-      if (href && isRelativeHref(href)) {
+      if (isRelativeHref(href)) {
         const resolved = resolveRelativePath(href, baseDir);
         return resolved ? <LocalFileLink filePath={resolved} base={baseDir ?? undefined}>{children}</LocalFileLink> : <>{children}</>;
       }
@@ -379,7 +368,7 @@ function ChatMarkdownComponent({ text, streaming = false, baseDir }: { text: str
   return (
     <StreamingContext.Provider value={streaming}>
       <div className="chat-md min-w-0 [&>*+*]:mt-2">
-        <Markdown remarkPlugins={[remarkGfm]} components={components}>
+        <Markdown remarkPlugins={[remarkGfm]} components={components} urlTransform={urlTransform}>
           {text}
         </Markdown>
       </div>

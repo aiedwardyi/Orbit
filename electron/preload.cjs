@@ -236,13 +236,12 @@ contextBridge.exposeInMainWorld("ogb", {
   /** Writes the redacted diagnostics report to a user-chosen file; resolves
    * the path, or null when the save dialog was cancelled. */
   exportDiagnostics: () => ipcRenderer.invoke("desktop:export-diagnostics"),
-  /** Ask where to save a bot-created file (inside ~/.orbit), copy it
-   * there and reveal it. Returns the chosen path, or null if the user
-   * cancelled the dialog. The chat bubble shows the
-   * rejection text verbatim, so strip the "Error invoking remote method"
-   * wrapper ipcRenderer adds around a main-process throw. */
-  saveFile: (filePath, base) =>
-    ipcRenderer.invoke("desktop:save-file", filePath, base).catch((error) => {
+  /** Open a local file from a chat link in its default app, or reveal it
+   * when its type could run. The chat bubble shows the rejection text
+   * verbatim, so strip the "Error invoking remote method" wrapper
+   * ipcRenderer adds around a main-process throw. */
+  openFile: (filePath, base) =>
+    ipcRenderer.invoke("desktop:open-file", filePath, base).catch((error) => {
       const message = String(error?.message ?? error);
       throw new Error(message.replace(/^Error invoking remote method '[^']*':\s*(?:Error:\s*)?/, ""));
     }),

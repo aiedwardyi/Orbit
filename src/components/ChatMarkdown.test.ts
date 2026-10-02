@@ -91,8 +91,8 @@ describe("relative file links", () => {
       await act(async () => root.render(createElement(ChatMarkdown, { text, baseDir: "/home/me/proj" })));
       const buttons = [...host.querySelectorAll("button")].map((b) => b.getAttribute("title"));
       expect(buttons).toEqual([
-        "Save a copy — /home/me/proj/reps.py",
-        "Save a copy — /tmp/a.py",
+        "/home/me/proj/reps.py",
+        "/tmp/a.py",
       ]);
       expect([...host.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual(["https://a.com"]);
       expect(host.textContent).toContain("win top");
@@ -107,16 +107,54 @@ describe("relative file links", () => {
     }
   });
 
+  it("opens a file:// link with an escaped space instead of the app origin", async () => {
+    const file = "C:/Users/mredw/OneDrive/Documents/KakaoTalk Downloads/POKKEY_Patent_Draft_v2_EN.docx";
+    const text =
+      "[POKKEY_Patent_Draft_v2_EN.docx](file:///C:/Users/mredw/OneDrive/Documents/KakaoTalk%20Downloads/POKKEY_Patent_Draft_v2_EN.docx)";
+    const openFile = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window, "ogb", { configurable: true, value: { openFile } });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(ChatMarkdown, { text })));
+      expect(host.querySelector("a")).toBeNull();
+      const button = host.querySelector("button") as HTMLButtonElement;
+      expect(button?.getAttribute("title")).toBe(file);
+      await act(async () => button.click());
+      expect(openFile).toHaveBeenCalledWith(file, undefined);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      Reflect.deleteProperty(window, "ogb");
+    }
+  });
+
+  it("renders a link whose target is stripped as plain text", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(ChatMarkdown, { text: "[bad](javascript:alert(1)) [empty]()" })));
+      expect(host.querySelector("a")).toBeNull();
+      expect(host.querySelector("button")).toBeNull();
+      expect(host.textContent).toContain("bad empty");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
   it("says why when the resolved file is missing", async () => {
-    const saveFile = vi.fn().mockRejectedValue(new Error("That file no longer exists"));
-    Object.defineProperty(window, "ogb", { configurable: true, value: { saveFile } });
+    const openFile = vi.fn().mockRejectedValue(new Error("That file no longer exists"));
+    Object.defineProperty(window, "ogb", { configurable: true, value: { openFile } });
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
     try {
       await act(async () => root.render(createElement(ChatMarkdown, { text: "[gone](gone.py)", baseDir: "/p" })));
       await act(async () => (host.querySelector("button") as HTMLButtonElement).click());
-      expect(saveFile).toHaveBeenCalledWith("/p/gone.py", "/p");
+      expect(openFile).toHaveBeenCalledWith("/p/gone.py", "/p");
       expect(host.textContent).toContain("That file no longer exists");
     } finally {
       await act(async () => root.unmount());
