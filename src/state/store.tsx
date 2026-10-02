@@ -3209,18 +3209,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   // Installing a CLI or signing one in happens in a terminal, outside this
   // window — so the moment the user comes back is exactly when our engine
-  // snapshot is most likely stale. Re-probe on focus, throttled so that
-  // ordinary alt-tabbing doesn't spawn a `--version` call per switch.
-  const lastFocusProbe = useRef(0);
+  // snapshot is most likely stale. Re-probe on focus, but only after a real
+  // trip away: a probe can itself flash a window that steals focus, so a blur
+  // during or just after one must not count, or the return probes again.
+  const focusProbe = useRef({ blurredAt: 0, quietUntil: 0 });
   useEffect(() => {
-    const onFocus = () => {
+    const AWAY_MS = 5000;
+    const onBlur = () => {
       const now = Date.now();
-      if (now - lastFocusProbe.current < 3000) return;
-      lastFocusProbe.current = now;
-      void refreshInstances();
+      focusProbe.current.blurredAt = now < focusProbe.current.quietUntil ? 0 : now;
     };
+    const onFocus = () => {
+      const { blurredAt } = focusProbe.current;
+      focusProbe.current.blurredAt = 0;
+      if (!blurredAt || Date.now() - blurredAt < AWAY_MS) return;
+      focusProbe.current.quietUntil = Infinity;
+      void refreshInstances().finally(() => {
+        focusProbe.current.quietUntil = Date.now() + AWAY_MS;
+      });
+    };
+    window.addEventListener("blur", onBlur);
     window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("focus", onFocus);
+    };
   }, [refreshInstances]);
 
   // A chat left open on a hidden or unfocused window is not "read" until the
