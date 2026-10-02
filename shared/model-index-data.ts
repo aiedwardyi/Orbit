@@ -241,3 +241,64 @@ export const MODEL_INDEX_ENTRIES: ModelIndexEntry[] = [
   { provider: "xai", model: "grok-4.6", label: "Grok 4.6", effort: "high", index: "legal", score: 86.307, source: "https://www.vals.ai/benchmarks/legal_bench", sourceLabel: "Vals.ai LegalBench (overall accuracy)", date: "2026-09-29" },
   { provider: "xai", model: "grok-4.7", label: "Grok 4.7", effort: "xhigh", index: "legal", score: 84.389, source: "https://www.vals.ai/benchmarks/legal_bench", sourceLabel: "Vals.ai LegalBench (overall accuracy)", date: "2026-09-29" },
 ];
+
+/** Cost to run the AA Intelligence Index at one model + effort; higher effort burns more tokens. */
+export interface ModelRunCost {
+  model: string;
+  effort: string;
+  usd: number;
+  source: string;
+  date: string;
+}
+
+export const MODEL_RUN_COSTS: ModelRunCost[] = [
+  { model: "claude-fable-5", effort: "max", usd: 11160.86, source: "https://artificialanalysis.ai/models/claude-fable-5", date: "2026-10-02" },
+  { model: "claude-fable-5-1", effort: "low", usd: 3157.66, source: "https://artificialanalysis.ai/models/claude-fable-5-1-low", date: "2026-10-02" },
+  { model: "claude-fable-5-1", effort: "medium", usd: 3983.28, source: "https://artificialanalysis.ai/models/claude-fable-5-1-medium", date: "2026-10-02" },
+  { model: "claude-fable-5-1", effort: "high", usd: 5241.59, source: "https://artificialanalysis.ai/models/claude-fable-5-1-high", date: "2026-10-02" },
+  { model: "claude-fable-5-1", effort: "xhigh", usd: 9063.11, source: "https://artificialanalysis.ai/models/claude-fable-5-1-xhigh", date: "2026-10-02" },
+  { model: "claude-fable-5-1", effort: "max", usd: 13128.86, source: "https://artificialanalysis.ai/models/claude-fable-5-1", date: "2026-10-02" },
+  { model: "claude-opus-5-5", effort: "low", usd: 860.33, source: "https://artificialanalysis.ai/models/claude-opus-5-5-low", date: "2026-10-02" },
+  { model: "claude-opus-5-5", effort: "medium", usd: 1626.81, source: "https://artificialanalysis.ai/models/claude-opus-5-5-medium", date: "2026-10-02" },
+  { model: "claude-opus-5-5", effort: "high", usd: 2172.43, source: "https://artificialanalysis.ai/models/claude-opus-5-5-high", date: "2026-10-02" },
+  { model: "claude-opus-5-5", effort: "xhigh", usd: 4056.65, source: "https://artificialanalysis.ai/models/claude-opus-5-5-xhigh", date: "2026-10-02" },
+  { model: "claude-opus-5-5", effort: "max", usd: 8708.2, source: "https://artificialanalysis.ai/models/claude-opus-5-5", date: "2026-10-02" },
+  { model: "claude-sonnet-5-5", effort: "low", usd: 545.46, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5-low", date: "2026-10-02" },
+  { model: "claude-sonnet-5-5", effort: "medium", usd: 710.06, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5-medium", date: "2026-10-02" },
+  { model: "claude-sonnet-5-5", effort: "high", usd: 1215.01, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5-high", date: "2026-10-02" },
+  { model: "claude-sonnet-5-5", effort: "xhigh", usd: 2747.88, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5-xhigh", date: "2026-10-02" },
+  { model: "claude-sonnet-5-5", effort: "max", usd: 9074.13, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5", date: "2026-10-02" },
+  { model: "gemini-3.7-flash", effort: "medium", usd: 575.6, source: "https://artificialanalysis.ai/models/gemini-3-7-flash-medium", date: "2026-10-02" },
+  { model: "gemini-3.7-flash", effort: "high", usd: 1084.46, source: "https://artificialanalysis.ai/models/gemini-3-7-flash", date: "2026-10-02" },
+  { model: "gemini-3.8-flash", effort: "medium", usd: 1100.06, source: "https://artificialanalysis.ai/models/gemini-3-8-flash-medium", date: "2026-10-02" },
+  { model: "gemini-3.8-flash", effort: "high", usd: 1622.73, source: "https://artificialanalysis.ai/models/gemini-3-8-flash", date: "2026-10-02" },
+  { model: "muse-spark-1.3", effort: "xhigh", usd: 1655.27, source: "https://artificialanalysis.ai/models/muse-spark-1-3-xhigh", date: "2026-10-02" },
+  { model: "muse-spark-1.3", effort: "max", usd: 2000.35, source: "https://artificialanalysis.ai/models/muse-spark-1-3", date: "2026-10-02" },
+  { model: "gpt-5.6-terra", effort: "low", usd: 350.36, source: "https://artificialanalysis.ai/models/gpt-5-6-terra-low", date: "2026-10-02" },
+  { model: "gpt-5.6-terra", effort: "medium", usd: 446.53, source: "https://artificialanalysis.ai/models/gpt-5-6-terra-medium", date: "2026-10-02" },
+  { model: "gpt-5.6-terra", effort: "high", usd: 767.78, source: "https://artificialanalysis.ai/models/gpt-5-6-terra-high", date: "2026-10-02" },
+  { model: "gpt-5.6-terra", effort: "xhigh", usd: 1186.77, source: "https://artificialanalysis.ai/models/gpt-5-6-terra-xhigh", date: "2026-10-02" },
+  { model: "gpt-5.6-terra", effort: "max", usd: 2500.72, source: "https://artificialanalysis.ai/models/gpt-5-6-terra", date: "2026-10-02" },
+  { model: "gpt-6-astra", effort: "low", usd: 1536.78, source: "https://artificialanalysis.ai/models/gpt-6-astra-low", date: "2026-10-02" },
+  { model: "gpt-6-astra", effort: "medium", usd: 2434.12, source: "https://artificialanalysis.ai/models/gpt-6-astra-medium", date: "2026-10-02" },
+  { model: "gpt-6-astra", effort: "high", usd: 2925.01, source: "https://artificialanalysis.ai/models/gpt-6-astra-high", date: "2026-10-02" },
+  { model: "gpt-6-astra", effort: "xhigh", usd: 3802.98, source: "https://artificialanalysis.ai/models/gpt-6-astra-xhigh", date: "2026-10-02" },
+  { model: "gpt-6-astra", effort: "max", usd: 5324.1, source: "https://artificialanalysis.ai/models/gpt-6-astra", date: "2026-10-02" },
+  { model: "gpt-6-luna", effort: "low", usd: 10.63, source: "https://artificialanalysis.ai/models/gpt-6-luna-low", date: "2026-10-02" },
+  { model: "gpt-6-luna", effort: "medium", usd: 31.17, source: "https://artificialanalysis.ai/models/gpt-6-luna-medium", date: "2026-10-02" },
+  { model: "gpt-6-luna", effort: "high", usd: 47.83, source: "https://artificialanalysis.ai/models/gpt-6-luna-high", date: "2026-10-02" },
+  { model: "gpt-6-luna", effort: "xhigh", usd: 66.81, source: "https://artificialanalysis.ai/models/gpt-6-luna-xhigh", date: "2026-10-02" },
+  { model: "gpt-6-luna", effort: "max", usd: 121.68, source: "https://artificialanalysis.ai/models/gpt-6-luna", date: "2026-10-02" },
+  { model: "gpt-6.1-sol", effort: "low", usd: 250.48, source: "https://artificialanalysis.ai/models/gpt-6-1-sol-low", date: "2026-10-02" },
+  { model: "gpt-6.1-sol", effort: "medium", usd: 361.37, source: "https://artificialanalysis.ai/models/gpt-6-1-sol-medium", date: "2026-10-02" },
+  { model: "gpt-6.1-sol", effort: "high", usd: 521.32, source: "https://artificialanalysis.ai/models/gpt-6-1-sol-high", date: "2026-10-02" },
+  { model: "gpt-6.1-sol", effort: "xhigh", usd: 662.28, source: "https://artificialanalysis.ai/models/gpt-6-1-sol-xhigh", date: "2026-10-02" },
+  { model: "gpt-6.1-sol", effort: "max", usd: 1081.55, source: "https://artificialanalysis.ai/models/gpt-6-1-sol", date: "2026-10-02" },
+  { model: "grok-4.6", effort: "low", usd: 760.75, source: "https://artificialanalysis.ai/models/grok-4-6-low", date: "2026-10-02" },
+  { model: "grok-4.6", effort: "medium", usd: 1936.75, source: "https://artificialanalysis.ai/models/grok-4-6-medium", date: "2026-10-02" },
+  { model: "grok-4.6", effort: "high", usd: 2351.83, source: "https://artificialanalysis.ai/models/grok-4-6", date: "2026-10-02" },
+  { model: "grok-4.6", effort: "xhigh", usd: 2830.07, source: "https://artificialanalysis.ai/models/grok-4-6-xhigh", date: "2026-10-02" },
+  { model: "grok-4.7", effort: "low", usd: 1630.69, source: "https://artificialanalysis.ai/models/grok-4-7-low", date: "2026-10-02" },
+  { model: "grok-4.7", effort: "high", usd: 3880.88, source: "https://artificialanalysis.ai/models/grok-4-7-high", date: "2026-10-02" },
+  { model: "grok-4.7", effort: "xhigh", usd: 4967.35, source: "https://artificialanalysis.ai/models/grok-4-7", date: "2026-10-02" },
+];

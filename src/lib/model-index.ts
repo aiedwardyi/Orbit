@@ -1,9 +1,11 @@
 import type { InstanceInfo } from "@/state/store";
 import {
   MODEL_INDEX_ENTRIES,
+  MODEL_RUN_COSTS,
   type ModelIndexEntry,
   type ModelIndexKey,
   type ModelPrice,
+  type ModelRunCost,
 } from "../../shared/model-index-data.ts";
 import { PICKER_MODEL_IDS, pickerModels, pickerRows } from "./cross-model-picker";
 
@@ -32,8 +34,9 @@ export interface CatalogModel {
 
 export interface ModelIndexPoint extends ModelIndexEntry {
   key: string;
-  /** Blended list price, USD per 1M tokens; every effort of a model shares it. */
+  /** Cost to run the AA Intelligence Index at this model + effort. */
   cost?: number;
+  /** List price; every effort of a model shares it. */
   price?: ModelPrice;
 }
 
@@ -106,19 +109,28 @@ export function modelShapes(slots: number, entries: readonly ModelIndexEntry[] =
 /** Picker models only: anything else in the data never reaches the chart. */
 const ours = (entries: readonly ModelIndexEntry[]) => entries.filter((entry) => PICKER.has(entry.model));
 
-function priceByModel(entries: readonly ModelIndexEntry[]): Map<string, { cost: number; price?: ModelPrice }> {
-  return new Map(entries.filter((entry) => entry.index === "cost").map((entry) => [entry.model, { cost: entry.score, price: entry.price }]));
+function priceByModel(entries: readonly ModelIndexEntry[]): Map<string, ModelPrice | undefined> {
+  return new Map(entries.filter((entry) => entry.index === "cost").map((entry) => [entry.model, entry.price]));
+}
+
+function costByKey(costs: readonly ModelRunCost[]): Map<string, number> {
+  return new Map(costs.map((cost) => [`${cost.model}:${cost.effort}`, cost.usd]));
 }
 
 export function indexView(
   index: ModelIndexKey,
   catalog: CatalogModel[],
   entries: readonly ModelIndexEntry[] = MODEL_INDEX_ENTRIES,
+  costs: readonly ModelRunCost[] = MODEL_RUN_COSTS,
 ): { points: ModelIndexPoint[]; missing: CatalogModel[] } {
   const prices = priceByModel(ours(entries));
+  const cost = costByKey(costs);
   const points = ours(entries)
     .filter((entry) => entry.index === index)
-    .map((entry) => ({ ...entry, ...prices.get(entry.model), key: `${entry.model}:${entry.effort}` }));
+    .map((entry) => {
+      const key = `${entry.model}:${entry.effort}`;
+      return { ...entry, key, cost: cost.get(key), price: prices.get(entry.model) };
+    });
   const scored = new Set(points.map((point) => point.model));
   return { points, missing: catalog.filter((model) => !scored.has(model.model)) };
 }
@@ -126,12 +138,14 @@ export function indexView(
 /** Every model + effort in the data, so marks stay mounted and glide between indexes. */
 export function markUniverse(
   entries: readonly ModelIndexEntry[] = MODEL_INDEX_ENTRIES,
+  costs: readonly ModelRunCost[] = MODEL_RUN_COSTS,
 ): Array<Omit<ModelIndexPoint, "index" | "score" | "source" | "sourceLabel" | "date" | "reported">> {
   const prices = priceByModel(ours(entries));
+  const cost = costByKey(costs);
   const marks = new Map<string, Omit<ModelIndexPoint, "index" | "score" | "source" | "sourceLabel" | "date" | "reported">>();
   for (const { provider, model, label, effort } of ours(entries)) {
     const key = `${model}:${effort}`;
-    if (!marks.has(key)) marks.set(key, { key, provider, model, label, effort, ...prices.get(model) });
+    if (!marks.has(key)) marks.set(key, { key, provider, model, label, effort, cost: cost.get(key), price: prices.get(model) });
   }
   return [...marks.values()];
 }

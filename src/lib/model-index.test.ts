@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { MODEL_INDEX_AS_OF, MODEL_INDEX_ENTRIES, type ModelIndexEntry } from "../../shared/model-index-data.ts";
+import { MODEL_INDEX_AS_OF, MODEL_INDEX_ENTRIES, MODEL_RUN_COSTS, type ModelIndexEntry } from "../../shared/model-index-data.ts";
 import { PICKER_MODEL_IDS } from "./cross-model-picker";
 import {
   CHART_PROVIDERS,
@@ -28,6 +28,10 @@ function instance(driverKind: string, ids: string[]): InstanceInfo {
 
 function entry(model: string, index: ModelIndexEntry["index"], score: number, effort = "high"): ModelIndexEntry {
   return { provider: "anthropic", model, label: model, effort, index, score, source: "https://example.com", sourceLabel: "Example", date: "2026-09-30" };
+}
+
+function runCost(model: string, effort: string, usd: number) {
+  return { model, effort, usd, source: "https://example.com", date: "2026-09-30" };
 }
 
 describe("model index data", () => {
@@ -74,6 +78,17 @@ describe("model index data", () => {
       expect(e.score, e.model).toBe((3 * e.price!.input + e.price!.output) / 4);
     }
     expect(MODEL_INDEX_ENTRIES.filter((e) => e.index !== "cost" && e.price)).toEqual([]);
+  });
+
+  it("costs picker models per effort, once each, from Artificial Analysis", () => {
+    const keys = MODEL_RUN_COSTS.map((c) => `${c.model}|${c.effort}`);
+    expect(keys.filter((key, i) => keys.indexOf(key) !== i)).toEqual([]);
+    for (const c of MODEL_RUN_COSTS) {
+      expect(PICKER_MODEL_IDS, c.model).toContain(c.model);
+      expect(c.source, c.model).toMatch(/^https:\/\/artificialanalysis\.ai\/models\/\S+$/);
+      expect(c.date, c.model).toMatch(DATE);
+      expect(c.usd, c.model).toBeGreaterThan(0);
+    }
   });
 
   it("names a charted lab on every lab-reported entry", () => {
@@ -131,7 +146,7 @@ describe("catalog merge", () => {
       { provider: "anthropic", model: "claude-opus-5-5", label: "Opus 5.5" },
       { provider: "openai", model: "gpt-brand-new", label: "GPT Brand New" },
     ];
-    const view = indexView("coding", catalog, [entry("claude-opus-5-5", "coding", 60), entry("claude-opus-5-5", "cost", 900)]);
+    const view = indexView("coding", catalog, [entry("claude-opus-5-5", "coding", 60)], [runCost("claude-opus-5-5", "high", 900)]);
     expect(view.missing.map((m) => m.model)).toEqual(["gpt-brand-new"]);
     expect(view.points).toMatchObject([{ model: "claude-opus-5-5", cost: 900 }]);
   });
@@ -142,13 +157,20 @@ describe("catalog merge", () => {
     expect(markUniverse(entries).map((m) => m.model)).toEqual(["claude-opus-5-5"]);
   });
 
-  it("gives every effort of a model its one list price", () => {
+  it("plots each effort at its own cost to run, sharing one list price", () => {
     const price = { ...entry("claude-opus-5-5", "cost", 8, "all"), price: { input: 4, output: 20 } };
-    const view = indexView("coding", [], [entry("claude-opus-5-5", "coding", 60, "low"), entry("claude-opus-5-5", "coding", 70, "max"), price]);
-    expect(view.points.map((p) => [p.effort, p.cost, p.price])).toEqual([
-      ["low", 8, { input: 4, output: 20 }],
-      ["max", 8, { input: 4, output: 20 }],
+    const entries = [entry("claude-opus-5-5", "coding", 60, "low"), entry("claude-opus-5-5", "coding", 70, "max"), price];
+    const costs = [runCost("claude-opus-5-5", "low", 860), runCost("claude-opus-5-5", "max", 8708)];
+    expect(indexView("coding", [], entries, costs).points.map((p) => [p.effort, p.cost, p.price])).toEqual([
+      ["low", 860, { input: 4, output: 20 }],
+      ["max", 8708, { input: 4, output: 20 }],
     ]);
+    expect(markUniverse(entries, costs).map((m) => m.cost)).toEqual([860, 8708, undefined]);
+  });
+
+  it("leaves an effort with no published cost off the cost axis", () => {
+    const view = indexView("coding", [], [entry("gemini-3.8-flash", "coding", 30, "low")], [runCost("gemini-3.8-flash", "high", 1600)]);
+    expect(view.points.map((p) => p.cost)).toEqual([undefined]);
   });
 
   it("reads models from the picker catalog, folding Gemini effort ids", () => {

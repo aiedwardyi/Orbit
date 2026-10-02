@@ -91,3 +91,14 @@ describe("cost tab", () => {
     expect(host.textContent).toContain("List price per 1M tokens");
   });
 });
+
+describe("score vs cost", () => {
+  it("plots each effort at its own cost to run, not one list price", () => {
+    const x = (effort: string) =>
+      host.querySelector(`[aria-label="Claude Opus 5.5 ${effort}"]`)?.closest<HTMLElement>("[data-mi-move]")?.style.transform.match(/translate\(([\d.]+)px/)?.[1];
+    const xs = ["low", "medium", "high", "xhigh", "max"].map(x);
+    expect(xs.every(Boolean), xs.join()).toBe(true);
+    expect(new Set(xs).size).toBe(5);
+    expect(host.textContent).toContain("Cost to run the AA Intelligence Index");
+  });
+});

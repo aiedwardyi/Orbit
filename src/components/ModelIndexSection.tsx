@@ -1,5 +1,5 @@
 // App settings → Model index (experimental): lab-published benchmark scores
-// against price, per model and effort, so picking a model never needs a web
+// against cost, per model and effort, so picking a model never needs a web
 // search. Numbers come only from shared/model-index-data.ts; nothing is fetched.
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "@/state/store";
@@ -81,8 +81,6 @@ const MODEL_SHAPE = modelShapes(SHAPES.length);
 const shapeOf = (model: string) => SHAPES[MODEL_SHAPE.get(model) ?? 0]!;
 
 const ROW = 26;
-// Models at one list price sit this far apart instead of sharing a vertical line.
-const DODGE = 8;
 const MARGIN = { top: 30, right: 16, bottom: 46, left: 44 };
 // Every line keeps a fixed point count so CSS can morph its `d` between tabs.
 const LINE_SLOTS = 6;
@@ -96,6 +94,9 @@ const labName = (provider: string) => {
   return slot === "other" ? provider : PROVIDER_NAME[slot];
 };
 const shortLabel = (label: string) => label.replace(/^Claude /, "");
+const formatCost = (usd: number) =>
+  usd >= 100 ? `$${Math.round(usd).toLocaleString("en-US")}` : `$${usd.toFixed(usd < 10 ? 2 : 1)}`;
+const formatCostTick = (usd: number) => (usd >= 1000 ? `$${usd / 1000}k` : `$${usd}`);
 const formatValue = (index: ModelIndexKey, point: ModelIndexPoint) =>
   index === "cost" && point.price
     ? formatPrice(point.price)
@@ -402,17 +403,12 @@ function Scatter({
   const dots = useRef(new Map<string, Element>());
   const gradient = `mi-best${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   const yItems = yTicks.map((tick) => ({ key: `${unit}:${tick}`, label: formatTick(unit, tick), at: y(tick) }));
-  const xItems = xTicks.map((tick) => ({ key: String(tick), label: `$${tick}`, at: x(tick) }));
+  const xItems = xTicks.map((tick) => ({ key: String(tick), label: formatCostTick(tick), at: x(tick) }));
   const yLeaving = useLeaving(yItems);
   const xLeaving = useLeaving(xItems);
   const titleLeaving = useLeaving([{ key: title }]);
 
-  const shift = new Map<string, number>();
-  for (const cost of new Set(costs)) {
-    const tied = [...new Set(plotted.filter((point) => point.cost === cost).map((point) => point.model))].sort();
-    tied.forEach((model, i) => shift.set(model, (i - (tied.length - 1) / 2) * DODGE));
-  }
-  const at = new Map(plotted.map((point) => [point.key, { x: x(point.cost!) + shift.get(point.model)!, y: y(point.score) }]));
+  const at = new Map(plotted.map((point) => [point.key, { x: x(point.cost!), y: y(point.score) }]));
   const lab = new Set(plotted.filter((point) => point.reported === "lab").map((point) => point.key));
   const byModel = new Map<string, ModelIndexPoint[]>();
   for (const point of plotted) byModel.set(point.model, [...(byModel.get(point.model) ?? []), point]);
@@ -847,9 +843,15 @@ export function ModelIndexSection() {
                   <span className="truncate text-ink-secondary">{t(index === "cost" ? "modelIndex.tooltip.cost" : INDEX_KEY[index])}</span>
                 </div>
                 <div className="mt-1 flex justify-between gap-3 tabular-nums">
-                  <span className="text-ink-secondary">{t(index === "cost" ? "modelIndex.tooltip.blended" : "modelIndex.tooltip.cost")}</span>
-                  <span className="text-ink">{index === "cost" ? formatUsd(hovered.score) : hovered.price ? formatPrice(hovered.price) : "-"}</span>
+                  <span className="text-ink-secondary">{t(index === "cost" ? "modelIndex.tooltip.blended" : "modelIndex.tooltip.runCost")}</span>
+                  <span className="text-ink">{index === "cost" ? formatUsd(hovered.score) : hovered.cost ? formatCost(hovered.cost) : "-"}</span>
                 </div>
+                {index !== "cost" && (
+                  <div className="flex justify-between gap-3 tabular-nums">
+                    <span className="text-ink-secondary">{t("modelIndex.tooltip.cost")}</span>
+                    <span className="text-ink">{hovered.price ? formatPrice(hovered.price) : "-"}</span>
+                  </div>
+                )}
                 <p className="mt-1.5 border-t border-hairline/40 pt-1.5 text-[11px] leading-snug text-ink-secondary">
                   {t("modelIndex.tooltip.source")}: {hovered.sourceLabel} · {hovered.date}
                 </p>
