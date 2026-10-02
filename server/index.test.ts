@@ -5018,13 +5018,17 @@ describe("startTurn presence boundary", () => {
       }).toBe(true);
       const routineThread = ((await api("GET", "/api/routines")).body.runs as Array<{ id: string; threadId: string }>)
         .find((candidate) => candidate.id === run.body.run.id)!.threadId;
-      await stream.until((frame) => frame.kind === "turn.dispatch" && frame.threadId === routineThread);
+      // dispatch is announced before the engine owns the turn; a Stop in that gap has no session to kill
+      const started = (threadId: string) => stream.until(
+        (frame) => frame.kind === "runtime" && frame.event?.type === "turn.started" && frame.event?.threadId === threadId,
+      );
+      await started(routineThread);
 
       const queued = await api("POST", `/api/bots/${bot.id}/messages`, { text: "after the routine" });
       expect(queued.body.queued).toBe(true);
       expect((await api("POST", `/api/bots/${bot.id}/tasks/${routineThread}`)).status).toBe(200);
       expect((await api("POST", `/api/bots/${bot.id}/interrupt`, {})).status).toBe(200);
-      await stream.until((frame) => frame.kind === "turn.dispatch" && frame.threadId === viewed);
+      await started(viewed);
       await expect.poll(snapshot).toMatchObject({ busy: true, threadId: routineThread, workingThreadId: viewed });
 
       expect((await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: routineThread })).status).toBe(200);
@@ -5035,7 +5039,7 @@ describe("startTurn presence boundary", () => {
       if (routineId) await api("DELETE", `/api/routines/${routineId}`).catch(() => undefined);
       await api("DELETE", `/api/bots/${bot.id}`).catch(() => undefined);
     }
-  });
+  }, 30_000);
 
   it("announces a new wait when a delegated ask starts a turn", async () => {
     const source = (await api("POST", "/api/bots", {})).body.bot;
