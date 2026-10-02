@@ -4,6 +4,7 @@ import {
   CHAT_MIN_WIDTH,
   DETAILS_PANEL_WIDTH,
   SIDEBAR_COLLAPSED_KEY,
+  SIDEBAR_COLLAPSED_SECTIONS_KEY,
   SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_DENSITY_KEY,
   SIDEBAR_DEFAULT_WIDTH,
@@ -19,6 +20,7 @@ import {
   displaySidebarWidth,
   dockedDetailsWidth,
   fitSidebarWidth,
+  loadCollapsedSections,
   loadSidebarCollapsed,
   loadSidebarDensity,
   loadSidebarOrder,
@@ -29,6 +31,7 @@ import {
   parseSidebarDensity,
   parseSidebarSide,
   parseSidebarWidth,
+  saveCollapsedSections,
   saveSidebarCollapsed,
   saveSidebarDensity,
   saveSidebarOrder,
@@ -244,6 +247,16 @@ describe("sidebar icon-rail snap", () => {
     expect(loadSidebarCollapsed({ getItem: () => "1" })).toBe(true);
     expect(loadSidebarCollapsed({ getItem: () => "0" })).toBe(false);
     expect(loadSidebarCollapsed({ getItem: () => { throw new Error("blocked"); } })).toBe(false);
+  });
+
+  it("round-trips collapsed section ids and survives bad storage", () => {
+    const setItem = vi.fn();
+    saveCollapsedSections(["section:Work", "section:Work", "unassigned"], { setItem });
+    expect(setItem).toHaveBeenCalledWith(SIDEBAR_COLLAPSED_SECTIONS_KEY, JSON.stringify(["section:Work", "unassigned"]));
+    expect(loadCollapsedSections({ getItem: () => JSON.stringify(["unassigned", "unassigned"]) })).toEqual(["unassigned"]);
+    expect(loadCollapsedSections({ getItem: () => "not-json" })).toEqual([]);
+    expect(loadCollapsedSections({ getItem: () => { throw new Error("blocked"); } })).toEqual([]);
+    expect(() => saveCollapsedSections(["unassigned"], { setItem: () => { throw new Error("blocked"); } })).not.toThrow();
   });
 
   it("steps Home/End/arrows across the rail snap without dropping the last labeled width", () => {

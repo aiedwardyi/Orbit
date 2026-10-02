@@ -70,10 +70,12 @@ import {
   displaySidebarWidth,
   dockedDetailsWidth,
   fitSidebarWidth,
+  loadCollapsedSections,
   loadSidebarCollapsed,
   loadSidebarDensity,
   loadSidebarOrder,
   loadSidebarWidth,
+  saveCollapsedSections,
   saveSidebarCollapsed,
   saveSidebarDensity,
   saveSidebarOrder,
@@ -112,7 +114,7 @@ import { DeviceSwitcher } from "./DeviceSwitcher";
 import { phoneSettingsAvailable } from "@/lib/phone-availability";
 import { localeTag, t, useI18n } from "@/lib/i18n";
 import { terminalAttentionCopy } from "@/lib/notify";
-import { collapsedUnreadCount, formatCollapsedUnreadBadge } from "@/lib/unread";
+import { collapsedUnreadCount, formatCollapsedUnreadBadge, unreadConversationCount } from "@/lib/unread";
 
 // Effect-level easing: getComputedTiming().progress is then the eased edge position.
 const SIDEBAR_MOTION = { duration: 300, easing: "cubic-bezier(0.32, 0.72, 0, 1)" };
@@ -1285,6 +1287,7 @@ export function Sidebar({
   const [query, setQuery] = useState("");
   const [densityState, setDensityState] = useState<SidebarDensity>(() => loadSidebarDensity());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => loadSidebarCollapsed());
+  const [collapsedSections, setCollapsedSections] = useState(() => new Set(loadCollapsedSections()));
   const sidebarSide = useSidebarSide();
   const sidebarOnRight = sidebarSide === "right";
   const collapsedUnread = sidebarCollapsed ? collapsedUnreadCount(state.bots, state.groups, state.selectedId) : 0;
@@ -1813,6 +1816,16 @@ export function Sidebar({
   );
   const sectionsReorderable = density !== "icons" && q.length === 0 && sectionIds.length > 1;
   const rowsReorderable = q.length === 0;
+  // Headers are gone in the icon rail and search must show every match.
+  const sectionsCollapsible = density !== "icons" && q.length === 0;
+  const toggleSection = (id: string) => {
+    const next = collapsedSections.has(id)
+      ? [...collapsedSections].filter((candidate) => candidate !== id)
+      : [...collapsedSections, id];
+    const known = next.filter((candidate) => allSectionIds.includes(candidate));
+    setCollapsedSections(new Set(known));
+    saveCollapsedSections(known);
+  };
   const currentItemOrder = () =>
     normalizeSidebarOrder(sidebarOrderRef.current, allSectionIds, naturalItemsBySection).itemOrder;
   const commitSidebarOrder = (
@@ -2402,6 +2415,13 @@ export function Sidebar({
           {sectionIds.map((id) => {
             const name = sectionLabel(id);
             const sectionItems = orderedItemsBySection.get(id) ?? [];
+            const collapsed = sectionsCollapsible && collapsedSections.has(id);
+            const hiddenItems = collapsed ? sectionItems.filter((item) => item.id !== state.selectedId) : [];
+            const shownItems = collapsed ? sectionItems.filter((item) => item.id === state.selectedId) : sectionItems;
+            const hiddenUnread = unreadConversationCount(
+              hiddenItems.flatMap((item) => item.bot ? [item.bot] : []),
+              hiddenItems.flatMap((item) => item.group ? [item.group] : []),
+            );
             return (
               <div
                 key={id}
@@ -2424,6 +2444,10 @@ export function Sidebar({
                     name={name}
                     reorderable={sectionsReorderable}
                     dragging={draggingSectionId === id}
+                    collapsed={collapsed}
+                    hiddenCount={hiddenItems.length}
+                    unreadBadge={formatCollapsedUnreadBadge(hiddenUnread)}
+                    onToggle={sectionsCollapsible ? () => toggleSection(id) : undefined}
                     onDragStart={(event) => {
                       event.dataTransfer.effectAllowed = "move";
                       event.dataTransfer.setData("application/x-openmausbot-sidebar-section", id);
@@ -2437,7 +2461,7 @@ export function Sidebar({
                     onMove={(direction) => moveSidebarSection(id, direction)}
                   />
                 )}
-                {sectionItems.map((item) => item.kind === "group" ? (
+                {shownItems.map((item) => item.kind === "group" ? (
                   <GroupListItem
                     key={item.key}
                     group={item.group!}

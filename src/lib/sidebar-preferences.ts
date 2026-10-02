@@ -14,6 +14,7 @@ export type SidebarLayout = {
 export const SIDEBAR_DENSITY_KEY = "openmausbot.sidebarDensity";
 export const SIDEBAR_WIDTH_KEY = "openmausbot.sidebarWidth";
 export const SIDEBAR_COLLAPSED_KEY = "openmausbot.sidebarCollapsed";
+export const SIDEBAR_COLLAPSED_SECTIONS_KEY = "openmausbot.sidebarCollapsedSections.v1";
 export const SIDEBAR_SIDE_KEY = "openmausbot.sidebarSide";
 /** Fired on the same window that just saved the side, since `storage` events never do. */
 export const SIDEBAR_SIDE_EVENT = "orbit-sidebar-side";
@@ -180,6 +181,28 @@ export function saveSidebarCollapsed(
     target?.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
   } catch {
     // Same localStorage failure mode as width — collapse still applies this session.
+  }
+}
+
+export function loadCollapsedSections(storage?: Pick<Storage, "getItem"> | null): string[] {
+  try {
+    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
+    return parseStringList(target?.getItem(SIDEBAR_COLLAPSED_SECTIONS_KEY) ?? null);
+  } catch {
+    return [];
+  }
+}
+
+export function saveCollapsedSections(
+  ids: string[],
+  storage?: Pick<Storage, "setItem"> | null,
+): void {
+  try {
+    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
+    const safe = [...new Set(ids.filter((id) => id.length > 0))].slice(0, 100);
+    target?.setItem(SIDEBAR_COLLAPSED_SECTIONS_KEY, JSON.stringify(safe));
+  } catch {
+    // Same localStorage failure mode as collapsed - sections still fold this session.
   }
 }
 

@@ -10,6 +10,7 @@ import { persistPreference } from "@/lib/i18n";
 import { hapticTick } from "@/lib/phone-swipe";
 import {
   SIDEBAR_COLLAPSED_KEY,
+  SIDEBAR_COLLAPSED_SECTIONS_KEY,
   SIDEBAR_ORDER_KEY,
   SIDEBAR_SECTION_ORDER_KEY,
   SIDEBAR_SIDE_EVENT,
@@ -18,7 +19,7 @@ import {
 } from "@/lib/sidebar-preferences";
 import { LONG_PRESS_MS } from "@/lib/use-touch-drag";
 import { usePhoneSwipe } from "@/lib/use-phone-swipe";
-import { formatTime, StoreProvider, useStore } from "@/state/store";
+import { formatTime, StoreProvider, useStore, type Bot } from "@/state/store";
 
 import { compactSidebarModelLabel, Sidebar } from "./Sidebar";
 
@@ -69,6 +70,12 @@ function SelectThenMarkUnread({ id }: { id: string }) {
   return createElement(Sidebar, { open: false, onClose: () => {} });
 }
 
+let storeDispatch: ReturnType<typeof useStore>["dispatch"] | null = null;
+function SidebarWithDispatch() {
+  storeDispatch = useStore().dispatch;
+  return createElement(Sidebar, { open: false, onClose: () => {} });
+}
+
 // happy-dom drag events carry no dataTransfer, and the row handlers write to it.
 const fire = (target: Element, type: string) => {
   const event = new Event(type, { bubbles: true, cancelable: true });
@@ -80,6 +87,7 @@ afterEach(() => {
   vi.useRealTimers();
   window.localStorage.removeItem(SIDEBAR_ORDER_KEY);
   window.localStorage.removeItem(SIDEBAR_SECTION_ORDER_KEY);
+  window.localStorage.removeItem(SIDEBAR_COLLAPSED_SECTIONS_KEY);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -979,6 +987,182 @@ describe("Sidebar layout controls", () => {
       window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
       await act(async () => root.unmount());
       host.remove();
+    }
+  });
+});
+
+describe("Sidebar section collapse", () => {
+  const scoped = (id: string, section: string, extra: object = {}) => ({ ...bot(id), section, ...extra });
+  const mount = async (bots: object[], patched: Array<{ path: string; body: unknown }> = []) => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string, init?: RequestInit) => {
+        if (path === "/api/bots?messages=200") return new Response(JSON.stringify({ bots, groups: [] }));
+        if (init?.method === "PATCH" && path.startsWith("/api/bots/")) {
+          const body = JSON.parse(String(init.body)) as object;
+          patched.push({ path, body });
+          return new Response(JSON.stringify({ bot: { id: path.slice("/api/bots/".length), ...body } }));
+        }
+        return new Response(JSON.stringify({ error: "not in this test" }), { status: 404 });
+      }),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    await act(async () => root.render(createElement(StoreProvider, null, createElement(SidebarWithDispatch))));
+    await act(async () => FakeEventSource.current!.onmessage?.({
+      data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+      lastEventId: "",
+    }));
+    await vi.waitFor(() => expect(host.querySelectorAll('[data-sidebar-row-kind="bot"]').length).toBeGreaterThan(0));
+    const unmount = async () => {
+      await act(async () => root.unmount());
+      host.remove();
+    };
+    return { host, unmount };
+  };
+  const shownBots = (host: HTMLElement, section: string) =>
+    [...host.querySelectorAll(`[data-sidebar-section-id="${section}"] [data-sidebar-row-kind="bot"]`)]
+      .map((row) => row.getAttribute("data-sidebar-row-id"));
+  const header = (host: HTMLElement, section: string) =>
+    host.querySelector<HTMLButtonElement>(`[data-sidebar-section-id="${section}"] [data-sidebar-section-header] button`);
+  const count = (host: HTMLElement, section: string) =>
+    host.querySelector(`[data-sidebar-section-id="${section}"] [data-sidebar-section-count]`)?.textContent ?? null;
+  const unreadBadge = (host: HTMLElement, section: string) =>
+    host.querySelector(`[data-sidebar-section-id="${section}"] [data-sidebar-section-unread]`)?.textContent ?? null;
+  const select = (id: string) => act(async () => storeDispatch!({ type: "select", id }));
+
+  it("toggles on click with a hidden count and unread badge, persisting by section id", async () => {
+    const { host, unmount } = await mount([
+      bot("u1"),
+      scoped("w1", "Work"),
+      scoped("w2", "Work", { unread: true }),
+      scoped("w3", "Work"),
+    ]);
+    try {
+      await select("u1");
+      const work = header(host, "section:Work")!;
+      expect(work.getAttribute("aria-expanded")).toBe("true");
+      expect(count(host, "section:Work")).toBeNull();
+
+      await act(async () => work.click());
+      expect(work.getAttribute("aria-expanded")).toBe("false");
+      expect(shownBots(host, "section:Work")).toEqual([]);
+      expect(count(host, "section:Work")).toBe("· 3");
+      expect(unreadBadge(host, "section:Work")).toBe("1");
+      expect(work.getAttribute("aria-label")).toBe("Work, 3 hidden, 1 unread");
+      expect(shownBots(host, "unassigned")).toEqual(["u1"]);
+      expect(JSON.parse(window.localStorage.getItem(SIDEBAR_COLLAPSED_SECTIONS_KEY)!)).toEqual(["section:Work"]);
+
+      await act(async () => work.click());
+      expect(work.getAttribute("aria-expanded")).toBe("true");
+      expect(shownBots(host, "section:Work")).toEqual(["w1", "w2", "w3"]);
+      expect(unreadBadge(host, "section:Work")).toBeNull();
+      expect(JSON.parse(window.localStorage.getItem(SIDEBAR_COLLAPSED_SECTIONS_KEY)!)).toEqual([]);
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("never toggles from a header drag", async () => {
+    const { host, unmount } = await mount([bot("u1"), scoped("w1", "Work")]);
+    try {
+      const work = header(host, "section:Work")!;
+      await act(async () => {
+        fire(work, "dragstart");
+        fire(work, "dragend");
+        work.click();
+      });
+      expect(work.getAttribute("aria-expanded")).toBe("true");
+      await act(async () => {
+        work.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+        work.click();
+      });
+      expect(work.getAttribute("aria-expanded")).toBe("false");
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("restores saved collapse, ignores stale ids, keeps the selected bot, and shows all matches while searching", async () => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_SECTIONS_KEY, JSON.stringify(["section:Work", "section:Gone"]));
+    const { host, unmount } = await mount([bot("u1"), scoped("w1", "Work"), scoped("w2", "Work"), scoped("w3", "Work")]);
+    try {
+      await select("w2");
+      expect(shownBots(host, "section:Work")).toEqual(["w2"]);
+      expect(count(host, "section:Work")).toBe("· 2");
+
+      const search = host.querySelector<HTMLInputElement>('input[placeholder="Search"]')!;
+      const type = (value: string) => act(async () => {
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(search, value);
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await type("w");
+      expect(shownBots(host, "section:Work")).toEqual(["w1", "w2", "w3"]);
+      expect(header(host, "section:Work")).toBeNull();
+      await type("");
+      expect(shownBots(host, "section:Work")).toEqual(["w2"]);
+
+      await act(async () => header(host, "unassigned")!.click());
+      expect(JSON.parse(window.localStorage.getItem(SIDEBAR_COLLAPSED_SECTIONS_KEY)!)).toEqual(["section:Work", "unassigned"]);
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("collapses Unassigned alone and still shows a newly created bot there", async () => {
+    const { host, unmount } = await mount([bot("u1"), bot("u2")]);
+    try {
+      await select("u1");
+      const unassigned = host.querySelector<HTMLButtonElement>('[data-sidebar-section-id="unassigned"] [data-sidebar-section-toggle]')!;
+      expect(host.querySelector("[data-sidebar-section-handle]")).toBeNull();
+      await act(async () => unassigned.click());
+      expect(unassigned.getAttribute("aria-expanded")).toBe("false");
+      expect(shownBots(host, "unassigned")).toEqual(["u1"]);
+      expect(count(host, "unassigned")).toBe("· 1");
+
+      await act(async () => storeDispatch!({ type: "botAdded", bot: bot("fresh") as unknown as Bot }));
+      expect(shownBots(host, "unassigned")).toEqual(["fresh"]);
+      expect(count(host, "unassigned")).toBe("· 2");
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("drops bots onto a collapsed header and the empty Unassigned target", async () => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_SECTIONS_KEY, JSON.stringify(["section:B", "unassigned"]));
+    const patched: Array<{ path: string; body: unknown }> = [];
+    const { host, unmount } = await mount([scoped("a", "A"), scoped("b", "B"), scoped("c", "A")], patched);
+    const row = (id: string) => host.querySelector(`[data-sidebar-row-kind="bot"][data-sidebar-row-id="${id}"]`)!;
+    const dropOnHeader = async (id: string, section: string) => {
+      const source = row(id);
+      await act(async () => fire(source, "dragstart"));
+      const target = await vi.waitFor(() => {
+        const el = host.querySelector(`[data-sidebar-section-id="${section}"] [data-sidebar-section-header]`);
+        expect(el).not.toBeNull();
+        return el!;
+      });
+      await act(async () => fire(target, "dragover"));
+      expect(host.querySelector("[data-sidebar-bot-drop-marker]")).not.toBeNull();
+      await act(async () => fire(target, "drop"));
+      await act(async () => fire(source, "dragend"));
+    };
+    try {
+      await select("b");
+      expect(shownBots(host, "section:B")).toEqual(["b"]);
+      await dropOnHeader("a", "section:B");
+      await vi.waitFor(() => expect(patched).toContainEqual({ path: "/api/bots/a", body: { section: "B" } }));
+      await vi.waitFor(() => expect(count(host, "section:B")).toBe("· 1"));
+      expect(shownBots(host, "section:B")).toEqual(["b"]);
+
+      expect(host.querySelector('[data-sidebar-section-id="unassigned"]')).toBeNull();
+      await dropOnHeader("c", "unassigned");
+      await vi.waitFor(() => expect(patched).toContainEqual({ path: "/api/bots/c", body: { section: "" } }));
+      await vi.waitFor(() => expect(count(host, "unassigned")).toBe("· 1"));
+      expect(header(host, "unassigned")?.getAttribute("aria-expanded")).toBe("false");
+    } finally {
+      await unmount();
     }
   });
 });
