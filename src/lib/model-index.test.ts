@@ -81,12 +81,13 @@ describe("model index data", () => {
     for (const e of MODEL_INDEX_ENTRIES.filter((e) => e.reported === "lab")) expect(named, e.model).toContain(e.provider);
   });
 
-  it("sources every lab-reported coding score to the lab, one row per model + effort", () => {
+  it("charts DeepSWE v1.1 only on coding, lab scores off the leaderboard, one row per model + effort", () => {
     const coding = MODEL_INDEX_ENTRIES.filter((e) => e.index === "coding");
+    for (const e of coding) expect(e.sourceLabel, e.model).toMatch(/DeepSWE v1\.1/);
     for (const e of coding.filter((e) => e.reported === "lab")) {
       expect(e.source, e.model).toMatch(/^https:\/\/\S+$/);
-      expect(e.source, e.model).not.toMatch(/scale\.com/);
-      expect(e.sourceLabel, e.model).not.toMatch(/scale/i);
+      expect(e.source, e.model).not.toMatch(/datacurve\.ai/);
+      expect(e.sourceLabel, e.model).not.toMatch(/datacurve/i);
     }
     const keys = coding.filter((e) => PICKER_MODEL_IDS.includes(e.model)).map((e) => `${e.model}|${e.effort}`);
     expect(keys.filter((key, i) => keys.indexOf(key) !== i)).toEqual([]);
