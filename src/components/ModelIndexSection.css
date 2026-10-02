@@ -15,7 +15,7 @@
   transition: transform var(--mi-ease), opacity var(--mi-ease);
 }
 .model-index [data-mi-paint] {
-  transition: fill var(--mi-ease), stroke var(--mi-ease), stroke-width var(--mi-ease);
+  transition: fill var(--mi-ease), stroke var(--mi-ease), stroke-width var(--mi-ease), opacity var(--mi-ease);
 }
 .model-index [data-mi-line] {
   transition: d var(--mi-ease), opacity var(--mi-ease);

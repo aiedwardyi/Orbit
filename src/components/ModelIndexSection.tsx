@@ -14,6 +14,7 @@ import {
   linearTicks,
   logTicks,
   markUniverse,
+  modelShapes,
   paretoFrontier,
   scoredIndexes,
   winkCatalog,
@@ -62,17 +63,19 @@ const PROVIDER_NAME: Record<Exclude<ChartProvider, "other">, string> = {
   meta: "Meta",
 };
 
-// Color names the lab; shape names the effort level.
-const EFFORT_SHAPE: Record<string, string> = {
-  low: "M-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0z",
-  medium: "M-2.7-2.7h5.4v5.4h-5.4z",
-  high: "M0-3.7L3.7 0L0 3.7L-3.7 0z",
-  xhigh: "M0-3.8L3.6 2.6H-3.6z",
-  max: "M0-4.3L1.03-1.42L4.09-1.33L1.66 0.54L2.53 3.48L0 1.75L-2.53 3.48L-1.66 0.54L-4.09-1.33L-1.03-1.42z",
-  default: "M-1.2-3.5h2.4v2.3h2.3v2.4h-2.3v2.3h-2.4v-2.3h-2.3v-2.4h2.3z",
-};
-const EFFORTS = Object.keys(EFFORT_SHAPE);
-const shapeOf = (effort: string) => EFFORT_SHAPE[effort] ?? EFFORT_SHAPE.default!;
+// Color names the lab; shape names the model within it.
+const SHAPES = [
+  "M-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0z",
+  "M-2.7-2.7h5.4v5.4h-5.4z",
+  "M0-3.7L3.7 0L0 3.7L-3.7 0z",
+  "M0-3.8L3.6 2.6H-3.6z",
+  "M0 3.8L3.6-2.6H-3.6z",
+  "M0-4.3L1.03-1.42L4.09-1.33L1.66 0.54L2.53 3.48L0 1.75L-2.53 3.48L-1.66 0.54L-4.09-1.33L-1.03-1.42z",
+  "M-1.2-3.5h2.4v2.3h2.3v2.4h-2.3v2.3h-2.4v-2.3h-2.3v-2.4h2.3z",
+  "M1.63-3.32L3.32-1.63L1.7 0L3.32 1.63L1.63 3.32L0 1.7L-1.63 3.32L-3.32 1.63L-1.7 0L-3.32-1.63L-1.63-3.32L0-1.7z",
+];
+const MODEL_SHAPE = modelShapes(SHAPES.length);
+const shapeOf = (model: string) => SHAPES[MODEL_SHAPE.get(model) ?? 0]!;
 
 const ROW = 26;
 const MARGIN = { top: 30, right: 16, bottom: 46, left: 44 };
@@ -164,11 +167,11 @@ function useLeaving<T extends { key: string }>(items: T[]): T[] {
   return leaving;
 }
 
-function Shape({ effort, provider, hollow = false }: { effort: string; provider?: string; hollow?: boolean }) {
+function Shape({ model, provider, hollow = false }: { model?: string; provider?: string; hollow?: boolean }) {
   const paint = provider ? color(provider) : "currentColor";
   return (
     <svg width="10" height="10" viewBox="-5 -5 10 10" aria-hidden className="shrink-0">
-      <path d={shapeOf(effort)} style={hollow ? { fill: "none", stroke: paint, strokeWidth: 1.25 } : { fill: paint }} />
+      <path d={model ? shapeOf(model) : SHAPES[0]} style={hollow ? { fill: "none", stroke: paint, strokeWidth: 1.25 } : { fill: paint }} />
     </svg>
   );
 }
@@ -410,6 +413,7 @@ function Scatter({
   for (const point of plotted) byModel.set(point.model, [...(byModel.get(point.model) ?? []), point]);
   for (const list of byModel.values()) list.sort((a, b) => effortRank(a.effort) - effortRank(b.effort));
   const models = [...new Map(marks.map((mark) => [mark.model, mark])).values()];
+  const ends = new Set([...byModel.values()].filter((list) => list.length > 1).map((list) => list[list.length - 1]!.key));
   const rest = (mark: Mark): Spot => ({ x: mark.cost ? x(mark.cost) : left, y: bottom });
   const focus = (hover ? marks.find((mark) => mark.key === hover)?.model : undefined) ?? lineFocus;
   const dim = (model: string) => (focus && focus !== model ? "dim" : "");
@@ -548,9 +552,16 @@ function Scatter({
               }}
             >
               <g data-mi-pop style={{ transform: `scale(${hover === mark.key ? 1.6 : 1})` }}>
+                <circle
+                  data-mi-paint
+                  r={6}
+                  fill="none"
+                  strokeWidth={1}
+                  style={{ stroke: color(mark.provider), opacity: ends.has(mark.key) ? 0.6 : 0 }}
+                />
                 <path
                   data-mi-paint
-                  d={shapeOf(mark.effort)}
+                  d={shapeOf(mark.model)}
                   paintOrder="stroke"
                   style={
                     hollow
@@ -684,7 +695,7 @@ function Bars({
             <div className="flex w-[40%] min-w-0 shrink-0 items-center justify-end gap-1.5 text-[12px]">
               <span className={cn("truncate", mark.wink ? "font-medium text-ink" : "text-ink-secondary")}>{mark.label}</span>
               <span className="shrink-0 text-[11px] text-ink-secondary">{mark.effort}</span>
-              <Shape provider={mark.provider} effort={mark.effort} hollow={hollow} />
+              <Shape provider={mark.provider} model={mark.model} hollow={hollow} />
             </div>
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <div
@@ -732,7 +743,6 @@ export function ModelIndexSection() {
   const labShown = visible.some((point) => point.reported === "lab");
   const frontier = shown === "scatter" && paretoFrontier(visible).length > 1;
   const charted = shown === "scatter" ? visible.filter((point) => point.cost) : visible;
-  const efforts = EFFORTS.filter((effort) => charted.some((point) => (point.effort in EFFORT_SHAPE ? point.effort : "default") === effort));
   const lines = shown === "scatter" && new Set(charted.map((point) => point.model)).size < charted.length;
 
   const onHover: OnHover = (key, el, avoid) => {
@@ -819,7 +829,7 @@ export function ModelIndexSection() {
                 style={{ left: place?.left ?? 0, top: place?.top ?? 0, visibility: place?.key === hover.key ? undefined : "hidden" }}
               >
                 <div className="flex items-center gap-1.5 text-ink">
-                  <Shape provider={hovered.provider} effort={hovered.effort} hollow={hovered.reported === "lab"} />
+                  <Shape provider={hovered.provider} model={hovered.model} hollow={hovered.reported === "lab"} />
                   <span className="truncate font-medium">{hovered.label}</span>
                   <span className="shrink-0 rounded bg-inset px-1.5 text-[11px] text-ink-secondary">{hovered.effort}</span>
                 </div>
@@ -858,19 +868,12 @@ export function ModelIndexSection() {
                 </span>
               ))}
             </div>
-            <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
-              {efforts.map((effort) => (
-                <span key={effort} className="flex items-center gap-1.5">
-                  <Shape effort={effort} />
-                  {effort}
-                </span>
-              ))}
-            </div>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11.5px] text-ink-secondary/80">
               {lines && (
                 <span className="flex items-center gap-1.5">
-                  <svg width="16" height="8" aria-hidden>
-                    <path d="M1 7L15 1" className="stroke-ink-secondary" strokeWidth={1.25} strokeLinecap="round" />
+                  <svg width="20" height="12" viewBox="0 0 20 12" aria-hidden>
+                    <path d="M2 10L14 4" className="stroke-ink-secondary" strokeWidth={1.25} strokeLinecap="round" />
+                    <circle cx={15} cy={3.5} r={3.5} fill="none" className="stroke-ink-secondary" strokeWidth={1} />
                   </svg>
                   {t("modelIndex.effortLine")}
                 </span>
@@ -885,7 +888,7 @@ export function ModelIndexSection() {
               )}
               {labShown && (
                 <span className="flex items-center gap-1.5">
-                  <Shape effort="low" hollow />
+                  <Shape hollow />
                   {t("modelIndex.hollow")}
                 </span>
               )}

@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import { MODEL_INDEX_AS_OF, MODEL_INDEX_ENTRIES, type ModelIndexEntry } from "../../shared/model-index-data.ts";
-import { CHART_PROVIDERS, MODEL_INDEXES, indexView, logTicks, paretoFrontier, scoredIndexes, winkCatalog } from "./model-index";
+import {
+  CHART_PROVIDERS,
+  MODEL_INDEXES,
+  chartProvider,
+  indexView,
+  logTicks,
+  modelShapes,
+  paretoFrontier,
+  scoredIndexes,
+  winkCatalog,
+} from "./model-index";
 import type { InstanceInfo } from "@/state/store";
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -104,6 +114,24 @@ describe("catalog merge", () => {
       ["anthropic", "claude-opus-5-5"],
       ["google", "gemini-3.8-flash"],
     ]);
+  });
+});
+
+describe("model shapes", () => {
+  it("gives each model in a color slot its own shape", () => {
+    const shapes = modelShapes(8);
+    const slots = new Map<string, Set<string>>();
+    for (const e of MODEL_INDEX_ENTRIES) slots.set(chartProvider(e.provider), (slots.get(chartProvider(e.provider)) ?? new Set()).add(e.model));
+    for (const models of slots.values()) {
+      const used = [...models].map((model) => shapes.get(model));
+      expect(new Set(used).size, [...models].join()).toBe(used.length);
+    }
+  });
+
+  it("keys on the model id, not entry order", () => {
+    const entries = [entry("claude-opus-5-5", "coding", 60), entry("claude-sonnet-5-5", "coding", 55), entry("claude-haiku-4-5", "coding", 40)];
+    expect(modelShapes(8, [...entries].reverse())).toEqual(modelShapes(8, entries));
+    expect(modelShapes(8, entries).get("claude-opus-5-5")).toBe(modelShapes(8, entries.slice(0, 1)).get("claude-opus-5-5"));
   });
 });
 

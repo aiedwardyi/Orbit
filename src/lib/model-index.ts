@@ -71,6 +71,30 @@ export function paretoFrontier<T extends Pick<ModelIndexPoint, "cost" | "score" 
   return frontier;
 }
 
+/**
+ * Shape slot per model, unique within its color slot. Hashed from the id, so a
+ * new model never reshuffles the others unless it collides.
+ */
+export function modelShapes(slots: number, entries: readonly ModelIndexEntry[] = MODEL_INDEX_ENTRIES): Map<string, number> {
+  const groups = new Map<ChartProvider, Set<string>>();
+  for (const { provider, model } of entries) {
+    const slot = chartProvider(provider);
+    groups.set(slot, (groups.get(slot) ?? new Set()).add(model));
+  }
+  const out = new Map<string, number>();
+  for (const models of groups.values()) {
+    let taken = new Set<number>();
+    for (const model of [...models].sort()) {
+      if (taken.size >= slots) taken = new Set();
+      let shape = ([...model].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 16777619), 2166136261) >>> 0) % slots;
+      while (taken.has(shape)) shape = (shape + 1) % slots;
+      taken.add(shape);
+      out.set(model, shape);
+    }
+  }
+  return out;
+}
+
 function costByKey(entries: readonly ModelIndexEntry[]): Map<string, number> {
   return new Map(entries.filter((entry) => entry.index === "cost").map((entry) => [`${entry.model}:${entry.effort}`, entry.score]));
 }
