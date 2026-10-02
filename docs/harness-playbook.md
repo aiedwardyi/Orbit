@@ -88,6 +88,9 @@ When a worker reports done, check its work yourself before anything moves:
 
 {{REPORTS}}
 
+Every card also tells the worker: if a choice the card does not cover would
+change the result, stop and report BLOCKED with the question instead of guessing.
+
 If a report says FAIL or BLOCKED, read the pane with terminal_read, decide, and
 either answer the worker with terminal_send or tell the user.
 

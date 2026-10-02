@@ -14,6 +14,10 @@ describe("harness playbook", () => {
     expect(harnessPlaybookPrompt(true)).toContain("Follow-ups use the card rule: write long instructions to a file");
   });
 
+  it("has workers ask through BLOCKED instead of guessing", () => {
+    expect(harnessPlaybookPrompt(true)).toContain("report BLOCKED with the question instead of guessing");
+  });
+
   it("tells parallel cards to split shared names and to end with an INTEGRATE card", () => {
     const prompt = harnessPlaybookPrompt(true);
     expect(prompt).toContain("split shared ids, routes and names between them up front");
