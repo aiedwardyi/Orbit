@@ -899,6 +899,7 @@ export function ModelIndexSection() {
               )}
             </div>
             {noCost > 0 && <p>{t("modelIndex.noCost", { count: noCost })}</p>}
+            {index === "coding" && labShown && <p>{t("modelIndex.labScale")}</p>}
           </div>
         )}
       </div>

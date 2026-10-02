@@ -60,7 +60,7 @@ describe("model index data", () => {
 
   it("keeps one benchmark per tab", () => {
     for (const index of MODEL_INDEXES.filter((index) => index !== "cost")) {
-      const labels = new Set(MODEL_INDEX_ENTRIES.filter((e) => e.index === index).map((e) => e.sourceLabel));
+      const labels = new Set(MODEL_INDEX_ENTRIES.filter((e) => e.index === index && !e.reported).map((e) => e.sourceLabel));
       expect([...labels], index).toHaveLength(1);
     }
   });
@@ -79,6 +79,17 @@ describe("model index data", () => {
   it("names a charted lab on every lab-reported entry", () => {
     const named = CHART_PROVIDERS.filter((provider) => provider !== "other") as readonly string[];
     for (const e of MODEL_INDEX_ENTRIES.filter((e) => e.reported === "lab")) expect(named, e.model).toContain(e.provider);
+  });
+
+  it("sources every lab-reported coding score to the lab, one row per model + effort", () => {
+    const coding = MODEL_INDEX_ENTRIES.filter((e) => e.index === "coding");
+    for (const e of coding.filter((e) => e.reported === "lab")) {
+      expect(e.source, e.model).toMatch(/^https:\/\/\S+$/);
+      expect(e.source, e.model).not.toMatch(/scale\.com/);
+      expect(e.sourceLabel, e.model).not.toMatch(/scale/i);
+    }
+    const keys = coding.filter((e) => PICKER_MODEL_IDS.includes(e.model)).map((e) => `${e.model}|${e.effort}`);
+    expect(keys.filter((key, i) => keys.indexOf(key) !== i)).toEqual([]);
   });
 
   it("scores every benchmark, so no tab is hidden", () => {
