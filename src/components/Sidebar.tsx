@@ -1816,8 +1816,8 @@ export function Sidebar({
   );
   const sectionsReorderable = density !== "icons" && q.length === 0 && sectionIds.length > 1;
   const rowsReorderable = q.length === 0;
-  // Headers are gone in the icon rail and search must show every match.
-  const sectionsCollapsible = density !== "icons" && q.length === 0;
+  // Search must show every match. The icon rail has no headers but honors the same collapse.
+  const sectionsCollapsible = q.length === 0;
   const toggleSection = (id: string) => {
     const next = collapsedSections.has(id)
       ? [...collapsedSections].filter((candidate) => candidate !== id)

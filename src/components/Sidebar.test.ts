@@ -1111,6 +1111,35 @@ describe("Sidebar section collapse", () => {
     }
   });
 
+  it("hides collapsed-section bots in the icon rail, keeps the selected one, and counts their unread", async () => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_SECTIONS_KEY, JSON.stringify(["section:Work"]));
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "1");
+    const { host, unmount } = await mount([
+      bot("u1"),
+      scoped("w1", "Work"),
+      scoped("w2", "Work", { unread: true }),
+      scoped("w3", "Work"),
+    ]);
+    try {
+      await select("w3");
+      expect(host.querySelector("[data-sidebar-section-header]")).toBeNull();
+      expect(shownBots(host, "section:Work")).toEqual(["w3"]);
+      expect(shownBots(host, "unassigned")).toEqual(["u1"]);
+      expect(host.querySelector("[data-sidebar-collapsed-unread]")?.textContent).toBe("1");
+
+      await select("u1");
+      expect(shownBots(host, "section:Work")).toEqual([]);
+
+      await act(async () => host.querySelector<HTMLButtonElement>('button[title="Expand sidebar"]')!.click());
+      expect(header(host, "section:Work")!.getAttribute("aria-expanded")).toBe("false");
+      expect(shownBots(host, "section:Work")).toEqual([]);
+      expect(count(host, "section:Work")).toBe("· 3");
+    } finally {
+      window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
+      await unmount();
+    }
+  });
+
   it("collapses Unassigned alone and still shows a newly created bot there", async () => {
     const { host, unmount } = await mount([bot("u1"), bot("u2")]);
     try {
