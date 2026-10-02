@@ -655,10 +655,10 @@ export function SettingsModal({
 
             {section === "themes" && (
               <>
+                <RainbowBoxRow />
                 <Card title={t("settings.skin.title")} subtitle={t("settings.skin.subtitle")}>
                   <SkinPicker />
                 </Card>
-                <RainbowBoxRow />
               </>
             )}
 
