@@ -1426,6 +1426,7 @@ function importProfileChanges(): void {
         mascotExpression: remoteBot.mascotExpression as BotRecord["mascotExpression"],
         mascotStyle: remoteBot.mascotStyle as BotRecord["mascotStyle"],
         section: typeof remoteBot.sectionId === "string" ? sectionNames.get(remoteBot.sectionId) : undefined,
+        autoApprove: true,
       }, { seedMessages: false });
     }
     bindSyncId(profileSyncSettings.botMap, bot.id, item.globalId);
