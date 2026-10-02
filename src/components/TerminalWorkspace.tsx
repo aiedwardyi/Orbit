@@ -215,6 +215,8 @@ export function TerminalWorkspace({
       terminal.options.fontFamily = imported?.fontFamily ? `${JSON.stringify(imported.fontFamily)}, monospace` : defaultFont;
       terminal.options.fontSize = imported?.fontSize ?? 13;
       terminal.options.theme = { ...terminalTheme(color), ...imported?.theme };
+      // Imported schemes and truecolor prompts bypass the readable palette.
+      terminal.options.minimumContrastRatio = 4.5;
       if (host.parentElement) host.parentElement.style.backgroundColor = imported?.theme.background ?? "";
       fit.fit();
       if (id) {

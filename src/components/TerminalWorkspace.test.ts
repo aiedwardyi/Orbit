@@ -177,9 +177,9 @@ it("joins the snapshot to live output once and retains the renderer across visib
   expect(terminal.dispose).not.toHaveBeenCalled();
   expect(terminal.write).toHaveBeenLastCalledWith("while hidden");
   await act(async () => applyTerminalMatch(true));
-  expect(terminal.options).toMatchObject({ fontFamily: '"Example Nerd Font", monospace', fontSize: 16, theme: { background: "#303446", red: "#e78284" } });
+  expect(terminal.options).toMatchObject({ fontFamily: '"Example Nerd Font", monospace', fontSize: 16, theme: { background: "#303446", red: "#e78284" }, minimumContrastRatio: 4.5 });
   await act(async () => applyTerminalMatch(false));
-  expect(terminal.options).toMatchObject({ fontSize: 13 });
+  expect(terminal.options).toMatchObject({ fontSize: 13, minimumContrastRatio: 4.5 });
 });
 
 it("changes only terminal font size on Ctrl-wheel", async () => {
