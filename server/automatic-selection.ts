@@ -19,6 +19,10 @@ export interface AutomaticCandidate {
   rateLimits?: readonly RateLimitWindow[];
 }
 
+// A fresh Auto pick starts here when Claude is signed in; bots already on
+// another engine stay put.
+const AUTO_FIRST = { driverKind: "claudeAgent", model: "claude-opus-5-5", effort: "medium" } as const;
+
 export function resolveAutomaticSelection(input: {
   candidates: readonly AutomaticCandidate[];
   current?: ModelSelection;
@@ -40,6 +44,7 @@ export function resolveAutomaticSelection(input: {
   );
   const candidate =
     preferredIds.flatMap((id) => (id ? eligible.filter((entry) => entry.instanceId === id) : []))[0] ??
+    eligible.find((entry) => entry.driverKind === AUTO_FIRST.driverKind && !exhausted(entry)) ??
     eligible.find((entry) => !exhausted(entry)) ??
     eligible[0];
   if (!candidate) return null;
@@ -47,11 +52,13 @@ export function resolveAutomaticSelection(input: {
   const continuityModel =
     input.continuity?.instanceId === candidate.instanceId ? input.continuity.model : undefined;
   const currentModel = input.current?.instanceId === candidate.instanceId ? input.current.model : undefined;
+  const autoFirst = candidate.driverKind === AUTO_FIRST.driverKind && !continuityModel && !currentModel;
   const selection: ModelSelection = {
     mode: "automatic",
     instanceId: candidate.instanceId,
-    model: continuityModel || currentModel || candidate.defaultModel,
+    model: continuityModel || currentModel || (autoFirst ? AUTO_FIRST.model : candidate.defaultModel),
   };
+  if (autoFirst && candidate.effortLevels?.includes(AUTO_FIRST.effort)) selection.effort = AUTO_FIRST.effort;
   // Model-aware carry-over: a 4.6 xhigh resolving onto 4.5 is dropped,
   // never retained — the CLI would reject it.
   if (

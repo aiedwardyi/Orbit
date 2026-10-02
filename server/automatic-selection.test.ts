@@ -94,7 +94,6 @@ describe("automatic usage ranking", () => {
 
 describe("resolveAutomaticSelection", () => {
   it.each([
-    ["claudeAgent", "claude-sonnet-5-5", "high"],
     ["codex", "gpt-6-astra", "low"],
     ["codex", "gpt-5.6-terra", "medium"],
     ["grokAgent", "grok-4.6", "high"],
@@ -150,6 +149,22 @@ describe("resolveAutomaticSelection", () => {
         required: ["browserMcp"],
       }),
     ).toMatchObject({ instanceId: "browser" });
+  });
+
+  it("starts a fresh pick on Claude Opus 5.5 medium ahead of earlier engines", () => {
+    const claude = candidate("claude", { driverKind: "claudeAgent", defaultModel: "claude-sonnet-5-5", effortLevels: ["low", "medium", "high"] });
+    expect(resolveAutomaticSelection({ candidates: [candidate("grok", { driverKind: "grokAgent" }), claude] }))
+      .toMatchObject({ instanceId: "claude", model: "claude-opus-5-5", effort: "medium" });
+  });
+
+  it("keeps a bot already on another engine and falls past exhausted Claude", () => {
+    const claude = candidate("claude", { driverKind: "claudeAgent" });
+    const grok = candidate("grok", { driverKind: "grokAgent" });
+    expect(resolveAutomaticSelection({ candidates: [grok, claude], current: { mode: "automatic", instanceId: "grok", model: "grok-4.7" } }))
+      .toMatchObject({ instanceId: "grok", model: "grok-4.7" });
+    expect(resolveAutomaticSelection({
+      candidates: [grok, { ...claude, rateLimits: [{ id: "seven_day", usedPercent: 100, resetsAt: null }] }],
+    })).toMatchObject({ instanceId: "grok", model: "grok-default" });
   });
 
   it("returns null when no working engine meets the job", () => {
