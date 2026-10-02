@@ -264,6 +264,7 @@ import { RepeatDetector, callKey } from "./repeat-detector.ts";
 import { endsContentStream, redactSecrets, redactSecretsInText, StreamSecretMasker } from "./redact.ts";
 import {
   apiRequestAuthorized,
+  autoRemoteHost,
   buildRemoteSetCookie,
   hostMatchesRemote,
   initRemoteAccess,
@@ -435,8 +436,8 @@ const mailboxAutoDedup = new MailboxAutoDedup();
 
 // Opt-in phone access over the Tailscale tailnet. ORBIT_REMOTE_HOST binds
 // the Host/Origin gates and /api/* cookie auth to one tailnet hostname;
-// unset means loopback-only, exactly as before.
-const { host: REMOTE_HOST, key: REMOTE_KEY } = initRemoteAccess(process.env, DATA_DIR);
+// unset means loopback-only until a running Tailscale is detected below.
+let { host: REMOTE_HOST, key: REMOTE_KEY } = initRemoteAccess(process.env, DATA_DIR);
 
 /** Constant-time bearer check for the internal comms endpoints. The token
  * is high-entropy and loopback-only, so a timing oracle is a long shot —
@@ -1779,12 +1780,22 @@ function publishDeviceRecord(): void {
   }
 }
 
-if (REMOTE_HOST !== undefined) {
+function startDevicePresence(): void {
   publishDeviceRecord();
   setInterval(publishDeviceRecord, DEVICE_HEARTBEAT_MS).unref();
   void detectLaptop().then((laptop) => {
     deviceLaptop = laptop;
     if (laptop) publishDeviceRecord();
+  });
+}
+
+if (REMOTE_HOST !== undefined) {
+  startDevicePresence();
+} else {
+  void autoRemoteHost(process.env, PORT).then((host) => {
+    if (host === undefined) return;
+    ({ host: REMOTE_HOST, key: REMOTE_KEY } = initRemoteAccess(process.env, DATA_DIR, console.log, host));
+    startDevicePresence();
   });
 }
 
@@ -2305,11 +2316,11 @@ function notify(notification: Notification | null, turnMs?: number) {
 }
 
 const phonePingAllowed = createPingLimiter();
-const WEB_PUSH_SUBJECT = REMOTE_HOST ? `https://${REMOTE_HOST}` : "mailto:orbit@localhost";
+const webPushSubject = () => (REMOTE_HOST ? `https://${REMOTE_HOST}` : "mailto:orbit@localhost");
 
 function phonePing(botId: string, ping: PhonePing | null, open: PushTarget) {
   if (!ping || !phonePingAllowed(botId, ping.title, ping.message)) return;
-  void sendWebPushToDevices(DATA_DIR, pushPayload(ping, open), WEB_PUSH_SUBJECT).catch((cause) => console.warn(`web-push: ${cause}`));
+  void sendWebPushToDevices(DATA_DIR, pushPayload(ping, open), webPushSubject()).catch((cause) => console.warn(`web-push: ${cause}`));
 }
 
 // Group threads: the fold needs to know WHO is talking — the turn engine
@@ -7059,7 +7070,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 404, { error: "This device is not subscribed" });
       }
       const test = { title: "Wink", body: "Test notification. Your phone is set up.", tag: "orbit:test", url: "/" };
-      const [result] = await sendWebPushToDevices(DATA_DIR, test, WEB_PUSH_SUBJECT, body.data.endpoint);
+      const [result] = await sendWebPushToDevices(DATA_DIR, test, webPushSubject(), body.data.endpoint);
       return result?.ok ? json(res, 200, { ok: true }) : json(res, 502, { error: result?.error ?? "push failed" });
     }
 

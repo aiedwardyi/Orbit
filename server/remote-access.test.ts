@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   apiRequestAuthorized,
+  autoRemoteHost,
   buildRemoteSetCookie,
   hostMatchesRemote,
   initRemoteAccess,
@@ -150,5 +151,81 @@ describe("remote access", () => {
     expect(rotated).not.toBe(first);
     expect(remoteCookieAuthorized(`orbit_remote=${first}`, rotated)).toBe(false);
     expect(loadOrCreateRemoteKey(dir)).toBe(rotated);
+  });
+
+  describe("tailscale auto-detect", () => {
+    const PORT = 8799;
+    const SERVE = `serve --bg --https=443 http://127.0.0.1:${PORT}`;
+    const running = JSON.stringify({ BackendState: "Running", Self: { DNSName: `${HOST.toUpperCase()}.` } });
+    const servedTo = (proxy: string) =>
+      JSON.stringify({ TCP: { "443": { HTTPS: true } }, Web: { [`${HOST}:443`]: { Handlers: { "/": { Proxy: proxy } } } } });
+    const detect = (env: NodeJS.ProcessEnv, outputs: Record<string, string | Error>, platform: NodeJS.Platform = "linux") => {
+      const lines: string[] = [];
+      const calls: string[] = [];
+      const exec = async (file: string, args: string[]) => {
+        calls.push([file, ...args].join(" "));
+        const out = outputs[args.join(" ")] ?? new Error("ENOENT");
+        if (out instanceof Error) throw out;
+        return out;
+      };
+      return { lines, calls, host: autoRemoteHost(env, PORT, exec, (l) => lines.push(l), platform) };
+    };
+
+    it("serves 443 to this port when Tailscale is running and 443 is free", async () => {
+      const run = detect({}, { "status --json": running, "serve status --json": "{}", [SERVE]: "" });
+      expect(await run.host).toBe(HOST);
+      expect(run.calls).toEqual(["tailscale status --json", "tailscale serve status --json", `tailscale ${SERVE}`]);
+      expect(run.lines).toEqual([]);
+    });
+
+    it("leaves an existing serve rule to this port alone", async () => {
+      const run = detect({}, { "status --json": running, "serve status --json": servedTo(`http://127.0.0.1:${PORT}`) });
+      expect(await run.host).toBe(HOST);
+      expect(run.calls).not.toContain(`tailscale ${SERVE}`);
+    });
+
+    it("never overwrites 443 serving something else", async () => {
+      for (const serve of [servedTo("http://127.0.0.1:3000"), JSON.stringify({ TCP: { "443": { TCPForward: "127.0.0.1:22" } } })]) {
+        const run = detect({}, { "status --json": running, "serve status --json": serve, [SERVE]: "" });
+        expect(await run.host).toBeUndefined();
+        expect(run.calls).not.toContain(`tailscale ${SERVE}`);
+        expect(run.lines).toEqual([`Remote auto: ${HOST}:443 already serves something else, remote off`]);
+      }
+    });
+
+    it("logs the reason when serve fails", async () => {
+      const run = detect({}, { "status --json": running, "serve status --json": "{}", [SERVE]: new Error("HTTPS is not enabled") });
+      expect(await run.host).toBeUndefined();
+      expect(run.lines).toEqual(["Remote auto: tailscale serve failed, remote off: HTTPS is not enabled"]);
+    });
+
+    it("stays off when logged out", async () => {
+      const run = detect({}, { "status --json": JSON.stringify({ BackendState: "NeedsLogin", Self: { DNSName: "" } }) });
+      expect(await run.host).toBeUndefined();
+      expect(run.calls).toEqual(["tailscale status --json"]);
+      expect(run.lines).toEqual(["Remote auto: Tailscale not logged in (NeedsLogin), remote off"]);
+    });
+
+    it("stays off when Tailscale is not installed", async () => {
+      const run = detect({}, {}, "win32");
+      expect(await run.host).toBeUndefined();
+      expect(run.calls).toEqual(["tailscale status --json", "C:\\Program Files\\Tailscale\\tailscale.exe status --json"]);
+      expect(run.lines).toEqual(["Remote auto: Tailscale not found, remote off"]);
+    });
+
+    it("skips detection when ORBIT_REMOTE_HOST is set or ORBIT_REMOTE_AUTO=0", async () => {
+      for (const env of [{ ORBIT_REMOTE_HOST: "other.tail396477.ts.net" }, { ORBIT_REMOTE_AUTO: "0" }]) {
+        const run = detect(env, { "status --json": running, "serve status --json": "{}", [SERVE]: "" });
+        expect(await run.host).toBeUndefined();
+        expect(run.calls).toEqual([]);
+        expect(run.lines).toEqual([]);
+      }
+    });
+
+    it("mints a key for the detected host", () => {
+      const { host, key } = initRemoteAccess({}, freshDir(), () => {}, HOST);
+      expect(host).toBe(HOST);
+      expect(key).toMatch(/^[a-f0-9]{64}$/);
+    });
   });
 });

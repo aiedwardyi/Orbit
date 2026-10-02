@@ -8,6 +8,9 @@
 // one-time GET /remote?key=<remote key> handshake. The key is generated
 // once, kept in DATA_DIR/remote-key.json, and never logged; setting
 // ORBIT_REMOTE_ROTATE_KEY at boot regenerates it, invalidating old cookies.
+// Unset, a running logged-in Tailscale supplies the hostname and its Serve
+// rule instead; ORBIT_REMOTE_AUTO=0 turns that off. Never Funnel.
+import { execFile } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -26,7 +29,11 @@ const NOT_A_HOSTNAME = /[\s/:?#@[\]]/;
 
 /** Tailnet hostname remote mode is bound to, or undefined when off. */
 export function resolveRemoteHost(env: NodeJS.ProcessEnv): string | undefined {
-  const raw = env.ORBIT_REMOTE_HOST?.trim().toLowerCase();
+  return cleanHost(env.ORBIT_REMOTE_HOST);
+}
+
+function cleanHost(value: string | undefined): string | undefined {
+  const raw = value?.trim().toLowerCase();
   if (!raw || NOT_A_HOSTNAME.test(raw)) return undefined;
   return raw;
 }
@@ -129,12 +136,90 @@ export function initRemoteAccess(
   env: NodeJS.ProcessEnv,
   dataDir: string,
   log: (line: string) => void = console.log,
+  host = resolveRemoteHost(env),
 ): { host: string | undefined; key: string | undefined } {
-  const host = resolveRemoteHost(env);
   if (host === undefined) return { host, key: undefined };
   const path = resolve(dataDir, REMOTE_KEY_FILE);
   if (!FALSY_FLAG.has(env.ORBIT_REMOTE_ROTATE_KEY?.trim().toLowerCase() ?? "")) rmSync(path, { force: true });
   const key = loadOrCreateRemoteKey(dataDir);
   log(`Remote mode on: https://${host}/remote?key=<redacted> (key in ${path})`);
   return { host, key };
+}
+
+/** stdout of a finished command; rejects with its stderr (or stdout) on failure. */
+export type ExecText = (file: string, args: string[]) => Promise<string>;
+
+const execText: ExecText = (file, args) =>
+  new Promise((resolve, reject) => {
+    execFile(file, args, { timeout: 15_000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (!error) return resolve(stdout);
+      const detail = `${stderr}`.trim() || `${stdout}`.trim() || error.message;
+      reject(new Error(detail.replace(/\s+/g, " ").slice(0, 300)));
+    });
+  });
+
+const tailscaleStatusSchema = z.object({
+  BackendState: z.string(),
+  Self: z.object({ DNSName: z.string() }).optional(),
+});
+const serveStatusSchema = z.object({
+  TCP: z.record(z.string(), z.unknown()).optional(),
+  Web: z.record(z.string(), z.object({
+    Handlers: z.record(z.string(), z.object({ Proxy: z.string().optional() })).optional(),
+  })).optional(),
+});
+
+function tailscaleCommands(platform: NodeJS.Platform): string[] {
+  return platform === "win32" ? ["tailscale", "C:\\Program Files\\Tailscale\\tailscale.exe"] : ["tailscale"];
+}
+
+function proxiesToPort(proxy: string | undefined, port: number): boolean {
+  const match = proxy?.match(/^http:\/\/(?:127\.0\.0\.1|localhost):(\d+)\/?$/);
+  return Number(match?.[1]) === port;
+}
+
+/** Tailnet host from a running Tailscale, with 443 served to this port; undefined leaves remote off. */
+export async function autoRemoteHost(
+  env: NodeJS.ProcessEnv,
+  port: number,
+  exec: ExecText = execText,
+  log: (line: string) => void = console.log,
+  platform: NodeJS.Platform = process.platform,
+): Promise<string | undefined> {
+  const auto = env.ORBIT_REMOTE_AUTO?.trim().toLowerCase();
+  if (env.ORBIT_REMOTE_HOST?.trim() || (auto !== undefined && FALSY_FLAG.has(auto))) return undefined;
+  let command: string | undefined;
+  let status: z.infer<typeof tailscaleStatusSchema> | undefined;
+  for (const candidate of tailscaleCommands(platform)) {
+    try {
+      status = tailscaleStatusSchema.parse(parseJson(await exec(candidate, ["status", "--json"])));
+      command = candidate;
+      break;
+    } catch {
+      // Not on PATH, daemon down, or unreadable: try the next location.
+    }
+  }
+  if (!command || !status) {
+    log("Remote auto: Tailscale not found, remote off");
+    return undefined;
+  }
+  const host = cleanHost(status.Self?.DNSName.replace(/\.$/, ""));
+  if (status.BackendState !== "Running" || !host) {
+    log(`Remote auto: Tailscale not logged in (${status.BackendState}), remote off`);
+    return undefined;
+  }
+  try {
+    const serve = serveStatusSchema.parse(parseJson((await exec(command, ["serve", "status", "--json"])).trim() || "{}"));
+    const web = serve.Web?.[`${host}:443`];
+    if (proxiesToPort(web?.Handlers?.["/"]?.Proxy, port)) return host;
+    if (web || serve.TCP?.["443"] !== undefined) {
+      log(`Remote auto: ${host}:443 already serves something else, remote off`);
+      return undefined;
+    }
+    await exec(command, ["serve", "--bg", "--https=443", `http://127.0.0.1:${port}`]);
+    return host;
+  } catch (error) {
+    log(`Remote auto: tailscale serve failed, remote off: ${error instanceof Error ? error.message : String(error)}`);
+    return undefined;
+  }
 }
