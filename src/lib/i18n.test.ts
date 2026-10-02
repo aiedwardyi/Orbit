@@ -655,15 +655,13 @@ describe("empty-engine first launch copy", () => {
 });
 
 describe("create-bot sheet", () => {
-  it("keeps the job-first onboarding question as complete EN+KO phrases", () => {
-    expect(en["createBot.title"]).toBe("What should your bot do?");
-    expect(ko["createBot.title"]).toBe("봇에게 어떤 일을 맡길까요?");
-    expect(en["createBot.jobLabel"]).toBe("Add a job description");
-    expect(ko["createBot.jobLabel"]).toBe("업무 설명 추가");
-    expect(en["createBot.placeholder"]).toBe("Be my chief of staff and...");
-    expect(ko["createBot.placeholder"]).toBe("내 비서실장이 되어...");
-    expect(en["createBot.addFolder"]).toBe("+ Add a folder");
-    expect(ko["createBot.addFolder"]).toBe("+ 폴더 추가");
+  it("keeps the name-first sheet as complete EN+KO phrases", () => {
+    expect(en["createBot.title"]).toBe("Name your bot");
+    expect(ko["createBot.title"]).toBe("봇 이름 짓기");
+    expect(en["createBot.nameLabel"]).toBe("Name");
+    expect(ko["createBot.nameLabel"]).toBe("이름");
+    expect(en["createBot.namePlaceholder"]).toBe("Mira");
+    expect(ko["createBot.namePlaceholder"]).toBe("미라");
     expect(en["createBot.cancel"]).toBe("Cancel");
     expect(ko["createBot.cancel"]).toBe("취소");
     expect(en["createBot.start"]).toBe("Start chatting");
@@ -676,20 +674,20 @@ describe("create-bot sheet", () => {
     expect(ko["chrome.you"]).toBe("나");
   });
 
-  it("wires those phrases and never sends the user's job text through t()", () => {
+  it("wires those phrases and never sends the user's name through t()", () => {
     expect(createBotSheet).toContain('t("createBot.title")');
-    expect(createBotSheet).toContain('t("createBot.jobLabel")');
-    expect(createBotSheet).toContain('t("createBot.placeholder")');
-    expect(createBotSheet).toContain('t("createBot.addFolder")');
+    expect(createBotSheet).toContain('t("createBot.nameLabel")');
+    expect(createBotSheet).toContain('t("createBot.namePlaceholder")');
     expect(createBotSheet).toContain('t("createBot.cancel")');
     expect(createBotSheet).toContain('t("createBot.start")');
     expect(createBotSheet).toContain('t("createBot.adding")');
     expect(createBotSheet).not.toMatch(/What should your bot do/);
     expect(createBotSheet).not.toMatch(/Add a job description/);
+    expect(createBotSheet).not.toMatch(/createBot\.(jobLabel|placeholder|addFolder)/);
     expect(createBotSheet).not.toMatch(/You are my chief of staff for development/);
     expect(createBotSheet).not.toMatch(/Start chatting/);
     expect(createBotSheet).not.toMatch(/>Bot job</);
-    expect(createBotSheet).not.toMatch(/t\(job/);
+    expect(createBotSheet).not.toMatch(/t\(name/);
     expect(createBotSheet).not.toMatch(/t\(normalized/);
   });
 });

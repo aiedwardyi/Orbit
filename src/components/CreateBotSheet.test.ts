@@ -1,5 +1,5 @@
-// CreateBotSheet folder choice: a rejected native pick is a silent no-op,
-// and the dialog scrolls so the action row stays reachable in short views.
+// CreateBotSheet: name is required, the folder is always visible, a rejected
+// native pick is a silent no-op, and the dialog scrolls in short views.
 import "./ProfileFields.test-dom.ts";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -53,21 +53,16 @@ async function renderSheet(options: {
   return { host, root, dialog };
 }
 
-function addFolderLink(host: HTMLElement): HTMLButtonElement {
-  const found = [...host.querySelectorAll("button")].find((button) =>
-    button.textContent?.includes("Add a folder"),
-  );
-  if (!(found instanceof HTMLButtonElement)) throw new Error("add-folder link did not render");
-  return found;
-}
-
-async function revealFolder(host: HTMLElement): Promise<HTMLInputElement> {
-  await act(async () => {
-    addFolderLink(host).click();
-  });
+function folderField(host: HTMLElement): HTMLInputElement {
   const folder = host.querySelector<HTMLInputElement>("#create-bot-folder");
   if (!folder) throw new Error("folder field did not render");
   return folder;
+}
+
+function submitButton(host: HTMLElement): HTMLButtonElement {
+  const found = [...host.querySelectorAll("button")].find((button) => button.type === "submit");
+  if (!(found instanceof HTMLButtonElement)) throw new Error("submit button did not render");
+  return found;
 }
 
 function chooseButton(host: HTMLElement): HTMLButtonElement {
@@ -119,9 +114,9 @@ function stubPostBot() {
   return calls;
 }
 
-async function fillJob(host: HTMLElement, text: string) {
-  const field = host.querySelector<HTMLInputElement>("#create-bot-job");
-  if (!field) throw new Error("job field did not render");
+async function fillName(host: HTMLElement, text: string) {
+  const field = host.querySelector<HTMLInputElement>("#create-bot-name");
+  if (!field) throw new Error("name field did not render");
   await act(async () => {
     const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
     setValue.call(field, text);
@@ -142,11 +137,12 @@ describe("CreateBotSheet submit", () => {
     const calls = stubPostBot();
     const { host, root } = await renderSheet();
     try {
-      const field = await fillJob(host, "weekly brief");
+      const field = await fillName(host, "  Mira ");
       await pressEnter(field);
       expect(calls).toHaveLength(1);
       expect(calls[0]?.url).toBe("/api/bots");
-      expect(calls[0]?.body).toMatchObject({ job: "weekly brief" });
+      expect(calls[0]?.body).toMatchObject({ name: "Mira" });
+      expect(calls[0]?.body).not.toHaveProperty("job");
       expect(calls[0]?.body).not.toHaveProperty("modelSelection");
     } finally {
       await act(async () => {
@@ -155,14 +151,40 @@ describe("CreateBotSheet submit", () => {
     }
   });
 
-  it("leaves job out of the body when submitted blank", async () => {
+  it("needs a non-blank name before Create is enabled or Enter submits", async () => {
     const calls = stubPostBot();
     const { host, root } = await renderSheet();
     try {
-      const field = host.querySelector<HTMLInputElement>("#create-bot-job");
-      if (!field) throw new Error("job field did not render");
+      const field = host.querySelector<HTMLInputElement>("#create-bot-name");
+      if (!field) throw new Error("name field did not render");
+      expect(field.maxLength).toBe(100);
+      expect(submitButton(host).disabled).toBe(true);
+      await fillName(host, "   ");
+      expect(submitButton(host).disabled).toBe(true);
       await pressEnter(field);
-      expect(calls).toHaveLength(1);
+      expect(calls).toHaveLength(0);
+      await fillName(host, "Mira");
+      expect(submitButton(host).disabled).toBe(false);
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+    }
+  });
+
+  it("sends name and folder with no job", async () => {
+    const calls = stubPostBot();
+    const { host, root } = await renderSheet();
+    try {
+      const field = await fillName(host, "Mira");
+      await act(async () => {
+        const folder = folderField(host);
+        const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(folder), "value")!.set!;
+        setValue.call(folder, " /tmp/work ");
+        folder.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await pressEnter(field);
+      expect(calls[0]?.body).toMatchObject({ name: "Mira", cwd: "/tmp/work" });
       expect(calls[0]?.body).not.toHaveProperty("job");
     } finally {
       await act(async () => {
@@ -176,11 +198,11 @@ describe("CreateBotSheet submit", () => {
     const calls = stubPostBot();
     const { host, root } = await renderSheet();
     try {
-      const field = await fillJob(host, "weekly brief");
+      const field = await fillName(host, "  Mira ");
       await pressEnter(field);
       expect(calls).toHaveLength(1);
       expect(calls[0]?.body).toMatchObject({
-        job: "weekly brief",
+        name: "Mira",
         modelSelection: { mode: "automatic", instanceId: "fast", model: "fast-model" },
       });
     } finally {
@@ -195,7 +217,7 @@ describe("CreateBotSheet submit", () => {
     const onCreated = vi.fn();
     const { host, root } = await renderSheet({ initialSection: " Work ", onCreated });
     try {
-      const field = await fillJob(host, "weekly brief");
+      const field = await fillName(host, "  Mira ");
       await pressEnter(field);
       expect(calls[0]?.body).toMatchObject({ section: "Work" });
       expect(onCreated).toHaveBeenCalledWith({ id: "b1" });
@@ -219,7 +241,7 @@ describe("CreateBotSheet submit", () => {
     );
     const { host, root } = await renderSheet();
     try {
-      const field = await fillJob(host, "weekly brief");
+      const field = await fillName(host, "  Mira ");
       await act(async () => {
         field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
       });
@@ -261,8 +283,6 @@ describe("CreateBotSheet folder choice", () => {
       expect(dialog.className).toContain("sm:p-7");
       const header = dialog.firstElementChild!;
       expect(header.className).toContain("max-sm:flex-col");
-      // "+ Add a folder" carries its own plus, so the folder glyph would be a second icon.
-      expect(addFolderLink(host).querySelector("svg")).toBeNull();
       const actions = [...host.querySelectorAll("button")].filter(
         (button) => button.type === "submit" || button.textContent === "Cancel",
       );
@@ -275,12 +295,11 @@ describe("CreateBotSheet folder choice", () => {
     }
   });
 
-  it("hides the folder row behind a link until it's clicked", async () => {
+  it("shows the folder field by default with no reveal link", async () => {
     const { host, root } = await renderSheet();
     try {
-      expect(host.querySelector("#create-bot-folder")).toBeNull();
-      const folder = await revealFolder(host);
-      expect(folder).toBeInstanceOf(HTMLInputElement);
+      expect(folderField(host)).toBeInstanceOf(HTMLInputElement);
+      expect(host.textContent).not.toContain("Add a folder");
     } finally {
       await act(async () => {
         root.unmount();
@@ -292,7 +311,7 @@ describe("CreateBotSheet folder choice", () => {
     setOgbPick(() => Promise.resolve("/tmp/picked"));
     const { host, root } = await renderSheet();
     try {
-      const folder = await revealFolder(host);
+      const folder = folderField(host);
       await act(async () => {
         chooseButton(host).click();
       });
@@ -314,7 +333,7 @@ describe("CreateBotSheet folder choice", () => {
     };
     process.on("unhandledRejection", onUnhandled);
     try {
-      const folder = await revealFolder(host);
+      const folder = folderField(host);
       await act(async () => {
         chooseButton(host).click();
       });
