@@ -156,6 +156,45 @@ describe("provider-neutral context compaction", () => {
     expect(summarize).not.toHaveBeenCalled();
   });
 
+  it("counts user turns, not bot bubbles, toward the compaction cap", async () => {
+    const messages = Array.from({ length: 20 }, (_, turn) => [
+      message(`u${turn}`, `request ${turn}`),
+      ...Array.from({ length: 10 }, (_, bubble) => message(`b${turn}-${bubble}`, `ack ${turn}.${bubble}`, { role: "bot" })),
+    ]).flat();
+    const summarize = vi.fn(async () => "SUMMARY\nunused");
+    const result = await prepareModelContext({
+      messages,
+      contextWindow: 200_000,
+      taskRecordText: "Goal: finish",
+      summarize,
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.compaction).toBeUndefined();
+    expect(result.transcript).toHaveLength(220);
+    expect(summarize).not.toHaveBeenCalled();
+  });
+
+  it("starts the kept tail on a user message", async () => {
+    const messages = Array.from({ length: 70 }, (_, turn) => [
+      message(`u${turn}`, `request ${turn}`),
+      ...Array.from({ length: 4 }, (_, bubble) => message(`b${turn}-${bubble}`, `ack ${turn}.${bubble}`, { role: "bot" })),
+    ]).flat();
+    const result = await prepareModelContext({
+      messages,
+      contextWindow: 200_000,
+      taskRecordText: "Goal: finish",
+      summarize: async () => "SUMMARY\nturns summary",
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.compaction).toBeDefined();
+    expect(result.transcript[1]).toMatchObject({ role: "user", text: expect.stringMatching(/^request /) });
+    expect(result.compaction?.firstKeptId).toMatch(/^u/);
+  });
+
   it("folds the previous durable summary into later summaries", async () => {
     const first = await prepareModelContext({
       messages: longHistory(120),

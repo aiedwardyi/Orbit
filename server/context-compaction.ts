@@ -12,8 +12,9 @@ export const MODEL_CONTEXT_FALLBACK = 128_000;
 
 const CONTEXT_BUDGET_SHARE = 0.5;
 const SUMMARY_BUDGET_SHARE = 0.35;
-const MAX_CONTEXT_MESSAGES = 96;
-const MAX_TAIL_MESSAGES = 48;
+// Both count user turns: bot bubbles and tool lines are bounded by tokens.
+const MAX_CONTEXT_MESSAGES = 60;
+const MAX_TAIL_MESSAGES = 24;
 const MAX_SUMMARY_TOKENS = 8_192;
 const SUMMARY_HEADER = "[Wink durable context summary]";
 const SUMMARY_SENTINEL = "SUMMARY";
@@ -283,9 +284,11 @@ function selectTail(units: ReplayUnit[], budgetTokens: number): TailSelection {
       break;
     }
     used += tokens;
-    if (!candidate.atomic) kept++;
+    if (candidate.turn) kept++;
     start--;
   }
+  // A reply is never split from its question.
+  while (start < units.length && !units[start]!.turn) start++;
   return { old: units.slice(0, start), tail: units.slice(start) };
 }
 
@@ -418,10 +421,10 @@ export async function prepareModelContext(input: {
     ...units.map(({ role, text }) => ({ role, text })),
   ];
   const currentTokens = estimateContextTokens(currentTranscript);
-  // Tool lines are tiny and still bounded by the token budget; counting them
-  // made busy chats summarize every few turns.
-  const currentMessages = currentTranscript.length - units.filter((unit) => unit.atomic).length;
-  if (currentTokens <= budgetTokens && currentMessages <= MAX_CONTEXT_MESSAGES) {
+  // Counting bot bubbles made compaction a function of the bot's chattiness;
+  // ack-first doubled it overnight.
+  const currentTurns = units.filter((unit) => unit.turn).length;
+  if (currentTokens <= budgetTokens && currentTurns <= MAX_CONTEXT_MESSAGES) {
     return {
       status: "ready",
       transcript: currentTranscript,
