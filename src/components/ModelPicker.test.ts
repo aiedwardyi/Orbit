@@ -53,7 +53,10 @@ const { mockInstances } = vi.hoisted(() => {
         snapshot: { state: "available" as const, authenticated: true, version: "1.0.0" },
         models: {
           default: "claude-fable-5-1",
-          options: [{ id: "claude-fable-5-1", label: "Fable 5.1" }],
+          options: [
+            { id: "claude-fable-5-1", label: "Fable 5.1" },
+            { id: "claude-opus-5-5", label: "Claude Opus 5.5" },
+          ],
         },
       },
       readyEngine("gemini", "geminiAgent", "Gemini API"),
@@ -225,7 +228,7 @@ describe("ModelPicker friends chip", () => {
       ),
     );
     expect(chipText(html)).toContain("Claude Sonnet 5 High");
-    expect(html).toMatch(/min-w-0 max-w-\[160px\] truncate">Claude Sonnet 5</);
+    expect(html).toContain('min-w-0 max-w-[160px] truncate"><span class="max-md:hidden">Claude </span>Sonnet 5<');
     expect(html).not.toContain("@max-4xl/chathead:inline");
     expect(html).not.toMatch(/<span[^>]*>Claude<\/span>/);
   });
@@ -367,6 +370,13 @@ describe("ModelPicker friends chip", () => {
     );
     expect(html).toContain("GPT-OSS 120B (Medium)");
     expect(html).not.toContain("data-model-effort");
+  });
+
+  it("shortens the Claude chip on phones only", () => {
+    const html = markup({ instanceId: "claude", model: "claude-opus-5-5", mode: "pinned", effort: "xhigh" });
+    expect(html).toContain('<span class="max-md:hidden">Claude </span>Opus 5.5');
+    expect(html).toContain('class="max-md:hidden">Extra High<');
+    expect(html).toContain('class="md:hidden">XHigh<');
   });
 
   it.each([

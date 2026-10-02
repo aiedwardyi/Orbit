@@ -105,6 +105,11 @@ export function chipEffortShortLabel(effort: string, t: Translate): string {
   return key ? capitalizeWords(t(key)) : chipEffortLabel(effort, t);
 }
 
+/** Phone chip drops the vendor word the provider mark already shows. */
+export function chipVendorPrefix(driverKind: string | undefined, label: string): string {
+  return (driverKind === "claudeAgent" && label.match(/^Claude\s+/)?.[0]) || "";
+}
+
 function capitalizeWords(label: string): string {
   return label.replace(/(^|\s)(\S)/g, (_match, space: string, char: string) => space + char.toUpperCase());
 }

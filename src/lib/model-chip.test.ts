@@ -4,6 +4,7 @@ import { translate } from "./i18n";
 import {
   chipEffortLabel,
   chipEffortShortLabel,
+  chipVendorPrefix,
   displayedChipEffort,
   engineBadgeText,
   modelChipText,
@@ -259,6 +260,21 @@ describe("chipEffortShortLabel", () => {
     ["max", "Max"],
   ])("shortens the %s phone chip effort to %s", (effort, label) => {
     expect(chipEffortShortLabel(effort, t)).toBe(label);
+  });
+});
+
+describe("chipVendorPrefix", () => {
+  it("drops Claude on the phone chip since the mark shows it", () => {
+    expect(chipVendorPrefix("claudeAgent", "Claude Opus 5.5")).toBe("Claude ");
+  });
+
+  it.each([
+    ["claudeAgent", "Opus 5.5"],
+    ["antigravityAgent", "Gemini 3.8 Flash"],
+    ["grokAgent", "Grok 4.6"],
+    [undefined, "Claude Opus 5.5"],
+  ])("keeps %s label %s whole", (driverKind, label) => {
+    expect(chipVendorPrefix(driverKind, label)).toBe("");
   });
 });
 

@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Atom, BookOpen, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Hexagon, Leaf, MoonStar, Mountain, Orbit, Sparkle, Sparkles, Sun, X } from "lucide-react";
 import { useStore, type Bot, type ModelSelection } from "@/state/store";
 import { filterCustomModels } from "@/lib/custom-models";
-import { chipEffortLabel, chipEffortShortLabel, displayedChipEffort, engineBadgeText, modelChipText, modelChipTitle, modelEffortLabel, modelFamilyAccent } from "@/lib/model-chip";
+import { chipEffortLabel, chipEffortShortLabel, chipVendorPrefix, displayedChipEffort, engineBadgeText, modelChipText, modelChipTitle, modelEffortLabel, modelFamilyAccent } from "@/lib/model-chip";
 import { movePicker, pickerColumn, pickerEfforts, pickerModels, pickerRows, selectPickerEffort, selectPickerModel, withPickerEffort } from "@/lib/cross-model-picker";
 import { focusComposerOnActivation } from "@/lib/focus-composer";
 import { ProviderMark } from "./ProviderIcons";
@@ -216,6 +216,8 @@ export function ModelPickerControl({
   const chipEffort = displayedChipEffort(active, selection.model, selection.effort);
   const effortFull = chipEffort ? chipEffortLabel(chipEffort, t) : "";
   const effortShort = chipEffort ? chipEffortShortLabel(chipEffort, t) : "";
+  const chipName = modelChipText({ instance: active, model: selection.model, effort: selection.effort }, t);
+  const vendor = chipVendorPrefix(active?.driverKind, chipName);
   const trigger = (
     <button
       ref={triggerRef}
@@ -233,7 +235,7 @@ export function ModelPickerControl({
           label is always the full selected model — never the bare engine
           name — so the header matches Bot details at every width. */}
       <span className="min-w-0 max-w-[160px] truncate">
-        {modelChipText({ instance: active, model: selection.model, effort: selection.effort }, t)}
+        {vendor && <span className="max-md:hidden">{vendor}</span>}{chipName.slice(vendor.length)}
       </span>
       {active && (
         <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(active.driverKind) }} />
