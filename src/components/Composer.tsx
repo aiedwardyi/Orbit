@@ -1015,12 +1015,12 @@ export function Composer({
             aria-label={t("composer.stopTurn")}
             aria-busy={stopping}
             className={cn(
-              "flex size-8 shrink-0 items-center justify-center rounded-full text-ink-secondary hover:bg-raised hover:text-ink",
-              stopping && "animate-pulse text-ink",
+              "flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-app hover:opacity-80",
+              stopping && "animate-pulse",
             )}
             title={t("composer.stop")}
           >
-            <Square size={14} className="fill-current" />
+            <Square size={12} className="fill-current" />
           </button>
         )}
         {!locked && !busy && !hasContent && capabilities.dictation.available && (

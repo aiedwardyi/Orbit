@@ -59,6 +59,11 @@ const stopButton = () => {
 const interrupts = () => dispatch.mock.calls.filter(([action]) => action.type === "interrupt");
 
 describe("composer stop", () => {
+  it("looks like a filled stop button", async () => {
+    await mount(bot);
+    expect(stopButton().className).toEqual(expect.stringContaining("bg-ink text-app"));
+  });
+
   it("shows stopping at once and sends one interrupt for repeat clicks", async () => {
     await mount(bot);
     for (let i = 0; i < 5; i++) await act(async () => stopButton().click());

@@ -623,8 +623,40 @@ export interface AppState {
    * from this until POST or SSE confirms, so chrome does not wait on
    * startTurn's prepareModelContext waterfall. */
   acceptedSends: AcceptedSends;
+  /** Bots the user just stopped, held idle until the server says so. Busy
+   * frames already on the wire would otherwise flash Stop back. */
+  stoppingBots: Record<string, StopHold>;
   /** Renderer-only PTY alerts, separate from durable chat unread state. */
   terminalAttention: TerminalAttentionMap;
+}
+
+type StopHold = { until: number; busy: boolean; activity?: Bot["activity"] };
+
+const STOP_HOLD_MS = 10_000;
+
+function holdStopping(
+  state: AppState,
+  reported: ReadonlyArray<{ id: string; busy?: boolean; activity?: Bot["activity"] }>,
+): AppState {
+  let next = state;
+  for (const bot of reported) {
+    const hold = next.stoppingBots[bot.id];
+    if (!hold) continue;
+    if (bot.busy === false) {
+      const { [bot.id]: _released, ...stoppingBots } = next.stoppingBots;
+      next = { ...next, stoppingBots };
+      continue;
+    }
+    if (bot.busy === true) {
+      next = { ...next, stoppingBots: { ...next.stoppingBots, [bot.id]: { ...hold, busy: true, activity: bot.activity } } };
+    }
+    next = updateBot(next, bot.id, (current) => ({
+      ...current,
+      busy: false,
+      activity: current.activity === "working" ? "idle" : current.activity,
+    }));
+  }
+  return next;
 }
 
 const MAX_CONSUMED_QUEUE_IDS = 64;
@@ -811,7 +843,8 @@ export type Action =
   | { type: "provisioning"; botId: string; on: boolean }
   | { type: "computerControl"; botId: string; held: boolean; helpReason: string | null }
   | { type: "setModel"; botId: string; selection: ModelSelection }
-  | { type: "interrupt"; botId: string; onSettled?: () => void }
+  | { type: "interrupt"; botId: string; until?: number; onSettled?: () => void }
+  | { type: "stopReleased"; botId: string; until: number }
   | { type: "connected"; value: boolean }
   | { type: "error"; message: string | null }
   | { type: "toggleSettings"; open?: boolean }
@@ -1006,10 +1039,9 @@ export function reducer(state: AppState, action: Action): AppState {
         ]),
       ];
       return {
-        ...hydrated,
+        ...holdStopping({ ...hydrated, bots: applyOptimisticBusy(hydrated.bots, acceptedSends) }, action.bots),
         hydrated: true,
         acceptedSends,
-        bots: applyOptimisticBusy(hydrated.bots, acceptedSends),
         dismissedTaskRecovery: {
           ...hydrated.dismissedTaskRecovery,
           ...completedReopenDismissals(leftoverPackets),
@@ -1312,11 +1344,10 @@ export function reducer(state: AppState, action: Action): AppState {
           acceptedSends = clearAcceptedThinking(acceptedSends, before.threadId);
         }
       }
-      return {
-        ...reconciled,
-        acceptedSends,
-        bots: applyOptimisticBusy(reconciled.bots, acceptedSends),
-      };
+      return holdStopping(
+        { ...reconciled, acceptedSends, bots: applyOptimisticBusy(reconciled.bots, acceptedSends) },
+        [action.bot],
+      );
     }
     case "messageAdded": {
       const bot = state.bots.find((b) => b.threadId === action.threadId);
@@ -1695,20 +1726,28 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "interrupt": {
       const bot = state.bots.find((candidate) => candidate.id === action.botId);
-      if (!bot) return state;
-      const hadThinking = hasAcceptedThinking(state.acceptedSends[bot.threadId]);
-      let next: AppState = {
-        ...state,
-        acceptedSends: clearAcceptedThinking(state.acceptedSends, bot.threadId),
-      };
-      if (hadThinking) {
-        next = updateBot(next, action.botId, (current) => ({
-          ...current,
-          busy: false,
-          activity: current.activity === "working" ? "idle" : current.activity,
-        }));
-      }
-      return next;
+      if (!bot || state.stoppingBots[bot.id]) return state;
+      // a send still "thinking" never reached the server, so it is not what failure restores
+      const busy = Boolean(bot.busy) && !hasAcceptedThinking(state.acceptedSends[bot.threadId]);
+      const hold: StopHold = { until: action.until ?? Date.now() + STOP_HOLD_MS, busy, activity: busy ? bot.activity : "idle" };
+      return holdStopping(
+        {
+          ...state,
+          acceptedSends: clearAcceptedThinking(state.acceptedSends, bot.threadId),
+          stoppingBots: { ...state.stoppingBots, [bot.id]: hold },
+        },
+        [{ id: bot.id }],
+      );
+    }
+    case "stopReleased": {
+      const hold = state.stoppingBots[action.botId];
+      if (hold?.until !== action.until) return state;
+      const { [action.botId]: _released, ...stoppingBots } = state.stoppingBots;
+      return updateBot({ ...state, stoppingBots }, action.botId, (current) => ({
+        ...current,
+        busy: hold.busy,
+        activity: hold.activity,
+      }));
     }
     case "interruptGroup": {
       const group = state.groups.find((candidate) => candidate.id === action.groupId);
@@ -1881,6 +1920,7 @@ export const initialState: AppState = {
   snapshots: 0,
   dismissedTaskRecovery: {},
   acceptedSends: {},
+  stoppingBots: {},
   terminalAttention: {},
 };
 
@@ -2100,7 +2140,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const action =
         (rawAction.type === "send" || rawAction.type === "sendGroup") && !rawAction.sendId
           ? { ...rawAction, sendId: crypto.randomUUID() }
-          : rawAction;
+          : rawAction.type === "interrupt" && rawAction.until === undefined
+            ? { ...rawAction, until: Date.now() + STOP_HOLD_MS }
+            : rawAction;
       const botBeforeUpdate =
         action.type === "updateBot"
           ? stateRef.current.bots.find((candidate) => candidate.id === action.botId)
@@ -2119,6 +2161,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return bot && !bot.busy ? (action.threadId ?? bot.threadId) : undefined;
       })();
       if (action.type === "deleteBot") botPatchQueue.cancel(action.botId);
+      if (action.type === "interrupt" && stateRef.current.stoppingBots[action.botId]) {
+        action.onSettled?.();
+        return;
+      }
       if (action.type === "interrupt") {
         const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
         for (const entry of bot ? (stateRef.current.acceptedSends[bot.threadId] ?? []) : []) {
@@ -2583,11 +2629,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             body: JSON.stringify({ modelSelection: action.selection }),
           }).catch(showError);
           break;
-        case "interrupt":
+        case "interrupt": {
+          const release = () => rawDispatch({ type: "stopReleased", botId: action.botId, until: action.until! });
+          window.setTimeout(release, STOP_HOLD_MS);
           api(`/api/bots/${action.botId}/interrupt`, { method: "POST" })
-            .catch(showError)
+            .catch((error) => {
+              showError(error);
+              release();
+            })
             .finally(() => action.onSettled?.());
           break;
+        }
         case "resumeTask": {
           const done = api(`/api/bots/${action.botId}/tasks/${action.threadId}/resume`, { method: "POST" });
           if (action.onSettled) {

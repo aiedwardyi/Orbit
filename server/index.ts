@@ -8976,6 +8976,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       await instance?.adapter.interruptTurn(bot.threadId).catch(() => {});
       closeOpenApprovals(bot.threadId);
+      if (stoppedThreadId !== bot.threadId && stoppedThreadId !== busyGroup?.threadId) {
+        await instance?.adapter.interruptTurn(stoppedThreadId).catch(() => {});
+      }
       if (inFlight) releaseInterruptedBot(bot.id, stoppedThreadId);
       return json(res, 200, { ok: true });
     }

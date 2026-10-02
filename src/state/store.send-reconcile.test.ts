@@ -274,3 +274,48 @@ describe("send while the server holds the thread", () => {
     expect(fetch).toHaveBeenCalledWith("/api/bots/b1/interrupt", expect.objectContaining({ method: "POST" }));
   });
 });
+
+describe("stop", () => {
+  const botFrame = (busy: boolean) =>
+    act(async () => {
+      FakeEventSource.last!.onmessage!({
+        data: JSON.stringify({ kind: "bot", bot: { id: bot.id, busy, activity: busy ? "working" : "idle" } }),
+        lastEventId: "",
+      });
+    });
+  const busyNow = () => store.state.bots[0]!.busy;
+
+  async function mountStop(interrupt: () => Promise<Response>) {
+    const fetch = await mount(() => Response.json({ messages: [], hasMore: false }));
+    const base = fetch.getMockImplementation()!;
+    fetch.mockImplementation(async (url: string, init?: RequestInit) =>
+      String(url).endsWith("/interrupt") ? interrupt() : base(url, init),
+    );
+    return () => fetch.mock.calls.filter(([url]) => String(url).endsWith("/interrupt")).length;
+  }
+
+  it("goes idle at once and holds through busy frames until the server is idle", async () => {
+    await mountStop(() => new Promise<Response>(() => {}));
+    expect(busyNow()).toBe(true);
+    await act(async () => store.dispatch({ type: "interrupt", botId: bot.id }));
+    expect(busyNow()).toBe(false);
+    await botFrame(true);
+    expect(busyNow()).toBe(false);
+    await botFrame(false);
+    await botFrame(true);
+    expect(busyNow()).toBe(true);
+  });
+
+  it("sends one interrupt for repeat stops", async () => {
+    const interrupts = await mountStop(() => new Promise<Response>(() => {}));
+    for (let i = 0; i < 3; i++) await act(async () => store.dispatch({ type: "interrupt", botId: bot.id }));
+    expect(interrupts()).toBe(1);
+  });
+
+  it("shows the error and the running turn when Stop fails", async () => {
+    await mountStop(async () => Response.json({ error: "stop failed" }, { status: 500 }));
+    await act(async () => store.dispatch({ type: "interrupt", botId: bot.id }));
+    await vi.waitFor(() => expect(store.state.error).toBe("stop failed"));
+    expect(busyNow()).toBe(true);
+  });
+});
