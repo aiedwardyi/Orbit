@@ -91,7 +91,22 @@ export function modelEffortLabel(effort: string, t: Translate): string {
  * line keep the catalog's lowercase "high". Cased ASCII only in practice —
  * non-cased locales (ko) pass through untouched. */
 export function chipEffortLabel(effort: string, t: Translate): string {
-  return modelEffortLabel(effort, t).replace(/(^|\s)(\S)/g, (_match, space: string, char: string) => space + char.toUpperCase());
+  return capitalizeWords(modelEffortLabel(effort, t));
+}
+
+const SHORT_EFFORT_MESSAGE_KEYS = new Map<string, MessageKey>([
+  ["medium", "model.effortMediumShort"],
+  ["xhigh", "model.extraHighShort"],
+]);
+
+/** Phone chip effort: long levels shortened so the header keeps room for the device button. */
+export function chipEffortShortLabel(effort: string, t: Translate): string {
+  const key = SHORT_EFFORT_MESSAGE_KEYS.get(effort);
+  return key ? capitalizeWords(t(key)) : chipEffortLabel(effort, t);
+}
+
+function capitalizeWords(label: string): string {
+  return label.replace(/(^|\s)(\S)/g, (_match, space: string, char: string) => space + char.toUpperCase());
 }
 
 export function modelChipTitle(

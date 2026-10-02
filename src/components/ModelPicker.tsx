@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Atom, BookOpen, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Hexagon, Leaf, MoonStar, Mountain, Orbit, Sparkle, Sparkles, Sun, X } from "lucide-react";
 import { useStore, type Bot, type ModelSelection } from "@/state/store";
 import { filterCustomModels } from "@/lib/custom-models";
-import { chipEffortLabel, displayedChipEffort, engineBadgeText, modelChipText, modelChipTitle, modelEffortLabel, modelFamilyAccent } from "@/lib/model-chip";
+import { chipEffortLabel, chipEffortShortLabel, displayedChipEffort, engineBadgeText, modelChipText, modelChipTitle, modelEffortLabel, modelFamilyAccent } from "@/lib/model-chip";
 import { movePicker, pickerColumn, pickerEfforts, pickerModels, pickerRows, selectPickerEffort, selectPickerModel, withPickerEffort } from "@/lib/cross-model-picker";
 import { focusComposerOnActivation } from "@/lib/focus-composer";
 import { ProviderMark } from "./ProviderIcons";
@@ -214,6 +214,8 @@ export function ModelPickerControl({
   // (wizard bots, muse) still show it; only the effort label stays gated
   // on displayedChipEffort. No state changes here.
   const chipEffort = displayedChipEffort(active, selection.model, selection.effort);
+  const effortFull = chipEffort ? chipEffortLabel(chipEffort, t) : "";
+  const effortShort = chipEffort ? chipEffortShortLabel(chipEffort, t) : "";
   const trigger = (
     <button
       ref={triggerRef}
@@ -237,7 +239,9 @@ export function ModelPickerControl({
         <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: modelFamilyAccent(active.driverKind) }} />
       )}
       {chipEffort && (
-        <span data-model-effort className="shrink-0 whitespace-nowrap text-[12px] text-ink-secondary">{" "}{chipEffortLabel(chipEffort, t)}</span>
+        <span data-model-effort className="shrink-0 whitespace-nowrap text-[12px] text-ink-secondary">{" "}{effortShort === effortFull ? effortFull : (
+          <><span className="max-md:hidden">{effortFull}</span><span className="md:hidden">{effortShort}</span></>
+        )}</span>
       )}
       <ChevronDown size={14} className={cn("shrink-0 text-ink-secondary", !contained && active && "@max-4xl/chathead:hidden")} />
     </button>

@@ -378,7 +378,8 @@ describe("ModelPicker friends chip", () => {
   ])("paints the %s effort marker with %s", (instanceId, model, accent) => {
     const html = markup({ instanceId, model, mode: "pinned", effort: "medium" });
     expect(html).toContain("data-model-effort");
-    expect(html).toContain("> Medium<");
+    expect(html).toContain('class="max-md:hidden">Medium<');
+    expect(html).toContain('class="md:hidden">Med<');
     expect(html).not.toContain(">medium<");
     expect(html).toContain(accent);
   });

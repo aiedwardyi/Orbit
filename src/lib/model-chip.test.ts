@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { translate } from "./i18n";
 import {
   chipEffortLabel,
+  chipEffortShortLabel,
   displayedChipEffort,
   engineBadgeText,
   modelChipText,
@@ -246,6 +247,18 @@ describe("chipEffortLabel", () => {
 
   it("passes unknown ids through with a leading capital", () => {
     expect(chipEffortLabel("turbo", t)).toBe("Turbo");
+  });
+});
+
+describe("chipEffortShortLabel", () => {
+  it.each([
+    ["medium", "Med"],
+    ["xhigh", "XHigh"],
+    ["low", "Low"],
+    ["high", "High"],
+    ["max", "Max"],
+  ])("shortens the %s phone chip effort to %s", (effort, label) => {
+    expect(chipEffortShortLabel(effort, t)).toBe(label);
   });
 });
 

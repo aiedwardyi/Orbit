@@ -51,6 +51,7 @@ describe("QA 17 one Bot-details header entry", () => {
     expect(chatHeader).toContain("flex min-w-0 flex-wrap items-center justify-between");
     expect(chatHeader).toContain("flex min-w-0 flex-1 items-center");
     expect(chatHeader).not.toContain("max-md:min-w-32");
+    expect(chatHeader).toContain("max-md:flex-[1_0_auto]");
     expect(chatHeader).toContain("max-md:flex-nowrap");
     expect(chatHeader).toContain("rounded-md p-1.5 hover:bg-raised max-md:hidden");
     expect(chatHeader).toContain("flex max-w-full shrink-0 flex-wrap items-center justify-end");
