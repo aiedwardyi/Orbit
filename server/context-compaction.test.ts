@@ -46,7 +46,7 @@ const longHistory = (count: number, start = 0): Message[] =>
 describe("provider-neutral context compaction", () => {
   it("keeps the task record and recent work after more than 200 messages", async () => {
     const summarize = vi.fn(async (_prompt: string) =>
-      "Goal: ship the release. Plan: verify the build. Completed: package built. Evidence: report.json. Artifact: dist/app.zip. Blocker: signing approval. Next: run smoke tests.",
+      "SUMMARY\nGoal: ship the release. Plan: verify the build. Completed: package built. Evidence: report.json. Artifact: dist/app.zip. Blocker: signing approval. Next: run smoke tests.",
     );
     const result = await prepareModelContext({
       messages: longHistory(205),
@@ -68,7 +68,7 @@ describe("provider-neutral context compaction", () => {
   });
 
   it("tells the summarizer to trust the task record over unverified worker claims", async () => {
-    const summarize = vi.fn(async (_prompt: string) => "summary");
+    const summarize = vi.fn(async (_prompt: string) => "SUMMARY\nsummary");
     await prepareModelContext({
       messages: longHistory(205),
       contextWindow: 2_048,
@@ -79,6 +79,60 @@ describe("provider-neutral context compaction", () => {
     const prompt = summarize.mock.calls[0]?.[0] ?? "";
     expect(prompt).toContain("Take plan and step status from <task_record>. If the history disagrees, the task record wins.");
     expect(prompt).toContain("as reported, not verified, unless the history shows the assistant verified them");
+  });
+
+  it("asks for events up to the boundary, not the next action", async () => {
+    const summarize = vi.fn(async (_prompt: string) => "SUMMARY\nsummary");
+    const result = await prepareModelContext({
+      messages: longHistory(205),
+      contextWindow: 2_048,
+      taskRecordText: "Plan: 4 of 6 steps done",
+      summarize,
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    const prompts = summarize.mock.calls.map(([prompt]) => prompt);
+    expect(prompts.join("\n")).not.toContain("the next action");
+    expect(prompts[0]).toContain("current status lives in the task record");
+    const coveredAt = Number(result.compaction!.coveredThroughId.slice(1));
+    expect(prompts.at(-1)).toContain(new Date(coveredAt).toISOString());
+  });
+
+  it("dates the summary header at the covered-through boundary", async () => {
+    const result = await prepareModelContext({
+      messages: longHistory(205),
+      contextWindow: 2_048,
+      taskRecordText: "Goal: finish",
+      summarize: async () => "SUMMARY\ndated summary",
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    const coveredAt = Number(result.compaction!.coveredThroughId.slice(1));
+    expect(result.transcript[0]?.text).toContain(new Date(coveredAt).toISOString());
+    expect(result.transcript[0]?.text).toContain("follows verbatim");
+  });
+
+  it("dates a reused summary at its own boundary", async () => {
+    const previous: ContextCompactionV1 = {
+      v: 1,
+      summary: "known good summary",
+      coveredThroughId: "m1",
+      firstKeptId: "m2",
+      contextWindow: 8_192,
+      estimatedTokensBefore: 20,
+      sourceMessageCount: 1,
+    };
+    const result = await prepareModelContext({
+      messages: [message("m1", "one"), message("m2", "two", { role: "bot" }), compactionMessage("c1", "m2", previous), message("m3", "three")],
+      contextWindow: 8_192,
+      taskRecordText: "Goal: finish",
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.transcript[0]?.text).toContain(new Date(1).toISOString());
   });
 
   it("does not count tool lines toward the message cap", async () => {
@@ -107,7 +161,7 @@ describe("provider-neutral context compaction", () => {
       messages: longHistory(120),
       contextWindow: 1_024,
       taskRecordText: "Goal: finish",
-      summarize: async () => "summary one",
+      summarize: async () => "SUMMARY\nsummary one",
     });
     expect(first.status).toBe("ready");
     if (first.status !== "ready") return;
@@ -116,7 +170,7 @@ describe("provider-neutral context compaction", () => {
     if (!first.compaction) return;
 
     const firstRecord = compactionMessage("c1", "m119", first.compaction);
-    const summarize = vi.fn(async (_prompt: string) => "summary two");
+    const summarize = vi.fn(async (_prompt: string) => "SUMMARY\nsummary two");
     const second = await prepareModelContext({
       messages: [...longHistory(120), firstRecord, ...longHistory(90, 120)],
       contextWindow: 1_024,
@@ -137,7 +191,7 @@ describe("provider-neutral context compaction", () => {
       messages: history,
       contextWindow: 1_024,
       taskRecordText: "Goal: finish the release",
-      summarize: async () => "engine A summary with early evidence",
+      summarize: async () => "SUMMARY\nengine A summary with early evidence",
     });
     expect(first.status).toBe("ready");
     if (first.status !== "ready") return;
@@ -183,7 +237,7 @@ describe("provider-neutral context compaction", () => {
       beforeSummarize: () => { order.push("flush"); },
       summarize: async () => {
         order.push("summarize");
-        return "flushed summary";
+        return "SUMMARY\nflushed summary";
       },
     });
 
@@ -345,7 +399,7 @@ describe("provider-neutral context compaction", () => {
       message("m2", "paste two: " + "y".repeat(30_000)),
       message("m3", "paste three: " + "z".repeat(30_000)),
     ];
-    const summarize = async () => "pasted three large files";
+    const summarize = async () => "SUMMARY\npasted three large files";
 
     const wide = await prepareModelContext({
       messages: pastes,
@@ -376,7 +430,7 @@ describe("provider-neutral context compaction", () => {
       messages: longHistory(180),
       contextWindow: 1_024,
       taskRecordText: "Goal: bounded",
-      summarize: async () => "bounded summary",
+      summarize: async () => "SUMMARY\nbounded summary",
     });
 
     expect(result.status).toBe("ready");
@@ -394,7 +448,7 @@ describe("provider-neutral context compaction", () => {
       taskRecordText: "Goal: preserve every segment",
       summarize: async (prompt) => {
         prompts.push(prompt);
-        return "segmented summary";
+        return "SUMMARY\nsegmented summary";
       },
     });
 
@@ -410,13 +464,96 @@ describe("provider-neutral context compaction", () => {
       messages: longHistory(120),
       contextWindow: 1_024,
       taskRecordText: "Goal: preserve valid state",
-      summarize: async () => "oversized ".repeat(2_000),
+      summarize: async () => `SUMMARY\n${"oversized ".repeat(2_000)}`,
     });
 
     expect(result).toMatchObject({
       status: "failed",
       error: expect.stringContaining("exceeded the durable summary budget"),
     });
+  });
+
+  it("keeps the previous summary when the summarizer answers the chat instead", async () => {
+    const previous: ContextCompactionV1 = {
+      v: 1,
+      summary: "known good summary",
+      coveredThroughId: "m9",
+      firstKeptId: "m10",
+      contextWindow: 200_000,
+      estimatedTokensBefore: 900,
+      sourceMessageCount: 5,
+    };
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const summarize = vi.fn(async (_prompt: string) => "Got it, go home, I've got this.");
+    try {
+      const result = await prepareModelContext({
+        messages: [...longHistory(12), compactionMessage("c1", "m11", previous), ...longHistory(128, 12)],
+        contextWindow: 200_000,
+        taskRecordText: "Goal: preserve state",
+        summarize,
+      });
+
+      expect(result.status).toBe("ready");
+      if (result.status !== "ready") return;
+      expect(summarize).toHaveBeenCalledTimes(2);
+      expect(result.compaction?.summary).toContain("known good summary");
+      expect(result.compaction?.summary).not.toContain("Got it, go home");
+      expect(result.compaction?.summary).toContain("work item 12");
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("retries once when the summary shrinks below the floor", async () => {
+    const previous: ContextCompactionV1 = {
+      v: 1,
+      summary: "known good summary with evidence. ".repeat(20).trim(),
+      coveredThroughId: "m9",
+      firstKeptId: "m10",
+      contextWindow: 200_000,
+      estimatedTokensBefore: 900,
+      sourceMessageCount: 5,
+    };
+    const summarize = vi.fn()
+      .mockResolvedValueOnce("SUMMARY\nshort")
+      .mockResolvedValue(`SUMMARY\n${"retried summary with the full day of evidence. ".repeat(10).trim()}`);
+    const result = await prepareModelContext({
+      messages: [...longHistory(12), compactionMessage("c1", "m11", previous), ...longHistory(128, 12)],
+      contextWindow: 200_000,
+      taskRecordText: "Goal: preserve state",
+      summarize,
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(summarize).toHaveBeenCalledTimes(2);
+    expect(summarize.mock.calls[1]?.[0]).toBe(summarize.mock.calls[0]?.[0]);
+    expect(result.compaction?.summary).toContain("retried summary");
+    expect(result.compaction?.summary).not.toContain("short");
+  });
+
+  it("keeps the previous summary whole and appends a digest when there is no summarizer", async () => {
+    const previous: ContextCompactionV1 = {
+      v: 1,
+      summary: Array.from({ length: 100 }, (_, index) => `fact ${index + 1}: alpha beta gamma`).join("\n"),
+      coveredThroughId: "m9",
+      firstKeptId: "m10",
+      contextWindow: 8_192,
+      estimatedTokensBefore: 900,
+      sourceMessageCount: 5,
+    };
+    const result = await prepareModelContext({
+      messages: [...longHistory(12), compactionMessage("c1", "m11", previous), ...longHistory(128, 12)],
+      contextWindow: 8_192,
+      taskRecordText: "Goal: preserve state",
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.compaction?.summary).toContain("fact 1:");
+    expect(result.compaction?.summary).toContain("fact 100:");
+    expect(result.compaction?.summary).toContain("work item 12");
+    expect(result.estimatedTokens).toBeLessThanOrEqual(result.budgetTokens);
   });
 
   it("uses deterministic fallback without replacing a valid summary when later summarization throws", async () => {
@@ -488,7 +625,7 @@ describe("provider-neutral context compaction", () => {
         taskRecordText: "Goal: preserve partial progress",
         summarize: async () => {
           calls += 1;
-          if (calls === 1) return "partial generated summary marker";
+          if (calls === 1) return "SUMMARY\npartial generated summary marker";
           throw new Error(`summary provider unavailable ${secret}`);
         },
       });
@@ -638,7 +775,7 @@ describe("provider-neutral context compaction", () => {
       taskRecordText: `Goal: redact ${secret}`,
       summarize: async (prompt) => {
         prompts.push(prompt);
-        return `Use ${secret} for the next step`;
+        return `SUMMARY\nUse ${secret} for the next step`;
       },
     });
 
