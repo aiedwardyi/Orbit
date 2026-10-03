@@ -208,18 +208,33 @@ export function paneNotesSinceLastUserTurn(messages: Message[], excludeIds: Read
   return notes;
 }
 
-/** A replayed transcript already carries every note, so it delivers them without a prefix. */
+/** A native transcript replay already carries every note, so it delivers them without a prefix.
+ * An inline replay still delivers them after the reply marker, or they sit buried in history. */
 export function paneNotesForTurn(
   messages: Message[],
   excludeIds: ReadonlySet<string>,
   deliveredId: string | undefined,
   replaysTranscript: boolean,
+  inlineReplay = false,
 ): { notes: string[]; newestId?: string } {
-  const notes = replaysTranscript ? [] : paneNotesSinceLastUserTurn(messages, excludeIds, deliveredId);
+  const notes = replaysTranscript && !inlineReplay ? [] : paneNotesSinceLastUserTurn(messages, excludeIds, deliveredId);
   const newestId = notes.length || replaysTranscript
     ? messages.findLast((message) => message.kind === "note" && message.text?.trim() && !excludeIds.has(message.id))?.id
     : undefined;
   return { notes, newestId };
+}
+
+/** History without this turn's notes, which the turn text carries instead. */
+export function withoutTurnNotes<T extends ModelContextMessage>(transcript: T[], notes: readonly string[]): T[] {
+  const pending = [...notes];
+  const kept: T[] = [];
+  for (let index = transcript.length - 1; index >= 0; index--) {
+    const message = transcript[index]!;
+    const at = message.role === "user" ? pending.indexOf(message.text) : -1;
+    if (at >= 0) pending.splice(at, 1);
+    else kept.unshift(message);
+  }
+  return kept;
 }
 
 function replayUnits(

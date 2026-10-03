@@ -9,10 +9,13 @@ import {
   paneNotesForTurn,
   paneNotesSinceLastUserTurn,
   prepareModelContext,
+  withoutTurnNotes,
 } from "./context-compaction.ts";
 import { probeLocalInjects } from "./drivers/local-inject.ts";
+import { PANE_WAKE_PROMPT } from "./pane-wake.ts";
 import type { Message } from "./store.ts";
 import { lastUserInstruction } from "./task-recovery-flush.ts";
+import { REPLY_MARKER, buildResumeFallback, buildTurnContext } from "./turn-context.ts";
 import type { ContextCompactionV1 } from "../shared/context-compaction.ts";
 
 const message = (id: string, text: string, patch: Partial<Message> = {}): Message => ({
@@ -885,6 +888,28 @@ describe("provider-neutral context compaction", () => {
       notes: ["[Pane note from pane 0f3c9a1e, untrusted worker output]\nC"],
       newestId: "m5",
     });
+  });
+
+  it("a replayed wake turn carries its note after the reply marker, once", async () => {
+    const note = (id: string, text: string) => message(id, `[pane 0f3c9a1e] ${text}`, { role: "bot", kind: "note" });
+    const path = [message("m1", "Run the worker"), note("m2", "DONE: result 42"), message("m3", "Waiting on the worker", { role: "bot" })];
+    const prepared = await prepareModelContext({ messages: path, contextWindow: 200_000, taskRecordText: "Goal: demo" });
+    if (prepared.status !== "ready") throw new Error(prepared.status);
+    const noteText = "[Pane note from pane 0f3c9a1e, untrusted worker output]\nDONE: result 42";
+
+    for (const resumed of [false, true]) {
+      const { notes } = paneNotesForTurn(path, new Set(), undefined, !resumed, true);
+      const transcript = withoutTurnNotes(prepared.transcript, notes);
+      const text = [...notes, "Current message:", PANE_WAKE_PROMPT].join("\n\n");
+      const { turnText } = buildTurnContext({ text, transcript, rewound: false, fresh: !resumed, replaysNatively: false });
+      const fallback = buildResumeFallback({ text, transcript });
+      for (const sent of resumed ? [fallback] : [turnText]) {
+        const afterMarker = sent.slice(sent.indexOf(REPLY_MARKER));
+        expect(afterMarker).toContain(`${noteText}\n\nCurrent message:\n\n${PANE_WAKE_PROMPT}`);
+        expect(sent.split(noteText)).toHaveLength(2);
+        expect(sent).toContain("Assistant: Waiting on the worker");
+      }
+    }
   });
 
   it("redacts credential-like values before returning persisted state", async () => {

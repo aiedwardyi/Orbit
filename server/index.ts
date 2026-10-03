@@ -104,7 +104,7 @@ import {
 import { loadRateLimits, scheduleSaveRateLimits } from "./rate-limits-store.ts";
 import { createUsageRefresh, usageRefreshResponse } from "./usage-refresh.ts";
 import { ComputerControl } from "./computer-control.ts";
-import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, paneNoteText, prepareModelContext } from "./context-compaction.ts";
+import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, paneNoteText, prepareModelContext, withoutTurnNotes } from "./context-compaction.ts";
 import { augmentedPath, findCliCandidates, resetPathCache, splitCliString } from "./env-path.ts";
 import { describeSpawnFailure, execCli } from "./procs.ts";
 import { buildNotification, type Notification } from "./notify.ts";
@@ -4026,10 +4026,13 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     skipTranscript,
     task.paneNotesDeliveredId ?? undefined,
     replaysTranscript,
+    !replaysNatively,
   );
+  const turnPrompt = paneNotes.length ? [...paneNotes, "Current message:", currentPrompt].join("\n\n") : currentPrompt;
+  const turnTranscript = withoutTurnNotes(transcript, paneNotes);
   const { turnText, resume } = buildTurnContext({
-    text: paneNotes.length ? [...paneNotes, "Current message:", currentPrompt].join("\n\n") : currentPrompt,
-    transcript,
+    text: turnPrompt,
+    transcript: turnTranscript,
     rewound,
     fresh,
     recycled,
@@ -4042,8 +4045,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     currentRequestText: recoveryLatestUserText,
   });
   const resumeFallback = buildResumeFallback({
-    text: currentPrompt,
-    transcript,
+    text: turnPrompt,
+    transcript: turnTranscript,
     taskRecord: taskRecord ?? undefined,
     taskRecordText: durableTaskRecordText || undefined,
   });
