@@ -322,6 +322,17 @@ export function writeStreamDelta(
   return { ...prev, streaming, reasoning, turn: { ...prev.turn, [threadId]: currentTurn } };
 }
 
+/** Move the current wait onto a new tail without dropping its buffers. */
+export function retargetStreamTurn(
+  prev: TurnStreamState,
+  threadId: string,
+  fromTail: string,
+  toTail: string,
+): TurnStreamState {
+  if (prev.turn?.[threadId] !== currentTurnId(prev, threadId, fromTail)) return prev;
+  return { ...prev, turn: { ...prev.turn, [threadId]: currentTurnId(prev, threadId, toTail) } };
+}
+
 /** `toolLabel` stays authoritative for tools: it honours Show tool calls. */
 export function turnStageLabel(phase: TurnPhase, toolLabel: string): string {
   switch (phase) {

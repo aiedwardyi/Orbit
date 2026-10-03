@@ -116,6 +116,22 @@ describe("terminal proxy", () => {
     expect(harnessDown).toHaveBeenCalledTimes(2);
   });
 
+  it("returns a successful spawn without waiting on a stalled launch note", async () => {
+    let release!: (value: Response) => void;
+    const stalled = new Promise<Response>((resolve) => { release = resolve; });
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => String(url).includes("/launch-note")
+      ? stalled : new Response(JSON.stringify({ sessionId: "p1", generation: 1 }), { status: 200 }));
+    const config = { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1", harness: "http://127.0.0.1:2", commsToken: "comms" };
+    let settled = false;
+    const result = callTool("terminal_spawn", fetchImpl, config, { label: "worker" }).then((value) => { settled = true; return value; });
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const settledBeforeNote = settled;
+    release(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    expect((await result).isError).toBeUndefined();
+    expect(settledBeforeNote).toBe(true);
+  });
+
   it("rejects terminal_spawn without a label before fetching", async () => {
     const fetchImpl = vi.fn();
     const result = await callTool("terminal_spawn", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { command: "ls" });

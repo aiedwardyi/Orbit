@@ -11,6 +11,7 @@ import { paneNotesForTurn, prepareModelContext } from "./context-compaction.ts";
 import type { ModelSelection } from "./contracts.ts";
 import { peerAllowKey } from "./peer-approval-key.ts";
 import { applyResolvedProjectFolder } from "./project-folder.ts";
+import { composeUserTurnPrompt } from "./replies.ts";
 import { agentRoster, Store, titleFromMessage, type BotRecord } from "./store.ts";
 import * as taskState from "./task-state.ts";
 import { readTaskResumePacket, type TaskResumePacket } from "./task-state.ts";
@@ -935,6 +936,20 @@ describe("Store", () => {
     expect(fallback).toContain("dist/orbit.exe");
     expect(fallback).toContain("recent verification passed");
     expect(fallback).toContain("Next action: Run the smoke test");
+  });
+
+  it("keeps a reaction on a launch row out of the next model prompt", async () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const launch = store.appendMessage(bot.threadId, { role: "bot", kind: "launch", text: "Launched LAUNCH_SENTINEL worker" });
+    expect(store.toggleReaction(bot.threadId, launch.id, "👍", "user")).not.toBeNull();
+    const messages = store.activePath(bot.threadId);
+    const prepared = await prepareModelContext({ messages, contextWindow: 8_192, taskRecordText: "Run workers" });
+    expect(prepared.status).toBe("ready");
+    if (prepared.status !== "ready") return;
+    expect(JSON.stringify(prepared.transcript)).not.toContain("LAUNCH_SENTINEL");
+    const prompt = composeUserTurnPrompt("Continue", { messages, replayedTranscript: prepared.transcript });
+    expect(prompt).not.toContain("LAUNCH_SENTINEL");
   });
 
 

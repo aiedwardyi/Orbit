@@ -18,6 +18,7 @@ export interface ReactionMessage {
   id: string;
   text?: string;
   role: string;
+  kind?: string;
   from?: { botId: string; name: string };
   reactions?: ReactionMark[];
 }
@@ -116,8 +117,9 @@ export function promptWithReactions(
   // bot reactions on user messages are the bot's own output, not feedback
   const feedback = (message: ReactionMessage) =>
     (message.reactions ?? []).filter((reaction) => message.role !== "user" || reaction.by === "user");
+  // launch rows are display-only and never reach the model
   const marked = messages.filter((message) =>
-    feedback(message).length > 0 && !opts?.omitMessageIds?.has(message.id),
+    message.kind !== "launch" && feedback(message).length > 0 && !opts?.omitMessageIds?.has(message.id),
   );
   if (!marked.length) return text;
   const recent = marked.slice(-MAX_REACTION_MESSAGES);

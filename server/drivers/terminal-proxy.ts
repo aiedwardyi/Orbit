@@ -331,7 +331,7 @@ export async function callTool(
   try {
     if (name === "terminal_spawn") {
       const pane = await spawnTerminalPane(args, fetchImpl, config);
-      await postLaunchNote(fetchImpl, config, pane.sessionId);
+      void postLaunchNote(fetchImpl, config, pane.sessionId);
       return { content: [{ type: "text", text: `Opened pane "${String(args.label).trim()}": sessionId ${pane.sessionId} (generation ${pane.generation}). Use terminal_read and terminal_send with this sessionId.` }] };
     }
     if (name === "terminal_close") {

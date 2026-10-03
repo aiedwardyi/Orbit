@@ -56,6 +56,7 @@ import {
   liveTurnIdAfterDispatch,
   nextStreamState,
   rememberStreamTail,
+  retargetStreamTurn,
   streamResetFor,
   writeStreamDelta,
   type StreamBuffers,
@@ -2085,6 +2086,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return { ...prev, reasoning };
     });
   };
+  // Launch rows are display-only: the in-flight reply follows them to the new tail.
+  const retargetStream = (threadId: string, fromTail: string, toTail: string) => {
+    const pending = deltaBuffer.current.get(threadId);
+    if (pending?.tail === fromTail) pending.tail = toTail;
+    setStream((prev) => retargetStreamTurn(prev, threadId, fromTail, toTail));
+  };
   const markTurnSignal = (threadId: string, event: TurnEvent) => {
     setStream((prev) => {
       const next = nextStreamState(prev, threadId, event);
@@ -2949,8 +2956,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }
           break;
         case "message": {
+          const launchFrom = frame.message?.kind === "launch" ? lastMessageIdFor(frame.threadId) : undefined;
           rawDispatch({ type: "messageAdded", threadId: frame.threadId, message: frame.message });
           noteStreamTail(frame.threadId, frame.message?.id);
+          if (launchFrom !== undefined && frame.message?.id) retargetStream(frame.threadId, launchFrom, frame.message.id);
           if (frame.message?.role === "user" && typeof frame.message.queueId === "string") {
             rawDispatch({
               type: "consumePendingQueued",
