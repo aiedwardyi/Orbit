@@ -564,6 +564,11 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       });
       child.on("close", (code) => {
         if (abandoned) return;
+        // Stop killed the child: settle quietly, no error chip.
+        if (stopRequested && !state.settled) {
+          settle(false, "interrupted");
+          return;
+        }
         if (
           !state.settled &&
           !initialized &&

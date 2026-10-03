@@ -1540,6 +1540,16 @@ describe("ACP turns (fake CLI)", () => {
     expect(done).toMatchObject({ type: "turn.completed" });
   });
 
+  it("settles a Stop before the session exists as cancelled with no error chip", async () => {
+    await create(GrokAgentDriver, "initialize-hang");
+    await instance.adapter.sendTurn({ threadId: "t-stop-startup", text: "go" });
+    await recorder.until((e) => e.type === "turn.started");
+    await instance.adapter.interruptTurn("t-stop-startup");
+    const done = await recorder.until((e) => e.type === "turn.completed");
+    expect(done).toMatchObject({ ok: true, stopReason: "cancelled" });
+    expect(recorder.events.filter((e) => e.type === "runtime.error")).toHaveLength(0);
+  });
+
   it("an exit before result becomes runtime.error + failed turn", async () => {
     await create(GrokAgentDriver, "exit-early");
     await instance.adapter.sendTurn({ threadId: "t-crash", text: "go" });

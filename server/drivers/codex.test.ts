@@ -658,6 +658,17 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(instance.adapter.hasSession("t-dying-stop")).toBe(false);
   });
 
+  it("settles a mid-turn Stop as interrupted with no error chip", async () => {
+    await create({ mode: "steer" });
+    await instance.adapter.sendTurn({ threadId: "t-stop-mid-turn", text: "hi" });
+    await recorder.until((e) => e.type === "content.delta");
+    await instance.adapter.interruptTurn("t-stop-mid-turn");
+    const done = await recorder.until((e) => e.type === "turn.completed");
+    expect(done).toMatchObject({ ok: false, stopReason: "interrupted" });
+    expect(recorder.events.filter((e) => e.type === "runtime.error")).toHaveLength(0);
+    expect(instance.adapter.hasSession("t-stop-mid-turn")).toBe(false);
+  });
+
   it("a missing binary surfaces as a failed turn, and snapshot says unavailable", async () => {
     instance = await CodexDriver.create({
       instanceId: "codex-missing",

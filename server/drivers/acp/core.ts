@@ -1125,6 +1125,11 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         connection.onClose = (code, stderr) => {
           if (idleWarm?.connection === connection) discardIdle(idleWarm);
           if (!state.settled) {
+            // Stop killed the child before the prompt result: settle quietly.
+            if (interruptTimer) {
+              settle(true, "cancelled");
+              return;
+            }
             emit({ ...base(threadId, turnId), type: "runtime.error", message: `${DRIVER_KIND} exited ${code} before the prompt result${stderr ? `: ${stderr.trim().slice(-300)}` : ""}` });
             settle(false, "exit_before_result");
           }
