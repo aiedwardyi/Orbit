@@ -67,14 +67,16 @@ export function sniffImageMime(bytes: Buffer): string | null {
  * UNC and device paths are refused before any fs call: resolving one can block the event loop on a network share. */
 export function importLocalImage(path: string, roots: readonly string[]): SavedAttachment & { name: string } {
   const fail = (status: number, msg: string) => Object.assign(new Error(msg), { status });
-  const outside = `image must be inside your project or workspace folder (${roots.join(", ") || "none set"}); save it there first`;
+  const folders = roots.join(", ") || "none set";
+  const outside = `${path}: image must be inside your project or workspace folder (${folders}); save it there first`;
+  const missing = `${path}: file not found`;
   if (/^[\\/]{2}/.test(path)) throw fail(403, outside);
-  if (!isAbsolute(path)) throw fail(400, "path must be absolute");
+  if (!isAbsolute(path)) throw fail(400, `${path}: path must be absolute, inside ${folders}`);
   let real: string;
   try {
     real = realpathSync(path);
   } catch {
-    throw fail(404, "file not found");
+    throw fail(404, missing);
   }
   if (/^[\\/]{2}/.test(real)) throw fail(403, outside);
   const allowed = roots.some((root) => {
@@ -94,7 +96,7 @@ export function importLocalImage(path: string, roots: readonly string[]): SavedA
     size = stat.size;
   } catch (e) {
     if ((e as { status?: number }).status) throw e;
-    throw fail(404, "file not found");
+    throw fail(404, missing);
   }
   if (size === 0) throw fail(400, "empty image");
   if (size > IMAGE_MAX_BYTES) throw fail(413, `image exceeds ${IMAGE_MAX_BYTES} bytes`);

@@ -185,7 +185,15 @@ describe("importLocalImage", () => {
       expect.objectContaining({ status: 403, message: expect.stringContaining("project or workspace folder") }),
     );
     expect(() => importLocalImage(file, roots)).toThrow(roots.join(", "));
+    expect(() => importLocalImage(file, roots)).toThrow(file);
     expect(() => importLocalImage(file, [])).toThrow(expect.objectContaining({ status: 403 }));
+  });
+
+  it("names the submitted path in missing and relative path errors", () => {
+    const missing = join(src, "nope.png");
+    expect(() => importLocalImage(missing, roots)).toThrow(`${missing}: file not found`);
+    expect(() => importLocalImage("mockup.png", roots)).toThrow("mockup.png");
+    expect(() => importLocalImage("mockup.png", roots)).toThrow(roots.join(", "));
   });
 
   it("rejects a link inside a root that resolves outside it", () => {
