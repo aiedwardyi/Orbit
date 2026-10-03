@@ -709,7 +709,7 @@ function ActivityChip({ message }: { message: Message }) {
   const { t } = useI18n();
   const tool = message.tool;
   if (!tool) return null;
-  if (tool.name === "memory.save") return <MemorySaveChip summary={tool.spoken ?? ""} />;
+  if (tool.name === "memory.save") return <MemorySaveChip summary={tool.spoken ?? ""} at={message.at} />;
   // bot⇄bot comm chip: opens the channel where the exchange lives
   const comm = message.comm;
   if (comm) {

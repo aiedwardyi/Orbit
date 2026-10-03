@@ -2,13 +2,18 @@ import { useEffect, useState } from "react";
 import { Check, Loader2 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 
-export function MemorySaveChip({ summary }: { summary: string }) {
+const FLICKER_MS = 700;
+
+export function MemorySaveChip({ summary, at }: { summary: string; at: number }) {
   const { t } = useI18n();
-  const [saved, setSaved] = useState(false);
+  // Timed from the save, not the mount: a remount (bot switch) must not replay it.
+  const [saved, setSaved] = useState(() => Date.now() - at >= FLICKER_MS);
   useEffect(() => {
-    const id = window.setTimeout(() => setSaved(true), 700);
+    const wait = Math.min(FLICKER_MS, FLICKER_MS - (Date.now() - at));
+    if (wait <= 0) return;
+    const id = window.setTimeout(() => setSaved(true), wait);
     return () => window.clearTimeout(id);
-  }, []);
+  }, [at]);
   return (
     <div className="flex justify-start">
       <div className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary">
