@@ -27,6 +27,7 @@ import {
   markSendCancelled,
   markSendRunning,
   queuedSteeredMessage,
+  queueMark,
   queueRoomParticipation,
   queueSteeredMessage,
   takeQueuedSteers,
@@ -466,14 +467,15 @@ describe("steer-queue module", () => {
   it("takes waiting sends in order for a dispatching turn so drain cannot run them again", () => {
     const bot = fakeBot("bot-fold", "thread-fold", false);
     const store = fakeStore([bot]);
+    const claim = queueMark();
     const first = queueSteeredMessage(bot.id, bot.threadId, "one", { prompt: "prompt one" });
     queueSteeredMessage(bot.id, bot.threadId, "dropped", { sendId: "send_cancelled_12345" });
     const second = queueSteeredMessage(bot.id, bot.threadId, "two", { replyToId: "r1", sendId: "send_kept_1234567890" });
     queueRoomParticipation(bot.id, bot.threadId, { groupId: "g1" });
     markSendCancelled("send_cancelled_12345");
 
-    expect(takeQueuedSteers("other-bot", bot.threadId)).toEqual([]);
-    expect(takeQueuedSteers(bot.id, bot.threadId)).toEqual([
+    expect(takeQueuedSteers("other-bot", bot.threadId, claim)).toEqual([]);
+    expect(takeQueuedSteers(bot.id, bot.threadId, claim)).toEqual([
       { id: first.id, text: "one", prompt: "prompt one", replyToId: undefined, sendId: undefined },
       { id: second.id, text: "two", prompt: "two", replyToId: "r1", sendId: "send_kept_1234567890" },
     ]);
@@ -489,9 +491,10 @@ describe("steer-queue module", () => {
   it("folds a prep send for an engine with no queueing or steer", () => {
     const bot = fakeBot("bot-fold-plain", "thread-fold-plain", false);
     const store = fakeStore([bot]);
+    const claim = queueMark();
     const queued = queueSteeredMessage(bot.id, bot.threadId, "two", { sendId: "send_plain_1234567890", prompt: "prompt two" });
 
-    expect(foldQueuedSends(store, bot.id, bot.threadId)).toEqual(["prompt two"]);
+    expect(foldQueuedSends(store, bot.id, bot.threadId, claim)).toEqual(["prompt two"]);
     expect(store.messages).toMatchObject([
       { role: "user", text: "two", sendId: "send_plain_1234567890", queueId: queued.id, steered: true },
     ]);
@@ -501,11 +504,12 @@ describe("steer-queue module", () => {
   it("folds sends queued during turn setup into the dispatching turn in send order", () => {
     const bot = fakeBot("bot-fold-setup", "thread-fold-setup", true);
     const store = fakeStore([bot]);
-    expect(foldQueuedSends(store, bot.id, bot.threadId)).toEqual([]);
+    const claim = queueMark();
+    expect(foldQueuedSends(store, bot.id, bot.threadId, claim)).toEqual([]);
 
     const a = queueSteeredMessage(bot.id, bot.threadId, "a", { sendId: "send_setup_a_1234567", prompt: "prompt a" });
     const b = queueSteeredMessage(bot.id, bot.threadId, "b", { sendId: "send_setup_b_1234567", prompt: "prompt b" });
-    const late = foldQueuedSends(store, bot.id, bot.threadId);
+    const late = foldQueuedSends(store, bot.id, bot.threadId, claim);
 
     expect(["turn text", ...late].join("\n\n")).toBe("turn text\n\nprompt a\n\nprompt b");
     expect(store.messages.map((m) => [m.text, m.queueId, m.sendId])).toEqual([
@@ -515,6 +519,26 @@ describe("steer-queue module", () => {
     const run = vi.fn();
     drainSteeredMessages(store, run);
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("folds none of the leftover sends into a drain-started turn", () => {
+    const bot = fakeBot("bot-fold-drain", "thread-fold-drain", false);
+    const store = fakeStore([bot]);
+    queueSteeredMessage(bot.id, bot.threadId, "one");
+    queueSteeredMessage(bot.id, bot.threadId, "two");
+    queueSteeredMessage(bot.id, bot.threadId, "three");
+
+    const folds: string[][] = [];
+    drainSteeredMessages(store, (botId, threadId) => {
+      const claim = queueMark();
+      folds.push(foldQueuedSends(store, botId, threadId, claim));
+      queueSteeredMessage(botId, threadId, "during prep");
+      folds.push(foldQueuedSends(store, botId, threadId, claim));
+    });
+
+    expect(folds).toEqual([[], []]);
+    expect(store.messages.map((m) => m.text)).toEqual(["one"]);
+    expect(_queuedCount(bot.threadId)).toBe(3);
   });
 
   it("drains only one queue per bot per settle so a 1:1 and a room wait cannot double-fire", () => {

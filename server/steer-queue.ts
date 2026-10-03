@@ -37,6 +37,7 @@ export interface SteerStore {
 interface SteerItem {
   kind?: "steer";
   messageId: string;
+  seq: number;
   text: string;
   prompt: string;
   replyToId?: string;
@@ -67,6 +68,7 @@ interface QueueEntry {
 const queues = new Map<string, QueueEntry>(); // botId + threadId → waiting work
 const cancelledSendIds = new Set<string>();
 const runningSendIds = new Map<string, string>(); // botId → sendId
+let queueSeq = 0;
 
 /** Same shape as parseSendId — client sendIds are UUIDs, not a `send_` prefix. */
 const SEND_ID_SHAPE = /^[A-Za-z0-9_-]{16,80}$/;
@@ -162,6 +164,7 @@ export function queueSteeredMessage(
   const entry = entryFor(botId, threadId);
   entry.items.push({
     messageId: id,
+    seq: (queueSeq += 1),
     text,
     prompt: options.prompt ?? text,
     replyToId: options.replyToId,
@@ -279,18 +282,26 @@ export function drainSteeredMessages(
   }
 }
 
-/** Take this thread's waiting 1:1 sends for a turn about to dispatch, so
- * a send made during its preparation joins it the way steer would have.
- * Room waits stay queued; cancelled sends are dropped. */
+/** The latest enqueue so far; a turn reads it at its claim. */
+export function queueMark(): number {
+  return queueSeq;
+}
+
+/** Take this thread's 1:1 sends queued after `since` for a turn about to
+ * dispatch, so a send made during its preparation joins it the way steer
+ * would have. Nothing is taken while an older send still waits ahead, so
+ * drain keeps send order. Room waits stay queued; cancelled sends are dropped. */
 export function takeQueuedSteers(
   botId: string,
   threadId: string,
+  since: number,
 ): Array<{ id: string; text: string; prompt: string; replyToId?: string; sendId?: string }> {
   const key = entryKey(botId, threadId);
   const entry = queues.get(key);
   if (!entry || entry.botId !== botId) return [];
   const steerItems = entry.items.filter((item): item is SteerItem => !isRoomItem(item));
   if (!steerItems.length) return [];
+  if (steerItems.some((item) => item.seq <= since && !isSendCancelled(item.sendId))) return [];
   const roomItems = entry.items.filter(isRoomItem);
   if (roomItems.length) queues.set(key, { botId, threadId, items: roomItems });
   else queues.delete(key);
@@ -305,8 +316,9 @@ export function foldQueuedSends(
   store: Pick<SteerStore, "appendMessage">,
   botId: string,
   threadId: string,
+  since: number,
 ): string[] {
-  return takeQueuedSteers(botId, threadId).map((item) => {
+  return takeQueuedSteers(botId, threadId, since).map((item) => {
     store.appendMessage(threadId, {
       role: "user",
       kind: "text",

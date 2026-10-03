@@ -151,6 +151,7 @@ import {
   isSendCancelled,
   markSendRunning,
   queuedSteeredMessage,
+  queueMark,
   queueRoomParticipation,
   queueSteeredMessage,
 } from "./steer-queue.ts";
@@ -3716,6 +3717,8 @@ async function startTurn(botId: string, text: string, opts?: StartTurnOptions) {
 
 async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOptions) {
   const epoch = currentTurnEpoch(botId);
+  // Sends queued before this claim belong to drain, not to this turn's folds.
+  const claimMark = queueMark();
   const bot = store.bot(botId);
   if (!bot) throw Object.assign(new Error("no such bot"), { status: 404 });
   if (checkpointRestoreLeases.has(botId)) {
@@ -4002,7 +4005,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // flipped yet. Fold it in as steer would have, or it drains after this
   // turn's replies. Synchronous through the busy flip, so nothing slips past.
   const folded = currentTurnEpoch(bot.id) === epoch && !(opts?.sendId && isSendCancelled(opts.sendId))
-    ? foldQueuedSends(store, bot.id, threadId)
+    ? foldQueuedSends(store, bot.id, threadId, claimMark)
     : [];
   if (folded.length) clearUnattended(bot.id);
   const currentPrompt = [
@@ -4417,7 +4420,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         const live = providerReload.started(threadId, instanceId);
         if (!live) return Promise.reject(new Error(`provider instance "${instanceId}" is unavailable`));
         // Sends during the setup awaits had no provider turn to steer, so they queued; they join here.
-        const late = foldQueuedSends(store, bot.id, threadId);
+        const late = foldQueuedSends(store, bot.id, threadId, claimMark);
         if (late.length) clearUnattended(bot.id);
         const withLate = (base: string) => [base, ...late].join("\n\n");
         return live.adapter.sendTurn({
