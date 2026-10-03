@@ -219,6 +219,7 @@ import {
 import { stallErrorActivity } from "./room-error-attribution.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import { foldContinuationStart } from "./continuation-turn.ts";
+import { ownTurnReply } from "./turn-reply.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
 import { updateBridgeResponse, updateStateFromMessage } from "./update-proxy.ts";
 import { paneLabel, raisePaneAttention, terminalSendResponse, terminalSnapshotResponse } from "./terminal-snapshot.ts";
@@ -658,13 +659,12 @@ function askBotAndWait(
       peerTurnSource.delete(threadId);
       resolve(out);
     };
+    const reply = ownTurnReply(staleTurnEvent);
     const unsub = bus.subscribe((e: RuntimeEvent) => {
       if (e.threadId !== threadId) return;
-      if (e.type === "item.completed" && e.itemType === "assistant_text") {
-        text += (text ? "\n" : "") + e.text;
-      } else if (e.type === "turn.completed") {
-        finish(text || "(the bot finished without a text reply)");
-      }
+      const step = reply.fold(e);
+      if (step === "completed") finish(text || "(the bot finished without a text reply)");
+      else if (step) text += (text ? "\n" : "") + step.text;
     });
     const timer = setTimeout(() => finish(text || "(timed out waiting for the bot to reply)"), 4 * 60_000);
     if (peer) peerTurnSource.set(threadId, peer.sourceThreadId);
@@ -5257,6 +5257,7 @@ async function runClaimedGroupMemberTurn(
   // run the turn and wait for it to settle, folding the reply text so a
   // chained @mention can be routed afterwards
   let replyText = "";
+  const reply = ownTurnReply(staleTurnEvent);
   const timeoutMinutes = roomTurnTimeoutMinutes(cfg);
   const outcome = await new Promise<"settled" | "dispatch_failed" | "stalled" | "timed_out">((resolve) => {
     let done = false;
@@ -5282,8 +5283,9 @@ async function runClaimedGroupMemberTurn(
     };
     unsub = bus.subscribe((e: RuntimeEvent) => {
       if (e.threadId !== threadId) return;
-      if (e.type === "item.completed" && e.itemType === "assistant_text") replyText += `\n${e.text}`;
-      else if (e.type === "turn.completed") finish("settled");
+      const step = reply.fold(e);
+      if (step === "completed") finish("settled");
+      else if (step) replyText += `\n${step.text}`;
       // Waiting on a person is not turn work: hold the ceiling while an
       // approval or question card is open, so deciding slowly does not
       // stop the turn underneath the card. Everything else keeps burning it.
@@ -5314,6 +5316,7 @@ async function runClaimedGroupMemberTurn(
       .then((started) => {
         bindInterruptedTurn(threadId, started.turnId);
         if (started.turnId) liveTurnIdByThread.set(threadId, started.turnId);
+        reply.claim(started.turnId);
       })
       .catch((err) => {
         providerReload.settled(threadId);
