@@ -168,9 +168,12 @@ export function RemoteTerminalView({
     return () => window.clearTimeout(timer);
   }, [copied]);
 
-  const noTerminal = snapshot?.state === "no-terminal";
-  const text = snapshot && !noTerminal ? snapshotText(snapshot) : "";
-  const canType = !!snapshot?.sessionId && snapshot.generation !== undefined && !noTerminal && !snapshot.exited;
+  // A tab tap selects before its snapshot lands; the old pane's screen and credentials must not stand in.
+  const inSync = !activePaneId || !snapshot?.sessionId || snapshot.sessionId === activePaneId;
+  const shown = inSync ? snapshot : null;
+  const noTerminal = shown?.state === "no-terminal";
+  const text = shown && !noTerminal ? snapshotText(shown) : "";
+  const canType = !!shown?.sessionId && shown.generation !== undefined && !noTerminal && !shown.exited;
 
   useLayoutEffect(() => {
     const el = outputRef.current;
@@ -203,14 +206,14 @@ export function RemoteTerminalView({
   };
 
   const post = async (input: ReturnType<typeof terminalSendInput> | { key: TerminalKey }) => {
-    if (sending || !snapshot?.sessionId || snapshot.generation === undefined) return;
+    if (sending || !canType || !shown?.sessionId || shown.generation === undefined) return;
     const line = draft;
     setSending(true);
     setSendError(null);
     try {
       const next: RemoteTerminalSnapshot = await api(`/api/bots/${encodeURIComponent(bot.id)}/terminal/send`, {
         method: "POST",
-        body: JSON.stringify({ sessionId: snapshot.sessionId, generation: snapshot.generation, ...input }),
+        body: JSON.stringify({ sessionId: shown.sessionId, generation: shown.generation, ...input }),
       });
       appliedRequestRef.current = ++requestRef.current;
       pinnedRef.current = true;
@@ -248,7 +251,7 @@ export function RemoteTerminalView({
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-[13px] font-medium">{t("terminal.title")} <span className="text-ink-secondary">/ {bot.name}</span></h1>
           <p className="truncate font-mono text-[11px] text-ink-secondary">
-            {[snapshot?.cwd, noTerminal ? t("terminal.noSession") : snapshot?.exited ? t("terminal.exited", { code: snapshot.exitCode ?? "?" }) : ""].filter(Boolean).join(" · ")}
+            {[shown?.cwd, noTerminal ? t("terminal.noSession") : shown?.exited ? t("terminal.exited", { code: shown.exitCode ?? "?" }) : ""].filter(Boolean).join(" · ")}
           </p>
         </div>
         <button type="button" onClick={() => void refreshNow()} disabled={refreshing} aria-label={t("terminal.refresh")} className={buttonClass}>

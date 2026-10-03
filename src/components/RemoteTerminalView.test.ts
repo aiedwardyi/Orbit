@@ -583,6 +583,50 @@ describe("RemoteTerminalView", () => {
     await act(async () => second.root.unmount());
   });
 
+  it("disables input and hides the old screen until the selected pane's snapshot arrives", async () => {
+    vi.useFakeTimers();
+    const panes = [{ sessionId: "main", label: "Main", main: true }, { sessionId: "worker", label: "Worker", main: false }];
+    const main = { screenText: "main prompt", sessionId: "main", generation: 1, panes };
+    store.api.mockImplementation((path: string) => (path.includes("?sessionId=worker") ? new Promise(() => {}) : Promise.resolve(main)));
+    const { host, root } = await renderView();
+    try {
+      const tab = (name: string) => [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((el) => el.textContent === name)!;
+      await act(async () => click(tab("Worker")));
+      await act(async () => vi.advanceTimersByTime(3_000));
+      expect(tab("Worker").getAttribute("aria-selected")).toBe("true");
+      expect([...host.querySelectorAll("button")].some((el) => el.textContent === "Enter")).toBe(false);
+      expect(host.textContent).not.toContain("main prompt");
+      expect(sends()).toHaveLength(0);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("ignores a late snapshot for a pane that is no longer selected (A -> B -> A)", async () => {
+    vi.useFakeTimers();
+    const panes = [{ sessionId: "main", label: "Main", main: true }, { sessionId: "worker", label: "Worker", main: false }];
+    const main = { screenText: "main prompt", sessionId: "main", generation: 1, panes };
+    let resolveWorker!: (value: unknown) => void;
+    store.api.mockImplementation((path: string) =>
+      path.includes("?sessionId=worker") ? new Promise((resolve) => (resolveWorker = resolve)) : Promise.resolve(main),
+    );
+    const { host, root } = await renderView();
+    try {
+      const tab = (name: string) => [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((el) => el.textContent === name)!;
+      await act(async () => click(tab("Worker")));
+      await act(async () => click(tab("Main")));
+      await act(async () => resolveWorker({ screenText: "worker prompt", sessionId: "worker", generation: 5, panes }));
+      expect(tab("Main").getAttribute("aria-selected")).toBe("true");
+      expect(host.textContent).not.toContain("worker prompt");
+      await act(async () => vi.advanceTimersByTime(1_000));
+      const enter = [...host.querySelectorAll<HTMLButtonElement>("button")].find((el) => el.textContent === "Enter")!;
+      await act(async () => click(enter));
+      expect(JSON.parse(sends()[0][1].body)).toMatchObject({ sessionId: "main", generation: 1, key: "enter" });
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
   it("joins only the parts that have text", () => {
     expect(snapshotText({ screenText: "a" })).toBe("a");
     expect(snapshotText({ recentText: "b" })).toBe("b");
