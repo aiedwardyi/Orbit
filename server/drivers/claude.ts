@@ -25,6 +25,7 @@ import { ATTACHMENTS_DIR, sniffImageMime } from "../attachments.ts";
 import { applyCredentialAllowlist, DATA_DIR } from "../config.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, spawnCli } from "../procs.ts";
+import { inputDigest } from "../repeat-detector.ts";
 import { REPLY_MARKER } from "../turn-context.ts";
 import { startTurnTimer } from "../turn-timing.ts";
 
@@ -255,14 +256,19 @@ function systemEndedReply(kind: Ask["kind"]): { behavior: AskBehavior; message: 
     : { behavior: "deny", message: "OpenMausBot: the turn ended" };
 }
 
+/** The ask's full arguments; askSummary is this, cut for the card. */
+function askArgs(ask: Ask): string {
+  const input = ask.input ?? {};
+  if (typeof input.question === "string") return input.question;
+  if (typeof input.command === "string") return input.command;
+  if (typeof input.url === "string") return input.url;
+  const text = JSON.stringify(input);
+  return text === "{}" ? (ask.tool ?? "tool") : text;
+}
+
 /** One human-readable line for an ask — what the card subtitle shows. */
 function askSummary(ask: Ask): string {
-  const input = ask.input ?? {};
-  if (typeof input.question === "string") return input.question.slice(0, 300);
-  if (typeof input.command === "string") return input.command.slice(0, 200);
-  if (typeof input.url === "string") return input.url.slice(0, 200);
-  const text = JSON.stringify(input);
-  return text === "{}" ? (ask.tool ?? "tool") : text.slice(0, 200);
+  return askArgs(ask).slice(0, typeof ask.input?.question === "string" ? 300 : 200);
 }
 
 export function permissionSocketPath(threadId: string, generation = 1) {
@@ -1006,6 +1012,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               requestType: ask.kind,
               tool: ask.tool,
               summary: askSummary(ask),
+              inputDigest: inputDigest(askArgs(ask)),
               approvalScope:
                 typeof ask.tool === "string" && controlsHost && ask.tool.startsWith("mcp__computer")
                   ? "local-computer"

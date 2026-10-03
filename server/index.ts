@@ -264,7 +264,7 @@ import { fetchSkillFromSource } from "./skill-fetch.ts";
 import { readCuaConnection } from "./local-computer.ts";
 import { LocalVmIdleTimer } from "./local-vm-idle.ts";
 import { LocalVmLease, LocalVmLeasePool } from "./local-vm-lease.ts";
-import { RepeatDetector, callKey } from "./repeat-detector.ts";
+import { RepeatDetector, repeatCall } from "./repeat-detector.ts";
 import { endsContentStream, redactSecrets, redactSecretsInText, StreamSecretMasker } from "./redact.ts";
 import {
   apiRequestAuthorized,
@@ -3296,17 +3296,11 @@ function finalizeDelegationWatch(
 // from every permission ask's summary (the command being approved).
 bus.subscribe((event: RuntimeEvent) => {
   if (event.type === "turn.completed" || event.type === "session.exited") return void repeats.settle(event.threadId);
-  let key: string | null = null;
-  if (event.type === "item.started" && event.itemType === "tool") {
-    // a title with more than a bare identifier is a call with arguments
-    // (ACP: "echo hi", "Read src/x.ts"); a bare "Bash" is not countable
-    const title = event.title ?? "";
-    if (/\s|\//.test(title.trim())) key = callKey("tool", title);
-  } else if (event.type === "request.opened" && event.requestType === "permission") key = callKey(event.tool, event.summary);
-  if (!key) return;
-  const { threshold } = repeats.record(event.threadId, key);
+  const call = repeatCall(event);
+  if (!call) return;
+  const { threshold } = repeats.record(event.threadId, call.key);
   if (!threshold) return;
-  const [tool, ...rest] = key.split(":");
+  const [tool, ...rest] = call.label.split(":");
   const args = rest.join(":");
   store.appendMessage(event.threadId, {
     role: "bot",

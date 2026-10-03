@@ -111,7 +111,14 @@ export type RuntimeEvent = RuntimeEventBase &
          * turn ended, so the session holds it even when the turn did not. */
         promptAccepted?: boolean;
       }
-    | { type: "item.started"; itemType: "tool" | "reasoning"; title?: string; summary?: string }
+    | {
+        type: "item.started";
+        itemType: "tool" | "reasoning";
+        title?: string;
+        summary?: string;
+        /** digest of the full call, which `title` cuts */
+        inputDigest?: string;
+      }
     | { type: "item.updated"; itemType: "tool" | "reasoning"; tokens?: number | null }
     | { type: "item.completed"; itemType: "tool"; ok: boolean; summary?: string; durationMs?: number }
     | { type: "item.completed"; itemType: "assistant_text"; text: string }
@@ -121,6 +128,8 @@ export type RuntimeEvent = RuntimeEventBase &
         requestType: "permission" | "question";
         tool: string;
         summary: string;
+        /** digest of the full call, which `summary` cuts */
+        inputDigest?: string;
         choices?: string[];
         approvalScope?: "local-computer";
       }

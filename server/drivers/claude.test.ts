@@ -19,6 +19,7 @@ import { ensureDirs, PROVIDER_CREDENTIAL_ENV, WORKSPACE_CREDENTIAL_ENV } from ".
 import type { ProviderInstance } from "../contracts.ts";
 import { recordEvents, type EventRecorder } from "../testing/events.ts";
 import { ClaudeDriver, claudeToolSummary, claudeUserContent, permissionSocketPath, type ClaudeConfig } from "./claude.ts";
+import { inputDigest } from "../repeat-detector.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 import { REPLY_MARKER } from "../turn-context.ts";
 
@@ -1416,6 +1417,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       requestType: "permission",
       tool: "Bash",
       summary: "rm -rf scratch",
+      inputDigest: inputDigest("rm -rf scratch"),
       requestId: "ask-1",
     });
     // a plain CLI tool never carries the desktop-control approval scope,

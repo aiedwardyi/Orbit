@@ -5,6 +5,10 @@
 // harness to own the call or to be able to speak mid-turn, neither of which
 // is true for CLI drivers today (see plan items 3.2 / 3.3).
 
+import { createHash } from "node:crypto";
+
+import type { RuntimeEvent } from "./contracts.ts";
+
 /** Tool name plus its arguments, whitespace-normalized. A bare tool name
  * is not a call worth counting: "Bash" five times may be five different
  * commands, and Claude's item.started carries only the name. */
@@ -12,6 +16,30 @@ export function callKey(tool: string, args: string | undefined): string | null {
   const a = (args ?? "").replace(/\s+/g, " ").trim();
   if (!a || a === tool) return null;
   return `${tool}:${a}`;
+}
+
+/** Stands in for a call's full arguments where the event text is cut. */
+export function inputDigest(args: string): string {
+  return createHash("sha256").update(args).digest("hex").slice(0, 16);
+}
+
+/** A countable call: `label` is what the chip shows, `key` what is counted.
+ * Titles and summaries are cut, so the full-input digest keeps apart two calls that share an opening. */
+export function repeatCall(event: RuntimeEvent): { key: string; label: string } | null {
+  let label: string | null = null;
+  let digest: string | undefined;
+  if (event.type === "item.started" && event.itemType === "tool") {
+    // a title with more than a bare identifier is a call with arguments
+    // (ACP: "echo hi", "Read src/x.ts"); a bare "Bash" is not countable
+    const title = event.title ?? "";
+    if (/\s|\//.test(title.trim())) label = callKey("tool", title);
+    digest = event.inputDigest;
+  } else if (event.type === "request.opened" && event.requestType === "permission") {
+    label = callKey(event.tool, event.summary);
+    digest = event.inputDigest;
+  }
+  if (!label) return null;
+  return { key: digest ? `${label}#${digest}` : label, label };
 }
 
 export class RepeatDetector {

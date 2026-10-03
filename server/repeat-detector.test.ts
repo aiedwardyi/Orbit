@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
 
-import { RepeatDetector, callKey } from "./repeat-detector.ts";
+import type { RuntimeEvent } from "./contracts.ts";
+import { RepeatDetector, callKey, inputDigest, repeatCall } from "./repeat-detector.ts";
+
+const ask = (command: string): RuntimeEvent => ({
+  eventId: "e",
+  provider: "claude",
+  threadId: "t1",
+  createdAt: "",
+  type: "request.opened",
+  requestType: "permission",
+  tool: "Bash",
+  summary: command.slice(0, 200),
+  inputDigest: inputDigest(command),
+});
 
 describe("callKey", () => {
   it("keys on tool plus arguments, normalizing whitespace, and ignores a bare tool name", () => {
@@ -11,6 +24,26 @@ describe("callKey", () => {
     // ACP titles that are just the tool name again carry no arguments
     expect(callKey("Bash", "Bash")).toBeNull();
     expect(callKey("Read", "Read src/index.ts")).toBe("Read:Read src/index.ts");
+  });
+});
+
+describe("repeatCall", () => {
+  const chips = (commands: string[]) => {
+    const d = new RepeatDetector({ thresholds: [5, 10, 20] });
+    return commands.flatMap((command) => {
+      const call = repeatCall(ask(command));
+      return call && d.record("t1", call.key).threshold ? [call.label] : [];
+    });
+  };
+  const opening = `python - <<'EOF'\n${"x = 1\n".repeat(40)}`;
+
+  it("keeps apart asks that share their summary but differ later", () => {
+    expect(chips([1, 2, 3, 4, 5].map((n) => `${opening}edit(${n})\nEOF`))).toEqual([]);
+  });
+
+  it("still flags the same full call five times", () => {
+    const command = `${opening}edit(1)\nEOF`;
+    expect(chips(Array(5).fill(command))).toEqual([callKey("Bash", command.slice(0, 200))]);
   });
 });
 

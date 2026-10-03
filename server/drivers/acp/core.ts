@@ -25,6 +25,7 @@ const LOCAL_HOST_KEY_ENVS = [
 ];
 import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../../procs.ts";
 import { isWslCommand, withWslProbeReason, wslBlockedReason, wslProbeAllowed } from "../../wsl-gate.ts";
+import { inputDigest } from "../../repeat-detector.ts";
 import { startTurnTimer } from "../../turn-timing.ts";
 import { exhaustedWindow, grokRateLimitWindows, isConfirmedNonUsage, usageLimitFromError } from "../rate-limits.ts";
 
@@ -1009,7 +1010,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           }
           const kind = String(toolCall.kind ?? "");
           const tool = kind === "execute" ? "shell" : kind === "edit" ? "edit" : kind || "tool";
-          const summary = String(toolCall.rawInput?.command ?? toolCall.title ?? tool).slice(0, 200);
+          const args = String(toolCall.rawInput?.command ?? toolCall.title ?? tool);
+          const summary = args.slice(0, 200);
           const requestId = newId();
           const finish = (behavior: string, source: "user" | "timeout" | "system" = "user") => {
             if (!asks.delete(requestId)) return null;
@@ -1045,6 +1047,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             requestType: "permission",
             tool,
             summary,
+            inputDigest: inputDigest(args),
             approvalScope: controlsHost ? "local-computer" : undefined,
           });
         };
@@ -1083,12 +1086,14 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             }
             case "tool_call": {
               flushAssistantText();
+              const args = String(u.rawInput?.command ?? u.title ?? "tool");
               emit({
                 ...base(threadId, turnId),
                 type: "item.started",
                 itemType: "tool",
                 itemId: u.toolCallId,
-                title: String(u.rawInput?.command ?? u.title ?? "tool").slice(0, 80),
+                title: args.slice(0, 80),
+                inputDigest: inputDigest(args),
               });
               break;
             }
