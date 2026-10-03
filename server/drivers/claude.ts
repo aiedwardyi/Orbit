@@ -1012,7 +1012,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               requestType: ask.kind,
               tool: ask.tool,
               summary: askSummary(ask),
-              inputDigest: inputDigest(askArgs(ask)),
+              inputDigest: inputDigest(ask.input ?? askArgs(ask)),
               approvalScope:
                 typeof ask.tool === "string" && controlsHost && ask.tool.startsWith("mcp__computer")
                   ? "local-computer"

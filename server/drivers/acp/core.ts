@@ -1047,7 +1047,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             requestType: "permission",
             tool,
             summary,
-            inputDigest: inputDigest(args),
+            inputDigest: inputDigest(toolCall.rawInput ?? args),
             approvalScope: controlsHost ? "local-computer" : undefined,
           });
         };
@@ -1093,7 +1093,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                 itemType: "tool",
                 itemId: u.toolCallId,
                 title: args.slice(0, 80),
-                inputDigest: inputDigest(args),
+                inputDigest: inputDigest(u.rawInput ?? args),
               });
               break;
             }

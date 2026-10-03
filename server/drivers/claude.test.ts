@@ -1417,7 +1417,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       requestType: "permission",
       tool: "Bash",
       summary: "rm -rf scratch",
-      inputDigest: inputDigest("rm -rf scratch"),
+      inputDigest: inputDigest({ command: "rm -rf scratch" }),
       requestId: "ask-1",
     });
     // a plain CLI tool never carries the desktop-control approval scope,
@@ -1454,6 +1454,32 @@ describe("ClaudeDriver turns (fake CLI)", () => {
 
     conn.end();
     await instance.adapter.interruptTurn("t-perm-abc");
+    await recorder.until((e) => e.type === "turn.completed");
+  });
+
+  it("digests every ask field, so one URL with different prompts stays distinct", async () => {
+    await create("hang");
+    await instance.adapter.sendTurn({ threadId: "t-digest", text: "go" });
+    await recorder.until((e) => e.type === "session.started");
+
+    const conn = await connectSocket(permissionSocketPath("t-digest"));
+    const url = "https://example.com/docs";
+    const send = (id: string, input: Record<string, unknown>) =>
+      conn.write(JSON.stringify({ t: "ask", id, tool: "WebFetch", input }) + "\n");
+    send("fetch-a", { url, prompt: "list the endpoints" });
+    send("fetch-b", { url, prompt: "summarize auth" });
+    send("fetch-c", { prompt: "list the endpoints", url });
+    const a = await recorder.until((e) => e.type === "request.opened" && e.requestId === "fetch-a");
+    const b = await recorder.until((e) => e.type === "request.opened" && e.requestId === "fetch-b");
+    const c = await recorder.until((e) => e.type === "request.opened" && e.requestId === "fetch-c");
+    expect(a).toMatchObject({ summary: url });
+    expect(b).toMatchObject({ summary: url });
+    if (a.type !== "request.opened" || b.type !== "request.opened" || c.type !== "request.opened") throw new Error("missing asks");
+    expect(a.inputDigest).not.toBe(b.inputDigest);
+    expect(c.inputDigest).toBe(a.inputDigest);
+
+    conn.end();
+    await instance.adapter.interruptTurn("t-digest");
     await recorder.until((e) => e.type === "turn.completed");
   });
 

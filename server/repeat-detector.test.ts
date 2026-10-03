@@ -27,6 +27,15 @@ describe("callKey", () => {
   });
 });
 
+describe("inputDigest", () => {
+  it("hashes the whole object, ignoring key order", () => {
+    const fetch = (prompt: string) => ({ url: "https://example.com", prompt, opts: { depth: 1 } });
+    expect(inputDigest(fetch("a"))).not.toBe(inputDigest(fetch("b")));
+    expect(inputDigest({ opts: { depth: 1 }, prompt: "a", url: "https://example.com" })).toBe(inputDigest(fetch("a")));
+    expect(inputDigest({ edits: [{ newText: "a" }] })).not.toBe(inputDigest({ edits: [{ newText: "b" }] }));
+  });
+});
+
 describe("repeatCall", () => {
   const chips = (commands: string[]) => {
     const d = new RepeatDetector({ thresholds: [5, 10, 20] });

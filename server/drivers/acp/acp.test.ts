@@ -1255,6 +1255,27 @@ describe("ACP turns (fake CLI)", () => {
     expect(done).toMatchObject({ ok: true });
   });
 
+  it("digests the full rawInput, so edits sharing a title stay distinct", async () => {
+    await create(GrokAgentDriver, "permission-edits");
+    await instance.adapter.sendTurn({ threadId: "t-edits", text: "go" });
+    const answered = new Set<string>();
+    const allowNext = async () => {
+      const ask = await recorder.until((e) => e.type === "request.opened" && !answered.has((e as any).requestId));
+      answered.add((ask as any).requestId);
+      await instance.adapter.respondToRequest("t-edits", (ask as any).requestId, { behavior: "allow" });
+    };
+    await allowNext();
+    await allowNext();
+    await recorder.until((e) => e.type === "turn.completed");
+    const opened = recorder.events.filter((e) => e.type === "request.opened");
+    const started = recorder.events.filter((e) => e.type === "item.started" && e.title === "Edit src/app.ts");
+    expect(opened).toHaveLength(2);
+    expect(started).toHaveLength(2);
+    expect(opened.map((e) => (e as any).summary)).toEqual(["Edit src/app.ts", "Edit src/app.ts"]);
+    expect((opened[0] as any).inputDigest).not.toBe((opened[1] as any).inputDigest);
+    expect((started[0] as any).inputDigest).not.toBe((started[1] as any).inputDigest);
+  });
+
   /** ACP lets an agent advertise `allow_always` alongside `allow_once`, in any
    *  order. A one-time answer must select the one-time option: a persistent
    *  grant lives inside the provider CLI, where this app cannot revoke it. */

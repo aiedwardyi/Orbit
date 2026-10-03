@@ -18,9 +18,19 @@ export function callKey(tool: string, args: string | undefined): string | null {
   return `${tool}:${a}`;
 }
 
-/** Stands in for a call's full arguments where the event text is cut. */
-export function inputDigest(args: string): string {
-  return createHash("sha256").update(args).digest("hex").slice(0, 16);
+/** Stands in for a call's full arguments where the event text is cut.
+ * Objects hash with sorted keys, so field order never splits one call in two. */
+export function inputDigest(input: unknown): string {
+  return createHash("sha256").update(typeof input === "string" ? input : stableJson(input)).digest("hex").slice(0, 16);
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableJson(v)}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 }
 
 /** A countable call: `label` is what the chip shows, `key` what is counted.

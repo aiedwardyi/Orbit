@@ -14,6 +14,7 @@
 //   FAKE_ACP_BILLING_PERCENT  weekly credit fill the billing call reports (default 42)
 //   FAKE_ACP_BILLING_END      ISO end of that weekly period (default now + 7 days)
 //                   | permission-twice (two sequential cards in one turn)
+//                   | permission-edits (two edits sharing a title, differing in rawInput)
 //                   | interleave (message → tool → message → tool → message)
 //                   | tool-progress (a tool emits nonterminal updates)
 //                   | no-session-config (reject session/set_mode + set_model
@@ -689,19 +690,26 @@ function handle(msg: any) {
       if (mode === "interleave") playInterleaveTurn();
       else if (mode === "tool-progress") playToolProgressTurn();
       else if (mode !== "empty-reply") playTurn();
-      if (mode === "permission" || mode === "permission-twice") {
+      if (mode === "permission" || mode === "permission-twice" || mode === "permission-edits") {
         // ask the client to approve a tool, then complete once answered
-        const commands = mode === "permission-twice" ? ["echo hi", "echo again"] : ["echo hi"];
+        const calls =
+          mode === "permission-edits"
+            ? ["a", "b"].map((newText) => ({ kind: "edit", rawInput: { path: "src/app.ts", oldText: "x", newText }, title: "Edit src/app.ts" }))
+            : (mode === "permission-twice" ? ["echo hi", "echo again"] : ["echo hi"]).map((command) => ({ kind: "execute", rawInput: { command }, title: command }));
         const ask = () => {
-          const command = commands.shift()!;
-          pendingPermissionId = 9000 + commands.length;
-          onPermissionAnswered = commands.length ? ask : complete;
+          const toolCall = calls.shift()!;
+          pendingPermissionId = 9000 + calls.length;
+          onPermissionAnswered = calls.length ? ask : complete;
+          if (mode === "permission-edits") {
+            const toolCallId = `tc-${pendingPermissionId}`;
+            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "tool_call", toolCallId, ...toolCall } } });
+          }
           out({
             jsonrpc: "2.0",
             id: pendingPermissionId,
             method: "session/request_permission",
             params: {
-              toolCall: { kind: "execute", rawInput: { command }, title: command },
+              toolCall,
               options: permissionOptions(),
             },
           });
