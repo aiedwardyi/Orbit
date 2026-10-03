@@ -226,3 +226,7 @@ export function taskStateUpdateError(error: z.ZodError): string {
   else if (issue) detail = issue.path.length ? `${issue.path.map(String).join(".")}: ${issue.message}` : issue.message;
   return `invalid task state update: ${detail.slice(0, 200)}; allowed: ${TASK_STATE_UPDATE_FIELDS}.`;
 }
+
+export function taskArtifactError(rejected: string[], cwd: string): string {
+  return `artifacts must be files inside this task's working folder ${cwd}; rejected: ${rejected.join(", ")}`;
+}

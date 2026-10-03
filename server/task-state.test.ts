@@ -19,6 +19,7 @@ import {
   deleteTaskResumePacket,
   readTaskResumePacket,
   TASK_STATE_MAX_BYTES,
+  taskArtifactError,
   taskStateUpdateError,
   writeTaskResumePacket,
   type TaskResumePacket,
@@ -181,5 +182,13 @@ describe("taskStateUpdateError", () => {
   it("bounds the detail length", () => {
     const text = error({ ["x".repeat(1000)]: 1 });
     expect(text.length).toBeLessThan(400);
+  });
+});
+
+describe("taskArtifactError", () => {
+  it("names the rejected refs and the working folder", () => {
+    const text = taskArtifactError(["../out.md", "/tmp/b.png"], "/work/demo");
+    expect(text).toContain("working folder /work/demo");
+    expect(text).toContain("rejected: ../out.md, /tmp/b.png");
   });
 });

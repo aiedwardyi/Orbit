@@ -184,6 +184,7 @@ describe("importLocalImage", () => {
     expect(() => importLocalImage(file, roots)).toThrow(
       expect.objectContaining({ status: 403, message: expect.stringContaining("project or workspace folder") }),
     );
+    expect(() => importLocalImage(file, roots)).toThrow(roots.join(", "));
     expect(() => importLocalImage(file, [])).toThrow(expect.objectContaining({ status: 403 }));
   });
 

@@ -67,7 +67,7 @@ export function sniffImageMime(bytes: Buffer): string | null {
  * UNC and device paths are refused before any fs call: resolving one can block the event loop on a network share. */
 export function importLocalImage(path: string, roots: readonly string[]): SavedAttachment & { name: string } {
   const fail = (status: number, msg: string) => Object.assign(new Error(msg), { status });
-  const outside = "image must be inside your project or workspace folder; save it there first";
+  const outside = `image must be inside your project or workspace folder (${roots.join(", ") || "none set"}); save it there first`;
   if (/^[\\/]{2}/.test(path)) throw fail(403, outside);
   if (!isAbsolute(path)) throw fail(400, "path must be absolute");
   let real: string;

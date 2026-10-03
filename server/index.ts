@@ -201,7 +201,7 @@ import {
   type RecoveryFlushReason,
 } from "./task-recovery-flush.ts";
 import { isCompletedTaskRecord } from "../shared/task-resume.ts";
-import { taskStateUpdateError, type TaskResumePacket } from "./task-state.ts";
+import { taskArtifactError, taskStateUpdateError, type TaskResumePacket } from "./task-state.ts";
 import * as tts from "./tts/index.ts";
 import { narrateTool, toUtterances } from "./tts/speech-text.ts";
 import {
@@ -6186,9 +6186,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           ref: groundedTaskArtifact(taskCwd, artifact.ref),
           label: artifact.label,
         }));
-        if (artifacts?.some((artifact) => artifact.ref === null)) {
-          return json(res, 400, { error: "artifacts must be files inside this task's working folder" });
-        }
+        const rejected = body.artifacts?.filter((_, index) => artifacts![index]!.ref === null).map((artifact) => artifact.ref) ?? [];
+        if (rejected.length) return json(res, 400, { error: taskArtifactError(rejected, taskCwd!) });
 
         const next = structuredClone(current);
         // Dropping the anchor is how the bot claims a field: a later instruction
