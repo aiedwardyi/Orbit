@@ -8,7 +8,6 @@ import { ensureDirs } from "../../config.ts";
 import type { ProviderInstance } from "../../contracts.ts";
 import { recordEvents, type EventRecorder } from "../../testing/events.ts";
 import { removeTempDir } from "../../testing/cleanup.ts";
-import { ensureWorkspace } from "../../workspace.ts";
 import { GeminiAgentDriver } from "./gemini.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "testing", "fake-acp-cli.ts");
@@ -32,7 +31,7 @@ describe("Gemini workspace trust", () => {
     await removeTempDir(scratch);
   });
 
-  const trustEnvFor = async (cwd: string) => {
+  it("marks the workspace trusted on the Gemini child env", async () => {
     instance = await GeminiAgentDriver.create({
       instanceId: "gemini-trust",
       displayName: "Gemini",
@@ -44,17 +43,9 @@ describe("Gemini workspace trust", () => {
     const dump = join(scratch, "gemini-trust.json");
     process.env.FAKE_ACP_DUMP = dump;
 
-    await instance.adapter.sendTurn({ threadId: "t-gemini-trust", text: "go", cwd });
+    await instance.adapter.sendTurn({ threadId: "t-gemini-trust", text: "go" });
     await recorder.until((e) => e.type === "turn.completed");
 
-    return JSON.parse(readFileSync(dump, "utf8")).env.GEMINI_CLI_TRUST_WORKSPACE;
-  };
-
-  it("trusts a wink bot workspace", async () => {
-    expect(await trustEnvFor(ensureWorkspace("gemini-bot"))).toBe("true");
-  });
-
-  it("leaves trust alone for any other folder", async () => {
-    expect(await trustEnvFor(scratch)).toBeUndefined();
+    expect(JSON.parse(readFileSync(dump, "utf8")).env.GEMINI_CLI_TRUST_WORKSPACE).toBe("true");
   });
 });

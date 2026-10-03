@@ -9,7 +9,7 @@
 // file tools. Plain markdown on purpose — the user can open, edit, or
 // delete anything the bot believes.
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { join } from "node:path";
 
 import { DATA_DIR } from "./config.ts";
 
@@ -45,12 +45,6 @@ export function ensureWorkspace(botId: string): string {
 
 export function workspaceDir(botId: string): string {
   return join(WORKSPACES_DIR, botId);
-}
-
-/** True only for a per-bot folder itself, not the parent or anything inside it. */
-export function isBotWorkspace(dir: string): boolean {
-  const rel = relative(WORKSPACES_DIR, resolve(dir));
-  return rel !== "" && rel !== ".." && !rel.includes(sep) && !isAbsolute(rel);
 }
 
 /** MEMORY.md under the load budget: first MEMORY_MAX_LINES lines or

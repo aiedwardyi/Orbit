@@ -1,5 +1,4 @@
 // Gemini CLI over its native ACP stdio transport.
-import { isBotWorkspace } from "../../workspace.ts";
 import { createAcpDriver, type AcpSupport } from "./core.ts";
 
 const AUTH_PREFERENCE = ["gemini-api-key", "oauth-personal", "vertex-ai"];
@@ -44,10 +43,9 @@ const support: AcpSupport = {
   spawnArgs: (_config, turn) => ["--acp", ...(turn.model ? ["-m", turn.model] : [])],
   credentialEnv: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
 
-  transformEnv: (env, _config, cwd) => {
+  transformEnv: (env) => {
     // Untrusted cwd makes the CLI skip every stdio MCP server; env var because older CLIs may reject --skip-trust.
-    // Never a user project: trusting it would run that repo's .gemini MCP commands at startup.
-    if (cwd && isBotWorkspace(cwd)) env.GEMINI_CLI_TRUST_WORKSPACE = "true";
+    env.GEMINI_CLI_TRUST_WORKSPACE = "true";
   },
 
   pickAuthMethod: (methods) => {
