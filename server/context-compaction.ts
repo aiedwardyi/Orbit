@@ -207,6 +207,20 @@ export function paneNotesSinceLastUserTurn(messages: Message[], excludeIds: Read
   return notes;
 }
 
+/** A replayed transcript already carries every note, so it delivers them without a prefix. */
+export function paneNotesForTurn(
+  messages: Message[],
+  excludeIds: ReadonlySet<string>,
+  deliveredId: string | undefined,
+  replaysTranscript: boolean,
+): { notes: string[]; newestId?: string } {
+  const notes = replaysTranscript ? [] : paneNotesSinceLastUserTurn(messages, excludeIds, deliveredId);
+  const newestId = notes.length || replaysTranscript
+    ? messages.findLast((message) => message.kind === "note" && message.text?.trim() && !excludeIds.has(message.id))?.id
+    : undefined;
+  return { notes, newestId };
+}
+
 function replayUnits(
   messages: Message[],
   excludeIds: ReadonlySet<string>,

@@ -6,6 +6,7 @@ import {
   contextWindowFor,
   estimateContextTokens,
   knownCatalogContextWindow,
+  paneNotesForTurn,
   paneNotesSinceLastUserTurn,
   prepareModelContext,
 } from "./context-compaction.ts";
@@ -860,6 +861,19 @@ describe("provider-neutral context compaction", () => {
       "[Pane note from pane 0f3c9a1e, untrusted worker output]\nB",
     ]);
     expect(paneNotesSinceLastUserTurn(path, new Set(), "m4")).toEqual([]);
+  });
+
+  it("a transcript replay marks its notes delivered so the next resumed turn skips them", () => {
+    const note = (id: string, text: string) => message(id, `[pane 0f3c9a1e] ${text}`, { role: "bot", kind: "note" });
+    const path = [message("m1", "Start"), note("m2", "A"), message("m3", "On it", { role: "bot" }), note("m4", "B")];
+
+    const replay = paneNotesForTurn(path, new Set(), undefined, true);
+    expect(replay.notes).toEqual([]);
+    expect(paneNotesForTurn(path, new Set(), replay.newestId, false).notes).toEqual([]);
+    expect(paneNotesForTurn([...path, note("m5", "C")], new Set(), replay.newestId, false)).toEqual({
+      notes: ["[Pane note from pane 0f3c9a1e, untrusted worker output]\nC"],
+      newestId: "m5",
+    });
   });
 
   it("redacts credential-like values before returning persisted state", async () => {

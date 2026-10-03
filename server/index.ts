@@ -104,7 +104,7 @@ import {
 import { loadRateLimits, scheduleSaveRateLimits } from "./rate-limits-store.ts";
 import { createUsageRefresh, usageRefreshResponse } from "./usage-refresh.ts";
 import { ComputerControl } from "./computer-control.ts";
-import { contextWindowFor, knownCatalogContextWindow, paneNotesSinceLastUserTurn, paneNoteText, prepareModelContext } from "./context-compaction.ts";
+import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, paneNoteText, prepareModelContext } from "./context-compaction.ts";
 import { augmentedPath, findCliCandidates, resetPathCache, splitCliString } from "./env-path.ts";
 import { describeSpawnFailure, execCli } from "./procs.ts";
 import { buildNotification, type Notification } from "./notify.ts";
@@ -3995,10 +3995,12 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     userName: cfg.profile?.name?.trim() || "User",
     replayedTranscript: replaysTranscript ? transcript : undefined,
   });
-  const paneNotes = replaysTranscript ? [] : paneNotesSinceLastUserTurn(activeMessages, skipTranscript, deliveredPaneNotes.get(threadId));
-  const newestPaneNoteId = paneNotes.length
-    ? activeMessages.findLast((message) => message.kind === "note" && message.text?.trim() && !skipTranscript.has(message.id))?.id
-    : undefined;
+  const { notes: paneNotes, newestId: newestPaneNoteId } = paneNotesForTurn(
+    activeMessages,
+    skipTranscript,
+    deliveredPaneNotes.get(threadId),
+    replaysTranscript,
+  );
   const { turnText, resume } = buildTurnContext({
     text: paneNotes.length ? [...paneNotes, "Current message:", currentPrompt].join("\n\n") : currentPrompt,
     transcript,
