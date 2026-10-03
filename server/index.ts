@@ -4416,9 +4416,13 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         }
         const live = providerReload.started(threadId, instanceId);
         if (!live) return Promise.reject(new Error(`provider instance "${instanceId}" is unavailable`));
+        // Sends during the setup awaits had no provider turn to steer, so they queued; they join here.
+        const late = foldQueuedSends(store, bot.id, threadId);
+        if (late.length) clearUnattended(bot.id);
+        const withLate = (base: string) => [base, ...late].join("\n\n");
         return live.adapter.sendTurn({
         threadId,
-        text: turnText,
+        text: withLate(turnText),
         model,
         effort,
         leanStartup,
@@ -4428,7 +4432,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         // conversation and defeat the context bubble
         resumeCursor: resume ? task.resumeCursors[instanceId] : undefined,
         resumeFallback: resume && task.resumeCursors[instanceId] !== undefined
-          ? { text: resumeFallback }
+          ? { text: withLate(resumeFallback) }
           : undefined,
         transcript,
         system:

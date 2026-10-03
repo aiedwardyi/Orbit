@@ -498,6 +498,25 @@ describe("steer-queue module", () => {
     expect(_queuedCount(bot.threadId)).toBe(0);
   });
 
+  it("folds sends queued during turn setup into the dispatching turn in send order", () => {
+    const bot = fakeBot("bot-fold-setup", "thread-fold-setup", true);
+    const store = fakeStore([bot]);
+    expect(foldQueuedSends(store, bot.id, bot.threadId)).toEqual([]);
+
+    const a = queueSteeredMessage(bot.id, bot.threadId, "a", { sendId: "send_setup_a_1234567", prompt: "prompt a" });
+    const b = queueSteeredMessage(bot.id, bot.threadId, "b", { sendId: "send_setup_b_1234567", prompt: "prompt b" });
+    const late = foldQueuedSends(store, bot.id, bot.threadId);
+
+    expect(["turn text", ...late].join("\n\n")).toBe("turn text\n\nprompt a\n\nprompt b");
+    expect(store.messages.map((m) => [m.text, m.queueId, m.sendId])).toEqual([
+      ["a", a.id, "send_setup_a_1234567"],
+      ["b", b.id, "send_setup_b_1234567"],
+    ]);
+    const run = vi.fn();
+    drainSteeredMessages(store, run);
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("drains only one queue per bot per settle so a 1:1 and a room wait cannot double-fire", () => {
     const skye = fakeBot("skye-both", "skye-both-1to1", true);
     const store = fakeStore([skye]);
