@@ -194,14 +194,15 @@ export function paneNoteText(text: string): string {
 }
 
 /** Notes since the last user turn; a resumed provider session has not seen them.
- * A wake turn persists no user message, so `deliveredId` marks the newest note one already carried. */
+ * A wake turn persists no user message, so `deliveredId` marks the newest note one already carried.
+ * A steered line joined a running turn without notes, so it delivers none. */
 export function paneNotesSinceLastUserTurn(messages: Message[], excludeIds: ReadonlySet<string>, deliveredId?: string): string[] {
   const notes: string[] = [];
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]!;
     if (message.id === deliveredId) break;
     if (excludeIds.has(message.id)) continue;
-    if (message.role === "user" && message.kind === "text" && message.text?.trim()) break;
+    if (message.role === "user" && message.kind === "text" && message.text?.trim() && !message.steered) break;
     if (message.kind === "note" && message.text?.trim()) notes.unshift(paneNoteText(message.text));
   }
   return notes;

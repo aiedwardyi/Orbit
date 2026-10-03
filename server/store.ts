@@ -266,6 +266,9 @@ export interface TaskRecord {
    * holds that instance's cursor; absent means no session may be resumed
    * before a replay. */
   resumeSeed?: ResumeSeed;
+  /** Newest pane note a dispatched turn carried; `null` once tracked with
+   * none yet. Absent on tasks from before the field existed. */
+  paneNotesDeliveredId?: string | null;
 }
 
 export interface TaskUsage {
@@ -1516,6 +1519,14 @@ export class Store {
   /** Record which instance just took a turn on this task. Called at
    * dispatch, not at cursor time — transcript-replay engines never
    * produce a cursor, and they still count as having run last. */
+  markPaneNotesDelivered(botId: string, threadId: string, noteId: string | undefined) {
+    const task = this.taskByThread(botId, threadId);
+    const next = noteId ?? task?.paneNotesDeliveredId ?? null;
+    if (!task || task.paneNotesDeliveredId === next) return;
+    task.paneNotesDeliveredId = next;
+    this.saveBots();
+  }
+
   markTaskDispatched(botId: string, threadId: string, instanceId: string, model: string) {
     const task = this.taskByThread(botId, threadId);
     if (!task || (task.lastInstanceId === instanceId && task.lastModel === model)) return;

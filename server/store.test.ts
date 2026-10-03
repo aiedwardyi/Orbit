@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DATA_DIR } from "./config.ts";
-import { prepareModelContext } from "./context-compaction.ts";
+import { paneNotesForTurn, prepareModelContext } from "./context-compaction.ts";
 import type { ModelSelection } from "./contracts.ts";
 import { peerAllowKey } from "./peer-approval-key.ts";
 import { applyResolvedProjectFolder } from "./project-folder.ts";
@@ -760,6 +760,24 @@ describe("Store", () => {
     const task = new Store(selection).taskByThread(bot.id, bot.threadId);
     expect(task?.lastInstanceId).toBe("codex");
     expect(task?.lastModel).toBe("gpt-5.2");
+  });
+
+  it("a pane note a wake delivered stays delivered after a restart", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "Run worker" });
+    const note = store.appendMessage(bot.threadId, { role: "bot", kind: "note", text: "[pane worker01] DONE: result 42" });
+    store.appendMessage(bot.threadId, { role: "bot", kind: "text", text: "I applied result 42" });
+    store.setResumeCursor(bot.id, "claude", "native-session", bot.threadId);
+    expect(store.taskByThread(bot.id, bot.threadId)?.paneNotesDeliveredId).toBeUndefined();
+    store.markPaneNotesDelivered(bot.id, bot.threadId, note.id);
+
+    const reopened = new Store(selection);
+    const task = reopened.taskByThread(bot.id, bot.threadId);
+    expect(task?.resumeCursors.claude).toBe("native-session");
+    expect(paneNotesForTurn(reopened.activePath(bot.threadId), new Set(), task?.paneNotesDeliveredId ?? undefined, false).notes).toEqual([]);
+    reopened.markPaneNotesDelivered(bot.id, bot.threadId, undefined);
+    expect(new Store(selection).taskByThread(bot.id, bot.threadId)?.paneNotesDeliveredId).toBe(note.id);
   });
 
   it("renameModel moves saved Claude selections off a retired model and leaves other engines", () => {

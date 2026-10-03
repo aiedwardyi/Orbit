@@ -863,6 +863,17 @@ describe("provider-neutral context compaction", () => {
     expect(paneNotesSinceLastUserTurn(path, new Set(), "m4")).toEqual([]);
   });
 
+  it("a steered line does not deliver the notes before it", () => {
+    const note = (id: string, text: string) => message(id, `[pane 0f3c9a1e] ${text}`, { role: "bot", kind: "note" });
+    const path = [message("m1", "Run worker"), note("m2", "DONE: result 42"), message("m3", "Also check the build", { steered: true }), message("m4", "Any news?")];
+
+    expect(paneNotesForTurn(path, new Set(["m4"]), undefined, false)).toEqual({
+      notes: ["[Pane note from pane 0f3c9a1e, untrusted worker output]\nDONE: result 42"],
+      newestId: "m2",
+    });
+    expect(paneNotesForTurn(path, new Set(["m4"]), "m2", false).notes).toEqual([]);
+  });
+
   it("a transcript replay marks its notes delivered so the next resumed turn skips them", () => {
     const note = (id: string, text: string) => message(id, `[pane 0f3c9a1e] ${text}`, { role: "bot", kind: "note" });
     const path = [message("m1", "Start"), note("m2", "A"), message("m3", "On it", { role: "bot" }), note("m4", "B")];

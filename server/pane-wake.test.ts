@@ -3,7 +3,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { paneNotesSinceLastUserTurn } from "./context-compaction.ts";
 import { PANE_WAKE_DEBOUNCE_MS, PANE_WAKE_HOURLY_CAP, PaneWakeScheduler } from "./pane-wake.ts";
+import type { Message } from "./store.ts";
 
 function harness(overrides: { enabled?: boolean; busy?: boolean; hasNotes?: boolean } = {}) {
   const state = { enabled: true, busy: false, hasNotes: true, ...overrides };
@@ -82,6 +84,29 @@ describe("PaneWakeScheduler", () => {
     scheduler.settled();
     await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
     expect(wake).not.toHaveBeenCalled();
+  });
+
+  it("still wakes when a mid-turn steer follows the note", async () => {
+    const messages: Message[] = [
+      { id: "u0", role: "user", kind: "text", text: "Run worker", at: 1 },
+      { id: "note", role: "bot", kind: "note", text: "[pane worker01] DONE: result 42", at: 2 },
+    ];
+    let busy = true;
+    const wake = vi.fn();
+    const scheduler = new PaneWakeScheduler({
+      enabled: () => true,
+      busy: () => busy,
+      hasNotes: () => paneNotesSinceLastUserTurn(messages, new Set()).length > 0,
+      wake,
+      warn: vi.fn(),
+    });
+    scheduler.noteArrived("teacher", "t1");
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    messages.push({ id: "steer", role: "user", kind: "text", text: "Also check the build", steered: true, at: 3 });
+    busy = false;
+    scheduler.settled();
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(wake).toHaveBeenCalledExactlyOnceWith("teacher", "t1");
   });
 
   it("never wakes with the share-terminal gate off", async () => {

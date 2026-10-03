@@ -1070,6 +1070,7 @@ const wireTask = ({
   lastModel: _lastModel,
   providerSessionBoundId: _providerSessionBoundId,
   resumeSeed: _resumeSeed,
+  paneNotesDeliveredId: _paneNotesDeliveredId,
   ...task
 }: TaskRecord) => ({ ...task, taskState: store.taskPacket(task.threadId) ?? undefined });
 
@@ -3414,8 +3415,11 @@ bus.subscribe((event: RuntimeEvent) => {
   if (settledBot) syncMemory(settledBot.id);
 });
 
-/** Newest pane note a dispatched turn carried, per thread. */
-const deliveredPaneNotes = new Map<string, string>();
+function paneNotesPending(threadId: string): boolean {
+  const bot = store.botByThread(threadId);
+  const deliveredId = bot ? store.taskByThread(bot.id, threadId)?.paneNotesDeliveredId : undefined;
+  return paneNotesSinceLastUserTurn(store.activePath(threadId), new Set(), deliveredId ?? undefined).length > 0;
+}
 
 // A pane note wakes its teacher with a control-plane turn: cardContinuation
 // keeps it from reading as the user's words. Not unattended: the wake only
@@ -3424,7 +3428,7 @@ const deliveredPaneNotes = new Map<string, string>();
 const paneWake = new PaneWakeScheduler({
   enabled: (botId) => store.bot(botId)?.shareTerminalWithChat !== false,
   busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
-  hasNotes: (threadId) => paneNotesSinceLastUserTurn(store.activePath(threadId), new Set(), deliveredPaneNotes.get(threadId)).length > 0,
+  hasNotes: paneNotesPending,
   wake: (botId, threadId) => {
     startTurn(botId, PANE_WAKE_PROMPT, { threadId, cardContinuation: true }).then(() => undefined).catch((err) => {
       if (isBusyRejection(err)) paneWake.noteArrived(botId, threadId);
@@ -3999,7 +4003,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   const { notes: paneNotes, newestId: newestPaneNoteId } = paneNotesForTurn(
     activeMessages,
     skipTranscript,
-    deliveredPaneNotes.get(threadId),
+    task.paneNotesDeliveredId ?? undefined,
     replaysTranscript,
   );
   const { turnText, resume } = buildTurnContext({
@@ -4470,7 +4474,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       });
       bindInterruptedTurn(threadId, started.turnId);
       if (started.turnId) seed.turnId = started.turnId;
-      if (newestPaneNoteId) deliveredPaneNotes.set(threadId, newestPaneNoteId);
+      store.markPaneNotesDelivered(bot.id, threadId, newestPaneNoteId);
       if (currentTurnEpoch(bot.id) !== epoch) return;
       if (started.turnId) liveTurnIdByThread.set(threadId, started.turnId);
       // dispatched: the rewind is spent
@@ -9838,6 +9842,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 };
 
 syncAllThreads();
+// Wake timers die with the process; re-arm teachers whose stored notes are
+// undelivered. Untracked legacy tasks wait for the next send, as before.
+for (const bot of store.bots) {
+  if (store.taskByThread(bot.id, bot.threadId)?.paneNotesDeliveredId !== undefined && paneNotesPending(bot.threadId)) {
+    paneWake.noteArrived(bot.id, bot.threadId);
+  }
+}
 const early = currentEarlyListen();
 if (early) {
   early.setHandler(handleRequest);
