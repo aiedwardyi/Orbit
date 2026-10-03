@@ -22,6 +22,7 @@ import {
   clearSendRunning,
   continueQueuedDrainIfIdle,
   drainSteeredMessages,
+  foldQueuedSends,
   isSendCancelled,
   markSendCancelled,
   markSendRunning,
@@ -483,6 +484,18 @@ describe("steer-queue module", () => {
     drainSteeredMessages(store, run);
     expect(store.messages).toHaveLength(0);
     expect(run).toHaveBeenCalledWith(bot.id, bot.threadId, "", null, [], { groupId: "g1", hop: 0 });
+  });
+
+  it("folds a prep send for an engine with no queueing or steer", () => {
+    const bot = fakeBot("bot-fold-plain", "thread-fold-plain", false);
+    const store = fakeStore([bot]);
+    const queued = queueSteeredMessage(bot.id, bot.threadId, "two", { sendId: "send_plain_1234567890", prompt: "prompt two" });
+
+    expect(foldQueuedSends(store, bot.id, bot.threadId)).toEqual(["prompt two"]);
+    expect(store.messages).toMatchObject([
+      { role: "user", text: "two", sendId: "send_plain_1234567890", queueId: queued.id, steered: true },
+    ]);
+    expect(_queuedCount(bot.threadId)).toBe(0);
   });
 
   it("drains only one queue per bot per settle so a 1:1 and a room wait cannot double-fire", () => {

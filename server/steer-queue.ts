@@ -299,6 +299,27 @@ export function takeQueuedSteers(
     .map((item) => ({ id: item.messageId, text: item.text, prompt: item.prompt, replyToId: item.replyToId, sendId: item.sendId }));
 }
 
+/** Persist this thread's waiting sends as steered user lines and return
+ * their prompts in send order, for the turn about to dispatch. */
+export function foldQueuedSends(
+  store: Pick<SteerStore, "appendMessage">,
+  botId: string,
+  threadId: string,
+): string[] {
+  return takeQueuedSteers(botId, threadId).map((item) => {
+    store.appendMessage(threadId, {
+      role: "user",
+      kind: "text",
+      text: item.text,
+      replyToId: item.replyToId,
+      sendId: item.sendId,
+      queueId: item.id,
+      steered: true,
+    });
+    return item.prompt;
+  });
+}
+
 /** Find the receipt for a retry whose message is still waiting to drain. */
 export function queuedSteeredMessage(
   botId: string,

@@ -147,12 +147,12 @@ import {
   clearSendRunning,
   continueQueuedDrainIfIdle,
   drainSteeredMessages,
+  foldQueuedSends,
   isSendCancelled,
   markSendRunning,
   queuedSteeredMessage,
   queueRoomParticipation,
   queueSteeredMessage,
-  takeQueuedSteers,
 } from "./steer-queue.ts";
 import { sendPostReceipt, startedTurn } from "./send-receipt.ts";
 import {
@@ -4001,23 +4001,9 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // A send made while this turn prepared was queued because busy had not
   // flipped yet. Fold it in as steer would have, or it drains after this
   // turn's replies. Synchronous through the busy flip, so nothing slips past.
-  const folded = currentTurnEpoch(bot.id) === epoch &&
-    !(opts?.sendId && isSendCancelled(opts.sendId)) &&
-    instance.adapter.capabilities.queueing &&
-    instance.adapter.steer
-    ? takeQueuedSteers(bot.id, threadId)
+  const folded = currentTurnEpoch(bot.id) === epoch && !(opts?.sendId && isSendCancelled(opts.sendId))
+    ? foldQueuedSends(store, bot.id, threadId)
     : [];
-  for (const item of folded) {
-    store.appendMessage(threadId, {
-      role: "user",
-      kind: "text",
-      text: item.text,
-      replyToId: item.replyToId,
-      sendId: item.sendId,
-      queueId: item.id,
-      steered: true,
-    });
-  }
   if (folded.length) clearUnattended(bot.id);
   const currentPrompt = [
     composeUserTurnPrompt(text, {
@@ -4026,7 +4012,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       userName: cfg.profile?.name?.trim() || "User",
       replayedTranscript: replaysTranscript ? transcript : undefined,
     }),
-    ...folded.map((item) => item.prompt),
+    ...folded,
   ].join("\n\n");
   const { notes: paneNotes, newestId: newestPaneNoteId } = paneNotesForTurn(
     activeMessages,
