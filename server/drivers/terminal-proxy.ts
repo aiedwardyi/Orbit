@@ -101,6 +101,9 @@ export const TOOLS = [
       "To run a worker: cwd is a git worktree, never the live checkout; label is \"NICKNAME | MODEL | EFFORT\". Wrap the prompt in single quotes, fill every <...> slot, never use \\\" escapes. " +
       "Claude: claude --model <model-id> --dangerously-skip-permissions 'Read <card path> and do it.' then terminal_send the effort. If it shows a folder-trust menu, read it and pick Yes with terminal_send key presses; Enter alone may pick No. " +
       `Codex: codex --model <model-id> -c model_reasoning_effort=<effort> --dangerously-bypass-approvals-and-sandbox ${REPORT_TEXT.env}${REPORT_TEXT.notify}'<prompt>' (a new folder shows a trust prompt first; send Enter). ` +
+      "Muse: muse --model <model-id> --reasoning-effort <effort> --yolo '<prompt>'. " +
+      "Grok: grok -m <model-id> --effort <effort> --always-approve '<prompt>' (it may ask a y/n trust question first; send y). " +
+      "Engine CLIs run in the PowerShell pane; check them there, not from another shell. " +
       REPORT_TEXT.spawn,
     inputSchema: {
       type: "object",
