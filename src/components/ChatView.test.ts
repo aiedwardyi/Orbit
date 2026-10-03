@@ -205,6 +205,41 @@ describe("ChatView note collapse", () => {
       host.remove();
     }
   });
+
+  it("jumps to an open launch pane and marks a closed one", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const pane = (sessionId: string) => ({ sessionId, generation: 1, label: null, cwd: "C:\\repo", main: false, exited: false });
+    vi.stubGlobal("ogb", { platform: "win32", terminal: { readBot: vi.fn(async () => ({ panes: [pane("p1")] })) } });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const launch = (id: string, label: string): Message => ({ id, at: 1, role: "bot", kind: "launch", text: `Launched ${label}\nLabel: ${label}\nWorking folder: C:\\repo\nSession: ${id}` });
+    const current = { ...botA, messages: [userMsg("ua", "go"), launch("p1", "A"), launch("p2", "B")] } as Bot;
+    const onOpenTerminalPane = vi.fn();
+    try {
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot: current, onOpenTerminalPane }))));
+      const buttons = Array.from(host.querySelectorAll("button"));
+      await act(async () => { buttons.find((b) => b.textContent === "Launched A")!.click(); });
+      expect(onOpenTerminalPane).toHaveBeenCalledWith("p1");
+      expect(host.querySelector("[data-orbit-launch]")).toBeNull();
+      await act(async () => { host.querySelector<HTMLButtonElement>("button[aria-label='Details']")!.click(); });
+      expect(host.querySelector("[data-orbit-launch]")?.textContent).toContain("Session: p1");
+      const closed = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Launched B · closed")!;
+      await act(async () => { closed.click(); });
+      expect(onOpenTerminalPane).toHaveBeenCalledTimes(1);
+      expect(host.textContent).toContain("Session: p2");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
 });
 
 describe("ChatView bot switch while busy", () => {

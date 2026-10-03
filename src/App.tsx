@@ -108,6 +108,10 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? fallbackStartupBot(state.bots, state.groups));
   const terminalOpen = Boolean(bot && terminalViews[bot.id] && state.activeView === "chat" && !browserWorkspaceBotId && !localVmWorkspaceBotId);
   const openTerminal = () => { if (bot) setTerminalViews((views) => ({ ...views, [bot.id]: true })); };
+  const openTerminalPane = (sessionId: string) => {
+    openTerminal();
+    setPaneFocus({ sessionId });
+  };
   const clearTerminalAttention = (attention: Pick<TerminalAttention, "botId" | "sessionId">) => {
     const key = terminalAttentionKey(attention.botId, attention.sessionId);
     const sessions = pendingTerminalAcknowledgements.current.get(attention.botId);
@@ -627,6 +631,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
               bot={bot}
               focusComposerBlocked={paletteOpen || terminalOpen}
               onOpenTerminal={openTerminal}
+              onOpenTerminalPane={openTerminalPane}
             />
           </div>
           {terminalViews[bot.id] !== undefined && (

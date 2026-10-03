@@ -790,20 +790,41 @@ function NoteMessage({ message }: { message: Message }) {
   );
 }
 
-function LaunchMessage({ message }: { message: Message }) {
+function LaunchMessage({ message, botId, onOpenTerminalPane }: { message: Message; botId: string; onOpenTerminalPane?: (sessionId: string) => void }) {
   const [open, setOpen] = useState(false);
+  // null until the bridge answers; unknown behaves like closed (expand only)
+  const [live, setLive] = useState<boolean | null>(null);
   const [header, ...details] = (message.text ?? "").split("\n");
+  const sessionId = details.find((l) => l.startsWith("Session: "))?.slice("Session: ".length).trim();
+  useEffect(() => {
+    const bridge = window.ogb?.terminal;
+    if (!bridge || !sessionId) return;
+    let alive = true;
+    void Promise.resolve().then(() => bridge.readBot?.(botId)).then((snapshot) => {
+      if (alive && snapshot?.panes) setLive(snapshot.panes.some((p) => p.sessionId === sessionId && !p.main));
+    }).catch(() => {});
+    const offClosed = bridge.onClosed?.((event) => {
+      if (event.botId === botId && event.id === sessionId) setLive(false);
+    });
+    return () => { alive = false; offClosed?.(); };
+  }, [botId, sessionId]);
+  const jump = live && sessionId && onOpenTerminalPane ? () => onOpenTerminalPane(sessionId) : null;
+  const rowClass = "flex items-center gap-1 rounded-lg border border-hairline/30 bg-inset/25 text-[12.5px] text-ink-secondary";
   return (
     <div className="flex w-full flex-col items-start gap-1">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex items-center gap-1 rounded-lg border border-hairline/30 bg-inset/25 px-3 py-1.5 text-[12.5px] text-ink-secondary hover:text-ink"
-      >
-        <ChevronRight size={12} className={cn("transition-transform", open && "rotate-90")} />
-        {header}
-      </button>
+      {jump ? (
+        <div className={rowClass}>
+          <button type="button" onClick={jump} className="py-1.5 pl-3 hover:text-ink">{header}</button>
+          <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-label="Details" className="py-1.5 pl-1 pr-3 hover:text-ink">
+            <ChevronRight size={12} className={cn("transition-transform", open && "rotate-90")} />
+          </button>
+        </div>
+      ) : (
+        <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className={cn(rowClass, "px-3 py-1.5 hover:text-ink")}>
+          <ChevronRight size={12} className={cn("transition-transform", open && "rotate-90")} />
+          {live === false ? `${header} · closed` : header}
+        </button>
+      )}
       {open && (
         <div data-orbit-launch className="w-full max-w-2xl whitespace-pre-wrap break-words rounded-lg border border-hairline/30 bg-inset/25 px-3 py-2 text-[12.5px] leading-relaxed text-ink-secondary">
           {details.join("\n")}
@@ -830,6 +851,7 @@ const MessagesList = memo(function MessagesList({
   onRegenerate,
   onReply,
   onFocusComposer,
+  onOpenTerminalPane,
 }: {
   bot: Bot;
   messages: Message[];
@@ -848,6 +870,7 @@ const MessagesList = memo(function MessagesList({
   onRegenerate: () => void;
   onReply: (message: Message) => void;
   onFocusComposer: () => void;
+  onOpenTerminalPane?: (sessionId: string) => void;
 }) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
@@ -959,7 +982,7 @@ const MessagesList = memo(function MessagesList({
             case "note":
               return <NoteMessage message={m} />;
             case "launch":
-              return <LaunchMessage message={m} />;
+              return <LaunchMessage message={m} botId={bot.id} onOpenTerminalPane={onOpenTerminalPane} />;
             default:
               return (
                 <Bubble
@@ -1048,7 +1071,7 @@ export function PinnedBanner({
   );
 }
 
-export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: { bot: Bot; focusComposerBlocked?: boolean; onOpenTerminal?: () => void }) {
+export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, onOpenTerminalPane }: { bot: Bot; focusComposerBlocked?: boolean; onOpenTerminal?: () => void; onOpenTerminalPane?: (sessionId: string) => void }) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const { capabilities, ready: capabilitiesReady } = useDesktopCapabilities();
@@ -1645,6 +1668,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal }: 
             onRegenerate={regenerate}
             onReply={selectReply}
             onFocusComposer={focusComposer}
+            onOpenTerminalPane={onOpenTerminalPane}
           />
           {laterCount > 0 && (
             <div className="flex justify-center">
