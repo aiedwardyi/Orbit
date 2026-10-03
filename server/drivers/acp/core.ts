@@ -139,7 +139,7 @@ export interface AcpSupport {
   selectModel?: { configId: string };
   /** Mutate the child env in place: strip a key, inject a policy. Receives the
    *  instance config so a support can vary with fullAuto. */
-  transformEnv?(env: Record<string, string | undefined>, config: AcpConfig): void;
+  transformEnv?(env: Record<string, string | undefined>, config: AcpConfig, cwd?: string): void;
   /** Mutate the child env after the turn model is known. Catalog refresh and
    *  snapshot share `transformEnv` and must not see a per-turn overlay. */
   applyTurnEnv?(
@@ -272,10 +272,10 @@ function decodeAcpConfig(defaultCli: string) {
   };
 }
 
-export function acpChildEnv(support: AcpSupport, config: AcpConfig, environment: NodeJS.ProcessEnv, extraAllowed: readonly string[] = []) {
+export function acpChildEnv(support: AcpSupport, config: AcpConfig, environment: NodeJS.ProcessEnv, extraAllowed: readonly string[] = [], cwd?: string) {
   const env: Record<string, string | undefined> = { ...environment };
   applyCredentialAllowlist(env, [...(support.credentialEnv ?? []), ...extraAllowed]);
-  support.transformEnv?.(env, config);
+  support.transformEnv?.(env, config, cwd);
   return env;
 }
 
@@ -316,11 +316,11 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             resolve(err ? null : stdout.trim()),
           );
         });
-      const childEnv = (extraAllowed: readonly string[] = []) => acpChildEnv(support, config, {
+      const childEnv = (extraAllowed: readonly string[] = [], cwd?: string) => acpChildEnv(support, config, {
         ...process.env,
         ...input.environment,
         PATH: augmentedPath(),
-      }, extraAllowed);
+      }, extraAllowed, cwd);
       let models = support.models;
       const refreshModels = async () => {
         if (!support.resolveModels) return;
@@ -413,7 +413,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
       };
       const runHandshakePrewarm = async () => {
         if (disposed || handshakeWarm) return;
-        const env = childEnv(LOCAL_HOST_KEY_ENVS);
+        const spawnCwd = config.workspace ?? homedir();
+        const env = childEnv(LOCAL_HOST_KEY_ENVS, spawnCwd);
         let probed: { cli: string; version: string } | null = null;
         try {
           probed = await ensureCli(env);
@@ -436,7 +437,6 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         const stubTurn = { threadId: "__prewarm__", text: "" } as SendTurnInput;
         const spawnArgv = support.spawnArgs(config, stubTurn);
         const argsKey = spawnArgv.join("\0");
-        const spawnCwd = config.workspace ?? homedir();
         const cli = effectiveCli();
         let connection: ReturnType<typeof acpConnection>;
         try {
@@ -595,7 +595,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         }
         const turnId = newId();
         const cwd = turn.cwd ?? config.workspace ?? homedir();
-        const env = childEnv(LOCAL_HOST_KEY_ENVS);
+        const env = childEnv(LOCAL_HOST_KEY_ENVS, cwd);
         const spawnArgs = support.spawnArgs(config, turn);
         const turnTimer = startTurnTimer({
           engine: DRIVER_KIND,
