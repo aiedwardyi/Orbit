@@ -214,12 +214,14 @@ export function ReactionChips({
   threadId,
   message,
   members,
-  align = "left",
+  corner,
+  className,
 }: {
   threadId: string;
   message: Message;
   members?: Bot[];
-  align?: "left" | "right";
+  corner: "left" | "right";
+  className?: string;
 }) {
   const { t } = useI18n();
   const { dispatch } = useStore();
@@ -231,7 +233,14 @@ export function ReactionChips({
   const nameOf = (by: string) =>
     by === "user" ? t("chat.you") : (members?.find((b) => b.id === by)?.name ?? t("chrome.aBot"));
   return (
-    <div className={cn("mt-0.5 flex flex-wrap gap-1", align === "right" ? "justify-end" : "justify-start")}>
+    <div
+      data-message-reactions
+      className={cn(
+        "absolute z-10 flex w-max max-w-80 translate-y-1/2 flex-wrap gap-1",
+        corner === "left" ? "left-2" : "right-2 justify-end",
+        className,
+      )}
+    >
       {[...grouped].map(([emoji, bys]) => (
         <button
           key={emoji}

@@ -424,7 +424,10 @@ const Transcript = memo(function Transcript({
               className={cn("group flex w-full flex-col outline-none", user ? "items-end" : "items-start")}
               tabIndex={-1}
             >
-              <div data-orbit-message-body className="relative w-fit max-w-[min(42rem,78%)]">
+              <div
+                data-orbit-message-body
+                className={cn("relative w-fit max-w-[min(42rem,78%)]", Boolean(m.reactions?.length) && "pb-3.5")}
+              >
                 {user && (
                   <div
                     data-message-hover-actions
@@ -478,6 +481,13 @@ const Transcript = memo(function Transcript({
                     <PinToggle group={group} message={m} />
                   </div>
                 )}
+                <ReactionChips
+                  threadId={group.threadId}
+                  message={m}
+                  members={members}
+                  corner={user ? "left" : "right"}
+                  className="bottom-3.5"
+                />
               </div>
               {optionChoices && (
                 <ChatOptionChips
@@ -492,7 +502,6 @@ const Transcript = memo(function Transcript({
               <span className="mt-0.5 text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                 {formatTime(m.at, localeTag(locale))}
               </span>
-              <ReactionChips threadId={group.threadId} message={m} members={members} align={user ? "right" : "left"} />
             </div>
           ) : null;
         if (!row) return null;

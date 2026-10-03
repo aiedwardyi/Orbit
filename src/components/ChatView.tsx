@@ -478,6 +478,7 @@ const Bubble = memo(function Bubble({
   // "‹ 2/3 ›" under an edited message — every fork it belongs to
   const versions = user ? messageVersions(bot, message) : [message];
   const versionIndex = versions.findIndex((v) => v.id === message.id);
+  const hasReactions = !message.placeholder && Boolean(message.reactions?.length);
   const switchTo = (v: Message | undefined) => {
     if (v && !bot.busy) dispatch({ type: "switchBranch", botId: bot.id, messageId: v.id });
   };
@@ -490,7 +491,10 @@ const Bubble = memo(function Bubble({
     >
       {/* padded so the docked action row below the bubble
           keeps out of the timestamp and reaction chips that follow it */}
-      <div data-orbit-message-body className={cn("relative w-fit max-w-[min(42rem,78%)] pb-8")}>
+      <div
+        data-orbit-message-body
+        className={cn("relative w-fit max-w-[min(42rem,78%)]", hasReactions ? "pb-11" : "pb-8")}
+      >
         <div className="orbit-message-speaker hidden">{user ? t("chat.you") : bot.name}</div>
         {user && !message.placeholder && (
           <div
@@ -650,6 +654,15 @@ const Bubble = memo(function Bubble({
             </button>
           </div>
         )}
+        {!message.placeholder && (
+          <ReactionChips
+            threadId={bot.threadId}
+            message={message}
+            members={[bot]}
+            corner={user ? "left" : "right"}
+            className="bottom-11"
+          />
+        )}
       </div>
       {optionChoices && (
         <ChatOptionChips
@@ -662,9 +675,6 @@ const Bubble = memo(function Bubble({
         />
       )}
       <TimestampLabel at={message.at} hidden={streaming} />
-      {!message.placeholder && (
-        <ReactionChips threadId={bot.threadId} message={message} members={[bot]} align={user ? "right" : "left"} />
-      )}
       {!message.placeholder && versions.length > 1 && (
         <div className="mt-1 flex items-center gap-0.5 pr-1 text-[12px] text-ink-secondary">
           <button
