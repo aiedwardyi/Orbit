@@ -103,8 +103,11 @@ export function shouldFocusComposerOnTranscriptClick(
   target: EventTarget | null,
   click: TranscriptClick,
   selectionCollapsed = true,
+  container?: Element | null,
 ): boolean {
   if (click.button !== 0) return false;
+  // React bubbles portal clicks (the reaction picker) through the transcript even though the DOM target sits elsewhere.
+  if (container && !(target instanceof Node && container.contains(target))) return false;
   if (click.shiftKey || click.ctrlKey || click.metaKey || click.altKey) return false;
   if (!selectionCollapsed) return false;
   if (target instanceof Element && target.closest(TRANSCRIPT_CLICK_BLOCK)) return false;

@@ -1516,7 +1516,8 @@ export function GroupView({ group }: { group: Group }) {
           if (resume) setBottomFollow(true);
         }}
         onClick={(e) => {
-          if (!shouldFocusComposerOnTranscriptClick(e.target, e, window.getSelection()?.isCollapsed ?? true)) return;
+          if (findOpen) return;
+          if (!shouldFocusComposerOnTranscriptClick(e.target, e, window.getSelection()?.isCollapsed ?? true, e.currentTarget)) return;
           focusComposer();
         }}
       >

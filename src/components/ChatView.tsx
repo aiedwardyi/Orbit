@@ -1647,8 +1647,8 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           if (resume) setBottomFollow(true);
         }}
         onClick={(e) => {
-          if (focusComposerBlocked) return;
-          if (!shouldFocusComposerOnTranscriptClick(e.target, e, window.getSelection()?.isCollapsed ?? true)) return;
+          if (focusComposerBlocked || findOpen) return;
+          if (!shouldFocusComposerOnTranscriptClick(e.target, e, window.getSelection()?.isCollapsed ?? true, e.currentTarget)) return;
           focusComposer();
         }}
       >

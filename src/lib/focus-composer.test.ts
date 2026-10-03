@@ -310,6 +310,18 @@ describe("shouldFocusComposerOnTranscriptClick", () => {
     expect(shouldFocusComposerOnTranscriptClick(space, { ...plainClick(), shiftKey: true }, true)).toBe(false);
   });
 
+  it("ignores targets outside the transcript container, like a portalled picker", () => {
+    const transcript = document.createElement("div");
+    const space = document.createElement("div");
+    transcript.append(space);
+    const picker = document.createElement("div");
+    picker.setAttribute("data-reaction-picker", "");
+    document.body.append(transcript, picker);
+
+    expect(shouldFocusComposerOnTranscriptClick(space, plainClick(), true, transcript)).toBe(true);
+    expect(shouldFocusComposerOnTranscriptClick(picker, plainClick(), true, transcript)).toBe(false);
+  });
+
   it("ignores right clicks", () => {
     const space = document.createElement("div");
     document.body.append(space);

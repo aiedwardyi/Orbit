@@ -384,3 +384,61 @@ describe("ChatView transcript window", () => {
     }
   });
 });
+
+describe("ChatView transcript click focus", () => {
+  const mount = async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const reply: Message = { id: "reply-b", at: 2, role: "bot", kind: "text", text: "answer from B" };
+    await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot: { ...botB, messages: [...botB.messages, reply] } }))));
+    const composer = host.querySelector("[data-orbit-composer]") as HTMLTextAreaElement;
+    const scroller = host.querySelector("[data-orbit-transcript]") as HTMLElement;
+    const click = (el: Element) => act(async () => void el.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 })));
+    const unmount = async () => {
+      await act(async () => root.unmount());
+      host.remove();
+    };
+    return { host, composer, scroller, click, unmount };
+  };
+
+  it("leaves focus in Find while it is open", async () => {
+    const { host, composer, scroller, click, unmount } = await mount();
+    try {
+      await click(host.querySelector('button[aria-label="Find in conversation"]')!);
+      const find = host.querySelector('input[aria-label="Find in this conversation"]') as HTMLInputElement;
+      find.focus();
+      await click(scroller);
+      expect(document.activeElement).not.toBe(composer);
+      expect(document.activeElement).toBe(find);
+      expect(host.querySelector("[data-chat-find]")?.contains(find)).toBe(true);
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("ignores clicks inside the portalled reaction picker", async () => {
+    const { host, composer, scroller, click, unmount } = await mount();
+    try {
+      await click(scroller);
+      expect(document.activeElement).toBe(composer);
+      composer.blur();
+      await click(host.querySelector("[data-reaction-bar] button[aria-expanded]")!);
+      const picker = document.querySelector("[data-reaction-picker]")!;
+      expect(host.contains(picker)).toBe(false);
+      await click(picker);
+      expect(document.activeElement).not.toBe(composer);
+      expect(document.querySelector("[data-reaction-picker]")).not.toBeNull();
+    } finally {
+      await unmount();
+    }
+  });
+});
