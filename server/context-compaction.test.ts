@@ -9,6 +9,7 @@ import {
   paneNotesSinceLastUserTurn,
   prepareModelContext,
 } from "./context-compaction.ts";
+import { probeLocalInjects } from "./drivers/local-inject.ts";
 import type { Message } from "./store.ts";
 import { lastUserInstruction } from "./task-recovery-flush.ts";
 import type { ContextCompactionV1 } from "../shared/context-compaction.ts";
@@ -405,6 +406,30 @@ describe("provider-neutral context compaction", () => {
     expect(contextWindowFor({ default: "x", options: [{ id: "x", label: "X" }] }, "x")).toBeGreaterThanOrEqual(128_000);
   });
 
+  it("gives a local model with no reported window a conservative budget", async () => {
+    const fetchImpl = vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (url === "http://127.0.0.1:11434/v1/models") return new Response(JSON.stringify({ data: [{ id: "small:latest" }] }));
+      if (url === "http://127.0.0.1:11434/api/ps") return new Response(JSON.stringify({ models: [] }));
+      return new Response("", { status: 404 });
+    }) as unknown as typeof fetch;
+    const local = (await probeLocalInjects({}, fetchImpl)).find((model) => model.id === "ollama::small:latest")!;
+    expect(local.contextWindow).toBeUndefined();
+    const catalog: ModelCatalog = { default: "cloud", options: [{ id: "cloud", label: "Cloud" }, local] };
+    expect(contextWindowFor(catalog, local.id)).toBeLessThanOrEqual(16_384);
+    expect(contextWindowFor(catalog, "cloud")).toBe(MODEL_CONTEXT_FALLBACK);
+
+    const result = await prepareModelContext({
+      messages: [message("m1", "detail ".repeat(9000))],
+      contextWindow: contextWindowFor(catalog, local.id),
+      taskRecordText: "",
+    });
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.compacted).toBe(true);
+    expect(result.estimatedTokens).toBeLessThanOrEqual(8_192);
+  });
+
   it("keeps the summary chain when the window grows instead of replaying the whole history", async () => {
     const previous: ContextCompactionV1 = {
       v: 1,
@@ -592,6 +617,38 @@ describe("provider-neutral context compaction", () => {
     expect(result.compaction?.summary).toContain("fact 1:");
     expect(result.compaction?.summary).toContain("fact 100:");
     expect(result.compaction?.summary).toContain("work item 12");
+    expect(result.estimatedTokens).toBeLessThanOrEqual(result.budgetTokens);
+  });
+
+  it("keeps recent assistant answers and pane notes in the deterministic fallback", async () => {
+    const messages = Array.from({ length: 61 }, (_, index) => [
+      message(`u${index}`, "please inspect"),
+      message(`a${index}`, index === 36 ? "Artifact: release-final.zip" : "done", { role: "bot" }),
+      ...(index === 36 ? [message("note", "[pane worker] Verified checksum 9f3c", { kind: "note" })] : []),
+    ]).flat();
+    const result = await prepareModelContext({ messages, contextWindow: 128_000, taskRecordText: "Goal: inspect" });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.compaction?.coveredThroughId).toBe("note");
+    expect(result.compaction?.firstKeptId).toBe("u37");
+    expect(result.compaction?.summary).toContain("release-final.zip");
+    expect(result.compaction?.summary).toContain("Verified checksum 9f3c");
+    expect(result.compaction?.summary).toContain("User requests in this segment");
+  });
+
+  it("bounds fallback answer excerpts on a small window", async () => {
+    const messages = Array.from({ length: 61 }, (_, index) => [
+      message(`u${index}`, "please inspect"),
+      message(`a${index}`, `answer ${index} ${"x".repeat(20_000)}`, { role: "bot" }),
+    ]).flat();
+    const result = await prepareModelContext({ messages, contextWindow: 16_384, taskRecordText: "Goal: inspect" });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    const summary = result.compaction!.summary;
+    expect(summary).toContain("User requests in this segment");
+    expect(summary).not.toContain("x".repeat(1_000));
     expect(result.estimatedTokens).toBeLessThanOrEqual(result.budgetTokens);
   });
 

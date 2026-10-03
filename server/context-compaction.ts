@@ -1,4 +1,5 @@
 import type { ModelCatalog } from "./contracts.ts";
+import { decodeInjectId } from "./drivers/local-inject.ts";
 import { redactSecretsInText } from "./redact.ts";
 import { transcriptText } from "./replies.ts";
 import type { Message } from "./store.ts";
@@ -9,6 +10,8 @@ import {
 } from "../shared/context-compaction.ts";
 
 export const MODEL_CONTEXT_FALLBACK = 128_000;
+// A local host can load a model with an 8k window and not report it.
+export const LOCAL_MODEL_CONTEXT_FALLBACK = 16_384;
 
 const CONTEXT_BUDGET_SHARE = 0.5;
 const SUMMARY_BUDGET_SHARE = 0.35;
@@ -22,6 +25,8 @@ const SUMMARY_SENTINEL = "SUMMARY";
 const SUMMARY_FLOOR_SHARE = 0.4;
 const SUMMARY_PREVIOUS_SHARE = 0.75;
 const FALLBACK_SUMMARY_NOTICE = "Model summary unavailable; full transcript retained by Wink.";
+const FALLBACK_EXCERPTS = 4;
+const FALLBACK_EXCERPT_TOKENS = 100;
 
 interface ReplayUnit {
   id: string;
@@ -78,7 +83,8 @@ export function knownCatalogContextWindow(catalog: ModelCatalog, model: string):
 }
 
 export function contextWindowFor(catalog: ModelCatalog, model: string): number {
-  return knownCatalogContextWindow(catalog, model) ?? MODEL_CONTEXT_FALLBACK;
+  return knownCatalogContextWindow(catalog, model) ??
+    (decodeInjectId(model) ? LOCAL_MODEL_CONTEXT_FALLBACK : MODEL_CONTEXT_FALLBACK);
 }
 
 function textTokens(text: string): number {
@@ -132,10 +138,18 @@ function fallbackSummary(input: {
   const contentTokens = Math.max(1, input.summaryTokens - messageTokens(summaryMessage("", 0)) - 2);
   const userLines = input.history.filter((item) => item.turn).map((item) => item.text).join("\n");
   const toolOutcomes = input.history.filter((item) => item.atomic).map((item) => item.text).join("\n");
+  const excerpts = input.history
+    .filter((item) => !item.turn && !item.atomic)
+    .slice(-FALLBACK_EXCERPTS)
+    .map((item) => clipText(item.role === "assistant" ? `Assistant: ${item.text}` : item.text, FALLBACK_EXCERPT_TOKENS))
+    .join("\n");
   const sections = [
     { weight: 5, text: `[Durable task record]\n${redactSecretsInText(input.taskRecordText)}` },
     userLines
       ? { weight: 3, text: `[User requests in this segment]\n${redactSecretsInText(userLines)}` }
+      : null,
+    excerpts
+      ? { weight: 2, text: `[Latest answers and pane notes in this segment]\n${redactSecretsInText(excerpts)}` }
       : null,
     toolOutcomes
       ? { weight: 2, text: `[Completed tool outcomes]\n${redactSecretsInText(toolOutcomes)}` }
@@ -152,14 +166,14 @@ function fallbackSummary(input: {
     : "";
   const previousTokens = previous ? textTokens(previous) + 1 : 0;
   const sectionTokens = Math.max(1, contentTokens - noticeTokens - previousTokens - sections.length);
-  const totalWeight = sections.reduce((total, section) => total + section.weight, 0);
-  let allocated = 0;
-  const content = sections.map((section, index) => {
-    const tokens = index === sections.length - 1
-      ? Math.max(1, sectionTokens - allocated)
-      : Math.max(1, Math.floor(sectionTokens * section.weight / totalWeight));
-    allocated += tokens;
-    return clipText(section.text, tokens);
+  // A short section hands its unused share on, so a small window still fits the user requests.
+  let remainingTokens = sectionTokens;
+  let remainingWeight = sections.reduce((total, section) => total + section.weight, 0);
+  const content = sections.map((section) => {
+    const text = clipText(section.text, Math.max(1, Math.floor(remainingTokens * section.weight / remainingWeight)));
+    remainingTokens = Math.max(1, remainingTokens - textTokens(text));
+    remainingWeight -= section.weight;
+    return text;
   });
   return clipText([FALLBACK_SUMMARY_NOTICE, ...(previous ? [previous] : []), ...content].join("\n"), contentTokens).trim();
 }
