@@ -912,6 +912,51 @@ describe("provider-neutral context compaction", () => {
     }
   });
 
+  it("an inline replay reserves its notes, keeps them out of history, and delivers the rest later", async () => {
+    const note = (id: string, text: string) => message(id, `[pane 0f3c9a1e] ${text}`, { role: "bot", kind: "note" });
+    const window = 16_384;
+    const notes = Array.from({ length: 7 }, (_, i) => note(`m${i + 3}`, `DONE ${i} ${"x".repeat(7_801)}`));
+    const path = [message("m1", "Run the workers"), message("m2", "Waiting on the workers", { role: "bot" }), ...notes];
+
+    const batch = paneNotesForTurn(path, new Set(), undefined, true, true, window);
+    const prepared = await prepareModelContext({
+      messages: path,
+      contextWindow: window,
+      taskRecordText: "Goal: relay worker reports",
+      excludeIds: new Set(batch.ids ?? []),
+      reserveTokens: batch.tokens,
+    });
+    if (prepared.status !== "ready") throw new Error(prepared.status);
+    const text = [...batch.notes, "Current message:", PANE_WAKE_PROMPT].join("\n\n");
+    const transcript = withoutTurnNotes(prepared.transcript, batch.notes);
+    const { turnText } = buildTurnContext({ text, transcript, rewound: false, fresh: true, replaysNatively: false });
+
+    expect(estimateContextTokens([{ text: turnText }])).toBeLessThanOrEqual(window / 2);
+    const history = turnText.slice(0, turnText.indexOf(REPLY_MARKER));
+    for (const sent of batch.notes) {
+      expect(turnText.split(sent)).toHaveLength(2);
+      expect(history).not.toContain(sent.split("\n")[1]!.slice(0, 7));
+    }
+
+    const delivered: string[] = [];
+    for (let deliveredId: string | undefined, turn = 0; turn < 7; turn++) {
+      const next = paneNotesForTurn(path, new Set(), deliveredId, true, true, window);
+      if (!next.notes.length) break;
+      delivered.push(...next.notes);
+      deliveredId = next.newestId;
+    }
+    expect(delivered.map((sent) => sent.split("\n")[1]!.slice(0, 6))).toEqual(notes.map((_, i) => `DONE ${i}`));
+  });
+
+  it("clips a lone note larger than its share of a small window", () => {
+    const path = [message("m1", "Run it"), message("m2", `[pane 0f3c9a1e] ${"y".repeat(7_800)}`, { role: "bot", kind: "note" })];
+    const batch = paneNotesForTurn(path, new Set(), undefined, true, true, 4_096);
+
+    expect(batch.ids).toEqual(["m2"]);
+    expect(batch.newestId).toBe("m2");
+    expect(batch.tokens).toBeLessThanOrEqual(2_048);
+  });
+
   it("redacts credential-like values before returning persisted state", async () => {
     const secret = `sk-${"a".repeat(32)}`;
     const prompts: string[] = [];

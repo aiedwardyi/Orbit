@@ -95,6 +95,10 @@ function messageTokens(message: { text: string }): number {
   return textTokens(message.text) + 6;
 }
 
+function contextBudget(contextWindow: number): number {
+  return Math.max(1, Math.min(contextWindow, Math.floor(contextWindow * CONTEXT_BUDGET_SHARE)));
+}
+
 export function estimateContextTokens(messages: Array<{ text: string }>): number {
   return messages.reduce((total, message) => total + messageTokens(message), 0);
 }
@@ -197,15 +201,37 @@ export function paneNoteText(text: string): string {
  * A wake turn persists no user message, so `deliveredId` marks the newest note one already carried.
  * A steered line joined a running turn without notes, so it delivers none. */
 export function paneNotesSinceLastUserTurn(messages: Message[], excludeIds: ReadonlySet<string>, deliveredId?: string): string[] {
-  const notes: string[] = [];
+  return pendingPaneNotes(messages, excludeIds, deliveredId).map((note) => note.text);
+}
+
+function pendingPaneNotes(messages: Message[], excludeIds: ReadonlySet<string>, deliveredId?: string): Array<{ id: string; text: string }> {
+  const notes: Array<{ id: string; text: string }> = [];
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]!;
     if (message.id === deliveredId) break;
     if (excludeIds.has(message.id)) continue;
     if (message.role === "user" && message.kind === "text" && message.text?.trim() && !message.steered) break;
-    if (message.kind === "note" && message.text?.trim()) notes.unshift(paneNoteText(message.text));
+    if (message.kind === "note" && message.text?.trim()) notes.unshift({ id: message.id, text: paneNoteText(message.text) });
   }
   return notes;
+}
+
+/** Oldest first, up to what leaves history room for a summary; a lone oversized note is clipped. */
+function fitPaneNotes(notes: Array<{ id: string; text: string }>, contextWindow: number): Array<{ id: string; text: string }> {
+  const budget = contextBudget(contextWindow);
+  const cap = budget - Math.floor(budget * SUMMARY_BUDGET_SHARE);
+  const sent: Array<{ id: string; text: string }> = [];
+  let used = 0;
+  for (const note of notes) {
+    const tokens = messageTokens(note);
+    if (used + tokens > cap) {
+      if (!sent.length) sent.push({ ...note, text: clipText(note.text, Math.max(1, cap - 6)) });
+      break;
+    }
+    used += tokens;
+    sent.push(note);
+  }
+  return sent;
 }
 
 /** A native transcript replay already carries every note, so it delivers them without a prefix.
@@ -216,12 +242,19 @@ export function paneNotesForTurn(
   deliveredId: string | undefined,
   replaysTranscript: boolean,
   inlineReplay = false,
-): { notes: string[]; newestId?: string } {
-  const notes = replaysTranscript && !inlineReplay ? [] : paneNotesSinceLastUserTurn(messages, excludeIds, deliveredId);
-  const newestId = notes.length || replaysTranscript
-    ? messages.findLast((message) => message.kind === "note" && message.text?.trim() && !excludeIds.has(message.id))?.id
-    : undefined;
-  return { notes, newestId };
+  contextWindow?: number,
+): { notes: string[]; newestId?: string; ids?: string[]; tokens?: number } {
+  const pending = replaysTranscript && !inlineReplay ? [] : pendingPaneNotes(messages, excludeIds, deliveredId);
+  const sent = contextWindow ? fitPaneNotes(pending, contextWindow) : pending;
+  const notes = sent.map((note) => note.text);
+  // Held-back notes stay pending: the watermark stops at the last one sent.
+  const newestId = sent.length < pending.length
+    ? sent.at(-1)?.id
+    : notes.length || replaysTranscript
+      ? messages.findLast((message) => message.kind === "note" && message.text?.trim() && !excludeIds.has(message.id))?.id
+      : undefined;
+  if (!contextWindow) return { notes, newestId };
+  return { notes, newestId, ids: sent.map((note) => note.id), tokens: estimateContextTokens(sent) };
 }
 
 /** History without this turn's notes, which the turn text carries instead. */
@@ -437,11 +470,12 @@ export async function prepareModelContext(input: {
   userName?: string;
   referenceMessages?: Message[];
   includeSpeakers?: boolean;
+  reserveTokens?: number;
 }): Promise<PreparedModelContext> {
   const contextWindow = Number.isSafeInteger(input.contextWindow) && input.contextWindow > 0
     ? input.contextWindow
     : MODEL_CONTEXT_FALLBACK;
-  const budgetTokens = Math.max(1, Math.min(contextWindow, Math.floor(contextWindow * CONTEXT_BUDGET_SHARE)));
+  const budgetTokens = Math.max(1, contextBudget(contextWindow) - (input.reserveTokens ?? 0));
   const found = applicableCompaction(input.messages);
   if (found && "unsupported" in found) {
     return { status: "unsupported", messageId: found.messageId, version: found.version };

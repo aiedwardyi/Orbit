@@ -3859,11 +3859,16 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       recovering ? { recovering: true, latestUserText: recoveryLatestUserText } : undefined,
     )
     : "";
+  // Inline replay carries this turn's notes after the reply marker, so they leave history and claim their room first.
+  const inlineNotes = instance.adapter.capabilities.transcriptReplay !== true
+    ? paneNotesForTurn(activeMessages, skipTranscript, task.paneNotesDeliveredId ?? undefined, true, true, modelContextWindow)
+    : null;
   const prepared = await prepareModelContext({
     messages: activeMessages,
     contextWindow: modelContextWindow,
     taskRecordText: durableTaskRecordText || "No durable task record is available.",
-    excludeIds: skipTranscript,
+    excludeIds: inlineNotes?.ids?.length ? new Set([...skipTranscript, ...inlineNotes.ids]) : skipTranscript,
+    reserveTokens: inlineNotes?.tokens,
     userName: cfg.profile?.name?.trim() || "User",
     referenceMessages: store.messagesFor(threadId),
     summarize: instance.generateText ? (prompt) => instance.generateText!(prompt) : undefined,
@@ -4021,6 +4026,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     task.paneNotesDeliveredId ?? undefined,
     replaysTranscript,
     !replaysNatively,
+    modelContextWindow,
   );
   const turnPrompt = paneNotes.length ? [...paneNotes, "Current message:", currentPrompt].join("\n\n") : currentPrompt;
   const turnTranscript = withoutTurnNotes(transcript, paneNotes);
