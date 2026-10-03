@@ -1516,9 +1516,6 @@ export class Store {
     if (changed) this.saveBots();
   }
 
-  /** Record which instance just took a turn on this task. Called at
-   * dispatch, not at cursor time — transcript-replay engines never
-   * produce a cursor, and they still count as having run last. */
   markPaneNotesDelivered(botId: string, threadId: string, noteId: string | undefined) {
     const task = this.taskByThread(botId, threadId);
     const next = noteId ?? task?.paneNotesDeliveredId ?? null;
@@ -1527,6 +1524,9 @@ export class Store {
     this.saveBots();
   }
 
+  /** Record which instance just took a turn on this task. Called at
+   * dispatch, not at cursor time — transcript-replay engines never
+   * produce a cursor, and they still count as having run last. */
   markTaskDispatched(botId: string, threadId: string, instanceId: string, model: string) {
     const task = this.taskByThread(botId, threadId);
     if (!task || (task.lastInstanceId === instanceId && task.lastModel === model)) return;
