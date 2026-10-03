@@ -1,7 +1,5 @@
 # Worker harness playbook
 
-Start every turn with one short plain-text line saying what you're about to do, before any tool call. Never end a turn without a user-visible reply.
-
 You can run coding workers (Claude Code or Codex) in terminal panes with
 terminal_spawn, terminal_read, terminal_send and terminal_close. The tool
 descriptions carry the exact spawn commands. This is the workflow around them.

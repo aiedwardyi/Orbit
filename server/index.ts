@@ -3622,8 +3622,8 @@ function turnStartedByUser(opts?: StartTurnOptions): boolean {
 const SHOW_IMAGE_GUIDANCE =
   "When you produce or find an image the user should see (a mockup, chart, or screenshot file), call show_image with its absolute path so it appears in this chat. Never end with only a file path. To create a new image, call generate_image.";
 
-const ACK_FIRST_INSTRUCTIONS =
-  " Start every turn with one short plain-text line saying what you're about to do, before any tool call. Never end a turn without a user-visible reply.";
+const ALWAYS_REPLY_INSTRUCTIONS =
+  " Never end a turn without a user-visible reply.";
 
 // Retrieval discipline for document workloads. Static on purpose: the
 // stream-json driver folds --append-system-prompt into its warm-process
@@ -4448,7 +4448,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           taskStatePrompt +
           reactPrompt +
           showImagePrompt +
-          ACK_FIRST_INSTRUCTIONS +
+          ALWAYS_REPLY_INSTRUCTIONS +
           CORPUS_SEARCH_INSTRUCTIONS +
           sectionContextSystemPrompt(bot.section) +
           (privateWorkspace ? memorySystemPrompt(bot.id) + skillsSystemPrompt(bot.id) : "") +
@@ -5249,7 +5249,7 @@ async function runClaimedGroupMemberTurn(
   const roomSystem =
     system +
     projectFolderPrompt(cwd, workspace, instance.driverKind) +
-    ACK_FIRST_INSTRUCTIONS +
+    ALWAYS_REPLY_INSTRUCTIONS +
     CORPUS_SEARCH_INSTRUCTIONS +
     sectionContextSystemPrompt(bot.section) +
     (workspace ? `\n${memorySystemPrompt(bot.id).trim()}${skillsSystemPrompt(bot.id)}` : "") +

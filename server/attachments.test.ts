@@ -216,8 +216,8 @@ describe("show-image route", () => {
     expect(indexSource).toContain("integrations.agents && SHOW_IMAGE_GUIDANCE");
   });
 
-  it("puts the ack-first rule in every bot's base prompt", () => {
-    expect(indexSource).toContain("Start every turn with one short plain-text line saying what you're about to do, before any tool call. Never end a turn without a user-visible reply.");
-    expect(indexSource.split("ACK_FIRST_INSTRUCTIONS +").length - 1).toBe(2);
+  it("puts the always-reply rule in every bot's base prompt", () => {
+    expect(indexSource).toContain('" Never end a turn without a user-visible reply."');
+    expect(indexSource.split("ALWAYS_REPLY_INSTRUCTIONS +").length - 1).toBe(2);
   });
 });
