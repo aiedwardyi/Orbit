@@ -224,6 +224,7 @@ import { terminalReadGrant } from "./terminal-grant.ts";
 import { updateBridgeResponse, updateStateFromMessage } from "./update-proxy.ts";
 import { paneLabel, raisePaneAttention, terminalSendResponse, terminalSnapshotResponse } from "./terminal-snapshot.ts";
 import { closeBotPanes } from "./terminal-cleanup.ts";
+import { launchNoteText } from "./launch-note.ts";
 import { MailboxAutoDedup, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
 import { PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
 import {
@@ -531,6 +532,8 @@ function terminalIntegration(botId: string) {
       OMB_TERMINAL_URL: terminalBridgeAccess.url,
       OMB_TERMINAL_TOKEN: grant,
       OMB_BOT_ID: botId,
+      OMB_HARNESS_URL: `http://127.0.0.1:${PORT}`,
+      OMB_COMMS_TOKEN: COMMS_TOKEN,
     },
   };
 }
@@ -6385,6 +6388,16 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const patched = store.toggleReaction(fromThreadId, target.id, emoji, fromBotId);
         if (!patched) return json(res, 404, { error: "message not found" });
         return json(res, 200, { ok: true });
+      }
+      // terminal_spawn: a display-only row in the bot's chat. Never a pane note, so no model sees it.
+      if (method === "POST" && path === "/api/internal/launch-note") {
+        const body = await readBody(req);
+        const from = store.bot(String(body.fromBotId ?? ""));
+        if (!from) return json(res, 403, { error: "unknown sender" });
+        const text = await launchNoteText(terminalBridgeAccess, from.id, String(body.sessionId ?? ""));
+        if (!text) return json(res, 404, { error: "Unknown terminal" });
+        const message = store.appendMessage(from.threadId, { role: "bot", kind: "launch", text });
+        return json(res, 201, { messageId: message.id });
       }
       // The show_image tool: a copy of a local image lands as a settled
       // screen message that references the attachment, never inline pixels.

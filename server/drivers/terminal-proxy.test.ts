@@ -88,6 +88,34 @@ describe("terminal proxy", () => {
     expect(JSON.parse(String(init?.body))).toEqual({ label: "Opus 5.5 | high | ORCH", command: "claude" });
   });
 
+  it("posts one launch note to the harness after a spawn", async () => {
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
+      new Response(JSON.stringify({ sessionId: "p1", generation: 1 }), { status: 200 }));
+    const config = { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1", harness: "http://127.0.0.1:2", commsToken: "comms" };
+    const result = await callTool("terminal_spawn", fetchImpl, config, { label: "worker" });
+    expect(result.isError).toBeUndefined();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const [url, init] = fetchImpl.mock.calls[1];
+    expect(url).toBe("http://127.0.0.1:2/api/internal/launch-note");
+    expect(init?.method).toBe("POST");
+    expect(init?.headers).toMatchObject({ authorization: "Bearer comms" });
+    expect(JSON.parse(String(init?.body))).toEqual({ fromBotId: "bot-1", sessionId: "p1" });
+  });
+
+  it("posts no launch note when the spawn fails, and a failed note never fails the spawn", async () => {
+    const config = { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1", harness: "http://127.0.0.1:2", commsToken: "comms" };
+    const refused = vi.fn(async () => new Response(JSON.stringify({ error: "Too many bot terminals (limit 8)" }), { status: 400 }));
+    expect((await callTool("terminal_spawn", refused, config, { label: "worker" })).isError).toBe(true);
+    expect(refused).toHaveBeenCalledTimes(1);
+    const harnessDown = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).includes("/api/internal/")) throw new Error("ECONNREFUSED");
+      return new Response(JSON.stringify({ sessionId: "p1", generation: 1 }), { status: 200 });
+    });
+    const result = await callTool("terminal_spawn", harnessDown, config, { label: "worker" });
+    expect(result.isError).toBeUndefined();
+    expect(harnessDown).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects terminal_spawn without a label before fetching", async () => {
     const fetchImpl = vi.fn();
     const result = await callTool("terminal_spawn", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { command: "ls" });

@@ -176,6 +176,35 @@ describe("ChatView note collapse", () => {
       host.remove();
     }
   });
+
+  it("collapses a launch row to its header and expands label, folder and session", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const launch = (id: string, label: string): Message => ({ id, at: 1, role: "bot", kind: "launch", text: `Launched ${label}\nLabel: ${label}\nWorking folder: C:\\repo\nSession: ${id}` });
+    const current = { ...botA, messages: [userMsg("ua", "go"), launch("p1", "THEME-CYCLE | Sonnet 5.5 | medium"), launch("p2", "B"), launch("p3", "C")] } as Bot;
+    try {
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot: current }))));
+      const buttons = Array.from(host.querySelectorAll("button")).filter((b) => b.textContent?.startsWith("Launched"));
+      expect(buttons.map((b) => b.textContent)).toEqual(["Launched THEME-CYCLE | Sonnet 5.5 | medium", "Launched B", "Launched C"]);
+      expect(host.querySelector("[data-orbit-launch]")).toBeNull();
+      await act(async () => { buttons[0]!.click(); });
+      expect(host.querySelector("[data-orbit-launch]")?.textContent).toBe("Label: THEME-CYCLE | Sonnet 5.5 | medium\nWorking folder: C:\\repo\nSession: p1");
+      await act(async () => { buttons[0]!.click(); });
+      expect(host.querySelector("[data-orbit-launch]")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
 });
 
 describe("ChatView bot switch while busy", () => {

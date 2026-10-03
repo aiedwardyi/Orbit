@@ -9,6 +9,8 @@ export { terminalReadGrant } from "../terminal-grant.ts";
 const HOST = process.env.OMB_TERMINAL_URL?.replace(/\/$/, "") ?? "";
 const TOKEN = process.env.OMB_TERMINAL_TOKEN ?? "";
 const BOT_ID = process.env.OMB_BOT_ID ?? "";
+const HARNESS = process.env.OMB_HARNESS_URL?.replace(/\/$/, "") ?? "";
+const COMMS_TOKEN = process.env.OMB_COMMS_TOKEN ?? "";
 const REQUEST_TIMEOUT_MS = 10_000;
 const READ_WAIT_DEFAULT_MS = 15_000;
 const READ_WAIT_MAX_MS = 60_000;
@@ -126,7 +128,7 @@ export const TOOLS = [
   },
 ] as const;
 
-type TerminalConfig = { host?: string; token?: string; botId?: string };
+type TerminalConfig = { host?: string; token?: string; botId?: string; harness?: string; commsToken?: string };
 type SendInput = { sessionId: string; generation: number; text: string };
 type SpawnInput = { label: string; cwd?: string; command?: string };
 type Pane = { sessionId: string; generation: number; label: string | null; main?: boolean; exited?: boolean; screenText?: string };
@@ -303,6 +305,19 @@ async function typeIntoPane(key: unknown, keyText: string | undefined, typed: st
   return settled;
 }
 
+// Best effort: a missing chat row must never fail the spawn.
+async function postLaunchNote(fetchImpl: typeof fetch, config: TerminalConfig, sessionId: string): Promise<void> {
+  const harness = config.harness ?? HARNESS;
+  const token = config.commsToken ?? COMMS_TOKEN;
+  if (!harness || !token) return;
+  await fetchImpl(`${harness}/api/internal/launch-note`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ fromBotId: config.botId ?? BOT_ID, sessionId }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  }).catch(() => undefined);
+}
+
 const TOOL_NAMES = new Set<string>(TOOLS.map((tool) => tool.name));
 
 export async function callTool(
@@ -316,6 +331,7 @@ export async function callTool(
   try {
     if (name === "terminal_spawn") {
       const pane = await spawnTerminalPane(args, fetchImpl, config);
+      await postLaunchNote(fetchImpl, config, pane.sessionId);
       return { content: [{ type: "text", text: `Opened pane "${String(args.label).trim()}": sessionId ${pane.sessionId} (generation ${pane.generation}). Use terminal_read and terminal_send with this sessionId.` }] };
     }
     if (name === "terminal_close") {

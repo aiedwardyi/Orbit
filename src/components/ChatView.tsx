@@ -780,6 +780,29 @@ function NoteMessage({ message }: { message: Message }) {
   );
 }
 
+function LaunchMessage({ message }: { message: Message }) {
+  const [open, setOpen] = useState(false);
+  const [header, ...details] = (message.text ?? "").split("\n");
+  return (
+    <div className="flex w-full flex-col items-start gap-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex items-center gap-1 rounded-lg border border-hairline/30 bg-inset/25 px-3 py-1.5 text-[12.5px] text-ink-secondary hover:text-ink"
+      >
+        <ChevronRight size={12} className={cn("transition-transform", open && "rotate-90")} />
+        {header}
+      </button>
+      {open && (
+        <div data-orbit-launch className="w-full max-w-2xl whitespace-pre-wrap break-words rounded-lg border border-hairline/30 bg-inset/25 px-3 py-2 text-[12.5px] leading-relaxed text-ink-secondary">
+          {details.join("\n")}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Keep the live reply in its transcript slot when the canonical message arrives.
 const MessagesList = memo(function MessagesList({
   bot,
@@ -925,6 +948,8 @@ const MessagesList = memo(function MessagesList({
               return m.hasImage ? <ScreenFrame src={screenImageUrl(bot.threadId, m.id)} caption={m.text} /> : null;
             case "note":
               return <NoteMessage message={m} />;
+            case "launch":
+              return <LaunchMessage message={m} />;
             default:
               return (
                 <Bubble
