@@ -8,7 +8,7 @@ import {
   DRAWER_HEADER_LEFT,
   DRAWER_HEADER_RIGHT,
 } from "@/lib/drawer-button";
-import { SKIN_IDS, nextSkin } from "@/lib/skins";
+import { LIGHT_SKIN_IDS, SKINS, SKIN_IDS, nextSkin, type SkinId } from "@/lib/skins";
 
 const app = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "App.tsx"), "utf8");
 /** Every page whose header keeps the drawer button's corner clear. */
@@ -79,13 +79,26 @@ describe("theme cycle shortcut", () => {
   const handler = () =>
     app.slice(app.indexOf("const onKey = (e: KeyboardEvent)"), app.indexOf("window.addEventListener(\"keydown\", onKey)"));
 
-  it("cycles forward through SKIN_IDS", () => {
-    expect(nextSkin(SKIN_IDS[0])).toBe(SKIN_IDS[1]);
-    expect(nextSkin(SKIN_IDS[1])).toBe(SKIN_IDS[2]);
+  const dark = SKINS.filter((s) => !LIGHT_SKIN_IDS.has(s.id)).map((s) => s.id);
+  const light = SKINS.filter((s) => LIGHT_SKIN_IDS.has(s.id)).map((s) => s.id);
+
+  it("cycles forward through the picker's group order", () => {
+    expect(nextSkin(dark[0])).toBe(dark[1]);
+    expect(nextSkin(light[0])).toBe(light[1]);
   });
 
-  it("wraps from the last skin back to the first", () => {
-    expect(nextSkin(SKIN_IDS[SKIN_IDS.length - 1])).toBe(SKIN_IDS[0]);
+  it("wraps last to first inside each group", () => {
+    expect(nextSkin(dark[dark.length - 1])).toBe(dark[0]);
+    expect(nextSkin(light[light.length - 1])).toBe(light[0]);
+  });
+
+  it("never crosses between light and dark", () => {
+    for (const id of light) expect(LIGHT_SKIN_IDS.has(nextSkin(id))).toBe(true);
+    for (const id of dark) expect(LIGHT_SKIN_IDS.has(nextSkin(id))).toBe(false);
+  });
+
+  it("falls back to the first skin for an unknown id", () => {
+    expect(nextSkin("gone" as SkinId)).toBe(SKIN_IDS[0]);
   });
 
   it("binds Alt+Shift+T to cycling the skin and ignores repeat or IME composition", () => {
