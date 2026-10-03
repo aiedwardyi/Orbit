@@ -114,6 +114,7 @@ const dumpEnv = Object.fromEntries(
     "CURSOR_AUTH_TOKEN",
     "GEMINI_API_KEY",
     "GOOGLE_API_KEY",
+    "GEMINI_CLI_TRUST_WORKSPACE",
     "META_API_KEY",
     "KIMI_API_KEY",
     "MOONSHOT_API_KEY",

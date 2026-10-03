@@ -43,6 +43,11 @@ const support: AcpSupport = {
   spawnArgs: (_config, turn) => ["--acp", ...(turn.model ? ["-m", turn.model] : [])],
   credentialEnv: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
 
+  transformEnv: (env) => {
+    // Untrusted cwd makes the CLI skip every stdio MCP server; env var because older CLIs may reject --skip-trust.
+    env.GEMINI_CLI_TRUST_WORKSPACE = "true";
+  },
+
   pickAuthMethod: (methods) => {
     const ids = methods.map((m) => m.id).filter((id): id is string => typeof id === "string");
     for (const pref of AUTH_PREFERENCE) if (ids.includes(pref)) return pref;
