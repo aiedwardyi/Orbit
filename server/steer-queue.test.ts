@@ -28,6 +28,7 @@ import {
   queuedSteeredMessage,
   queueRoomParticipation,
   queueSteeredMessage,
+  takeQueuedSteers,
   _queuedCount,
   _resetSteerQueue,
   type SteerStore,
@@ -461,6 +462,29 @@ describe("steer-queue module", () => {
     expect(_queuedCount("thread-fail-next")).toBe(0);
   });
 
+  it("takes waiting sends in order for a dispatching turn so drain cannot run them again", () => {
+    const bot = fakeBot("bot-fold", "thread-fold", false);
+    const store = fakeStore([bot]);
+    const first = queueSteeredMessage(bot.id, bot.threadId, "one", { prompt: "prompt one" });
+    queueSteeredMessage(bot.id, bot.threadId, "dropped", { sendId: "send_cancelled_12345" });
+    const second = queueSteeredMessage(bot.id, bot.threadId, "two", { replyToId: "r1", sendId: "send_kept_1234567890" });
+    queueRoomParticipation(bot.id, bot.threadId, { groupId: "g1" });
+    markSendCancelled("send_cancelled_12345");
+
+    expect(takeQueuedSteers("other-bot", bot.threadId)).toEqual([]);
+    expect(takeQueuedSteers(bot.id, bot.threadId)).toEqual([
+      { id: first.id, text: "one", prompt: "prompt one", replyToId: undefined, sendId: undefined },
+      { id: second.id, text: "two", prompt: "two", replyToId: "r1", sendId: "send_kept_1234567890" },
+    ]);
+    expect(queuedSteeredMessage(bot.id, bot.threadId, "send_kept_1234567890")).toBeNull();
+    expect(_queuedCount(bot.threadId)).toBe(1);
+
+    const run = vi.fn();
+    drainSteeredMessages(store, run);
+    expect(store.messages).toHaveLength(0);
+    expect(run).toHaveBeenCalledWith(bot.id, bot.threadId, "", null, [], { groupId: "g1", hop: 0 });
+  });
+
   it("drains only one queue per bot per settle so a 1:1 and a room wait cannot double-fire", () => {
     const skye = fakeBot("skye-both", "skye-both-1to1", true);
     const store = fakeStore([skye]);
@@ -490,6 +514,8 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
   let stopGate: string;
   let roomBusyGate: string;
   let stopRpcDump: string;
+  let prepGate: string;
+  let prepRpcDump: string;
 
   /** the command payloads these tests POST/PATCH */
   type ApiBody = Record<string, unknown>;
@@ -533,6 +559,8 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
     stopGate = join(home, "gates", "stop.gate");
     roomBusyGate = join(home, "gates", "room-busy.gate");
     stopRpcDump = join(home, "gates", "stop.rpc");
+    prepGate = join(home, "gates", "prep.gate");
+    prepRpcDump = join(home, "gates", "prep.rpc");
     writeFileSync(
       join(home, ".orbit", "config.json"),
       JSON.stringify({
@@ -568,6 +596,13 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
           steerNow: {
             driver: "grokAgent",
             environment: { FAKE_ACP_MODE: "echo-gated" },
+            config: { cli: FAKE_CLI, fullAuto: true },
+          },
+          // a steerable engine whose reload can be held pending, parking the
+          // next turn in preparation before busy flips
+          steerPrep: {
+            driver: "grokAgent",
+            environment: { FAKE_ACP_MODE: "echo-gated", FAKE_ACP_GATE_FILE: prepGate, FAKE_ACP_RPC_DUMP: prepRpcDump },
             config: { cli: FAKE_CLI, fullAuto: true },
           },
           steerRoomBusy: {
@@ -740,6 +775,54 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
       const replies = echoes(snapshot);
       expect(replies).toHaveLength(1);
       expect(replies[0].text).toContain("after stop please");
+    },
+    60_000,
+  );
+
+  it(
+    "folds a send made while the turn prepares into that turn, before its reply",
+    async () => {
+      const holder = await newBot("steerPrep", "Holder");
+      const bot = await newBot("steerPrep", "Preparing");
+
+      expect((await api("POST", `/api/bots/${holder.id}/messages`, { text: "hold the engine" })).status).toBe(202);
+      await until(async () => {
+        try {
+          return readFileSync(prepRpcDump, "utf8").includes("session/prompt");
+        } catch {
+          return false;
+        }
+      }, "the holding prompt");
+      // a config change waits for the holder's turn, and so does the next dispatch
+      expect((await api("PATCH", "/api/instances/steerPrep", { cli: `${SERVER_DIR}/testing/../testing/fake-acp-cli.ts` })).status).toBe(200);
+
+      const first = api("POST", `/api/bots/${bot.id}/messages`, { text: "prep first" });
+      // the edit route refuses while a turn-start claim is held, before it looks up the message
+      await until(
+        async () => (await api("POST", `/api/bots/${bot.id}/messages/none/edit`, { text: "probe" })).status === 409,
+        "the preparing turn's claim",
+      );
+      expect((await botById(bot.id)).busy).toBe(false);
+      const go = await api("POST", `/api/bots/${bot.id}/messages`, { text: "prep go" });
+      expect(go.body).toMatchObject({ ok: true, queued: true });
+
+      writeFileSync(prepGate, "open");
+      expect((await first).status).toBe(202);
+      let snapshot: any;
+      await until(async () => {
+        snapshot = await botById(bot.id);
+        return !snapshot.busy && echoes(snapshot).length >= 1;
+      }, "the preparing turn");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      snapshot = await botById(bot.id);
+
+      const lines = snapshot.messages
+        .filter((m: any) => m.kind === "text")
+        .map((m: any) => (m.role === "user" ? `user:${m.text}` : "bot:echo"));
+      expect(lines).toEqual(["user:prep first", "user:prep go", "bot:echo"]);
+      const reply = echoes(snapshot)[0].text as string;
+      expect(reply.indexOf("prep first")).toBeLessThan(reply.indexOf("prep go"));
+      expect(snapshot.messages.find((m: any) => m.text === "prep go")).toMatchObject({ steered: true, queueId: go.body.queueId });
     },
     60_000,
   );

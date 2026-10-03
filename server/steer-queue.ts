@@ -279,6 +279,26 @@ export function drainSteeredMessages(
   }
 }
 
+/** Take this thread's waiting 1:1 sends for a turn about to dispatch, so
+ * a send made during its preparation joins it the way steer would have.
+ * Room waits stay queued; cancelled sends are dropped. */
+export function takeQueuedSteers(
+  botId: string,
+  threadId: string,
+): Array<{ id: string; text: string; prompt: string; replyToId?: string; sendId?: string }> {
+  const key = entryKey(botId, threadId);
+  const entry = queues.get(key);
+  if (!entry || entry.botId !== botId) return [];
+  const steerItems = entry.items.filter((item): item is SteerItem => !isRoomItem(item));
+  if (!steerItems.length) return [];
+  const roomItems = entry.items.filter(isRoomItem);
+  if (roomItems.length) queues.set(key, { botId, threadId, items: roomItems });
+  else queues.delete(key);
+  return steerItems
+    .filter((item) => !isSendCancelled(item.sendId))
+    .map((item) => ({ id: item.messageId, text: item.text, prompt: item.prompt, replyToId: item.replyToId, sendId: item.sendId }));
+}
+
 /** Find the receipt for a retry whose message is still waiting to drain. */
 export function queuedSteeredMessage(
   botId: string,
