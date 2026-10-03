@@ -3627,7 +3627,7 @@ const SHOW_IMAGE_GUIDANCE =
   "When you produce or find an image the user should see (a mockup, chart, or screenshot file), call show_image with its absolute path so it appears in this chat. Never end with only a file path. To create a new image, call generate_image.";
 
 const ALWAYS_REPLY_INSTRUCTIONS =
-  " Never end a turn without a user-visible reply.";
+  " Never end a turn without a user-visible reply. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed.";
 
 // Retrieval discipline for document workloads. Static on purpose: the
 // stream-json driver folds --append-system-prompt into its warm-process

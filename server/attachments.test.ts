@@ -216,8 +216,8 @@ describe("show-image route", () => {
     expect(indexSource).toContain("integrations.agents && SHOW_IMAGE_GUIDANCE");
   });
 
-  it("puts the always-reply rule in every bot's base prompt", () => {
-    expect(indexSource).toContain('" Never end a turn without a user-visible reply."');
+  it("puts the always-reply and say-once rules in every bot's base prompt", () => {
+    expect(indexSource).toContain('" Never end a turn without a user-visible reply. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed."');
     expect(indexSource.split("ALWAYS_REPLY_INSTRUCTIONS +").length - 1).toBe(2);
   });
 });
