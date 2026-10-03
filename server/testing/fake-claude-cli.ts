@@ -354,6 +354,16 @@ const playTurn = (prompt: JsonValue) => {
     out({ type: "assistant", parent_tool_use_id: "task-1", message: { content: [{ type: "text", text: "SUBAGENT FINAL" }] } });
   }
 
+  if (mode === "narration") {
+    // 2.1.288 frames: prose between tool calls can come back as a thinking
+    // block the CLI flags in narration_block_indexes; real reasoning is not flagged
+    const thinking = (text: string) => ({ type: "thinking", thinking: text, signature: "sig" });
+    out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "Checking the logs now." } } });
+    out({ type: "assistant", message: { content: [thinking("private reasoning")] } });
+    out({ type: "assistant", narration_block_indexes: [0], message: { content: [thinking("Checking the logs now.\n\n")] } });
+    out({ type: "assistant", parent_tool_use_id: "task-1", narration_block_indexes: [0], message: { content: [thinking("SUBAGENT NARRATION")] } });
+  }
+
   if ((mode === "background-task" || mode === "foreground-task") && !taskStarted) {
     taskStarted = true;
     const backgrounded = mode === "background-task";

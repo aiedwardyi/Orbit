@@ -473,6 +473,19 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect((settled[0] as any).text).toBe("hello from fake claude");
   });
 
+  it("settles flagged narration as a reply, never plain reasoning", async () => {
+    await create("narration");
+    await instance.adapter.sendTurn({ threadId: "t-narration", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const replies = recorder.events.filter((e: any) => e.type === "item.completed" && e.itemType === "assistant_text");
+    expect(replies.map((e: any) => e.text)).toEqual(["Checking the logs now.", "hello from fake claude"]);
+    const text = recorder.events.filter((e: any) => e.type === "content.delta" && e.streamKind === "assistant_text");
+    expect(text.map((d: any) => d.delta)).toEqual(["Checking the logs now.", "hello from fake claude"]);
+    expect(JSON.stringify(recorder.events)).not.toContain("private reasoning");
+    expect(JSON.stringify(recorder.events)).not.toContain("SUBAGENT NARRATION");
+  });
+
   it("never settles a subagent's final report as a reply", async () => {
     await create("stream");
     await instance.adapter.sendTurn({ threadId: "t-subagent-final", text: "hi" });

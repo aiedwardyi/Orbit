@@ -469,6 +469,17 @@ function firstText(content: unknown): string {
   return "";
 }
 
+/** Text blocks plus narration: thinking blocks the CLI flags as prose to the user, not reasoning. */
+function replyText(content: unknown, narration: unknown): string {
+  if (!Array.isArray(content) || !Array.isArray(narration)) return firstText(content);
+  return content
+    .map((b, i) =>
+      b?.type === "text" ? b.text : b?.type === "thinking" && narration.includes(i) ? String(b.thinking ?? "").trim() : "",
+    )
+    .filter(Boolean)
+    .join("");
+}
+
 type TurnUsage = { input: number; output: number; cachedInput?: number };
 
 // cache reads count as input: billed (at the cache rate) and they fill the
@@ -1185,7 +1196,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           case "assistant": {
             if (session.turn) session.turn.promptAccepted = true;
             const msg = o.message ?? {};
-            const text = firstText(msg.content);
+            const text = replyText(msg.content, o.narration_block_indexes);
             // a subagent's final report is the main agent's input, not a reply
             if (text.trim() && !o.parent_tool_use_id) {
               // fallback delta for CLIs/paths that never streamed the block
