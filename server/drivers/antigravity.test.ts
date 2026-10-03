@@ -329,6 +329,28 @@ describe("Antigravity turns (fake CLI)", () => {
     }
   });
 
+  it("reports a user Stop mid-turn as interrupted, not a crash", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "omb-agy-stop-"));
+    const ready = join(scratch, "ready");
+    process.env.FAKE_AGY_DELAY_MS = "10000";
+    process.env.FAKE_AGY_READY_FILE = ready;
+    try {
+      await create();
+      await instance.adapter.sendTurn({ threadId: "t-stop", text: "hi" });
+      await expect.poll(() => existsSync(ready), { timeout: 3_000 }).toBe(true);
+      await instance.adapter.interruptTurn("t-stop");
+      await recorder.until((event) => event.type === "turn.completed");
+
+      expect(recorder.events.some((event) => event.type === "runtime.error")).toBe(false);
+      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: false, stopReason: "interrupted" });
+      expect(instance.adapter.hasSession("t-stop")).toBe(false);
+    } finally {
+      delete process.env.FAKE_AGY_DELAY_MS;
+      delete process.env.FAKE_AGY_READY_FILE;
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
   it("respondToRequest resolves `unavailable` — no interactive permission channel, so the caller denies", async () => {
     await create();
     await expect(instance.adapter.respondToRequest("t-happy", "req-1", { behavior: "allow" })).resolves.toBe("unavailable");
@@ -439,6 +461,45 @@ describe("Antigravity computer MCP config", () => {
     },
   };
   const boxEntry = () => antigravityComputerMcpServer(boxIntegrations)!;
+  const staticEntries = {
+    "openmausbot-agents": { command: process.execPath, args: [SPAWNED_PROXIES.agents], env: { ELECTRON_RUN_AS_NODE: "1" } },
+    "openmausbot-terminal": { command: process.execPath, args: [SPAWNED_PROXIES.terminal], env: { ELECTRON_RUN_AS_NODE: "1" } },
+  };
+  const botIntegrations = (bot: string) => ({
+    agents: {
+      command: process.execPath,
+      args: [SPAWNED_PROXIES.agents],
+      env: {
+        ELECTRON_RUN_AS_NODE: "1",
+        OMB_HARNESS_URL: "http://127.0.0.1:9",
+        OMB_BOT_ID: bot,
+        OMB_THREAD_ID: `t-${bot}`,
+        OMB_COMMS_TOKEN: "comms-tok",
+        OMB_TURN_DEPTH: "0",
+      },
+    },
+    terminal: {
+      command: process.execPath,
+      args: [SPAWNED_PROXIES.terminal],
+      env: {
+        ELECTRON_RUN_AS_NODE: "1",
+        OMB_TERMINAL_URL: "http://127.0.0.1:9",
+        OMB_TERMINAL_TOKEN: `grant-${bot}`,
+        OMB_BOT_ID: bot,
+        OMB_HARNESS_URL: "http://127.0.0.1:9",
+        OMB_COMMS_TOKEN: "comms-tok",
+      },
+    },
+  });
+  const createIn = (home: string, name: string, environment: Record<string, string> = {}) =>
+    AntigravityDriver.create({
+      instanceId: `agy-mcp-${name}`,
+      displayName: undefined,
+      environment: { HOME: home, ...environment },
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: true },
+    });
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
   it("builds the cloud-box spec on the shared computer proxy (never path-resolved locally)", () => {
     expect(antigravityComputerMcpServer(boxIntegrations)).toEqual({
@@ -536,7 +597,7 @@ describe("Antigravity computer MCP config", () => {
       restoreNewFile();
       expect(existsSync(configPath(home))).toBe(true);
       let restored = readConfig(home);
-      expect(restored.mcpServers[ANTIGRAVITY_COMPUTER_MCP_KEY]).toBeUndefined();
+      expect(Object.keys(restored.mcpServers)).toEqual(["external-helper"]);
       expect(restored.mcpServers["external-helper"]).toEqual({ command: "external-mcp" });
       expect(restored.futureTopLevelKey).toEqual({ keep: true });
 
@@ -552,20 +613,16 @@ describe("Antigravity computer MCP config", () => {
 
       restoreExistingEntry();
       restored = readConfig(home);
-      expect(restored.mcpServers[ANTIGRAVITY_COMPUTER_MCP_KEY]).toEqual(originalEntry);
-      expect(restored.mcpServers["another-helper"]).toEqual({ command: "another-mcp" });
+      // an openmausbot-* key found at mount time is a crash leftover, never written back
+      expect(restored.mcpServers).toEqual({ "another-helper": { command: "another-mcp" } });
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
   });
 
-  it("a computer-less turn removes only its own key, and never creates the file just to remove", () => {
-    const home = mkdtempSync(join(tmpdir(), "omb-agy-mcprm-"));
+  it("restore strips a stale openmausbot-* key and keeps the user's own keys and unknown top-level keys", () => {
+    const home = mkdtempSync(join(tmpdir(), "omb-agy-mcpstale-"));
     try {
-      // No file at all: removal is a no-op, not an empty file in the user's home.
-      ensureAntigravityComputerMcp(null, { HOME: home });
-      expect(existsSync(configPath(home))).toBe(false);
-
       mkdirSync(join(home, ".gemini", "config"), { recursive: true });
       writeFileSync(
         configPath(home),
@@ -573,13 +630,22 @@ describe("Antigravity computer MCP config", () => {
           mcpServers: {
             "sqlite-helper": { command: "sqlite-mcp-server", args: ["/db"] },
             [ANTIGRAVITY_COMPUTER_MCP_KEY]: boxEntry(),
+            "openmausbot-terminal": { command: "stale", env: { OMB_TERMINAL_TOKEN: "stale-grant" } },
           },
+          futureTopLevelKey: { keep: true },
         }),
       );
-      ensureAntigravityComputerMcp(null, { HOME: home });
-      const config = readConfig(home);
-      expect(config.mcpServers[ANTIGRAVITY_COMPUTER_MCP_KEY]).toBeUndefined();
-      expect(config.mcpServers["sqlite-helper"]).toEqual({ command: "sqlite-mcp-server", args: ["/db"] });
+      const restore = ensureAntigravityComputerMcp(null, { HOME: home });
+      expect(readConfig(home).mcpServers).toEqual({
+        "sqlite-helper": { command: "sqlite-mcp-server", args: ["/db"] },
+        ...staticEntries,
+      });
+
+      restore();
+      expect(readConfig(home)).toEqual({
+        mcpServers: { "sqlite-helper": { command: "sqlite-mcp-server", args: ["/db"] } },
+        futureTopLevelKey: { keep: true },
+      });
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -612,6 +678,8 @@ describe("Antigravity computer MCP config", () => {
       // so the composer offers no Ask for approval chip either
       expect(fullAuto.adapter.capabilities.askApproval).toBe(false);
       expect(acceptEdits.adapter.capabilities.askApproval).toBe(false);
+      expect(fullAuto.adapter.capabilities.agentsMcp).toBe(true);
+      expect(acceptEdits.adapter.capabilities.agentsMcp).toBe(true);
     } finally {
       await fullAuto.dispose();
       await acceptEdits.dispose();
@@ -655,50 +723,146 @@ describe("Antigravity computer MCP config", () => {
     }
   });
 
-  it("serializes overlapping turns so each child sees only its own computer mount", async () => {
+  it("runs computer-less turns side by side, each child carrying its own identity in env", async () => {
+    ensureDirs();
+    chmodSync(FAKE_CLI, 0o755);
+    const home = mkdtempSync(join(tmpdir(), "omb-agy-mcpshared-"));
+    const hold = join(home, "hold");
+    const original = JSON.stringify({ mcpServers: { "sqlite-helper": { command: "sqlite-mcp-server" } }, futureTopLevelKey: { keep: true } });
+    mkdirSync(join(home, ".gemini", "config"), { recursive: true });
+    writeFileSync(configPath(home), original);
+    const python = await createIn(home, "python", { FAKE_AGY_HOLD_FILE: hold, FAKE_AGY_DUMP: join(home, "python.json") });
+    const teacher = await createIn(home, "teacher", { FAKE_AGY_HOLD_FILE: hold, FAKE_AGY_DUMP: join(home, "teacher.json") });
+    const pythonRecorder = recordEvents(python.adapter);
+    const teacherRecorder = recordEvents(teacher.adapter);
+    try {
+      await python.adapter.sendTurn({ threadId: "t-python", text: "one", integrations: botIntegrations("python") });
+      void teacher.adapter.sendTurn({ threadId: "t-teacher", text: "two", integrations: botIntegrations("teacher") });
+      await expect.poll(() => existsSync(join(home, "teacher.json")), { timeout: 3_000 }).toBe(true);
+      await expect.poll(() => existsSync(join(home, "python.json")), { timeout: 3_000 }).toBe(true);
+      expect([...pythonRecorder.events, ...teacherRecorder.events].some((event) => event.type === "turn.completed")).toBe(false);
+
+      for (const bot of ["python", "teacher"]) {
+        const { env } = JSON.parse(readFileSync(join(home, `${bot}.json`), "utf8"));
+        expect(env).toMatchObject({ OMB_BOT_ID: bot, OMB_THREAD_ID: `t-${bot}`, OMB_COMMS_TOKEN: "comms-tok", OMB_TERMINAL_TOKEN: `grant-${bot}` });
+        expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined();
+      }
+      const mounted = readFileSync(configPath(home), "utf8");
+      expect(mounted).not.toContain("OMB_");
+      expect(JSON.parse(mounted)).toEqual({
+        mcpServers: { "sqlite-helper": { command: "sqlite-mcp-server" }, ...staticEntries },
+        futureTopLevelKey: { keep: true },
+      });
+
+      writeFileSync(hold, "");
+      await pythonRecorder.until((event) => event.type === "turn.completed");
+      await teacherRecorder.until((event) => event.type === "turn.completed");
+      expect(pythonRecorder.events.at(-1)).toMatchObject({ ok: true });
+      expect(teacherRecorder.events.at(-1)).toMatchObject({ ok: true });
+      await expect.poll(() => readFileSync(configPath(home), "utf8")).toBe(original);
+    } finally {
+      writeFileSync(hold, "");
+      pythonRecorder.stop();
+      teacherRecorder.stop();
+      await python.dispose();
+      await teacher.dispose();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a computer turn exclusive, and queues later turns behind a waiting one", async () => {
     ensureDirs();
     chmodSync(FAKE_CLI, 0o755);
     const home = mkdtempSync(join(tmpdir(), "omb-agy-mcplease-"));
-    const firstDump = join(home, "first.json");
-    const secondDump = join(home, "second.json");
-    const first = await AntigravityDriver.create({
-      instanceId: "agy-mcp-first",
-      displayName: undefined,
-      environment: { HOME: home, FAKE_AGY_DELAY_MS: "150", FAKE_AGY_MCP_DUMP: firstDump },
-      enabled: true,
-      config: { cli: FAKE_CLI, fullAuto: true },
-    });
-    const second = await AntigravityDriver.create({
-      instanceId: "agy-mcp-second",
-      displayName: undefined,
-      environment: { HOME: home, FAKE_AGY_MCP_DUMP: secondDump },
-      enabled: true,
-      config: { cli: FAKE_CLI, fullAuto: true },
-    });
-    const firstRecorder = recordEvents(first.adapter);
-    const secondRecorder = recordEvents(second.adapter);
+    const holdShared = join(home, "hold-shared");
+    const holdComputer = join(home, "hold-computer");
+    const computerDump = join(home, "computer.json");
+    const laterDump = join(home, "later.json");
+    const shared = await createIn(home, "shared", { FAKE_AGY_HOLD_FILE: holdShared });
+    const computer = await createIn(home, "computer", { FAKE_AGY_HOLD_FILE: holdComputer, FAKE_AGY_MCP_DUMP: computerDump });
+    const later = await createIn(home, "later", { FAKE_AGY_MCP_DUMP: laterDump });
+    const computerRecorder = recordEvents(computer.adapter);
+    const laterRecorder = recordEvents(later.adapter);
     try {
-      await first.adapter.sendTurn({ threadId: "t-mcp-first", text: "first", integrations: boxIntegrations });
-      let secondSpawned = false;
-      const secondTurn = second.adapter.sendTurn({ threadId: "t-mcp-second", text: "second" }).then((result) => {
-        secondSpawned = true;
+      await shared.adapter.sendTurn({ threadId: "t-mcp-shared", text: "first" });
+      let computerSpawned = false;
+      const computerTurn = computer.adapter.sendTurn({ threadId: "t-mcp-computer", text: "click", integrations: boxIntegrations }).then((result) => {
+        computerSpawned = true;
         return result;
       });
+      await sleep(30);
+      let laterSpawned = false;
+      const laterTurn = later.adapter.sendTurn({ threadId: "t-mcp-later", text: "later" }).then((result) => {
+        laterSpawned = true;
+        return result;
+      });
+      await sleep(200);
+      expect(computerSpawned).toBe(false);
+      expect(laterSpawned).toBe(false);
 
-      await new Promise((resolve) => setTimeout(resolve, 30));
-      expect(secondSpawned).toBe(false);
-      await firstRecorder.until((event) => event.type === "turn.completed");
-      await secondTurn;
-      await secondRecorder.until((event) => event.type === "turn.completed");
+      writeFileSync(holdShared, "");
+      await computerTurn;
+      await sleep(200);
+      expect(laterSpawned).toBe(false);
 
-      expect(JSON.parse(readFileSync(firstDump, "utf8")).mcpServers[ANTIGRAVITY_COMPUTER_MCP_KEY]).toEqual(boxEntry());
-      expect(JSON.parse(readFileSync(secondDump, "utf8"))?.mcpServers?.[ANTIGRAVITY_COMPUTER_MCP_KEY]).toBeUndefined();
+      writeFileSync(holdComputer, "");
+      await computerRecorder.until((event) => event.type === "turn.completed");
+      await laterTurn;
+      await laterRecorder.until((event) => event.type === "turn.completed");
+
+      expect(JSON.parse(readFileSync(computerDump, "utf8")).mcpServers).toEqual({
+        ...staticEntries,
+        [ANTIGRAVITY_COMPUTER_MCP_KEY]: boxEntry(),
+      });
+      expect(JSON.parse(readFileSync(laterDump, "utf8")).mcpServers).toEqual(staticEntries);
       await expect.poll(() => existsSync(configPath(home))).toBe(false);
     } finally {
-      firstRecorder.stop();
-      secondRecorder.stop();
-      await first.dispose();
-      await second.dispose();
+      writeFileSync(holdShared, "");
+      writeFileSync(holdComputer, "");
+      computerRecorder.stop();
+      laterRecorder.stop();
+      await shared.dispose();
+      await computer.dispose();
+      await later.dispose();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("a Stop during the lock wait never spawns the turn and completes it as interrupted", async () => {
+    ensureDirs();
+    chmodSync(FAKE_CLI, 0o755);
+    const home = mkdtempSync(join(tmpdir(), "omb-agy-mcpwaitstop-"));
+    const hold = join(home, "hold");
+    const waitingReady = join(home, "waiting.ready");
+    const computer = await createIn(home, "holder", { FAKE_AGY_HOLD_FILE: hold });
+    const waiting = await createIn(home, "waiting", { FAKE_AGY_READY_FILE: waitingReady });
+    const computerRecorder = recordEvents(computer.adapter);
+    const waitingRecorder = recordEvents(waiting.adapter);
+    try {
+      await computer.adapter.sendTurn({ threadId: "t-mcp-holder", text: "click", integrations: boxIntegrations });
+      const waitingTurn = waiting.adapter.sendTurn({ threadId: "t-mcp-waiting", text: "hi" });
+      await sleep(50);
+      expect(waiting.adapter.hasSession("t-mcp-waiting")).toBe(true);
+      await waiting.adapter.interruptTurn("t-mcp-waiting");
+      await waitingRecorder.until((event) => event.type === "turn.completed", 3_000);
+
+      const { turnId } = await waitingTurn;
+      expect(waitingRecorder.events.map((event) => event.type)).toEqual(["turn.started", "turn.completed"]);
+      expect(waitingRecorder.events.every((event) => event.turnId === turnId)).toBe(true);
+      expect(waitingRecorder.events.at(-1)).toMatchObject({ ok: false, stopReason: "interrupted" });
+      expect(waiting.adapter.hasSession("t-mcp-waiting")).toBe(false);
+
+      writeFileSync(hold, "");
+      await computerRecorder.until((event) => event.type === "turn.completed");
+      await sleep(300);
+      expect(existsSync(waitingReady)).toBe(false);
+      await expect.poll(() => existsSync(configPath(home))).toBe(false);
+    } finally {
+      writeFileSync(hold, "");
+      computerRecorder.stop();
+      waitingRecorder.stop();
+      await computer.dispose();
+      await waiting.dispose();
       rmSync(home, { recursive: true, force: true });
     }
   });
@@ -922,6 +1086,26 @@ describe("Antigravity Windows long-prompt transport", () => {
       expect(invocation.prompt.endsWith("lets get rid of this pycache what is that")).toBe(true);
       expect(invocation.argv).not.toContain(invocation.prompt);
       expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true });
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  it("summarizes a prompt over 40k chars through stdin, not argv", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "omb-agy-summary-"));
+    const dump = join(scratch, "dump.json");
+    process.env.FAKE_AGY_DUMP = dump;
+    const prompt = "SUMMARIZE:" + "S".repeat(40_000);
+    try {
+      await create();
+      await expect(instance.generateText!(prompt)).resolves.toBe("done from fake agy");
+      const invocation = JSON.parse(readFileSync(dump, "utf8"));
+      expect(invocation.prompt).toBe(prompt);
+      expect(invocation.argv).toEqual(
+        expect.arrayContaining(["--input-format", "stream-json", "--output-format", "stream-json", "--model", "gemini-3.6-flash-low"]),
+      );
+      expect(invocation.argv).not.toContain("--dangerously-skip-permissions");
+      expect(invocation.argv.some((arg: string) => arg.includes("SUMMARIZE:"))).toBe(false);
     } finally {
       rmSync(scratch, { recursive: true, force: true });
     }

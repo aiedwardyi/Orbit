@@ -11,6 +11,8 @@ const TOKEN = process.env.OMB_TERMINAL_TOKEN ?? "";
 const BOT_ID = process.env.OMB_BOT_ID ?? "";
 const HARNESS = process.env.OMB_HARNESS_URL?.replace(/\/$/, "") ?? "";
 const COMMS_TOKEN = process.env.OMB_COMMS_TOKEN ?? "";
+// agy mounts this proxy machine-wide, so a process without a bot's terminal grant gets no tools.
+const TOOLS_ENABLED = Boolean(HOST && TOKEN && BOT_ID);
 const REQUEST_TIMEOUT_MS = 10_000;
 const READ_WAIT_DEFAULT_MS = 15_000;
 const READ_WAIT_MAX_MS = 60_000;
@@ -382,10 +384,10 @@ async function handle(message: Json) {
   } else if (method === "ping") {
     ok(id, {});
   } else if (method === "tools/list") {
-    ok(id, { tools: TOOLS });
+    ok(id, { tools: TOOLS_ENABLED ? TOOLS : [] });
   } else if (method === "tools/call") {
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- JSON-RPC tool name is untyped input.
-    if (typeof params.name !== "string" || !TOOL_NAMES.has(params.name)) return rpcError(id, -32602, `Unknown tool: ${String(params.name ?? "")}`);
+    if (!TOOLS_ENABLED || typeof params.name !== "string" || !TOOL_NAMES.has(params.name)) return rpcError(id, -32602, `Unknown tool: ${String(params.name ?? "")}`);
     // oxlint-disable-next-line anti-slop/no-runtime-typeof, anti-slop/require-safety-comment-for-type-assertion -- Tool arguments are narrowed to a record before validation.
     const args = params.arguments && typeof params.arguments === "object" ? params.arguments as Json : {};
     ok(id, await callTool(params.name, fetch, {}, args));

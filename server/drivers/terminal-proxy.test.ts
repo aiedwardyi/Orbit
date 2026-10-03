@@ -1,5 +1,7 @@
+import { spawn } from "node:child_process";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi, type Mock } from "vitest";
 import { TOOLS, callTool, claudeState, readTerminalSnapshot, terminalReadGrant, terminalSnapshotText, workerReportText } from "./terminal-proxy.ts";
 
@@ -442,5 +444,54 @@ describe("terminal proxy", () => {
     );
     expect(snapshot).toMatchObject({ state: "no-terminal" });
     expect(authorization).toBe(`Bearer ${grant}`);
+  });
+});
+
+const PROXY = join(dirname(fileURLToPath(import.meta.url)), "terminal-proxy.ts");
+
+/** A short-lived proxy with exactly this OMB_* identity: its tools/list and a terminal_read call. */
+function probeWithIdentity(identity: Record<string, string>): Promise<{ list: any; call: any }> {
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("OMB_")));
+  const proxy = spawn(process.execPath, [PROXY], { windowsHide: true, env: { ...inherited, ...identity }, stdio: ["pipe", "pipe", "inherit"] });
+  return new Promise((resolve, reject) => {
+    const replies = new Map<number, any>();
+    const timer = setTimeout(() => {
+      proxy.kill();
+      reject(new Error("proxy probe timed out"));
+    }, 10_000);
+    let buf = "";
+    proxy.stdout.on("data", (chunk) => {
+      buf += chunk;
+      let nl;
+      while ((nl = buf.indexOf("\n")) !== -1) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        if (!line.trim()) continue;
+        const msg = JSON.parse(line);
+        replies.set(msg.id, msg);
+      }
+      if (!replies.has(1) || !replies.has(2)) return;
+      clearTimeout(timer);
+      proxy.kill();
+      resolve({ list: replies.get(1), call: replies.get(2) });
+    });
+    proxy.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })}\n`);
+    proxy.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "terminal_read", arguments: {} } })}\n`);
+  });
+}
+
+describe("terminal proxy identity gate", () => {
+  it.each([
+    ["no identity", {}],
+    ["an agents-only identity", { OMB_BOT_ID: "bot-1", OMB_HARNESS_URL: "http://127.0.0.1:9", OMB_COMMS_TOKEN: "comms" }],
+  ])("lists no tools and refuses calls with %s", async (_label, identity) => {
+    const { list, call } = await probeWithIdentity(identity);
+    expect(list.result.tools).toEqual([]);
+    expect(call.error.code).toBe(-32602);
+  });
+
+  it("lists every tool once the terminal url, grant and bot id are all set", async () => {
+    const { list } = await probeWithIdentity({ OMB_TERMINAL_URL: "http://127.0.0.1:9", OMB_TERMINAL_TOKEN: "grant", OMB_BOT_ID: "bot-1" });
+    expect(list.result.tools.map((tool: { name: string }) => tool.name)).toEqual(TOOLS.map((tool) => tool.name));
   });
 });

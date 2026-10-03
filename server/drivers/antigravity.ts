@@ -16,14 +16,14 @@
 // approves everything. Real per-action approval cards are a future path via
 // native ACP (agy issue #31), which would reuse acp/core.ts like grok/gemini.
 //
-// Computer use: agy has no per-turn MCP flag, so the bot's computer (cloud
-// box / Local VM / VPS) is mounted by upserting one key into the global
-// `~/.gemini/config/mcp_config.json` before each spawn — see
-// ensureAntigravityComputerMcp below. Full-auto instances only; the host
-// desktop stays off (no approval channel in print mode, ever).
+// MCP: agy has no per-turn MCP flag, so Wink's servers (agents, terminal, and
+// the bot's computer: cloud box / Local VM / VPS) are mounted into the global
+// `~/.gemini/config/mcp_config.json` around each child - see
+// ensureAntigravityComputerMcp below. Computer use is full-auto instances
+// only; the host desktop stays off (no approval channel in print mode, ever).
 import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../procs.ts";
-import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 
@@ -158,12 +158,16 @@ export function readAntigravityModelCatalog(env: Record<string, string | undefin
 // against agy 1.1.19, whose embedded docs list exactly two locations — the
 // global `~/.gemini/config/mcp_config.json` and per-plugin files — and whose
 // `agy mcp list` ignores `.gemini/{settings,mcp_config}.json` in the cwd.
-// So the bot's computer is mounted by upserting ONE key into the global file
-// right before each spawn: every other byte of the user's config is
-// preserved, and a malformed file starts from a fresh object instead of
-// failing the turn (the ensureOpenCodeInjectModel discipline).
+// So Wink's servers are mounted into the global file for each child's
+// lifetime: every other byte of the user's config is preserved, and a
+// malformed file starts from a fresh object instead of failing the turn (the
+// ensureOpenCodeInjectModel discipline). The agents and terminal entries are
+// static: each MCP child inherits its agy process's env (verified agy
+// 1.2.16), so a turn's identity rides there, never in the shared file.
 export const ANTIGRAVITY_COMPUTER_MCP_KEY = "openmausbot-computer";
+export const ANTIGRAVITY_AGENTS_MCP_KEY = "openmausbot-agents";
 export const ANTIGRAVITY_TERMINAL_MCP_KEY = "openmausbot-terminal";
+const WINK_MCP_KEY_PREFIX = "openmausbot-";
 
 export interface AntigravityComputerMcpServer {
   command: string;
@@ -171,24 +175,84 @@ export interface AntigravityComputerMcpServer {
   env: Record<string, string>;
 }
 
-// agy's MCP file is machine-global. Hold this lease for the complete child
-// lifetime so two Antigravity turns cannot see each other's computer tokens.
-let antigravityComputerMcpLease: Promise<void> = Promise.resolve();
+// agy's MCP file is machine-global. Computer-less turns share it; a computer
+// turn's entry carries its box token, so that turn holds the file alone.
+// FIFO with writer preference: once a computer turn waits, later turns queue
+// behind it.
+let mcpSharedHolders = 0;
+let mcpExclusiveHeld = false;
+const mcpWaiters: Array<{ exclusive: boolean; grant: () => void }> = [];
 
-async function acquireAntigravityComputerMcpLease(): Promise<() => void> {
-  const previous = antigravityComputerMcpLease;
-  let unlock: (() => void) | undefined;
-  const current = new Promise<void>((resolve) => {
-    unlock = resolve;
+function pumpAntigravityMcpLock() {
+  while (mcpWaiters.length && !mcpExclusiveHeld && !(mcpWaiters[0].exclusive && mcpSharedHolders > 0)) {
+    const waiter = mcpWaiters.shift()!;
+    if (waiter.exclusive) mcpExclusiveHeld = true;
+    else mcpSharedHolders += 1;
+    waiter.grant();
+  }
+}
+
+/** Resolves with the release once granted; cancel() drops a waiter that was never granted. */
+function acquireAntigravityMcpLock(exclusive: boolean) {
+  let cancel = () => {};
+  const granted = new Promise<() => void>((resolve) => {
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      if (exclusive) mcpExclusiveHeld = false;
+      else mcpSharedHolders -= 1;
+      pumpAntigravityMcpLock();
+    };
+    const waiter = { exclusive, grant: () => resolve(release) };
+    cancel = () => {
+      const index = mcpWaiters.indexOf(waiter);
+      if (index === -1) return;
+      mcpWaiters.splice(index, 1);
+      resolve(() => {});
+      pumpAntigravityMcpLock();
+    };
+    mcpWaiters.push(waiter);
+    pumpAntigravityMcpLock();
   });
-  antigravityComputerMcpLease = previous.then(() => current);
-  await previous;
+  return { granted, cancel };
+}
+
+// One mount per config file for all computer-less holders: the first mounts,
+// the last restores.
+const sharedMcpMounts = new Map<string, { holders: number; restore: () => void }>();
+
+/** Mount for one child under the lock; a computer turn's mount is its own. */
+function mountAntigravityMcp(
+  computer: AntigravityComputerMcpServer | null,
+  env: Record<string, string | undefined>,
+): () => void {
+  if (computer) return ensureAntigravityComputerMcp(computer, env);
+  const path = antigravityMcpConfigPath(env);
+  const mount = sharedMcpMounts.get(path) ?? { holders: 0, restore: ensureAntigravityComputerMcp(null, env) };
+  mount.holders += 1;
+  sharedMcpMounts.set(path, mount);
   let released = false;
   return () => {
     if (released) return;
     released = true;
-    unlock?.();
+    mount.holders -= 1;
+    if (mount.holders > 0) return;
+    sharedMcpMounts.delete(path);
+    mount.restore();
   };
+}
+
+function antigravityMcpConfigPath(env: Record<string, string | undefined>): string {
+  return join(env.HOME || env.USERPROFILE || homedir(), ".gemini", "config", "mcp_config.json");
+}
+
+function withoutWinkMcpServers(servers: z.infer<typeof mcpConfigFileSchema>["mcpServers"] = {}) {
+  return Object.fromEntries(Object.entries(servers).filter(([key]) => !key.startsWith(WINK_MCP_KEY_PREFIX)));
+}
+
+function winkProxyMcpServer(proxy: string): AntigravityComputerMcpServer {
+  return { command: process.execPath, args: [proxy], env: { ELECTRON_RUN_AS_NODE: "1" } };
 }
 
 // Lenient by design: keep every unknown key the user put in the file. A
@@ -227,24 +291,14 @@ export function antigravityComputerMcpServer(
   return null;
 }
 
-export function antigravityTerminalMcpServer(
-  integration: { command: string; args: string[]; env: Record<string, string> } | null | undefined,
-): AntigravityComputerMcpServer | null {
-  if (!integration) return null;
-  return { command: integration.command, args: integration.args, env: { ...integration.env } };
-}
-
-/** Upsert (server) or remove (null) the openmausbot-computer entry in the
- * global mcp_config.json. Only that one key is ever written; a turn without
- * a computer removes it so a previous turn's mount cannot leak tools — or
- * box/control tokens — into later turns or the user's own agy sessions. */
+/** Mount Wink's static agents and terminal entries, plus the computer entry
+ * when given, into the global mcp_config.json. Any openmausbot-* key already
+ * there is a crash leftover: left out of the mount and never restored. */
 export function ensureAntigravityComputerMcp(
   server: AntigravityComputerMcpServer | null,
   env: Record<string, string | undefined> = process.env,
-  terminal: AntigravityComputerMcpServer | null = null,
 ): () => void {
-  const home = env.HOME || env.USERPROFILE || homedir();
-  const path = join(home, ".gemini", "config", "mcp_config.json");
+  const path = antigravityMcpConfigPath(env);
   const existed = existsSync(path);
   const original = existed ? readFileSync(path, "utf8") : null;
   let config: z.infer<typeof mcpConfigFileSchema> = {};
@@ -254,20 +308,13 @@ export function ensureAntigravityComputerMcp(
   } catch {
     // Missing or malformed user config — rebuild only what the mount needs.
   }
-  const servers = { ...config.mcpServers };
-  // Nothing to remove and nothing to add: leave the user's file untouched
-  // (don't create or reformat it on every computer-less turn).
-  if (!server && !terminal && !(ANTIGRAVITY_COMPUTER_MCP_KEY in servers) && !(ANTIGRAVITY_TERMINAL_MCP_KEY in servers)) return () => {};
-  if (server) {
-    servers[ANTIGRAVITY_COMPUTER_MCP_KEY] = { command: server.command, args: server.args, env: server.env };
-  } else {
-    delete servers[ANTIGRAVITY_COMPUTER_MCP_KEY];
-  }
-  if (terminal) {
-    servers[ANTIGRAVITY_TERMINAL_MCP_KEY] = { command: terminal.command, args: terminal.args, env: terminal.env };
-  } else {
-    delete servers[ANTIGRAVITY_TERMINAL_MCP_KEY];
-  }
+  const userServers = withoutWinkMcpServers(config.mcpServers);
+  const servers = {
+    ...userServers,
+    [ANTIGRAVITY_AGENTS_MCP_KEY]: winkProxyMcpServer(SPAWNED_PROXIES.agents),
+    [ANTIGRAVITY_TERMINAL_MCP_KEY]: winkProxyMcpServer(SPAWNED_PROXIES.terminal),
+    ...(server ? { [ANTIGRAVITY_COMPUTER_MCP_KEY]: { command: server.command, args: server.args, env: server.env } } : {}),
+  };
   const directory = dirname(path);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   chmodSync(directory, 0o700);
@@ -276,15 +323,14 @@ export function ensureAntigravityComputerMcp(
   writeFileSync(path, mounted, { mode: 0o600 });
   chmodSync(path, 0o600);
 
-  const hadOriginalEntry = ANTIGRAVITY_COMPUTER_MCP_KEY in (config.mcpServers ?? {});
-  const originalEntry = config.mcpServers?.[ANTIGRAVITY_COMPUTER_MCP_KEY];
-  const hadOriginalTerminalEntry = ANTIGRAVITY_TERMINAL_MCP_KEY in (config.mcpServers ?? {});
-  const originalTerminalEntry = config.mcpServers?.[ANTIGRAVITY_TERMINAL_MCP_KEY];
+  const hadLeftover = Object.keys(config.mcpServers ?? {}).some((key) => key.startsWith(WINK_MCP_KEY_PREFIX));
+  const restoreTo =
+    original !== null && hadLeftover ? `${JSON.stringify({ ...config, mcpServers: userServers }, null, 2)}\n` : original;
 
-  // Restore exactly what was present before this turn when nobody else touched
-  // the file. A user's own agy process is outside our module-wide lease, so if
-  // it edited the config concurrently, preserve that edit and restore only our
-  // one key instead of replacing (or deleting) the whole file.
+  // Restore what was present before the mount when nobody else touched the
+  // file. A user's own agy process is outside our module-wide lock, so if it
+  // edited the config concurrently, preserve that edit and drop only Wink's
+  // keys instead of replacing (or deleting) the whole file.
   let restored = false;
   return () => {
     if (restored) return;
@@ -297,11 +343,11 @@ export function ensureAntigravityComputerMcp(
       throw error;
     }
     if (current === mounted) {
-      if (original === null) {
+      if (restoreTo === null) {
         unlinkSync(path);
         return;
       }
-      writeFileSync(path, original, { mode: 0o600 });
+      writeFileSync(path, restoreTo, { mode: 0o600 });
       chmodSync(path, 0o600);
       return;
     }
@@ -317,14 +363,9 @@ export function ensureAntigravityComputerMcp(
     const parsed = mcpConfigFileSchema.safeParse(currentJson);
     if (!parsed.success) return;
     const currentConfig = parsed.data;
-    const currentServers = { ...currentConfig.mcpServers };
-    if (hadOriginalEntry) currentServers[ANTIGRAVITY_COMPUTER_MCP_KEY] = originalEntry;
-    else delete currentServers[ANTIGRAVITY_COMPUTER_MCP_KEY];
-    if (hadOriginalTerminalEntry) currentServers[ANTIGRAVITY_TERMINAL_MCP_KEY] = originalTerminalEntry;
-    else delete currentServers[ANTIGRAVITY_TERMINAL_MCP_KEY];
     writeFileSync(
       path,
-      `${JSON.stringify({ ...currentConfig, mcpServers: currentServers }, null, 2)}\n`,
+      `${JSON.stringify({ ...currentConfig, mcpServers: withoutWinkMcpServers(currentConfig.mcpServers) }, null, 2)}\n`,
       { mode: 0o600 },
     );
     chmodSync(path, 0o600);
@@ -467,8 +508,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
     await refreshModels();
     const listeners = new Set<RuntimeEventListener>();
     // one active turn per thread; a second send while busy is a caller bug
-    const active = new Map<string, { stop: () => void; turnId: string }>();
-    const pending = new Set<string>();
+    const active = new Map<string, { stop: () => void; interrupt: () => void; turnId: string }>();
     let disposed = false;
     // every live agy child, tracked independently of `active`: a child can
     // hang AFTER emitting `result` (so it's already removed from `active`), and
@@ -509,8 +549,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
     const sendTurn = async (turn: SendTurnInput, relaunchOf?: string) => {
       const { threadId } = turn;
       if (disposed) throw new Error("Antigravity instance is disposed");
-      if (active.has(threadId) || pending.has(threadId)) throw new Error("a turn is already running on this thread");
-      pending.add(threadId);
+      if (active.has(threadId)) throw new Error("a turn is already running on this thread");
       const turnId = relaunchOf ?? newId();
 
       // Default cwd to a per-thread workspace under DATA_DIR — deliberately
@@ -521,12 +560,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
       // one workspace dir. replace() already keeps a UUID unique and safe.
       const tag = threadId.replace(/[^\w-]/g, "");
       const workspace = join(DATA_DIR, "workspaces", tag);
-      try {
-        mkdirSync(workspace, { recursive: true });
-      } catch (error) {
-        pending.delete(threadId);
-        throw error;
-      }
+      mkdirSync(workspace, { recursive: true });
       const cwd = turn.cwd ?? workspace;
 
       // Prompt travels on stdin via --input-format stream-json (agy 1.1.15+;
@@ -568,27 +602,39 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
         });
       };
 
-      // agy's config is global, so every turn — including one without a
-      // computer — owns the mount for its complete child lifetime. This keeps
-      // overlapping turns from inheriting, replacing, or removing each
-      // other's tools and credentials.
-      const releaseMcpLease = await acquireAntigravityComputerMcpLease();
+      // Set only by a user Stop; the watchdog and post-settle reaper kill the
+      // child without it.
+      let interrupted = false;
+      // agy's config is global, so every turn holds the MCP lock for its
+      // complete child lifetime; only a computer turn holds it alone.
+      const computer = antigravityComputerMcpServer(turn.integrations);
+      const mcpLock = acquireAntigravityMcpLock(computer !== null);
+      // Reserve the thread across the lock wait so a Stop lands here.
+      active.set(threadId, {
+        stop: () => {},
+        interrupt: () => {
+          interrupted = true;
+          mcpLock.cancel();
+        },
+        turnId,
+      });
+      const releaseMcpLock = await mcpLock.granted;
+      if (interrupted) {
+        releaseMcpLock();
+        emit({ ...base(threadId, turnId), type: "turn.started" });
+        settle(false, "interrupted");
+        return { turnId };
+      }
       if (disposed) {
-        releaseMcpLease();
-        pending.delete(threadId);
+        releaseMcpLock();
         settle(false, "disposed");
         return { turnId };
       }
       let restoreMcp = () => {};
       try {
-        restoreMcp = ensureAntigravityComputerMcp(
-          antigravityComputerMcpServer(turn.integrations),
-          env,
-          antigravityTerminalMcpServer(turn.integrations?.terminal),
-        );
+        restoreMcp = mountAntigravityMcp(computer, env);
       } catch (error) {
-        releaseMcpLease();
-        pending.delete(threadId);
+        releaseMcpLock();
         emit({
           ...base(threadId, turnId),
           type: "runtime.error",
@@ -612,9 +658,8 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
         try {
           restoreMcp();
         } finally {
-          releaseMcpLease();
+          releaseMcpLock();
         }
-        pending.delete(threadId);
         emit({
           ...base(threadId, turnId),
           type: "runtime.error",
@@ -625,22 +670,29 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
         return { turnId };
       }
 
+      // The static agents and terminal entries read this turn's identity from
+      // agy's env. Added after the credential allowlist, which strips *_TOKEN;
+      // the node flag would leak into every shell command the agent runs.
+      const { ELECTRON_RUN_AS_NODE: _nodeFlag, ...identity } = {
+        ...turn.integrations?.agents?.env,
+        ...turn.integrations?.terminal?.env,
+      };
+
       // spawnCli resolves npm .cmd shims / shebang scripts on Windows and
       // owns the process-group vs windowsHide difference (see procs.ts)
       let child: ReturnType<typeof spawnCli>;
       try {
         child = spawnCli(config.cli, args, {
           cwd,
-          env,
+          env: { ...env, ...identity },
           stdio: ["pipe", "pipe", "pipe"], // prompt on stdin as stream-json NDJSON
         });
       } catch (error) {
         try {
           restoreMcp();
         } finally {
-          releaseMcpLease();
+          releaseMcpLock();
         }
-        pending.delete(threadId);
         emit({
           ...base(threadId, turnId),
           type: "runtime.error",
@@ -676,13 +728,12 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
         try {
           restoreMcp();
         } finally {
-          releaseMcpLease();
+          releaseMcpLock();
         }
         children.delete(child);
         try {
           killCliTree(child);
         } catch {}
-        pending.delete(threadId);
         emit({
           ...base(threadId, turnId),
           type: "runtime.error",
@@ -708,7 +759,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
             message: `could not restore Antigravity's MCP config: ${error instanceof Error ? error.message : String(error)}`,
           });
         } finally {
-          releaseMcpLease();
+          releaseMcpLock();
         }
       };
       const armTerminationEscalation = () => {
@@ -739,7 +790,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
         if (childClosed || postSettleReaper) return;
         // A normal agy process exits immediately after `result`. Give it a
         // short grace, then reap a zombie. Explicit stops use the same bounded
-        // SIGKILL escalation so an uncooperative child cannot retain the lease.
+        // SIGKILL escalation so an uncooperative child cannot retain the lock.
         postSettleReaper = setTimeout(stop, 2_000);
         postSettleReaper.unref?.();
       };
@@ -858,6 +909,10 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
         clearTimeout(terminationEscalation);
         finalizeMcp();
         if (!settled) {
+          if (interrupted) {
+            settle(false, "interrupted");
+            return;
+          }
           const resumeRejected = Boolean(
             resumeCursor &&
             turn.resumeFallback &&
@@ -899,8 +954,14 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
         }
       });
 
-      active.set(threadId, { stop, turnId });
-      pending.delete(threadId);
+      active.set(threadId, {
+        stop,
+        interrupt: () => {
+          interrupted = true;
+          stop();
+        },
+        turnId,
+      });
 
       // 11 min — just above agy's own 10m --print-timeout, so agy normally
       // settles first; this is the backstop for a fully wedged child.
@@ -959,11 +1020,14 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
           // approval (see contracts.ts), which print mode cannot deliver in
           // any mode; that returns with the native ACP path (agy issue #31).
           computerMcp: config.fullAuto,
+          // The static agents entry above; each turn's identity rides on its
+          // own agy child's env.
+          agentsMcp: true,
           // nothing in print mode can ask, so Ask for approval would be a no-op
           askApproval: false,
         },
         sendTurn,
-        interruptTurn: async (threadId) => active.get(threadId)?.stop(),
+        interruptTurn: async (threadId) => active.get(threadId)?.interrupt(),
         respondToRequest: async () => "unavailable" as const, // this engine has no asks to answer
         hasSession: (threadId) => active.has(threadId),
         stopAll: async () => {
@@ -975,15 +1039,70 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
           return () => listeners.delete(listener);
         },
       },
-      generateText: (prompt: string) =>
-        new Promise((resolve, reject) => {
-          execCli(
+      generateText: async (prompt: string) => {
+        // A shared slot, so a computer turn's box token never reaches this child.
+        const releaseMcpLock = await acquireAntigravityMcpLock(false).granted;
+        let restoreMcp = () => {};
+        let cwd: string | null = null;
+        try {
+          restoreMcp = mountAntigravityMcp(null, env);
+          cwd = mkdtempSync(join(tmpdir(), "omb-agy-summary-"));
+          // stdin like a turn: a summary prompt on argv blows the Windows command line
+          const child = spawnCli(
             config.cli,
-            ["-p", prompt, "--output-format", "text", "--model", "gemini-3.6-flash-low"],
-            { timeout: 60_000, env },
-            (err, stdout) => (err ? reject(err) : resolve(stdout.trim())),
+            ["--input-format", "stream-json", "--output-format", "stream-json", "--model", "gemini-3.6-flash-low"],
+            { cwd, env, stdio: ["pipe", "pipe", "pipe"] },
           );
-        }),
+          return await new Promise<string>((resolve, reject) => {
+            let result: { status?: unknown; response?: unknown } | null = null;
+            let failure: Error | null = null;
+            const timer = setTimeout(() => {
+              failure = new Error("agy summary timed out");
+              killCliTree(child);
+            }, 120_000);
+            timer.unref?.();
+            let buf = "";
+            child.stdout.setEncoding("utf8");
+            child.stdout.on("data", (chunk) => {
+              buf += chunk;
+              let nl;
+              while ((nl = buf.indexOf("\n")) !== -1) {
+                const line = buf.slice(0, nl);
+                buf = buf.slice(nl + 1);
+                try {
+                  const o = JSON.parse(line);
+                  if (o.event === "result") result = o.result ?? {};
+                } catch {}
+              }
+            });
+            let stderr = "";
+            child.stderr.on("data", (c) => {
+              stderr = (stderr + c).slice(-300);
+            });
+            child.on("error", (error) => {
+              failure ??= error;
+            });
+            child.on("close", (code) => {
+              clearTimeout(timer);
+              const response = typeof result?.response === "string" ? result.response.trim() : "";
+              if (failure) reject(failure);
+              else if (!result) reject(new Error(`agy exited ${code} before result${stderr ? `: ${stderr.trim()}` : ""}`));
+              else if (result.status !== "SUCCESS" || !response) reject(new Error(`agy summary failed (${String(result.status)})`));
+              else resolve(response);
+            });
+            child.stdin.end(antigravityStreamUserLine(prompt));
+          });
+        } finally {
+          try {
+            restoreMcp();
+          } finally {
+            releaseMcpLock();
+            try {
+              if (cwd) rmSync(cwd, { recursive: true, force: true });
+            } catch {}
+          }
+        }
+      },
       dispose: async () => {
         disposed = true;
         for (const { stop } of active.values()) stop();

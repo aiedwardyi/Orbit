@@ -836,3 +836,54 @@ describe("agents-proxy MCP surface", () => {
     expect(res.result.isError).toBe(true);
   });
 });
+
+/** A short-lived proxy with exactly this OMB_* identity: its tools/list and a react call. */
+function probeWithIdentity(identity: Record<string, string>): Promise<{ list: any; call: any }> {
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("OMB_")));
+  const proxy = spawn(process.execPath, [PROXY], {
+    windowsHide: true,
+    env: { ...inherited, OMB_HARNESS_URL: "http://127.0.0.1:9", ...identity },
+    stdio: ["pipe", "pipe", "inherit"],
+  });
+  return new Promise((resolve, reject) => {
+    const replies = new Map<number, any>();
+    const timer = setTimeout(() => {
+      proxy.kill();
+      reject(new Error("proxy probe timed out"));
+    }, 10_000);
+    let buf = "";
+    proxy.stdout!.on("data", (chunk) => {
+      buf += chunk;
+      let nl;
+      while ((nl = buf.indexOf("\n")) !== -1) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        if (!line.trim()) continue;
+        const msg = JSON.parse(line);
+        replies.set(msg.id, msg);
+      }
+      if (!replies.has(1) || !replies.has(2)) return;
+      clearTimeout(timer);
+      proxy.kill();
+      resolve({ list: replies.get(1), call: replies.get(2) });
+    });
+    proxy.stdin!.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) + "\n");
+    proxy.stdin!.write(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "react", arguments: { emoji: "👍" } } }) + "\n");
+  });
+}
+
+describe("agents-proxy identity gate", () => {
+  it.each([
+    ["no identity", {}],
+    ["a terminal-only identity", { OMB_BOT_ID: "bot-asker", OMB_COMMS_TOKEN: TOKEN }],
+  ])("lists no tools and refuses calls with %s", async (_label, identity) => {
+    const { list, call } = await probeWithIdentity(identity);
+    expect(list.result.tools).toEqual([]);
+    expect(call.error.code).toBe(-32602);
+  });
+
+  it("lists every tool once the bot, thread and comms token are all set", async () => {
+    const { list } = await probeWithIdentity({ OMB_BOT_ID: "bot-asker", OMB_THREAD_ID: "thread-asker", OMB_COMMS_TOKEN: TOKEN });
+    expect(list.result.tools).toHaveLength(16);
+  });
+});

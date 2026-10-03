@@ -9,7 +9,7 @@
 // Deterministic, no network.
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const argv = process.argv.slice(2);
@@ -89,6 +89,10 @@ if (process.env.FAKE_AGY_DUMP) {
 const delayMs = Number(process.env.FAKE_AGY_DELAY_MS ?? 0);
 if (Number.isFinite(delayMs) && delayMs > 0) {
   await new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+// Held open until the test creates this file, so overlapping turns are observable.
+while (process.env.FAKE_AGY_HOLD_FILE && !existsSync(process.env.FAKE_AGY_HOLD_FILE)) {
+  await new Promise((resolve) => setTimeout(resolve, 20));
 }
 if (process.env.FAKE_AGY_MCP_DUMP) {
   const home = process.env.HOME || process.env.USERPROFILE || "";
