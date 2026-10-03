@@ -790,24 +790,36 @@ function NoteMessage({ message }: { message: Message }) {
   );
 }
 
-function LaunchMessage({ message, botId, onOpenTerminalPane }: { message: Message; botId: string; onOpenTerminalPane?: (sessionId: string) => void }) {
-  const [open, setOpen] = useState(false);
-  // null until the bridge answers; unknown behaves like closed (expand only)
-  const [live, setLive] = useState<boolean | null>(null);
-  const [header, ...details] = (message.text ?? "").split("\n");
-  const sessionId = details.find((l) => l.startsWith("Session: "))?.slice("Session: ".length).trim();
+/** Bot-spawned pane ids still open, null until the bridge answers. One snapshot read per bot. */
+function useLivePanes(botId: string, enabled: boolean): Set<string> | null {
+  const [live, setLive] = useState<Set<string> | null>(null);
   useEffect(() => {
     const bridge = window.ogb?.terminal;
-    if (!bridge || !sessionId) return;
+    setLive(null);
+    if (!bridge || !enabled) return;
     let alive = true;
     void Promise.resolve().then(() => bridge.readBot?.(botId)).then((snapshot) => {
-      if (alive && snapshot?.panes) setLive(snapshot.panes.some((p) => p.sessionId === sessionId && !p.main));
+      if (!alive || !snapshot?.panes) return;
+      const ids = snapshot.panes.filter((p) => !p.main).map((p) => p.sessionId);
+      setLive((current) => new Set([...ids, ...(current ?? [])]));
     }).catch(() => {});
-    const offClosed = bridge.onClosed?.((event) => {
-      if (event.botId === botId && event.id === sessionId) setLive(false);
+    const offOpened = bridge.onOpened?.((event) => {
+      if (event.botId === botId) setLive((current) => new Set([...(current ?? []), event.id]));
     });
-    return () => { alive = false; offClosed?.(); };
-  }, [botId, sessionId]);
+    const offClosed = bridge.onClosed?.((event) => {
+      if (event.botId === botId) setLive((current) => { const next = new Set(current ?? []); next.delete(event.id); return next; });
+    });
+    return () => { alive = false; offOpened?.(); offClosed?.(); };
+  }, [botId, enabled]);
+  return live;
+}
+
+function LaunchMessage({ message, livePanes, onOpenTerminalPane }: { message: Message; livePanes: Set<string> | null; onOpenTerminalPane?: (sessionId: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [header, ...details] = (message.text ?? "").split("\n");
+  const sessionId = details.find((l) => l.startsWith("Session: "))?.slice("Session: ".length).trim();
+  // unknown (no bridge answer yet) behaves like closed minus the label: expand only
+  const live = livePanes && sessionId ? livePanes.has(sessionId) : null;
   const jump = live && sessionId && onOpenTerminalPane ? () => onOpenTerminalPane(sessionId) : null;
   const rowClass = "flex items-center gap-1 rounded-lg border border-hairline/30 bg-inset/25 text-[12.5px] text-ink-secondary";
   return (
@@ -875,6 +887,7 @@ const MessagesList = memo(function MessagesList({
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const showToolCalls = showToolCallsEnabled(state.config);
+  const livePanes = useLivePanes(bot.id, useMemo(() => messages.some((m) => m.kind === "launch"), [messages]));
   // Fold finished tool chips into runs, so a stretch of them cannot bury
   // what the bot actually said. Hidden unless Settings → Tool calls is on.
   const items = useMemo(
@@ -982,7 +995,7 @@ const MessagesList = memo(function MessagesList({
             case "note":
               return <NoteMessage message={m} />;
             case "launch":
-              return <LaunchMessage message={m} botId={bot.id} onOpenTerminalPane={onOpenTerminalPane} />;
+              return <LaunchMessage message={m} livePanes={livePanes} onOpenTerminalPane={onOpenTerminalPane} />;
             default:
               return (
                 <Bubble

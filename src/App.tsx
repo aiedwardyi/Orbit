@@ -108,7 +108,13 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? fallbackStartupBot(state.bots, state.groups));
   const terminalOpen = Boolean(bot && terminalViews[bot.id] && state.activeView === "chat" && !browserWorkspaceBotId && !localVmWorkspaceBotId);
   const openTerminal = () => { if (bot) setTerminalViews((views) => ({ ...views, [bot.id]: true })); };
+  const closeWorkspaces = () => {
+    setBrowserWorkspaceBotId(null);
+    setLocalVmWorkspaceBotId(null);
+    dispatch({ type: "toggleComputer", open: false });
+  };
   const openTerminalPane = (sessionId: string) => {
+    closeWorkspaces();
     openTerminal();
     setPaneFocus({ sessionId });
   };
@@ -132,11 +138,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     if (terminalOpen && bot?.id === attention.botId && document.hasFocus()) acknowledgeTerminalAttention(attention);
   };
   const openTerminalNotification = (target: NotificationTarget) => {
-    if (target.openTerminal) {
-      setBrowserWorkspaceBotId(null);
-      setLocalVmWorkspaceBotId(null);
-      dispatch({ type: "toggleComputer", open: false });
-    }
+    if (target.openTerminal) closeWorkspaces();
     openNotificationTarget(dispatch, target, latestState.current);
     if (target.openTerminal) setTerminalViews((views) => ({ ...views, [target.botId]: true }));
     if (target.openTerminal && target.terminalSessionId) setPaneFocus({ sessionId: target.terminalSessionId });

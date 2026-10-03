@@ -221,8 +221,9 @@ describe("ChatView note collapse", () => {
     document.body.append(host);
     const root = createRoot(host);
     const launch = (id: string, label: string): Message => ({ id, at: 1, role: "bot", kind: "launch", text: `Launched ${label}\nLabel: ${label}\nWorking folder: C:\\repo\nSession: ${id}` });
-    const current = { ...botA, messages: [userMsg("ua", "go"), launch("p1", "A"), launch("p2", "B")] } as Bot;
+    const current = { ...botA, messages: [userMsg("ua", "go"), launch("p1", "A"), launch("p2", "B"), ...Array.from({ length: 28 }, (_, i) => launch(`x${i}`, `X${i}`))] } as Bot;
     const onOpenTerminalPane = vi.fn();
+    const readBot = (window.ogb!.terminal!.readBot as ReturnType<typeof vi.fn>);
     try {
       await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot: current, onOpenTerminalPane }))));
       const buttons = Array.from(host.querySelectorAll("button"));
@@ -235,6 +236,7 @@ describe("ChatView note collapse", () => {
       await act(async () => { closed.click(); });
       expect(onOpenTerminalPane).toHaveBeenCalledTimes(1);
       expect(host.textContent).toContain("Session: p2");
+      expect(readBot).toHaveBeenCalledTimes(1);
     } finally {
       await act(async () => root.unmount());
       host.remove();
