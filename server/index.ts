@@ -3959,7 +3959,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // What this turn's session ends up holding: the summary, or the original
   // history a grown window restored in its place.
   const sessionCompactionId = prepared.expanded ? null : latestCompactionId;
-  const recycled = shouldRecycleProviderSession({
+  const recycleWanted = shouldRecycleProviderSession({
     compacted: compactedThisTurn || unseeded,
     rewound,
     recovering,
@@ -3968,6 +3968,10 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     lastTurnInputTokens: task.usage?.lastInput,
     nativeTokenBudget: knownWindow ? nativeSessionTokenBudget(knownWindow) : 0,
   });
+  // A recycle closes the live CLI and kills its background work. Resume it
+  // instead; the first turn after that work settles recycles on the same checks.
+  const recycleDeferred = recycleWanted && !fresh && instance.adapter.hasBackgroundWork?.(threadId) === true;
+  const recycled = recycleWanted && !recycleDeferred;
   // Transcript-replay engines never `--resume`; clearing an already-empty
   // map is a no-op. Resume-cursor engines drop the stale/fat session here.
   // Stop / crash Continuity on an uncompacted thread keeps the cursor.
@@ -3985,10 +3989,10 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   const recycleReason = recycled
     ? (compactedThisTurn || (unseeded && latestCompactionId) ? "compaction" : "session-fat")
     : undefined;
-  if (rewound || fresh || recycled) {
+  if (rewound || fresh || recycled || recycleDeferred) {
     console.info(`[session] ${JSON.stringify({
       threadId,
-      reason: rewound ? "rewound" : fresh ? "fresh" : unseeded && !compactedThisTurn ? "unseeded" : recycleReason,
+      reason: rewound ? "rewound" : fresh ? "fresh" : recycleDeferred ? "recycle-deferred-background" : unseeded && !compactedThisTurn ? "unseeded" : recycleReason,
       lastTurnToolRounds,
       sessionToolRounds,
     })}`);
@@ -4494,7 +4498,9 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       });
       });
       bindInterruptedTurn(threadId, started.turnId);
-      if (started.turnId) seed.turnId = started.turnId;
+      // a deferred recycle's live session never took this turn's summary, so
+      // it certifies nothing and the next turn still sees it as unseeded
+      if (started.turnId && !recycleDeferred) seed.turnId = started.turnId;
       store.markPaneNotesDelivered(bot.id, threadId, newestPaneNoteId);
       if (currentTurnEpoch(bot.id) !== epoch) return;
       if (started.turnId) liveTurnIdByThread.set(threadId, started.turnId);

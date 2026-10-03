@@ -321,6 +321,9 @@ export interface ProviderAdapter {
    * turn.completed, or the queue drain that runs on that event sees a thread
    * that is already free as still taken. */
   hasSession(threadId: ThreadId): boolean;
+  /** True while the thread's live session still runs background work (a
+   * backgrounded subagent or command) that would die with it. Absent = false. */
+  hasBackgroundWork?(threadId: ThreadId): boolean;
   stopAll(): Promise<void>;
   onEvent(listener: RuntimeEventListener): () => void;
 }

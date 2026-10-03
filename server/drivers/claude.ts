@@ -678,6 +678,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         timer: ReturnType<typeof startTurnTimer>;
       } | null;
       idleTimer: ReturnType<typeof setTimeout> | null;
+      /** backgrounded task_id -> start time; such tasks die with this process */
+      background: Map<string, number>;
       closing: boolean;
       stderr: string;
       /** settle the current turn; set once the spawn handlers exist */
@@ -690,6 +692,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       ? configuredIdleMinimum
       : 10_000;
     const SESSION_IDLE_MS = Math.max(sessionIdleMinimum, Number(process.env.OMB_CLAUDE_SESSION_IDLE_MS) || 10 * 60_000);
+    // a lost task_notification must not pin a session forever
+    const BACKGROUND_TASK_TTL_MS = 2 * 60 * 60_000;
+    const hasLiveBackgroundWork = (s: Session) =>
+      !s.closing && s.child.exitCode === null && [...s.background.values()].some((at) => Date.now() - at < BACKGROUND_TASK_TTL_MS);
 
     /** Mark the session unusable for reuse and start process teardown.
      * Does not close the permission broker — Windows named pipes drop
@@ -729,7 +735,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const s = sessions.get(threadId);
       if (!s) return;
       if (s.idleTimer) clearTimeout(s.idleTimer);
-      s.idleTimer = setTimeout(() => closeSession(threadId, "idle"), SESSION_IDLE_MS);
+      s.idleTimer = setTimeout(() => {
+        // closing stdin ends the CLI and every background task it still runs
+        if (hasLiveBackgroundWork(s)) armIdle(threadId);
+        else closeSession(threadId, "idle");
+      }, SESSION_IDLE_MS);
       s.idleTimer.unref?.();
     };
     const writeUser = (s: Session, threadId: string, text: string): Promise<boolean> => {
@@ -1036,6 +1046,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         sessionId: sessionId ?? newSessionId,
         turn: { turnId, settled: false, sawStreamDelta: false, timer: turnTimer, launch: { request: turn, retry, abort: retryAbort } },
         idleTimer: null,
+        background: new Map(),
         closing: false,
         stderr: "",
       };
@@ -1141,6 +1152,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               emit({ ...base(threadId, currentTurnId()), type: "item.updated", itemType: "reasoning", tokens: o.estimated_tokens });
             } else if (o.subtype === "status" && o.status === "requesting" && session.turn) {
               session.turn.unsentSteers = 0;
+            } else if (o.subtype === "task_started" && o.is_backgrounded === true && typeof o.task_id === "string") {
+              session.background.set(o.task_id, Date.now());
+            } else if (o.subtype === "task_notification" && typeof o.task_id === "string") {
+              session.background.delete(o.task_id);
             }
             break;
           case "stream_event": {
@@ -1568,6 +1583,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           return behavior === "allow" ? "allowed-once" : behavior === "answer" ? "answered" : "rejected";
         },
         hasSession: (threadId) => active.has(threadId),
+        hasBackgroundWork: (threadId) => {
+          const s = sessions.get(threadId);
+          return Boolean(s && hasLiveBackgroundWork(s));
+        },
         stopAll: async () => {
           for (const { stop } of active.values()) stop();
           for (const threadId of [...sessions.keys()]) closeSession(threadId, "stopAll");

@@ -16,6 +16,10 @@
 //                      | late-after-stop (hangs; prints one more reply once stopped)
 //                      | late-steer (a steer that misses the final request is
 //                        answered as its own query after `result`)
+//                      | background-task | foreground-task (the first turn
+//                        starts task-1 with is_backgrounded true / false)
+//   FAKE_CLAUDE_TASK_GATE  path; once it exists, a background task-1 finishes
+//                      and its notification wakes the CLI after `result`
 //   FAKE_CLAUDE_USER_ALLOW  tools the user's own settings.json allows, e.g.
 //                      "Write,Bash" — only `edit` reads it
 //   FAKE_CLAUDE_DUMP   path to write {argv, env, prompt, mcpConfig} as JSON,
@@ -219,6 +223,29 @@ const playSubagentWake = () => {
   finishIfDone();
 };
 
+// `background-task`: the live order seen in the real CLI log. The task
+// outlives its turn; its notification lands between turns, then the parent
+// wakes and replies itself.
+let taskStarted = false;
+const playTaskWake = () => {
+  turnRunning = true;
+  out({ type: "system", subtype: "task_notification", task_id: "task-1", tool_use_id: "tu-task", status: "completed", output_file: "", summary: "fake task", session_id: sessionId });
+  out({ type: "system", subtype: "init", session_id: sessionId, model });
+  out({ type: "assistant", message: { content: [{ type: "text", text: "background task done" }] } });
+  out({ type: "result", is_error: false, stop_reason: "end_turn", total_cost_usd: 0.01, usage: { input_tokens: 10, output_tokens: 5 } });
+  turnRunning = false;
+  finishIfDone();
+};
+const watchTaskGate = () => {
+  const gate = process.env.FAKE_CLAUDE_TASK_GATE;
+  if (!gate) return;
+  const poll = setInterval(() => {
+    if (!existsSync(gate)) return;
+    clearInterval(poll);
+    playTaskWake();
+  }, 10);
+};
+
 const playTurn = (prompt: JsonValue) => {
   turnRunning = true;
   steered = [];
@@ -325,6 +352,13 @@ const playTurn = (prompt: JsonValue) => {
       event: { type: "content_block_delta", delta: { type: "text_delta", text: "SUBAGENT NOISE" } },
     });
     out({ type: "assistant", parent_tool_use_id: "task-1", message: { content: [{ type: "text", text: "SUBAGENT FINAL" }] } });
+  }
+
+  if ((mode === "background-task" || mode === "foreground-task") && !taskStarted) {
+    taskStarted = true;
+    const backgrounded = mode === "background-task";
+    out({ type: "system", subtype: "task_started", task_id: "task-1", tool_use_id: "tu-task", description: "fake task", is_backgrounded: backgrounded, task_type: "local_agent", session_id: sessionId });
+    if (backgrounded) watchTaskGate();
   }
 
   // bench-quiet is a text-only fixture for latency calibration: same usage

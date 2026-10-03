@@ -11,7 +11,7 @@ import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { saveImage } from "../attachments.ts";
 import { autoVerdict } from "../auto-approve.ts";
@@ -393,6 +393,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     delete process.env.FAKE_CLAUDE_RETRY_SCALE;
     delete process.env.FAKE_CLAUDE_RATE_LIMITS;
     delete process.env.FAKE_CLAUDE_USER_ALLOW;
+    delete process.env.FAKE_CLAUDE_TASK_GATE;
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.XAI_API_KEY;
     delete process.env.COMPOSIO_API_KEY;
@@ -1122,6 +1123,109 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     const second = await instance.adapter.sendTurn({ threadId: "t-idle", text: "two", resumeCursor: announced });
     await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
     expect(JSON.parse(readFileSync(join(scratch, "idle-dump.json"), "utf8")).argv).toContain("--resume");
+  });
+
+  const exited = async (pid: number) => {
+    const until = Date.now() + 5_000;
+    while (Date.now() < until) {
+      try {
+        process.kill(pid, 0);
+      } catch {
+        return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    return false;
+  };
+
+  it("keeps a session with live background work for the next resumed turn", async () => {
+    await create("background-task");
+    const dump = join(scratch, "bg-live.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    await instance.adapter.sendTurn({ threadId: "t-bg-live", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(instance.adapter.hasBackgroundWork!("t-bg-live")).toBe(true);
+
+    // a deferred recycle keeps the cursor, so the live process takes the turn
+    const { pid } = JSON.parse(readFileSync(dump, "utf8")) as { pid: number };
+    const announced = (recorder.events.find((e) => e.type === "session.started") as { sessionId: string }).sessionId;
+    const second = await instance.adapter.sendTurn({ threadId: "t-bg-live", text: "two", resumeCursor: announced });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+    expect(JSON.parse(readFileSync(dump, "utf8")).pid).toBe(pid);
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    expect(instance.adapter.hasBackgroundWork!("t-bg-live")).toBe(true);
+  });
+
+  it("clears background work on its notification, so the next cursorless turn recycles", async () => {
+    const gate = join(scratch, "task-done");
+    process.env.FAKE_CLAUDE_TASK_GATE = gate;
+    await create("background-task");
+    const dump = join(scratch, "bg-done.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const first = await instance.adapter.sendTurn({ threadId: "t-bg-done", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId);
+    expect(instance.adapter.hasBackgroundWork!("t-bg-done")).toBe(true);
+
+    writeFileSync(gate, "");
+    const woken = await recorder.until((e) => e.type === "turn.started" && e.turnId !== first.turnId);
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === woken.turnId);
+    expect(recorder.events).toContainEqual(
+      expect.objectContaining({ type: "item.completed", itemType: "assistant_text", text: "background task done", turnId: woken.turnId }),
+    );
+    expect(instance.adapter.hasBackgroundWork!("t-bg-done")).toBe(false);
+
+    const { pid } = JSON.parse(readFileSync(dump, "utf8")) as { pid: number };
+    const third = await instance.adapter.sendTurn({ threadId: "t-bg-done", text: "three" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === third.turnId);
+    const after = JSON.parse(readFileSync(dump, "utf8")) as { pid: number; argv: string[] };
+    expect(after.pid).not.toBe(pid);
+    expect(after.argv).toContain("--session-id");
+    expect(await exited(pid)).toBe(true);
+  });
+
+  it("re-arms the idle close while background work is live", async () => {
+    process.env.OMB_CLAUDE_SESSION_IDLE_MIN_MS = "10";
+    process.env.OMB_CLAUDE_SESSION_IDLE_MS = "50";
+    const gate = join(scratch, "task-done");
+    process.env.FAKE_CLAUDE_TASK_GATE = gate;
+    await create("background-task");
+    const dump = join(scratch, "bg-idle.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const first = await instance.adapter.sendTurn({ threadId: "t-bg-idle", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const { pid } = JSON.parse(readFileSync(dump, "utf8")) as { pid: number };
+    expect(() => process.kill(pid, 0)).not.toThrow();
+
+    writeFileSync(gate, "");
+    const woken = await recorder.until((e) => e.type === "turn.started" && e.turnId !== first.turnId);
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === woken.turnId);
+    expect(await exited(pid)).toBe(true);
+  });
+
+  it("never counts a foreground task as background work", async () => {
+    process.env.OMB_CLAUDE_SESSION_IDLE_MIN_MS = "10";
+    process.env.OMB_CLAUDE_SESSION_IDLE_MS = "50";
+    await create("foreground-task");
+    const dump = join(scratch, "fg.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    await instance.adapter.sendTurn({ threadId: "t-fg", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(instance.adapter.hasBackgroundWork!("t-fg")).toBe(false);
+    expect(await exited((JSON.parse(readFileSync(dump, "utf8")) as { pid: number }).pid)).toBe(true);
+  });
+
+  it("stops counting background work after 2 h without a notification", async () => {
+    await create("background-task");
+    await instance.adapter.sendTurn({ threadId: "t-bg-stale", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(instance.adapter.hasBackgroundWork!("t-bg-stale")).toBe(true);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 2 * 60 * 60_000);
+    try {
+      expect(instance.adapter.hasBackgroundWork!("t-bg-stale")).toBe(false);
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("an exit before result becomes runtime.error + failed turn", async () => {
