@@ -1,3 +1,5 @@
+import type { Message } from "./store.ts";
+
 export const PANE_WAKE_PROMPT = "A pane note arrived. Act on it.";
 export const PANE_WAKE_DEBOUNCE_MS = 3_000;
 export const PANE_WAKE_HOURLY_CAP = 20;
@@ -11,6 +13,16 @@ export interface PaneWakeDeps {
   wake(botId: string, threadId: string): void;
   warn(line: string): void;
   now?(): number;
+}
+
+export function hasLocalUndeliveredPaneNote(messages: Message[], deliveredId: string | undefined, deviceId: string): boolean {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!;
+    if (message.id === deliveredId) break;
+    if (message.role === "user" && message.kind === "text" && message.text?.trim() && !message.steered) break;
+    if (message.kind === "note" && message.text?.trim() && message.origin === deviceId) return true;
+  }
+  return false;
 }
 
 interface Pending {

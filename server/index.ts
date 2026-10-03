@@ -228,7 +228,7 @@ import { paneLabel, raisePaneAttention, terminalSendResponse, terminalSnapshotRe
 import { closeBotPanes } from "./terminal-cleanup.ts";
 import { launchNoteText } from "./launch-note.ts";
 import { MailboxAutoDedup, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
-import { PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
+import { hasLocalUndeliveredPaneNote, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
 import {
   ensureWorkspace,
   workspaceDir,
@@ -6122,7 +6122,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const label = await paneLabel(terminalBridgeAccess, scope.bot, scope.pane);
       const note = mailboxNoteText(scope.pane, source.name || source.id, source.id, parsed.data.text, label);
       if (!note) return json(res, 400, { error: "empty message" });
-      const message = store.appendMessage(teacher.threadId, { role: "bot", kind: "note", text: note });
+      const message = store.appendMessage(teacher.threadId, { role: "bot", kind: "note", text: note, origin: profileSyncSettings.deviceId });
       if (source.notifications !== false) phonePing(source.id, pingForMailbox(source.name || source.id, parsed.data.text), { botId: teacher.id, threadId: teacher.threadId });
       void raisePaneAttention(terminalBridgeAccess, scope.bot, scope.pane);
       paneWake.noteArrived(teacher.id, teacher.threadId);
@@ -9876,7 +9876,8 @@ syncAllThreads();
 // Wake timers die with the process; re-arm teachers whose stored notes are
 // undelivered. Untracked legacy tasks wait for the next send, as before.
 for (const bot of store.bots) {
-  if (store.taskByThread(bot.id, bot.threadId)?.paneNotesDeliveredId !== undefined && paneNotesPending(bot.threadId)) {
+  const deliveredId = store.taskByThread(bot.id, bot.threadId)?.paneNotesDeliveredId;
+  if (deliveredId !== undefined && hasLocalUndeliveredPaneNote(store.activePath(bot.threadId), deliveredId ?? undefined, profileSyncSettings.deviceId)) {
     paneWake.noteArrived(bot.id, bot.threadId);
   }
 }

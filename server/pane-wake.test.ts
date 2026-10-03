@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { paneNotesSinceLastUserTurn } from "./context-compaction.ts";
-import { PANE_WAKE_DEBOUNCE_MS, PANE_WAKE_HOURLY_CAP, PaneWakeScheduler } from "./pane-wake.ts";
+import { hasLocalUndeliveredPaneNote, PANE_WAKE_DEBOUNCE_MS, PANE_WAKE_HOURLY_CAP, PaneWakeScheduler } from "./pane-wake.ts";
 import type { Message } from "./store.ts";
 
 function harness(overrides: { enabled?: boolean; busy?: boolean; hasNotes?: boolean } = {}) {
@@ -146,6 +146,30 @@ describe("PaneWakeScheduler", () => {
     await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
     expect(wake).toHaveBeenCalledTimes(PANE_WAKE_HOURLY_CAP + 1);
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("hasLocalUndeliveredPaneNote", () => {
+  const messages: Message[] = [
+    { id: "user", role: "user", kind: "text", text: "Run worker", at: 1 },
+    { id: "local", role: "bot", kind: "note", text: "local result", origin: "home", at: 2 },
+  ];
+
+  it("wakes for a local undelivered note", () => {
+    expect(hasLocalUndeliveredPaneNote(messages, undefined, "home")).toBe(true);
+  });
+
+  it("does not wake for a synced or legacy note", () => {
+    const synced: Message[] = [{ ...messages[1]!, origin: "work" }];
+    const legacy: Message[] = [{ ...messages[1]!, origin: undefined }];
+
+    expect(paneNotesSinceLastUserTurn(synced, new Set()).length).toBeGreaterThan(0);
+    expect(hasLocalUndeliveredPaneNote(synced, undefined, "home")).toBe(false);
+    expect(hasLocalUndeliveredPaneNote(legacy, undefined, "home")).toBe(false);
+  });
+
+  it("does not wake when the local note was already delivered", () => {
+    expect(hasLocalUndeliveredPaneNote(messages, "local", "home")).toBe(false);
   });
 });
 
