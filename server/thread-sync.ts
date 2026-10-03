@@ -9,8 +9,11 @@ export const THREAD_SYNC_FORMAT = "orbit.thread-sync" as const;
 export const THREAD_SYNC_VERSION = 1 as const;
 export const THREAD_SYNC_DIR = "threads";
 const LEDGER_FILE = "thread-sync.json";
+const ROWS_DIR = "thread-sync-rows";
 
 const ID = z.string().trim().min(1).max(96).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/);
+// `<revision>:<writerDeviceId>` of the copy that last set a row
+const STAMP = /^[1-9]\d*:[A-Za-z0-9][A-Za-z0-9._-]*$/;
 // No dots, so `<threadId>.conflict-...json` can never parse as a thread file.
 const THREAD_ID = z.string().min(1).max(96).regex(/^[A-Za-z0-9_-]+$/);
 const THREAD_FILE = /^([A-Za-z0-9_-]{1,96})\.json$/;
@@ -36,6 +39,8 @@ const fileSchema = z.object({
   }).strict(),
   activeLeafId: z.string().max(200).nullable(),
   messages: z.array(messageSchema),
+  seen: z.record(z.string(), z.number().int().positive()).optional(),
+  stamps: z.record(z.string(), z.string().regex(STAMP)).optional(),
 }).strict();
 
 const ledgerEntrySchema = z.object({
@@ -43,6 +48,14 @@ const ledgerEntrySchema = z.object({
   syncedWriter: ID.optional(),
   dirty: z.boolean(),
 }).strict();
+
+// the copy this PC holds: the highest revision it carries from each writer, and the revision that last set each row
+const rowsSchema = z.object({
+  seen: z.record(z.string(), z.number().int().positive()),
+  stamps: z.record(z.string(), z.string().regex(STAMP)),
+}).strict();
+
+type SyncedRows = z.infer<typeof rowsSchema>;
 
 // the base copy the deleting PC last synced; tombstones from before this field read as base 0
 const tombstoneSchema = z.object({
@@ -59,6 +72,10 @@ export interface SyncedThreadFile {
   task: { threadId: string; title: string; createdAt: number };
   activeLeafId: string | null;
   messages: Message[];
+  /** Highest revision of each writer this copy carries; absent on files from before row stamps. */
+  seen?: Record<string, number>;
+  /** `revision:writer` of the copy that last set each row. */
+  stamps?: Record<string, string>;
 }
 
 export interface ThreadSyncEntry {
@@ -79,6 +96,8 @@ export interface LocalThread {
 
 export interface ThreadSyncHost {
   folder: string;
+  /** Local data dir; row stamps live beside the ledger. */
+  dataDir: string;
   deviceId: string;
   ledger: ThreadSyncLedger;
   saveLedger(): void;
@@ -241,21 +260,54 @@ function preserved(dir: string, threadId: string, local: LocalThread, remote: Sy
   return !missing.length;
 }
 
-/** Same id, different content: one side patched the row and only the ledger's own writer proves whose is newer. */
-function rowsDiffer(local: LocalThread, remote: SyncedThreadFile): boolean {
-  const rows = new Map(remote.messages.map((message) => [message.id, canonical(message)]));
-  return shared(local).messages.some((message) => {
-    const row = rows.get(message.id);
-    return row !== undefined && row !== canonical(message);
-  });
+const stamp = (revision: number, writer: string) => `${revision}:${writer}`;
+
+/** Whether a copy with this `seen` carried the revision that set a row, and so could have patched it since. */
+function sawStamp(seen: Record<string, number>, own: string): boolean {
+  const at = own.indexOf(":");
+  return (seen[own.slice(at + 1)] ?? 0) >= Number(own.slice(0, at));
 }
 
-/** The writer of the copy we synced wrote this one too, so its rows descend from the ones we hold. */
-function descends(entry: ThreadSyncEntry | undefined, remote: SyncedThreadFile): boolean {
-  return entry?.syncedWriter === remote.writerDeviceId && remote.revision > (entry?.syncedRevision ?? 0);
+function mergeSeen(...vectors: (Record<string, number> | undefined)[]): Record<string, number> {
+  const seen: Record<string, number> = {};
+  for (const vector of vectors) {
+    for (const [writer, revision] of Object.entries(vector ?? {})) seen[writer] = Math.max(seen[writer] ?? 0, revision);
+  }
+  return seen;
 }
 
-function toFile(host: ThreadSyncHost, threadId: string, local: LocalThread, revision: number): SyncedThreadFile {
+const rowsPath = (host: ThreadSyncHost, threadId: string) => join(host.dataDir, ROWS_DIR, `${threadId}.json`);
+
+function readRows(host: ThreadSyncHost, threadId: string): SyncedRows | null {
+  try {
+    return rowsSchema.parse(JSON.parse(readFileSync(rowsPath(host, threadId), "utf8")));
+  } catch {
+    return null;
+  }
+}
+
+function writeRows(host: ThreadSyncHost, threadId: string, rows: SyncedRows): void {
+  mkdirSync(join(host.dataDir, ROWS_DIR), { recursive: true });
+  writeFileAtomic(rowsPath(host, threadId), `${JSON.stringify(rows)}\n`, { mode: 0o600 });
+}
+
+/** A row equal to its copy in `prev` keeps that stamp; every other row was set by this revision. */
+function toFile(
+  host: ThreadSyncHost,
+  threadId: string,
+  local: LocalThread,
+  revision: number,
+  prev: SyncedThreadFile | null = null,
+  rows: SyncedRows | null = null,
+): SyncedThreadFile & SyncedRows {
+  const { messages, activeLeafId } = shared(local);
+  const before = new Map(prev?.messages.map((message) => [message.id, canonical(message)]));
+  const stamps = Object.fromEntries(messages.map((message) => [
+    message.id,
+    prev && before.get(message.id) === canonical(message)
+      ? prev.stamps?.[message.id] ?? stamp(prev.revision, prev.writerDeviceId)
+      : stamp(revision, host.deviceId),
+  ]));
   return {
     format: THREAD_SYNC_FORMAT,
     version: THREAD_SYNC_VERSION,
@@ -263,7 +315,10 @@ function toFile(host: ThreadSyncHost, threadId: string, local: LocalThread, revi
     writerDeviceId: host.deviceId,
     updatedAt: host.now?.() ?? Date.now(),
     task: { threadId, title: local.title, createdAt: local.createdAt },
-    ...shared(local),
+    activeLeafId,
+    messages,
+    seen: { ...rows?.seen, [host.deviceId]: revision },
+    stamps,
   };
 }
 
@@ -296,6 +351,7 @@ export function deleteSyncedThread(host: ThreadSyncHost, botSyncId: string, thre
   const tombstone = { format: THREAD_SYNC_FORMAT, threadId, deletedAt: host.now?.() ?? Date.now(), writerDeviceId: host.deviceId, syncedRevision, syncedWriter };
   writeFileAtomic(tombstonePath(dir, threadId), `${JSON.stringify(tombstone)}\n`, { mode: 0o600 });
   rmSync(join(dir, `${threadId}.json`), { force: true });
+  rmSync(rowsPath(host, threadId), { force: true });
   delete host.ledger[threadId];
   host.saveLedger();
 }
@@ -322,6 +378,7 @@ export function applyTombstone(host: ThreadSyncHost, botId: string, botSyncId: s
     parkConflict(host, dir, threadId, toFile(host, threadId, local, (entry?.syncedRevision ?? 0) + 1));
   }
   host.remove(botId, threadId);
+  rmSync(rowsPath(host, threadId), { force: true });
   delete host.ledger[threadId];
   host.saveLedger();
   return "deleted";
@@ -343,7 +400,9 @@ export function uploadThread(host: ThreadSyncHost, botSyncId: string, threadId: 
   if (remote && isForeign(host.ledger[threadId], remote)) return keepConflict(host, dir, threadId, remote);
   const revision = Math.max(host.ledger[threadId]?.syncedRevision ?? 0, remote?.revision ?? 0) + 1;
   mkdirSync(dir, { recursive: true });
-  writeThreadFile(path, toFile(host, threadId, local, revision));
+  const file = toFile(host, threadId, local, revision, remote, readRows(host, threadId));
+  writeThreadFile(path, file);
+  writeRows(host, threadId, { seen: file.seen, stamps: file.stamps });
   host.ledger[threadId] = { syncedRevision: revision, syncedWriter: host.deviceId, dirty: false };
   host.saveLedger();
   return "written";
@@ -369,15 +428,34 @@ export function pullThread(host: ThreadSyncHost, botId: string, botSyncId: strin
   if (local && (diverged || isDirty(host, threadId, local) || !preserved(dir, threadId, local, remote))) {
     return keepConflict(host, dir, threadId, remote);
   }
+  const rows = readRows(host, threadId);
+  const stamps: Record<string, string> = {};
   let messages = remote.messages;
-  // another writer's higher revision can still carry a stale copy of a row we published; keep ours, park theirs
-  if (local && !descends(entry, remote) && rowsDiffer(local, remote)) {
-    parkConflict(host, dir, threadId, remote);
+  let kept = false;
+  let undated = false;
+  if (local) {
     const ours = new Map(shared(local).messages.map((message) => [message.id, message]));
-    messages = messages.map((message) => ours.get(message.id) ?? message);
+    messages = remote.messages.map((theirs) => {
+      const mine = ours.get(theirs.id);
+      if (!mine || canonical(mine) === canonical(theirs)) return theirs;
+      const own = rows?.stamps[theirs.id];
+      // only a writer that carried the revision setting our row can have patched it since; any other copy is stale or concurrent
+      if (own === undefined || !remote.seen) undated = true;
+      else if (!sawStamp(remote.seen, own)) {
+        kept = true;
+        stamps[theirs.id] = own;
+        return mine;
+      }
+      return theirs;
+    });
+    if (kept) parkConflict(host, dir, threadId, remote);
+    if (undated) parkConflict(host, dir, threadId, toFile(host, threadId, local, (entry?.syncedRevision ?? 0) + 1));
   }
+  for (const message of messages) stamps[message.id] ??= remote.stamps?.[message.id] ?? stamp(remote.revision, remote.writerDeviceId);
   host.adopt(botId, structuredClone({ ...remote, messages }));
-  host.ledger[threadId] = { syncedRevision: remote.revision, syncedWriter: remote.writerDeviceId, dirty: false };
+  writeRows(host, threadId, { seen: mergeSeen(rows?.seen, remote.seen, { [remote.writerDeviceId]: remote.revision }), stamps });
+  // kept rows are ours to publish; the ledger is clean only when the remote copy won every row
+  host.ledger[threadId] = { syncedRevision: remote.revision, syncedWriter: remote.writerDeviceId, dirty: kept };
   host.saveLedger();
   return "imported";
 }

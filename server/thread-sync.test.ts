@@ -62,6 +62,7 @@ function pc(deviceId: string, folder: string) {
   const notices: string[] = [];
   const host: ThreadSyncHost = {
     folder,
+    dataDir,
     deviceId,
     ledger: loadThreadSyncLedger(dataDir),
     saveLedger: () => saveThreadSyncLedger(dataDir, host.ledger),
@@ -116,6 +117,7 @@ describe("thread sync", () => {
     const ledgerDir = temp("thread-sync-device-b-");
     const b: ThreadSyncHost = {
       folder,
+      dataDir: ledgerDir,
       deviceId: "device-b",
       ledger: loadThreadSyncLedger(ledgerDir),
       saveLedger: () => saveThreadSyncLedger(ledgerDir, b.ledger),
@@ -296,6 +298,108 @@ describe("thread sync", () => {
     const archived = readSyncedThread(join(dir, parked[0]), true)?.messages.find((m) => m.id === "r1");
     expect(archived).toMatchObject({ text: "Running.", routineRun: { status: "running" } });
     expect(a.threads.get("t1")?.messages.find((m) => m.id === "r1")).toMatchObject({ text: "Result: 42.", routineRun: { status: "completed" } });
+  });
+
+  const patch = (side: ReturnType<typeof pc>, text: string) => {
+    const thread = side.threads.get("t1")!;
+    thread.messages[0] = { ...thread.messages[0], text };
+    markThreadDirty(side.host.ledger, "t1");
+  };
+
+  it("takes a row the other PC patched in sequence and never republishes the stale one", () => {
+    const folder = temp("thread-sync-folder-");
+    const a = pc("device-a", folder);
+    const b = pc("device-b", folder);
+    a.say("t1", "m1", "unanswered");
+    expect(uploadThread(a.host, BOT_SYNC_ID, "t1")).toBe("written");
+    expect(pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1")).toBe("imported");
+    patch(b, "answered on b");
+    expect(uploadThread(b.host, BOT_SYNC_ID, "t1")).toBe("written");
+
+    expect(pullThread(a.host, "bot-a", BOT_SYNC_ID, "t1")).toBe("imported");
+    expect(a.threads.get("t1")?.messages[0].text).toBe("answered on b");
+    expect(a.notices).toEqual([]);
+    expect(readdirSync(threadSyncDir(folder, BOT_SYNC_ID)).filter((name) => name.includes(".conflict-"))).toEqual([]);
+    a.say("t1", "m2", "next request");
+    expect(uploadThread(a.host, BOT_SYNC_ID, "t1")).toBe("written");
+    expect(readSyncedThread(remotePath(folder, "t1"), true)?.messages[0].text).toBe("answered on b");
+  });
+
+  it("republishes a kept row and holds it against every later stale revision", () => {
+    const folder = temp("thread-sync-folder-");
+    const a = pc("device-a", folder);
+    const b = pc("device-b", folder);
+    const path = remotePath(folder, "t1");
+    a.say("t1", "m1", "Running.");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1");
+    const rev1 = readFileSync(path, "utf8");
+    patch(a, "Completed: result 42.");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    // b publishes twice before a's revision 2 reaches it
+    writeFileSync(path, rev1);
+    b.say("t1", "b2", "next");
+    uploadThread(b.host, BOT_SYNC_ID, "t1");
+    b.say("t1", "b3", "next again");
+    uploadThread(b.host, BOT_SYNC_ID, "t1");
+    expect(pullThread(a.host, "bot-a", BOT_SYNC_ID, "t1")).toBe("imported");
+    expect(a.threads.get("t1")?.messages[0].text).toBe("Completed: result 42.");
+
+    expect(uploadThread(a.host, BOT_SYNC_ID, "t1")).toBe("written");
+    b.say("t1", "b4", "one more");
+    expect(uploadThread(b.host, BOT_SYNC_ID, "t1")).toBe("conflict");
+    expect(uploadThread(b.host, BOT_SYNC_ID, "t1")).toBe("written");
+    expect(pullThread(a.host, "bot-a", BOT_SYNC_ID, "t1")).toBe("imported");
+    expect(a.threads.get("t1")?.messages.map((m) => m.text)).toEqual(["Completed: result 42.", "next", "next again", "one more"]);
+    expect(uploadThread(a.host, BOT_SYNC_ID, "t1")).toBe("written");
+    expect(pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1")).toBe("imported");
+    expect(b.threads.get("t1")?.messages[0].text).toBe("Completed: result 42.");
+  });
+
+  it("keeps one version of a row both PCs patched and parks the other", () => {
+    const folder = temp("thread-sync-folder-");
+    const a = pc("device-a", folder);
+    const b = pc("device-b", folder);
+    a.say("t1", "m1", "open");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1");
+    patch(a, "answered on a");
+    patch(b, "answered on b");
+    expect(uploadThread(a.host, BOT_SYNC_ID, "t1")).toBe("written");
+    expect(uploadThread(b.host, BOT_SYNC_ID, "t1")).toBe("conflict");
+    expect(uploadThread(b.host, BOT_SYNC_ID, "t1")).toBe("written");
+
+    expect(pullThread(a.host, "bot-a", BOT_SYNC_ID, "t1")).toBe("imported");
+    expect(a.threads.get("t1")?.messages[0].text).toBe("answered on a");
+    expect(uploadThread(a.host, BOT_SYNC_ID, "t1")).toBe("written");
+    expect(pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1")).toBe("imported");
+    expect(b.threads.get("t1")?.messages[0].text).toBe("answered on a");
+    const dir = threadSyncDir(folder, BOT_SYNC_ID);
+    const parked = readdirSync(dir).filter((name) => name.includes(".conflict-")).map((name) => readSyncedThread(join(dir, name), true)?.messages[0].text);
+    expect(parked).toContain("answered on b");
+  });
+
+  it("imports a file written before row stamps and parks its own copy of a row it cannot date", () => {
+    const folder = temp("thread-sync-folder-");
+    const a = pc("device-a", folder);
+    const b = pc("device-b", folder);
+    const path = remotePath(folder, "t1");
+    const legacy = () => {
+      const { seen: _seen, stamps: _stamps, ...file } = JSON.parse(readFileSync(path, "utf8"));
+      writeFileSync(path, JSON.stringify(file));
+    };
+    a.say("t1", "m1", "hello");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    legacy();
+    expect(pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1")).toBe("imported");
+    patch(a, "patched on a");
+    uploadThread(a.host, BOT_SYNC_ID, "t1");
+    legacy();
+
+    expect(pullThread(b.host, "bot-b", BOT_SYNC_ID, "t1")).toBe("imported");
+    expect(b.threads.get("t1")?.messages[0].text).toBe("patched on a");
+    expect(b.notices).toEqual([]);
+    expect(conflictMessages(folder, "device-b")).toEqual([["m1"]]);
   });
 
   it("keeps the conflict notice local so an idle PC imports over it", () => {
@@ -783,6 +887,7 @@ describe("thread sync delete", () => {
     const ledgerDir = temp("thread-sync-device-b-");
     const b: ThreadSyncHost = {
       folder,
+      dataDir: ledgerDir,
       deviceId: "device-b",
       ledger: loadThreadSyncLedger(ledgerDir),
       saveLedger: () => saveThreadSyncLedger(ledgerDir, b.ledger),

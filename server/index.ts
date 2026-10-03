@@ -1649,6 +1649,7 @@ function followPendingSyncImports(): void {
 function threadSyncHost(folder: string): ThreadSyncHost {
   return {
     folder,
+    dataDir: DATA_DIR,
     deviceId: profileSyncSettings.deviceId,
     ledger: threadSyncLedger,
     saveLedger: () => saveThreadSyncLedger(DATA_DIR, threadSyncLedger),
