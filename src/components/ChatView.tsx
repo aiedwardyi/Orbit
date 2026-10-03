@@ -72,7 +72,7 @@ import { screenImageUrl, useJumpWindow, useOlderMessages, useThreadMessage } fro
 import { activityVisibleInChat, groupActivityRuns } from "@/lib/activity-runs";
 import { chatTranscriptRows, messageVisible } from "@/lib/chat-transcript";
 import { detectChatOptions, laterUserAnswer } from "@/lib/chat-options";
-import { focusComposerOnActivation } from "@/lib/focus-composer";
+import { focusComposerOnActivation, shouldFocusComposerOnTranscriptClick } from "@/lib/focus-composer";
 import { ChatOptionChips } from "./ChatOptionChips";
 import { MemorySaveChip } from "./MemorySaveChip";
 import { ActivityRun, ActivityStep } from "./ActivityRun";
@@ -1645,6 +1645,11 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           });
           previousScrollTop.current = scrollTop;
           if (resume) setBottomFollow(true);
+        }}
+        onClick={(e) => {
+          if (focusComposerBlocked) return;
+          if (!shouldFocusComposerOnTranscriptClick(e.target, e, window.getSelection()?.isCollapsed ?? true)) return;
+          focusComposer();
         }}
       >
         <div

@@ -26,7 +26,7 @@ import { ChatMarkdown } from "./ChatMarkdown";
 import { ChatOptionChips } from "./ChatOptionChips";
 import { MemorySaveChip } from "./MemorySaveChip";
 import { detectChatOptions, laterUserAnswer } from "@/lib/chat-options";
-import { focusComposerOnActivation } from "@/lib/focus-composer";
+import { focusComposerOnActivation, shouldFocusComposerOnTranscriptClick } from "@/lib/focus-composer";
 import { Composer } from "./Composer";
 import { EngineSetup, OpenConnectionsCta, setupErrorAction } from "./EngineSetup";
 import { TaskRecoveryCard } from "./TaskRecoveryCard";
@@ -1514,6 +1514,10 @@ export function GroupView({ group }: { group: Group }) {
           });
           previousScrollTop.current = scrollTop;
           if (resume) setBottomFollow(true);
+        }}
+        onClick={(e) => {
+          if (!shouldFocusComposerOnTranscriptClick(e.target, e, window.getSelection()?.isCollapsed ?? true)) return;
+          focusComposer();
         }}
       >
         {setupPending ? (

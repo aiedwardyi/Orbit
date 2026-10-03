@@ -9,6 +9,7 @@ import {
   isSettingsActive,
   isSidebarNavigationActive,
   isTerminalActive,
+  shouldFocusComposerOnTranscriptClick,
 } from "./focus-composer";
 
 describe("focusComposer", () => {
@@ -221,5 +222,98 @@ describe("focusComposerOnActivation guards", () => {
     expect(document.activeElement).toBe(roomComposer);
     expect(roomComposer.selectionStart).toBe(4);
     expect(roomComposer.selectionEnd).toBe(4);
+  });
+});
+
+describe("shouldFocusComposerOnTranscriptClick", () => {
+  const plainClick = () => ({ button: 0, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false });
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("focuses on an empty-space click", () => {
+    const space = document.createElement("div");
+    document.body.append(space);
+
+    expect(shouldFocusComposerOnTranscriptClick(space, plainClick(), true)).toBe(true);
+  });
+
+  const messageRow = () => {
+    const row = document.createElement("div");
+    row.setAttribute("data-orbit-message", "bot");
+    row.tabIndex = -1;
+    const bubble = document.createElement("div");
+    bubble.setAttribute("data-orbit-message-content", "");
+    const text = document.createElement("span");
+    bubble.append(text);
+    row.append(bubble);
+    document.body.append(row);
+    return { row, text };
+  };
+
+  it("ignores clicks inside a message bubble", () => {
+    const { text } = messageRow();
+
+    expect(shouldFocusComposerOnTranscriptClick(text, plainClick(), true)).toBe(false);
+  });
+
+  it("focuses on a click beside a message bubble", () => {
+    const { row } = messageRow();
+
+    expect(shouldFocusComposerOnTranscriptClick(row, plainClick(), true)).toBe(true);
+  });
+
+  it("ignores clicks on focusable widgets", () => {
+    const widget = document.createElement("div");
+    widget.tabIndex = 0;
+    document.body.append(widget);
+
+    expect(shouldFocusComposerOnTranscriptClick(widget, plainClick(), true)).toBe(false);
+  });
+
+  it("ignores clicks on links", () => {
+    const link = document.createElement("a");
+    link.setAttribute("href", "https://example.com");
+    document.body.append(link);
+
+    expect(shouldFocusComposerOnTranscriptClick(link, plainClick(), true)).toBe(false);
+  });
+
+  it("ignores clicks on buttons", () => {
+    const button = document.createElement("button");
+    document.body.append(button);
+
+    expect(shouldFocusComposerOnTranscriptClick(button, plainClick(), true)).toBe(false);
+  });
+
+  it("ignores clicks inside code blocks", () => {
+    const pre = document.createElement("pre");
+    const code = document.createElement("code");
+    pre.append(code);
+    document.body.append(pre);
+
+    expect(shouldFocusComposerOnTranscriptClick(code, plainClick(), true)).toBe(false);
+  });
+
+  it("ignores clicks while a text selection is open", () => {
+    const space = document.createElement("div");
+    document.body.append(space);
+
+    expect(shouldFocusComposerOnTranscriptClick(space, plainClick(), false)).toBe(false);
+  });
+
+  it("ignores modified clicks", () => {
+    const space = document.createElement("div");
+    document.body.append(space);
+
+    expect(shouldFocusComposerOnTranscriptClick(space, { ...plainClick(), shiftKey: true }, true)).toBe(false);
+  });
+
+  it("ignores right clicks", () => {
+    const space = document.createElement("div");
+    document.body.append(space);
+
+    expect(shouldFocusComposerOnTranscriptClick(space, { ...plainClick(), button: 2 }, true)).toBe(false);
   });
 });

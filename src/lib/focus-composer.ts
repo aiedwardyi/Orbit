@@ -87,6 +87,30 @@ export function focusComposer(doc: Document = document, target?: HTMLTextAreaEle
   return true;
 }
 
+export interface TranscriptClick {
+  button: number;
+  shiftKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  altKey: boolean;
+}
+
+// Message rows span the full width with tabIndex -1, so only the bubble itself blocks.
+const TRANSCRIPT_CLICK_BLOCK =
+  'a, button, input, textarea, select, summary, details, label, img, pre, code, [role="button"], [contenteditable], [tabindex]:not([tabindex="-1"]), [data-orbit-message-content], [data-orbit-launch]';
+
+export function shouldFocusComposerOnTranscriptClick(
+  target: EventTarget | null,
+  click: TranscriptClick,
+  selectionCollapsed = true,
+): boolean {
+  if (click.button !== 0) return false;
+  if (click.shiftKey || click.ctrlKey || click.metaKey || click.altKey) return false;
+  if (!selectionCollapsed) return false;
+  if (target instanceof Element && target.closest(TRANSCRIPT_CLICK_BLOCK)) return false;
+  return true;
+}
+
 let scheduledFrame: number | null = null;
 
 export function focusComposerOnActivation(options: FocusComposerOptions = {}): void {
