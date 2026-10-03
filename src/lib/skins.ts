@@ -160,11 +160,13 @@ function getStore(): Storage | undefined {
 }
 
 export function nextSkin(current: SkinId): SkinId {
-  // Same filter the picker groups by, so the hotkey walks what the page shows.
-  const light = LIGHT_SKIN_IDS.has(current);
-  const group = SKINS.filter((skin) => LIGHT_SKIN_IDS.has(skin.id) === light);
-  const i = group.findIndex((skin) => skin.id === current);
-  return group[(i + 1) % group.length].id;
+  // Same dark-then-light order the picker shows, as one loop.
+  const order = [
+    ...SKINS.filter((skin) => !LIGHT_SKIN_IDS.has(skin.id)),
+    ...SKINS.filter((skin) => LIGHT_SKIN_IDS.has(skin.id)),
+  ];
+  const i = order.findIndex((skin) => skin.id === current);
+  return order[(i + 1) % order.length].id;
 }
 
 export function readSkin(): SkinId {

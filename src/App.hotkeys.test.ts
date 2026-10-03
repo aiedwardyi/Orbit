@@ -82,19 +82,25 @@ describe("theme cycle shortcut", () => {
   const dark = SKINS.filter((s) => !LIGHT_SKIN_IDS.has(s.id)).map((s) => s.id);
   const light = SKINS.filter((s) => LIGHT_SKIN_IDS.has(s.id)).map((s) => s.id);
 
-  it("cycles forward through the picker's group order", () => {
+  const order = [...dark, ...light];
+
+  it("steps through the picker's dark-then-light order", () => {
     expect(nextSkin(dark[0])).toBe(dark[1]);
     expect(nextSkin(light[0])).toBe(light[1]);
   });
 
-  it("wraps last to first inside each group", () => {
-    expect(nextSkin(dark[dark.length - 1])).toBe(dark[0]);
-    expect(nextSkin(light[light.length - 1])).toBe(light[0]);
+  it("crosses from last dark to first light", () => {
+    expect(nextSkin(dark[dark.length - 1])).toBe(light[0]);
   });
 
-  it("never crosses between light and dark", () => {
-    for (const id of light) expect(LIGHT_SKIN_IDS.has(nextSkin(id))).toBe(true);
-    for (const id of dark) expect(LIGHT_SKIN_IDS.has(nextSkin(id))).toBe(false);
+  it("wraps from last light to first dark", () => {
+    expect(nextSkin(light[light.length - 1])).toBe(dark[0]);
+  });
+
+  it("visits every skin once per lap", () => {
+    const seen = [order[0]];
+    for (let id = nextSkin(order[0]); id !== order[0]; id = nextSkin(id)) seen.push(id);
+    expect(seen).toEqual(order);
   });
 
   it("falls back to the first skin for an unknown id", () => {
