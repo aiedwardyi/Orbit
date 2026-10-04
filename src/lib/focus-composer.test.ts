@@ -108,7 +108,8 @@ describe("focusComposerOnActivation guards", () => {
   });
 
   it("leaves mobile activation unfocused until the input is tapped", async () => {
-    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ matches: query === "(pointer: coarse)" }) as MediaQueryList);
+    const matchMedia = window.matchMedia.bind(window);
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ ...matchMedia(query), matches: query === "(pointer: coarse)" }));
 
     focusComposerOnActivation({ targetDocument: document });
     await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -119,7 +120,8 @@ describe("focusComposerOnActivation guards", () => {
   });
 
   it("keeps native desktop activation on a touch screen", async () => {
-    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ matches: query === "(pointer: coarse)" }) as MediaQueryList);
+    const matchMedia = window.matchMedia.bind(window);
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ ...matchMedia(query), matches: query === "(pointer: coarse)" }));
     Object.defineProperty(window, "ogb", { configurable: true, value: {} });
 
     focusComposerOnActivation({ targetDocument: document });
@@ -130,7 +132,8 @@ describe("focusComposerOnActivation guards", () => {
 
   it("rechecks mobile input before a scheduled activation", async () => {
     let touch = false;
-    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ matches: touch && query === "(pointer: coarse)" }) as MediaQueryList);
+    const matchMedia = window.matchMedia.bind(window);
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ ...matchMedia(query), matches: touch && query === "(pointer: coarse)" }));
     focusComposerOnActivation({ targetDocument: document });
     touch = true;
     await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -274,7 +277,8 @@ describe("shouldFocusComposerOnTranscriptClick", () => {
   });
 
   it("ignores mobile taps beside messages", () => {
-    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ matches: query === "(pointer: coarse)" }) as MediaQueryList);
+    const matchMedia = window.matchMedia.bind(window);
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ ...matchMedia(query), matches: query === "(pointer: coarse)" }));
     const space = document.createElement("div");
     document.body.append(space);
 

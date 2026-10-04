@@ -3,7 +3,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const focusState = vi.hoisted(() => ({ botId: null as string | null, dispatch: vi.fn() }));
+const focusState = vi.hoisted(() => ({ botId: "", dispatch: vi.fn() }));
 
 vi.mock("@/state/store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/state/store")>();
@@ -36,7 +36,7 @@ afterEach(async () => {
   host?.remove();
   root = null;
   host = null;
-  focusState.botId = null;
+  focusState.botId = "";
   vi.clearAllMocks();
   vi.restoreAllMocks();
 });
@@ -88,7 +88,8 @@ describe("composer reply focus", () => {
   });
 
   it("keeps mobile replies unfocused until the input is tapped", async () => {
-    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ matches: query === "(pointer: coarse)" }) as MediaQueryList);
+    const matchMedia = window.matchMedia.bind(window);
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ ...matchMedia(query), matches: query === "(pointer: coarse)" }));
     const textarea = await mount(null);
     await act(async () => root!.render(createElement(Composer, { replyTo: replyMessage })));
 
@@ -98,7 +99,8 @@ describe("composer reply focus", () => {
   });
 
   it("consumes mobile chat focus requests without opening the keyboard", async () => {
-    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ matches: query === "(pointer: coarse)" }) as MediaQueryList);
+    const matchMedia = window.matchMedia.bind(window);
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ ...matchMedia(query), matches: query === "(pointer: coarse)" }));
     const textarea = await mount(null);
     const bot: Bot = {
       id: "mobile", threadId: "mobile-thread", name: "Mobile", title: "", description: "",
