@@ -68,7 +68,7 @@ export function recordTaskInstruction(
   next.instructionId = input.messageId;
   const action = firstLine(input.text);
   // An empty instruction keeps the prior anchor on purpose: clearing it falls through to the always-blank path.
-  if (action) {
+  if (action && (!next.nextAction || (next.instructionAction && next.nextAction === next.instructionAction))) {
     next.nextAction = action;
     next.instructionAction = action;
   }
@@ -155,11 +155,7 @@ export function recordTaskCompletion(
   const recovery = recoveryReason(packet);
   const keepRecovery = input.interrupted ? recovery ?? "stop" : !input.ok ? recovery : null;
   const next = stamped(packet, keepRecovery ?? "turn-end", input);
-  const reply = input.reply.trim();
   if (input.ok && !input.interrupted) {
-    // An empty reply still settles the task. With no completed entry the
-    // record never reads finished, so the strip keeps offering Resume.
-    next.completed.push({ note: reply || "Settled without a reply.", at: input.now });
     next.settledInstructionId = next.instructionId;
     // Blank only the instruction's own line (or a record from before the field
     // existed); a next action the bot set during the turn outlives it.
