@@ -48,6 +48,7 @@ import {
 import { composerIsBusy } from "@/lib/send-accept";
 import { composerEnterIntent, isComposerEnterKey } from "@/lib/composer-enter";
 import { fitComposerHeight } from "@/lib/composer-dock";
+import { composerNeedsTap } from "@/lib/focus-composer";
 import { hapticTick } from "@/lib/phone-swipe";
 import { useRainbowBox } from "@/lib/rainbow-box";
 import { useI18n } from "@/lib/i18n";
@@ -313,7 +314,7 @@ export function Composer({
     if (active instanceof Element && active.closest('[role="dialog"][aria-modal="true"]')) return;
     const input = inputRef.current;
     if (!input || input.disabled) return;
-    input.focus();
+    if (!composerNeedsTap()) input.focus();
     requestBotPrewarm(bot.id);
     dispatch({ type: "composerFocused", botId: bot.id });
   }, [bot, dispatch, focusBlocked, locked, approval, requestBotPrewarm, state.composerFocusBotId]);
@@ -323,7 +324,7 @@ export function Composer({
   // send restores replyTo, so this can also fire long after the click, with the
   // palette or a modal open, and has to yield the same way autofocus does.
   useEffect(() => {
-    if (!replyTo || focusBlocked) return;
+    if (!replyTo || focusBlocked || composerNeedsTap()) return;
     const active = document.activeElement;
     if (active instanceof Element && active.closest('[role="dialog"][aria-modal="true"]')) return;
     const input = inputRef.current;

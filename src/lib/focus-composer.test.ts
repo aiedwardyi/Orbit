@@ -91,6 +91,8 @@ describe("focusComposerOnActivation guards", () => {
 
   afterEach(() => {
     document.body.innerHTML = "";
+    vi.restoreAllMocks();
+    Reflect.deleteProperty(window, "ogb");
   });
 
   it("focuses on next render tick when activated", async () => {
@@ -103,6 +105,37 @@ describe("focusComposerOnActivation guards", () => {
 
     await new Promise((resolve) => requestAnimationFrame(resolve));
     expect(document.activeElement).toBe(textarea);
+  });
+
+  it("leaves mobile activation unfocused until the input is tapped", async () => {
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ matches: query === "(pointer: coarse)" }) as MediaQueryList);
+
+    focusComposerOnActivation({ targetDocument: document });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    expect(document.activeElement).not.toBe(textarea);
+    textarea.focus();
+    expect(document.activeElement).toBe(textarea);
+  });
+
+  it("keeps native desktop activation on a touch screen", async () => {
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ matches: query === "(pointer: coarse)" }) as MediaQueryList);
+    Object.defineProperty(window, "ogb", { configurable: true, value: {} });
+
+    focusComposerOnActivation({ targetDocument: document });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    expect(document.activeElement).toBe(textarea);
+  });
+
+  it("rechecks mobile input before a scheduled activation", async () => {
+    let touch = false;
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ matches: touch && query === "(pointer: coarse)" }) as MediaQueryList);
+    focusComposerOnActivation({ targetDocument: document });
+    touch = true;
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    expect(document.activeElement).not.toBe(textarea);
   });
 
   it("never steals focus from search input", async () => {
@@ -230,6 +263,7 @@ describe("shouldFocusComposerOnTranscriptClick", () => {
 
   afterEach(() => {
     document.body.innerHTML = "";
+    vi.restoreAllMocks();
   });
 
   it("focuses on an empty-space click", () => {
@@ -237,6 +271,14 @@ describe("shouldFocusComposerOnTranscriptClick", () => {
     document.body.append(space);
 
     expect(shouldFocusComposerOnTranscriptClick(space, plainClick(), true)).toBe(true);
+  });
+
+  it("ignores mobile taps beside messages", () => {
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ matches: query === "(pointer: coarse)" }) as MediaQueryList);
+    const space = document.createElement("div");
+    document.body.append(space);
+
+    expect(shouldFocusComposerOnTranscriptClick(space, plainClick(), true)).toBe(false);
   });
 
   const messageRow = () => {

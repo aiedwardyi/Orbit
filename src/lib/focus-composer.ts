@@ -6,6 +6,11 @@ export interface FocusComposerOptions {
   terminalOpen?: boolean;
 }
 
+export function composerNeedsTap(doc: Document = document): boolean {
+  const win = doc.defaultView;
+  return !win?.ogb && (win?.matchMedia?.("(pointer: coarse)").matches ?? false);
+}
+
 export function isSearchActive(doc: Document): boolean {
   const active = doc.activeElement;
   if (!active || active === doc.body) return false;
@@ -105,6 +110,7 @@ export function shouldFocusComposerOnTranscriptClick(
   selectionCollapsed = true,
   container?: Element | null,
 ): boolean {
+  if (composerNeedsTap(container?.ownerDocument ?? document)) return false;
   if (click.button !== 0) return false;
   // React bubbles portal clicks (the reaction picker) through the transcript even though the DOM target sits elsewhere.
   if (container && !(target instanceof Node && container.contains(target))) return false;
@@ -118,7 +124,7 @@ let scheduledFrame: number | null = null;
 
 export function focusComposerOnActivation(options: FocusComposerOptions = {}): void {
   const doc = options.targetDocument ?? (typeof document !== "undefined" ? document : null);
-  if (!doc) return;
+  if (!doc || composerNeedsTap(doc)) return;
 
   const raf = doc.defaultView?.requestAnimationFrame ?? (typeof requestAnimationFrame !== "undefined" ? requestAnimationFrame : null);
   const caf = doc.defaultView?.cancelAnimationFrame ?? (typeof cancelAnimationFrame !== "undefined" ? cancelAnimationFrame : null);
@@ -131,6 +137,7 @@ export function focusComposerOnActivation(options: FocusComposerOptions = {}): v
 
   scheduledFrame = raf(() => {
     scheduledFrame = null;
+    if (composerNeedsTap(doc)) return;
     if (isDialogActive(doc)) return;
     if (isSettingsActive(doc, options.settingsOpen)) return;
     if (isTerminalActive(doc, options.terminalOpen)) return;

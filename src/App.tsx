@@ -26,7 +26,7 @@ import { showComputerPanelChrome } from "@/lib/friends-chrome";
 import { I18nProvider, useI18n } from "@/lib/i18n";
 import { buildTerminalNotification, showNotification, type NotificationTarget } from "@/lib/notify";
 import { terminalPopupsEnabled } from "@/lib/terminal-popups";
-import { focusComposerOnActivation } from "@/lib/focus-composer";
+import { composerNeedsTap, focusComposerOnActivation } from "@/lib/focus-composer";
 import { webPushTarget } from "@/lib/web-push";
 import { usePhoneSwipe } from "@/lib/use-phone-swipe";
 import { BackNavigation, backDepth, followSelection, trailTarget, type BackLayer } from "@/lib/back-navigation";
@@ -448,7 +448,9 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
 
   const closeTerminal = () => {
     if (bot) setTerminalViews((views) => ({ ...views, [bot.id]: false }));
-    requestAnimationFrame(() => conversationRef.current?.querySelector<HTMLTextAreaElement>("[data-orbit-composer]")?.focus());
+    requestAnimationFrame(() => {
+      if (!composerNeedsTap()) conversationRef.current?.querySelector<HTMLTextAreaElement>("[data-orbit-composer]")?.focus();
+    });
   };
 
   const backNavigation = useRef<BackNavigation | null>(null);

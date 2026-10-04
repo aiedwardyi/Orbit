@@ -3,6 +3,8 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const focusState = vi.hoisted(() => ({ botId: null as string | null, dispatch: vi.fn() }));
+
 vi.mock("@/state/store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/state/store")>();
   return {
@@ -12,11 +14,11 @@ vi.mock("@/state/store", async (importOriginal) => {
       state: {
         acceptedSends: {},
         bots: [],
-        composerFocusBotId: null,
+        composerFocusBotId: focusState.botId,
         instances: [],
         pendingQueued: {},
       },
-      dispatch: () => undefined,
+      dispatch: focusState.dispatch,
     }),
   };
 });
@@ -34,7 +36,9 @@ afterEach(async () => {
   host?.remove();
   root = null;
   host = null;
+  focusState.botId = null;
   vi.clearAllMocks();
+  vi.restoreAllMocks();
 });
 
 async function mount(replyTo: Message | null, focusBlocked = false, locked = false) {
@@ -81,6 +85,32 @@ describe("composer reply focus", () => {
     });
 
     expect(document.activeElement).toBe(textarea);
+  });
+
+  it("keeps mobile replies unfocused until the input is tapped", async () => {
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ matches: query === "(pointer: coarse)" }) as MediaQueryList);
+    const textarea = await mount(null);
+    await act(async () => root!.render(createElement(Composer, { replyTo: replyMessage })));
+
+    expect(document.activeElement).not.toBe(textarea);
+    await act(async () => textarea.focus());
+    expect(document.activeElement).toBe(textarea);
+  });
+
+  it("consumes mobile chat focus requests without opening the keyboard", async () => {
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ matches: query === "(pointer: coarse)" }) as MediaQueryList);
+    const textarea = await mount(null);
+    const bot: Bot = {
+      id: "mobile", threadId: "mobile-thread", name: "Mobile", title: "", description: "",
+      notifications: false, color: "blue", unread: false, messages: [],
+      modelSelection: { instanceId: "grok", model: "grok" },
+    };
+    focusState.botId = bot.id;
+    await act(async () => root!.render(createElement(Composer, { bot })));
+
+    expect(document.activeElement).not.toBe(textarea);
+    expect(focusState.dispatch).toHaveBeenCalledWith({ type: "composerFocused", botId: bot.id });
+    expect(api).toHaveBeenCalledWith("/api/bots/mobile/prewarm", { method: "POST" });
   });
 
   // a failed send restores replyTo, which re-fires this long after the click
