@@ -66,6 +66,8 @@ const taskResumePacketSchema = z.object({
   settledInstructionId: idSchema.optional(),
   /** next action the newest instruction implied; a nextAction that differs was set on purpose */
   instructionAction: z.string().max(LIMITS.nextAction).optional(),
+  /** instruction a bot-set nextAction belongs to; a later settled instruction drops it */
+  nextActionInstructionId: idSchema.optional(),
   /** goal the newest instruction seeded; absent once the bot claimed the goal */
   instructionGoal: z.string().max(LIMITS.goal).optional(),
   /** the single step the newest instruction seeded; absent once the bot claimed the plan */
@@ -147,6 +149,8 @@ function normalize(packet: TaskResumePacket): TaskResumePacket {
   if (settledId) normalized.settledInstructionId = settledId;
   const instructionAction = packet.instructionAction ? clean(packet.instructionAction, LIMITS.nextAction) : undefined;
   if (instructionAction) normalized.instructionAction = instructionAction;
+  const nextActionInstructionId = packet.nextActionInstructionId ? clean(packet.nextActionInstructionId, LIMITS.id) : undefined;
+  if (nextActionInstructionId) normalized.nextActionInstructionId = nextActionInstructionId;
   const instructionGoal = packet.instructionGoal ? clean(packet.instructionGoal, LIMITS.goal) : undefined;
   if (instructionGoal) normalized.instructionGoal = instructionGoal;
   const instructionStep = packet.instructionStep ? clean(packet.instructionStep, LIMITS.step) : undefined;

@@ -17,6 +17,7 @@ import {
   seedTaskResumePacket,
   stampTaskResumePacket,
 } from "./task-state-fold.ts";
+import type { TaskResumePacket } from "./task-state.ts";
 
 const seed = () => seedTaskResumePacket({
   botId: "bot-1",
@@ -25,6 +26,14 @@ const seed = () => seedTaskResumePacket({
   messageId: "message-1",
   now: 100,
   turnsAtWrite: 0,
+});
+
+// Mirrors the update_task_state route's stamp.
+const botSets = (packet: TaskResumePacket, nextAction: string): TaskResumePacket => ({
+  ...packet,
+  nextAction,
+  nextActionInstructionId: packet.instructionId,
+  updatedBy: "bot",
 });
 
 describe("task state folding", () => {
@@ -413,6 +422,72 @@ describe("task state folding", () => {
 
     expect(updated.nextAction).toBe("Verify the pricing table");
     expect(updated.instructionAction).toBe(seed().instructionAction);
+  });
+
+  it("drops a bot next action from an earlier instruction when a redirect settles", () => {
+    const set = botSets(seed(), "Run the full export");
+    const redirected = recordTaskInstruction(set, {
+      text: "Skip the export, just send the draft",
+      messageId: "message-2",
+      now: 200,
+    });
+    const settled = recordTaskCompletion(redirected, { ok: true, reply: "Sent the draft.", now: 300 });
+
+    expect(redirected.nextAction).toBe("Run the full export");
+    expect(settled.nextAction).toBe("");
+    expect(foldCompletedNextAction(structuredClone(settled)).nextAction).toBe("");
+    expect(isCompletedTaskRecord(settled)).toBe(true);
+    expect(recordTaskInstruction(settled, { text: "Now archive it", messageId: "message-3", now: 400 }).nextAction)
+      .toBe("Now archive it");
+  });
+
+  it("keeps a bot next action re-set during the redirect", () => {
+    const redirected = recordTaskInstruction(botSets(seed(), "Run the full export"), {
+      text: "Skip the export, just send the draft",
+      messageId: "message-2",
+      now: 200,
+    });
+    const settled = recordTaskCompletion(botSets(redirected, "Confirm the draft arrived"), {
+      ok: true,
+      reply: "Sent the draft.",
+      now: 300,
+    });
+
+    expect(settled.nextAction).toBe("Confirm the draft arrived");
+  });
+
+  it("keeps a bot next action when its own instruction settles", () => {
+    const settled = recordTaskCompletion(botSets(seed(), "Run the full export"), {
+      ok: true,
+      reply: "Drafted it; export is next.",
+      now: 300,
+    });
+
+    expect(settled.nextAction).toBe("Run the full export");
+  });
+
+  it("keeps an unstamped bot next action across a settled redirect", () => {
+    const redirected = recordTaskInstruction({ ...seed(), nextAction: "Run the full export" }, {
+      text: "Skip the export, just send the draft",
+      messageId: "message-2",
+      now: 200,
+    });
+    const settled = recordTaskCompletion(redirected, { ok: true, reply: "Sent the draft.", now: 300 });
+
+    expect(settled.nextAction).toBe("Run the full export");
+  });
+
+  it("keeps an earlier bot next action when the redirect is stopped or fails", () => {
+    const redirected = recordTaskInstruction(botSets(seed(), "Run the full export"), {
+      text: "Skip the export, just send the draft",
+      messageId: "message-2",
+      now: 200,
+    });
+    const stopped = recordTaskCompletion(redirected, { ok: true, reply: "", now: 300, interrupted: true });
+    const failed = recordTaskCompletion(redirected, { ok: false, reply: "", now: 300 });
+
+    expect(stopped.nextAction).toBe("Run the full export");
+    expect(failed.nextAction).toBe("Run the full export");
   });
 
   it("stamps engine switches and stops without changing task content", () => {

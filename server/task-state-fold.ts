@@ -160,6 +160,11 @@ export function recordTaskCompletion(
     // Blank only the instruction's own line (or a record from before the field
     // existed); a next action the bot set during the turn outlives it.
     if (!next.instructionAction || next.nextAction === next.instructionAction) next.nextAction = "";
+    // One the bot set for an earlier instruction did not survive this one's redirect.
+    if (next.nextActionInstructionId && next.nextActionInstructionId !== next.instructionId) {
+      next.nextAction = "";
+      delete next.nextActionInstructionId;
+    }
   }
   if (input.messageId && !next.evidence.some((item) => item.ref === input.messageId)) {
     next.evidence.push({ kind: "message", ref: input.messageId, note: "Settled reply" });

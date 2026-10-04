@@ -6236,7 +6236,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (body.completed_note !== undefined && next.completed.at(-1)?.note !== body.completed_note) {
           next.completed.push({ note: body.completed_note, at: Date.now() });
         }
-        if (body.next_action !== undefined) next.nextAction = body.next_action;
+        if (body.next_action !== undefined) {
+          next.nextAction = body.next_action;
+          if (next.instructionId) next.nextActionInstructionId = next.instructionId;
+          else delete next.nextActionInstructionId;
+        }
         foldCompletedNextAction(next);
         if (body.blockers !== undefined) {
           next.blockers = [
