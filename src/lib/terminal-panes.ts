@@ -7,10 +7,13 @@ export function useTerminalPanes(dispatch: Dispatch<Action>): void {
     const terminal = window.ogb?.terminal;
     if (!terminal?.paneLabels) return;
     let alive = true;
+    let latest = 0;
     const refresh = () => {
+      const call = ++latest;
       void terminal.paneLabels?.()
         .then((panes) => {
-          if (alive) dispatch({ type: "setTerminalPanes", panes });
+          // an older call resolving late must not overwrite a newer count
+          if (alive && call === latest) dispatch({ type: "setTerminalPanes", panes });
         })
         .catch(() => {});
     };

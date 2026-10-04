@@ -1823,8 +1823,12 @@ function syncMemory(botId: string): void {
   }
   const ledger = JSON.stringify(memorySyncLedger);
   if (ledger === savedMemoryLedger) return;
-  saveMemorySyncLedger(DATA_DIR, memorySyncLedger);
-  savedMemoryLedger = ledger;
+  try {
+    saveMemorySyncLedger(DATA_DIR, memorySyncLedger);
+    savedMemoryLedger = ledger;
+  } catch (error) {
+    console.warn("memory sync: ledger save failed", error);
+  }
 }
 
 // the PC the user is talking to a bot on keeps its copy of the bot's memory when two PCs changed it at once

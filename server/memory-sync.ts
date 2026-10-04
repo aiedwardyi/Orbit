@@ -12,6 +12,7 @@ export const MEMORY_SYNC_DIR = "memory-v2";
 const FORMAT = "orbit.memory-sync";
 const LEDGER_FILE = "memory-sync-v2.json";
 const LEGACY_LEDGER_FILE = "memory-sync.json";
+const LEGACY_SYNC_DIR = "memory";
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;
 const DEVICE = /^[0-9a-f]{12}$/;
 const SNAPSHOT_FILE = /^([0-9a-f]{12})\.json$/;
@@ -27,6 +28,9 @@ const versionsSchema = z.record(z.string().regex(DEVICE), z.number().int().posit
 type Versions = z.infer<typeof versionsSchema>;
 // epoch ms a Date can hold
 const time = z.number().int().nonnegative().max(8.64e15);
+// the PC a copy came from and when the user last messaged the bot there, so every PC ranks a relayed copy the same
+const rankSchema = z.object({ device: z.string().regex(DEVICE), talkedAt: time });
+type Rank = z.infer<typeof rankSchema>;
 
 const snapshotSchema = z.object({
   format: z.literal(FORMAT),
@@ -34,7 +38,10 @@ const snapshotSchema = z.object({
   device: z.string().regex(DEVICE),
   // when the user last messaged this bot on that PC
   talkedAt: time,
-  files: z.record(z.string().refine(isSyncedFile), z.object({ vv: versionsSchema, at: time, text: z.string().nullable() })),
+  files: z.record(
+    z.string().refine(isSyncedFile),
+    z.object({ vv: versionsSchema, at: time, text: z.string().nullable(), by: rankSchema.optional() }),
+  ),
 });
 type Snapshot = z.infer<typeof snapshotSchema>;
 
@@ -46,9 +53,8 @@ const ledgerSchema = z.object({
   bots: z.record(
     z.string(),
     z.object({
-      published: z.string().optional(),
-      // per file: the versions this PC holds, the hash of the text they describe, and when that text was edited
-      files: z.record(z.string(), z.object({ vv: versionsSchema, hash: z.string().nullable(), at: time })),
+      // per file: the versions this PC holds, the hash of the text they describe, when that text was edited, and the PC it came from
+      files: z.record(z.string(), z.object({ vv: versionsSchema, hash: z.string().nullable(), at: time, by: rankSchema.optional() })),
     }),
   ),
 });
@@ -123,6 +129,14 @@ function memoryFiles(root: string): string[] | undefined {
   }
 }
 
+function readRaw(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
 // undefined when the folder cannot be listed; a snapshot Drive has not finished delivering is skipped until it parses
 function readSnapshots(dir: string): Snapshot[] | undefined {
   if (!existsSync(dir)) return [];
@@ -180,7 +194,7 @@ function joined(a: Versions, b: Versions): Versions {
   return out;
 }
 
-type Side = { talkedAt: number; at: number; device: string };
+type Side = Rank & { at: number };
 
 // a tie goes to the PC where the user last messaged the bot, then to the later edit; device order makes every PC pick the same one
 function wins(a: Side, b: Side): boolean {
@@ -203,6 +217,30 @@ function editedAt(path: string, now: number): number {
   }
 }
 
+// files the older build deleted, and when: it kept no ledger entry for them, only a sidecar in its shared copy saying so
+function olderBuildDeletes(folder: string, botSyncId: string, now: number): Map<string, number> {
+  const root = join(folder, LEGACY_SYNC_DIR, botSyncId, ".ancestry");
+  let topics: string[];
+  try {
+    topics = readdirSync(join(root, "memory")).filter((name) => name.endsWith(".md.json"));
+  } catch {
+    topics = [];
+  }
+  const deletes = new Map<string, number>();
+  for (const file of [MEMORY_FILE, ...topics.map((name) => `memory/${name.slice(0, -".json".length)}`)]) {
+    if (!isSyncedFile(file)) continue;
+    const path = join(root, `${file}.json`);
+    let sidecar: unknown;
+    try {
+      sidecar = JSON.parse(readFileSync(path, "utf8"));
+    } catch {
+      continue;
+    }
+    if (z.object({ hash: z.null() }).safeParse(sidecar).success) deletes.set(file, editedAt(path, now));
+  }
+  return deletes;
+}
+
 // named by its contents, so two PCs setting aside the same copy write the same file
 function park(workspace: string, file: string, text: string, at: number) {
   const stem = file === MEMORY_FILE ? "MEMORY" : file.slice("memory/".length, -".md".length);
@@ -213,7 +251,20 @@ function park(workspace: string, file: string, text: string, at: number) {
   return { name, body };
 }
 
-// a set-aside copy whose every line is already in its file has nothing left to merge
+// every nonblank line of a set-aside copy is in its file, in the same order
+function covered(main: string, copy: string): boolean {
+  const lines = main.split("\n");
+  let at = 0;
+  for (const line of copy.split("\n")) {
+    if (!line.trim()) continue;
+    while (at < lines.length && lines[at] !== line) at++;
+    if (at === lines.length) return false;
+    at++;
+  }
+  return true;
+}
+
+// a set-aside copy its file already holds has nothing left to merge
 function dropMergedCopies(workspace: string, files: Iterable<string>): string[] {
   const dropped: string[] = [];
   for (const file of files) {
@@ -223,9 +274,8 @@ function dropMergedCopies(workspace: string, files: Iterable<string>): string[] 
     const source = stem === "MEMORY" ? MEMORY_FILE : `memory/${stem}.md`;
     const main = readText(join(workspace, source), source);
     if (!main) continue;
-    const lines = new Set(main.split("\n"));
     const body = parked.startsWith(PARKED_NOTE) ? parked.slice(parked.indexOf("\n") + 1) : parked;
-    if (!body.split("\n").every((line) => !line.trim() || lines.has(line))) continue;
+    if (!covered(main, body)) continue;
     rmSync(join(workspace, file), { force: true });
     dropped.push(file);
   }
@@ -249,16 +299,28 @@ export function syncBotMemory(
   const me = deviceId(ledger, host);
   const firstSync = !ledger.bots[botSyncId];
   const bot = (ledger.bots[botSyncId] ??= { files: {} });
-  // a wiped or never-created workspace has nothing to publish; forgetting it pulls instead of deleting everywhere
-  if (!existsSync(workspace)) bot.files = {};
+  // a wiped or never-created workspace has nothing to publish; forgetting it pulls instead of deleting everywhere, from this PC's own snapshot too
+  const restore = !existsSync(workspace);
+  if (restore) bot.files = {};
   // a restored ledger must not hand out counts this PC already published
   for (const entry of snapshots.flatMap((snapshot) => Object.values(snapshot.files))) {
     ledger.clock = Math.max(ledger.clock ?? 0, entry.vv[me] ?? 0);
   }
   const own = snapshots.find((snapshot) => snapshot.device === me);
-  const remotes = snapshots.filter((snapshot) => snapshot !== own);
+  const remotes = snapshots.filter((snapshot) => restore || snapshot !== own);
   const talkedAt = ledger.talked?.[botSyncId] ?? 0;
-  const files = [...new Set([...localFiles, ...Object.keys(bot.files), ...remotes.flatMap((snapshot) => Object.keys(snapshot.files))])].sort();
+  const mine: Rank = { talkedAt, device: me };
+  // a copy keeps its first PC's rank as other PCs relay it; this PC's own copies rank by its current talkedAt
+  const from = (snapshot: Snapshot, entry: Snapshot["files"][string]): Rank | undefined => {
+    const by = entry.by ?? { talkedAt: snapshot.talkedAt, device: snapshot.device };
+    return by.device === me ? undefined : by;
+  };
+  // a delete the older build finished must not come back from another PC's copy
+  const migrating = firstSync && Object.keys(legacy ?? {}).some((key) => key.startsWith(`${botSyncId}/`));
+  const deletes = migrating ? olderBuildDeletes(folder, botSyncId, now) : new Map<string, number>();
+  const files = [
+    ...new Set([...localFiles, ...Object.keys(bot.files), ...deletes.keys(), ...remotes.flatMap((snapshot) => Object.keys(snapshot.files))]),
+  ].sort();
   const results: Record<string, MemorySyncResult> = {};
   const texts = new Map<string, string | null>();
   for (const file of files) {
@@ -272,14 +334,19 @@ export function syncBotMemory(
     let result: MemorySyncResult = "current";
     const localHash = hash(text);
     if (state ? state.hash !== localHash : localHash !== null) {
-      const vv = !state && firstSync && settled(legacy, botSyncId, file, localHash) ? {} : { ...state?.vv, [me]: tick(ledger) };
-      state = bot.files[file] = { vv, hash: localHash, at: editedAt(path, now) };
+      // a copy unchanged since the older build agreed on it is no new edit: a pulled one gives way, and none wins a tie on talkedAt
+      const legacyCopy = !state && firstSync && legacy?.[`${botSyncId}/${file}`] === localHash;
+      const vv = legacyCopy && settled(legacy, botSyncId, file, localHash) ? {} : { ...state?.vv, [me]: tick(ledger) };
+      state = bot.files[file] = { vv, hash: localHash, at: editedAt(path, now), by: legacyCopy ? { device: me, talkedAt: 0 } : undefined };
       result = "pushed";
+    } else if (!state && deletes.has(file)) {
+      state = bot.files[file] = { vv: { [me]: tick(ledger) }, hash: null, at: deletes.get(file)!, by: { device: me, talkedAt: 0 } };
     }
     for (const snapshot of remotes) {
       const entry = snapshot.files[file];
       if (!entry) continue;
       const theirs = hash(entry.text);
+      const by = from(snapshot, entry);
       if (!state || theirs === state.hash) {
         // nothing here yet, or the same text: take what it knows
         if (!state && theirs !== null) {
@@ -287,7 +354,7 @@ export function syncBotMemory(
           text = entry.text;
           result = "pulled";
         }
-        state = bot.files[file] = state ? { ...state, vv: joined(state.vv, entry.vv) } : { vv: entry.vv, hash: theirs, at: entry.at };
+        state = bot.files[file] = state ? { ...state, vv: joined(state.vv, entry.vv) } : { vv: entry.vv, hash: theirs, at: entry.at, by };
         continue;
       }
       const newer = covers(entry.vv, state.vv);
@@ -296,12 +363,12 @@ export function syncBotMemory(
       if (newer && !older) {
         writeText(path, entry.text);
         text = entry.text;
-        state = bot.files[file] = { vv: entry.vv, hash: theirs, at: entry.at };
+        state = bot.files[file] = { vv: entry.vv, hash: theirs, at: entry.at, by };
         result = "pulled";
         continue;
       }
       // changed on two PCs at once, or the same versions with different text from a copied ledger
-      const keep = wins({ talkedAt, at: state.at, device: me }, { talkedAt: snapshot.talkedAt, at: entry.at, device: snapshot.device });
+      const keep = wins({ ...(state.by ?? mine), at: state.at }, { ...(by ?? mine), at: entry.at });
       const vv = joined(state.vv, entry.vv);
       const lost = keep ? entry.text : text;
       const lostAt = keep ? entry.at : state.at;
@@ -315,7 +382,7 @@ export function syncBotMemory(
         writeText(path, entry.text);
         text = entry.text;
       }
-      state = bot.files[file] = keep ? { ...state, vv } : { vv, hash: theirs, at: entry.at };
+      state = bot.files[file] = keep ? { ...state, vv } : { vv, hash: theirs, at: entry.at, by };
       result = "conflict";
       console.warn(
         `memory sync: ${botSyncId}/${file} changed on two PCs; kept ${keep ? "this" : "the other"} PC's copy${parked ? `, set the other aside as ${parked.name}` : ""}`,
@@ -334,16 +401,15 @@ export function syncBotMemory(
   for (const [file, state] of Object.entries(bot.files)) {
     const text = texts.get(file);
     // unreadable this pass: keep what this PC last published rather than claim a delete
-    const entry = text === undefined ? own?.files[file] : { vv: state.vv, at: state.at, text };
+    const entry = text === undefined ? own?.files[file] : { vv: state.vv, at: state.at, text, by: state.by };
     if (entry) published[file] = entry;
   }
   const body = `${JSON.stringify({ format: FORMAT, version: 1, device: me, talkedAt, files: published })}\n`;
   const path = join(dir, `${me}.json`);
-  const digest = hash(body)!;
-  if (bot.published !== digest || !existsSync(path)) {
+  // a replayed, half-written or placeholder copy of this PC's snapshot is rewritten, not trusted
+  if (readRaw(path) !== body) {
     mkdirSync(dir, { recursive: true });
     writeFileAtomic(path, body, { mode: 0o600 });
-    bot.published = digest;
   }
   return results;
 }

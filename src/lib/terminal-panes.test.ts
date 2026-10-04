@@ -49,6 +49,34 @@ describe("useTerminalPanes", () => {
     expect(listeners.size).toBe(0);
   });
 
+  it("keeps the newest pane count when an older read resolves last", async () => {
+    const listeners = new Map<string, () => void>();
+    const listen = (name: string) => (cb: () => void) => {
+      listeners.set(name, cb);
+      return () => listeners.delete(name);
+    };
+    const reads: ((panes: Record<string, string[]>) => void)[] = [];
+    const paneLabels = vi.fn(() => new Promise<Record<string, string[]>>((resolve) => reads.push(resolve)));
+    vi.stubGlobal("ogb", {
+      platform: "win32",
+      terminal: { paneLabels, onOpened: listen("opened"), onClosed: listen("closed"), onExit: listen("exit") },
+    });
+    const dispatch = vi.fn();
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(Probe, { dispatch })));
+      await act(async () => listeners.get("opened")!());
+      await act(async () => reads[1]!({ "bot-1": ["w1", "w2"] }));
+      await act(async () => reads[0]!({}));
+      expect(dispatch).toHaveBeenCalledTimes(1);
+      expect(dispatch).toHaveBeenLastCalledWith({ type: "setTerminalPanes", panes: { "bot-1": ["w1", "w2"] } });
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
   it("stays idle without the desktop bridge", async () => {
     const dispatch = vi.fn();
     const host = document.body.appendChild(document.createElement("div"));

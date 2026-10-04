@@ -813,6 +813,7 @@ export function ModelIndexSection() {
     const turn: { lock?: (to: "landscape") => Promise<void>; unlock?: () => void } | undefined = window.screen?.orientation;
     let live = true;
     let entered = false;
+    let shown = false;
     void wrap
       .requestFullscreen?.()
       ?.then(async () => {
@@ -821,9 +822,10 @@ export function ModelIndexSection() {
         await turn?.lock?.("landscape");
       })
       .catch(() => undefined);
-    // Back on Android leaves real full screen first; follow it out
+    // Back on Android leaves real full screen first, even before the request settles; follow it out
     const onExit = () => {
-      if (entered && !document.fullscreenElement) setFull(false);
+      if (document.fullscreenElement) shown = true;
+      else if (shown) setFull(false);
     };
     document.addEventListener("fullscreenchange", onExit);
     return () => {

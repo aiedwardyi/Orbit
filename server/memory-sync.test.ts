@@ -367,17 +367,17 @@ describe("memory sync", () => {
     expect(parked(h)).toEqual([]);
   });
 
-  it("lets a copy the older build pulled give way on first sync, and sets aside one it pushed", () => {
+  it("lets a copy the older build pulled give way on first sync, and sets aside the older of two it pushed", () => {
     const [h, w] = pcs();
     edit(h, "home notes\n");
-    edit(h, "home deploy\n", "memory/deploy.md");
+    edit(h, "home deploy\n", "memory/deploy.md", Date.UTC(2026, 9, 1));
     h.legacy = {
       "bot-1/MEMORY.md": sha("home notes\n"),
       "~bot-1/MEMORY.md": sha("older\n"),
       "bot-1/memory/deploy.md": sha("home deploy\n"),
     };
     edit(w, "older\n");
-    edit(w, "work deploy\n", "memory/deploy.md");
+    edit(w, "work deploy\n", "memory/deploy.md", Date.UTC(2026, 9, 3));
     w.legacy = {
       "bot-1/MEMORY.md": sha("older\n"),
       "~bot-1/MEMORY.md": sha("older\n"),
@@ -393,10 +393,79 @@ describe("memory sync", () => {
     expect(sync(h)).toMatchObject({ "MEMORY.md": "current", "memory/deploy.md": "conflict" });
     for (const pc of [h, w]) {
       expect(read(pc)).toBe("home notes\n");
-      expect(read(pc, "memory/deploy.md")).toBe("home deploy\n");
+      expect(read(pc, "memory/deploy.md")).toBe("work deploy\n");
+      expect(parked(pc)).toEqual(["home deploy\n"]);
     }
-    expect(parked(w)).toEqual(["work deploy\n"]);
-    expect(parked(h)).toEqual(["work deploy\n"]);
+  });
+
+  it("lets a copy the older build last pushed lose a tie to a later edit, even on the PC the user just messaged", () => {
+    const [h, l] = pcs();
+    edit(h, "newer\n", "MEMORY.md", Date.UTC(2026, 9, 4));
+    markTalked(h.ledger, "bot-1", 5_000);
+    sync(h);
+    edit(l, "oct 2\n", "MEMORY.md", Date.UTC(2026, 9, 2));
+    l.legacy = { "bot-1/MEMORY.md": sha("oct 2\n"), "~bot-1/MEMORY.md": sha("older\n") };
+    sync(l);
+    markTalked(l.ledger, "bot-1", 9_000);
+    receive(h, l);
+    expect(sync(l)["MEMORY.md"]).toBe("conflict");
+    expect(read(l)).toBe("newer\n");
+    expect(parked(l)).toEqual(["oct 2\n"]);
+    receive(l, h);
+    sync(h);
+    expect(read(h)).toBe("newer\n");
+  });
+
+  it("keeps a file the older build deleted from coming back from a PC that still has it", () => {
+    const [h, l] = pcs();
+    edit(h, "notes\n");
+    h.legacy = { "bot-1/MEMORY.md": sha("notes\n"), "~bot-1/MEMORY.md": sha("notes\n") };
+    const sidecar = join(h.folder, "memory", "bot-1", ".ancestry", "memory", "client.md.json");
+    mkdirSync(join(sidecar, ".."), { recursive: true });
+    writeFileSync(sidecar, '{"hash":null}\n');
+    sync(h);
+    edit(l, "notes\n");
+    edit(l, "client: acme\n", "memory/client.md");
+    l.legacy = {
+      "bot-1/MEMORY.md": sha("notes\n"),
+      "~bot-1/MEMORY.md": sha("notes\n"),
+      "bot-1/memory/client.md": sha("client: acme\n"),
+      "~bot-1/memory/client.md": sha("client: acme\n"),
+    };
+    sync(l);
+    receive(h, l);
+    receive(l, h);
+    sync(l);
+    sync(h);
+    for (const pc of [h, l]) expect(read(pc, "memory/client.md")).toBeNull();
+    expect(parked(l)).toEqual([]);
+  });
+
+  it("keeps a delete made on the older build during the update gap", () => {
+    const [h, w] = pcs();
+    edit(h, "notes\n");
+    edit(h, "old topic\n", "memory/old.md", Date.UTC(2026, 9, 1));
+    h.legacy = {
+      "bot-1/MEMORY.md": sha("notes\n"),
+      "~bot-1/MEMORY.md": sha("notes\n"),
+      "bot-1/memory/old.md": sha("old topic\n"),
+      "~bot-1/memory/old.md": sha("older topic\n"),
+    };
+    sync(h);
+    edit(w, "notes\n");
+    w.legacy = { "bot-1/MEMORY.md": sha("notes\n"), "~bot-1/MEMORY.md": sha("notes\n") };
+    const sidecar = join(w.folder, "memory", "bot-1", ".ancestry", "memory", "old.md.json");
+    mkdirSync(join(sidecar, ".."), { recursive: true });
+    writeFileSync(sidecar, '{"hash":null}\n');
+    sync(w);
+    receive(h, w);
+    sync(w);
+    receive(w, h);
+    sync(h);
+    for (const pc of [h, w]) {
+      expect(read(pc, "memory/old.md")).toBeNull();
+      expect(parked(pc)).toEqual(["old topic\n"]);
+    }
   });
 
   it("drops a set-aside copy once its file holds every line of it, on both PCs", () => {
@@ -457,6 +526,74 @@ describe("memory sync", () => {
     receive(b, a);
     expect(sync(a)["MEMORY.md"]).toBe("current");
     expect(read(a)).toBe("notes\n");
+  });
+
+  it("restores a missing workspace from this PC's own newest snapshot", () => {
+    const [h, w] = pcs();
+    seed("notes\n", h, w);
+    edit(h, "notes\nnew home note\n");
+    edit(h, "home only\n", "memory/home.md");
+    sync(h);
+    rmSync(h.workspace, { recursive: true });
+    receive(w, h);
+    sync(h);
+    expect(read(h)).toBe("notes\nnew home note\n");
+    expect(read(h, "memory/home.md")).toBe("home only\n");
+    expect(parked(h)).toEqual([]);
+    const published = JSON.parse(capture(h)).files;
+    expect(published["MEMORY.md"].text).toBe("notes\nnew home note\n");
+    expect(published["memory/home.md"].text).toBe("home only\n");
+  });
+
+  it("repairs its own snapshot when Drive puts back an older or broken copy", () => {
+    const [h] = pcs(1);
+    edit(h, "v1\n");
+    sync(h);
+    const old = capture(h);
+    edit(h, "v2\n");
+    sync(h);
+    for (const bad of [old, "{ half a file"]) {
+      writeFileSync(ownSnapshot(h), bad);
+      expect(sync(h)["MEMORY.md"]).toBe("current");
+      expect(JSON.parse(capture(h)).files["MEMORY.md"].text).toBe("v2\n");
+    }
+  });
+
+  it("keeps the last-messaged PC's copy when a third PC relays the tie", () => {
+    const [h, w, l] = pcs(3);
+    seed("base\n", h, w, l);
+    edit(h, "from home\n");
+    markTalked(h.ledger, "bot-1", 9_000);
+    sync(h);
+    edit(w, "from work\n");
+    markTalked(w.ledger, "bot-1", 1_000);
+    sync(w);
+    receive(h, l);
+    expect(sync(l)["MEMORY.md"]).toBe("pulled");
+    receive(w, l);
+    expect(sync(l)["MEMORY.md"]).toBe("conflict");
+    receive(l, w);
+    sync(w);
+    receive(l, h);
+    sync(h);
+    for (const pc of [h, w, l]) {
+      expect(read(pc)).toBe("from home\n");
+      expect(parked(pc)).toEqual(["from work\n"]);
+    }
+  });
+
+  it("keeps a set-aside copy whose lines sit in a different order in its file", () => {
+    const [a, b] = pcs();
+    seed("base\n", a, b);
+    edit(a, "## Ana\n- owns deploys\n## Bo\n- owns docs\n");
+    sync(a);
+    edit(b, "## Ana\n- owns docs\n## Bo\n- owns deploys\n");
+    markTalked(b.ledger, "bot-1", 9_000);
+    sync(b);
+    receive(a, b);
+    expect(sync(b)["MEMORY.md"]).toBe("conflict");
+    expect(read(b)).toBe("## Ana\n- owns docs\n## Bo\n- owns deploys\n");
+    expect(parked(b)).toEqual(["## Ana\n- owns deploys\n## Bo\n- owns docs\n"]);
   });
 
   it("publishes the last good copy of a file it cannot read this pass", () => {

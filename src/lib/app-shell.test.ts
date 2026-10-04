@@ -145,7 +145,7 @@ describe("home-screen app shell", () => {
   });
 
   it("styles scrollbars only off touch screens, so phones keep their own thin ones", () => {
-    const touchless = css.match(/@media not all and \(pointer: coarse\) \{\n([\s\S]*?)\n\}/)?.[1] ?? "";
+    const touchless = css.match(/@media not all and \(pointer: coarse\) \{\r?\n([\s\S]*?)\r?\n\}/)?.[1] ?? "";
     expect(touchless).toContain("::-webkit-scrollbar {");
     expect(css.replace(touchless, "")).not.toContain("::-webkit-scrollbar");
   });

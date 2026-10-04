@@ -1073,6 +1073,21 @@ test("a report or a hook note as the screen settles holds the stall note until t
   assert.match(f.notes[0].text, /API Error: 529 overloaded$/);
 });
 
+test("a hook note from before the teacher's answer does not hold the next task's stall note", async () => {
+  const f = stallFixture();
+  const pane = await f.host.openForBot("bot-1", { label: "W", command: "claude --model claude-opus-5-5 'go'" });
+  f.children[0].data("Do you want to proceed with this command?\r\n❯ 1. Yes\r\n  2. No\r\n");
+  await f.settle();
+  f.host.attendBot("bot-1", pane.sessionId);
+  await f.advance(10_000);
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "1\r" });
+  f.children[0].data("\x1b[2J\x1b[H● Bash(pnpm build)\r\n  ⎿  Running…\r\n");
+  await f.settle();
+  await f.advance(121_000);
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, /Running…$/);
+});
+
 test("a stall note that fails to post goes out on a later check", async () => {
   const f = stallFixture({ failures: 2 });
   await f.host.openForBot("bot-1", { label: "W", command: "codex --model gpt-6-astra 'go'" });

@@ -305,4 +305,26 @@ describe("full screen chart", () => {
     expect(button("Exit full screen")).toBeNull();
     expect(svg().getAttribute("height")).toBe(inline);
   });
+
+  it("closes when Back leaves full screen before the request settles", async () => {
+    await rebuild(true, { width: 780, height: 330 });
+    let shown: Element | null = null;
+    const request = vi.fn(() => new Promise<void>(() => undefined));
+    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "requestFullscreen");
+    Object.defineProperty(document, "fullscreenElement", { configurable: true, get: () => shown });
+    Object.defineProperty(HTMLElement.prototype, "requestFullscreen", { configurable: true, value: request });
+    try {
+      act(() => button("Full screen")!.click());
+      expect(request).toHaveBeenCalledTimes(1);
+      shown = svg();
+      act(() => void document.dispatchEvent(new Event("fullscreenchange")));
+      shown = null;
+      act(() => void document.dispatchEvent(new Event("fullscreenchange")));
+      expect(button("Exit full screen")).toBeNull();
+    } finally {
+      Reflect.deleteProperty(document, "fullscreenElement");
+      if (original) Object.defineProperty(HTMLElement.prototype, "requestFullscreen", original);
+      else Reflect.deleteProperty(HTMLElement.prototype, "requestFullscreen");
+    }
+  });
 });

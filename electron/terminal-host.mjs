@@ -294,8 +294,9 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         }
       }
       if (session.stallFired || at - session.stallChangedAt < stallMs || at < session.stallRetryAt) continue;
-      // Its report on this task, or a hook note as the screen settled, already reached the teacher.
-      if (session.reportAt >= session.stallArmedAt || session.noteAt >= session.stallChangedAt - STALL_NOTE_SLACK_MS) continue;
+      // Its report on this task, or a hook note on this task as the screen settled, already reached the teacher.
+      if (session.reportAt >= session.stallArmedAt) continue;
+      if (session.noteAt >= session.stallArmedAt && session.noteAt >= session.stallChangedAt - STALL_NOTE_SLACK_MS) continue;
       session.stallFired = true;
       if (!session.mail) continue;
       const scope = { pane: session.id, bot: session.botId, teacher: session.teacher };
