@@ -126,3 +126,10 @@ test("omits screenRuns past the run cap but keeps screenText", () => {
   assert.equal(capped.screenRuns, undefined);
   assert.equal(capped.screenText, "abc\nd");
 });
+
+test("consumes charset designations instead of printing their final byte", () => {
+  const screen = createTerminalScreen({ cols: 10, rows: 1 });
+  screen.consume("> \x1b(B\x0f\x1b)0\x1b(\x1b[31mx");
+  assert.equal(screen.snapshot().screenText, "> x");
+  assert.deepEqual(runs(screen), [{ t: "> " }, { t: "x", fg: 1 }]);
+});

@@ -437,7 +437,14 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
         else if (char === "E") { carriageReturn(); lineFeed(); parserState = "normal"; }
         else if (char === "M") { if (cursorY === scrollTop) scrollDown(); else cursorY -= 1; parserState = "normal"; }
         else if (char === "c") { main = makeBuffer(); alternate = makeBuffer(); active = alternateMode ? alternate : main; cursorX = 0; cursorY = 0; savedCursor = { x: 0, y: 0 }; alternateRestoreCursor = { x: 0, y: 0 }; scrollTop = 0; scrollBottom = height - 1; scrollbackLines = []; pen = null; privateModes.clear(); resetPrivateModes.clear(); parserState = "normal"; }
+        else if (char >= " " && char <= "/") parserState = "escapeIntermediate";
         else { parserState = "normal"; }
+        continue;
+      }
+      // ESC ( B and friends: intermediates, then a final byte that is not text
+      if (parserState === "escapeIntermediate") {
+        if (char === "\x1b") parserState = "escape";
+        else if (char < " " || char > "/") parserState = "normal";
         continue;
       }
       if (parserState === "csi") {
