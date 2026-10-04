@@ -528,7 +528,8 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     expect(JSON.stringify(seen.argv)).not.toContain("the secret prompt");
     expect(seen.prompt).toMatchObject({ type: "user", message: { role: "user", content: "the secret prompt" } });
-    expect(seen.argv).toContain("--append-system-prompt");
+    expect(seen.argv).toContain("--append-system-prompt-file");
+    expect(seen.systemPrompt).toBe("You are Testy.");
     expect(seen.argv).toContain("--session-id");
     expect(seen.env.ANTHROPIC_API_KEY).toBeUndefined();
     expect(seen.env.CLAUDECODE).toBeUndefined();
@@ -536,6 +537,51 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.env.XAI_API_KEY).toBeUndefined();
     expect(seen.env.BOX_TOKEN).toBeUndefined();
     expect(seen.env.OMB_TTS_KEY).toBeUndefined();
+  });
+
+  it("loads an oversized system prompt without putting it on argv", async () => {
+    await create(undefined, {}, { permissionMode: "bypassPermissions" });
+    const dump = join(scratch, "large-system.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const system = "Wink rules\n".repeat(4_000) + '한글 "quotes" C:\\Users\\Edward\\memory\n';
+
+    await instance.adapter.sendTurn({ threadId: "t-large-system", text: "hi", system, model: "claude-opus-5-5", effort: "max" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.systemPrompt).toBe(system);
+    expect(seen.argv).not.toContain(system);
+    expect(seen.argv).not.toContain("--append-system-prompt");
+    expect(seen.argv).not.toContain("--mcp-config");
+    expect(seen.argv[seen.argv.indexOf("--effort") + 1]).toBe("max");
+    const promptPath = seen.argv[seen.argv.indexOf("--append-system-prompt-file") + 1];
+    expect(existsSync(dirname(promptPath))).toBe(false);
+  });
+
+  it("reuses a file-backed system prompt by content and reloads changed rules", async () => {
+    await create();
+    const dump = join(scratch, "system-reuse.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const system = "Keep Wink's rules.";
+    await instance.adapter.sendTurn({ threadId: "t-system-reuse", text: "one", system });
+    await recorder.until((e) => e.type === "turn.completed");
+    const first = JSON.parse(readFileSync(dump, "utf8"));
+    const cursor = (recorder.events.find((e) => e.type === "session.started") as { sessionId: string }).sessionId;
+
+    const second = await instance.adapter.sendTurn({ threadId: "t-system-reuse", text: "two", system, resumeCursor: cursor });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+    expect(new Set(recorder.events.filter((e) => e.type === "session.started").map((e) => (e as { sessionId: string }).sessionId)).size).toBe(1);
+    expect(first.argv).toContain("--append-system-prompt-file");
+    expect(JSON.parse(readFileSync(dump, "utf8")).pid).toBe(first.pid);
+
+    rmSync(dump);
+    const third = await instance.adapter.sendTurn({ threadId: "t-system-reuse", text: "three", system: "Updated Wink rules.", resumeCursor: cursor });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === third.turnId);
+    const changed = JSON.parse(readFileSync(dump, "utf8"));
+    expect(changed.pid).not.toBe(first.pid);
+    expect(changed.systemPrompt).toBe("Updated Wink rules.");
+    expect(recorder.events.filter((e) => e.type === "runtime.error")).toEqual([]);
+    expect(existsSync(dirname(changed.argv[changed.argv.indexOf("--append-system-prompt-file") + 1]))).toBe(false);
   });
 
   it("sends an attached store image as a native block over stdin", async () => {

@@ -44,6 +44,9 @@ const argAfter = (flag: string): string | null => {
   return i === -1 ? null : (argv[i + 1] ?? null);
 };
 
+const systemPromptPath = argAfter("--append-system-prompt-file");
+const systemPrompt = systemPromptPath ? readFileSync(systemPromptPath, "utf8") : argAfter("--append-system-prompt");
+
 const out = (obj: unknown) => process.stdout.write(JSON.stringify(obj) + "\n");
 
 // Snapshot probes: both answer on argv alone and exit without reading stdin.
@@ -260,7 +263,7 @@ const playTurn = (prompt: JsonValue) => {
         /* leave null — the test will see it */
       }
     }
-    writeFileSync(process.env.FAKE_CLAUDE_DUMP, JSON.stringify({ pid: process.pid, argv, env: process.env, prompt, mcpConfig }, null, 2));
+    writeFileSync(process.env.FAKE_CLAUDE_DUMP, JSON.stringify({ pid: process.pid, argv, env: process.env, prompt, mcpConfig, systemPrompt }, null, 2));
   }
 
   if (mode === "exit-early") {
