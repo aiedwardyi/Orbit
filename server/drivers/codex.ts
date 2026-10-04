@@ -39,7 +39,6 @@ import { augmentedPath } from "../env-path.ts";
 import { classifyError, computeBackoff, RETRY_MAX_ATTEMPTS } from "./retry.ts";
 import { appendNative, finishNative } from "./native.ts";
 import { codexRateLimitWindows } from "./rate-limits.ts";
-import { systemLedger } from "./system-ledger.ts";
 
 export { decodeCodexSelection, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
 
@@ -142,7 +141,6 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       asks: Map<string, (behavior: "allow" | "deny" | "answer", message?: string, source?: "user" | "timeout" | "system") => void>;
     }
     const active = new Map<string, Turn>();
-    const systemHeld = systemLedger();
 
     const emit = (event: RuntimeEvent) => {
       finishNative(event);
@@ -628,12 +626,9 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         // a user-level approvals_reviewer = "auto_review" would otherwise answer
         // escalations with a reviewer model, never reaching the chip or Auto mode
         const approvalsReviewer = "user";
-        const system = turn.system;
-        const developerInstructions = system ? { developerInstructions: system } : {};
-        let freshThread = false;
         if (cursor) {
           try {
-            const resumed = await request("thread/resume", { threadId: cursor, approvalPolicy, approvalsReviewer, ...developerInstructions });
+            const resumed = await request("thread/resume", { threadId: cursor, approvalPolicy, approvalsReviewer });
             codexThreadId = resumed?.thread?.id ?? cursor;
           } catch {
             resumeFailed = true;
@@ -650,25 +645,17 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             approvalsReviewer,
             ephemeral: false,
             config: { web_search: "live" },
-            ...developerInstructions,
           });
           codexThreadId = started?.thread?.id ?? null;
           startedModel = started?.model ?? null;
-          freshThread = true;
         }
         emit({ ...base(threadId, turnId), type: "session.started", sessionId: codexThreadId, model: startedModel ?? turn.model ?? null });
         const prompt = resumeFailed ? (turn.resumeFallback?.text ?? turn.text) : turn.text;
-        // Probed against codex-cli 0.160.0: resume-time developerInstructions
-        // only reach the model after a compaction, so a resumed thread that may
-        // not hold this exact text still gets it in front of the prompt.
-        const inlineSystem =
-          system && codexThreadId && !freshThread && !systemHeld.holds(codexThreadId, system) ? system : null;
-        if (inlineSystem && codexThreadId) systemHeld.forget(codexThreadId);
         nativeThreadId = codexThreadId;
         nativeTurnId = null;
         const startedTurn = await request("turn/start", {
           threadId: codexThreadId,
-          input: [{ type: "text", text: inlineSystem ? `${inlineSystem}\n\n${prompt}` : prompt }],
+          input: [{ type: "text", text: turn.system ? `${turn.system}\n\n${prompt}` : prompt }],
           // Spread, not `effort: turn.effort ?? null`. Probed against
           // codex-cli 0.146.0: null is indistinguishable from an absent key
           // — both leave the thread's current effort alone, emitting no
@@ -682,7 +669,6 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         });
         nativeTurnId = startedTurn?.turn?.id ?? nativeTurnId;
         state.promptAccepted = true;
-        if (system && codexThreadId) systemHeld.record(codexThreadId, system);
       } catch (e) {
         if (abandoned) return;
         const failure = e instanceof Error ? e : { text: String(e) };

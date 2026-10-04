@@ -260,11 +260,11 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(seen.env.OMB_TTS_KEY).toBeUndefined();
     const methods = seen.calls.map((c: { method: string }) => c.method);
     expect(methods).toEqual(["initialize", "initialized", "thread/start", "turn/start"]);
-    // a new thread takes the persona as developer instructions
+    // persona rides in front of the prompt text — codex has no system slot
     const turnStart = seen.calls.at(-1);
-    expect(turnStart.params.input[0].text).toBe("list files");
+    expect(turnStart.params.input[0].text).toBe("You are Testy.\n\nlist files");
     const threadStart = seen.calls.find((c: { method: string }) => c.method === "thread/start");
-    expect(threadStart.params).toMatchObject({ model: "gpt-6-sol", modelProvider: "openai", developerInstructions: "You are Testy." });
+    expect(threadStart.params).toMatchObject({ model: "gpt-6-sol", modelProvider: "openai" });
   });
 
   it("turns on live web search for the app-server spawn and thread/start", async () => {
@@ -547,65 +547,6 @@ describe("CodexDriver turns (fake app-server)", () => {
     const calls = JSON.parse(readFileSync(dump, "utf8")).calls as Array<{ method: string; params: any }>;
     const input = calls.find((call) => call.method === "turn/start")?.params?.input?.[0]?.text;
     expect(input).toBe("durable summary and recent tail\n\ngo");
-  });
-
-  describe("system text", () => {
-    const persona = "You are Testy.";
-    let dumps = 0;
-    /** One turn; returns the JSON-RPC calls its app-server saw. */
-    const run = async (input: Parameters<ProviderInstance["adapter"]["sendTurn"]>[0]) => {
-      const dump = join(scratch, `system-${dumps++}.json`);
-      process.env.FAKE_CODEX_DUMP = dump;
-      const { turnId } = await instance.adapter.sendTurn(input);
-      await recorder.until((e) => e.type === "turn.completed" && e.turnId === turnId);
-      // SAFETY: the fake owns this dump and writes one method and params pair per call.
-      const calls = JSON.parse(readFileSync(dump, "utf8")).calls as Array<{ method: string; params: any }>;
-      const params = (method: string) => calls.find((call) => call.method === method)?.params;
-      return { params, input: params("turn/start")?.input?.[0]?.text as string };
-    };
-
-    it("goes in developerInstructions on thread/start and thread/resume, not in the turn text", async () => {
-      await create({ mode: "resume" });
-      const first = await run({ threadId: "t-sys", text: "hi", system: persona });
-      expect(first.params("thread/start").developerInstructions).toBe(persona);
-      expect(first.input).toBe("hi");
-
-      const second = await run({ threadId: "t-sys", text: "again", system: persona, resumeCursor: "codex-thread-1" });
-      expect(second.params("thread/resume").developerInstructions).toBe(persona);
-      expect(second.input).toBe("again");
-    });
-
-    it("puts a changed system in front of the next resumed turn only", async () => {
-      await create({ mode: "resume" });
-      await run({ threadId: "t-sys-change", text: "hi", system: persona });
-      const changed = `${persona} Memory: likes tea.`;
-      const second = await run({ threadId: "t-sys-change", text: "again", system: changed, resumeCursor: "codex-thread-1" });
-      expect(second.params("thread/resume").developerInstructions).toBe(changed);
-      expect(second.input).toBe(`${changed}\n\nagain`);
-      const third = await run({ threadId: "t-sys-change", text: "more", system: changed, resumeCursor: "codex-thread-1" });
-      expect(third.input).toBe("more");
-    });
-
-    it("sends it once to a thread this instance has never seen", async () => {
-      await create({ mode: "resume" });
-      const first = await run({ threadId: "t-sys-restart", text: "again", system: persona, resumeCursor: "codex-thread-9" });
-      expect(first.input).toBe(`${persona}\n\nagain`);
-      const second = await run({ threadId: "t-sys-restart", text: "more", system: persona, resumeCursor: "codex-thread-9" });
-      expect(second.input).toBe("more");
-    });
-
-    it("gives the fresh thread after a failed resume its developerInstructions", async () => {
-      await create(); // fake rejects thread/resume outside resume mode
-      const turn = await run({
-        threadId: "t-sys-fallback",
-        text: "go",
-        system: persona,
-        resumeCursor: "gone-thread",
-        resumeFallback: { text: "durable summary\n\ngo" },
-      });
-      expect(turn.params("thread/start").developerInstructions).toBe(persona);
-      expect(turn.input).toBe("durable summary\n\ngo");
-    });
   });
 
   it("surfaces an approval request and forwards the user's decision", async () => {
