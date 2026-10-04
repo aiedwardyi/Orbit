@@ -57,6 +57,7 @@ export function composerIsBusy(serverBusy: boolean, accepted?: readonly Accepted
 
 export function turnPresenceWaiting(input: {
   busy?: boolean;
+  turnActive?: boolean;
   activity?: string;
   lastMessage?: Message;
   speakerBotId?: string;
@@ -64,6 +65,7 @@ export function turnPresenceWaiting(input: {
 }): boolean {
   if (input.activity === "waiting-on-you") return false;
   if (hasAcceptedThinking(input.accepted)) return true;
+  if (input.busy && input.turnActive) return true;
   return showWorkingDots(Boolean(input.busy), undefined, input.lastMessage, input.speakerBotId);
 }
 

@@ -586,6 +586,7 @@ const taskStateUpdateEnvelopeSchema = z.object({
   goal: z.string().trim().min(1).max(500).optional(),
   plan: taskStatePlanSchema.optional(),
   completed_note: z.string().trim().min(1).max(300).optional(),
+  pause_automatic_wakes: z.literal(true).optional(),
   next_action: z.string().trim().min(1).max(300).optional(),
   blockers: z.array(z.object({
     kind: z.enum(["login", "input", "engine"]),
@@ -597,7 +598,7 @@ const taskStateUpdateEnvelopeSchema = z.object({
   }).strict()).max(20).optional(),
 }).strict().refine(
   (body) => body.goal !== undefined || body.plan !== undefined || body.completed_note !== undefined ||
-    body.next_action !== undefined || body.blockers !== undefined || body.artifacts !== undefined,
+    body.next_action !== undefined || body.blockers !== undefined || body.artifacts !== undefined || body.pause_automatic_wakes === true,
   "at least one task field is required",
 );
 
@@ -1084,6 +1085,7 @@ const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
     resumeCursors: _resumeCursors,
     activeThreadId,
     projectFolderClearedAt: _projectFolderClearedAt,
+    paneWakePaused: _paneWakePaused,
     lastProjectCwd,
     tasks,
     ...rest
@@ -3441,6 +3443,7 @@ function paneNotesPending(threadId: string): boolean {
 // the whole point of acting on worker reports; destructive/sensitive still card.
 const paneWake = new PaneWakeScheduler({
   enabled: (botId) => store.bot(botId)?.shareTerminalWithChat !== false,
+  paused: (botId) => store.bot(botId)?.paneWakePaused === true,
   busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
   hasNotes: paneNotesPending,
   wake: (botId, threadId) => {
@@ -3641,7 +3644,7 @@ const SHOW_IMAGE_GUIDANCE =
   "When you produce or find an image the user should see (a mockup, chart, or screenshot file), call show_image with its absolute path so it appears in this chat. For a video, audio or other file, link its absolute path in markdown, like [clip.mp4](C:\\path\\clip.mp4), so the user can open it with one click. Never end with only a file path. To create a new image, call generate_image.";
 
 const ALWAYS_REPLY_INSTRUCTIONS =
-  " Never end a turn without a user-visible reply. If the user writes to you while you're working, reply to that message right away in a short visible message (for a correction or instruction, a one-line acknowledgment), then keep working; never answer it only in your thinking. This covers messages the user types, not pane notes or other automated messages. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed, and do not repeat a status the user already has; if a turn brings nothing new, reply in one short line. Default voice (your role description and the user's requests always win, including any length or teaching style they set): lead with the answer, default to 2-5 short lines, give the few points that matter most rather than every option unless the user asks for all of them, use plain words, prefer a few bullets over paragraphs, and be warm. If a question needs working out, work it out before answering. Skip preamble, recaps and generic closing offers; a question you need answered, or asking before you act, is not padding. Code, plans, drafts, commands and anything the user will paste or follow step by step are deliverables: give them in full. After tool work, close with a short standalone summary of what you did and found. Otherwise go longer only when the user asks or the task truly needs it, and even then lead with the verdict.";
+  " Never end a turn without a user-visible reply. If the user writes to you while you're working, reply to that message right away in a short visible message (for a correction or instruction, a one-line acknowledgment), then keep working unless they asked you to stop or pause; never answer it only in your thinking. This covers messages the user types, not pane notes or other automated messages. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed, and do not repeat a status the user already has; if a turn brings nothing new, reply in one short line. Default voice (your role description and the user's requests always win, including any length or teaching style they set): lead with the answer, default to 2-5 short lines, give the few points that matter most rather than every option unless the user asks for all of them, use plain words, prefer a few bullets over paragraphs, and be warm. If a question needs working out, work it out before answering. Skip preamble, recaps and generic closing offers; a question you need answered, or asking before you act, is not padding. Code, plans, drafts, commands and anything the user will paste or follow step by step are deliverables: give them in full. After tool work, close with a short standalone summary of what you did and found. Otherwise go longer only when the user asks or the task truly needs it, and even then lead with the verdict.";
 
 // Retrieval discipline for document workloads. Static on purpose: the
 // stream-json driver folds --append-system-prompt into its warm-process
@@ -3751,7 +3754,10 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // inherited from a bot already running unattended
   if (routineTriggerIsUnattended(opts?.automationSource) || opts?.unattended) markUnattended(bot.id);
   // a person typing into this bot ends the unattended window immediately
-  else if (turnStartedByUser(opts)) clearUnattended(bot.id);
+  else if (turnStartedByUser(opts)) {
+    clearUnattended(bot.id);
+    if (bot.paneWakePaused) store.patchBot(bot.id, { paneWakePaused: false });
+  }
   const task = store.taskByThread(bot.id, threadId);
   if (!task) throw Object.assign(new Error("no such task"), { status: 404 });
   const latencySendId = opts?.sendId ?? opts?.userMessage?.sendId;
@@ -6247,8 +6253,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!isRecoveryFlushReason(current.flushReason)) next.flushReason = "progress";
         next.turnsAtWrite = task?.usage?.turns ?? next.turnsAtWrite;
         const saved = persistTaskPacket(next);
+        if (saved && body.pause_automatic_wakes) store.patchBot(bot.id, { paneWakePaused: true });
         return saved
-          ? json(res, 200, { ok: true, updatedAt: saved.updatedAt, nextAction: saved.nextAction })
+          ? json(res, 200, { ok: true, updatedAt: saved.updatedAt, nextAction: saved.nextAction, automaticWakesPaused: bot.paneWakePaused === true })
           : json(res, 409, { error: "task record could not be saved" });
       }
       if (method === "GET" && path === "/api/internal/agents") {
@@ -8808,6 +8815,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                 );
               }
               clearUnattended(current.id);
+              if (current.paneWakePaused) store.patchBot(current.id, { paneWakePaused: false });
               const message = store.appendMessage(threadId, {
                 role: "user",
                 kind: "text",
@@ -9023,6 +9031,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (expectedThreadId !== undefined && routineRun.threadId !== expectedThreadId) {
           return json(res, 409, { error: "this bot is running a routine in another conversation" });
         }
+        store.patchBot(bot.id, { paneWakePaused: true });
         await routines!.cancelRun(routineRun.id);
         return json(res, 200, { ok: true });
       }
@@ -9039,6 +9048,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 409, { error: "the bot switched tasks before it could be interrupted" });
       }
       const inFlight = Boolean(busyGroup || bot.busy || botHasActiveTurn(bot.id));
+      store.patchBot(bot.id, { paneWakePaused: true });
       const stoppedThreadId = busyGroup?.threadId ?? bot.activeThreadId ?? bot.threadId;
       if (inFlight) {
         bumpTurnEpoch(bot.id);
@@ -9091,6 +9101,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!packet || !isRecoveryFlushReason(packet.flushReason) || isCompletedTaskRecord(packet)) {
         return json(res, 409, { error: "this task has no interrupted work to continue" });
       }
+      if (bot.paneWakePaused) store.patchBot(bot.id, { paneWakePaused: false });
       if (conversation.group) {
         startGroupCardContinuation(conversation.group.id, m[2], bot.id, TASK_RESUME_PROMPT);
         return json(res, 202, { ok: true });

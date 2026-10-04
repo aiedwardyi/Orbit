@@ -44,6 +44,7 @@ let routinesResponse: unknown = {
 };
 let lastRoutineRequestBody: any = null;
 interface TaskStateRequestBody {
+  pause_automatic_wakes?: boolean;
   fromBotId: string;
   fromThreadId: string;
   goal?: string;
@@ -230,7 +231,7 @@ beforeAll(async () => {
         const body: TaskStateRequestBody = JSON.parse(data);
         lastTaskStateBody = body;
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ ok: true, nextAction: body.next_action }));
+        res.end(JSON.stringify({ ok: true, nextAction: body.next_action, automaticWakesPaused: body.pause_automatic_wakes === true }));
       });
       return;
     }
@@ -391,6 +392,22 @@ describe("agents-proxy MCP surface", () => {
       artifacts: [{ ref: "brief.md", label: "Weekly brief" }],
     });
     expect(res.result.content[0].text).toContain("Next action: Verify citations");
+  });
+
+  it("forwards an explicit wake pause without claiming the current turn ended", async () => {
+    lastTaskStateBody = null;
+    const res = await callTool("update_task_state", { pause_automatic_wakes: true });
+    expect(lastTaskStateBody).toEqual({ fromBotId: "bot-asker", fromThreadId: "thread-asker-routine", pause_automatic_wakes: true });
+    expect(res.result.isError).toBe(false);
+    expect(res.result.content[0].text).toContain("End this turn");
+    expect(res.result.content[0].text).not.toContain("You can change models now");
+  });
+
+  it("does not let a bot clear a user wake pause", async () => {
+    lastTaskStateBody = null;
+    const res = await callTool("update_task_state", { pause_automatic_wakes: false });
+    expect(res.result.isError).toBe(true);
+    expect(lastTaskStateBody).toBeNull();
   });
 
   it("rejects blank task fields before calling the harness", async () => {

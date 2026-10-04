@@ -8,6 +8,7 @@ const HOUR_MS = 60 * 60 * 1000;
 export interface PaneWakeDeps {
   enabled(botId: string): boolean;
   busy(botId: string, threadId: string): boolean;
+  paused?(botId: string): boolean;
   /** A user turn since the note already delivered it. */
   hasNotes(threadId: string): boolean;
   wake(botId: string, threadId: string): void;
@@ -42,7 +43,7 @@ export class PaneWakeScheduler {
   }
 
   noteArrived(botId: string, threadId: string): void {
-    if (!this.deps.enabled(botId)) return;
+    if (!this.deps.enabled(botId) || this.deps.paused?.(botId)) return;
     const key = `${botId}\0${threadId}`;
     const entry = this.pending.get(key) ?? { botId, threadId, timer: null };
     this.pending.set(key, entry);
@@ -74,7 +75,7 @@ export class PaneWakeScheduler {
     const { botId, threadId } = entry;
     if (this.deps.busy(botId, threadId)) return;
     this.pending.delete(key);
-    if (!this.deps.enabled(botId) || !this.deps.hasNotes(threadId)) return;
+    if (!this.deps.enabled(botId) || this.deps.paused?.(botId) || !this.deps.hasNotes(threadId)) return;
     const now = this.deps.now?.() ?? Date.now();
     const recent = (this.wakes.get(botId) ?? []).filter((at) => now - at < HOUR_MS);
     if (recent.length >= PANE_WAKE_HOURLY_CAP) {

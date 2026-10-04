@@ -6,7 +6,7 @@ import type { Message } from "@/state/store";
 import { t } from "./i18n";
 
 /** Last turn-lifecycle runtime event seen on a thread. Cleared each turn. */
-export type TurnSignal = "started" | "retrying";
+export type TurnSignal = "preparing" | "started" | "retrying";
 
 export type TurnSignals = Readonly<Record<string, TurnSignal>>;
 
@@ -200,6 +200,8 @@ export function nextTurnSignals(signals: TurnSignals, threadId: string, event: T
   switch (event) {
     case "settled-message":
       return signals;
+    case "dispatched":
+      return signals[threadId] === "preparing" ? signals : { ...signals, [threadId]: "preparing" };
     case "started":
     case "retrying":
       return signals[threadId] === event ? signals : { ...signals, [threadId]: event };
@@ -209,8 +211,7 @@ export function nextTurnSignals(signals: TurnSignals, threadId: string, event: T
     case "rewound":
     case "completed":
     case "sent":
-    case "edited":
-    case "dispatched": {
+    case "edited": {
       if (!(threadId in signals)) return signals;
       const { [threadId]: _ended, ...rest } = signals;
       return rest;

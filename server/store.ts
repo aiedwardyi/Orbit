@@ -516,6 +516,8 @@ export interface BotRecord {
   browserProfile?: string;
   /** Allow this bot's provider to read its own Orbit terminal screen. */
   shareTerminalWithChat?: boolean;
+  /** Local pause until the next user message; worker reports remain in the thread. */
+  paneWakePaused?: boolean;
   /** Public, package-authored playbooks installed for this bot. They carry
    * process guidance only—never executable code, credentials, or grants. */
   playbooks?: InstalledPlaybook[];

@@ -1097,6 +1097,7 @@ export function GroupView({ group }: { group: Group }) {
   const activityLabel = liveActivityLabel(lastGroupMessage, showToolCalls);
   const waiting = turnPresenceWaiting({
     busy: Boolean(speaker),
+    turnActive: stream.signal[group.threadId] !== undefined,
     activity: speaker?.activity,
     lastMessage: group.messages.at(-1),
     speakerBotId: speaker?.id,

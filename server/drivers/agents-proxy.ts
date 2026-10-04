@@ -202,7 +202,7 @@ const TOOLS = [
   {
     name: "update_task_state",
     description:
-      "Keep Wink's durable record for this task current. Call after a meaningful plan change, completed milestone, new blocker, or created artifact, and before a long operation. Do not call after every tool. This record survives restarts and model switches, but it does not replace your final answer.",
+        "Keep Wink's durable record for this task current. Call after a meaningful plan change, completed milestone, new blocker, or created artifact, and before a long operation. Do not call after every tool. This record survives restarts and model switches, but it does not replace your final answer. When the user asks you to stop or wait so they can switch models, set pause_automatic_wakes to true, then end your turn.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -229,7 +229,8 @@ const TOOLS = [
           pattern: "\\S",
           description: "One concise milestone that is actually complete. Omit when nothing new finished.",
         },
-        next_action: { type: "string", minLength: 1, maxLength: 300, pattern: "\\S", description: "The exact next useful action." },
+          next_action: { type: "string", minLength: 1, maxLength: 300, pattern: "\\S", description: "The exact next useful action." },
+          pause_automatic_wakes: { type: "boolean", description: "Set true only when the user asks you to stop or pause. Holds worker-report wake-ups until their next message; does not stop workers or end your current turn." },
         blockers: {
           type: "array",
           maxItems: 10,
@@ -499,6 +500,7 @@ interface TaskStateArtifact {
 }
 
 interface TaskStateToolArgs {
+  pause_automatic_wakes?: boolean;
   goal?: string;
   plan?: TaskStatePlanItem[];
   completed_note?: string;
@@ -580,7 +582,7 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
     return { text: `Other bots you can message with ask_bot:\n${lines.join("\n")}` };
   }
   if (name === "update_task_state") {
-    const supported = ["goal", "plan", "completed_note", "next_action", "blockers", "artifacts"] as const;
+    const supported = ["goal", "plan", "completed_note", "next_action", "blockers", "artifacts", "pause_automatic_wakes"] as const;
     const allowed = `allowed: ${supported.join(", ")}.`;
     const unknown = Object.keys(args).filter((key) => !(supported as readonly string[]).includes(key));
     if (unknown.length) {
@@ -588,6 +590,9 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
     }
     if (!supported.some((key) => args[key] !== undefined)) {
       return { text: `update_task_state needs at least one task field; ${allowed}`, isError: true };
+    }
+    if (args.pause_automatic_wakes !== undefined && args.pause_automatic_wakes !== true) {
+      return { text: "pause_automatic_wakes only accepts true; the next user message resumes wake-ups.", isError: true };
     }
     const notArray = (["plan", "blockers", "artifacts"] as const).find((key) => args[key] !== undefined && !Array.isArray(args[key]));
     if (notArray) return { text: `update_task_state ${notArray} must be an array.`, isError: true };
@@ -603,8 +608,12 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
       next_action: args.next_action,
       blockers: args.blockers,
       artifacts: args.artifacts,
+      pause_automatic_wakes: args.pause_automatic_wakes,
     };
     const r = await api("/api/internal/task-state", { method: "POST", body: JSON.stringify(body) });
+    if (r.automaticWakesPaused === true) {
+      return { text: "Task record saved. Worker-report wake-ups are paused until the next user message. Reports remain saved. End this turn now with a brief reply; it is still running until you finish." };
+    }
     return { text: `Task record saved. Next action: ${String(r.nextAction ?? "continue the current plan")}` };
   }
   if (name === "ask_bot") {

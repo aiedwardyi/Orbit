@@ -3,17 +3,18 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { paneNotesSinceLastUserTurn } from "./context-compaction.ts";
+import { paneNotesForTurn, paneNotesSinceLastUserTurn } from "./context-compaction.ts";
 import { hasLocalUndeliveredPaneNote, PANE_WAKE_DEBOUNCE_MS, PANE_WAKE_HOURLY_CAP, PaneWakeScheduler } from "./pane-wake.ts";
-import type { Message } from "./store.ts";
+import { Store, type Message } from "./store.ts";
 
-function harness(overrides: { enabled?: boolean; busy?: boolean; hasNotes?: boolean } = {}) {
-  const state = { enabled: true, busy: false, hasNotes: true, ...overrides };
+function harness(overrides: { enabled?: boolean; busy?: boolean; hasNotes?: boolean; paused?: boolean } = {}) {
+  const state = { enabled: true, busy: false, hasNotes: true, paused: false, ...overrides };
   const wake = vi.fn();
   const warn = vi.fn();
   const scheduler = new PaneWakeScheduler({
     enabled: () => state.enabled,
     busy: () => state.busy,
+    paused: () => state.paused,
     hasNotes: () => state.hasNotes,
     wake,
     warn,
@@ -25,6 +26,58 @@ function harness(overrides: { enabled?: boolean; busy?: boolean; hasNotes?: bool
 describe("PaneWakeScheduler", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
+
+  it("holds pending and later notes after an explicit pause without delivering them", async () => {
+    const { state, wake, scheduler } = harness({ busy: true });
+    scheduler.noteArrived("teacher", "t1");
+    state.paused = true;
+    state.busy = false;
+    scheduler.settled();
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    scheduler.noteArrived("teacher", "t1");
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(wake).not.toHaveBeenCalled();
+    expect(state.hasNotes).toBe(true);
+
+    state.paused = false;
+    state.hasNotes = false;
+    scheduler.settled();
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(wake).not.toHaveBeenCalled();
+    state.hasNotes = true;
+    scheduler.noteArrived("teacher", "t1");
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(wake).toHaveBeenCalledExactlyOnceWith("teacher", "t1");
+  });
+
+  it("preserves a pause and its reports across restart for the next user turn", async () => {
+    const selection = () => ({ instanceId: "claude", model: "claude-sonnet-5" });
+    let store = new Store(selection);
+    const bot = store.createBot();
+    store.patchBot(bot.id, { paneWakePaused: true });
+    const note = store.appendMessage(bot.threadId, { role: "bot", kind: "note", text: "[pane worker01] DONE: verified" });
+    store = new Store(selection);
+    expect(store.bot(bot.id)?.paneWakePaused).toBe(true);
+    const wake = vi.fn();
+    const scheduler = new PaneWakeScheduler({
+      enabled: () => true,
+      busy: () => false,
+      paused: (id) => store.bot(id)?.paneWakePaused === true,
+      hasNotes: () => true,
+      wake,
+      warn: vi.fn(),
+    });
+    scheduler.noteArrived(bot.id, bot.threadId);
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(wake).not.toHaveBeenCalled();
+    store.patchBot(bot.id, { paneWakePaused: false });
+    const user = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "Continue" });
+    const pending = paneNotesForTurn(store.activePath(bot.threadId), new Set([user.id]), undefined, false);
+    expect(pending.newestId).toBe(note.id);
+    expect(pending.notes.join("\n")).toContain("DONE: verified");
+    store.markPaneNotesDelivered(bot.id, bot.threadId, pending.newestId);
+    expect(new Store(selection).bot(bot.id)?.paneWakePaused).toBe(false);
+  });
 
   it("wakes an idle bot after the debounce", async () => {
     const { wake, scheduler } = harness();

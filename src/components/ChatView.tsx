@@ -1307,6 +1307,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   );
   const waiting = turnPresenceWaiting({
     busy: bot.busy,
+    turnActive: turnSignal !== undefined,
     activity: bot.activity,
     lastMessage,
     accepted: state.acceptedSends[bot.threadId],

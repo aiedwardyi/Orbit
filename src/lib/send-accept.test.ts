@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import type { Message } from "@/state/store";
+import { nextTurnSignals, type TurnSignals } from "./turn-stage";
 import {
   acceptedSendPaint,
   composerIsBusy,
@@ -57,6 +58,21 @@ describe("acceptedSendPaint", () => {
 });
 
 describe("turnPresenceWaiting", () => {
+  it("stays visible from an automatic dispatch through intermediate replies until completion", () => {
+    let signals: TurnSignals = {};
+    for (const event of ["dispatched", "started", "settled-message", "retrying", "settled-message"] as const) {
+      signals = nextTurnSignals(signals, "t1", event);
+      expect(turnPresenceWaiting({ busy: true, turnActive: signals.t1 !== undefined, lastMessage: settledReply }), event).toBe(true);
+    }
+    signals = nextTurnSignals(signals, "t1", "completed");
+    expect(turnPresenceWaiting({ busy: true, turnActive: signals.t1 !== undefined, lastMessage: settledReply })).toBe(false);
+  });
+
+  it("does not show work for an idle bot or an approval wait with a retained signal", () => {
+    expect(turnPresenceWaiting({ busy: false, turnActive: true, lastMessage: settledReply })).toBe(false);
+    expect(turnPresenceWaiting({ busy: true, turnActive: true, activity: "waiting-on-you", lastMessage: settledReply })).toBe(false);
+  });
+
   it("shows Thinking in the same tick as an accepted idle send, even under a settled reply", () => {
     expect(
       turnPresenceWaiting({

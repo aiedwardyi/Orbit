@@ -136,7 +136,7 @@ describe("nextTurnSignals", () => {
     expect(nextTurnSignals(signals, "t2", "completed")).toBe(signals);
     expect(nextTurnSignals(signals, "t2", "sent")).toBe(signals);
     expect(nextTurnSignals(signals, "t2", "edited")).toBe(signals);
-    expect(nextTurnSignals(signals, "t2", "dispatched")).toBe(signals);
+    expect(nextTurnSignals(signals, "t2", "dispatched")).toEqual({ ...signals, t2: "preparing" });
     expect(nextTurnSignals(signals, "t1", "hydrated")).toBe(signals);
   });
 
