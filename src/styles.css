@@ -3245,23 +3245,26 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
   color: var(--color-ink);
 }
 
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--color-scrollbar);
-  border-radius: 4px;
-}
-/* the thumb was inert — it never acknowledged the pointer */
-::-webkit-scrollbar-thumb:hover {
-  background: var(--color-raised-hover);
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-corner {
-  background: transparent;
+/* Styling a scrollbar turns off a phone's thin overlay one, so touch screens keep their own. */
+@media not all and (pointer: coarse) {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-scrollbar);
+    border-radius: 4px;
+  }
+  /* the thumb was inert — it never acknowledged the pointer */
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-raised-hover);
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
 }
 
 @keyframes panel-in {

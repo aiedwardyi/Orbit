@@ -321,6 +321,11 @@ ipcMain.handle("terminal:read-bot", (event, botId) => {
   if (!trustedTerminalSender(event, mainWindow?.webContents, origin)) throw new Error("Untrusted terminal caller");
   return terminalHost.readBot(botId);
 });
+ipcMain.handle("terminal:pane-labels", (event) => {
+  const origin = app.isPackaged ? `http://127.0.0.1:${SERVER_PORT}` : new URL(DEV_URL).origin;
+  if (!trustedTerminalSender(event, mainWindow?.webContents, origin)) throw new Error("Untrusted terminal caller");
+  return terminalHost.paneLabels();
+});
 ipcMain.handle("terminal:send-bot", (event, botId, input) => {
   const origin = app.isPackaged ? `http://127.0.0.1:${SERVER_PORT}` : new URL(DEV_URL).origin;
   if (!trustedTerminalSender(event, mainWindow?.webContents, origin)) throw new Error("Untrusted terminal caller");
@@ -2216,6 +2221,8 @@ app.whenReady().then(async () => {
     terminalBridgeAccess = null;
     slog(`terminal bridge unavailable: ${error?.message ?? error}`);
   }
+  // Bots' terminal tools check for claude-worker.json when they load, before any pane opens.
+  await installOrbitMsg(path.join(app.getPath("home"), ".orbit", "bin")).catch(() => null);
   if (app.isPackaged) {
     serverReady = await startServerPackaged();
     slog(`harness ${serverReady ? "ready" : "failed"} port=${SERVER_PORT} uptime=${process.uptime().toFixed(2)}s`);

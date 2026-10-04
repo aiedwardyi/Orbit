@@ -122,14 +122,16 @@ export async function raisePaneAttention(
   access: TerminalBridgeAccess | null,
   botId: string,
   sessionId: string,
+  kind?: "report" | "auto",
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> {
   if (!access) return;
   try {
+    // The kind lets the pane's stall watch tell a final report from a passing note.
     await fetchImpl(`${access.url}/v1/bots/${encodeURIComponent(botId)}/terminal/attention`, {
       method: "POST",
       headers: { authorization: `Bearer ${terminalReadGrant(access.token, botId)}`, "content-type": "application/json" },
-      body: JSON.stringify({ sessionId }),
+      body: JSON.stringify({ sessionId, kind }),
       signal: AbortSignal.timeout(5_000),
     });
   } catch {}

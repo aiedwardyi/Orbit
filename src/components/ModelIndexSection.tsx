@@ -2,10 +2,12 @@
 // against cost, per model and effort, so picking a model never needs a web
 // search. Numbers come only from shared/model-index-data.ts; nothing is fetched.
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Maximize2, X } from "lucide-react";
 import { useStore } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n-catalog";
 import { cn } from "@/lib/cn";
+import { isPhone } from "@/lib/phone-swipe";
 import {
   CHART_PROVIDERS,
   chartProvider,
@@ -129,13 +131,21 @@ function measurer(): (text: string) => number {
       : null;
   const ctx = canvas;
   if (!ctx) return (text) => text.length * 6;
-  ctx.font = `500 10.5px ${getComputedStyle(document.documentElement).fontFamily}`;
+  // Skins set the app font on body; html keeps the browser default.
+  ctx.font = `500 10.5px ${getComputedStyle(document.body).fontFamily}`;
   return (text) => ctx.measureText(text).width;
 }
 
 function wrapLines(text: string, max: number, measure: (text: string) => number) {
-  const lines: string[] = [];
+  // A parenthesised group wraps as one word, so "(USD, log scale)" never splits.
+  const words: string[] = [];
   for (const word of text.split(" ")) {
+    const last = words[words.length - 1];
+    if (last?.includes("(") && !last.includes(")")) words[words.length - 1] = `${last} ${word}`;
+    else words.push(word);
+  }
+  const lines: string[] = [];
+  for (const word of words) {
     const last = lines[lines.length - 1];
     if (last !== undefined && measure(`${last} ${word}`) <= max) lines[lines.length - 1] = `${last} ${word}`;
     else lines.push(word);
@@ -143,17 +153,21 @@ function wrapLines(text: string, max: number, measure: (text: string) => number)
   return lines;
 }
 
-function useWidth() {
+function useSize() {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(640);
+  const [height, setHeight] = useState(0);
   useEffect(() => {
     const el = ref.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => setWidth(Math.max(280, Math.round(entry.contentRect.width))));
+    const observer = new ResizeObserver(([entry]) => {
+      setWidth(Math.max(160, Math.round(entry.contentRect.width)));
+      setHeight(Math.round(entry.contentRect.height));
+    });
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
-  return [ref, width] as const;
+  return [ref, width, height] as const;
 }
 
 /** Items that just left, held at their last spot until their fade-out ends. */
@@ -191,6 +205,13 @@ function Swatch({ provider }: { provider: string }) {
   return <span aria-hidden className="h-[3px] w-3 shrink-0 rounded-full" style={{ background: color(provider) }} />;
 }
 
+function edgeFade(el: HTMLElement): string | undefined {
+  const start = el.scrollLeft > 1;
+  const end = el.scrollWidth - el.clientWidth - el.scrollLeft > 1;
+  if (!start && !end) return undefined;
+  return `linear-gradient(to right, ${start ? "transparent" : "black"}, black 24px, black calc(100% - 24px), ${end ? "transparent" : "black"})`;
+}
+
 function Segmented<T extends string>({
   label,
   value,
@@ -206,16 +227,19 @@ function Segmented<T extends string>({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [thumb, setThumb] = useState<{ x: number; w: number } | null>(null);
+  const [mask, setMask] = useState<string | undefined>();
   useLayoutEffect(() => {
     const group = ref.current;
     if (!group) return;
     const place = () => {
       const on = group.querySelector<HTMLElement>('[aria-checked="true"]');
       setThumb(on ? { x: on.offsetLeft, w: on.offsetWidth } : null);
+      setMask(edgeFade(group));
     };
     place();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(place);
+    observer.observe(group);
     for (const button of group.querySelectorAll("button")) observer.observe(button);
     return () => observer.disconnect();
   }, [value, options.length]);
@@ -224,7 +248,9 @@ function Segmented<T extends string>({
       ref={ref}
       role="radiogroup"
       aria-label={label}
-      className="relative flex w-fit min-w-0 max-w-full gap-0.5 overflow-x-auto rounded-lg bg-inset p-[3px]"
+      onScroll={(e) => setMask(edgeFade(e.currentTarget))}
+      className="relative flex w-fit min-w-0 max-w-full gap-0.5 overflow-x-auto rounded-lg bg-inset p-[3px] pointer-coarse:[scrollbar-width:none] pointer-coarse:[&::-webkit-scrollbar]:hidden"
+      style={{ maskImage: mask, WebkitMaskImage: mask }}
     >
       {thumb && (
         <span
@@ -374,6 +400,8 @@ function Scatter({
   marks,
   points,
   width,
+  fitHeight,
+  phone,
   hover,
   onHover,
   t,
@@ -382,6 +410,9 @@ function Scatter({
   marks: Mark[];
   points: ModelIndexPoint[];
   width: number;
+  /** Full screen hands the chart its height instead of deriving one from the width. */
+  fitHeight?: number;
+  phone: boolean;
   hover: string | null;
   onHover: OnHover;
   t: Translate;
@@ -392,8 +423,10 @@ function Scatter({
   const right = width - MARGIN.right;
   const top = MARGIN.top;
   const measure = measurer();
-  const caption = wrapLines(`${t("modelIndex.axis.cost")} →`, width - 28, (text) => (measure(text) * 11) / 10.5);
-  const height = Math.round(Math.min(420, Math.max(300, width * 0.62))) + (caption.length - 1) * CAPTION_LINE;
+  const caption = wrapLines(`${t("modelIndex.axis.cost")}\u00a0→`, right - left, (text) => (measure(text) * 11) / 10.5);
+  const height =
+    fitHeight ??
+    Math.round(Math.min(420, Math.max(300, width * 0.62, phone ? Math.min(360, width * 1.15) : 0))) + (caption.length - 1) * CAPTION_LINE;
   const bottom = height - (caption.length - 1) * CAPTION_LINE - MARGIN.bottom;
 
   const costs = plotted.map((point) => point.cost!);
@@ -743,8 +776,10 @@ export function ModelIndexSection() {
   const [view, setView] = useState<View>("scatter");
   const [hover, setHover] = useState<Hover | null>(null);
   const [place, setPlace] = useState<{ key: string; left: number; top: number } | null>(null);
-  const [wrapRef, width] = useWidth();
+  const [full, setFull] = useState(false);
+  const [wrapRef, width, height] = useSize();
   const tipRef = useRef<HTMLDivElement>(null);
+  const phone = isPhone();
 
   const shown = index === "cost" ? "bars" : view;
   const { points, missing } = useMemo(() => indexView(index, catalog), [index, catalog]);
@@ -771,6 +806,34 @@ export function ModelIndexSection() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
 
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!full || !wrap) return;
+    // Best effort: real full screen, turned sideways, where the browser allows it; the fixed overlay covers the rest.
+    const turn: { lock?: (to: "landscape") => Promise<void>; unlock?: () => void } | undefined = window.screen?.orientation;
+    let live = true;
+    let entered = false;
+    void wrap
+      .requestFullscreen?.()
+      ?.then(async () => {
+        if (!live) return document.exitFullscreen();
+        entered = true;
+        await turn?.lock?.("landscape");
+      })
+      .catch(() => undefined);
+    // Back on Android leaves real full screen first; follow it out
+    const onExit = () => {
+      if (entered && !document.fullscreenElement) setFull(false);
+    };
+    document.addEventListener("fullscreenchange", onExit);
+    return () => {
+      live = false;
+      document.removeEventListener("fullscreenchange", onExit);
+      if (entered) turn?.unlock?.();
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+    };
+  }, [full, wrapRef]);
+
   const onHover: OnHover = (key, el, avoid) => {
     const wrap = wrapRef.current;
     if (!key || !el || !wrap) return setHover(null);
@@ -790,8 +853,8 @@ export function ModelIndexSection() {
   return (
     <div className="model-index flex flex-col gap-4">
       <p className="text-[13px] leading-relaxed text-ink-secondary">{t("modelIndex.subtitle")}</p>
-      <div className="rounded-xl border border-hairline/40 bg-card shadow-sm">
-        <div className="flex flex-col gap-2.5 p-4 pb-3">
+      <div className="rounded-xl border border-hairline/40 bg-card shadow-sm max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+        <div className="flex flex-col gap-2.5 p-4 pb-3 max-md:px-0 max-md:pt-0">
           <div className="flex min-w-0 items-center gap-3">
             <Segmented
               label={t("modelIndex.indexLabel")}
@@ -823,20 +886,59 @@ export function ModelIndexSection() {
               }}
               disabled={(id) => id === "scatter" && index === "cost"}
             />
+            {phone && shown === "scatter" && points.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setHover(null);
+                  setFull(true);
+                }}
+                className="flex size-8 items-center justify-center rounded-lg text-ink-secondary hover:bg-control"
+                aria-label={t("modelIndex.fullScreen")}
+              >
+                <Maximize2 size={16} />
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="px-4 pb-4">
+        <div className="px-4 pb-4 max-md:px-0 max-md:pb-2">
           {shown === "bars" && points.length > 0 && (
             <div className="mb-2 text-[11.5px] font-medium text-ink-secondary">{t(AXIS_KEY[index])}</div>
           )}
-          <div ref={wrapRef} className="relative min-w-0">
+          <div ref={wrapRef} className={full ? "fixed inset-0 z-[60] overflow-y-auto bg-panel px-3 pb-3 pt-12" : "relative min-w-0"}>
+            {full && (
+              <>
+                <div className="absolute left-4 top-3.5 text-[13px] font-semibold text-ink">{t(INDEX_KEY[index])}</div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHover(null);
+                    setFull(false);
+                  }}
+                  className="absolute right-2 top-1.5 flex size-9 items-center justify-center rounded-lg text-ink-secondary hover:bg-control"
+                  aria-label={t("modelIndex.exitFullScreen")}
+                >
+                  <X size={19} />
+                </button>
+              </>
+            )}
             {points.length === 0 ? (
               <p className="py-10 text-center text-[13px] text-ink-secondary">{t("modelIndex.empty")}</p>
             ) : (
               <div key={shown} data-mi-view>
                 {shown === "scatter" ? (
-                  <Scatter index={index} marks={MARKS} points={points} width={width} hover={hover?.key ?? null} onHover={onHover} t={t} />
+                  <Scatter
+                    index={index}
+                    marks={MARKS}
+                    points={points}
+                    width={width}
+                    fitHeight={full ? height : undefined}
+                    phone={phone}
+                    hover={hover?.key ?? null}
+                    onHover={onHover}
+                    t={t}
+                  />
                 ) : (
                   <Bars marks={MARKS} points={points} index={index} onHover={onHover} />
                 )}
@@ -887,7 +989,7 @@ export function ModelIndexSection() {
         </div>
 
         {providers.length > 0 && (
-          <div className="flex flex-col gap-1.5 border-t border-hairline/30 px-4 py-3 text-[12px] text-ink-secondary">
+          <div className="flex flex-col gap-1.5 border-t border-hairline/30 px-4 py-3 text-[12px] text-ink-secondary max-md:px-0">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
               {providers.map((provider) => (
                 <span key={provider} className="flex items-center gap-1.5">

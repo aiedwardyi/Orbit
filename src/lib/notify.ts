@@ -39,7 +39,6 @@ export type TerminalAttentionReason = "bell" | "activity" | "exit" | "error";
 export interface TerminalAttentionCopy {
   label: string;
   tooltip: string;
-  tone: "accent" | "success" | "danger";
 }
 
 export function terminalAttentionCopy(
@@ -47,15 +46,15 @@ export function terminalAttentionCopy(
   locale: "en" | "ko" = "en",
 ): TerminalAttentionCopy {
   if (locale === "ko") {
-    if (reason === "bell") return { label: "대기 중", tooltip: "터미널이 입력을 기다리고 있습니다.", tone: "accent" };
-    if (reason === "activity") return { label: "활동", tooltip: "터미널에 새 활동이 있습니다.", tone: "accent" };
-    if (reason === "exit") return { label: "완료", tooltip: "터미널 프로세스가 끝났습니다.", tone: "success" };
-    return { label: "오류", tooltip: "터미널에서 오류를 보고했습니다.", tone: "danger" };
+    if (reason === "bell") return { label: "대기 중", tooltip: "터미널이 입력을 기다리고 있습니다." };
+    if (reason === "activity") return { label: "활동", tooltip: "터미널에 새 활동이 있습니다." };
+    if (reason === "exit") return { label: "완료", tooltip: "터미널 프로세스가 끝났습니다." };
+    return { label: "오류", tooltip: "터미널에서 오류를 보고했습니다." };
   }
-  if (reason === "bell") return { label: "Waiting", tooltip: "The terminal is waiting for input.", tone: "accent" };
-  if (reason === "activity") return { label: "Activity", tooltip: "New terminal activity.", tone: "accent" };
-  if (reason === "exit") return { label: "Finished", tooltip: "The terminal process finished.", tone: "success" };
-  return { label: "Error", tooltip: "The terminal reported an error.", tone: "danger" };
+  if (reason === "bell") return { label: "Waiting", tooltip: "The terminal is waiting for input." };
+  if (reason === "activity") return { label: "Activity", tooltip: "New terminal activity." };
+  if (reason === "exit") return { label: "Finished", tooltip: "The terminal process finished." };
+  return { label: "Error", tooltip: "The terminal reported an error." };
 }
 
 export function buildTerminalNotification(

@@ -54,7 +54,7 @@ describe("terminal proxy", () => {
   });
 
   it("carries the worker spawn recipe in the tool descriptions", () => {
-    expect(TOOLS[2].description).toContain("claude --model <model-id> --dangerously-skip-permissions 'Read <card path> and do it.'");
+    expect(TOOLS[2].description).toContain(`claude --model <model-id> --dangerously-skip-permissions ${workerReportText(process.platform).claude}'Read <card path> and do it.'`);
     expect(TOOLS[2].description).toContain(`--dangerously-bypass-approvals-and-sandbox ${workerReportText(process.platform).env}${workerReportText(process.platform).notify}'<prompt>'`);
     expect(TOOLS[2].description).toContain(workerReportText(process.platform).spawn);
     expect(TOOLS[0].description).toContain(workerReportText(process.platform).read);
@@ -76,6 +76,13 @@ describe("terminal proxy", () => {
     expect(linux.notify).toBe("");
     expect(linux.spawn).toContain("orbit-msg is not installed on this platform");
     expect(linux.read).not.toContain("pane note");
+  });
+
+  it("points Claude workers at the hook settings on Windows once installed", () => {
+    const settings = join(homedir(), ".orbit", "bin", "claude-worker.json").replace(/\\/g, "/");
+    expect(workerReportText("win32", true).claude).toBe(`--settings '${settings}' `);
+    expect(workerReportText("win32", false).claude).toBe("");
+    expect(workerReportText("linux", true).claude).toBe("");
   });
 
   it("maps terminal_spawn args to a POST on the bot's open route", async () => {

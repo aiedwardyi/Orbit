@@ -70,12 +70,26 @@ describe("workspace", () => {
 
   it("cuts at the byte budget without leaving a torn multi-byte character", () => {
     const dir = ensureWorkspace(BOT);
-    // few lines, many bytes — multi-byte chars so a naive slice would tear one
-    writeFileSync(join(dir, "MEMORY.md"), `# Memory\n${"é".repeat(MEMORY_MAX_BYTES)}`);
+    // one line over budget keeps a byte cut; multi-byte chars so a naive slice would tear one
+    writeFileSync(join(dir, "MEMORY.md"), "é".repeat(MEMORY_MAX_BYTES));
     const memory = loadMemory(BOT);
     expect(memory?.truncated).toBe(true);
     expect(Buffer.byteLength(memory!.text, "utf8")).toBeLessThanOrEqual(MEMORY_MAX_BYTES);
     expect(memory!.text).not.toContain("�");
+  });
+
+  it("cuts at the byte budget on a whole line, LF or CRLF", () => {
+    const dir = ensureWorkspace(BOT);
+    // under the line budget, over the byte budget
+    const lines = Array.from({ length: 150 }, (_, i) => `- fact ${i} ${"x".repeat(200)}`);
+    for (const eol of ["\n", "\r\n"]) {
+      writeFileSync(join(dir, "MEMORY.md"), lines.join(eol));
+      const memory = loadMemory(BOT);
+      expect(memory?.truncated).toBe(true);
+      expect(Buffer.byteLength(memory!.text, "utf8")).toBeLessThanOrEqual(MEMORY_MAX_BYTES);
+      const kept = memory!.text.split(eol);
+      expect(kept).toEqual(lines.slice(0, kept.length));
+    }
   });
 
   it("readMemoryFile hands back the WHOLE file, flagging what the budget would cut", () => {
@@ -170,6 +184,55 @@ describe("workspace", () => {
     expect(withMemory).toContain("Your memory (MEMORY.md):");
     expect(withMemory).toContain("railway up");
     expect(withMemory).toContain("Read it, then update it");
+  });
+
+  it("names both load budgets in the guidance, with no size notice for a small file", () => {
+    const dir = ensureWorkspace(BOT);
+    writeFileSync(join(dir, "MEMORY.md"), "# Memory\n- one fact\n");
+    const prompt = memorySystemPrompt(BOT);
+    expect(prompt).toContain(`first ${MEMORY_MAX_LINES} lines, up to ${MEMORY_MAX_BYTES} bytes`);
+    expect(prompt).not.toContain(" bytes in ");
+  });
+
+  it("puts the file's real size above the notes from 80% of either budget", () => {
+    const dir = ensureWorkspace(BOT);
+    const nearBytes = `# Memory\n${"- long note ".repeat(1700)}`;
+    const nearLines = Array.from({ length: 170 }, (_, i) => `- fact ${i}`).join("\n");
+    const over = Array.from({ length: 150 }, (_, i) => `- fact ${i} ${"x".repeat(200)}`).join("\n");
+    for (const [text, cut] of [
+      [nearBytes, false],
+      [nearLines, false],
+      [over, true],
+    ] as const) {
+      writeFileSync(join(dir, "MEMORY.md"), text);
+      const prompt = memorySystemPrompt(BOT);
+      const size = `${Buffer.byteLength(text, "utf8")} bytes`;
+      expect(prompt, size).toContain(size);
+      expect(prompt.indexOf(size)).toBeLessThan(prompt.indexOf("Your memory (MEMORY.md):"));
+      expect(prompt.includes("its end was not loaded"), size).toBe(cut);
+    }
+  });
+
+  it("points the bot at copies memory sync set aside, above its notes", () => {
+    const dir = ensureWorkspace(BOT);
+    writeFileSync(join(dir, "MEMORY.md"), "# Memory\n- one fact\n");
+    writeFileSync(join(dir, "memory", "deploy.md"), "deploy notes\n");
+    expect(memorySystemPrompt(BOT)).not.toContain("set aside");
+    writeFileSync(join(dir, "memory", "MEMORY.conflict-e059d14f.md"), "# Memory\n- newer fact\n");
+    const prompt = memorySystemPrompt(BOT);
+    expect(prompt).toContain("memory/MEMORY.conflict-e059d14f.md");
+    expect(prompt).not.toContain("memory/deploy.md");
+    expect(prompt.indexOf("set aside")).toBeLessThan(prompt.indexOf("Your memory (MEMORY.md):"));
+  });
+
+  it("points the bot at a set-aside topic copy while MEMORY.md is empty", () => {
+    const dir = ensureWorkspace(BOT);
+    writeFileSync(join(dir, "memory", "deploy.md"), "deploy notes\n");
+    expect(memorySystemPrompt(BOT)).toBe("");
+    writeFileSync(join(dir, "memory", "deploy.conflict-ed364e8a.md"), "other PC's deploy notes\n");
+    const prompt = memorySystemPrompt(BOT);
+    expect(prompt).toContain("memory/deploy.conflict-ed364e8a.md");
+    expect(prompt).not.toContain("Your memory (MEMORY.md):");
   });
 
   it("only sends file-backed memory to engines with local workspace files", () => {

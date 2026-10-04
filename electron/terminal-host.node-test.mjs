@@ -296,14 +296,15 @@ test("rearms terminal attention after a new command", async () => {
   );
 });
 
-test("rearms terminal attention after a confirmed bot send", async () => {
+test("a confirmed bot send never arms the user's terminal alert", async () => {
   const f = fixture();
   const session = await f.host.open(f.event, f.input);
   f.host.sendBot("bot-1", { sessionId: session.id, generation: 1, text: "first\r" });
   f.children[0].data("\x07");
-  f.host.sendBot("bot-1", { sessionId: session.id, generation: 1, text: "next\r" });
+  assert.equal(f.events.some(([channel]) => channel === "terminal:attention"), false);
+  f.host.write(f.event, session.id, "mine\r");
   f.children[0].data("\x07");
-  assert.equal(f.events.filter(([channel]) => channel === "terminal:attention").length, 2);
+  assert.equal(f.events.filter(([channel]) => channel === "terminal:attention").length, 1);
   f.host.dispose();
 });
 
@@ -727,6 +728,21 @@ test("readBot lists every pane and sendBot targets a pane by session id", async 
   assert.deepEqual(f.children[0].writes, []);
 });
 
+test("paneLabels lists each bot's open worker panes, not main terminals or exited panes", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  await f.host.open(f.event, f.input);
+  const first = await f.host.openForBot("bot-1", { label: "w1" });
+  await f.host.openForBot("bot-1", { label: "w2" });
+  await f.host.openForBot("bot-2", { label: "other" });
+  assert.deepEqual(f.host.paneLabels(), { "bot-1": ["w1", "w2"], "bot-2": ["other"] });
+  f.children[3].exit({ exitCode: 0 });
+  assert.deepEqual(f.host.paneLabels(), { "bot-1": ["w1", "w2"] });
+  await f.host.close(f.event, first.sessionId);
+  assert.deepEqual(f.host.paneLabels(), { "bot-1": ["w2"] });
+});
+
 test("only bot-spawned panes turn off Claude prompt suggestions", async () => {
   let owner;
   const f = fixture({ owner: () => owner });
@@ -929,26 +945,34 @@ test("openForBot submits a command with exactly one Enter", async () => {
   assert.deepEqual(f.children.map((child) => child.writes), [["echo ok\r"], ["echo ok\r"], ["echo ok\r"], ["echo ok\r"]]);
 });
 
-test("a mailbox note raises attention on an acknowledged pane", async () => {
+test("a pane the bot spawned never raises the user's terminal alert", async () => {
   let owner;
   const f = fixture({ owner: () => owner, activityCoalesceMs: 5, attentionCooldownMs: 0 });
   owner = f.owner;
   const pane = await f.host.openForBot("bot-1", { label: "worker", command: "claude" });
-  f.children[0].data("working");
+  f.children[0].data("working\x07");
   await wait(15);
-  f.host.acknowledge(f.event, pane.sessionId);
-  f.children[0].data("done");
-  await wait(15);
-  const attention = () => f.events.filter(([channel]) => channel === "terminal:attention").map(([, value]) => value);
-  assert.equal(attention().length, 1);
-  assert.equal(f.host.attendBot("bot-1", pane.sessionId), true);
-  assert.deepEqual(attention().at(-1), { id: pane.sessionId, botId: "bot-1", reason: "activity" });
-  assert.equal(f.host.attendBot("bot-2", pane.sessionId), false);
-  f.host.acknowledge(f.event, pane.sessionId);
-  f.children[0].exit({ exitCode: 0 });
-  f.host.acknowledge(f.event, pane.sessionId);
   assert.equal(f.host.attendBot("bot-1", pane.sessionId), false);
-  assert.equal(attention().length, 3);
+  f.children[0].exit({ exitCode: 1 });
+  assert.equal(f.events.some(([channel]) => channel === "terminal:attention"), false);
+  f.host.dispose();
+});
+
+test("a mailbox note still raises the alert on the user's own terminal", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner, attentionCooldownMs: 0 });
+  owner = f.owner;
+  const main = await f.host.open(f.event, f.input);
+  const attention = () => f.events.filter(([channel]) => channel === "terminal:attention").map(([, value]) => value);
+  assert.equal(f.host.attendBot("bot-2", main.id), false);
+  assert.equal(f.host.attendBot("bot-1", main.id), true);
+  assert.deepEqual(attention(), [{ id: main.id, botId: "bot-1", reason: "activity" }]);
+  f.host.acknowledge(f.event, main.id);
+  f.children[0].exit({ exitCode: 0 });
+  f.host.acknowledge(f.event, main.id);
+  assert.equal(f.host.attendBot("bot-1", main.id), false);
+  assert.equal(attention().length, 2);
+  f.host.dispose();
 });
 
 test("exited panes do not hold global slots and reclaiming them emits terminal:closed", async () => {
@@ -965,4 +989,114 @@ test("exited panes do not hold global slots and reclaiming them emits terminal:c
   const closed = f.events.filter(([channel]) => channel === "terminal:closed").map(([, value]) => value);
   assert.deepEqual(closed, exited.map((id) => ({ id, botId: "bot-1" })));
   await assert.rejects(f.host.open(f.event, { ...f.input, sessionId: exited[0] }), /Unknown terminal/);
+});
+
+function stallFixture({ failures = 0 } = {}) {
+  let owner;
+  let clock = Date.UTC(2026, 9, 4);
+  let failing = failures;
+  const notes = [];
+  const f = fixture({
+    owner: () => owner,
+    mailbox: async () => ({ url: "http://127.0.0.1:9", token: "secret" }),
+    notePane: async (mail, scope, text) => {
+      if (failing-- > 0) throw new Error("connect ECONNREFUSED 127.0.0.1:9");
+      notes.push({ mail, scope, text });
+    },
+    stallCheckMs: 5,
+    now: () => clock,
+  });
+  owner = f.owner;
+  // Lets the stall check sample the screen before the clock moves.
+  const settle = () => wait(25);
+  const advance = async (ms) => { clock += ms; await settle(); };
+  return { ...f, notes, settle, advance };
+}
+
+test("a worker pane that goes quiet without a report sends one stall note with its last lines", async () => {
+  const f = stallFixture();
+  const pane = await f.host.openForBot("bot-1", { label: "TAP-AUDIT | Astra | high", command: "codex --model gpt-6-astra 'Read card.md and do it.'" });
+  f.children[0].data("■ You've hit your usage limit. Try again at 10:14 PM.\r\n\r\n  Approaching rate limits\r\n  1. Switch to gpt-6-luna\r\n  2. Keep current model\r\n");
+  await f.settle();
+  await f.advance(119_000);
+  assert.equal(f.notes.length, 0);
+  await f.advance(2_000);
+  assert.equal(f.notes.length, 1);
+  assert.deepEqual(f.notes[0].scope, { pane: pane.sessionId, bot: "bot-1", teacher: "bot-1" });
+  assert.deepEqual(f.notes[0].mail, { url: "http://127.0.0.1:9", token: "secret" });
+  assert.match(f.notes[0].text, /^STALLED: no screen change for 2 min and no report\./);
+  assert.match(f.notes[0].text, /Try again at 10:14 PM\.\n {2}Approaching rate limits\n {2}1\. Switch to gpt-6-luna\n {2}2\. Keep current model$/);
+  await f.advance(600_000);
+  assert.equal(f.notes.length, 1);
+});
+
+test("a worker whose screen keeps changing sends no stall note", async () => {
+  const f = stallFixture();
+  await f.host.openForBot("bot-1", { label: "W", command: "$env:ORBIT_PANE=$null; & 'C:\\Tools\\claude.cmd' --model claude-sonnet-5-5 'go'" });
+  for (let second = 0; second < 600; second += 10) {
+    f.children[0].data(`\r✻ Running… (${second}s · esc to interrupt)`);
+    await f.settle();
+    await f.advance(10_000);
+  }
+  assert.equal(f.notes.length, 0);
+});
+
+test("script panes and engine names inside other commands never send a stall note", async () => {
+  const f = stallFixture();
+  await f.host.openForBot("bot-1", { label: "VERIFY", command: "pnpm exec vitest run src/claude-launch.test.ts" });
+  await f.host.openForBot("bot-1", { label: "LOG", command: "git log --oneline | Select-String codex" });
+  f.children[0].data("Tests 12 passed\r\n");
+  f.children[1].data("abc1234 fix codex\r\n");
+  await f.settle();
+  await f.advance(600_000);
+  assert.equal(f.notes.length, 0);
+});
+
+test("a report or a hook note as the screen settles holds the stall note until the next stop", async () => {
+  const f = stallFixture();
+  const pane = await f.host.openForBot("bot-1", { label: "W", command: "claude --model claude-opus-5-5 'go'" });
+  f.children[0].data("● DONE\r\n");
+  await f.settle();
+  f.host.attendBot("bot-1", pane.sessionId, "report");
+  await f.advance(600_000);
+  assert.equal(f.notes.length, 0);
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "Read follow-up.md and do it.\r" });
+  f.children[0].data("● Which branch should I use?\r\n");
+  await f.settle();
+  f.host.attendBot("bot-1", pane.sessionId, "auto");
+  await f.advance(600_000);
+  assert.equal(f.notes.length, 0);
+  f.children[0].data("● API Error: 529 overloaded\r\n");
+  await f.settle();
+  await f.advance(121_000);
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, /API Error: 529 overloaded$/);
+});
+
+test("a stall note that fails to post goes out on a later check", async () => {
+  const f = stallFixture({ failures: 2 });
+  await f.host.openForBot("bot-1", { label: "W", command: "codex --model gpt-6-astra 'go'" });
+  f.children[0].data("■ You've hit your usage limit. Try again at 10:14 PM.\r\n");
+  await f.settle();
+  await f.advance(121_000);
+  await f.advance(61_000);
+  assert.equal(f.notes.length, 0);
+  await f.advance(61_000);
+  assert.equal(f.notes.length, 1);
+  await f.advance(600_000);
+  assert.equal(f.notes.length, 1);
+});
+
+test("a prompt redrawn after a resize does not send a stall note after its waiting note", async () => {
+  const f = stallFixture();
+  const pane = await f.host.openForBot("bot-1", { label: "W", command: "claude --model claude-opus-5-5 'go'" });
+  f.children[0].data("Do you want to proceed with this command?\r\n❯ 1. Yes\r\n  2. No\r\n");
+  await f.settle();
+  f.host.attendBot("bot-1", pane.sessionId);
+  await f.advance(40_000);
+  f.host.resize(f.event, pane.sessionId, 40, 24);
+  f.children[0].data("\x1b[2J\x1b[HDo you want to proceed with\r\nthis command?\r\n❯ 1. Yes\r\n  2. No\r\n");
+  await f.settle();
+  await f.advance(600_000);
+  assert.equal(f.notes.length, 0);
 });

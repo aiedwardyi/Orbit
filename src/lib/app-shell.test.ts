@@ -143,4 +143,10 @@ describe("home-screen app shell", () => {
     expect(preloads).toEqual(expected);
     for (const file of Object.values(preloads)) expect(existsSync(join(root, `public/fonts/${file}-Variable.woff2`))).toBe(true);
   });
+
+  it("styles scrollbars only off touch screens, so phones keep their own thin ones", () => {
+    const touchless = css.match(/@media not all and \(pointer: coarse\) \{\n([\s\S]*?)\n\}/)?.[1] ?? "";
+    expect(touchless).toContain("::-webkit-scrollbar {");
+    expect(css.replace(touchless, "")).not.toContain("::-webkit-scrollbar");
+  });
 });

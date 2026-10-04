@@ -204,4 +204,35 @@ describe("relative file links", () => {
       Reflect.deleteProperty(window, "ogb");
     }
   });
+
+  it("tells a phone that files open in the desktop app", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(ChatMarkdown, { text: "[notes.md](C:/My%20Drive/notes.md)" })));
+      await act(async () => host.querySelector("button")!.click());
+      expect(host.textContent).toContain("Files open in the desktop app");
+      expect(host.textContent).not.toContain("newer version");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("asks an older desktop app without file opening to update", async () => {
+    Object.defineProperty(window, "ogb", { configurable: true, value: {} });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(ChatMarkdown, { text: "[notes.md](C:/My%20Drive/notes.md)" })));
+      await act(async () => host.querySelector("button")!.click());
+      expect(host.textContent).toContain("Opening files needs a newer version of the desktop app");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      Reflect.deleteProperty(window, "ogb");
+    }
+  });
 });

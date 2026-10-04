@@ -1,5 +1,6 @@
 // Scoped terminal MCP proxy. The bot id is injected by Orbit and is never
 // accepted as a tool argument, so a model cannot switch its terminal target.
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -29,19 +30,23 @@ const CLAUDE_BUSY_RE = /^[·✢✳✶✻✽*][\s─]+\S[^\n]*…(?:\s+\(|\s*$)/m
 const CLAUDE_PROMPT_RE = /^──[^\n]*\n❯/mu;
 // Where electron/main.mjs installs orbit-msg; forward slashes survive the JSON inside notify.
 const ORBIT_MSG_PS1 = join(homedir(), ".orbit", "bin", "orbit-msg.ps1").replace(/\\/g, "/");
+// Installed beside orbit-msg; Claude Code refuses to start when --settings names a missing file.
+const CLAUDE_WORKER_SETTINGS = join(homedir(), ".orbit", "bin", "claude-worker.json").replace(/\\/g, "/");
 // shell_environment_policy inherit="core" strips these from Codex's shell; set them back from the pane.
 const ORBIT_PANE_VARS = ["ORBIT_PANE", "ORBIT_BOT", "ORBIT_TEACHER", "ORBIT_URL", "ORBIT_MSG_AUTH"];
 
 // orbit-msg is installed on Windows only, so elsewhere no report arrives on its own.
-export function workerReportText(platform: NodeJS.Platform) {
+export function workerReportText(platform: NodeJS.Platform, claudeSettings = existsSync(CLAUDE_WORKER_SETTINGS)) {
   return platform === "win32"
     ? {
+        claude: claudeSettings ? `--settings '${CLAUDE_WORKER_SETTINGS}' ` : "",
         env: ORBIT_PANE_VARS.map((name) => `-c "shell_environment_policy.set.${name}='$env:${name}'" `).join(""),
         notify: `-c 'notify=["powershell.exe","-NoProfile","-ExecutionPolicy","Bypass","-File","${ORBIT_MSG_PS1}","--notify","last-assistant-message"]' `,
         read: "Do not poll it for a worker's final report: that arrives on its own as a pane note in this thread.",
         spawn: `Every card, Claude included, ends with the line the worker runs last: orbit-msg --report DONE|FAIL|BLOCKED <NICKNAME> "<text>". That report arrives as a pane note in this thread; do not poll for it.`,
       }
     : {
+        claude: "",
         env: "",
         notify: "",
         read: "orbit-msg is not installed on this platform, so a worker's final report does not arrive on its own; read its pane for it.",
@@ -101,7 +106,7 @@ export const TOOLS = [
     description:
       "Open a labeled pane (a terminal-view tab) in cwd and type command plus Enter if given. Returns sessionId and generation. Max 8 live panes. The shell is PowerShell on Windows. " +
       "To run a worker: cwd is a git worktree, never the live checkout; label is \"NICKNAME | MODEL | EFFORT\". Wrap the prompt in single quotes, fill every <...> slot, never use \\\" escapes. " +
-      "Claude: claude --model <model-id> --dangerously-skip-permissions 'Read <card path> and do it.' then terminal_send the effort. If it shows a folder-trust menu, read it and pick Yes with terminal_send key presses; Enter alone may pick No. " +
+      `Claude: claude --model <model-id> --dangerously-skip-permissions ${REPORT_TEXT.claude}'Read <card path> and do it.' then terminal_send the effort. If it shows a folder-trust menu, read it and pick Yes with terminal_send key presses; Enter alone may pick No. ` +
       `Codex: codex --model <model-id> -c model_reasoning_effort=<effort> --dangerously-bypass-approvals-and-sandbox ${REPORT_TEXT.env}${REPORT_TEXT.notify}'<prompt>' (a new folder shows a trust prompt first; send Enter). ` +
       "Muse: muse --model <model-id> --reasoning-effort <effort> --yolo '<prompt>'. " +
       "Grok: grok -m <model-id> --effort <effort> --always-approve '<prompt>' (it may ask a y/n trust question first; send y). " +

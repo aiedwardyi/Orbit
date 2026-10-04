@@ -26,6 +26,7 @@ import { showComputerPanelChrome } from "@/lib/friends-chrome";
 import { I18nProvider, useI18n } from "@/lib/i18n";
 import { buildTerminalNotification, showNotification, type NotificationTarget } from "@/lib/notify";
 import { terminalPopupsEnabled } from "@/lib/terminal-popups";
+import { useTerminalPanes } from "@/lib/terminal-panes";
 import { composerNeedsTap, focusComposerOnActivation } from "@/lib/focus-composer";
 import { webPushTarget } from "@/lib/web-push";
 import { usePhoneSwipe } from "@/lib/use-phone-swipe";
@@ -313,6 +314,8 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     });
     return offClosed;
   }, [dispatch]);
+
+  useTerminalPanes(dispatch);
 
   useEffect(() => {
     return window.ogb?.onNotificationClick?.((target) => {

@@ -129,7 +129,10 @@ export function createTerminalBridge({ host, updater, token = randomBytes(24).to
           const result = await host.closeForBot(botId, (await readJson(req))?.sessionId);
           return json(res, 200, result?.alreadyClosed === true ? { closed: true, alreadyClosed: true } : { closed: true });
         }
-        if (req.method === "POST" && match[2] === "attention") return json(res, 200, { raised: host.attendBot(botId, (await readJson(req))?.sessionId) });
+        if (req.method === "POST" && match[2] === "attention") {
+          const note = await readJson(req);
+          return json(res, 200, { raised: host.attendBot(botId, note?.sessionId, note?.kind) });
+        }
         if (req.method === "POST" && match[2]) {
           const input = await readJson(req);
           if (input && typeof input === "object" && typeof input.text === "string") input.text = normalizeTerminalText(input.text);
