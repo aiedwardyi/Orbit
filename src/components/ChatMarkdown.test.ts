@@ -151,6 +151,27 @@ describe("relative file links", () => {
     }
   });
 
+  it("opens an angle-bracketed Windows path with spaces", async () => {
+    const file = "C:\\My Drive\\bots\\out\\clip (1).mp4";
+    const openFile = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window, "ogb", { configurable: true, value: { openFile } });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(ChatMarkdown, { text: `[clip.mp4](<${file}>)` })));
+      expect(host.querySelector("a")).toBeNull();
+      const button = host.querySelector("button") as HTMLButtonElement;
+      expect(button?.getAttribute("title")).toBe(file);
+      await act(async () => button.click());
+      expect(openFile).toHaveBeenCalledWith(file, undefined);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      Reflect.deleteProperty(window, "ogb");
+    }
+  });
+
   it("renders a link whose target is stripped as plain text", async () => {
     const host = document.createElement("div");
     document.body.append(host);
