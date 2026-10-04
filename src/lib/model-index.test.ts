@@ -7,6 +7,7 @@ import {
   MODEL_INDEXES,
   chartProvider,
   fitLogTicks,
+  formatCost,
   formatPrice,
   indexView,
   logTicks,
@@ -70,15 +71,24 @@ describe("model index data", () => {
     }
   });
 
-  it("prices every picker model once, per 1M tokens, blended 3:1", () => {
+  it("prices every picker model once, per 1M tokens, blended 7:2:1", () => {
     const cost = MODEL_INDEX_ENTRIES.filter((e) => e.index === "cost");
     expect(cost.map((e) => e.model).sort()).toEqual([...PICKER_MODEL_IDS].sort());
     for (const e of cost) {
       expect(e.effort, e.model).toBe("all");
       expect(e.price, e.model).toBeDefined();
-      expect(e.score, e.model).toBe((3 * e.price!.input + e.price!.output) / 4);
+      expect(e.score, e.model).toBeCloseTo((7 * e.price!.cachedInput + 2 * e.price!.input + e.price!.output) / 10, 10);
     }
     expect(MODEL_INDEX_ENTRIES.filter((e) => e.index !== "cost" && e.price)).toEqual([]);
+  });
+
+  it("blends Grok 4.6 at the 1.35 Artificial Analysis shows", () => {
+    const grok = MODEL_INDEX_ENTRIES.find((e) => e.index === "cost" && e.model === "grok-4.6");
+    expect(grok?.score).toBeCloseTo(1.35, 10);
+  });
+
+  it("keeps every cost per task under $50, so run totals cannot slip back in", () => {
+    for (const c of MODEL_RUN_COSTS) expect(c.usd, `${c.model} ${c.effort}`).toBeLessThan(50);
   });
 
   it("costs picker models per effort, once each, from Artificial Analysis", () => {
@@ -159,12 +169,12 @@ describe("catalog merge", () => {
   });
 
   it("plots each effort at its own cost to run, sharing one list price", () => {
-    const price = { ...entry("claude-opus-5-5", "cost", 8, "all"), price: { input: 4, output: 20 } };
+    const price = { ...entry("claude-opus-5-5", "cost", 8, "all"), price: { input: 4, cachedInput: 0.2, output: 20 } };
     const entries = [entry("claude-opus-5-5", "coding", 60, "low"), entry("claude-opus-5-5", "coding", 70, "max"), price];
     const costs = [runCost("claude-opus-5-5", "low", 860), runCost("claude-opus-5-5", "max", 8708)];
     expect(indexView("coding", [], entries, costs).points.map((p) => [p.effort, p.cost, p.price])).toEqual([
-      ["low", 860, { input: 4, output: 20 }],
-      ["max", 8708, { input: 4, output: 20 }],
+      ["low", 860, { input: 4, cachedInput: 0.2, output: 20 }],
+      ["max", 8708, { input: 4, cachedInput: 0.2, output: 20 }],
     ]);
     expect(markUniverse(entries, costs).map((m) => m.cost)).toEqual([860, 8708, undefined]);
   });
@@ -237,8 +247,17 @@ describe("fit log ticks", () => {
 
 describe("price format", () => {
   it("reads input / output per 1M tokens like a pricing page", () => {
-    expect(formatPrice({ input: 4, output: 20 })).toBe("$4 / $20");
-    expect(formatPrice({ input: 0.1, output: 0.5 })).toBe("$0.10 / $0.50");
-    expect(formatPrice({ input: 1.25, output: 4.25 })).toBe("$1.25 / $4.25");
+    expect(formatPrice({ input: 4, cachedInput: 0.2, output: 20 })).toBe("$4 / $20");
+    expect(formatPrice({ input: 0.1, cachedInput: 0.01, output: 0.5 })).toBe("$0.10 / $0.50");
+    expect(formatPrice({ input: 1.25, cachedInput: 0.15, output: 4.25 })).toBe("$1.25 / $4.25");
+  });
+});
+
+describe("cost per task format", () => {
+  it("keeps two significant figures under a cent and two decimals above", () => {
+    expect(formatCost(0.0045)).toBe("$0.0045");
+    expect(formatCost(0.06782)).toBe("$0.07");
+    expect(formatCost(1.859)).toBe("$1.86");
+    expect(formatCost(8.746)).toBe("$8.75");
   });
 });

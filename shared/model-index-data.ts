@@ -5,6 +5,7 @@ export type ModelIndexKey = "intelligence" | "coding" | "agentic" | "general" | 
 export interface ModelPrice {
   /** USD per 1M tokens. */
   input: number;
+  cachedInput: number;
   output: number;
 }
 
@@ -26,10 +27,13 @@ export interface ModelIndexEntry {
   reported?: "lab";
 }
 
-/** 3 input : 1 output, the blend Artificial Analysis charts price with. */
-const listPrice = (input: number, output: number) => ({ score: (3 * input + output) / 4, price: { input, output } });
+/** 7 cache hit : 2 input : 1 output, the blend Artificial Analysis charts price with. */
+const listPrice = (input: number, cachedInput: number, output: number) => ({
+  score: (7 * cachedInput + 2 * input + output) / 10,
+  price: { input, cachedInput, output },
+});
 
-export const MODEL_INDEX_AS_OF = "2026-10-02";
+export const MODEL_INDEX_AS_OF = "2026-10-04";
 
 export const MODEL_INDEX_ENTRIES: ModelIndexEntry[] = [
   { provider: "anthropic", model: "claude-fable-5", label: "Claude Fable 5", effort: "max", index: "agentic", score: 42.4, source: "https://artificialanalysis.ai/models/claude-fable-5", sourceLabel: "Artificial Analysis Terminal-Bench 4.0 (% resolved)", date: "2026-10-02" },
@@ -120,20 +124,20 @@ export const MODEL_INDEX_ENTRIES: ModelIndexEntry[] = [
   { provider: "openai", model: "gpt-6.1-sol", label: "GPT-6.1 Sol", effort: "xhigh", index: "coding", score: 71.9, source: "https://openai.com/index/introducing-gpt-6-1-sol/", sourceLabel: "OpenAI GPT-6.1 Sol launch chart, DeepSWE v1.1 (% resolved), lab-reported", date: "2026-09-29", reported: "lab" },
   { provider: "openai", model: "gpt-6.1-sol", label: "GPT-6.1 Sol", effort: "max", index: "coding", score: 71.9, source: "https://openai.com/index/introducing-gpt-6-1-sol/", sourceLabel: "OpenAI GPT-6.1 Sol launch chart, DeepSWE v1.1 (% resolved), lab-reported", date: "2026-09-29", reported: "lab" },
   { provider: "xai", model: "grok-4.7", label: "Grok 4.7", effort: "high", index: "coding", score: 71, source: "https://x.ai/news/grok-4-7", sourceLabel: "xAI Grok 4.7 launch, DeepSWE v1.1 (% resolved), lab-reported", date: "2026-09-21", reported: "lab" },
-  { provider: "anthropic", model: "claude-fable-5", label: "Claude Fable 5", effort: "all", index: "cost", ...listPrice(10, 50), source: "https://platform.claude.com/docs/en/about-claude/pricing", sourceLabel: "Anthropic API pricing (USD per 1M tokens)", date: "2026-10-02" },
-  { provider: "anthropic", model: "claude-fable-5-1", label: "Claude Fable 5.1", effort: "all", index: "cost", ...listPrice(10, 50), source: "https://platform.claude.com/docs/en/about-claude/pricing", sourceLabel: "Anthropic API pricing (USD per 1M tokens)", date: "2026-10-02" },
-  { provider: "anthropic", model: "claude-opus-5-5", label: "Claude Opus 5.5", effort: "all", index: "cost", ...listPrice(4, 20), source: "https://platform.claude.com/docs/en/about-claude/pricing", sourceLabel: "Anthropic API pricing (USD per 1M tokens)", date: "2026-10-02" },
-  { provider: "anthropic", model: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", effort: "all", index: "cost", ...listPrice(2, 10), source: "https://platform.claude.com/docs/en/about-claude/pricing", sourceLabel: "Anthropic API pricing (USD per 1M tokens)", date: "2026-10-02" },
-  { provider: "google", model: "gemini-3.7-flash", label: "Gemini 3.7 Flash", effort: "all", index: "cost", ...listPrice(0.75, 3.75), source: "https://ai.google.dev/gemini-api/docs/pricing", sourceLabel: "Gemini API pricing, intro price through 2026-12-31 (USD per 1M tokens)", date: "2026-10-02" },
-  { provider: "google", model: "gemini-3.8-flash", label: "Gemini 3.8 Flash", effort: "all", index: "cost", ...listPrice(0.75, 3.75), source: "https://ai.google.dev/gemini-api/docs/pricing", sourceLabel: "Gemini API pricing, intro price through 2026-12-31 (USD per 1M tokens)", date: "2026-10-02" },
-  { provider: "meta", model: "muse-spark-1.3", label: "Muse Spark 1.3", effort: "all", index: "cost", ...listPrice(1.25, 4.25), source: "https://dev.meta.ai/docs/pricing-rate-limits", sourceLabel: "Meta Model API pricing (USD per 1M tokens)", date: "2026-10-02" },
-  { provider: "meta", model: "muse-spark-1.3-contributor", label: "Muse Spark 1.3 Contributor", effort: "all", index: "cost", ...listPrice(0.1, 0.2), source: "https://dev.meta.ai/docs/pricing-rate-limits", sourceLabel: "Meta Model API pricing (USD per 1M tokens)", date: "2026-10-02" },
-  { provider: "openai", model: "gpt-5.6-terra", label: "GPT-5.6 Terra", effort: "all", index: "cost", ...listPrice(2, 12), source: "https://developers.openai.com/api/docs/pricing", sourceLabel: "OpenAI API pricing (USD per 1M tokens)", date: "2026-10-02" },
-  { provider: "openai", model: "gpt-6-astra", label: "GPT-6 Astra", effort: "all", index: "cost", ...listPrice(10, 50), source: "https://developers.openai.com/api/docs/pricing", sourceLabel: "OpenAI API pricing (USD per 1M tokens)", date: "2026-10-02" },
-  { provider: "openai", model: "gpt-6-luna", label: "GPT-6 Luna", effort: "all", index: "cost", ...listPrice(0.1, 0.5), source: "https://developers.openai.com/api/docs/pricing", sourceLabel: "OpenAI API pricing (USD per 1M tokens)", date: "2026-10-02" },
-  { provider: "openai", model: "gpt-6.1-sol", label: "GPT-6.1 Sol", effort: "all", index: "cost", ...listPrice(2, 10), source: "https://developers.openai.com/api/docs/pricing", sourceLabel: "OpenAI API pricing (USD per 1M tokens)", date: "2026-10-02" },
-  { provider: "xai", model: "grok-4.6", label: "Grok 4.6", effort: "all", index: "cost", ...listPrice(2, 6), source: "https://docs.x.ai/developers/pricing", sourceLabel: "xAI API pricing (USD per 1M tokens)", date: "2026-10-02" },
-  { provider: "xai", model: "grok-4.7", label: "Grok 4.7", effort: "all", index: "cost", ...listPrice(2, 6), source: "https://docs.x.ai/developers/pricing", sourceLabel: "xAI API pricing (USD per 1M tokens)", date: "2026-10-02" },
+  { provider: "anthropic", model: "claude-fable-5", label: "Claude Fable 5", effort: "all", index: "cost", ...listPrice(10, 1, 50), source: "https://platform.claude.com/docs/en/about-claude/pricing", sourceLabel: "Anthropic API pricing (USD per 1M tokens)", date: "2026-10-04" },
+  { provider: "anthropic", model: "claude-fable-5-1", label: "Claude Fable 5.1", effort: "all", index: "cost", ...listPrice(10, 0.25, 50), source: "https://platform.claude.com/docs/en/about-claude/pricing", sourceLabel: "Anthropic API pricing (USD per 1M tokens)", date: "2026-10-04" },
+  { provider: "anthropic", model: "claude-opus-5-5", label: "Claude Opus 5.5", effort: "all", index: "cost", ...listPrice(4, 0.2, 20), source: "https://platform.claude.com/docs/en/about-claude/pricing", sourceLabel: "Anthropic API pricing (USD per 1M tokens)", date: "2026-10-04" },
+  { provider: "anthropic", model: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", effort: "all", index: "cost", ...listPrice(2, 0.2, 10), source: "https://platform.claude.com/docs/en/about-claude/pricing", sourceLabel: "Anthropic API pricing (USD per 1M tokens)", date: "2026-10-04" },
+  { provider: "google", model: "gemini-3.7-flash", label: "Gemini 3.7 Flash", effort: "all", index: "cost", ...listPrice(0.75, 0.075, 3.75), source: "https://ai.google.dev/gemini-api/docs/pricing", sourceLabel: "Gemini API pricing, intro price through 2026-12-31 (USD per 1M tokens)", date: "2026-10-04" },
+  { provider: "google", model: "gemini-3.8-flash", label: "Gemini 3.8 Flash", effort: "all", index: "cost", ...listPrice(0.75, 0.075, 3.75), source: "https://ai.google.dev/gemini-api/docs/pricing", sourceLabel: "Gemini API pricing, intro price through 2026-12-31 (USD per 1M tokens)", date: "2026-10-04" },
+  { provider: "meta", model: "muse-spark-1.3", label: "Muse Spark 1.3", effort: "all", index: "cost", ...listPrice(1.25, 0.15, 4.25), source: "https://dev.meta.ai/docs/pricing-rate-limits", sourceLabel: "Meta Model API pricing (USD per 1M tokens)", date: "2026-10-04" },
+  { provider: "meta", model: "muse-spark-1.3-contributor", label: "Muse Spark 1.3 Contributor", effort: "all", index: "cost", ...listPrice(0.1, 0.002, 0.2), source: "https://dev.meta.ai/docs/pricing-rate-limits", sourceLabel: "Meta Model API pricing (USD per 1M tokens)", date: "2026-10-04" },
+  { provider: "openai", model: "gpt-5.6-terra", label: "GPT-5.6 Terra", effort: "all", index: "cost", ...listPrice(2, 0.2, 12), source: "https://developers.openai.com/api/docs/pricing", sourceLabel: "OpenAI API pricing (USD per 1M tokens)", date: "2026-10-04" },
+  { provider: "openai", model: "gpt-6-astra", label: "GPT-6 Astra", effort: "all", index: "cost", ...listPrice(10, 1, 50), source: "https://developers.openai.com/api/docs/pricing", sourceLabel: "OpenAI API pricing (USD per 1M tokens)", date: "2026-10-04" },
+  { provider: "openai", model: "gpt-6-luna", label: "GPT-6 Luna", effort: "all", index: "cost", ...listPrice(0.1, 0.01, 0.5), source: "https://developers.openai.com/api/docs/pricing", sourceLabel: "OpenAI API pricing (USD per 1M tokens)", date: "2026-10-04" },
+  { provider: "openai", model: "gpt-6.1-sol", label: "GPT-6.1 Sol", effort: "all", index: "cost", ...listPrice(2, 0.1, 10), source: "https://developers.openai.com/api/docs/pricing", sourceLabel: "OpenAI API pricing (USD per 1M tokens)", date: "2026-10-04" },
+  { provider: "xai", model: "grok-4.6", label: "Grok 4.6", effort: "all", index: "cost", ...listPrice(2, 0.5, 6), source: "https://docs.x.ai/developers/pricing", sourceLabel: "xAI API pricing (USD per 1M tokens)", date: "2026-10-04" },
+  { provider: "xai", model: "grok-4.7", label: "Grok 4.7", effort: "all", index: "cost", ...listPrice(2, 0.5, 6), source: "https://docs.x.ai/developers/pricing", sourceLabel: "xAI API pricing (USD per 1M tokens)", date: "2026-10-04" },
   { provider: "anthropic", model: "claude-fable-5", label: "Claude Fable 5", effort: "max", index: "general", score: 1595.41, source: "https://artificialanalysis.ai/models/claude-fable-5", sourceLabel: "Artificial Analysis GDPval-AA v2.1 (Elo)", date: "2026-10-02" },
   { provider: "anthropic", model: "claude-fable-5-1", label: "Claude Fable 5.1", effort: "low", index: "general", score: 1449.57, source: "https://artificialanalysis.ai/models/claude-fable-5-1-low", sourceLabel: "Artificial Analysis GDPval-AA v2.1 (Elo)", date: "2026-10-02" },
   { provider: "anthropic", model: "claude-fable-5-1", label: "Claude Fable 5.1", effort: "medium", index: "general", score: 1535.85, source: "https://artificialanalysis.ai/models/claude-fable-5-1-medium", sourceLabel: "Artificial Analysis GDPval-AA v2.1 (Elo)", date: "2026-10-02" },
@@ -196,8 +200,9 @@ export const MODEL_INDEX_ENTRIES: ModelIndexEntry[] = [
   { provider: "anthropic", model: "claude-opus-5-5", label: "Claude Opus 5.5", effort: "high", index: "intelligence", score: 53.6, source: "https://artificialanalysis.ai/models/claude-opus-5-5-high", sourceLabel: "Artificial Analysis Intelligence Index v4.3.2", date: "2026-10-02" },
   { provider: "anthropic", model: "claude-opus-5-5", label: "Claude Opus 5.5", effort: "xhigh", index: "intelligence", score: 56, source: "https://artificialanalysis.ai/models/claude-opus-5-5-xhigh", sourceLabel: "Artificial Analysis Intelligence Index v4.3.2", date: "2026-10-02" },
   { provider: "anthropic", model: "claude-opus-5-5", label: "Claude Opus 5.5", effort: "max", index: "intelligence", score: 57.6, source: "https://artificialanalysis.ai/models/claude-opus-5-5", sourceLabel: "Artificial Analysis Intelligence Index v4.3.2", date: "2026-10-02" },
-  { provider: "anthropic", model: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", effort: "medium", index: "intelligence", score: 40.7, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5-medium", sourceLabel: "Artificial Analysis Intelligence Index v4.3.2", date: "2026-10-02" },
-  { provider: "anthropic", model: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", effort: "high", index: "intelligence", score: 46.7, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5-high", sourceLabel: "Artificial Analysis Intelligence Index v4.3.2", date: "2026-10-02" },
+  { provider: "anthropic", model: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", effort: "low", index: "intelligence", score: 35.9, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5-low", sourceLabel: "Artificial Analysis Intelligence Index v4.3.2", date: "2026-10-04" },
+  { provider: "anthropic", model: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", effort: "medium", index: "intelligence", score: 40.8, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5-medium", sourceLabel: "Artificial Analysis Intelligence Index v4.3.2", date: "2026-10-04" },
+  { provider: "anthropic", model: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", effort: "high", index: "intelligence", score: 46.8, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5-high", sourceLabel: "Artificial Analysis Intelligence Index v4.3.2", date: "2026-10-04" },
   { provider: "anthropic", model: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", effort: "xhigh", index: "intelligence", score: 51.9, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5-xhigh", sourceLabel: "Artificial Analysis Intelligence Index v4.3.2", date: "2026-10-02" },
   { provider: "anthropic", model: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", effort: "max", index: "intelligence", score: 56, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5", sourceLabel: "Artificial Analysis Intelligence Index v4.3.2", date: "2026-10-02" },
   { provider: "google", model: "gemini-3.7-flash", label: "Gemini 3.7 Flash", effort: "high", index: "intelligence", score: 39.1, source: "https://artificialanalysis.ai/models/gemini-3-7-flash", sourceLabel: "Artificial Analysis Intelligence Index v4.3.2", date: "2026-10-02" },
@@ -242,7 +247,7 @@ export const MODEL_INDEX_ENTRIES: ModelIndexEntry[] = [
   { provider: "xai", model: "grok-4.7", label: "Grok 4.7", effort: "xhigh", index: "legal", score: 84.389, source: "https://www.vals.ai/benchmarks/legal_bench", sourceLabel: "Vals.ai LegalBench (overall accuracy)", date: "2026-09-29" },
 ];
 
-/** Cost to run the AA Intelligence Index at one model + effort; higher effort burns more tokens. */
+/** AA's average cost per task on its Intelligence Index at one model + effort; higher effort burns more tokens. */
 export interface ModelRunCost {
   model: string;
   effort: string;
@@ -252,53 +257,52 @@ export interface ModelRunCost {
 }
 
 export const MODEL_RUN_COSTS: ModelRunCost[] = [
-  { model: "claude-fable-5", effort: "max", usd: 11160.86, source: "https://artificialanalysis.ai/models/claude-fable-5", date: "2026-10-02" },
-  { model: "claude-fable-5-1", effort: "low", usd: 3157.66, source: "https://artificialanalysis.ai/models/claude-fable-5-1-low", date: "2026-10-02" },
-  { model: "claude-fable-5-1", effort: "medium", usd: 3983.28, source: "https://artificialanalysis.ai/models/claude-fable-5-1-medium", date: "2026-10-02" },
-  { model: "claude-fable-5-1", effort: "high", usd: 5241.59, source: "https://artificialanalysis.ai/models/claude-fable-5-1-high", date: "2026-10-02" },
-  { model: "claude-fable-5-1", effort: "xhigh", usd: 9063.11, source: "https://artificialanalysis.ai/models/claude-fable-5-1-xhigh", date: "2026-10-02" },
-  { model: "claude-fable-5-1", effort: "max", usd: 13128.86, source: "https://artificialanalysis.ai/models/claude-fable-5-1", date: "2026-10-02" },
-  { model: "claude-opus-5-5", effort: "low", usd: 860.33, source: "https://artificialanalysis.ai/models/claude-opus-5-5-low", date: "2026-10-02" },
-  { model: "claude-opus-5-5", effort: "medium", usd: 1626.81, source: "https://artificialanalysis.ai/models/claude-opus-5-5-medium", date: "2026-10-02" },
-  { model: "claude-opus-5-5", effort: "high", usd: 2172.43, source: "https://artificialanalysis.ai/models/claude-opus-5-5-high", date: "2026-10-02" },
-  { model: "claude-opus-5-5", effort: "xhigh", usd: 4056.65, source: "https://artificialanalysis.ai/models/claude-opus-5-5-xhigh", date: "2026-10-02" },
-  { model: "claude-opus-5-5", effort: "max", usd: 8708.2, source: "https://artificialanalysis.ai/models/claude-opus-5-5", date: "2026-10-02" },
-  { model: "claude-sonnet-5-5", effort: "low", usd: 545.46, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5-low", date: "2026-10-02" },
-  { model: "claude-sonnet-5-5", effort: "medium", usd: 710.06, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5-medium", date: "2026-10-02" },
-  { model: "claude-sonnet-5-5", effort: "high", usd: 1215.01, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5-high", date: "2026-10-02" },
-  { model: "claude-sonnet-5-5", effort: "xhigh", usd: 2747.88, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5-xhigh", date: "2026-10-02" },
-  { model: "claude-sonnet-5-5", effort: "max", usd: 9074.13, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5", date: "2026-10-02" },
-  { model: "gemini-3.7-flash", effort: "medium", usd: 575.6, source: "https://artificialanalysis.ai/models/gemini-3-7-flash-medium", date: "2026-10-02" },
-  { model: "gemini-3.7-flash", effort: "high", usd: 1084.46, source: "https://artificialanalysis.ai/models/gemini-3-7-flash", date: "2026-10-02" },
-  { model: "gemini-3.8-flash", effort: "medium", usd: 1100.06, source: "https://artificialanalysis.ai/models/gemini-3-8-flash-medium", date: "2026-10-02" },
-  { model: "gemini-3.8-flash", effort: "high", usd: 1622.73, source: "https://artificialanalysis.ai/models/gemini-3-8-flash", date: "2026-10-02" },
-  { model: "muse-spark-1.3", effort: "xhigh", usd: 1655.27, source: "https://artificialanalysis.ai/models/muse-spark-1-3-xhigh", date: "2026-10-02" },
-  { model: "muse-spark-1.3", effort: "max", usd: 2000.35, source: "https://artificialanalysis.ai/models/muse-spark-1-3", date: "2026-10-02" },
-  { model: "gpt-5.6-terra", effort: "low", usd: 350.36, source: "https://artificialanalysis.ai/models/gpt-5-6-terra-low", date: "2026-10-02" },
-  { model: "gpt-5.6-terra", effort: "medium", usd: 446.53, source: "https://artificialanalysis.ai/models/gpt-5-6-terra-medium", date: "2026-10-02" },
-  { model: "gpt-5.6-terra", effort: "high", usd: 767.78, source: "https://artificialanalysis.ai/models/gpt-5-6-terra-high", date: "2026-10-02" },
-  { model: "gpt-5.6-terra", effort: "xhigh", usd: 1186.77, source: "https://artificialanalysis.ai/models/gpt-5-6-terra-xhigh", date: "2026-10-02" },
-  { model: "gpt-5.6-terra", effort: "max", usd: 2500.72, source: "https://artificialanalysis.ai/models/gpt-5-6-terra", date: "2026-10-02" },
-  { model: "gpt-6-astra", effort: "low", usd: 1536.78, source: "https://artificialanalysis.ai/models/gpt-6-astra-low", date: "2026-10-02" },
-  { model: "gpt-6-astra", effort: "medium", usd: 2434.12, source: "https://artificialanalysis.ai/models/gpt-6-astra-medium", date: "2026-10-02" },
-  { model: "gpt-6-astra", effort: "high", usd: 2925.01, source: "https://artificialanalysis.ai/models/gpt-6-astra-high", date: "2026-10-02" },
-  { model: "gpt-6-astra", effort: "xhigh", usd: 3802.98, source: "https://artificialanalysis.ai/models/gpt-6-astra-xhigh", date: "2026-10-02" },
-  { model: "gpt-6-astra", effort: "max", usd: 5324.1, source: "https://artificialanalysis.ai/models/gpt-6-astra", date: "2026-10-02" },
-  { model: "gpt-6-luna", effort: "low", usd: 10.63, source: "https://artificialanalysis.ai/models/gpt-6-luna-low", date: "2026-10-02" },
-  { model: "gpt-6-luna", effort: "medium", usd: 31.17, source: "https://artificialanalysis.ai/models/gpt-6-luna-medium", date: "2026-10-02" },
-  { model: "gpt-6-luna", effort: "high", usd: 47.83, source: "https://artificialanalysis.ai/models/gpt-6-luna-high", date: "2026-10-02" },
-  { model: "gpt-6-luna", effort: "xhigh", usd: 66.81, source: "https://artificialanalysis.ai/models/gpt-6-luna-xhigh", date: "2026-10-02" },
-  { model: "gpt-6-luna", effort: "max", usd: 121.68, source: "https://artificialanalysis.ai/models/gpt-6-luna", date: "2026-10-02" },
-  { model: "gpt-6.1-sol", effort: "low", usd: 250.48, source: "https://artificialanalysis.ai/models/gpt-6-1-sol-low", date: "2026-10-02" },
-  { model: "gpt-6.1-sol", effort: "medium", usd: 361.37, source: "https://artificialanalysis.ai/models/gpt-6-1-sol-medium", date: "2026-10-02" },
-  { model: "gpt-6.1-sol", effort: "high", usd: 521.32, source: "https://artificialanalysis.ai/models/gpt-6-1-sol-high", date: "2026-10-02" },
-  { model: "gpt-6.1-sol", effort: "xhigh", usd: 662.28, source: "https://artificialanalysis.ai/models/gpt-6-1-sol-xhigh", date: "2026-10-02" },
-  { model: "gpt-6.1-sol", effort: "max", usd: 1081.55, source: "https://artificialanalysis.ai/models/gpt-6-1-sol", date: "2026-10-02" },
-  { model: "grok-4.6", effort: "low", usd: 760.75, source: "https://artificialanalysis.ai/models/grok-4-6-low", date: "2026-10-02" },
-  { model: "grok-4.6", effort: "medium", usd: 1936.75, source: "https://artificialanalysis.ai/models/grok-4-6-medium", date: "2026-10-02" },
-  { model: "grok-4.6", effort: "high", usd: 2351.83, source: "https://artificialanalysis.ai/models/grok-4-6", date: "2026-10-02" },
-  { model: "grok-4.6", effort: "xhigh", usd: 2830.07, source: "https://artificialanalysis.ai/models/grok-4-6-xhigh", date: "2026-10-02" },
-  { model: "grok-4.7", effort: "low", usd: 1630.69, source: "https://artificialanalysis.ai/models/grok-4-7-low", date: "2026-10-02" },
-  { model: "grok-4.7", effort: "high", usd: 3880.88, source: "https://artificialanalysis.ai/models/grok-4-7-high", date: "2026-10-02" },
-  { model: "grok-4.7", effort: "xhigh", usd: 4967.35, source: "https://artificialanalysis.ai/models/grok-4-7", date: "2026-10-02" },
+  { model: "claude-fable-5", effort: "max", usd: 8.746, source: "https://artificialanalysis.ai/models/claude-fable-5", date: "2026-10-04" },
+  { model: "claude-fable-5-1", effort: "low", usd: 2.371, source: "https://artificialanalysis.ai/models/claude-fable-5-1-low", date: "2026-10-04" },
+  { model: "claude-fable-5-1", effort: "medium", usd: 2.983, source: "https://artificialanalysis.ai/models/claude-fable-5-1-medium", date: "2026-10-04" },
+  { model: "claude-fable-5-1", effort: "high", usd: 3.913, source: "https://artificialanalysis.ai/models/claude-fable-5-1-high", date: "2026-10-04" },
+  { model: "claude-fable-5-1", effort: "xhigh", usd: 5.978, source: "https://artificialanalysis.ai/models/claude-fable-5-1-xhigh", date: "2026-10-04" },
+  { model: "claude-fable-5-1", effort: "max", usd: 7.63, source: "https://artificialanalysis.ai/models/claude-fable-5-1", date: "2026-10-04" },
+  { model: "claude-opus-5-5", effort: "low", usd: 0.5512, source: "https://artificialanalysis.ai/models/claude-opus-5-5-low", date: "2026-10-04" },
+  { model: "claude-opus-5-5", effort: "medium", usd: 1.336, source: "https://artificialanalysis.ai/models/claude-opus-5-5-medium", date: "2026-10-04" },
+  { model: "claude-opus-5-5", effort: "high", usd: 1.823, source: "https://artificialanalysis.ai/models/claude-opus-5-5-high", date: "2026-10-04" },
+  { model: "claude-opus-5-5", effort: "xhigh", usd: 3.459, source: "https://artificialanalysis.ai/models/claude-opus-5-5-xhigh", date: "2026-10-04" },
+  { model: "claude-opus-5-5", effort: "max", usd: 5.982, source: "https://artificialanalysis.ai/models/claude-opus-5-5", date: "2026-10-04" },
+  { model: "claude-sonnet-5-5", effort: "low", usd: 0.417, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5-low", date: "2026-10-04" },
+  { model: "claude-sonnet-5-5", effort: "medium", usd: 0.5894, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5-medium", date: "2026-10-04" },
+  { model: "claude-sonnet-5-5", effort: "high", usd: 1.122, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5-high", date: "2026-10-04" },
+  { model: "claude-sonnet-5-5", effort: "xhigh", usd: 2.746, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5-xhigh", date: "2026-10-04" },
+  { model: "claude-sonnet-5-5", effort: "max", usd: 7.667, source: "https://artificialanalysis.ai/models/claude-sonnet-5-5", date: "2026-10-04" },
+  { model: "gemini-3.7-flash", effort: "high", usd: 0.9253, source: "https://artificialanalysis.ai/models/gemini-3-7-flash", date: "2026-10-04" },
+  { model: "gemini-3.8-flash", effort: "medium", usd: 0.931, source: "https://artificialanalysis.ai/models/gemini-3-8-flash-medium", date: "2026-10-04" },
+  { model: "gemini-3.8-flash", effort: "high", usd: 1.243, source: "https://artificialanalysis.ai/models/gemini-3-8-flash", date: "2026-10-04" },
+  { model: "muse-spark-1.3", effort: "xhigh", usd: 1.368, source: "https://artificialanalysis.ai/models/muse-spark-1-3-xhigh", date: "2026-10-04" },
+  { model: "muse-spark-1.3", effort: "max", usd: 1.605, source: "https://artificialanalysis.ai/models/muse-spark-1-3", date: "2026-10-04" },
+  { model: "gpt-5.6-terra", effort: "low", usd: 0.1445, source: "https://artificialanalysis.ai/models/gpt-5-6-terra-low", date: "2026-10-04" },
+  { model: "gpt-5.6-terra", effort: "medium", usd: 0.1834, source: "https://artificialanalysis.ai/models/gpt-5-6-terra-medium", date: "2026-10-04" },
+  { model: "gpt-5.6-terra", effort: "high", usd: 0.3379, source: "https://artificialanalysis.ai/models/gpt-5-6-terra-high", date: "2026-10-04" },
+  { model: "gpt-5.6-terra", effort: "xhigh", usd: 0.6318, source: "https://artificialanalysis.ai/models/gpt-5-6-terra-xhigh", date: "2026-10-04" },
+  { model: "gpt-5.6-terra", effort: "max", usd: 1.399, source: "https://artificialanalysis.ai/models/gpt-5-6-terra", date: "2026-10-04" },
+  { model: "gpt-6-astra", effort: "low", usd: 0.8175, source: "https://artificialanalysis.ai/models/gpt-6-astra-low", date: "2026-10-04" },
+  { model: "gpt-6-astra", effort: "medium", usd: 1.541, source: "https://artificialanalysis.ai/models/gpt-6-astra-medium", date: "2026-10-04" },
+  { model: "gpt-6-astra", effort: "high", usd: 1.725, source: "https://artificialanalysis.ai/models/gpt-6-astra-high", date: "2026-10-04" },
+  { model: "gpt-6-astra", effort: "xhigh", usd: 2.309, source: "https://artificialanalysis.ai/models/gpt-6-astra-xhigh", date: "2026-10-04" },
+  { model: "gpt-6-astra", effort: "max", usd: 3.258, source: "https://artificialanalysis.ai/models/gpt-6-astra", date: "2026-10-04" },
+  { model: "gpt-6-luna", effort: "low", usd: 0.004517, source: "https://artificialanalysis.ai/models/gpt-6-luna-low", date: "2026-10-04" },
+  { model: "gpt-6-luna", effort: "medium", usd: 0.01748, source: "https://artificialanalysis.ai/models/gpt-6-luna-medium", date: "2026-10-04" },
+  { model: "gpt-6-luna", effort: "high", usd: 0.02903, source: "https://artificialanalysis.ai/models/gpt-6-luna-high", date: "2026-10-04" },
+  { model: "gpt-6-luna", effort: "xhigh", usd: 0.04218, source: "https://artificialanalysis.ai/models/gpt-6-luna-xhigh", date: "2026-10-04" },
+  { model: "gpt-6-luna", effort: "max", usd: 0.06782, source: "https://artificialanalysis.ai/models/gpt-6-luna", date: "2026-10-04" },
+  { model: "gpt-6.1-sol", effort: "low", usd: 0.1308, source: "https://artificialanalysis.ai/models/gpt-6-1-sol-low", date: "2026-10-04" },
+  { model: "gpt-6.1-sol", effort: "medium", usd: 0.2137, source: "https://artificialanalysis.ai/models/gpt-6-1-sol-medium", date: "2026-10-04" },
+  { model: "gpt-6.1-sol", effort: "high", usd: 0.3191, source: "https://artificialanalysis.ai/models/gpt-6-1-sol-high", date: "2026-10-04" },
+  { model: "gpt-6.1-sol", effort: "xhigh", usd: 0.3929, source: "https://artificialanalysis.ai/models/gpt-6-1-sol-xhigh", date: "2026-10-04" },
+  { model: "gpt-6.1-sol", effort: "max", usd: 0.7242, source: "https://artificialanalysis.ai/models/gpt-6-1-sol", date: "2026-10-04" },
+  { model: "grok-4.6", effort: "low", usd: 0.4753, source: "https://artificialanalysis.ai/models/grok-4-6-low", date: "2026-10-04" },
+  { model: "grok-4.6", effort: "medium", usd: 1.496, source: "https://artificialanalysis.ai/models/grok-4-6-medium", date: "2026-10-04" },
+  { model: "grok-4.6", effort: "high", usd: 1.859, source: "https://artificialanalysis.ai/models/grok-4-6", date: "2026-10-04" },
+  { model: "grok-4.6", effort: "xhigh", usd: 2.324, source: "https://artificialanalysis.ai/models/grok-4-6-xhigh", date: "2026-10-04" },
+  { model: "grok-4.7", effort: "low", usd: 1.248, source: "https://artificialanalysis.ai/models/grok-4-7-low", date: "2026-10-04" },
+  { model: "grok-4.7", effort: "high", usd: 2.726, source: "https://artificialanalysis.ai/models/grok-4-7-high", date: "2026-10-04" },
+  { model: "grok-4.7", effort: "xhigh", usd: 3.738, source: "https://artificialanalysis.ai/models/grok-4-7", date: "2026-10-04" },
 ];
