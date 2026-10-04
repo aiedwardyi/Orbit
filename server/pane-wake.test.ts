@@ -116,7 +116,7 @@ describe("PaneWakeScheduler", () => {
     expect(wake).not.toHaveBeenCalled();
   });
 
-  it("caps wakes per bot per hour and warns", async () => {
+  it("caps wakes per bot per hour, warns, and wakes once a slot frees", async () => {
     const { wake, warn, scheduler } = harness();
     for (let i = 0; i < PANE_WAKE_HOURLY_CAP + 1; i++) {
       scheduler.noteArrived("teacher", "t1");
@@ -125,10 +125,52 @@ describe("PaneWakeScheduler", () => {
     expect(wake).toHaveBeenCalledTimes(PANE_WAKE_HOURLY_CAP);
     expect(warn).toHaveBeenCalledOnce();
 
-    await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
     scheduler.noteArrived("teacher", "t1");
+    scheduler.settled();
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS * 2);
+    expect(wake).toHaveBeenCalledTimes(PANE_WAKE_HOURLY_CAP);
+
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+    expect(wake).toHaveBeenCalledTimes(PANE_WAKE_HOURLY_CAP + 1);
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it("drops the capped retry when a user turn delivered the notes", async () => {
+    const { state, wake, scheduler } = harness();
+    for (let i = 0; i < PANE_WAKE_HOURLY_CAP + 1; i++) {
+      scheduler.noteArrived("teacher", "t1");
+      await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    }
+    state.hasNotes = false;
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+    expect(wake).toHaveBeenCalledTimes(PANE_WAKE_HOURLY_CAP);
+  });
+
+  it("holds a capped retry that finds the bot busy until it settles", async () => {
+    const { state, wake, scheduler } = harness();
+    for (let i = 0; i < PANE_WAKE_HOURLY_CAP + 1; i++) {
+      scheduler.noteArrived("teacher", "t1");
+      await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    }
+    state.busy = true;
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+    expect(wake).toHaveBeenCalledTimes(PANE_WAKE_HOURLY_CAP);
+
+    state.busy = false;
+    scheduler.settled();
     await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
     expect(wake).toHaveBeenCalledTimes(PANE_WAKE_HOURLY_CAP + 1);
+  });
+
+  it("forgetBot cancels a capped retry", async () => {
+    const { wake, scheduler } = harness();
+    for (let i = 0; i < PANE_WAKE_HOURLY_CAP + 1; i++) {
+      scheduler.noteArrived("teacher", "t1");
+      await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    }
+    scheduler.forgetBot("teacher");
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+    expect(wake).toHaveBeenCalledTimes(PANE_WAKE_HOURLY_CAP);
   });
 
   it("forgetBot drops a pending wake and the hourly tally", async () => {

@@ -79,7 +79,12 @@ export class PaneWakeScheduler {
     const recent = (this.wakes.get(botId) ?? []).filter((at) => now - at < HOUR_MS);
     if (recent.length >= PANE_WAKE_HOURLY_CAP) {
       this.wakes.set(botId, recent);
-      this.deps.warn(`pane wake: ${botId} hit ${PANE_WAKE_HOURLY_CAP} wakes this hour; note stored, no turn started`);
+      // a dropped wake strands the note until the user writes; retry once the oldest wake ages out
+      const retryMs = recent[0]! + HOUR_MS - now + PANE_WAKE_DEBOUNCE_MS;
+      this.deps.warn(`pane wake: ${botId} hit ${PANE_WAKE_HOURLY_CAP} wakes this hour; retrying in ${Math.ceil(retryMs / 60_000)} min`);
+      this.pending.set(key, entry);
+      entry.timer = setTimeout(() => this.fire(key, entry), retryMs);
+      entry.timer.unref?.();
       return;
     }
     this.wakes.set(botId, [...recent, now]);
