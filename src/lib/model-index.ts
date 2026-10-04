@@ -34,7 +34,7 @@ export interface CatalogModel {
 
 export interface ModelIndexPoint extends ModelIndexEntry {
   key: string;
-  /** Cost to run the AA Intelligence Index at this model + effort. */
+  /** AA's average cost per task on its Intelligence Index at this model + effort. */
   cost?: number;
   /** List price; every effort of a model shares it. */
   price?: ModelPrice;
@@ -43,6 +43,9 @@ export interface ModelIndexPoint extends ModelIndexEntry {
 const PICKER = new Set(PICKER_MODEL_IDS);
 
 export const formatUsd = (value: number) => `$${Number.isInteger(value) ? value : value.toFixed(2)}`;
+
+/** Cost per task like AA's page: 2 significant figures under a cent, 2 decimals above. */
+export const formatCost = (usd: number) => (usd < 0.01 ? `$${Number(usd.toPrecision(2))}` : `$${usd.toFixed(2)}`);
 
 /** Input / output USD per 1M tokens, e.g. "$4 / $20". */
 export const formatPrice = ({ input, output }: ModelPrice) => `${formatUsd(input)} / ${formatUsd(output)}`;

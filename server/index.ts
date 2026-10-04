@@ -352,6 +352,7 @@ import { botBrowserEnabled, browserPrompt } from "./builtin-browser.ts";
 import { installedPlaybookInstructions } from "./installed-playbooks.ts";
 import { createBotPackageExport } from "./package-export.ts";
 import { localVmTurnPlan, shouldMountLocalComputer } from "./local-routing.ts";
+import { webManifestForUserAgent } from "./web-manifest.ts";
 
 const PORT = Number(process.env.OMB_PORT || process.env.OGB_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.OMB_WEBHOOK_PORT || PORT + 1);
@@ -9887,6 +9888,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const file = join(STATIC_DIR, safe);
       try {
         const data = readFileSync(file);
+        if (path === "/manifest.json") {
+          const manifest = JSON.parse(data.toString("utf8"));
+          const response = webManifestForUserAgent(req.headers["user-agent"], manifest);
+          res.writeHead(200, { "content-type": MIME[".json"], vary: "User-Agent" });
+          return res.end(response === manifest ? data : JSON.stringify(response));
+        }
         res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" });
         return res.end(data);
       } catch {

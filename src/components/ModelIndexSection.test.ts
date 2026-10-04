@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { I18nProvider, applyLocale } from "@/lib/i18n";
+import { MODEL_RUN_COSTS } from "../../shared/model-index-data.ts";
 
 vi.mock("@/state/store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/state/store")>()),
@@ -89,6 +90,7 @@ describe("cost tab", () => {
     const opus = [...host.querySelectorAll('[tabindex="0"]')].find((el) => el.textContent?.includes("Claude Opus 5.5"));
     expect(opus?.textContent).toContain("$4 / $20");
     expect(host.textContent).toContain("List price per 1M tokens");
+    expect(host.textContent).toContain("Ranked by the 7:2:1 blend");
   });
 });
 
@@ -99,7 +101,26 @@ describe("score vs cost", () => {
     const xs = ["low", "medium", "high", "xhigh", "max"].map(x);
     expect(xs.every(Boolean), xs.join()).toBe(true);
     expect(new Set(xs).size).toBe(5);
-    expect(host.textContent).toContain("Cost to run the AA Intelligence Index");
+    expect(host.textContent).toContain("Cost per task, AA Intelligence Index");
+  });
+});
+
+describe("score hover card", () => {
+  const hoverTip = (label: string) => {
+    act(() => host.querySelector<SVGElement>(`[aria-label="${label}"]`)!.focus());
+    const tip = host.querySelector('[role="tooltip"]')?.textContent ?? "";
+    act(() => host.querySelector<SVGElement>(`[aria-label="${label}"]`)!.blur());
+    return tip;
+  };
+
+  it("shows each effort's own cost per task over one shared price", () => {
+    const low = hoverTip("Claude Opus 5.5 low");
+    const max = hoverTip("Claude Opus 5.5 max");
+    const cost = (tip: string) => tip.match(/Cost per task(\$[\d.]+)/)?.[1];
+    expect(cost(low), low).toBeDefined();
+    expect(cost(max), max).toBeDefined();
+    expect(cost(low)).not.toBe(cost(max));
+    for (const tip of [low, max]) expect(tip).toContain("Price per 1M, in / out$4 / $20Same at every effort");
   });
 });
 
@@ -122,12 +143,18 @@ describe("score vs cost axis", () => {
     [...host.querySelectorAll<SVGGElement>("g[data-mi-enter]")]
       .filter((g) => g.querySelector("line")?.hasAttribute("y1") && !g.hasAttribute("data-mi-leave"))
       .map((g) => ({ label: g.textContent ?? "", x: Number(g.style.transform.match(/translate\(([\d.]+)px/)?.[1]) }));
-  const caption = () => [...host.querySelectorAll("text")].find((el) => el.textContent?.includes("Cost to run"))!;
+  const caption = () => [...host.querySelectorAll("text")].find((el) => el.textContent?.includes("Cost per task"))!;
   afterEach(() => vi.unstubAllGlobals());
 
-  it("keeps 1-2-5 ticks and a one-line caption at the narrowest desktop width", async () => {
+  it("spans the cheapest to the dearest cost per task, with a one-line caption, at the narrowest desktop width", async () => {
     await rebuild(454);
-    expect(ticks().map((tick) => tick.label)).toEqual(["$10", "$20", "$50", "$100", "$200", "$500", "$1k", "$2k", "$5k", "$10k", "$20k"]);
+    const usd = (model: string, effort: string) => MODEL_RUN_COSTS.find((c) => c.model === model && c.effort === effort)!.usd;
+    const labels = ticks().map((tick) => tick.label);
+    const values = labels.map((label) => Number(label.slice(1)));
+    expect(labels.join(), "no k suffix").not.toMatch(/k/);
+    expect(values.every(Number.isFinite), labels.join()).toBe(true);
+    expect(values[0]!).toBeLessThanOrEqual(usd("gpt-6-luna", "low"));
+    expect(values[values.length - 1]!).toBeGreaterThanOrEqual(usd("claude-fable-5", "max"));
     expect(caption().querySelectorAll("tspan")).toHaveLength(0);
   });
 
@@ -141,9 +168,11 @@ describe("score vs cost axis", () => {
         const half = ((prev.label.length + tick.label.length) * 6) / 2;
         expect(tick.x - prev.x, `${width}: ${prev.label} ${tick.label}`).toBeGreaterThanOrEqual(half);
       });
-      const lines = [...caption().querySelectorAll("tspan")].map((line) => line.textContent ?? "");
-      expect(lines.length, String(width)).toBeGreaterThan(1);
-      for (const line of lines) expect(line.length * 6, `${width}: ${line}`).toBeLessThanOrEqual(width - 36);
+      const tspans = [...caption().querySelectorAll("tspan")];
+      if (width <= 360) expect(tspans.length, String(width)).toBeGreaterThan(1);
+      for (const line of tspans.length ? tspans : [caption()]) {
+        expect((line.textContent ?? "").length * 6, `${width}: ${line.textContent}`).toBeLessThanOrEqual(width - 36);
+      }
     }
   });
 });

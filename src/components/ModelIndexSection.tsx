@@ -10,6 +10,7 @@ import {
   CHART_PROVIDERS,
   chartProvider,
   effortRank,
+  formatCost,
   formatPrice,
   formatUsd,
   indexView,
@@ -95,9 +96,7 @@ const labName = (provider: string) => {
   return slot === "other" ? provider : PROVIDER_NAME[slot];
 };
 const shortLabel = (label: string) => label.replace(/^Claude /, "");
-const formatCost = (usd: number) =>
-  usd >= 100 ? `$${Math.round(usd).toLocaleString("en-US")}` : `$${usd.toFixed(usd < 10 ? 2 : 1)}`;
-const formatCostTick = (usd: number) => (usd >= 1000 ? `$${usd / 1000}k` : `$${usd}`);
+const formatCostTick = (usd: number) => `$${usd}`;
 const formatValue = (index: ModelIndexKey, point: ModelIndexPoint) =>
   index === "cost" && point.price
     ? formatPrice(point.price)
@@ -866,10 +865,13 @@ export function ModelIndexSection() {
                   <span className="text-ink">{index === "cost" ? formatUsd(hovered.score) : hovered.cost ? formatCost(hovered.cost) : "-"}</span>
                 </div>
                 {index !== "cost" && (
-                  <div className="flex justify-between gap-3 tabular-nums">
-                    <span className="text-ink-secondary">{t("modelIndex.tooltip.cost")}</span>
-                    <span className="text-ink">{hovered.price ? formatPrice(hovered.price) : "-"}</span>
-                  </div>
+                  <>
+                    <div className="flex justify-between gap-3 tabular-nums">
+                      <span className="break-keep text-ink-secondary">{t("modelIndex.tooltip.cost")}</span>
+                      <span className="shrink-0 text-ink">{hovered.price ? formatPrice(hovered.price) : "-"}</span>
+                    </div>
+                    <p className="text-[11px] leading-snug text-ink-secondary">{t("modelIndex.tooltip.sameEffort")}</p>
+                  </>
                 )}
                 <p className="mt-1.5 border-t border-hairline/40 pt-1.5 text-[11px] leading-snug text-ink-secondary">
                   {t("modelIndex.tooltip.source")}: {hovered.sourceLabel} · {hovered.date}
