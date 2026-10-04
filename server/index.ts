@@ -31,7 +31,7 @@ import {
   type CredentialTargetId,
 } from "../shared/credential-request.ts";
 
-import { approvalKey, autoVerdict } from "./auto-approve.ts";
+import { approvalKey, autoVerdict, BACKGROUND_DENY_NOTE } from "./auto-approve.ts";
 import { requestReview, resolveAutoReviewMode, shouldReview } from "./auto-review.ts";
 import {
   resolveAutomaticSelection,
@@ -2818,12 +2818,14 @@ bus.subscribe((event: RuntimeEvent) => {
         });
         break;
       }
-      const unattended = permission && asker && event.requestId ? isUnattended(asker.id) : false;
+      // A background ask comes only from work an attended Auto turn started;
+      // the driver captured that at launch, and the mark may have aged since.
+      const unattended = permission && asker && event.requestId && !event.background ? isUnattended(asker.id) : false;
       // Verdicts run on the original event. The bus redacts only the NDJSON
       // tee; SSE/broadcast (PR72) redacts the client copy. Masking first
       // hid `.aws/credentials` from sensitive-guard while the provider
       // still ran the raw command.
-      const verdict = permission && asker && event.requestId
+      const verdict = permission && asker && event.requestId && (!event.background || asker.autoApprove)
         ? autoVerdict(asker, event.tool, event.summary, { unattended, scope: event.approvalScope })
         : null;
       if (verdict?.approve && asker && event.requestId) {
@@ -2862,7 +2864,7 @@ bus.subscribe((event: RuntimeEvent) => {
               rule: verdict.rule,
             });
           } catch {
-            if (asker.autoApprove) {
+            if (asker.autoApprove || event.background) {
               pushMessage({
                 role: "bot",
                 kind: "activity",
@@ -2910,6 +2912,19 @@ bus.subscribe((event: RuntimeEvent) => {
             });
           }
         })();
+        break;
+      }
+      // The turn that started this work has ended, so a card would reach
+      // nobody: whatever Auto would not answer is denied now.
+      if (event.background) {
+        const instance = event.providerInstanceId
+          ? registry.get(event.providerInstanceId)
+          : asker && registry.get(asker.modelSelection.instanceId);
+        if (instance && event.requestId) {
+          void instance.adapter
+            .respondToRequest(event.threadId, event.requestId, { behavior: "deny", message: BACKGROUND_DENY_NOTE })
+            .catch(() => {});
+        }
         break;
       }
       const message = pushMessage({
@@ -4496,6 +4511,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
                 .join(" and ")} in their message — bring them in with ask_bot and fold their reply into your answer.`
             : ""),
         approval: bot.autoApprove ? "auto" : "ask",
+        attended: !isUnattended(bot.id),
         integrations,
         cwd,
       });
@@ -5345,6 +5361,7 @@ async function runClaimedGroupMemberTurn(
         text,
         system: roomSystem,
         approval: bot.autoApprove ? "auto" : "ask",
+        attended: !isUnattended(bot.id),
         cwd,
         integrations,
         ...memberTurnSelection(selection, bot.leanStartup),

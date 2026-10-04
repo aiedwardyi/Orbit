@@ -166,6 +166,10 @@ export function approvalKey(tool: string, summary: string, scope?: "local-comput
   return scope ? `${scope}:${key}` : key;
 }
 
+/** The deny for a helper's ask that only a person could approve, once its turn has ended. */
+export const BACKGROUND_DENY_NOTE =
+  "OpenMausBot: this needs the user's approval, and the turn that started you has ended. Skip it and say so in your report.";
+
 export interface AutoApprover {
   autoApprove?: boolean;
   alwaysAllow?: string[];

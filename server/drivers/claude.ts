@@ -22,6 +22,7 @@ import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 
 import { ATTACHMENTS_DIR, sniffImageMime } from "../attachments.ts";
+import { BACKGROUND_DENY_NOTE } from "../auto-approve.ts";
 import { applyCredentialAllowlist, DATA_DIR } from "../config.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, spawnCli } from "../procs.ts";
@@ -225,6 +226,8 @@ interface Ask {
   tool: string;
   input: Record<string, unknown>;
   at: number;
+  /** raised by background work between turns */
+  background?: boolean;
 }
 type AskBehavior = "allow" | "deny" | "answer";
 type AskResolutionSource = "user" | "timeout" | "system";
@@ -294,6 +297,9 @@ function createPermissionBroker(opts: {
   onAsk: (ask: Ask) => void;
   onResolve: (resolved: Ask & { behavior: AskBehavior; source: AskResolutionSource }) => void;
   isActive?: () => boolean;
+  /** Between turns: "auto" when live background work keeps its turn's Auto
+   * approvals, "denied" when it has nobody to ask, null when there is none. */
+  backgroundAsks?: () => "auto" | "denied" | null;
   timeoutMs?: number;
 }) {
   const timeoutMs = opts.timeoutMs ?? 15 * 60_000;
@@ -344,11 +350,17 @@ function createPermissionBroker(opts: {
         // A retained Claude process keeps its proxy connection between
         // turns. Late/background asks must still fail closed without opening
         // a card for a turn that has already settled.
+        let background = false;
         if (opts.isActive && !opts.isActive()) {
-          try {
-            conn.write(JSON.stringify({ t: "answer", id: askId, ...systemEndedReply(kind) }) + "\n");
-          } catch {}
-          continue;
+          const work = kind === "permission" ? (opts.backgroundAsks?.() ?? null) : null;
+          if (work !== "auto") {
+            const reply = work === "denied" ? { behavior: "deny" as const, message: BACKGROUND_DENY_NOTE } : systemEndedReply(kind);
+            try {
+              conn.write(JSON.stringify({ t: "answer", id: askId, ...reply }) + "\n");
+            } catch {}
+            continue;
+          }
+          background = true;
         }
         // `pending` is server-scoped, not per-connection: two asks with the
         // same id — a buggy/adversarial client, never a legitimate retry
@@ -366,7 +378,7 @@ function createPermissionBroker(opts: {
           } catch {}
           continue;
         }
-        const ask: Ask = { id: askId, kind, tool: msg.tool ?? "tool", input: msg.input ?? {}, at: Date.now() };
+        const ask: Ask = { id: askId, kind, tool: msg.tool ?? "tool", input: msg.input ?? {}, at: Date.now(), ...(background ? { background } : {}) };
         const finish = (behavior: AskBehavior, message: string | undefined, source: AskResolutionSource) => {
           if (!pending.delete(askId)) return;
           clearTimeout(timer);
@@ -695,8 +707,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         timer: ReturnType<typeof startTurnTimer>;
       } | null;
       idleTimer: ReturnType<typeof setTimeout> | null;
-      /** backgrounded task_id -> start time; such tasks die with this process */
-      background: Map<string, number>;
+      /** the last turn sendTurn started was attended and in Auto */
+      autoAttended: boolean;
+      /** backgrounded task_id -> start time, and whether the turn that
+       * started it was attended Auto; such tasks die with this process */
+      background: Map<string, { at: number; autoAttended: boolean }>;
       closing: boolean;
       stderr: string;
       /** settle the current turn; set once the spawn handlers exist */
@@ -711,8 +726,15 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     const SESSION_IDLE_MS = Math.max(sessionIdleMinimum, Number(process.env.OMB_CLAUDE_SESSION_IDLE_MS) || 10 * 60_000);
     // a lost task_notification must not pin a session forever
     const BACKGROUND_TASK_TTL_MS = 2 * 60 * 60_000;
-    const hasLiveBackgroundWork = (s: Session) =>
-      !s.closing && s.child.exitCode === null && [...s.background.values()].some((at) => Date.now() - at < BACKGROUND_TASK_TTL_MS);
+    const liveBackground = (s: Session) =>
+      s.closing || s.child.exitCode !== null ? [] : [...s.background.values()].filter(({ at }) => Date.now() - at < BACKGROUND_TASK_TTL_MS);
+    const hasLiveBackgroundWork = (s: Session) => liveBackground(s).length > 0;
+    // An ask can't be traced to its task, so every live task must have come
+    // from an attended Auto turn.
+    const backgroundAutoAttended = (s: Session) => {
+      const live = liveBackground(s);
+      return live.length > 0 && live.every((task) => task.autoAttended);
+    };
 
     /** Mark the session unusable for reuse and start process teardown.
      * Does not close the permission broker — Windows named pipes drop
@@ -819,6 +841,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const sessionId = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
       const newSessionId = sessionId ? null : newId();
       const asks = turn.approval === "ask" && config.permissionMode !== "bypassPermissions";
+      const autoAttended = turn.approval === "auto" && turn.attended === true;
 
       const args = [
         "-p",
@@ -958,6 +981,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         turnTimer.mark("spawnOrReuse");
         turnTimer.mark("cliReady");
         live.turn = { turnId, settled: false, sawStreamDelta: false, timer: turnTimer, launch: { request: turn, retry, abort: retryAbort } };
+        live.autoAttended = autoAttended;
         active.set(threadId, {
           stop: () => {
             retry.cancelled = true;
@@ -1013,6 +1037,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         broker = createPermissionBroker({
           socketPath,
           isActive: () => Boolean(sessions.get(threadId)?.turn),
+          backgroundAsks: () => {
+            const s = sessions.get(threadId);
+            if (!s || !hasLiveBackgroundWork(s)) return null;
+            return backgroundAutoAttended(s) ? "auto" : "denied";
+          },
           onAsk: (ask) => {
             const eventTurnId = sessions.get(threadId)?.turn?.turnId ?? turnId;
             askTools.set(ask.id, typeof ask.tool === "string" ? ask.tool : undefined);
@@ -1029,6 +1058,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                   ? "local-computer"
                   : undefined,
               choices: Array.isArray(ask.input?.choices) ? (ask.input.choices as string[]).slice(0, 5) : undefined,
+              ...(ask.background ? { background: true } : {}),
             });
           },
           onResolve: (resolved) => {
@@ -1064,6 +1094,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         sessionId: sessionId ?? newSessionId,
         turn: { turnId, settled: false, sawStreamDelta: false, timer: turnTimer, launch: { request: turn, retry, abort: retryAbort } },
         idleTimer: null,
+        autoAttended,
         background: new Map(),
         closing: false,
         stderr: "",
@@ -1171,7 +1202,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             } else if (o.subtype === "status" && o.status === "requesting" && session.turn) {
               session.turn.unsentSteers = 0;
             } else if (o.subtype === "task_started" && o.is_backgrounded === true && typeof o.task_id === "string") {
-              session.background.set(o.task_id, Date.now());
+              // between turns only background work starts tasks; inherit from it
+              session.background.set(o.task_id, {
+                at: Date.now(),
+                autoAttended: session.turn ? session.autoAttended : backgroundAutoAttended(session),
+              });
             } else if (o.subtype === "task_notification" && typeof o.task_id === "string") {
               session.background.delete(o.task_id);
             }

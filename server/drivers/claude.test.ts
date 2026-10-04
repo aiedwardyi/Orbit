@@ -1242,6 +1242,92 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     }
   });
 
+  const askBetween = async (threadId: string, ask: Record<string, unknown>) => {
+    const conn = await connectSocket(permissionSocketPath(threadId));
+    const answer = answerQueue(conn)();
+    conn.write(JSON.stringify({ t: "ask", ...ask }) + "\n");
+    return { conn, answer };
+  };
+
+  it("keeps Auto approvals for a helper an attended Auto turn left running", async () => {
+    await create("background-task");
+    // the harness's request.opened fold, reduced to the Auto verdict
+    const harness = instance.adapter.onEvent((e) => {
+      if (e.type !== "request.opened" || !e.requestId) return;
+      const verdict = autoVerdict({ autoApprove: true }, e.tool, e.summary);
+      void instance.adapter.respondToRequest(e.threadId, e.requestId, { behavior: verdict.approve ? "allow" : "deny" });
+    });
+    try {
+      await instance.adapter.sendTurn({ threadId: "t-helper-auto", text: "one", approval: "auto", attended: true });
+      await recorder.until((e) => e.type === "turn.completed");
+      expect(instance.adapter.hasBackgroundWork!("t-helper-auto")).toBe(true);
+
+      const { conn, answer } = await askBetween("t-helper-auto", { id: "ask-helper", tool: "Bash", input: { command: "git status" } });
+      await expect(answer).resolves.toEqual({ t: "answer", id: "ask-helper", behavior: "allow" });
+      expect(recorder.events).toContainEqual(
+        expect.objectContaining({ type: "request.opened", requestId: "ask-helper", background: true }),
+      );
+      expect(recorder.events.filter((e) => e.type === "turn.started")).toHaveLength(1);
+      conn.end();
+
+      const question = await askBetween("t-helper-auto", { id: "q-helper", kind: "question", tool: "ask_user", input: { question: "which?" } });
+      await expect(question.answer).resolves.toMatchObject({
+        id: "q-helper",
+        behavior: "answer",
+        message: "OpenMausBot: the turn is ending — wrap up.",
+      });
+      question.conn.end();
+    } finally {
+      harness();
+    }
+  });
+
+  it("denies a helper's late ask at once when the turn that started it was unattended", async () => {
+    await create("background-task");
+    await instance.adapter.sendTurn({ threadId: "t-helper-unattended", text: "one", approval: "auto", attended: false });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(instance.adapter.hasBackgroundWork!("t-helper-unattended")).toBe(true);
+
+    const { conn, answer } = await askBetween("t-helper-unattended", { id: "ask-unattended", tool: "Bash", input: { command: "git status" } });
+    await expect(answer).resolves.toMatchObject({
+      id: "ask-unattended",
+      behavior: "deny",
+      message: "OpenMausBot: this needs the user's approval, and the turn that started you has ended. Skip it and say so in your report.",
+    });
+    expect(recorder.events.some((e) => e.type === "request.opened")).toBe(false);
+    conn.end();
+  });
+
+  it("approves no helper ask after Stop", async () => {
+    await create("background-hang");
+    await instance.adapter.sendTurn({ threadId: "t-helper-stop", text: "one", approval: "auto", attended: true });
+    await vi.waitFor(() => expect(instance.adapter.hasBackgroundWork!("t-helper-stop")).toBe(true));
+    // the proxy's connection outlives Stop; the CLI tree does not
+    const conn = await connectSocket(permissionSocketPath("t-helper-stop"));
+    const nextAnswer = answerQueue(conn);
+
+    await instance.adapter.interruptTurn("t-helper-stop");
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(instance.adapter.hasBackgroundWork!("t-helper-stop")).toBe(false);
+    const answer = nextAnswer();
+    conn.write(JSON.stringify({ t: "ask", id: "ask-stopped", tool: "Bash", input: { command: "git status" } }) + "\n");
+    await expect(answer).resolves.toMatchObject({ id: "ask-stopped", behavior: "deny", message: "OpenMausBot: the turn ended" });
+    expect(recorder.events.some((e) => e.type === "request.opened")).toBe(false);
+    conn.end();
+  });
+
+  it("keeps the turn-ended deny for a late ask with no background work", async () => {
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-helper-none", text: "one", approval: "auto", attended: true });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(instance.adapter.hasBackgroundWork!("t-helper-none")).toBe(false);
+
+    const { conn, answer } = await askBetween("t-helper-none", { id: "ask-none", tool: "Bash", input: { command: "git status" } });
+    await expect(answer).resolves.toMatchObject({ id: "ask-none", behavior: "deny", message: "OpenMausBot: the turn ended" });
+    expect(recorder.events.some((e) => e.type === "request.opened")).toBe(false);
+    conn.end();
+  });
+
   it("an exit before result becomes runtime.error + failed turn", async () => {
     await create("exit-early");
     await instance.adapter.sendTurn({ threadId: "t-crash", text: "go" });

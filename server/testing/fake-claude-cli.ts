@@ -18,6 +18,7 @@
 //                        answered as its own query after `result`)
 //                      | background-task | foreground-task (the first turn
 //                        starts task-1 with is_backgrounded true / false)
+//                      | background-hang (starts background task-1, then hangs)
 //   FAKE_CLAUDE_TASK_GATE  path; once it exists, a background task-1 finishes
 //                      and its notification wakes the CLI after `result`
 //   FAKE_CLAUDE_USER_ALLOW  tools the user's own settings.json allows, e.g.
@@ -308,9 +309,12 @@ const playTurn = (prompt: JsonValue) => {
   // the real CLI re-announces init on every turn of a live process
   out({ type: "system", subtype: "init", session_id: sessionId, model });
 
-  if (mode === "hang") {
+  if (mode === "hang" || mode === "background-hang") {
     // stay alive until killed — lets tests exercise interrupt + the
     // permission broker while a turn is officially in flight
+    if (mode === "background-hang") {
+      out({ type: "system", subtype: "task_started", task_id: "task-1", tool_use_id: "tu-task", description: "fake task", is_backgrounded: true, task_type: "local_agent", session_id: sessionId });
+    }
     setInterval(() => {}, 1_000);
     return;
   }
